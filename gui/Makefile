@@ -418,6 +418,35 @@ SAFARI_EXT_TAG     ?= hub-v0.4.55
 #      auth on the cut machine. This Makefile never invokes wrangler itself;
 #      the CM050 CLI does, from $(OSTLER_APPCAST_DIR).
 # ---------------------------------------------------------------------------
+# PUBLISH_APPCAST modes. `onbox` is the mode CI uses and it is DELIBERATE.
+#
+#   1 / yes   HARD-REQUIRE the signing key. Publish, or fail. This is the
+#             right default for a LOCAL cut on the box, where the key exists
+#             and re-running costs minutes.
+#   onbox     DO NOT publish here, and say so loudly. The cut is complete and
+#             the appcast is OWED. Exits 0, because a CI cut that produced a
+#             good DMG is not a failed cut.
+#   0/no/off  Silent skip. Retained for tooling that must not print, and it is
+#             the DANGEROUS one: it makes an owed appcast look like a finished
+#             one. Do not use it for a real cut.
+#
+# WHY `onbox` EXISTS RATHER THAN SOFTENING THE HARD-REQUIRE.
+#
+# The previous comment on the CI step got this exactly right and it is worth
+# repeating rather than deleting: "#776 exists because #370 was dark;
+# softening it to a warning would put it straight back. The fix is WHERE it
+# runs, not WHETHER it is enforced."
+#
+# Andy's decision, 2026-08-19, and it is settled: a Sparkle EdDSA PRIVATE key
+# will not be held as an Actions secret on a PUBLIC repo. Signing happens on
+# the box. So the enforcement does not weaken, it MOVES: CI stops pretending
+# it might publish, and the debt is collected by
+# tests/test_appcast_debt_is_collected.sh, which refuses the NEXT cut while a
+# shipped version still has no appcast entry.
+#
+# That pairing is the whole point. `onbox` alone would be a silent deferral
+# wearing a green tick, which is #370 again. `onbox` PLUS a tripwire is a
+# deferral that cannot become permanent without somebody noticing.
 PUBLISH_APPCAST       ?= 1
 # ostler-release CLI from CM050 release-tooling (`pip install -e .`). Override
 # if not on PATH, e.g. OSTLER_RELEASE_BIN=/path/to/.venv/bin/ostler-release.
@@ -2477,6 +2506,30 @@ publish-appcast:
 	@MODE="$(PUBLISH_APPCAST)"; \
 	if [ "$$MODE" = "0" ] || [ "$$MODE" = "no" ] || [ "$$MODE" = "off" ]; then \
 	    echo "[SKIP] PUBLISH_APPCAST=$$MODE -- not publishing an appcast entry for this cut."; \
+	    exit 0; \
+	fi; \
+	if [ "$$MODE" = "onbox" ]; then \
+	    echo "" ; \
+	    echo "============================================================================" ; \
+	    echo "APPCAST NOT PUBLISHED HERE, AND THAT IS DELIBERATE." ; \
+	    echo "" ; \
+	    echo "  The DMG for this cut is COMPLETE. This step did not fail." ; \
+	    echo "" ; \
+	    echo "  The Sparkle EdDSA private key is NOT held on this repo, which is" ; \
+	    echo "  public. Signing happens on the box. That is a settled decision," ; \
+	    echo "  not an outstanding question, and re-tagging will not change it." ; \
+	    echo "" ; \
+	    echo "  THE APPCAST IS NOW OWED FOR THIS VERSION. Until it is published," ; \
+	    echo "  installed Hubs will never see this release: the feed does not" ; \
+	    echo "  list it, so auto-update stays silent and looks healthy." ; \
+	    echo "" ; \
+	    echo "  ON THE BOX, run:" ; \
+	    echo "    export OSTLER_SPARKLE_SIGNING_KEY=/path/sparkle_private.pem  # 0400/0600" ; \
+	    echo "    make -C gui publish-appcast PUBLISH_APPCAST=1" ; \
+	    echo "" ; \
+	    echo "  This debt is not left to memory. tests/test_appcast_debt_is_collected.sh" ; \
+	    echo "  REFUSES the next cut while a shipped version has no appcast entry." ; \
+	    echo "============================================================================" ; \
 	    exit 0; \
 	fi; \
 	if [ "$$MODE" = "1" ] || [ "$$MODE" = "yes" ]; then HARD=1; else HARD=0; fi; \

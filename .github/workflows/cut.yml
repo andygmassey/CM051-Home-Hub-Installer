@@ -305,6 +305,17 @@ jobs:
           # v1018-D027: local cutting must be impossible. Asserted here too, so
           # a PR that quietly removes the guard cannot then cut in CI.
           ./tests/test_no_local_cuts.sh
+          # The appcast debt is collected HERE, before a version is spent.
+          # PUBLISH_APPCAST=onbox means CI cuts a good DMG and does NOT
+          # publish the feed, by Andy's settled decision (no Sparkle private
+          # key on a public repo). That deferral exits 0, so without this gate
+          # it would be a silent one, and an unpublished appcast is invisible
+          # from the product side: Sparkle polls, finds nothing, reports no
+          # update, and every surface looks healthy. Task #370 exactly.
+          #
+          # It exempts the version being cut (its appcast is published after)
+          # and refuses on any EARLIER shipped version with no record.
+          CUT_VERSION="${GITHUB_REF_NAME:-}" ./tests/test_appcast_debt_is_collected.sh
           # task #359: a workflow_dispatch of THIS file must be incapable of
           # producing or publishing an artefact. The dry run exists so a broken
           # cut-path check stops costing a version number; the moment a
@@ -732,10 +743,21 @@ jobs:
           OSTLER_SPARKLE_SIGNING_KEY: ${{ secrets.OSTLER_SPARKLE_SIGNING_KEY }}
         run: |
           set -uo pipefail
+          # PUBLISH_APPCAST=onbox. Andy's decision, 2026-08-19, settled: a
+          # Sparkle EdDSA PRIVATE key is not held as an Actions secret on a
+          # PUBLIC repo. Signing happens on the box.
+          #
+          # The previous comment above got the principle exactly right -- "the
+          # fix is WHERE it runs, not WHETHER it is enforced" -- and this is
+          # that fix. The enforcement did not soften; it moved to
+          # tests/test_appcast_debt_is_collected.sh, which REFUSES the next cut
+          # while a shipped version still has no appcast entry. Without that
+          # pairing this line would be a silent deferral wearing a green tick,
+          # which is task #370 restored.
           rc=0
-          make -C gui publish-appcast || rc=$?
+          make -C gui publish-appcast PUBLISH_APPCAST=onbox || rc=$?
           if [ "$rc" -ne 0 ]; then
-            echo "::error title=Appcast not published -- the DMG is SAFE::The DMG for this cut is COMPLETE (notarised, stapled, seal-verified) and was ALREADY UPLOADED as a run artefact before this step ran. It is retrievable from this run right now. DO NOT re-tag to recover the build: nothing was lost and a new tag spends a version number for nothing. This red is the auto-update FEED only. Most likely cause: OSTLER_SPARKLE_SIGNING_KEY is not an Actions secret on this repo, pending a decision on holding a Sparkle EdDSA key in a PUBLIC repo."
+            echo "::error title=Appcast step failed unexpectedly -- the DMG is SAFE::The DMG is COMPLETE and was ALREADY UPLOADED before this step ran. DO NOT re-tag. PUBLISH_APPCAST=onbox should exit 0 without publishing, so a non-zero here is a real fault in the step itself, not the expected deferral."
           fi
           # NOT swallowed. The job conclusion is what every downstream tool
           # reads, and a dark publisher wearing a green tick is task #370
