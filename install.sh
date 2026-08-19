@@ -8468,13 +8468,46 @@ unset _STALE_COLIMA_LABEL _STALE_COLIMA_PLIST
 # exact regression the v1.0.10 Group C change removed. Colima-start stays
 # daemon-owned (FDA-correct); auto-login is what makes the daemon actually run.
 #
-# Honest + reversible: announced, default ON for the hub, opt-out via the
-# [Y/n] gate or OSTLER_AUTOLOGIN=0, and reversible in System Settings. It
-# writes autoLoginUser + the obfuscated /etc/kcpassword. FileVault defeats it
-# (the pre-boot unlock still needs a human), so we detect FileVault and say so
-# rather than pretend recovery is unattended. Idempotent: once configured for
-# this user with a kcpassword on disk, a re-run leaves it untouched and never
-# re-prompts.
+# THE COST, STATED HONESTLY. This writes the customer's LOGIN PASSWORD to
+# /etc/kcpassword, scrambled with the fixed 11-byte loginwindow cipher (the
+# literal is in _kcpy below). That cipher is publicly documented and identical
+# on every Mac, so this is OBFUSCATION, NOT ENCRYPTION: root, any admin
+# account, or anyone holding the disk recovers the plaintext password. And
+# because auto-login cannot answer FileVault's pre-boot unlock, the FileVault
+# guard below means we write that recoverable password EXCLUSIVELY onto Macs
+# with no disk encryption. So the feature measurably weakens the machine, and
+# the copy in install.sh.strings.en-GB.sh says exactly that at the moment the
+# customer is asked to type the password.
+#
+# Consequently: OPT-IN, not opt-out. The [y/N] gate defaults to N and only an
+# explicit yes proceeds (see the affirmative-only case below); OSTLER_AUTOLOGIN=0
+# additionally hard-disables the whole step for scripted / managed installs.
+# Reversible in System Settings. It writes autoLoginUser + /etc/kcpassword.
+# Idempotent: once configured for this user with a kcpassword on disk, a re-run
+# leaves it untouched and never re-prompts.
+#
+# WHAT WAS VERIFIED ABOUT THE PASSWORD'S HANDLING, since the copy makes a
+# narrow claim about it and a narrow claim has to be earned:
+#   - TTY: gui_read's `secret` kind uses `read -r -s`, so the password is
+#     never echoed to the terminal and therefore never reaches the tee.
+#   - GUI: OnboardingQuestionView renders `.secret` as a SwiftUI SecureField;
+#     InstallerCoordinator.respond(to:with:) logs byte-count only for
+#     kind == .secret and stores "(hidden)" in the Back-review history.
+#   - The answer never rides a marker: gui_read reads it off OSTLER_GUI_FD and
+#     returns it through command substitution. Nothing emits it.
+#   - The PROMPT marker itself goes to OSTLER_MARKER_FD (fd 9, dup'd before
+#     the tee), and `title` / `help` are not on the emitter's public-field
+#     allowlist, so ${INSTALL_LOG} gets field names + lengths, not values.
+#   - `{ set +x; } 2>/dev/null` on entry, so `bash -x install.sh` cannot
+#     xtrace the password into the log.
+#   - The password goes to python on STDIN, never argv, so it is not in `ps`.
+#   - The ERR trap at the top of Phase 3 logs $BASH_COMMAND, which bash does
+#     NOT expand (measured under the shipped shell, bash 3.2.57: the trap sees
+#     the command text with the variable names intact). The kcpassword write
+#     is also the condition of an `if`, where the ERR trap does not fire.
+# NOT verified, and therefore NOT claimed anywhere in the copy: what macOS
+# itself does with /etc/kcpassword after loginwindow reads it, and whether
+# turning Automatic login off in System Settings deletes the file.
 _ostler_configure_reboot_autologin() {
     # Never let `bash -x` leak the plaintext password into an xtrace line.
     { set +x; } 2>/dev/null
@@ -8515,19 +8548,49 @@ _ostler_configure_reboot_autologin() {
         return 0
     fi
 
-    info "$(printf "$MSG_INFO_AUTOLOGIN_EXPLAIN" "$_display")"
+    # info() only PRINTS on the TTY path -- under OSTLER_GUI=1 it is
+    # `gui_log info`, which lands in the Log drawer the customer is not
+    # reading. So the disclosure is ALSO passed as gui_read's help_text ($4),
+    # which the GUI renders on the question sheet itself. TTY gets it from
+    # info() (gui_read's TTY fallback ignores help_text), GUI gets it from
+    # help_text (info() is silent there) -- one copy each way, no duplication.
+    local _explain _reason
+    _explain="$(printf "$MSG_INFO_AUTOLOGIN_EXPLAIN" "$_display")"
+    _reason="$(printf "$MSG_INFO_AUTOLOGIN_PROMPT_REASON" "$_display")"
 
-    # Consent gate (default ON for the hub -- empty answer means yes).
+    info "$_explain"
+
+    # Consent gate. This step measurably weakens the Mac (see the block
+    # comment above), so it is OPT-IN: the default is N and ONLY an explicit
+    # yes proceeds.
+    #
+    # Affirmative-only on purpose, matching the house shape used by the other
+    # security-relevant gates (consent_third_party, consent_spoken_capture).
+    # The previous test was `[[ "$_consent" =~ ^[Nn] ]]` -> decline, anything
+    # else -> proceed, which reads an EMPTY answer as consent. An empty answer
+    # is reachable: under OSTLER_GUI=1 gui_read returns the GUI's line verbatim
+    # and only substitutes default_value on EOF, and OnboardingQuestionView's
+    # validate() accepts an empty .text answer whenever the prompt carries a
+    # default -- so clearing the pre-filled field and pressing Continue sends
+    # "". Under a decline-matching test that empty string enabled the feature.
+    #
+    # Explicit prompt id: without one gui_read slugifies the TITLE into the id,
+    # so the id would churn every time this copy is edited (and a derived id is
+    # redacted out of the install log by the emitter, per __OSTLER_PROMPT_ID_DERIVED).
     local _consent
-    _consent="$(gui_read "$MSG_PROMPT_AUTOLOGIN_CONSENT" text "Y")"
-    if [[ "$_consent" =~ ^[Nn] ]]; then
-        info "$MSG_INFO_AUTOLOGIN_DECLINED"
-        return 0
-    fi
+    _consent="$(gui_read "$MSG_PROMPT_AUTOLOGIN_CONSENT" text "N" "$_explain" "" "autologin_consent")"
+    case "$_consent" in
+        y|Y|yes|Yes|YES)
+            ;;
+        *)
+            info "$MSG_INFO_AUTOLOGIN_DECLINED"
+            return 0
+            ;;
+    esac
 
-    info "$(printf "$MSG_INFO_AUTOLOGIN_PROMPT_REASON" "$_display")"
+    info "$_reason"
     local _pw
-    _pw="$(gui_read "$(printf "$MSG_PROMPT_AUTOLOGIN_PASSWORD" "$_display")" secret)"
+    _pw="$(gui_read "$(printf "$MSG_PROMPT_AUTOLOGIN_PASSWORD" "$_display")" secret "" "$_reason" "" "autologin_password")"
     if [[ -z "$_pw" ]]; then
         warn "$MSG_WARN_AUTOLOGIN_NO_PASSWORD"
         return 0

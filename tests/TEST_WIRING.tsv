@@ -33,6 +33,7 @@ test_assistant_config_required_fields.sh	WIRED	.github/workflows/assistant-confi
 test_assistant_config_vane_wiring.sh	UNWIRED	-
 test_assistant_identity_belt.sh	UNWIRED	-
 test_assistant_ollama_num_ctx.sh	UNWIRED	-
+test_autologin_consent_opt_in.sh	WIRED	.github/workflows/consent-contract.yml
 test_bookmarks_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_bootstrap_prelude.sh	UNWIRED	-
 test_brew_install_fail_loud.sh	UNWIRED	-
