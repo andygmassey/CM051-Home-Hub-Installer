@@ -33,7 +33,7 @@
 MSG_STEP_CHECKING_PREREQUISITES="Checking prerequisites"
 MSG_STEP_RUNNING_HEALTH_CHECK="Running health check"
 MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK="Setup (a few quick questions, then it keeps going on its own)"
-MSG_STEP_SETUP_COMPLETE_WRAP_UP="Questions done. Ostler is now installing in the background – this part takes roughly 15 to 60 minutes and needs nothing further from you, so you can leave it running and check back later."
+MSG_STEP_SETUP_COMPLETE_WRAP_UP="Questions done. Ostler is now installing in the background – this part takes roughly 45 minutes to a few hours and needs nothing further from you, so you can leave it running and check back later."
 
 # ── Info messages (progress, context) ──
 
@@ -250,6 +250,7 @@ MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA="Skipped conversation mode
 MSG_INFO_STARTING_COLIMA_LIGHTWEIGHT_DOCKER_RUNTIME="Starting Colima (lightweight Docker runtime)..."
 MSG_INFO_STARTING_DOCKER_DESKTOP="Starting Docker Desktop..."
 MSG_INFO_STARTING_OLLAMA="Starting Ollama..."
+MSG_INFO_REMOVING_STALE_COLIMA_LAUNCHAGENT="Removing a stale Colima start-up item left by an older version..."
 MSG_INFO_REMOVING_BROKEN_OLLAMA_FORMULA="Removing the legacy Ollama formula (no llama-server); switching to the Ollama app..."
 MSG_INFO_VERIFYING_EMBEDDINGS="Verifying the embedding engine returns vectors..."
 MSG_INFO_OLLAMA_MANUAL_START_HINT="Could not start Ollama automatically. Load it with: launchctl bootstrap gui/\$(id -u) %s – then re-run the installer."
@@ -309,7 +310,7 @@ MSG_OK_BACKED_UP_CONTACTS="Backed up %s contacts to %s"
 MSG_OK_CM042_INSTALLED="Ostler RemoteCapture v%s installed at %s"
 MSG_OK_CM042_LAUNCHAGENT_LOADED="Ostler RemoteCapture LaunchAgent loaded (label %s)"
 MSG_OK_COLIMA_DOCKER_CLI_INSTALLED="Colima and Docker CLI installed"
-MSG_OK_COLIMA_WILL_START_AUTOMATICALLY_BOOT="Colima will start automatically on boot"
+MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED="Removed a stale Colima start-up item left by an older version"
 MSG_OK_CONFIG_SAVED_ENV="Config saved to %s/.env"
 MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Consent records and region persisted to ~/.ostler/posture/"
 MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Databases encrypted. Passphrase required at each startup."
@@ -434,7 +435,7 @@ MSG_OK_RECOVERY_PASSPHRASE_CAPTURED_FOR_PHASE_3="Passphrase noted. It will encry
 MSG_OK_RECOVERY_PASSPHRASE_CONFIGURED="Recovery passphrase configured."
 MSG_OK_PASSPHRASE_BRIEFING_ACKNOWLEDGED="Passphrase briefing acknowledged."
 MSG_OK_POWER_SOURCE_AC_DESKTOP_MAC_NO="Power source: AC (desktop Mac, no battery)"
-MSG_OK_POWER_SOURCE_AC_GOOD_10_15="Power source: AC (good – the install can run 30 to 60 minutes or more, so mains power keeps it steady)"
+MSG_OK_POWER_SOURCE_AC_GOOD_10_15="Power source: AC (good – the install can run 45 minutes to a few hours, so mains power keeps it steady)"
 MSG_OK_PREVIOUS_INSTALLATION_DETECTED_LOADING_CONFIG="Previous installation detected. Loading config..."
 MSG_OK_PYTHON="Python %s"
 MSG_OK_PYTHON_BUNDLED="Using bundled Python %s (no system install needed)"
@@ -497,6 +498,8 @@ MSG_WARN_DEDUPE_INCOMPLETE="Whole-graph dedupe pass did not complete cleanly (se
 MSG_INFO_DEDUPE_COMPLETE_NO_CATCHUP="Duplicate contacts fully merged during install; no background catch-up needed"
 MSG_OK_DEDUPE_CATCHUP_LOADED="Background contact-dedupe LaunchAgent loaded (finishes merging duplicates after install, then stops)"
 MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED="Background contact-dedupe LaunchAgent could not be loaded. Duplicates will still be merged by the daily maintenance pass; it will simply take longer to settle."
+MSG_OK_ENRICH_AGENT_LOADED="Background enrichment LaunchAgent loaded (fills in details on your films, places, books and links; runs in slices over the next day or so)"
+MSG_WARN_ENRICH_AGENT_LOAD_FAILED="Background enrichment LaunchAgent could not be loaded. Your preferences are saved and searchable; they will simply be missing the extra reference detail (directors, cast, locations) until it runs."
 MSG_OK_WIKI_RECOMPILE_LAUNCHAGENT_LOADED_LABEL_COM="Wiki-recompile LaunchAgent loaded (label com.creativemachines.ostler.wiki-recompile)"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_BUNDLED_WITH_INSTALLER="Wiki-recompile scripts bundled with installer"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_CLONED_FROM="Wiki-recompile scripts cloned from %s"
@@ -680,7 +683,7 @@ MSG_WARN_OSTLER_WIKI_COMPILER_IMAGE_NOT_YET="  - ostler-wiki-compiler image not 
 MSG_WARN_OXIGRAPH_NOT_RESPONDING="Oxigraph not responding"
 MSG_WARN_OXIGRAPH_NOT_YET_HEALTHY_THIS_PHASE="  - Oxigraph not yet healthy at this phase (check logs above)"
 MSG_WARN_PASSWORDS_DID_NOT_MATCH_WERE_EMPTY="Passwords did not match (or were empty). Try again."
-MSG_WARN_PHASE_3_TAKES_10_15_MINUTES="The main install typically takes 30 to 60 minutes (Docker + Ollama downloads + first-time setup) and can run longer on a slower connection. Long quiet stretches are normal – it is downloading and setting up in the background, not stuck."
+MSG_WARN_PHASE_3_TAKES_10_15_MINUTES="The main install typically takes 45 minutes to a few hours (Docker + Ollama downloads + first-time setup), longer on a slower connection or a Mac with years of history. Long quiet stretches are normal – it is downloading and setting up in the background, not stuck."
 MSG_WARN_PIP_INSTALL_FAILED_CM048_PIPELINE_WILL="  pip install failed; conversation memory engine will not be available."
 MSG_WARN_PIP_INSTALL_FAILED_OSTLER_FDA_WILL="  pip install failed; email-ingest will fall back to system python (may also fail at runtime)."
 MSG_WARN_PIP_INSTALL_FAILED_OSTLER_KNOWLEDGE_WILL="  pip install failed; ostler-knowledge will not be available."
@@ -726,6 +729,7 @@ MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_TRY_VERSION="Skipping LaunchAgent install.
 MSG_WARN_SKIPPING_WIKI_RECOMPILE_LAUNCHAGENT_INSTALL="Skipping wiki-recompile LaunchAgent install."
 MSG_WARN_SOME_FEATURES_MAY_NOT_WORK_CORRECTLY="Some features may not work correctly on older versions."
 MSG_WARN_SOME_PORTS_ARE_USE_DOCKER_CONTAINERS="Some ports are in use. Docker containers may fail to start."
+MSG_WARN_STALE_COLIMA_LAUNCHAGENT_NOT_REMOVED="Could not remove a stale Colima start-up item. Your wiki may not load after a restart; contact support."
 MSG_WARN_STOP_CONFLICTING_SERVICES_CHANGE_PORTS_DOCKER="Stop the conflicting services or change the ports in docker-compose.yml"
 MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN="Tailscale didn't sign in within 3 minutes. You can come back to this later from Settings."
 MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED="Tailscale IP was written to .env but a follow-up read could not see it. iOS Companion may not pick it up – re-run install.sh --repair if that happens."
@@ -845,7 +849,7 @@ MSG_PROMPT_USER_NAME_FALLBACK_TITLE="Full name (e.g. Tom Harrison)"
 MSG_PROMPT_USER_ID_TITLE="What should your assistant call you?"
 MSG_PROMPT_USER_ID_HELP="A short name your assistant will use to address you (e.g. 'Andy', 'Andrew', 'Mrs Smith'). This is what appears in your morning briefs and chat replies. Different from your full name above."
 
-MSG_STEP_INSTALLING_THIS_TAKES_A_WHILE="Installing in the background (about 15 to 60 minutes)"
+MSG_STEP_INSTALLING_THIS_TAKES_A_WHILE="Installing in the background (about 45 minutes to a few hours)"
 
 MSG_PROMPT_COUNTRY_CODE_CONFIRM_TITLE="Use +%s?"
 MSG_PROMPT_COUNTRY_CODE_ENTER_TITLE="Enter country code (e.g. 44 for UK, 1 for US)"
@@ -1212,7 +1216,13 @@ MSG_HYDRATE_EMAIL_PREFERENCES_HEARTBEAT="  Still loading your email preferences 
 # shared importer; only this done-count line is still referenced.
 # Privacy: enrich's lookup clients call PUBLIC item-metadata APIs only
 # (about the item, never the user); this string is a count.
-MSG_HYDRATE_PREFERENCES_DONE="Imported and enriched %s preferences"
+# This said "Imported and enriched %s preferences" and the number it
+# printed was the INGEST count. On the 2026-08-17 install it read 2,963
+# while enrichment's own successful count for the same run was 1. Two
+# separate facts, one of them borrowed the other's number. Now each is
+# counted at its own source and stated separately.
+MSG_HYDRATE_PREFERENCES_DONE="Imported %s preferences"
+MSG_HYDRATE_PREFERENCES_ENRICHED="Enriched %s of them with public reference data"
 
 # Category-coverage guard (CX: silently-blank Food / Music pages). Warned
 # when preferences landed but none carry a headline category, or when a

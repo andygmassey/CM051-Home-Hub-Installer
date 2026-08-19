@@ -9,10 +9,24 @@
 #   * verify_cut_freshness.sh  trusts the digest->source-SHA binding recorded by
 #     hand in scripts/wiki_image_provenance.tsv. It compares that RECORDED sha to
 #     CM044 main HEAD. It never checks that the digest was ACTUALLY built from the
-#     recorded sha -- the image carries no org.opencontainers.image.revision
-#     label (proven: `docker inspect ... .Config.Labels` == null), so the binding
+#     recorded sha -- the image carries no TRUSTWORTHY source binding, so the row
 #     is a trust-me row. A repin that records the RIGHT sha but bakes the WRONG
 #     content passes freshness GREEN.
+#
+#     PRECISION MATTERS HERE AND THIS COMMENT USED TO GET IT WRONG. It claimed
+#     "proven: `docker inspect ... .Config.Labels` == null". That is FALSE.
+#     Measured 2026-08-17 against the shipped digests: .Config.Labels carries
+#     EIGHT labels, including org.opencontainers.image.revision. They are all
+#     inherited from the squidfunk/mkdocs-material base image, so the revision
+#     is a THIRD-PARTY commit that will never resolve in CM044. The labels are
+#     present, plausible and about someone else's repository -- which is why
+#     image_revision_label() below refuses them unless
+#     org.opencontainers.image.source actually names CM044.
+#
+#     An absent label would have been safer than this one: absence forces the
+#     question, whereas a populated plausible wrong value answers it incorrectly
+#     and ends the enquiry. Anyone who reads "Labels == null", runs docker
+#     inspect, and sees eight labels will conclude the gate is broken. It is not.
 #
 #   * verify_cut_provenance.sh  DOES grep inside the pinned image -- but only for
 #     the fixes an operator remembered to hand-add as `wiki_image_grep` rows in
@@ -445,7 +459,11 @@ while IFS=$'\t' read -r repo fix artifact marker mpath desc; do
       # 3) BINDING integrity (advisory today; enforceable once the build stamps a label).
       rev="$(image_revision_label "$ref")"
       if [[ -z "$rev" ]]; then
-        warn "${label} :: content PROVEN present, but the image carries NO org.opencontainers.image.revision label -- the ledger sha is an unverifiable hand-recorded claim"
+        warn "${label} :: content PROVEN present, but the image carries NO TRUSTWORTHY CM044 source binding -- the ledger sha is an unverifiable hand-recorded claim"
+        info "        (the image DOES carry org.opencontainers.image.* labels, but they are"
+        info "         inherited from the mkdocs-material base image and describe THAT repo,"
+        info "         not CM044. This gate deliberately refuses them. Do not go looking for"
+        info "         an absent label -- you will find a present, plausible, wrong one.)"
         info "stamp CM044 sha into the image at build time (see PROVENANCE_GATE.md) so this becomes an enforceable check next cut"
       elif ! printf '%s' "$ledger_sha" | grep -q "^${rev}" && ! printf '%s' "$rev" | grep -q "^${ledger_sha}"; then
         red "${label} :: image revision label ${rev:0:12} != ledger sha ${ledger_sha:0:12} -- ledger MISBINDING"

@@ -385,13 +385,29 @@ SAFARI_EXT_TAG     ?= hub-v0.4.55
 # built. That is what this block connects.
 #
 # CONTROL -- PUBLISH_APPCAST:
-#   auto  (default) publish IFF $OSTLER_SPARKLE_SIGNING_KEY is set. Unset, it
-#         prints a LOUD warning that the feed stays empty plus how to enable
-#         it, and does NOT fail the DMG -- installer-only cuts have to keep
-#         working before the Sparkle key ceremony is done. A publish that is
-#         ATTEMPTED and then errors FAILS the cut: a release either gets its
-#         signed entry or it goes red. Fail-closed once committed.
-#   1|yes hard-require: fail the cut if the key or the CLI is missing.
+#   1|yes (DEFAULT since 2026-08-17) hard-require: fail the cut if the key or
+#         the CLI is missing. See WHY THE DEFAULT CHANGED below.
+#   auto  publish IFF $OSTLER_SPARKLE_SIGNING_KEY is set; if unset, warn and
+#         exit 0. This was the default and it is why the feed is empty. Kept
+#         ONLY for deliberate installer-only builds, and it must now be asked
+#         for by name.
+#
+# WHY THE DEFAULT CHANGED, measured 2026-08-17:
+#   `auto` + no key = warning + `exit 0`. Every cut therefore reported
+#   success while publishing nothing. The appcast serves HTTP 200 with a
+#   valid Sparkle feed containing ZERO items, so every installed Hub asks
+#   for updates, is correctly told there are none, and can never upgrade.
+#   No component was broken. The pipeline was never armed, and it was built
+#   to treat that as acceptable.
+#
+#   The warning even said so: "The DMG shipped, but NO appcast entry was
+#   added ... installed Hubs will never see it." A warning nobody is forced
+#   to read is not a control. The owner has done a full 70-minute reinstall
+#   on every release because of this.
+#
+#   A publish that is ATTEMPTED and then errors still FAILS the cut. That
+#   half was always right. Fail-closed, now from the first cut rather than
+#   once somebody remembers to opt in.
 #   0|no  skip silently (local installer-only builds).
 #
 # >>> NEEDS ANDY (two real-world prerequisites this Makefile cannot create) <<<
@@ -402,7 +418,7 @@ SAFARI_EXT_TAG     ?= hub-v0.4.55
 #      auth on the cut machine. This Makefile never invokes wrangler itself;
 #      the CM050 CLI does, from $(OSTLER_APPCAST_DIR).
 # ---------------------------------------------------------------------------
-PUBLISH_APPCAST       ?= auto
+PUBLISH_APPCAST       ?= 1
 # ostler-release CLI from CM050 release-tooling (`pip install -e .`). Override
 # if not on PATH, e.g. OSTLER_RELEASE_BIN=/path/to/.venv/bin/ostler-release.
 OSTLER_RELEASE_BIN    ?= ostler-release
@@ -1375,7 +1391,56 @@ check-ostler-app:
 	@# The fallback is the same sibling default three other targets in this file
 	@# already use (1293, 1446, 1481), so an operator Mac with a real sibling
 	@# checkout behaves exactly as before.
-	@bash "$(APP_PROVENANCE_SH)" "$(OSTLER_APP_PATH)" "$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" || { \
+	@# AND THE DAEMON OPERAND COMES FROM THE CUT RECORD, not from a clone's HEAD.
+	@#
+	@# Nothing passed OSTLER_DAEMON_COMMIT, so the gate fell through to
+	@# `git rev-parse HEAD` on the reference checkout. The bundle is BUILT from
+	@# that checkout, so its attested commit and that HEAD are normally the SAME
+	@# COMMIT, and the parity loop then compared tree "<sha>:web" against itself.
+	@# Measured on the shipping v1.0.33 cut (run 31998597024, 05:39:50Z):
+	@# wrapper 5b7efb00, operand 5b7efb00, "frontend parity: identical commit".
+	@# A self-comparison. It could not have failed, and its warn line read as
+	@# informational.
+	@#
+	@# Read the pin the cut actually declares. Resolved HERE rather than in
+	@# cut.yml because `make ship` also runs on an operator Mac, and a fix that
+	@# only lives in the workflow leaves the local path still guessing.
+	@#
+	@# Empty is passed through deliberately: the gate now treats a missing pin as
+	@# CANNOT-RUN (exit 2) and blocks. A cut record with no DAEMON_COMMIT is a cut
+	@# nobody can attest, and that must be loud rather than defaulted.
+	@# AND A HOTFIX MUST NOT SILENTLY READ ITS PARENT'S CUT RECORD.
+	@#
+	@# CUT_MANIFEST_VERSION is `v$(shell ... | cut -d. -f1-3)`, which TRUNCATES a
+	@# four-part version: 1.0.13.1 resolves cuts/v1.0.13/. Not hypothetical --
+	@# CFBundleShortVersionString has held 1.0.13.1 and 1.0.13.2 in this repo's
+	@# own history, and a hotfix is precisely when the daemon gets re-pinned. So
+	@# the operand this block just started reading could be the PARENT's
+	@# DAEMON_COMMIT while the hotfix ships a different daemon: the same
+	@# right-question-wrong-operand shape one level up.
+	@#
+	@# Prefer the record for the FULL version. Fall back to the truncated one,
+	@# because no four-part cuts/ directory has ever existed and refusing would
+	@# block a hotfix on a convention it has never followed -- but say so, loudly,
+	@# naming BOTH paths. A fallback nobody can see is how the parent's pin gets
+	@# read as the hotfix's.
+	@# DELEGATED TO A SCRIPT so the fallback is TESTABLE. #794 shipped this
+	@# resolution inline and Archie merged it flagging that the new WARN had no
+	@# control firing it -- and the WARN is the entire safety mechanism, so an
+	@# unfired one is a two-state predicate reading a warning as a pass.
+	@#
+	@# Logic embedded in a recipe cannot be driven by a fixture without a full
+	@# build, and asserting the recipe TEXT would test the rendering instead of
+	@# the behaviour. Same move, same reason, as COMMIT_PARITY_SH and
+	@# APP_PROVENANCE_SH above. Controls live in
+	@# scripts/tests/test_resolve_cut_daemon_pin.sh, and the load-bearing pair is
+	@# "a four-part version WARNS" plus "a three-part version does NOT" -- a
+	@# warning that fires on every cut is noise, and noise gets muted.
+	@set -e; \
+	DC="$$(bash "$(CUT_PIN_RESOLVER_SH)" "$(CURDIR)/.." "$(VERSION)")"; \
+	printf '[CHECK] daemon operand: %s\n' "$${DC:-<unset>}"; \
+	OSTLER_DAEMON_COMMIT="$$DC" \
+	bash "$(APP_PROVENANCE_SH)" "$(OSTLER_APP_PATH)" "$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" || { \
 	    echo "" >&2; \
 	    echo "  Refusing to continue: the Ostler.app going into this DMG has not" >&2; \
 	    echo "  been shown to be the bundle this cut intends to ship. Sealing it" >&2; \
@@ -2243,6 +2308,11 @@ COMMIT_PARITY_SH ?= $(CURDIR)/../scripts/verify_commit_parity.sh
 # Pre-seal sibling of COMMIT_PARITY_SH. Same question, asked at step 5 instead
 # of post-cut, and asserted on frontend CONTENT rather than commit-SHA equality.
 APP_PROVENANCE_SH ?= $(CURDIR)/../scripts/verify_app_provenance.sh
+
+# Resolves cuts/<tag>/cut.env DAEMON_COMMIT, preferring the FULL version over the
+# truncated CUT_MANIFEST_VERSION so a hotfix does not silently read its parent's
+# pin. A script rather than a recipe so the fallback WARN is testable.
+CUT_PIN_RESOLVER_SH ?= $(CURDIR)/../scripts/resolve_cut_daemon_pin.sh
 verify-commit-parity:
 	@if [ ! -f "$(DMG_PATH)" ]; then \
 	    echo "ERROR: the commit-parity gate COULD NOT RUN -- $(DMG_PATH) not found." >&2; \
@@ -2522,7 +2592,7 @@ publish-appcast:
 # See the publish-appcast block above for why it also re-derives that evidence
 # at run time rather than trusting its position in this list.
 # ---------------------------------------------------------------------------
-ship: guard-local-cut check-orphans check-pr-age download-hub-app check-ostler-app download-safari-extension download-python stage-daemon stage-payload sparkle-embed notarise-hub release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive publish-appcast
+ship: guard-local-cut check-orphans check-pr-age download-hub-app check-ostler-app download-safari-extension download-python stage-daemon stage-payload sparkle-embed notarise-hub release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"

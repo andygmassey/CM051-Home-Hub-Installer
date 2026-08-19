@@ -4,6 +4,32 @@
 # a tree whose install.sh is the one being shipped. Compared BY BLOB, failing
 # closed. Non-zero = BLOCK THE CUT.
 #
+# PROVED-RED-BY: scripts/verify_cut_pin_is_current.sh
+#
+# Registered by hand because the axis-two predicate in
+# verify_declared_gates_reachable.sh cannot infer this one, and the reason is
+# worth stating rather than working around.
+#
+# That predicate looks for a fixture that re-invokes the gate AS A SUBPROCESS
+# (`bash "$SELF" ...`) and then asserts a non-zero status. This gate's
+# `--self-test` instead calls `run_gate` DIRECTLY, in-process, because the gate
+# proper was deliberately factored into a function so the self-test drives THE
+# SAME CODE rather than a re-implementation of it (see the note at the top of
+# run_gate). That is the better construction and it is invisible to a
+# subprocess-shaped search: PROVED-RED-NONE here meant "not recognised", never
+# "not proven".
+#
+# What is actually proven, from `--self-test`, 9 passed / 0 failed:
+#   (1) RED   a pin whose install.sh predates the fix exits 1
+#   (4) RED   fires even though the pin IS an ancestor of the ref, which is the
+#             exact excuse that would otherwise wave the red away
+#   (5) GREEN re-pointing the pin exits 0, so it can say yes as well as no
+#   (7)(8)(9) CANNOT-RUN limbs each exit 2, never 0
+#
+# Control (1) reproduces the v1.0.31 shape described below on a real git
+# fixture, so this is a known-failing fixture in the full sense: the gate is
+# shown to detect the specific defect it was written for.
+#
 # ============================================================================
 # WHY THIS EXISTS, AND IT IS NOT HYPOTHETICAL
 # ============================================================================

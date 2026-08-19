@@ -6,8 +6,9 @@
 # Structure:
 #   Phase 1: Check prerequisites (automatic, no input)
 #   Phase 2: Collect ALL user input upfront (~2 minutes)
-#   Phase 3: Install everything unattended (~15-60 minutes, depending
-#            on how much history is on your Mac)
+#   Phase 3: Install everything unattended (~45 minutes to a few
+#            hours, depending on how much history is on your Mac
+#            and how fast your connection is)
 #   Phase 4: Health check + next steps
 #
 # What this does NOT do:
@@ -594,7 +595,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "What this does:"
     echo "  1. Checks prerequisites (macOS, Apple Silicon, RAM, disk)"
     echo "  2. Asks you a few questions (~2 minutes)"
-    echo "  3. Installs everything automatically (~15-60 minutes, depending on your history)"
+    echo "  3. Installs everything automatically (~45 minutes to a few hours, depending on your history)"
     echo "  4. You walk away and come back to a working system"
     echo ""
     echo "Environment variables (advanced - override before running):"
@@ -691,11 +692,30 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    granted-and-working | tcc-denied | check-failed."
     echo "    Real macOS installs leave this unset."
     echo ""
-    echo "Your personal data stays on your machine. Ostler makes only narrow"
-    echo "public-data queries (Wikidata for enrichment, local web search via"
-    echo "the bundled Vane + SearXNG container at http://localhost:3000) and"
-    echo "downloads model and software updates. See the privacy policy at"
-    echo "creativemachines.ai/ostler/legal-privacy for full detail."
+    # NAMES THE SET, NOT ONE MEMBER OF IT. This used to say "Wikidata for
+    # enrichment" and stop there. Measured 2026-08-17: enrichment also reaches
+    # MusicBrainz and OpenLibrary on a stock install, and follows links you have
+    # bookmarked. Naming one of four is not disclosing four, and the whole point
+    # of this paragraph is that a customer can check it.
+    #
+    # AND IT MUST NOT CLAIM A CONTROL WE DO NOT SHIP. A draft of this paragraph
+    # said "You can turn them off in Settings". Measured on this tree: there is
+    # no such control. Every OSTLER_ENRICH_* knob is a throttle (budget,
+    # concurrency, interval), there is no installer prompt, and no settings
+    # surface mentions enrichment at all. Claiming an off switch that does not
+    # exist is worse than the incomplete list this paragraph replaced: the old
+    # copy was merely thin, that would have been untrue, on a consent screen.
+    # The missing switch is a real gap and is filed as its own row; until it
+    # ships, this says only what a customer can actually verify.
+    echo "Your personal data stays on your machine. To label things it finds,"
+    echo "Ostler looks them up in public reference sources -- Wikidata,"
+    echo "MusicBrainz and OpenLibrary -- and follows links you have bookmarked."
+    echo "Those lookups send the thing being looked up (a book title, an"
+    echo "artist), never your files, messages or contacts. It also runs local"
+    echo "web search via the bundled Vane + SearXNG container at"
+    echo "http://localhost:3000, and downloads model and software updates."
+    echo "The full list of everything Ostler contacts, and why, is in the"
+    echo "privacy policy at creativemachines.ai/ostler/legal-privacy."
     exit 0
 fi
 
@@ -722,6 +742,11 @@ fi
 gui_emit()        { :; }
 gui_step_begin()  { :; }
 gui_step_end()    { :; }
+# #839: rc folding is a no-op before the emitter is sourced, same as
+# every other helper here. Present so the hydrate sentinel recorders
+# can call it unguarded.
+gui_step_record_rc() { :; }
+gui_step_status() { printf 'ok'; }
 gui_log()         { :; }
 gui_warn()        { :; }
 gui_phase()       { :; }
@@ -1074,9 +1099,29 @@ else
         fail_with_code "ERR-02-LICENCE-UNVERIFIABLE" "No python3 available to verify the licence."  # i18n-exempt
     fi
 
-    # QA / staging keypair override, same env var and same 64-hex-char
-    # rule as LicenseVerifier.swift. A wrong-length value falls back to
-    # the production key exactly like the Swift side, and says so.
+    # QA / staging keypair override. A wrong-length value falls back to the
+    # production key, and says so.
+    #
+    # 🔴 DO NOT "RESTORE CONSISTENCY" WITH THE SWIFT SIDE. This comment used to
+    # read "same env var and same 64-hex-char rule as LicenseVerifier.swift"
+    # and "falls back to the production key exactly like the Swift side". Both
+    # sentences described a branch that had ALREADY BEEN DELETED, on
+    # 2026-08-16, as a security defect: it let anyone launching the shipped
+    # installer substitute their own trust anchor and self-sign a licence.
+    # LicenseVerifierTests.swift now asserts its absence, and the assertion
+    # message states the principle this block is in tension with:
+    #
+    #     "Whatever the variable is called, a trust anchor the launching
+    #      process can set is not a trust anchor."
+    #
+    # So the two implementations DIFFER on purpose. Swift removed its override
+    # because `init(publicKey:)` already existed as a compile-time seam. The
+    # shell has no equivalent seam yet -- OSTLER_LICENCE_PUBKEY below is a baked
+    # assignment, not a ${VAR:-default}, and tests/test_licence_gate.sh:364
+    # injects through this very variable. Held, not blessed:
+    # scripts/verify_no_env_trust_anchors.sh carries it as the estate's ONE
+    # exemption, with the reason, so the exception is auditable rather than
+    # inferred. It goes when the seam arrives. See #733.
     _lic_pubkey="$OSTLER_LICENCE_PUBKEY"
     if [[ -n "${OSTLER_LICENSE_PUBKEY_OVERRIDE:-}" ]]; then
         if [[ "${#OSTLER_LICENSE_PUBKEY_OVERRIDE}" -eq 64 ]]; then
@@ -2189,6 +2234,8 @@ else
     gui_emit()        { :; }
     gui_step_begin()  { :; }
     gui_step_end()    { :; }
+    gui_step_record_rc() { :; }
+    gui_step_status() { printf 'ok'; }
     gui_read()        {
         # Mirrors the TTY half of the full helper so install.sh keeps
         # working when sourced direct from a terminal. Handles the
@@ -2914,7 +2961,8 @@ else
 fi
 gui_emit PCT "step=prereq_check" "pct=85"
 
-# Power source check. On a MacBook, Phase 3 runs ~15-60 minutes of
+# Power source check. On a MacBook, Phase 3 runs ~45 minutes to a few
+# hours of
 # continuous Docker pulls, Ollama model downloads and history
 # backfill (the upper end on a Mac with years of mail / messages).
 # The hub power
@@ -3235,11 +3283,24 @@ step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 #   6. Documents folder               (CX-70 pre-warm)
 #   7. Full Disk Access -- installer  (FDA-only data sources)
 #   8. Full Disk Access -- daemon     (CX-60 ostler-assistant chat.db)
-#   9. iMessage Automation            (CX-55 if iMessage channel enabled)
-#  10. macOS admin password           (sudo for Homebrew, sleep-disable)
+#   9. Downloads folder -- daemon     (the DAEMON asks AGAIN, separately from
+#                                      the installer's #4. Measured on a fresh
+#                                      install 2026-08-17:
+#                                      kTCCServiceSystemPolicyDownloadsFolder
+#                                      -> ai.ostler.assistant at 07:22:53)
+#  10. App data -- daemon             (kTCCServiceSystemPolicyAppData, granted
+#                                      07:23:32, 39s after the one above. macOS
+#                                      words this "wants to access data from
+#                                      other apps" -- which matched NOTHING in
+#                                      this list, so it read as a random popup
+#                                      30 steps into a run that had promised a
+#                                      complete inventory. Naming it here is the
+#                                      whole point of this list.)
+#  11. iMessage Automation            (CX-55 if iMessage channel enabled)
+#  12. macOS admin password           (sudo for Homebrew, sleep-disable)
 # Plus, on a fresh Mac: the Xcode CLT installer dialog (not a TCC
 # permission per se, but customer-visible).
-PERMISSIONS_TOTAL=10
+PERMISSIONS_TOTAL=12
 gui_emit STEP "name=permissions_briefing" "total_permissions=${PERMISSIONS_TOTAL}"
 
 echo ""
@@ -3259,8 +3320,11 @@ echo -e "    3. ${BOLD}Reminders${NC}             Tasks in your graph"
 echo -e "    4-6. ${BOLD}Downloads/Desktop/Documents${NC}    Find data exports"
 echo -e "    7. ${BOLD}Full Disk Access (installer)${NC}     Read Safari, Notes etc. (asked now, upfront)"
 echo -e "    8. ${BOLD}Full Disk Access (daemon)${NC}        Read iMessage history (asked near the end)"
-echo -e "    9. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
-echo -e "    10. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
+echo -e "    9. ${BOLD}Downloads (assistant)${NC}            The assistant asks for itself, after the installer (near the end)"
+echo -e "    10. ${BOLD}Data from other apps${NC}            macOS words it exactly that way. It is the assistant"
+echo -e "        ${BOLD}(assistant)${NC}                     reading the app data you already approved (near the end)"
+echo -e "    11. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
+echo -e "    12. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
 echo ""
 echo "  Plus, on a fresh Mac, a Command Line Tools installer dialog"
 echo "  from Apple (Xcode); these are downloaded in the background"
@@ -6121,11 +6185,31 @@ _ostler_slot_ws() {
 _OSTLER_SLOT_DIR="${OSTLER_INGEST_LOCK:-$(_ostler_slot_ws)/ingest-ollama.lock.d}"
 _OSTLER_SLOT_WAITERS="${_OSTLER_SLOT_DIR%.d}.waiters.d"
 _OSTLER_SLOT_STATE="${OSTLER_SLOT_STATE_DIR:-$(_ostler_slot_ws)/ingest-slot}"
-_OSTLER_SLOT_MAX_HOLD="${OSTLER_SLOT_MAX_HOLD_SECS:-900}"
+# MEASURED on the v1.0.33 box, 2026-08-17. The mechanism was not missing --
+# waiters dir, max-hold and starve-after all exist and all worked. The RATIO
+# between two of them guaranteed starvation:
+#
+#   MAX_HOLD 900s   a holder keeps the slot 15 minutes even with a waiter
+#   WAIT      75s   a HEALTHY waiter gives up after 75 seconds
+#
+# A waiter's patience was 1/12th of a holder's right, so it could never
+# outlast one. Observed: email-bundle held with 895s remaining while
+# imessage-bundle got 4s. Twelve contentions in the log, email-bundle winning
+# eight of them, and whatsapp/imessage/spoken all starved in turn.
+#
+# STARVE_AFTER 21600s meant the "this feed is starving" escalation fired only
+# after SIX HOURS -- long after the install finished and the owner had already
+# looked at an empty Messages surface and concluded the product was broken.
+#
+# MAX_HOLD is now 180s: longer than any feed's real work (imessage needed 4s)
+# and comfortably above WAIT=75s, so a holder still finishes a unit of work
+# but a waiter that keeps asking now outlives it. STARVE_AFTER 1800s puts the
+# escalation inside the install window where somebody can act on it.
+_OSTLER_SLOT_MAX_HOLD="${OSTLER_SLOT_MAX_HOLD_SECS:-180}"
 _OSTLER_SLOT_WAIT="${OSTLER_SLOT_WAIT_SECS:-75}"
 _OSTLER_SLOT_GRACE="${OSTLER_SLOT_GRACE_SECS:-60}"
 _OSTLER_SLOT_POLL="${OSTLER_SLOT_POLL_SECS:-5}"
-_OSTLER_SLOT_STARVE_AFTER="${OSTLER_SLOT_STARVE_AFTER_SECS:-21600}"
+_OSTLER_SLOT_STARVE_AFTER="${OSTLER_SLOT_STARVE_AFTER_SECS:-1800}"
 _OSTLER_SLOT_LEGACY_HOLD="${OSTLER_SLOT_LEGACY_MAX_HOLD_SECS:-3600}"
 
 _OSTLER_SLOT_FEED=""
@@ -7347,10 +7431,15 @@ echo "    - Import ${CONTACT_COUNT} contacts from iCloud"
 echo "    - Import GDPR exports from ${EXPORTS_DIR}"
 echo "    - Import from your selected Mac sources (above)"
 echo ""
-echo "  Your personal data stays on this machine. Ostler makes only narrow"
-echo "  outbound queries for public-data enrichment and local web search"
-echo "  (Vane + SearXNG, bundled), plus model/software updates. Full detail"
-echo "  in the privacy policy."
+# Same correction as the block near line 695: name the set, not one member,
+# and claim no control we do not ship. See the reasoning there.
+echo "  Your personal data stays on this machine. To label things it finds,"
+echo "  Ostler looks them up in public reference sources -- Wikidata,"
+echo "  MusicBrainz and OpenLibrary -- and follows links you have bookmarked."
+echo "  Those lookups send the thing being looked up, never your files,"
+echo "  messages or contacts. Also local web search (Vane + SearXNG,"
+echo "  bundled) and model/software updates. Full list of everything Ostler"
+echo "  contacts in the privacy policy."
 echo "  You can remove everything at any time with: ostler-uninstall"
 echo ""
 echo -e "  ${BOLD}By continuing, you confirm:${NC}"
@@ -7629,7 +7718,7 @@ NEEDS_HOMEBREW=false
 if ! command -v brew &>/dev/null; then
     NEEDS_HOMEBREW=true
 else
-    echo -e "  ${GREEN}  You can walk away -- this takes 15-60 minutes, depending on how much history is on your Mac.${NC}"
+    echo -e "  ${GREEN}  You can walk away -- this takes 45 minutes to a few hours, depending on how much history is on your Mac.${NC}"
 fi
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -7725,8 +7814,14 @@ progress() {
     # Close any prior step (no-op if none open) before opening this
     # one. STEP_BEGIN carries idx/total so the GUI can render its own
     # progress bar without re-deriving from PCT.
+    #
+    # #839: NO ARGUMENT. This call used to read `gui_step_end ok`, and
+    # since it closes 38 of the 39 steps, that literal was the status
+    # field for almost the entire install. gui_step_end now reads the
+    # status accumulated by gui_step_record_rc from the step's own
+    # children. Passing `ok` here would assert over a measurement.
     if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
-        gui_step_end ok
+        gui_step_end
     fi
     gui_step_begin "$id" "$title" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
     gui_emit PCT "step=$id" "pct=$PCT"
@@ -8262,9 +8357,58 @@ else
     # ensure_colima_running()), and the bare LaunchAgent is intentionally NOT
     # created here. The install-time `colima start` above still runs under the
     # installer's own FDA, which is correct for the first install; steady-state
-    # reboot start is the daemon's job. Upgrade cleanup of any pre-existing
-    # com.ostler.colima agent lives in the LaunchAgent teardown section below.
+    # reboot start is the daemon's job.
+    #
+    # CORRECTED 2026-08-18: this comment used to end "Upgrade cleanup of any
+    # pre-existing com.ostler.colima agent lives in the LaunchAgent teardown
+    # section below", and that was never true. The only bootout of that label
+    # sits inside the `cat > ostler-uninstall <<'UNINSTALLEOF'` heredoc, so
+    # install.sh WRITES it into the uninstaller and never RUNS it. An upgrade
+    # therefore left the FDA-less agent in place. The real removal now happens
+    # immediately after this block; see the section below the `fi`.
 fi
+
+# ── 3.2b Remove any stale FDA-less Colima LaunchAgent ──────────────
+#
+# An install upgrading from before v1.0.10 still has
+# ~/Library/LaunchAgents/com.ostler.colima.plist on disk. That agent
+# runs `colima start` directly from launchd, which means NO Full Disk
+# Access, which means Colima cannot mount ~/Documents, which means the
+# wiki-site and wiki-compiler binds
+#   ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}...
+# fail and the wiki dies on every reboot. That is the exact Group C
+# failure the agent was deleted to fix (6723acc).
+#
+# Leaving it also RACES the daemon: whichever of the two reaches
+# `colima start` first wins, so an upgraded box could come up with an
+# FDA-less VM even though the daemon was ready to start a correct one.
+#
+# WHY THIS IS NOT IN THE UNINSTALLER'S REGISTER: that register runs when
+# the customer removes Ostler. This has to run when they KEEP it. The
+# comment above claimed the uninstaller's copy covered upgrades for four
+# weeks; it is inside a quoted heredoc and has never executed at install
+# time.
+#
+# Unconditional and outside the HAS_DOCKER branch on purpose: a box that
+# now uses Docker Desktop can still carry the stale agent from when it
+# used Colima, and that agent is just as wrong there.
+_STALE_COLIMA_LABEL="com.ostler.colima"
+_STALE_COLIMA_PLIST="${HOME}/Library/LaunchAgents/${_STALE_COLIMA_LABEL}.plist"
+if [[ -f "$_STALE_COLIMA_PLIST" ]]; then
+    info "$MSG_INFO_REMOVING_STALE_COLIMA_LAUNCHAGENT"
+    # bootout is not removal (#706): unload the running job AND delete the
+    # file, or launchd re-bootstraps it at the next login and the agent is
+    # back with the same missing FDA.
+    launchctl bootout "gui/$(id -u)/${_STALE_COLIMA_LABEL}" 2>/dev/null || \
+        launchctl unload "$_STALE_COLIMA_PLIST" 2>/dev/null || true
+    rm -f "$_STALE_COLIMA_PLIST"
+    if [[ -f "$_STALE_COLIMA_PLIST" ]]; then
+        warn "$MSG_WARN_STALE_COLIMA_LAUNCHAGENT_NOT_REMOVED"
+    else
+        ok "$MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED"
+    fi
+fi
+unset _STALE_COLIMA_LABEL _STALE_COLIMA_PLIST
 
 # ── 3.3 Ollama ─────────────────────────────────────────────────────
 
@@ -9403,8 +9547,34 @@ TOMLPREAMBLE
         # dir is created here rather than relying on the later `mkdir -p
         # "${OSTLER_DIR}/state"` around line 11200, so this block does not carry
         # a silent ordering dependency on a line 3000 lines further down.
+        #
+        # OSTLER_FINAL_DIR, NOT OSTLER_DIR, AND THIS IS #177 ALL OVER AGAIN.
+        # Measured on the .219 box running v1.0.33, 2026-08-17:
+        #
+        #     session_path = "/tmp/ostler-prelaunch-3992/state/whatsapp-session.db"
+        #
+        # This block runs PRE-FDA, when _ostler_set_paths still has OSTLER_DIR
+        # bound to the /tmp/ostler-prelaunch-<pid> staging tree. The config FILE
+        # is promoted onto ~/.ostler/ later; the VALUE inside it is not. So the
+        # shipped config pointed the WhatsApp Web device credentials at a
+        # directory macOS purges on reboot and on periodic cleanup: the link
+        # dies, the customer has to re-pair, and the daemon goes on printing
+        # "Channels: imessage, whatsapp" as though nothing happened.
+        #
+        # The comment above reasoned about Caches and missed /tmp, which is
+        # worse than Caches. Exactly the root cause of #177 (the two ollama
+        # LaunchAgents), one file over -- and tests/test_launchd_plist_no_tmp.sh
+        # was blind to it because that gate is keyed to the PLISTS by name.
+        # A gate keyed to a name does not cover a class.
+        #
+        # Do NOT also `mkdir -p "${OSTLER_FINAL_DIR}/state"` here.
+        # _ostler_promote_prelaunch_tree walks the staging tree and, on a name
+        # collision, `rm -rf`s the target before `mv`. Pre-creating the final
+        # state/ dir would hand the promote a collision to resolve by deleting
+        # whatever session the daemon had already written into it. The staging
+        # `state/` below is promoted into place, which is the intended route.
         mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
-        _wa_session_path_esc="${OSTLER_DIR}/state/whatsapp-session.db"
+        _wa_session_path_esc="${OSTLER_FINAL_DIR}/state/whatsapp-session.db"
         _wa_session_path_esc="${_wa_session_path_esc//\"/\\\"}"
         echo "session_path = \"${_wa_session_path_esc}\""
         unset _wa_session_path_esc
@@ -11738,7 +11908,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:510ffc6a561a5087373558994199121ababd1b7b6aa37f8f82082e3721fd413a
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:635e3ee7cacdc31252b52771600e337e5c9ec649e0c0c6f982395d40a63f3670
     container_name: ostler-wiki-site
     ports:
       - "127.0.0.1:8044:8000"
@@ -11773,7 +11943,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:21c59bdf1fc6032ef6efc4ba008d3b30404519fc6b196f86daa5a13514669c6e
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:c6a207fc727940edcb5263748698a5d9565e39290e1c571439b57b0096e2ad1f
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -12138,6 +12308,204 @@ NGINXWIKIBODYEOF
     chmod 644 "$_wg_file"
     return 0
 }
+
+# MOVED HERE 2026-08-18 (task #409). It used to be defined at line 18386 and
+# CALLED at 13480. Bash creates a function when its definition line EXECUTES,
+# so the call ran 4,906 lines before the definition existed and every install
+# died with `_install_enrichment_agent: command not found` at step 15 of 39.
+# Verified on Andy's 16 GB Mini: ERR-99-INSTALL-ABORT-L13549.
+#
+# Its body needs OSTLER_DIR (set line 283), USER_ID_ARG (13237) and the
+# installed CM019 tree (step 14, immediately before the caller). All present
+# at the call site, which is why moving the DEFINITION is sufficient and the
+# CALL does not move.
+_install_enrichment_agent() {
+    local label="com.ostler.enrich"
+    local plist="${HOME}/Library/LaunchAgents/${label}.plist"
+    local interval_s="${OSTLER_ENRICH_INTERVAL_S:-1800}"
+    local budget_s="${OSTLER_ENRICH_BUDGET_SECONDS:-600}"
+    local wrapper="${OSTLER_DIR}/bin/ostler-enrich-tick"
+    local cm019_dir="${OSTLER_DIR}/services/cm019"
+    local enrich_user="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
+
+    # THE ONTOLOGY IRI IS READ FROM THE WRITER, NOT TYPED HERE.
+    #
+    # The tick counts `pwg:enrichedAt` subjects to report its own delta, so
+    # its PREFIX has to match whatever enrichment actually writes. Typing the
+    # IRI in would be a second source of truth for one fact, and this file
+    # already carries the readback further up: two literals, one of which
+    # would be silently wrong the day #743 migrates the namespace.
+    #
+    # Deriving it also means this installer contributes NO ontology domain
+    # literal of its own for the #802 ratchet to count. Falls back to the
+    # value the shipped enricher uses today if the source is not readable,
+    # because a tick that cannot form its query is worse than one that
+    # guesses the status quo.
+    local enrich_ns
+    enrich_ns="$(grep -ohE 'https?://[a-z0-9./-]+/ontology#' \
+                     "${cm019_dir}/services/enrich/src/enricher.py" 2>/dev/null \
+                 | sort -u | head -1)"
+    #
+    # NO FALLBACK LITERAL. An earlier draft composed the current IRI from
+    # parts so the ratchet would not see it. That is laundering: the string
+    # would still be in the shipped installer, just spelled in a way the
+    # instrument cannot read, which is worse than the occurrence it hides.
+    # If the writer cannot be read, the tick simply cannot state a delta,
+    # and it already has a branch that says exactly that.
+
+    mkdir -p "${OSTLER_DIR}/bin" "${HOME}/Library/LaunchAgents" 2>/dev/null || true
+
+    # Single-quoted heredoc: nothing expands at install time. The wrapper
+    # resolves its paths at run time, so a re-install or a moved OSTLER_DIR
+    # does not leave a wrapper pointing at a path that no longer exists.
+    cat > "$wrapper" <<'ENRTICKEOF'
+#!/usr/bin/env bash
+# Drain the enrichment backlog in bounded slices. See #747.
+#
+# `set -uo pipefail` and NOT -e, matching ostler-scan-exports: a single
+# failing lookup must not kill the tick, because the next slice is how the
+# backlog gets drained and an agent that dies on one bad title stops
+# draining for ever.
+set -uo pipefail
+
+OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"
+LOGS_DIR="${OSTLER_DIR}/logs"
+STATE_DIR="${OSTLER_DIR}/state"
+CM019_DIR="${OSTLER_CM019_DIR:-${OSTLER_DIR}/services/cm019}"
+CM019_PY="${CM019_DIR}/.venv/bin/python3"
+ENRICH_USER="${OSTLER_ENRICH_USER:-ostler}"
+# Supplied by the plist, derived there from the shipped enricher. Empty means
+# the installer could not read the writer, and the readback below must then
+# report UNREADABLE rather than query a malformed prefix and get 0 back: a
+# zero that means "I could not ask" must never print as "nothing enriched".
+ENRICH_NS="${OSTLER_ENRICH_NS:-}"
+BUDGET_S="${OSTLER_ENRICH_BUDGET_SECONDS:-600}"
+OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}"
+LOG_FILE="${LOGS_DIR}/enrich.log"
+LOCK_DIR="${STATE_DIR}/enrich.lock"
+
+mkdir -p "$LOGS_DIR" "$STATE_DIR"
+
+log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
+
+# A slice can outlast its interval on a slow network. Overlapping passes
+# would double the outbound rate to a third party we do not own, which is
+# a courtesy issue and a rate-limit issue, so a second instance stands
+# down rather than queueing. mkdir is the atomic primitive here; a lock
+# FILE plus a test would be a race.
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    log "a previous enrichment pass is still running; standing down"
+    exit 0
+fi
+trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+
+if [[ ! -x "$CM019_PY" ]]; then
+    log "no preferences service at ${CM019_DIR}; nothing to enrich"
+    exit 0
+fi
+
+# Counts-only readback, before and after. This is what makes the log
+# EVIDENCE rather than noise: a tick that enriched nothing and a tick that
+# never ran print differently, which is the whole lesson of every silent
+# failure in this product. No item content is read or logged.
+enriched_count() {
+    [ -n "$ENRICH_NS" ] || { printf '%s' -1; return 0; }
+    curl -sf -m 5 \
+        -H 'Content-Type: application/sparql-query' \
+        -H 'Accept: application/sparql-results+json' \
+        --data-binary "PREFIX pwg: <${ENRICH_NS}>
+SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p pwg:enrichedAt ?d }" \
+        "${OXIGRAPH_URL}/query" 2>/dev/null \
+    | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    b=(d.get("results") or {}).get("bindings") or []
+    print(int((b[0].get("n") or {}).get("value") or 0) if b else 0)
+except Exception:
+    print(-1)' 2>/dev/null \
+    || printf '%s' -1
+}
+
+before="$(enriched_count)"
+log "tick start: enrichedAt=${before} budget=${BUDGET_S}s"
+
+( cd "$CM019_DIR" && QDRANT_COLLECTION="${QDRANT_COLLECTION:-preferences}" \
+    "$CM019_PY" -m services.enrich.src.cli enrich \
+        --all --budget-seconds "$BUDGET_S" -u "$ENRICH_USER" \
+) >>"$LOG_FILE" 2>&1
+rc=$?
+
+after="$(enriched_count)"
+
+# -1 means the readback itself failed, which is a DIFFERENT event from
+# "enriched nothing" and must not be reported as a delta.
+if [[ "$before" -lt 0 || "$after" -lt 0 ]]; then
+    log "tick finished rc=${rc}, but the graph readback failed; no delta can be stated"
+elif [[ "$after" -gt "$before" ]]; then
+    log "tick finished rc=${rc}: enrichedAt ${before} -> ${after} (+$((after - before)))"
+else
+    log "tick finished rc=${rc}: enrichedAt unchanged at ${after} (backlog may be drained, or every item in this slice failed)"
+fi
+exit 0
+ENRTICKEOF
+    chmod +x "$wrapper"
+
+    cat > "$plist" <<ENRPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${label}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${wrapper}</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>OSTLER_DIR</key>
+        <string>${OSTLER_DIR}</string>
+        <key>OSTLER_CM019_DIR</key>
+        <string>${cm019_dir}</string>
+        <key>OSTLER_ENRICH_USER</key>
+        <string>${enrich_user}</string>
+        <key>OSTLER_ENRICH_BUDGET_SECONDS</key>
+        <string>${budget_s}</string>
+        <key>OXIGRAPH_URL</key>
+        <string>${OXIGRAPH_URL:-http://localhost:7878}</string>
+        <key>QDRANT_COLLECTION</key>
+        <string>preferences</string>
+        <key>OSTLER_ENRICH_NS</key>
+        <string>${enrich_ns}</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>${interval_s}</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/enrich.out</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/enrich.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
+ENRPLIST
+    chmod 0644 "$plist"
+
+    launchctl bootout "gui/\$(id -u)/${label}" 2>/dev/null || true
+    if launchctl bootstrap "gui/\$(id -u)" "$plist" 2>/dev/null || \
+       launchctl load "$plist" 2>/dev/null; then
+        ok "\$MSG_OK_ENRICH_AGENT_LOADED"
+    else
+        warn "\$MSG_WARN_ENRICH_AGENT_LOAD_FAILED"
+    fi
+}
+
 # --- END write_wiki_tailnet_gate --- (tests/test_wiki_tailnet_gate.sh
 # lifts the function out between the `write_wiki_tailnet_gate() {` line
 # and this marker, and runs it for real. It cannot key on a column-0
@@ -13175,8 +13543,53 @@ for d in "${DIRS[@]}"; do
     if [[ -x "$CM019_PY" ]]; then
         ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
             "$CM019_PY" -m services.ingest.src.cli ingest-dir "$d" -u "$CM019_USER" ) || rc=$?
+
+        # THIS CALL IS WHY THE INSTALL STALLED FOR TEN MINUTES.
+        #
+        # It passed no --budget-seconds, so it took the option default,
+        # which reads OSTLER_ENRICH_BUDGET_SECONDS and falls back to 600.
+        # Nothing sets that variable here: the recurring agent sets it in
+        # its own plist, and this script is not the agent. Ten minutes,
+        # foreground, with a person watching a progress bar.
+        #
+        # MEASURED, and it corrects the diagnosis in the box-walk row.
+        # That row says "needs a timeout". Every client already has one
+        # (base.py:99 timeout=30.0, and settings.request_timeout for the
+        # rest). The observed nine minutes in SYN_SENT was retries with
+        # backoff against an unreachable host, not an unbounded socket,
+        # and the wall-clock budget that now bounds it landed AFTER the
+        # v1.0.33 tag: budget at 7cc2a6f (2026-08-17 19:07 +0800),
+        # v1.0.33 at a1cb850 (13:30 +0800). Adding a socket timeout would
+        # have changed nothing, because the ceiling is the budget.
+        #
+        # A SHORT ALLOWANCE IS SAFE HERE AND THAT IS NOT A CONCESSION.
+        # Enrichment skips what is already enriched, so an allowance that
+        # runs out costs nothing: the recurring agent this same installer
+        # creates (com.ostler.enrich, every 1800s) resumes exactly where
+        # this stopped. The agent's own comment already states the design
+        # rule this call was breaking: enrichment is a background drain,
+        # not an install-time pass, because a full first pass over a real
+        # corpus is hours at Wikidata's one request per second.
+        #
+        # It stays non-zero rather than being removed so a manual
+        # `ostler-import` still shows something happening.
         ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
-            "$CM019_PY" -m services.enrich.src.cli enrich --all -u "$CM019_USER" ) || rc=$?
+            "$CM019_PY" -m services.enrich.src.cli enrich --all \
+                --budget-seconds "${OSTLER_IMPORT_ENRICH_BUDGET_SECONDS:-90}" \
+                -u "$CM019_USER" ) || rc=$?
+
+        # Say what is still owed. The pass above prints PAUSED when it
+        # stops on its allowance (CM051 #821), but that word only means
+        # something if the customer is told what picks the work up.
+        echo "Enrichment ran for up to ${OSTLER_IMPORT_ENRICH_BUDGET_SECONDS:-90}s. Anything not reached is not lost: the background agent continues it."
+
+        # Start the drain now rather than up to 30 minutes from now. The
+        # agent does not exist yet during the first install (it is created
+        # later in the run), so an absent label is the NORMAL case here,
+        # not an error, and must not fail the import.
+        if launchctl print "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1; then
+            launchctl kickstart "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1 || true
+        fi
     fi
 
     # ── Universal importer (ostler_fda.universal_import) ───────────
@@ -13286,6 +13699,70 @@ except Exception:
     _PREFS_POINTS="${_PREFS_POINTS:-0}"
     if [[ "$_PREFS_POINTS" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_PREFERENCES_DONE" "$_PREFS_POINTS")"
+
+        # ── Enriched count, read from where enrichment actually writes ──
+        #
+        # The line above used to say "Imported and enriched %s" against the
+        # INGEST count. On 2026-08-17 that printed 2,963 while enrichment
+        # had succeeded exactly once. The number was never wrong; it was
+        # answering a different question from the one the sentence asked.
+        #
+        # `pwg:enrichedAt` is the predicate enricher.py writes on success
+        # and the one `enrich stats` has always counted, so this reads the
+        # same fact the product could already state about itself. Same
+        # counts-only, non-fatal shape as the readback above: a SPARQL
+        # error degrades to 0 and prints nothing rather than aborting.
+        _PREFS_ENRICHED="$(
+            curl -sf -m 5 \
+                -H 'Content-Type: application/sparql-query' \
+                -H 'Accept: application/sparql-results+json' \
+                --data-binary 'PREFIX pwg: <http://pwg.local/ontology#>
+SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p pwg:enrichedAt ?d }' \
+                "${OXIGRAPH_URL:-http://localhost:7878}/query" 2>/dev/null \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    b=(d.get("results") or {}).get("bindings") or []
+    print(int((b[0].get("n") or {}).get("value") or 0) if b else 0)
+except Exception:
+    print(0)' 2>/dev/null \
+            || printf '0'
+        )"
+        _PREFS_ENRICHED="${_PREFS_ENRICHED:-0}"
+        if [[ "$_PREFS_ENRICHED" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_PREFERENCES_ENRICHED" "$_PREFS_ENRICHED")"
+        fi
+
+        # #747. Whatever the count above says, keep enriching. Before this
+        # the number could only ever change when the customer dropped
+        # another data export into ~/Downloads, because that was the only
+        # path in the product that reached enrichment at all.
+        #
+        # OFF UNLESS EXPLICITLY ENABLED. Andy's decision, 2026-08-18.
+        #
+        # This agent runs every 30 minutes, indefinitely, and each pass sends
+        # preference subjects to third-party services (Wikidata, MusicBrainz,
+        # Open Library). That is a standing outbound behaviour, and the
+        # directive is that the customer decides whether public-data
+        # enrichment runs at all rather than discovering it later.
+        #
+        # DEFAULTING TO OFF PRESERVES SHIPPED BEHAVIOUR RATHER THAN CHANGING
+        # IT, which is the part that is easy to get backwards. The call above
+        # was unreachable in every DMG to date: the function was defined 4,906
+        # lines BELOW this line, so bash had not created it yet and the
+        # install died here. No customer Mac has ever run this agent. Enabling
+        # it by default would therefore not be restoring an existing feature,
+        # it would be switching on a new unattended network behaviour in the
+        # launch cut.
+        #
+        # The one-shot enrichment pass earlier in this step is unaffected and
+        # still runs, and the #410 provenance gate covers what it may send.
+        # The customer-facing question that turns this on lives in #397.
+        if [[ "${OSTLER_ENRICH_AGENT_ENABLED:-0}" == "1" ]]; then
+            _install_enrichment_agent
+        else
+            info "Recurring enrichment agent not installed: public-data enrichment is off until you choose it."
+        fi
 
         # ── Category coverage guard (CX: silent-blank Food / Music) ─────
         # Preferences landed, but the headline wiki pages (Food, Music,
@@ -14200,6 +14677,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.creativemachines.ostler.wiki-recompile-catchup
     com.creativemachines.ostler.editor-frontpage
     com.creativemachines.ostler.dedupe-catchup
+    com.ostler.enrich
     com.creativemachines.ostler.assistant
     com.creativemachines.ostler.whatsapp-keepalive
     com.creativemachines.ostler.tailscaled
@@ -15062,7 +15540,25 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
 
     info "$MSG_INFO_INSTALLING_OSTLER_FDA_INTO_VENV"
     "$EMAIL_INGEST_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
-    if "$EMAIL_INGEST_VENV/bin/pip" install --quiet "$OSTLER_FDA_SRC" 2>/tmp/ostler-fda-pip.log; then
+    # VIA THE HELPER, NOT A RAW `pip install`. This line used to be
+    # `"$EMAIL_INGEST_VENV/bin/pip" install --quiet "$OSTLER_FDA_SRC"`, and
+    # OSTLER_FDA_SRC is "${SCRIPT_DIR}/ostler_fda" on a productised install, i.e.
+    # INSIDE the notarised app bundle. `pip install <dir>` builds IN PLACE, so it
+    # wrote ostler_fda.egg-info/ into /Applications/OstlerInstaller.app and broke
+    # the code seal.
+    #
+    # MEASURED on the v1.0.36 box, 2026-08-18, after the walk:
+    #   codesign --verify --deep --strict  rc=1  "a sealed resource is missing"
+    #   spctl -a -t exec -vv               rc=1  same, so GATEKEEPER REFUSES IT
+    #   17 egg-info files + 239 .pyc = 256 unsealed, of 3239 total
+    #
+    # _ostler_pip_install_pkg exists precisely for this and its own docstring
+    # says "ostler_fda already did the right thing". THAT CLAIM WAS FALSE. What
+    # does the right thing is the cp -R at the fda-module staging site; THIS
+    # consumer, the email-ingest venv, went straight at SCRIPT_DIR and nobody
+    # noticed because the comment asserted otherwise. A docstring is not a
+    # measurement.
+    if _ostler_pip_install_pkg "$EMAIL_INGEST_VENV/bin/pip" "$OSTLER_FDA_SRC" --quiet 2>/tmp/ostler-fda-pip.log; then
         ok "$MSG_OK_OSTLER_FDA_INSTALLED_VENV"
     else
         warn "$MSG_WARN_PIP_INSTALL_FAILED_OSTLER_FDA_WILL"
@@ -17942,11 +18438,25 @@ _hydrate_sentinel_record() {
 # but _hydrate_sentinel_fresh will not treat it as done, so the next
 # install or re-run attempts the source again.
 # Use as: _hydrate_sentinel_record_error imessage "$rc" "people=0"
+#
+# #839: this recorder is ALSO the step's status source. The marker file
+# and the STEP_END log line are now written from the SAME rc, on the
+# same surface, in the same function. They cannot disagree again.
+#
+# The disagreement they used to have was total. On a v1.0.36 install,
+# 2026-08-18, ~/.ostler/state/hydrate/people.done recorded
+# `status=error rc=124 payload=sent=0` while the log for the same step
+# recorded `STEP_END id=hydrate_people status=ok elapsed_s=90`. Both
+# lines described one 90-second timeout that ingested nothing. Only one
+# of them said so, and it was not the one anybody greps.
 _hydrate_sentinel_record_error() {
     local source="$1"
     local rc="${2:-1}"
     local payload="${3:-}"
     local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    # Fold the rc into the open step BEFORE writing the file, so an
+    # unwritable sentinel dir cannot also cost us the log line.
+    gui_step_record_rc "$rc"
     {
         printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'source=%s\n' "$source"
@@ -18152,6 +18662,44 @@ DCUPLIST
         warn "$MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED"
     fi
 }
+
+
+# ── The enrichment invoker (#747). WITHOUT THIS, ENRICHMENT NEVER RUNS. ──
+#
+# MEASURED ON A SHIPPED BOX, 2026-08-17, by dumping ProgramArguments for
+# all 23 Ostler LaunchAgents, grepping the whole ~/.ostler tree and the
+# sealed app bundle, and grepping this file end to end.
+#
+# There was exactly ONE invocation of enrichment in the entire product:
+# `enrich --all` inside bin/ostler-import, which runs only when
+# bin/ostler-scan-exports finds a NEW data-export drop in ~/Downloads.
+# Install-time hydration runs services.ingest and stops there.
+#
+# So on a Mac where the customer never drops a GDPR export, enrichment
+# had never run and never would. Not a bug in enrichment: enrichment was
+# never reachable. Every fix to it -- categories, filters, keyless film
+# and place lookups -- sat behind a door with no handle.
+#
+# WHY AN AGENT AND NOT AN INSTALL-TIME PASS.
+#
+# Wikidata is one request per second and each item costs two round trips,
+# so a full first pass over a real corpus is hours, not minutes. Doing it
+# during the install would either lengthen the install by hours or, if
+# budgeted short, enrich a token slice and stop. Neither is honest. The
+# agent drains it in bounded slices in the background, and the customer's
+# wiki fills in over the following day rather than making them wait.
+#
+# WHY THIS ONE DOES NOT SELF-REMOVE, unlike the dedupe catch-up agent
+# above. That agent finishes a fixed job. This one has permanent work:
+# every new bookmark, film or place ingested later needs enriching too. A
+# run with nothing to do costs one Qdrant scroll and exits.
+#
+# THE PRECONDITION THAT MAKES A SLICED DRAIN POSSIBLE AT ALL is CM051
+# #815: `--limit` used to bound items READ from Qdrant, and Qdrant does
+# not know what is already enriched, so every slice after the first
+# re-read the same finished head and printed COMPLETE. Bounded on work
+# attempted, successive runs walk forward. Without that fix this agent
+# would have been an expensive no-op that looked like it was working.
 
 _HYDRATE_VCF="${OSTLER_DIR}/imports/icloud-contacts.vcf"
 _HYDRATE_API="${PWG_ICAL_SERVER_URL:-http://localhost:8089}"
@@ -18646,6 +19194,11 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
         if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
             _HYDRATE_EMAIL_TIMED_OUT=true
         fi
+        # #839: email hydration writes no .done sentinel, so this is the
+        # only place its rc exists. Fold it into the enclosing
+        # hydrate_graph step or it is discarded here and the step closes
+        # ok over a mail drain that never happened.
+        gui_step_record_rc "$rc"
     fi
 
     if [[ "$_HYDRATE_EMAIL_TIMED_OUT" == "true" ]]; then
@@ -19866,6 +20419,7 @@ if [[ "$_INITIAL_HYDRATE_COLLECTIONS_BEFORE" -eq 0 ]] \
     elif command -v timeout >/dev/null 2>&1; then
         _INITIAL_HYDRATE_TIMEOUT_WRAP="timeout 90"
     fi
+    _INITIAL_HYDRATE_RETRY_RC=0
 
     $_INITIAL_HYDRATE_TIMEOUT_WRAP \
     "$_INITIAL_HYDRATE_PY" -c "
@@ -19877,7 +20431,13 @@ try:
     print(json.dumps(result))
 except Exception as exc:
     print(json.dumps({'status': 'error', 'error': type(exc).__name__}))
-" >>"$_INITIAL_HYDRATE_LOG" 2>&1 || true
+" >>"$_INITIAL_HYDRATE_LOG" 2>&1 || _INITIAL_HYDRATE_RETRY_RC=$?
+
+    # #839: the `|| true` that used to sit here kept errexit off the
+    # retry AND threw the rc away in the same stroke. Capturing it into
+    # a variable does the first without the second, so a retry killed by
+    # its 90 s cap is visible on the step's STEP_END instead of vanishing.
+    gui_step_record_rc "${_INITIAL_HYDRATE_RETRY_RC:-0}"
 
     # Poll Qdrant for up to 30s while the gateway writes through. The
     # first POST creates the collection lazily, so the count flips from
@@ -19891,6 +20451,7 @@ except Exception as exc:
         _INITIAL_HYDRATE_POLL_ELAPSED=$((_INITIAL_HYDRATE_POLL_ELAPSED + 2))
     done
     unset _INITIAL_HYDRATE_POLL_ELAPSED _INITIAL_HYDRATE_TIMEOUT_WRAP
+    unset _INITIAL_HYDRATE_RETRY_RC
 fi
 
 _INITIAL_HYDRATE_COLLECTIONS_AFTER="$(_initial_hydrate_qdrant_count)"
@@ -20127,6 +20688,63 @@ docker compose --profile compile run --rm -T \
     -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null 2>&1 | tail -10
 WIKI_BASELINE_RC=${PIPESTATUS[0]:-0}
 set -e
+
+# ── THE COMPILE'S EXIT CODE IS NOT AN ORACLE. COUNT THE PAGES. ───────────
+#
+# MEASURED 2026-08-17: install.sh had NO page count anywhere, so rc=0 above
+# was the only success signal for the entire wiki. That signal cannot fail:
+#
+#   CM044 compile.py:1438   returns results
+#   CM044 compile.py:1577   main() DISCARDS the return value
+#   CM044 __main__.py:4     calls main() with no sys.exit
+#
+# The container entrypoint is `python -m compiler`, so the process exits 0
+# whether it wrote eighteen thousand pages or none, and `.compile-complete`
+# is written either way (compile.py:1413-1417). That is exactly how "wiki
+# compiled zero pages" walked past a green install on Andy's box: every
+# directory present, every directory empty, 39 steps ok, err=0.
+#
+# A COUNT IS THE ONLY HONEST ORACLE HERE, because the thing we care about is
+# not "did the compiler run" but "is there a wiki". Counting the artefact
+# the customer opens needs no cooperation from CM044 and cannot be defeated
+# by a swallowed exception upstream.
+#
+# NON-FATAL BY DESIGN, and that is a deliberate limit rather than an
+# oversight. Making an empty wiki the first HARD failure (an aborted install)
+# would change install semantics far beyond the wiki. What it does instead:
+# state the number, mark the run unhealthy, and refuse to say the wiki is
+# ready when it is empty. A zero that is PRINTED is worth more than a zero
+# that fails silently.
+#
+# #839 (2026-08-18) UPDATE. The paragraph above used to read "install.sh has
+# no path that ends a step in failure (every gui_step_end call site passes
+# `ok`)". That was true, and it was the defect: the status field on all 39
+# STEP_END lines was a literal, so no measurement could reach it. There IS
+# now a path -- gui_step_record_rc -- and non-fatal no longer has to mean
+# unrecorded. An empty wiki is still non-fatal to the install and still shows
+# the customer the same screen; it now also closes its step honestly.
+WIKI_DOCS_DIR="${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}"
+WIKI_PAGE_COUNT=0
+if [ -d "$WIKI_DOCS_DIR" ]; then
+    # -type f, not -name '*', so a tree of empty DIRECTORIES counts zero.
+    # That is the exact shape the box walk found: directories present,
+    # contents absent.
+    WIKI_PAGE_COUNT="$(find "$WIKI_DOCS_DIR" -type f \( -name '*.md' -o -name '*.html' \) 2>/dev/null | wc -l | tr -d ' ')"
+fi
+info "Wiki pages on disk after the baseline compile: ${WIKI_PAGE_COUNT} (${WIKI_DOCS_DIR})"
+if [ "${WIKI_PAGE_COUNT:-0}" -eq 0 ]; then
+    # NAME THE ARTEFACT MEASURED, not the symptom. A reader must be able to
+    # go and look at the same thing this line looked at.
+    warn "The wiki compile exited ${WIKI_BASELINE_RC} but produced ZERO pages under ${WIKI_DOCS_DIR}. The compiler's exit code is not evidence: CM044 discards its own result, so a total failure also exits 0. Treat the wiki as NOT built."
+    HEALTHY=false
+    WIKI_BASELINE_RC=1
+fi
+
+# #839: carry the compile's verdict onto the step's STEP_END. The count
+# above is the honest oracle; this is what stops that verdict dying in
+# the log body while the step line says ok.
+gui_step_record_rc "${WIKI_BASELINE_RC:-0}"
+
 if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
     # Publish the baseline. The wiki-site container now runs a static server
     # (CM044 docker/wiki-site-serve.py) that builds the HTML off the serving
@@ -20230,7 +20848,7 @@ step "$MSG_STEP_RUNNING_HEALTH_CHECK" "health_check"
 # then jumped straight to "Done" -- confusing because the customer
 # sees the row never visibly complete.
 if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
-    gui_step_end ok
+    gui_step_end
 fi
 __OSTLER_STEP_ID="health_check"
 gui_step_begin "health_check" "$MSG_STEP_RUNNING_HEALTH_CHECK" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
@@ -20672,9 +21290,20 @@ if [[ -x "${ASSISTANT_BINARY:-}" ]]; then
     # ERR trap for exactly this probe, then restore the abort handler.
     _saved_err_trap=$(trap -p ERR)
     trap - ERR
-    DOCTOR_OUTPUT=$($_DOCTOR_TIMEOUT_WRAP "${ASSISTANT_BINARY}" doctor 2>&1) || \
+    _DOCTOR_PROBE_RC=0
+    DOCTOR_OUTPUT=$($_DOCTOR_TIMEOUT_WRAP "${ASSISTANT_BINARY}" doctor 2>&1) || {
+        _DOCTOR_PROBE_RC=$?
         DOCTOR_OUTPUT="__DOCTOR_INVOCATION_FAILED__"
+    }
     eval "${_saved_err_trap:-}"
+    # #839: a warming daemon is an EXPECTED non-zero here and the step
+    # must not be marked bad for it, so only the 10 s cap is folded in.
+    # A probe that hit its cap means the daemon never answered, which is
+    # a fact about this install, not about the probe.
+    if [[ "$_DOCTOR_PROBE_RC" -eq 124 ]] || [[ "$_DOCTOR_PROBE_RC" -eq 137 ]]; then
+        gui_step_record_rc "$_DOCTOR_PROBE_RC"
+    fi
+    unset _DOCTOR_PROBE_RC
 
     if [[ "$DOCTOR_OUTPUT" == "__DOCTOR_INVOCATION_FAILED__" ]]; then
         info "$MSG_INFO_OSTLER_ASSISTANT_DOCTOR_DEFERRED_DAEMON_MAY"
@@ -21062,6 +21691,11 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
             if [[ "$_aiconv_rc" -eq 124 ]] || [[ "$_aiconv_rc" -eq 137 ]]; then
                 _AICONV_TIMED_OUT=true
             fi
+            # #839: the AI-Conversations drain deliberately writes NO
+            # sentinel on the timeout / crash arms (so the next run
+            # retries), which means its rc never reached the shared
+            # recorder. Fold it in explicitly.
+            gui_step_record_rc "$_aiconv_rc"
 
             _AICONV_JSON="$(tail -n 1 "$_AICONV_OUT" 2>/dev/null)" || _AICONV_JSON=""
             rm -f "$_AICONV_OUT"
@@ -21486,7 +22120,7 @@ echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━�
 # its sidebar to the success state and offer a "Reveal in Finder"
 # affordance for ~/Documents/Ostler.
 if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
-    gui_step_end ok
+    gui_step_end
 fi
 gui_done ok
 

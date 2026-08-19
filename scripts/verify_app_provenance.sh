@@ -142,9 +142,31 @@ ok "bundle attests provenance: $WRAPPER_SHA ($(git -C "$REF" log -1 --format=%s 
 # --------------------------------------------------------------------------
 DAEMON_SHA="${OSTLER_DAEMON_COMMIT:-}"
 if [[ -z "$DAEMON_SHA" ]]; then
-    DAEMON_SHA="$(git -C "$REF" rev-parse HEAD 2>/dev/null || true)"
-    [[ -n "$DAEMON_SHA" ]] || cannot "no OSTLER_DAEMON_COMMIT set and $REF has no resolvable HEAD"
-    warn "OSTLER_DAEMON_COMMIT unset; comparing against $REF HEAD ${DAEMON_SHA:0:8}"
+    # WAS: fall back to `git -C "$REF" rev-parse HEAD` with a warn. That made
+    # this check VACUOUS on every real cut, and the warn read as informational.
+    #
+    # The bundle is BUILT FROM the reference checkout, so its attested commit
+    # and that clone's HEAD are normally the SAME COMMIT. The parity loop then
+    # compares tree "<sha>:web" against tree "<sha>:web" -- the artefact
+    # against itself -- and reports "frontend parity: identical commit". It
+    # cannot fail. Measured on the shipping v1.0.33 cut (run 31998597024,
+    # 05:39:50Z): wrapper 5b7efb00, daemon operand 5b7efb00, self-comparison.
+    #
+    # The question in this section's own heading is parity "against the daemon
+    # this cut ships". A clone's HEAD is not that, and no default can guess it.
+    # So refuse. An unmeasured parity is not a pass -- the same rule already
+    # applied above to a missing sentinel and to a non-git reference checkout.
+    cannot "OSTLER_DAEMON_COMMIT is not set, so this gate cannot determine which daemon this cut ships.
+
+  Frontend parity is meaningless without it: the bundle is built from the
+  reference checkout, so defaulting to that clone's HEAD compares the artefact
+  against ITSELF and always agrees.
+
+  The caller must say which daemon it ships. gui/Makefile resolves this from
+  cuts/<tag>/cut.env DAEMON_COMMIT and exports it; if you are invoking this
+  script directly, pass it the same way:
+
+      OSTLER_DAEMON_COMMIT=<sha> $(basename "$0") <app> <reference-checkout>"
 fi
 git -C "$REF" cat-file -e "${DAEMON_SHA}^{commit}" 2>/dev/null \
     || cannot "daemon commit $DAEMON_SHA not found in $REF"

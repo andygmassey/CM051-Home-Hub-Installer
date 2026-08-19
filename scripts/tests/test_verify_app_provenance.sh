@@ -134,6 +134,55 @@ if grep -q 'reference checkout is not a git repo' <<<"$out"; then
   printf '  PASS  %-52s\n' "and it NAMES the cause (not a git repo)"; PASS=$((PASS+1))
 else printf '  FAIL  %-52s\n' "did not name the cause"; FAIL=$((FAIL+1)); fi
 
+# ---------------------------------------------------------------------------
+# 9. THE OPERAND CONTROL. An unset OSTLER_DAEMON_COMMIT must be CANNOT-RUN.
+#
+# Every control above passes the pin explicitly. That is why nobody noticed
+# that the path PRODUCTION TAKES had no coverage at all: cut.yml never set
+# OSTLER_DAEMON_COMMIT, so on every real cut the gate fell through to
+# `git rev-parse HEAD` on the reference checkout and compared the bundle
+# against WHATEVER THAT CLONE HAPPENED TO BE AT.
+#
+# The question this gate exists to answer is in its own section heading:
+# frontend parity "against the daemon this cut ships". The reference clone's
+# HEAD is not that. It is the same commit only when the daemon pin happens to
+# equal upstream main.
+#
+# On v1.0.33 it did, and the gate printed "frontend parity: identical commit
+# 5b7efb00". It was right by luck: ORM had frozen the daemon lane for that cut
+# and verified the equality BY HAND. Freeze the lane differently, or cut while
+# the pin lags main -- the normal case, and the entire reason hold_ack exists
+# -- and it silently compares against a daemon that is not being shipped.
+#
+# So the fallback is removed rather than improved. An unmeasured parity is not
+# a pass, which is the rule this gate already applies to a missing sentinel and
+# to a non-git reference checkout. The caller must SAY which daemon it ships.
+# ---------------------------------------------------------------------------
+out="$(env -u OSTLER_DAEMON_COMMIT bash "$GATE" "$(make_bundle good "$C3")" "$REPO" 2>&1)"; rc=$?
+if [[ "$rc" == 2 ]]; then
+  printf '  PASS  %-52s rc=2\n' "no daemon pin -> CANNOT (2), not a HEAD guess"; PASS=$((PASS+1))
+else
+  printf '  FAIL  %-52s rc=%s want=2\n' "no daemon pin -> CANNOT" "$rc"
+  printf '%s\n' "$out" | sed 's/^/        | /'; FAIL=$((FAIL+1))
+fi
+# It must name the WIRING, not the bundle. A bare "cannot run" sends the reader
+# hunting a bad artefact when the actual fault is a caller that forgot to say
+# which daemon it ships.
+#
+# NOT `grep OSTLER_DAEMON_COMMIT`. That was the first version of this line and
+# it was BLIND: the old fallback's warn contained that token too, so the
+# control passed in the red state and the green state alike. Match a string
+# only the refusal can produce.
+if grep -q 'cannot determine which daemon this cut ships' <<<"$out"; then
+  printf '  PASS  %-52s\n' "and it NAMES the wiring fault, not the bundle"; PASS=$((PASS+1))
+else printf '  FAIL  %-52s\n' "did not name the wiring fault"; FAIL=$((FAIL+1)); fi
+
+# 10. AND THE OPERAND IS LOAD-BEARING, not decorative. Same bundle, same repo,
+#     two different pins, two different verdicts. If these ever agree, the pin
+#     is being ignored again and control 9 is the only thing standing up.
+check "pin C2 (frontend same as bundle C1) -> passes" 0 "$(make_bundle op1 "$C1")" "$C2"
+check "pin C3 (frontend differs from bundle C1) -> fails" 1 "$(make_bundle op2 "$C1")" "$C3"
+
 echo
 echo "  $PASS passed, $FAIL failed"
 [[ "$FAIL" == 0 ]] || exit 1

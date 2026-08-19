@@ -161,4 +161,80 @@ final class ProgressDecoderTests: XCTestCase {
         }
         XCTAssertEqual(title, "Installing Docker")
     }
+
+    // ── #839: the status field must not fail open ─────────────────────
+    //
+    // install.sh now emits `status=timeout` (rc 124/137, "we gave up
+    // waiting") and `status=error` (any other non-zero rc) on STEP_END.
+    // Before this change the decoder read the field as
+    // `StepStatus(rawValue: ...) ?? .ok`, so ANY status it did not
+    // recognise decoded to success. The shell would have reported a
+    // step killed by its cap and the GUI would have drawn a green tick
+    // over it: the same lie on a second surface.
+
+    func testTimedOutStepDoesNotDecodeAsOK() {
+        // The exact line shape the v1.0.36 install should have written
+        // for the step that was killed by its 90-second cap.
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_END\tid=hydrate_people\tstatus=timeout\telapsed_s=90\trc=124"
+        )
+        guard case .stepEnd(let id, let status, let elapsed) = event else {
+            return XCTFail("expected .stepEnd, got \(event)")
+        }
+        XCTAssertEqual(id, "hydrate_people")
+        XCTAssertNotEqual(status, .ok, "a timed-out step decoded as success")
+        XCTAssertEqual(status, .timeout)
+        XCTAssertTrue(status.isProblem)
+        XCTAssertEqual(elapsed, 90)
+    }
+
+    func testErroredStepDecodesAsErrorNotOK() {
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_END\tid=hydrate_browsing\tstatus=error\telapsed_s=4\trc=3"
+        )
+        guard case .stepEnd(_, let status, _) = event else {
+            return XCTFail("expected .stepEnd, got \(event)")
+        }
+        XCTAssertEqual(status, .error)
+        XCTAssertTrue(status.isProblem)
+    }
+
+    func testCleanStepStillDecodesAsOK() {
+        // POSITIVE CONTROL. Without this a decoder that returned .warn
+        // for everything would pass both tests above.
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_END\tid=cm048_setup\tstatus=ok\telapsed_s=2"
+        )
+        guard case .stepEnd(_, let status, _) = event else {
+            return XCTFail("expected .stepEnd, got \(event)")
+        }
+        XCTAssertEqual(status, .ok)
+        XCTAssertFalse(status.isProblem)
+    }
+
+    func testUnrecognisedStatusDoesNotDecodeAsOK() {
+        // An older GUI reading a newer install.sh. "Unknown" must never
+        // round to "fine": that rounding is what the `?? .ok` did.
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_END\tid=some_step\tstatus=exploded\telapsed_s=1"
+        )
+        guard case .stepEnd(_, let status, _) = event else {
+            return XCTFail("expected .stepEnd, got \(event)")
+        }
+        XCTAssertNotEqual(status, .ok)
+        XCTAssertEqual(status, .warn)
+    }
+
+    func testAbsentStatusStillDecodesAsOK() {
+        // The legacy wire shape carried no status at all. Absent means
+        // "nothing to report" and stays ok; only an UNRECOGNISED value
+        // is downgraded.
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_END\tid=some_step\telapsed_s=1"
+        )
+        guard case .stepEnd(_, let status, _) = event else {
+            return XCTFail("expected .stepEnd, got \(event)")
+        }
+        XCTAssertEqual(status, .ok)
+    }
 }

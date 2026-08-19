@@ -135,6 +135,19 @@ enum PromptKind: String, Equatable {
 
 enum StepStatus: String, Equatable {
     case ok, warn, fail
+    /// #839: a child was killed by its wall-clock cap (rc 124 SIGTERM /
+    /// 137 SIGKILL). "We gave up waiting", NOT "it failed". Best-effort
+    /// hydrate steps end this way legitimately and the customer keeps
+    /// the same reassuring copy; the difference is that the record no
+    /// longer claims the step succeeded.
+    case timeout
+    /// #839: a child exited non-zero for a reason other than its cap.
+    case error
+
+    /// True when the step did not do its job, whatever the reason.
+    /// Everything that is not `ok` counts, so a status added later is
+    /// counted as a problem by default rather than silently ignored.
+    var isProblem: Bool { self != .ok }
 }
 
 /// Stateful line buffer that pulls #OSTLER markers out of a stream
@@ -152,6 +165,24 @@ struct ProgressDecoder {
     /// typed in copy (encoded as "%250A") round-trips unharmed. Values
     /// without the sentinel pass through unchanged, so this is safe for
     /// every marker field, not just help=.
+    /// Decode a `status=` field without failing open.
+    ///
+    /// #839: both STEP_END and DONE used to decode their status as
+    /// `StepStatus(rawValue: kv["status"] ?? "ok") ?? .ok`. That `?? .ok`
+    /// is a fail-open: any status the Swift side did not recognise -- an
+    /// older GUI reading a newer install.sh, a typo, or the `timeout` and
+    /// `error` values this change introduces -- decoded to SUCCESS. The
+    /// shell would have said the step was killed and the GUI would have
+    /// drawn a green tick, which is the same lie on a second surface.
+    ///
+    /// An ABSENT status is still `.ok`: that is the legacy wire shape and
+    /// means "nothing to report". An UNRECOGNISED status is `.warn`: we do
+    /// not know what it means, and "unknown" must never round to "fine".
+    private static func decodeStatus(_ raw: String?) -> StepStatus {
+        guard let raw, !raw.isEmpty else { return .ok }
+        return StepStatus(rawValue: raw) ?? .warn
+    }
+
     private static func decodeValue(_ v: String) -> String {
         guard v.contains("%") else { return v }
         return v
@@ -239,7 +270,7 @@ struct ProgressDecoder {
         case "STEP_END":
             return .stepEnd(
                 id: kv["id"] ?? "?",
-                status: StepStatus(rawValue: kv["status"] ?? "ok") ?? .ok,
+                status: Self.decodeStatus(kv["status"]),
                 elapsedSeconds: Int(kv["elapsed_s"] ?? "0") ?? 0
             )
         case "PHASE":
@@ -258,7 +289,7 @@ struct ProgressDecoder {
             }
             let code = kv["code"].flatMap { $0.isEmpty ? nil : $0 }
             return .done(
-                status: StepStatus(rawValue: kv["status"] ?? "ok") ?? .ok,
+                status: Self.decodeStatus(kv["status"]),
                 errorCode: code
             )
         case "RECOVERY_KEY":
