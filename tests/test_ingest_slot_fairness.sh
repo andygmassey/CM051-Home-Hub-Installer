@@ -677,6 +677,62 @@ wait "$HOLDER12" 2>/dev/null || true
 rm -rf "$WS12" 2>/dev/null || true
 trap - EXIT
 
+# ---------------------------------------------------------------------
+# Section 13 -- A FAILED STOP MUST NOT RETIRE THE ENFORCER.
+#
+# _ostler_slot_kill_tree returns 1 when TERM and KILL both failed. The
+# watchdog used to call it and `return 0` regardless -- computing a
+# verdict and discarding it, then exiting and leaving NOTHING watching
+# the slot. That is the same enforced-once-then-abandoned shape this
+# whole fix exists to close, and it was sitting inside the fix (#861
+# residual A, found by Archie).
+#
+# Asserted BEHAVIOURALLY: stub the kill so it always fails, then check
+# the watchdog is STILL ALIVE several polls later. "An enforcer remains"
+# is the property; the log line is not the property.
+# ---------------------------------------------------------------------
+echo
+echo "== Section 13: a failed stop keeps the watchdog alive, it does not exit =="
+
+WS13="$(mktemp -d)"
+[ -n "$WS13" ] && [ -d "$WS13" ] || { failure "could not create a workspace for section 13; NOTHING was checked, which is not a pass"; WS13=""; }
+
+if [ -n "$WS13" ]; then
+    cat > "$WS13/probe.sh" <<'PROBE'
+. "$1"
+# Stub: the stop ALWAYS fails, as an unkillable payload would.
+_ostler_slot_kill_tree() { _ostler_slot_log "stub: pretending TERM and KILL both failed"; return 1; }
+ostler_slot_acquire "holder13" >/dev/null 2>&1 || exit 9
+# Make the hold bounded immediately: enrol a waiter marker by hand, the
+# same file _ostler_slot_enrol writes.
+mkdir -p "$_OSTLER_SLOT_WAITERS" 2>/dev/null
+printf '%s %s\n' "$(_ostler_slot_now)" "$$" > "$_OSTLER_SLOT_WAITERS/other13"
+printf '%s\n' "$(_ostler_slot_now)" > "$_OSTLER_SLOT_DIR/bounded_from"
+sleep 600 &
+WORK=$!
+_ostler_slot_watchdog "$WORK" &
+WD=$!
+echo "$WD" > "$2"
+sleep 8
+if kill -0 "$WD" 2>/dev/null; then echo ALIVE; else echo EXITED; fi
+kill -KILL "$WORK" "$WD" 2>/dev/null || true
+PROBE
+
+    OSTLER_STATE_DIR="$WS13" OSTLER_INGEST_LOCK="$WS13/lock.d" \
+    OSTLER_SLOT_STATE_DIR="$WS13/slot" OSTLER_SLOT_MAX_HOLD_SECS=1 \
+    OSTLER_SLOT_POLL_SECS=1 OSTLER_SLOT_KILL_GRACE_SECS=1 \
+        /bin/bash "$WS13/probe.sh" "$LIB" "$WS13/wd.pid" > "$WS13/out" 2>&1
+    WD13="$(grep -E '^(ALIVE|EXITED)$' "$WS13/out" | tail -1)"
+
+    if [ "$WD13" = "ALIVE" ]; then
+        pass "the watchdog stayed up after a failed stop (an enforcer remains)"
+    else
+        failure "the watchdog exited after a failed stop (got '$WD13'). It computed a verdict, discarded it, and left the slot unenforced."
+    fi
+
+    rm -rf "$WS13" 2>/dev/null || true
+fi
+
 echo
 if [ "$FAILED" -ne 0 ]; then
     echo "RESULT: FAILED"
