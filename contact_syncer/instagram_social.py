@@ -413,7 +413,7 @@ def _username_to_display_name(username: str) -> str:
 
     Strips trailing digits, replaces separators with spaces, title-cases.
     E.g. "user123" stays as "user123" (no separators to split on),
-    "isla.whittet" → "Isla Whittet", "guy.williams.779" → "Guy Williams".
+    "jane.doe" → "Jane Doe", "john.smith.779" → "John Smith".
     """
     # Remove common suffixes like trailing numbers after dots/underscores
     import re

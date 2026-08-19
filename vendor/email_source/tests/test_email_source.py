@@ -173,23 +173,53 @@ class _StubDispatch:
     def make_cmd(self, tmp_path: Path) -> list[str]:
         capture = tmp_path / "capture.jsonl"
         script = tmp_path / "fake_pwg_convo.py"
+        # Handles BOTH subcommands the tick now issues (v1018-D021):
+        # `seed <manifest>` for the zero-model first pass and `process`
+        # for enrichment. Each record carries its `cmd` so a test can
+        # assert the ORDER the two passes ran in, which is the whole
+        # point of the split -- seeding after enrichment would be no
+        # better than not seeding at all.
         script.write_text(
             "import json, sys\n"
             "args = sys.argv[1:]\n"
+            f"cap = {str(capture)!r}\n"
+            "if 'seed' in args:\n"
+            "    manifest = args[args.index('seed') + 1]\n"
+            "    n = 0\n"
+            "    for line in open(manifest):\n"
+            "        line = line.strip()\n"
+            "        if not line:\n"
+            "            continue\n"
+            "        e = json.loads(line)\n"
+            "        rec = {\n"
+            "          'cmd': 'seed',\n"
+            "          'transcript': open(e['transcript']).read(),\n"
+            "          'metadata': json.load(open(e['metadata'])),\n"
+            "        }\n"
+            "        open(cap, 'a').write(json.dumps(rec) + '\\n')\n"
+            "        n += 1\n"
+            "    print(json.dumps({'seeded': n, 'skipped_or_failed': 0}))\n"
+            "    sys.exit(0)\n"
             "ti = args.index('process')\n"
             "tpath = args[ti + 1]\n"
             "mpath = args[ti + 2]\n"
             "rec = {\n"
+            "  'cmd': 'process',\n"
             "  'transcript': open(tpath).read(),\n"
             "  'metadata': json.load(open(mpath)),\n"
             "  'dry_run': '--dry-run' in args,\n"
             "}\n"
-            f"open({str(capture)!r}, 'a').write(json.dumps(rec) + '\\n')\n"
+            "open(cap, 'a').write(json.dumps(rec) + '\\n')\n"
         )
         self._capture = capture
         return [sys.executable, str(script)]
 
     def load(self) -> list[dict]:
+        """Enrichment dispatches only, so existing assertions about what
+        CM048 was handed keep meaning what they meant."""
+        return [r for r in self.load_all() if r.get("cmd") != "seed"]
+
+    def load_all(self) -> list[dict]:
         if not self._capture.exists():
             return []
         return [json.loads(line) for line in self._capture.read_text().splitlines()]

@@ -1,0 +1,47 @@
+name: wiki-tailnet-gate
+
+# The wiki renders the customer's entire personal graph and has no auth
+# of its own. v1.0.17 exposes it on the tailnet ONLY behind an nginx
+# gate that checks the identity headers `tailscale serve` stamps from
+# the verified WireGuard session.
+#
+# tests/test_wiki_tailnet_gate.sh does not merely grep install.sh: it
+# generates the real config, stands it up against a stub wiki in the
+# pinned nginx image, and drives HTTP at it -- 403 for no identity, a
+# non-owner, an empty header and Funnel; 200 + body for the owner. It
+# also runs a positive control so a validator that can no longer fail
+# is caught as a failure itself.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  wiki-tailnet-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the wiki tailnet gate guard
+        run: bash tests/test_wiki_tailnet_gate.sh
+
+      - name: Owner-resolution parser
+        if: always()
+        # The gate guard above proves nginx rejects the wrong user. It stays
+        # green when the owner was never resolved at all, because a gate with
+        # no owner rejects everyone -- correct, and indistinguishable from
+        # working. So it cannot catch a parser regression; this can.
+        # It extracts the parser from install.sh rather than copying it, so
+        # the test cannot drift from what ships.
+        run: python3 -m unittest tests.test_tailnet_owner_resolution -v

@@ -34,7 +34,10 @@ class MatchType(str, Enum):
     EXACT_TITLE = "exact_title"   # Exact title match
     FUZZY_TITLE = "fuzzy_title"   # Fuzzy/partial title match
     BEST_GUESS = "best_guess"     # First result, no validation
-    NONE = "none"                 # No match found
+    NONE = "none"                 # No match found -- the source ANSWERED and had nothing
+    UNAVAILABLE = "unavailable"   # The source could not be REACHED. Establishes nothing.
+                                  # Must never be rendered as an absence, and must stay
+                                  # eligible for a retry on a later run.
 
 
 @dataclass

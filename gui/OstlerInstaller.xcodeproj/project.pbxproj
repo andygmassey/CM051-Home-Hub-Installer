@@ -34,6 +34,7 @@
 		518D2D22C28A4FDC3193751D /* LicensePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */; };
 		51E255E2F487381E460923C0 /* HardwareFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE0CF828CCF9ED9B1E1129C /* HardwareFingerprint.swift */; };
 		5A0CDE4242E182B01897F1D2 /* PermissionsPrewarmCodeShapeTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41FB5F2EB882E0395B4E1E95 /* PermissionsPrewarmCodeShapeTest.swift */; };
+		5C929EC9E1AA80A742F125FD /* OnboardingButtonFooterProofTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2506E3AD81DD970743B00309 /* OnboardingButtonFooterProofTests.swift */; };
 		6294421D4362E4D2BB657559 /* StringsCatalogueEmDashTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = E72FA18E774D1E8714779AC2 /* StringsCatalogueEmDashTest.swift */; };
 		66A0343A50F3D01C5CF42933 /* IBMPlexSans-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 38CF88E41D08067999FC9583 /* IBMPlexSans-Regular.ttf */; };
 		673333837843D135C3E79E65 /* OnboardingQuestionXOfYTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */; };
@@ -115,6 +116,7 @@
 		1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceLimitReachedView.swift; sourceTree = "<group>"; };
 		1E50EE8CD2AF7059E753EEE6 /* JetBrainsMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMono-Regular.ttf"; sourceTree = "<group>"; };
 		206E78E1FD55698261A6A774 /* ErrorCodeBannerTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorCodeBannerTest.swift; sourceTree = "<group>"; };
+		2506E3AD81DD970743B00309 /* OnboardingButtonFooterProofTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingButtonFooterProofTests.swift; sourceTree = "<group>"; };
 		260069E8B35BBB27233D9472 /* InstallCompleteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallCompleteView.swift; sourceTree = "<group>"; };
 		290A4E2AACD1F8BA2DABFE13 /* OstlerTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OstlerTheme.swift; sourceTree = "<group>"; };
 		2EAED9BF2C1D82930A1EBABB /* generate_appicon.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = generate_appicon.py; sourceTree = "<group>"; };
@@ -169,6 +171,7 @@
 		BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingQRAutoShowTest.swift; sourceTree = "<group>"; };
 		BB6E0C82EBC47A0879ABDF6F /* SelfRelocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfRelocator.swift; sourceTree = "<group>"; };
 		BC0E7514B707DAC348288C34 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
+		BE7BB0EE47E5A189ADD4D75C /* .test-count-floor */ = {isa = PBXFileReference; path = ".test-count-floor"; sourceTree = "<group>"; };
 		BF7245F438452C4256C70950 /* LicenseEntryShortIdHeuristicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseEntryShortIdHeuristicTests.swift; sourceTree = "<group>"; };
 		C79B61D716E7D57F5C6D903B /* InstallFailedBannerTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallFailedBannerTest.swift; sourceTree = "<group>"; };
 		D32D456A934ED46ACD089EF7 /* FingerprintState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintState.swift; sourceTree = "<group>"; };
@@ -260,6 +263,7 @@
 		89CF886C4785D87342DA0608 /* OstlerInstallerTests */ = {
 			isa = PBXGroup;
 			children = (
+				BE7BB0EE47E5A189ADD4D75C /* .test-count-floor */,
 				40241AAA50AAB3FC5CE4B5A8 /* AdminAuthorizationGateTests.swift */,
 				FA2DD4BFA9AD7B98DECA06C0 /* BiometricProbeTests.swift */,
 				FF043F37481F3CACC3130494 /* DeviceLimitReachedViewSnapshotTests.swift */,
@@ -278,6 +282,7 @@
 				411CD9CA29EB6C5DE703956F /* LogDrawerFormatTests.swift */,
 				B6BE908E9E4B90F6733DD6FD /* LogRedactorTests.swift */,
 				DFBC7113D093B3D11E09202A /* OfflineGraceBoundTests.swift */,
+				2506E3AD81DD970743B00309 /* OnboardingButtonFooterProofTests.swift */,
 				091F620E783EA78D7DCFED68 /* OnboardingQuestionViewSnapshotTests.swift */,
 				EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */,
 				BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */,
@@ -457,7 +462,6 @@
 				};
 			};
 			buildConfigurationList = 83F8F40CF92AC5C4B89FB32F /* Build configuration list for PBXProject "OstlerInstaller" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -467,6 +471,7 @@
 			mainGroup = C75FEAA8301103D163767951;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
+			productRefGroup = 7FC686951F990D23E8C912BF /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -722,7 +727,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n# CX-19 (launch blocker, 2026-05-23). Studio retest #14 against\n# DMG #16 caught a phase-ordering bug that lands on every fresh\n# customer Mac: install.sh runs `python3 --version` early in\n# the QUESTIONS phase; on a stock macOS 15 install that hits\n# the /usr/bin/python3 Apple stub which fires the \"Install\n# Command Line Tools\" GUI dialog and returns non-zero. The\n# subsequent `brew install python@3.11` fallback also fails\n# because Homebrew has not been installed yet.\n#\n# Fix: bundle a portable Python 3.11 inside the .app via\n# python-build-standalone (the same upstream uv / ruff / mise /\n# Posit consume). install.sh prefers the bundled binary at\n# ${SCRIPT_DIR}/python/bin/python3.11 over any system python3,\n# so the customer install never depends on CLT or Homebrew\n# being present for the venv work.\n#\n# The Makefile target `download-python` (in gui/Makefile)\n# downloads + SHA-256-verifies the tarball into\n# ${BUILD_DIR}/python-bundle.tar.gz before xcodebuild runs.\n# If you are invoking xcodebuild by hand (rare), run\n# `make -C gui download-python` first.\n#\n# Apple Silicon only for v1.0 (the aarch64-apple-darwin\n# install_only flavor). Intel Mac support deferred to v1.0.1.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n# The Makefile drops the tarball at ${BUILD_DIR}/python-bundle.tar.gz.\n# When `make ship` is the entry point, BUILD_DIR defaults to\n# /tmp/ostler-installer-build-andy. When xcodebuild runs from\n# Xcode.app directly, fall back to a sibling-of-SRCROOT build/ dir.\nPYTHON_TARBALL=\"\"\nfor candidate in \\\n    \"/tmp/ostler-installer-build-andy/python-bundle.tar.gz\" \\\n    \"${SRCROOT}/../build/python-bundle.tar.gz\" \\\n    \"${SRCROOT}/build/python-bundle.tar.gz\"; do\n    if [ -f \"$candidate\" ]; then\n        PYTHON_TARBALL=\"$candidate\"\n        break\n    fi\ndone\nif [ -z \"$PYTHON_TARBALL\" ]; then\n    echo \"ERROR: python-build-standalone tarball missing.\" >&2\n    echo \"       Run 'make -C gui download-python' before building.\" >&2\n    echo \"       Searched:\" >&2\n    echo \"         /tmp/ostler-installer-build-andy/python-bundle.tar.gz\" >&2\n    echo \"         ${SRCROOT}/../build/python-bundle.tar.gz\" >&2\n    echo \"         ${SRCROOT}/build/python-bundle.tar.gz\" >&2\n    exit 1\nfi\necho \"Bundling python-build-standalone from ${PYTHON_TARBALL} into Resources/python/\"\n# Wipe any prior extraction so re-runs are idempotent and we never\n# ship a hybrid tree from two different upstream releases.\nrm -rf \"${DEST}/python\"\nmkdir -p \"${DEST}/python\"\n# --strip-components=1 drops the upstream \"python/\" wrapper dir.\ntar -xzf \"$PYTHON_TARBALL\" -C \"${DEST}/python\" --strip-components=1\n# Strip __pycache__ from the standard library before codesign.\n# python-build-standalone ships pre-compiled .pyc files; they are\n# not signable, and codesign --deep refuses to traverse them when\n# the parent dir lands as a \"code resource\". CPython regenerates\n# them lazily at first import. Mirror of the cm024_knowledge /\n# cm048_pipeline patterns below.\nfind \"${DEST}/python\" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true\nfind \"${DEST}/python\" -type f -name \"*.pyc\" -delete 2>/dev/null || true\n# Verify the binary landed at the expected path. install.sh\n# specifically tests `[[ -x ${SCRIPT_DIR}/python/bin/python3.11 ]]`\n# so a layout drift in upstream would silently degrade us back\n# to the system-python path (which is the failure shape we are\n# paying down). Refuse to ship a misshapen bundle.\nif [ ! -x \"${DEST}/python/bin/python3.11\" ]; then\n    echo \"ERROR: python3.11 binary not found at\" >&2\n    echo \"       ${DEST}/python/bin/python3.11 after extraction.\" >&2\n    echo \"       Upstream tarball layout may have changed.\" >&2\n    exit 1\nfi\n# Belt-and-braces xattr strip on the destination.\n/usr/bin/xattr -cr \"${DEST}/python\" || true\n";
+			shellScript = "set -euo pipefail\n# CX-19 (launch blocker, 2026-05-23). Studio retest #14 against\n# DMG #16 caught a phase-ordering bug that lands on every fresh\n# customer Mac: install.sh runs `python3 --version` early in\n# the QUESTIONS phase; on a stock macOS 15 install that hits\n# the /usr/bin/python3 Apple stub which fires the \"Install\n# Command Line Tools\" GUI dialog and returns non-zero. The\n# subsequent `brew install python@3.11` fallback also fails\n# because Homebrew has not been installed yet.\n#\n# Fix: bundle a portable Python 3.11 inside the .app via\n# python-build-standalone (the same upstream uv / ruff / mise /\n# Posit consume). install.sh prefers the bundled binary at\n# ${SCRIPT_DIR}/python/bin/python3.11 over any system python3,\n# so the customer install never depends on CLT or Homebrew\n# being present for the venv work.\n#\n# The Makefile target `download-python` (in gui/Makefile)\n# downloads + SHA-256-verifies the tarball into\n# ${BUILD_DIR}/python-bundle.tar.gz before xcodebuild runs.\n# If you are invoking xcodebuild by hand (rare), run\n# `make -C gui download-python` first.\n#\n# Apple Silicon only for v1.0 (the aarch64-apple-darwin\n# install_only flavor). Intel Mac support deferred to v1.0.1.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n# The Makefile drops the tarball at ${BUILD_DIR}/python-bundle.tar.gz.\n# When `make ship` is the entry point, BUILD_DIR defaults to\n# /tmp/ostler-installer-build-${USER:-}. When xcodebuild runs from\n# Xcode.app directly, fall back to a sibling-of-SRCROOT build/ dir.\nPYTHON_TARBALL=\"\"\nfor candidate in \\\n    \"/tmp/ostler-installer-build-${USER:-}/python-bundle.tar.gz\" \\\n    \"${SRCROOT}/../build/python-bundle.tar.gz\" \\\n    \"${SRCROOT}/build/python-bundle.tar.gz\"; do\n    if [ -f \"$candidate\" ]; then\n        PYTHON_TARBALL=\"$candidate\"\n        break\n    fi\ndone\nif [ -z \"$PYTHON_TARBALL\" ]; then\n    echo \"ERROR: python-build-standalone tarball missing.\" >&2\n    echo \"       Run 'make -C gui download-python' before building.\" >&2\n    echo \"       Searched:\" >&2\n    echo \"         /tmp/ostler-installer-build-${USER:-}/python-bundle.tar.gz\" >&2\n    echo \"         ${SRCROOT}/../build/python-bundle.tar.gz\" >&2\n    echo \"         ${SRCROOT}/build/python-bundle.tar.gz\" >&2\n    exit 1\nfi\necho \"Bundling python-build-standalone from ${PYTHON_TARBALL} into Resources/python/\"\n# Wipe any prior extraction so re-runs are idempotent and we never\n# ship a hybrid tree from two different upstream releases.\nrm -rf \"${DEST}/python\"\nmkdir -p \"${DEST}/python\"\n# --strip-components=1 drops the upstream \"python/\" wrapper dir.\ntar -xzf \"$PYTHON_TARBALL\" -C \"${DEST}/python\" --strip-components=1\n# Strip __pycache__ from the standard library before codesign.\n# python-build-standalone ships pre-compiled .pyc files; they are\n# not signable, and codesign --deep refuses to traverse them when\n# the parent dir lands as a \"code resource\". CPython regenerates\n# them lazily at first import. Mirror of the cm024_knowledge /\n# cm048_pipeline patterns below.\nfind \"${DEST}/python\" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true\nfind \"${DEST}/python\" -type f -name \"*.pyc\" -delete 2>/dev/null || true\n# Verify the binary landed at the expected path. install.sh\n# specifically tests `[[ -x ${SCRIPT_DIR}/python/bin/python3.11 ]]`\n# so a layout drift in upstream would silently degrade us back\n# to the system-python path (which is the failure shape we are\n# paying down). Refuse to ship a misshapen bundle.\nif [ ! -x \"${DEST}/python/bin/python3.11\" ]; then\n    echo \"ERROR: python3.11 binary not found at\" >&2\n    echo \"       ${DEST}/python/bin/python3.11 after extraction.\" >&2\n    echo \"       Upstream tarball layout may have changed.\" >&2\n    exit 1\nfi\n# Belt-and-braces xattr strip on the destination.\n/usr/bin/xattr -cr \"${DEST}/python\" || true\n";
 		};
 		67A22DB55E8A84F7D0AF3AAE /* Bundle CM041 PWG People Graph (contact_syncer + meeting_syncer + identity_resolver + assistant_api) into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -993,6 +998,7 @@
 				"$(SRCROOT)/../lib/progress_emitter.sh",
 				"$(SRCROOT)/../lib/write_pipeline_signals.py",
 				"$(SRCROOT)/../lib/ostler-model-fit.sh",
+				"$(SRCROOT)/../lib/settling_progress.sh",
 				"$(SRCROOT)/../install.sh.strings.en-GB.sh",
 			);
 			name = "Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources";
@@ -1003,11 +1009,12 @@
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\n# CX-34 (2026-05-24, Studio retest #21): write_pipeline_signals.py is\n# invoked by install.sh:6220 (Mail content probe) to write\n# ~/.ostler/state/pipeline_signals.json. Pre-CX-34 it was missing from\n# the bundle, so install.sh fell through to the warn-only \"could not\n# write pipeline_signals.json\" branch -- which means Doctor's empty-\n# Mail diagnostic loses its sidecar and the install path silently\n# degrades. Bundle it alongside progress_emitter.sh.\ncp \"${SRCROOT}/../lib/write_pipeline_signals.py\"       \"${DEST}/lib/write_pipeline_signals.py\"\n# ostler-model-fit.sh (REUSE-4): install.sh sources it from\n# ${SCRIPT_DIR}/lib/ostler-model-fit.sh to pick an Ollama model the\n# box can actually run at num_ctx 32768. Missing = legacy RAM-ladder\n# fallback, but bundle it so customers get the fit assessment.\ncp \"${SRCROOT}/../lib/ostler-model-fit.sh\"             \"${DEST}/lib/ostler-model-fit.sh\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\" \"${DEST}/lib/ostler-model-fit.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\" \"${DEST}/lib/write_pipeline_signals.py\"\n# Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app\n# so the customer DMG ships a clean single-app layout (just the\n# installer + drag-to-Applications) yet install.sh's source-\n# preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle\n# at runtime when install.sh runs from inside Contents/Resources.\n# OSTLER_APP_PATH is passed as an xcodebuild build setting by\n# gui/Makefile's release target; if absent or missing the build\n# logs a warning and the customer install will skip the Hub-app\n# step (install.sh's existing source-not-found warning).\n#\n# IMPORTANT (2026-06-19 cut): capture the value via the `${VAR:-}`\n# default form FIRST. xcodegen performs its own ${VAR} substitution\n# on plain `${OSTLER_APP_PATH}` at *generation* time (replacing it\n# with the empty string when unset in the generator's env), which\n# silently broke hub bundling after a `make regen`. The `:-` form\n# is passed through literally to the shell, so we read the build\n# setting through it once and use a plain shell var thereafter.\nOSTLER_APP_SRC=\"${OSTLER_APP_PATH:-}\"\nif [ -n \"$OSTLER_APP_SRC\" ] && [ -d \"$OSTLER_APP_SRC\" ]; then\n  echo \"Bundling Ostler.app from $OSTLER_APP_SRC into Resources/\"\n  cp -R \"$OSTLER_APP_SRC\" \"${DEST}/Ostler.app\"\n  /usr/bin/xattr -cr \"${DEST}/Ostler.app\" || true\nelse\n  echo \"WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app.\" >&2\nfi\n";
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\n# CX-34 (2026-05-24, Studio retest #21): write_pipeline_signals.py is\n# invoked by install.sh:6220 (Mail content probe) to write\n# ~/.ostler/state/pipeline_signals.json. Pre-CX-34 it was missing from\n# the bundle, so install.sh fell through to the warn-only \"could not\n# write pipeline_signals.json\" branch -- which means Doctor's empty-\n# Mail diagnostic loses its sidecar and the install path silently\n# degrades. Bundle it alongside progress_emitter.sh.\ncp \"${SRCROOT}/../lib/write_pipeline_signals.py\"       \"${DEST}/lib/write_pipeline_signals.py\"\n# ostler-model-fit.sh (REUSE-4): install.sh sources it from\n# ${SCRIPT_DIR}/lib/ostler-model-fit.sh to pick an Ollama model the\n# box can actually run at num_ctx 32768. Missing = legacy RAM-ladder\n# fallback, but bundle it so customers get the fit assessment.\ncp \"${SRCROOT}/../lib/ostler-model-fit.sh\"             \"${DEST}/lib/ostler-model-fit.sh\"\n# settling_progress.sh: install.sh sources it from\n# ${SCRIPT_DIR}/lib/settling_progress.sh to report the `contacts` and\n# `emails` channels on the wiki's settling panel. Those two producers\n# (CM041 contact_syncer, CM021 pwg-email-ingest) cannot import HR015's\n# Python writer -- ostler_fda is never copied into PIPELINE_DIR -- so\n# this file IS their writer. Missing from the bundle = install.sh\n# falls back to a silent no-op and both channels ship permanently\n# blank, which looks identical to a feature nobody built.\ncp \"${SRCROOT}/../lib/settling_progress.sh\"            \"${DEST}/lib/settling_progress.sh\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\" \"${DEST}/lib/ostler-model-fit.sh\" \"${DEST}/lib/settling_progress.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\" \"${DEST}/lib/write_pipeline_signals.py\"\n# Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app\n# so the customer DMG ships a clean single-app layout (just the\n# installer + drag-to-Applications) yet install.sh's source-\n# preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle\n# at runtime when install.sh runs from inside Contents/Resources.\n# OSTLER_APP_PATH is passed as an xcodebuild build setting by\n# gui/Makefile's release target; if absent or missing the build\n# logs a warning and the customer install will skip the Hub-app\n# step (install.sh's existing source-not-found warning).\n#\n# IMPORTANT (2026-06-19 cut): capture the value via the `${VAR:-}`\n# default form FIRST. xcodegen performs its own ${VAR} substitution\n# on a plain brace-reference to OSTLER_APP_PATH at *generation* time\n# (replacing it with the empty string when the var exists but is\n# empty in the generator's env), which silently broke hub bundling\n# after a `make regen`. The `:-` form\n# is passed through literally to the shell, so we read the build\n# setting through it once and use a plain shell var thereafter.\nOSTLER_APP_SRC=\"${OSTLER_APP_PATH:-}\"\nif [ -n \"$OSTLER_APP_SRC\" ] && [ -d \"$OSTLER_APP_SRC\" ]; then\n  echo \"Bundling Ostler.app from $OSTLER_APP_SRC into Resources/\"\n  cp -R \"$OSTLER_APP_SRC\" \"${DEST}/Ostler.app\"\n  /usr/bin/xattr -cr \"${DEST}/Ostler.app\" || true\nelse\n  echo \"WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app.\" >&2\nfi\n";
 		};
 		ED9B7924786866EDDAFDA889 /* Bundle cm024_knowledge Python package into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1155,6 +1162,7 @@
 				D332D6613EB2B64A6CD3F16E /* LogDrawerFormatTests.swift in Sources */,
 				F94300D944302E7EA4A88CCD /* LogRedactorTests.swift in Sources */,
 				7C2FD24BFBC3AAB36EDE9263 /* OfflineGraceBoundTests.swift in Sources */,
+				5C929EC9E1AA80A742F125FD /* OnboardingButtonFooterProofTests.swift in Sources */,
 				8BDA08160BDF8F7A4F3B006D /* OnboardingQuestionViewSnapshotTests.swift in Sources */,
 				673333837843D135C3E79E65 /* OnboardingQuestionXOfYTests.swift in Sources */,
 				C973E9E0EEBA6E800B3EB80B /* PairingQRAutoShowTest.swift in Sources */,
@@ -1299,7 +1307,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 3600;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = V95N2B8X7A;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1314,7 +1322,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.10;
+				MARKETING_VERSION = 1.0.36;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_CODE_SIGN_FLAGS = "--timestamp";
@@ -1364,7 +1372,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 3600;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = V95N2B8X7A;
 				ENABLE_HARDENED_RUNTIME = NO;
@@ -1385,7 +1393,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.10;
+				MARKETING_VERSION = 1.0.36;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

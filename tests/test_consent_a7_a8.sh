@@ -164,11 +164,11 @@ if [[ -z "$EU_BLOCK" ]]; then
     printf 'FAIL: could not isolate EU consent block\n' >&2
     exit 1
 fi
-if ! printf '%s\n' "$EU_BLOCK" | grep -q 'rm -rf "$OSTLER_DIR"'; then
+if ! grep -q 'rm -rf "$OSTLER_DIR"' <<< "$EU_BLOCK"; then
     printf 'FAIL: Article 9 decline path does not wipe ~/.ostler/\n' >&2
     exit 1
 fi
-if ! printf '%s\n' "$EU_BLOCK" | grep -q 'declined'; then
+if ! grep -q 'declined' <<< "$EU_BLOCK"; then
     printf 'FAIL: declined record not assigned in EU decline branch\n' >&2
     exit 1
 fi

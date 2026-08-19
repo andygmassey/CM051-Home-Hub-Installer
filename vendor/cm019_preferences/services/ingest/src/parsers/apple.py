@@ -262,7 +262,6 @@ class AppleParser(BaseParser):
             "video play activity.csv",
             "your podcasts.csv",
             "your podcast episode bookmarks.csv",
-            "reviews.csv",
             "bookstore click activity.csv",
             "apple tv bookmarks.csv",
             "apple tv favorites and wishlist.csv",
@@ -270,6 +269,16 @@ class AppleParser(BaseParser):
         ]
         # Check standard patterns
         if any(f in name for f in apple_files):
+            return True
+        # Reviews.csv is matched EXACTLY, because that is how the dispatcher in
+        # parse() matches it (`elif file_name == "reviews.csv"`). It used to
+        # live in the list above, which is tested with `in`, so the claim was
+        # wider than the handler: "reviews.csv" is a substring of
+        # "Retail.ProductReviews.csv", so this parser took Apple's retail
+        # product reviews and then dropped the file off the end of an if/elif
+        # chain with no matching arm. Measured: 0 preferences, against 2 from
+        # the generic CSV parser, which reads it through the "Product" column.
+        if name == "reviews.csv":
             return True
         # Special check for TV App file (name contains "with Channel Support" in middle)
         if "tv app" in name and "click activity" in name:

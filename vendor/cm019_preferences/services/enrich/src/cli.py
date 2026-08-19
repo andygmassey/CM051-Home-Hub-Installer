@@ -18,7 +18,7 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 import click
@@ -45,19 +45,19 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
-# Valid categories for enrichment
-VALID_CATEGORIES = [
-    # Core media
-    "book", "movie", "video", "music", "tv", "tv_show", "podcast", "artist", "track",
-    # URLs/bookmarks
-    "bookmark", "website", "page",
-    # Brands/topics
-    "brand", "interest", "topic", "search_interest",
-    # Places
-    "place", "venue", "restaurant",
-    # Events
-    "event", "ticket", "concert",
-]
+# Valid categories for enrichment.
+#
+# DERIVED from the dispatch table, not maintained beside it. These were two
+# hand-kept lists and they had drifted: measured 2026-08-17, NINE categories
+# were dispatchable but rejected by --category, including movie_tv (175
+# preferences on a real corpus, the largest film category), education (106)
+# and food (13). `--all` reached them; `--category movie_tv` returned
+# "Invalid category". Two sources of truth for the same fact, disagreeing.
+#
+# Found by running the CLI against the real corpus on the box. No unit test
+# caught it, because both lists were self-consistent and each test used the
+# one its own code path read.
+VALID_CATEGORIES = sorted(EnrichmentService.CATEGORY_CLIENTS.keys())
 
 
 def validate_category(ctx, param, value):
@@ -365,7 +365,17 @@ def cli():
 @click.option(
     "--all", "all_categories",
     is_flag=True,
-    help="Enrich all supported categories"
+    help="Enrich every category that has a client (see enrichable_categories)"
+)
+@click.option(
+    "--budget-seconds",
+    default=lambda: int(os.environ.get("OSTLER_ENRICH_BUDGET_SECONDS", "600")),
+    type=int,
+    help=(
+        "Wall-clock allowance for the whole pass. 0 means no limit. "
+        "Whatever is not reached is not failed: the next run resumes it, "
+        "because enrichment skips what is already enriched."
+    )
 )
 @click.option(
     "--limit", "-l",
@@ -402,6 +412,7 @@ def cli():
 def enrich(
     category: Optional[str],
     all_categories: bool,
+    budget_seconds: int,
     limit: int,
     user_id: str,
     skip_enriched: bool,
@@ -438,21 +449,48 @@ def enrich(
             "Cannot use both --category and --all"
         )
 
-    # Determine categories to process
+    # Determine categories to process.
+    #
+    # `--all` used to mean the three strings "book", "movie", "music" while
+    # the dispatch table held 27 categories. On a real install that was 62
+    # preferences looked at out of 7,773: bookmarks, interests, pages,
+    # places, education and food were never offered to enrichment at all.
+    # Deriving the list from the table means it cannot drift again.
     if all_categories:
-        categories_to_process = ["book", "movie", "music"]  # Core categories with clients
+        categories_to_process = EnrichmentService.enrichable_categories()
+        missing = EnrichmentService.categories_missing_credentials()
     else:
         categories_to_process = [category]
+        missing = {}
 
     click.echo("PWG Enrichment CLI", err=True)
     click.echo("=" * 50, err=True)
     click.echo(f"User ID:      {user_id}", err=True)
     click.echo(f"Categories:   {', '.join(categories_to_process)}", err=True)
-    click.echo(f"Limit:        {limit}", err=True)
+    click.echo(f"Limit:        {limit} per category", err=True)
+    click.echo(
+        f"Budget:       {budget_seconds}s"
+        + (" (no limit)" if budget_seconds <= 0 else ""),
+        err=True
+    )
     click.echo(f"Skip enriched: {skip_enriched}", err=True)
     click.echo(f"Dry run:      {dry_run}", err=True)
     click.echo(f"Batch size:   {batch_size}", err=True)
+    if missing:
+        # Say this out loud rather than letting these categories become rows
+        # in an error list. A skipped category with a named reason is a fact
+        # the operator can act on; 24 instant failures are not.
+        click.echo("=" * 50, err=True)
+        for cat, env_name in sorted(missing.items()):
+            click.echo(
+                f"SKIPPED {cat}: needs {env_name}, which is not configured",
+                err=True
+            )
     click.echo("=" * 50, err=True)
+
+    if not categories_to_process or categories_to_process == [None]:
+        click.echo("Nothing to enrich: no category has a usable client.", err=True)
+        return
 
     if dry_run:
         asyncio.run(_dry_run(
@@ -468,6 +506,7 @@ def enrich(
             limit=limit,
             batch_size=batch_size,
             verbose=verbose,
+            budget_seconds=budget_seconds,
         ))
 
 
@@ -577,12 +616,22 @@ async def _run_enrichment(
     limit: int,
     batch_size: int,
     verbose: bool,
+    budget_seconds: int = 0,
 ):
     """Execute actual enrichment."""
     click.echo("\nStarting enrichment...\n", err=True)
 
     service = EnrichmentService()
     start_time = datetime.utcnow()
+
+    # One allowance for the whole sweep, computed once. Per-category would
+    # multiply by the category count, which is the arithmetic that turns a
+    # bound into no bound at all.
+    deadline = (
+        start_time + timedelta(seconds=budget_seconds)
+        if budget_seconds and budget_seconds > 0
+        else None
+    )
 
     try:
         if len(categories) == 1:
@@ -593,18 +642,50 @@ async def _run_enrichment(
                 limit=limit,
                 batch_size=batch_size,
                 progress_callback=lambda p, t, s: print_progress(p, t, s),
+                deadline=deadline,
             )
         else:
-            # Multiple categories
+            # Multiple categories. `limit` is per category, not divided
+            # between them: dividing meant that widening the sweep SHRANK
+            # every category's share, so more categories produced less work.
             stats = await service.enrich_categories(
                 categories=categories,
                 user_id=user_id,
-                limit_per_category=limit // len(categories),
+                limit_per_category=limit,
+                deadline=deadline,
             )
 
         click.echo("\n\n", err=True)  # Clear progress line
         click.echo("=" * 50, err=True)
-        click.echo("ENRICHMENT COMPLETE", err=True)
+        # Never say COMPLETE for a pass that stopped on its allowance.
+        # "Complete" against an unfinished corpus is the same false absence
+        # as "not found" against an unreachable service.
+        #
+        # AND NEVER SAY COMPLETE OVER AN EMPTY CORPUS EITHER. Measured on a
+        # real box against an empty Qdrant collection: the pass returned in
+        # 0.2s having looked at nothing, and printed
+        #
+        #     ENRICHMENT COMPLETE
+        #     Total processed: 0
+        #
+        # A recurring agent on a machine with no preferences yet would print
+        # that every half hour, for ever, and it is indistinguishable from
+        # "I enriched everything there was". Two different events:
+        #
+        #     nothing to do        no preferences matched. Fine, and normal
+        #                          on a fresh install before any import.
+        #     did nothing          preferences existed and none enriched.
+        #                          Something is wrong.
+        #
+        # They must not print the same sentence. This is the same shape as
+        # every other false absence in this product: an empty result and an
+        # unasked question rendering identically.
+        if stats.total_processed == 0:
+            click.echo("NOTHING TO ENRICH (no preferences matched)", err=True)
+        elif stats.budget_exhausted:
+            click.echo("ENRICHMENT PAUSED (allowance spent, more still owed)", err=True)
+        else:
+            click.echo("ENRICHMENT COMPLETE", err=True)
         click.echo("=" * 50, err=True)
         click.echo(stats.summary(), err=True)
 
@@ -908,6 +989,16 @@ async def _run_normalization(verbose: bool):
     help="Process high-strength items first (default: true)"
 )
 @click.option(
+    "--budget-seconds",
+    default=lambda: int(os.environ.get("OSTLER_ENRICH_BUDGET_SECONDS", "600")),
+    type=int,
+    help=(
+        "Wall-clock allowance for the whole pass. 0 means no limit. "
+        "Whatever is not reached is not failed: the next run resumes it, "
+        "because enrichment skips what is already enriched."
+    )
+)
+@click.option(
     "--verbose", "-v",
     is_flag=True,
     help="Enable verbose output"
@@ -920,6 +1011,7 @@ def parallel(
     book_limit: int,
     podcast_limit: int,
     priority: bool,
+    budget_seconds: int,
     verbose: bool,
 ):
     """Run PARALLEL enrichment across all categories simultaneously.
@@ -954,6 +1046,7 @@ def parallel(
         book_limit=book_limit,
         podcast_limit=podcast_limit,
         priority=priority,
+        budget_seconds=budget_seconds,
         verbose=verbose,
     ))
 
@@ -966,6 +1059,7 @@ async def _run_parallel(
     book_limit: int,
     podcast_limit: int,
     priority: bool,
+    budget_seconds: int,
     verbose: bool,
 ):
     """Execute parallel enrichment."""
@@ -992,12 +1086,23 @@ async def _run_parallel(
     service = EnrichmentService()
     start_time = datetime.utcnow()
 
+    # This command had NO allowance at all until 2026-08-17, so it could run
+    # until every category exhausted its corpus or a third party stopped
+    # answering. It is a second entry point to the same sweep, and an entry
+    # point without a bound is where an unbounded run comes back.
+    deadline = (
+        start_time + timedelta(seconds=budget_seconds)
+        if budget_seconds and budget_seconds > 0
+        else None
+    )
+
     try:
         click.echo("Starting parallel enrichment... (this runs ALL categories at once!)\n", err=True)
 
         stats_by_category = await service.enrich_parallel(
             category_configs=category_configs,
             user_id=user_id,
+            deadline=deadline,
         )
 
         # Summary

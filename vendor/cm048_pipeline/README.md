@@ -17,7 +17,7 @@ transcripts into structured three-tier output:
 - Phase B live: **validated** — 5 conversations processed end-to-end
   against a Hub Ollama (qwen3.5:9b classifier, qwen3.5:35b-a3b enrichment)
 - Phase C (integration): **in progress** — linker wired, API spec
-  drafted, Marvin endpoint implementation underway
+  drafted, assistant endpoint implementation underway
 - Phase D (backfill): pending
 - Phase E (graph optimisation): designed, pending 50+ conversations
 
@@ -104,7 +104,7 @@ Total: ~10 min for a one-on-one, ~14 min for a 3-person meeting.
 ## Architecture
 
 See `CLAUDE.md` for full architecture. See `docs/api.md` for the
-Marvin unified API endpoint spec. See `PLAN.md` for phased build plan
+assistant unified API endpoint spec. See `PLAN.md` for phased build plan
 with locked-in design decisions.
 
 ## Consumed by
@@ -112,5 +112,5 @@ with locked-in design decisions.
 - CM042 — Remote Conversations (Mac audio capture)
 - CM031 — PWG Companion (iOS, Watch, wearable capture)
 - CM044 — Personal Wiki compiler (Person pages, User Coach page)
-- Marvin — via `/api/v1/conversation/process` endpoint on ical-server.py
+- Assistant — via `/api/v1/conversation/process` endpoint on ical-server.py
 - Manual paste (testing, historic imports)

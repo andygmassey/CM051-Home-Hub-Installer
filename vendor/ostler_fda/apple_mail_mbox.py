@@ -373,7 +373,17 @@ def discover_emlx_files(mail_dir: Path) -> Iterator[Path]:
     """
     if not mail_dir.exists():
         return
-    yield from sorted(mail_dir.rglob("*.emlx"))
+    # #197: rglob raises if a subdir vanishes/unreadable mid-walk (Apple Mail
+    # rearranges its V*/*.mbox tree during a tick). Walk resiliently: skip the
+    # unreadable subtree + log, keep going. Email-ingest degrades, never crashes.
+    def _on_walk_error(err: OSError) -> None:
+        logger.warning("discover_emlx_files: skipping unreadable dir during walk: %s", err)
+    found: list[Path] = []
+    for root, _dirs, files in os.walk(mail_dir, onerror=_on_walk_error):
+        for name in files:
+            if name.endswith(".emlx"):
+                found.append(Path(root) / name)
+    yield from sorted(found)
 
 
 # ---------------------------------------------------------------------------

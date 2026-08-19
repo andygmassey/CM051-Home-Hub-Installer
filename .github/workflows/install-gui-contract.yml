@@ -21,6 +21,8 @@ on:
       - 'install.sh.strings.en-GB.sh'
       - 'lib/progress_emitter.sh'
       - 'lib/write_pipeline_signals.py'
+      - 'lib/ostler-model-fit.sh'
+      - 'lib/settling_progress.sh'
       - 'gui/OstlerInstaller/**'
       - 'gui/project.yml'
       - 'scripts/extract_install_protocol.py'
@@ -29,6 +31,10 @@ on:
       - 'tests/test_install_gui_contract.py'
       - 'tests/test_install_gui_contract_negatives.py'
       - 'tests/test_installer_app_bundle_contents.sh'
+      # A gate must trigger on changes to ITSELF, or it can be broken (or
+      # quietly narrowed) in a PR that never runs it.
+      - 'tests/test_bundle_phase_declares_every_copy.sh'
+      - 'tests/test_ai_model_env_contract.sh'
       - 'vendor/legal/**'
       - 'vendor/LICENSES/**'
       - 'vendor/THIRD_PARTY_NOTICES.md'
@@ -36,6 +42,13 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   contract:
@@ -67,6 +80,7 @@ jobs:
           python3 -m unittest tests.test_install_gui_contract -v
 
       - name: Run contract test (negative-path self-tests)
+        if: always()
         run: |
           set -euo pipefail
           python3 -m unittest tests.test_install_gui_contract_negatives -v
@@ -81,7 +95,40 @@ jobs:
           set -euo pipefail
           python3 scripts/check_install_sh_script_dir_coverage.py --mode ci
 
+      - name: Check bundling phases declare every file they copy
+        if: always()
+        # The ${SCRIPT_DIR}/X gate above proves a file IS copied. It does not
+        # prove Xcode knows about the copy. A file absent from a phase's
+        # inputFiles/outputFiles is untracked for incremental builds, so
+        # editing it may not dirty the phase and the .app keeps the PREVIOUS
+        # copy -- green build, stale artefact, and the symptom ("my edit did
+        # nothing") points at the edited file rather than the build system.
+        # lib/settling_progress.sh shipped in exactly that state on 2026-08-07.
+        #
+        # SCOPE, STATED HERE BECAUSE MISREADING IT IS WHAT WENT WRONG (D662):
+        # this parses gui/project.yml and ONLY gui/project.yml. It proves the
+        # SPEC declares every copy. It cannot prove the tracked pbxproj -- the
+        # file xcodebuild actually reads -- matches that spec. That comparison
+        # needs xcodegen, so it lives in .github/workflows/pbxproj-sync.yml on
+        # a macOS runner. Neither gate substitutes for the other.
+        run: |
+          set -euo pipefail
+          bash tests/test_bundle_phase_declares_every_copy.sh
+
+      - name: AI_MODEL writer/reader contract (#259 / D636)
+        if: always()
+        # install.sh picks a model per RAM tier and pulls THAT model; the
+        # wiki-compiler container asks Ollama for OLLAMA_MODEL. They are joined
+        # by writer -> ${AI_MODEL} reference -> QUOTED heredoc. Break any link
+        # and it silently falls back to qwen3.5:9b, which is not pulled on
+        # <=23GB Macs: ~2000 Ollama 404s in one compile and blank wiki pages,
+        # with nothing failing loudly. Gated because it ships dark.
+        run: |
+          set -euo pipefail
+          bash tests/test_ai_model_env_contract.sh
+
       - name: Run app-bundle byte-by-byte regression
+        if: always()
         # Per locked memory feedback_silent_bail_regression_test_shape.
         # Each per-finding assertion pins the EXACT failure shape the
         # 2026-05-22 audit flagged so a regression is caught at CI rather

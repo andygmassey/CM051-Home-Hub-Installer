@@ -15,8 +15,8 @@ settings:
     CODE_SIGN_STYLE: Manual
     PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer
     PRODUCT_NAME: OstlerInstaller
-    CURRENT_PROJECT_VERSION: "10"
-    MARKETING_VERSION: "1.0.10"
+    CURRENT_PROJECT_VERSION: "3600"
+    MARKETING_VERSION: "1.0.36"
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS: YES
     OTHER_CODE_SIGN_FLAGS: "--timestamp"
@@ -48,8 +48,8 @@ targets:
         CFBundleName: OstlerInstaller
         CFBundleDisplayName: Ostler Installer
         CFBundleIdentifier: ai.ostler.installer
-        CFBundleShortVersionString: "1.0.10"
-        CFBundleVersion: "10"
+        CFBundleShortVersionString: "1.0.36"
+        CFBundleVersion: "3600"
         CFBundlePackageType: APPL
         CFBundleExecutable: $(EXECUTABLE_NAME)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
@@ -140,11 +140,11 @@ targets:
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
           # The Makefile drops the tarball at ${BUILD_DIR}/python-bundle.tar.gz.
           # When `make ship` is the entry point, BUILD_DIR defaults to
-          # /tmp/ostler-installer-build-${USER}. When xcodebuild runs from
+          # /tmp/ostler-installer-build-${USER:-}. When xcodebuild runs from
           # Xcode.app directly, fall back to a sibling-of-SRCROOT build/ dir.
           PYTHON_TARBALL=""
           for candidate in \
-              "/tmp/ostler-installer-build-${USER}/python-bundle.tar.gz" \
+              "/tmp/ostler-installer-build-${USER:-}/python-bundle.tar.gz" \
               "${SRCROOT}/../build/python-bundle.tar.gz" \
               "${SRCROOT}/build/python-bundle.tar.gz"; do
               if [ -f "$candidate" ]; then
@@ -156,7 +156,7 @@ targets:
               echo "ERROR: python-build-standalone tarball missing." >&2
               echo "       Run 'make -C gui download-python' before building." >&2
               echo "       Searched:" >&2
-              echo "         /tmp/ostler-installer-build-${USER}/python-bundle.tar.gz" >&2
+              echo "         /tmp/ostler-installer-build-${USER:-}/python-bundle.tar.gz" >&2
               echo "         ${SRCROOT}/../build/python-bundle.tar.gz" >&2
               echo "         ${SRCROOT}/build/python-bundle.tar.gz" >&2
               exit 1
@@ -228,8 +228,17 @@ targets:
           # box can actually run at num_ctx 32768. Missing = legacy RAM-ladder
           # fallback, but bundle it so customers get the fit assessment.
           cp "${SRCROOT}/../lib/ostler-model-fit.sh"             "${DEST}/lib/ostler-model-fit.sh"
+          # settling_progress.sh: install.sh sources it from
+          # ${SCRIPT_DIR}/lib/settling_progress.sh to report the `contacts` and
+          # `emails` channels on the wiki's settling panel. Those two producers
+          # (CM041 contact_syncer, CM021 pwg-email-ingest) cannot import HR015's
+          # Python writer -- ostler_fda is never copied into PIPELINE_DIR -- so
+          # this file IS their writer. Missing from the bundle = install.sh
+          # falls back to a silent no-op and both channels ship permanently
+          # blank, which looks identical to a feature nobody built.
+          cp "${SRCROOT}/../lib/settling_progress.sh"            "${DEST}/lib/settling_progress.sh"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
-          chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh"
+          chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh" "${DEST}/lib/settling_progress.sh"
           chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
           # Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app
           # so the customer DMG ships a clean single-app layout (just the
@@ -243,9 +252,10 @@ targets:
           #
           # IMPORTANT (2026-06-19 cut): capture the value via the `${VAR:-}`
           # default form FIRST. xcodegen performs its own ${VAR} substitution
-          # on plain `${OSTLER_APP_PATH}` at *generation* time (replacing it
-          # with the empty string when unset in the generator's env), which
-          # silently broke hub bundling after a `make regen`. The `:-` form
+          # on a plain brace-reference to OSTLER_APP_PATH at *generation* time
+          # (replacing it with the empty string when the var exists but is
+          # empty in the generator's env), which silently broke hub bundling
+          # after a `make regen`. The `:-` form
           # is passed through literally to the shell, so we read the build
           # setting through it once and use a plain shell var thereafter.
           OSTLER_APP_SRC="${OSTLER_APP_PATH:-}"
@@ -256,17 +266,28 @@ targets:
           else
             echo "WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app." >&2
           fi
+        # Every file this phase copies MUST appear in BOTH lists. Xcode uses
+        # them for incremental-build dependency tracking: a file absent from
+        # inputFiles does not dirty the phase when it changes, and one absent
+        # from outputFiles is not recorded as produced. Miss either and a
+        # rebuild can ship a STALE copy of a file that is demonstrably in the
+        # bundle -- the failure looks like "my edit did nothing", not like a
+        # build error. settling_progress.sh was missing from both between
+        # 2026-08-07 00:55 and this commit.
+        # tests/test_bundle_phase_declares_every_copy.sh enforces this.
         inputFiles:
           - $(SRCROOT)/../install.sh
           - $(SRCROOT)/../lib/progress_emitter.sh
           - $(SRCROOT)/../lib/write_pipeline_signals.py
           - $(SRCROOT)/../lib/ostler-model-fit.sh
+          - $(SRCROOT)/../lib/settling_progress.sh
           - $(SRCROOT)/../install.sh.strings.en-GB.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
       - name: Compile + bundle ostler-mecard helper into Resources
         # BW2-1 (box-walk recut #2, 2026-07-25): a signed native helper that

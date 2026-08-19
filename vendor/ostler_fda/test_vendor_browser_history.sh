@@ -57,8 +57,10 @@ if ! grep -qE "def ingest_browser_history" "$SCRIPT_DIR/pwg_ingest.py"; then
     echo "FAIL: pwg_ingest.py missing ingest_browser_history()" >&2
     exit 1
 fi
-if ! grep -q '"browser_history", ingest_browser_history' "$SCRIPT_DIR/pwg_ingest.py"; then
+if ! grep -q '"browser_history", "ingest_browser_history"' "$SCRIPT_DIR/pwg_ingest.py"; then
     echo "FAIL: pwg_ingest.ingest_all dispatcher missing browser_history entry" >&2
+    echo "      Expected tuple form (key, name-as-string): ('browser_history', 'ingest_browser_history')" >&2
+    echo "      _INGEST_DISPATCH holds names as strings for late-binding." >&2
     exit 1
 fi
 echo "pwg_ingest check: ingest_browser_history defined + registered in dispatcher"
@@ -100,8 +102,18 @@ done
 echo "privacy contract check: ingest_browser_history returns counts-only dict"
 
 # extract_all must wire chrome_history (opt-in, default OFF).
-if ! grep -qE 'ALL_SOURCES.*chrome_history' "$SCRIPT_DIR/extract_all.py"; then
+# ALL_SOURCES is a multi-line set literal, so grep-E on a single line
+# does not match. Use a small Python check that reads the block from
+# ALL_SOURCES to its closing brace and verifies chrome_history is inside.
+if ! python3 - "$SCRIPT_DIR/extract_all.py" <<'PY'
+import re, sys
+content = open(sys.argv[1]).read()
+match = re.search(r'ALL_SOURCES\s*=[^}]*chrome_history', content, re.DOTALL)
+sys.exit(0 if match else 1)
+PY
+then
     echo "FAIL: extract_all.ALL_SOURCES missing chrome_history" >&2
+    echo "      Expected the set literal opened by ALL_SOURCES= to contain 'chrome_history'." >&2
     exit 1
 fi
 if ! grep -q 'if "chrome_history" in sources:' "$SCRIPT_DIR/extract_all.py"; then

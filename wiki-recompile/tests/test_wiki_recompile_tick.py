@@ -69,14 +69,20 @@ _skip_if_real_docker = pytest.mark.skipif(
 
 def _make_fake_docker(stub_dir: Path, *, run_exit: int = 0,
                       up_exit: int = 0,
+                      info_exit: int = 0,
                       log_path: Path | None = None) -> Path:
     """Build a docker stub that records every invocation and
-    returns configurable exit codes for ``compose run`` and
-    ``compose up``."""
+    returns configurable exit codes for ``compose run``, ``compose
+    up`` and ``docker info`` (the runtime-readiness probe -- #196)."""
     stub = stub_dir / "docker"
     log = log_path or (stub_dir / "docker.log")
     body = f"""#!/usr/bin/env bash
 echo "$@" >> "{log}"
+# `docker info` -- runtime-readiness probe (#196). A non-zero exit models a
+# container runtime (Colima/Docker Desktop) that is not up yet.
+if [ "$1" = "info" ]; then
+    exit {info_exit}
+fi
 # `docker compose --profile compile run --rm -T wiki-compiler`
 if [ "$1" = "compose" ] && [ "$2" = "--profile" ] && [ "$3" = "compile" ] && [ "$4" = "run" ]; then
     exit {run_exit}
@@ -273,6 +279,99 @@ def test_up_failure_surfaces_exit(stub_env):
         and "OSTLER_WIKI_SKIP_LLM" not in line
     ]
     assert not full_lines, f"background full compile should not have launched: {full_lines}"
+
+
+# ---------------------------------------------------------------------------
+# Container-runtime readiness gate (#196) -- reboot self-heal, no launchd fail
+# ---------------------------------------------------------------------------
+#
+# On a reboot the LaunchAgent (RunAtLoad) can fire before Colima's VM is up:
+# the docker CLI resolves but the daemon is unreachable. The old script ran
+# the compile blind, it failed, and the tick exited non-zero -- launchd logged
+# a hard failure even though the next tick recovers. The gate waits, bounded,
+# for `docker info` to answer; if it never does within the window it exits 0
+# (a no-op) rather than 1, so the transient is not recorded as a failure.
+
+
+@_skip_if_real_docker
+def test_runtime_not_ready_exits_zero_without_compiling(stub_env):
+    """When `docker info` never succeeds (runtime still booting), the tick
+    logs a clear "will retry next tick" line, exits 0, and does NOT attempt
+    any compile or publish."""
+    log = stub_env["tmp_path"] / "docker.log"
+    # info_exit=1 -> the runtime never becomes ready within the window.
+    _make_fake_docker(stub_env["stub_dir"], info_exit=1, log_path=log)
+
+    result = _run_wrapper(
+        {
+            "OSTLER_DIR": str(stub_env["ostler_dir"]),
+            # Keep the test fast: 2 attempts, 1s apart (~2s total).
+            "WIKI_RUNTIME_WAIT_TRIES": "2",
+            "WIKI_RUNTIME_WAIT_INTERVAL": "1",
+        },
+        stub_env["stub_dir"],
+    )
+
+    # Exit 0 (NOT the compile's failure code) so launchd records no failure.
+    assert result.returncode == 0, (
+        f"a not-ready runtime must exit 0, got {result.returncode}: "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert "will retry next tick" in result.stdout, result.stdout
+    # It must NOT have run the compile or the publish -- only info probes.
+    invocations = log.read_text().splitlines() if log.exists() else []
+    assert not any("compose" in line for line in invocations), (
+        f"no compose command must run before the runtime is ready: {invocations}"
+    )
+    # It DID probe the runtime with `docker info`.
+    assert any(line.strip() == "info" for line in invocations), invocations
+    # And it never acquired the tick mutex (exits before `cd`/lock).
+    assert not (stub_env["ostler_dir"] / ".wiki-recompile.lock").exists()
+
+
+@_skip_if_real_docker
+def test_runtime_becomes_ready_then_compiles(stub_env):
+    """A ready runtime (docker info -> 0) proceeds straight into the baseline
+    compile -- the readiness gate is transparent on the happy path."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], info_exit=0, log_path=log)
+
+    result = _run_wrapper(
+        {
+            "OSTLER_DIR": str(stub_env["ostler_dir"]),
+            "WIKI_RUNTIME_WAIT_TRIES": "3",
+            "WIKI_RUNTIME_WAIT_INTERVAL": "1",
+        },
+        stub_env["stub_dir"],
+    )
+    assert result.returncode == 0, (
+        f"ready runtime must proceed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    invocations = log.read_text().splitlines()
+    assert any(
+        "compose --profile compile run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler" in line
+        for line in invocations
+    ), f"a ready runtime must reach the baseline compile: {invocations}"
+
+
+def test_script_carries_runtime_readiness_gate():
+    """Always-runs guard (no docker dependency): the shipped script must carry
+    the #196 readiness gate -- poll `docker info`, and on a persistently
+    not-ready runtime exit 0 (not 1) so launchd records no failure."""
+    tick = WRAPPER.read_text()
+    assert "docker info" in tick, "readiness gate must probe `docker info`"
+    assert "will retry next tick" in tick, (
+        "not-ready path must log a clear retry line"
+    )
+    # The not-ready branch must exit 0, never propagate a failure. Assert the
+    # readiness block ends in `exit 0` (before the `cd`/compile).
+    gate = tick.split("Container-runtime readiness gate", 1)
+    assert len(gate) == 2, "readiness gate block missing"
+    after = gate[1].split('cd "$OSTLER_DIR"', 1)[0]
+    assert "exit 0" in after, "not-ready runtime must exit 0, not fail the tick"
+    assert "WIKI_RUNTIME_WAIT_TRIES" in tick and "WIKI_RUNTIME_WAIT_INTERVAL" in tick, (
+        "the wait window must be bounded + configurable"
+    )
 
 
 def test_missing_compose_file_fails_loudly(stub_env):

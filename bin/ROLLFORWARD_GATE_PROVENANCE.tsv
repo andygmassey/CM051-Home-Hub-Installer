@@ -1,0 +1,8 @@
+# Vendored copy of the rollforward gate runner. v1018-D026.
+# CM051 is PUBLIC and OS003 is PRIVATE, so the tag pipeline cannot check OS003
+# out without a PAT secret in a public repo -- the exact cross-org resolution
+# that already failed once (task #204). The copy lives here instead, and OS003
+# CI asserts parity against it (OS003 can read public CM051 with no token; the
+# reverse is not true). Direction of the check matters.
+source_repo	source_commit	file_sha256
+andygmassey/OS003-Ostler-Release	f0149a60556b5f69e31dac23594e2cb791f1532f	bfcee222633ed0ebca18c4292c40025a9ff74650d7f4654edc721dfa288c623b

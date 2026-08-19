@@ -230,7 +230,19 @@ def run_all(
             # CX-84: operator override for chat.db backfill window
             # (e.g. customer with a long iMessage history may want 5y).
             # Same shape as OSTLER_BROWSER_BACKFILL_DAYS (CX-86).
-            imsg_backfill_days = int(os.environ.get("OSTLER_IMESSAGE_BACKFILL_DAYS", "365"))
+            #
+            # 2026-08-08: iMessage now WIDENS across runs instead of taking a
+            # fixed window. Each conversation costs ten chained Ollama calls
+            # (~1.2 min), so a 5-year first ingest is ~24 days of inference
+            # while the installer says "walk away". First run takes 45 days;
+            # later ticks walk 90 -> 180 -> 365 -> 730 -> 1825, so the tail
+            # still arrives, over the settle-in period rather than during
+            # onboarding. An explicit env value pins the window and disables
+            # the ladder. Andy's call.
+            from .backfill_ladder import resolve_backfill_days
+            imsg_backfill_days = resolve_backfill_days(
+                "imessage", "OSTLER_IMESSAGE_BACKFILL_DAYS"
+            )
             conversations = extract_conversations(since_days=imsg_backfill_days)
             stats = conversation_stats(conversations)
 
@@ -487,7 +499,48 @@ def run_all(
     if "calendar" in sources:
         try:
             from .calendar import extract_events, meeting_contacts
-            events = extract_events(since_days=365, future_days=30)
+            from .backfill_ladder import resolve_backfill_days
+
+            # Calendar had a hardcoded window: `since_days=365` as a literal,
+            # no env override, no ladder. So a recurring tick re-requested the
+            # same 365 days forever and the customer's older meetings were
+            # unreachable by any means short of editing the shipped source.
+            #
+            # CALENDAR IS NOT THE ONLY ONE, and an earlier draft of this
+            # comment claimed it was. Measured on 991ef89f, tests/ excluded:
+            # exactly TWO sources read an OSTLER_*_BACKFILL_DAYS knob --
+            # browser (:157) and imessage (:239). Four others still pass a
+            # bare 365 and have the identical defect:
+            #
+            #   safari_history   extract_history(since_days=365)
+            #   whatsapp         _wa_extract(since_days=365)
+            #   photos_metadata  since_days=365
+            #   apple_mail       extract_messages(since_days=365)
+            #
+            # google_takeout passes 365 * 5 and says why, so it is deliberate
+            # rather than a fifth instance. OSTLER_WHATSAPP_BACKFILL_DAYS
+            # looks like a counter-example but is read nowhere in shipping
+            # code -- its only occurrence is test_backfill_ladder.py:149,
+            # exercising the generic helper with an arbitrary name.
+            #
+            # Fixing those four is NOT in this PR: each needs the same
+            # judgement made below about which rungs suit its cost profile,
+            # and bundling five sources would hide that reasoning. This
+            # comment exists so the next reader finds four open instances
+            # instead of a claim that the bug is gone.
+            #
+            # CALENDAR GETS ITS OWN RUNGS, and they START at today's value.
+            # DEFAULT_LADDER opens at 45 days, which exists to bound iMessage
+            # inference cost -- ten chained Ollama calls per conversation.
+            # Calendar has no such cost: it is a straight EventKit read. Using
+            # the default ladder here would REGRESS day one from 365 to 45,
+            # which is why this passes explicit rungs rather than reusing it.
+            calendar_days = resolve_backfill_days(
+                "calendar",
+                "OSTLER_CALENDAR_BACKFILL_DAYS",
+                ladder=[365, 730, 1825],
+            )
+            events = extract_events(since_days=calendar_days, future_days=30)
             contacts = meeting_contacts(events)
 
             (output_dir / "calendar_events.json").write_text(

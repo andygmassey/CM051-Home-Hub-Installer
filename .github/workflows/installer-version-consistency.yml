@@ -1,0 +1,76 @@
+name: installer-version-consistency
+
+# CM051 #171 guard. The DMG's OstlerInstaller.app stamped a STALE
+# CFBundleShortVersionString: the value was hardcoded "1.0.10" and never bumped
+# for v1.0.11 / v1.0.12, because gui/Makefile DERIVES the app version + DMG name
+# by READING gui/OstlerInstaller/Info.plist rather than from the cut tag. A
+# half-bump -- project.yml edited but `xcodegen generate` not re-run so the
+# tracked pbxproj lags, or Info.plist forgotten -- ships a version-stale
+# installer while every signing/notarise chain goes green.
+#
+# This gate fails the PR if the installer version disagrees across the three
+# tracked sources of truth (Info.plist, project.yml, project.pbxproj) on either
+# the marketing/short version or the build number. Same bash test the Makefile
+# runs as `check-version` (a fail-closed prereq of `release` + `package`), so
+# the local cut and CI enforce the identical invariant.
+#
+# Companion files:
+#   tests/test_installer_version_consistency.sh   (the gate)
+#   gui/Makefile                                  (check-version target)
+#   VERSIONING.md                                 (bump checklist + proposals)
+
+on:
+  pull_request:
+    paths:
+      - 'gui/project.yml'
+      - 'gui/OstlerInstaller/Info.plist'
+      - 'gui/OstlerInstaller.xcodeproj/project.pbxproj'
+      - 'tests/test_installer_version_consistency.sh'
+      - '.github/workflows/installer-version-consistency.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  # The PREDICATE's own controls, in their OWN JOB rather than as a step ahead
+  # of the gate. As sibling steps they would mask: a failing self-test skips
+  # everything after it, so a red run would never report what the gate itself
+  # said. verify_ci_steps_are_maskless caught exactly that on the first push of
+  # this change, which is the #683 shape it exists for. Same shape as
+  # swift-tests.yml's verifier-self-test job.
+  #
+  # Control (1) is the state of main on 2026-08-16 -- 1.0.32 with a uniformly
+  # frozen 2500 -- and it must go RED. Control (7) proves a version outside the
+  # encoded scheme is CANNOT-RUN rather than a quiet pass.
+  predicate-self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The gate can still tell a frozen build number from a fresh one
+        run: bash tests/test_installer_version_consistency.sh --self-test
+      - name: Parses under bash 3.2-compatible syntax
+        if: always()
+        run: bash -n tests/test_installer_version_consistency.sh
+
+  version-consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Installer version-consistency gate (#171 agreement, #703 derivation)
+        run: bash tests/test_installer_version_consistency.sh

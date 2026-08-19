@@ -72,13 +72,13 @@ for source in calendar mail contacts; do
         mail)     app="Mail" ;;
         contacts) app="Contacts" ;;
     esac
-    if ! printf '%s' "$GATE_BLOCK" | grep -q "_store_populated_${source}"; then
+    if ! grep -q "_store_populated_${source}" <<< "$GATE_BLOCK"; then
         failure "pre-launch gate does not use _store_populated_${source}"
     fi
-    if ! printf '%s' "$GATE_BLOCK" | grep -q "_accountsdb_count_${source}"; then
+    if ! grep -q "_accountsdb_count_${source}" <<< "$GATE_BLOCK"; then
         failure "pre-launch gate does not use _accountsdb_count_${source}"
     fi
-    if ! printf '%s' "$GATE_BLOCK" | grep -qF "APPS_TO_OPEN+=(\"${app}\")"; then
+    if ! grep -qF "APPS_TO_OPEN+=(\"${app}\")" <<< "$GATE_BLOCK"; then
         failure "pre-launch gate does not append '${app}' to APPS_TO_OPEN"
     fi
 done

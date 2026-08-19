@@ -140,7 +140,7 @@ class SemanticScholarClient(BaseClient[SemanticScholarPaper]):
     def _get_headers(self) -> Dict[str, str]:
         headers = {
             "Accept": "application/json",
-            "User-Agent": "PWG-Enrichment/0.1.0",
+            "User-Agent": "Ostler/1.0 (+https://ostler.ai)",
         }
         if self.api_key:
             headers["x-api-key"] = self.api_key

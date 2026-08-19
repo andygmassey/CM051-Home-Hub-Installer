@@ -18,6 +18,7 @@ Test cases:
 
 import asyncio
 import csv
+import os
 import sys
 import tempfile
 import zipfile
@@ -335,17 +336,23 @@ def test_real_dump_can_parse_and_count() -> None:
     Reports record count only -- no personal data is printed.
     """
     parser = AppleTVParser()
-    real_path = Path(
-        "/Users/andy/Documents/Projects/CM019 - Personal World Graph"
-        "/03 - Social Media archives/1 Jan 2026/19 - Apple TV"
-        "/Apple Media Services information"
-        "/Apple_Media_Services"
-        "/Stores Activity"
-        "/Play Position Information"
-        "/Playback Activity.csv"
-    )
+    # OPT-IN, and deliberately not a hardcoded absolute path.
+    #
+    # This used to name one operator's home directory and the exact layout of their
+    # personal Apple Media Services archive, in a PUBLIC repository. That is the
+    # precise shape the PII guard exists to catch, and it sat three lines under a
+    # docstring promising that no personal data is printed. The docstring was true
+    # about the OUTPUT and silent about the SOURCE, which is how it survived review.
+    #
+    # An env var also makes the test portable: any operator can point it at their own
+    # export, where before it could only ever run on one machine.
+    real_dump = os.environ.get("OSTLER_APPLETV_REAL_DUMP")
+    if not real_dump:
+        print("SKIP: set OSTLER_APPLETV_REAL_DUMP to a Playback Activity.csv to run this")
+        return
+    real_path = Path(real_dump)
     if not real_path.exists():
-        print("SKIP: real dump not found at expected path (fixture-only environment)")
+        print(f"SKIP: OSTLER_APPLETV_REAL_DUMP points at a missing path: {real_path}")
         return
 
     if not parser.can_parse(real_path):

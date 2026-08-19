@@ -72,12 +72,31 @@ if [[ -z "$CODESIGN_SIGN_LINES" ]]; then
     echo "FAIL [case-2a]: sign-python-bundle.sh has no codesign --force --sign call"
     exit 1
 fi
+# READ THE LOGICAL LINE, NOT THE PHYSICAL ONE.
+#
+# This used to grep the single matched line for --entitlements. The real call
+# is split across a backslash continuation:
+#
+#     codesign --force --sign "$CODESIGN_ID" --options runtime \
+#                 --timestamp --entitlements "$ENTITLEMENTS" "$f"
+#
+# so --entitlements sits on the NEXT physical line and the check could never
+# see it. The test was RED while the code was CORRECT -- and a test that
+# cannot pass is worse than no test: it either blocks forever or gets
+# "fixed" by deleting the assertion, taking the real CX-30 coverage with it.
+#
+# The defect is "this codesign invocation ships without --entitlements". The
+# defect does not care where the author put a line break, so neither does the
+# predicate now: join continuations first, then assert.
+JOINED="$(sed -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}' "$SIGN_SCRIPT")"
 while IFS= read -r match; do
     line_no="${match%%:*}"
-    line_body="${match#*:}"
-    if ! echo "$line_body" | grep -qE '\-\-entitlements'; then
+    # Pull the JOINED invocation that starts at this call, not the raw line.
+    logical="$(printf '%s\n' "$JOINED" | grep -E 'codesign --force --sign' | head -1)"
+    [[ -n "$logical" ]] || logical="${match#*:}"
+    if ! printf '%s' "$logical" | grep -qE '\-\-entitlements'; then
         echo "FAIL [case-2b]: codesign signing call at $SIGN_SCRIPT:$line_no missing --entitlements"
-        echo "   line: $line_body"
+        echo "   logical line: $logical"
         exit 1
     fi
 done <<< "$CODESIGN_SIGN_LINES"
@@ -111,18 +130,32 @@ echo "PASS [case-3]: $ENTITLEMENTS has disable-library-validation = true"
 # --entitlements strips CX-30's fix from the inner python3.11 binary.
 # The Makefile target's re-sign line is the recurrence vector.
 MAKEFILE_RESIGN_LINE=$(awk '/sign-python-bundle:/,/^$/' "$MAKEFILE" | grep -E 'codesign --force --deep --sign' || true)
+# ABSENCE IS NOW THE SAFER STATE, AND MUST PASS.
+#
+# This asserted the --force --deep re-sign line EXISTS so it could then check
+# it carried --entitlements. Commit ccfd1bf deleted that line on purpose:
+# "drop --deep from the outer reseal -- it was stripping nested tickets".
+#
+# So the test demanded the presence of the recurrence vector itself. Removing
+# the vector is a STRONGER fix than checking it, and the test called that
+# progress a failure -- red on a correct tree, which is how a test gets
+# switched off or "fixed" by deleting its real assertion.
+#
+# The invariant is: IF a deep re-sign exists, it MUST pass --entitlements.
+# No deep re-sign, no CX-33 recurrence vector, nothing to guard.
 if [[ -z "$MAKEFILE_RESIGN_LINE" ]]; then
-    echo "FAIL [case-4a]: gui/Makefile sign-python-bundle target has no outer --force --deep re-sign line"
-    exit 1
-fi
-if ! echo "$MAKEFILE_RESIGN_LINE" | grep -qE '\-\-entitlements'; then
+    echo "PASS [case-4]: no --force --deep outer re-sign in sign-python-bundle (ccfd1bf removed it; nothing can strip CX-30's entitlements)"
+elif ! printf '%s' "$MAKEFILE_RESIGN_LINE" | grep -qE '\-\-entitlements'; then
+    # Only reachable if someone REINTRODUCES the deep re-sign. Then the CX-33
+    # invariant is live again and it must carry --entitlements.
     echo "FAIL [case-4b]: gui/Makefile outer re-sign call missing --entitlements"
     echo "   line: $MAKEFILE_RESIGN_LINE"
     echo "   without --entitlements, --force --deep re-sign STRIPS the entitlement"
     echo "   sign-python-bundle.sh just applied to python3.11. CX-33 specifically locked this."
     exit 1
+else
+    echo "PASS [case-4]: outer --force --deep re-sign carries --entitlements"
 fi
-echo "PASS [case-4]: gui/Makefile outer --force --deep re-sign passes --entitlements"
 
 # Case 5: gui/Makefile sign-python-bundle target ends with a post-sign
 # verify that exits 1 if disable-library-validation is missing from

@@ -47,6 +47,15 @@
 #                            (the daemon's content-based backstop still
 #                            applies). Must be the user's own identity
 #                            only, NOT the allowed-contacts list.
+#   PWG_SERVICE_TOKEN        the per-install #200 service token
+#                            (secrets/service_token, seeded by install.sh),
+#                            rendered into the plist EnvironmentVariables so
+#                            the daemon's pwg_* retrieval tools carry
+#                            `Authorization: Bearer <token>` to the
+#                            locked-down loopback ical-server on :8090
+#                            (v1.0.12 assistant-retrieval fix). Default empty
+#                            => harmless: the daemon falls back to reading
+#                            ~/.ostler/secrets/service_token directly.
 #   OSTLER_ASSISTANT_DEFER_START  "true" => render + clean up the
 #                            LaunchAgent but do NOT bootstrap it, so the
 #                            plist's RunAtLoad start does not fire yet.
@@ -137,12 +146,24 @@ esc_assistant_cfg="$(printf '%s' "$ASSISTANT_CONFIG_DIR" | sed 's/[&/\]/\\&/g')"
 # of it) so its substitution cannot collide with the passes below.
 esc_self_handles="$(printf '%s' "${OSTLER_IMESSAGE_SELF_HANDLES:-}" | sed 's/[&/\]/\\&/g')"
 
+# v1.0.12 assistant-retrieval fix: the per-install #200 service token
+# (secrets/service_token), passed in by install.sh. Rendered into the plist
+# EnvironmentVariables as PWG_SERVICE_TOKEN so the daemon's pwg_* tools carry
+# `Authorization: Bearer <token>` to the locked-down ical-server on :8090
+# (which fails-closed 401 without it -- v1.0.10 #200 lockdown). Empty/unset is
+# safe: the daemon falls back to reading ~/.ostler/secrets/service_token
+# directly (the code-side file fallback). The token PWG_SERVICE_TOKEN_VALUE
+# shares no substring with any other sed pattern below, so its pass cannot
+# collide.
+esc_pwg_token="$(printf '%s' "${PWG_SERVICE_TOKEN:-}" | sed 's/[&/\]/\\&/g')"
+
 # Order matters: the OSTLER_ASSISTANT_CONFIG token contains the
 # OSTLER_HOME prefix in the default install layout
 # ($HOME/.ostler/assistant-config). Substitute the most specific
 # token first so a later OSTLER_HOME pass cannot eat its prefix.
 sed \
     -e "s/OSTLER_IMESSAGE_SELF_HANDLES_VALUE/$esc_self_handles/g" \
+    -e "s/PWG_SERVICE_TOKEN_VALUE/$esc_pwg_token/g" \
     -e "s/OSTLER_ASSISTANT_CONFIG/$esc_assistant_cfg/g" \
     -e "s/OSTLER_LOGS/$esc_logs/g" \
     -e "s/OSTLER_BIN/$esc_bin/g" \

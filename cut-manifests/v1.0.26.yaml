@@ -1,0 +1,88 @@
+# cut-manifests/v1.0.26.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.26.
+#
+# v1.0.26 exists for one reason: NOTHING HAS BEEN CUT SINCE 2026-08-08. Eight
+# tagged runs died in the same place -- v1.0.23 once, v1.0.24 four times,
+# v1.0.25 three times -- every one at check-ostler-app:
+#
+#   ERROR: OSTLER_APP_PATH points at a path that does not exist:
+#     /Users/runner/work/CM051-Home-Hub-Installer/ostler-assistant/...
+#
+# OSTLER_APP_PATH defaults to a sibling ostler-assistant checkout. Right on the
+# operator's Mac, impossible on a hosted runner, and nothing in the pipeline
+# ever fetched the bundle because Ostler.app was built locally and published
+# nowhere. `ship` demanded an artefact with no published home.
+#
+# THE GATE WAS NEVER THE DEFECT AND IS NOT LOOSENED. A missing Hub app used to
+# be non-fatal, which cut a silently Hub-less DMG the customer met as
+# install.sh's "Ostler.app not found" (v1018-D668). Failing closed there is
+# correct. #624 adds download-hub-app so the demand can be SATISFIED.
+#
+# This cut therefore carries no new product decisions. It asserts only what
+# v1.0.26 itself decides, rather than restating v1.0.25's entries with the
+# version string rewritten -- which is what v1.0.19 did, and why its freshness
+# gate could not say what the cut changed.
+#
+# Two entries. Both use kinds verify_cut_manifest.py implements, checked
+# against resolve_target rather than assumed: a manifest asserting something
+# the verifier cannot evaluate is a wish, not a gate.
+# ============================================================================
+version: v1.0.26
+
+entries:
+
+  # --------------------------------------------------------------------------
+  # THE ONE THING THIS CUT EXISTS TO PROVE.
+  # --------------------------------------------------------------------------
+  # Eight cuts failed for want of this bundle, so the manifest asserts the
+  # bundle is IN THE ARTEFACT rather than that the fetch step ran. A green
+  # download step proves a download happened; it does not prove the payload
+  # reached the DMG, and that gap is the shape of #225 (a stale Ostler.app
+  # shipped while every step reported success).
+  #
+  # `daemon-app` resolves to <installer-app>/Contents/Resources/Ostler.app, so
+  # this fails if the Hub app is absent from the shipped payload for ANY
+  # reason -- fetch, extract, or staging.
+  - id: v1026-hub-app-reaches-the-artefact
+    title: the shipped installer actually carries Ostler.app, which eight cuts could not achieve
+    incident: >-
+      Eight consecutive tagged cuts (v1.0.23 x1, v1.0.24 x4, v1.0.25 x3)
+      produced no DMG at all, each dying at check-ostler-app because
+      OSTLER_APP_PATH's sibling-checkout default cannot exist on a hosted
+      runner and nothing fetched the bundle. Cross-checked against
+      ostler-releases: 30 releases, 62 assets, zero .app/.dmg/.zip.
+
+      #624 adds download-hub-app, which obtains the published tarball, verifies
+      its SHA-256 fail-closed exactly as download-daemon does, and extracts it
+      AT OSTLER_APP_PATH. It is a no-op when the operator already has a locally
+      built bundle, so a hand cut still ships the artefact under test rather
+      than a download that replaced it.
+
+      The token that makes the fetch possible was measured, not assumed: probed
+      in CI with the public repo as a positive control, so an expired token
+      could not be mistaken for a scope limit.
+    proof:
+      kind: file_exists_in_artefact
+      target: daemon-app
+      path: "Contents/MacOS/ostler-hub"
+
+  # --------------------------------------------------------------------------
+  # The version stamp. Same incident as v1.0.25's entry; still worth asserting.
+  # --------------------------------------------------------------------------
+  - id: v1026-installer-version-stamp
+    title: the shipped OstlerInstaller.app declares 1.0.26, not a stale predecessor
+    incident: >-
+      Task #171 records the build pipeline failing to bump
+      CFBundleShortVersionString on a cut, which ships an installer reporting
+      the previous version to the person walking it. This cut moves the stamp
+      1.0.25 -> 1.0.26 across all 5 sites (gui/project.yml x2, project.pbxproj
+      x2, Info.plist x1) with 0 residual. Asserted because a bump that lands in
+      project.yml but not in the built artefact is invisible until a customer
+      reads it.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: "Contents/Info.plist"
+      key: CFBundleShortVersionString
+      value: "1.0.26"

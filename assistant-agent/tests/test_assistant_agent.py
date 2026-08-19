@@ -180,6 +180,7 @@ def _run_snippet(
     setup: dict,
     *,
     self_handles: str | None = None,
+    service_token: str | None = None,
     defer_start: bool | None = None,
 ) -> subprocess.CompletedProcess:
     env = os.environ.copy()
@@ -195,6 +196,8 @@ def _run_snippet(
     )
     if self_handles is not None:
         env["OSTLER_IMESSAGE_SELF_HANDLES"] = self_handles
+    if service_token is not None:
+        env["PWG_SERVICE_TOKEN"] = service_token
     if defer_start is not None:
         env["OSTLER_ASSISTANT_DEFER_START"] = "true" if defer_start else "false"
     return subprocess.run(
@@ -223,6 +226,11 @@ def test_snippet_renders_plist_and_substitutes_every_placeholder(tmp_path):
     # token would land a literal "OSTLER_IMESSAGE_SELF_HANDLES_VALUE"
     # in the daemon env and the self-handle guard would match nothing.
     assert "OSTLER_IMESSAGE_SELF_HANDLES_VALUE" not in text
+    # v1.0.12 assistant-retrieval fix: the service-token placeholder must be
+    # substituted too -- a stray "PWG_SERVICE_TOKEN_VALUE" would land as a
+    # literal bearer, so the daemon's pwg_* tools would send a bogus token to
+    # the ical-server and still 401 (assistant "can't find anyone").
+    assert "PWG_SERVICE_TOKEN_VALUE" not in text
 
     data = plistlib.loads(rendered.read_bytes())
     macos_binary = setup["ostler_dir"] / "OstlerAssistant.app" / "Contents" / "MacOS" / "ostler-assistant"
@@ -249,6 +257,22 @@ def test_snippet_renders_self_handles_into_plist(tmp_path):
     rendered = setup["home_dir"] / "Library" / "LaunchAgents" / "com.creativemachines.ostler.assistant.plist"
     data = plistlib.loads(rendered.read_bytes())
     assert data["EnvironmentVariables"]["OSTLER_IMESSAGE_SELF_HANDLES"] == handles
+
+
+def test_snippet_renders_pwg_service_token_into_plist(tmp_path):
+    # v1.0.12 assistant-retrieval fix: the per-install #200 service token must
+    # land in the daemon env so its pwg_* retrieval tools carry
+    # `Authorization: Bearer <token>` to the locked-down ical-server on :8090
+    # (which fails-closed 401 without it). Belt-and-braces for fresh installs;
+    # existing customers are fixed by the daemon's code-side file fallback.
+    setup = _stage_inputs(tmp_path)
+    token = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6abcd"
+    result = _run_snippet(setup, service_token=token)
+    assert result.returncode == 0, result.stderr
+
+    rendered = setup["home_dir"] / "Library" / "LaunchAgents" / "com.creativemachines.ostler.assistant.plist"
+    data = plistlib.loads(rendered.read_bytes())
+    assert data["EnvironmentVariables"]["PWG_SERVICE_TOKEN"] == token
 
 
 def test_snippet_renders_empty_self_handles_when_unset(tmp_path):

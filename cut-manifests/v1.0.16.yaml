@@ -1,0 +1,162 @@
+# cut-manifests/v1.0.16.yaml
+# ============================================================================
+# Point-in-time contract of what the v1.0.16 DMG cut MUST contain.
+#
+# Every entry is a fix that has slipped, or would silently slip, without an
+# artefact-level proof. The verifier walks this file + permanent.yaml before
+# codesign. Any FAIL fails the cut BEFORE signing (fail-closed).
+#
+# THE FILE MUST EXIST FOR ITS VERSION. gui/Makefile derives
+# CUT_MANIFEST_VERSION from the installer version (1.0.16 -> v1.0.16).
+#
+# v1.0.16 discovered the sharper version of that warning: the file for v1.0.15
+# WAS written (d7ee25b, "cut(v1.0.15): bump installer to 1.0.15 + its cut
+# manifest") and never reached main, so it is absent from this tree entirely.
+# The cut then died with FileNotFoundError -- which is the correct, loud
+# behaviour, and the reason this gate is worth having. A manifest that is
+# merely missing is indistinguishable from a manifest that passes vacuously.
+#
+# Format: see cut-manifests/README.md.
+# ============================================================================
+
+version: v1.0.16
+description: |
+  v1.0.16 cut contract -- the LAUNCH CANDIDATE. Consumes permanent.yaml plus
+  these entries. Fails the cut on any RED before codesign.
+
+  What this cut is FOR, and therefore what must be proved at the artefact:
+
+    - Daemon hub-v0.4.54 @ 782a6195 -- kills the 3m12s dead screen on every
+      reboot. ensure_colima_running() was awaited INLINE before the gateway
+      bind, bounded at STATUS_TIMEOUT(20s) + START_TIMEOUT(180s); it is now
+      spawned so the gateway binds first.
+
+    - A Hub app (Ostler.app) rebuilt from that SAME commit. This cut nearly
+      shipped a 12-day-old Hub bundle behind a correct daemon pin: Ostler.app
+      bundles web/, and no pin check can see a stale wrapper. The default
+      OSTLER_APP_PATH pointed at a directory that did not exist at all, so
+      "the build succeeded" would have meant nothing.
+
+    - The settling panel actually producing on all five channels. #288 shipped
+      a perfect writer with 17 tests, an acceptance gate, and ZERO production
+      callers -- the panel was 100% dark. contacts and emails are produced by
+      a bash writer that must be BUNDLED to run at all.
+
+entries:
+
+  # --------------------------------------------------------------------------
+  # Installer version stamp -- DMG-boundary assertion.
+  # --------------------------------------------------------------------------
+  # Sibling of the source-consistency gate; this proves the BUILT app stamps
+  # 1.0.16, catching "sources agree but the built app is stale".
+  - id: v1016-installer-app-version-stamp
+    title: built OstlerInstaller.app CFBundleShortVersionString must equal 1.0.16
+    incident: v1.0.11 AND v1.0.12 both shipped an installer stamping "1.0.10"
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: "Contents/Info.plist"
+      key: "CFBundleShortVersionString"
+      value: "1.0.16"
+
+  # --------------------------------------------------------------------------
+  # Build number -- the failure the consistency gate structurally cannot see.
+  # --------------------------------------------------------------------------
+  # The v1.0.16 release commit bumped the marketing string but left
+  # CFBundleVersion at 1302, the v1.0.13.2 build number. The consistency gate
+  # passed, correctly: all four sources AGREED -- on the stale value. A gate
+  # that checks agreement is blind to a value that is uniformly wrong, so the
+  # expected number has to be asserted somewhere, and this is that somewhere.
+  #
+  # A customer upgrading from 1.0.13.2 would otherwise have received a new
+  # product carrying an identical build number.
+  - id: v1016-installer-app-build-number
+    title: built OstlerInstaller.app CFBundleVersion must equal 1600
+    incident: v1.0.16 bumped 1.0.13.2 -> 1.0.16 while leaving CFBundleVersion at 1302
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: "Contents/Info.plist"
+      key: "CFBundleVersion"
+      value: "1600"
+
+  # --------------------------------------------------------------------------
+  # THE headline content proof: the shipped daemon is the reboot-fix build.
+  # --------------------------------------------------------------------------
+  # The daemon stamps DAEMON_FRONTEND_COMMIT=<40-hex> via env!() at build time
+  # (HR015 #226). It is codesigning-invariant and survives into the shipped
+  # Mach-O verbatim, so this proves WHICH build the artefact embeds -- not
+  # which one the pin claims.
+  #
+  # verify-commit-parity proves wrapper == daemon. It cannot prove they are the
+  # RIGHT commit: two stale-but-equal binaries pass parity happily. This entry
+  # is the half that pins the identity.
+  - id: v1016-daemon-frontend-commit-is-reboot-fix
+    title: shipped daemon must embed the 782a6195 build (gateway binds before Colima)
+    incident: v1.0.14.1 shipped from a tree 161 commits behind main and passed 39/40 gates
+    # NB: v1.0.15's manifest used `target: assistant-binary`, which this
+    # verifier does not define -- had that file ever reached main, the entry
+    # would have raised "unknown target" rather than proving anything. The
+    # daemon lives under assistant-agent/, addressed here by explicit path.
+    proof:
+      kind: grep_in_artefact
+      target: installer-app
+      path: "Contents/Resources/assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
+      pattern: "DAEMON_FRONTEND_COMMIT=782a6195ca0747f0dcaba043a20d3c50e491d8cd"
+      must_match: true
+
+  # The wrapper half of the same identity claim. Ostler.app bundles web/, so a
+  # stale wrapper renders an old Hub UI while every daemon pin reads correct.
+  # This cut found exactly that: the only Ostler.app on disk was 12 days old,
+  # and the default OSTLER_APP_PATH pointed nowhere.
+  - id: v1016-wrapper-frontend-commit-matches-daemon
+    title: shipped Hub wrapper must embed the SAME build as the daemon (782a6195)
+    incident: v1.0.13 #225 stale wrapper -- all gates green, customer UI wrong
+    proof:
+      kind: grep_in_artefact
+      target: daemon-app
+      path: "Contents/MacOS/ostler-hub"
+      pattern: "WRAPPER_FRONTEND_COMMIT=782a6195ca0747f0dcaba043a20d3c50e491d8cd"
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # The settling panel's contacts/emails producer must be BUNDLED.
+  # --------------------------------------------------------------------------
+  # install.sh copies contact_syncer / meeting_syncer / identity_resolver into
+  # PIPELINE_DIR but never ostler_fda, so the contacts and emails channels
+  # cannot import the Python settling writer. They use a bash writer instead --
+  # which is inert unless it is inside the .app.
+  #
+  # This is the artefact half of the ships-dark cure: HR015's coverage gate
+  # proves a producer EXISTS and calls the writer; this proves the file a
+  # customer's install will actually execute is present in the DMG.
+  - id: v1016-settling-shell-writer-bundled
+    title: lib/settling_progress.sh must ship inside the installer app
+    incident: "#288 shipped a settling writer with 17 tests and zero production callers"
+    proof:
+      kind: file_exists_in_artefact
+      target: installer-app
+      path: "Contents/Resources/lib/settling_progress.sh"
+
+  # --------------------------------------------------------------------------
+  # The wiki images the DMG points at must be the ones that were verified.
+  # --------------------------------------------------------------------------
+  # CM044's release-images.yml has been dead since at least 2026-08-05 (GHCR
+  # login: "denied: denied"), so tag v0.1.2 never published and every wiki
+  # change since v0.1.1 -- the reskin included -- was reaching NO customer.
+  # These digests were rebuilt by hand, pushed to ghcr.io/ostler-ai, and each
+  # confirmed anonymously pullable (HTTP 200) the way a customer's Mac fetches.
+  # Pinning them in install.sh is what makes that work reach the box.
+  - id: v1016-wiki-site-digest-pinned
+    title: install.sh must pin the verified wiki-site digest
+    proof:
+      kind: grep_in_installer
+      pattern: "ostler-wiki-site@sha256:0777ab938226cb793bb91c27df8af669bfcb00c5d5dfcdb247516994c0e84ddb"
+      must_match: true
+
+  - id: v1016-wiki-compiler-digest-pinned
+    title: install.sh must pin the verified wiki-compiler digest
+    proof:
+      kind: grep_in_installer
+      pattern: "ostler-wiki-compiler@sha256:b6f33d0efc98716313b6753eb4e787e374c5ff5be18ea58680632e5f77cb0e5f"
+      must_match: true
