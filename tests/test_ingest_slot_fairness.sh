@@ -564,7 +564,12 @@ fi
 echo
 echo "== Section 11: a payload that ignores SIGTERM is still stopped =="
 
-WS11="$(mktemp -d -t slot11)"
+# PLAIN `mktemp -d`. The BSD form `mktemp -d -t PREFIX` exits 1 with EMPTY
+# output on GNU coreutils, which is what CI runs. That silently gave
+# WS11="" and every path below became garbage, so both sections failed on
+# the runner for a reason that had nothing to do with the code under test.
+WS11="$(mktemp -d)"
+[ -n "$WS11" ] && [ -d "$WS11" ] || { failure "could not create a workspace for section 11; NOTHING was checked, which is not a pass"; WS11=""; }
 trap 'rm -rf "$WS11" 2>/dev/null || true' EXIT
 
 # A payload that TRAPS SIGTERM and keeps running. Exactly the shape of a
@@ -620,7 +625,12 @@ trap - EXIT
 echo
 echo "== Section 12: the bound is measured from enrolment, not acquisition =="
 
-WS12="$(mktemp -d -t slot12)"
+# PLAIN `mktemp -d`. The BSD form `mktemp -d -t PREFIX` exits 1 with EMPTY
+# output on GNU coreutils, which is what CI runs. That silently gave
+# WS12="" and every path below became garbage, so both sections failed on
+# the runner for a reason that had nothing to do with the code under test.
+WS12="$(mktemp -d)"
+[ -n "$WS12" ] && [ -d "$WS12" ] || { failure "could not create a workspace for section 12; NOTHING was checked, which is not a pass"; WS12=""; }
 trap 'rm -rf "$WS12" 2>/dev/null || true' EXIT
 
 OSTLER_STATE_DIR="$WS12" OSTLER_INGEST_LOCK="$WS12/lock.d" \
