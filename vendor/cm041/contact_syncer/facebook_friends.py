@@ -38,6 +38,7 @@ if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
 from contact_syncer import config
+from contact_syncer import privacy_model as _pm
 from identity_resolver.models import PersonIdentity
 from identity_resolver.resolver import IdentityResolver
 
@@ -193,6 +194,10 @@ def create_person_oxigraph(
     triples.append(f"<{person_uri}> pwg:hasSignal <{signal_uri}>")
     triples.append(f"<{signal_uri}> a pwg:RelationshipSignal")
     triples.append(f'<{signal_uri}> pwg:signalType "facebook_friend"')
+    triples.append(
+        f'<{signal_uri}> pwg:privacyLevel '
+        f'"{_pm.level_for(rdf_type="RelationshipSignal", source="facebook_friend")}"'
+    )
     if extra.get("friended_on"):
         triples.append(
             f'<{signal_uri}> pwg:signalDate "{_escape(extra["friended_on"])}"'
@@ -222,6 +227,8 @@ def enrich_person_oxigraph(
         f"<{person_uri}> pwg:hasSignal <{signal_uri}>",
         f"<{signal_uri}> a pwg:RelationshipSignal",
         f'<{signal_uri}> pwg:signalType "facebook_friend"',
+        f'<{signal_uri}> pwg:privacyLevel '
+        f'"{_pm.level_for(rdf_type="RelationshipSignal", source="facebook_friend")}"',
     ]
     if extra.get("friended_on"):
         triples.append(
@@ -287,6 +294,14 @@ def upsert_qdrant(
     last_contact = friended_on or now_iso[:10]
     last_contact_ts = timestamp or int(time.time())
 
+    # observed_at records the REAL source date (the Facebook friendship
+    # date) so the wiki's time-ordered views show when the relationship
+    # was actually established, not the install/import date. Only set it
+    # when friended_on is present -- never fabricate a date.
+    observed_at = ""
+    if friended_on:
+        observed_at = f"{friended_on}T00:00:00+00:00"
+
     payload = {
         "person_id": person_id,
         "person_uri": person_uri,
@@ -306,6 +321,8 @@ def upsert_qdrant(
         "created_at": now_iso,
         "updated_at": now_iso,
     }
+    if observed_at:
+        payload["observed_at"] = observed_at
 
     point_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
     point = PointStruct(
@@ -420,6 +437,20 @@ def import_friends(
                         config.DEFAULT_PRIVACY_LEVEL,
                     )
                 counts["created"] += 1
+
+                # Register the new person in the resolver's in-memory fuzzy
+                # index so LATER rows in this SAME run dedupe against it. The
+                # candidate snapshot is loaded once and frozen; without this a
+                # one-shot bulk import mints a fresh node for every repeat of a
+                # name -- the root cause of one-shot-import duplicates on a
+                # fresh install, which the incrementally synced graph never hit
+                # (each daily run re-snapshots).
+                resolver.register_person(
+                    person_uri,
+                    identity.display_name,
+                    org=identity.organization,
+                    linkedin_url=identity.linkedin_url,
+                )
 
             # Qdrant upsert (embed + write)
             if qdrant and not dry_run:

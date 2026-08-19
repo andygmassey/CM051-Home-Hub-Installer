@@ -1,0 +1,14 @@
+name: appcast-fail-closed
+# Not paths-filtered: the thing being guarded is a Makefile DEFAULT, and a
+# default can be changed from a file this filter would not name.
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  fail-closed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: a cut that cannot publish must fail, not warn
+        run: bash tests/test_appcast_publish_is_fail_closed.sh

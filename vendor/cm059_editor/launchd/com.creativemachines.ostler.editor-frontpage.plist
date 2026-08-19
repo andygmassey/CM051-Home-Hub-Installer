@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        The Editor - Front Page refresh LaunchAgent (CM059).
+
+        Hourly, recompiles the interest profile from the live PWG graph and
+        re-emits ~/.ostler/editor/front_page.{json,html} -- the file the Hub
+        app Dashboard's <FrontPageCards> reads via the get_front_page Tauri
+        command. The producer never blanks: without graph data it writes a
+        graceful "still settling in" card, and fills with interest cards as
+        preferences land in Oxigraph.
+
+        Placeholders rendered at install time by INSTALL_SNIPPET.sh:
+          OSTLER_BIN  -> $OSTLER_DIR/bin  (holds editor-frontpage-tick.sh)
+          OSTLER_HOME -> $HOME            (working directory)
+          OSTLER_LOGS -> $LOGS_DIR        (~/.ostler/logs by default)
+
+        British English throughout.
+    -->
+    <key>Label</key>
+    <string>com.creativemachines.ostler.editor-frontpage</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>OSTLER_BIN/editor-frontpage-tick.sh</string>
+    </array>
+
+    <!--
+        LaunchAgents do not inherit the user's shell PATH. The tick uses an
+        absolute python path, but keep the standard prefixes for belt-and-
+        braces (git/python resolution if the absolute path ever moves).
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!--
+        Hourly (3600s). The emit is a single read-only SPARQL query plus
+        in-process scoring -- cheap enough to keep the Front Page fresh
+        without load. Matches CM059's own cadence.
+    -->
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <!--
+        RunAtLoad fires one emit at LaunchAgent load (post-install / login)
+        so the Dashboard shows a populated (or honestly-settling) Front Page
+        immediately rather than after the first hour.
+    -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>WorkingDirectory</key>
+    <string>OSTLER_HOME</string>
+
+    <key>StandardOutPath</key>
+    <string>OSTLER_LOGS/editor-frontpage.log</string>
+    <key>StandardErrorPath</key>
+    <string>OSTLER_LOGS/editor-frontpage.err</string>
+
+    <!--
+        Background priority + low-priority I/O: a Front Page refresh must
+        never compete with foreground work on the user's daily-driver Mac.
+    -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>

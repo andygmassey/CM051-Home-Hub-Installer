@@ -39,6 +39,7 @@ if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
 from contact_syncer import config
+from contact_syncer import privacy_model as _pm
 from identity_resolver.models import PersonIdentity
 from identity_resolver.resolver import IdentityResolver
 
@@ -181,6 +182,7 @@ def write_conversation_signal(
         f'  <{signal_uri}> a pwg:RelationshipSignal .\n'
         f'  <{signal_uri}> pwg:about <{person_uri}> .\n'
         f'  <{signal_uri}> pwg:signalType "linkedin_messaging" .\n'
+        f'  <{signal_uri}> pwg:privacyLevel "{_pm.level_for(rdf_type="RelationshipSignal", source="linkedin_messaging")}" .\n'
         f'  <{signal_uri}> pwg:signalDate "{last_msg_str}"^^xsd:dateTime .\n'
         f'  <{signal_uri}> pwg:totalMessages "{total}"^^xsd:integer .\n'
         f'  <{signal_uri}> pwg:userMessages "{user_msgs}"^^xsd:integer .\n'
@@ -236,7 +238,14 @@ def import_messages(
         "errors": 0,
     }
 
-    for i, (conv_id, conv) in enumerate(sorted_convos, 1):
+    # Bulk fuzzy-resolve mode: snapshot every Person's fuzzy-candidate row
+    # ONCE up front instead of re-running a full-table SPARQL SELECT for
+    # every conversation participant. For a large message export this turns
+    # an O(participants x persons) scan into O(persons) + in-memory scoring
+    # -- the iMessage-hydration hot path. Newly-minted persons are
+    # registered back into the snapshot below so intra-run dedup still works.
+    with resolver.bulk():
+      for i, (conv_id, conv) in enumerate(sorted_convos, 1):
         # Find the non-user participants
         others = [
             p for p in conv["participants"].values()
@@ -298,6 +307,20 @@ def import_messages(
                             config.DEFAULT_PRIVACY_LEVEL,
                         )
                     counts["participants_new"] += 1
+
+                    # Register the new person in the resolver's in-memory fuzzy
+                    # index so LATER rows in this SAME run dedupe against it. The
+                    # candidate snapshot is loaded once and frozen; without this
+                    # a one-shot bulk import mints a fresh node for every repeat
+                    # of a name -- the root cause of one-shot-import duplicates
+                    # on a fresh install, which the incrementally synced graph
+                    # never hit (each daily run re-snapshots).
+                    resolver.register_person(
+                        person_uri,
+                        identity.display_name,
+                        org=identity.organization,
+                        linkedin_url=identity.linkedin_url,
+                    )
 
                 # Write messaging relationship signal
                 if not dry_run:

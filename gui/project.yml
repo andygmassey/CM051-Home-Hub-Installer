@@ -15,8 +15,8 @@ settings:
     CODE_SIGN_STYLE: Manual
     PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer
     PRODUCT_NAME: OstlerInstaller
-    CURRENT_PROJECT_VERSION: "7"
-    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "3600"
+    MARKETING_VERSION: "1.0.36"
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS: YES
     OTHER_CODE_SIGN_FLAGS: "--timestamp"
@@ -48,8 +48,8 @@ targets:
         CFBundleName: OstlerInstaller
         CFBundleDisplayName: Ostler Installer
         CFBundleIdentifier: ai.ostler.installer
-        CFBundleShortVersionString: "1.0.0"
-        CFBundleVersion: "7"
+        CFBundleShortVersionString: "1.0.36"
+        CFBundleVersion: "3600"
         CFBundlePackageType: APPL
         CFBundleExecutable: $(EXECUTABLE_NAME)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
@@ -140,11 +140,11 @@ targets:
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
           # The Makefile drops the tarball at ${BUILD_DIR}/python-bundle.tar.gz.
           # When `make ship` is the entry point, BUILD_DIR defaults to
-          # /tmp/ostler-installer-build-${USER}. When xcodebuild runs from
+          # /tmp/ostler-installer-build-${USER:-}. When xcodebuild runs from
           # Xcode.app directly, fall back to a sibling-of-SRCROOT build/ dir.
           PYTHON_TARBALL=""
           for candidate in \
-              "/tmp/ostler-installer-build-${USER}/python-bundle.tar.gz" \
+              "/tmp/ostler-installer-build-${USER:-}/python-bundle.tar.gz" \
               "${SRCROOT}/../build/python-bundle.tar.gz" \
               "${SRCROOT}/build/python-bundle.tar.gz"; do
               if [ -f "$candidate" ]; then
@@ -156,7 +156,7 @@ targets:
               echo "ERROR: python-build-standalone tarball missing." >&2
               echo "       Run 'make -C gui download-python' before building." >&2
               echo "       Searched:" >&2
-              echo "         /tmp/ostler-installer-build-${USER}/python-bundle.tar.gz" >&2
+              echo "         /tmp/ostler-installer-build-${USER:-}/python-bundle.tar.gz" >&2
               echo "         ${SRCROOT}/../build/python-bundle.tar.gz" >&2
               echo "         ${SRCROOT}/build/python-bundle.tar.gz" >&2
               exit 1
@@ -223,35 +223,120 @@ targets:
           # Mail diagnostic loses its sidecar and the install path silently
           # degrades. Bundle it alongside progress_emitter.sh.
           cp "${SRCROOT}/../lib/write_pipeline_signals.py"       "${DEST}/lib/write_pipeline_signals.py"
+          # ostler-model-fit.sh (REUSE-4): install.sh sources it from
+          # ${SCRIPT_DIR}/lib/ostler-model-fit.sh to pick an Ollama model the
+          # box can actually run at num_ctx 32768. Missing = legacy RAM-ladder
+          # fallback, but bundle it so customers get the fit assessment.
+          cp "${SRCROOT}/../lib/ostler-model-fit.sh"             "${DEST}/lib/ostler-model-fit.sh"
+          # settling_progress.sh: install.sh sources it from
+          # ${SCRIPT_DIR}/lib/settling_progress.sh to report the `contacts` and
+          # `emails` channels on the wiki's settling panel. Those two producers
+          # (CM041 contact_syncer, CM021 pwg-email-ingest) cannot import HR015's
+          # Python writer -- ostler_fda is never copied into PIPELINE_DIR -- so
+          # this file IS their writer. Missing from the bundle = install.sh
+          # falls back to a silent no-op and both channels ship permanently
+          # blank, which looks identical to a feature nobody built.
+          cp "${SRCROOT}/../lib/settling_progress.sh"            "${DEST}/lib/settling_progress.sh"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
-          chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh"
+          chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh" "${DEST}/lib/settling_progress.sh"
           chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
           # Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app
           # so the customer DMG ships a clean single-app layout (just the
           # installer + drag-to-Applications) yet install.sh's source-
           # preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle
           # at runtime when install.sh runs from inside Contents/Resources.
-          # OSTLER_APP_PATH is exported by gui/Makefile's release target
-          # before invoking xcodebuild; if absent or missing the build
+          # OSTLER_APP_PATH is passed as an xcodebuild build setting by
+          # gui/Makefile's release target; if absent or missing the build
           # logs a warning and the customer install will skip the Hub-app
           # step (install.sh's existing source-not-found warning).
-          if [ -n "${OSTLER_APP_PATH:-}" ] && [ -d "${OSTLER_APP_PATH}" ]; then
-            echo "Bundling Ostler.app from ${OSTLER_APP_PATH} into Resources/"
-            cp -R "${OSTLER_APP_PATH}" "${DEST}/Ostler.app"
+          #
+          # IMPORTANT (2026-06-19 cut): capture the value via the `${VAR:-}`
+          # default form FIRST. xcodegen performs its own ${VAR} substitution
+          # on a plain brace-reference to OSTLER_APP_PATH at *generation* time
+          # (replacing it with the empty string when the var exists but is
+          # empty in the generator's env), which silently broke hub bundling
+          # after a `make regen`. The `:-` form
+          # is passed through literally to the shell, so we read the build
+          # setting through it once and use a plain shell var thereafter.
+          OSTLER_APP_SRC="${OSTLER_APP_PATH:-}"
+          if [ -n "$OSTLER_APP_SRC" ] && [ -d "$OSTLER_APP_SRC" ]; then
+            echo "Bundling Ostler.app from $OSTLER_APP_SRC into Resources/"
+            cp -R "$OSTLER_APP_SRC" "${DEST}/Ostler.app"
             /usr/bin/xattr -cr "${DEST}/Ostler.app" || true
           else
             echo "WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app." >&2
           fi
+        # Every file this phase copies MUST appear in BOTH lists. Xcode uses
+        # them for incremental-build dependency tracking: a file absent from
+        # inputFiles does not dirty the phase when it changes, and one absent
+        # from outputFiles is not recorded as produced. Miss either and a
+        # rebuild can ship a STALE copy of a file that is demonstrably in the
+        # bundle -- the failure looks like "my edit did nothing", not like a
+        # build error. settling_progress.sh was missing from both between
+        # 2026-08-07 00:55 and this commit.
+        # tests/test_bundle_phase_declares_every_copy.sh enforces this.
         inputFiles:
           - $(SRCROOT)/../install.sh
           - $(SRCROOT)/../lib/progress_emitter.sh
           - $(SRCROOT)/../lib/write_pipeline_signals.py
+          - $(SRCROOT)/../lib/ostler-model-fit.sh
+          - $(SRCROOT)/../lib/settling_progress.sh
           - $(SRCROOT)/../install.sh.strings.en-GB.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
+      - name: Compile + bundle ostler-mecard helper into Resources
+        # BW2-1 (box-walk recut #2, 2026-07-25): a signed native helper that
+        # reads the macOS "My Card" via AddressBook (-[ABAddressBook me]) and
+        # prints `name|first|country|email|phone`. install.sh invokes it in
+        # preference to the old osascript `my card` read, which broke on macOS
+        # 26.5 (-1728) and produced a blank pre-fill on the .185 box-walk.
+        #
+        # The tool lands flat in Contents/Resources alongside install.sh, so
+        # install.sh finds it at ${SCRIPT_DIR}/ostler-mecard (== the value the
+        # GUI passes as OSTLER_BOOTSTRAP_SCRIPT_DIR). It is compiled here as a
+        # universal binary from $ARCHS with the module's NSContactsUsageDescription
+        # embedded via -sectcreate. It is left UNSIGNED at this stage: the
+        # Makefile's `--force --deep --options runtime --timestamp` re-sign of
+        # the whole .app (sign-python-bundle target) signs it with the app's
+        # Developer ID + hardened runtime, exactly as it does the bundled
+        # python3.11 binary. As a same-team, hardened descendant of the app, its
+        # Contacts read is attributed to the installer (the TCC responsible
+        # process) and inherits the pre-warmed grant — no second consent prompt.
+        script: |
+          set -euo pipefail
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/ostler-mecard/main.swift"
+          PLIST="${SRCROOT}/ostler-mecard/Info.plist"
+          if [ ! -f "${SRC}" ] || [ ! -f "${PLIST}" ]; then
+            echo "ERROR: ostler-mecard source or Info.plist missing under ${SRCROOT}/ostler-mecard" >&2
+            exit 1
+          fi
+          mkdir -p "${DEST}"
+          DEPLOY="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+          SLICES=()
+          for arch in ${ARCHS}; do
+            slice="${DERIVED_FILE_DIR}/ostler-mecard-${arch}"
+            echo "Compiling ostler-mecard slice: ${arch} (macos ${DEPLOY})"
+            xcrun swiftc -O \
+              -target "${arch}-apple-macos${DEPLOY}" \
+              -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "${PLIST}" \
+              "${SRC}" -o "${slice}"
+            SLICES+=("${slice}")
+          done
+          xcrun lipo -create "${SLICES[@]}" -output "${DEST}/ostler-mecard"
+          chmod 755 "${DEST}/ostler-mecard"
+          /usr/bin/xattr -cr "${DEST}/ostler-mecard" || true
+          echo "Bundled ostler-mecard: $(xcrun lipo -archs "${DEST}/ostler-mecard")"
+        inputFiles:
+          - $(SRCROOT)/ostler-mecard/main.swift
+          - $(SRCROOT)/ostler-mecard/Info.plist
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler-mecard
       - name: Bundle ostler_security Python package into Resources
         script: |
           set -euo pipefail
@@ -261,6 +346,15 @@ targets:
             echo "Bundling ostler_security from ${SRC} into Resources/"
             mkdir -p "${DEST}/ostler_security"
             cp -R "${SRC}/" "${DEST}/ostler_security/"
+            # F1 hygiene (2026-07-26): strip any leftover `build/` (a stale
+            # `python -m build` output can carry a PRE-F1 consent_cli.py that
+            # lacks spoken_capture_recording_consent), plus __pycache__ /
+            # *.egg-info. Runtime resolves consent_cli from the venv, never
+            # from this tree, but a stray stale copy in the bundle is exactly
+            # the class of drift that caused F1 -- keep it out.
+            rm -rf "${DEST}/ostler_security/build"
+            find "${DEST}/ostler_security" -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true
+            find "${DEST}/ostler_security" -type d -name "*.egg-info" -prune -exec rm -rf {} + 2>/dev/null || true
             /usr/bin/xattr -cr "${DEST}/ostler_security" || true
           else
             echo "ERROR: vendor/ostler_security not found at ${SRC}" >&2
@@ -355,6 +449,43 @@ targets:
           - $(SRCROOT)/../vendor/imessage_source
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/imessage_source
+      - name: Bundle Safari extension into Resources
+        script: |
+          set -euo pipefail
+          # W8 / F6: stage the signed Safari Web Extension .app.zip into
+          # Contents/Resources/extensions/ so install.sh section 3.17 finds it
+          # at ${SCRIPT_DIR}/extensions/OstlerSafariExtension.app.zip and copies
+          # it to /Applications. The artefact is produced by CM020's
+          # bin/build-safari-extension.sh and staged by ORM at cut time into
+          # CM051/vendor/extensions/OstlerSafariExtension.app.zip (a binary
+          # build artefact, NOT committed -- see .gitignore note).
+          #
+          # LOUD FAIL: a missing artefact is a release defect, not a graceful
+          # skip. The DMG used to ship with no extensions/ dir at all, so
+          # install.sh hit its silent info-level skip and the extension never
+          # installed on any customer. The build now fails here instead.
+          #
+          # ORM HOOK: before the .app build, produce + stage the artefact:
+          #   (in CM020)  xcodegen generate && bin/build-safari-extension.sh
+          #   then        cp dist/OstlerSafariExtension-<version>.app.zip \
+          #                  vendor/extensions/OstlerSafariExtension.app.zip
+          # It MUST be Developer-ID signed (V95N2B8X7A) + notarised + stapled.
+          VENDOR_SRC="${SRCROOT}/../vendor/extensions/OstlerSafariExtension.app.zip"
+          if [ ! -f "${VENDOR_SRC}" ]; then
+              echo "error: vendor/extensions/OstlerSafariExtension.app.zip is missing." >&2
+              echo "       W8 / F6: ORM must build + sign + notarise + stage the Safari" >&2
+              echo "       extension before the .app build. See gui/project.yml comment." >&2
+              exit 1
+          fi
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "${DEST}/extensions"
+          # Rename to the versionless name the installer consumer probes.
+          cp "${VENDOR_SRC}" "${DEST}/extensions/OstlerSafariExtension.app.zip"
+          /usr/bin/xattr -cr "${DEST}/extensions"
+        inputFiles:
+          - $(SRCROOT)/../vendor/extensions/OstlerSafariExtension.app.zip
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/extensions/OstlerSafariExtension.app.zip
       - name: Bundle Doctor agent into Resources
         script: |
           set -euo pipefail
@@ -515,6 +646,78 @@ targets:
           - $(SRCROOT)/../vendor/cm048_pipeline
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm048_pipeline
+      - name: Bundle CM059 editor Front Page emitter into Resources
+        script: |
+          set -euo pipefail
+          # install.sh's 3.13-editor phase probes
+          # ${SCRIPT_DIR}/cm059_editor/ to discover the vendored Editor
+          # sources, stages them into ${OSTLER_DIR}/editor/, and registers
+          # the com.ostler.editor.frontpage LaunchAgent which runs
+          # `python -m compiler.emit_frontpage` from there hourly.
+          #
+          # For the .app code path, SCRIPT_DIR is Contents/Resources at
+          # install time, so the package must land at
+          # Contents/Resources/cm059_editor/. Without this bundling the
+          # editor sources never reach the customer Mac, the install probe
+          # finds nothing, and the Front Page never refreshes.
+          #
+          # Same vendoring discipline as cm048_pipeline above; different
+          # upstream (CM059 source-of-truth lives at ../CM059\ -\ Ostler\
+          # Editor/, feat/frontpage-live-wiring). The emitter is stdlib-only
+          # (no pip install at install time). Non-fatal if absent: a cut
+          # that predates the Editor still builds, and install.sh's 3.13
+          # editor hook no-ops cleanly when the sources are not staged.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../vendor/cm059_editor"
+          if [ -d "${SRC}" ]; then
+            echo "Bundling cm059_editor from ${SRC} into Resources/"
+            mkdir -p "${DEST}/cm059_editor"
+            # Copy WITHOUT -p so xattrs do not propagate (codesign rejects them).
+            cp -R "${SRC}/" "${DEST}/cm059_editor/"
+            /usr/bin/xattr -cr "${DEST}/cm059_editor" || true
+          else
+            echo "note: vendor/cm059_editor not found at ${SRC}; skipping Editor bundling (cut predates CM059)." >&2
+          fi
+        inputFiles:
+          - $(SRCROOT)/../vendor/cm059_editor
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm059_editor
+      - name: Bundle CM052 AI-conversation producer into Resources
+        script: |
+          set -euo pipefail
+          # install.sh's AI-Conversations leg (task #553 / #613) probes
+          # ${SCRIPT_DIR}/cm052_ai_conversations/ to discover the vendored
+          # CM052 package, pip-installs it NON-editable into a dedicated
+          # venv under ${OSTLER_DIR}/services/cm052/, and runs the
+          # pwg-ai-convo producer to drain external-LLM chat history into
+          # ~/Documents/Ostler/AI Conversations/ (the CM044 AI Chats wing).
+          #
+          # The whole leg is gated behind OSTLER_AI_CONVERSATIONS_ENABLED
+          # (OFF for v1.0.x -- the section ships dark), but the package is
+          # bundled unconditionally so flipping the flag on needs no
+          # rebuild -- mirror of the cm024_knowledge "CLI installed, flag
+          # only controls visibility" posture.
+          #
+          # Same vendoring discipline as cm048_pipeline above; upstream is
+          # CM052 - PWG AI Conversation Ingest @ the manifest-pinned SHA.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../vendor/cm052_ai_conversations"
+          if [ -d "${SRC}" ]; then
+            echo "Bundling cm052_ai_conversations from ${SRC} into Resources/"
+            mkdir -p "${DEST}/cm052_ai_conversations"
+            # Copy WITHOUT -p so xattrs do not propagate (codesign rejects them).
+            cp -R "${SRC}/" "${DEST}/cm052_ai_conversations/"
+            # Strip developer-checkout artefacts before codesign.
+            find "${DEST}/cm052_ai_conversations" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+            find "${DEST}/cm052_ai_conversations" -type f -name "*.pyc" -delete 2>/dev/null || true
+            /usr/bin/xattr -cr "${DEST}/cm052_ai_conversations" || true
+          else
+            echo "note: vendor/cm052_ai_conversations not found at ${SRC}; skipping AI-Conversations bundling (cut predates CM052 leg)." >&2
+          fi
+        inputFiles:
+          - $(SRCROOT)/../vendor/cm052_ai_conversations
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm052_ai_conversations
       - name: Bundle CM019 preferences ingest pipeline into Resources
         script: |
           set -euo pipefail
@@ -612,12 +815,39 @@ targets:
           # Remove any stale prior copy. Build phases run incrementally
           # so without this step a vendor-syncer rename or delete would
           # leave the old tree in place.
-          rm -rf "${DEST}/contact_syncer" "${DEST}/meeting_syncer" "${DEST}/identity_resolver" "${DEST}/assistant_api"
+          # CM041 v1.0.9 re-vendor (2026-07-15): two NEW root-level assets.
+          #   - pwg_privacy.py       canonical fail-closed L3 privacy helper.
+          #                          HARD-imported (top-level, unguarded) by
+          #                          meeting_syncer/brief.py AND
+          #                          assistant_api/ical-server.py since CM041
+          #                          #97; both resolve it from the parent dir
+          #                          of their package (the Resources root in
+          #                          this layout). Missing file = ImportError
+          #                          at service start, so hard-fail the build.
+          #   - ostler_hygiene/      memory-hygiene engine (CM041 #98).
+          #                          ical-server's _hygiene_reader() resolves
+          #                          it as a sibling package; import is
+          #                          fail-open, but ship it so the hygiene
+          #                          overlay actually works on customer Macs.
+          if [ ! -f "${VENDOR_ROOT}/pwg_privacy.py" ]; then
+              echo "error: vendor/cm041/pwg_privacy.py missing." >&2
+              echo "       ical-server.py + brief.py hard-import it (CM041 #97)." >&2
+              echo "       Re-sync from the CM041 PWG People Graph repo." >&2
+              exit 1
+          fi
+          if [ ! -d "${VENDOR_ROOT}/ostler_hygiene" ]; then
+              echo "error: vendor/cm041/ostler_hygiene/ missing." >&2
+              echo "       Re-sync from the CM041 PWG People Graph repo." >&2
+              exit 1
+          fi
+          rm -rf "${DEST}/contact_syncer" "${DEST}/meeting_syncer" "${DEST}/identity_resolver" "${DEST}/assistant_api" "${DEST}/ostler_hygiene" "${DEST}/pwg_privacy.py"
           cp -R "${VENDOR_ROOT}/contact_syncer"    "${DEST}/contact_syncer"
           cp -R "${VENDOR_ROOT}/meeting_syncer"    "${DEST}/meeting_syncer"
           cp -R "${VENDOR_ROOT}/identity_resolver" "${DEST}/identity_resolver"
           cp -R "${VENDOR_ROOT}/assistant_api"     "${DEST}/assistant_api"
-          /usr/bin/xattr -cr "${DEST}/contact_syncer" "${DEST}/meeting_syncer" "${DEST}/identity_resolver" "${DEST}/assistant_api"
+          cp -R "${VENDOR_ROOT}/ostler_hygiene"    "${DEST}/ostler_hygiene"
+          cp    "${VENDOR_ROOT}/pwg_privacy.py"    "${DEST}/pwg_privacy.py"
+          /usr/bin/xattr -cr "${DEST}/contact_syncer" "${DEST}/meeting_syncer" "${DEST}/identity_resolver" "${DEST}/assistant_api" "${DEST}/ostler_hygiene" "${DEST}/pwg_privacy.py"
           # ical-server.py is executable on the operator instance via
           # `python ical-server.py`, not chmod +x, so we don't toggle
           # the mode here. requirements.txt + .env.example land 644.

@@ -56,8 +56,59 @@ class AmazonParser(BaseParser):
     # Origin types to include for Kindle ownership (exclude dictionaries and user guides)
     KINDLE_VALID_ORIGINS = ["Purchase", "PDocs", "Sample"]
 
+    # Subdirectory names that are exclusive to an Amazon data export.
+    AMAZON_SIGNATURE_SUBDIRS = frozenset([
+        "orders",
+        "kindle",
+        "prime video",
+        "search history",
+    ])
+
+    # CSV filenames (lowercased) that are exclusive to Amazon exports.
+    AMAZON_SIGNATURE_FILES = (
+        "retail.orderhistory",
+        "retail.cartitems",
+        "digital items.csv",
+        "digital orders.csv",
+    )
+
+    def _is_amazon_extracted_dir(self, path: Path) -> bool:
+        """Return True if *path* looks like an extracted Amazon data-export folder.
+
+        Detection uses two independent signals so the check is tight enough not
+        to false-match other services' CSV dumps:
+
+        1. A direct child directory whose name (lowercased) is one of the
+           well-known Amazon-exclusive subdirectory names (Orders, Kindle, etc.).
+        2. A file within 3 levels whose name (lowercased) starts with an
+           Amazon-exclusive prefix (Retail.OrderHistory, etc.).
+
+        Either signal alone is sufficient.
+        """
+        try:
+            # Signal 1 -- fast: check direct child directory names.
+            for child in path.iterdir():
+                if child.is_dir() and child.name.lower() in self.AMAZON_SIGNATURE_SUBDIRS:
+                    return True
+
+            # Signal 2 -- deeper: scan up to 3 levels for signature filenames.
+            for level in range(3):
+                glob_pattern = "/".join(["*"] * (level + 1))
+                for candidate in path.glob(glob_pattern):
+                    if candidate.is_file():
+                        name_lower = candidate.name.lower()
+                        if any(sig in name_lower for sig in self.AMAZON_SIGNATURE_FILES):
+                            return True
+        except PermissionError:
+            pass
+        return False
+
     def can_parse(self, file_path: Path) -> bool:
         """Check if file is an Amazon data export."""
+        # Extracted directory (no root zip) -- e.g. "03 - Amazon/".
+        if file_path.is_dir():
+            return self._is_amazon_extracted_dir(file_path)
+
         if file_path.suffix.lower() == ".zip":
             try:
                 with zipfile.ZipFile(file_path, 'r') as zf:
@@ -99,6 +150,12 @@ class AmazonParser(BaseParser):
         if default_compartment is None:
             default_compartment = settings.default_compartment
 
+        # Extracted directory (no root zip) -- e.g. "03 - Amazon/".
+        if file_path.is_dir():
+            async for pref in self._parse_dir(file_path, default_compartment):
+                yield pref
+            return
+
         if file_path.suffix.lower() == ".zip":
             async for pref in self._parse_zip(file_path, default_compartment):
                 yield pref
@@ -111,6 +168,55 @@ class AmazonParser(BaseParser):
             async for pref in self._parse_csv(file_path, default_compartment):
                 yield pref
 
+    async def _parse_dir(
+        self,
+        dir_path: Path,
+        default_compartment: int
+    ) -> AsyncIterator[ParsedPreference]:
+        """Parse an extracted Amazon data-export directory tree.
+
+        Walks the entire tree and delegates each recognised file to the
+        appropriate individual-file parser.  ZIP files found inside the tree
+        are also extracted and parsed (some Amazon sections ship as inner
+        archives, e.g. Alexa/).
+        """
+        all_files = [p for p in dir_path.rglob("*") if p.is_file()]
+        logger.info(
+            "Amazon dir parse: found %d files under %s",
+            len(all_files),
+            dir_path.name,
+        )
+        record_count = 0
+        for file in all_files:
+            suffix = file.suffix.lower()
+            # Delegate to individual-file parsers; avoid recursive dir calls.
+            if suffix == ".zip":
+                if self.can_parse(file):
+                    async for pref in self._parse_zip(file, default_compartment):
+                        record_count += 1
+                        yield pref
+            elif suffix == ".json":
+                if "digital.content.ownership" in file.name.lower():
+                    async for pref in self._parse_kindle_ownership_json(file, default_compartment):
+                        record_count += 1
+                        yield pref
+            elif suffix == ".csv":
+                name_lower = file.name.lower()
+                all_patterns = (
+                    list(self.SUPPORTED_PATTERNS)
+                    + list(self.KINDLE_PATTERNS)
+                    + list(self.PRIME_VIDEO_PATTERNS)
+                )
+                if any(p in name_lower for p in all_patterns):
+                    async for pref in self._parse_csv(file, default_compartment):
+                        record_count += 1
+                        yield pref
+        logger.info(
+            "Amazon dir parse: yielded %d records from %s",
+            record_count,
+            dir_path.name,
+        )
+
     async def _parse_zip(
         self,
         zip_path: Path,
@@ -121,13 +227,21 @@ class AmazonParser(BaseParser):
             with zipfile.ZipFile(zip_path, 'r') as zf:
                 zf.extractall(tmpdir)
 
-            # Find and process order history files
             tmpdir_path = Path(tmpdir)
-            for pattern in self.SUPPORTED_PATTERNS:
-                for file in tmpdir_path.rglob("*.csv"):
-                    if any(p in file.name.lower() for p in self.SUPPORTED_PATTERNS):
-                        async for pref in self._parse_csv(file, default_compartment):
-                            yield pref
+
+            # Process recognised CSV files -- the outer pattern-loop that
+            # previously existed here ran the inner body N times (once per
+            # pattern), yielding duplicate records.  It has been removed.
+            for file in tmpdir_path.rglob("*.csv"):
+                if any(p in file.name.lower() for p in self.SUPPORTED_PATTERNS):
+                    async for pref in self._parse_csv(file, default_compartment):
+                        yield pref
+
+            # Also process Kindle ownership JSON files bundled in the zip.
+            for file in tmpdir_path.rglob("*.json"):
+                if "digital.content.ownership" in file.name.lower():
+                    async for pref in self._parse_kindle_ownership_json(file, default_compartment):
+                        yield pref
 
     async def _parse_csv(
         self,

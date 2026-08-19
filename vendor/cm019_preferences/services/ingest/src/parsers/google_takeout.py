@@ -103,8 +103,18 @@ class GoogleTakeoutParser(BaseParser):
                 # Also accept suggested edits (user-contributed places)
                 if "suggested edits" in str(file_path).lower():
                     return True
-            return "takeout" in file_path.name.lower() or any(
-                pattern.split("/")[-1] in file_path.name
+            # Leaf EQUALITY, not containment. "History.json" is the leaf of
+            # Takeout/Chrome/History.json AND a substring of TikTok's
+            # "Browsing History.json", "Watch History.json" and
+            # "Search History.json". Because this parser is second in the
+            # registration order and _get_parser stops at the first claim, a
+            # containment test took every TikTok history file before TikTok was
+            # asked, and yielded nothing from any of them.
+            leaf = file_path.name.lower()
+            if "takeout" in leaf:
+                return True
+            return any(
+                pattern.rsplit("/", 1)[-1].lower() == leaf
                 for pattern in self.SUPPORTED_FILES.values()
                 if pattern.endswith('.json')
             )
@@ -402,11 +412,18 @@ class GoogleTakeoutParser(BaseParser):
         default_compartment: int
     ) -> AsyncIterator[ParsedPreference]:
         """Parse Google Maps saved places (GeoJSON FeatureCollection format)."""
-        features = data.get("features", [])
+        # Mirror _parse_maps_reviews: a malformed export may not be a dict, and
+        # individual features / their properties are not always dicts. Guard
+        # before .get() so one bad feature does not drop the whole file.
+        features = data.get("features", []) if isinstance(data, dict) else data
         count = 0
 
         for feature in features:
+            if not isinstance(feature, dict):
+                continue
             props = feature.get("properties", {})
+            if not isinstance(props, dict):
+                props = {}
 
             # GeoJSON format: location info is nested under properties.location
             location = props.get("location", {})
@@ -574,7 +591,14 @@ class GoogleTakeoutParser(BaseParser):
     ) -> AsyncIterator[ParsedPreference]:
         """Parse Google Play app installs."""
         for app in data:
-            name = app.get("install", {}).get("doc", {}).get("title", "")
+            # Records are not always dicts, and the install/doc intermediates can
+            # be null in odd exports; walk the chain defensively so one bad record
+            # does not abort the whole file.
+            if not isinstance(app, dict):
+                continue
+            install = app.get("install", {})
+            doc = install.get("doc", {}) if isinstance(install, dict) else {}
+            name = doc.get("title", "") if isinstance(doc, dict) else ""
             if not name:
                 continue
 

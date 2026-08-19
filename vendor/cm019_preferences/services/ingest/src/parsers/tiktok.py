@@ -152,9 +152,15 @@ class TikTokParser(BaseParser):
             logger.error(f"Failed to parse JSON: {e}")
             return
 
-        following_list = data.get('Following', {}).get('FollowingList', [])
+        # Navigate defensively: a malformed export may hand us a bare list,
+        # a null "Following" value, or a non-dict where a dict is expected.
+        # Chaining .get() through those raises and drops the whole file.
+        following = data.get('Following', {}) if isinstance(data, dict) else {}
+        following_list = following.get('FollowingList', []) if isinstance(following, dict) else []
 
         for item in following_list:
+            if not isinstance(item, dict):
+                continue
             username = item.get('UserName', '').strip()
             if not username:
                 continue

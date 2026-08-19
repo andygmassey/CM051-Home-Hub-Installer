@@ -1,0 +1,42 @@
+# #747. Enrichment had no invoker at all, and the reason nobody noticed is
+# that every test of enrichment ITSELF passed. A feature can be correct,
+# tested, shipped and permanently unreachable at the same time, and only a
+# gate on the WIRING can tell you.
+#
+# This runs the chain test, which asserts installer -> call site -> recurring
+# plist -> the enrichment CLI -> a bounded slice -> the uninstall list, and
+# proves each link red on its own axis.
+name: enrichment-invoker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_enrichment_has_a_recurring_invoker.sh'
+      - '.github/workflows/enrichment-invoker.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_enrichment_has_a_recurring_invoker.sh'
+      - '.github/workflows/enrichment-invoker.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  enrichment-invoker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enrichment is actually invoked, on a schedule, and bounded
+        run: bash tests/test_enrichment_has_a_recurring_invoker.sh

@@ -21,6 +21,7 @@ Bumping wording text:
 from .consent_strings import (
     ARTICLE_9_EU_CONSENT,
     EU_VOICE_SPEAKER_ID_CONSENT,
+    SPOKEN_CAPTURE_RECORDING_CONSENT,
     THIRD_PARTY_DATA_NOTICE,
     WHATSAPP_UNOFFICIAL_RISK_CONSENT,
     ConsentString,
@@ -29,6 +30,7 @@ from .consent_strings import (
 __all__ = [
     "ARTICLE_9_EU_CONSENT",
     "EU_VOICE_SPEAKER_ID_CONSENT",
+    "SPOKEN_CAPTURE_RECORDING_CONSENT",
     "THIRD_PARTY_DATA_NOTICE",
     "WHATSAPP_UNOFFICIAL_RISK_CONSENT",
     "ConsentString",

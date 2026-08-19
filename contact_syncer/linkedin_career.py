@@ -415,6 +415,13 @@ def import_endorsements(
                         linkedin_url,
                         config.USER_ID,
                     )
+                    # CX-126 (#660): keep the resolver's in-memory fuzzy index
+                    # current for later rows in this run.
+                    resolver.register_person(
+                        person_uri,
+                        display_name,
+                        linkedin_url=linkedin_url or None,
+                    )
                 counts["created"] += 1
 
             # Write each endorsement as a relationship signal
@@ -591,6 +598,13 @@ def import_recommendations(
                             + " .\n}"
                         )
                         _sparql_update(config.OXIGRAPH_URL, sparql)
+                    # CX-126 (#660): keep the resolver's in-memory fuzzy index
+                    # current for later rows in this run.
+                    resolver.register_person(
+                        person_uri,
+                        display_name,
+                        org=company or None,
+                    )
                 counts["created"] += 1
 
             # Write the recommendation as a PersonFact

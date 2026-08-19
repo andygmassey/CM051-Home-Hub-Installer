@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Pre-commit dispatcher (created by install-pii-guards.sh).
+# Add other pre-commit checks above the operator-pii block.
+set -e
+
+"$(git rev-parse --show-toplevel)/.githooks/pre-commit-operator-pii" || exit $?

@@ -269,7 +269,7 @@ def render_wizard(snapshot: SystemSnapshot, steps: list[dict]) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{WIZARD_TITLE_TAG}</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         * {{ margin:0; padding:0; box-sizing:border-box; }}
         :root {{
             /* Ostler dark palette (mirrors apple_style.css). The wizard

@@ -45,7 +45,7 @@ Open with a `### Participants` subsection (an explicit bulleted list
 of who was in the conversation, with role labels if obvious from
 context – `{user_name} (user)`, `Alex Chen (colleague)` – and a `### Location`
 subsection with the captured location metadata rendered human-readable
-(`Remote (Zoom, user at home)` or `Fine Print, Kennedy Town, Hong Kong`).
+(`Remote (Zoom, user at home)` or `Riverside Cafe, Old Town`).
 
 Then two to four sentences of factual, third-person summary. What was
 the conversation for, what got discussed, what came out. No value
@@ -57,11 +57,11 @@ Final structure of this section:
 ## Summary
 
 ### Participants
-- {user_name} (user)
+- Jordan Reyes (user)
 - Alex Chen (friend, fellow consultant)
 
 ### Location
-Remote — Zoom call. User's GPS-inferred location: home (Hong Kong).
+Remote – Zoom call. User's GPS-inferred location: home.
 
 ### Narrative
 Two to four sentences here.
@@ -128,7 +128,7 @@ reminders_candidates:
   - action: "Run price prediction extractor against Sarah's luxury resale DB"
     deadline: 2026-04-16
     priority: high
-    source_conversation_id: {conversation_id}
+    source_conversation_id: 2026-04-15_alex_chen_zoom
   - ...
 ```
 
@@ -255,7 +255,7 @@ sensitivity:
   categories: []
 participants:
   - id: user
-    display: {user_display_name}
+    display: Jordan Reyes
     role: user
   - id: alex_chen
     display: Alex Chen
@@ -264,12 +264,12 @@ location:
   mode: remote              # remote | in-person
   source: zoom_call          # zoom_call | facetime | in-person | apple_watch | wearable | other
   user_gps:
-    latitude: 22.2855
-    longitude: 114.1577
+    latitude: 51.5074
+    longitude: -0.1278
     altitude_m: 34
     accuracy_m: 12
     captured_via: ios_companion   # ios_companion | macos_sync | inferred_ip | user_entry
-  user_address: "Home, Hong Kong"   # reverse-geocoded, null if unknown
+  user_address: "Home"   # reverse-geocoded, null if unknown
   venue: null                         # business/venue name, null if not at one
   other_party_location: null          # when known for in-person
 prompt_version: 02-work_one-on-one@1.0

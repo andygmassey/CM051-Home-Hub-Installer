@@ -15,8 +15,8 @@ storage:
 embedding:
   # Options: ollama, openai
   provider: ollama
-  # Ollama host (TrueNAS server)
-  ollama_host: http://truenas.local:11434
+  # Ollama host (override via OSTLER_OLLAMA_URL)
+  ollama_host: http://localhost:11434
   # For ollama: nomic-embed-text, all-minilm, mxbai-embed-large
   # For openai: text-embedding-3-small, text-embedding-3-large
   # NOTE: Collection has 114K vectors at 384-dim, must use matching model

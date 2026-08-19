@@ -3,7 +3,7 @@
 #
 # Hardcoded-assistant-name lint guard. Customer-rendered surfaces must
 # never contain the literal word "Marvin" -- the assistant's name is
-# chosen by the customer at install time (default "Marvin", but Alison
+# chosen by the customer at install time (default "Marvin", but a second
 # chose "Samantha", and v1.2 multi-instance will multiply this).
 #
 # Locked 2026-05-19 after the THIRD scrub attempt for the same class
@@ -369,7 +369,7 @@ if [ -n "$ALL_HITS" ]; then
         echo "$ALL_HITS"
         echo ""
         echo "The customer chooses the assistant's name at install time (default \"Marvin\","
-        echo "but Alison chose \"Samantha\"). Customer-rendered surfaces must read the name"
+        echo "but a second user chose \"Samantha\"). Customer-rendered surfaces must read the name"
         echo "from settings or fall back to \"your assistant\" -- never hardcode \"Marvin\"."
         echo ""
         echo "Fix paths:"

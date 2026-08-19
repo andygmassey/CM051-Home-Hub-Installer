@@ -1,0 +1,192 @@
+name: cut-gate-wrappers
+
+# Guards the SIX cut-gate wrappers in gui/Makefile -- the recipes that sit
+# between a gate script and the operator and decide what to say about its exit
+# code.
+#
+# The gate scripts have their own suites. Nothing tested the wrappers, and the
+# wrappers were where the reporting broke: `script || { echo "ERROR: <specific
+# defect>"; exit 1; }` collapses a could-not-run into an accusation. Two were
+# live misreports -- verify_no_orphaned_fixes.sh exits 3 "no repo checkouts
+# resolved" and the wrapper announced orphaned work; verify_pr_age.sh exits 3
+# when no repo yields a PR listing (an expired gh token does this) and the
+# wrapper announced overdue PRs. Both send the operator hunting a defect that
+# was never detected while the real fault -- the gate is blind -- goes unsaid.
+#
+# A separate workflow rather than a step appended to cut-freshness: GitHub
+# stops a job at its first failing step, so bolting this on would mean a
+# freshness failure silently skips the wrapper proofs. Different question,
+# different job.
+#
+# Registering it here means the wrappers cannot rot back: any change to
+# gui/Makefile, to a gate script, or to the test itself re-runs the proofs.
+
+on:
+  pull_request:
+    paths:
+      - 'gui/Makefile'
+      - 'tests/test_cut_gate_wrappers.sh'
+      - 'scripts/verify_cut_provenance.sh'
+      - 'scripts/verify_no_orphaned_fixes.sh'
+      - 'scripts/verify_pr_age.sh'
+      - 'scripts/provenance_gate.sh'
+      - 'scripts/verify_stapling.sh'
+      - 'scripts/verify_commit_parity.sh'
+      - 'gui/scripts/sign-python-bundle.sh'
+      - 'tests/test_sign_python_bundle_reports_why.sh'
+      - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
+      - 'tests/test_no_gate_execs_a_pinned_image.sh'
+      - 'scripts/lib_image_extract.sh'
+      - 'scripts/provenance_gate.sh'
+      - 'tests/test_pinned_wiki_image_has_design_system.sh'
+      - 'scripts/verify_cut_provenance.sh'
+      - 'tests/test_wiki_provenance_extracts_without_exec.sh'
+      - '.github/workflows/cut-gate-wrappers.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  cut-gate-wrappers:
+    runs-on: macos-latest   # the cut host is macOS; bash 3.2 quoting differs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Wrapper trichotomy self-test (stubbed gate scripts)
+        run: /bin/bash tests/test_cut_gate_wrappers.sh
+
+      - name: Test parses under /bin/bash 3.2 (the cut host's shell)
+        if: always()
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n tests/test_cut_gate_wrappers.sh
+          echo "OK: parses under the shell the cut actually uses"
+
+      - name: Every wrapper still HAS a cannot-run branch
+        if: always()
+        run: |
+          set -e
+          # Structural backstop for the case the self-test cannot see: someone
+          # deletes a whole target, so its controls never run and the suite is
+          # green because it asked nothing.
+          #
+          # COUNT THE BRANCH, NOT THE SENTENCE. The first version of this step
+          # grepped for the prose 'COULD NOT RUN (exit'. When check-freshness
+          # was added as the seventh with slightly different wording -- "COULD
+          # NOT RUN for at least one input (exit ...)" -- the count stayed at 6
+          # and this guard was blind to the wrapper it was supposed to be
+          # counting. It even made a REVERT look like it had applied when the
+          # number did not move, which nearly turned a demonstrated red into a
+          # meaningless one. Same trap as the cut-freshness.yml grep this PR
+          # removes: a predicate tied to a rendering, not to the behaviour.
+          #
+          # The rc-2-or-3 test is the behaviour. Prose can be reworded freely.
+          n=$(grep -c 'rc" -eq 2 \] || \[ "\$\$rc" -eq 3' gui/Makefile || true)
+          if [ "$n" -ne 7 ]; then
+            echo "expected 7 cannot-run branches in gui/Makefile, found $n" >&2
+            echo "a wrapper has lost its exit-2/3 branch, or one was added without a test" >&2
+            exit 1
+          fi
+          echo "OK: 7 cannot-run branches present"
+
+      # sign-python-bundle used to swallow codesign's stderr, so run
+      # 31692208160 could say WHICH files failed and never why. This drives the
+      # script with a stubbed codesign through four modes and asserts the
+      # reason reaches the log, that a real fault is not retried, and that a
+      # persistent timestamp failure is bounded and still fails closed.
+      - name: sign-python-bundle reports WHY it failed
+        if: always()
+        run: bash tests/test_sign_python_bundle_reports_why.sh
+
+      # provenance_gate.sh accused three healthy CM044 wiki images of being
+      # stale on run 31696154993, because `gh api` prints its error body to
+      # stdout on a non-2xx and the old `[[ -z "$out" ]]` test therefore could
+      # never see an auth failure. Every unauthorised lookup returned "not an
+      # ancestor" and the gate printed a rebuild instruction for an artefact it
+      # had never read.
+      #
+      # This drives the real gate with a stubbed gh and docker and asserts the
+      # DECISION, not the wording: an unusable credential and an absent docker
+      # are cannot-run, while a genuine non-ancestor and a genuinely missing
+      # marker are still RED. The teeth cases pass against the pre-fix gate too,
+      # which is what proves the fix narrowed nothing.
+      - name: provenance gate -- cannot-run is never reported as stale
+        if: always()
+        run: bash tests/test_provenance_gate_cannot_run_is_not_stale.sh
+
+      # REPO-WIDE, and static, so it runs anywhere and needs no docker.
+      # Two tags burned because the same exec-a-pinned-image bug lived in more
+      # than one file: v1.0.27 on verify_cut_provenance.sh, then v1.0.28 on its
+      # twin provenance_gate.sh, with three more sites in the design-system test
+      # that neither incident looked at. Both times the right grep was run and
+      # then scoped to one file while a verdict was reported about the repo.
+      # This asks the whole tree every run and prints what it examined.
+      - name: no gate execs a pinned image to read it (repo-wide)
+        if: always()
+        run: bash tests/test_no_gate_execs_a_pinned_image.sh
+
+      # NOTE: the wiki-provenance extraction test is NOT here. This job is
+      # macos-latest, which has no docker, so the test skipped and the step went
+      # green having examined nothing -- see the wiki-provenance-extract job
+      # below, which runs it on ubuntu where docker exists and the defect lives.
+
+  # ---------------------------------------------------------------------------
+  # The wiki provenance checks must READ the image, never EXECUTE it.
+  #
+  # v1.0.27 was burned by the exec form: the wiki images are arm64-ONLY by
+  # design, cut.yml preflight is amd64, so `docker run` died with "exec format
+  # error". wiki_image_grep called that a STALE WIKI IMAGE, and -- far worse --
+  # wiki_image_absent called it PROOF THE PATTERN WAS GONE.
+  #
+  # UBUNTU ON PURPOSE, AND IT IS THE WHOLE POINT OF THE JOB. amd64 is the host
+  # where the defect is reachable. It was first wired into the macos job above,
+  # where docker does not exist at all: the test printed "SKIP: docker
+  # unavailable" and the step reported success having examined nothing. That is
+  # the same vacuous-green shape this test exists to kill, reproduced inside the
+  # guard itself, so the skip is now a hard failure rather than a pass.
+  # ---------------------------------------------------------------------------
+  wiki-provenance-extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: docker must really be here -- a missing docker is a FAILURE, not a skip
+        run: |
+          set -euo pipefail
+          command -v docker >/dev/null 2>&1 || { echo "::error::docker is absent on a runner chosen BECAUSE it has docker"; exit 1; }
+          docker info >/dev/null 2>&1 || { echo "::error::docker daemon unreachable"; exit 1; }
+          docker --version
+
+      - name: wiki provenance -- extract, never exec (and no vacuous absence)
+        run: |
+          # NOT set -e. The first version of this step was
+          #     set -euo pipefail; out="$(bash <test> 2>&1)"; printf '%s' "$out"
+          # and `set -e` aborted at the ASSIGNMENT the moment the test exited
+          # non-zero, so the printf never ran and the log showed the step's own
+          # source with no test output at all. A step that hides the output you
+          # need to diagnose it is worse than one that simply fails.
+          set -uo pipefail
+          bash tests/test_wiki_provenance_extracts_without_exec.sh 2>&1 | tee /tmp/wpe.out
+          rc=${PIPESTATUS[0]}
+          echo "test exit code: ${rc}"
+          # A PASS that examined nothing is the defect, not the proof. The test
+          # keeps its SKIP arm so a developer without docker is not blocked; here
+          # that arm must never be taken, so assert the denominator explicitly.
+          if ! grep -q 'EXAMINED: 6 assertion(s)' /tmp/wpe.out; then
+            echo "::error::the test did not examine its 6 assertions -- it skipped or narrowed, and a skip is not a pass"
+            exit 1
+          fi
+          if [ "${rc}" -ne 0 ]; then
+            echo "::error::the test examined its assertions and FAILED (rc=${rc}) -- see the arms above"
+            exit 1
+          fi

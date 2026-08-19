@@ -57,6 +57,52 @@ log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
 
+# --- Adaptive resource governor (v1.0.3 first-run-storm fix) ----------
+# The wiki recompile is ESSENTIAL on first run (People + Wiki are the
+# first-impression surfaces), so it is NOT deferred by the load gate the
+# conversation feeds use. But its Phase-2 summary backfill is the single
+# biggest Ollama producer on the box, so it MUST scale its parallel LLM
+# worker count to the hardware tier: FLOOR=1, LOW=2, HIGH=3. Left fixed at
+# the shipped 3, a 16GB floor machine runs three parallel summary workers
+# against the one shared model slot and re-creates the saturation. We read
+# the tier here and pass WIKI_LLM_WORKERS to the Phase-2 compile container
+# only (Phase 1 is OSTLER_WIKI_SKIP_LLM=1, no LLM, so it is untouched).
+#
+# Fail-safe: if the tier lib is absent we leave WIKI_LLM_WORKERS unset and
+# the compiler uses its own default (the pre-governor behaviour).
+# Override / disable with OSTLER_RESOURCE_GOVERNOR=0.
+WIKI_TIER_WORKERS=""
+if [ "${OSTLER_RESOURCE_GOVERNOR:-1}" = "1" ]; then
+    _ostler_tier_lib="${OSTLER_RESOURCE_TIER_LIB:-$HOME/.ostler/lib/ostler-resource-tier.sh}"
+    if [ -f "$_ostler_tier_lib" ]; then
+        # shellcheck source=/dev/null
+        . "$_ostler_tier_lib"
+        if command -v ostler_resource_tier_detect >/dev/null 2>&1; then
+            ostler_resource_tier_detect
+            # An explicit operator Pause (from the Doctor Settings panel)
+            # stops even this essential recompile -- it is the single
+            # biggest LLM producer on the box, so a user who paused to get
+            # their Mac back would not expect it to keep running. This is
+            # deliberately stronger than the automatic load-deferral above,
+            # which leaves essential work running. Auto-resumes when the
+            # pause window elapses.
+            if command -v ostler_resource_tier_is_paused >/dev/null 2>&1 \
+                && ostler_resource_tier_is_paused; then
+                log "background work paused by the operator; skipping this wiki recompile (auto-resumes when the pause ends)."
+                exit 0
+            fi
+            case "${OSTLER_TIER:-}" in
+                floor) WIKI_TIER_WORKERS=1 ;;
+                low)   WIKI_TIER_WORKERS=2 ;;
+                high)  WIKI_TIER_WORKERS=3 ;;
+            esac
+            [ -n "$WIKI_TIER_WORKERS" ] && \
+                log "resource tier ${OSTLER_TIER}: capping wiki summary workers to ${WIKI_TIER_WORKERS}"
+        fi
+    fi
+fi
+# --------------------------------------------------------------------
+
 # ---------------------------------------------------------------------------
 # Sanity: compose file present?
 # ---------------------------------------------------------------------------
@@ -80,7 +126,88 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 127
 fi
 
+# ---------------------------------------------------------------------------
+# Container-runtime readiness gate (#196)
+# ---------------------------------------------------------------------------
+#
+# `command -v docker` above proves the CLI is installed, NOT that the daemon
+# is reachable. On a reboot this LaunchAgent (RunAtLoad) can fire before
+# Colima's own LaunchAgent has finished booting its VM: the CLI resolves but
+# `docker compose run` then fails with "cannot connect to the Docker daemon",
+# the baseline compile returns non-zero, and the tick would exit non-zero --
+# launchd records a hard failure in OSTLER_LOGS/wiki-recompile.err even though
+# nothing is wrong and the very next tick succeeds once the VM is up.
+#
+# This is DEFENCE-IN-DEPTH, not a correctness fix: the recompile already
+# self-heals (10-min StartInterval + RunAtLoad + the first-day catch-up
+# runner), so a missed reboot tick is recovered automatically. The gate just
+# stops that transient from being logged as a failure.
+#
+# Wait, bounded, for the daemon to answer `docker info`. `docker info` is
+# runtime-agnostic (it succeeds for BOTH Colima and Docker Desktop), so we do
+# NOT shell out to `colima status` -- that binary is absent on a Docker
+# Desktop box. If the runtime never comes up within the window, log a clear
+# line and exit 0 (NOT 1): this tick is a no-op and the next one retries.
+WIKI_RUNTIME_WAIT_TRIES="${WIKI_RUNTIME_WAIT_TRIES:-12}"
+WIKI_RUNTIME_WAIT_INTERVAL="${WIKI_RUNTIME_WAIT_INTERVAL:-10}"
+_runtime_ready=false
+_try=1
+while [ "$_try" -le "$WIKI_RUNTIME_WAIT_TRIES" ]; do
+    if docker info >/dev/null 2>&1; then
+        _runtime_ready=true
+        break
+    fi
+    log "container runtime not ready yet (attempt ${_try}/${WIKI_RUNTIME_WAIT_TRIES}); waiting ${WIKI_RUNTIME_WAIT_INTERVAL}s (Colima/Docker Desktop still starting?)"
+    sleep "$WIKI_RUNTIME_WAIT_INTERVAL"
+    _try=$((_try + 1))
+done
+if [ "$_runtime_ready" != true ]; then
+    _waited=$((WIKI_RUNTIME_WAIT_TRIES * WIKI_RUNTIME_WAIT_INTERVAL))
+    log "container runtime (Colima/Docker) not ready after ${_waited}s; will retry next tick."
+    log "       This is expected shortly after a reboot while the container"
+    log "       runtime's VM starts; the next scheduled tick (or the catch-up"
+    log "       runner) recompiles once it is up. Exiting 0 (no launchd failure)."
+    exit 0
+fi
+
 cd "$OSTLER_DIR"
+
+# ---------------------------------------------------------------------------
+# Single-tick mutex (concurrency guard)
+# ---------------------------------------------------------------------------
+#
+# The first-day catch-up runner fires many ticks in quick succession, and
+# the daily schedule can overlap a still-running compile. With no lock the
+# ticks spawn competing `wiki-compiler` run containers that contend for
+# Ollama and race on the wiki_docs volume -- on a fresh install this storm
+# meant no baseline compile ever survived to publish (concurrent runners
+# interrupted one another, exit 130) and the wiki never came up. Serialise:
+# a tick that finds another already running exits 0 (success -- nothing to
+# do; the in-flight tick will publish) instead of piling on.
+#
+# macOS has no flock(1), so we use an atomic mkdir mutex with a PID file for
+# stale-lock recovery (a tick killed mid-run leaves the dir behind; if its
+# holder PID is gone we reclaim it).
+LOCK_DIR="${OSTLER_DIR}/.wiki-recompile.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    _holder_pid="$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)"
+    if [ -n "${_holder_pid:-}" ] && kill -0 "$_holder_pid" 2>/dev/null; then
+        log "another wiki-recompile tick (pid ${_holder_pid}) is already running; skipping this tick"
+        exit 0
+    fi
+    log "reclaiming stale wiki-recompile lock (previous holder pid ${_holder_pid:-unknown} is gone)"
+    rm -rf "$LOCK_DIR"
+    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+        log "could not acquire wiki-recompile lock after reclaim; another tick won the race -- skipping"
+        exit 0
+    fi
+fi
+printf '%s\n' "$$" > "${LOCK_DIR}/pid"
+# Release the mutex on any exit path (success, failure, or watchdog kill).
+# The detached Phase-2 backfill does NOT hold this lock -- the lock only
+# serialises the baseline compile + publish that decides whether the wiki
+# is up. Phase 2 has its own no-stack guard below.
+trap 'rm -rf "$LOCK_DIR"' EXIT
 
 # ---------------------------------------------------------------------------
 # 1. Phase 1 -- fast baseline compile (OSTLER_WIKI_SKIP_LLM=1)
@@ -150,13 +277,18 @@ fi
 # ---------------------------------------------------------------------------
 
 set +o pipefail
-# #598: force-recreate so the dev server re-reads the wiki-docs volume the
-# compiler just wrote. inotify does not reliably cross the container/volume
-# boundary, so a plain `up -d` (a no-op on an already-running container) keeps
-# serving the stale in-memory build and /people/ stays empty even though
-# people.md on disk is full. install.sh uses the identical publish primitive
-# so install-time and recompile-time behave the same.
-docker compose up -d --force-recreate wiki-site 2>&1 | tail -5
+# Ensure wiki-site is up (restart: unless-stopped, but a manual stop or a
+# crashed daemon could have it down). NO --force-recreate: the wiki-site
+# container now runs a static server (CM044 docker/wiki-site-serve.py) that
+# builds the HTML off the serving path and picks up the compile we just ran by
+# polling the compiler's .compile-complete marker, then atomically swaps the
+# new build in -- so a plain `up -d` (a no-op when already running) is correct
+# and the server refreshes itself within its poll interval. The old
+# force-recreate existed only because `mkdocs serve` could not see
+# cross-container volume writes via inotify and had to be restarted (#598);
+# that restart WAS the recompile-window 000 this design removes. install.sh
+# uses the identical publish primitive.
+docker compose up -d wiki-site 2>&1 | tail -5
 UP_RC=${PIPESTATUS[0]}
 set -o pipefail
 if [ "$UP_RC" -ne 0 ]; then
@@ -182,8 +314,105 @@ log "wiki baseline published and wiki-site verified up"
 # must not fail the tick, because the baseline is already live.
 _bg_log="${OSTLER_LOGS:-$OSTLER_DIR/logs}/wiki-recompile-summaries.log"
 mkdir -p "$(dirname "$_bg_log")" 2>/dev/null || true
-nohup docker compose --profile compile run --rm -T wiki-compiler </dev/null >"$_bg_log" 2>&1 &
-disown || true
-log "wiki summary backfill launched in background (full compile, see $_bg_log)"
+# No-stack guard: the first-day catch-up would otherwise launch one detached
+# full compile per tick -- N multi-hour summary passes hammering the box for
+# days. Only launch if no backfill from a previous tick is still running.
+_bg_pidfile="${OSTLER_DIR}/.wiki-recompile-summaries.pid"
+_bg_running=false
+if [ -f "$_bg_pidfile" ]; then
+    _bg_prev_pid="$(cat "$_bg_pidfile" 2>/dev/null || true)"
+    if [ -n "${_bg_prev_pid:-}" ] && kill -0 "$_bg_prev_pid" 2>/dev/null; then
+        _bg_running=true
+    fi
+fi
+if [ "$_bg_running" = true ]; then
+    log "wiki summary backfill already running (pid ${_bg_prev_pid}); not launching another"
+else
+    # --- Shared background-LLM slot lock (v1.0.0 chat-saturation fix) ------
+    # The full-summary backfill is the single biggest Ollama producer on the
+    # box. It MUST share the one background-LLM slot lock with the
+    # conversation feeds (imessage/email/whatsapp/spoken *-bundle-tick.sh).
+    # Otherwise the backfill + one conversation feed run at once, fill both
+    # OLLAMA_NUM_PARALLEL=2 slots, and live chat starves (measured on the
+    # .149 box: 277s + truncated under load vs 1.5s idle). Holding the lock
+    # for the whole compile keeps total background Ollama concurrency at 1,
+    # so the 2nd parallel slot is always free for chat.
+    #
+    # Blocking acquire with PID-LIVENESS reclaim -- NOT a time-based steal.
+    # A real summary compile legitimately runs for hours, so any time
+    # threshold would let a conversation tick wrongly declare the lock stale
+    # and steal it mid-compile, re-creating the 2-producer collision. We
+    # reclaim only when the recorded holder PID is actually dead. The
+    # conversation ticks take the SAME lock non-blocking and yield while we
+    # hold it. ${OSTLER_INGEST_LOCK} (default workspace/ingest-ollama.lock.d)
+    # is the identical path the tick wrappers use.
+    # 2026-08-14: this holder is the reason no time-based steal existed,
+    # and it is also the longest hold on the box. The shared slot lib
+    # keeps BOTH properties: the hold is unbounded while nobody wants the
+    # slot (so an idle-box compile still runs to completion), and bounded
+    # only once another feed has actually enrolled as a waiter. The
+    # acquire stays BLOCKING here because the wiki recompile is essential
+    # and only ticks daily; a yield would cost a whole day.
+    _slot="${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}"
+    _slot_lib="${OSTLER_INGEST_SLOT_LIB:-$HOME/.ostler/lib/ostler-ingest-slot.sh}"
+    nohup bash -c '
+        set -u
+        _slot="$1"; _wd="$2"; _workers="$3"; _lib="$4"
+        cd "$_wd" || exit 1
+        exec </dev/null
+        mkdir -p "$(dirname "$_slot")" 2>/dev/null || true
+
+        _active=0
+        if [ "${OSTLER_INGEST_SLOT:-1}" != "0" ] && [ -f "$_lib" ]; then
+            # A compile legitimately runs for hours, so it gets a much
+            # larger maximum hold than a conversation feed. It still only
+            # bites when another feed is waiting. Exported BEFORE the
+            # source: the lib resolves its tunables at source time.
+            OSTLER_SLOT_MAX_HOLD_SECS="${OSTLER_SLOT_WIKI_MAX_HOLD_SECS:-3600}"
+            export OSTLER_SLOT_MAX_HOLD_SECS
+            . "$_lib"
+            command -v ostler_slot_acquire >/dev/null 2>&1 && _active=1
+        fi
+
+        if [ "$_active" = "1" ]; then
+            # Blocking acquire, but each attempt is internally bounded, so
+            # this can no longer spin against a holder that never yields.
+            until ostler_slot_acquire "wiki-recompile"; do
+                sleep 10
+            done
+            if [ -n "$_workers" ]; then
+                ostler_slot_run docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler
+            else
+                ostler_slot_run docker compose --profile compile run --rm -T wiki-compiler
+            fi
+            exit $?
+        fi
+
+        # Fail-safe: installer has not delivered the lib yet. Unchanged
+        # pre-lib behaviour, blocking acquire with PID-liveness reclaim.
+        while ! mkdir "$_slot" 2>/dev/null; do
+            _h="$(cat "$_slot/pid" 2>/dev/null || true)"
+            if [ -n "${_h:-}" ] && kill -0 "$_h" 2>/dev/null; then
+                sleep 10
+            else
+                rm -rf "$_slot" 2>/dev/null || true
+            fi
+        done
+        printf "%s\n" "$$" > "$_slot/pid"
+        trap "rm -rf \"$_slot\" 2>/dev/null || true" EXIT
+        # Pass the tier-capped parallel summary worker count to the compile
+        # container only when the governor resolved one; otherwise let the
+        # compiler use its own default (pre-governor behaviour).
+        if [ -n "$_workers" ]; then
+            docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler
+        else
+            docker compose --profile compile run --rm -T wiki-compiler
+        fi
+    ' _ "$_slot" "$OSTLER_DIR" "$WIKI_TIER_WORKERS" "$_slot_lib" >"$_bg_log" 2>&1 &
+    _bg_new_pid=$!
+    printf '%s\n' "$_bg_new_pid" > "$_bg_pidfile"
+    disown || true
+    log "wiki summary backfill launched in background (holds shared Ollama slot lock; full compile, see $_bg_log)"
+fi
 
 log "wiki recompile tick complete (baseline published; summaries backfilling)"

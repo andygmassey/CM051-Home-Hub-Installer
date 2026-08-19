@@ -68,7 +68,7 @@ Pre-passkey legacy code still ships for reference:
 
 ## Public API – what downstream consumers use
 
-Out-of-tree consumers (CM048 `ingest.py`, CM041 `marvin_api` +
+Out-of-tree consumers (CM048 `ingest.py`, CM041 `assistant_api` +
 `whatsapp_bridge`) import exactly one symbol:
 
 ```python

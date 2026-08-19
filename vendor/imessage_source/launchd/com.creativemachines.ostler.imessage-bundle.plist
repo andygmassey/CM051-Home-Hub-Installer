@@ -36,8 +36,9 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/bash</string>
-        <string>OSTLER_BIN/imessage-bundle-tick.sh</string>
+        <string>OSTLER_ASSISTANT_BINARY</string>
+        <string>run-source</string>
+        <string>imessage</string>
     </array>
 
     <!--
@@ -51,13 +52,30 @@
     <integer>900</integer>
 
     <!--
-        RunAtLoad fires once at login / post-install. The wrapper
-        clamps the read window via --since-days so a fresh install
-        does not try to bundle the user's entire iMessage history in
-        one tick.
+        RunAtLoad is DELIBERATELY false (v1.0.11 ships-dark B.2 /
+        ostler-assistant PR #232).
+
+        The tick chain is: launchd -> `ostler-assistant run-source imessage`
+        -> the sealed ingest tick -> the reader, which needs Full Disk
+        Access on chat.db. On a FRESH install the daemon's FDA grant lands
+        near the END of install, but RunAtLoad fired this tick at
+        login/post-install BEFORE that grant -- so the reader hit
+        "authorization denied", exited non-zero, and launchd penalty-boxed
+        the job (`launchctl list` showed `last exit code 78`,
+        `properties = runatload | penalty box`, 0-byte logs).
+
+        StartInterval-only (no RunAtLoad, no KeepAlive) removes that
+        login-time race: the first tick fires one interval (~15 min) after
+        load, by which point the install-time FDA grant has landed, so the
+        first run is clean. Nothing is lost -- the watermark means the
+        deferred first window is picked up on that tick, and the read is
+        still clamped by --since-days. The sibling feeds keep RunAtLoad
+        because their readers yield exit 0 (not a hard non-zero) when their
+        source is absent; iMessage is the one whose reader hard-fails on the
+        FDA race, so it is the one that drops the login-time start.
     -->
     <key>RunAtLoad</key>
-    <true/>
+    <false/>
 
     <key>WorkingDirectory</key>
     <string>OSTLER_HOME</string>

@@ -1,0 +1,71 @@
+name: memory-embeddings
+
+# THE HALF OF THE ASSISTANT'S MEMORY THAT CAN DISAPPEAR QUIETLY.
+#
+# Memory is two halves. Phase 3 of install.sh installs nomic-embed-text and a
+# healthcheck POSTs to /api/embed and HARD-FAILS the install unless real vectors
+# come back: that half is loud and cannot regress unseen. The other half is four
+# echo lines writing a [memory] section into config.toml. Delete those and
+# nothing fails anywhere. The daemon falls back to embedding_provider "none",
+# stores NULL embeddings, and REPORTS SUCCESS. The customer's assistant
+# remembers nothing and no log says so.
+#
+# On 2026-08-15 a PR whose subject line was a consent label arrived at +21/-65
+# on install.sh, and the 64 unmentioned deletions were exactly that block plus
+# the dimension parity check. It carried thirteen green checks. Nothing in
+# tests/, .github/workflows/ or scripts/ mentioned embedding_provider at all,
+# so no gate on the board could have seen it.
+#
+# NO `paths:` FILTER, deliberately. A filter would skip this on the PR that
+# moves the config writer somewhere the filter does not watch, and a skipped
+# job renders as a grey tick that reads like a pass. The job is seconds long
+# and this repo is public, so there is no budget argument for making it
+# conditional.
+#
+# runs-on macos-latest: the gate was proven on macOS and the cut host is macOS,
+# so grep and sed behave the same way here as where the controls were verified.
+#
+# Every step carries `if: always()`, because GitHub stops a job at its first
+# failing step and a skipped proof is indistinguishable from a proof that
+# passed.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch or PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  memory-embeddings:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: install.sh still wires the assistant's memory
+        run: /bin/bash tests/test_memory_embeddings_wired.sh
+
+      - name: The gate discriminates (1 positive + 5 negative controls)
+        if: always()
+        # A gate with only a positive control cannot be told apart from one
+        # that is broken shut; with only negative controls, from one that is
+        # broken open. Both directions run, including the deletion shape that
+        # actually happened and a missing target that must exit 2 rather than
+        # report clean.
+        run: /bin/bash tests/test_memory_embeddings_wired.sh --selftest
+
+      - name: Parses under /bin/bash 3.2 (the cut host's shell)
+        if: always()
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n tests/test_memory_embeddings_wired.sh
+          echo "OK: parses under the shell the cut actually uses"

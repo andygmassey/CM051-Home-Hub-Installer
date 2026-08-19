@@ -188,7 +188,17 @@ struct InstallCompleteView: View {
             // screen first appears. .task is async, cancels on
             // disappear, and guards against double-fires if the
             // view rebuilds for an unrelated reason.
-            await fetchPairCode()
+            //
+            // BW-FIND-27 (2026-06-23): this is the AUTO-SHOW. It
+            // retries because the success screen can render the
+            // instant install.sh's start-services step fires, before
+            // the gateway has bound :8000 / minted a first code -- a
+            // single-shot fetch then fell through to the empty
+            // placeholder and the QR stopped auto-appearing (the
+            // customer-facing Refresh button still worked because by
+            // then the gateway was up). autoShowPairCode retries with
+            // a short backoff so the QR appears on its own.
+            await autoShowPairCode()
         }
     }
 
@@ -389,25 +399,73 @@ struct InstallCompleteView: View {
         }
     }
 
+    // BW-FIND-27 (2026-06-23): auto-show retry budget. The success
+    // screen can appear before the gateway has bound :8000 and minted
+    // a first pair code; without retries the one fetch fails and the
+    // QR never auto-appears. Six attempts at ~1.5s spacing covers a
+    // normal post-start-services gateway boot (1-3s) with headroom,
+    // and bails politely (placeholder + Refresh button still live) if
+    // the gateway never comes up.
+    private static let autoShowMaxAttempts = 6
+    private static let autoShowRetryDelay: Duration = .milliseconds(1500)
+
+    /// AUTO-SHOW entry point fired from `.task` on first appear.
+    /// MINTS a fresh pair code (so a just-installed Hub with no
+    /// current code still produces a QR) and retries on transport /
+    /// not-ready failures so the QR appears on its own without the
+    /// customer having to tap Refresh.
+    @MainActor
+    private func autoShowPairCode() async {
+        for attempt in 1...Self.autoShowMaxAttempts {
+            let ok = await loadPairCode(mint: true)
+            if ok { return }
+            // Don't sleep after the final attempt. Honour task
+            // cancellation (view disappeared) by bailing quietly.
+            if attempt < Self.autoShowMaxAttempts {
+                do {
+                    try await Task.sleep(for: Self.autoShowRetryDelay)
+                } catch {
+                    return  // cancelled
+                }
+            }
+        }
+    }
+
+    /// Manual Refresh handler. Re-reads the CURRENT pair code (GET
+    /// semantics) -- one shot, the customer-driven retry.
     @MainActor
     private func fetchPairCode() async {
-        guard !pairFetchInFlight else { return }
+        _ = await loadPairCode(mint: false)
+    }
+
+    /// Single fetch attempt. `mint == true` POSTs /admin/paircode/new
+    /// (auto-show); `mint == false` GETs /admin/paircode (Refresh).
+    /// Returns true when an envelope was rendered, false on any
+    /// failure (caller decides whether to retry).
+    @MainActor
+    @discardableResult
+    private func loadPairCode(mint: Bool) async -> Bool {
+        guard !pairFetchInFlight else { return false }
         pairFetchInFlight = true
         pairFetchError = nil
         defer { pairFetchInFlight = false }
 
         do {
-            let envelope = try await gatewayClient.fetchPairCodeEnvelope()
+            let envelope = mint
+                ? try await gatewayClient.mintPairCodeEnvelope()
+                : try await gatewayClient.fetchPairCodeEnvelope()
             if envelope.isEmpty {
                 pairFetchError = ViewCopy.shared.string(for: "pair_iphone.fetch_failed")
                 pairEnvelope = nil
-            } else {
-                pairEnvelope = envelope
-                pairFetchError = nil
+                return false
             }
+            pairEnvelope = envelope
+            pairFetchError = nil
+            return true
         } catch {
             pairFetchError = ViewCopy.shared.string(for: "pair_iphone.fetch_failed")
             pairEnvelope = nil
+            return false
         }
     }
 

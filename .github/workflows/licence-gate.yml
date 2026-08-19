@@ -1,0 +1,59 @@
+name: licence-gate
+
+# The shell install path must require a licence.
+#
+# install.sh is a PUBLIC script advertised as
+#   curl -fsSL https://ostler.ai/install.sh | bash
+# and until 2026-08-16 it carried no licence enforcement at all: measured on
+# main that morning, ERR-02-LICENCE-REQUIRED / allow-unlicensed / OSTLER_DEV
+# each scored 0 hits against a control (OSTLER_ASSISTANT_VERSION) that scored
+# 19, so the zeroes were real and not a broken grep. One command installed the
+# whole paid product for free. The only Ed25519 verification in the repo lived
+# in the Swift GUI, which the shell path never runs.
+#
+# tests/test_licence_gate.sh runs the REAL install.sh five ways -- no licence,
+# malformed/empty, wrong-key, valid, escape hatch -- with a sandboxed HOME, and
+# stops at the gate. It carries its own instrument checks: the shipped verifier
+# extracted from install.sh must reproduce the RFC 8032 section 7.1
+# known-answer vector (a stub returning true would pass every refusal case and
+# die there), the wrong-key fixture is asserted schema-valid so its refusal can
+# only have come from the signature, and the valid licence is the positive
+# control -- a gate observed only failing is not known to be able to pass.
+#
+# Keys and licence bodies are synthetic, generated inside the test run. Nothing
+# real is committed and nothing real is needed to run it.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_licence_gate.sh'
+      - 'gui/OstlerInstaller/Auth/LicenseVerifier.swift'
+      - 'gui/OstlerInstaller/Auth/LicensePersistence.swift'
+      # A gate must trigger on changes to ITSELF, or it can be quietly
+      # narrowed in a PR that never runs it.
+      - '.github/workflows/licence-gate.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  licence-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The test refuses to run (exit 1, not 0) without python3, so a runner
+      # image change cannot turn this gate into a silent pass.
+      - name: install.sh refuses to install without a valid licence
+        run: bash tests/test_licence_gate.sh

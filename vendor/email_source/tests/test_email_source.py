@@ -173,23 +173,53 @@ class _StubDispatch:
     def make_cmd(self, tmp_path: Path) -> list[str]:
         capture = tmp_path / "capture.jsonl"
         script = tmp_path / "fake_pwg_convo.py"
+        # Handles BOTH subcommands the tick now issues (v1018-D021):
+        # `seed <manifest>` for the zero-model first pass and `process`
+        # for enrichment. Each record carries its `cmd` so a test can
+        # assert the ORDER the two passes ran in, which is the whole
+        # point of the split -- seeding after enrichment would be no
+        # better than not seeding at all.
         script.write_text(
             "import json, sys\n"
             "args = sys.argv[1:]\n"
+            f"cap = {str(capture)!r}\n"
+            "if 'seed' in args:\n"
+            "    manifest = args[args.index('seed') + 1]\n"
+            "    n = 0\n"
+            "    for line in open(manifest):\n"
+            "        line = line.strip()\n"
+            "        if not line:\n"
+            "            continue\n"
+            "        e = json.loads(line)\n"
+            "        rec = {\n"
+            "          'cmd': 'seed',\n"
+            "          'transcript': open(e['transcript']).read(),\n"
+            "          'metadata': json.load(open(e['metadata'])),\n"
+            "        }\n"
+            "        open(cap, 'a').write(json.dumps(rec) + '\\n')\n"
+            "        n += 1\n"
+            "    print(json.dumps({'seeded': n, 'skipped_or_failed': 0}))\n"
+            "    sys.exit(0)\n"
             "ti = args.index('process')\n"
             "tpath = args[ti + 1]\n"
             "mpath = args[ti + 2]\n"
             "rec = {\n"
+            "  'cmd': 'process',\n"
             "  'transcript': open(tpath).read(),\n"
             "  'metadata': json.load(open(mpath)),\n"
             "  'dry_run': '--dry-run' in args,\n"
             "}\n"
-            f"open({str(capture)!r}, 'a').write(json.dumps(rec) + '\\n')\n"
+            "open(cap, 'a').write(json.dumps(rec) + '\\n')\n"
         )
         self._capture = capture
         return [sys.executable, str(script)]
 
     def load(self) -> list[dict]:
+        """Enrichment dispatches only, so existing assertions about what
+        CM048 was handed keep meaning what they meant."""
+        return [r for r in self.load_all() if r.get("cmd") != "seed"]
+
+    def load_all(self) -> list[dict]:
         if not self._capture.exists():
             return []
         return [json.loads(line) for line in self._capture.read_text().splitlines()]
@@ -446,3 +476,24 @@ def test_l3_domain_map_rides_through(tmp_path):
     ]
     assert thread_b
     assert thread_b[0]["metadata"]["privacy_level"] == "L3"
+
+
+# ---------------------------------------------------------------------------
+# Regression: _decode must survive an email.header.Header (the #3 crash)
+# ---------------------------------------------------------------------------
+
+def test_decode_accepts_header_object():
+    """The stdlib email parser hands some fields back as email.header.Header,
+    not str. _decode previously did `"=?" in value`, which raises
+    `TypeError: argument of type 'Header' is not iterable` and crashed every
+    email-source run. It must coerce to str first."""
+    from email.header import Header
+
+    assert reader._decode(Header("Test Sender", "utf-8")) == "Test Sender"
+    assert reader._decode(None) == ""
+    assert reader._decode("") == ""
+    assert reader._decode("Plain Name") == "Plain Name"
+    # an encoded-word Header round-trips through decode_header
+    enc = Header()
+    enc.append("Niño", "utf-8")
+    assert "Ni" in reader._decode(str(enc))

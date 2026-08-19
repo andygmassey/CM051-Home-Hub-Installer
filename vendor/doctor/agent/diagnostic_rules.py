@@ -79,6 +79,19 @@ from diagnostic_copy import (
     HIGH_MEM_CONTAINER_FIX,
     HIGH_MEM_CONTAINER_FIX_COMMAND_FMT,
     HIGH_MEM_CONTAINER_TITLE_FMT,
+    IMESSAGE_CAPTURE_STALLED_DETAIL,
+    IMESSAGE_CAPTURE_STALLED_FIX,
+    IMESSAGE_CAPTURE_STALLED_FIX_COMMAND,
+    IMESSAGE_CAPTURE_STALLED_TITLE,
+    CONVO_DISPATCH_FAILING_TITLE,
+    CONVO_DISPATCH_FAILING_DETAIL,
+    CONVO_DISPATCH_FAILING_FIX,
+    CONVO_DISPATCH_FAILING_FIX_COMMAND,
+    IMESSAGE_FDA_DETAIL,
+    IMESSAGE_FDA_FIX,
+    IMESSAGE_FDA_FIX_COMMAND,
+    IMESSAGE_FDA_RESTART_HINT,
+    IMESSAGE_FDA_TITLE,
     IMPORT_BLOCKED_EMBED_DETAIL,
     IMPORT_BLOCKED_EMBED_FIX,
     IMPORT_BLOCKED_EMBED_FIX_COMMAND,
@@ -90,6 +103,15 @@ from diagnostic_copy import (
     IMPORT_READY_DETAIL,
     IMPORT_READY_FIX_COMMAND,
     IMPORT_READY_TITLE,
+    LAST_UPGRADE_FAILED_DETAIL,
+    LAST_UPGRADE_FAILED_FIX,
+    LAST_UPGRADE_FAILED_TITLE,
+    LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT,
+    LAST_UPGRADE_ROLLED_BACK_FIX,
+    LAST_UPGRADE_ROLLED_BACK_TITLE,
+    LAST_UPGRADE_SUCCESS_DETAIL_FMT,
+    LAST_UPGRADE_SUCCESS_DETAIL_NO_TIME,
+    LAST_UPGRADE_SUCCESS_TITLE_FMT,
     LOW_RAM_DETAIL,
     LOW_RAM_TITLE_FMT,
     MANY_MODELS_DETAIL,
@@ -143,6 +165,7 @@ from diagnostic_copy import (
 )
 from status_collector import (
     detect_ostler_prefix,
+    is_native_deployment,
     is_ostler_container,
 )
 
@@ -151,8 +174,23 @@ def check_first_install(snapshot: Any) -> list[dict]:
     """Detect common first-install problems."""
     findings = []
 
-    # No Docker at all
-    if snapshot.docker_version is None and not snapshot.docker_containers:
+    # "Docker Desktop not installed" critical.
+    #
+    # Suppressed on the productised native build. NOTE: native here does
+    # NOT mean "no Docker" -- the data tier (Qdrant/Oxigraph/Redis) runs
+    # in containers via Colima even on the native build. This rule is
+    # suppressed because its fix-command is *Docker-Desktop-specific*
+    # (Colima needs no Docker Desktop install), so it is a false-RED
+    # there and would lead the support-email report. A genuine data-tier
+    # outage is already covered by the per-service unreachable rules, so
+    # nothing is lost by dropping this Docker-Desktop check. The legacy
+    # Docker-Desktop dev deploy opts back in via OSTLER_DEPLOY_MODE=docker.
+    # See is_native_deployment().
+    if (
+        not is_native_deployment()
+        and snapshot.docker_version is None
+        and not snapshot.docker_containers
+    ):
         findings.append({
             "severity": "critical",
             "title": DOCKER_NOT_INSTALLED_TITLE,
@@ -808,7 +846,439 @@ def check_backfill_progress(snapshot: Any) -> list[dict]:
     return findings
 
 
+def _imessage_chat_db_path() -> str:
+    """Returns the canonical ~/Library/Messages/chat.db path.
+
+    Pulled to its own helper so tests can monkeypatch HOME without
+    touching the rule body.
+    """
+    import os
+
+    return os.path.join(
+        os.path.expanduser("~"),
+        "Library",
+        "Messages",
+        "chat.db",
+    )
+
+
+def _imessage_chat_db_readable() -> bool:
+    """True if SOMETHING in this Doctor process can open chat.db.
+
+    Used purely as a "FDA is granted on this machine" liveness probe
+    for the auto-dismiss path in :func:`check_imessage_fda`. The
+    file exists on every macOS install; failing to open it is the
+    signal the user has not yet granted Full Disk Access for the
+    binary doing the probing.
+
+    We use ``sqlite3.connect`` rather than ``os.access`` because
+    macOS reports the path as readable from a stat() perspective
+    even when TCC denies the actual open -- we have to attempt the
+    real SQLite open to get the truthful answer.
+
+    Any failure (missing file, permission denied, OSError on the
+    sqlite extension import) is treated as "not readable" -- safer
+    to keep the card visible than to wrongly auto-dismiss.
+    """
+    import sqlite3
+
+    path = _imessage_chat_db_path()
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2.0)
+    except sqlite3.Error:
+        return False
+    except OSError:
+        return False
+    try:
+        # A minimal read confirms the open succeeded; the chat.db
+        # ``message`` table always exists once Messages has run once,
+        # but we only care that the open + a no-op SELECT round-trip
+        # without raising the OperationalError that TCC denial throws.
+        conn.execute("SELECT 1").fetchone()
+        return True
+    except sqlite3.Error:
+        return False
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
+def check_imessage_fda(snapshot: Any) -> list[dict]:
+    """CX-60 Doctor card: ostler-assistant daemon needs FDA for
+    ~/Library/Messages/chat.db.
+
+    Renders a warning-severity card when ALL of:
+
+    1. The installer recorded ``imessage_chat_db_fda_needed=True`` in
+       pipeline_signals.json (the install-time probe found the
+       daemon could not open chat.db once the LaunchAgent loaded).
+    2. A live re-probe from this Doctor process *also* cannot open
+       chat.db. This is the auto-dismiss path: as soon as either
+       the customer's Doctor process or the assistant binary gains
+       FDA and the customer re-runs Doctor, the card disappears.
+
+    A missing key on the snapshot (``None``) means the install ran
+    before CX-60 shipped -- we stay quiet rather than firing a
+    false-positive card on legacy installs.
+
+    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9.
+    The fix-command opens System Settings -> Privacy & Security ->
+    Full Disk Access via the x-apple.systempreferences URL scheme.
+    The follow-up ``IMESSAGE_FDA_RESTART_HINT`` is appended to the
+    detail so the user sees the launchctl restart command alongside.
+    """
+    findings: list[dict] = []
+
+    signals = getattr(snapshot, "pipeline_signals", None)
+    if signals is None:
+        return findings
+
+    needs = getattr(signals, "imessage_chat_db_fda_needed", None)
+    if needs is not True:
+        # None (legacy install, no probe yet) or False (probe said
+        # the daemon was already healthy). Either way: no card.
+        return findings
+
+    # Live auto-dismiss: if Doctor's own process can open chat.db,
+    # FDA has been granted at least to one binary on this Mac. The
+    # daemon may still need its own grant (TCC is per-binary), but
+    # at that point the install-time probe is stale -- prefer the
+    # live signal so the card does not linger.
+    if _imessage_chat_db_readable():
+        return findings
+
+    detail = "{body}\n\n{restart}".format(
+        body=IMESSAGE_FDA_DETAIL,
+        restart=IMESSAGE_FDA_RESTART_HINT,
+    )
+    findings.append({
+        "severity": "warning",
+        "title": IMESSAGE_FDA_TITLE,
+        "detail": detail,
+        "fix": IMESSAGE_FDA_FIX,
+        "fix_command": IMESSAGE_FDA_FIX_COMMAND,
+        "risk": "low",
+        "category": "installation",
+    })
+    return findings
+
+
+# ── (B-lite) upgrade audit-trail row ─────────────────────────────────
+
+
+def _ostler_preferences_path() -> str:
+    """Returns the canonical ~/.ostler/preferences.json path.
+
+    Pulled to its own helper so tests can monkeypatch HOME without
+    touching the rule body (mirrors :func:`_imessage_chat_db_path`).
+    """
+    import os
+
+    return os.path.join(
+        os.path.expanduser("~"),
+        ".ostler",
+        "preferences.json",
+    )
+
+
+def _format_upgrade_applied(timestamp: str | None) -> str | None:
+    """Format an ISO 8601 upgrade timestamp as ``%Y-%m-%d %H:%M``.
+
+    Returns ``None`` when the value is missing or unparseable, so the
+    rule omits the applied-time clause rather than surfacing a raw
+    string with a "T"/"Z" in it. Mirrors :func:`_format_backfill_month`.
+    """
+    if not timestamp:
+        return None
+    from datetime import datetime as _dt
+    raw = timestamp.strip()
+    # Tolerate the trailing 'Z' zulu shape the Hub writer emits;
+    # fromisoformat accepts it from 3.11 but the doctor image targets
+    # 3.10+ so we normalise defensively.
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = _dt.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return None
+    return parsed.strftime("%Y-%m-%d %H:%M")
+
+
+def check_last_upgrade(snapshot: Any) -> list[dict]:
+    """(B-lite) upgrade audit-trail Doctor row.
+
+    Reads the durable, reboot-surviving upgrade result the Hub records
+    at ``~/.ostler/preferences.json`` and surfaces exactly one row
+    describing how the last Ostler update went.
+
+    This rule is READ-ONLY: the Hub (Rust) owns writes to
+    preferences.json. Doctor never creates, modifies, or repairs the
+    file -- a malformed file is left byte-for-byte untouched.
+
+    Quiet-on-legacy posture (mirrors :func:`check_imessage_fda`): a
+    missing file, malformed JSON, or a missing / ``None`` /
+    non-object ``last_upgrade_result`` all mean "this install has no
+    upgrade audit trail yet" and return no findings rather than
+    firing a false row. An unknown ``status`` value is likewise not
+    guessed.
+
+    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9.
+    """
+    import json
+
+    findings: list[dict] = []
+
+    path = _ostler_preferences_path()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            prefs = json.load(fh)
+    except OSError:
+        # Missing file (FileNotFoundError is an OSError) or unreadable:
+        # legacy install with no audit trail. Stay quiet.
+        return findings
+    except ValueError:
+        # Malformed JSON (JSONDecodeError / UnicodeDecodeError both
+        # subclass ValueError). Stay quiet, never crash, never rewrite.
+        return findings
+
+    if not isinstance(prefs, dict):
+        return findings
+
+    result = prefs.get("last_upgrade_result")
+    if not isinstance(result, dict):
+        # Missing key, explicit null, or a non-object value: no trail.
+        return findings
+
+    status = result.get("status")
+    version = result.get("version")
+    applied = _format_upgrade_applied(result.get("timestamp"))
+
+    if status == "success":
+        if applied:
+            detail = LAST_UPGRADE_SUCCESS_DETAIL_FMT.format(applied=applied)
+        else:
+            detail = LAST_UPGRADE_SUCCESS_DETAIL_NO_TIME
+        findings.append({
+            "severity": "info",
+            "title": LAST_UPGRADE_SUCCESS_TITLE_FMT.format(version=version),
+            "detail": detail,
+            "fix": None,
+            "fix_command": None,
+            "risk": "low",
+            "category": "upgrade",
+        })
+    elif status == "failed":
+        findings.append({
+            "severity": "warning",
+            "title": LAST_UPGRADE_FAILED_TITLE,
+            "detail": LAST_UPGRADE_FAILED_DETAIL,
+            "fix": LAST_UPGRADE_FAILED_FIX,
+            "fix_command": None,
+            "risk": "low",
+            "category": "upgrade",
+        })
+    elif status == "rolled-back":
+        findings.append({
+            "severity": "warning",
+            "title": LAST_UPGRADE_ROLLED_BACK_TITLE,
+            "detail": LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT.format(version=version),
+            "fix": LAST_UPGRADE_ROLLED_BACK_FIX,
+            "fix_command": None,
+            "risk": "low",
+            "category": "upgrade",
+        })
+    # Unknown status value: do not guess. Return no findings.
+
+    return findings
+
+
+# Runtime signature the iMessage capture bundle logs on every tick while it
+# cannot open ~/Library/Messages/chat.db (Full Disk Access not yet granted).
+# Matched as two tokens rather than one literal so incidental whitespace /
+# path suffix variations in the traceback line still match.
+_IMESSAGE_SQLITE_CRASH_TOKENS = (
+    "sqlite3.OperationalError",
+    "unable to open database file",
+)
+# Cap how much of the (potentially long-lived, appended-to) error log we read.
+_IMESSAGE_ERR_TAIL_BYTES = 65536
+
+
+def _imessage_bundle_err_path() -> "Any":
+    """Path to the iMessage capture bundle's stderr log.
+
+    Honours ``OSTLER_LOGS_DIR`` then ``OSTLER_DIR`` (the installer sets
+    ``OSTLER_DIR=~/.ostler`` and points launchd logs at ``${OSTLER_DIR}/logs``),
+    falling back to ``~/.ostler/logs/imessage-bundle.err``. Mirrors
+    ``web_ui._ostler_logs_dir`` so the resolution stays in lockstep, and lets
+    tests point it at a fixture via ``OSTLER_LOGS_DIR`` without touching HOME.
+    """
+    import os
+    from pathlib import Path
+
+    override = os.environ.get("OSTLER_LOGS_DIR")
+    if override:
+        base = Path(override)
+    else:
+        ostler_dir = os.environ.get("OSTLER_DIR")
+        base = Path(ostler_dir) / "logs" if ostler_dir else (
+            Path.home() / ".ostler" / "logs"
+        )
+    return base / "imessage-bundle.err"
+
+
+def _imessage_capture_crash_logged() -> bool:
+    """True if the iMessage capture stderr log shows the pre-FDA SQLite crash.
+
+    Reads only the tail of the file (the log is appended to on every tick, so
+    it can grow) and looks for the ``sqlite3.OperationalError: unable to open
+    database file`` signature. Any read failure (missing file on a fresh box,
+    permission error) is treated as "no crash observed" so the rule stays
+    quiet rather than firing a false positive.
+    """
+    path = _imessage_bundle_err_path()
+    try:
+        if not path.is_file():
+            return False
+        with open(path, "rb") as fh:
+            try:
+                fh.seek(-_IMESSAGE_ERR_TAIL_BYTES, 2)
+            except OSError:
+                # File shorter than the tail window: read from the start.
+                fh.seek(0)
+            tail = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return False
+    return all(token in tail for token in _IMESSAGE_SQLITE_CRASH_TOKENS)
+
+
+def check_imessage_capture_stalled(snapshot: Any) -> list[dict]:
+    """#172 Doctor card: the iMessage capture bundle is crash-looping on
+    SQLite because Full Disk Access has not been granted yet.
+
+    Distinct from :func:`check_imessage_fda` (which fires on the install-time
+    probe signal): this rule reads the RUNTIME evidence. Before FDA is granted
+    every capture tick logs
+    ``sqlite3.OperationalError: unable to open database file`` to
+    ``~/.ostler/logs/imessage-bundle.err``. The capture is silently stalled --
+    no messages are being read -- so we surface an actionable card.
+
+    Fires when BOTH:
+
+    1. The crash signature is present in the log tail, AND
+    2. A live re-probe from this Doctor process *also* cannot open chat.db.
+
+    The live re-probe is the auto-dismiss path (shared with
+    :func:`check_imessage_fda`): the crash lines linger in the appended log
+    after FDA is finally granted, so without the re-probe the card would never
+    clear. Once FDA is granted and Messages is readable, the card disappears.
+
+    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9. The fix-command
+    opens System Settings -> Privacy & Security -> Full Disk Access.
+    """
+    findings: list[dict] = []
+
+    if not _imessage_capture_crash_logged():
+        return findings
+
+    # Live auto-dismiss: if this Doctor process can now open chat.db, FDA has
+    # been granted on this Mac and the logged crashes are stale history.
+    if _imessage_chat_db_readable():
+        return findings
+
+    findings.append({
+        "severity": "warning",
+        "title": IMESSAGE_CAPTURE_STALLED_TITLE,
+        "detail": IMESSAGE_CAPTURE_STALLED_DETAIL,
+        "fix": IMESSAGE_CAPTURE_STALLED_FIX,
+        "fix_command": IMESSAGE_CAPTURE_STALLED_FIX_COMMAND,
+        "risk": "low",
+        "category": "installation",
+    })
+    return findings
+
+
 # ── Rule registry ────────────────────────────────────────────────────
+
+
+# Dispatch failures are logged as a non-zero return code from the CM048
+# conversation processor. Counted over the log TAIL only: the log is appended
+# to forever, so counting the whole file would keep surfacing failures the
+# customer already dealt with weeks ago.
+_DISPATCH_FAIL_TOKENS = ("rc=1", "sessions_failed")
+
+
+def _dispatch_failure_count() -> int:
+    """How many dispatch failures appear in the tail of the bundle error log.
+
+    Same read posture as :func:`_imessage_capture_crash_logged` -- tail only,
+    and any read failure counts as zero so a missing log on a fresh box cannot
+    manufacture a warning.
+    """
+    path = _imessage_bundle_err_path()
+    try:
+        if not path.is_file():
+            return 0
+        with open(path, "rb") as fh:
+            try:
+                fh.seek(-_IMESSAGE_ERR_TAIL_BYTES, 2)
+            except OSError:
+                fh.seek(0)
+            tail = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return 0
+    return sum(
+        1 for line in tail.splitlines()
+        if any(tok in line for tok in _DISPATCH_FAIL_TOKENS)
+    )
+
+
+def check_conversation_dispatch_failures(snapshot: Any) -> list[dict]:
+    """Surface conversations that were READ but failed to be processed.
+
+    WHY THIS RULE EXISTS (2026-08-08 box-walk of .208)
+    Doctor's status endpoint reported "Everything looks healthy. Nice one."
+    at 16:49 while ``imessage-bundle.err`` was 37KB and carried a fresh rc=1
+    from 16:43. Doctor was not wrong about what it checked -- it checked this
+    log for the pre-FDA SQLite crash signature and for nothing else. There was
+    no rule for FAILURE, only for SILENCE.
+
+    That distinction is the whole defect. A crash-looping bundle is caught by
+    :func:`check_imessage_capture_stalled`. A bundle that ticks forever while
+    every dispatch fails looks identical to a healthy one from the outside:
+    the process is running, the log is growing, messages are being read. The
+    conversations are simply dropped on the floor.
+
+    Second-in-class after #208 (Doctor reporting a device as paired when it
+    was not). A product that reports green over a red state twice is not
+    trusted a third time, so this rule errs towards saying something.
+
+    Deliberately a WARNING, not an error: the ingest as a whole is working and
+    the customer's other data is unaffected. It is a "some of your things did
+    not make it" message, which is what actually happened.
+    """
+    findings: list[dict] = []
+
+    n = _dispatch_failure_count()
+    if n <= 0:
+        return findings
+
+    findings.append({
+        "severity": "warning",
+        "title": CONVO_DISPATCH_FAILING_TITLE,
+        "detail": CONVO_DISPATCH_FAILING_DETAIL.format(
+            n=n,
+            noun="conversation" if n == 1 else "conversations",
+            have="has" if n == 1 else "have",
+        ),
+        "fix": CONVO_DISPATCH_FAILING_FIX,
+        "fix_command": CONVO_DISPATCH_FAILING_FIX_COMMAND,
+        "risk": "low",
+        "category": "installation",
+    })
+    return findings
 
 
 ALL_RULES = [
@@ -828,6 +1298,10 @@ ALL_RULES = [
     check_service_versions,
     check_mail_content,
     check_backfill_progress,
+    check_imessage_fda,
+    check_last_upgrade,
+    check_imessage_capture_stalled,
+    check_conversation_dispatch_failures,
 ]
 
 

@@ -1,0 +1,16 @@
+W8 / F6 -- Safari Web Extension staging directory.
+
+ORM stages the signed + notarised + stapled Safari extension artefact here at
+cut time, from CM020's build output:
+
+    (in CM020)  xcodegen generate && bin/build-safari-extension.sh
+    then        cp dist/OstlerSafariExtension-<version>.app.zip \
+                   vendor/extensions/OstlerSafariExtension.app.zip
+
+The artefact MUST be Developer-ID signed (team V95N2B8X7A) + notarised +
+stapled. A --dry-run (unsigned) artefact fails Gatekeeper and must never ship.
+
+The .app.zip itself is gitignored (binary, signed-per-cut). Both release.sh
+(tarball path) and gui/project.yml (DMG .app path) read it from this directory
+and fail loudly if it is absent, so the gap that left it silently unstaged
+cannot recur.

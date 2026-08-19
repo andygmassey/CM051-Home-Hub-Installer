@@ -1,0 +1,37 @@
+# DECLARED COUNT of occurrences of a pwg-branded ontology namespace.
+# See scripts/verify_no_foreign_ontology_namespace.sh for why this exists.
+#
+# THE BASIS OF THIS NUMBER CHANGED, and saying so is the whole point of this
+# comment. A ratchet number that silently changes basis is not evidence about
+# anything: comparing it to the previous number compares two different
+# questions and reads as a regression that never happened.
+#
+#   PREVIOUS BASIS   276, counting the unregistered domain only, and
+#                    excluding nothing.
+#
+#   THIS BASIS       294, measured 2026-08-17 on 7cc2a6f, counting BOTH
+#                    pwg-branded domains and excluding the gate's own three
+#                    files:
+#
+#                        unregistered domain    278
+#                        mDNS-reserved domain    16
+#                        --------------------------
+#                        total                  294   across 67 files
+#
+# WHY 294 AND NOT 292. The 292 in the first draft of this change was measured
+# before four PRs landed on main, and with an exclusion pathspec that named
+# `tests/test_...` when the test actually lives at `scripts/tests/`. A
+# pathspec naming a file that does not exist excludes nothing and git says
+# nothing, so the gate went on counting one occurrence inside its own test.
+# Both errors are corrected here and the number was re-measured rather than
+# adjusted.
+#
+# THE EXCLUSIONS EXIST BECAUSE THE INSTRUMENT MUST NOT MEASURE ITSELF. The
+# gate, this file and the gate's test all NAME the domains in prose in order
+# to explain what they are for. Without the exclusions, widening the regex
+# raised the number purely because the new comment mentioned the new domain.
+#
+# THIS NUMBER MAY ONLY GO DOWN FROM HERE. Lower it in the same commit that
+# removes occurrences. It reaches 0 when the source repos are migrated and
+# re-vendored, and then it stays at 0 forever.
+294

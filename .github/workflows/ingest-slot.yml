@@ -1,0 +1,136 @@
+# ingest-slot
+#
+# Runs tests/test_ingest_slot_fairness.sh, which was previously started by
+# nothing at all. The test-wiring gate caught that on the PR that introduced
+# it: 415 lines that demonstrated RED once and then asserted nothing ever
+# again, because no workflow named the file.
+#
+# WHAT IT GUARDS. One mkdir mutex arbitrates every LLM ingest job on the Hub:
+# four conversation feeds and the wiki recompile. On the live v1.0.26 box the
+# email feed held it for over an hour while the iMessage feed, which had never
+# completed a single pass since install, woke every 15 minutes and yielded.
+# The suite covers the bounded hold, the derived patience, FIFO order, the
+# idle-box exemption that keeps a multi-hour wiki backfill safe, the FDA
+# denial-string translation, install.sh delivery and embed drift, and (Sections
+# 9 and 10) that every contending tick is actually WIRED to the lib. That last
+# one exists because an earlier revision delivered the lib to ~/.ostler/lib/
+# and called it from nowhere, which left the starvation completely untouched
+# while every other section passed.
+#
+# RUNNER SPLIT, and it is a deliberate cost decision rather than an oversight.
+# Actions minutes are the binding constraint on parallel work right now, and a
+# macOS runner bills at ten times an ubuntu one. So:
+#
+#   suite      ubuntu-latest, ~2 min, carries the behaviour
+#   shell-3-2  macos-latest, seconds, carries the ONE thing ubuntu cannot
+#              prove: these files are forked with /bin/bash, which is 3.2.57
+#              on the customer's Mac and 5.x on an ubuntu runner. A 4.x-only
+#              construct passes every ubuntu check and breaks on every
+#              customer. The suite prints the version it actually used, so a
+#              log can never imply a 3.2 proof it did not perform.
+#
+# Both jobs are path-filtered to the arbitration surface, so an unrelated PR
+# starts neither.
+
+name: ingest-slot
+
+on:
+  pull_request:
+    paths:
+      - 'lib/ostler-ingest-slot.sh'
+      - 'tests/test_ingest_slot_fairness.sh'
+      - 'vendor/email_source/bin/email-bundle-tick.sh'
+      - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
+      - 'vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh'
+      - 'vendor/spoken_source/bin/spoken-bundle-tick.sh'
+      - 'vendor/imessage_source/reader.py'
+      - 'wiki-recompile/bin/wiki-recompile-tick.sh'
+      - 'install.sh'
+      - '.github/workflows/ingest-slot.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'lib/ostler-ingest-slot.sh'
+      - 'tests/test_ingest_slot_fairness.sh'
+      - 'vendor/email_source/bin/email-bundle-tick.sh'
+      - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
+      - 'vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh'
+      - 'vendor/spoken_source/bin/spoken-bundle-tick.sh'
+      - 'vendor/imessage_source/reader.py'
+      - 'wiki-recompile/bin/wiki-recompile-tick.sh'
+      - 'install.sh'
+      - '.github/workflows/ingest-slot.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  suite:
+    name: A feed cannot be starved, and every feed is wired to the slot
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Ingest slot fairness suite
+        run: bash tests/test_ingest_slot_fairness.sh
+
+  shell-3-2:
+    name: The shipped ticks parse under bash 3.2, the customer's shell
+    runs-on: macos-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Report the shell being proven against
+        run: /bin/bash --version | head -1
+
+      - name: Refuse if the runner is not actually bash 3.x
+        run: |
+          set -e
+          # Without this the job could silently become a duplicate of the
+          # ubuntu one, pass forever, and prove nothing. A gate must name
+          # the surface it is measuring.
+          ver="$(/bin/bash -c 'echo ${BASH_VERSINFO[0]}')"
+          if [ "$ver" != "3" ]; then
+            echo "REFUSING: /bin/bash on this runner is ${ver}.x, not 3.x." >&2
+            echo "This job exists only to prove 3.2 compatibility. Passing it" >&2
+            echo "on a 5.x shell would be a green that measures nothing." >&2
+            exit 1
+          fi
+          echo "OK: proving against /bin/bash ${ver}.x"
+
+      - name: Every slot-contending script parses
+        run: |
+          set -e
+          rc=0
+          for f in \
+            lib/ostler-ingest-slot.sh \
+            vendor/email_source/bin/email-bundle-tick.sh \
+            vendor/imessage_source/bin/imessage-bundle-tick.sh \
+            vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh \
+            vendor/spoken_source/bin/spoken-bundle-tick.sh \
+            wiki-recompile/bin/wiki-recompile-tick.sh \
+            tests/test_ingest_slot_fairness.sh
+          do
+            if [ ! -f "$f" ]; then
+              echo "REFUSING: $f is missing; the list is stale and a clean result here would be manufactured" >&2
+              rc=1
+              continue
+            fi
+            if /bin/bash -n "$f"; then
+              echo "ok   $f"
+            else
+              echo "FAIL $f does not parse under bash 3.2" >&2
+              rc=1
+            fi
+          done
+          echo "examined 7 files"
+          exit "$rc"

@@ -54,6 +54,13 @@ _VALID_LEVELS = ("L0", "L1", "L2", "L3")
 _CHANNEL_DEFAULTS: dict[str, str] = {
     "spoken": "L2",
     "im": "L2",
+    # ``sms`` (green-bubble texts) is the same class of personal
+    # conversation as ``im`` (blue-bubble iMessages) and must
+    # share its default. The feed emits ``channel="sms"`` for SMS
+    # threads; without this key SMS fell through to the L3
+    # defence-in-depth fallback below and was never embedded in
+    # Qdrant / surfaced to the wiki or assistant (silent drop).
+    "sms": "L2",
     "whatsapp": "L2",
     "email": "L2",
     "manual": "L2",

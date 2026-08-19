@@ -43,6 +43,7 @@ if _PARENT_DIR not in sys.path:
 
 from contact_syncer import config
 from identity_resolver.models import PersonIdentity
+from identity_resolver.normalise import clean_display_name
 from identity_resolver.resolver import IdentityResolver
 
 try:
@@ -92,6 +93,12 @@ def row_to_identity(row: Dict[str, str]) -> Tuple[PersonIdentity, Dict[str, str]
     first = (row.get("First Name") or "").strip()
     last = (row.get("Last Name") or "").strip()
     display = f"{first} {last}".strip()
+    # Strip emoji/symbol decorations and collapse duplicate tokens
+    # (e.g. a "🌼Gemma🌼 Brewster" LinkedIn first name). Keep the cleaned
+    # value only if non-empty so we never blank a name.
+    _cleaned_display = clean_display_name(display)
+    if _cleaned_display:
+        display = _cleaned_display
     url = (row.get("URL") or "").strip()
     email = (row.get("Email Address") or "").strip()
     company = (row.get("Company") or "").strip()
@@ -513,11 +520,17 @@ def upsert_qdrant(
 
     # Parse connected_on date for last_contact
     last_contact = connected_on or now_iso[:10]
+    # observed_at records the REAL source date (the LinkedIn connection
+    # date) so the wiki's time-ordered views show when the relationship
+    # was actually established, not the install/import date. Only set it
+    # when connected_on genuinely parsed -- never fabricate a date.
+    observed_at = ""
     try:
         # LinkedIn format: "31 Dec 2025"
         dt = datetime.strptime(connected_on, "%d %b %Y")
         last_contact = dt.strftime("%Y-%m-%d")
         last_contact_ts = int(dt.timestamp())
+        observed_at = dt.strftime("%Y-%m-%dT00:00:00+00:00")
     except (ValueError, TypeError):
         last_contact_ts = int(time.time())
 
@@ -540,6 +553,8 @@ def upsert_qdrant(
         "created_at": now_iso,
         "updated_at": now_iso,
     }
+    if observed_at:
+        payload["observed_at"] = observed_at
 
     point_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
     point = PointStruct(
@@ -569,6 +584,80 @@ def upsert_qdrant(
         pass
 
     qdrant.upsert(collection_name=collection, points=[point])
+
+
+# ── Service-independent parse + report ───────────────────────────────
+
+
+def report_connections(
+    csv_path: str,
+    *,
+    limit: Optional[int] = None,
+    verbose: bool = False,
+) -> Dict[str, int]:
+    """Parse Connections.csv and report counts WITHOUT touching any service.
+
+    This is the offline counterpart to ``import_connections``: it parses
+    the CSV (skipping the LinkedIn export preamble), runs each row through
+    ``row_to_identity`` and reports field-coverage counts. It NEVER
+    contacts Oxigraph, Qdrant, Ollama or CardDAV, so it is safe to run
+    when those services are down (e.g. a pre-flight dry run before the
+    graph is up, or in CI). ``import_connections(..., dry_run=True)`` still
+    instantiates the resolver to preview merge decisions; this does not.
+
+    Returns counts: {total, named, with_company, with_position, with_email,
+    with_url, with_connected_on}. ``total`` is the number of parsed data
+    rows; ``named`` excludes rows whose display name is empty after
+    cleaning (which ``import_connections`` would skip).
+    """
+    rows = parse_connections_csv(csv_path)
+    if limit:
+        rows = rows[:limit]
+
+    counts = {
+        "total": len(rows),
+        "named": 0,
+        "with_company": 0,
+        "with_position": 0,
+        "with_email": 0,
+        "with_url": 0,
+        "with_connected_on": 0,
+    }
+
+    for row in rows:
+        identity, extra = row_to_identity(row)
+        if identity.display_name.strip():
+            counts["named"] += 1
+        if (extra.get("company") or "").strip():
+            counts["with_company"] += 1
+        if (extra.get("position") or "").strip():
+            counts["with_position"] += 1
+        if (extra.get("email") or "").strip():
+            counts["with_email"] += 1
+        if (extra.get("linkedin_url") or "").strip():
+            counts["with_url"] += 1
+        # connected_on only counts when it parses to a real date, so the
+        # number reflects how many rows can carry a real source date into
+        # the graph (createdAt / observed_at), not just a non-empty string.
+        connected_on = (extra.get("connected_on") or "").strip()
+        if connected_on:
+            try:
+                datetime.strptime(connected_on, "%d %b %Y")
+                counts["with_connected_on"] += 1
+            except (ValueError, TypeError):
+                pass
+
+    print(
+        f"Parsed {counts['total']} LinkedIn connections "
+        f"({counts['named']} named, {counts['with_company']} with company, "
+        f"{counts['with_position']} with position, {counts['with_email']} with email, "
+        f"{counts['with_url']} with URL, "
+        f"{counts['with_connected_on']} with a parseable connection date)."
+    )
+    if verbose:
+        print("  (report-only: no service was contacted, nothing was written)")
+
+    return counts
 
 
 # ── Main orchestrator ────────────────────────────────────────────────
@@ -638,7 +727,13 @@ def import_connections(
     for i, row in enumerate(rows, 1):
         identity, extra = row_to_identity(row)
 
-        if not identity.display_name.strip():
+        # Skip rows with no usable name. LinkedIn exports a literal
+        # "LinkedIn Member" placeholder for connections whose profile is
+        # private/withheld; these carry no real identity and must not become
+        # individual people (94 collapsed into one junk node on a real
+        # import). Matched case-insensitively.
+        _display = identity.display_name.strip()
+        if not _display or _display.casefold() == "linkedin member":
             counts["skipped"] += 1
             continue
 
@@ -710,6 +805,21 @@ def import_connections(
                     )
                 counts["created"] += 1
 
+                # Register the new person in the resolver's in-memory fuzzy
+                # index so LATER rows in this SAME run dedupe against it. The
+                # candidate snapshot is loaded once and frozen; without this a
+                # one-shot bulk import (e.g. 3,810 LinkedIn connections) mints a
+                # fresh node for every repeat of a name -- the root cause of
+                # "Jane Doe x6" on a fresh install, which the incrementally
+                # synced graph never hit (each daily run re-snapshots). Fires in
+                # dry-run too so the reported dedup reflects real behaviour.
+                resolver.register_person(
+                    person_uri,
+                    identity.display_name,
+                    org=identity.organization,
+                    linkedin_url=identity.linkedin_url,
+                )
+
             # Qdrant upsert (embed + write)
             if qdrant and not dry_run:
                 embed_text_str = (
@@ -764,6 +874,15 @@ def main():
         help="Path to Connections.csv from LinkedIn GDPR export",
     )
     parser.add_argument("--dry-run", action="store_true", help="Parse and resolve but don't write")
+    parser.add_argument(
+        "--report-only",
+        action="store_true",
+        help=(
+            "Parse the CSV and report counts only. Contacts NO service "
+            "(Oxigraph/Qdrant/Ollama/CardDAV), so it is safe to run when the "
+            "graph is down. Unlike --dry-run, it does not resolve identities."
+        ),
+    )
     parser.add_argument("--enrich-contacts", action="store_true",
                         help="Write LinkedIn URL/title/org back to matching iCloud contacts via CardDAV")
     parser.add_argument("--enrich-fields", type=str, default="url",
@@ -775,6 +894,12 @@ def main():
     if not os.path.isfile(args.csv):
         print(f"File not found: {args.csv}", file=sys.stderr)
         return 1
+
+    # Report-only short-circuits before any service config is required, so
+    # it works with the graph down. Returns 0 unless the parse itself fails.
+    if args.report_only:
+        report_connections(args.csv, limit=args.limit, verbose=args.verbose)
+        return 0
 
     # Validate config
     if not config.OXIGRAPH_URL:

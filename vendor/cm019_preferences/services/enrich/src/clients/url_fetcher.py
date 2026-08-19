@@ -429,7 +429,7 @@ class URLFetcherClient(BaseClient[URLMetadata]):
     def _get_headers(self) -> Dict[str, str]:
         """Return polite User-Agent headers."""
         return {
-            "User-Agent": "PWG-BookmarkEnricher/0.1 (Personal preference analysis; respects robots.txt; contact: github.com/andybrandt)",
+            "User-Agent": "Ostler/1.0 (+https://ostler.ai)",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
             "Accept-Encoding": "gzip, deflate",

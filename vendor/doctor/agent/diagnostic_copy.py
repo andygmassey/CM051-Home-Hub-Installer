@@ -355,3 +355,121 @@ OLLAMA_OLD_DETAIL = (
 )
 OLLAMA_OLD_FIX = "Upgrade Ollama"
 OLLAMA_OLD_FIX_COMMAND = "brew upgrade ollama"
+
+
+# ── check_imessage_fda ───────────────────────────────────────────────
+
+
+IMESSAGE_FDA_TITLE = "iMessage needs Full Disk Access"
+IMESSAGE_FDA_DETAIL = (
+    "The Ostler assistant cannot read your Messages history yet. "
+    "macOS requires you to grant Full Disk Access to the assistant "
+    "binary before it can open ~/Library/Messages/chat.db. Open System "
+    "Settings, drag ~/.ostler/bin/ostler-assistant into the Full Disk "
+    "Access list, then restart the assistant. This card disappears on "
+    "its own once the assistant can read Messages."
+)
+IMESSAGE_FDA_FIX = "Open System Settings to Full Disk Access"
+# x-apple.systempreferences URL scheme opens the Privacy & Security
+# pane and selects Full Disk Access on macOS 13+. Older macOS falls
+# back to the Privacy & Security top-level pane, which is acceptable.
+IMESSAGE_FDA_FIX_COMMAND = (
+    "open 'x-apple.systempreferences:com.apple.preference.security?"
+    "Privacy_AllFiles'"
+)
+# Secondary instruction shown alongside the deep-link: how to restart
+# the assistant once FDA has been granted, so the card can clear.
+IMESSAGE_FDA_RESTART_HINT = (
+    "After granting access, restart the assistant: "
+    "launchctl kickstart -k gui/$(id -u)/"
+    "com.creativemachines.ostler.assistant"
+)
+
+
+# ── check_imessage_capture_stalled ───────────────────────────────────
+#
+# Distinct from check_imessage_fda: that rule fires on the install-time
+# probe signal; this one fires on the RUNTIME evidence that the iMessage
+# capture bundle is actually crash-looping. Before Full Disk Access is
+# granted, every capture tick logs
+# ``sqlite3.OperationalError: unable to open database file`` to
+# ``~/.ostler/logs/imessage-bundle.err`` -- the capture is silently stalled
+# and no messages are being read. This surfaces that as an actionable card.
+
+
+IMESSAGE_CAPTURE_STALLED_TITLE = (
+    "iMessage capture stalled: waiting for Full Disk Access"
+)
+IMESSAGE_CAPTURE_STALLED_DETAIL = (
+    "Ostler's iMessage capture is retrying but cannot open your Messages "
+    "database yet, so no messages are being read. macOS blocks access until "
+    "you grant Full Disk Access to the assistant. Grant it and the capture "
+    "resumes on its own; this card clears once Messages can be read."
+)
+IMESSAGE_CAPTURE_STALLED_FIX = "Open System Settings to Full Disk Access"
+# Same remedial action as the install-time card: the FDA deep-link. Kept as
+# its own catalogue entry so the two call sites stay decoupled, but pointed
+# at the shared command so there is one deep-link string to maintain.
+IMESSAGE_CAPTURE_STALLED_FIX_COMMAND = IMESSAGE_FDA_FIX_COMMAND
+
+
+# ── check_last_upgrade ───────────────────────────────────────────────
+#
+# The (B-lite) upgrade audit-trail row. Reads the durable, reboot-
+# surviving upgrade result the Hub records in preferences.json and
+# tells the customer, in plain terms, how the last update went.
+#
+# The success detail deliberately carries no capital "T" or "Z" so a
+# malformed timestamp can never leak an ISO string (2026-07-27T...Z)
+# into the reassurance line.
+
+LAST_UPGRADE_SUCCESS_TITLE_FMT = "Ostler updated to v{version}"
+LAST_UPGRADE_SUCCESS_DETAIL_FMT = (
+    "Last update applied {applied}. "
+    "Assistant and services have been reconciled and are running normally."
+)
+# Shown when the recorded timestamp cannot be parsed, so the applied-time
+# clause is omitted rather than printing a half-formed value.
+LAST_UPGRADE_SUCCESS_DETAIL_NO_TIME = (
+    "Assistant and services have been reconciled and are running normally."
+)
+
+LAST_UPGRADE_FAILED_TITLE = "Last Ostler update didn't finish"
+LAST_UPGRADE_FAILED_DETAIL = (
+    "The most recent update did not complete, so your previous (working) "
+    "version of Ostler is still running. Nothing was lost. The Doctor logs "
+    "have the details if you want to see what stopped it."
+)
+LAST_UPGRADE_FAILED_FIX = (
+    "You can try the update again later. If it keeps stopping, the Doctor "
+    "logs (in this window) show where."
+)
+
+LAST_UPGRADE_ROLLED_BACK_TITLE = "Ostler update was rolled back"
+LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT = (
+    "Your previous Ostler is running. Version {version} did not install, so "
+    "the working version was restored automatically. Nothing was lost."
+)
+LAST_UPGRADE_ROLLED_BACK_FIX = (
+    "No action is needed. You can try updating again later from Settings."
+)
+
+
+# ---------------------------------------------------------------------------
+# Conversation dispatch failures (2026-08-08)
+#
+# Doctor read this log for exactly ONE signature -- the pre-FDA SQLite crash.
+# A bundle that ticks happily while every dispatch exits rc=1 was therefore
+# invisible, and Doctor said "Everything looks healthy" beside a 37KB error
+# log. Doctor was not lying; it was reporting on the only thing it checked.
+#
+# Silence and failure are different states. This copy is for the second.
+# ---------------------------------------------------------------------------
+CONVO_DISPATCH_FAILING_TITLE = "Some conversations could not be processed"
+CONVO_DISPATCH_FAILING_DETAIL = (
+    "Ostler is reading your messages, but {n} recent {noun} failed while being "
+    "summarised and {have} been skipped. Those conversations will not appear in "
+    "your wiki or answers until they are retried. Everything else is unaffected."
+)
+CONVO_DISPATCH_FAILING_FIX = "Show the error log"
+CONVO_DISPATCH_FAILING_FIX_COMMAND = "open ~/.ostler/logs/imessage-bundle.err"

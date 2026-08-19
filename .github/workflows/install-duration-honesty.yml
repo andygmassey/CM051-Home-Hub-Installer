@@ -1,0 +1,20 @@
+name: install-duration-honesty
+# Deliberately NOT paths-filtered. The gate reads three files today and the
+# list will grow (locales, a website pricing page, the Doctor onboarding
+# panel). A paths filter that lags the gate's own SURFACES list is a gate that
+# silently goes dark on exactly the file someone just added -- the failure
+# mode this whole check exists to catch. CM051 is public, so the runner is
+# free and the check is a grep.
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  duration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: controls first -- an unproven gate is not a gate
+        run: bash scripts/tests/test_install_duration_honesty.sh
+      - name: every surface must quote the same, measured duration
+        run: bash scripts/verify_install_duration_honesty.sh

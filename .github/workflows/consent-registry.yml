@@ -1,0 +1,44 @@
+name: consent-registry
+
+# F1 gate (box-walk recut #2, 2026-07-26). On the .185 walk the spoken-capture
+# consent silently failed to persist because the DMG bundled a STALE
+# ostler_security whose consent_cli registry did not know the tickbox id
+# install.sh records against. install.sh was correct; the vendor was stale.
+#
+# This wires the cross-check so it actually RUNS: EVERY `_consent_cli_record`
+# call in install.sh must pass a tickbox id that is defined in
+# vendor/legal/consent_strings.py AND registered in vendor/ostler_security/
+# consent_cli.py's TICKBOX_REGISTRY. A stale re-vendor or a new unregistered
+# consent call fails HERE instead of swallowing a consent record on a customer
+# install. A guard that exists but does not run is the ships-dark trap.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'vendor/legal/consent_strings.py'
+      - 'vendor/ostler_security/consent_cli.py'
+      - 'tests/test_consent_tickbox_registry.sh'
+      - '.github/workflows/consent-registry.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  consent-registry:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Consent tickbox registry cross-check
+        run: bash tests/test_consent_tickbox_registry.sh

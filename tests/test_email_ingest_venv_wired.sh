@@ -101,6 +101,50 @@ else
     fi
 fi
 
+# Axis 4b: the INGEST leg's binary must be wired through to the tick the
+# same way the emit leg's python is. install.sh must record the venv
+# pwg-email-ingest path and pass it to the snippet; the snippet must
+# consume it and sed it into the plist; the plist must declare the
+# PWG_EMAIL_INGEST env var; and the tick must resolve an absolute binary
+# rather than only ever looking on launchd's (minimal) PATH. Without all
+# of these the emit leg succeeds, "Emitted N message(s)" logs, then the
+# ingest leg drops 100% of harvested mail with "not on PATH" / exit 127.
+if [[ -f "$INSTALL_SH" ]]; then
+    if ! grep -q 'EMAIL_INGEST_VENV_BIN=' "$INSTALL_SH"; then
+        failure "install.sh missing EMAIL_INGEST_VENV_BIN — venv pwg-email-ingest path not recorded"
+    fi
+    if ! grep -q 'OSTLER_EMAIL_INGEST_BIN=' "$INSTALL_SH"; then
+        failure "install.sh does not pass OSTLER_EMAIL_INGEST_BIN env to the email-ingest snippet"
+    fi
+fi
+if [[ -f "$SNIPPET" ]]; then
+    if ! grep -q 'OSTLER_EMAIL_INGEST_BIN' "$SNIPPET"; then
+        failure "INSTALL_SNIPPET.sh does not consume OSTLER_EMAIL_INGEST_BIN env var from install.sh"
+    fi
+    if ! grep -q 's/PWG_EMAIL_INGEST_PATH/' "$SNIPPET"; then
+        failure "INSTALL_SNIPPET.sh missing sed substitution for PWG_EMAIL_INGEST_PATH — placeholder will reach launchd unrendered"
+    fi
+fi
+if [[ -f "$PLIST" ]]; then
+    if ! grep -q '<key>PWG_EMAIL_INGEST</key>' "$PLIST"; then
+        failure "email-ingest plist missing PWG_EMAIL_INGEST env var — ingest binary not passed to the tick under launchd"
+    fi
+    if ! grep -q '<string>PWG_EMAIL_INGEST_PATH</string>' "$PLIST"; then
+        failure "email-ingest plist missing PWG_EMAIL_INGEST_PATH placeholder (rendered by INSTALL_SNIPPET.sh)"
+    fi
+fi
+TICK="$REPO_ROOT/vendor/email_ingest/bin/email-ingest-tick.sh"
+if [[ ! -f "$TICK" ]]; then
+    failure "email-ingest-tick.sh missing"
+else
+    # The tick must take an absolute/executable PWG_EMAIL_INGEST as-is,
+    # not rely solely on a bare PATH lookup (which launchd's minimal PATH
+    # always missed).
+    if ! grep -q '\-x "\$PWG_EMAIL_INGEST"' "$TICK"; then
+        failure "email-ingest-tick.sh does not honour an absolute PWG_EMAIL_INGEST path — still PATH-only, the silent-drop bug"
+    fi
+fi
+
 # Axis 5: no LaunchAgent plist anywhere should call a python module
 # without staging OSTLER_PYTHON through EnvironmentVariables.
 # Specifically refuse the pattern "<string>python3</string>" followed

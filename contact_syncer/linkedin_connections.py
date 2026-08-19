@@ -708,6 +708,15 @@ def import_connections(
                         config.USER_ID,
                         config.DEFAULT_PRIVACY_LEVEL,
                     )
+                    # CX-126 (#660): keep the resolver's in-memory fuzzy index
+                    # current so later connections in this run dedupe against
+                    # this person (parity with the old query-every-time path).
+                    resolver.register_person(
+                        person_uri,
+                        identity.display_name,
+                        org=identity.organization,
+                        linkedin_url=extra.get("linkedin_url") or None,
+                    )
                 counts["created"] += 1
 
             # Qdrant upsert (embed + write)

@@ -51,7 +51,7 @@ categories:
   team of four people for client work", "{user} has a network of
   designers, developers, and creative technologists")
 - **Location / geography** details that are durable ("{user} lives in
-  Hong Kong", "Pierre works across Asian markets")
+  Riverside", "Pierre works across regional markets")
 - **Upcoming events / meetings** with concrete dates ("Co-working
   session planned for tomorrow at 9am", "Workshop being rescheduled
   to next week")
@@ -149,7 +149,7 @@ From a 20-minute coffee where Diana described her career:
     "evidence": "Diana said 'they made me redundant a few months ago' and 'some of my clients still come to me.'"
   },
   {
-    "text": "Diana Thompson and {user} plan to pitch jointly to a bank for a mobile app revamp project, presenting directly to the bank's president.",
+    "text": "Diana Thompson and Jordan Reyes plan to pitch jointly to a bank for a mobile app revamp project, presenting directly to the bank's president.",
     "type": "plan",
     "subject": "other:diana_thompson",
     "domain": "work",
@@ -158,7 +158,7 @@ From a 20-minute coffee where Diana described her career:
     "signal_strength": "strong",
     "temporal": true,
     "expires_at": "2026-07-15",
-    "evidence": "Diana asked 'Would you be interested in going in together on this?' and {user} agreed."
+    "evidence": "Diana asked 'Would you be interested in going in together on this?' and Jordan Reyes agreed."
   }
 ]
 ```
@@ -213,10 +213,10 @@ Single JSON array of fact objects:
     "privacy_level": "L0",
     "signal_strength": "strong",
     "temporal": false,
-    "evidence": "Sam asked 'is a CMS still valid, given Claude?' and agreed with {user}'s push that static generation via Cloudflare is cleaner."
+    "evidence": "Sam asked 'is a CMS still valid, given Claude?' and agreed with Jordan Reyes's push that static generation via Cloudflare is cleaner."
   },
   {
-    "text": "{user} has applied for a 100,000 HKD CCMF non-dilutive grant focused on patent applications and productisation of the PWG.",
+    "text": "Jordan Reyes has applied for a non-dilutive innovation grant focused on patent applications and productising their main project.",
     "type": "plan",
     "subject": "user",
     "domain": "work",
@@ -225,7 +225,7 @@ Single JSON array of fact objects:
     "signal_strength": "strong",
     "temporal": true,
     "expires_at": "2027-04-15",
-    "evidence": "Direct statement from {user} describing CCMF application and intended uses of the funds."
+    "evidence": "Direct statement from Jordan Reyes describing the grant application and intended uses of the funds."
   },
   {
     "text": "Diana (introduced via ContactGrp-A) was previously in business development at ContactCo-R and is currently placing redundant clients with boutique agencies.",
@@ -236,7 +236,7 @@ Single JSON array of fact objects:
     "privacy_level": "L0",
     "signal_strength": "medium",
     "temporal": false,
-    "evidence": "{user} described Diana's background and current activity during a portion of the call where {user} was describing potential networking."
+    "evidence": "Jordan Reyes described Diana's background and current activity during a portion of the call where Jordan Reyes was describing potential networking."
   }
 ]
 ```
@@ -314,7 +314,7 @@ Before including a fact in the output, it must pass ALL of these:
 3. **Attribution test:** is the `subject` field clearly identifiable?
    If you can't determine who the fact is about, skip.
 4. **Novelty test:** does this fact add information beyond what's
-   obvious from the metadata? "Andy and Sam had a work meeting" is
+   obvious from the metadata? "John and Sam had a work meeting" is
    already in the metadata — don't extract it as a fact.
 5. **Specificity test:** is this specific enough to be useful in
    retrieval? "They discussed work" is useless. "Sam is migrating

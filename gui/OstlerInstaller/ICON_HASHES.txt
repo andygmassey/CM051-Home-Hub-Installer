@@ -1,12 +1,12 @@
-# OstlerInstaller app-icon golden hashes (TNM icon superellipse FINAL).
+# OstlerInstaller app-icon golden hashes (macOS Big Sur grid, 0.805 / N=7.0).
 # Installer app icon = Ink; DialogIcon = oxblood (documented #553 exception).
 # Regenerate via generate_appicon.py and repin if intentional.
 # sha256  filename
-f4a8566cb03e0dbad8eb8c97881e50631af59e386106cb23cc3d6b5dbd23f6ab  icon_16.png
-ca36c7e716fbf0dca6a0cd6a54eaf99d142cf60c63fce1b61e14b7644416a3d4  icon_32.png
-b8132c928bba3d7bdf6cab4c4d63ccfe5f0a149332a3d3ead3d5558e6cb2dd17  icon_64.png
-f29b10166d240e57c9a86fba084aed737a1a8119952b64edd150b93c4582c237  icon_128.png
-f59fea776b3d1b6df09e13748ee6cdfde1029bb42105902131bff19248429c20  icon_256.png
-fb8da1505bed8de76183917d876280d1bf6c26d10f967be31b805378925110df  icon_512.png
-be8ec94e7543f68f394d98ae4628eaac2b617f7d61316f75ee9449b9f2f3cbbb  icon_1024.png
-6c5bbc9554ca057be620a35d993ebefe4d0cf276e0fc97900ea007ee5c0ab156  DialogIcon.icns
+a204ec4e39008a5efe65551b7394908e1487146fbed7ce81cc296c9a8615a121  icon_16.png
+33ef5984c1be34c57764467d68db53162660ae0aa942738e474b88e5c7e96912  icon_32.png
+b25e925bd74df839c2014ae61c10e1d00a6c0b834bfc26cfdd642b9b3d6768bf  icon_64.png
+873e0c42cf503c1941b05200e96d7c7029a29ca80d370670c9ea9325047b4ad9  icon_128.png
+bd477014f0eb8f7fee74eb946a6c94f35cae7a64d131614b068813a6e128f760  icon_256.png
+7efb8256bb5c26c6bfc97623720a94b2ac006a32e4e9aa11d59d7e3635438f24  icon_512.png
+250fdb90ad9cc7cac0b1953d84a3da1ba81cf8576dc80146588d6f04a9ed7e52  icon_1024.png
+654f531753fa2418a20e1a358fc65a7516997c794f8667c7977afc63d503ec57  DialogIcon.icns

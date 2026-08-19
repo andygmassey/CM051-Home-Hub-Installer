@@ -27,8 +27,18 @@ from PIL import Image, ImageDraw
 
 INK = (0x14, 0x12, 0x0E)
 OXBLOOD = (0x7A, 0x1F, 0x1F)
-N = 5.0                 # superellipse exponent (continuous-corner squircle)
-SQUIRCLE_FRAC = 0.90    # squircle side / canvas
+# Geometry locked to the canonical macOS Big Sur+ icon grid (2026-06-06).
+# Measured directly against Safari / QuickTime / System Settings .icns: the
+# Apple system grid fills 80.5% of the canvas (824/1024, a 9.8% transparent
+# margin each side) with a superellipse whose corner curvature begins at
+# ~15.2% of the canvas. The previous 0.90 / N=5.0 values made the squircle
+# ~12% too large (90.0% body, no system margin) with over-round 25.8% corners,
+# which read as a soft/ill-defined tile next to real macOS icons. Edges were
+# always pixel-crisp (2px AA band, identical to Apple); the defect was scale +
+# corner curvature, not blur. N=7.0 reproduces the Apple corner curvature
+# (measured 16.0% vs Apple 15.2%) at the 80.5% grid.
+N = 7.0                 # superellipse exponent (matches macOS corner curvature)
+SQUIRCLE_FRAC = 0.805   # squircle side / canvas (canonical macOS Big Sur grid)
 RING_OUTER_FRAC = 0.54  # ring outer diameter / squircle side
 RING_THICK_FRAC = 0.095  # ring stroke / squircle side (bold)
 SS = 6                  # supersample

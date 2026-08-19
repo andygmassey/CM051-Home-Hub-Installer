@@ -68,6 +68,11 @@ class TakeoutMessage:
     body_preview: str
     gmail_labels: list[str]
     is_sent: bool = False
+    # Threading headers (RFC 5322). Captured so a downstream thread
+    # builder can group replies; default empty so every existing caller
+    # and the People-only correspondent leg are unaffected.
+    in_reply_to: str = ""
+    references: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -231,6 +236,17 @@ def _build_message(
 
     body_preview = _extract_body_preview(msg, body_preview_chars)
 
+    # Threading headers. In-Reply-To carries one parent id; References is
+    # a whitespace-separated ancestry chain. Strip the RFC 5322 angle
+    # brackets so the ids line up with the bracket-stripped Message-ID.
+    in_reply_to = msg.get("In-Reply-To", "").strip().strip("<>")
+    references_raw = msg.get("References", "")
+    references = [
+        ref.strip().strip("<>")
+        for ref in references_raw.replace(",", " ").split()
+        if ref.strip().strip("<>")
+    ]
+
     return TakeoutMessage(
         message_id=msg.get("Message-ID", "").strip("<>"),
         from_address=from_addr,
@@ -242,6 +258,8 @@ def _build_message(
         body_preview=body_preview,
         gmail_labels=gmail_labels,
         is_sent=is_sent,
+        in_reply_to=in_reply_to,
+        references=references,
     )
 
 

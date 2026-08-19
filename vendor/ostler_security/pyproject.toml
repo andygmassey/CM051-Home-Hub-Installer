@@ -30,7 +30,7 @@ keywords = ["security", "encryption", "sqlcipher", "passkey", "audit"]
 # its setup.py ignored every build-flag env var. sqlcipher3 0.6.2
 # ships prebuilt arm64/x86_64 macOS wheels.
 dependencies = [
-    "cryptography>=46.0.1,<47.0.0",
+    "cryptography>=50.0.0,<51.0.0",
 ]
 
 [project.optional-dependencies]
