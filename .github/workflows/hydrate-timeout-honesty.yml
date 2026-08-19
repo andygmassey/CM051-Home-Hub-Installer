@@ -1,0 +1,71 @@
+name: hydrate-timeout-honesty
+
+# A hydrate source that TIMED OUT did not succeed, and must not record that it
+# did.
+#
+# ============================================================================
+# THE DEFECT (#774)
+# ============================================================================
+#
+# The v1.0.36 walk showed hydrate sources timing out (rc=124) while STEP_END
+# recorded status=ok. #839 had already made the sentinel recorder the step's
+# status source, so the two could not disagree -- which meant the timeout was
+# never REACHING the recorder. For exactly one source, it was not:
+#
+#     if [[ "$_HYDRATE_IMESSAGE_TIMED_OUT" != "true" ]] && [[ "$rc" -ne 0 ]]
+#
+# rc=124 took the ELSE arm and wrote a SUCCESS sentinel. Three consequences
+# from one conjunct:
+#
+#   1. STEP_END said ok over a step gtimeout had killed
+#   2. the success sentinel DEDUPES RE-RUNS FOR 7 DAYS, so the retry that
+#      would have finished the job never ran -- #711/#712's harm, surviving in
+#      the one place those tickets did not look
+#   3. no rc folded, so nothing downstream could tell
+#
+# ============================================================================
+# WHY A GATE AND NOT JUST A FIX
+# ============================================================================
+#
+# Five of six sources -- whatsapp, browsing, email_preferences, apple_notes,
+# people -- already guard on a bare `rc -ne 0` and reach the recorder on a
+# timeout. Only iMessage carried the extra conjunct. That is a ONE-LINE
+# divergence inside a family of six, and it is invisible to any check that asks
+# "does this source have an error recorder": it has one, it just cannot be
+# reached by the failure that matters. So the gate asserts the SHAPE OF THE
+# GUARD, not the presence of the call.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_timeout_is_not_a_successful_hydrate.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/hydrate-timeout-honesty.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  timeout-must-record-failure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 4 controls including an anti-vacuity probe fired at the exact guard
+      # that shipped. Exit 2 is CANNOT-RUN and CI treats it as failure: a gate
+      # that cannot find the guards it checks has not passed.
+      - name: A timed-out hydrate must record failure, not success
+        run: bash tests/test_timeout_is_not_a_successful_hydrate.sh
+
+      - name: Test parses under bash 3.2-compatible syntax
+        if: always()
+        run: bash -n tests/test_timeout_is_not_a_successful_hydrate.sh
