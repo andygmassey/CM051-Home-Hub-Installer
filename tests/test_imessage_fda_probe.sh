@@ -268,8 +268,8 @@ fi
 # number of the first DialogIcon match must be less than the first
 # AppIcon match. This locks the B8b preference order against future
 # accidental reshuffles.
-DIALOG_LINE=$(printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -n 'DialogIcon.icns' | head -1 | cut -d: -f1)
-APPICON_LINE=$(printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -n 'AppIcon.icns' | head -1 | cut -d: -f1)
+DIALOG_LINE=$(grep -n 'DialogIcon.icns' <<< "$ASSIST_DIALOG_BLOCK" | head -1 | cut -d: -f1)
+APPICON_LINE=$(grep -n 'AppIcon.icns' <<< "$ASSIST_DIALOG_BLOCK" | head -1 | cut -d: -f1)
 if [[ -z "$DIALOG_LINE" || -z "$APPICON_LINE" ]]; then
     echo "FAIL [case-8]: could not measure DialogIcon vs AppIcon ordering" >&2
     exit 1
@@ -341,7 +341,7 @@ echo "PASS [case-9]: DialogIcon.icns asset bundled + parses as valid .icns"
 # assertion further down forbids that killer's return -- so an assertion
 # that still REQUIRED -gjnW would contradict it and no tree could satisfy
 # both. Accept -gjn.
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'open -gjn -a "\$ASSISTANT_APP_BUNDLE"'; then
+if ! grep -q 'open -gjn -a "\$ASSISTANT_APP_BUNDLE"' <<< "$ASSIST_BLOCK"; then
     echo "FAIL [case-10]: register nudge missing LaunchServices open of the assistant .app" >&2
     exit 1
 fi
@@ -354,32 +354,32 @@ fi
 # BW6 (1): CAPABILITY GATE. The nudge must first run the binary DIRECTLY
 # and gate the app-launch on a `SELF-TEST:` marker, so a binary that does
 # not honour the one-shot can never be `open`ed into the full daemon.
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q '"\$ASSISTANT_BINARY" \$_fda_selftest_argv'; then
+if ! grep -q '"\$ASSISTANT_BINARY" \$_fda_selftest_argv' <<< "$ASSIST_BLOCK"; then
     echo "FAIL [case-10]: register nudge missing the direct-exec capability probe" >&2
     exit 1
 fi
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q "grep -q 'SELF-TEST:'"; then
+if ! grep -q "grep -q 'SELF-TEST:'" <<< "$ASSIST_BLOCK"; then
     echo "FAIL [case-10]: register nudge must gate on the SELF-TEST marker" >&2
     exit 1
 fi
 # BW6 (2): HARD-KILL BY PROCESS IDENTITY. The launched instance must be
 # killed by its own argv (pkill -f anchored on the self-test command line),
 # NOT by TERMing the `open` waiter.
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'pkill -f "OstlerAssistant.app/Contents/MacOS/ostler-assistant'; then
+if ! grep -q 'pkill -f "OstlerAssistant.app/Contents/MacOS/ostler-assistant' <<< "$ASSIST_BLOCK"; then
     echo "FAIL [case-10]: register nudge missing hard-kill by the launched app's argv" >&2
     exit 1
 fi
 # BW6 anti-regression: the timing killer that TERMed the open-waiter (the
 # root cause of the glut, fixed ~two dozen times before) must be GONE.
-if printf '%s\n' "$ASSIST_BLOCK" | grep -Eq 'kill -TERM "\$_fda_probe_(pid|killer)"'; then
+if grep -Eq 'kill -TERM "\$_fda_probe_(pid|killer)"' <<< "$ASSIST_BLOCK"; then
     echo "FAIL [case-10]: timing-based open-waiter killer reintroduced (must be completion-detection, not a timer)" >&2
     exit 1
 fi
 # The nudge must run BEFORE the System Settings pane is opened, so the
 # row is already registered when the customer looks. Assert ordering:
 # the open-assistant line precedes the x-apple deep-link line.
-NUDGE_LINE=$(printf '%s\n' "$ASSIST_BLOCK" | grep -n 'open -gjn -a "\$ASSISTANT_APP_BUNDLE"' | head -1 | cut -d: -f1)
-PANE_LINE=$(printf '%s\n' "$ASSIST_BLOCK" | grep -n 'x-apple.systempreferences.*Privacy_AllFiles' | head -1 | cut -d: -f1)
+NUDGE_LINE=$(grep -n 'open -gjn -a "\$ASSISTANT_APP_BUNDLE"' <<< "$ASSIST_BLOCK" | head -1 | cut -d: -f1)
+PANE_LINE=$(grep -n 'x-apple.systempreferences.*Privacy_AllFiles' <<< "$ASSIST_BLOCK" | head -1 | cut -d: -f1)
 if [[ -z "$NUDGE_LINE" || -z "$PANE_LINE" ]]; then
     echo "FAIL [case-10]: could not measure nudge vs pane ordering" >&2
     exit 1
@@ -402,7 +402,7 @@ if [[ -z "$NUDGE_BLOCK" ]]; then
     echo "FAIL [case-10]: could not extract BW6 nudge block" >&2
     exit 1
 fi
-if printf '%s\n' "$NUDGE_BLOCK" | grep -Eq 'launchctl (bootstrap|load|kickstart)'; then
+if grep -Eq 'launchctl (bootstrap|load|kickstart)' <<< "$NUDGE_BLOCK"; then
     echo "FAIL [case-10]: nudge block must not bootstrap the persistent daemon (would risk #428 crash-loop)" >&2
     exit 1
 fi
@@ -432,31 +432,31 @@ if [[ -z "$CLOSE_BLOCK" ]]; then
     echo "FAIL [case-11]: could not extract BW6 assist-window close block" >&2
     exit 1
 fi
-if ! printf '%s\n' "$CLOSE_BLOCK" | grep -q 'while :; do'; then
+if ! grep -q 'while :; do' <<< "$CLOSE_BLOCK"; then
     echo "FAIL [case-11]: close must be a repeated loop (while), not a one-shot killall + watch" >&2
     exit 1
 fi
 # killall must be INSIDE the loop (after `while`, before the `done`).
-_while_ln=$(printf '%s\n' "$CLOSE_BLOCK" | grep -n '^[[:space:]]*while :; do' | head -1 | cut -d: -f1)
+_while_ln=$(grep -n '^[[:space:]]*while :; do' <<< "$CLOSE_BLOCK" | head -1 | cut -d: -f1)
 # Anchor on the actual command (line-start), not a comment mentioning killall.
-_killall_ln=$(printf '%s\n' "$CLOSE_BLOCK" | grep -n '^[[:space:]]*killall "System Settings"' | head -1 | cut -d: -f1)
-_done_ln=$(printf '%s\n' "$CLOSE_BLOCK" | grep -n '^[[:space:]]*done$' | head -1 | cut -d: -f1)
+_killall_ln=$(grep -n '^[[:space:]]*killall "System Settings"' <<< "$CLOSE_BLOCK" | head -1 | cut -d: -f1)
+_done_ln=$(grep -n '^[[:space:]]*done$' <<< "$CLOSE_BLOCK" | head -1 | cut -d: -f1)
 if [[ -z "$_while_ln" || -z "$_killall_ln" || -z "$_done_ln" ]] \
    || (( _killall_ln <= _while_ln )) || (( _killall_ln >= _done_ln )); then
     echo "FAIL [case-11]: killall must be re-issued INSIDE the close loop (while < killall < done)" >&2
     exit 1
 fi
 # 2. Ceiling must be generous (>= 60), never the old 10s.
-if ! printf '%s\n' "$CLOSE_BLOCK" | grep -Eq '_ss_close_wait" -ge (6[0-9]|[7-9][0-9]|[1-9][0-9]{2,})'; then
+if ! grep -Eq '_ss_close_wait" -ge (6[0-9]|[7-9][0-9]|[1-9][0-9]{2,})' <<< "$CLOSE_BLOCK"; then
     echo "FAIL [case-11]: close-poll ceiling must be >= 60s (was 10s -- too tight under load)" >&2
     exit 1
 fi
 # 3. The Finder reveal window must be closed, gated on _fda_finder_revealed.
-if ! printf '%s\n' "$CLOSE_BLOCK" | grep -q '_fda_finder_revealed'; then
+if ! grep -q '_fda_finder_revealed' <<< "$CLOSE_BLOCK"; then
     echo "FAIL [case-11]: close block must close the Finder reveal window (gated on _fda_finder_revealed)" >&2
     exit 1
 fi
-if ! printf '%s\n' "$CLOSE_BLOCK" | grep -q 'Finder" to close windows'; then
+if ! grep -q 'Finder" to close windows' <<< "$CLOSE_BLOCK"; then
     echo "FAIL [case-11]: close block missing the Finder close (osascript close windows)" >&2
     exit 1
 fi
