@@ -29,6 +29,11 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_assistant_config_required_fields.sh'
+      # The Skills lockdown gate. Listed here AND run below: a path entry
+      # only makes the workflow TRIGGER, the run step is what makes it
+      # CHECK, and the pair is the point -- the gate must fire on changes
+      # to itself, not only on changes to install.sh.
+      - 'tests/test_skills_lockdown_config.sh'
       - '.github/workflows/assistant-config-required-fields.yml'
   push:
     branches: [main]
@@ -55,3 +60,17 @@ jobs:
       # image change cannot turn this gate into a silent pass.
       - name: Assert every table install.sh emits carries the fields the daemon requires
         run: bash tests/test_assistant_config_required_fields.sh
+
+      # Same surface as the step above -- the config.toml install.sh emits --
+      # so it belongs to the same trigger set rather than a workflow of its
+      # own. This one pins the [skills] lockdown (task #559): the header is
+      # written, allow_scripts = false, registry_url = "", and the block sits
+      # at the emitter's top level so no future `if` can make the customer's
+      # RCE posture channel-conditional.
+      #
+      # `if: always()` because this is not the first gate in the job. GitHub
+      # stops a job at its first failing step, and a skipped gate reports
+      # identically to one that ran and passed.
+      - name: Skills surface lockdown is written unconditionally (#559)
+        if: always()
+        run: bash tests/test_skills_lockdown_config.sh

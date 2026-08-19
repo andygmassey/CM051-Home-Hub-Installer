@@ -316,18 +316,32 @@ if ! file "$DIALOG_ICNS" 2>/dev/null | grep -q "Mac OS X icon"; then
 fi
 echo "PASS [case-9]: DialogIcon.icns asset bundled + parses as valid .icns"
 
-# ── Case 10 (BW4-A): TCC auto-register nudge before the FDA pane ──
+# ── Case 10 (BW6, supersedes BW4-A): bulletproof register-nudge ──
 # Box-walk (.184): OstlerAssistant did not auto-list in the FDA pane
 # because no read had ever been attributed to ai.ostler.assistant. The
-# fix launches the daemon .app via LaunchServices with the one-shot
+# nudge launches the daemon .app via LaunchServices with the one-shot
 # `run-source imessage --self-test` probe BEFORE opening the pane, so
-# macOS registers the daemon as a toggleable row. Lock its shape.
+# macOS registers the daemon as a toggleable row.
+#
+# BW6 (window-glut fix): the nudge is now COMPLETION-DETECTION based, not
+# timing based. The old code armed `sleep 15; kill -TERM "$_fda_probe_pid"`
+# on the `( open ... ) &` *waiter* subshell, NOT the launched app -- so a
+# vendored binary that failed to self-exit ran as the full daemon pre-FDA
+# and raised the Documents + Automation prompts (the glut). BW6 replaces
+# that with (1) a capability gate that proves the binary honours the
+# one-shot before ever launching the app, and (2) a hard-kill by the app's
+# own argv. Lock the new shape and forbid regression to the timing killer.
 #
 # The nudge lives inside the CX-66 assist block; reuse ASSIST_BLOCK
 # extracted in case-6.
 # Must launch the assistant .app bundle via LaunchServices (`open`),
 # NOT a bare fork/exec (which TCC attributes to the installer ancestor).
-if ! grep -q 'open -gjnW -a "\$ASSISTANT_APP_BUNDLE"' <<< "$ASSIST_BLOCK"; then
+# `-W` is deliberately gone. It is the flag that created the waiter
+# subshell the old timing killer mis-targeted, and the anti-regression
+# assertion further down forbids that killer's return -- so an assertion
+# that still REQUIRED -gjnW would contradict it and no tree could satisfy
+# both. Accept -gjn.
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'open -gjn -a "\$ASSISTANT_APP_BUNDLE"'; then
     echo "FAIL [case-10]: register nudge missing LaunchServices open of the assistant .app" >&2
     exit 1
 fi
@@ -337,10 +351,34 @@ if ! grep -q 'run-source imessage --self-test' <<< "$ASSIST_BLOCK"; then
     echo "FAIL [case-10]: register nudge missing 'run-source imessage --self-test' probe" >&2
     exit 1
 fi
+# BW6 (1): CAPABILITY GATE. The nudge must first run the binary DIRECTLY
+# and gate the app-launch on a `SELF-TEST:` marker, so a binary that does
+# not honour the one-shot can never be `open`ed into the full daemon.
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q '"\$ASSISTANT_BINARY" \$_fda_selftest_argv'; then
+    echo "FAIL [case-10]: register nudge missing the direct-exec capability probe" >&2
+    exit 1
+fi
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q "grep -q 'SELF-TEST:'"; then
+    echo "FAIL [case-10]: register nudge must gate on the SELF-TEST marker" >&2
+    exit 1
+fi
+# BW6 (2): HARD-KILL BY PROCESS IDENTITY. The launched instance must be
+# killed by its own argv (pkill -f anchored on the self-test command line),
+# NOT by TERMing the `open` waiter.
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'pkill -f "OstlerAssistant.app/Contents/MacOS/ostler-assistant'; then
+    echo "FAIL [case-10]: register nudge missing hard-kill by the launched app's argv" >&2
+    exit 1
+fi
+# BW6 anti-regression: the timing killer that TERMed the open-waiter (the
+# root cause of the glut, fixed ~two dozen times before) must be GONE.
+if printf '%s\n' "$ASSIST_BLOCK" | grep -Eq 'kill -TERM "\$_fda_probe_(pid|killer)"'; then
+    echo "FAIL [case-10]: timing-based open-waiter killer reintroduced (must be completion-detection, not a timer)" >&2
+    exit 1
+fi
 # The nudge must run BEFORE the System Settings pane is opened, so the
 # row is already registered when the customer looks. Assert ordering:
 # the open-assistant line precedes the x-apple deep-link line.
-NUDGE_LINE=$(printf '%s\n' "$ASSIST_BLOCK" | grep -n 'run-source imessage --self-test' | head -1 | cut -d: -f1)
+NUDGE_LINE=$(printf '%s\n' "$ASSIST_BLOCK" | grep -n 'open -gjn -a "\$ASSISTANT_APP_BUNDLE"' | head -1 | cut -d: -f1)
 PANE_LINE=$(printf '%s\n' "$ASSIST_BLOCK" | grep -n 'x-apple.systempreferences.*Privacy_AllFiles' | head -1 | cut -d: -f1)
 if [[ -z "$NUDGE_LINE" || -z "$PANE_LINE" ]]; then
     echo "FAIL [case-10]: could not measure nudge vs pane ordering" >&2
@@ -356,12 +394,12 @@ fi
 # which is gated behind FDA-confirmed -- assert the nudge block itself
 # carries no launchctl bootstrap/load of the assistant label.
 NUDGE_BLOCK=$(awk '
-    /BW4-A .2026-07-24.: TCC auto-register nudge/ { in_block=1 }
+    /BW6 .2026-07-26, G-1\/window-glut.: register-nudge/ { in_block=1 }
     in_block && /FDA_PANE_REFRESH/ { exit }
     in_block { print }
 ' "$INSTALL_SH")
 if [[ -z "$NUDGE_BLOCK" ]]; then
-    echo "FAIL [case-10]: could not extract BW4-A nudge block" >&2
+    echo "FAIL [case-10]: could not extract BW6 nudge block" >&2
     exit 1
 fi
 if printf '%s\n' "$NUDGE_BLOCK" | grep -Eq 'launchctl (bootstrap|load|kickstart)'; then
@@ -373,7 +411,56 @@ if ! grep -q "^MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE=" "$STRINGS_FILE"; then
     echo "FAIL [case-10]: catalogue missing MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE" >&2
     exit 1
 fi
-echo "PASS [case-10]: BW4-A register nudge present, ordered before the pane, crash-loop-safe"
+echo "PASS [case-10]: BW6 register nudge present, capability-gated, hard-kills by argv, ordered before the pane, crash-loop-safe, no timing killer"
+
+# ── Case 11 (BW6): assist-window close is bulletproof under load ──
+# Root cause of Andy's stacked glut: at load ~91% the old close fired a
+# SINGLE killall then watched with a 10s ceiling; System Settings lingered
+# past 10s and the end-of-install daemon prompt stacked on it. Lock the
+# hardened close: killall RE-ISSUED inside the wait loop (not once), a
+# generous ceiling (>= 60, not 10), and the Finder reveal window closed.
+# Extract the close loop from the assist block (reuse ASSIST_BLOCK).
+# 1. The close must be a loop that re-issues killall on every iteration:
+#    assert a `while` precedes a `killall "System Settings"` that is itself
+#    followed by the loop's `sleep`/ceiling -- i.e. killall is inside the loop.
+CLOSE_BLOCK=$(awk '
+    /BW6 .2026-07-26, window-glut.: close EVERY window/ { in_block=1 }
+    in_block { print }
+    in_block && /unset _fda_listed _ss_close_wait/ { exit }
+' "$INSTALL_SH")
+if [[ -z "$CLOSE_BLOCK" ]]; then
+    echo "FAIL [case-11]: could not extract BW6 assist-window close block" >&2
+    exit 1
+fi
+if ! printf '%s\n' "$CLOSE_BLOCK" | grep -q 'while :; do'; then
+    echo "FAIL [case-11]: close must be a repeated loop (while), not a one-shot killall + watch" >&2
+    exit 1
+fi
+# killall must be INSIDE the loop (after `while`, before the `done`).
+_while_ln=$(printf '%s\n' "$CLOSE_BLOCK" | grep -n '^[[:space:]]*while :; do' | head -1 | cut -d: -f1)
+# Anchor on the actual command (line-start), not a comment mentioning killall.
+_killall_ln=$(printf '%s\n' "$CLOSE_BLOCK" | grep -n '^[[:space:]]*killall "System Settings"' | head -1 | cut -d: -f1)
+_done_ln=$(printf '%s\n' "$CLOSE_BLOCK" | grep -n '^[[:space:]]*done$' | head -1 | cut -d: -f1)
+if [[ -z "$_while_ln" || -z "$_killall_ln" || -z "$_done_ln" ]] \
+   || (( _killall_ln <= _while_ln )) || (( _killall_ln >= _done_ln )); then
+    echo "FAIL [case-11]: killall must be re-issued INSIDE the close loop (while < killall < done)" >&2
+    exit 1
+fi
+# 2. Ceiling must be generous (>= 60), never the old 10s.
+if ! printf '%s\n' "$CLOSE_BLOCK" | grep -Eq '_ss_close_wait" -ge (6[0-9]|[7-9][0-9]|[1-9][0-9]{2,})'; then
+    echo "FAIL [case-11]: close-poll ceiling must be >= 60s (was 10s -- too tight under load)" >&2
+    exit 1
+fi
+# 3. The Finder reveal window must be closed, gated on _fda_finder_revealed.
+if ! printf '%s\n' "$CLOSE_BLOCK" | grep -q '_fda_finder_revealed'; then
+    echo "FAIL [case-11]: close block must close the Finder reveal window (gated on _fda_finder_revealed)" >&2
+    exit 1
+fi
+if ! printf '%s\n' "$CLOSE_BLOCK" | grep -q 'Finder" to close windows'; then
+    echo "FAIL [case-11]: close block missing the Finder close (osascript close windows)" >&2
+    exit 1
+fi
+echo "PASS [case-11]: BW6 assist-window close is loop-repeated killall + >=60s ceiling + Finder close"
 
 echo ""
-echo "ALL CX-60 + CX-66 + CX-81 B8 + B8b + BW4-A IMESSAGE FDA PROBE TESTS PASSED"
+echo "ALL CX-60 + CX-66 + CX-81 B8 + B8b + BW4-A + BW6 IMESSAGE FDA PROBE TESTS PASSED"

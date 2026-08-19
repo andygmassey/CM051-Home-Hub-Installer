@@ -190,6 +190,7 @@ test_settling_progress_writer.sh	UNWIRED	-
 test_ship_prereqs_are_a_superset.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_sign_python_bundle_reports_why.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_signing_credential_guard.sh	WIRED	.github/workflows/cut.yml
+test_skills_lockdown_config.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_slot_waiter_can_outlast_a_holder.sh	WIRED	.github/workflows/slot-fairness.yml
 test_social_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_stay_awake_agent_survives_installer_exit.sh	WIRED	.github/workflows/launchd-plist-paths.yml
@@ -198,6 +199,7 @@ test_step_end_does_not_report_a_timed_out_step_as_ok.sh	WIRED	.github/workflows/
 test_subscription_activation_path.sh	UNWIRED	-
 test_sync_vendor_pin_untouched_on_abort.sh	UNWIRED	-
 test_tailnet_owner_resolution.py	UNWIRED	-
+test_tailscale_daemon_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_recovery_wrapper.sh	UNWIRED	-
 test_takeout_split_zip_no_abort.sh	UNWIRED	-
 test_third_party_data_consent.sh	WIRED	.github/workflows/consent-contract.yml

@@ -10032,6 +10032,27 @@ TOMLPREAMBLE
         echo "prompt = \"${_evening_prompt_esc}\""
         echo "delivery = { mode = \"announce\", channel = \"${_brief_channel_esc}\", to = \"${_brief_to_esc}\", best_effort = false }"
     fi
+
+    # Skills surface lockdown for v1.0 (task #559).
+    #
+    # The bundled zeroclaw runtime already defaults skills.allow_scripts
+    # to false, but we write it explicitly so the customer's security
+    # posture never depends on an upstream default that could drift on a
+    # future runtime bump. allow_scripts = false blocks execution of
+    # script-like files (.sh / .bash / .ps1 / shebang shell files)
+    # carried by any skill, which is the script-execution /
+    # supply-chain half of the open Skills surface on a privacy product.
+    #
+    # registry_url is written empty so the bundled upstream registry
+    # default (a third-party skills registry) is never surfaced in the
+    # customer's config and bare-name registry installs resolve to
+    # nothing. The curated, install-from-source gallery is a
+    # later (Curator) release; v1.0 loads only the vetted skills Ostler
+    # drops into the workspace skills directory via the runtime dir scan.
+    echo
+    echo "[skills]"
+    echo "allow_scripts = false"
+    echo "registry_url = \"\""
 } > "$ASSISTANT_CONFIG"
 chmod 600 "$ASSISTANT_CONFIG"
 umask "$umask_orig"
@@ -17180,34 +17201,133 @@ else
                 # is registered before we open the pane. Best-effort throughout:
                 # any failure (older binary without the subcommand, launch error)
                 # is swallowed and the Finder-drag fallback below still runs.
+                # BW6 (2026-07-26, G-1/window-glut): register-nudge made
+                # bulletproof by COMPLETION DETECTION, not timing. Every prior
+                # fix here was timer-based (the `sleep 15; kill -TERM
+                # $_fda_probe_pid` below) and failed: that killer TERMed the
+                # `( open ... ) &` *waiter* subshell, NOT the launched app. If
+                # the vendored binary ever fails to self-exit from
+                # `run-source imessage --self-test` (falls through to the
+                # persistent KeepAlive daemon, or touches ~/Documents before its
+                # early-return), the FULL daemon runs pre-FDA and raises the
+                # Documents-folder TCC prompt AND -- once its iMessage channel
+                # issues its AppleEvent -- the "OstlerAssistant wants to control
+                # Messages" Automation prompt, on top of System Settings + Finder:
+                # the four-window glut Andy recorded. The old killer could never
+                # stop it because it never targeted the app. Two guarantees now
+                # make this independent of the vendored binary's behaviour:
+                #
+                #  (1) CAPABILITY GATE. Prove THIS binary honours the one-shot
+                #      and early-returns from it BEFORE launching the app-identity
+                #      nudge. We run the binary DIRECTLY first -- attributed by
+                #      TCC to the installer, so it never registers the daemon
+                #      identity and (being a plain exec, not `open -a`) can never
+                #      start the LaunchServices app. A binary that honours the
+                #      flag prints a `SELF-TEST:` marker (OK or DENIED) and exits
+                #      in ms having touched ONLY chat.db; a binary that does not
+                #      recognise it exits via a clap parse error with no marker.
+                #      No marker => SKIP the app-launch nudge entirely and fall
+                #      through to the Finder drag-in flow (which never launches
+                #      the daemon). A mystery binary therefore cannot raise the
+                #      Documents prompt from this step. Mirrors the run-source
+                #      preflight gate at ~L12996.
+                #
+                #  (2) HARD-KILL BY PROCESS IDENTITY. Even a proven-capable binary
+                #      is launched via `open` as its own responsible process (so
+                #      the denied chat.db read registers ai.ostler.assistant in
+                #      the FDA pane). After a short settle we hard-kill by the
+                #      app's own argv -- `pkill -f` anchored on the exact
+                #      `run-source imessage --self-test` command line -- so it
+                #      matches ONLY the instance we launched and NEVER a legit
+                #      process (the persistent daemon runs `... daemon`; ingest
+                #      ticks run `run-source <src>` WITHOUT `--self-test`). TCC
+                #      registers the row on the first denied read within ms, so a
+                #      ~2s settle is ample. No `open -W`, so there is no waiter to
+                #      mis-target and no indefinite hang to guard.
+                # Box-verified (andy@192.168.1.98, macOS 26.5.2): `open -gjn -a
+                # <bundle> --args run-source imessage --self-test` DOES deliver
+                # the args -- a tight-poll caught the launched process argv as
+                # `...ostler-assistant run-source imessage --self-test` on 3/3
+                # launches, and each self-exited (no lingering instance). So the
+                # argv-anchored kill below matches the launched instance, and
+                # `open -a` can NEVER produce the persistent daemon here: it does
+                # not inject the LaunchAgent's `daemon` arg, and if a future macOS
+                # ever DROPPED --args the app would launch with no subcommand and
+                # print help then exit (main.rs: args_os().len() <= 1). The
+                # persistent daemon is separately DEFERRED at INSTALL_SNIPPET time
+                # (OSTLER_ASSISTANT_DEFER_START=true; verified honoured), so it is
+                # not loaded anywhere in this assist window.
+                _fda_nudge_registered=false
+                _fda_selftest_argv="run-source imessage --self-test"
                 if [[ -d "$ASSISTANT_APP_BUNDLE" ]]; then
                     info "$MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE"
-                    # HANG GUARD (Archie): `-W` blocks until the launched app
-                    # EXITS. If the shipped daemon binary does NOT recognise the
-                    # `run-source imessage --self-test` one-shot, it falls through
-                    # to normal (persistent, KeepAlive) daemon startup and never
-                    # exits -- so a bare `open -W` would block install.sh
-                    # INDEFINITELY. `|| true` catches a non-zero exit but NOT a
-                    # hang. Wrap the probe with a hard 15s timeout: run it in the
-                    # background, arm a killer that TERMs it after 15s, then wait.
-                    # 15s is ample -- TCC registers the daemon identity on the
-                    # denied chat.db read within the first ms of launch. On a
-                    # binary that DOES self-exit the probe finishes in well under
-                    # a second and the killer is reaped immediately.
-                    ( open -gjnW -a "$ASSISTANT_APP_BUNDLE" \
-                        --args run-source imessage --self-test \
-                        >/dev/null 2>&1 ) &
-                    _fda_probe_pid=$!
-                    ( sleep 15; kill -TERM "$_fda_probe_pid" 2>/dev/null ) &
-                    _fda_probe_killer=$!
-                    # v1.0.11: disown the watchdog so that TERM-ing it below
-                    # (the common fast-path where the probe finished early)
-                    # does not print an async "Terminated: 15" job-control
-                    # notice to the user. kill-by-PID still works post-disown.
-                    disown 2>/dev/null || true
-                    wait "$_fda_probe_pid" 2>/dev/null || true
-                    kill -TERM "$_fda_probe_killer" 2>/dev/null || true
+                    # (1) capability probe: direct exec, self-exiting, no app
+                    # launch. word-split $_fda_selftest_argv into args (fixed
+                    # literal, no globs). Marker on stdout (Rust println!).
+                    # shellcheck disable=SC2086
+                    if "$ASSISTANT_BINARY" $_fda_selftest_argv 2>&1 | grep -q 'SELF-TEST:'; then
+                        # Snapshot every ostler-assistant PID BEFORE the nudge so
+                        # the by-identity sweep below can distinguish the instance
+                        # WE spawn from any pre-existing legit process, and never
+                        # touch the latter.
+                        _fda_pre_pids="$(pgrep -f 'OstlerAssistant\.app/Contents/MacOS/ostler-assistant' 2>/dev/null | sort -u)"
+                        # (2) app-identity nudge: -n fresh instance, -g/-j launch
+                        # background + hidden (no focus-steal, no visible window),
+                        # NO -W (the read+exit is sub-second; -W is what tempted
+                        # the old mis-targeted killer).
+                        #
+                        # WHY -W IS GONE, carried forward from the hang guard it
+                        # replaces: `-W` blocks until the launched app EXITS. If
+                        # the shipped binary does NOT honour the
+                        # `run-source imessage --self-test` one-shot it falls
+                        # through to normal (persistent, KeepAlive) startup and
+                        # never exits, so a bare `open -W` would block install.sh
+                        # INDEFINITELY and `|| true` would not catch it -- that
+                        # catches a non-zero exit, not a hang. The old answer was
+                        # a 15s timer that TERMed the `( open ... ) &` WAITER
+                        # rather than the app, which is precisely the bug this
+                        # block exists to kill. The answer now is structural: the
+                        # capability gate above proves the binary self-exits
+                        # BEFORE the app is ever launched, so there is nothing to
+                        # hang on and no waiter to mis-target. Do not re-add -W.
+                        # shellcheck disable=SC2086
+                        open -gjn -a "$ASSISTANT_APP_BUNDLE" --args $_fda_selftest_argv >/dev/null 2>&1 || true
+                        # Completion settle: denied read fires within ms.
+                        sleep 2
+                        # HARD-KILL, fast path: match the launched instance by its
+                        # own argv. Normally a no-op (a proven-capable binary has
+                        # already self-exited); it catches a binary that hangs
+                        # under `open` despite honouring --self-test under a direct
+                        # exec. Never matches a legit process: the persistent
+                        # daemon runs `... daemon`, ingest ticks run `run-source
+                        # <src>` WITHOUT `--self-test`.
+                        pkill -f "OstlerAssistant.app/Contents/MacOS/ostler-assistant ${_fda_selftest_argv}" 2>/dev/null || true
+                        # HARD-KILL, by-identity belt-and-braces (regardless of
+                        # args): if some macOS/binary combination ever launched the
+                        # app with a DIFFERENT argv than we passed, the argv match
+                        # above would miss it. TERM any ostler-assistant instance
+                        # that appeared AFTER our snapshot and is NOT one of the
+                        # legit long-lived roles (persistent `daemon`, or a
+                        # `run-source <src>` ingest tick that happened to fire in
+                        # the settle window). Compared against _fda_pre_pids so a
+                        # pre-existing process is never signalled.
+                        _fda_post_pids="$(pgrep -f 'OstlerAssistant\.app/Contents/MacOS/ostler-assistant' 2>/dev/null | sort -u)"
+                        while IFS= read -r _fda_np; do
+                            [[ -n "$_fda_np" ]] || continue
+                            _fda_np_cmd="$(ps -p "$_fda_np" -o command= 2>/dev/null)"
+                            case "$_fda_np_cmd" in
+                                *" run-source imessage --self-test") kill -TERM "$_fda_np" 2>/dev/null || true ;;  # our nudge instance
+                                *" daemon"|*" run-source "*) : ;;  # legit persistent daemon / ingest tick; leave it
+                                *) kill -TERM "$_fda_np" 2>/dev/null || true ;;  # unexpected instance from our nudge (mangled/dropped args)
+                            esac
+                        done < <(comm -13 <(printf '%s\n' "$_fda_pre_pids") <(printf '%s\n' "$_fda_post_pids"))
+                        unset _fda_pre_pids _fda_post_pids _fda_np _fda_np_cmd
+                        _fda_nudge_registered=true
+                    else
+                        gui_log info "Daemon FDA register-nudge: binary did not acknowledge the self-test one-shot; skipping the app-launch nudge and using the Finder drag-in flow (never launches the daemon pre-FDA)."
+                    fi
                 fi
+                unset _fda_selftest_argv
 
                 # BW5 (2026-07-26): probe listed-state ONCE, after the nudge
                 # above has had its chance to register the daemon's FDA row.
@@ -17216,12 +17336,32 @@ else
                 # already exists. Assigned unconditionally here so it is always
                 # defined before use under `set -u`.
                 _fda_listed="$(_imessage_daemon_fda_listed)"
+                # BW6 (2026-07-26): the sudo-based TCC.db probe above only works
+                # when a warm sudo cred is present. On a real fresh install
+                # `sudo -n` is NOT available (box-walk .98: "sudo: a password is
+                # required"), so _imessage_daemon_fda_listed returns empty even
+                # though the register-nudge just registered ai.ostler.assistant's
+                # FDA row via its denied chat.db read. That meant the BW5 Finder
+                # suppression (below) NEVER fired on real installs -- the
+                # redundant Finder window kept stacking. Trust the nudge's own
+                # success as an independent "listed" signal: a denied FDA read as
+                # the app identity is exactly what registers the greyed toggle, so
+                # if the nudge ran the row exists and the drag-in is unnecessary.
+                # NB `sudo -n` never shows a GUI password prompt (that is the -n
+                # contract), so it is NOT the "auth window" from the glut -- that
+                # was the daemon's own Automation prompt, now prevented by the
+                # capability-gate + hard-kill above keeping the daemon from
+                # running pre-FDA.
+                if [[ "$_fda_listed" != "listed" && "${_fda_nudge_registered:-false}" == true ]]; then
+                    _fda_listed="listed"
+                    gui_log info "Daemon FDA register-nudge succeeded; treating OstlerAssistant as listed (suppressing the redundant Finder drag-in window)."
+                fi
                 # BW5 nit (Archie 2026-07-26): a "not listed" result can mean the
-                # row is genuinely absent OR sudo -n could not read TCC.db. Both
-                # take the drag-in fallback, so record which one fired for
-                # post-hoc box-walk forensics. Logged here (not inside the
-                # stdout-captured helper) so it can never corrupt _fda_listed.
-                # The sudo keepalive loop keeps creds warm, so -n does not prompt.
+                # row is genuinely absent OR the nudge was skipped (mystery
+                # binary) OR sudo -n could not read TCC.db. All take the drag-in
+                # fallback, so record which one fired for post-hoc box-walk
+                # forensics. Logged here (not inside the stdout-captured helper)
+                # so it can never corrupt _fda_listed.
                 if [[ "${_fda_listed:-}" != "listed" ]]; then
                     if command -v sudo >/dev/null 2>&1 && ! sudo -n true 2>/dev/null; then
                         gui_log info "Daemon FDA-listed probe: sudo -n unavailable, could not read TCC.db; using the drag-in fallback (not a confirmed row-absent)."
@@ -17269,8 +17409,9 @@ else
                 # opening Finder here only adds a redundant window that
                 # stacks with the Tailscale sign-in. Keeps the drag flow as
                 # the fallback for any macOS where the row did not register.
+                _fda_finder_revealed=false
                 if [[ "${_fda_listed:-}" != "listed" ]]; then
-                    open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+                    open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null && _fda_finder_revealed=true || true
                 else
                     info "$MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED"
                 fi
@@ -17428,31 +17569,53 @@ else
                 fi
                 unset _imessage_fda_reprobe_ok
 
-                # BW5 (2026-07-26): the FDA interaction is now RESOLVED -- the
-                # customer clicked Done on the modal and the ~40s grant poll has
-                # elapsed (granted, or the Doctor card will persist the
-                # reminder). Close the System Settings FDA pane we opened so it
-                # does NOT linger on screen and stack under the Tailscale
-                # sign-in browser that opens a couple of steps later -- that
-                # overlap is the "crash of windows" the .98 box-walk hit. This
-                # serializes the two interactions: FDA fully done before
-                # anything else needs the customer. Best-effort; covers both the
-                # modern "System Settings" and legacy "System Preferences"
-                # process names.
-                killall "System Settings" >/dev/null 2>&1 || true
-                killall "System Preferences" >/dev/null 2>&1 || true
-                # BW5 nit (Archie 2026-07-26): a fixed `sleep 1` is too tight on a
-                # heavily-loaded install-time Mac -- if the FDA pane is still on
-                # screen when the Tailscale sign-in opens a couple of steps later,
-                # we recreate the exact window overlap this block exists to
-                # prevent. Poll until the pane process is actually gone, with a
-                # generous ceiling, before proceeding. Never blocks forever.
+                # BW6 (2026-07-26, window-glut): close EVERY window this assist
+                # block opened -- BULLETPROOF, under extreme load -- before we
+                # proceed, so nothing from this block can survive to STACK with
+                # the end-of-install daemon start's Documents/Automation prompt.
+                #
+                # Root cause of Andy's stacked glut (recut3 = current main, so
+                # NOT an earlier cut): his install ran at load avg ~91%. The old
+                # close fired a SINGLE `killall "System Settings"` then merely
+                # WATCHED for exit with a 10s ceiling. Under that load System
+                # Settings took >10s to come down, the watch-only poll gave up,
+                # the FDA pane LINGERED, and the end-of-install daemon start then
+                # raised its Documents + Automation prompts ON TOP of the still-
+                # open System Settings + Finder -> the four-window stack. Each
+                # piece was individually clean; load defeated the timing.
+                #
+                # Fix: FORCEFUL + REPEATED close with a GENEROUS ceiling. Re-issue
+                # killall on EVERY poll iteration (not once), and also close the
+                # Finder reveal window we opened on the drag-in fallback, until
+                # both are provably gone or ~60s has elapsed. On a fast box this
+                # returns in ~1s (breaks as soon as the pane is gone); the ceiling
+                # only ever matters on a box so loaded the pane crawls down.
+                # Best-effort throughout; never blocks forever. Covers both the
+                # modern "System Settings" and legacy "System Preferences" names.
                 _ss_close_wait=0
-                while { pgrep -x "System Settings" >/dev/null 2>&1 || pgrep -x "System Preferences" >/dev/null 2>&1; } && [[ "$_ss_close_wait" -lt 10 ]]; do
+                while :; do
+                    killall "System Settings" >/dev/null 2>&1 || true
+                    killall "System Preferences" >/dev/null 2>&1 || true
+                    # Close the Finder reveal window we opened on the drag-in
+                    # fallback. Gated on _fda_finder_revealed so we never touch
+                    # Finder on the normal (registered/listed) path where the
+                    # reveal was suppressed and no Finder window exists.
+                    if [[ "${_fda_finder_revealed:-false}" == true ]]; then
+                        osascript -e 'tell application "Finder" to close windows' >/dev/null 2>&1 || true
+                    fi
+                    # Break the instant neither pane process is alive.
+                    if ! pgrep -x "System Settings" >/dev/null 2>&1 \
+                       && ! pgrep -x "System Preferences" >/dev/null 2>&1; then
+                        break
+                    fi
+                    [[ "$_ss_close_wait" -ge 60 ]] && break
                     sleep 1
                     _ss_close_wait=$((_ss_close_wait + 1))
                 done
-                unset _fda_listed _ss_close_wait
+                if pgrep -x "System Settings" >/dev/null 2>&1 || pgrep -x "System Preferences" >/dev/null 2>&1; then
+                    gui_log info "Daemon FDA assist: System Settings still up after ${_ss_close_wait}s of forced close (very heavily loaded box); proceeding anyway to avoid blocking the install."
+                fi
+                unset _fda_listed _ss_close_wait _fda_nudge_registered _fda_finder_revealed
                 fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
             fi  # closes `if true` assist wrapper (CX-90 reorder)
         fi
@@ -18117,6 +18280,38 @@ OSTLER_TS_WRAPPER
     TS_CLI="$(command -v tailscale || true)"
     TS_DAEMON="$(command -v tailscaled || true)"
 
+    # #644 (2026-06-06, .136 candidate install): the tailscale_connect
+    # step hung ~382s and never opened a browser. Three helpers below
+    # back the fixes -- a daemon-readiness gate (so a doomed sign-in wait
+    # is never entered), and a hardened browser open (the bare `open`
+    # from this subprocess silently did nothing on the fresh Mac).
+    #
+    # _ts_daemon_up: true when tailscaled is actually reachable on our
+    # socket. `tailscale status` prints "failed to connect to local
+    # Tailscale service" (to stderr) when the daemon is down; any other
+    # outcome -- including the logged-out state -- means it is up. This
+    # is the exact signal the .136 relaunch log showed when the wait was
+    # entered with no daemon.
+    _ts_daemon_up() {
+        local _out
+        _out="$("$TS_CLI" --socket="$TS_SOCK" status 2>&1 || true)"
+        [[ "$_out" != *"failed to connect"* ]]
+    }
+
+    # _ts_open_url: best-effort open of the sign-in URL. The bare
+    # `open "$url"` did not launch a browser on the fresh .136 Mac (no
+    # default-browser association yet, or the call swallowed). Try the
+    # default handler, then named common browsers. All best-effort: the
+    # URL is also surfaced as copyable text so a total open failure is
+    # never a dead-end.
+    _ts_open_url() {
+        local _url="$1"
+        open "$_url" 2>/dev/null && return 0
+        open -a "Safari" "$_url" 2>/dev/null && return 0
+        open -a "Google Chrome" "$_url" 2>/dev/null && return 0
+        return 1
+    }
+
     if [[ -n "$TS_CLI" && -n "$TS_DAEMON" ]]; then
         # ── Userspace tailscaled under a per-user LaunchAgent ───────
         # --tun=userspace-networking: no TUN, no kext, no root. State +
@@ -18157,6 +18352,15 @@ TSPLIST
         launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.tailscaled" 2>/dev/null || true
         if launchctl bootstrap "gui/$(id -u)" "$TS_LAUNCH_AGENT" 2>/dev/null; then
             ok "$MSG_OK_TAILSCALED_USERSPACE_STARTED"
+        # #644: on a relaunch the label may already be registered (the
+        # first run's RunAtLoad + KeepAlive), so bootstrap reports failure
+        # even when the prior daemon has since died -- exactly the .136
+        # relaunch case (daemon down, no socket, bootstrap fails, yet the
+        # old code marched into the sign-in wait anyway). kickstart -k
+        # force-(re)starts the loaded service, killing any stale instance
+        # first, recovering the daemon without a bootout/bootstrap race.
+        elif launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.tailscaled" 2>/dev/null; then
+            ok "$MSG_OK_TAILSCALED_USERSPACE_STARTED"
         else
             warn "$MSG_WARN_TAILSCALED_USERSPACE_START_FAILED"
         fi
@@ -18166,86 +18370,121 @@ TSPLIST
             sleep 1; TS_SOCK_WAIT=$((TS_SOCK_WAIT + 1))
         done
 
-        # ── Browser auth: `tailscale up` prints a login URL ─────────
-        # No GUI app to click, so capture the URL tailscale prints and
-        # open it in the default browser. up runs in the background so
-        # the installer can poll for the assigned IP while the customer
-        # completes OAuth.
-        info "$MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN"
-        TS_UP_LOG="${LOGS_DIR}/tailscale-up.log"
-        # TS_SAFARI_WARM (2026-06-09): start warming Safari HERE, before
-        # `tailscale up` and the URL-poll loop below, so the browser gets
-        # the entire 2-30s poll window to finish a cold launch instead of
-        # the fixed 2s the old code allowed at delivery time. Under heavy
-        # fresh-install load (Colima + Ollama + importer) Safari's cold
-        # start routinely outran that 2s, so the open-URL event landed on
-        # a still-bouncing Safari and was dropped (~40% on a clean Mac --
-        # the prior #644 mitigation reduced but did not close this race).
-        # Priming during the already-existing wait costs nothing.
-        # Best-effort, backgrounded (-g) so it does not steal focus.
-        open -g -a Safari >/dev/null 2>&1 || true
-        # Register the Hub under a stable, predictable tailnet name so the
-        # iOS app can always reach it at ostler-hub.<tailnet>.ts.net,
-        # regardless of the customer's Mac hostname. Without --hostname,
-        # the node inherits the Mac's local name (random per customer).
-        # Tailscale auto-suffixes (-1, -2) only on a collision within the
-        # same tailnet, which a single-Hub customer tailnet will not hit.
-        ( "$TS_CLI" --socket="$TS_SOCK" up --hostname=ostler-hub >"$TS_UP_LOG" 2>&1 || true ) &
-        # Surface + open the login URL once tailscale prints it.
-        TS_URL=""
-        TS_URL_WAIT=0
-        while [[ -z "$TS_URL" && $TS_URL_WAIT -lt 30 ]]; do
-            TS_URL="$(grep -Eo 'https://login\.tailscale\.com/[a-zA-Z0-9/._-]+' "$TS_UP_LOG" 2>/dev/null | head -1 || true)"
-            [[ -n "$TS_URL" ]] && break
-            # Already authenticated installs print no URL; stop waiting
-            # once an IP exists.
-            [[ -n "$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)" ]] && break
-            sleep 2; TS_URL_WAIT=$((TS_URL_WAIT + 2))
-        done
-        if [[ -n "$TS_URL" ]]; then
-            # The URL is ALWAYS surfaced as plain text first (via info,
-            # which the GUI renders in its log pane), so the copy/paste
-            # sign-in path never depends on a browser launching at all.
-            info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
-            # Auto-open is best-effort. A bare `open <url>` against a
-            # COLD-launching browser intermittently drops the open-URL
-            # Apple event -- or wedges Safari outright -- under the heavy
-            # CPU/IO load of a fresh install (Colima VM + Ollama + the
-            # importer all running). Observed ~1 in 4 on a clean Mac with
-            # the prior fixed-2s-sleep mitigation; still seen ~40%.
-            # Safari was already warmed above (before the URL-poll loop),
-            # so it has had the full poll window to finish launching.
-            # Deliver the URL via Safari specifically and ATOMICALLY:
-            # `open -a Safari <url>` hands LaunchServices a single
-            # launch-if-needed-THEN-open-URL request, so it cannot fire
-            # the URL at a half-launched Safari the way the old bare
-            # `open <url>` (a separate LS request racing the launch) did.
-            # Fall back to the default-handler form if Safari is somehow
-            # unavailable, then re-issue once in the background as a
-            # dropped-event safety net. The URL is also printed as plain
-            # text above, so copy/paste always works even if every
-            # auto-open is dropped.
-            open -a Safari "$TS_URL" >/dev/null 2>&1 || open "$TS_URL" >/dev/null 2>&1 || true
-            ( sleep 4; open -a Safari "$TS_URL" >/dev/null 2>&1 || true ) &
-        fi
+        # #644 idempotency gate (the worst defect): only run the sign-in
+        # flow if tailscaled is ACTUALLY up. With no daemon, `tailscale
+        # up` cannot mint a login URL and `tailscale ip` never returns,
+        # so the wait below can only ever full-timeout -- the 382s hang
+        # observed on the .136 relaunch (daemon down, yet it still entered
+        # "Waiting for you to sign in (up to 3 minutes)"). If the daemon
+        # is not reachable, skip cleanly with the "set up later" message.
+        TS_SIGNIN_ATTEMPTED=0
+        if _ts_daemon_up; then
+            TS_SIGNIN_ATTEMPTED=1
+            # ── Browser auth: `tailscale up` prints a login URL ─────
+            # No GUI app to click, so capture the URL tailscale prints
+            # and open it. up runs in the background so the installer can
+            # poll for the assigned IP while the customer completes OAuth.
+            info "$MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN"
+            TS_UP_LOG="${LOGS_DIR}/tailscale-up.log"
+            # TS_SAFARI_WARM (2026-06-09): start warming Safari HERE,
+            # before `tailscale up` and the URL-poll loop below, so the
+            # browser gets the entire 2-30s poll window to finish a cold
+            # launch instead of the fixed 2s the old code allowed at
+            # delivery time. Under heavy fresh-install load (Colima +
+            # Ollama + importer) Safari's cold start routinely outran that
+            # 2s, so the open-URL event landed on a still-bouncing Safari
+            # and was dropped (~40% on a clean Mac -- the prior #644
+            # mitigation reduced but did not close this race). Priming
+            # during the already-existing wait costs nothing.
+            # Best-effort, backgrounded (-g) so it does not steal focus.
+            open -g -a Safari >/dev/null 2>&1 || true
+            # Register the Hub under a stable, predictable tailnet name so
+            # the iOS app can always reach it at ostler-hub.<tailnet>.ts.net,
+            # regardless of the customer's Mac hostname. Without --hostname,
+            # the node inherits the Mac's local name (random per customer).
+            # Tailscale auto-suffixes (-1, -2) only on a collision within
+            # the same tailnet, which a single-Hub customer tailnet will
+            # not hit.
+            ( "$TS_CLI" --socket="$TS_SOCK" up --hostname=ostler-hub >"$TS_UP_LOG" 2>&1 || true ) &
+            # Surface + open the login URL once tailscale prints it.
+            TS_URL=""
+            TS_URL_WAIT=0
+            while [[ -z "$TS_URL" && $TS_URL_WAIT -lt 30 ]]; do
+                TS_URL="$(grep -Eo 'https://login\.tailscale\.com/[a-zA-Z0-9/._-]+' "$TS_UP_LOG" 2>/dev/null | head -1 || true)"
+                [[ -n "$TS_URL" ]] && break
+                # Already-authenticated installs print no URL; stop once
+                # an IP exists.
+                [[ -n "$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)" ]] && break
+                sleep 2; TS_URL_WAIT=$((TS_URL_WAIT + 2))
+            done
+            if [[ -n "$TS_URL" ]]; then
+                # #644 defect 2: the URL is ALWAYS surfaced as plain,
+                # copyable text FIRST (via info, which the GUI renders in
+                # its log pane), so the sign-in path never depends on a
+                # browser launching at all.
+                info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
+                # Auto-open is best-effort, and this is the UNION of the
+                # two hardenings that were developed in parallel:
+                #
+                #   1. `open -a Safari <url>` FIRST, because it hands
+                #      LaunchServices a single launch-if-needed-THEN-open
+                #      request. A bare `open <url>` is a separate LS
+                #      request racing the launch, and against a COLD
+                #      browser under fresh-install load (Colima VM +
+                #      Ollama + importer) it intermittently drops the
+                #      open-URL Apple event or wedges Safari outright:
+                #      ~1 in 4 with the old fixed-2s-sleep mitigation,
+                #      still ~40% after it. Safari was already warmed
+                #      above, so it has had the full poll window.
+                #   2. `_ts_open_url` as the fallback CHAIN, which is a
+                #      superset of the previous fallback: bare `open`
+                #      (the default handler), then Safari by name, then
+                #      Google Chrome. The Chrome leg matters on the fresh
+                #      .136 Mac, where no default-browser association
+                #      existed yet and the bare `open` did nothing.
+                #   3. A single backgrounded re-issue 4s later as a
+                #      dropped-event safety net.
+                #
+                # All three are belt-and-braces on top of the plain-text
+                # URL above, so a total auto-open failure is never a
+                # dead-end.
+                open -a Safari "$TS_URL" >/dev/null 2>&1 || _ts_open_url "$TS_URL" || true
+                ( sleep 4; open -a Safari "$TS_URL" >/dev/null 2>&1 || true ) &
+            fi
 
-        # 180s window: a non-technical user reading the prompt, opening
-        # the login URL, completing OAuth (Apple/Google/Microsoft with
-        # possible 2FA) and returning easily eats 2-3 minutes.
-        info "$MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3"
-        TS_WAIT=0
-        TS_NEXT_TICK=30
-        while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt 180 ]]; do
-            OSTLER_TAILSCALE_IP=$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)
-            if [[ -z "$OSTLER_TAILSCALE_IP" ]]; then
+            # 180s window: a non-technical user opening the login URL and
+            # completing OAuth (Apple/Google/Microsoft, possible 2FA)
+            # easily eats 2-3 minutes. The loop already breaks the instant
+            # an IP appears (not a fixed timer). #644 defect 3 adds a skip
+            # path: a Skip affordance in the GUI writes
+            # ${TS_STATE_DIR}/.signin_skip, which breaks the wait at once;
+            # and the URL is re-shown on each tick so it never scrolls
+            # out of reach.
+            TS_SKIP_SENTINEL="${TS_STATE_DIR}/.signin_skip"
+            rm -f "$TS_SKIP_SENTINEL" 2>/dev/null || true
+            info "$MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3"
+            TS_WAIT=0
+            TS_NEXT_TICK=30
+            while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt 180 ]]; do
+                OSTLER_TAILSCALE_IP=$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)
+                [[ -n "$OSTLER_TAILSCALE_IP" ]] && break
+                if [[ -f "$TS_SKIP_SENTINEL" ]]; then
+                    rm -f "$TS_SKIP_SENTINEL" 2>/dev/null || true
+                    info "$MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS"
+                    TS_SIGNIN_ATTEMPTED=0   # suppress the trailing timeout warning
+                    break
+                fi
                 sleep 3
                 TS_WAIT=$((TS_WAIT + 3))
                 if [[ $TS_WAIT -ge $TS_NEXT_TICK ]]; then
                     info "$(printf "$MSG_INFO_TAILSCALE_STILL_WAITING" "$TS_WAIT")"
+                    [[ -n "$TS_URL" ]] && info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
                     TS_NEXT_TICK=$((TS_NEXT_TICK + 30))
                 fi
-            fi
-        done
+            done
+        else
+            info "$MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS"
+        fi
 
         if [[ -n "$OSTLER_TAILSCALE_IP" ]]; then
             # ── Expose the Hub's local ports on the tailnet ─────────
@@ -18505,7 +18744,10 @@ if ports:
                     warn "$MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED"
                 fi
             fi
-        else
+        elif [[ "${TS_SIGNIN_ATTEMPTED:-0}" == 1 ]]; then
+            # Only warn about a timeout when we genuinely entered the wait
+            # (daemon up, sign-in attempted). After a daemon-down skip or
+            # a user Skip, the "set up later" message already covered it.
             warn "$MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN"
             warn "$MSG_WARN_RUN_TAILSCALE_IP_4_ONCE_SIGNED"
         fi
@@ -21222,6 +21464,21 @@ _probe_http_live() {
 # and give it a GENEROUS window (up to ~30s, returns early on bind) before we
 # probe. The end-of-install _ostler_start_assistant_daemon call stays as the
 # final TCC-refresh kickstart.
+#
+# BW6 (2026-07-26, window-glut): this is the FIRST (bootstrap) daemon start, so
+# on a no-FDA install (customer declined / the assist poll timed out) it is the
+# call that raises the daemon's own Documents-folder + "control Messages"
+# Automation prompts. That single honest prompt is acceptable -- Andy's
+# complaint was the STACK, not one prompt -- but it must land ALONE. The assist
+# block already force-closed System Settings + Finder minutes ago, and the
+# Tailscale/Safari sign-in resolved many hydration phases earlier; this cheap
+# close is defense-in-depth so a reopened FDA pane can never be on screen when
+# the prompt fires. (The way to remove even this one prompt is to PRIME the
+# Documents + Automation grants early in the front batch -- scoped in the PR as
+# a follow-up; the daemon legitimately needs ~/Documents for the workspace/wiki,
+# so deferring that access forever is NOT the fix.)
+killall "System Settings" >/dev/null 2>&1 || true
+killall "System Preferences" >/dev/null 2>&1 || true
 _ostler_start_assistant_daemon
 if _probe_http_live "http://127.0.0.1:8000/" 30; then
     ok "$MSG_OK_GATEWAY_HEALTHY"
