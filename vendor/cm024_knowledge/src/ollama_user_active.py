@@ -92,3 +92,47 @@ def wait_until_user_idle(
             return waited
         time.sleep(step)
         waited += step
+
+
+# ─── Enrichment context budget ────────────────────────────────────────────
+
+# Fallback when the installer has not set a budget. Matches the daemon's own
+# DEFAULT_NUM_CTX (crates/zeroclaw-providers/src/ollama.rs), which is the whole
+# point: a background caller that requests a DIFFERENT window from the
+# foreground daemon makes Ollama reload the model between the two sizes, which
+# is the churn this module exists to stop.
+_DEFAULT_ENRICH_NUM_CTX = 32768
+
+# Below this a request cannot hold its own prompt. Mirrors the daemon's own
+# floor so the two halves cannot disagree about what "too small" means.
+_MIN_NUM_CTX = 2048
+
+
+def resolve_enrich_num_ctx(default: int = _DEFAULT_ENRICH_NUM_CTX) -> int:
+    """Return the context window a BACKGROUND enrichment request should use.
+
+    WHY THIS IS NOT A CONSTANT. install.sh detects a resource tier and sets
+    OSTLER_ENRICH_NUM_CTX per tier: unset on `high` (>=32 GB), 8192 on `low`,
+    4096 on `floor`. A 16 GB Mac is `low`, and 16 GB is the installer's hard
+    minimum, so the BASELINE supported machine wants 8192 here. Hardcoding
+    32768 would ask the smallest supported box for four times its own budget,
+    in the very code path added to be polite about resources.
+
+    On `high` the variable is deliberately EMPTY, which means "no reduction":
+    fall through to `default` so the background window matches the daemon's
+    and no model reload happens between foreground and background turns.
+
+    Garbage, empty, or below `_MIN_NUM_CTX` all fall back to `default`. A
+    malformed budget must not silently shrink the window to something that
+    truncates the prompt, because Ollama truncates SILENTLY.
+    """
+    raw = os.environ.get("OSTLER_ENRICH_NUM_CTX", "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    if value < _MIN_NUM_CTX:
+        return default
+    return value

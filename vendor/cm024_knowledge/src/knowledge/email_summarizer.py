@@ -265,6 +265,26 @@ class EmailSummarizer:
         """Call Ollama API for completion."""
         url = f"{self.ollama_host}/api/generate"
 
+        # Take the installer's per-tier enrichment context budget, then yield
+        # to the user before starting a new background request (email
+        # summarisation runs during hydration/enrichment).
+        #
+        # num_ctx is RESOLVED, not hardcoded: install.sh sets
+        # OSTLER_ENRICH_NUM_CTX per resource tier, and a 16 GB Mac (the
+        # installer's hard minimum) sits at `low` = 8192. Pinning 32768 here
+        # would ask the smallest supported box for four times its own budget.
+        #
+        # The lease reader is sync but returns immediately in the common
+        # (idle) case. Crash-safe: a missing helper falls back to the daemon's
+        # own default, and a missing/stale lease returns immediately.
+        num_ctx = 32768
+        try:
+            from ..ollama_user_active import resolve_enrich_num_ctx, wait_until_user_idle
+            num_ctx = resolve_enrich_num_ctx()
+            wait_until_user_idle()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("user-active lease check skipped: %s", exc)
+
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -272,22 +292,9 @@ class EmailSummarizer:
             "options": {
                 "temperature": 0.3,  # Lower for more consistent extraction
                 "num_predict": 1024,  # Limit response length
-                # Pin a large context window so Ollama stops reloading the
-                # model between its 4096 default and the daemon's 32768.
-                # See the ollama-user-active lease contract.
-                "num_ctx": 32768,
+                "num_ctx": num_ctx,
             },
         }
-
-        # Yield to the user before a new background request (email
-        # summarisation runs during hydration/enrichment). The reader is sync
-        # but returns immediately in the common (idle) case; crash-safe on a
-        # missing/stale lease.
-        try:
-            from ..ollama_user_active import wait_until_user_idle
-            wait_until_user_idle()
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.debug("user-active lease check skipped: %s", exc)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(url, json=payload)

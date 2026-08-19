@@ -135,3 +135,108 @@ def test_cm048_generate_sets_num_ctx_and_checks_lease(monkeypatch):
     assert out.raw_response == "ok"
     assert captured["body"]["options"]["num_ctx"] == 32768
     assert waited_calls["n"] == 1
+
+
+# ─── Tier-aware enrichment context budget ─────────────────────────────────
+#
+# THE DEFECT THESE PROVE. The first version of this PR hardcoded
+# num_ctx=32768 at all three background call sites. install.sh detects a
+# resource tier and sets OSTLER_ENRICH_NUM_CTX per tier: unset on `high`
+# (>=32 GB), 8192 on `low`, 4096 on `floor`. A 16 GB Mac is `low`, and 16 GB
+# is the installer's HARD MINIMUM (ERR-02-PREREQ-RAM-LOW), so the BASELINE
+# supported machine wants 8192 here. The hardcoded literal asked the smallest
+# supported box for four times its own budget, in the code path added to be
+# polite about resources.
+#
+# Every assertion below FAILS against that literal.
+
+resolve_enrich_num_ctx = _mod.resolve_enrich_num_ctx
+
+
+def test_low_tier_budget_is_honoured(monkeypatch):
+    """16 GB Mac = tier `low` = 8192. The literal 32768 fails this."""
+    monkeypatch.setenv("OSTLER_ENRICH_NUM_CTX", "8192")
+    assert resolve_enrich_num_ctx() == 8192
+
+
+def test_floor_tier_budget_is_honoured(monkeypatch):
+    monkeypatch.setenv("OSTLER_ENRICH_NUM_CTX", "4096")
+    assert resolve_enrich_num_ctx() == 4096
+
+
+def test_high_tier_empty_means_no_reduction(monkeypatch):
+    """`high` sets the variable to EMPTY on purpose: fall back to the daemon's
+    own default so foreground and background agree and Ollama never reloads."""
+    monkeypatch.setenv("OSTLER_ENRICH_NUM_CTX", "")
+    assert resolve_enrich_num_ctx() == 32768
+
+
+def test_unset_falls_back_to_daemon_default(monkeypatch):
+    monkeypatch.delenv("OSTLER_ENRICH_NUM_CTX", raising=False)
+    assert resolve_enrich_num_ctx() == 32768
+
+
+def test_garbage_budget_does_not_shrink_the_window(monkeypatch):
+    """A malformed budget must not silently truncate the prompt. Ollama
+    truncates SILENTLY, so failing open to the larger window is the safe
+    direction here."""
+    monkeypatch.setenv("OSTLER_ENRICH_NUM_CTX", "not-a-number")
+    assert resolve_enrich_num_ctx() == 32768
+
+
+def test_absurdly_small_budget_is_refused(monkeypatch):
+    """Mirrors the daemon's own >=2048 floor so the two halves cannot
+    disagree about what 'too small' means."""
+    monkeypatch.setenv("OSTLER_ENRICH_NUM_CTX", "512")
+    assert resolve_enrich_num_ctx() == 32768
+
+
+def test_cm048_request_body_carries_the_tier_budget(monkeypatch):
+    """End-to-end on the real request body: the 8192 budget must reach the
+    wire. This is the assertion the hardcoded literal cannot pass."""
+    import sys
+
+    pkg_src = _REPO / "vendor" / "cm048_pipeline" / "src"
+    sys.path.insert(0, str(pkg_src.parent))
+    try:
+        import importlib
+        oc = importlib.import_module("src.ollama_client")
+
+        captured = {}
+
+        class _FakeResp:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"response": "ok"}
+
+        class _FakeClient:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, url, json):  # noqa: A002 - mirror httpx kwarg
+                captured["body"] = json
+                return _FakeResp()
+
+        monkeypatch.setattr(oc.httpx, "Client", _FakeClient)
+        import src.ollama_user_active as oua
+        monkeypatch.setattr(oua, "wait_until_user_idle", lambda *a, **k: 0.0)
+        monkeypatch.setenv("OSTLER_ENRICH_NUM_CTX", "8192")
+
+        client = oc.OllamaClient(base_url="http://127.0.0.1:65535")
+        client.generate("test-model", "hello")
+
+        assert captured["body"]["options"]["num_ctx"] == 8192
+    finally:
+        # Leaving this on sys.path pollutes every later test in the session
+        # with a generic `src` package. That exact class of leak cost a whole
+        # debugging session on HR015 #427.
+        if str(pkg_src.parent) in sys.path:
+            sys.path.remove(str(pkg_src.parent))

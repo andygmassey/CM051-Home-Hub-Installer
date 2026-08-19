@@ -58,12 +58,30 @@ class OllamaClient:
         """Call /api/generate and return raw response text."""
         t0 = time.time()
         url = f"{self.base_url}/api/generate"
-        # Always pin a large context window + generation budget. Without
+        # Always pin an explicit context window + generation budget. Without
         # num_ctx, Ollama silently truncates long transcripts to its small
         # default window, degenerating extraction output to a bare `{}`
         # (same class as the daemon's one-token #118 bug). num_predict=-1
         # means "generate until done".
-        options = {"temperature": temperature, "num_ctx": 32768, "num_predict": -1}
+        #
+        # The WINDOW is resolved, not hardcoded: install.sh sets
+        # OSTLER_ENRICH_NUM_CTX per resource tier, and a 16 GB Mac (the
+        # installer's hard minimum) sits at `low` = 8192. Pinning 32768 here
+        # would ask the smallest supported box for four times its own budget,
+        # in the very code path added to be polite about resources. On `high`
+        # the variable is deliberately empty and we fall back to 32768, which
+        # matches the daemon and so causes no model reload between turns.
+        num_ctx = 32768
+        try:
+            from .ollama_user_active import resolve_enrich_num_ctx
+            num_ctx = resolve_enrich_num_ctx()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("enrichment num_ctx resolve skipped: %s", exc)
+        options = {
+            "temperature": temperature,
+            "num_ctx": num_ctx,
+            "num_predict": -1,
+        }
         payload = {
             "model": model,
             "prompt": prompt,
