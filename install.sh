@@ -6271,6 +6271,11 @@ _OSTLER_SLOT_GRACE="${OSTLER_SLOT_GRACE_SECS:-60}"
 _OSTLER_SLOT_POLL="${OSTLER_SLOT_POLL_SECS:-5}"
 _OSTLER_SLOT_STARVE_AFTER="${OSTLER_SLOT_STARVE_AFTER_SECS:-1800}"
 _OSTLER_SLOT_LEGACY_HOLD="${OSTLER_SLOT_LEGACY_MAX_HOLD_SECS:-3600}"
+# How long a payload gets to honour SIGTERM before the watchdog escalates to
+# SIGKILL. The wiki payload is `docker compose run`, where TERM to the client
+# is not the same act as stopping the container, so this must be generous
+# enough for a clean teardown and short enough that the hold stays a bound.
+_OSTLER_SLOT_KILL_GRACE="${OSTLER_SLOT_KILL_GRACE_SECS:-30}"
 
 _OSTLER_SLOT_FEED=""
 _OSTLER_SLOT_HELD=0
@@ -6336,6 +6341,28 @@ _ostler_slot_enrol() {
     mkdir -p "$_OSTLER_SLOT_WAITERS" 2>/dev/null || return 0
     printf '%s %s\n' "$(_ostler_slot_now)" "$$" \
         > "$_OSTLER_SLOT_WAITERS/$_OSTLER_SLOT_FEED" 2>/dev/null || true
+
+    # START THE HOLDER'S CLOCK, because THIS is the moment the contract says
+    # the hold becomes bounded: "A holder may keep the slot indefinitely while
+    # nobody wants it. The moment another feed enrols as a waiter, the holder
+    # is bounded."
+    #
+    # The deadline used to be anchored to ACQUISITION, which is a different
+    # event, and the gap between them is the whole point of the design -- the
+    # multi-hour uncontended backfill. Anchored at acquire, that backfill's
+    # deadline is already hours past before any waiter exists, so the holder
+    # was preempted within one poll of the first tick that woke, every tick,
+    # and could never finish. It also made the waiter's logged "deadline in
+    # Ns" go negative, which is what #783 measured 51 times.
+    #
+    # Written ONCE, by whichever waiter enrols first, and never refreshed: a
+    # second waiter must not hand the holder another full MAX_HOLD. `set -C`
+    # makes the create atomic, so concurrent enrolments cannot race to reset
+    # it.
+    if [ -d "$_OSTLER_SLOT_DIR" ] && [ ! -f "$_OSTLER_SLOT_DIR/bounded_from" ]; then
+        ( set -C; printf '%s\n' "$(_ostler_slot_now)" \
+            > "$_OSTLER_SLOT_DIR/bounded_from" ) 2>/dev/null || true
+    fi
 }
 
 _ostler_slot_withdraw() {
@@ -6408,12 +6435,33 @@ _ostler_slot_holder_alive() {
 # that keeps a waiter's patience finite during the upgrade window instead
 # of inheriting the old unbounded wait.
 _ostler_slot_holder_deadline() {
-    local acquired hold
-    acquired="$(_ostler_slot_meta acquired_at)"
+    local acquired hold bounded
     hold="$(_ostler_slot_meta max_hold)"
-    case "$acquired" in ''|*[!0-9]*) acquired="" ;; esac
     case "$hold" in ''|*[!0-9]*) hold="" ;; esac
+
+    # THE CLOCK STARTS AT CONTENTION, NOT AT ACQUISITION. `bounded_from` is
+    # written by the first waiter to enrol. Until that exists the hold is
+    # deliberately unbounded, which is the design: an idle box must be allowed
+    # to finish a multi-hour backfill undisturbed.
+    #
+    # Anchoring to acquired_at instead made the deadline for exactly that
+    # backfill already hours past before any waiter appeared, so the holder was
+    # preempted within one poll every tick and the waiter's logged "deadline in
+    # Ns" ran negative (#783, 51 events on .224).
+    bounded="$(_ostler_slot_meta bounded_from)"
+    case "$bounded" in ''|*[!0-9]*) bounded="" ;; esac
+    if [ -n "$bounded" ] && [ -n "$hold" ]; then
+        printf '%s\n' "$((bounded + hold))"
+        return 0
+    fi
+
+    acquired="$(_ostler_slot_meta acquired_at)"
+    case "$acquired" in ''|*[!0-9]*) acquired="" ;; esac
     if [ -n "$acquired" ] && [ -n "$hold" ]; then
+        # No waiter has enrolled yet, so there is no bound to report. Answer
+        # with acquire + hold anyway rather than nothing: this branch is only
+        # reached by a caller ASKING about an uncontended holder, and a finite
+        # honest-if-early answer beats an empty string a caller must guess at.
         printf '%s\n' "$((acquired + hold))"
         return 0
     fi
@@ -6543,22 +6591,69 @@ ostler_slot_acquire() {
 # --- holder-side max-hold watchdog -----------------------------------
 # Terminates the PAYLOAD, never the holder shell, so the EXIT trap still
 # runs and the lock is released cleanly rather than left for the reaper.
-_ostler_slot_kill_tree() {
-    local pid="$1" kid
+# Signal a whole process tree. Children first, so a parent cannot reap and
+# orphan them mid-walk.
+_ostler_slot_signal_tree() {
+    local sig="$1" pid="$2" kid
     for kid in $(pgrep -P "$pid" 2>/dev/null); do
-        _ostler_slot_kill_tree "$kid"
+        _ostler_slot_signal_tree "$sig" "$kid"
     done
-    kill -TERM "$pid" 2>/dev/null || true
+    kill -"$sig" "$pid" 2>/dev/null || true
+}
+
+# STOP THE PAYLOAD, AND VERIFY THAT IT STOPPED.
+#
+# This used to be a single TERM to the tree, after which the watchdog
+# returned. Nothing checked whether anything died, nothing escalated, and the
+# watchdog was gone -- so a payload that ignored or was slow on SIGTERM kept
+# the shared slot indefinitely with the only enforcer already exited. That is
+# not a bound, and it is the mechanism behind a waiter blocked 536s past a
+# deadline on .224 (#783).
+#
+# TERM -> poll -> KILL -> poll. Returns 0 only when the payload is actually
+# gone, and prints WHICH limb ended it so a log can distinguish "asked nicely
+# and it worked" from "had to kill it" from "could not stop it at all". A
+# watchdog that cannot say whether it succeeded is reporting that it acted,
+# not that it worked.
+_ostler_slot_kill_tree() {
+    local pid="$1" waited=0
+
+    _ostler_slot_signal_tree TERM "$pid"
+    while [ "$waited" -lt "$_OSTLER_SLOT_KILL_GRACE" ]; do
+        kill -0 "$pid" 2>/dev/null || { _ostler_slot_log "payload stopped on SIGTERM after ${waited}s."; return 0; }
+        sleep 1
+        waited=$(( waited + 1 ))
+    done
+
+    _ostler_slot_log "payload ignored SIGTERM for ${_OSTLER_SLOT_KILL_GRACE}s; escalating to SIGKILL so the slot is genuinely released."
+    _ostler_slot_signal_tree KILL "$pid"
+    waited=0
+    while [ "$waited" -lt "$_OSTLER_SLOT_KILL_GRACE" ]; do
+        kill -0 "$pid" 2>/dev/null || { _ostler_slot_log "payload stopped on SIGKILL."; return 0; }
+        sleep 1
+        waited=$(( waited + 1 ))
+    done
+
+    # Unkillable (uninterruptible sleep, or a pid we may not signal). Say so
+    # LOUDLY rather than returning as though the slot were free: a caller that
+    # believes a stuck holder has yielded is worse off than one that knows.
+    _ostler_slot_log "COULD NOT STOP the payload (pid $pid) with TERM or KILL. The slot is still held. This is not a yield."
+    return 1
 }
 
 _ostler_slot_watchdog() {
-    local work_pid="$1" now
+    local work_pid="$1" now deadline
     while :; do
         sleep "$_OSTLER_SLOT_POLL"
         kill -0 "$work_pid" 2>/dev/null || return 0
         [ -d "$_OSTLER_SLOT_DIR" ] || return 0
         now="$(_ostler_slot_now)"
-        [ "$now" -ge "$_OSTLER_SLOT_DEADLINE" ] || continue
+        # Read the deadline EVERY poll rather than using the value fixed at
+        # acquire time: it does not exist until a waiter enrols, and the whole
+        # correction in #783 is that enrolment is the event that starts it.
+        deadline="$(_ostler_slot_holder_deadline)"
+        case "$deadline" in ''|*[!0-9]*) continue ;; esac
+        [ "$now" -ge "$deadline" ] || continue
         # Nobody waiting: a long backfill on an idle box is not a
         # problem, so let it run. This is why the wiki summary pass is
         # still allowed to take hours.
