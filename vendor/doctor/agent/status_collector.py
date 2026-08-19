@@ -17,6 +17,7 @@ SECURITY: This module MUST NOT collect or expose:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -31,6 +32,14 @@ import httpx
 # ---------------------------------------------------------------------------
 # Configuration – service endpoints (all localhost by default)
 # ---------------------------------------------------------------------------
+
+# Bound at module scope, not inside a function. GRAFTED WITH 967f6608's
+# CORRECTION ALREADY APPLIED: upstream's 7feb3020 wrote `log.warning` in
+# collect_memory against a name nothing bound, so all four of its error paths
+# raised NameError instead of warning, and 967f6608 landed the same day to
+# repair it. Taking the raw hunk would have imported the defect into a tree
+# that never had it.
+logger = logging.getLogger(__name__)
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
@@ -218,6 +227,31 @@ class SystemSnapshot:
     docker_version: str | None = None
     pipeline_signals: PipelineSignalsInfo | None = None
     backfill_checkpoint: BackfillCheckpointInfo | None = None
+
+    # RAM. These exist because diagnostic rules already read them and every
+    # one of those rules has been raising AttributeError on every install
+    # since it was written: check_memory_pressure and check_ollama_models
+    # both reach for ``ram_total_gb``. run_all_rules swallowed the
+    # exception, so the customer-facing symptom was not a crash, it was a
+    # Doctor panel that said "Everything looks healthy" while
+    # /api/v1/box-status reported 91% memory used on the 16 GB tier we sell.
+    #
+    # The numbers were never missing from the machine, only from THIS
+    # object: box_status.probe_memory() has measured them all along via
+    # hw.memsize + vm_stat. Two modules, one of which knows the answer and
+    # one of which decides what to tell the customer, and no wire between
+    # them.
+    ram_total_gb: float | None = None
+    ram_available_gb: float | None = None
+
+    # Import recency, read by check_gdpr_export_age, which raised for the
+    # same reason. Left unpopulated deliberately: no collector measures a
+    # last-import date yet, so the rule's own `if snapshot.last_import_date
+    # and snapshot.current_date` guard now returns cleanly instead of
+    # raising. Wiring a real collector is separate work; what changes here
+    # is that the rule fails VISIBLY if it ever raises again.
+    last_import_date: datetime | None = None
+    current_date: datetime | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -661,6 +695,7 @@ def collect_full_snapshot() -> SystemSnapshot:
     network = collect_network_checks()
     pipeline_signals = collect_pipeline_signals()
     backfill_checkpoint = collect_backfill_checkpoint()
+    ram_total_gb, ram_available_gb = collect_memory()
 
     return SystemSnapshot(
         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -675,4 +710,53 @@ def collect_full_snapshot() -> SystemSnapshot:
         docker_version=docker_version,
         pipeline_signals=pipeline_signals,
         backfill_checkpoint=backfill_checkpoint,
+        ram_total_gb=ram_total_gb,
+        ram_available_gb=ram_available_gb,
     )
+
+
+def collect_memory() -> tuple[float | None, float | None]:
+    """Total and available RAM in GB, or ``(None, None)``.
+
+    DELIBERATELY DELEGATES to ``box_status.probe_memory`` rather than
+    re-implementing hw.memsize + vm_stat. A second implementation would
+    drift from the first, and the two would then disagree on the same
+    machine -- which is the shape of defect this whole change exists to
+    remove, not one to add. box_status already owns that measurement and
+    already ships it to /api/v1/box-status.
+
+    Imported inside the function, not at module scope, because box_status
+    imports from this module; a top-level import would be circular.
+
+    "Available" is derived as total minus used, matching the notion
+    probe_memory documents. It is a comfort read, not a forensic figure,
+    and the rules that consume it only compare it against 75% and 90%
+    thresholds.
+
+    Returns (None, None) on any failure, which is the honest answer: the
+    consuming rules all guard on truthiness and will simply produce no
+    memory finding rather than a wrong one.
+    """
+    try:
+        from box_status import probe_memory
+    except Exception:  # pragma: no cover - import shape differs under packaging
+        try:
+            from .box_status import probe_memory  # type: ignore
+        except Exception:
+            logger.warning("collect_memory: box_status.probe_memory unavailable")
+            return (None, None)
+
+    try:
+        mem = probe_memory()
+    except Exception as exc:
+        logger.warning("collect_memory: probe_memory raised %s", type(exc).__name__)
+        return (None, None)
+
+    if not mem:
+        return (None, None)
+
+    total = mem.get("total_gb")
+    used = mem.get("used_gb")
+    if total is None or used is None:
+        return (None, None)
+    return (total, round(max(total - used, 0.0), 1))

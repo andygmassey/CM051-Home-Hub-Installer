@@ -581,7 +581,7 @@
 +    }
 --- a/agent/diagnostic_copy.py
 +++ b/agent/diagnostic_copy.py
-@@ -383,4 +383,93 @@
+@@ -383,4 +383,112 @@
      "After granting access, restart the assistant: "
      "launchctl kickstart -k gui/$(id -u)/"
      "com.creativemachines.ostler.assistant"
@@ -629,7 +629,7 @@
 +LAST_UPGRADE_SUCCESS_DETAIL_FMT = (
 +    "Last update applied {applied}. "
 +    "Assistant and services have been reconciled and are running normally."
- )
++)
 +# Shown when the recorded timestamp cannot be parsed, so the applied-time
 +# clause is omitted rather than printing a half-formed value.
 +LAST_UPGRADE_SUCCESS_DETAIL_NO_TIME = (
@@ -641,7 +641,7 @@
 +    "The most recent update did not complete, so your previous (working) "
 +    "version of Ostler is still running. Nothing was lost. The Doctor logs "
 +    "have the details if you want to see what stopped it."
-+)
+ )
 +LAST_UPGRADE_FAILED_FIX = (
 +    "You can try the update again later. If it keeps stopping, the Doctor "
 +    "logs (in this window) show where."
@@ -675,9 +675,46 @@
 +)
 +CONVO_DISPATCH_FAILING_FIX = "Show the error log"
 +CONVO_DISPATCH_FAILING_FIX_COMMAND = "open ~/.ostler/logs/imessage-bundle.err"
++
++
++# ── A diagnostic rule that crashed ──────────────────────────────────────────
++#
++# Shown when run_all_rules catches an exception from a rule. Worded for a
++# customer, not an operator: they do not care which Python symbol raised,
++# they care that a check they are relying on did not happen. The rule name
++# is still included because it is the one thing that makes a support report
++# actionable, and it is a function name, never customer data.
++RULE_CRASHED_TITLE_FMT = "One health check could not run ({rule})"
++RULE_CRASHED_DETAIL_FMT = (
++    "The {rule} check stopped with an internal error ({error_type}), so its "
++    "result is unknown. This is not a report that something is wrong with "
++    "your Mac, and it is not a report that everything is fine either: that "
++    "particular check simply did not complete. Every other check on this "
++    "page ran normally."
++)
++RULE_CRASHED_FIX = "Send this report so we can fix the check"
++RULE_CRASHED_FIX_COMMAND = "open ~/.ostler/logs/doctor.err"
 --- a/agent/diagnostic_rules.py
 +++ b/agent/diagnostic_rules.py
-@@ -79,6 +79,14 @@
+@@ -18,11 +18,17 @@
+ 
+ from __future__ import annotations
+ 
++import logging
+ import time
+ from typing import Any
+ 
+ from banner_copy import EMPTY_MAIL_NUDGE, backfill_progress
++
+ from diagnostic_copy import (
++    RULE_CRASHED_TITLE_FMT,
++    RULE_CRASHED_DETAIL_FMT,
++    RULE_CRASHED_FIX,
++    RULE_CRASHED_FIX_COMMAND,
+     ALL_UNREACHABLE_DETAIL,
+     ALL_UNREACHABLE_FIX,
+     ALL_UNREACHABLE_FIX_COMMAND,
+@@ -79,6 +85,14 @@
      HIGH_MEM_CONTAINER_FIX,
      HIGH_MEM_CONTAINER_FIX_COMMAND_FMT,
      HIGH_MEM_CONTAINER_TITLE_FMT,
@@ -692,7 +729,7 @@
      IMESSAGE_FDA_DETAIL,
      IMESSAGE_FDA_FIX,
      IMESSAGE_FDA_FIX_COMMAND,
-@@ -95,6 +103,15 @@
+@@ -95,6 +109,15 @@
      IMPORT_READY_DETAIL,
      IMPORT_READY_FIX_COMMAND,
      IMPORT_READY_TITLE,
@@ -708,10 +745,23 @@
      LOW_RAM_DETAIL,
      LOW_RAM_TITLE_FMT,
      MANY_MODELS_DETAIL,
-@@ -945,12 +962,325 @@
-         "risk": "low",
-         "category": "installation",
-     })
+@@ -152,7 +175,9 @@
+     is_ostler_container,
+ )
+ 
++log = logging.getLogger(__name__)
+ 
++
+ def check_first_install(snapshot: Any) -> list[dict]:
+     """Detect common first-install problems."""
+     findings = []
+@@ -942,6 +967,241 @@
+         "detail": detail,
+         "fix": IMESSAGE_FDA_FIX,
+         "fix_command": IMESSAGE_FDA_FIX_COMMAND,
++        "risk": "low",
++        "category": "installation",
++    })
 +    return findings
 +
 +
@@ -841,9 +891,9 @@
 +        })
 +    # Unknown status value: do not guess. Return no findings.
 +
-     return findings
- 
- 
++    return findings
++
++
 +# Runtime signature the iMessage capture bundle logs on every tick while it
 +# cannot open ~/Library/Messages/chat.db (Full Disk Access not yet granted).
 +# Matched as two tokens rather than one literal so incidental whitespace /
@@ -944,12 +994,10 @@
 +        "detail": IMESSAGE_CAPTURE_STALLED_DETAIL,
 +        "fix": IMESSAGE_CAPTURE_STALLED_FIX,
 +        "fix_command": IMESSAGE_CAPTURE_STALLED_FIX_COMMAND,
-+        "risk": "low",
-+        "category": "installation",
-+    })
-+    return findings
-+
-+
+         "risk": "low",
+         "category": "installation",
+     })
+@@ -951,6 +1211,84 @@
  # ── Rule registry ────────────────────────────────────────────────────
  
  
@@ -1034,7 +1082,7 @@
  ALL_RULES = [
      check_first_install,
      check_container_health,
-@@ -969,6 +1299,9 @@
+@@ -969,6 +1307,9 @@
      check_mail_content,
      check_backfill_progress,
      check_imessage_fda,
@@ -1044,6 +1092,52 @@
  ]
  
  
+@@ -978,8 +1319,43 @@
+     for rule in ALL_RULES:
+         try:
+             findings.extend(rule(snapshot))
+-        except Exception:
+-            pass  # Individual rule failures should not crash diagnostics
++        except Exception as exc:
++            # A RULE THAT CRASHED IS NOT A RULE THAT PASSED, AND THE PANEL
++            # MUST NOT BE ABLE TO SAY OTHERWISE.
++            #
++            # This used to be `pass`. The comment said individual rule
++            # failures should not crash diagnostics, which is correct, and
++            # then it threw the failure away, which is not the same thing.
++            # Three rules had been raising AttributeError on EVERY install
++            # since they were written, because they read snapshot fields no
++            # collector ever set. One of them is check_memory_pressure,
++            # severity CRITICAL above 90%. On the v1.0.36 box
++            # /api/v1/box-status reported 91% used at the same moment this
++            # panel rendered "Everything looks healthy. Nice one."
++            #
++            # Silence made a broken rule and a healthy machine produce
++            # identical output. So the failure becomes a finding. It is
++            # deliberately a warning rather than a critical: we do not know
++            # what the rule would have said, and inventing a severity we
++            # cannot justify would be a different kind of lie. What we DO
++            # know, and now state, is that the check did not run.
++            rule_name = getattr(rule, "__name__", repr(rule))
++            log.warning(
++                "diagnostic rule %s raised %s: %s",
++                rule_name, type(exc).__name__, exc,
++            )
++            findings.append({
++                "severity": "warning",
++                "title": RULE_CRASHED_TITLE_FMT.format(rule=rule_name),
++                "detail": RULE_CRASHED_DETAIL_FMT.format(
++                    rule=rule_name,
++                    error_type=type(exc).__name__,
++                ),
++                "fix": RULE_CRASHED_FIX,
++                "fix_command": RULE_CRASHED_FIX_COMMAND,
++                "risk": "low",
++                "category": "diagnostics",
++            })
+ 
+     # Deduplicate by title
+     seen_titles = set()
 --- a/agent/duplicate_decision.py
 +++ b/agent/duplicate_decision.py
 @@ -25,7 +25,7 @@
@@ -1586,18 +1680,18 @@
  pyyaml>=6.0,<7.0
 --- a/agent/web_ui_copy.py
 +++ b/agent/web_ui_copy.py
-@@ -208,6 +208,11 @@
- DASHBOARD_BTN_EMAIL_TITLE = (
+@@ -209,6 +209,11 @@
      "Open your email client with the diagnostic report ready to send "
      "to support"
-+)
+ )
 +DASHBOARD_BTN_SETTINGS = "&#9881; Settings"
 +DASHBOARD_BTN_SETTINGS_TITLE = (
 +    "Pause or ease off background work, and adjust channels, model and "
 +    "schedule"
- )
++)
  
  DASHBOARD_LAST_CHECKED_JUST_NOW = "Last checked: just now"
+ DASHBOARD_LAST_CHECKED_PREFIX = "Last checked: "
 @@ -264,6 +269,18 @@
  
  DASHBOARD_CONFIG_LINK = (
@@ -1617,12 +1711,30 @@
  )
  
  DASHBOARD_ALERT_REPORT_FAIL = (
-@@ -691,5 +708,70 @@
-     "enable the tick for Ostler (or for the assistant process). Once granted, "
-     "Ostler retries the blocked commitments on its next run and they appear "
-     "in the Reminders app."
-+)
+@@ -305,6 +322,19 @@
+ )
+ # Placeholder swapped in for each redacted token.
+ REPORT_REDACTED_PLACEHOLDER = "[redacted]"
 +
++# Returned INSTEAD of the report when redaction raises. The previous behaviour
++# was to fall back to the raw report, so a failure inside the scrubber handed
++# the caller an unredacted bundle under the name of the redacted one. There is
++# no safe way to degrade here: either the report was scrubbed or it was not,
++# and the customer cannot tell by looking. So we return nothing shareable and
++# say why.
++REPORT_REDACTION_FAILED = (
++    "[Ostler could not redact this report, so it has been withheld rather "
++    "than shared unredacted. Nothing has been copied or attached. Please "
++    "contact support and mention that redaction failed; do not send the "
++    "unredacted diagnostics.]"
++)
+ 
+ 
+ # ── render_history (/doctor/history page) ────────────────────────────
+@@ -693,3 +723,94 @@
+     "in the Reminders app."
+ )
+ 
 +
 +
 +
@@ -1655,13 +1767,13 @@
 +    "On your phone, open WhatsApp and go to Settings, then Linked "
 +    "Devices, then Link a device. Choose Link with phone number instead, "
 +    "and type this code."
- )
++)
 +WHATSAPP_PAIR_COUNTDOWN_PREFIX = "This code expires in"
 +WHATSAPP_PAIR_READY_HELP = (
 +    "Codes are short-lived on purpose. If it runs out, Ostler asks "
 +    "WhatsApp for another one."
 +)
- 
++
 +WHATSAPP_PAIR_NOT_REQUESTED_TITLE = "No pairing code yet."
 +WHATSAPP_PAIR_NOT_REQUESTED_HELP = (
 +    "Ostler asks WhatsApp for a code when the WhatsApp connector starts. "
@@ -1688,6 +1800,32 @@
 +# long enough that a customer leaving the page open is not hammering
 +# the endpoint for the life of the session.
 +WHATSAPP_PAIR_POLL_MS = 5000
++
++
++# ── Consent tile, degraded arm (HR015 ee511c2c, task #429) ───────────
++#
++# WHY THIS EXISTS. render_consent_status() returned "" for TWO different
++# facts: "the consent registry could not be read" and "you have not
++# consented to anything yet". Both rendered as nothing at all, so the
++# customer could not tell them apart and neither could we from a support
++# report. Consent records are the Article 9 / EU legal surface; a Hub whose
++# registry is unreadable looked exactly like a fresh pre-consent install.
++#
++# The soft fall-through is deliberate and stays: Doctor must keep rendering
++# without ostler_security. What changes is that the degraded state now says
++# so out loud.
++#
++# APPENDED HERE rather than at upstream's position: upstream anchors this
++# block above VAULT_LICENCE_LABEL_*, which are LOCK-3 constants that do not
++# exist in this vendored copy. Placing it by anchor was not an option; the
++# constants are module-level and position-independent.
++CONSENT_UNREADABLE_TITLE = "Consent records could not be read"
++CONSENT_UNREADABLE_DETAIL_FMT = (
++    "Ostler could not open its consent registry, so this panel cannot show "
++    "what you have agreed to. Nothing you have already agreed to has "
++    "changed, and your answers are still on this Mac. This is a fault in "
++    "Ostler rather than anything you have done. Technical cause: {reason}"
++)
 --- a/agent/web_ui.py
 +++ b/agent/web_ui.py
 @@ -32,9 +32,15 @@
@@ -1747,7 +1885,15 @@
      PORT_CONFLICT_DETAIL_FMT,
      PORT_CONFLICT_FIX,
      PORT_CONFLICT_FIX_COMMAND_FMT,
-@@ -669,7 +693,66 @@
+@@ -232,6 +256,7 @@
+     REPORT_OLLAMA_LABEL,
+     REPORT_REDACTED_BANNER,
+     REPORT_REDACTED_PLACEHOLDER,
++    REPORT_REDACTION_FAILED,
+     REPORT_SECTION_CONTAINERS,
+     REPORT_SECTION_DISK,
+     REPORT_SECTION_FINDINGS,
+@@ -669,7 +694,114 @@
      r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
  )
  
@@ -1804,20 +1950,74 @@
 +# Catching that needs `bearer\s+\S+`, which also eats ordinary prose ("the
 +# bearer of that token"), and a scrub that mangles readable log lines is one
 +# people switch off. Same reasoning upstream gives for anchoring on labels.
++# WIDENED 2026-08-19, grafted from HR015 5116a151 (#415/#480). The list above
++# was assembled from the pair-code incident and never revisited, so it described
++# ONE leak rather than the class. Measured against a real install: recovery key,
++# redis password and licence id all walked straight through it.
++#
++# 🔴 THE LEADING \b MADE EVERY PREFIXED LABEL INVISIBLE. `_` is a word
++# character, so in `redis_password` there is NO word boundary before `password`
++# and the old pattern never engaged. Same for db_password, admin_token,
++# service_secret -- the exact naming convention config files actually use.
++# Re-anchored to allow an arbitrary prefix, kept inside group 1 so the
++# replacement still echoes the label it matched.
++#
++# DIVERGENCE FROM UPSTREAM, STATED RATHER THAN SILENT: 5116a151 leaves BOTH the
++# narrow assignment and this corrected one in the file, the second shadowing the
++# first. That reads as history upstream chose to keep. The vendored copy carries
++# only the corrected form -- a dead regex in a shipping security path is a thing
++# a later reader edits by mistake.
 +_SECRET_LABEL_RE = re.compile(
-+    r"(?i)\b(pair[\s_-]?code|pairing[\s_-]?code|access[\s_-]?token|api[\s_-]?key"
-+    r"|verify[\s_-]?token|app[\s_-]?secret|authorization|bearer)\b\s*[:=]\s*"
++    r"(?i)\b([\w.-]*(?:pair[\s_-]?code|pairing[\s_-]?code|access[\s_-]?token"
++    r"|api[\s_-]?key|verify[\s_-]?token|app[\s_-]?secret|authorization|bearer"
++    r"|recovery(?:[\s_-]?key)?|passphrase|password|secret|licen[cs]e(?:[\s_-]?id)?"
++    r"|token|private[\s_-]?key|signing[\s_-]?key|credential))\b\s*[:=]\s*"
 +    r"(?:bearer\s+)?\S+"
 +)
  
++# 🔴 A LABEL-ANCHORED PATTERN CANNOT CATCH AN UNLABELLED SECRET, AND THE ONE
++# THAT MATTERS MOST IS UNLABELLED. The vault recovery key appears in install.log
++# both labelled and BARE, so every label added above is still blind to the bare
++# occurrence. This matches the key by SHAPE.
++#
++# THE MEASURED SHAPE IS RAGGED: [4,4,4,4,4,4,2] -- six groups of four then a
++# final group of TWO. A predicate written for a uniform 6x4 stops at the sixth
++# group and leaks the tail; one written for a uniform 7x4 matches nothing at all
++# and leaks the whole key. So the group widths are a RANGE, not a constant, and
++# the final group may be short.
++#
++# THE UUID TRAP: a real report carries hundreds of UUIDs (8-4-4-4-12), and a
++# matcher keyed on "hyphen-separated hex groups" either redacts them all --
++# destroying the diagnostic value of the report -- or gets loosened until it
++# stops matching the key. The discriminator is that NO recovery-key group
++# exceeds 6 characters while a UUID always opens with 8 and closes with 12, so a
++# pattern whose every group is 2-6 wide cannot span one.
++_RECOVERY_KEY_RE = re.compile(r"\b[A-Z0-9]{4,6}(?:-[A-Z0-9]{2,6}){3,9}\b")
++
++# Slugified email addresses. `_EMAIL_RE` requires a literal `@`, but the wiki
++# writes contacts to disk as `name-gmail-com` for filenames, and that form
++# appears in the report. Bounded to known providers so an ordinary hyphenated
++# identifier is not redacted.
++_SLUG_EMAIL_RE = re.compile(
++    r"(?i)\b[a-z0-9]+(?:[._-][a-z0-9]+)*"
++    r"-(?:gmail|icloud|outlook|hotmail|yahoo|proton(?:mail)?|aol|live|msn|fastmail)"
++    r"-(?:com|net|org|co[-.]uk)\b"
++)
++
 +
  def _home_username() -> str | None:
      """Best-effort current username for home-path redaction.
  
-@@ -718,6 +801,15 @@
+@@ -717,8 +849,22 @@
+     )
  
      redacted = _EMAIL_RE.sub(placeholder, redacted)
++    redacted = _SLUG_EMAIL_RE.sub(placeholder, redacted)
      redacted = _IPV4_RE.sub(placeholder, redacted)
+ 
++    # Shape-matched secrets BEFORE the label pass, because the bare occurrence
++    # has no label to anchor on and would otherwise survive untouched.
++    redacted = _RECOVERY_KEY_RE.sub(placeholder, redacted)
 +
 +    # Credential-shaped values last, so a token that happened to sit inside a
 +    # path or beside an email is still caught after those substitutions have
@@ -1827,10 +2027,41 @@
 +    redacted = _SECRET_LABEL_RE.sub(
 +        lambda m: f"{m.group(1)}: {placeholder}", redacted
 +    )
- 
++
      return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
  
-@@ -1149,6 +1241,7 @@
+ 
+@@ -845,15 +991,27 @@
+     except Exception as exc:
+         errors["report"] = f"{type(exc).__name__}: {exc}"
+         report = REPORT_HEADER
++    # 🔴 FAILS CLOSED. This used to fall back to `report_redacted = report`,
++    # so any exception inside the redactor silently handed the caller the RAW
++    # report under the name of the redacted one -- and the button labelled
++    # "Copy redacted" would copy an unredacted bundle with no visible change.
++    # A redactor that fails open is not a redactor. If scrubbing cannot be
++    # completed we return nothing usable and say why.
+     try:
+         report_redacted = _redact_report(report)
+     except Exception as exc:
+         errors["report_redacted"] = f"{type(exc).__name__}: {exc}"
+-        report_redacted = report
++        report_redacted = REPORT_REDACTION_FAILED
+ 
+     # 5. Support mailto: URL.
++    #
++    # 🔴 REDACTED, NOT RAW. This passed `report` -- so of the three buttons
++    # sitting side by side, the only one that actually TRANSMITS off the
++    # machine was the only one that did not scrub. A customer picks "Send by
++    # Email" precisely because it sounds like the supported path, and mailed
++    # support the full unredacted bundle including the recovery key.
+     try:
+-        mailto = _build_mailto(report)
++        mailto = _build_mailto(report_redacted)
+     except Exception as exc:
+         errors["mailto"] = f"{type(exc).__name__}: {exc}"
+         mailto = f"mailto:{SUPPORT_EMAIL}"
+@@ -1149,6 +1307,7 @@
              display: inline-flex;
              align-items: center;
              gap: 6px;
@@ -1838,7 +2069,7 @@
          }}
          .refresh-btn:hover, .auto-refresh-btn:hover {{
              border-color: var(--ostler-accent);
-@@ -1543,6 +1636,7 @@
+@@ -1543,6 +1702,7 @@
              </div>
              <div>
                  <div class="header-controls">
@@ -1846,7 +2077,7 @@
                      <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
                      <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
                      <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
-@@ -1611,7 +1705,7 @@
+@@ -1611,7 +1771,7 @@
          </div>
  
          <div class="meta" id="metaInfo">
@@ -1855,10 +2086,12 @@
          </div>
      </div>
  
-@@ -2004,6 +2098,32 @@
+@@ -2002,6 +2162,32 @@
+ 
+ 
  # ── Endpoints ────────────────────────────────────────────────────────
- 
- 
++
++
 +@app.get("/")
 +async def front_door():
 +    """Send the bare root to the dashboard. v1018-D023.
@@ -1883,15 +2116,15 @@
 +    """
 +    return RedirectResponse(url="/doctor", status_code=302)
 +
-+
-+
+ 
+ 
  @app.get("/doctor", response_class=HTMLResponse)
- async def dashboard():
-     """Serve the diagnostic dashboard or first-run wizard."""
-@@ -2294,6 +2414,220 @@
+@@ -2292,8 +2478,222 @@
+     breaking-change must roll a /api/v2 instead of mutating this.
+     """
      return all_observability_postures()
- 
- 
++
++
 +# ── Wiki hydration status: UNAUTHENTICATED passthrough (#178) ─────────
 +#
 +# The wiki homepage's first-run "still settling" panel (CM044
@@ -1925,13 +2158,13 @@
 +# and a wedged upstream must fail fast rather than hang the panel poll.
 +_HYDRATION_UPSTREAM_TIMEOUT_SECONDS = 5.0
 +
-+
+ 
 +async def _fetch_hydration_status(
 +    gateway_url: "str | None" = None,
 +    client: "httpx.AsyncClient | None" = None,
 +) -> httpx.Response:
 +    """Fetch the composite hydration status from the upstream ical-server.
-+
+ 
 +    The per-phase hydration feed is owned by the upstream (it combines the
 +    wiki compiler's progress file with live Qdrant / Oxigraph / conversation
 +    counts), so the Doctor cannot synthesise it from a local file -- it
@@ -2109,10 +2342,14 @@
  # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
  #
  # Forwards iOS-initiated CM019 paths to the local gateway over
-@@ -3333,6 +3667,209 @@
- </html>"""
- 
- 
+@@ -3329,8 +3729,211 @@
+         setInterval(fetchStatus, STATUS_POLL_MS);
+     }})();
+     </script>
++</body>
++</html>"""
++
++
 +def _render_whatsapp_pair_page() -> str:
 +    """Render the WhatsApp pair-code panel.
 +
@@ -2295,8 +2532,8 @@
 +    setInterval(tick, POLL_MS);
 +  }})();
 +  </script>
-+</body>
-+</html>"""
+ </body>
+ </html>"""
 +
 +
 +@app.get("/whatsapp-pair", response_class=HTMLResponse)
@@ -2314,11 +2551,9 @@
 +    """
 +    from whatsapp_pair import fetch_pair_status
 +    return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
-+
-+
+ 
+ 
  @app.get("/pair-ios", response_class=HTMLResponse)
- async def pair_ios_page():
-     """Render the Pair iOS device panel (DFA-002)."""
 --- /dev/null
 +++ b/agent/whatsapp_pair.py
 @@ -0,0 +1,192 @@
@@ -3084,3 +3319,315 @@
 +    import json
 +
 +    print(json.dumps(read_state(), indent=2))
+
+--- a/agent/dashboard_components.py
++++ b/agent/dashboard_components.py
+@@ -66,11 +66,73 @@
+ try:
+     from ostler_security.consent import all_consents  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+     _HAS_CONSENT = True
+-except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
++    _CONSENT_IMPORT_ERROR = ""
++except ImportError as _consent_exc:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+     _HAS_CONSENT = False
++    # KEEP THE REASON. Without it the degraded tile can say "we could not
++    # read the registry" but not why, and a support report would carry a
++    # complaint with no lead. The type name alone is enough to tell a
++    # missing package from a broken one.
++    _CONSENT_IMPORT_ERROR = f"{type(_consent_exc).__name__}: {_consent_exc}"
+     def all_consents() -> dict:  # type: ignore[no-redef]
+         return {}
+ 
++
++def _import_consent_registry():
++    """Do the real import. Isolated ONLY so a test can force it to fail.
++
++    Simulating the degraded state by setting ``_HAS_CONSENT = False`` no
++    longer works now that the resolver retries, and it should not: a flag
++    that the code is allowed to re-derive is not a fault injection point.
++    Tests that want the unreadable state make THIS raise, which is the
++    same event production sees.
++    """
++    from ostler_security.consent import all_consents as resolved  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
++    return resolved
++
++
++def _resolve_consent_registry():
++    """Return ``(readable, import_error, all_consents)``, retrying the import.
++
++    THE BUG THIS EXISTS TO KILL. ``_HAS_CONSENT`` was decided once, at the
++    first import of this module in a process, and never revisited. Whether
++    ``ostler_security`` is importable depends on ``sys.path``, which is not
++    fixed at that moment: test_consent_dashboard.py appends HR015_ROOT when
++    IT is imported, and the Doctor's own startup extends the path too. So
++    the flag recorded a fact that was true for an instant and then went
++    stale, with no way back for the life of the process.
++
++    Measured 2026-08-18: that is the whole of the five-failure pollution in
++    task #427. test_consent_dashboard passes 6/6 alone because its import
++    wins the race and the path is right; inside the full suite one of the
++    fastapi-importing files gets there first, ``all_consents`` is bound to
++    the stub that returns ``{}``, and five tests that write real records
++    read an empty registry.
++
++    Resolving per call is the same correction ostler_fda.settling_progress
++    made with ``_default_state_dir()`` and every ``OSTLER_HOME`` reader
++    made before it. On success the module globals are REPAIRED rather than
++    shadowed, so the process stops paying for the retry and anything else
++    reading ``all_consents`` directly gets the real one.
++    """
++    global _HAS_CONSENT, _CONSENT_IMPORT_ERROR, all_consents
++
++    if _HAS_CONSENT:
++        return True, "", all_consents
++
++    try:
++        resolved = _import_consent_registry()
++    except ImportError as exc:
++        # Still genuinely unreadable. Refresh the reason: the CURRENT
++        # failure is the one worth showing, not the one from import time.
++        _CONSENT_IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
++        return False, _CONSENT_IMPORT_ERROR, all_consents
++
++    all_consents = resolved
++    _HAS_CONSENT = True
++    _CONSENT_IMPORT_ERROR = ""
++    return True, "", resolved
++
+ try:
+     from legal import (  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+         ARTICLE_9_EU_CONSENT,
+@@ -91,6 +153,58 @@
+     _BUNDLED_CONSENTS = {}
+ 
+ 
++def _import_bundled_consents() -> dict:
++    """Build the tickbox_id -> ConsentString map. Isolated for the same
++    reason _import_consent_registry is: a test needs to force the failure.
++    """
++    from legal import (  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
++        ARTICLE_9_EU_CONSENT,
++        EU_VOICE_SPEAKER_ID_CONSENT,
++        SPOKEN_CAPTURE_RECORDING_CONSENT,
++        THIRD_PARTY_DATA_NOTICE,
++        WHATSAPP_UNOFFICIAL_RISK_CONSENT,
++    )
++    return {
++        c.tickbox_id: c
++        for c in (
++            ARTICLE_9_EU_CONSENT,
++            WHATSAPP_UNOFFICIAL_RISK_CONSENT,
++            EU_VOICE_SPEAKER_ID_CONSENT,
++            THIRD_PARTY_DATA_NOTICE,
++            SPOKEN_CAPTURE_RECORDING_CONSENT,
++        )
++    }
++
++
++def _resolve_bundled_consents() -> dict:
++    """Return the bundled consent wordings, retrying the import.
++
++    THE SAME DEFECT AS _resolve_consent_registry, one block up, and found
++    only because fixing that one uncovered it. Both packages are imported
++    at module scope behind a soft fall-through, both depend on HR015_ROOT
++    being on sys.path, and both recorded a one-shot answer to a question
++    whose answer changes.
++
++    The symptom differed, which is why it hid. An unreachable registry
++    blanked the tile; unreachable wordings left the tile up and rendered
++    every record grey "unknown wording" -- an honest-looking state that
++    happens to be exactly what a genuinely unrecognised tickbox_id
++    renders. A drifted Article 9 wording would have been reported to the
++    customer as merely uncheckable rather than as needing renewal.
++    """
++    global _BUNDLED_CONSENTS
++
++    if _BUNDLED_CONSENTS:
++        return _BUNDLED_CONSENTS
++
++    try:
++        _BUNDLED_CONSENTS = _import_bundled_consents()
++    except ImportError:
++        return {}
++
++    return _BUNDLED_CONSENTS
++
++
+ def _any_ostler_container_running(snapshot: SystemSnapshot) -> bool:
+     return any(
+         is_ostler_container(c) and c.state == "running"
+@@ -500,12 +614,43 @@
+     user; the bridges decide whether they need it. Doctor's job is
+     to surface drift, not to enforce policy.
+     """
+-    if not _HAS_CONSENT:
+-        return ""
++    # Resolve per call. See _resolve_consent_registry for why the
++    # import-time flag was not trustworthy.
++    has_consent, import_error, consents_fn = _resolve_consent_registry()
+ 
+-    records = all_consents()
++    if not has_consent:
++        # DEGRADED, AND IT MUST SAY SO. This used to return "" and was
++        # therefore indistinguishable from "no records yet" (task #429).
++        # Two different facts must not share one output, least of all on
++        # the Article 9 surface. Red rather than amber: the customer has
++        # no remediation, which is the same reasoning the iMessage TCC
++        # tile below uses for its check-failed state.
++        from web_ui_copy import (
++            CONSENT_UNREADABLE_DETAIL_FMT,
++            CONSENT_UNREADABLE_TITLE,
++        )
++        detail = CONSENT_UNREADABLE_DETAIL_FMT.format(
++            reason=import_error or "unknown",
++        )
++        return f"""
++    <div class="section" id="consentSection">
++        <div class="section-title">Consent (A7+A8 records)</div>
++        <div class="status-grid">
++        <div class="status-card">
++            <div class="status-indicator" style="background:#d96666">&#9888;</div>
++            <div class="status-info">
++                <div class="status-name">{_html_escape(CONSENT_UNREADABLE_TITLE)}</div>
++                <div class="status-detail">{_html_escape(detail)}</div>
++            </div>
++        </div>
++        </div>
++    </div>"""
++
++    records = consents_fn()
+     if not records:
+         return ""
++
++    bundled_consents = _resolve_bundled_consents()
+ 
+     tiles = ""
+     for tickbox_id in sorted(records.keys()):
+@@ -516,7 +661,7 @@
+         timestamp = rec.get("timestamp")
+         relative = _format_relative_time(timestamp)
+ 
+-        bundled = _BUNDLED_CONSENTS.get(tickbox_id)
++        bundled = bundled_consents.get(tickbox_id)
+         if decision == "declined":
+             colour = "#d96666"
+             icon = "&#9888;"
+--- a/agent/status_collector.py
++++ b/agent/status_collector.py
+@@ -17,6 +17,7 @@
+ from __future__ import annotations
+ 
+ import json
++import logging
+ import os
+ import shutil
+ import subprocess
+@@ -32,6 +33,14 @@
+ # Configuration – service endpoints (all localhost by default)
+ # ---------------------------------------------------------------------------
+ 
++# Bound at module scope, not inside a function. GRAFTED WITH 967f6608's
++# CORRECTION ALREADY APPLIED: upstream's 7feb3020 wrote `log.warning` in
++# collect_memory against a name nothing bound, so all four of its error paths
++# raised NameError instead of warning, and 967f6608 landed the same day to
++# repair it. Taking the raw hunk would have imported the defect into a tree
++# that never had it.
++logger = logging.getLogger(__name__)
++
+ QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+ OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
+ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+@@ -218,6 +227,31 @@
+     docker_version: str | None = None
+     pipeline_signals: PipelineSignalsInfo | None = None
+     backfill_checkpoint: BackfillCheckpointInfo | None = None
++
++    # RAM. These exist because diagnostic rules already read them and every
++    # one of those rules has been raising AttributeError on every install
++    # since it was written: check_memory_pressure and check_ollama_models
++    # both reach for ``ram_total_gb``. run_all_rules swallowed the
++    # exception, so the customer-facing symptom was not a crash, it was a
++    # Doctor panel that said "Everything looks healthy" while
++    # /api/v1/box-status reported 91% memory used on the 16 GB tier we sell.
++    #
++    # The numbers were never missing from the machine, only from THIS
++    # object: box_status.probe_memory() has measured them all along via
++    # hw.memsize + vm_stat. Two modules, one of which knows the answer and
++    # one of which decides what to tell the customer, and no wire between
++    # them.
++    ram_total_gb: float | None = None
++    ram_available_gb: float | None = None
++
++    # Import recency, read by check_gdpr_export_age, which raised for the
++    # same reason. Left unpopulated deliberately: no collector measures a
++    # last-import date yet, so the rule's own `if snapshot.last_import_date
++    # and snapshot.current_date` guard now returns cleanly instead of
++    # raising. Wiring a real collector is separate work; what changes here
++    # is that the rule fails VISIBLY if it ever raises again.
++    last_import_date: datetime | None = None
++    current_date: datetime | None = None
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -661,6 +695,7 @@
+     network = collect_network_checks()
+     pipeline_signals = collect_pipeline_signals()
+     backfill_checkpoint = collect_backfill_checkpoint()
++    ram_total_gb, ram_available_gb = collect_memory()
+ 
+     return SystemSnapshot(
+         timestamp=datetime.now(timezone.utc).isoformat(),
+@@ -675,4 +710,53 @@
+         docker_version=docker_version,
+         pipeline_signals=pipeline_signals,
+         backfill_checkpoint=backfill_checkpoint,
++        ram_total_gb=ram_total_gb,
++        ram_available_gb=ram_available_gb,
+     )
++
++
++def collect_memory() -> tuple[float | None, float | None]:
++    """Total and available RAM in GB, or ``(None, None)``.
++
++    DELIBERATELY DELEGATES to ``box_status.probe_memory`` rather than
++    re-implementing hw.memsize + vm_stat. A second implementation would
++    drift from the first, and the two would then disagree on the same
++    machine -- which is the shape of defect this whole change exists to
++    remove, not one to add. box_status already owns that measurement and
++    already ships it to /api/v1/box-status.
++
++    Imported inside the function, not at module scope, because box_status
++    imports from this module; a top-level import would be circular.
++
++    "Available" is derived as total minus used, matching the notion
++    probe_memory documents. It is a comfort read, not a forensic figure,
++    and the rules that consume it only compare it against 75% and 90%
++    thresholds.
++
++    Returns (None, None) on any failure, which is the honest answer: the
++    consuming rules all guard on truthiness and will simply produce no
++    memory finding rather than a wrong one.
++    """
++    try:
++        from box_status import probe_memory
++    except Exception:  # pragma: no cover - import shape differs under packaging
++        try:
++            from .box_status import probe_memory  # type: ignore
++        except Exception:
++            logger.warning("collect_memory: box_status.probe_memory unavailable")
++            return (None, None)
++
++    try:
++        mem = probe_memory()
++    except Exception as exc:
++        logger.warning("collect_memory: probe_memory raised %s", type(exc).__name__)
++        return (None, None)
++
++    if not mem:
++        return (None, None)
++
++    total = mem.get("total_gb")
++    used = mem.get("used_gb")
++    if total is None or used is None:
++        return (None, None)
++    return (total, round(max(total - used, 0.0), 1))

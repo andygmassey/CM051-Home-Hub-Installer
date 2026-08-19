@@ -323,6 +323,19 @@ REPORT_REDACTED_BANNER = (
 # Placeholder swapped in for each redacted token.
 REPORT_REDACTED_PLACEHOLDER = "[redacted]"
 
+# Returned INSTEAD of the report when redaction raises. The previous behaviour
+# was to fall back to the raw report, so a failure inside the scrubber handed
+# the caller an unredacted bundle under the name of the redacted one. There is
+# no safe way to degrade here: either the report was scrubbed or it was not,
+# and the customer cannot tell by looking. So we return nothing shareable and
+# say why.
+REPORT_REDACTION_FAILED = (
+    "[Ostler could not redact this report, so it has been withheld rather "
+    "than shared unredacted. Nothing has been copied or attached. Please "
+    "contact support and mention that redaction failed; do not send the "
+    "unredacted diagnostics.]"
+)
+
 
 # ── render_history (/doctor/history page) ────────────────────────────
 
@@ -775,3 +788,29 @@ WHATSAPP_PAIR_BACK_LINK = "Back to Doctor"
 # long enough that a customer leaving the page open is not hammering
 # the endpoint for the life of the session.
 WHATSAPP_PAIR_POLL_MS = 5000
+
+
+# ── Consent tile, degraded arm (HR015 ee511c2c, task #429) ───────────
+#
+# WHY THIS EXISTS. render_consent_status() returned "" for TWO different
+# facts: "the consent registry could not be read" and "you have not
+# consented to anything yet". Both rendered as nothing at all, so the
+# customer could not tell them apart and neither could we from a support
+# report. Consent records are the Article 9 / EU legal surface; a Hub whose
+# registry is unreadable looked exactly like a fresh pre-consent install.
+#
+# The soft fall-through is deliberate and stays: Doctor must keep rendering
+# without ostler_security. What changes is that the degraded state now says
+# so out loud.
+#
+# APPENDED HERE rather than at upstream's position: upstream anchors this
+# block above VAULT_LICENCE_LABEL_*, which are LOCK-3 constants that do not
+# exist in this vendored copy. Placing it by anchor was not an option; the
+# constants are module-level and position-independent.
+CONSENT_UNREADABLE_TITLE = "Consent records could not be read"
+CONSENT_UNREADABLE_DETAIL_FMT = (
+    "Ostler could not open its consent registry, so this panel cannot show "
+    "what you have agreed to. Nothing you have already agreed to has "
+    "changed, and your answers are still on this Mac. This is a fault in "
+    "Ostler rather than anything you have done. Technical cause: {reason}"
+)

@@ -473,3 +473,22 @@ CONVO_DISPATCH_FAILING_DETAIL = (
 )
 CONVO_DISPATCH_FAILING_FIX = "Show the error log"
 CONVO_DISPATCH_FAILING_FIX_COMMAND = "open ~/.ostler/logs/imessage-bundle.err"
+
+
+# ── A diagnostic rule that crashed ──────────────────────────────────────────
+#
+# Shown when run_all_rules catches an exception from a rule. Worded for a
+# customer, not an operator: they do not care which Python symbol raised,
+# they care that a check they are relying on did not happen. The rule name
+# is still included because it is the one thing that makes a support report
+# actionable, and it is a function name, never customer data.
+RULE_CRASHED_TITLE_FMT = "One health check could not run ({rule})"
+RULE_CRASHED_DETAIL_FMT = (
+    "The {rule} check stopped with an internal error ({error_type}), so its "
+    "result is unknown. This is not a report that something is wrong with "
+    "your Mac, and it is not a report that everything is fine either: that "
+    "particular check simply did not complete. Every other check on this "
+    "page ran normally."
+)
+RULE_CRASHED_FIX = "Send this report so we can fix the check"
+RULE_CRASHED_FIX_COMMAND = "open ~/.ostler/logs/doctor.err"
