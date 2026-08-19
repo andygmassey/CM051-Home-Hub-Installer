@@ -65,3 +65,33 @@ jobs:
       - name: Provenance survives the filter, proved by running it
         if: always()
         run: python3 tests/test_provenance_survives_the_filter_under_execution.py
+
+      # The background Ollama callers in the enrichment pipeline must take the
+      # installer's per-tier context budget, not a hardcoded 32768.
+      # install.sh sets OSTLER_ENRICH_NUM_CTX per resource tier: unset on
+      # `high` (>=32 GB), 8192 on `low`, 4096 on `floor`. A 16 GB Mac is `low`,
+      # and 16 GB is the installer's HARD MINIMUM, so the baseline supported
+      # machine wants 8192. A literal 32768 asks the smallest supported box for
+      # four times its own budget, inside the code path added to be polite
+      # about resources.
+      #
+      # This suite needs pytest proper (monkeypatch, tmp_path), unlike the
+      # __main__-guard scripts above, so it installs it and then ASSERTS THE
+      # COLLECTED COUNT. A suite that collected nothing also reports zero
+      # failures, and "no tests ran" is indistinguishable from a pass at the
+      # exit code alone. The floor is the number that exists today; it goes up,
+      # never down.
+      - name: Background enrichment honours the tier context budget
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check pytest
+          out="$(python3 -m pytest tests/test_ollama_user_active.py -q 2>&1)"
+          printf '%s\n' "$out"
+          passed="$(printf '%s\n' "$out" | grep -oE '[0-9]+ passed' | tail -1 | grep -oE '[0-9]+' || true)"
+          if [ -z "$passed" ] || [ "$passed" -lt 15 ]; then
+            echo "FAIL: expected at least 15 passing tests in tests/test_ollama_user_active.py, measured '${passed:-none}'." >&2
+            echo "A suite that collected nothing reports zero failures. Count the denominator." >&2
+            exit 1
+          fi
+          echo "OK: ${passed} tests executed in tests/test_ollama_user_active.py"
