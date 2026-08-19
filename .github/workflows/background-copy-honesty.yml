@@ -1,0 +1,81 @@
+name: background-copy-honesty
+
+# The installer must not tell a customer WHEN background loading will finish,
+# because it does not know.
+#
+# ============================================================================
+# WHAT SHIPPED, AND WHAT IS ACTUALLY TRUE
+# ============================================================================
+#
+# Five hydrate messages said "your wiki will fill in over the next hour" and
+# three said "shortly". Measured on a real box (#789), over the full 25.7-hour
+# life of that install's email tick:
+#
+#     email conversations on disk   4,444
+#     ingested                        154   =  3.5%
+#     drain rate                     ~6.0 / hour
+#     backlog clears in              ~30 DAYS, and mail keeps arriving
+#
+# An hour is wrong by roughly two orders of magnitude. Not a tone problem: a
+# false statement to a paying customer at the moment they are deciding whether
+# the product works.
+#
+# ============================================================================
+# HALF OF #782's PREMISE WAS WRONG AND THE FIX DEPENDS ON WHICH HALF
+# ============================================================================
+#
+# #782 originally said background work does not continue AT ALL. Measured
+# before #784, and now false in the customer's favour: the four bundle ticks
+# recur under the daemon's source scheduler and dispatch to CM048, and #784
+# (CM051 #864) fixed the FDA half that really was install-only.
+#
+# So "still loading in the background" is TRUE and must SURVIVE -- control (3)
+# enforces that. Only the deadline was false. Fixing the wrong half would have
+# deleted an accurate reassurance and left the lie in place.
+#
+# ============================================================================
+# SCOPE
+# ============================================================================
+#
+# The *BACKGROUND_CONTINUES class only, extracted from the catalogue rather
+# than listed by hand, so tomorrow's message is covered on the day it is added.
+# A catalogue-wide ban on time words would be wrong: "ingest will pick them up
+# on the next hourly tick" is a statement about a schedule we control, and it
+# is true. The rule is narrower and defensible -- a message that says work is
+# CONTINUING must not also say when it will be DONE.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_background_copy_promises_no_deadline.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/background-copy-honesty.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  no-deadline-promises:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 4 controls, one of which is an anti-vacuity probe that fires the
+      # deadline predicate against the exact string that shipped. Exit 2 is
+      # CANNOT-RUN and CI treats it as failure: a gate that cannot find the
+      # class it guards has not passed.
+      - name: Background-loading copy must not promise a completion time
+        run: bash tests/test_background_copy_promises_no_deadline.sh
+
+      - name: Test parses under bash 3.2-compatible syntax
+        if: always()
+        run: bash -n tests/test_background_copy_promises_no_deadline.sh
