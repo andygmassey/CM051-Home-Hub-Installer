@@ -53,14 +53,51 @@ jobs:
           fetch-depth: 0
 
       - name: Install ripgrep
-        # Bounded explicitly. This step is where the job hung for 33 minutes on
-        # 2026-08-18 (run 32170773072, PR #844): `apt-get update` stalled on a
-        # mirror and neither the step nor the job had any deadline, so GitHub's
-        # 360-minute job default applied. See the timeout-minutes note above.
+        # apt is not a dependency we control. It stalled on a mirror for 33
+        # minutes on 2026-08-18 (run 32170773072, PR #844); the 5-minute bound
+        # added then stopped the hang but not the failure, and this step went
+        # on to fail twice more on 2026-08-19 (runs 32273393597, 32275924754),
+        # blocking the ONE enforced cut RED both times. A timeout converts an
+        # outage into a faster outage.
+        #
+        # Order is cheapest-and-most-reliable first:
+        #   1. already on the runner (ubuntu-latest usually ships it)
+        #   2. the upstream static binary, one HTTPS GET, no package index
+        #   3. apt last, and only if both above fail
+        #
+        # Bound stays. If all three fail this must go red, not fall through to
+        # a scan that examines nothing: an operator-PII scan that cannot run is
+        # a false clean, which is the failure mode this whole job exists to
+        # prevent.
         timeout-minutes: 5
         run: |
+          set -euo pipefail
+
+          if command -v rg >/dev/null 2>&1; then
+              echo "ripgrep already present: $(rg --version | head -1)"
+              exit 0
+          fi
+
+          RG_VER=14.1.1
+          RG_TGZ="ripgrep-${RG_VER}-x86_64-unknown-linux-musl"
+          echo "ripgrep absent; fetching the static ${RG_VER} binary"
+          if curl -fsSL --max-time 90 --retry 2 \
+                "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VER}/${RG_TGZ}.tar.gz" \
+                -o /tmp/rg.tar.gz \
+             && tar -xzf /tmp/rg.tar.gz -C /tmp \
+             && sudo install -m 0755 "/tmp/${RG_TGZ}/rg" /usr/local/bin/rg; then
+              echo "ripgrep installed from upstream release: $(rg --version | head -1)"
+              exit 0
+          fi
+
+          echo "static download failed; falling back to apt" >&2
           sudo apt-get update -qq
           sudo apt-get install -y -qq ripgrep
+          command -v rg >/dev/null 2>&1 || {
+              echo "::error::ripgrep unavailable by all three routes. Failing rather than scanning with a missing tool -- a PII scan that cannot run must never report clean." >&2
+              exit 1
+          }
+          echo "ripgrep installed via apt: $(rg --version | head -1)"
 
       - name: Materialise PII inventory
         env:
