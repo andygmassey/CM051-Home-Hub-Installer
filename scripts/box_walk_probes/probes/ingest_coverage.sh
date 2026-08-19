@@ -1,0 +1,267 @@
+#!/usr/bin/env bash
+# probes/ingest_coverage.sh
+# ============================================================================
+# QUESTION: of the NINE ingest sources this product installs, how many have
+#           actually landed data, and is any store still EMPTY?
+#
+# WHY THIS PROBE EXISTS, and it is the plainest gap in the suite
+# --------------------------------------------------------------
+# On 2026-08-19 Andy asked a simple question -- "so does everything work?" --
+# and neither agent could answer it. Not because the box was broken, but
+# because nothing measures the thing the question is about.
+#
+# The eight probes that existed answered "did the mechanism run" or "is it
+# self-consistent":
+#
+#   daemon_is_listening        installed_bundle_seal_intact
+#   freshness_panel_has_dates  launchd_no_ephemeral_paths
+#   install_error_honesty      no_unexpected_egress
+#   pair_state_agreement       people_count_agreement
+#
+# Not one counts sources. Not one asserts data arrived. people_count_agreement
+# is the sharpest illustration: it checks the count AGREES across three
+# surfaces, so THREE SURFACES AGREEING ON ZERO PASSES IT. Consistency is not
+# liveness, and the suite had only consistency.
+#
+# THE DENOMINATOR, which nobody had written down
+# ----------------------------------------------
+# Measured from install.sh: every source the installer hydrates.
+#
+#   ai_conversations  apple_notes  browsing  email_preferences  imessage
+#   people            places       privacy_backfill             whatsapp
+#                                                             = NINE
+#
+# They land in four stores. Without that denominator, "four channels are
+# ingesting" is unreadable -- four out of what? It was four out of nine, and
+# the difference between those two sentences is the whole product claim.
+#
+# EMPTY IS THE FAILURE. FLAT IS NOT.
+# ----------------------------------
+# The tempting assertion is "every store must have grown since last run". That
+# is wrong and it would fire constantly: a customer who sent no messages
+# overnight has a legitimately flat conversations store, and a probe that calls
+# that a fault is a false accusation that teaches operators to ignore it.
+#
+# So the FAIL condition is EMPTY, not FLAT:
+#
+#   count == 0   nothing has EVER arrived here.        -> FAIL
+#   count > 0, unchanged since baseline                -> PASS, reported FLAT
+#   count > 0, grown since baseline                    -> PASS, reported MOVED
+#   store unreachable                                  -> CANNOT-RUN
+#
+# FLAT is reported loudly but does not fail, because this probe cannot tell
+# "quiet" from "dead" and MUST NOT PRETEND IT CAN. That discrimination needs a
+# per-source reachability signal the stores do not carry. Saying so is the
+# honest outcome; guessing would put a false verdict in a suite whose whole
+# value is that its verdicts are trustworthy.
+#
+# WHY A BASELINE FILE
+# -------------------
+# A count alone is a snapshot and snapshots get restated as present tense --
+# which is exactly how the "WhatsApp is our only working source" claim survived
+# a day past its evidence. Recording the count with its timestamp means the
+# NEXT run reports a delta and an age, so a reader can see how old the number
+# is without trusting anybody's memory.
+#
+# macOS bash 3.2.57 + BSD userland. British English; " -- " not em-dashes.
+# ============================================================================
+
+set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/probe.sh"
+
+PROBE_NAME="ingest_coverage"
+PROBE_QUESTION="of the nine ingest sources, how many have landed data, and is any store EMPTY?"
+
+QDRANT_URL="${OSTLER_QDRANT_URL:-http://127.0.0.1:6333}"
+BASELINE_FILE="${OSTLER_INGEST_BASELINE:-${HOME}/.ostler/state/ingest_coverage_baseline.tsv}"
+
+# The four stores, and which of the nine sources feed each. The mapping is the
+# reason this probe can talk about SOURCES rather than only collections.
+STORES="conversations people safari_history preferences"
+
+sources_for() {
+    case "$1" in
+        conversations)  printf 'imessage whatsapp ai_conversations' ;;
+        people)         printf 'people' ;;
+        safari_history) printf 'browsing' ;;
+        preferences)    printf 'email_preferences apple_notes places privacy_backfill' ;;
+        *)              printf '' ;;
+    esac
+}
+
+# Point count for one Qdrant collection. Prints an integer, or UNAVAILABLE.
+# UNAVAILABLE and 0 are DIFFERENT and must never collapse: the first means the
+# probe could not look, the second means it looked and found nothing.
+count_store() {
+    local name="$1"
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        local var="FAKE_${name}"
+        eval "printf '%s' \"\${$var:-UNAVAILABLE}\""
+        return
+    fi
+    local out
+    out="$(box_run "curl -sS -m 10 '${QDRANT_URL}/collections/${name}' 2>/dev/null")"
+    printf '%s' "$out" | python3 -c '
+import json,sys
+raw=sys.stdin.read().strip()
+if not raw:
+    print("UNAVAILABLE"); sys.exit(0)
+try:
+    d=json.loads(raw)
+    if d.get("status")!="ok":
+        print("UNAVAILABLE"); sys.exit(0)
+    n=d["result"].get("points_count")
+    print("UNAVAILABLE" if n is None else int(n))
+except Exception:
+    print("UNAVAILABLE")
+'
+}
+
+read_baseline() {
+    # <store>\t<count>\t<iso8601>
+    [ -f "$BASELINE_FILE" ] || return 1
+    grep -E "^$1	" "$BASELINE_FILE" 2>/dev/null | head -1
+}
+
+run_probe() {
+    if ! box_reachable; then
+        probe_cannot_run "box ${OSTLER_BOX_HOST:-<local>} is not reachable over ssh. Nothing was measured; this is not a pass."
+    fi
+
+    local total_stores=0 reachable=0 empty=0 moved=0 flat=0
+    local unavailable_list="" empty_list="" flat_list="" moved_list=""
+    local sources_evidenced=0
+    local now
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    local newline
+    newline="$(printf '\n')"
+    local fresh_baseline=""
+
+    printf 'STORE            COUNT      BASELINE   AGE          STATE\n'
+
+    local s count base_line base_count base_when age_note state
+    for s in $STORES; do
+        total_stores=$((total_stores + 1))
+        count="$(count_store "$s")"
+
+        if [ "$count" = "UNAVAILABLE" ]; then
+            unavailable_list="${unavailable_list} ${s}"
+            printf '%-16s %-10s %-10s %-12s %s\n' "$s" "UNAVAIL" "-" "-" "NOT MEASURED"
+            continue
+        fi
+        reachable=$((reachable + 1))
+
+        base_count="-"; base_when="-"; age_note="-"
+        if base_line="$(read_baseline "$s")"; then
+            base_count="$(printf '%s' "$base_line" | cut -f2)"
+            base_when="$(printf '%s' "$base_line" | cut -f3)"
+            age_note="$base_when"
+        fi
+
+        if [ "$count" -eq 0 ]; then
+            empty=$((empty + 1))
+            empty_list="${empty_list} ${s}"
+            state="EMPTY"
+        elif [ "$base_count" = "-" ]; then
+            state="POPULATED (no baseline yet)"
+            sources_evidenced=$((sources_evidenced + $(sources_for "$s" | wc -w)))
+        elif [ "$count" -gt "$base_count" ]; then
+            moved=$((moved + 1))
+            moved_list="${moved_list} ${s}"
+            state="MOVED +$((count - base_count))"
+            sources_evidenced=$((sources_evidenced + $(sources_for "$s" | wc -w)))
+        else
+            flat=$((flat + 1))
+            flat_list="${flat_list} ${s}"
+            state="FLAT"
+            sources_evidenced=$((sources_evidenced + $(sources_for "$s" | wc -w)))
+        fi
+
+        printf '%-16s %-10s %-10s %-12s %s\n' "$s" "$count" "$base_count" "$age_note" "$state"
+        fresh_baseline="${fresh_baseline}${s}	${count}	${now}${newline}"
+    done
+
+    printf '\n'
+    probe_examined "$reachable of $total_stores" "stores read (9 sources map onto these 4 stores)"
+    probe_note "sources with data evidenced : ${sources_evidenced} of 9"
+    probe_note "stores EMPTY                : ${empty}${empty_list:+ --${empty_list}}"
+    probe_note "stores MOVED since baseline : ${moved}${moved_list:+ --${moved_list}}"
+    probe_note "stores FLAT since baseline  : ${flat}${flat_list:+ --${flat_list}}"
+
+    # Persist the new baseline ONLY when every store was readable. A partial
+    # write would silently reset the deltas for the stores that did answer and
+    # destroy the comparison this probe exists to make.
+    if [ -n "$fresh_baseline" ] && [ "$reachable" -eq "$total_stores" ] && [ "${SELF_TEST_LOCAL:-0}" -ne 1 ]; then
+        mkdir -p "$(dirname "$BASELINE_FILE")" 2>/dev/null
+        printf '%s' "$fresh_baseline" > "$BASELINE_FILE" 2>/dev/null \
+            && probe_note "baseline rewritten: $BASELINE_FILE" \
+            || probe_note "baseline NOT written (unwritable): $BASELINE_FILE"
+    elif [ "$reachable" -ne "$total_stores" ]; then
+        probe_note "baseline NOT rewritten: only ${reachable} of ${total_stores} stores answered, and a partial baseline destroys the next run's deltas."
+    fi
+
+    # A zero denominator is the thing most likely to be misread as clean.
+    if [ "$reachable" -eq 0 ]; then
+        probe_cannot_run "not one of the ${total_stores} stores answered at ${QDRANT_URL}. Zero stores measured is not zero problems."
+    fi
+
+    if [ "$empty" -gt 0 ]; then
+        probe_fail "${empty} of ${total_stores} stores are EMPTY (${empty_list# }). Nothing has ever landed there, so the sources feeding them have delivered nothing."
+    fi
+
+    if [ "$reachable" -lt "$total_stores" ]; then
+        probe_cannot_run "only ${reachable} of ${total_stores} stores answered (missing:${unavailable_list}). A verdict on a subset would understate coverage."
+    fi
+
+    if [ "$flat" -gt 0 ]; then
+        probe_pass "all ${total_stores} stores hold data. ${flat} FLAT since baseline (${flat_list# }) -- this probe CANNOT tell quiet from dead, so classify those before trusting them."
+    fi
+
+    probe_pass "all ${total_stores} stores hold data and ${moved} moved since baseline. ${sources_evidenced} of 9 sources evidenced."
+}
+
+# ---------------------------------------------------------------------------
+# NEGATIVE CONTROL. A probe that only ever passes is decoration.
+# Three arms, because this probe has three ways to be wrong.
+# ---------------------------------------------------------------------------
+self_test() {
+    local rc out fails=0
+
+    # ARM 1: a store is EMPTY -> must FAIL, and must name the store.
+    out="$(SELF_TEST_LOCAL=1 FAKE_conversations=1024 FAKE_people=0 \
+           FAKE_safari_history=8788 FAKE_preferences=9025 \
+           bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+    if [ "$rc" -ne 1 ] || ! printf '%s' "$out" | grep -q 'EMPTY'; then
+        printf 'SELF-TEST ARM 1 BROKEN: empty store did not FAIL (rc=%s)\n' "$rc"; fails=$((fails+1))
+    else
+        printf 'arm 1 OK: an EMPTY store returns FAIL naming it\n'
+    fi
+
+    # ARM 2: nothing readable -> must CANNOT-RUN (78), never PASS.
+    out="$(SELF_TEST_LOCAL=1 bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+    if [ "$rc" -ne 78 ]; then
+        printf 'SELF-TEST ARM 2 BROKEN: unreadable stores returned rc=%s, expected 78\n' "$rc"; fails=$((fails+1))
+    else
+        printf 'arm 2 OK: zero readable stores is CANNOT-RUN, not a pass\n'
+    fi
+
+    # ARM 3: all populated -> must PASS. Without this the probe could satisfy
+    # arms 1 and 2 by failing unconditionally.
+    out="$(SELF_TEST_LOCAL=1 FAKE_conversations=1024 FAKE_people=6889 \
+           FAKE_safari_history=8788 FAKE_preferences=9025 \
+           bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+    if [ "$rc" -ne 0 ]; then
+        printf 'SELF-TEST ARM 3 BROKEN: fully populated returned rc=%s, expected 0\n' "$rc"; fails=$((fails+1))
+    else
+        printf 'arm 3 OK: all stores populated returns PASS\n'
+    fi
+
+    if [ "$fails" -gt 0 ]; then
+        printf 'VERDICT: BROKEN -- %s self-test arms failed\n' "$fails"
+        exit 1
+    fi
+    printf 'VERDICT: PASS -- 3 of 3 self-test arms held\n'
+    exit 0
+}
+
+probe_main "$@"
