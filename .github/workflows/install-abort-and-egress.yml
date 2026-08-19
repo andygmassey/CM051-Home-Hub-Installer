@@ -99,15 +99,24 @@ jobs:
             echo "NOTHING was measured. This is CANNOT-RUN, not a pass." >&2
             exit 1
           fi
-          if ! /tmp/pytest-venv/bin/pip install --quiet --disable-pip-version-check pytest; then
-            echo "FAIL: pip could not install pytest. NOTHING was measured." >&2
+          # httpx as well as pytest. The two cm048 cases import the REAL
+          # ollama_client, which imports httpx at module scope, so without it
+          # they die on collection. Installing it is the honest fix: skipping
+          # them on ImportError would silently retire the end-to-end assertion,
+          # which is the single most valuable one here (it is the case proved
+          # RED against the hardcoded 32768). A skip reads as a pass.
+          if ! /tmp/pytest-venv/bin/pip install --quiet --disable-pip-version-check pytest httpx; then
+            echo "FAIL: pip could not install pytest + httpx. NOTHING was measured." >&2
             exit 1
           fi
           /tmp/pytest-venv/bin/python -m pytest --version
 
-          out="$(/tmp/pytest-venv/bin/python -m pytest tests/test_ollama_user_active.py -q 2>&1)"
-          rc=$?
-          printf '%s\n' "$out"
+          # tee so the output reaches the log even when the run fails, and
+          # PIPESTATUS because `$?` after a pipeline is TEE's exit code, not
+          # pytest's. That mistake has cost this project real debugging time.
+          /tmp/pytest-venv/bin/python -m pytest tests/test_ollama_user_active.py -q 2>&1 | tee /tmp/pytest.out
+          rc="${PIPESTATUS[0]}"
+          out="$(cat /tmp/pytest.out)"
 
           if [ "$rc" -ne 0 ]; then
             echo "FAIL: pytest exited ${rc} on tests/test_ollama_user_active.py (output above)." >&2
