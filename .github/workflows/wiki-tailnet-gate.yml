@@ -45,3 +45,27 @@ jobs:
         # It extracts the parser from install.sh rather than copying it, so
         # the test cannot drift from what ships.
         run: python3 -m unittest tests.test_tailnet_owner_resolution -v
+
+      # #644. The two steps above ask whether the tailnet gate ADMITS the
+      # right person; this asks whether the customer ever gets ONTO the
+      # tailnet at all. On the .136 relaunch tailscaled was down, `tailscale
+      # up` could not mint a login URL, and the installer still entered
+      # "Waiting for you to sign in (up to 3 minutes)" -- a wait that could
+      # only ever full-timeout. It hung 382s and opened no browser.
+      #
+      # This is the Tailscale workflow in this repo and this is the install.sh
+      # Tailscale block, so the gate belongs here rather than in a workflow of
+      # its own. It uses the same technique as the step above: it EXTRACTS
+      # _ts_daemon_up from install.sh and drives it against stubbed
+      # `tailscale status` output, so it cannot drift from what ships.
+      #
+      # No `paths:` entry, because this workflow has no paths filter -- it
+      # runs on every pull request by design, and adding a filter to carry one
+      # test would narrow a gate that currently always fires.
+      #
+      # `if: always()` because it is not the first gate in the job. GitHub
+      # stops a job at its first failing step, and a skipped gate reports
+      # identically to one that ran and passed.
+      - name: Sign-in wait is never entered with tailscaled down (#644)
+        if: always()
+        run: bash tests/test_tailscale_daemon_gate.sh

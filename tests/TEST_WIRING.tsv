@@ -198,6 +198,7 @@ test_step_end_does_not_report_a_timed_out_step_as_ok.sh	WIRED	.github/workflows/
 test_subscription_activation_path.sh	UNWIRED	-
 test_sync_vendor_pin_untouched_on_abort.sh	UNWIRED	-
 test_tailnet_owner_resolution.py	UNWIRED	-
+test_tailscale_daemon_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_recovery_wrapper.sh	UNWIRED	-
 test_takeout_split_zip_no_abort.sh	UNWIRED	-
 test_third_party_data_consent.sh	WIRED	.github/workflows/consent-contract.yml
