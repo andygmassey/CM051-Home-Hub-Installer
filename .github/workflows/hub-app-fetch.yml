@@ -1,0 +1,65 @@
+name: hub-app-fetch
+
+# `ship` must OBTAIN Ostler.app before it CHECKS for Ostler.app (task #332).
+#
+# Eight tagged cuts across v1.0.23/24/25 produced no DMG because
+# OSTLER_APP_PATH's sibling-checkout default cannot exist on a hosted runner
+# and nothing fetched the bundle. download-hub-app closes that; these two tests
+# pin the wire and the default it depends on.
+#
+# Companion files:
+#   tests/test_hub_app_fetch_wired.sh
+#   tests/test_makefile_app_path_default.sh   (existed, ran in no workflow)
+#
+# macos-14, not ubuntu, deliberately. This asks GNU make 3.81 -- the make that
+# macOS ships and the one the cut actually runs -- to parse the same Makefile
+# under the same shell. A gate for a macOS-only pipeline that only ever runs on
+# Linux is measuring a different program.
+
+on:
+  pull_request:
+    paths:
+      - 'gui/Makefile'
+      - 'tests/test_hub_app_fetch_wired.sh'
+      - 'tests/test_makefile_app_path_default.sh'
+      # A gate must trigger on changes to ITSELF, or it can be broken (or
+      # quietly narrowed) in a PR that never runs it.
+      - '.github/workflows/hub-app-fetch.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'gui/Makefile'
+      - 'tests/test_hub_app_fetch_wired.sh'
+      - 'tests/test_makefile_app_path_default.sh'
+      - '.github/workflows/hub-app-fetch.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  wiring:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Declare the tools, so a green result says what it measured
+        run: |
+          set -uo pipefail
+          echo "bash:  $(/bin/bash --version | head -1)"
+          echo "make:  $(make --version | head -1)"
+          echo "grep:  $(command -v grep)"
+
+      - name: ship obtains Ostler.app before it checks for it
+        run: /bin/bash tests/test_hub_app_fetch_wired.sh
+
+      - name: OSTLER_APP_PATH default still resolves beside this checkout
+        if: always()
+        run: /bin/bash tests/test_makefile_app_path_default.sh

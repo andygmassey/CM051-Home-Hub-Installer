@@ -78,8 +78,15 @@ class PairStatus:
 
 
 def gateway_port() -> int:
-    """Resolve the gateway port from env, mirroring zeroclaw-config's order."""
-    for var in ("ZEROCLAW_GATEWAY_PORT", "PORT"):
+    """Resolve the gateway port from env, mirroring zeroclaw-config's order.
+
+    OSTLER_CHAT_GATEWAY_PORT is the canonical override the installer writes
+    and the one chat_token.py reads (see _zeroclaw_port there). It must be
+    consulted first; without it the Pair panel falls through to the default
+    (42617), which is dead on the productised single-machine install, so the
+    panel reports the gateway as down even though it is live on :8000.
+    """
+    for var in ("OSTLER_CHAT_GATEWAY_PORT", "ZEROCLAW_GATEWAY_PORT", "PORT"):
         raw = os.environ.get(var)
         if raw:
             try:

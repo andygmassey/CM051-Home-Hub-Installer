@@ -48,18 +48,39 @@ class MetaParser(BaseParser):
         "check_ins",
     ]
 
+    # Directory names that ONLY a Facebook or Instagram export carries. A
+    # content pattern on its own cannot identify a Meta archive: the patterns
+    # above include "comments", which matches LinkedIn's Comments.csv, and
+    # "music", which matches Spotify's StreamingHistory_music_0.json. Both
+    # exports were claimed here and both yielded zero, because this parser has
+    # no idea what to do with either. Compared as whole path SEGMENTS.
+    META_STRUCTURE_DIRS = frozenset({
+        "your_facebook_activity",
+        "your_instagram_activity",
+        "comments_and_reactions",
+        "likes_and_reactions",
+        "apps_and_websites_off_of_facebook",
+        "facebook",
+        "instagram",
+    })
+
     def can_parse(self, file_path: Path) -> bool:
         """Check if file is a Meta data export."""
         if file_path.suffix.lower() == ".zip":
             try:
                 with zipfile.ZipFile(file_path, 'r') as zf:
                     names = zf.namelist()
-                    return any(
-                        any(pattern in n.lower() for pattern in self.SUPPORTED_PATTERNS)
-                        for n in names
-                    )
             except Exception:
                 return False
+            # Structure first, content second. Either alone is not enough: the
+            # structure says the archive IS Facebook or Instagram, the content
+            # pattern says there is something in it this parser can read.
+            if not self._has_meta_structure(names):
+                return False
+            return any(
+                any(pattern in n.lower() for pattern in self.SUPPORTED_PATTERNS)
+                for n in names
+            )
 
         if file_path.suffix.lower() == ".json":
             name = file_path.name.lower()
@@ -77,6 +98,20 @@ class MetaParser(BaseParser):
                         continue
                 return True
 
+        return False
+
+    @classmethod
+    def _has_meta_structure(cls, member_names) -> bool:
+        """Return True if the archive carries a Facebook/Instagram directory.
+
+        Segment equality, not containment, and deliberately not a check on the
+        archive's FILENAME: a customer who renames facebook-export.zip still
+        has a Facebook export, and a nominal test would go quiet on them.
+        """
+        for raw in member_names:
+            for part in raw.replace("\\", "/").split("/"):
+                if part.lower() in cls.META_STRUCTURE_DIRS:
+                    return True
         return False
 
     @staticmethod
@@ -112,16 +147,50 @@ class MetaParser(BaseParser):
         default_compartment: Optional[int] = None,
         **kwargs
     ) -> AsyncIterator[ParsedPreference]:
-        """Parse Meta data export."""
+        """Parse Meta data export.
+
+        BW3-10 (Andy Studio-walk on v1.0.12, 2026-07-30): the earlier
+        ``str/dict data-loss'' fix added ``_iter_records`` +
+        isinstance guards inside ``_parse_comments`` and the other
+        record-level parsers, but the Studio walk still hit
+        ``AttributeError: 'str' object has no attribute 'get'`` on
+        three real-customer Facebook JSON files
+        (``comments_and_reactions/comments.json``,
+        ``groups/group_posts_and_comments.json``,
+        ``groups/your_comments_in_groups.json``), surfacing as
+        pipeline.py's ``Error parsing <file>: ...'' log at ERROR
+        level. Whatever specific path is still ungarded, the effect
+        is the same: the whole file is discarded on the floor and
+        the customer sees an ERROR that reads as fatal for that
+        file. Wrap the router at the parser boundary in a per-file
+        exception handler so any residual bug degrades to a WARNING
+        with visible context + yields whatever partial records the
+        parser already produced, instead of dropping the whole file
+        + spamming ERROR level. Belt-and-braces on top of the
+        specific isinstance guards, not a replacement for them.
+        """
         if default_compartment is None:
             default_compartment = settings.default_compartment
 
-        if file_path.suffix.lower() == ".zip":
-            async for pref in self._parse_zip(file_path, default_compartment):
-                yield pref
-        else:
-            async for pref in self._parse_json(file_path, default_compartment):
-                yield pref
+        try:
+            if file_path.suffix.lower() == ".zip":
+                async for pref in self._parse_zip(file_path, default_compartment):
+                    yield pref
+            else:
+                async for pref in self._parse_json(file_path, default_compartment):
+                    yield pref
+        except (AttributeError, TypeError, KeyError, ValueError) as e:
+            logger.warning(
+                "Meta parser hit a payload-shape edge case in %s: %s. "
+                "Partial records (if any) already yielded; remaining "
+                "records dropped for this file. Original file is not "
+                "modified; the failure is silent from the customer's "
+                "point of view and the graph is missing whatever this "
+                "file would have contributed. File a shape-guard "
+                "follow-up if this repeats across customers.",
+                file_path,
+                e,
+            )
 
     async def _parse_zip(
         self,

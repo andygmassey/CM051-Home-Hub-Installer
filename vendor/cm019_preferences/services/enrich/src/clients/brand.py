@@ -218,7 +218,7 @@ class BrandClient(BaseClient[BrandInfo]):
     def _get_headers(self) -> Dict[str, str]:
         return {
             "Accept": "application/json",
-            "User-Agent": "PWG-Brand-Recognition/0.1.0 (Personal World Graph; brand normalization)",
+            "User-Agent": "Ostler/1.0 (+https://ostler.ai)",
         }
 
     async def lookup_brand(

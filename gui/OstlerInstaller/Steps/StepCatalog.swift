@@ -97,6 +97,16 @@ final class StepCatalog {
         "config_save",
         "encrypt_db",
         "fda_extract",
+        // ORDERING CONTRACT (install.sh phase 3.7c): the ostler-assistant
+        // daemon binary is staged immediately after fda_extract, not late in
+        // phase 3.14e as it was up to v1.0.17. Ten LaunchAgents carry that
+        // binary as ProgramArguments[0]; bootstrapping any of them before it
+        // exists makes launchd park the job on EX_CONFIG (78) forever. The
+        // sidebar row moves with the emission so the order the customer sees
+        // is the order install.sh runs. What stayed at 3.14e is the daemon's
+        // own LaunchAgent (id ostler_assistant_agent has never existed --
+        // that half emits no STEP_BEGIN of its own).
+        "ostler_assistant",
         "graph_db_start",
         "vane_install",
         "ai_models",
@@ -141,7 +151,6 @@ final class StepCatalog {
         // it installs the hourly agent that writes ~/.ostler/editor/
         // front_page.json, the file the Hub Dashboard's Front Page reads.
         "editor_frontpage",
-        "ostler_assistant",
         "ostler_hub_app",
         "ostler_remotecapture",
         // CX-81 Tailscale step (2026-05-26): dedicated "Connect your
@@ -174,6 +183,14 @@ final class StepCatalog {
         // ingest_imessage to emit Person + lastContactIMessage
         // triples. Counts-only stdout, no participant identifiers.
         "hydrate_imessage",
+        // CM024 §7: hydrate_apple_notes fires after hydrate_imessage and
+        // before hydrate_people. Reads apple_notes.json (written by
+        // fda_extract) and runs the bundled ostler-knowledge convert+embed
+        // path (--source apple_notes) so Apple Notes land in the
+        // apple_notes_knowledge Qdrant collection. Ship-dark: the step is a
+        // no-op unless apple_notes.json exists and is non-empty. Counts-only
+        // stdout; no note titles or bodies cross the boundary.
+        "hydrate_apple_notes",
         // #600: hydrate_people fires after hydrate_imessage (so Oxigraph is
         // fully populated) and before initial_hydrate. Sweeps pwg:Person from
         // Oxigraph into the Qdrant `people` collection so the iOS People tab +

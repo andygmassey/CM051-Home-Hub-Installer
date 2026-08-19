@@ -652,8 +652,43 @@ class PreferenceFilter:
             if key not in self._aggregated:
                 # Get base_strength from extra if available (the original strength
                 # before frequency/decay adjustments), otherwise fall back to stored strength
-                extra = payload.get("extra", {})
+                extra = dict(payload.get("extra") or {})
                 base_strength = extra.get("base_strength", payload.get("strength", 0.5))
+
+                # A ROW WARMED FROM STORAGE MUST NOT BE ABLE TO CLAIM DECLARED
+                # PROVENANCE. This is the only place in the codebase where a
+                # ParsedPreference is built by something that is not a parser,
+                # and it is the one path that can defeat the egress gate.
+                #
+                # The mechanism, found by TNM in review of #410: a row stored
+                # before `category_inferred` existed has no such key. If this
+                # placeholder is ever written back, ParsedPreference.to_payload()
+                # applies `setdefault("category_inferred", False)` -- and False
+                # means "the source DECLARED this category", which authorises
+                # sending the subject to a third party. That is the bool(None)
+                # defect one layer up: unrecorded provenance silently promoted
+                # to declared, on exactly the pre-existing corpus the recurring
+                # enrichment agent feeds on.
+                #
+                # It does not happen TODAY, and not by design. `_make_dedup_key`
+                # builds `source:signal_type:normalized` (three segments) while
+                # the key above builds `source:normalized` (two), so warmed
+                # entries are unreachable and never become the representative.
+                # The hole is closed by a key mismatch.
+                #
+                # That coupling is the hazard. Adding `signal_type` to the warm
+                # key is an obvious and correct bug fix that somebody will make,
+                # and the moment it lands the placeholder becomes reachable and
+                # the egress hole re-opens silently. Stamping provenance here
+                # decouples the two: it is a no-op while the keys disagree, and
+                # it is the thing that holds the line when they stop disagreeing.
+                #
+                # True, not None: the stored payload has no way to express
+                # "unknown", so the fail-closed encoding at this boundary is to
+                # treat unrecorded as inferred. The cost is a missed enrichment
+                # on a row we cannot vouch for.
+                if "category_inferred" not in extra:
+                    extra["category_inferred"] = True
 
                 # Create a minimal ParsedPreference to hold the data
                 placeholder = ParsedPreference(

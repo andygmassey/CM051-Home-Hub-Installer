@@ -10,7 +10,7 @@ process``). CM048 then emits the four artefacts under
 ``~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/``.
 
 This is the product path. It does NOT use the ZeroClaw JSONL tail
-(``publisher/publisher.py``) which is the legacy gamingrig personal
+(``publisher/publisher.py``) which is the legacy personal dev
 setup; the product reads chat.db directly under FDA on the single
 Hub Mac.
 """

@@ -32,9 +32,15 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+import httpx
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 
 from status_collector import (
     collect_full_snapshot,
@@ -108,6 +114,7 @@ from web_ui_copy import (
     DASHBOARD_CONFIG_LINK,
     DASHBOARD_IMPORT_EVERNOTE_LINK,
     DASHBOARD_PAIR_IOS_LINK,
+    DASHBOARD_WHATSAPP_PAIR_LINK,
     DASHBOARD_LAST_CHECKED_JUST_NOW,
     DASHBOARD_LAST_CHECKED_PREFIX,
     DASHBOARD_LAST_CHECKED_SUFFIX,
@@ -217,6 +224,21 @@ from web_ui_copy import (
     PAIR_IOS_SECTION_CODE,
     PAIR_IOS_SUBTITLE,
     PAIR_IOS_TITLE_TAG,
+    WHATSAPP_PAIR_BACK_LINK,
+    WHATSAPP_PAIR_COUNTDOWN_PREFIX,
+    WHATSAPP_PAIR_EXPIRED_HELP,
+    WHATSAPP_PAIR_EXPIRED_TITLE,
+    WHATSAPP_PAIR_HEADING,
+    WHATSAPP_PAIR_LEDE,
+    WHATSAPP_PAIR_LOADING,
+    WHATSAPP_PAIR_NOT_REQUESTED_HELP,
+    WHATSAPP_PAIR_NOT_REQUESTED_TITLE,
+    WHATSAPP_PAIR_POLL_MS,
+    WHATSAPP_PAIR_READY_HELP,
+    WHATSAPP_PAIR_READY_INSTRUCTION,
+    WHATSAPP_PAIR_TITLE_TAG,
+    WHATSAPP_PAIR_UNREADABLE_HELP,
+    WHATSAPP_PAIR_UNREADABLE_TITLE,
     PORT_CONFLICT_DETAIL_FMT,
     PORT_CONFLICT_FIX,
     PORT_CONFLICT_FIX_COMMAND_FMT,
@@ -671,6 +693,65 @@ _IPV4_RE = re.compile(
     r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
 )
 
+# Credential-shaped values that must never leave the machine in a report the
+# customer is about to paste into an email.
+#
+# WHY THIS EXISTS, and what was actually measured rather than assumed:
+#
+# The daemon prints a live WhatsApp pair code to its own stderr, which launchd
+# writes to ``~/.ostler/logs/ostler-assistant.err``. That is the SAME directory
+# the diagnostics bundle tails from. It was raised as a possible leak, so it was
+# measured rather than argued: ``_LOG_FILENAMES`` is an explicit two-item tuple
+# (``doctor.log``, ``doctor.err``) with no globbing, and the substring
+# ``ostler-assistant.err`` appears nowhere under the Doctor tree. **The pair
+# code does not reach the bundle today.**
+#
+# So this is not a fix for a live leak. It is a guard, because the only thing
+# keeping a credential out of a support email is one two-item tuple in a
+# neighbouring function, and "collect all the logs in the logs directory" is the
+# single most natural improvement anyone will ever make to that code. The scrub
+# costs one regex and removes the class.
+#
+# Anchored on the LABEL, not on the shape of the value. An 8-character
+# alphanumeric token has no distinguishing shape: a pattern loose enough to
+# catch it would redact ordinary words out of every log line and make the whole
+# report useless, which is how a scrub gets switched off.
+#
+# GRAFTED into the vendor tree, not re-vendored (HR015 a1245dc6). CM051's doctor
+# pin is held deliberately, so reconstruction is source@pinned_sha +
+# vendor/divergences/doctor.patch. Only the guard is grafted: a1245dc6's other
+# half, agent/whatsapp_pair.py, is a NEW file, and a new file has no durable
+# home here. sync_vendor.sh regenerates this patch via gen_patch on every sync
+# and gen_patch captures only files present in BOTH trees, so a hand-authored
+# new-file hunk is stripped on the next sync; the surviving mechanism for a
+# genuinely vendor-only file is vendor/VENDOR_ONLY.tsv, and whatsapp_pair.py
+# does NOT qualify because it exists upstream, just not at the held pin. It also
+# has no caller yet: a1245dc6 states the route and panel land separately, so
+# grafting the reader would add unreachable code the tooling cannot keep. It
+# arrives natively when the pin next moves.
+# THE `bearer` HOLE, measured rather than inherited. Upstream lists `bearer` as
+# a label, but every alternative requires a `:` or `=` immediately after it, and
+# the canonical form is ``Authorization: Bearer <token>`` -- the separator sits
+# before "Bearer", not after. So the label advertised coverage the pattern could
+# not deliver and a bearer token reached the report in the clear. Caught by
+# feeding the vendored _redact_report one header per label and requiring the
+# value to disappear; 15 of 16 dropped, `bearer` did not.
+#
+# Fixed by matching on ``authorization`` (the label that DOES carry a
+# separator) and consuming an optional ``bearer`` word before the value, so the
+# token is what gets replaced rather than the scheme name.
+#
+# DELIBERATE LIMIT, stated rather than left as a silent hole: a bare
+# ``Bearer <token>`` with no ``Authorization:`` in front of it is NOT matched.
+# Catching that needs `bearer\s+\S+`, which also eats ordinary prose ("the
+# bearer of that token"), and a scrub that mangles readable log lines is one
+# people switch off. Same reasoning upstream gives for anchoring on labels.
+_SECRET_LABEL_RE = re.compile(
+    r"(?i)\b(pair[\s_-]?code|pairing[\s_-]?code|access[\s_-]?token|api[\s_-]?key"
+    r"|verify[\s_-]?token|app[\s_-]?secret|authorization|bearer)\b\s*[:=]\s*"
+    r"(?:bearer\s+)?\S+"
+)
+
 
 def _home_username() -> str | None:
     """Best-effort current username for home-path redaction.
@@ -720,6 +801,15 @@ def _redact_report(report: str) -> str:
 
     redacted = _EMAIL_RE.sub(placeholder, redacted)
     redacted = _IPV4_RE.sub(placeholder, redacted)
+
+    # Credential-shaped values last, so a token that happened to sit inside a
+    # path or beside an email is still caught after those substitutions have
+    # rewritten the text around it. Keeps the label, drops the value: support
+    # can still see THAT a pair code was in play, which is often the diagnosis,
+    # without receiving one that still works.
+    redacted = _SECRET_LABEL_RE.sub(
+        lambda m: f"{m.group(1)}: {placeholder}", redacted
+    )
 
     return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
 
@@ -1615,7 +1705,7 @@ def render_dashboard(
         </div>
 
         <div class="meta" id="metaInfo">
-            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}
+            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}{DASHBOARD_WHATSAPP_PAIR_LINK}
         </div>
     </div>
 
@@ -2008,6 +2098,32 @@ def render_history(history_entries: list[dict]) -> str:
 # ── Endpoints ────────────────────────────────────────────────────────
 
 
+@app.get("/")
+async def front_door():
+    """Send the bare root to the dashboard. v1018-D023.
+
+    Every route on this service lives under /doctor or /api/v1, and nothing
+    served `/` at all, so the front door returned 404. A customer who opens the
+    Doctor at its host and port -- the only address they have been given -- gets
+    a 404 from a service that is running perfectly.
+
+    302 rather than 307 or 301, deliberately:
+      * 307 is FastAPI's RedirectResponse default and preserves the method,
+        meaningless for a browser hitting the root, and the D023 gate accepts
+        only 200/301/302 -- a 307 would leave the gate red.
+      * 301 is permanent and browsers cache it hard. If the dashboard ever
+        moves, every customer who visited once keeps the stale target.
+
+    GRAFTED into the vendor tree, not re-vendored: CM051's doctor pin is held
+    deliberately. Reconstruction is source@upstream + vendor/divergences/
+    doctor.patch. RedirectResponse was NOT imported in this copy -- grafting the
+    function alone would have turned a 404 into a NameError 500, which is worse,
+    so the import moved to the parenthesised form upstream already uses.
+    """
+    return RedirectResponse(url="/doctor", status_code=302)
+
+
+
 @app.get("/doctor", response_class=HTMLResponse)
 async def dashboard():
     """Serve the diagnostic dashboard or first-run wizard."""
@@ -2102,6 +2218,19 @@ async def api_history():
 
 @app.get("/doctor/api/health")
 async def health():
+    # Test-only gate (env var OSTLER_TEST_DISABLE_HEALTH). When set to "1" the
+    # route returns 503 so the (B-lite) upgrade brain's 60s health poll times
+    # out and Row 6 of the upgrade matrix can deterministically force a
+    # rollback. Any other value (or unset) is a no-op. Unset in production.
+    if os.environ.get("OSTLER_TEST_DISABLE_HEALTH") == "1":
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unavailable",
+                "service": "ostler-doctor",
+                "test_gate": "OSTLER_TEST_DISABLE_HEALTH",
+            },
+        )
     return {"status": "healthy", "service": "ostler-doctor"}
 
 
@@ -2283,6 +2412,220 @@ async def api_observability_posture():
     breaking-change must roll a /api/v2 instead of mutating this.
     """
     return all_observability_postures()
+
+
+# ── Wiki hydration status: UNAUTHENTICATED passthrough (#178) ─────────
+#
+# The wiki homepage's first-run "still settling" panel (CM044
+# ``compiler/hydration.py`` bakes it into the page HTML; a small JS
+# poller then auto-hides it once hydration completes) fetches
+# ``GET /api/v1/hydration/status``. That panel renders inside the wiki
+# iframe on :8044 and carries NO paired-iOS bearer. When this path is
+# served through the ``DOCTOR_PROXY_PATHS`` reverse proxy (below) it hits
+# ``proxy._is_paired_bearer`` and 401s ("client bearer is not a paired
+# token"), so BOTH the compile-time bake-check and the runtime auto-hide
+# poller silently fail and the panel bakes into the page forever (#178,
+# live-probed as a 401 on the Mini).
+#
+# The hydration payload is non-PII by construction -- per-phase counts,
+# states and an ETA only, no names, no content. The upstream ical-server
+# already marks it a PUBLIC route that never requires the service token
+# (``_PUBLIC_GET_PATHS`` in assistant_api/ical-server.py). So the Doctor
+# serves it UNAUTHENTICATED too, the same posture as ``/doctor/api/status``:
+# a dedicated explicit route that fetches the composite from the upstream
+# server-side (no Authorization forwarded) and returns the body verbatim,
+# 200 regardless of any inbound Authorization header.
+#
+# This route is registered BEFORE ``register_proxy_routes(app)`` so it wins
+# over the proxy catch-all: Starlette matches routes in registration order,
+# so an explicit ``/api/v1/hydration/status`` registered first takes
+# precedence over the same path the proxy would otherwise register from
+# ``DOCTOR_PROXY_PATHS``.
+
+_HYDRATION_STATUS_PATH = "/api/v1/hydration/status"
+# Loopback round-trip to the upstream composite; a few seconds is generous
+# and a wedged upstream must fail fast rather than hang the panel poll.
+_HYDRATION_UPSTREAM_TIMEOUT_SECONDS = 5.0
+
+
+async def _fetch_hydration_status(
+    gateway_url: "str | None" = None,
+    client: "httpx.AsyncClient | None" = None,
+) -> httpx.Response:
+    """Fetch the composite hydration status from the upstream ical-server.
+
+    The per-phase hydration feed is owned by the upstream (it combines the
+    wiki compiler's progress file with live Qdrant / Oxigraph / conversation
+    counts), so the Doctor cannot synthesise it from a local file -- it
+    fetches server-side. NO Authorization header is sent: the upstream marks
+    this a public route and the whole point of #178 is to serve it without a
+    paired bearer. Reuses ``proxy._gateway_base_url`` so the upstream base is
+    read from one place (``DOCTOR_GATEWAY_URL``; the customer install points
+    it at the loopback ical-server on :8090).
+
+    ``gateway_url`` / ``client`` exist for tests that inject a destination or
+    a mocked transport; production callers pass neither.
+    """
+    from proxy import _gateway_base_url  # single source of the upstream base
+
+    base = (gateway_url or _gateway_base_url()).rstrip("/")
+    url = base + _HYDRATION_STATUS_PATH
+    if client is not None:
+        return await client.get(
+            url, timeout=_HYDRATION_UPSTREAM_TIMEOUT_SECONDS
+        )
+    async with httpx.AsyncClient(
+        timeout=_HYDRATION_UPSTREAM_TIMEOUT_SECONDS
+    ) as new_client:
+        return await new_client.get(url)
+
+
+@app.get(_HYDRATION_STATUS_PATH)
+async def api_hydration_status() -> Response:
+    """Unauthenticated passthrough for the first-run wiki hydration panel.
+
+    Returns the upstream hydration JSON with a 200 whenever the upstream is
+    reachable, regardless of any inbound Authorization header -- there is no
+    bearer gate on this route (that is the #178 fix). On an upstream network
+    failure we mirror the proxy's honest 502 posture rather than fabricating
+    a "complete" payload that would wrongly hide the panel; the poller keeps
+    the panel visible and retries. Never 401s for auth reasons.
+    """
+    try:
+        upstream = await _fetch_hydration_status()
+    except (httpx.HTTPError, OSError) as exc:
+        # Upstream ical-server unreachable / timed out. Honest "cannot tell"
+        # so the wiki poller keeps the settling panel up and retries, instead
+        # of a 401 (the bug) or a fabricated done-state.
+        return Response(
+            content=json.dumps(
+                {"error": "upstream hydration status unreachable",
+                 "detail": exc.__class__.__name__}
+            ),
+            status_code=502,
+            media_type="application/json",
+        )
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        media_type=upstream.headers.get("content-type", "application/json"),
+    )
+
+
+# ── Governor: pause / resume / status (Doctor-owned control surface) ──
+#
+# CM051 GRAFT NOTE (v1018-D024). Taken verbatim from HR015 6639c79 (#282),
+# which lands AFTER the held doctor pinned_sha b0b3831, so this block does not
+# arrive from source and is carried by vendor/divergences/doctor.patch until
+# the pin next moves. Its backend, agent/pause_control.py, is grafted the same
+# way (a /dev/null new-file hunk in that patch). Without both, the Hub Governor
+# page's Pause button 404s -- which is exactly what shipped.
+# Gate: tests/test_doctor_governor_routes_vendored.sh
+#
+# The Hub Governor page + header status chip drive background-work Pause,
+# Resume and a live governor-status read against the Doctor (:8089) -- the
+# SAME origin as ``/api/v1/box-status`` and ``/api/v1/config``. These three
+# routes delegate to ``pause_control.py``, which reads/writes the
+# ``OSTLER_PAUSED`` / ``OSTLER_PAUSE_UNTIL`` keys in ``governor.env`` -- the
+# same file the shipped background engine (``ostler-resource-tier.sh``)
+# already consumes, so a pause here is honoured by every ``*-bundle-tick.sh``,
+# the wiki recompile tick and the daemon cron with NO new consumer wiring.
+# Live interactive chat is never gated by this.
+#
+# Registered BEFORE ``register_proxy_routes(app)`` (below) so these explicit
+# handlers win over the proxy catch-all (Starlette matches in registration
+# order). Without it, ``GET /api/v1/governor-status`` / ``/api/v1/pause`` fall
+# through to the gateway proxy and return SPA HTML and the POSTs 405.
+
+
+@app.get("/api/v1/governor-status", response_class=JSONResponse)
+async def api_governor_status():
+    """Live governor tier for the Governor page + acceptance gate.
+
+    Shape ``{enabled, tier, deferring}``: ``enabled`` reflects the
+    ``governor_enabled`` config, ``tier`` is the detected hardware tier
+    (``floor`` / ``low`` / ``high``, or ``null`` if the tier lib is
+    unreadable) and ``deferring`` is whether the governor is currently
+    holding non-essential work back. Reuses the exact helper
+    ``GET /api/v1/box-status`` uses so the two can never disagree. Fail-soft
+    to a minimal unknown payload -- never 500 the poll.
+    """
+    try:
+        from box_status import _governor
+
+        return _governor()
+    except Exception:
+        return {"enabled": True, "tier": None, "deferring": None}
+
+
+@app.get("/api/v1/pause", response_class=JSONResponse)
+async def api_pause_get():
+    """Current pause state read from ``governor.env``.
+
+    Shape ``{paused, expiry, indefinite, expiry_human, scope}``. Fail-soft to
+    "not paused" -- the same posture ``box_status._pause`` takes.
+    """
+    try:
+        from pause_control import read_state
+
+        return read_state()
+    except Exception:
+        return {"paused": False, "expiry": None, "indefinite": False,
+                "expiry_human": "", "scope": None}
+
+
+@app.post("/api/v1/pause", response_class=JSONResponse)
+async def api_pause_post(request: Request):
+    """Pause background work for a scope.
+
+    Body: ``{"scope": "hour" | "tonight" | "indefinite"}`` (a missing/blank
+    body defaults to an indefinite pause). Same cross-site guard as
+    ``/api/v1/config``: reject a POST whose ``Sec-Fetch-Site`` is present and
+    not same-origin. Returns the fresh pause state.
+    """
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse(
+            {"error": "Cross-site request refused"}, status_code=403
+        )
+
+    from pause_control import PauseError as _PauseError, set_pause
+
+    scope = "indefinite"
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and body.get("scope") is not None:
+            scope = str(body.get("scope"))
+    except Exception:
+        scope = "indefinite"  # no/blank body -> indefinite pause
+
+    try:
+        state = set_pause(scope)
+    except _PauseError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+    return JSONResponse(state, status_code=200)
+
+
+@app.post("/api/v1/resume", response_class=JSONResponse)
+async def api_resume_post(request: Request):
+    """Resume background work (clear the pause). Idempotent.
+
+    Same cross-site guard as ``/api/v1/pause``. Returns the fresh
+    (not-paused) state.
+    """
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse(
+            {"error": "Cross-site request refused"}, status_code=403
+        )
+
+    from pause_control import PauseError as _PauseError, resume
+
+    try:
+        state = resume()
+    except _PauseError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+    return JSONResponse(state, status_code=200)
 
 
 # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
@@ -3322,6 +3665,209 @@ def _render_pair_ios_page() -> str:
     </script>
 </body>
 </html>"""
+
+
+def _render_whatsapp_pair_page() -> str:
+    """Render the WhatsApp pair-code panel.
+
+    Vanilla HTML + JS, no framework, chassis tokens inlined the same way
+    ``_render_pair_ios_page`` does so the two pairing surfaces sit together
+    rather than one feeling bolted on.
+
+    THREE DESIGN RULES, each load-bearing:
+
+    1. The countdown renders the daemon's MEASURED ``expires_at``. Doctor
+       applies no TTL of its own. A countdown that disagrees with WhatsApp's is
+       worse than no countdown, because the customer trusts the one on screen.
+    2. The three error states read DIFFERENTLY, because they are different
+       problems with different next actions. Collapsing them to "no code
+       available" tells a stuck customer nothing.
+    3. The code is painted by the browser from JSON and is NEVER baked into the
+       served HTML. A pair code is credential-equivalent while it lives, so it
+       must not sit in a page a browser or a screenshot tool may cache.
+    """
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{WHATSAPP_PAIR_TITLE_TAG}</title>
+    <style>
+        /* PRIVACY: no webfont @import. A local-first product must not beacon
+           the customer IP+timestamp to a font CDN. Matches pair-ios. */
+        :root {{
+            --ostler-ink: #0d0b08;
+            --ostler-ink-deep: #07060a;
+            --ostler-chassis: #ECE8DD;
+            --ostler-accent: #C84545;
+            --ostler-accent-hover: #D76060;
+            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --text: var(--ostler-chassis);
+            --text-secondary: rgba(236, 232, 221, 0.74);
+            --text-muted: rgba(236, 232, 221, 0.50);
+            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+        }}
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        body {{
+            font-family: var(--font-body);
+            font-size: 15px;
+            line-height: 1.5;
+            background: var(--ostler-ink);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2.5rem 1.75rem;
+            -webkit-font-smoothing: antialiased;
+        }}
+        a {{ color: var(--ostler-accent); text-decoration: none; }}
+        a:hover {{ color: var(--ostler-accent-hover); }}
+        .container {{ max-width: 600px; margin: 0 auto; }}
+        h1 {{
+            font-family: var(--font-display);
+            font-size: 1.7rem;
+            font-weight: 600;
+            margin-bottom: 0.6rem;
+        }}
+        .lede {{ color: var(--text-secondary); margin-bottom: 1.4rem; }}
+        .panel {{
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: var(--shadow-soft);
+        }}
+        .label {{ margin-bottom: 1rem; line-height: 1.6; }}
+        .code-frame {{
+            background: var(--ostler-ink);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 10px;
+            padding: 1.1rem;
+            text-align: center;
+        }}
+        .code {{
+            font-family: var(--font-mono);
+            font-size: 2rem;
+            letter-spacing: 0.34em;
+            /* Trailing letter-spacing pushes the glyphs left of centre;
+               the matching indent pulls them back so the code sits square. */
+            text-indent: 0.34em;
+        }}
+        .countdown {{ margin-top: 0.9rem; color: var(--text-secondary); }}
+        .help {{
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            margin-top: 0.55rem;
+            line-height: 1.55;
+        }}
+        .back {{ margin-top: 1.5rem; font-size: 0.9rem; }}
+    </style>
+</head>
+<body>
+  <div class="container">
+    <h1>{WHATSAPP_PAIR_HEADING}</h1>
+    <p class="lede">{WHATSAPP_PAIR_LEDE}</p>
+
+    <section class="panel" aria-live="polite">
+      <div id="wa-loading" class="state">{WHATSAPP_PAIR_LOADING}</div>
+
+      <div id="wa-ready" class="state" hidden>
+        <p class="label">{WHATSAPP_PAIR_READY_INSTRUCTION}</p>
+        <div class="code-frame"><span id="wa-code" class="code"></span></div>
+        <p class="countdown">{WHATSAPP_PAIR_COUNTDOWN_PREFIX}
+          <span id="wa-remaining"></span>.</p>
+        <p class="help">{WHATSAPP_PAIR_READY_HELP}</p>
+      </div>
+
+      <div id="wa-not_requested" class="state" hidden>
+        <p class="label">{WHATSAPP_PAIR_NOT_REQUESTED_TITLE}</p>
+        <p class="help">{WHATSAPP_PAIR_NOT_REQUESTED_HELP}</p>
+      </div>
+
+      <div id="wa-expired" class="state" hidden>
+        <p class="label">{WHATSAPP_PAIR_EXPIRED_TITLE}</p>
+        <p class="help">{WHATSAPP_PAIR_EXPIRED_HELP}</p>
+      </div>
+
+      <div id="wa-unreadable" class="state" hidden>
+        <p class="label">{WHATSAPP_PAIR_UNREADABLE_TITLE}</p>
+        <p class="help">{WHATSAPP_PAIR_UNREADABLE_HELP}</p>
+      </div>
+    </section>
+
+    <p class="back"><a href="/doctor">{WHATSAPP_PAIR_BACK_LINK}</a></p>
+  </div>
+
+  <script>
+  (function () {{
+    var POLL_MS = {WHATSAPP_PAIR_POLL_MS};
+    var STATES = ["wa-loading", "wa-ready", "wa-not_requested",
+                  "wa-expired", "wa-unreadable"];
+
+    function show(id) {{
+      STATES.forEach(function (s) {{
+        var el = document.getElementById(s);
+        if (el) {{ el.hidden = (s !== id); }}
+      }});
+    }}
+
+    function humanise(secs) {{
+      if (secs === null || secs === undefined) {{ return "a moment"; }}
+      if (secs < 60) {{ return secs + " seconds"; }}
+      var m = Math.floor(secs / 60), r = secs % 60;
+      if (r === 0) {{ return m + (m === 1 ? " minute" : " minutes"); }}
+      return m + "m " + r + "s";
+    }}
+
+    function paint(data) {{
+      if (data && data.available) {{
+        // textContent, never innerHTML: the code is untrusted-by-policy
+        // output and must not be able to introduce markup.
+        document.getElementById("wa-code").textContent = data.code;
+        document.getElementById("wa-remaining").textContent =
+            humanise(data.seconds_remaining);
+        show("wa-ready");
+        return;
+      }}
+      var kind = (data && data.error_kind) || "unreadable";
+      if (STATES.indexOf("wa-" + kind) === -1) {{ kind = "unreadable"; }}
+      show("wa-" + kind);
+    }}
+
+    function tick() {{
+      fetch("/api/v1/whatsapp/pair")
+        .then(function (r) {{ return r.json(); }})
+        .then(paint)
+        // A fetch failure is Doctor being unreachable, not a bad pairing
+        // file. Reporting it as "unreadable" would send the customer to
+        // support for a page that just needs a reload.
+        .catch(function () {{ show("wa-loading"); }});
+    }}
+
+    tick();
+    setInterval(tick, POLL_MS);
+  }})();
+  </script>
+</body>
+</html>"""
+
+
+@app.get("/whatsapp-pair", response_class=HTMLResponse)
+async def whatsapp_pair_page():
+    """Render the WhatsApp pairing panel."""
+    return HTMLResponse(_render_whatsapp_pair_page())
+
+
+@app.get("/api/v1/whatsapp/pair", response_class=JSONResponse)
+async def api_whatsapp_pair():
+    """Return the current WhatsApp pair code and its state.
+
+    Read fresh on every call rather than cached: the code is short-lived and a
+    cached copy would outlive the thing it describes.
+    """
+    from whatsapp_pair import fetch_pair_status
+    return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
 
 
 @app.get("/pair-ios", response_class=HTMLResponse)

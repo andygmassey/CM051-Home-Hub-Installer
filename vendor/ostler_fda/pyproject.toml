@@ -8,24 +8,48 @@ version = "0.1.0"
 description = "macOS Full Disk Access data extractors for Ostler"
 requires-python = ">=3.10"
 
-# pwg_ingest.py talks to local Qdrant/Oxigraph over HTTP via httpx, so
-# httpx is a hard runtime dependency of this package. It MUST be declared
-# here: install.sh pip-installs ostler_fda into dedicated minimal per-source
-# venvs (email-ingest #161, whatsapp-source) that install nothing else, so
-# an undeclared httpx is simply absent -> `import httpx` fails at module
-# load and the WhatsApp + Browsing hydration steps crash mid-install
-# (the .145 box-walk install failure). It only ever worked because the
-# fat venvs (import-pipeline/cm019/cm048/knowledge/doctor) pull httpx
-# transitively; the minimal venvs do not.
+# WHY THIS FILE EXISTS IN HR015 (2026-08-08)
+# ==========================================
+# It did not, until now. The only copy lived in CM051's `vendor/ostler_fda/`
+# -- so the CODE was in this repo and the DEPENDENCY DECLARATION was in a
+# different one. Adding an import here could not be caught by anything here.
+#
+# That is not hypothetical. `identifier_quality.py` was added importing
+# nameparser, `pwg_ingest.py` imports it, and nothing failed: this repo has no
+# declaration to be wrong, and CM051 was not re-vendored yet. It would have
+# surfaced on a customer's box as a mid-install crash.
+#
+# The declaration now lives beside the code. `scripts/check_declared_deps.py`
+# walks the import graph from the modules install.sh actually invokes and
+# fails if anything reachable is missing below.
+#
+# WHY THE LIST IS LOAD-BEARING
+# ----------------------------
+# install.sh pip-installs this package into dedicated MINIMAL per-source venvs
+# (email-ingest, whatsapp-source) that install nothing else. An undeclared
+# import is simply absent -> the module fails at load and the hydration step
+# crashes mid-install. It only ever appeared to work because the fat venvs
+# (import-pipeline / cm019 / cm048 / knowledge / doctor) pull things in
+# transitively; the minimal venvs do not. That is the .145 box-walk install
+# failure, and httpx below is the scar from it.
 dependencies = [
+    # pwg_ingest talks to local Qdrant/Oxigraph over HTTP.
     "httpx>=0.27",
+    # identifier_quality uses HumanName to pull the GIVEN name out of a
+    # display name -- the household-detection rule compares given names, and
+    # hand-rolled word splitting got "Mary-Jane van der Berg" wrong.
+    # Reached from pwg_ingest, so every ingest path needs it present.
+    "nameparser>=2.1.0,<3.0",
 ]
 
-# The ostler_fda Python source lives directly in this directory
-# (the .py files are siblings of pyproject.toml). package-dir
-# maps the package name "ostler_fda" to "." so that
-# `pip install /path/to/vendor/ostler_fda/` produces a venv with
-# `import ostler_fda.apple_mail_mbox` working.
+# The ostler_fda Python source lives directly in this directory (the .py files
+# are siblings of pyproject.toml). package-dir maps the package name to "."
+# so `pip install /path/to/ostler_fda/` yields a venv where
+# `import ostler_fda.apple_mail_mbox` works.
+#
+# Keep this block identical to CM051's vendored copy -- a re-vendor overwrites
+# that file with this one, and if the mapping is lost the install still
+# succeeds while importing nothing.
 [tool.setuptools]
 packages = ["ostler_fda"]
 package-dir = {"ostler_fda" = "."}

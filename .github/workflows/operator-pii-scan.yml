@@ -22,9 +22,30 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   scan:
     runs-on: ubuntu-latest
+    # A GATE THAT CANNOT FINISH MUST FAIL, NOT HANG.
+    #
+    # This workflow is a REQUIRED check. Without a deadline a stalled step
+    # blocks the PR for GitHub's default 360 minutes, and a hang is
+    # indistinguishable from "still working" on every surface a reviewer sees:
+    # no failure, no annotation, just a spinner. That happened on 2026-08-18,
+    # run 32170773072, which sat 33 minutes on `apt-get update` before anyone
+    # looked.
+    #
+    # 10 minutes is chosen from MEASURED history, not taste. The last 19
+    # completed runs ranged 32s to 75s, so this is roughly 8x the slowest real
+    # run: generous enough that a merely slow runner still passes, tight enough
+    # that a stall surfaces in minutes rather than hours.
+    timeout-minutes: 10
     steps:
       - name: Checkout PR branch (with merge-base history)
         uses: actions/checkout@v4
@@ -32,6 +53,11 @@ jobs:
           fetch-depth: 0
 
       - name: Install ripgrep
+        # Bounded explicitly. This step is where the job hung for 33 minutes on
+        # 2026-08-18 (run 32170773072, PR #844): `apt-get update` stalled on a
+        # mirror and neither the step nor the job had any deadline, so GitHub's
+        # 360-minute job default applied. See the timeout-minutes note above.
+        timeout-minutes: 5
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ripgrep
@@ -78,6 +104,55 @@ jobs:
         if: ${{ steps.stage.outputs.count == '0' }}
         run: echo "No tracked files changed in this PR; scan skipped."
 
+      # Prove the shape scan asks the right question BEFORE trusting its answer.
+      # These five cases pin its SCOPE, not its patterns: a phone added by the
+      # change is RED, a phone that merely pre-exists in a touched file is not,
+      # and a rename carrying a phone is still RED so the narrowing is not a
+      # bypass. Runs before the scan so a scope regression is named as a scope
+      # regression rather than surfacing later as an inexplicable red or, worse,
+      # an inexplicable green.
+      - name: Prove ci-pii-shape-scan scope
+        run: bash tests/test_pii_shape_scan_scope.sh
+
+      # Prove the PATTERNS, having just proved the SCOPE. The two are separate
+      # questions and this repo answered only the first for weeks: the scope
+      # test pinned WHICH LINES get asked, and nothing at all pinned WHAT gets
+      # asked of them. The library sat at five of seven built-ins, the missing
+      # pair being email and the macOS home path, and every run printed a
+      # confident "5 pattern(s) loaded" while the scan was structurally unable
+      # to see the operator-path class.
+      #
+      # The library declares its own expected built-in count. Until this step
+      # existed here, that declaration was a comment: nothing in THIS repo
+      # compared it to what actually loads, so the contract travelled with the
+      # file and the enforcement did not.
+      - name: Prove the pattern library (declared floor + merge + validation)
+        run: bash .githooks/test_pii_patterns.sh
+
+      # The check that CAN run here. Runs FIRST and unconditionally, because it
+      # needs no inventory: it matches PII by SHAPE, and it carries its own
+      # canary so it refuses to report clean when its detector loaded nothing.
+      # This is the step that actually gates the PR.
+      - name: Run ci-pii-shape-scan
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          SHAPE=".github/scripts/ci-pii-shape-scan.sh"
+          if [ ! -x "$SHAPE" ]; then
+              echo "::error::Shape scan not found at $SHAPE."
+              echo "Run bin/install-pii-guards.sh from the HR015 - Gaming PC repo to provision it."
+              exit 1
+          fi
+          set +e
+          "$SHAPE"
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+              echo "::error::ci-pii-shape-scan failed (exit $status). See output above." >&2
+              exit "$status"
+          fi
+
       - name: Run operator-pii-scan
         if: ${{ steps.stage.outputs.count != '0' }}
         run: |
@@ -89,9 +164,35 @@ jobs:
               exit 1
           fi
           # Scanner exits 0 = clean, 1 = hits, 2 = inventory issue, 3 = rg missing.
-          if ! "$SCANNER" "${{ steps.stage.outputs.stage_dir }}"; then
-              status=$?
+          #
+          # The status MUST be captured from the scanner itself. The previous
+          # form was `if ! "$SCANNER" ...; then status=$?` -- and inside that
+          # branch `$?` is the status of the NEGATION, which is always 0. So
+          # `exit "$status"` was `exit 0` and this job passed on EVERY scanner
+          # failure, real PII hits included. It printed "failed (exit 0)",
+          # which was the tell. Fixed at source in HR015 (template +
+          # bin/test_pii_scan_wiring.sh); this is the installed copy.
+          set +e
+          "$SCANNER" "${{ steps.stage.outputs.stage_dir }}"
+          status=$?
+          set -e
+          # Exit 2 is NOT a PR failure and NOT a pass. It means this denylist
+          # could not run, which in CI is the DESIGNED state: the inventory is
+          # Andy's real PII, so it cannot be committed, and the fallback at
+          # .github/operator-pii-inventory.toml is a blank template (every
+          # scalar empty, every array empty). Reporting that as a PII hit is a
+          # false accusation on every pull request, and a red that means
+          # nothing is one people learn to route around.
+          # The shape scan above is what gates the PR, and it always runs.
+          if [ "$status" -eq 2 ]; then
+              echo "operator-pii-scan: NOT RUN (exit 2, no usable inventory in CI)."
+              echo "  This is expected without the OPERATOR_PII_INVENTORY secret."
+              echo "  It is NOT a clean result: this denylist examined nothing."
+              echo "  PR gating is done by ci-pii-shape-scan, which ran above."
+              exit 0
+          fi
+          if [ "$status" -ne 0 ]; then
               echo "::error::operator-pii-scan failed (exit $status). See output above." >&2
               exit "$status"
           fi
-          echo "operator-pii-scan: clean (${{ steps.stage.outputs.count }} files scanned)"
+          echo "operator-pii-scan: clean (${{ steps.stage.outputs.count }} files scanned against a real inventory)"

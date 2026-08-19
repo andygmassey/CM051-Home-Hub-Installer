@@ -48,10 +48,53 @@ if ! grep -qE "def ingest_imessage" "$SCRIPT_DIR/pwg_ingest.py"; then
     echo "FAIL: pwg_ingest.py missing ingest_imessage()" >&2
     exit 1
 fi
-if ! grep -q '"imessage", ingest_imessage' "$SCRIPT_DIR/pwg_ingest.py"; then
-    echo "FAIL: pwg_ingest.ingest_all dispatcher missing imessage entry" >&2
+# Parse the module rather than grep a spelling. This check went FALSE RED for
+# an unknown period because the dispatcher entry was refactored from
+#   ("imessage", ingest_imessage)     -> bare name
+# to
+#   ("imessage", "ingest_imessage")   -> string, for lazy import
+# The capability never left; only the formatting changed. A gate keyed to a
+# spelling reports a defect that does not exist, which costs exactly as much
+# trust as missing one that does.
+if ! python3 - "$SCRIPT_DIR/pwg_ingest.py" <<'PYEOF'; then
+import ast, sys
+src = open(sys.argv[1]).read()
+tree = ast.parse(src)
+# any tuple/list literal pairing "imessage" with something naming ingest_imessage
+found = False
+for node in ast.walk(tree):
+    if isinstance(node, (ast.Tuple, ast.List)) and len(node.elts) == 2:
+        a, b = node.elts
+        a_is = isinstance(a, ast.Constant) and a.value == "imessage"
+        b_is = ((isinstance(b, ast.Constant) and b.value == "ingest_imessage")
+                or (isinstance(b, ast.Name) and b.id == "ingest_imessage"))
+        if a_is and b_is:
+            found = True; break
+if not found:
+    sys.exit(1)
+PYEOF
+    echo "FAIL: pwg_ingest dispatcher has no ('imessage', ingest_imessage) pair" >&2
     exit 1
 fi
+
+# POSITIVE CONTROL: the same parse must FAIL on a copy with the pair removed.
+_probe="$(mktemp)"; grep -v 'ingest_imessage' "$SCRIPT_DIR/pwg_ingest.py" > "$_probe"
+if python3 - "$_probe" <<'PYEOF'; then
+import ast, sys
+tree = ast.parse(open(sys.argv[1]).read())
+found = any(isinstance(n,(ast.Tuple,ast.List)) and len(n.elts)==2
+            and isinstance(n.elts[0],ast.Constant) and n.elts[0].value=="imessage"
+            and ((isinstance(n.elts[1],ast.Constant) and n.elts[1].value=="ingest_imessage")
+                 or (isinstance(n.elts[1],ast.Name) and n.elts[1].id=="ingest_imessage"))
+            for n in ast.walk(tree))
+sys.exit(0 if found else 1)
+PYEOF
+    rm -f "$_probe"
+    echo "POSITIVE CONTROL FAILED: the dispatcher check still passes with the" >&2
+    echo "  entry stripped. It is not checking anything." >&2
+    exit 1
+fi
+rm -f "$_probe"
 echo "pwg_ingest check: ingest_imessage defined + registered in dispatcher"
 
 # Privacy contract: return dict must surface people_created + people_enriched.

@@ -83,6 +83,28 @@
         <key>OSTLER_IMESSAGE_SELF_HANDLES</key>
         <string>OSTLER_IMESSAGE_SELF_HANDLES_VALUE</string>
         <!--
+            PWG_SERVICE_TOKEN (v1.0.12 assistant-retrieval fix): the
+            per-install #200 service token (secrets/service_token,
+            seeded by install.sh), rendered by INSTALL_SNIPPET. The
+            daemon's pwg_* retrieval tools proxy the personal-graph
+            API on the loopback ical-server (127.0.0.1:8090), which
+            locked its data plane behind this bearer at v1.0.10 (#200)
+            and fails-closed 401 without it, so with no token the
+            daemon "can't find anyone". The daemon reads PWG_SERVICE_TOKEN
+            from its env and attaches `Authorization: Bearer <token>` on
+            the forwarded request. Same env-var name the ical-server and
+            Doctor plists carry (install.sh), so both halves line up.
+            Belt-and-braces for FRESH installs: existing v1.0.11 customers
+            are fixed by the daemon's code-side file fallback (it reads
+            ~/.ostler/secrets/service_token directly when the env is
+            absent). Per-install secret, so it is RENDERED by
+            INSTALL_SNIPPET rather than hard-coded like the OLLAMA_* /
+            self-chat constants below. Empty when unseeded (harmless: the
+            file fallback still applies).
+        -->
+        <key>PWG_SERVICE_TOKEN</key>
+        <string>PWG_SERVICE_TOKEN_VALUE</string>
+        <!--
             OSTLER_IMESSAGE_SELF_CHAT (self-chat reachability, 2026-06-17):
             lets the customer text the assistant from their OWN Apple ID
             (Note to Self) and get a reply, with no second account. With this

@@ -105,6 +105,13 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "cm048_pipeline": ["vendor/cm048_pipeline"],
     "cm059_editor": ["vendor/cm059_editor"],
     "cm019_preferences": ["vendor/cm019_preferences"],
+    # CM052 AI-conversation producer. install.sh probes BOTH
+    # ${SCRIPT_DIR}/cm052_ai_conversations (the .app Resources layout) AND
+    # ${SCRIPT_DIR}/vendor/cm052_ai_conversations (the dev-tree layout), so
+    # both canonical leaves need a needle. Bundled by the "Bundle CM052
+    # AI-conversation producer into Resources" postBuildScript (gui/project.yml).
+    "cm052_ai_conversations": ["vendor/cm052_ai_conversations"],
+    "vendor/cm052_ai_conversations": ["vendor/cm052_ai_conversations"],
     "contact_syncer": ["vendor/cm041"],
     "assistant_api": ["vendor/cm041"],
     "email-ingest": ["vendor/email_ingest"],
@@ -132,6 +139,17 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # (commit d030468), so the gate false-flagged an asset that ships. Assert
     # the bundling reference so a future removal of the cp line goes red.
     "lib/ostler-model-fit.sh": ["lib/ostler-model-fit.sh"],
+    # settling_progress.sh: install.sh sources
+    # ${SCRIPT_DIR}/lib/settling_progress.sh so CM041 contact_syncer and CM021
+    # pwg-email-ingest can report the `contacts` and `emails` channels on the
+    # wiki settling panel. Neither can import HR015's Python writer (ostler_fda
+    # is never copied into PIPELINE_DIR), so this file IS their writer. It IS
+    # bundled -- gui/project.yml cp's it into Resources/lib/ -- but it landed
+    # without a needle here, so the gate reported a GAP for a shipping asset
+    # and main went red. Exactly the false-flag lib/ostler-model-fit.sh hit
+    # above. The needle asserts the bundling reference, so removing the cp line
+    # goes red instead of shipping a silent no-op.
+    "lib/settling_progress.sh": ["lib/settling_progress.sh"],
     "THIRD_PARTY_NOTICES.md": ["vendor/THIRD_PARTY_NOTICES.md"],
     "LICENSES": ["vendor/LICENSES"],
     "Ostler.app": ["OSTLER_APP_PATH"],
@@ -166,6 +184,7 @@ def canonical_leaf(raw_path: str) -> str:
       assistant-agent/INSTALL_SNIPPET.sh -> assistant-agent
       legal/pyproject.toml               -> legal
       lib/progress_emitter.sh            -> lib/progress_emitter.sh
+      vendor/cm052_ai_conversations      -> vendor/cm052_ai_conversations
       LICENSES                            -> LICENSES
       scripts/deferred-register-device.sh -> scripts/deferred-register-device.sh
     """
@@ -180,9 +199,12 @@ def canonical_leaf(raw_path: str) -> str:
     if raw_path in EXCEPTIONS:
         return raw_path
 
-    # lib/* / scripts/* / extensions/* keep their first two segments so
-    # they map cleanly to the bundled subdir.
-    if head in {"lib", "scripts", "extensions"} and rest:
+    # lib/* / scripts/* / extensions/* / vendor/* keep their full path so
+    # they map cleanly to the bundled subdir. Without "vendor" here a probe
+    # like ${SCRIPT_DIR}/vendor/cm052_ai_conversations collapses to the bare
+    # leaf "vendor", which has no needle and false-flags a shipped asset as a
+    # GAP (and would false-COVER a future vendor probe under one bare mapping).
+    if head in {"lib", "scripts", "extensions", "vendor"} and rest:
         return raw_path
 
     # install.sh.strings.en-GB.sh has multiple dots; strip the lang

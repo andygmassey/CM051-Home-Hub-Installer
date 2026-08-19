@@ -126,7 +126,7 @@ class OpenFoodFactsClient(BaseClient[FoodProductMetadata]):
     def _get_headers(self) -> Dict[str, str]:
         return {
             "Accept": "application/json",
-            "User-Agent": "PWG-Enrichment/0.1.0 (https://github.com/pwg)",
+            "User-Agent": "Ostler/1.0 (+https://ostler.ai)",
         }
 
     async def get_product(self, barcode: str) -> Optional[FoodProductMetadata]:

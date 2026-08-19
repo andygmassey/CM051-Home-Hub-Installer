@@ -1,0 +1,15 @@
+name: permission-briefing
+on:
+  pull_request:
+    paths: ['install.sh', 'scripts/verify_permission_briefing.sh', 'scripts/tests/test_permission_briefing.sh']
+  push:
+    branches: [main]
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: controls first -- an unproven gate is not a gate
+        run: bash scripts/tests/test_permission_briefing.sh
+      - name: the briefing must describe what the install does
+        run: bash scripts/verify_permission_briefing.sh

@@ -46,6 +46,7 @@ boundary.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
@@ -58,6 +59,29 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import yaml  # PyYAML, listed in doctor/agent/requirements.txt
+
+# The settling-progress writer lives in ostler_fda (already vendored into
+# CM051). Doctor's sys.path may not include the HR015 root at test time; we
+# make the import best-effort so a missing module here never blocks an
+# import (the panel degrades to calendar mode -- honest fallback).
+try:
+    # ostler_fda ships as a sibling package at the HR015 repo root; add the
+    # repo root to sys.path so the import resolves whether Doctor is run
+    # from the repo, from a vendored install, or under pytest.
+    _REPO_ROOT = Path(__file__).resolve().parents[2]
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    from ostler_fda.settling_progress import (  # noqa: E402
+        report_settling_progress,
+    )
+except Exception:  # noqa: BLE001 -- best-effort import; see comment
+    report_settling_progress = None  # type: ignore[assignment]
+
+_logger = logging.getLogger(__name__)
+
+# Settling-progress channel for the "notes" panel. Evernote is the sole
+# producer today; Notion/Obsidian will follow the same shape once wired.
+_SETTLING_CHANNEL = "notes"
 
 
 # ── Default paths ─────────────────────────────────────────────────────
@@ -228,6 +252,99 @@ def validate_enex_path(raw_path: Any) -> Path:
     return resolved
 
 
+# ── Settling-progress emit ───────────────────────────────────────────
+
+
+# Regex compiled once. `<note>` opening tag with optional attributes; we
+# count the opening tag rather than a closing one so a truncated ENEX still
+# emits a plausible total rather than 0. Non-anchored, byte-oriented so the
+# streaming parser below can walk arbitrarily large ENEX files without
+# loading the whole document into memory.
+_NOTE_OPEN_TAG_RE = re.compile(rb"<\s*note\b", re.IGNORECASE)
+
+# ENEX files can be tens or hundreds of MB. The count helper reads in fixed
+# chunks so we never balloon Doctor's RSS on a big export.
+_ENEX_CHUNK_BYTES = 1 << 20  # 1 MiB
+
+# Cap the note-count scan to keep start_import fast on a very large ENEX
+# (hundreds of thousands of notes = ~seconds of scanning). If the customer's
+# export is larger than the cap we return the cap; the settling panel's job
+# is a rough denominator, not a forensic count.
+_ENEX_MAX_NOTES_FOR_TOTAL = 200_000
+
+
+def count_enex_notes(enex_path: Path) -> int:
+    """Count `<note>` opening tags in an ENEX export.
+
+    Streaming byte scan so a 200 MB ENEX does not balloon Doctor's memory.
+    Best-effort: any read error returns 0 so a mangled ENEX cannot abort
+    the import (the reader treats total=0 as "ready" or "waiting", never
+    as an error).
+
+    The count is a rough denominator for the settling-progress bar --
+    tiny over/under-counts are fine (a trailing `<note>` inside a CDATA
+    body counts, an ENEX header does not). We do NOT parse XML: that would
+    slow start_import measurably on a real export.
+    """
+    try:
+        with open(enex_path, "rb") as fh:
+            total = 0
+            # Carry the last 5 bytes across chunk boundaries so a `<note`
+            # split across two reads is still matched. 5 bytes is enough
+            # for the regex's `<\s*note\b` anchor plus a byte of whitespace.
+            carry = b""
+            while True:
+                chunk = fh.read(_ENEX_CHUNK_BYTES)
+                if not chunk:
+                    break
+                buffer = carry + chunk
+                # Do not double-count the carry region: the regex is
+                # matched on the whole buffer, then we keep the tail as
+                # the next carry.
+                matches = _NOTE_OPEN_TAG_RE.findall(buffer)
+                total += len(matches)
+                if total >= _ENEX_MAX_NOTES_FOR_TOTAL:
+                    return _ENEX_MAX_NOTES_FOR_TOTAL
+                carry = buffer[-8:]
+            return total
+    except OSError as exc:
+        _logger.warning(
+            "settling-progress: could not count notes in %s (%s: %s)",
+            enex_path, type(exc).__name__, exc,
+        )
+        return 0
+
+
+def _emit_notes_settling(
+    *,
+    done: int,
+    total: int,
+    needs_source: bool = False,
+    started_at: Optional[str] = None,
+) -> None:
+    """Best-effort settling-progress emit for the notes (Evernote) backfill.
+
+    Wraps :func:`report_settling_progress` in try/except so a missing
+    helper import or full-disk write can never abort ``start_import`` --
+    the settling panel is a UX affordance, not a load-bearing dependency.
+    """
+    if report_settling_progress is None:
+        return
+    try:
+        report_settling_progress(
+            channel=_SETTLING_CHANNEL,
+            done=done,
+            total=total,
+            needs_source=needs_source,
+            started_at=started_at,
+        )
+    except Exception:  # noqa: BLE001 -- see docstring
+        _logger.warning(
+            "settling-progress: notes emit failed; continuing import",
+            exc_info=True,
+        )
+
+
 # ── Lockfile ─────────────────────────────────────────────────────────
 
 
@@ -384,6 +501,25 @@ def start_import(
                 500, f"could not open log file {log_path}: {exc}",
             )
 
+        # Count notes in the ENEX for the settling-progress denominator.
+        # Fast streaming byte scan; a mangled ENEX returns 0 (the panel
+        # then falls back to calendar mode -- honest degradation). We do
+        # this BEFORE the fork so the panel has a real total immediately
+        # rather than 0 for the whole convert phase.
+        note_count = count_enex_notes(enex_path)
+
+        # Initial settling emit: `done=0, total=note_count`. If note_count
+        # is 0 (empty or unreadable ENEX) we still emit needs_source=False
+        # so the reader classifies as ready rather than waiting -- an
+        # empty ENEX is a completed import of zero notes, not "no source
+        # connected". The runner emits the terminal `done=total` at end.
+        _emit_notes_settling(
+            done=0,
+            total=note_count,
+            needs_source=False,
+            started_at=started_at,
+        )
+
         try:
             try:
                 # Phase 1: convert the export to markdown in the staging
@@ -417,6 +553,11 @@ def start_import(
                         "--log-path", str(log_path),
                         "--enex-path", str(enex_path),
                         "--started-at", started_at,
+                        # Pass the note count through so the runner can
+                        # emit the terminal settling tick with a real
+                        # total. Runner treats 0 as "count unknown" and
+                        # emits done=0/total=0 (ready) on success.
+                        "--note-count", str(note_count),
                         "--",
                         *convert_phase,
                         "--and-then",

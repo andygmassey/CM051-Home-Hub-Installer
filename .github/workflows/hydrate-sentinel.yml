@@ -1,0 +1,81 @@
+name: hydrate-sentinel
+
+# The hydrate `.done` sentinel decides whether a source is retried or skipped
+# for 7 days, and until 2026-08-16 it was written on the ERROR path by 8 of the
+# 9 hydrate sources.
+#
+# ============================================================================
+# THE TEST THAT ALREADY CARRIED THE RULE HAD NEVER RUN
+# ============================================================================
+#
+# tests/test_aiconv_hydrate_honesty.sh asserts, for ONE source, exactly the
+# invariant the other eight break:
+#
+#   "the 7-day hydrate sentinel is recorded ONLY when the drain completes
+#    (rc 0). A timed-out (124/137) or crashed (any other non-zero rc) drain
+#    must NOT record it, so the next install/re-run retries instead of
+#    skipping for a week."
+#
+# Measured on main, 2026-08-16:
+#
+#     tests/TEST_WIRING.tsv:22   test_aiconv_hydrate_honesty.sh   UNWIRED   -
+#
+# The contract was written down, it was tested, and the test was dark. That is
+# the population defect at its purest, and it is why this workflow wires BOTH
+# the new predicate and the existing one rather than only the new one. Adding a
+# ninth unwired test would have been the same mistake with a fresh filename.
+#
+# ============================================================================
+# WHY macos, NOT ubuntu
+# ============================================================================
+#
+# _hydrate_sentinel_fresh reads the mtime with `stat -f%m`, the BSD form. On
+# ubuntu that call fails, the `|| echo 0` fallback yields mtime 0, every
+# sentinel reads as ancient, and the "a completed run IS fresh" control would
+# fail for a reason that has nothing to do with the code under test. The
+# installer only ever runs on macOS; the gate runs where the code runs.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_hydrate_sentinel_not_on_error.sh'
+      - 'tests/test_aiconv_hydrate_honesty.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/hydrate-sentinel.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  sentinel-honesty:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # An ERRORED hydrate step must not suppress its own retry. Both tests
+      # extract the REAL code from install.sh and execute it, so neither can
+      # pass against a copy of the logic.
+      - name: A failed hydrate step must not suppress its retry (#711)
+        run: bash tests/test_hydrate_sentinel_not_on_error.sh
+
+      # if: always() so a failure in the first test cannot silence the second.
+      # A skipped test reads as "no objection", which is the class of defect
+      # this whole workflow exists to remove.
+      - name: AI-Conversations hydrate honesty, the test that carried the rule
+        if: always()
+        run: bash tests/test_aiconv_hydrate_honesty.sh
+
+      - name: Both tests parse under bash 3.2-compatible syntax
+        if: always()
+        run: |
+          bash -n tests/test_hydrate_sentinel_not_on_error.sh
+          bash -n tests/test_aiconv_hydrate_honesty.sh

@@ -167,12 +167,12 @@ via the ref. Tests: `tests/test_speaker_inference.py`.
   ({partner})` when multi-user lands) — roll-up of `observations.db`,
   with frequency/trend per tag
 
-**C.4 Marvin wiring:**
+**C.4 Assistant wiring:**
 - `/people/context?name=X` (unified API) already exists — extend to
   include relationship-signals rollup
 - New: `/coach/recent?days=7` — returns recent User-Coach
   observations
-- Marvin system prompt includes "before responding to a
+- Assistant system prompt includes "before responding to a
   person-mention, check `/people/context` — include warmth + last
   topic summary"
 
@@ -184,7 +184,7 @@ via the ref. Tests: `tests/test_speaker_inference.py`.
 - Dedicated list ensures automated items don't pollute the user's
   manually-entered todos.
 - Syncs back: if the user marks a Reminder complete, CM048 updates
-  the action-item status in Oxigraph so Marvin stops nagging.
+  the action-item status in Oxigraph so the assistant stops nagging.
 - Respect iOS Reminders permissions — user must have granted
   Reminders access to the Companion app.
 
@@ -223,14 +223,14 @@ via the ref. Tests: `tests/test_speaker_inference.py`.
 
 ## Phase E — Knowledge graph optimisation (after D, when graph is populated)
 
-**Prerequisite:** 50+ conversations processed, Marvin actively querying
+**Prerequisite:** 50+ conversations processed, the assistant actively querying
 the graph for briefings and person context.
 
 **E.1 Graph salience tuning ("memify").**
 Inspired by Cognee's `memify()` concept (Apache 2.0, open source).
 Run a periodic optimisation pass over the Oxigraph + Qdrant stores:
 
-- **Strengthen frequently-traversed paths.** If Marvin's person-context
+- **Strengthen frequently-traversed paths.** If the assistant's person-context
   queries consistently follow `conversation → participant → relationship
   signal → topic`, boost those edges' retrieval priority.
 - **Decay stale edges.** Relationship signals from conversations >12
@@ -243,13 +243,13 @@ Run a periodic optimisation pass over the Oxigraph + Qdrant stores:
   episodic and semantic memory (per Lilian Weng's agent memory
   taxonomy).
 - **Auto-tune retrieval weights** based on actual query patterns from
-  Marvin's logs — which person-context queries returned useful results
+  the assistant's logs — which person-context queries returned useful results
   vs. which ones the user ignored or re-queried differently.
 
 **Inputs already available from day one:**
 - `retention_score_inputs` on every stored item (signal_density,
   centrality_refs, fact_count, is_pinned)
-- Marvin query logs (which endpoints called, which person IDs queried)
+- Assistant query logs (which endpoints called, which person IDs queried)
 - Conversation frequency per person (from Oxigraph relationship signals)
 - User pin/unpin actions
 
@@ -258,7 +258,7 @@ Run a periodic optimisation pass over the Oxigraph + Qdrant stores:
   backends including Qdrant) — evaluate whether it can sit alongside
   existing stores or would require migration.
 - Build a simpler bespoke pass that reads `retention_score_inputs` +
-  Marvin query logs and updates Qdrant payload weights + Oxigraph edge
+  assistant query logs and updates Qdrant payload weights + Oxigraph edge
   annotations. Less sophisticated but no new dependency.
 - Hybrid: use Cognee for the graph intelligence, keep existing stores
   as the source of truth.
@@ -354,7 +354,7 @@ months." Surface these as User Coach meta-observations.
 3. **Relationship signal: per-conversation records with explicit
    `confidence` field.** Low-confidence filtered out of Person-page
    rollups.
-4. **LLM budget acceptable** (~7 calls / 2-4min on gamingrig per
+4. **LLM budget acceptable** (~7 calls / 2-4min on the dev hub per
    work-meeting). Watch backlog growth; participate in hub-wide
    priority scheduling from day one.
 5. **Bulletproof failure handling:** per-step state persistence,

@@ -2,6 +2,7 @@
 
 import csv
 import logging
+import re
 from pathlib import Path
 from typing import AsyncIterator, Optional, Dict
 from datetime import datetime
@@ -113,7 +114,18 @@ class CSVParser(BaseParser):
         text = (subject or "").lower()
         for category, keywords in self.SUBJECT_CATEGORY_KEYWORDS.items():
             for kw in keywords:
-                if kw in text:
+                # WORD BOUNDARY, not `kw in text`. Measured 2026-08-18 on Andy's
+                # v1.0.35 box: substring matching put 12 of 12 ordinary business
+                # subjects in a media category. "Technology" contains "techno"
+                # (-> music), "bandwidth" and "husband" contain "band", "capacity"
+                # and "electricity" contain "city", "Facebook" and "Booking"
+                # contain "book", "Gigabyte" contains "gig", "concerted" contains
+                # "concert". Real LinkedIn InMail subjects were then sent to
+                # MusicBrainz and Wikidata as title lookups.
+                #
+                # \b would also match across an underscore; (?<!\w)/(?!\w) does
+                # not, and a keyword abutting an underscore is not a word use.
+                if re.search(r"(?<!\w)" + re.escape(kw) + r"(?!\w)", text):
                     return category
         return "interest"
 
@@ -214,8 +226,25 @@ class CSVParser(BaseParser):
         # default, then a subject-keyword inference so a row never lands with
         # no category (which would make it invisible to every wiki page).
         category = row.get(column_map.get("category", ""), "").strip() or default_category
+        category_inferred = False
         if not category:
             category = self._infer_category(subject)
+            # A GUESSED CATEGORY MUST NOT AUTHORISE EGRESS.
+            #
+            # Enrichment routes by category, and EVERY category this fallback
+            # can return sends the SUBJECT to a third party as a query string.
+            # Measured 2026-08-18 against enricher.CATEGORY_CLIENTS and
+            # eligibility.SUBJECT_IS_THE_QUERY:
+            #
+            #   music->musicbrainz  book->openlibrary  movie/tv->wikidata_film
+            #   food->wikidata      place->wikidata_place  podcast->podcast_index
+            #   interest->wikidata   <-- the catch-all default egresses too
+            #
+            # So word-boundary matching alone is not enough: it takes 12 wrong
+            # in 12 down to 2, and those 2 still leave the machine. Only
+            # provenance closes it. eligibility.is_eligible() refuses any
+            # subject whose category was inferred rather than declared.
+            category_inferred = True
 
         # Get compartment level
         compartment_str = row.get(column_map.get("compartment", ""), "")
@@ -251,5 +280,11 @@ class CSVParser(BaseParser):
             category=category,
             context=context,
             observed_at=observed_at,
-            size=size
+            size=size,
+            # Provenance, read by eligibility.is_eligible() before any outbound
+            # query. Stated on every row, True or False, never left absent:
+            # absence is reserved to mean "stored before this field existed",
+            # which eligibility refuses. A row whose CSV declared its category
+            # says so explicitly and enriches exactly as before.
+            extra={"category_inferred": bool(category_inferred)},
         )
