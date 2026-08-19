@@ -1,0 +1,176 @@
+name: cut-prepare
+description: >-
+  The toolchain and the reference checkout that BOTH the cut job and the
+  gates-only dry-run job need, in one place so the dry run cannot drift out of
+  step with the cut it exists to predict.
+
+# WHY THIS IS AN ACTION AND NOT TWO COPIES OF FIVE STEPS.
+#
+# task #359 added a gates-only dry run so a broken cut-path CHECK stops costing
+# a version number. A dry run is only worth anything while it runs the checks
+# the cut runs, in the environment the cut runs them in. Two hand-maintained
+# copies of the setup would diverge on the first fix applied to one of them, and
+# the failure mode is silent: the dry run stays green and stops predicting.
+#
+# So the setup has ONE definition and both jobs consume it. A fix to the
+# xcodegen pin, the Xcode selection or the reference clone lands in both, or in
+# neither.
+#
+# NOTHING IN HERE SIGNS, NOTARISES OR PUBLISHES. That is load-bearing: this
+# action is used by a job whose whole guarantee is that it cannot produce a
+# shippable artefact. Signing credential steps live in cut.yml's `cut` job and
+# must stay there.
+
+inputs:
+  releases-token:
+    description: >-
+      Credential that can read the ostler-ai release repos (Contents: Read).
+      Used only to clone ostler-assistant so the provenance gates can RUN.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The project-sync gate needs xcodegen, and the hosted runner has none.
+    #
+    # Measured on the v1.0.26 cut: scripts/verify_pbxproj_in_sync.sh printed
+    # "UNAVAILABLE: xcodegen is not installed" and exited 2, meaning it FAILED
+    # TO LOOK -- but `make ship` reported "the tracked Xcode project does not
+    # match gui/project.yml", which is a different and much more alarming
+    # claim. Both halves are fixed: the Makefile now preserves exit 2, and this
+    # step means the gate can actually run.
+    #
+    # PINNED, from gui/.xcodegen-version, because the gate compares BYTES and
+    # two xcodegen versions can emit different bytes from identical input. An
+    # unpinned install would turn a toolchain difference into "DO NOT SHIP".
+    - name: Install the pinned xcodegen
+      shell: bash
+      run: |
+        set -euo pipefail
+        WANT="$(grep -v '^#' gui/.xcodegen-version | tr -d '[:space:]')"
+        [ -n "$WANT" ] || { echo "::error::gui/.xcodegen-version is empty" >&2; exit 1; }
+        echo "pinned xcodegen: $WANT"
+
+        # DOWNLOADED AT THE PINNED VERSION, NOT `brew install`.
+        #
+        # Measured 2026-08-13, and it is why this is not a brew step: brew
+        # served 2.45.4 to this runner and 2.46.0 to the operator's Mac within
+        # the same hour. The gate compares BYTES, so "install latest, then
+        # check the version" can never converge -- it just relocates the
+        # failure to whenever the formula moves. A pin has to be INSTALLED,
+        # not asserted after the fact.
+        #
+        # XcodeGen publishes a prebuilt artefact per tag, so the pin resolves
+        # to exactly one download and CI reproduces the operator's bytes.
+        URL="https://github.com/yonaskolb/XcodeGen/releases/download/${WANT}/xcodegen.zip"
+        curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" "$URL"
+        unzip -q -o "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+        # THE WHOLE RELEASE PREFIX, bin/ AND share/, not just the binary.
+        #
+        # Measured 2026-08-13: copying only the binary made the verifier
+        # report UNAVAILABLE with a message that had clearly seen this
+        # before -- "xcodegen cannot reach its SettingPresets ... without
+        # them xcodegen omits every default build setting and STILL EXITS 0,
+        # so a byte comparison would report the PROJECT stale for a broken
+        # generator install."
+        #
+        # That is the same failure shape as everything else in this cut: a
+        # tool that answers confidently while unable to do its job. The
+        # verifier refuses rather than answering, which is why this was a
+        # named cause and not a mystery diff.
+        BIN="$(find "$RUNNER_TEMP/xcodegen" -type f -name xcodegen -perm +111 | head -1)"
+        [ -n "$BIN" ] || { echo "::error::no xcodegen binary in $URL" >&2; exit 1; }
+        PREFIX="$(cd "$(dirname "$BIN")/.." && pwd)"
+        [ -d "$PREFIX/share/xcodegen/SettingPresets" ] || {
+          echo "::error::$URL has no share/xcodegen/SettingPresets under $PREFIX" >&2
+          find "$RUNNER_TEMP/xcodegen" -maxdepth 3 -type d >&2
+          exit 1
+        }
+        echo "release prefix: $PREFIX"
+        chmod +x "$PREFIX/bin/xcodegen"
+        echo "$PREFIX/bin" >> "$GITHUB_PATH"
+
+        GOT="$("$PREFIX/bin/xcodegen" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+        echo "installed xcodegen: $GOT"
+        [ "$GOT" = "$WANT" ] || { echo "::error::downloaded $GOT but $WANT is pinned" >&2; exit 1; }
+
+    # Same script the pbxproj-sync workflow uses. Selecting by BUILD, not
+    # marketing version, and asserting the selection took. Fails loudly and
+    # enumerates what IS present rather than falling back to the default.
+    - name: Select the pinned Xcode
+      shell: bash
+      run: scripts/select_pinned_xcode.sh
+
+    # create-dmg WRITES THE ARTEFACT. Without it there is no DMG.
+    #
+    # Measured on run 31681624343: every gate in the chain went green -- the
+    # orphan gate, the manifest gate at 10 PASS / 0 FAIL / 1 SKIP, the archive
+    # built, signed, notarised and stapled -- and then:
+    #
+    #   ERROR: create-dmg not installed.
+    #   make: *** [check-create-dmg] Error 1
+    #
+    # It is a hosted-runner tooling gap of exactly the same shape as the
+    # missing xcodegen above: the tool exists on the operator's Mac, so the
+    # dependency was invisible until a cut actually ran somewhere else. This
+    # is the last one in the chain, which is why it surfaced last -- each
+    # earlier blocker hid the one behind it.
+    #
+    # NOT pinned, unlike xcodegen, and the difference is deliberate. xcodegen
+    # feeds a BYTE-EXACT comparison, so its version is an input to a verdict
+    # and an unpinned install would turn a toolchain difference into DO NOT
+    # SHIP. create-dmg only lays out a disk image; nothing downstream compares
+    # its bytes, and every payload inside is separately hash-verified by
+    # download-daemon / download-hub-app / download-safari-extension and then
+    # asserted present by the manifest gate. If a future gate ever compares
+    # DMG bytes, pin this the same way.
+    - name: Install create-dmg (writes the DMG itself)
+      shell: bash
+      run: |
+        set -euo pipefail
+        brew install create-dmg
+        command -v create-dmg || { echo "::error::create-dmg still not on PATH after install" >&2; exit 1; }
+        create-dmg --version || true
+
+    # THE PROVENANCE GATE NEEDS A CHECKOUT TO LOOK AT.
+    #
+    # verify_cut_provenance.sh proves daemon-side fixes are present in the
+    # TAG the daemon tarball was built from, by reading them out of a git
+    # checkout of ostler-assistant. Its default location is a SIBLING
+    # directory: correct on the operator's Mac, impossible here. On run
+    # 31693253364 that absence was reported as
+    #   "assistant_tag_grep ... :: ostler-assistant not at .../gui/../../ostler-assistant"
+    # and walled the cut as STALE DAEMON SOURCE -- a cannot-run wearing a
+    # defect's clothes, the same shape as the OSTLER_APP_PATH default that
+    # blocked eight cuts. The gate now says CANNOT-RUN instead; this step is
+    # what lets it return a real verdict.
+    #
+    # FULL clone, deliberately not --depth 1: the daemon_tag check runs
+    # `git merge-base --is-ancestor`, which needs history. A shallow clone
+    # would make every ancestry test fail and reintroduce a false STALE.
+    #
+    # check-ostler-app reads the same variable (the v1.0.30 defect: without it
+    # verify_app_provenance.sh derives a sibling path that download-hub-app has
+    # already filled with an extracted tarball, so the directory EXISTS and is
+    # not a git repo).
+    - name: Fetch ostler-assistant so the provenance gates can RUN
+      shell: bash
+      env:
+        OSTLER_RELEASES_TOKEN: ${{ inputs.releases-token }}
+      run: |
+        set -euo pipefail
+        if [ -z "${OSTLER_RELEASES_TOKEN:-}" ]; then
+          echo "::error::no credential to fetch ostler-assistant. The provenance gate will exit 2 (could not run) rather than pass, which is correct, but the run cannot proceed." >&2
+          exit 1
+        fi
+        DEST="${RUNNER_TEMP}/ostler-assistant"
+        rm -rf "$DEST"
+        git clone --quiet "https://x-access-token:${OSTLER_RELEASES_TOKEN}@github.com/ostler-ai/ostler-assistant.git" "$DEST" 2>/dev/null
+        # Assert the clone is USABLE for what the gate does, rather than that
+        # the command exited 0: a tagless or historyless clone would send
+        # every ancestry check to a false STALE.
+        N_TAGS="$(git -C "$DEST" tag | wc -l | tr -d ' ')"
+        echo "ostler-assistant: $(git -C "$DEST" rev-parse --short HEAD), ${N_TAGS} tags"
+        [ "$N_TAGS" -gt 0 ] || { echo "::error::clone carries no tags; every daemon_tag check would report a false STALE" >&2; exit 1; }
+        git -C "$DEST" rev-parse HEAD~5 >/dev/null 2>&1 || { echo "::error::clone has no history; merge-base --is-ancestor cannot work" >&2; exit 1; }
+        echo "OSTLER_ASSISTANT_DIR=$DEST" >> "$GITHUB_ENV"

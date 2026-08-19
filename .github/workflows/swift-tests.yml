@@ -1,0 +1,216 @@
+name: swift-tests
+
+# 36 Swift test files carrying 283 passing tests, and until this workflow
+# existed NOTHING ran them.
+#
+# ============================================================================
+# THE FOURTH POPULATION
+# ============================================================================
+#
+# They were never scored UNWIRED. verify_test_wiring.sh enumerated shell and
+# Python, so Swift was not a set of tests failing a check, it was a set of tests
+# no check could see. Absence of a row reads exactly like absence of a problem,
+# and this is the fourth population found the same week with that shape.
+#
+# Measured 2026-08-16 on main 7953828f, locally, before writing any of this:
+#
+#     xcodebuild build-for-testing   ** TEST BUILD SUCCEEDED **
+#     xcodebuild test-without-building
+#     Executed 283 tests, with 0 failures (0 unexpected) in 3.26 seconds
+#
+# 283 passing tests, three seconds of compute, sitting unrun for the life of the
+# repo. The suite was not broken and never had been. Nobody had asked it.
+#
+# ============================================================================
+# WHY THIS RUNS ON A SCHEDULE AND A PATH FILTER, NOT ON EVERY PR
+# ============================================================================
+#
+# The tests take 3 seconds. Building the host app takes minutes on a macOS
+# runner, because the app's build phases stage a Python runtime, several
+# vendored packages and the signed Safari extension. Charging that to every PR
+# that touches a README is how a gate earns a reputation for being in the way,
+# and a gate people resent is a gate that gets bypassed.
+#
+# So: anything touching the GUI or its inputs, plus a daily run so a break
+# cannot hide behind a quiet week in gui/.
+#
+# ============================================================================
+# THE ONE ARTEFACT THAT IS NOT IN THE REPO
+# ============================================================================
+#
+# vendor/extensions/OstlerSafariExtension.app.zip is a signed binary build
+# artefact and is gitignored. The app target hard-fails without it, DELIBERATELY
+# -- the DMG once shipped with no extensions/ dir at all, so install.sh took its
+# silent skip and the extension installed for no customer. That hard failure is
+# correct and this workflow does not weaken it.
+#
+# It uses the mechanism that already exists instead: `make download-safari-
+# extension` fetches the artefact from its release and verifies it against a
+# pinned SHA256. If the token is absent the job FAILS rather than skipping,
+# because a test job that quietly tests nothing is the defect this whole
+# workflow was written to correct.
+
+on:
+  pull_request:
+    paths:
+      - 'gui/**'
+      - 'scripts/verify_swift_tests_ran.sh'
+      - '.github/workflows/swift-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'gui/**'
+      - 'scripts/verify_swift_tests_ran.sh'
+      - '.github/workflows/swift-tests.yml'
+  schedule:
+    # Daily, so a break cannot hide behind a quiet week in gui/.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, which is the failure mode this file exists to remove.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  # The PREDICATE's own controls. Cheap, runs anywhere, and protects the thing
+  # that actually rots: the gate's ability to tell a shrunken suite from a
+  # healthy one. Seven controls, including a suite that GREW (the floor must not
+  # tax adding tests) and a log with no result line (CANNOT-RUN, never a pass).
+  verifier-self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The result predicate can still tell a shrunken suite from a healthy one
+        run: bash scripts/verify_swift_tests_ran.sh --self-test
+      - name: Parses under bash 3.2-compatible syntax
+        run: bash -n scripts/verify_swift_tests_ran.sh
+
+  swift-tests:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the pinned Xcode
+        run: scripts/select_pinned_xcode.sh
+
+      - name: Install pinned xcodegen
+        run: |
+          set -euo pipefail
+          PIN="$(grep -v '^[[:space:]]*#' gui/.xcodegen-version \
+                 | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
+          echo "pinned xcodegen: $PIN"
+          curl -fsSL -o /tmp/xcodegen.zip \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${PIN}/xcodegen.zip"
+          unzip -q /tmp/xcodegen.zip -d /tmp/xcodegen
+
+          # The WHOLE prefix, not just the binary: xcodegen resolves its
+          # SettingPresets relative to its own location, and a binary-only
+          # install emits a project with every default build setting missing,
+          # silently, exit 0. See pbxproj-sync.yml for that measurement.
+          #
+          # LOCATE the prefix rather than assuming its shape. My first version
+          # hardcoded /tmp/xcodegen/bin and CI said, correctly,
+          # "cp: /tmp/xcodegen/bin: No such file or directory". The zip's
+          # internal layout is not a contract, so this finds the binary and
+          # derives the prefix from it, then asserts both halves are present
+          # before installing either. Same block as pbxproj-sync.yml, which is
+          # where it was already solved.
+          SRC="$(dirname "$(dirname "$(find /tmp/xcodegen -type f -name xcodegen -perm +111 | head -1)")")"
+          [ -n "$SRC" ] && [ -x "$SRC/bin/xcodegen" ] \
+            || { echo "::error::no bin/xcodegen in the release zip" >&2; exit 1; }
+          [ -d "$SRC/share/xcodegen/SettingPresets" ] \
+            || { echo "::error::the zip has no share/xcodegen/SettingPresets; the layout changed and installing it would produce a preset-less generator" >&2; exit 1; }
+          sudo mkdir -p /usr/local/bin /usr/local/share
+          sudo cp "$SRC/bin/xcodegen" /usr/local/bin/xcodegen
+          sudo rm -rf /usr/local/share/xcodegen
+          sudo cp -R "$SRC/share/xcodegen" /usr/local/share/xcodegen
+          sudo chmod +x /usr/local/bin/xcodegen
+          [ -d /usr/local/share/xcodegen/SettingPresets ] \
+            || { echo "::error::SettingPresets did not land beside the installed binary" >&2; exit 1; }
+
+          # Assert the thing installed IS the thing pinned, rather than trusting
+          # that the download was what its filename claimed.
+          GOT="$(xcodegen --version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+          echo "installed xcodegen: $GOT"
+          [ "$GOT" = "$PIN" ] || { echo "::error::installed $GOT, pinned $PIN" >&2; exit 1; }
+
+      # HARD FAIL, NOT SKIP. A test job that cannot obtain its inputs and
+      # reports success is precisely the shape this workflow exists to remove.
+      - name: Stage the signed Safari extension (SHA256-pinned)
+        env:
+          OSTLER_RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OSTLER_RELEASES_TOKEN:-}" ]; then
+            echo "::error::CM051_RELEASES_READ is not available to this run." >&2
+            echo "  The app target hard-fails without the Safari extension, and that" >&2
+            echo "  hard failure is correct. Skipping the tests instead would report" >&2
+            echo "  green having run nothing. Failing here is the honest outcome." >&2
+            exit 1
+          fi
+          make -C gui download-safari-extension
+
+      # The SECOND artefact the app build needs and the repo does not carry.
+      # It surfaced only by running: the first CI attempt got past the Safari
+      # extension and died in "Bundle python-build-standalone Python 3.11 into
+      # Resources". It did not surface locally because this machine had a
+      # python tarball left staged by an earlier cut -- a good reminder that a
+      # green local build can be green because of state the repo does not have.
+      #
+      # No token: plain curl plus a pinned SHA256 that the target verifies.
+      - name: Stage python-build-standalone (SHA256-pinned)
+        run: make -C gui download-python
+
+      - name: Generate the project from project.yml
+        run: cd gui && xcodegen generate
+
+      # Redirected to a FILE, never piped. A pipe into an early-exiting consumer
+      # loses xcodebuild's status; tests/test_no_xcodebuild_pipe_into_early_exit.sh
+      # exists in this repo because that has bitten before.
+      - name: Build for testing
+        run: |
+          set -euo pipefail
+          cd gui
+          xcodebuild build-for-testing \
+            -project OstlerInstaller.xcodeproj \
+            -scheme OstlerInstaller \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
+            > "$RUNNER_TEMP/build.log" 2>&1 || {
+              rc=$?
+              tail -80 "$RUNNER_TEMP/build.log" >&2
+              exit $rc
+            }
+          tail -3 "$RUNNER_TEMP/build.log"
+
+      - name: Run the suite
+        run: |
+          set -uo pipefail
+          cd gui
+          xcodebuild test-without-building \
+            -project OstlerInstaller.xcodeproj \
+            -scheme OstlerInstaller \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            > "$RUNNER_TEMP/test.log" 2>&1
+          rc=$?
+          # rc is taken DIRECTLY, never through a pipe.
+          if [ "$rc" -ne 0 ]; then
+            grep -E "^Test Case .* failed|error:" "$RUNNER_TEMP/test.log" | head -40 >&2 || true
+          fi
+          tail -5 "$RUNNER_TEMP/test.log"
+          exit "$rc"
+
+      # The count is the point. xcodebuild's exit code alone cannot distinguish
+      # "283 passed" from "12 passed after the target silently lost 24 files".
+      - name: The suite ran, met its declared floor, and passed
+        if: always()
+        run: bash scripts/verify_swift_tests_ran.sh "$RUNNER_TEMP/test.log"

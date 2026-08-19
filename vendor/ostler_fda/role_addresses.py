@@ -16,12 +16,12 @@ import re
 # catastrophic for a notification sender -- proven on a real box 2026-08-08 by
 # computing the uuid5 of each candidate and matching it to the merged node:
 #
-#   invitations@linkedin.com   -> ONE node carrying 9 different people
-#                                 (Anna Bartle, Eric Chan, Jitendra Chamoli,
-#                                  Nurun Nahar Ame, Niels van Uden, ...)
-#   notifications@github.com   -> ONE node carrying 7 (Max Braun, andygmassey,
+#   invitations@social.example   -> ONE node carrying 9 different people
+#                                 (Liz Jones, Sam Stewart, Ali Andersen,
+#                                  Alexandra Brown, Sam Andersen, ...)
+#   notifications@forge.example   -> ONE node carrying 7 (John Smith, bobdoe,
 #                                  dependabot[bot], github-actions[bot], ...)
-#   dan@tldrnewsletter.com     -> ONE node carrying 6 TLDR newsletters
+#   dan@newsletter.example     -> ONE node carrying 6 TLDR newsletters
 #
 # 265 person nodes on that box carry more than one display name; these are the
 # worst. The sender address of a notification email was being used as the
@@ -41,7 +41,8 @@ _ROLE_LOCALS = frozenset({
 })
 
 # Domains that only ever send machine mail. Any address here is bulk, whatever
-# the local part -- `dan@tldrnewsletter.com` is a newsletter, not Dan.
+# the local part: a first-name local part on a newsletter domain is still
+# the newsletter, not a person of that name.
 _BULK_DOMAINS = (
     "tldrnewsletter.com",
     "e.linkedin.com",

@@ -1,0 +1,134 @@
+# cut-manifests/v1.0.32.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.32.
+#
+# WHY v1.0.32 EXISTS: v1.0.31 SHIPPED A HUB THAT CANNOT START.
+# ---------------------------------------------------------------------------
+# v1.0.31 was built, signed, notarised and stapled, and every cut gate was
+# green. On a fresh install the daemon crash-looped on its LaunchAgent KeepAlive
+# every ~10 seconds, nothing ever bound :8000, and the customer sat on
+# "Hub starting up... ATTEMPT 34" forever.
+#
+#     Error: Failed to deserialize config file
+#     TOML parse error at line 1, column 1 ... missing field `backend`
+#
+# THE MECHANISM, which is the transferable part:
+#
+#     A PARTIAL TABLE SILENTLY DISARMS THE DEFAULT THAT WAS COVERING YOU.
+#
+# `MemoryConfig.backend` and `auto_save` carry no serde default. `Config.memory`
+# carries `#[serde(default)]`, which fires only when the WHOLE `[memory]` table
+# is ABSENT. install.sh wrote no `[memory]` table for months, so the struct
+# default supplied both fields and nothing was wrong.
+#
+# `219ee4e` (2026-08-14, the #677 embeddings fix) added a three-key `[memory]`
+# block. The table became present-and-partial, the parent default stopped
+# applying, every non-defaulted field inside it became REQUIRED, and the daemon
+# stopped booting. It shipped two days later.
+#
+# The daemon did not change. install.sh did. The fix is therefore install-side
+# and needs no daemon rebuild, which is why this cut can carry the same payload
+# as v1.0.31 and still be the difference between a product that starts and one
+# that does not.
+#
+# WHY THE FIRST FIX WAS NOT ENOUGH, recorded because it cost a round trip:
+# the daemon reports only the FIRST missing field it hits. Adding `backend`
+# moved the failure to `missing field auto_save`. Fixing one at a time looks
+# like progress and is not. Both are asserted below, separately, because an
+# entry that proves one and assumes the other is the same trap again.
+#
+# NOT over-corrected: an earlier attempt emitted eight keys on a heuristic that
+# read the WRONG SIDE of the serde contract (a literal in a `Default` impl is
+# what that default IS, not evidence serde lacks one). Bare `#[serde(default)]`
+# uses the TYPE's default. The required set is TWO. Over-breadth is not free:
+# every key install.sh writes is PINNED in the customer's config forever and
+# stops tracking the daemon's own defaults.
+#
+# THE PAYLOAD IS UNCHANGED FROM v1.0.31: daemon 0.4.57, Hub app from the same
+# line, CM041 #120 across three trees, both wiki images at CM044 c6febba2.
+# Only the config the installer WRITES has changed.
+version: v1.0.32
+entries:
+  # --------------------------------------------------------------------------
+  # THE BLOCKER. Two entries, not one, because the daemon surfaces only the
+  # first missing field and a single assertion would have passed the whole way
+  # through the round trip that produced this cut.
+  #
+  # The patterns are ANCHORED on the emitted line INCLUDING ITS VALUE. Measured
+  # against install.sh before being written here: the anchored forms hit
+  # exactly once each; the loose form `backend = ` hits TWICE, so a loose
+  # pattern would be satisfied by an unrelated line and would still read green
+  # with the emit deleted. A negative control (`postgres` in place of the
+  # shipped value) hits zero.
+  # --------------------------------------------------------------------------
+  - id: v1032-memory-backend-is-emitted
+    title: install.sh writes memory.backend, the field whose absence stopped v1.0.31 booting
+    incident: >-
+      v1.0.31: 56 consecutive daemon restarts at 10s intervals, every one dying on
+      "missing field `backend`", on every fresh install. The field has been required
+      since MemoryConfig was introduced (single commit, 2026-04-09); what changed was
+      install.sh beginning to emit a partial [memory] table, which disarmed the parent
+      #[serde(default)] that had been supplying it.
+    proof:
+      kind: grep_in_installer
+      pattern: 'echo "backend = \\"sqlite\\""'
+      must_match: true
+
+  - id: v1032-memory-auto-save-is-emitted
+    title: install.sh writes memory.auto_save, the field the box failed on SECOND
+    incident: >-
+      Measured on the v1.0.31 box: adding `backend` alone moved the failure to
+      "missing field auto_save" and the Hub still never started, for a further 10
+      restarts. The daemon reports one missing field at a time, so a fix verified
+      only against the error currently on screen is not a fix. This entry exists so
+      that a future edit which drops auto_save cannot pass by satisfying the backend
+      assertion alone.
+    proof:
+      kind: grep_in_installer
+      pattern: 'echo "auto_save = true"'
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # Carried from v1.0.31. The payload did not move, and an unchanged payload is
+  # a claim that still has to be measured rather than assumed.
+  # --------------------------------------------------------------------------
+  - id: v1032-payload-carries-the-0457-daemon
+    title: the shipped payload is the hub-v0.4.57 daemon, in lockstep with the Hub app
+    incident: >-
+      v1.0.31 moved this line to 0.4.57 and had to move the pins naming the daemon
+      with it or ship halves of two builds. install.sh's DEFAULT_ASSISTANT_TARBALL_SHA256
+      held the 0.4.56 digest while the version read 0.4.57, and a customer install would
+      have fetched the new tarball and aborted on its own fail-closed checksum. No gate
+      was watching that pair. v1.0.32 changes no payload, so this asserts the pair is
+      still consistent rather than assuming an unchanged thing stayed right.
+    proof:
+      kind: payload_version_matches_daemon_version
+
+  - id: v1032-hub-app-reaches-the-artefact
+    title: the shipped installer actually carries Ostler.app
+    incident: >-
+      v1018-D668: a missing Hub app was non-fatal, so a Hub-less DMG shipped with every
+      step green. Re-asserted every cut because "the DMG contains the Hub" is the kind
+      of claim that is only ever true of an artefact somebody opened.
+    proof:
+      kind: file_exists_in_artefact
+      target: daemon-app
+      path: Contents/MacOS/ostler-hub
+
+  - id: v1032-installer-version-stamp
+    title: the shipped OstlerInstaller.app declares 1.0.32, not the broken 1.0.31
+    incident: >-
+      Task #171 records the build pipeline failing to bump CFBundleShortVersionString on
+      a cut, shipping an installer that reports the previous version to the customer and
+      to support. This cut carries a sharp version of that risk: v1.0.31 is the release
+      that cannot start, so an installer still stamping 1.0.31 would name the broken
+      build from inside the one that fixes it, and a support conversation would have no
+      way to tell them apart. All four stamp sites moved together (Info.plist,
+      project.yml x2, pbxproj) with build 2500 unchanged, matching the .26 through .31
+      precedent where only the marketing version moves.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: "1.0.32"

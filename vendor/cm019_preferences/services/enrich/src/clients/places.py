@@ -321,7 +321,7 @@ class PlacesClient(BaseClient[PlaceDetails]):
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "User-Agent": "PWG-Enrichment/0.1.0",
+            "User-Agent": "Ostler/1.0 (+https://ostler.ai)",
         }
         if self.api_key:
             headers["X-Goog-Api-Key"] = self.api_key

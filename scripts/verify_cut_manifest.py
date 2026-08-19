@@ -651,14 +651,43 @@ def check_plist_env_key_present(entry: dict, ctx: dict) -> Result:
 BOX_WALK_PROBE_TIMEOUT_SECONDS = 180
 
 
-def _box_walk_probe_registry_dir(cm051_dir: Path) -> Path:
-    """Location of the box-walk probe registry.
+def _box_walk_probe_search_dirs(cm051_dir: Path) -> list:
+    """Every directory a probe may be registered in, in resolution order.
 
-    All probe scripts live under `scripts/box_walk_probes/<probe_name>.sh`.
-    Keeping them together (rather than scattering) makes the registry easy to
-    audit and lets `chmod +x` propagate via a single directory.
+    #778. This used to return ONE directory, `scripts/box_walk_probes`, and
+    resolve `<name>.sh` directly inside it. The repo has TWO populations:
+
+        scripts/box_walk_probes/probes/*.sh    7 probes, each with a
+                                               --self-test negative control
+        scripts/box_walk_probes/*.sh           1 probe, people_seed_and_retrieval,
+                                               735 lines, NO negative control
+
+    The split is deliberate and documented in that directory's README: the
+    runner (`run_box_walk.sh`) globs `probes/` ONLY, because phase 1 demands a
+    `--self-test` from everything it finds and the flat probe cannot supply one.
+
+    What was NOT deliberate is that this gate looked only in the flat directory
+    while the runner looked only in the subdirectory. The two instruments had
+    ZERO probes in common. The gate could resolve exactly one probe -- the one
+    the runner never executes -- and the seven the runner does execute were
+    unresolvable here, so no manifest could name them.
+
+    Searching both, subdirectory first, means a probe is visible to the gate
+    wherever it is registered, and the coverage test in
+    scripts/tests/test_verify_cut_manifest.py asserts every probe on disk is
+    declared by at least one manifest row so a new one cannot go dark again.
     """
-    return cm051_dir / "scripts" / "box_walk_probes"
+    root = cm051_dir / "scripts" / "box_walk_probes"
+    return [root / "probes", root]
+
+
+def _resolve_box_walk_probe(cm051_dir: Path, probe: str):
+    """Return the path of `probe`, or None. Never guesses outside the registry."""
+    for d in _box_walk_probe_search_dirs(cm051_dir):
+        candidate = d / f"{probe}.sh"
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
@@ -673,15 +702,41 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
     cm051_dir = ctx["cm051_dir"]
 
     if not os.environ.get("OSTLER_BOX_HOST"):
+        # 🔴 #713. This SKIP is correct in CI and on a dev box -- there is no
+        # machine to probe -- but it is NOT correct during a cut, and until
+        # 2026-08-17 nothing distinguished the two.
+        #
+        # Measured before the fix: OSTLER_BOX_HOST is set NOWHERE. Zero hits
+        # across OS003, which is the canonical cut mechanism, and in CM051 only
+        # inside scripts/tests/. Two manifests declare box_walk_probe rows
+        # (cut-manifests/permanent.yaml and v1.0.12.yaml), so those rows have
+        # returned SKIP on every cut that has ever run, main() exits 0 while
+        # fails == 0, and the summary printed a skip COUNT with no names.
+        #
+        # This primitive exists precisely to catch what static gates cannot --
+        # the seed-and-query round trip on a real box. It is the machinery
+        # behind "acceptance is the box walk, not the cut log". It had never
+        # executed, and nothing said so.
+        #
+        # --require-runtime-proofs makes the distinction explicit rather than
+        # implicit: a declared runtime proof that COULD NOT RUN is a failure,
+        # because "not known to have failed" is not evidence.
+        if ctx.get("require_runtime_proofs"):
+            return Result(entry["id"], entry["title"], "box_walk_probe", "FAIL",
+                          "OSTLER_BOX_HOST not set and --require-runtime-proofs is on: "
+                          "this row declares a RUNTIME proof and no runtime proof happened",
+                          entry.get("source_pr", ""))
         return Result(entry["id"], entry["title"], "box_walk_probe", "SKIP",
                       "OSTLER_BOX_HOST not set (runtime probe requires a reachable box)",
                       entry.get("source_pr", ""))
 
-    registry_dir = _box_walk_probe_registry_dir(cm051_dir)
-    script = registry_dir / f"{probe}.sh"
-    if not script.is_file():
+    script = _resolve_box_walk_probe(cm051_dir, probe)
+    if script is None:
+        searched = ", ".join(
+            str(d / f"{probe}.sh") for d in _box_walk_probe_search_dirs(cm051_dir)
+        )
         return Result(entry["id"], entry["title"], "box_walk_probe", "FAIL",
-                      f"probe {probe!r} not registered at {script}",
+                      f"probe {probe!r} not registered. Searched: {searched}",
                       entry.get("source_pr", ""))
     try:
         result = subprocess.run(
@@ -1704,6 +1759,10 @@ def main() -> int:
                     help="Skip grep_in_source_at_sha checks (useful when sibling repos aren't checked out)")
     ap.add_argument("--json", action="store_true", help="Emit machine-readable JSON on stdout")
     ap.add_argument("--verbose", action="store_true", help="Print every check's detail line")
+    ap.add_argument("--require-runtime-proofs", action="store_true",
+                    help="A declared RUNTIME proof that could not run is a FAILURE, not a skip. "
+                         "Use for a real cut: a box_walk_probe with no OSTLER_BOX_HOST proves "
+                         "nothing, and without this flag it exits 0.")
     args = ap.parse_args()
 
     app_path = Path(args.app_path).expanduser().resolve()
@@ -1737,6 +1796,7 @@ def main() -> int:
         "app_path": app_path,
         "cm051_dir": cm051_dir,
         "extra_paths": {},
+        "require_runtime_proofs": bool(args.require_runtime_proofs),
     }
 
     results: list[Result] = []
@@ -1775,7 +1835,20 @@ def main() -> int:
         }, indent=2))
     else:
         print()
+        # 🔴 #713: NAME the skipped rows. A bare skip COUNT is a silent cap --
+        # it reads as "nothing to report" when it means "these specific proofs
+        # did not happen". The box_walk_probe rows skipped on every cut for
+        # months behind a number in this line.
+        if skips:
+            print("  Rows that did NOT prove anything (SKIP):")
+            for r in results:
+                if r.status == "SKIP":
+                    print(f"    - {r.id}  [{r.kind}]  {r.detail}")
+            print()
         print(f"=== Summary: {passes} PASS  {fails} FAIL  {skips} SKIP  ({len(results)} total) ===")
+        if skips and not args.require_runtime_proofs:
+            print("  (re-run with --require-runtime-proofs to make a declared RUNTIME "
+                  "proof that could not run a FAILURE rather than a skip)")
 
     return 0 if fails == 0 else 1
 

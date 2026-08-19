@@ -32,6 +32,20 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    # A GATE THAT CANNOT FINISH MUST FAIL, NOT HANG.
+    #
+    # This workflow is a REQUIRED check. Without a deadline a stalled step
+    # blocks the PR for GitHub's default 360 minutes, and a hang is
+    # indistinguishable from "still working" on every surface a reviewer sees:
+    # no failure, no annotation, just a spinner. That happened on 2026-08-18,
+    # run 32170773072, which sat 33 minutes on `apt-get update` before anyone
+    # looked.
+    #
+    # 10 minutes is chosen from MEASURED history, not taste. The last 19
+    # completed runs ranged 32s to 75s, so this is roughly 8x the slowest real
+    # run: generous enough that a merely slow runner still passes, tight enough
+    # that a stall surfaces in minutes rather than hours.
+    timeout-minutes: 10
     steps:
       - name: Checkout PR branch (with merge-base history)
         uses: actions/checkout@v4
@@ -39,6 +53,11 @@ jobs:
           fetch-depth: 0
 
       - name: Install ripgrep
+        # Bounded explicitly. This step is where the job hung for 33 minutes on
+        # 2026-08-18 (run 32170773072, PR #844): `apt-get update` stalled on a
+        # mirror and neither the step nor the job had any deadline, so GitHub's
+        # 360-minute job default applied. See the timeout-minutes note above.
+        timeout-minutes: 5
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ripgrep
@@ -94,6 +113,21 @@ jobs:
       # an inexplicable green.
       - name: Prove ci-pii-shape-scan scope
         run: bash tests/test_pii_shape_scan_scope.sh
+
+      # Prove the PATTERNS, having just proved the SCOPE. The two are separate
+      # questions and this repo answered only the first for weeks: the scope
+      # test pinned WHICH LINES get asked, and nothing at all pinned WHAT gets
+      # asked of them. The library sat at five of seven built-ins, the missing
+      # pair being email and the macOS home path, and every run printed a
+      # confident "5 pattern(s) loaded" while the scan was structurally unable
+      # to see the operator-path class.
+      #
+      # The library declares its own expected built-in count. Until this step
+      # existed here, that declaration was a comment: nothing in THIS repo
+      # compared it to what actually loads, so the contract travelled with the
+      # file and the enforcement did not.
+      - name: Prove the pattern library (declared floor + merge + validation)
+        run: bash .githooks/test_pii_patterns.sh
 
       # The check that CAN run here. Runs FIRST and unconditionally, because it
       # needs no inventory: it matches PII by SHAPE, and it carries its own

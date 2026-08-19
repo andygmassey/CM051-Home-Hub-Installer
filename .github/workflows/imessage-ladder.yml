@@ -1,0 +1,55 @@
+name: imessage-ladder
+
+# 45 days is the ladder's FIRST RUNG, not the window.
+#
+# Andy, 2026-08-16: "It should (eventually) be ALL of iMessage backlog. But we
+# said we'd start with 45 days initially so that the user sees something recent
+# and reasonable on first sight of Ostler."
+#
+# install.sh used to set OSTLER_IMESSAGE_BACKFILL_DAYS=45 on every install, and
+# resolve_backfill_days() treats ANY explicit value as an operator pin that
+# returns before the ladder is consulted. The widening therefore never ran on a
+# customer machine. This gate exists so that a future edit re-introducing the
+# default fails the PR that adds it rather than being discovered on a box.
+#
+# It also pins the PACE. The ladder advances once per call and the extractor is
+# driven every four hours, so un-pinning without a dwell would reach the
+# terminal rung within a day and dispatch the entire backlog at once. Controls
+# (6) and (7) are therefore as load-bearing as (1): one proves it does not
+# race, the other proves it still moves.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'vendor/ostler_fda/backfill_ladder.py'
+      - 'tests/test_imessage_ladder_not_pinned.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/imessage-ladder.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  ladder-not-pinned:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # Drives the REAL vendored backfill_ladder module in a sandboxed
+      # OSTLER_STATE_DIR. Exits 2 CANNOT-RUN rather than passing if it cannot
+      # import it, so it can never go green against a copy of the logic.
+      - name: The iMessage ladder runs, and does not race (#770)
+        run: bash tests/test_imessage_ladder_not_pinned.sh
+
+      - name: The test parses under bash 3.2, the customer's shell
+        if: always()
+        run: /bin/bash -n tests/test_imessage_ladder_not_pinned.sh

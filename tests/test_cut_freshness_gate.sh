@@ -148,7 +148,7 @@ case "$path" in
         b="$(printf '%s\n' "$q" | tr '&' '\n' | sed -n 's/^sha=//p')"
         p="$(printf '%s\n' "$q" | tr '&' '\n' | sed -n 's/^path=//p')"
         # per_page=100 => the path-scoped DELTA list (multiline). Else a head.
-        if printf '%s' "$q" | grep -q 'per_page=100'; then
+        if grep -q 'per_page=100' <<< "$q"; then
           key="MOCK_DELTA_$(san "$repo")_$(san "$p")"
           val="$(eval "printf '%s' \"\${$key:-}\"")"
           if [ -z "$val" ]; then echo "{\"message\":\"Not Found\"}"; exit 1; fi
@@ -309,7 +309,7 @@ make_mock_gh
 # ===========================================================================
 reset_defaults; build_fixture
 OUT="$(run_gate "${FULL_FRESH_ENV[@]}" 2>&1)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "GATE: GREEN"; then
+if [ "$RC" -eq 0 ] && grep -q "GATE: GREEN" <<< "$OUT"; then
     ok "(a) all fresh -> exit 0, GATE GREEN"
 else
     bad "(a) all fresh: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -323,9 +323,9 @@ OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
   MOCK_CMP_22222222_11111111="ahead 3 0" \
   MOCK_DELTA_andygmassey_CM041_People_Graph_contact_syncer="$(printf '%s\n%s\n%s\n%s' "$D1" "$D2" "$D3" "$SHA_OLD")" \
   2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "vendor:cm041/contact_syncer" \
-   && printf '%s' "$OUT" | grep -qE "RED STALE:\+3" \
-   && printf '%s' "$OUT" | grep -q "d1d1d1d1d1d1"; then
+if [ "$RC" -eq 1 ] && grep -q "vendor:cm041/contact_syncer" <<< "$OUT" \
+   && grep -qE "RED STALE:\+3" <<< "$OUT" \
+   && grep -q "d1d1d1d1d1d1" <<< "$OUT"; then
     ok "(b) stale vendor pin, no hold_ack -> exit 1, names tree + un-acked delta"
 else
     bad "(b) stale vendor: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -348,7 +348,7 @@ fi
 # (c1) the pin resolves to no tag at all
 reset_defaults; DAEMON_PIN="0.9.8"; build_fixture
 OUT="$(run_gate "${FULL_FRESH_ENV[@]}" 2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "RED no-tag-for-pin"; then
+if [ "$RC" -eq 1 ] && grep -q "RED no-tag-for-pin" <<< "$OUT"; then
     ok "(c1) pin with no tag -> exit 1, no-tag-for-pin"
 else
     bad "(c1) no-tag-for-pin: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -357,7 +357,7 @@ fi
 # (c2) tag exists but NO published release -- every customer install would 404
 reset_defaults; build_fixture
 OUT="$(run_gate "${FULL_FRESH_ENV[@]}" MOCK_REL_hub_v0_9_9= 2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "RED no-published-release"; then
+if [ "$RC" -eq 1 ] && grep -q "RED no-published-release" <<< "$OUT"; then
     ok "(c2) no published release -> exit 1, no-published-release"
 else
     bad "(c2) no-published-release: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -366,7 +366,7 @@ fi
 # (c3) the release exists but is still a DRAFT -- not downloadable by a customer
 reset_defaults; build_fixture
 OUT="$(run_gate "${FULL_FRESH_ENV[@]}" MOCK_REL_hub_v0_9_9="draft" 2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "RED release-is-draft"; then
+if [ "$RC" -eq 1 ] && grep -q "RED release-is-draft" <<< "$OUT"; then
     ok "(c3) draft release -> exit 1, release-is-draft"
 else
     bad "(c3) release-is-draft: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -376,7 +376,7 @@ fi
 #      the very tarball it just downloaded
 reset_defaults; MK_SHA256="$SHA256_OTHER"; build_fixture
 OUT="$(run_gate "${FULL_FRESH_ENV[@]}" 2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "RED sha256-mismatch"; then
+if [ "$RC" -eq 1 ] && grep -q "RED sha256-mismatch" <<< "$OUT"; then
     ok "(c4) Makefile sha256 != sidecar -> exit 1, sha256-mismatch"
 else
     bad "(c4) sha256-mismatch: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -386,7 +386,7 @@ fi
 #      the shipped daemon is not the tagged source (the v1.0.13.3 R1/R5 class)
 reset_defaults; build_fixture
 OUT="$(run_gate "${FULL_FRESH_ENV[@]}" MOCK_ASSET_BUILDINFO="$DAEMON_TAG_OLD" 2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "RED built-from-other-commit"; then
+if [ "$RC" -eq 1 ] && grep -q "RED built-from-other-commit" <<< "$OUT"; then
     ok "(c5) build-info commit != tag commit -> exit 1, built-from-other-commit"
 else
     bad "(c5) built-from-other-commit: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -396,7 +396,7 @@ fi
 #      the shipped bytes at all
 reset_defaults; build_fixture
 OUT="$(run_gate "${FULL_FRESH_ENV[@]}" MOCK_ASSET_SHA256= 2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "RED no-sha256-asset"; then
+if [ "$RC" -eq 1 ] && grep -q "RED no-sha256-asset" <<< "$OUT"; then
     ok "(c6) no .sha256 sidecar -> exit 1, no-sha256-asset"
 else
     bad "(c6) no-sha256-asset: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -415,8 +415,8 @@ fi
 #      claims to test.
 reset_defaults; build_fixture
 OUT="$(run_gate "${FULL_FRESH_ENV[@]}" MOCK_UNREACH_RELEASES=1 2>&1)"; RC=$?
-if [ "$RC" -eq 3 ] && printf '%s' "$OUT" | grep -qE "daemon .*CANNOT-VERIFY" \
-   && ! printf '%s' "$OUT" | grep -q "RED no-published-release"; then
+if [ "$RC" -eq 3 ] && grep -qE "daemon .*CANNOT-VERIFY" <<< "$OUT" \
+   && ! grep -q "RED no-published-release" <<< "$OUT"; then
     ok "(c7) release lookup unreachable -> daemon CANNOT-VERIFY, not a false RED"
 else
     bad "(c7) daemon release unreachable: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -439,8 +439,8 @@ OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
   MOCK_HEAD_ostler_ai_ostler_assistant_main="$OA_MAIN_AHEAD" \
   MOCK_CMP_aaaaaaaa_eeeeeeee="ahead 3 0" \
   2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE "daemon .*RED STALE:\+3" \
-   && printf '%s' "$OUT" | grep -q "NO hold_ack"; then
+if [ "$RC" -eq 1 ] && grep -qE "daemon .*RED STALE:\+3" <<< "$OUT" \
+   && grep -q "NO hold_ack" <<< "$OUT"; then
     ok "(c8) daemon behind oa main, no hold_ack -> exit 1, RED STALE"
 else
     bad "(c8) daemon-behind-head: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -455,8 +455,8 @@ OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
   MOCK_CMP_aaaaaaaa_eeeeeeee="ahead 3 0" \
   MOCK_CMPDELTA_aaaaaaaa_eeeeeeee="$(printf '%s\n%s\n%s' "$D1" "$D2" "$D3")" \
   2>&1)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qE "daemon .*HELD hold_ack" \
-   && printf '%s' "$OUT" | grep -q "GATE: GREEN"; then
+if [ "$RC" -eq 0 ] && grep -qE "daemon .*HELD hold_ack" <<< "$OUT" \
+   && grep -q "GATE: GREEN" <<< "$OUT"; then
     ok "(c9) daemon lag + hold_ack covers whole delta -> exit 0, HELD"
 else
     bad "(c9) daemon hold_ack full: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -471,9 +471,9 @@ OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
   MOCK_CMP_aaaaaaaa_eeeeeeee="ahead 3 0" \
   MOCK_CMPDELTA_aaaaaaaa_eeeeeeee="$(printf '%s\n%s\n%s' "$D1" "$D2" "$D3")" \
   2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "daemon RED: delta commit(s) NOT in hold_ack_shas" \
-   && printf '%s' "$OUT" | grep -q "d3d3d3d3d3d3" \
-   && ! printf '%s' "$OUT" | grep -qE "hold_ack_shas:.*d1d1d1d1d1d1"; then
+if [ "$RC" -eq 1 ] && grep -q "daemon RED: delta commit(s) NOT in hold_ack_shas" <<< "$OUT" \
+   && grep -q "d3d3d3d3d3d3" <<< "$OUT" \
+   && ! grep -qE "hold_ack_shas:.*d1d1d1d1d1d1" <<< "$OUT"; then
     ok "(c10) daemon lag + hold_ack missing a delta sha -> exit 1, names ONLY d3"
 else
     bad "(c10) daemon hold_ack partial: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -486,7 +486,7 @@ reset_defaults; COMP_PROV="$CM044_OLD"; build_fixture
 OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
   MOCK_CMP_44444444_33333333="ahead 7 0" \
   2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE "wiki:wiki-compiler .* RED STALE:\+7"; then
+if [ "$RC" -eq 1 ] && grep -qE "wiki:wiki-compiler .* RED STALE:\+7" <<< "$OUT"; then
     ok "(d) stale wiki image -> exit 1, names image + '+7'"
 else
     bad "(d) stale wiki image: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -497,14 +497,14 @@ fi
 # ===========================================================================
 reset_defaults; build_fixture
 OUT="$(run_gate MOCK_UNREACH=1 2>&1)"; RC=$?
-if [ "$RC" -eq 3 ] && printf '%s' "$OUT" | grep -q "GATE: CANNOT VERIFY"; then
+if [ "$RC" -eq 3 ] && grep -q "GATE: CANNOT VERIFY" <<< "$OUT"; then
     ok "(e) github unreachable -> exit 3 CANNOT-VERIFY (no false pass)"
     # ...and it must say NETWORK, not credentials. (e) and (m) share an exit
     # code and must not share an explanation: if both print the same remedy the
     # cause-naming added for run 31685172775 is decorative, and the operator is
     # sent at the wrong thing exactly as before.
-    if printf '%s' "$OUT" | grep -q "Restore network" \
-       && ! printf '%s' "$OUT" | grep -q "SOURCE REPO could not be read"; then
+    if grep -q "Restore network" <<< "$OUT" \
+       && ! grep -q "SOURCE REPO could not be read" <<< "$OUT"; then
         ok "(e2) unreachable names the NETWORK, not a credential -- (e) and (m) discriminate"
     else
         bad "(e2) unreachable and unreadable print the same explanation"
@@ -519,7 +519,7 @@ fi
 # ===========================================================================
 reset_defaults; COMP_PROV="MISSING"; build_fixture
 OUT="$(run_gate "${FULL_FRESH_ENV[@]}" 2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "RED unrecorded-provenance"; then
+if [ "$RC" -eq 1 ] && grep -q "RED unrecorded-provenance" <<< "$OUT"; then
     ok "(f) wiki repin w/o provenance row -> exit 1, fail-closed"
 else
     bad "(f) unrecorded provenance: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -537,8 +537,8 @@ OUT="$(run_gate FRESHNESS_ONLY="cm048_pipeline" \
   MOCK_CMP_22222222_11111111="ahead 4 0" \
   MOCK_DELTA_andygmassey_CM048_PWG_Conversation_Processing_="$(printf '%s\n%s' "$D1" "$SHA_OLD")" \
   2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "vendor:cm048_pipeline" \
-   && printf '%s' "$OUT" | grep -qE "RED STALE:\+4"; then
+if [ "$RC" -eq 1 ] && grep -q "vendor:cm048_pipeline" <<< "$OUT" \
+   && grep -qE "RED STALE:\+4" <<< "$OUT"; then
     ok "(g) fetchable verify=skip tree, stale -> exit 1 (WARN hole closed)"
 else
     bad "(g) skip-hole: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -551,8 +551,8 @@ reset_defaults
 T2_EXTRA=$'verify_exempt    = true\nexempt_reason    = "CM019 is not a git repo -- genuinely unverifiable"'
 build_fixture
 OUT="$(run_gate FRESHNESS_ONLY="cm048_pipeline" 2>&1)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "EXEMPT" \
-   && printf '%s' "$OUT" | grep -q "GATE: GREEN"; then
+if [ "$RC" -eq 0 ] && grep -q "EXEMPT" <<< "$OUT" \
+   && grep -q "GATE: GREEN" <<< "$OUT"; then
     ok "(h) exempt WITH reason -> exit 0, EXEMPT non-fatal"
 else
     bad "(h) exempt-with-reason: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -565,7 +565,7 @@ reset_defaults
 T2_EXTRA=$'verify_exempt    = true'
 build_fixture
 OUT="$(run_gate FRESHNESS_ONLY="cm048_pipeline" 2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "RED exempt-without-reason"; then
+if [ "$RC" -eq 1 ] && grep -q "RED exempt-without-reason" <<< "$OUT"; then
     ok "(i) exempt WITHOUT reason -> exit 1, fail-closed"
 else
     bad "(i) exempt-without-reason: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -582,8 +582,8 @@ OUT="$(run_gate FRESHNESS_ONLY="cm041/contact_syncer" \
   MOCK_CMP_22222222_11111111="ahead 3 0" \
   MOCK_DELTA_andygmassey_CM041_People_Graph_contact_syncer="$(printf '%s\n%s\n%s\n%s' "$D1" "$D2" "$D3" "$SHA_OLD")" \
   2>&1)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qE "HELD STALE:\+3" \
-   && printf '%s' "$OUT" | grep -q "GATE: GREEN"; then
+if [ "$RC" -eq 0 ] && grep -qE "HELD STALE:\+3" <<< "$OUT" \
+   && grep -q "GATE: GREEN" <<< "$OUT"; then
     ok "(j) stale + hold_ack covers whole delta -> exit 0, HELD"
 else
     bad "(j) fully-acked: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -600,9 +600,9 @@ OUT="$(run_gate FRESHNESS_ONLY="cm041/contact_syncer" \
   MOCK_CMP_22222222_11111111="ahead 3 0" \
   MOCK_DELTA_andygmassey_CM041_People_Graph_contact_syncer="$(printf '%s\n%s\n%s\n%s' "$D1" "$D2" "$D3" "$SHA_OLD")" \
   2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "unacked" \
-   && printf '%s' "$OUT" | grep -q "d3d3d3d3d3d3" \
-   && ! printf '%s' "$OUT" | grep -q "d1d1d1d1d1d1 "; then
+if [ "$RC" -eq 1 ] && grep -q "unacked" <<< "$OUT" \
+   && grep -q "d3d3d3d3d3d3" <<< "$OUT" \
+   && ! grep -q "d1d1d1d1d1d1 " <<< "$OUT"; then
     ok "(k) stale + hold_ack missing a delta sha -> exit 1, names ONLY the un-acked d3"
 else
     bad "(k) partial-ack: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -619,7 +619,7 @@ OUT="$(run_gate FRESHNESS_ONLY="cm041/contact_syncer" \
   MOCK_CMP_22222222_11111111="ahead 3 0" \
   MOCK_DELTA_andygmassey_CM041_People_Graph_contact_syncer="$(printf '%s\n%s\n%s\n%s' "$D1" "$D2" "$D3" "$SHA_OLD")" \
   2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "no-grafted-assert"; then
+if [ "$RC" -eq 1 ] && grep -q "no-grafted-assert" <<< "$OUT"; then
     ok "(l) hold_ack without shipping_bugfixes_grafted=true -> exit 1"
 else
     bad "(l) grafted-assert: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -652,10 +652,10 @@ OUT="$(run_gate FRESHNESS_ONLY="cm041/contact_syncer" \
   MOCK_UNREADABLE_andygmassey_CM041_People_Graph=1 \
   2>&1)"; RC=$?
 if [ "$RC" -eq 3 ] \
-   && printf '%s' "$OUT" | grep -q "CANNOT-VERIFY unreadable-source" \
-   && printf '%s' "$OUT" | grep -q "andygmassey/CM041-People-Graph" \
-   && printf '%s' "$OUT" | grep -q "stale/RED=0" \
-   && ! printf '%s' "$OUT" | grep -q "RED unresolved"; then
+   && grep -q "CANNOT-VERIFY unreadable-source" <<< "$OUT" \
+   && grep -q "andygmassey/CM041-People-Graph" <<< "$OUT" \
+   && grep -q "stale/RED=0" <<< "$OUT" \
+   && ! grep -q "RED unresolved" <<< "$OUT"; then
     ok "(m) unreadable source repo -> exit 3 CANNOT-VERIFY, no RED against the pin"
 else
     bad "(m) unreadable-source: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -667,9 +667,9 @@ fi
 # a credential, and were told to fix the network -- an accurate exit code
 # wearing the wrong explanation, which sends the operator at the wrong thing.
 # Reuses $OUT from (m): same run, different assertion.
-if printf '%s' "$OUT" | grep -q "SOURCE REPO could not be read" \
-   && printf '%s' "$OUT" | grep -q "Do NOT re-pin them" \
-   && ! printf '%s' "$OUT" | grep -q "Restore network"; then
+if grep -q "SOURCE REPO could not be read" <<< "$OUT" \
+   && grep -q "Do NOT re-pin them" <<< "$OUT" \
+   && ! grep -q "Restore network" <<< "$OUT"; then
     ok "(m2) the exit-3 SUMMARY names the credential cause, not the network"
 else
     bad "(m2) summary names the wrong cause for an unreadable repo"
@@ -693,9 +693,9 @@ reset_defaults; T1_PIN="$SHA_OLD"
 build_fixture
 OUT="$(run_gate FRESHNESS_ONLY="cm041/contact_syncer" 2>&1)"; RC=$?
 if [ "$RC" -eq 1 ] \
-   && printf '%s' "$OUT" | grep -q "RED unresolved" \
-   && printf '%s' "$OUT" | grep -q "the source repo IS readable" \
-   && ! printf '%s' "$OUT" | grep -q "CANNOT-VERIFY"; then
+   && grep -q "RED unresolved" <<< "$OUT" \
+   && grep -q "the source repo IS readable" <<< "$OUT" \
+   && ! grep -q "CANNOT-VERIFY" <<< "$OUT"; then
     ok "(n) readable repo + absent SHA -> STILL exit 1 RED, not reclassified"
 else
     bad "(n) absent-sha-still-red: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -724,8 +724,8 @@ OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
   MOCK_CMP_aaaaaaaa_eeeeeeee="ahead 3 0" \
   MOCK_FILES_aaaaaaaa_eeeeeeee="$(printf '%s\n%s\n%s' '.github/workflows/README.md' 'docs/architecture.md' 'README.md')" \
   2>&1)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "FRESH docs-only-delta" \
-   && printf '%s' "$OUT" | grep -q "GATE: GREEN"; then
+if [ "$RC" -eq 0 ] && grep -q "FRESH docs-only-delta" <<< "$OUT" \
+   && grep -q "GATE: GREEN" <<< "$OUT"; then
     ok "(n1) daemon delta is docs-only -> FRESH, gate GREEN"
 else
     bad "(n1) docs-only-delta: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -741,8 +741,8 @@ OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
   MOCK_CMP_aaaaaaaa_eeeeeeee="ahead 3 0" \
   MOCK_FILES_aaaaaaaa_eeeeeeee="$(printf '%s\n%s\n%s' '.github/workflows/README.md' 'crates/zeroclaw-channels/src/imessage.rs' 'docs/architecture.md')" \
   2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE "daemon .*RED STALE:\+3" \
-   && ! printf '%s' "$OUT" | grep -q "docs-only-delta"; then
+if [ "$RC" -eq 1 ] && grep -qE "daemon .*RED STALE:\+3" <<< "$OUT" \
+   && ! grep -q "docs-only-delta" <<< "$OUT"; then
     ok "(n2) POSITIVE CONTROL: one crates/ file among docs -> STILL RED"
 else
     bad "(n2) crates-file-must-stay-red: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -755,8 +755,8 @@ OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
   MOCK_HEAD_ostler_ai_ostler_assistant_main="$OA_MAIN_AHEAD" \
   MOCK_CMP_aaaaaaaa_eeeeeeee="ahead 3 0" \
   2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE "daemon .*RED STALE:\+3" \
-   && printf '%s' "$OUT" | grep -q "docs-only check could not complete"; then
+if [ "$RC" -eq 1 ] && grep -qE "daemon .*RED STALE:\+3" <<< "$OUT" \
+   && grep -q "docs-only check could not complete" <<< "$OUT"; then
     ok "(n3) file list unavailable -> RED, and SAYS the check did not complete"
 else
     bad "(n3) unknown-must-stay-red: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
@@ -772,7 +772,7 @@ OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
   MOCK_CMP_aaaaaaaa_eeeeeeee="ahead 3 0" \
   MOCK_FILES_aaaaaaaa_eeeeeeee="$_capped" \
   2>&1)"; RC=$?
-if [ "$RC" -eq 1 ] && ! printf '%s' "$OUT" | grep -q "docs-only-delta"; then
+if [ "$RC" -eq 1 ] && ! grep -q "docs-only-delta" <<< "$OUT"; then
     ok "(n4) 300-file cap (possible truncation) -> RED, not suppressed"
 else
     bad "(n4) truncation-must-stay-red: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'

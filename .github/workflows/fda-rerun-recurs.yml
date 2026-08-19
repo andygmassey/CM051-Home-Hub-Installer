@@ -1,0 +1,85 @@
+name: fda-rerun-recurs
+
+# com.ostler.fda-rerun is the agent that re-extracts the FDA sources after
+# install, to catch iCloud content that had not finished syncing when the
+# installer ran. Until 2026-08-16 it could only ever run ONCE.
+#
+# ============================================================================
+# A FULLY SPECIFIED StartCalendarInterval IS A ONE-SHOT
+# ============================================================================
+#
+# install.sh wrote the plist with Year, Month, Day, Hour AND Minute all pinned
+# to install+12h. launchd fires such a job at that instant (or at the next wake
+# if the Mac was asleep) and never again, because the date is then permanently
+# in the past.
+#
+# The cost was not hypothetical. At the OSTLER_HYDRATE_CALENDAR_DAYS site,
+# CX-106 deliberately narrowed the install-time calendar window to 90 days, and
+# justified it in a comment that read "the hourly fda-rerun LaunchAgent walks
+# the ... window in the background". The agent was never hourly. A decision to
+# defer work was made on the strength of a mechanism that did not exist.
+#
+# ============================================================================
+# WHY THE SELF-TEST IS ITS OWN JOB
+# ============================================================================
+#
+# On #766 the identical self-test was first written as a sibling STEP. A
+# failing step skips everything after it, so a broken predicate would have
+# taken the gate it guards down with it and the run would have reported one
+# red line instead of two. Separate jobs report independently. This is the
+# same reason ci-maskless exists, and it caught me once already.
+#
+# ============================================================================
+# WHY macos, NOT ubuntu
+# ============================================================================
+#
+# The controls drive the real write-guard extracted out of install.sh, and the
+# surrounding block is macOS shell (launchctl, BSD mktemp semantics). The
+# installer only ever runs on macOS; the gate runs where the code runs.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_fda_rerun_recurs.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/fda-rerun-recurs.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  recurrence-controls:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # 11 controls. Exit 2 is CANNOT-RUN, and CI treats it as failure, which
+      # is correct: a gate that cannot find what it guards has not passed.
+      - name: fda-rerun must recur, and must migrate boxes that already ran once
+        run: bash tests/test_fda_rerun_recurs.sh
+
+      - name: Test parses under bash 3.2-compatible syntax
+        if: always()
+        run: bash -n tests/test_fda_rerun_recurs.sh
+
+  # SEPARATE JOB, deliberately. See the header.
+  predicate-self-test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reinstates each half of the defect in a copy of install.sh and requires
+      # the matching control to go RED. A control that has never been observed
+      # failing is not evidence that it can fail.
+      - name: The controls must go red when the defect is reinstated
+        run: bash tests/test_fda_rerun_recurs.sh --self-test

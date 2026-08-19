@@ -264,7 +264,7 @@ def split_given_surname(name: str):
     """``(given, surname)`` for a display name; surname is ``""`` if absent.
 
     Multi-token surnames with particles are kept whole ("van der Berg"), so
-    "Anna van der Berg" -> ("anna", "van der berg").
+    "Jane van der Doe" -> ("jane", "van der doe").
     """
     tokens = _name_tokens(name)
     if not tokens:
@@ -285,7 +285,7 @@ def names_agree(name_a: str, name_b: str) -> str:
 
     1. Surname-last is assumed. For a name written surname-FIRST ("Wang Wei"),
        the given name and surname are swapped. In practice the verdict still
-       comes out safe -- "Wang Wei" vs "Wang Min" compares "wei" against "yu",
+       comes out safe -- "Wang Wei" vs "Wang Min" compares "wei" against "min",
        disagrees, and goes to review rather than merging two people -- but the
        stated REASON would be wrong. Proper handling needs a script/locale
        signal that the graph does not currently carry.

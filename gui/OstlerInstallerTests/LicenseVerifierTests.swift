@@ -287,6 +287,167 @@ final class LicenseVerifierTests: XCTestCase {
         )
     }
 
+    // MARK: - The trust anchor is not swappable at run time
+    //
+    // Until 2026-08-16 `LicenseVerifier.init?()` opened with:
+    //
+    //     if let override = ProcessInfo.processInfo.environment[
+    //             "OSTLER_LICENSE_PUBKEY_OVERRIDE"],
+    //        override.count == 64 { hex = override }
+    //
+    // in the SHIPPING, notarised binary. No build-configuration
+    // gate, and the branch was checked FIRST -- it REPLACED the
+    // production key rather than supplementing it. So the paywall
+    // fell to: generate a keypair, self-sign a licence body, launch
+    // the installer with that env var set to your own public key.
+    // Signature verification then passed against the attacker's key
+    // by construction, on a $99 product.
+    //
+    // The branch was deleted rather than wrapped in `#if DEBUG`,
+    // because `init(publicKey:)` was already the documented
+    // injection seam and is what these tests have always used. The
+    // env branch was redundant with a mechanism that already
+    // existed, so a DEBUG gate would have preserved a live bypass in
+    // one build configuration for no remaining reason.
+    //
+    // These three tests are the enforcer. They need no build-config
+    // trickery: the branch is gone in EVERY configuration, so the
+    // proof is expressible in the Debug build the test target runs
+    // under.
+
+    /// Hex-encode raw key bytes so a test can hand a public key to
+    /// the env var in exactly the form the deleted branch parsed
+    /// (64 lowercase hex chars). Test-generated keys only -- no
+    /// production key material is ever formatted here.
+    private func hexEncode(_ data: Data) -> String {
+        return data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// NEGATIVE CONTROL, and the actual attack.
+    ///
+    /// Mint an attacker keypair, self-sign a licence with it, point
+    /// `OSTLER_LICENSE_PUBKEY_OVERRIDE` at the attacker's public key,
+    /// then build the PRODUCTION verifier the app actually uses
+    /// (`LicenseVerifier()`, as `InstallerCoordinator` does). The
+    /// forged licence must be rejected.
+    ///
+    /// The paired POSITIVE CONTROL is inside this same test, on
+    /// purpose: it proves the same bytes DO verify under the key
+    /// that signed them. Without it, a `.invalidSignature` here
+    /// would be indistinguishable from a test that accidentally
+    /// built a malformed licence -- the gate would go green while
+    /// measuring nothing.
+    func testEnvOverrideCannotSwapTheProductionKey() throws {
+        let attackerKey = Curve25519.Signing.PrivateKey()
+        let forged = try sign(makeLicenseBody(), with: attackerKey)
+
+        // Positive control: the forged licence is well-formed and
+        // verifies under the key that signed it. If this limb fails,
+        // the negative limb below proves nothing.
+        let attackerVerifier = LicenseVerifier(publicKey: attackerKey.publicKey)
+        guard case .valid = attackerVerifier.verify(licenseData: forged) else {
+            XCTFail(
+                "positive control failed: the self-signed licence did not verify "
+                + "under its own key, so the rejection below would be meaningless"
+            )
+            return
+        }
+
+        // The attack. setenv, not a ProcessInfo stub: the deleted
+        // branch read the REAL process environment, so the real
+        // process environment is what has to be shown inert.
+        let attackerHex = hexEncode(attackerKey.publicKey.rawRepresentation)
+        XCTAssertEqual(attackerHex.count, 64, "test key did not hex-encode to the 64 chars the deleted branch required")
+        setenv("OSTLER_LICENSE_PUBKEY_OVERRIDE", attackerHex, 1)
+        defer { unsetenv("OSTLER_LICENSE_PUBKEY_OVERRIDE") }
+
+        guard let productionVerifier = LicenseVerifier() else {
+            XCTFail("LicenseVerifier() returned nil -- the embedded production key does not parse")
+            return
+        }
+        XCTAssertEqual(
+            productionVerifier.verify(licenseData: forged),
+            .invalidSignature,
+            "REVENUE HOLE: a self-signed licence was accepted by the production verifier "
+            + "while OSTLER_LICENSE_PUBKEY_OVERRIDE pointed at the signer's own public key. "
+            + "The runtime key-override branch has been reintroduced into LicenseVerifier.init?()."
+        )
+    }
+
+    /// The production initializer still works with the env var set.
+    ///
+    /// A verifier that returned nil under a hostile environment
+    /// would also "reject" the forged licence, for the wrong reason,
+    /// and would break every honest customer whose environment
+    /// happened to carry the variable. Pin that `init?()` succeeds
+    /// and is simply indifferent to the variable.
+    func testProductionVerifierInitialisesRegardlessOfEnvironment() {
+        XCTAssertNotNil(LicenseVerifier(), "clean environment: embedded production key must parse")
+
+        setenv("OSTLER_LICENSE_PUBKEY_OVERRIDE", String(repeating: "a", count: 64), 1)
+        defer { unsetenv("OSTLER_LICENSE_PUBKEY_OVERRIDE") }
+        XCTAssertNotNil(
+            LicenseVerifier(),
+            "a set OSTLER_LICENSE_PUBKEY_OVERRIDE must not change init?() behaviour at all, "
+            + "including whether it succeeds"
+        )
+
+        // Garbage that the deleted branch would have rejected on
+        // length and a 64-char value that is not hex both have to be
+        // inert now, not merely handled.
+        setenv("OSTLER_LICENSE_PUBKEY_OVERRIDE", String(repeating: "z", count: 64), 1)
+        XCTAssertNotNil(LicenseVerifier(), "non-hex override value must be ignored, not fatal")
+    }
+
+    /// SHAPE REGRESSION GUARD.
+    ///
+    /// The two tests above prove the behaviour of the code as
+    /// compiled. This one refuses the shape itself, so the branch
+    /// cannot come back in a form that reads the environment under a
+    /// different variable name -- which the behaviour tests, keyed to
+    /// one specific name, would not catch.
+    ///
+    /// Same source-scan pattern as
+    /// `AdminAuthorizationGateTests.testAuthorizationHelperDoesNotShellOutToOsascript`.
+    func testLicenseVerifierSourceReadsNoProcessEnvironment() throws {
+        let verifierURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()      // OstlerInstallerTests/
+            .deletingLastPathComponent()      // gui/
+            .appendingPathComponent("OstlerInstaller/Auth/LicenseVerifier.swift")
+        let source = try String(contentsOf: verifierURL, encoding: .utf8)
+
+        // MUST-BE-PRESENT controls first. An absence check passes
+        // trivially when the read fails or resolves to the wrong
+        // file, so prove the scanner is looking at the right bytes
+        // BEFORE believing anything it says about absence.
+        XCTAssertFalse(source.isEmpty, "read LicenseVerifier.swift as empty -- the absence checks below would be vacuous")
+        XCTAssertTrue(
+            source.contains("productionPublicKeyHex"),
+            "scanned file does not look like LicenseVerifier.swift; absence checks below are not trustworthy"
+        )
+        XCTAssertTrue(
+            source.contains("init(publicKey: Curve25519.Signing.PublicKey)"),
+            "the compile-time injection seam must remain -- it is what replaces the deleted env override"
+        )
+
+        // Now the refusals.
+        XCTAssertFalse(
+            source.contains("OSTLER_LICENSE_PUBKEY_OVERRIDE"),
+            "the runtime public-key override env var is back in LicenseVerifier.swift. "
+            + "It lets anyone launching the shipped installer substitute their own trust anchor. "
+            + "Inject via init(publicKey:) instead."
+        )
+        XCTAssertFalse(
+            source.contains("ProcessInfo"),
+            "LicenseVerifier must not consult the process environment for ANY reason. "
+            + "Whatever the variable is called, a trust anchor the launching process can set is not a trust anchor."
+        )
+        XCTAssertFalse(
+            source.contains("UserDefaults"),
+            "LicenseVerifier must not resolve its key from UserDefaults -- a customer can write those with `defaults write`."
+        )
+    }
+
     func testCanonicalJSONPreservesIntegerOneAndZero() {
         // The Bool/NSNumber bridging gotcha specifically affects
         // 0 and 1, since those are the only Int values that round-

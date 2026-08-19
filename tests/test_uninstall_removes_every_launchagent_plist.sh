@@ -91,10 +91,19 @@ trap 'rm -rf "$WORK"' EXIT
 # ── 1. Extract the uninstaller install.sh ships ────────────────────────────
 # Single-quoted heredoc, so the body is verbatim: ${HOME} and $(id -u) are
 # still unexpanded and resolve inside our sandbox when we run it.
+#
+# `^[^#]*` on the opening marker, so a COMMENT that merely MENTIONS
+# <<'UNINSTALLEOF' does not start the capture. Without it this awk treated the
+# first prose reference as the heredoc opening and swallowed everything from
+# there to the real terminator -- thousands of lines of install.sh, which then
+# failed `bash -n` and reported "teardown region does not parse". The gate did
+# fail closed, which is the right direction, but it named the wrong thing: the
+# uninstaller was fine and a comment was the cause. Found 2026-08-18 when a
+# comment documenting the colima-teardown containment bug did exactly this.
 awk '
-    /<<'\''UNINSTALLEOF'\''/ { capture = 1; next }
-    /^UNINSTALLEOF$/         { capture = 0 }
-    capture                  { print }
+    /^[^#]*<<'\''UNINSTALLEOF'\''/ { capture = 1; next }
+    /^UNINSTALLEOF$/               { capture = 0 }
+    capture                        { print }
 ' "$INSTALL_SCRIPT" > "${WORK}/ostler-uninstall"
 
 body_lines=$(wc -l < "${WORK}/ostler-uninstall" | tr -d ' ')

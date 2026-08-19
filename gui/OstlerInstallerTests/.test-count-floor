@@ -1,0 +1,21 @@
+# The number of Swift tests this suite is expected to run, AT MINIMUM.
+#
+# Measured 2026-08-16 on main 7953828f: 283 tests across 36 files, 0 failures,
+# 3.3 seconds. Until that day NOTHING ran them, and no register enumerated
+# them, so they were never even scored UNWIRED.
+#
+# This is a FLOOR, not an equality. Adding tests must never fail the gate.
+# Dropping below it must, because a suite that silently shrinks from 283 to 12
+# exits 0 and prints the same green as a suite that did its job.
+#
+# Lowering this number is allowed and sometimes correct. Do it in the SAME
+# commit that removes the tests, and say why in the message.
+#
+# Raised to 288 on 2026-08-18 (#839). MEASURED, not estimated: the swift-tests
+# run on PR #840 printed
+#     swift-tests: executed=288 failures=0 declared-floor=283
+# The five new tests are ProgressDecoderTests' status-decoding cases, which
+# pin that a STEP_END carrying status=timeout or status=error does not decode
+# to .ok. Leaving the floor at 283 would have let those five be deleted with
+# the gate still green, which is the same shape of defect the PR fixes.
+288

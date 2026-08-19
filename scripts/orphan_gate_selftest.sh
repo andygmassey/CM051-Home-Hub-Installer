@@ -44,6 +44,20 @@ cat > "$TMP/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 # $1 = auth | pr
 if [[ "${1:-}" == "auth" ]]; then echo "stub-token"; exit 0; fi
+# `pr view <n>` is how a prN MIRROR is resolved -- by number, because the
+# mirror's name is not a head ref GitHub has ever heard of. It answers from
+# GH_STUB_PR_MODE when set so a case can make `pr view` and `pr list`
+# disagree; that is what proves the mirror limb uses the number, not the name.
+if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
+    case "${GH_STUB_PR_MODE:-${GH_STUB_MODE:-none}}" in
+        merged) echo '{"number":'"${3}"',"state":"MERGED","mergedAt":"2026-08-10T00:00:00Z"}' ;;
+        open)   echo '{"number":'"${3}"',"state":"OPEN","mergedAt":null}' ;;
+        closed) echo '{"number":'"${3}"',"state":"CLOSED","mergedAt":null}' ;;
+        none)   echo '{"number":'"${3}"',"state":"CLOSED","mergedAt":null}' ;;
+        boom)   echo "HTTP 502: server error" >&2; exit 1 ;;
+    esac
+    exit 0
+fi
 if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then
     # The section-1 sweep asks for --state open and a different --json field
     # set (it needs headRefName + isDraft). Only GH_STUB_MODE=open has an open
@@ -266,6 +280,88 @@ git -C "$d9" branch -q -D feat/remote-only-ancestor   # local ref gone; origin's
 git -C "$d9" fetch -q origin
 out="$(run_gate "$d9" "acme/thing" boom)"; rc=$?
 check "remote-only branch that IS an ancestor -> GREEN" GREEN "$out" "$rc" "ancestors of the shipping ref"
+
+echo ""
+echo "-- prN mirrors of refs/pull/N (the 2026-08-15 false positives)"
+
+# A helper that runs the gate with `pr view` and `pr list` answering
+# SEPARATELY. If the mirror limb were still asking by NAME it would read the
+# `pr list` answer, so making the two disagree is what gives these cases teeth.
+run_gate_pr() {   # $1 dir, $2 ghrepo, $3 list-mode, $4 view-mode, $5 deferrals
+    local d="$1" ghr="$2" mode="$3" vmode="$4" def="${5:-$TMP/empty-deferrals.yaml}"
+    PATH="$TMP/bin:$PATH" \
+    GH_STUB_MODE="$mode" \
+    GH_STUB_PR_MODE="$vmode" \
+    OSTLER_CUT_DEFERRALS="$def" \
+    OSTLER_ORPHAN_GATE_REPOS="T|${d}|origin/main|${ghr}" \
+        bash "$GATE" 2>&1
+}
+
+# Build a repo carrying a `pr632` mirror: a local-only branch, named for a PR
+# number, whose name is NOT any head ref the remote knows. This is exactly the
+# shape `git fetch origin 'refs/pull/*/head:refs/heads/pr*'` leaves behind.
+build_mirror_repo() {
+    local d; d="$(build_repo "$1")"
+    git -C "$d" checkout -qb pr632
+    echo "content of PR 632" > "$d/m.txt"
+    git -C "$d" add m.txt; git -C "$d" commit -qm "feat: the work in PR 632"
+    git -C "$d" checkout -q main
+    printf '%s' "$d"
+}
+
+# 12. THE HEADLINE CASE. `pr list --head pr632` can never match (mode none),
+#     but PR #632 itself is MERGED. Before this change all 105 CM051 mirrors
+#     went RED here. It must resolve by NUMBER and go quiet.
+d10="$(build_mirror_repo mirror_merged)"
+out="$(run_gate_pr "$d10" "acme/thing" none merged)"; rc=$?
+check "prN mirror whose PR is MERGED -> GREEN" GREEN "$out" "$rc" "landed -- PR #632 merged"
+
+# 12b. THE CONTROL THAT MAKES 12 MEAN SOMETHING. Same repo, same mirror, but
+#      PR #632 is CLOSED-unmerged and nothing on main replaces it. If this
+#      does not go RED then case 12 passed because the gate stopped looking at
+#      prN branches altogether -- which would be a blanket silence, not a fix.
+out="$(run_gate_pr "$d10" "acme/thing" none closed)"; rc=$?
+check "  control: same mirror, PR CLOSED-unmerged -> RED" RED "$out" "$rc" "T:#632"
+
+# 12c. The KEY the RED is filed under must be the `#N` form, because that is
+#      what cut-deferrals.yaml has always used. Filing it as `T:pr632` is the
+#      second half of the 2026-08-15 defect: 67 `#N` deferral rows existed and
+#      not one could ever be consulted.
+printf 'deferrals:\n  - ref: "T:#632"\n    reason: "deliberately not this cut"\n' \
+    > "$TMP/mirror-deferrals.yaml"
+out="$(run_gate_pr "$d10" "acme/thing" none closed "$TMP/mirror-deferrals.yaml")"; rc=$?
+check "  a 'T:#632' deferral silences the pr632 mirror" GREEN "$out" "$rc" "DEFERRED  T:#632"
+
+# 12d. `prNmerge` is refs/pull/N/merge, GitHub's ephemeral merge preview. Same
+#      normalisation, same number.
+d11="$(build_repo mirror_merge_variant)"
+git -C "$d11" checkout -qb pr632merge
+echo "merge preview" > "$d11/mm.txt"
+git -C "$d11" add mm.txt; git -C "$d11" commit -qm "merge preview commit"
+git -C "$d11" checkout -q main
+out="$(run_gate_pr "$d11" "acme/thing" none merged)"; rc=$?
+check "prNmerge mirror resolves by the same number -> GREEN" GREEN "$out" "$rc" "landed -- PR #632 merged"
+
+# 12e. A NON-mirror local-only branch must be unaffected: it still resolves by
+#      NAME. `pr list` says nothing (none) while `pr view` says merged; if the
+#      normalisation leaked onto ordinary branches this would wrongly go green.
+d12="$(build_repo not_a_mirror)"
+git -C "$d12" checkout -qb fix/printer-queue
+echo "not a mirror" > "$d12/n.txt"
+git -C "$d12" add n.txt; git -C "$d12" commit -qm "fix: unrelated work"
+git -C "$d12" checkout -q main
+out="$(run_gate_pr "$d12" "acme/thing" none merged)"; rc=$?
+check "  control: 'fix/printer-queue' is not a mirror, still RED" RED "$out" "$rc" "fix/printer-queue"
+
+# 12f. A branch merely CONTAINING 'pr' + digits is not a mirror either. This is
+#      what stops the regex eating `fix/pr-review-123` or `archie/pr404-copy`.
+d13="$(build_repo near_miss)"
+git -C "$d13" checkout -qb archie/pr404-copy
+echo "near miss" > "$d13/nm.txt"
+git -C "$d13" add nm.txt; git -C "$d13" commit -qm "chore: near miss name"
+git -C "$d13" checkout -q main
+out="$(run_gate_pr "$d13" "acme/thing" none merged)"; rc=$?
+check "  control: 'archie/pr404-copy' is not a mirror, still RED" RED "$out" "$rc" "archie/pr404-copy"
 
 echo ""
 echo "== ${pass} passed, ${fail} failed =="

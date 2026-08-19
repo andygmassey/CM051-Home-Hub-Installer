@@ -342,3 +342,112 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "people_seed_and_retrieval"
+
+  # ==========================================================================
+  # #778. The seven probes below have existed since the BW2 bundle and NO
+  # manifest has ever named them. Not an oversight anyone could have spotted:
+  # they live in scripts/box_walk_probes/probes/, and until #778 the verifier
+  # resolved `probe: <name>` ONLY against the flat scripts/box_walk_probes/,
+  # so a row naming any of them would have FAILED with "not registered". The
+  # gate could not see the runner's probes and the runner does not run the
+  # gate's one probe. Zero overlap, in both directions.
+  #
+  # These SKIP while OSTLER_BOX_HOST is unset, which is every environment
+  # today, so adding them changes no current result. They become live the
+  # moment a cut targets a real box, which is the point.
+  #
+  # HONEST WARNING, recorded here rather than discovered at 3am: on the first
+  # box walk (2026-08-16, andy@192.168.1.217) install_error_honesty FAILED
+  # against a real installer log. That is task #270, a known-open defect, and
+  # its row below will go RED on the first box-targeted cut. That is the row
+  # working. Fix #270 or descope it deliberately; do not delete the row.
+  # ==========================================================================
+  - id: box-walk-daemon-is-listening
+    title: the Hub gateway must accept connections, and the daemon must be able to load its config
+    incident: >-
+      v1.0.31; install.sh wrote a config the daemon could not parse, so the Hub
+      never started on a fresh install and every static gate stayed green
+    proof:
+      kind: box_walk_probe
+      probe: "daemon_is_listening"
+
+  - id: box-walk-freshness-panel-has-dates
+    title: every freshness-panel source must report a real date rather than 'unknown'
+    incident: >-
+      tasks #266 + #349; the Oxigraph client was closed before the dashboard
+      queries ran, and the panel rendered 'unknown' instead of erroring
+    proof:
+      kind: box_walk_probe
+      probe: "freshness_panel_has_dates"
+
+  - id: box-walk-install-error-honesty
+    title: the installer's closing summary must agree with the error count in its own log
+    incident: >-
+      task #270; install.sh closed with "no errors detected" over a session
+      carrying 43+ real errors. OPEN at the time this row was added, and this
+      row is expected to go RED on the first box-targeted cut
+    proof:
+      kind: box_walk_probe
+      probe: "install_error_honesty"
+
+  # ==========================================================================
+  # #722. The estate had no instrument that observes OUTBOUND traffic at all.
+  # Searched OS003 and CM051 with a positive control before building: the only
+  # lsof in a probe read INBOUND listeners. The strongest claim the product
+  # makes had a diagram behind it and no measurement.
+  #
+  # This row exists so the probe cannot become the thing it measures. It SKIPS
+  # while OSTLER_BOX_HOST is unset, like its siblings, and goes live the moment
+  # a cut targets a real box.
+  #
+  # READ THE PROBE'S OWN BLIND-SPOT LINE BEFORE QUOTING A GREEN FROM IT. It
+  # samples established TCP; it cannot see sub-sample-lifetime connections,
+  # UDP, DNS, proxied requests, or any payload content. A pass here is the
+  # floor of an evidence chain, not a proof of no leak, and this row must not
+  # be cited as one.
+  # ==========================================================================
+  - id: box-walk-no-unexpected-egress
+    title: no Ostler-owned process may hold a connection outside the declared local boundary
+    incident: >-
+      task #722; a cold outside read of the marketing site reached "a diagram,
+      not a proof" of the boundary claim, and the estate had zero runnable
+      instruments that observe the network in the outbound direction
+    proof:
+      kind: box_walk_probe
+      probe: "no_unexpected_egress"
+
+  - id: box-walk-installed-bundle-seal-intact
+    title: the installed bundle's code signature must still verify on the box
+    incident: >-
+      task #375 / CM051 #767; the installer broke the seal it had just verified,
+      and nothing checked the artefact after installation
+    proof:
+      kind: box_walk_probe
+      probe: "installed_bundle_seal_intact"
+
+  - id: box-walk-launchd-no-ephemeral-paths
+    title: no installed LaunchAgent may execute from /tmp or a mktemp staging dir
+    incident: >-
+      task #177; the ollama-logrotate plist pointed at /tmp/ostler-prelaunch-XXXX,
+      worked all day, and died at the next reboot
+    proof:
+      kind: box_walk_probe
+      probe: "launchd_no_ephemeral_paths"
+
+  - id: box-walk-pair-state-agreement
+    title: daemon health flag, devices.db and the pair-state file must agree on whether a phone is paired
+    incident: >-
+      tasks #208 + #265; Doctor reported "Your phone is connected" over a
+      devices.db with zero rows, and four signals on one box disagreed
+    proof:
+      kind: box_walk_probe
+      probe: "pair_state_agreement"
+
+  - id: box-walk-people-count-agreement
+    title: Oxigraph and the Doctor API must agree on the number of people
+    incident: >-
+      task #273; three surfaces reported 6376 / 6755 / 6547 for the same box
+      and no gate compared them
+    proof:
+      kind: box_walk_probe
+      probe: "people_count_agreement"

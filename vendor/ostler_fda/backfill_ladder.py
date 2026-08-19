@@ -45,6 +45,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -52,7 +53,69 @@ logger = logging.getLogger(__name__)
 
 # The rungs, in days. Terminal rung is the historical 5-year window, so the
 # ladder converges on exactly the behaviour we had before -- just later.
-DEFAULT_LADDER: List[int] = [45, 90, 180, 365, 730, 1825]
+# 36500 days is a hundred years: the terminal rung means EVERYTHING, not
+# "five years". Andy, 2026-08-16: the backlog should eventually be ALL of
+# iMessage. 1825 truncates anyone who has been messaging for longer, and
+# next_rung() scans ascending and returns rungs[-1] as terminal, so the
+# sentinel has to be the LARGEST value rather than a falsy 0.
+# extract_conversations() computes `now - since_days*86400` and keeps
+# everything after it, so a hundred-year window filters nothing.
+DEFAULT_LADDER: List[int] = [45, 90, 180, 365, 730, 1825, 36500]
+
+# How long a rung must be held before the ladder widens again.
+#
+# WHY THIS EXISTS. The ladder advances once per CALL, so its pace is set by
+# whatever invokes extract_all. That population is exactly ONE agent:
+#
+#   `run-source` dispatches generically to
+#   <app>/Contents/Resources/ingest/<src>/tick.sh, so the invoker is decided by
+#   the tick, not the agent name. VERIFIED on the installed box:
+#
+#     ingest/export-scan/tick.sh   runs ostler-scan-exports. No extract_all.
+#     ingest/fda-rerun/tick.sh     calls ostler_fda.extract_all.run_all
+#
+#     CONTROL: grep -rl extract_all over ingest/ returns fda-rerun/tick.sh and
+#     nothing else, so the single hit is a real population and not a miss.
+#
+# com.ostler.export-scan never reaches this module at all. TNM's finding; my
+# first version of this comment said extract_all was driven by export-scan
+# every four hours, which was wrong.
+#
+# Un-pinning without a pace would still be a mistake wherever the invoker
+# recurs: install.sh prices arrival at the top rung at ~28,405 conversations x
+# ~1.20 min of chained local inference, which is the runtime the 45-day first
+# rung exists to avoid.
+#
+# THE VALUE IS PINNED BY THE ONE GUARANTEED ADVANCE, NOT BY TASTE.
+#
+# I first set this to 86400 (one rung per day), reasoning from
+# com.ostler.export-scan's StartInterval=14400. Both halves of that were wrong:
+# export-scan does not invoke extract_all at all (see above), and the agent that
+# does is not recurring. TNM refuted it and the box agreed with them:
+#
+#   com.ostler.fda-rerun is ONE-SHOT. install.sh pins Year, Month, Day, Hour
+#   AND Minute into StartCalendarInterval at install time +12h, and a fully
+#   specified calendar interval fires once and never again.
+#
+#   com.ostler.export-scan IS loaded and recurring, and its RunAtLoad firing at
+#   20:34:01 left imessage_conversations.json at 20:16:51, untouched. I read
+#   that as "it ran and skipped iMessage". The tick files say it is stronger
+#   than that: export-scan does not touch iMessage BY DESIGN, so the untouched
+#   mtime was never evidence of a skip. Recording the distinction because a
+#   0-byte log at agent-creation time is the shape-of-a-zero trap, and reading
+#   a designed no-op as a runtime skip is how a wrong premise survives.
+#
+# So the only advance a customer is guaranteed to get without re-running the
+# installer arrives at INSTALL + 12 HOURS. A 24-hour dwell would have blocked
+# it, leaving every box on rung 1 forever while the code looked like a ladder.
+# The fix would have shipped dark.
+#
+# Six hours: comfortably under the 12-hour rerun so it can never block the one
+# advance that is certain, and still long enough that a four-hourly invoker
+# cannot walk several rungs in an evening. Control (9) pins the relationship to
+# the 12-hour figure rather than to the number 21600, so if that schedule ever
+# changes the test says so.
+DEFAULT_DWELL_SECONDS: int = 21600
 
 def _state_dir() -> Path:
     """Where the horizon lives -- resolved on EVERY call, never at import.
@@ -95,7 +158,9 @@ def _write_days(source: str, days: int) -> None:
         # Atomic: a half-written horizon read by the next tick is a horizon
         # nobody can trust.
         tmp = p.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps({"source": source, "days": days}, indent=2))
+        tmp.write_text(json.dumps(
+            {"source": source, "days": days, "advanced_at": int(time.time())},
+            indent=2))
         tmp.replace(p)
     except OSError as exc:
         # Not fatal. Worst case the next run repeats this rung, which costs
@@ -118,6 +183,31 @@ def next_rung(current: Optional[int], ladder: Optional[List[int]] = None) -> int
         if rung > current:
             return rung
     return rungs[-1]
+
+
+def _dwell_seconds() -> int:
+    """Seconds a rung is held before the ladder widens. Operator-overridable
+    so a support case can be told to widen faster without a new build."""
+    raw = os.environ.get("OSTLER_BACKFILL_DWELL_SECONDS", "").strip()
+    if raw:
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            logger.warning("[backfill-ladder] OSTLER_BACKFILL_DWELL_SECONDS=%r is not an integer", raw)
+    return DEFAULT_DWELL_SECONDS
+
+
+def _seconds_since_advance(source: str) -> Optional[int]:
+    """Seconds since this source last widened, or None if never recorded."""
+    p = _state_path(source)
+    try:
+        raw = json.loads(p.read_text())
+    except (OSError, ValueError):
+        return None
+    ts = raw.get("advanced_at")
+    if not isinstance(ts, int):
+        return None
+    return max(0, int(time.time()) - ts)
 
 
 def resolve_backfill_days(
@@ -147,6 +237,26 @@ def resolve_backfill_days(
 
     current = _read_days(source)
     chosen = next_rung(current, rungs)
+
+    # DWELL. Hold a rung for DEFAULT_DWELL_SECONDS before widening again, so
+    # that the number of rungs climbed is bounded by TIME rather than by how
+    # often something happens to call this. The sole invoker today is
+    # ingest/fda-rerun/tick.sh and it is one-shot, so nothing races right now --
+    # but the pace has to hold the moment that schedule recurs, because
+    # arriving at the top rung dispatches the whole backlog at once, which is
+    # the runtime the 45-day first rung exists to avoid.
+    #
+    # A horizon written before this field existed has no advanced_at, which
+    # reads as 0 and therefore advances immediately. That is the right
+    # behaviour for an upgraded box: it is already overdue.
+    if current is not None and chosen != current:
+        held = _seconds_since_advance(source)
+        if held is not None and held < _dwell_seconds():
+            logger.info(
+                "[backfill-ladder] %s holding %sd for another %ss before widening",
+                source, current, int(_dwell_seconds() - held))
+            return current
+
     if advance and chosen != current:
         _write_days(source, chosen)
     if current is None:

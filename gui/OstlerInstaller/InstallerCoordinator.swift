@@ -157,6 +157,12 @@ final class InstallerCoordinator: ObservableObject {
         case .none: return .running
         case .some(.ok): return .success
         case .some(.warn): return .success // warn surfaces in-line; not a failure transition
+        // #839: DONE never carries these two today (they are step-level
+        // statuses), but the enum is shared, so state the intent rather
+        // than leaving it to a default. A run that gave up waiting still
+        // reached the end; a run that errored did not.
+        case .some(.timeout): return .success
+        case .some(.error): return .failed(step: currentStepId)
         case .some(.fail): return .failed(step: currentStepId)
         }
     }
@@ -1262,6 +1268,27 @@ final class InstallerCoordinator: ObservableObject {
             // some sub-tools (mkdocs, pip).
             "TERM": "dumb",
             "NO_COLOR": "1",
+            // KEEP PYTHON BYTECODE OUT OF THE SIGNED BUNDLE.
+            //
+            // install.sh runs the Python interpreter shipped at
+            // Contents/Resources/python. CPython writes __pycache__/*.pyc NEXT
+            // TO the source it imports, and that source is inside the notarised
+            // app, so every run breaks the code seal.
+            //
+            // MEASURED on the v1.0.36 box, 2026-08-18, after the walk:
+            //   codesign --verify --deep --strict  rc=1
+            //   spctl -a -t exec -vv               rc=1, Gatekeeper REFUSES
+            //   239 .pyc inside the bundle (plus 17 egg-info, fixed separately
+            //   by routing the ostler_fda pip install through
+            //   _ostler_pip_install_pkg)
+            //
+            // PYTHONPYCACHEPREFIX rather than PYTHONDONTWRITEBYTECODE: the
+            // prefix REDIRECTS the cache to a writable dir, so repeat runs keep
+            // the startup benefit. DONTWRITEBYTECODE would suppress caching
+            // entirely and would also be silently defeated if anything later
+            // sets the prefix. One mechanism, not two fighting.
+            "PYTHONPYCACHEPREFIX": (NSHomeDirectory() as NSString)
+                .appendingPathComponent(".ostler/cache/pycache"),
         ]
         let env = ProcessInfo.processInfo.environment
             .merging(overrides) { _, new in new }
@@ -1605,7 +1632,11 @@ final class InstallerCoordinator: ObservableObject {
                 status: status,
                 elapsed: elapsed
             ))
-            appendLog(level: status == .ok ? "info" : "warn",
+            // #839: `isProblem` rather than `!= .ok` so a status added
+            // later is logged as a problem by default. The rc that
+            // produced a timeout/error is on the STEP_END marker itself
+            // and reaches the Log drawer through the raw line.
+            appendLog(level: status.isProblem ? "warn" : "info",
                       msg: "← \(id) (\(status.rawValue), \(elapsed)s)")
             OstlerLog.subprocess.info("event STEP_END id=\(id, privacy: .public) status=\(status.rawValue, privacy: .public) elapsed=\(elapsed, privacy: .public)s")
         case .phase(let id, let title):
@@ -1738,10 +1769,10 @@ final class InstallerCoordinator: ObservableObject {
                 return .failure(message: "The installer stopped before it finished. Some steps did not run. Use Copy log and Try again, or contact support@ostler.ai.")
             }
             return .failure(message: "The installer stopped before it finished (exit \(exitCode)). Some steps did not run. Use Copy log and Try again, or contact support@ostler.ai.")
-        case .fail:
+        case .fail, .error:
             // install.sh already told us it failed. Honour it.
             return .confirmedFailure
-        case .warn:
+        case .timeout, .warn:
             // A terminal `warn` finish is treated as a (non-fatal)
             // completion; require a clean exit to call it success.
             if exitCode == 0 {

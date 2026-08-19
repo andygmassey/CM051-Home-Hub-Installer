@@ -9,10 +9,24 @@
 #   * verify_cut_freshness.sh  trusts the digest->source-SHA binding recorded by
 #     hand in scripts/wiki_image_provenance.tsv. It compares that RECORDED sha to
 #     CM044 main HEAD. It never checks that the digest was ACTUALLY built from the
-#     recorded sha -- the image carries no org.opencontainers.image.revision
-#     label (proven: `docker inspect ... .Config.Labels` == null), so the binding
+#     recorded sha -- the image carries no TRUSTWORTHY source binding, so the row
 #     is a trust-me row. A repin that records the RIGHT sha but bakes the WRONG
 #     content passes freshness GREEN.
+#
+#     PRECISION MATTERS HERE AND THIS COMMENT USED TO GET IT WRONG. It claimed
+#     "proven: `docker inspect ... .Config.Labels` == null". That is FALSE.
+#     Measured 2026-08-17 against the shipped digests: .Config.Labels carries
+#     EIGHT labels, including org.opencontainers.image.revision. They are all
+#     inherited from the squidfunk/mkdocs-material base image, so the revision
+#     is a THIRD-PARTY commit that will never resolve in CM044. The labels are
+#     present, plausible and about someone else's repository -- which is why
+#     image_revision_label() below refuses them unless
+#     org.opencontainers.image.source actually names CM044.
+#
+#     An absent label would have been safer than this one: absence forces the
+#     question, whereas a populated plausible wrong value answers it incorrectly
+#     and ends the enquiry. Anyone who reads "Labels == null", runs docker
+#     inspect, and sees eight labels will conclude the gate is broken. It is not.
 #
 #   * verify_cut_provenance.sh  DOES grep inside the pinned image -- but only for
 #     the fixes an operator remembered to hand-add as `wiki_image_grep` rows in
@@ -60,6 +74,12 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Read files OUT of an image, never RUN it. One shared copy so a second caller
+# cannot reintroduce the exec bug by writing its own -- which is exactly how
+# this file kept the v1.0.27 defect a day after its twin was fixed.
+# shellcheck source=scripts/lib_image_extract.sh
+. "${SCRIPT_DIR}/lib_image_extract.sh"
+PROV_LAST_EXTRACT_ERR=""; PROV_LAST_EXTRACT_N=0
 CM051_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 REQUIRED_FIXES_FILE="${REQUIRED_FIXES_FILE:-${SCRIPT_DIR}/required_fixes.tsv}"
@@ -258,23 +278,41 @@ resolve_wiki() { # artifact-key (wiki-compiler|wiki-site)
   printf '%s\t%s\t%s' "$digest" "$ledger_sha" "$ref"
 }
 
-# Grep a distinctive marker inside a wiki image. Pulls if absent (unless
-# PROV_GATE_ALLOW_PULL=0). Echoes: FOUND | MISSING | NOIMAGE | NODOCKER
+# Grep a distinctive marker inside a wiki image, by EXTRACTING it rather than
+# EXECUTING it. Pulls if absent (unless PROV_GATE_ALLOW_PULL=0).
+# Echoes: FOUND | MISSING | NOIMAGE | NODOCKER | NOEXTRACT
+#
+# THIS FUNCTION BURNED v1.0.28. It ran `docker run --entrypoint sh` against an
+# arm64-ONLY image on an amd64 runner, got "exec format error", read nothing,
+# and returned MISSING -- which the caller printed as "STALE IMAGE" with a
+# rebuild instruction, for four fixes that were provably present in the image.
+# It is the TWIN of the same bug in verify_cut_provenance.sh, which burned
+# v1.0.27 and was fixed a day earlier; this copy was seen in the first search
+# of that incident and then not revisited, so the class was declared closed
+# while three quarters of it was still live.
+#
+# NOEXTRACT IS A NEW STATE AND IT MATTERS. "could not read the image" and "read
+# it and the marker was absent" used to be the same answer, and only one of
+# them is a defect. The caller maps NOEXTRACT to cannot-run, never to stale.
 image_has_marker() { # ref  marker  path
-  local ref="$1" marker="$2" path="$3"
+  local ref="$1" marker="$2" path="$3" rc
   command -v docker >/dev/null 2>&1 || { echo NODOCKER; return; }
   docker image inspect "$ref" >/dev/null 2>&1 || {
     if [[ "${PROV_GATE_ALLOW_PULL}" == "1" ]]; then
-      HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= docker pull -q "$ref" >/dev/null 2>&1 || { echo NOIMAGE; return; }
+      HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= image_pull_platform "$ref" >/dev/null 2>&1 || { echo NOIMAGE; return; }
     else
       echo NOIMAGE; return
     fi
   }
-  if docker run --rm --entrypoint sh "$ref" -c "grep -rq -- '${marker}' '${path}' 2>/dev/null"; then
-    echo FOUND
-  else
-    echo MISSING
+  if ! image_extract_path "$ref" "$path"; then
+    PROV_LAST_EXTRACT_ERR="$IMG_EXTRACT_ERR"
+    echo NOEXTRACT; return
   fi
+  rc=1
+  grep -rq -- "${marker}" "$IMG_EXTRACT_DIR" 2>/dev/null && rc=0
+  PROV_LAST_EXTRACT_N="$IMG_EXTRACT_N"
+  rm -rf "$IMG_EXTRACT_DIR"; IMG_EXTRACT_DIR=""
+  if [[ $rc -eq 0 ]]; then echo FOUND; else echo MISSING; fi
 }
 
 # Read the image's recorded CM044 source revision (empty if none).
@@ -404,6 +442,14 @@ while IFS=$'\t' read -r repo fix artifact marker mpath desc; do
                   continue ;;
         NOIMAGE)  cannot "${label} :: pinned image ${digest:7:12} is not local and could not be pulled -- registry/network, not the artefact"
                   continue ;;
+        # EXTRACTION FAILED. Not stale, not present -- unread. This is the state
+        # whose absence burned v1.0.28: without it, "could not open the image"
+        # arrived as MISSING and was printed as "STALE IMAGE" with a rebuild
+        # instruction, about four fixes that were provably in the image.
+        NOEXTRACT)
+                  cannot "${label} :: could not EXTRACT ${mpath} from ${digest:7:12} -- ${PROV_LAST_EXTRACT_ERR}"
+                  info "nothing was read, so this is NOT a statement about the image content -- the marker was neither found nor missing"
+                  continue ;;
         MISSING)
           red "${label} :: image ${digest:7:12} does NOT contain /${marker}/ under ${mpath} -- STALE IMAGE (ledger claims ${ledger_sha:0:12} but ${fix:0:7} content is absent)"
           info "the digest was NOT built from source containing ${fix:0:7}; rebuild the ${artifact} image from current CM044 main + re-pin + fix the ledger row"
@@ -413,7 +459,11 @@ while IFS=$'\t' read -r repo fix artifact marker mpath desc; do
       # 3) BINDING integrity (advisory today; enforceable once the build stamps a label).
       rev="$(image_revision_label "$ref")"
       if [[ -z "$rev" ]]; then
-        warn "${label} :: content PROVEN present, but the image carries NO org.opencontainers.image.revision label -- the ledger sha is an unverifiable hand-recorded claim"
+        warn "${label} :: content PROVEN present, but the image carries NO TRUSTWORTHY CM044 source binding -- the ledger sha is an unverifiable hand-recorded claim"
+        info "        (the image DOES carry org.opencontainers.image.* labels, but they are"
+        info "         inherited from the mkdocs-material base image and describe THAT repo,"
+        info "         not CM044. This gate deliberately refuses them. Do not go looking for"
+        info "         an absent label -- you will find a present, plausible, wrong one.)"
         info "stamp CM044 sha into the image at build time (see PROVENANCE_GATE.md) so this becomes an enforceable check next cut"
       elif ! printf '%s' "$ledger_sha" | grep -q "^${rev}" && ! printf '%s' "$rev" | grep -q "^${ledger_sha}"; then
         red "${label} :: image revision label ${rev:0:12} != ledger sha ${ledger_sha:0:12} -- ledger MISBINDING"

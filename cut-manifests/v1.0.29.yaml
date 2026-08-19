@@ -1,0 +1,83 @@
+# cut-manifests/v1.0.29.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.29.
+#
+# WHY v1.0.29 EXISTS: TWO TAGS BURNED ON ONE BUG IN THREE FILES.
+# ---------------------------------------------------------------------------
+# v1.0.27 tagged on a 15-green preflight and cut.yml died before building
+# anything: the wiki provenance step could not EXECUTE an arm64-only image on an
+# amd64 runner and reported that non-event as a stale artefact. #737 fixed that
+# file. The class was declared closed, and v1.0.28 burned the same way on
+# scripts/provenance_gate.sh -- the TWIN, seen in the first search and not
+# revisited. A third file carried three more sites neither incident examined.
+#
+# #739 fixed all four in-scope sites behind one shared extractor
+# (scripts/lib_image_extract.sh, docker create + docker cp, never docker run)
+# and added tests/test_no_gate_execs_a_pinned_image.sh, a REPO-WIDE predicate
+# that was built FIRST and watched go red on the broken tree -- 4 live sites,
+# rc=1 -- before the fix took it to 0. A gate that has never failed on a
+# known-bad tree has not been shown to work.
+#
+# THE PAYLOAD IS UNCHANGED ACROSS ALL THREE TAGS. Daemon 0.4.57, CM041 #120
+# across three trees, ostler_fda forward past #379, contact_syncer held with a
+# measured reason, both wiki images rebuilt at CM044 c6febba2. v1.0.29 differs
+# from v1.0.27 by gate fixes and a version stamp, and nothing else.
+#
+# WHAT IS DELIBERATELY NOT ASSERTED HERE
+# --------------------------------------
+# There is no entry asserting "the provenance gates now read rather than exec".
+# That belongs to a test, not a cut manifest: the predicate and the extraction
+# test prove it and both print non-zero denominators so a skip cannot pass as a
+# green. A manifest entry restating it would assert a property of the toolchain
+# rather than of the artefact, and this file is about the artefact.
+#
+# Three entries, all using kinds verify_cut_manifest.py actually implements --
+# checked against its dispatch table rather than copied forward, because a
+# manifest asserting something the verifier cannot evaluate is a wish, not a gate.
+version: v1.0.29
+entries:
+  - id: v1029-payload-carries-the-0457-daemon
+    title: the shipped payload is the hub-v0.4.57 daemon, in lockstep with the Hub app
+    incident: >-
+      v1.0.26 shipped hub-v0.4.55. This line moves to 0.4.57, and the pins that name
+      the daemon had to move together or ship halves of two builds. Measured from the
+      published bytes rather than release pages: the daemon tarball sha256 f311519a
+      comes from ostler-ai/ostler-releases and the Hub app d1b7f828 from
+      ostler-ai/ostler-assistant -- two different repositories, which is the trap that
+      made a correct pin look like a missing artefact earlier in this cut. Both
+      build-info.json files report commit 723c682f, so daemon and Hub app are one line.
+      Separately, install.sh's DEFAULT_ASSISTANT_TARBALL_SHA256 still held the 0.4.56
+      digest while the version read 0.4.57; a customer install would have fetched the
+      new tarball and aborted on its own fail-closed checksum. No gate was watching
+      that pair.
+    proof:
+      kind: payload_version_matches_daemon_version
+
+  - id: v1029-hub-app-reaches-the-artefact
+    title: the shipped installer actually carries Ostler.app
+    incident: >-
+      v1018-D668: a missing Hub app was non-fatal, so a Hub-less DMG shipped with every
+      step green. #624 added download-hub-app so the demand can be satisfied on a runner,
+      and the gate stayed fail-closed. Re-asserted here because "the DMG contains the Hub"
+      is the kind of claim that is only ever true of an artefact somebody opened.
+    proof:
+      kind: file_exists_in_artefact
+      target: daemon-app
+      path: Contents/MacOS/ostler-hub
+
+  - id: v1029-installer-version-stamp
+    title: the shipped OstlerInstaller.app declares 1.0.29, not the burned 1.0.27
+    incident: >-
+      Task #171 records the build pipeline failing to bump CFBundleShortVersionString on
+      a cut, which ships an installer reporting the previous version to the customer and
+      to Sparkle. This cut carries a specific version of that risk: v1.0.27 exists as a
+      tag and produced nothing, so an installer still stamping 1.0.27 would name a
+      release that has no artefact. All four stamp sites moved together (Info.plist,
+      project.yml x2, pbxproj) with build 2500 unchanged, matching the .26 and .27
+      precedent where only the marketing version moved.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: "1.0.29"

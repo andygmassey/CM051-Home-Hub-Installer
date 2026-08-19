@@ -199,7 +199,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.56
+DAEMON_VERSION       ?= 0.4.58
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -218,7 +218,19 @@ DAEMON_VERSION       ?= 0.4.56
 # black bar from wiki iframe. Signed + notarised + stapled at build time
 # (submission 4c8a2fdb-1049). R4 wiki SETTING-UP typography deferred to v1.0.13.3
 # per CM044 namespace mystery (HR015 task #249).
-DAEMON_SHA256        ?= e918c96c50e554e251fff0efce4bbc516ade51255a3baa0d45a63ab38a45c769
+# v1.0.27 (2026-08-15 ORM): 0.4.56 -> 0.4.57, daemon commit acf991bf -> 723c682f.
+# MEASURED FROM THE PUBLISHED BYTES, not from a release page or a sidecar name.
+# The daemon and the Hub app live in DIFFERENT repositories and this is the trap
+# worth naming: ostler-ai/ostler-assistant publishes ONLY the Hub app at .56 and
+# .57 (hub-v0.4.55 is the last tag there carrying a daemon tarball), while the
+# daemon ships from $(DAEMON_REPO). Reading the wrong repo makes a correct pin
+# look like a missing artefact. Verified per side against the published .sha256:
+#   ostler-releases  hub-v0.4.57  ostler-assistant-...-v0.4.57.tar.gz  f311519a
+#   ostler-assistant hub-v0.4.57  ostler-hub-app-...-v0.4.57.tar.gz    d1b7f828
+# Commit parity re-derived rather than inherited: BOTH build-info.json files
+# report commit 723c682fd7b44b87e3769adfd2db2fdf59f5dadd, so the daemon and the
+# Hub app are the same line, which is what verify-commit-parity asserts.
+DAEMON_SHA256        ?= d4f274cbc32d7029fe24c3cebde9cd199dab8135cc6e165e2fedf0ae9c2cc6bf
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -269,7 +281,23 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # DAEMON_SHA256 is: a mismatch deletes the file and aborts the cut, so an
 # unverified or wrong-version Ostler.app can never reach the DMG. Bump in
 # lockstep with DAEMON_VERSION from the release's published .sha256 sidecar.
-HUB_APP_SHA256       ?= e074d6fd9647aa325b2c98a5c61540c209e2b03937286e3f22309f03cc2f62bf
+#
+# 2026-08-15: this pin was a version behind DAEMON_VERSION. It held
+# e074d6fd...c2f62bf, which is MEASURABLY the v0.4.55 digest -- byte-identical
+# to the published hub-v0.4.55 sidecar -- while DAEMON_VERSION said 0.4.56, and
+# nothing at all was published at hub-v0.4.56 on $(HUB_APP_REPO). The fetch path
+# was therefore dead: download-hub-app would delete the tarball and abort. It
+# went unnoticed because the fetch path is never taken on the operator's Mac,
+# where the sibling checkout's bundle is used as-is. Now re-pinned to the
+# published hub-v0.4.56 Ostler.app, built from ostler-assistant acf991bf (the
+# same commit as the v0.4.56 daemon, so verify-commit-parity stays meaningful).
+# v1.0.27 (2026-08-15 ORM): re-pinned in lockstep to the published hub-v0.4.57
+# Ostler.app, d1b7f828, built from 723c682f -- the SAME commit as the v0.4.57
+# daemon above, so verify-commit-parity keeps its meaning. The bundle is adhoc
+# signed and deliberately NOT notarised: the cut re-signs it via embed-sparkle.sh
+# codesign --force --deep with the Developer ID, which would discard any earlier
+# ticket. Read from the release's own .sha256 sidecar, not from a build log.
+HUB_APP_SHA256       ?= 7a45722d16854a5ccd0e46fc37c0dbd164ffd79ccdef5c6d9fc904d42d73f24e
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
@@ -304,6 +332,142 @@ SAFARI_EXT_REPO    ?= $(HUB_APP_REPO)
 SAFARI_EXT_NAME    := OstlerSafariExtension.app.zip
 SAFARI_EXT_DEST    := $(_CM051_ROOT)/vendor/extensions/$(SAFARI_EXT_NAME)
 SAFARI_EXT_SHA256  ?= 87f82a29eb4a4c1e13ddc694335747163f0f76fb4e055717b76219351534c69a
+# PINNED INDEPENDENTLY OF DAEMON_VERSION, and that is the whole point of this
+# variable existing.
+#
+# This fetch used to read $(DAEMON_RELEASE_TAG). That is correct for the hub
+# app -- see the HUB APP block above, where sharing the daemon's tag is what
+# makes verify-commit-parity meaningful -- but it is wrong here, because the
+# parity argument does not apply to this artefact at all. The extension is
+# built from CM020, not from ostler-assistant, and is NOT rebuilt by the cut
+# (see the "NOT REBUILT HERE" note above). It therefore has no commit
+# relationship to the daemon, and nothing about a daemon bump changes these
+# bytes.
+#
+# What the coupling actually did: because the tag was DERIVED from
+# DAEMON_VERSION, bumping the daemon silently redirected this fetch at a tag
+# that does not carry the extension, while leaving SAFARI_EXT_SHA256 pointing
+# at bytes published under the old one. Measured 2026-08-15 after the 0.4.56
+# re-pin (#681): hub-v0.4.56 does not exist in $(SAFARI_EXT_REPO), so this
+# target 404s. Every future daemon bump re-breaks it the same way, which is
+# the class of defect a version number should never be able to cause.
+#
+# Pinned to the release that actually carries the asset. Bump this ONLY when
+# CM020 publishes a new extension build, alongside SAFARI_EXT_SHA256 -- the
+# two move together because they describe the same bytes.
+SAFARI_EXT_TAG     ?= hub-v0.4.55
+
+# ---------------------------------------------------------------------------
+# AU-1 (auto-update): APPCAST PUBLISH.
+#
+# THE DEFECT THIS EXISTS TO CLOSE. Three pieces make auto-update work. Two of
+# them were built and connected; the third was built and never called.
+#
+#   1. the Sparkle updater inside the Hub app   SHIPPING (see sparkle-embed)
+#   2. the appcast feed it polls                LIVE, and answering
+#   3. the step that PUBLISHES a release
+#      INTO that feed                           BUILT IN CM050, NEVER CALLED
+#
+# MEASURED on CM051 origin/main before this change, whole repo, over
+# Makefile / *.mk / *.sh / *.yml:
+#
+#     publish-appcast | PUBLISH_APPCAST | ostler-release publish     0 hits
+#     sparkle-embed          (positive control, same search style)  14 hits
+#     notarise               (positive control, same search style) 124 hits
+#
+# The controls matter: a zero from a search that finds nothing anywhere is a
+# broken search, and this one was not. The zero is real.
+#
+# CONSEQUENCE OF THE ZERO. Every installed Hub polls the feed, receives a
+# well-formed answer listing no release newer than its own, and stays on its
+# version for ever. No error, no log line, nothing red. A bug that ships is
+# permanent for whoever installed it, because the road back to them was never
+# built. That is what this block connects.
+#
+# CONTROL -- PUBLISH_APPCAST:
+#   1|yes (DEFAULT since 2026-08-17) hard-require: fail the cut if the key or
+#         the CLI is missing. See WHY THE DEFAULT CHANGED below.
+#   auto  publish IFF $OSTLER_SPARKLE_SIGNING_KEY is set; if unset, warn and
+#         exit 0. This was the default and it is why the feed is empty. Kept
+#         ONLY for deliberate installer-only builds, and it must now be asked
+#         for by name.
+#
+# WHY THE DEFAULT CHANGED, measured 2026-08-17:
+#   `auto` + no key = warning + `exit 0`. Every cut therefore reported
+#   success while publishing nothing. The appcast serves HTTP 200 with a
+#   valid Sparkle feed containing ZERO items, so every installed Hub asks
+#   for updates, is correctly told there are none, and can never upgrade.
+#   No component was broken. The pipeline was never armed, and it was built
+#   to treat that as acceptable.
+#
+#   The warning even said so: "The DMG shipped, but NO appcast entry was
+#   added ... installed Hubs will never see it." A warning nobody is forced
+#   to read is not a control. The owner has done a full 70-minute reinstall
+#   on every release because of this.
+#
+#   A publish that is ATTEMPTED and then errors still FAILS the cut. That
+#   half was always right. Fail-closed, now from the first cut rather than
+#   once somebody remembers to opt in.
+#   0|no  skip silently (local installer-only builds).
+#
+# >>> NEEDS ANDY (two real-world prerequisites this Makefile cannot create) <<<
+#   1. OSTLER_SPARKLE_SIGNING_KEY -> path to the DECRYPTED Sparkle EdDSA PEM
+#      (mode 0400/0600), present only during a cut. See CM050
+#      appcast-server/docs/RELEASE_PROCESS.md (key ceremony + signing session).
+#   2. The R2 bucket + RELEASES_HOST behind the download_url, plus wrangler
+#      auth on the cut machine. This Makefile never invokes wrangler itself;
+#      the CM050 CLI does, from $(OSTLER_APPCAST_DIR).
+# ---------------------------------------------------------------------------
+PUBLISH_APPCAST       ?= 1
+# ostler-release CLI from CM050 release-tooling (`pip install -e .`). Override
+# if not on PATH, e.g. OSTLER_RELEASE_BIN=/path/to/.venv/bin/ostler-release.
+OSTLER_RELEASE_BIN    ?= ostler-release
+# CM050 appcast-server dir = the wrangler cwd for the publish's KV/R2 writes.
+# Passed to the CLI as $OSTLER_APPCAST_DIR. Default = canonical sibling layout.
+OSTLER_APPCAST_DIR    ?= $(HOME)/Documents/Projects/CM050 - Home Hub Update System/appcast-server
+# Hub release archive base name (matches CM050 BRAND.binaryFilename).
+HUB_RELEASE_BASENAME  ?= OstlerHub
+# Appcast channel for this cut: stable | security.
+APPCAST_CHANNEL       ?= stable
+# Hub version/build/min-os. Left blank => read from the Sparkle-embedded
+# Ostler.app Info.plist at publish time. Override to pin explicitly.
+HUB_VERSION           ?=
+HUB_BUILD             ?=
+HUB_MIN_OS            ?=
+# AU-1 appcast-version guard: the app this release SUPERSEDES, i.e. the one
+# currently installed. The guard refuses to publish unless BOTH the version
+# and the build being published are STRICTLY GREATER than this bundle's, using
+# Sparkle's comparator. Sparkle silently skips any entry whose sparkle:version
+# is <= the installed CFBundleVersion -- no dialog, no log, no error -- so a
+# pasted-in daemon version (0.4.x where the Hub is on 0.7.x) publishes cleanly
+# and reaches nobody. Absent path => nothing to supersede (fresh box / first
+# release) => skipped with a printed note. Set empty to disable.
+#
+# KNOWN LIMITATION, STATED RATHER THAN SHIPPED QUIETLY. Cuts run in CI
+# (guard-local-cut refuses a local cut), and a hosted runner has no
+# /Applications/Ostler.app. So on the machine where cuts ACTUALLY happen this
+# default is absent, the guard takes its documented skip branch, and it
+# protects nothing. It is live for a local emergency cut and inert for the
+# normal path. That is a strictly better position than before -- there was no
+# guard at all, at any layer -- but it is not the finished article, and a
+# reader who assumes "wired" means "covering the cut" would be wrong.
+#
+# CM051 PR #463 has the same property; it is a property of comparing against a
+# LOCALLY INSTALLED app rather than of any particular implementation.
+#
+# THE DURABLE FIX is to compare against the newest entry already in the
+# published manifest, which is the real "what is out there" and is the same
+# answer on every machine. `ostler-release list` returns it. That needs
+# network + wrangler auth, so it belongs in CM050 beside the publisher rather
+# than here, and it is not in this PR. Until then, a CI cut that wants the
+# guard live must pass HUB_REFERENCE_APP explicitly at a path the runner has.
+HUB_REFERENCE_APP     ?= /Applications/Ostler.app
+# The guard itself. A variable so a self-test can point the recipe at a stub
+# and prove the recipe's own branching, per the PROVENANCE_SH / STAPLING_SH
+# pattern used by every other gate wrapper here.
+APPCAST_GUARD_PY      ?= $(CURDIR)/../scripts/appcast_version_guard.py
+# Release-notes HTML stem; published URL is $(RELEASE_NOTES_BASE)/<version>.html
+RELEASE_NOTES_BASE    ?= https://ostler.ai/releases
 
 STEP          := @printf '\n[STEP] %s\n'
 
@@ -311,13 +475,15 @@ STEP          := @printf '\n[STEP] %s\n'
         staple staple-apps archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app check-version \
         check-pbxproj-sync \
-        print-version print-dmg-path dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
+        print-version print-dmg-path print-dist-dir print-build-dir print-archive-dir \
+        dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
         check-orphans \
         check-pr-age \
         verify-commit-parity \
         download-python sign-python-bundle download-daemon download-hub-app \
         download-safari-extension stage-daemon \
-        check-provenance check-freshness check-provenance-content check-manifest
+        check-provenance check-freshness check-provenance-content check-manifest \
+        publish-appcast
 
 # The default goal is deliberately INERT.
 #
@@ -337,7 +503,8 @@ help:
 	@echo ""
 	@echo "  make debug              build Debug and OPEN the .app"
 	@echo "  make release            build Release (runs the preflight gates)"
-	@echo "  make ship               full cut: build, sign, notarise, staple, package"
+	@echo "  make ship               full cut: build, sign, notarise, staple, package, publish appcast"
+	@echo "  make publish-appcast    AU-1: sign + publish this cut's appcast entry"
 	@echo "  make regen              regenerate the .xcodeproj from project.yml"
 	@echo "  make check-version      version-consistency preflight (#171)"
 	@echo "  make check-pbxproj-sync tracked .xcodeproj == xcodegen(project.yml)"
@@ -396,6 +563,26 @@ print-version:
 # derives it instead of restating it.
 print-dmg-path:
 	@echo "$(DMG_PATH)"
+
+# THE SIBLINGS OF print-dmg-path, FOR THE SAME REASON (task #359).
+#
+# The gates-only dry run ends by ASSERTING that nothing shippable exists on the
+# runner: no DMG, no exported .app, no xcarchive, no archived copy. That
+# assertion is only worth anything if it looks where the build would actually
+# write, and the v1.0.26 lesson is that a second copy of a path is a second
+# thing to drift -- `find dist -name '*.dmg'` threw away a notarised DMG
+# because DIST_DIR pointed at /tmp all along.
+#
+# So the dry run asks make, exactly as cut.yml already does for the DMG. One
+# definition of each path, three readers, no restatements.
+print-dist-dir:
+	@echo "$(DIST_DIR)"
+
+print-build-dir:
+	@echo "$(BUILD_DIR)"
+
+print-archive-dir:
+	@echo "$(ARCHIVE_DIR)"
 
 # ---------------------------------------------------------------------------
 # Version-consistency preflight (CM051 #171). Fail-closed guard that the
@@ -711,17 +898,17 @@ download-safari-extension:
 	fi; \
 	mkdir -p "$(dir $(SAFARI_EXT_DEST))"; \
 	printf '\n[STEP] Safari extension absent -- fetching %s from %s %s\n' \
-	    "$(SAFARI_EXT_NAME)" "$(SAFARI_EXT_REPO)" "$(DAEMON_RELEASE_TAG)"; \
+	    "$(SAFARI_EXT_NAME)" "$(SAFARI_EXT_REPO)" "$(SAFARI_EXT_TAG)"; \
 	if [ -n "$$OSTLER_RELEASES_TOKEN" ]; then \
-	    GH_TOKEN="$$OSTLER_RELEASES_TOKEN" gh release download "$(DAEMON_RELEASE_TAG)" \
+	    GH_TOKEN="$$OSTLER_RELEASES_TOKEN" gh release download "$(SAFARI_EXT_TAG)" \
 	            --repo "$(SAFARI_EXT_REPO)" --pattern "$(SAFARI_EXT_NAME)" \
 	            --dir "$(dir $(SAFARI_EXT_DEST))" --clobber || { \
-	        echo "ERROR: could not read $(SAFARI_EXT_REPO) $(DAEMON_RELEASE_TAG) with OSTLER_RELEASES_TOKEN." >&2; \
+	        echo "ERROR: could not read $(SAFARI_EXT_REPO) $(SAFARI_EXT_TAG) with OSTLER_RELEASES_TOKEN." >&2; \
 	        echo "  The token IS set, so this is a scope problem, not a missing credential." >&2; \
 	        exit 1; \
 	    }; \
 	elif command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then \
-	    gh release download "$(DAEMON_RELEASE_TAG)" --repo "$(SAFARI_EXT_REPO)" \
+	    gh release download "$(SAFARI_EXT_TAG)" --repo "$(SAFARI_EXT_REPO)" \
 	            --pattern "$(SAFARI_EXT_NAME)" --dir "$(dir $(SAFARI_EXT_DEST))" --clobber || { \
 	        echo "ERROR: gh release download failed for $(SAFARI_EXT_NAME)." >&2; \
 	        exit 1; \
@@ -1187,7 +1374,73 @@ check-ostler-app:
 	@# proves a bundle whose commit differs but whose frontend is IDENTICAL
 	@# still passes. rc=2 (could not run) blocks too: an unmeasured provenance
 	@# is not a pass.
-	@bash "$(APP_PROVENANCE_SH)" "$(OSTLER_APP_PATH)" || { \
+	@# THE SECOND ARGUMENT IS LOAD-BEARING AND ITS ABSENCE BURNT v1.0.30.
+	@# verify_app_provenance.sh takes the reference checkout as $$2 and, without
+	@# it, derives a SIBLING path. On the runner that sibling resolves to
+	@# .../work/CM051-Home-Hub-Installer/ostler-assistant, which is exactly where
+	@# download-hub-app EXTRACTS the Hub app tarball. The directory therefore
+	@# exists -- so no earlier check caught it -- and it is not a git repo, so the
+	@# gate correctly refused with "reference checkout is not a git repo" and the
+	@# cut died at step 11 having fetched and SHA-verified the bundle it could
+	@# then not attest.
+	@#
+	@# The real clone already exists: cut.yml clones ostler-assistant with full
+	@# history and tags into $${RUNNER_TEMP} and exports OSTLER_ASSISTANT_DIR.
+	@# Two paths, and nothing connected them. This is that connection.
+	@#
+	@# The fallback is the same sibling default three other targets in this file
+	@# already use (1293, 1446, 1481), so an operator Mac with a real sibling
+	@# checkout behaves exactly as before.
+	@# AND THE DAEMON OPERAND COMES FROM THE CUT RECORD, not from a clone's HEAD.
+	@#
+	@# Nothing passed OSTLER_DAEMON_COMMIT, so the gate fell through to
+	@# `git rev-parse HEAD` on the reference checkout. The bundle is BUILT from
+	@# that checkout, so its attested commit and that HEAD are normally the SAME
+	@# COMMIT, and the parity loop then compared tree "<sha>:web" against itself.
+	@# Measured on the shipping v1.0.33 cut (run 31998597024, 05:39:50Z):
+	@# wrapper 5b7efb00, operand 5b7efb00, "frontend parity: identical commit".
+	@# A self-comparison. It could not have failed, and its warn line read as
+	@# informational.
+	@#
+	@# Read the pin the cut actually declares. Resolved HERE rather than in
+	@# cut.yml because `make ship` also runs on an operator Mac, and a fix that
+	@# only lives in the workflow leaves the local path still guessing.
+	@#
+	@# Empty is passed through deliberately: the gate now treats a missing pin as
+	@# CANNOT-RUN (exit 2) and blocks. A cut record with no DAEMON_COMMIT is a cut
+	@# nobody can attest, and that must be loud rather than defaulted.
+	@# AND A HOTFIX MUST NOT SILENTLY READ ITS PARENT'S CUT RECORD.
+	@#
+	@# CUT_MANIFEST_VERSION is `v$(shell ... | cut -d. -f1-3)`, which TRUNCATES a
+	@# four-part version: 1.0.13.1 resolves cuts/v1.0.13/. Not hypothetical --
+	@# CFBundleShortVersionString has held 1.0.13.1 and 1.0.13.2 in this repo's
+	@# own history, and a hotfix is precisely when the daemon gets re-pinned. So
+	@# the operand this block just started reading could be the PARENT's
+	@# DAEMON_COMMIT while the hotfix ships a different daemon: the same
+	@# right-question-wrong-operand shape one level up.
+	@#
+	@# Prefer the record for the FULL version. Fall back to the truncated one,
+	@# because no four-part cuts/ directory has ever existed and refusing would
+	@# block a hotfix on a convention it has never followed -- but say so, loudly,
+	@# naming BOTH paths. A fallback nobody can see is how the parent's pin gets
+	@# read as the hotfix's.
+	@# DELEGATED TO A SCRIPT so the fallback is TESTABLE. #794 shipped this
+	@# resolution inline and Archie merged it flagging that the new WARN had no
+	@# control firing it -- and the WARN is the entire safety mechanism, so an
+	@# unfired one is a two-state predicate reading a warning as a pass.
+	@#
+	@# Logic embedded in a recipe cannot be driven by a fixture without a full
+	@# build, and asserting the recipe TEXT would test the rendering instead of
+	@# the behaviour. Same move, same reason, as COMMIT_PARITY_SH and
+	@# APP_PROVENANCE_SH above. Controls live in
+	@# scripts/tests/test_resolve_cut_daemon_pin.sh, and the load-bearing pair is
+	@# "a four-part version WARNS" plus "a three-part version does NOT" -- a
+	@# warning that fires on every cut is noise, and noise gets muted.
+	@set -e; \
+	DC="$$(bash "$(CUT_PIN_RESOLVER_SH)" "$(CURDIR)/.." "$(VERSION)")"; \
+	printf '[CHECK] daemon operand: %s\n' "$${DC:-<unset>}"; \
+	OSTLER_DAEMON_COMMIT="$$DC" \
+	bash "$(APP_PROVENANCE_SH)" "$(OSTLER_APP_PATH)" "$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" || { \
 	    echo "" >&2; \
 	    echo "  Refusing to continue: the Ostler.app going into this DMG has not" >&2; \
 	    echo "  been shown to be the bundle this cut intends to ship. Sealing it" >&2; \
@@ -2055,6 +2308,11 @@ COMMIT_PARITY_SH ?= $(CURDIR)/../scripts/verify_commit_parity.sh
 # Pre-seal sibling of COMMIT_PARITY_SH. Same question, asked at step 5 instead
 # of post-cut, and asserted on frontend CONTENT rather than commit-SHA equality.
 APP_PROVENANCE_SH ?= $(CURDIR)/../scripts/verify_app_provenance.sh
+
+# Resolves cuts/<tag>/cut.env DAEMON_COMMIT, preferring the FULL version over the
+# truncated CUT_MANIFEST_VERSION so a hotfix does not silently read its parent's
+# pin. A script rather than a recipe so the fallback WARN is testable.
+CUT_PIN_RESOLVER_SH ?= $(CURDIR)/../scripts/resolve_cut_daemon_pin.sh
 verify-commit-parity:
 	@if [ ! -f "$(DMG_PATH)" ]; then \
 	    echo "ERROR: the commit-parity gate COULD NOT RUN -- $(DMG_PATH) not found." >&2; \
@@ -2171,6 +2429,169 @@ guard-local-cut:
 	    exit 1; \
 	fi
 
+# ---------------------------------------------------------------------------
+# publish-appcast -- AU-1. Sign the Sparkle-embedded Hub and publish its
+# appcast entry, so this release becomes reachable by every installed Hub.
+#
+# Zips $(OSTLER_APP_PATH) -- the same bundle sparkle-embed stamped, notarise-hub
+# stapled and the DMG carries -- signs the .zip with the Sparkle EdDSA key via
+# CM050's `ostler-release sign`, then `ostler-release publish` uploads it to R2
+# and appends the manifest entry in KV. After that the appcast.xml the Hubs
+# poll lists this release. Governed by PUBLISH_APPCAST; see the config block.
+#
+# TWO INDEPENDENT MECHANISMS KEEP THIS LAST, and it needs both.
+#
+#   ORDER. In `ship:` this is the final prerequisite, after archive. GNU make
+#   builds prerequisites left to right, so serially that IS the running order,
+#   and it is the same mechanism the rest of this pipeline already relies on
+#   (verify-dmg-contents sits after notarise for exactly this reason).
+#
+#   EVIDENCE. Order alone is a promise about make's scheduler, and `make -j`
+#   does not make it. So the recipe re-derives, at run time, that the artefact
+#   it is about to advertise actually got through the gates: the DMG must
+#   exist at $(DMG_PATH), and the Hub bundle must carry a VALID STAPLED TICKET.
+#   Run early, or run against a cut that failed, both checks fail and nothing
+#   is published. Publishing a feed entry for an artefact that failed
+#   verification is worse than not publishing at all: the DMG that failed
+#   stays on the shelf, but a bad appcast row goes to every installed machine.
+#
+# THE VERSION GUARD IS NOT OPTIONAL AND IS NOT REMOTE. Sparkle silently skips
+# any entry whose sparkle:version is <= the installed CFBundleVersion, so a
+# wrong version is a publish that succeeds and reaches nobody. The check runs
+# locally, via $(APPCAST_GUARD_PY), BEFORE anything is signed or uploaded.
+#
+# MEASURED 2026-08-17 -- why the guard is not simply delegated to the CLI, as
+# CM051 PR #463 wrote it. `ostler-release publish` on CM050 origin/main accepts
+# --signature --version --build --channel --notes-url --min-os --pub-date and
+# nothing else. `--reference-app` and `--dry-run` exist only on the unmerged
+# branches feat/au1-appcast-version-guard (CM050 PR #41, OPEN) and
+# feat/au1-release-publish-dryrun. Calling them today is not a strict guard,
+# it is a usage error that kills every cut at its last step. So the predicate
+# lives beside its caller, and --reference-app is threaded into the real
+# publish only if the installed CLI advertises it -- defence in depth that
+# switches itself on the day #41 lands, and is INERT until then. Inert is
+# safe here precisely because the local guard is not conditional.
+# ---------------------------------------------------------------------------
+publish-appcast:
+	$(STEP) "AU-1: appcast publish (PUBLISH_APPCAST=$(PUBLISH_APPCAST))"
+	@MODE="$(PUBLISH_APPCAST)"; \
+	if [ "$$MODE" = "0" ] || [ "$$MODE" = "no" ] || [ "$$MODE" = "off" ]; then \
+	    echo "[SKIP] PUBLISH_APPCAST=$$MODE -- not publishing an appcast entry for this cut."; \
+	    exit 0; \
+	fi; \
+	if [ "$$MODE" = "1" ] || [ "$$MODE" = "yes" ]; then HARD=1; else HARD=0; fi; \
+	if [ -z "$${OSTLER_SPARKLE_SIGNING_KEY:-}" ]; then \
+	    if [ "$$HARD" = "1" ]; then \
+	        echo "" >&2; \
+	        echo "ERROR: PUBLISH_APPCAST=$$MODE (hard-require) but OSTLER_SPARKLE_SIGNING_KEY is unset." >&2; \
+	        echo "  Export the path to the decrypted Sparkle EdDSA PEM (mode 0400/0600) and re-run." >&2; \
+	        echo "  See CM050 appcast-server/docs/RELEASE_PROCESS.md (signing session)." >&2; \
+	        exit 1; \
+	    fi; \
+	    echo "" >&2; \
+	    echo "============================================================================" >&2; \
+	    echo "WARNING: appcast NOT published -- OSTLER_SPARKLE_SIGNING_KEY is unset." >&2; \
+	    echo "  The DMG shipped, but NO appcast entry was added, so the auto-update feed" >&2; \
+	    echo "  does not list this release and installed Hubs will never see it." >&2; \
+	    echo "  To publish: run the Sparkle signing session, then:" >&2; \
+	    echo "    export OSTLER_SPARKLE_SIGNING_KEY=/path/sparkle_private.pem   # 0400/0600" >&2; \
+	    echo "    make publish-appcast            # (or re-run make ship)" >&2; \
+	    echo "  Force-require it next time with: make ship PUBLISH_APPCAST=1" >&2; \
+	    echo "============================================================================" >&2; \
+	    echo "" >&2; \
+	    exit 0; \
+	fi; \
+	if ! command -v "$(OSTLER_RELEASE_BIN)" >/dev/null 2>&1; then \
+	    echo "ERROR: ostler-release CLI not found ('$(OSTLER_RELEASE_BIN)')." >&2; \
+	    echo "  Install CM050 release-tooling: cd '<CM050>/release-tooling' && pip install -e ." >&2; \
+	    echo "  Or pass OSTLER_RELEASE_BIN=/path/to/.venv/bin/ostler-release." >&2; \
+	    exit 1; \
+	fi; \
+	APP="$(OSTLER_APP_PATH)"; \
+	if [ ! -d "$$APP" ]; then \
+	    echo "ERROR: OSTLER_APP_PATH is not a directory: $$APP" >&2; \
+	    echo "  Cannot zip the Hub app for the appcast enclosure." >&2; \
+	    exit 1; \
+	fi; \
+	if [ ! -f "$(DMG_PATH)" ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: refusing to publish -- $(DMG_PATH) does not exist." >&2; \
+	    echo "  This step advertises a release to every installed Hub, so it must not" >&2; \
+	    echo "  run unless the cut it is advertising actually completed. Run 'make ship'." >&2; \
+	    exit 1; \
+	fi; \
+	if ! xcrun stapler validate "$$APP" >/dev/null 2>&1; then \
+	    echo "" >&2; \
+	    echo "ERROR: refusing to publish -- the Hub bundle carries no valid stapled ticket." >&2; \
+	    echo "  $$APP" >&2; \
+	    echo "  notarise-hub + staple-apps + verify-stapling run BEFORE this step in" >&2; \
+	    echo "  'make ship'. Seeing an unstapled bundle here means either this target was" >&2; \
+	    echo "  run out of order, or the cut it belongs to did not pass its gates. Either" >&2; \
+	    echo "  way the bytes are not fit to advertise. DO NOT PUBLISH." >&2; \
+	    exit 1; \
+	fi; \
+	PLIST="$$APP/Contents/Info.plist"; \
+	VER="$(HUB_VERSION)"; [ -n "$$VER" ] || VER="$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$$PLIST" 2>/dev/null || true)"; \
+	BUILD="$(HUB_BUILD)"; [ -n "$$BUILD" ] || BUILD="$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$$PLIST" 2>/dev/null || true)"; \
+	MINOS="$(HUB_MIN_OS)"; [ -n "$$MINOS" ] || MINOS="$$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$$PLIST" 2>/dev/null || true)"; \
+	[ -n "$$MINOS" ] || MINOS="13.0"; \
+	if [ -z "$$VER" ]; then echo "ERROR: could not read Hub CFBundleShortVersionString from $$PLIST (set HUB_VERSION=)." >&2; exit 1; fi; \
+	if [ -z "$$BUILD" ]; then echo "ERROR: could not read Hub CFBundleVersion from $$PLIST (set HUB_BUILD=)." >&2; exit 1; fi; \
+	rc=0; \
+	python3 "$(APPCAST_GUARD_PY)" --version "$$VER" --build "$$BUILD" \
+	    --reference-app "$(HUB_REFERENCE_APP)" || rc=$$?; \
+	if [ "$$rc" -eq 2 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: the AU-1 version guard COULD NOT RUN (exit 2)." >&2; \
+	    echo "       It has NOT found the version to be wrong -- it failed to look." >&2; \
+	    echo "       A publish whose version was never checked is not a checked publish." >&2; \
+	    echo "       DO NOT PUBLISH." >&2; \
+	    exit 2; \
+	elif [ "$$rc" -ne 0 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: AU-1 appcast-version guard FAILED -- refusing to sign or publish." >&2; \
+	    echo "       Sparkle would silently skip this entry and no Hub would ever get it." >&2; \
+	    exit 1; \
+	fi; \
+	ZIP="$(DIST_DIR)/$(HUB_RELEASE_BASENAME)-$$VER.zip"; \
+	mkdir -p "$(DIST_DIR)"; \
+	rm -f "$$ZIP"; \
+	printf '[STEP] Zipping Sparkle-embedded Hub -> %s\n' "$$ZIP"; \
+	ditto -c -k --sequesterRsrc --keepParent "$$APP" "$$ZIP"; \
+	printf '[STEP] Signing %s (ostler-release sign)\n' "$$ZIP"; \
+	SIG="$$('$(OSTLER_RELEASE_BIN)' sign "$$ZIP")"; \
+	if [ -z "$$SIG" ]; then echo "ERROR: ostler-release sign produced an empty signature." >&2; exit 1; fi; \
+	if [ -n "$${OSTLER_SPARKLE_PUBLIC_KEY:-}" ]; then \
+	    printf '[STEP] Verifying signature against %s\n' "$$OSTLER_SPARKLE_PUBLIC_KEY"; \
+	    '$(OSTLER_RELEASE_BIN)' verify "$$ZIP" --signature "$$SIG" --public-key "$$OSTLER_SPARKLE_PUBLIC_KEY"; \
+	fi; \
+	REF_OPT=""; \
+	if [ -n "$(HUB_REFERENCE_APP)" ] && [ -d "$(HUB_REFERENCE_APP)" ] && \
+	   '$(OSTLER_RELEASE_BIN)' publish --help 2>/dev/null | grep -q -- '--reference-app'; then \
+	    REF_OPT="yes"; \
+	    printf '[STEP] CLI advertises --reference-app; threading it through as a second opinion.\n'; \
+	fi; \
+	printf '[STEP] Publishing appcast entry: v%s build %s channel %s\n' "$$VER" "$$BUILD" "$(APPCAST_CHANNEL)"; \
+	if [ -n "$$REF_OPT" ]; then \
+	    OSTLER_APPCAST_DIR="$(OSTLER_APPCAST_DIR)" '$(OSTLER_RELEASE_BIN)' publish "$$ZIP" \
+	        --signature "$$SIG" --version "$$VER" --build "$$BUILD" \
+	        --channel "$(APPCAST_CHANNEL)" --notes-url "$(RELEASE_NOTES_BASE)/$$VER.html" \
+	        --min-os "$$MINOS" --reference-app "$(HUB_REFERENCE_APP)"; \
+	else \
+	    OSTLER_APPCAST_DIR="$(OSTLER_APPCAST_DIR)" '$(OSTLER_RELEASE_BIN)' publish "$$ZIP" \
+	        --signature "$$SIG" --version "$$VER" --build "$$BUILD" \
+	        --channel "$(APPCAST_CHANNEL)" --notes-url "$(RELEASE_NOTES_BASE)/$$VER.html" \
+	        --min-os "$$MINOS"; \
+	fi; \
+	printf '[OK] Appcast entry published for Hub v%s (%s)\n' "$$VER" "$(APPCAST_CHANNEL)"
+
+# ---------------------------------------------------------------------------
+# THE CUT. Order is the contract: every gate sits before the step whose output
+# it is allowed to bless, and publish-appcast sits after ALL of them because it
+# is the only step whose output leaves this machine and reaches customers.
+# See the publish-appcast block above for why it also re-derives that evidence
+# at run time rather than trusting its position in this list.
+# ---------------------------------------------------------------------------
 ship: guard-local-cut check-orphans check-pr-age download-hub-app check-ostler-app download-safari-extension download-python stage-daemon stage-payload sparkle-embed notarise-hub release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"

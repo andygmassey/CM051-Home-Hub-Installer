@@ -103,8 +103,18 @@ class GoogleTakeoutParser(BaseParser):
                 # Also accept suggested edits (user-contributed places)
                 if "suggested edits" in str(file_path).lower():
                     return True
-            return "takeout" in file_path.name.lower() or any(
-                pattern.split("/")[-1] in file_path.name
+            # Leaf EQUALITY, not containment. "History.json" is the leaf of
+            # Takeout/Chrome/History.json AND a substring of TikTok's
+            # "Browsing History.json", "Watch History.json" and
+            # "Search History.json". Because this parser is second in the
+            # registration order and _get_parser stops at the first claim, a
+            # containment test took every TikTok history file before TikTok was
+            # asked, and yielded nothing from any of them.
+            leaf = file_path.name.lower()
+            if "takeout" in leaf:
+                return True
+            return any(
+                pattern.rsplit("/", 1)[-1].lower() == leaf
                 for pattern in self.SUPPORTED_FILES.values()
                 if pattern.endswith('.json')
             )

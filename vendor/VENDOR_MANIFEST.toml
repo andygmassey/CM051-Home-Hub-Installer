@@ -21,6 +21,72 @@
 #   verify          = "full" | "skip"           # verify_vendor_fresh.sh content check
 #   note            = "free text"
 #
+# CONTENT-GATE ACKNOWLEDGEMENT FIELDS (scripts/verify_vendor_fresh.sh).
+# A tree the CONTENT gate cannot check -- source repo not on this disk, sha not
+# present, or verify = "skip" -- is UNVERIFIABLE, and unverifiable is RED. That
+# is deliberate and is not being softened. But "nobody has looked" and "somebody
+# looked, measured the blocker, wrote it down and owns it" are different states,
+# and before these fields existed the gate had one word for both, so the only
+# way past either was VENDOR_FRESH_STRICT=0, which drops strictness for EVERY
+# tree at once:
+#   unverifiable_ack        = true              # this tree is KNOWN-unverifiable
+#   unverifiable_ack_reason = "the MEASURED blocker" #  REQUIRED. Say what was
+#                                               #  measured and how to retire it,
+#                                               #  not what it is. Ack without a
+#                                               #  reason = RED, naming the tree.
+#   unverifiable_ack_owner  = "who retires it"  #  REQUIRED, same rule.
+# An ack applies ONLY where the gate was already going to say "unverifiable". A
+# tree that DRIFTED, or whose source ADVANCED past the pin, still FAILS with an
+# ack in place -- an ack can never silence a verdict that was actually reached.
+# The acknowledged count is printed in the denominator line AND in the verdict,
+# which never reads as a plain GREEN while any ack is live. An ack is a debt
+# with a name on it. Retire them; do not inherit them.
+#
+# WHICH VERDICTS FROM verify_vendor_fresh.sh ARE PORTABLE, AND WHICH ARE NOT.
+# The gate has two limbs and they do NOT travel the same way. Read this before
+# quoting a count from one operator's run as a fact about the repo.
+#
+#   CONTENT limb  -- reconstructs source@pinned_sha + divergence_patch and
+#                    diffs it against the vendored tree. pinned_sha is a FIXED
+#                    COMMIT, so any checkout holding that commit produces
+#                    identical content and an identical verdict. PORTABLE:
+#                    a DIFFERS here means the same thing on every machine.
+#
+#   ADVANCE limb  -- asks whether the source has commits past pinned_sha, by
+#                    reading HEAD of whatever checkout source_repo resolves to.
+#                    NOT PORTABLE. It measures the operator's working copy, so
+#                    a stale clone, a detached HEAD, or a feature branch each
+#                    give a different answer for the same repo. Measured
+#                    2026-08-15: two published "canonical" exports were wrong
+#                    for this limb -- one 4 commits behind origin/main, one on
+#                    a feature branch -- so a tree was judged against a source
+#                    older than its own pin.
+#
+# AND THE DENOMINATOR ITSELF VARIES. source_repo values here are env
+# placeholders ($CM041 and friends). Nothing in this repo assigns them, so the
+# set of trees that can be verified at all is a function of undeclared operator
+# environment: two operators get two counts and CI gets zero. A run reporting
+# "N fresh" is only a statement about the trees THAT operator could resolve.
+# Always quote the unverifiable count alongside it.
+#
+# REGENERATION BAN FIELDS (scripts/regenerate_divergence_patch.sh).
+#   regenerate_forbidden        = true          # this tree may NEVER have its
+#                                               #   divergence patch regenerated
+#   regenerate_forbidden_reason = "why"         # REQUIRED. A ban with no reason
+#                                               #   still refuses, and says the
+#                                               #   declaration is malformed.
+# Checked BEFORE the source repo, the pin or any env placeholder is consulted,
+# so the ban cannot be cleared by re-pointing a placeholder or moving a
+# checkout. That ordering is the whole point: the guards that DO depend on the
+# environment are exactly the ones that fail open when the environment shifts.
+# Measured 2026-08-15 on cm041/contact_syncer -- with the source checkout ahead
+# of the pin the advance guard refuses, but with a checkout sitting EXACTLY at
+# the pin that guard is discharged and the tool returns 0 and offers to write a
+# patch whose minus side carries person-name-shaped tokens. The PII scan does
+# not catch it because its patterns are numeric-only and a name is not a number.
+# Use this field whenever a tree must not be regenerated for a reason the
+# scanners cannot themselves detect.
+#
 # LIVE-HEAD FRESHNESS GATE FIELDS (scripts/verify_cut_freshness.sh).
 # The freshness gate compares every FETCHABLE pin to its live GitHub HEAD. It does
 # NOT key off `verify` (that field drives the content-diff gate). Two -- and only
@@ -45,6 +111,23 @@
 #   - per tree:  VENDOR_SRC_CM041_CONTACT_SYNCER=/path
 #   - per base:  export CM041=/path  (the $CM041 placeholder below expands)
 #
+# THE PLACEHOLDERS ARE ASSIGNED NOWHERE IN THIS REPO and there is no remote-URL
+# fallback, so an unset one expands to empty, the tree is UNVERIFIABLE, and the
+# gate goes RED. That is fail-closed and correct, but it means the operator env
+# is load-bearing. The full set, with the checkout each one wanted when this was
+# last measured (2026-08-15):
+#   CM019  ~/Developer/CM019-Personal-World-Graph   (andygmassey/personal-world-graph)
+#   CM021  ~/Developer/cm021-canon
+#   CM024  ~/Developer/cm024-canon                  (andygmassey/evernote-knowledge)
+#   CM040  ~/Developer/conversation-memory          (andygmassey/conversation-memory)
+#   CM041  ~/Developer/cm041-canon
+#   CM048  ~/Developer/cm048-canon
+#   CM052  NOT ON THIS DISK outside iCloud; see that tree's unverifiable_ack
+#   CM059  ~/Developer/cm059-canon
+#   HR015  ~/Developer/HR015-Gaming-PC
+# CM040 is new as of 2026-08-15: imessage_source was addressed to HR015, which
+# has never carried it. See the conversation-feed block comment further down.
+#
 # Pinned SHAs captured 2026-06-16 from the local source checkouts:
 #   CM041  5b93782   CM048  659d6639   CM021  0d73344f
 #   CM024  43d6c5da   HR015  1bb0a0db   CM019  (not a git repo)
@@ -62,19 +145,50 @@ source_repo      = "$CM041"
 source_path      = "contact_syncer"
   pinned_sha = "f83d5aee1953098f8240df8973484582e6d363be"
   divergence_patch = "vendor/divergences/cm041_contact_syncer.patch"
-  hold_ack_shas            = "58f53a153c7ac7b93731a8a3522415cef2891fd3 9fe8063b144058a671d04d0645499bbc008040fd c51e75a8eb84ab2069ea79b37cb657f29e61a014 cffd84166fdb7f14ad1f9e017bff5225b5eb8ea2"
-  hold_ack_reason          = "v1.0.19 (2026-08-11 ORM/TNM) adds THREE more, and the cm041 pin deliberately stays at f83d5aee while identity_resolver and assistant_api move to CM041 main. (a) 9fe8063b fix(identity): one canonical displayName (#109). Its contact_syncer half is NOT grafted and does not need to be: it does not touch syncer.py at all. It adds five modules -- given_name_variants, identifier_quality, name_election, relationship_labels, role_addresses -- and at CM041 main NOTHING IMPORTS THEM outside their own cluster and tests. Measured, with a positive control: identifier_quality and name_election have zero importers repo-wide; given_name_variants and role_addresses are imported only by identifier_quality; relationship_labels only by identifier_quality and name_election; syncer.py imports none of the five, while the control (vcard_parser) does resolve in syncer.py. Vendoring contact_syncer at main would therefore add roughly 1,100 lines that change no customer behaviour. The half of #109 that DOES reach a customer is identity_resolver/normalise.py and assistant_api/ical-server.py, and both of those trees are re-pinned to CM041 main dcfb7a3e in this same change -- so no bugfix ships un-grafted, which is what shipping_bugfixes_grafted asserts. (b) c51e75a8 and (c) cffd8416 are test-only for this tree; tests/ is excluded from the vendored file-set. AND THE REASON THE PIN MUST NOT MOVE: re-pinning contact_syncer would take 58f53a15's Python settling producer for the `contacts` channel. lib/settling_progress.sh states the contract in its own words: ONE producer per file; two writers on one shard overwrite each other and the panel jumps backwards when the second opens at zero. And 58f53a1 opens at zero (done=0 up front in sync_from_vcf). install.sh at this tree produces that channel from TWO mutually-exclusive arms of one if/else (settling_report_measured contacts on the count>0 arm, settling_report contacts 0 0 true on the else), so exactly ONE fires per run: one logical producer, correctly implemented. RE-MEASURED 2026-08-12 and the substance HOLDS, but the line numbers this reason used to cite (16455/16457) have drifted and now point at an unrelated contacts PROMPT -- a reader who chased them would conclude the reason was bogus. Cite the INVARIANT, not the line: `grep -nE 'settling_report(_measured)? contacts' install.sh` must return call sites that are arms of a single conditional. NOTE the probe shape too: a grep for 'settling_report contacts' MISSES settling_report_measured and under-counts, which is how this audit first talked itself into believing the reason had gone stale. The merge conflict between the AddressBook-fallback graft and 58f53a1 is not a line-number accident: the two changes are semantically incompatible, and resolving the text would resolve away the reason this hold exists. || v1.0.16 (2026-08-07 ORM): the sole contact_syncer-path delta is 58f53a15 feat(settling): wire contact_syncer + meeting_syncer to report_settling_progress() (#108). DELIBERATELY NOT GRAFTED, for the same reason as cm021's caa165f7: it would give the `contacts` channel a SECOND producer. lib/settling_progress.sh names contacts as an out-of-process channel owned by the shell emitter, and install.sh -- verified in the tree being cut -- carries TWO `settling_report contacts` call sites. Two producers on one (channel, shard) pair double-count and trip the uniqueness rule. The channel is NOT dark; this is a duplicate implementation, not a missing fix. Converging CM041/CM021 onto the Python writer (or onto distinct shard names) is post-launch work, and must land on BOTH sides at once -- grafting either half alone is what breaks it."
+  regenerate_forbidden        = true
+  regenerate_forbidden_reason = "Regeneration EXPORTS PERSONAL DATA from private CM041 into this public repo, and no scanner in this repo can detect it. Measured 2026-08-15 through the tool's own materialiser, with the source checkout detached at this exact pin: the delta is 430 plus / 53 minus lines, and the MINUS side -- which is the SOURCE side -- carries two person-name-shaped tokens. Per CM041 #725's own commit message one of that pair is an advisor's given name, i.e. a real person. The tool's PII scan returns a clean ZERO on that same 483-line corpus with its positive control firing, because .githooks/pii_patterns.sh carries five NUMERIC shapes and no person-name shape: the instrument and the defect are on different surfaces, so the scan is not wrong, it is blind. DO NOT rely on the advance guard to hold this line either. It refuses only while the operator's CM041 resolves AHEAD of the pin; a fresh clone checked out at the pin, or a clone predating the four hold_ack_shas, discharges it and the run then returns 0 and offers to write. Two 'canonical' exports were already measured wrong for that limb on 2026-08-15, one of them four commits behind origin/main, which for this tree is exactly the discharging state. THE ONLY EXIT is upstream: scrub the two lines in CM041 syncer.py and advance this pin past it, which means adjudicating the settling-producer hold recorded in hold_ack_reason. Until then this tree stays RED, and RED is correct. Retire this ban only together with that re-pin."
+  hold_ack_shas            = "58f53a153c7ac7b93731a8a3522415cef2891fd3 9fe8063b144058a671d04d0645499bbc008040fd c51e75a8eb84ab2069ea79b37cb657f29e61a014 cffd84166fdb7f14ad1f9e017bff5225b5eb8ea2 402cf9aa91f315acf7cebd9ae190326dc4d11184"
+  hold_ack_reason          = "v1.0.27 (2026-08-15 ORM) adds 402cf9aa, CM041 #120, fix(identity): stop offering retailers to the customer as humans to merge. THE PIN STAYS AT f83d5aee AND shipping_bugfixes_grafted STAYS TRUE, resting on a measured property of the coupling rather than on a judgement about importance. #120's contact_syncer half is the QDRANT WRITER: it replaces a hardcoded contact_type of 'person' in _upsert_qdrant (vendored syncer.py:852) with the real classification. Its readers are three Qdrant filter clauses in assistant_api/ical-server.py (1126, 4422, 4575), which the SAME commit widens from match value 'person' to match any ['person','unclassified']. THE COUPLING IS DIRECTIONAL AND THIS CUT SHIPS THE INERT DIRECTION: reader re-pinned with writer held leaves the payload stamped 'person' for every record, so the widened filter matches everything and excludes nothing, which is byte-for-byte the v1.0.26 behaviour the customer already has. The HARMFUL order is the opposite one: writer without reader would let real classifications land against a person-only filter and silently drop every unclassified record from the People tab, 497 of 6,481 on the v1.0.26 box. NO CUSTOMER-FACING BEHAVIOUR IS WITHHELD, and that is the load-bearing claim, checkable by a stranger in four steps. (1) Businesses short-circuit BEFORE Qdrant: vendored syncer.py:198 and :413 both read if contact_type == 'business' then _write_business_oxigraph(parsed), and only the else branch reaches qdrant_queue.append at :213. (2) Qdrant therefore holds person and unclassified only. (3) The re-pinned reader admits exactly person plus unclassified, i.e. everything present. (4) The held writer stamps 'person' on everything, i.e. also everything present. Same visible set either way. AND THE BUG ANDY ACTUALLY HIT TRAVELS ON A DIFFERENT SURFACE: the AliExpress record offered as a human to merge is the dedupe queue, fixed by identity_resolver/batch_resolver.py's SPARQL FILTER NOT EXISTS on pwg:contactType, which reads Oxigraph and never reads the Qdrant payload, and identity_resolver IS re-pinned to 402cf9aa in this same change, so the fix Andy needs does ship. WHY NOT SPLICE THE WRITER IN ANYWAY: regenerate_forbidden stands (see regenerate_forbidden_reason), and INDEPENDENTLY the tree does not reconstruct TODAY. Measured by RUNNING the reconstruction rather than by reading the patch: source@f83d5aee plus cm041_contact_syncer.patch differs from the vendored copy in 4 files and 40 lines (requirements.txt 26, syncer.py 10, facebook_events.py 2, linkedin_connections.py 2), none of them #120. Capturing that delta is what a regeneration does, and its minus side is source@f83d5aee, which is where the two unscrubbed names live. So a splice could never have met its own byte-identical precondition, and this hold is the correct outcome rather than a fallback. || v1.0.19 (2026-08-11 ORM/TNM) adds THREE more, and the cm041 pin deliberately stays at f83d5aee while identity_resolver and assistant_api move to CM041 main. (a) 9fe8063b fix(identity): one canonical displayName (#109). Its contact_syncer half is NOT grafted and does not need to be: it does not touch syncer.py at all. It adds five modules -- given_name_variants, identifier_quality, name_election, relationship_labels, role_addresses -- and at CM041 main NOTHING IMPORTS THEM outside their own cluster and tests. Measured, with a positive control: identifier_quality and name_election have zero importers repo-wide; given_name_variants and role_addresses are imported only by identifier_quality; relationship_labels only by identifier_quality and name_election; syncer.py imports none of the five, while the control (vcard_parser) does resolve in syncer.py. Vendoring contact_syncer at main would therefore add roughly 1,100 lines that change no customer behaviour. The half of #109 that DOES reach a customer is identity_resolver/normalise.py and assistant_api/ical-server.py, and both of those trees are re-pinned to CM041 main dcfb7a3e in this same change -- so no bugfix ships un-grafted, which is what shipping_bugfixes_grafted asserts. (b) c51e75a8 and (c) cffd8416 are test-only for this tree; tests/ is excluded from the vendored file-set. AND THE REASON THE PIN MUST NOT MOVE: re-pinning contact_syncer would take 58f53a15's Python settling producer for the `contacts` channel. lib/settling_progress.sh states the contract in its own words: ONE producer per file; two writers on one shard overwrite each other and the panel jumps backwards when the second opens at zero. And 58f53a1 opens at zero (done=0 up front in sync_from_vcf). install.sh at this tree produces that channel from TWO mutually-exclusive arms of one if/else (settling_report_measured contacts on the count>0 arm, settling_report contacts 0 0 true on the else), so exactly ONE fires per run: one logical producer, correctly implemented. RE-MEASURED 2026-08-12 and the substance HOLDS, but the line numbers this reason used to cite (16455/16457) have drifted and now point at an unrelated contacts PROMPT -- a reader who chased them would conclude the reason was bogus. Cite the INVARIANT, not the line: `grep -nE 'settling_report(_measured)? contacts' install.sh` must return call sites that are arms of a single conditional. NOTE the probe shape too: a grep for 'settling_report contacts' MISSES settling_report_measured and under-counts, which is how this audit first talked itself into believing the reason had gone stale. The merge conflict between the AddressBook-fallback graft and 58f53a1 is not a line-number accident: the two changes are semantically incompatible, and resolving the text would resolve away the reason this hold exists. || v1.0.16 (2026-08-07 ORM): the sole contact_syncer-path delta is 58f53a15 feat(settling): wire contact_syncer + meeting_syncer to report_settling_progress() (#108). DELIBERATELY NOT GRAFTED, for the same reason as cm021's caa165f7: it would give the `contacts` channel a SECOND producer. lib/settling_progress.sh names contacts as an out-of-process channel owned by the shell emitter, and install.sh -- verified in the tree being cut -- carries TWO `settling_report contacts` call sites. Two producers on one (channel, shard) pair double-count and trip the uniqueness rule. The channel is NOT dark; this is a duplicate implementation, not a missing fix. Converging CM041/CM021 onto the Python writer (or onto distinct shard names) is post-launch work, and must land on BOTH sides at once -- grafting either half alone is what breaks it."
   shipping_bugfixes_grafted = true
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
-note             = "Legit divergence: identity_resolver.normalise import (incl. normalise_phone) + BW-1 phone-normalisation graft + en-dash house style. 2026-07-15: re-synced to CM041 main 11ad1246 (v1.0.9 fixes: calendar owner attribution #96, backfill-at-startup wiring #100, PII sweeps #85/#86/#102). 3-way graft (base = old pin ba59711) preserved the twin-local register_person call sites; linkedin_messages keeps ONE snapshot registration (register_person) where upstream added a parallel _register_in_snapshot call for the same insert."
+note             = "2026-08-15 (LATEST, Archie): STILL DO NOT REGENERATE -- the reason has CHANGED and the new one is stronger, so read this before reaching for sync_vendor.sh or vlib_vendor_diff. #725 scrubbed vendored syncer.py in place and did NOT regenerate this patch. That was the safe half of a two-part problem and it left the patch STALE, so measured on 75d228e the patch still carries, on its PLUS side, a real-shaped mobile written in two formats (lines 529-530) and a person name (line 73) -- values whose source files are already clean. A stale patch is a second, durable public copy that no file-scanning gate ever opens. THE TRAP: regenerating to clear those does NOT come out clean, because #725 also scrubbed syncer.py lines 894-895, and those two names ARE PRESENT UPSTREAM at f83d5aee (verified by reading source@pinned_sha, not inferred). A divergence patch is diff(source@pinned_sha, vendored_copy), so its MINUS lines ARE THE SOURCE: regenerating emits those two upstream lines as minus lines and EXPORTS them from PRIVATE CM041 into this PUBLIC repo. Measured on a real regeneration: the patch goes to 430 plus / 53 minus lines with name 0 on the plus side and 2 ON THE MINUS SIDE. Per #725 own commit message one of that pair is an advisor given name, i.e. a real person. So regeneration trades a real phone number for two real names and is NOT a net win; it is a different leak. NEITHER HALF IS FIXABLE IN THIS REPO. The pin is held at f83d5aee by hold_ack_shas (reasons below), so retire-by-re-pin -- the play that worked for ostler_fda #719 and cm041/assistant_api #715 -- is impossible BY CONSTRUCTION, and sync_vendor.sh is impossible because it re-syncs FROM source and the vendored side is where scrubs live. THE ONLY EXIT is upstream: scrub syncer.py lines 894-895 in CM041 and advance this pin past it, which means adjudicating the settling-producer hold recorded below. Until then this tree stays RED, and RED is the correct state -- it is already RED on main for exactly this reason. WHAT THIS CHANGE DOES SHIP: the one site that is CM051-authored and therefore safe, a person name in a linkedin_connections.py comment (absent from source@f83d5aee, so scrubbing it removes the value rather than moving it to the other side), replaced with an approved-cast name. Adjudicated with controls both ways: vendor_person_name_sweep.py proved reach on all four shapes plus its negative control; the HR015 #373 permit-list was loaded as classifier (2346 tokens / 169 phrases) behind a two-way control, after an earlier parse of the same file silently loaded 4 tokens and THAT verdict was discarded rather than reported; and a particle limb (van/von/de/del/della/bin) was proven on six families, since the plain two-token regex matches none of them. || HISTORICAL -- 2026-08-15 (earlier): REGENERATION REFUSED, deliberately, and this tree stays RED. Two independent reasons, both measured. (1) PII SUSPECTED. The delta a regeneration would bless carries an unadjudicated person-shaped token, of exactly the shape tests/vendor_person_name_sweep.py was written to hunt: that sweep's own synthetic canary is a structural clone of the line in question, which is how it is known the shape defeated earlier instruments. vendor/PERSON_NAMES_REVIEWED.tsv does not exist yet, so NOTHING has cleared it, and blessing it would convert an open question into a permanently recorded divergence that no future gate ever asks about again. Adjudicate via the sweep and the reviewed-names registry FIRST. Do NOT re-sync to clear it either: a re-sync deletes the vendored side, which is where scrubs live. THIS IS THE WHOLE REASON. It is the only one that still stands, and the correction is recorded rather than quietly dropped: a second reason was written here first, and the gate has since outgrown it. At be7802f the gate reported this tree red on BOTH limbs, DIFFERS *and* 'source has advanced past pinned_sha' for four commits, and it emitted OK only when both were clean -- so a regeneration would have written, failed its own post-write proof and reverted, whatever the PII answer was. verify_vendor_fresh.sh now honours hold_ack_shas, so RE-MEASURED at origin/main 780d34a the advance limb is discharged and this tree is red on the CONTENT limb alone. Recording it because the reasoning is still useful and because a note that silently drops a reason teaches the next reader to distrust the ones that remain: the refusal never rested on that limb, and does not now. || Legit divergence: identity_resolver.normalise import (incl. normalise_phone) + BW-1 phone-normalisation graft + en-dash house style. 2026-07-15: re-synced to CM041 main 11ad1246 (v1.0.9 fixes: calendar owner attribution #96, backfill-at-startup wiring #100, PII sweeps #85/#86/#102). 3-way graft (base = old pin ba59711) preserved the twin-local register_person call sites; linkedin_messages keeps ONE snapshot registration (register_person) where upstream added a parallel _register_in_snapshot call for the same insert."
 
 [[tree]]
 name             = "cm041/identity_resolver"
 vendor_path      = "vendor/cm041/identity_resolver"
 source_repo      = "$CM041"
 source_path      = "identity_resolver"
-  pinned_sha = "dcfb7a3e2c6275cdeebcf28bc0641fb0b8e7e19c"
+  # RE-PIN 2026-08-15 (ORM, v1.0.27): dcfb7a3e -> 9fe8063b. CONTENT-NEUTRAL, and
+  # that is the whole basis on which it is safe to do inside a launch cut.
+  #
+  # THE OLD PIN WAS A MERGE COMMIT ("Merge pull request #116"), and it does not
+  # itself touch identity_resolver/. GitHub's path-filtered commit listing uses
+  # simplified history, so a merge that changed nothing on the path NEVER appears
+  # in it. verify_cut_freshness.sh's path_delta_shas() walks that listing looking
+  # for the pin, does not find it, and falls through to DIVERGED -- reported as
+  # "the pin is either off the branch history or >100 path-commits behind". It was
+  # neither. The pin was on main and an ancestor of HEAD, and the compare API says
+  # plainly: status=ahead, ahead_by=4, behind_by=0.
+  #
+  # So the RED was the instrument failing to enumerate, not a finding about the
+  # tree, and no hold_ack could ever have cleared it: the gate cannot match acks
+  # against a delta it was unable to list.
+  #
+  # WHY 9fe8063b IS THE RIGHT PIN AND WHY IT MOVES NOTHING. It is the most recent
+  # commit at or before the old pin that actually TOUCHES identity_resolver/, so
+  # it is visible to the path-filtered listing (checked against the live API: it
+  # is in the 26 returned). And it names the SAME CONTENT:
+  #     git rev-parse 9fe8063b:identity_resolver -> 8faec0830e13a10e66cd9812f639a255c3cbd471
+  #     git rev-parse dcfb7a3e:identity_resolver -> 8faec0830e13a10e66cd9812f639a255c3cbd471
+  # Byte-identical trees, so verify=full reconstruction from source@pin plus
+  # cm041_identity_resolver.patch is completely unaffected. Both parents of the
+  # merge carry that same tree too, which is what makes the merge content-neutral
+  # on this path in the first place.
+  #
+  # This is a pin that names an enumerable commit instead of an invisible one. It
+  # is not a re-vendor and it takes no new upstream code.
+  pinned_sha = "402cf9aa91f315acf7cebd9ae190326dc4d11184"
   divergence_patch = "vendor/divergences/cm041_identity_resolver.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
@@ -85,7 +199,7 @@ name             = "cm041/meeting_syncer"
 vendor_path      = "vendor/cm041/meeting_syncer"
 source_repo      = "$CM041"
 source_path      = "meeting_syncer"
-pinned_sha       = "11ad1246286ef86a70ef0aeb28aa8f2926f53842"
+pinned_sha       = "402cf9aa91f315acf7cebd9ae190326dc4d11184"
   divergence_patch = ""
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
@@ -96,11 +210,11 @@ name             = "cm041/assistant_api"
 vendor_path      = "vendor/cm041/assistant_api"
 source_repo      = "$CM041"
 source_path      = "assistant_api"
-  pinned_sha = "caa53bf62217c2ad4e46a5b95409eac320649bb6"
+  pinned_sha = "402cf9aa91f315acf7cebd9ae190326dc4d11184"
   divergence_patch = "vendor/divergences/cm041_assistant_api.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_import.sh"]
 verify           = "full"
-note             = "Vendor-only files subscription_gate.py + test_vendor_import.sh + tests/ (vendor-side grafts; tests/ is excluded from the freshness diff). 2026-07-15: pin moved OFF the c6939f8 side branch onto CM041 main 11ad1246 -- adopts the whole main line (stale-employer read #95, hygiene overlay #98, fail-closed L3 people_search #97, startup privacy backfill #100, PII sweep #102, plus the previously-excluded #44 timeline rework, moat/health/enrichment endpoints). The former speakers + memory/assert grafts are now native upstream and dropped from the patch. ical-server.py rebuilt as upstream@11ad1246 + five CM051-deploy grafts (captured in the patch): (1) _resolve_port/OSTLER_API_PORT, (2) GET /api/v1/recording/active + RECORDING_* constants (CM042 -> CM031 Live Activity), (3) POST /api/v1/subscription/receipt via vendor-only subscription_gate, (4) pwg-convo CLI invocation for conversation/process (PWG_CONVO_BIN; CM051 installs CM048 as a venv'd CLI, not OSTLER_PYTHON/-m src.cli), (5) _read_iso8601_marker validated-timestamp reads for caldav/last_sync (F-3) + module-level timezone import, (6) iOS wire-shape contract grafts: api_ingest_ios 'accepted' mirror (F-10), timeline degraded-fallback 'entries' mirror (F-1), people_stale en-GB 'organisation' key (F-2). test_vendor_import.sh + tests/test_ical_server_wire_shape.py assert the routes, dispatch and wire shapes survive future re-vendors. Upstream ical-server also imports repo-root pwg_privacy + sibling ostler_hygiene -- see the cm041/pwg_privacy + cm041/ostler_hygiene trees and the install.sh services staging. 2026-07-20 (v1.0.10 second-tier re-pin): assistant_api pin advanced f83d5aee -> 3136bb22 to adopt CM041 #104 (memory-hygiene overlay wired into the person_context/person_enrichment person-card readers; _hygiene_drop_retired routes through the ONE canonical ostler_hygiene.reader and runs BEFORE the existing L3 fail-closed filter). ical-server.py re-grafted 3-way (all six CM051-deploy grafts intact + vendor-only subscription_gate.py/test_vendor_import.sh/tests preserved -- sync_vendor drops patch-uncaptured vendor-only files, restored from base); no other cm041 tree moved (freshness gate is path-scoped and #104 touched only assistant_api/)."
+note             = "Vendor-only files subscription_gate.py + test_vendor_import.sh + tests/ (vendor-side grafts; tests/ is excluded from the freshness diff). 2026-07-15: pin moved OFF the c6939f8 side branch onto CM041 main 11ad1246 -- adopts the whole main line (stale-employer read #95, hygiene overlay #98, fail-closed L3 people_search #97, startup privacy backfill #100, PII sweep #102, plus the previously-excluded #44 timeline rework, moat/health/enrichment endpoints). The former speakers + memory/assert grafts are now native upstream and dropped from the patch. ical-server.py rebuilt as upstream@11ad1246 + five CM051-deploy grafts (captured in the patch): (1) _resolve_port/OSTLER_API_PORT, (2) GET /api/v1/recording/active + RECORDING_* constants (CM042 -> CM031 Live Activity), (3) POST /api/v1/subscription/receipt via vendor-only subscription_gate, (4) pwg-convo CLI invocation for conversation/process (PWG_CONVO_BIN; CM051 installs CM048 as a venv'd CLI, not OSTLER_PYTHON/-m src.cli), (5) _read_iso8601_marker validated-timestamp reads for caldav/last_sync (F-3) + module-level timezone import, (6) iOS wire-shape contract grafts: api_ingest_ios 'accepted' mirror (F-10), timeline degraded-fallback 'entries' mirror (F-1), people_stale en-GB 'organisation' key (F-2). test_vendor_import.sh + tests/test_ical_server_wire_shape.py assert the routes, dispatch and wire shapes survive future re-vendors. Upstream ical-server also imports repo-root pwg_privacy + sibling ostler_hygiene -- see the cm041/pwg_privacy + cm041/ostler_hygiene trees and the install.sh services staging. 2026-07-20 (v1.0.10 second-tier re-pin): assistant_api pin advanced f83d5aee -> 3136bb22 to adopt CM041 #104 (memory-hygiene overlay wired into the person_context/person_enrichment person-card readers; _hygiene_drop_retired routes through the ONE canonical ostler_hygiene.reader and runs BEFORE the existing L3 fail-closed filter). ical-server.py re-grafted 3-way (all six CM051-deploy grafts intact + vendor-only subscription_gate.py/test_vendor_import.sh/tests preserved -- sync_vendor drops patch-uncaptured vendor-only files, restored from base); no other cm041 tree moved (freshness gate is path-scoped and #104 touched only assistant_api/). 2026-08-15 (PII convergence re-pin): pin advanced caa53bf6 -> 5828aadb to adopt CM041 #121, which anonymises ONE line at assistant_api/ical-server.py:2165 -- an RDF example subject inside a 33-line explanatory comment that used a real family member's given name. The vendored copy was ALREADY scrubbed (CM051 ab2b6d4, #671), so that one line was the whole residual divergence for this tree, and it was a divergence that could not be WRITTEN DOWN: a divergence patch's MINUS lines are the SOURCE side, so recording it would have put the real given name into this PUBLIC repo. Landing the scrub upstream converges both sides and RETIRES the entry instead of recording it. Same play as vendor/ostler_fda (HR015 #369 then CM051 #708). The re-pin asserts EXACTLY ONE commit, verified by two-dot tree diff `git diff --stat caa53bf6 5828aadb -- assistant_api/` = 1 file changed, 1 insertion, 1 deletion; zero customer-affecting behaviour, proven by ast.dump() equality across the edit (28448 nodes / 616931 chars both sides) with two positive controls showing the comparison is not vacuous, plus the full CM041 CI suite at 1079 passed before and after. Content proof of the convergence, not ancestry: sha256(upstream@5828aadb + this patch) == sha256(vendor/cm041/assistant_api/ical-server.py) == 28338de79c5e76b372fb2f9e262e7cf8ec7ae5a1957ee0096cb82814227d0be2. NOTE the existing patch still applies unchanged (line 2165 falls between hunks) and was NOT regenerated. Vendor-only subscription_gate.py is untouched and remains the tree's only residual divergence, still unrecorded, now PII-free and therefore recordable on its own merits."
 
 [[tree]]
 name             = "cm041/ostler_hygiene"
@@ -120,7 +234,26 @@ source_repo      = "$CM041"
 source_path      = "pwg_privacy.py"
 pinned_sha       = "11ad1246286ef86a70ef0aeb28aa8f2926f53842"
   divergence_patch = ""
-exclude          = []
+# SCOPING, NOT STALENESS. This tree's SUBJECT is one file, pwg_privacy.py, but
+# its vendor_path has to be the shared vendor/cm041 ROOT (see the note below for
+# why). vlib_vendor_diff walks vendor_path, so with `exclude = []` it walked all
+# 70 files under vendor/cm041 -- every sibling subtree -- and emitted 67 of them
+# as /dev/null new-file hunks, because they are of course absent from a
+# materialised source tree containing exactly one file. A 28,174-line
+# "divergence" that was entirely an artefact of the walk.
+#
+# The siblings are NOT unvendored: assistant_api, contact_syncer,
+# identity_resolver, meeting_syncer and ostler_hygiene each have their OWN
+# [[tree]] entry above, with their own pins, and each is diffed there. Listing
+# them here says "not this tree's subject", not "nobody checks these".
+#
+# MEASURED 2026-08-15, both directions:
+#   vendor/cm041/pwg_privacy.py is BYTE-IDENTICAL to source@11ad1246, and
+#   0 commits have touched pwg_privacy.py upstream since the pin (checked in a
+#   NON-SHALLOW clone; a shallow one manufactures exactly this kind of absence).
+#   With the excludes the tree reports OK; mutating pwg_privacy.py still turns
+#   it RED, so the excludes did not simply blind the gate.
+exclude          = ["assistant_api/", "contact_syncer/", "identity_resolver/", "meeting_syncer/", "ostler_hygiene/", "tests/", "test_vendor_import.sh", "__pycache__/"]
 verify           = "full"
 note             = "NEW 2026-07-15. SINGLE-FILE tree: canonical fail-closed L3 privacy helper at the CM041 repo root, hard-imported (top-level, unguarded) by BOTH meeting_syncer/brief.py and assistant_api/ical-server.py since CM041 #97 -- without it those readers crash at import. vendor_path is the shared vendor/cm041 ROOT so the file sits at the twin repo-root the sys.path hacks expect; the freshness gate's shared-file diff therefore only compares pwg_privacy.py (the only file present in both the materialised single-file source and vendor/cm041). WARNING: NEVER run scripts/sync_vendor.sh FULL sync on this tree -- its tree-swap step (rm -rf vendor_path) would delete every sibling cm041 subtree. Graft by hand + --regen-patch only. Runtime staging: install.sh copies it to PIPELINE_DIR (for brief.py) and to the services root next to ical-server (for the Hub API); gui/project.yml + release.sh bundle it at the Resources/install root."
 
@@ -135,7 +268,10 @@ source_path      = "."
   divergence_patch = "vendor/divergences/cm048_pipeline.patch"
 exclude          = ["tests/", "docs/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "DEFIB_PROMPT.md", "PROMPT_TUNING_NOTES.md", "SESSION_HANDOFF_2026-04-16_overnight.md", "SESSION_HANDOFF_2026-04-17_morning.md", "TECH_DEBT_CM048_2026-04-24.md", "settings.yaml.production"]
 verify           = "skip"
-note             = "The local CM048 checkout's object store is sick -- 'git archive'/'git rev-list' hang (corrupt loose object / stale rebase state), so it cannot be materialised here. source_path + pinned_sha are kept so a HEALTHY CM048 checkout auto-verifies once it is set verify=full. The gate's per-op timeout (VENDOR_OP_TIMEOUT) would degrade this to a WARN even if left full. 2026-07-31 (HR015 #233): divergence patch gained a src/ostler_paths.py hunk that removes the false-marker write on the fresh_install branch of migrate_pwg_dotdir_if_needed -- the pinned upstream unconditionally drops the sentinel even when ~/.pwg/ never existed, which (a) lies in the sentinel body and (b) actively prevents a legitimate future migration if the customer later restores a ~/.pwg/. Hand-crafted patch (sync_vendor --regen-patch cannot run against the sick source). Upstream this to CM048 once the source repo is unstuck and drop the graft."
+unverifiable_ack = true
+unverifiable_ack_owner  = "ORM, with the CM048 source-repo owner (andygmassey/CM048-PWG-Conversation-Processing)"
+unverifiable_ack_reason = "THE OLD REASON WAS FALSE AND IS CORRECTED IN THE NOTE: the CM048 object store is NOT sick any more. Re-measured 2026-08-15 with the gate's own vlib_timeout in BOTH local checkouts: 'git archive' at the pin returns rc=0 in under a second with 124 entries, and 'rev-list --count HEAD' returns in under a second. Nothing hangs. What actually blocks verify=full is TWO measured things, neither of them the source being unreadable. (1) CONTENT: materialising the pin gives 59 files against 61 vendored, and the shared-file diff is 932 lines across five files -- PLAN.md, README.md, src/enrichment_validation.py, src/processor.py, src/seed.py, including one new-file hunk -- and that is WITH the existing cm048_pipeline.patch already applied. Blessing 932 unreviewed lines into a recorded divergence at cut time is the thing this gate exists to stop, so it needs a reconciliation pass, not a patch regeneration. (2) INSTRUMENT: the staleness limb is HEAD-relative ('git log pin..HEAD'), so it reports whatever branch the operator's checkout happens to sit on. The pin f348270a IS origin/main HEAD, but ~/Developer/CM048 sits on archie/d014c-prompt-placeholders (3 commits past the pin) and ~/Developer/cm048-canon on fix/cm048-package-prompts (1 past), so flipping to full today would report branch commits as 'ungrafted' against a pin that is in fact level with main. Retire this ack by reconciling the five files, then flipping verify=full from a checkout parked on origin/main."
+note             = "SOURCE IS HEALTHY AND REACHABLE (corrected 2026-08-15; the previous note's 'object store is sick, git archive/rev-list hang' claim was inherited, never re-tested, and is false -- see unverifiable_ack_reason for the measurement). Pin f348270a resolves in both ~/Developer/CM048 and ~/Developer/cm048-canon and equals origin/main HEAD in both. 2026-07-31 (HR015 #233): divergence patch gained a src/ostler_paths.py hunk that removes the false-marker write on the fresh_install branch of migrate_pwg_dotdir_if_needed -- the pinned upstream unconditionally drops the sentinel even when ~/.pwg/ never existed, which (a) lies in the sentinel body and (b) actively prevents a legitimate future migration if the customer later restores a ~/.pwg/. Hand-crafted patch. Upstream this to CM048 and drop the graft. NOTE the original justification for hand-crafting it (\"sync_vendor --regen-patch cannot run against the sick source\") no longer holds either; scripts/regenerate_divergence_patch.sh can now read this source fine, which is what makes the five-file reconciliation above a schedulable task rather than a blocked one."
 
 # ---- CM021 (Email Intelligence) ------------------------------------------
 
@@ -160,8 +296,45 @@ name             = "ostler_fda"
 vendor_path      = "vendor/ostler_fda"
 source_repo      = "$HR015/ostler_fda"
 source_path      = "."
-  pinned_sha = "eb00b702677055c4483dfc0f63c5a9df0b125eb3"
+  pinned_sha = "9cf567be7c6c7d045acd7f45b7a1dc0f0076117d"
   divergence_patch = "vendor/divergences/ostler_fda.patch"
+  # shipping_bugfixes_grafted for this tree is declared further down in this
+  # same entry, alongside the note about discharging hold_acks with proof.
+  # Not repeated here: a duplicate key makes the whole manifest unparseable.
+  # RE-PIN 2026-08-15 (second, same day): eb00b702 -> c9b5f55. The previous
+  # re-pin below retired an identifier_quality.py divergence by pulling HR015
+  # #369 forward. #369 was MAILBOX-SHAPED. It replaced email addresses and left
+  # every real NAME in the same file, and the file was then reported clean by a
+  # shape-only scanner that has no name pattern and, measured 2026-08-15, no
+  # email pattern either. So the tree this repo vendored publicly still carried
+  # real third-party names, in four modules, after being declared scrubbed.
+  #
+  # HR015 #371 (e32ed13) de-identifies them upstream and adds the permit-list
+  # guard that can actually see a name; #372 (c9b5f55) restores one code comment
+  # #371 over-scrubbed, whose text is the CONTEXT of the given_name_variants
+  # divergence hunk below. Pinning at #372 keeps that hunk applying.
+  #
+  # WHAT THIS RE-PIN ASSERTS. Two commits touch this sub-path across the range,
+  # both of them the fix, and the two-dot TREE diff is the whole of it:
+  #   git diff --stat eb00b702 c9b5f55 -- ostler_fda/
+  #     given_name_variants.py 12 +-   identifier_quality.py 96 +--
+  #     repair_role_address_people.py 6 +-   role_addresses.py 12 +-
+  #     tests/test_identifier_quality.py 132 +--
+  #     tests/test_no_unknown_person_names.py 424 +   (new guard)
+  #     tests/test_role_address_over_merge.py 74 +--
+  # Only the four non-test modules are vendored here; tests/ is not, except
+  # test_provisional_display_name.py which this range does not touch.
+  #
+  # PROVEN BY CONTENT, not ancestry. Three files are byte-identical to source:
+  #   identifier_quality.py         2c3a9ff92f12715b...  (both sides)
+  #   role_addresses.py             2b1a089abd5e6e2d...  (both sides)
+  #   repair_role_address_people.py e9baffe9dd2ec5cc...  (both sides)
+  # given_name_variants.py is NOT byte-identical and must not be: it carries the
+  # recorded divergence below (one dictionary row removed for the operator-PII
+  # guard). Only the docstring delta was applied to it, so the diff against
+  # source@c9b5f55 is exactly that one recorded hunk and nothing else.
+  #
+  # ---- previous re-pin, retained ----
   # RE-PIN 2026-08-15: ab63b7be -> eb00b702, and the point of it is a divergence
   # that could NOT be written down.
   #
@@ -207,9 +380,9 @@ source_path      = "."
   # go red: it permanently exempts a path from the freshness diff. Discharge them
   # with proof, or they become the silent-green this whole gate exists to stop.
   shipping_bugfixes_grafted = true
-exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_browser_history.sh", "test_vendor_imessage_history.sh", "test_vendor_whatsapp_history.sh", "A9_FAIL_PROOF.md"]
+exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_browser_history.sh", "test_vendor_imessage_history.sh", "test_vendor_whatsapp_history.sh", "A9_FAIL_PROOF.md", "split_household_people.py"]
 verify           = "full"
-note             = "Graft #191 (createdAt) landed in HR015 ostler_fda (#326) and is synced here at a15d82f. 2026-06-23: added universal_import.py as a vendor-only graft (the previously-orphan P3 importer, wired into ostler-import this cut). It is ABSENT at the pinned a15d82f, so it is out-of-scope for the shared-file freshness diff (a vendor-only addition, like subscription_gate.py on cm041/contact_syncer) and does not move the gate. Its canonical source is HR015 ostler_fda/universal_import.py with the v1.0.3 CM048-persistence change (HR015 feat/wire-universal-import-leg-v1.0.3 @ ed12baa). When HR015 re-pins past universal_import, drop this graft and let the normal sync carry it as a shared file. facebook_messenger.py (the parser that makes the FB dispatch persist end to end) ships on a SEPARATE PR (HR015 #220); until it lands the FB dispatch returns recognised_no_parser honestly."
+note             = "Graft #191 (createdAt) landed in HR015 ostler_fda (#326) and is synced here at a15d82f. 2026-06-23: added universal_import.py as a vendor-only graft (the previously-orphan P3 importer, wired into ostler-import this cut). It is ABSENT at the pinned a15d82f, so it is out-of-scope for the shared-file freshness diff (a vendor-only addition, like subscription_gate.py on cm041/contact_syncer) and does not move the gate. Its canonical source is HR015 ostler_fda/universal_import.py with the v1.0.3 CM048-persistence change (HR015 feat/wire-universal-import-leg-v1.0.3 @ ed12baa). When HR015 re-pins past universal_import, drop this graft and let the normal sync carry it as a shared file. facebook_messenger.py (the parser that makes the FB dispatch persist end to end) ships on a SEPARATE PR (HR015 #220); until it lands the FB dispatch returns recognised_no_parser honestly. || 2026-08-17 (Archie) RE-PINNED FORWARD 182ff405 -> 991ef89f, and the hold_ack pair is REMOVED rather than extended, because the delta is now empty on BOTH denominators: git log 991ef89f..origin/main -- ostler_fda/ returns 0, and the unscoped repo-root delta the gate actually enumerates is also 0, since 991ef89f IS HR015 origin/main. WHAT THE RE-PIN TAKES, measured with git diff --name-status rather than read off titles: exactly four files, all M and ZERO A, so no new top-level module enters the vendored file-set and the split_household_people.py exclusion is untouched. Two of the four are tests/ and excluded by the glob. The two that ship: (a) calendar.py, HR015 #423, an absent Calendar database reported ok, forever. THIS ONE WAS GENUINELY WITHHELD: the vendored copy was byte-identical to source@182ff405 (sha256 afc94765..), so the fail-loud reached no customer, and a bare hold_ack here would have asserted shipping_bugfixes_grafted = true while a real customer-facing fix sat outside the tree. That is the assertion this field exists to prevent, and it is the whole reason this is a re-pin and not an ack. (b) backfill_ladder.py, HR015 #409, the backfill ladder needs a terminal rung meaning ALL and a dwell. ALREADY GRAFTED, verified by CONTENT not ancestry: the vendored copy already hashed abde1311.., byte-identical to source@991ef89f, so the re-pin RETIRES an unrecorded divergence instead of recording it -- the same play as #379 and cm041/assistant_api #121. THE DIVERGENCE PATCH IS UNAFFECTED AND WAS NOT REGENERATED: it touches apple_mail, dedupe_merge, extract_all, given_name_variants and pwg_ingest, and adds repair_placeholder_names; the re-pin range touches NONE of those six, so every hunk anchors exactly as before. Do NOT reach for sync_vendor.sh to reproduce this. || SPLIT_HOUSEHOLD_PEOPLE.PY STAYS EXCLUDED. Carried across from the v1.0.27 hold_ack_reason that this re-pin removed, because dropping a still-live reason together with the stale ack that happened to carry it is how an exclusion becomes unexplained: the module is a manual CLI with no caller; scripts/verify_fda_modules_reachable.py exits 1 with it present and 0 with it absent, so the gate discriminates; scripts/fda_unwired_modules.tsv already records repair_placeholder_names as DORMANT and BLOCKED ON THE HOUSEHOLD SPLIT; and it writes to a customer graph, deleting names with no undo, on an UNRECORDED trigger. Retire this exclude together with the wiring work. || THE DENOMINATOR NOTE ALSO SURVIVES THE ACK IT WAS WRITTEN IN: this tree declares source_path = '.' and the source resolves to the HR015 REPO ROOT, so '.' means the whole repository and the gate enumerates repo-wide commits for a tree that owns one directory. It is right to be loud and it is pointing at the wrong denominator. Fixing that is still owed."
 
 [[tree]]
 name             = "ostler_security"
@@ -263,7 +436,7 @@ pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
   divergence_patch = "vendor/divergences/email_ingest.patch"
 exclude          = ["tests/", "__pycache__/"]
 verify           = "full"
-note             = "2026-07-20 (folds PR #415 bookkeeping): bin/email-ingest-tick.sh, INSTALL_SNIPPET.sh and the launchd plist carry a CM051-only graft (commit f16ae6e, 'silent 100% drop' fix) -- CM046->CM021 CLI rename comment cleanup plus PWG_EMAIL_INGEST absolute-path wiring + a LOUD guard so a harvested-but-unresolvable ingest binary fails the tick instead of silently dropping mail under launchd's minimal PATH. Pre-existing; was previously applied to the vendored tree WITHOUT being captured in email_ingest.patch, so the content gate flagged vendor != source@pin+patch. The regenerated patch (3 shared files diverge) records it correctly; no re-pin needed (email-ingest source at pin has not advanced -- freshness gate is FRESH). This graft is CM051-only and deliberately not destined for upstream HR015 email-ingest, so it stays a permanent vendor-side divergence, not a hold pending a source PR."
+note             = "2026-08-15: divergence RE-RECORDED, because the graft moved on after the patch was last regenerated and the gate reported DIFFERS on INSTALL_SNIPPET.sh and the plist. TWO things are now captured that were not. (1) The plist's ProgramArguments[0] is OSTLER_ASSISTANT_BINARY with `run-source email-ingest`, not /bin/bash running the tick script, so the protected Apple Mail read is performed by a child of the SHIPPED, code-signed daemon and inherits its Full Disk Access. (2) INSTALL_SNIPPET.sh refuses to bootstrap when that binary is absent. That refusal is the fix for a MEASURED v1.0.15 box-walk failure, not a precaution: the plist has RunAtLoad=true, so bootstrapping against a missing ProgramArguments[0] makes launchd fail the exec and answer EX_CONFIG (78), which launchd treats as 'misconfigured' rather than as a retryable error. The job is then never started again, StartInterval included, and both log files stay 0 bytes because nothing ever executed to write to them, so it presents as total silence. An absent LaunchAgent that says so is strictly better than a present one that is permanently dead. Recorded via scripts/regenerate_divergence_patch.sh (dry run read, then --write, whose own post-write gate re-run reported OK). ZERO bytes under vendor/email_ingest/ changed. || 2026-07-20 (folds PR #415 bookkeeping): bin/email-ingest-tick.sh, INSTALL_SNIPPET.sh and the launchd plist carry a CM051-only graft (commit f16ae6e, 'silent 100% drop' fix) -- CM046->CM021 CLI rename comment cleanup plus PWG_EMAIL_INGEST absolute-path wiring + a LOUD guard so a harvested-but-unresolvable ingest binary fails the tick instead of silently dropping mail under launchd's minimal PATH. Pre-existing; was previously applied to the vendored tree WITHOUT being captured in email_ingest.patch, so the content gate flagged vendor != source@pin+patch. The regenerated patch (3 shared files diverge) records it correctly; no re-pin needed (email-ingest source at pin has not advanced -- freshness gate is FRESH). This graft is CM051-only and deliberately not destined for upstream HR015 email-ingest, so it stays a permanent vendor-side divergence, not a hold pending a source PR."
 
 [[tree]]
 name             = "imessage_bridge"
@@ -271,9 +444,10 @@ vendor_path      = "vendor/imessage_bridge"
 source_repo      = "$HR015/imessage-bridge"
 source_path      = "."
 pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
-divergence_patch = "vendor/divergences/imessage_bridge.patch"
+  divergence_patch = "vendor/divergences/imessage_bridge.patch"
 exclude          = ["tests/", "__pycache__/", "test_vendor_import.sh"]
 verify           = "full"
+note             = "2026-08-15: divergence RE-RECORDED. This tree had a divergence patch, but the patch predated the graft it is meant to describe (last touched three weeks BEFORE it), so the gate reported DIFFERS on launchd/com.ostler.imessage-bridge.plist. The graft is the TCC reroute, the same shape as email_ingest's: ProgramArguments[0] becomes OSTLER_ASSISTANT_BINARY with `run-source imessage-bridge` instead of OSTLER_PYTHON running bridge.py directly, so the protected chat.db read is performed by a child of the SHIPPED, code-signed daemon and inherits its Full Disk Access. A bare interpreter invoked from launchd holds no FDA of its own and the read fails. Recorded via scripts/regenerate_divergence_patch.sh (dry run read, then --write, whose own post-write gate re-run reported OK). ZERO bytes under vendor/imessage_bridge/ changed. CM051-only and deliberately not destined for upstream HR015 imessage-bridge, which has no .app bundle to route through, so this stays a permanent vendor-side divergence rather than a hold pending a source PR."
 
 [[tree]]
 name             = "hub_power"
@@ -307,6 +481,9 @@ pinned_sha       = "282ebfeba2b7751d48966e89e2b856c31218c524"
 divergence_patch = ""
 exclude          = ["__pycache__/"]
 verify           = "skip"
+unverifiable_ack = true
+unverifiable_ack_owner  = "ORM, with the CM019 source-repo owner (andygmassey/personal-world-graph)"
+unverifiable_ack_reason = "NOT a reachability problem, and the note below should not be read as one: pin 282ebfeb resolves in ~/Developer/CM019-Personal-World-Graph and IS origin/main HEAD (it is the merge commit of PWG #288; b11e9ed7, which the note names, is the fix merged INSIDE it). The blocker is the deliberate-subset reconciliation that the note has been deferring since 2026-07-25, now re-measured rather than quoted: materialising the pin gives 454 source files against 83 vendored (the vendored tree is a shipping subset of services/ingest + services/enrich + ontology), and the shared-file diff is 1,686 lines across 15 files including 2 new-file hunks -- requirements.txt, both config.py, ingest filters/pipeline/vectorizer, the qdrant loader, six parsers, and test_vendor_preferences.sh. That reconciliation needs the CM019 owner and is out of cut-window scope; doing it under time pressure is exactly how CM051 #431's regression once shipped labelled 'byte-identical to upstream' when it was not. Retire this ack by scheduling the 15-file reconciliation, then flipping verify=full."
 note             = "2026-07-25 v1.0.10 recut re-pin to b11e9ed7 (PWG #287 Facebook parser fix merged into personal-world-graph main). SURGICAL two-file overwrite from PWG@b11e9ed7: services/ingest/src/parsers/meta.py only (test_meta_parser.py NOT vendored -- deliberate subset). Overwrite REVERTS the CM051 #431 divergence (which routed comments/posts_and_comments to _parse_posts and silently dropped the group-name signal + entirely dropped comments_and_reactions/comments.json + groups/your_comments_in_groups.json) and lands the source-of-truth handler + disambiguator + dedupe. Verified: byte-identical to PWG@b11e9ed7; grep guards PASS (_parse_comments, _extract_comment_subject, SUPPORTED_PATTERNS 'comments' entry all present). Full-sync path DELIBERATELY NOT TAKEN because the 81 non-PII shared-file drifts are out of cut-window scope; a scripts/sync_vendor.sh cm019_preferences full run would tangle with unrelated drift. verify=skip STAYS for this cut; v1.0.11 register: adopt verify=full once the 81-drift reconciliation is scheduled with the CM019 owner (this is what let CM051 #431's regression ship as 'byte-identical to upstream' when it wasn't -- gate class per feedback_gate_can_encode_a_reversed_conclusion). --- Historical 2026-07-20: CM019 is NOW a git repo (andygmassey/personal-world-graph); the old non-git '02 - Code/' layout is gone -- services/ + ontology/ sit at the repo ROOT, so source_repo is $CM019 and source_path '.'. Pinned to live main HEAD 44f1c82, so the freshness gate verifies it against GitHub (verify_exempt removed -- it is no longer genuinely-unverifiable). LIVE operator-PII leak scrubbed: grafted the customer-shipping PII fixes from 44f1c82 (which includes #256 93ceeeb) into the five shipping files that carried operator identifiers -- services/enrich/src/enricher.py (stopword tuple), services/ingest/src/cli.py (usage docstrings -u andy -> -u jane), services/ingest/src/parsers/netflix.py + disney.py (hard-coded ALLOWED_PROFILES=['Andy','The Masseys'] -> env-driven _profiles_from_env(); disney room-name 'massey''s home' -> generic), services/enrich/src/cli.py (default='andy' user-id -> OSTLER_USER_ID env / 'default_user'). grep -riw andy|massey over the vendored tree is now CLEAN. verify=skip: the vendored tree is a DELIBERATE shipping SUBSET (services/ingest + services/enrich + ontology only; docker/, scripts/, cli/, docker-compose*, visualization/, *.md docs are NOT vendored), and a full content reconciliation of the subset against 44f1c82 (81 non-PII shared-file drifts) is out of cut-window scope -- deferred to the CM019 owner / next cut like the CM024 subset. Vendor-only files (requirements.txt, test_vendor_preferences.sh) preserved."
 
 [[tree]]
@@ -319,68 +496,127 @@ divergence_patch = ""
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "skip"
 verify_exempt    = true
-exempt_reason    = "Pin 43d6c5da was captured from a LOCAL CM024 checkout that is NOT the canonical GitHub source (andygmassey/evernote-knowledge); the package was also renamed (ostler_knowledge/ -> src/). The pin does not resolve against the canonical repo, so the live-HEAD gate cannot verify it. PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the canonical GitHub source is wired as source_repo and the rename encoded."
+exempt_reason    = "HALF OF THE OLD REASON WAS FALSE AND IS DROPPED. It claimed the pin 'was captured from a LOCAL CM024 checkout that is NOT the canonical GitHub source' and that it 'does not resolve against the canonical repo'. Measured 2026-08-15: ~/Developer/cm024-canon has origin https://github.com/andygmassey/evernote-knowledge.git, which IS the canonical repo, and 43d6c5da resolves in it (and in ~/Developer/ostler-knowledge-kms, same remote). The pin is fine. THE HALF THAT IS TRUE is the package rename, and it is the real blocker: see unverifiable_ack_reason."
+unverifiable_ack = true
+unverifiable_ack_owner  = "ORM, with the CM024 source-repo owner (andygmassey/evernote-knowledge)"
+unverifiable_ack_reason = "A STRUCTURAL REMAP THE MANIFEST SCHEMA CANNOT EXPRESS. At the pin the package directory is ostler_knowledge/; the vendored tree carries the same code as src/. There is no path-remap field, so source_path can name one or the other but never both. Measured consequence of flipping verify=full as-is: all 27 vendored files come back as /dev/null new-file hunks, a 7,714-line diff, because not one vendored path exists in the materialised tree. That is a diff which would 'reconcile' by blessing the entire tree as a divergence -- a clean-looking result off a comparison that never actually compared anything, which is the specific failure this gate exists to refuse. Two honest exits, neither of them a cut-window job: teach the manifest a source_path -> vendor_path remap, or take the deferred full re-pin to #14 head 7ace7672, which lands the rename natively but also carries new ingestion adapters (apple_notes/notion/obsidian) plus coordinated drift across cli.py, classifier, enex_parser, importance_scorer, incremental, markdown_writer and the adapter base, and so needs a cross-rename graft with runtime verification."
 note             = "Canonical source is GitHub andygmassey/evernote-knowledge (per vendor/README.md), NOT this local CM024 checkout; package was also renamed (source ostler_knowledge/ -> vendor src/). Structural remap. WARN until the GitHub canonical is wired as the source and the rename is encoded. 2026-07-19 (v1.0.9 recut): hand-grafted the customer-facing part of GitHub #14 (legacy-hostname scrub) into vendor/cm024_knowledge/config/settings.yaml + README.md -- ollama_host from a legacy personal-infra hostname -> localhost:11434 (env-overridable). This removed a shipped personal-infra hostname leak (CLAUDE.md forbids legacy infra in customer surface). pinned_sha HELD at 43d6c5da: the FULL re-pin to #14 head 7ace7672 is DEFERRED -- 7ace7672 also carries a substantial package re-vendor across the rename (NEW ingestion adapters apple_notes.py/notion.py/obsidian.py + coordinated drift in cli.py source= threading, classifier/enex_parser/importance_scorer/incremental/markdown_writer/adapters base+__init__) that needs a careful cross-rename graft + runtime verification, not a blind cut-window graft. FILED for the CM024 owner / next cut."
 
-# ---- Conversation-feed bundles: upstream not on disk ---------------------
+# ---- Conversation-feed bundles -------------------------------------------
 # email_source / imessage_source / whatsapp_source / spoken_source.
-# Their git history (CM051 commit bf9106e: "align test scrub with HR015
-# af4ae65 (vendor==source)") names HR015 as upstream, but the matching HR015
-# source dir was removed/relocated since af4ae65 and is not on disk. Recorded
-# so the gate WARNs (never silently passes) until the HR015 source path is
-# recovered.
+#
+# RE-ADDRESSED 2026-08-15. These four sat as verify=skip behind one shared
+# sentence: "Upstream HR015 source dir not on disk (removed/relocated since
+# af4ae65). WARN until recovered." Nobody had tested it. It is wrong, and it
+# was wrong in the direction that costs the most: it described a LOST source,
+# which reads as unrecoverable, when in fact all four sources are on this disk
+# and were simply being asked for by the wrong name.
+#
+# WHAT WAS ACTUALLY MEASURED, per tree, rather than inherited:
+#
+#  1. THE NAMES NEVER EXISTED. source_repo said "$HR015/email-source" and its
+#     three siblings, with HYPHENS. HR015 has never carried a path under any of
+#     those four names, at any commit, on any ref. The real directories are
+#     UNDERSCORED (email_source, whatsapp_source, spoken_source), so
+#     resolve_source_repo pointed at a directory that could not exist and
+#     vlib_materialise returned 2 forever. Nothing was removed; the address was
+#     never right.
+#
+#  2. THREE OF THEM LIVE ON UNMERGED HR015 BRANCHES, WHICH IS WHY THEY ARE NOT
+#     ON MAIN. Measured with git log --all plus the GitHub branch list:
+#       email_source     origin/feat/4-artefact-email-source     @ 5d31073
+#       whatsapp_source  origin/feat/4-artefact-whatsapp-source  @ af4ae65
+#       spoken_source    origin/feat/4-artefact-spoken-source    @ d06d80e
+#     "Absent from main" was read as "deleted from main". It is neither: the
+#     three feature branches never landed. af4ae65 is the tip of the WhatsApp
+#     branch, and the old manifest had copied that one sha onto all four trees,
+#     so three of the four pins named a commit that does not contain the tree
+#     it claims to pin. A pin that resolves but does not carry the tree is worse
+#     than no pin, because it looks checked.
+#
+#  3. imessage_source IS NOT AN HR015 TREE AT ALL. It has no path in any HR015
+#     clone, on any ref, and there is no feat/4-artefact-imessage-source branch
+#     on GitHub. Its real home is andygmassey/conversation-memory (CM040) at
+#     services/imessage_source, commit 62a776a on
+#     origin/feat/4-artefact-imessage-first. tests/test_conversations_ingest_
+#     wiring.sh had the attribution right in a comment ("<- HR015 (CM040)") the
+#     whole time; the manifest had taken the HR015 half and dropped the CM040
+#     half, which is the half that is true.
+#
+# THE FILE-SET AGREES, which is the check that makes this more than a plausible
+# story: for every one of the four, source@pin and the vendored tree have ZERO
+# vendor-only and ZERO source-only files once the manifest excludes are applied.
+# A wrong guess at an upstream does not produce an exact file-set match.
+#
+# The remaining delta is CM051-side deploy grafts, the same class already
+# recorded for email_ingest and imessage_bridge: the OSTLER_ASSISTANT_BINARY
+# ingest-reroute in each plist (so the tick inherits Full Disk Access from the
+# signed daemon), the v1.0.3 interactive-chat yield plus adaptive resource
+# governor in each tick script, and the v1018-D020 bounded pwg-convo dispatch in
+# each pipeline.py. Those are now RECORDED in a divergence patch per tree
+# instead of being invisible, so verify=full reconstructs each tree from
+# source@pin + patch and any FUTURE drift is caught.
+#
+# verify_exempt STAYS TRUE ON ALL FOUR, and it is not the same statement as
+# verify=full. The two gates ask different questions. This manifest's content
+# gate asks "does the vendored tree reconstruct from the pin", which is now
+# answerable. verify_cut_freshness.sh asks "is the pin behind the live GitHub
+# HEAD for this path", which is NOT answerable for a pin that lives on an
+# unmerged branch (or, for imessage_source, in a different repo from the one
+# $HR015 names). Exempt-from-live-HEAD and content-verified are compatible, and
+# saying both is more honest than either alone.
 
 [[tree]]
 name             = "email_source"
 vendor_path      = "vendor/email_source"
-source_repo      = "$HR015/email-source"
-source_path      = "."
-pinned_sha       = "af4ae65"
-divergence_patch = ""
+source_repo      = "$HR015"
+source_path      = "email_source"
+pinned_sha       = "5d31073d9e28e9024cbb25b308809ef428a39944"
+  divergence_patch = "vendor/divergences/email_source.patch"
 exclude          = ["tests/", "__pycache__/"]
-verify           = "skip"
+verify           = "full"
 verify_exempt    = true
-exempt_reason    = "The recorded source path was removed/relocated off HR015 main since af4ae65, so there is no live GitHub HEAD to compare the pin against (gh reports NONE for the path). PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the HR015 source path is recovered and re-wired."
-note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
+exempt_reason    = "The pin lives on origin/feat/4-artefact-email-source, an HR015 branch that has never merged, so there is no live main HEAD for the email_source path to compare it against (the path does not exist on main at all). This exempts the tree from the LIVE-HEAD gate only. Its CONTENT is verified: verify=full reconstructs the vendored tree from source@5d31073 + vendor/divergences/email_source.patch. Exemption lifts if and when the branch lands on HR015 main."
+note             = "4-artefact email conversation feed (Apple Mail bodies -> CM048 bundle). Source: HR015 origin/feat/4-artefact-email-source @ 5d31073, subpath email_source. Was verify=skip behind a false 'source dir not on disk' claim; see the block comment above for what was actually measured. Divergence patch records the CM051 deploy grafts (OSTLER_ASSISTANT_BINARY reroute in the plist, interactive-chat yield + resource governor in bin/email-bundle-tick.sh, bounded dispatch in pipeline.py, reader.py deploy delta). tests/ is outside the vendored file-set by the exclude glob."
 
 [[tree]]
 name             = "imessage_source"
 vendor_path      = "vendor/imessage_source"
-source_repo      = "$HR015/imessage-source"
-source_path      = "."
-pinned_sha       = "af4ae65"
-divergence_patch = ""
+source_repo      = "$CM040"
+source_path      = "services/imessage_source"
+pinned_sha       = "62a776a"
+  divergence_patch = "vendor/divergences/imessage_source.patch"
 exclude          = ["tests/", "__pycache__/"]
-verify           = "skip"
+verify           = "full"
 verify_exempt    = true
-exempt_reason    = "The recorded source path was removed/relocated off HR015 main since af4ae65, so there is no live GitHub HEAD to compare the pin against (gh reports NONE for the path). PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the HR015 source path is recovered and re-wired."
-note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
+exempt_reason    = "The pin lives on origin/feat/4-artefact-imessage-first in andygmassey/conversation-memory (CM040), a branch that has never merged, so there is no live main HEAD for services/imessage_source to compare it against. This exempts the tree from the LIVE-HEAD gate only. Its CONTENT is verified: verify=full reconstructs the vendored tree from source@62a776a + vendor/divergences/imessage_source.patch. Exemption lifts if and when the branch lands on conversation-memory main."
+note             = "4-artefact iMessage conversation feed (chat.db -> CM048 bundle). NOT an HR015 tree, which is what the old manifest got wrong: source is andygmassey/conversation-memory (CM040) at services/imessage_source, origin/feat/4-artefact-imessage-first @ 62a776a. Set CM040 (or VENDOR_SRC_IMESSAGE_SOURCE) to a conversation-memory checkout for the gate to verify it. Divergence patch records the CM051 deploy grafts (OSTLER_ASSISTANT_BINARY reroute in the plist, interactive-chat yield + resource governor + slot fairness in bin/imessage-bundle-tick.sh, bounded dispatch in pipeline.py, reader.py + __init__.py deploy deltas). The vendored tests/test_watermark_cap.py is CM051-authored and outside the vendored file-set by the exclude glob."
 
 [[tree]]
 name             = "whatsapp_source"
 vendor_path      = "vendor/whatsapp_source"
-source_repo      = "$HR015/whatsapp-source"
-source_path      = "."
-pinned_sha       = "af4ae65"
-divergence_patch = ""
+source_repo      = "$HR015"
+source_path      = "whatsapp_source"
+pinned_sha       = "af4ae65802ffc7d19b7272a57f8f8cc78acc13f0"
+  divergence_patch = "vendor/divergences/whatsapp_source.patch"
 exclude          = ["tests/", "__pycache__/"]
-verify           = "skip"
+verify           = "full"
 verify_exempt    = true
-exempt_reason    = "The recorded source path was removed/relocated off HR015 main since af4ae65, so there is no live GitHub HEAD to compare the pin against (gh reports NONE for the path). PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the HR015 source path is recovered and re-wired."
-note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
+exempt_reason    = "The pin lives on origin/feat/4-artefact-whatsapp-source, an HR015 branch that has never merged, so there is no live main HEAD for the whatsapp_source path to compare it against (the path does not exist on main at all). This exempts the tree from the LIVE-HEAD gate only. Its CONTENT is verified: verify=full reconstructs the vendored tree from source@af4ae65 + vendor/divergences/whatsapp_source.patch. Exemption lifts if and when the branch lands on HR015 main."
+note             = "4-artefact WhatsApp conversation feed (bodies -> CM048 bundle). Source: HR015 origin/feat/4-artefact-whatsapp-source @ af4ae65, subpath whatsapp_source. This is the ONE tree of the four whose old pin was correct; af4ae65 is this branch's tip, and the old manifest had copied it onto the other three as well, where it names a commit that does not contain them. Divergence patch records the CM051 deploy grafts (OSTLER_ASSISTANT_BINARY reroute in the plist, interactive-chat yield + resource governor in bin/whatsapp-bundle-tick.sh, bounded dispatch in pipeline.py). tests/ is outside the vendored file-set by the exclude glob."
 
 [[tree]]
 name             = "spoken_source"
 vendor_path      = "vendor/spoken_source"
-source_repo      = "$HR015/spoken-source"
-source_path      = "."
-pinned_sha       = "af4ae65"
-divergence_patch = ""
+source_repo      = "$HR015"
+source_path      = "spoken_source"
+pinned_sha       = "d06d80e398af7eace303611a10528164f4c632c3"
+  divergence_patch = "vendor/divergences/spoken_source.patch"
 exclude          = ["tests/", "__pycache__/"]
-verify           = "skip"
+verify           = "full"
 verify_exempt    = true
-exempt_reason    = "The recorded source path was removed/relocated off HR015 main since af4ae65, so there is no live GitHub HEAD to compare the pin against (gh reports NONE for the path). PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the HR015 source path is recovered and re-wired."
-note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
+exempt_reason    = "The pin lives on origin/feat/4-artefact-spoken-source, an HR015 branch that has never merged, so there is no live main HEAD for the spoken_source path to compare it against (the path does not exist on main at all). This exempts the tree from the LIVE-HEAD gate only. Its CONTENT is verified: verify=full reconstructs the vendored tree from source@d06d80e + vendor/divergences/spoken_source.patch. Exemption lifts if and when the branch lands on HR015 main."
+note             = "4-artefact spoken/voice-note conversation feed (CM042 captures -> CM048 bundle). Source: HR015 origin/feat/4-artefact-spoken-source @ d06d80e, subpath spoken_source. d06d80e is the branch tip (the PII scrub on top of c510d7c, which introduced the tree). Divergence patch records the CM051 deploy grafts (OSTLER_ASSISTANT_BINARY reroute in the plist, interactive-chat yield + resource governor in bin/spoken-bundle-tick.sh, bounded dispatch in pipeline.py). tests/ is outside the vendored file-set by the exclude glob."
 
 # ---- CM059 (The Editor) Front Page producer -----------------------------
 
@@ -390,10 +626,10 @@ vendor_path      = "vendor/cm059_editor/compiler"
 source_repo      = "$CM059"
 source_path      = "compiler"
   pinned_sha = "619ef4049dc4b67203e1b537c198d0678f52f0a4"
-  divergence_patch = ""
+  divergence_patch = "vendor/divergences/cm059_editor.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
-note             = "CM059 The Editor Front Page producer (compiler/ package only; the bin/, launchd/ and INSTALL_SNIPPET.sh siblings under vendor/cm059_editor/ are CM051-authored wrapper files and are intentionally outside vendor_path). 2026-07-20 re-pin 9f23f83 -> 36b5f696 (current CM059 main HEAD): adopts the wanted masonry Front Page render -- cfd30167 (feat: masonry Front Page render, LOCKED CM061 design; rewrites render_frontpage.py from the flat single-column list to per-section masonry) + 36b5f696 (test: masonry render fixture + 16-test render suite, schema v0.2). Both on CM059 main, no operator PII, wanted for v1.0.10. Byte-identical to CM059 main 36b5f696 -- no divergence patch. Producer is stdlib-only, read-only SPARQL against Oxigraph; emits ~/.ostler/editor/front_page.{json,html}. Set VENDOR_SRC_CM059_EDITOR or export CM059=/path to the CM059 checkout for the freshness gate to verify=full; absent source WARNs, never fails."
+note             = "2026-08-15: THE DIVERGENCE IS NOW RECORDED, and the sentence further down claiming 'byte-identical ... no divergence patch' is stale as of the 619ef404 pin. divergence_patch was \"\", so the gate reconstructed this tree with no patch at all and reported it DIFFERS on emit_frontpage.py. The vendored copy is CORRECT and is the ONLY copy of this fix that exists anywhere: it moves _read_feed() from BELOW the `if __name__ == \"__main__\":` guard to above emit(). MEASURED at CM059 origin/main, not inferred: _read_feed is CALLED at emit_frontpage.py:255 and DEFINED at :309, with the guard at :305. Imported as a module the whole file executes and the name binds, so every upstream test passes; run as a SCRIPT, which is how the LaunchAgent runs it, Python reaches the guard and calls main() before executing that def, giving NameError on every Front Page tick. The degraded-feed guard preserves the last good feed, so it presents as 'the Front Page never updates' rather than as a crash. Recorded via scripts/regenerate_divergence_patch.sh (dry run read, then --write, whose own post-write gate re-run reported OK). ZERO bytes under vendor/cm059_editor/ changed. The class is now gated: scripts/verify_no_defs_after_main_guard.py is wired into tests/TEST_WIRING.tsv, scripts/run_all_cut_gates.sh and .github/workflows/vendor-integrity.yml, so a re-sync that reverted this would be caught rather than merely regretted. Retire this divergence by landing the move upstream in CM059 and re-pinning. || CM059 The Editor Front Page producer (compiler/ package only; the bin/, launchd/ and INSTALL_SNIPPET.sh siblings under vendor/cm059_editor/ are CM051-authored wrapper files and are intentionally outside vendor_path). 2026-07-20 re-pin 9f23f83 -> 36b5f696 (current CM059 main HEAD): adopts the wanted masonry Front Page render -- cfd30167 (feat: masonry Front Page render, LOCKED CM061 design; rewrites render_frontpage.py from the flat single-column list to per-section masonry) + 36b5f696 (test: masonry render fixture + 16-test render suite, schema v0.2). Both on CM059 main, no operator PII, wanted for v1.0.10. Byte-identical to CM059 main 36b5f696 -- no divergence patch. Producer is stdlib-only, read-only SPARQL against Oxigraph; emits ~/.ostler/editor/front_page.{json,html}. Set VENDOR_SRC_CM059_EDITOR or export CM059=/path to the CM059 checkout for the freshness gate to verify=full; absent source WARNs, never fails."
 
 # ---- CM052 (PWG AI Conversation Ingest) -----------------------------------
 
@@ -406,4 +642,7 @@ pinned_sha       = "9cfb615d882659854a980bc2d95cda1cd808113c"
 divergence_patch = ""
 exclude          = ["tests/", "docs/", "prompts/", ".github/", ".claude/", "fixtures_private/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "PLAN.md", "README.md", ".env.example", ".gitignore"]
 verify           = "full"
+unverifiable_ack = true
+unverifiable_ack_owner  = "ORM (clone CM052 out of iCloud into ~/Developer, then export CM052 and drop this ack)"
+unverifiable_ack_reason = "THE ONLY ONE OF THE EIGHT WITH NO USABLE CHECKOUT ON THIS MACHINE, and the reason is storage, not provenance. There is no CM052 clone anywhere under ~/Developer, so $CM052 expands to empty and the gate reports 'source repo not found ()'. The one checkout that exists is ~/Documents/Projects/CM052 - PWG AI Conversation Ingest (origin andygmassey/CM052) and it DOES carry the pin -- 'git cat-file -e 9cfb615d^{commit}' returns 0 instantly -- but 'git archive' at that pin TIMED OUT at 120s having written only 55 entries. That is the iCloud-eviction shape, not corruption: the pack files are dataless placeholders and every object read faults in over the network. Do NOT delete or repack that checkout on the strength of a slow read. Two further facts worth carrying: the pin is AHEAD of that checkout's HEAD (1ff568b), so it would need a fetch as well as a fault-in; and CM052 is a live private GitHub repo, so this tree is genuinely verifiable, just not from where it currently sits. Retire this ack with: git clone git@github.com:andygmassey/CM052.git ~/Developer/CM052, export CM052, re-run. The tree is already verify=full and should go straight to OK."
 note             = "AI-Conversations install leg (task #553 / #613). Vendors exactly the set pinned in CM052 docs/VENDOR_CM051.md (branch cutb/aiconv-vendor-prep): pyproject.toml + src/__init__.py + src/cm052/*.py + src/cm052/adapters/*.py. Console entrypoint pwg-ai-convo = src.cm052.cli:main; MUST be pip-installed NON-editable (editable installs do not expose the src package on every setuptools version). Runtime deps httpx + PyYAML only. install.sh gates the whole leg behind OSTLER_AI_CONVERSATIONS_ENABLED. 2026-07-20 re-pin 1ff568b -> 9cfb615 (current CM052 main HEAD): the earlier pin's recut-caveat said 'the PII source guard should land upstream before the next re-pin' -- it now HAS, as the ONLY delta commit 9cfb615 (test(cm052): add operator-PII regression guard for shipping source, #10). That commit touches tests/ ONLY (tests/test_no_real_names_in_source.py), which is outside the vendored file-set (exclude=tests/), so the 17 vendored product files (pyproject.toml + src/) are BYTE-IDENTICAL at 1ff568b and 9cfb615 -- verified by git blob-hash, no divergence patch. Re-pinned so the pin == live CM052 main HEAD and the freshness gate verifies GREEN (verify=full) rather than lagging by a test-only commit. CM051's operator-pii-scan is clean on this vendor tree. NOTE: CM052 is a live private GitHub repo (andygmassey/CM052) -- NOT unverifiable; no exemption is warranted. PRIVACY-ADJACENT vendor (AI chat transcripts): needs Archie review before merge -- do NOT self-merge."

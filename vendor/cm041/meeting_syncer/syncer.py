@@ -126,8 +126,25 @@ class MeetingSyncer:
         meeting_date = _parse_event_datetime_iso(event.get("start"))
         now = datetime.now(timezone.utc).isoformat()
 
+        # BOTH TYPES, EXPLICITLY.
+        #
+        # A calendar item is an Event; a Meeting is an Event with people.
+        # This syncer is already correct about the SECOND half: sync() skips
+        # any event with no non-owner attendee (see `if not other_attendees:
+        # continue`), so it never manufactured the attendee-less meetings
+        # measured on the v1.0.26 box -- those all came from HR015
+        # ostler_fda/pwg_ingest.ingest_calendar, which typed every row.
+        #
+        # But it must still assert the base type. Oxigraph does NOT
+        # materialise rdfs:subClassOf, so `?e a pwg:Event` would not match
+        # a node carrying only `a pwg:Meeting`, and every meeting created
+        # here would be invisible to the Events surface while the ones
+        # created by HR015 showed up. A split-brain across two writers is
+        # harder to see than a clean absence.
         triples = [
+            "<{}> a pwg:Event".format(meeting_uri),
             "<{}> a pwg:Meeting".format(meeting_uri),
+            '<{}> pwg:eventCategory "meeting"'.format(meeting_uri),
             '<{}> pwg:calendarEventId "{}"'.format(meeting_uri, event_uid),
             '<{}> pwg:meetingSummary "{}"'.format(meeting_uri, summary),
             '<{}> pwg:createdAt "{}"^^xsd:dateTime'.format(meeting_uri, now),

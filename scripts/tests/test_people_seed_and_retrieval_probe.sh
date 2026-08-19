@@ -17,6 +17,38 @@
 # wrong-person path is itself synthetic and deliberately NOT on the probe's
 # allowlist, so it exercises the masking without carrying the thing the masking
 # exists to hunt.
+#
+# ---------------------------------------------------------------------------
+# WHY THE FAKE BOX BINDS THE WAY IT DOES  (task #348, measured 2026-08-16)
+# ---------------------------------------------------------------------------
+# This harness failed 56 of 81 completed CI runs, always with "fake box never
+# bound a port", always with the process ALIVE and stderr EMPTY. It was carried
+# as a load-sensitive flake and bypassed on two cuts.
+#
+# It was not load. Stage-timed on a macos-latest runner, 12 spawns out of 12:
+#
+#   T+0.108  http.server imported
+#   T+0.108  raw socket bind + close        0.000s
+#   T+35.118 socket.getfqdn('127.0.0.1')   35.010s   <-- flat, every time
+#   T+35.119 HTTPServer() constructed       0.000s
+#
+# http.server.HTTPServer.server_bind() finishes with getfqdn(host), a REVERSE
+# DNS lookup, inside the constructor and therefore before the portfile can be
+# written. The runner's /etc/hosts does carry `127.0.0.1 localhost` and the
+# call does return 'localhost' -- after mDNSResponder has spent a full resolver
+# timeout on nameserver 192.168.64.1 first. 35.0s, not variable.
+#
+# The old wait was 200 turns of `sleep 0.1`, which is ~30s of wall clock, drifts
+# upward as the job loads the runner, and described itself as "20s". So the
+# scenario outcome was a race between a ~30-37s loop and a fixed 35s lookup:
+# early scenarios lost, late ones won. That is the whole "flake".
+#
+# Two consequences for anyone editing this file:
+#   1. The fake box must never perform name resolution. LoopbackHTTPServer
+#      below exists solely to drop the getfqdn call.
+#   2. Do not "fix" a readiness timeout by enlarging it. Raising the budget
+#      past 35s would have gone green while paying 35s of dead DNS per
+#      scenario -- 7 minutes a run, on the cut path.
 # ============================================================================
 
 set -uo pipefail
@@ -40,6 +72,12 @@ echo "harness: python3 = $(command -v python3 || echo '<NOT FOUND>')"
 echo "harness: $(python3 --version 2>&1 || echo 'python3 --version FAILED')"
 PASSES=0
 FAILS=0
+# Kept apart from FAILS on purpose. FAILS means "the probe did not behave as
+# this scenario demands". HARNESS_FAILS means "the fixture never stood up, so
+# the probe was never asked". Both are RED; conflating them is how a broken
+# harness got read for four days as a broken probe.
+HARNESS_FAILS=0
+CASES=0
 SERVER_PID=""
 
 cleanup() {
@@ -64,6 +102,7 @@ MODE selects one deliberate break. "green" is the honest box.
 import json
 import os
 import re
+import socketserver
 import sys
 import threading
 import unicodedata
@@ -283,37 +322,128 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, "not found", raw=True)
 
 
-srv = HTTPServer(("127.0.0.1", 0), Handler)
+class LoopbackHTTPServer(HTTPServer):
+    """HTTPServer that binds without a reverse-DNS lookup.
+
+    http.server.HTTPServer.server_bind() ends with
+    ``self.server_name = socket.getfqdn(host)``. getfqdn() is a REVERSE DNS
+    lookup, it runs INSIDE the constructor, and on a GitHub macOS runner it
+    can block for tens of seconds while mDNSResponder waits on a resolver
+    that is not answering yet. The portfile is written AFTER the constructor
+    returns, so a slow lookup presents as "the box never bound a port" with
+    the process alive and stderr empty -- which is exactly the flake this
+    harness suffered on 56 of 81 completed CI runs.
+
+    Nothing in this fake reads ``server_name``. Bind with a literal instead:
+    a field we never read must not be able to hang the harness.
+    """
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = "127.0.0.1"
+        self.server_port = self.server_address[1]
+
+
+srv = LoopbackHTTPServer(("127.0.0.1", 0), Handler)
+# The constructor has already called listen(), so the port accepts connections
+# from here on. Announce first, then publish: if the harness ever has to print
+# this stderr, the reader can see how far the box got.
+sys.stderr.write("fake box mode=%s listening on 127.0.0.1:%d\n"
+                 % (MODE, srv.server_port))
+sys.stderr.flush()
 with open(sys.argv[1], "w") as fh:
     fh.write(str(srv.server_port))
 srv.serve_forever()
 FAKEPY
 
+# Poll until the fake box is genuinely SERVING, on a wall-clock deadline.
+#
+# Two things were wrong with the loop this replaces. It counted 200 turns of
+# `sleep 0.1` and called that "20s", but each turn also forks, so it really
+# waited ~30s and then reported the wrong number in its own failure message. And
+# it treated "the portfile is non-empty" as ready, which is a file-existence
+# check, not a readiness check.
+#
+# READY here means: the port is published AND a request to /api/health comes
+# back 200. /api/health answers 200 in every one of the 12 modes -- including
+# no_auth and blanket_200 -- so this readiness gate cannot mask the break the
+# scenario is meant to exercise.
+#
+# Sets FAKE_BOX_PORT / FAKE_BOX_WAITED. Returns 0 ready, 1 not.
+FAKE_BOX_READY_TIMEOUT="${FAKE_BOX_READY_TIMEOUT:-25}"
+FAKE_BOX_PORT=""
+FAKE_BOX_WAITED=0
+
+wait_for_fake_box() {
+    local pid="$1" portfile="$2"
+    local started deadline now port
+    started="$(date +%s)"
+    deadline=$((started + FAKE_BOX_READY_TIMEOUT))
+    FAKE_BOX_PORT=""
+    while :; do
+        if [ -s "$portfile" ]; then
+            # tr, not cat: a truncated or partially-flushed write must not
+            # become a garbage port that then fails as a connection error.
+            port="$(tr -cd '0-9' < "$portfile")"
+            # --fail, so a non-2xx is NOT ready. Without it curl exits 0 on any
+            # answer at all and the failure message below would be claiming a
+            # 200 it never checked for. /api/health returns 200 in all 12 modes.
+            if [ -n "$port" ] && /usr/bin/curl -sS --fail --noproxy '*' \
+                    --max-time 3 -o /dev/null \
+                    "http://127.0.0.1:${port}/api/health"; then
+                FAKE_BOX_PORT="$port"
+                FAKE_BOX_WAITED=$(( $(date +%s) - started ))
+                return 0
+            fi
+        fi
+        # A dead box is answered now rather than at the deadline: waiting out
+        # 25s on a process that has already exited is 25s of nothing.
+        if ! kill -0 "$pid" 2>/dev/null; then
+            FAKE_BOX_WAITED=$(( $(date +%s) - started ))
+            return 1
+        fi
+        now="$(date +%s)"
+        if [ "$now" -ge "$deadline" ]; then
+            FAKE_BOX_WAITED=$((now - started))
+            return 1
+        fi
+        sleep 0.2
+    done
+}
+
 run_case() {
     local mode="$1" expect="$2" label="$3"
     local portfile="${WORK}/port.${mode}" outfile="${WORK}/out.${mode}"
     rm -f "$portfile"
+    CASES=$((CASES + 1))
 
     local errfile="${WORK}/err.${mode}"
     MODE="$mode" FAKE_TOKEN="probe-test-token" \
         python3 "$FAKE" "$portfile" >/dev/null 2>"$errfile" &
     SERVER_PID=$!
 
-    # Bounded wait WITH a real delay: a poll loop with no sleep is not a wait.
-    local tries=0 port=""
-    while [ "$tries" -lt 200 ]; do
-        if [ -s "$portfile" ]; then port="$(cat "$portfile")"; break; fi
-        sleep 0.1
-        tries=$((tries + 1))
-    done
+    local port=""
+    if wait_for_fake_box "$SERVER_PID" "$portfile"; then
+        port="$FAKE_BOX_PORT"
+    fi
     if [ -z "$port" ]; then
-        echo "FAIL [${mode}] fake box never bound a port after 20s"
-        # Say WHY. A harness that cannot name its own cause sends the reader
-        # guessing, and the guess is usually wrong.
+        # A gate that times out must say what it was waiting for and for how
+        # long. This is a HARNESS failure, not a missed expectation: the probe
+        # under test never ran. It is still fail-closed -- the run exits 2 --
+        # because a harness that cannot stand up its own fixture proves nothing
+        # about the probe, and silence there is indistinguishable from a pass.
+        echo "FAIL [${mode}] HARNESS: fake box never became ready"
+        echo "       waited for: fake box (MODE=${mode}) to publish a port in"
+        echo "                   ${portfile} and answer GET /api/health with 200"
+        echo "       budget:     ${FAKE_BOX_READY_TIMEOUT}s    measured: ${FAKE_BOX_WAITED}s"
         if kill -0 "$SERVER_PID" 2>/dev/null; then
-            echo "       server pid ${SERVER_PID} is ALIVE but wrote no portfile"
+            if [ -s "$portfile" ]; then
+                echo "       state:      pid ${SERVER_PID} ALIVE, port published (${portfile}), but /api/health never answered"
+            else
+                echo "       state:      pid ${SERVER_PID} ALIVE, no port published -- blocked before listen()"
+            fi
         else
-            echo "       server pid ${SERVER_PID} is DEAD"
+            echo "       state:      pid ${SERVER_PID} is DEAD"
         fi
         if [ -s "$errfile" ]; then
             echo "       --- fake box stderr ---"
@@ -321,7 +451,8 @@ run_case() {
         else
             echo "       fake box wrote NOTHING to stderr"
         fi
-        FAILS=$((FAILS + 1)); kill "$SERVER_PID" 2>/dev/null; SERVER_PID=""
+        HARNESS_FAILS=$((HARNESS_FAILS + 1))
+        kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; SERVER_PID=""
         return
     fi
 
@@ -376,7 +507,22 @@ run_case search_empty     fail "RED: fallback route returns nothing for a seeded
 run_case leak             fail "RED: cleanup accepted but the fixture is still retrievable"
 
 echo ""
-echo "EXAMINED: scenarios=$((PASSES + FAILS)) passed=${PASSES} failed=${FAILS}"
+# scenarios counts CASES ATTEMPTED, not PASSES+FAILS. Those diverge: the
+# verdict-line check can add a second FAILS for one case, which used to print
+# scenarios=13 out of 12, and a harness failure adds neither. Print the
+# denominator that was actually driven, plus every bucket, so a run that
+# examined less than it should cannot read as a clean one.
+echo "EXAMINED: scenarios=${CASES}/12 passed=${PASSES} failed=${FAILS} harness_failures=${HARNESS_FAILS}"
+if [ "$HARNESS_FAILS" -gt 0 ]; then
+    echo "test_people_seed_and_retrieval_probe: FAIL (${HARNESS_FAILS} harness failures --"
+    echo "  the fake box never became ready, so the probe was never exercised on those"
+    echo "  scenarios; this is NOT evidence about the probe either way)"
+    exit 2
+fi
+if [ "$CASES" -ne 12 ]; then
+    echo "test_people_seed_and_retrieval_probe: FAIL (drove ${CASES} scenarios, expected 12)"
+    exit 2
+fi
 if [ "$FAILS" -gt 0 ]; then
     echo "test_people_seed_and_retrieval_probe: FAIL (${FAILS} expectations missed)"
     exit 1

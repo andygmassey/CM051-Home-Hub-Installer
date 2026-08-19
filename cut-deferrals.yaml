@@ -33,6 +33,32 @@
 
 pr_exemptions:
 
+  # CM041-People-Graph#119 -- CANNOT MERGE, and that is the point of exempting it.
+  #
+  # This is NOT a clean PR being parked. Two independent blockers, both measured:
+  #
+  #  1. Its own NEW test files carry three distinct real-person/operator tokens
+  #     (test_predicate_completeness.py:11, test_d004_blob_display_name.py:47,48,160).
+  #     Controlled BOTH directions: the repo's own
+  #     test_fixtures_have_no_real_contact_detail.py is GREEN on plain main and
+  #     RED with #119 merged. The branch introduces them. Note the shape -- the
+  #     file that hunts for the defect is itself the gate.
+  #
+  #  2. Its new gate correctly fires on a REAL defect: is_non_identifying is
+  #     enforced at 0 of 28 modules. Merging turns CM041 main red until a call
+  #     site lands. That is a product decision, not a merge decision.
+  #
+  # Exempting a PR that CAN merge is how a 176-PR backlog gets built, and the
+  # standing rule is to merge clean PRs rather than defer them. This one cannot
+  # merge without either publishing real-person data or reddening main.
+  #
+  # Clears when the fixtures are de-identified AND a call site for
+  # is_non_identifying lands. Not blocking v1.0.27: CM041 is a feature repo and
+  # vendor/ carries no cm041 path that this PR touches.
+  - ref: "CM041-People-Graph#119"
+    reason: "Introduces real-person tokens into its own test fixtures (guard green on main, red with it merged); and its new gate reds main until a call site exists. Cannot merge without publishing PII or breaking main."
+    review_by: "2026-08-22"
+
   # The daemon's four Dependabot bumps in web/. All four are RED on Lint, so
   # merging them to clear this gate would be shipping a failing PR to satisfy a
   # process check -- the exact move this file exists to prevent.
@@ -58,7 +84,206 @@ pr_exemptions:
     reason: "RED on Lint; cannot reach a DMG built from the pinned 0.4.55 tarball. Land on the next daemon rebuild."
     review_by: "2026-08-20"
 
+  # ==========================================================================
+  # ADDED 2026-08-15 by the check-pr-age sweep for the v1.0.26 cut.
+  #
+  # Denominator: 29 PRs over 48h across the 6 reachable repos. Two were closed
+  # as provably dead (HR015 #314, #311). Of the 27 left, 15 are CLEAN against
+  # current main under local `git merge-tree` and are MERGE DECISIONS, not
+  # exemptions. They are deliberately left RED. Exempting a clean, mergeable,
+  # additive PR is precisely how the 176-PR backlog this gate exists to prevent
+  # was built, and this file's own header says so.
+  #
+  # Only the 12 below are blocked on something concrete. Each names the
+  # blocker rather than "not now".
+  # ==========================================================================
+
+  # --- HR015 BACKLOG.yaml cluster (8) --------------------------------------
+  # All eight are purely additive (zero deletions). Every row id they add was
+  # checked line-by-line against origin/main BACKLOG.yaml: all 15 ids are
+  # ABSENT, so this is un-landed filed work, not squash-merge residue. Closing
+  # them would delete the record, including #321's [blocker] finding about the
+  # cut's own rollforward gate. They conflict for one mechanical reason: eight
+  # branches appending to the same append-only register. Resolution is rebase
+  # + take-both, and it wants doing in a single sitting rather than eight.
+  # Short horizon on purpose so this comes straight back if it is not done.
+  - ref: "HR015-Gaming-PC#329"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds 2 ids absent from main (cm031-realm-tests-use-the-real-documents-directory, cm031-ci-never-runs-the-test-suite). Rebase + take-both."
+    review_by: "2026-08-17"
+  - ref: "HR015-Gaming-PC#326"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds 1 id absent from main (cm041-identity-quality-cluster-is-unwired). Rebase + take-both."
+    review_by: "2026-08-17"
+  - ref: "HR015-Gaming-PC#325"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds 3 ids absent from main plus MLX_VS_OLLAMA_FINDINGS.md. MLX evaluation is already set post-launch-DMG, so it cannot affect v1.0.26. Rebase + take-both."
+    review_by: "2026-08-17"
+  - ref: "HR015-Gaming-PC#324"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds 1 id absent from main (repo-gates-assert-main-not-the-pin). Rebase + take-both."
+    review_by: "2026-08-17"
+  - ref: "HR015-Gaming-PC#321"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds rollforward-gate-cm051-twin-has-never-run, absent from main, and it is tagged [blocker] against THIS cut pipeline. Must be read before v1.0.27, not closed. Rebase + take-both."
+    review_by: "2026-08-17"
+  - ref: "HR015-Gaming-PC#319"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds 2 ids absent from main recording that Snyk PR-time SCA is paused for cost, plus the reinstate condition in SECURITY.md. Rebase + take-both."
+    review_by: "2026-08-17"
+  - ref: "HR015-Gaming-PC#316"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds genui-tool-result-component-rendering, absent from main, explicitly scoped v1.1. Rebase + take-both."
+    review_by: "2026-08-17"
+  - ref: "HR015-Gaming-PC#315"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds 5 ids absent from main, including operator-pii-scan-cannot-run-on-ci-by-construction and cm044-ci-runs-no-tests-at-all. Rebase + take-both."
+    review_by: "2026-08-17"
+
+  # --- HR015 shipping ledger (1) -------------------------------------------
+  - ref: "HR015-Gaming-PC#344"
+    reason: "Only HR015 conflict that is not a BACKLOG.yaml append. It is a hand reconcile of SHIPPING_LEDGER.yaml, which diverged in BOTH directions, and the ledger is the single canonical release register. Resolving this conflict by rule rather than by reading is how a release record gets silently rewritten, so it needs a human pass, not a rebase."
+    review_by: "2026-08-17"
+
+  # --- CM031 iOS companion (3 conflicting) ---------------------------------
+  # CM031 is NOT vendored into the DMG: `vendor/` carries cm019/cm021/cm024/
+  # cm041/cm048/cm052/cm059/doctor/ostler_fda/ostler_security and no cm031.
+  # The iOS app ships through App Store Connect on its own cadence, so none of
+  # these can reach v1.0.26 whatever happens to them. CM031 main has also not
+  # moved since 2026-08-12. The two CLEAN CM031 PRs (#165, #164) are NOT
+  # exempted here; they are merge decisions.
+  - ref: "CM031-PWG-Companion#158"
+    reason: "Conflicts with CM031 main. 1191/-133 across 23 files, and it overlaps #159 on 8 of them, so the two cannot both be rebased blind. Touches the paywall and QR pairing. Cannot reach the DMG (no vendor/cm031). Needs a real device test run, not a conflict resolution."
+    review_by: "2026-08-20"
+  - ref: "CM031-PWG-Companion#159"
+    reason: "Conflicts with CM031 main. Rewrites SyncKeyVault (keychain, 40-byte wrapped DEK) and HubTrust (certificate pinning) across 30 files, and overlaps #158. A security surface that must be rebased deliberately and device-tested. Cannot reach the DMG (no vendor/cm031)."
+    review_by: "2026-08-20"
+  # CM031-PWG-Companion#161 exemption REMOVED 2026-08-15: the PR is merged
+  # (squash d23c356), so an exemption for it can only mislead the next reader.
+  # The ordering question it named was answered rather than deferred: main
+  # already carried #164's parked-end-marker work, main was merged into the
+  # branch first, and the CM031App.swift conflict was resolved by keeping
+  # main's retryFailedUploads plus resumeParkedMarkers calls and appending the
+  # transcript recovery after them. Verified on main after the merge:
+  # resumeParkedMarkers still present in WatchAudioReceiver and called from
+  # CM031App, and #164's merge commit is an ancestor.
+
 deferrals:
+  - ref: daemon:fix/vault-state-default-status-none
+    reason: >-
+      The ONLY RED in check-orphans for v1.0.33. It is a real fix with a real test (1da772e5
+      vault-state degraded to status '' not 'none' on every failure path, plus 60516bdd asserting
+      the general invariant rather than three instances of it), it is ahead 2 / behind 0 against
+      oa main, and it would merge clean. It is deferred anyway, and the reason is mechanical
+      rather than editorial. MEASURED: oa main HEAD is 5b7efb00a541, which IS the daemon commit
+      this cut pins in cuts/v1.0.33/cut.env, which is exactly why the freshness gate currently
+      reports 'daemon (0.4.58) 5b7efb00 5b7efb00 FRESH'. verify_cut_freshness.sh compares the
+      pinned daemon against LIVE ostler-ai/ostler-assistant HEAD (the RED arm is at :746), so
+      merging these two commits moves that HEAD to 60516bdd and converts a FRESH row into RED
+      STALE:+2 the instant it lands. Clearing that would then demand either a fresh signed and
+      notarised daemon release cut for a gateway status-string fix, or a hold_ack asserting the
+      fix is grafted when it is not. Both are worse than waiting. MERGE IT IMMEDIATELY AFTER THE
+      v1.0.33 TAG IS PUSHED, alongside oa #312, which is held on this identical mechanism. This
+      deferral expires at v1.0.33 by design: if a v1.0.34 is ever cut with this still unmerged,
+      the gate must say so again rather than carry the hold silently forward.
+
+      RENEWED 2026-08-17 FOR v1.0.34, AND THE GATE DID SAY SO AGAIN. The instruction above --
+      "MERGE IT IMMEDIATELY AFTER THE v1.0.33 TAG IS PUSHED" -- was correct and was not
+      executed, which is the same shape as the prose instruction that killed the v1.0.31 pin.
+      It is renewed rather than carried silently, and renewed rather than merged, because the
+      mechanical reason is UNCHANGED and was RE-MEASURED, not recalled: ostler-assistant
+      origin/main HEAD is 5b7efb00a54131bf49cb659ea3e23fb325e83db7, and cuts/v1.0.34/cut.env
+      pins DAEMON_COMMIT=5b7efb00a541, which is that HEAD abbreviated to 12 characters -- a
+      PREFIX of the same commit, not a second value that happens to agree, and stated that way
+      because an earlier draft called them "byte-identical", which they are not. Same commit,
+      because v1.0.34 rebuilds no daemon.
+      Merging ANY of these moves oa main HEAD off the pinned commit and flips the daemon
+      freshness row from FRESH to RED STALE the instant it lands, which would then demand
+      either a freshly signed and notarised daemon release for a gateway status-string fix, or
+      a hold_ack asserting a graft that does not exist. Both remain worse than waiting.
+      THE HONEST COST OF THIS DECISION: the vault-state fix has now missed two cuts, and the
+      right sequencing is to merge all three the moment the v1.0.34 tag is pushed and let the
+      NEXT daemon build carry them, rather than to renew a third time.
+    until_cut: v1.0.34
+
+  - ref: daemon:#312
+    reason: >-
+      THE SAME WORK AS THE ENTRY ABOVE, UNDER ITS OTHER REF SPELLING, AND THAT IS THE WHOLE
+      POINT OF THIS ROW. MEASURED 2026-08-17 via the ostler-ai token: oa#312 is open, unmerged,
+      and its head ref is fix/vault-state-default-status-none -- literally the branch deferred
+      above. The orphan gate spells refs both ways, so deferring the branch name left the
+      PR-number spelling of the identical work uncovered and reporting RED. A deferral that
+      covers one spelling of a ref and not the other reads as a decision about one PR and is
+      actually a gap, which is exactly the class of silent carry-forward the entry above exists
+      to prevent. Same mechanical reason, same expiry, merge them together.
+    until_cut: v1.0.34
+
+  - ref: daemon:#313
+    reason: >-
+      DIFFERENT WORK, IDENTICAL MECHANISM, AND IT WAS NEVER DEFERRED AT ALL. MEASURED
+      2026-08-17: oa#313 is open, unmerged, head ref fix/settings-preferences-ia, title
+      "fix(web): a raw config.toml editor was in the customer sidebar under the friendliest
+      name in the app" (quoted from the API, after an earlier draft of this row paraphrased
+      it as "customer settings UI" while wearing quotation marks). It is not the vault-state fix and
+      is not covered by the entry above, which names only #312. It is held here for the same
+      single reason every daemon-side merge is held at this cut: ostler-assistant main HEAD IS
+      the pinned DAEMON_COMMIT, so any merge to oa main makes the v1.0.34 daemon pin stale.
+      This row is added so the hold is a recorded decision rather than an untracked RED that
+      happens not to block because CI sets OSTLER_ORPHAN_GATE_SKIP to include `daemon`. A gate
+      that is skipped is not a gate that passed, and the skip is why this needed writing down.
+    until_cut: v1.0.34
+
+  - ref: daemon:fix/settings-preferences-ia
+    reason: >-
+      THE SPELLING THE GATE ACTUALLY CONSULTS, AND I GOT THIS WRONG ONCE ALREADY IN THIS SAME
+      FILE. I added daemon:#313 above, reasoned at length about ref-spelling twins while doing
+      it, and then still deferred only the PR-number spelling. The v1.0.34 dry run answered
+      immediately: [RED] daemon:fix/settings-preferences-ia. The orphan gate enumerates daemon
+      refs by BRANCH NAME, so daemon:#313 is a row nothing asks about, and a deferral nothing
+      asks about holds nothing -- which is exactly the defect CM051 #792 exists to surface.
+      Same work, same mechanism, same expiry as the rows above: ostler-assistant origin/main
+      HEAD IS the DAEMON_COMMIT pinned by cuts/v1.0.34/cut.env, so merging this moves oa main
+      off the pin and flips the daemon freshness row from FRESH to RED STALE the moment it
+      lands. Merge it with the other two immediately after the v1.0.34 tag is pushed.
+    until_cut: v1.0.34
+
+  - ref: CM051:#792
+    reason: >-
+      MEASURED 2026-08-17: open, not draft, mergeable=MERGEABLE, branch
+      fix/deferrals-report-unconsulted-refs, "a deferral nothing asks about holds nothing --
+      report unconsulted refs". It is a CUT-GATE OBSERVABILITY improvement and touches no
+      customer-facing surface, so nothing a box-walk exercises rides on it. Deferred rather
+      than merged because landing a change to the orphan gate's own reporting DURING a cut,
+      on the day the cut is the blocker, is the risk the cut discipline exists to refuse: it
+      would alter the instrument while the instrument is being read. THE UNCOMFORTABLE PART,
+      recorded because it argues against this decision rather than for it: #792 would have
+      caught the daemon ref-spelling gap directly above, which I instead found by reading a
+      dry-run RED. That is a point in its favour, and it should land early in the v1.0.35
+      window rather than drift -- it is not legacy backlog and must not decay into it.
+    until_cut: v1.0.34
+
+  - ref: CM051:fix/egress-probe-sees-every-process
+    reason: >-
+      MEASURED BY PATCH-ID, NOT BY THE GATE'S COUNT. The gate reported "4 commit(s) not in
+      origin/main" after its own `gh pr list` call failed, and that fallback over-counts:
+      git cherry marks f5dfcff as ALREADY IN MAIN (it shipped as PR #796, merged 07:41 today)
+      and only THREE are genuinely absent -- 0b94c33, 0663889, 6cd7110. Deferred because all
+      three change the INSTRUMENT, not the product. Measured file scope:
+      scripts/box_walk_probes/probes/no_unexpected_egress.sh, scripts/box_walk_probes/
+      egress_hosts.tsv and docs/EGRESS_INVENTORY.md, with install.sh touched ZERO times in
+      all three. Nothing a customer runs changes. THE HONEST COST, stated because this is a
+      security probe and understating it would be the wrong kind of quiet: the v1.0.34 walk
+      runs the OLDER egress probe, which cannot attribute DERP relays from the live map and
+      does not attribute contemporaneously. That makes the walk's egress finding LESS
+      CONCLUSIVE. It does not make the product's egress worse, and the two must not be
+      conflated when the walk is read. Merge these before the next cut so the instrument is
+      ahead of the box it inspects.
+    until_cut: v1.0.34
+
+  - ref: CM051:#825
+    reason: >-
+      MEASURED 2026-08-17: open, mergeable=true, file scope exactly ONE file --
+      scripts/provenance_gate.sh -- with install.sh touched zero times. Deferred on the
+      identical reasoning to CM051:#792 above, applied consistently rather than selectively:
+      it improves what a CUT GATE SAYS ABOUT ITSELF, and landing a change to a gate's own
+      self-description during the cut that gate is adjudicating alters the instrument while
+      the instrument is being read. It is also not mine to merge. NOT deferred because it is
+      unimportant: a gate that misdescribes its own coverage is the exact failure class this
+      cut spent the night chasing. The safe moment is immediately AFTER the v1.0.34 tag.
+      Land it alongside #792 at the top of v1.0.35.
+    until_cut: v1.0.34
   # -------------------------------------------------------------------------
   # ADDED 2026-08-13 for the v1.0.26 cut. The orphan gate named exactly three
   # RED refs -- #621, #622, #623 -- all open PRs with work not in main.
@@ -139,281 +364,281 @@ deferrals:
   # predate the 48h merge rule. Landing 92 unreviewed branches into a launch
   # candidate is how you cause the next walk, not how you prevent it.
   - ref: "CM051:fix/licence-gate-bypasses"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 33 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/licence-gate-bypasses."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 33 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/licence-gate-bypasses. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/auth-ux-detection-not-timer"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 28 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/auth-ux-detection-not-timer."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 28 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/auth-ux-detection-not-timer. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/wiki-pii-scan-warn-runtime"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 28 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/wiki-pii-scan-warn-runtime."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 28 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/wiki-pii-scan-warn-runtime. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/cx81-b8b-dialog-icon-2026-05-26"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 27 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/cx81-b8b-dialog-icon-2026-05-26."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 27 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/cx81-b8b-dialog-icon-2026-05-26. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/permission-choreography-v2"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 22 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/permission-choreography-v2."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 22 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/permission-choreography-v2. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/bug037-background-handoff"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 21 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/bug037-background-handoff. SPECIFICALLY REVIEWED: it reports permanent producer failures so the settling panel can clear, which genuinely complements the settling work landed in v1.0.16. Deferred anyway because it is 7,491 insertions across 58 files -- far too large to land safely into a launch candidate without its own review cycle. This one should be first in the queue for v1.0.17."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 21 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/bug037-background-handoff. SPECIFICALLY REVIEWED: it reports permanent producer failures so the settling panel can clear, which genuinely complements the settling work landed in v1.0.16. Deferred anyway because it is 7,491 insertions across 58 files -- far too large to land safely into a launch candidate without its own review cycle. This one should be first in the queue for v1.0.17. || SECOND LOOK AT v1.0.34 (2026-08-18), NOT A BLIND RE-DATE. This row's own text says it should be first in the queue for v1.0.17, and the cut in progress is v1.0.34, so that queue position has rotted through seventeen versions while the row kept reading as a considered hold. STILL HELD, on the reason originally given and re-checked here: 7,491 insertions across 58 files is not a change to land into a launch candidate without its own review cycle. But the QUEUE CLAIM is the part that went stale, and a priority promise that is never scheduled is worth less than no promise. Either give it a real slot or strike the claim; do not renew it a third time."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/v1012-assistant-plist-pwg-token"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 18 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1012-assistant-plist-pwg-token."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 18 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1012-assistant-plist-pwg-token. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/walk2-tailscale-hoist-v1.0.5"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 16 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/walk2-tailscale-hoist-v1.0.5."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 16 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/walk2-tailscale-hoist-v1.0.5. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/doctor-panel-honest-v105"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 16 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/doctor-panel-honest-v105."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 16 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/doctor-panel-honest-v105. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/vendor-safari-reading-list-v1.0.3"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 13 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/vendor-safari-reading-list-v1.0.3."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 13 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/vendor-safari-reading-list-v1.0.3. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/cx106-post-install-hydration-state2"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 8 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/cx106-post-install-hydration-state2."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 8 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/cx106-post-install-hydration-state2. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/end-of-install-confirm-ui"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 7 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/end-of-install-confirm-ui."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 7 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/end-of-install-confirm-ui. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/end-of-install-confirmation"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 6 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/end-of-install-confirmation."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 6 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/end-of-install-confirmation. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/cm052-vendor-hydrate-ai-conversations-v1.0.3"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 5 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/cm052-vendor-hydrate-ai-conversations-v1.0.3."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 5 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/cm052-vendor-hydrate-ai-conversations-v1.0.3. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/chat-ollama-base-url-v1-drop"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 3 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/chat-ollama-base-url-v1-drop."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 3 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/chat-ollama-base-url-v1-drop. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/recut-email-dedupe-env"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 3 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/recut-email-dedupe-env."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 3 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/recut-email-dedupe-env. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/v1011-permission-window-glut"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 3 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1011-permission-window-glut."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 3 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1011-permission-window-glut. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/wiki-recompile-after-late-hydration"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 3 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/wiki-recompile-after-late-hydration."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 3 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/wiki-recompile-after-late-hydration. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/au1-appcast-version-guard"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/au1-appcast-version-guard."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/au1-appcast-version-guard. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/bw-a-contacts-merge-writer"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/bw-a-contacts-merge-writer."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/bw-a-contacts-merge-writer. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/i18n-installer-strings-4locales"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/i18n-installer-strings-4locales."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/i18n-installer-strings-4locales. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/install-permission-glut-and-editor-hook"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/install-permission-glut-and-editor-hook."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/install-permission-glut-and-editor-hook. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/v1.0.1-nudge-brain"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/v1.0.1-nudge-brain."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/v1.0.1-nudge-brain. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/companion-pairing-reachable-v1.0.5"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/companion-pairing-reachable-v1.0.5."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/companion-pairing-reachable-v1.0.5. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/cut-provenance-gate"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/cut-provenance-gate."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/cut-provenance-gate. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/gui-contract-initial-hydrate-recovery-key"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/gui-contract-initial-hydrate-recovery-key."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/gui-contract-initial-hydrate-recovery-key. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/install-prereq-network-robustness"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/install-prereq-network-robustness."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/install-prereq-network-robustness. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/installer-questions-ux-swift-wiring"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-questions-ux-swift-wiring."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-questions-ux-swift-wiring. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/installer-vendor-cm048-pipeline"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-vendor-cm048-pipeline."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-vendor-cm048-pipeline. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/installer-vendor-doctor"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-vendor-doctor."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-vendor-doctor. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/onboarding-supertext-scroll-clip"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/onboarding-supertext-scroll-clip."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/onboarding-supertext-scroll-clip. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/string-regressions-2026-05-22"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/string-regressions-2026-05-22."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/string-regressions-2026-05-22. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/v1011-gui-blank-step-title"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1011-gui-blank-step-title."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1011-gui-blank-step-title. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/v1011-installer-ux-polish"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1011-installer-ux-polish."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1011-installer-ux-polish. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/v1011-reboot-self-heal"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1011-reboot-self-heal."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1011-reboot-self-heal. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/vendor-cm041-double-import-dedup-v1.0.3"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/vendor-cm041-double-import-dedup-v1.0.3."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 2 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/vendor-cm041-double-import-dedup-v1.0.3. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/ai-conversations-install-wiring"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/ai-conversations-install-wiring."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/ai-conversations-install-wiring. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/au1-installer-license-persist"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/au1-installer-license-persist."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/au1-installer-license-persist. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/au1-wire-appcast-publish"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/au1-wire-appcast-publish."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/au1-wire-appcast-publish. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/cm042-bundle-install-2026-05-19"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/cm042-bundle-install-2026-05-19."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/cm042-bundle-install-2026-05-19. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/cut-gates-branch-truth-clean-tree-acceptance"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/cut-gates-branch-truth-clean-tree-acceptance."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/cut-gates-branch-truth-clean-tree-acceptance. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/cut-infra-tag-consistency-and-vendor-drift"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/cut-infra-tag-consistency-and-vendor-drift."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/cut-infra-tag-consistency-and-vendor-drift. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/cx14-e-midinstall-banner-2026-05-23"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/cx14-e-midinstall-banner-2026-05-23."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/cx14-e-midinstall-banner-2026-05-23. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/enforce-ledger-write-adopt-2026-07-31"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/enforce-ledger-write-adopt-2026-07-31."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/enforce-ledger-write-adopt-2026-07-31. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/inline-onboarding-questions-2026-05-17"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/inline-onboarding-questions-2026-05-17."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/inline-onboarding-questions-2026-05-17. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/land-freshness-gate"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/land-freshness-gate."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/land-freshness-gate. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/localisation-pilot-installer-es"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/localisation-pilot-installer-es."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/localisation-pilot-installer-es. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/pinned-artefact-freshness-pr-ancestry"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/pinned-artefact-freshness-pr-ancestry."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/pinned-artefact-freshness-pr-ancestry. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/release-manifest-and-version"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/release-manifest-and-version."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/release-manifest-and-version. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/resource-throttle-pause-firstrun"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/resource-throttle-pause-firstrun."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/resource-throttle-pause-firstrun. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/spoken-capture-consent-notice"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/spoken-capture-consent-notice."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/spoken-capture-consent-notice. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/success-page-ux"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/success-page-ux."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/success-page-ux. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:feat/vendor-safety-hardening"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/vendor-safety-hardening."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/feat/vendor-safety-hardening. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/admin-gate-osascript-quoting"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/admin-gate-osascript-quoting."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/admin-gate-osascript-quoting. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/assistant-fetch-version-track-daemon"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/assistant-fetch-version-track-daemon."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/assistant-fetch-version-track-daemon. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/browsing-hydrate-ensure-collection"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/browsing-hydrate-ensure-collection."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/browsing-hydrate-ensure-collection. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/bw1b-linkedin-email-normalise-657"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/bw1b-linkedin-email-normalise-657."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/bw1b-linkedin-email-normalise-657. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/conversations-ingest-fairness-all-feeds"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/conversations-ingest-fairness-all-feeds."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/conversations-ingest-fairness-all-feeds. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/cx107-110-state2-polish"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/cx107-110-state2-polish."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/cx107-110-state2-polish. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/daily-brief-headline-cron-prompt-v1.0.3"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/daily-brief-headline-cron-prompt-v1.0.3."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/daily-brief-headline-cron-prompt-v1.0.3. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/dmg48c-launch-blockers"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/dmg48c-launch-blockers."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/dmg48c-launch-blockers. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/dropzone-deep-dive-2026-05-22"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/dropzone-deep-dive-2026-05-22."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/dropzone-deep-dive-2026-05-22. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/email-ingest-freshness-graft"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/email-ingest-freshness-graft."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/email-ingest-freshness-graft. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/failure-ux-and-support-email"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/failure-ux-and-support-email."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/failure-ux-and-support-email. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/gateway-web-dist-dir-config-v1.0.1"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/gateway-web-dist-dir-config-v1.0.1."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/gateway-web-dist-dir-config-v1.0.1. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/ingest-offpeak-throttle-v1.0.0"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/ingest-offpeak-throttle-v1.0.0."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/ingest-offpeak-throttle-v1.0.0. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/install-data-step-citations-knowledge-conv-v1.0.3"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/install-data-step-citations-knowledge-conv-v1.0.3."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/install-data-step-citations-knowledge-conv-v1.0.3. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/installer-layout-scroll-only-when-needed"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-layout-scroll-only-when-needed."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-layout-scroll-only-when-needed. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/installer-licence-drop-and-failure-banner"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-licence-drop-and-failure-banner."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-licence-drop-and-failure-banner. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/installer-passphrase-to-passkey"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-passphrase-to-passkey."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-passphrase-to-passkey. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/installer-questions-ux-overhaul-v2"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-questions-ux-overhaul-v2."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-questions-ux-overhaul-v2. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/installer-spoken-consent-copy"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-spoken-consent-copy."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-spoken-consent-copy. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/installer-sudo-gate-option-b"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-sudo-gate-option-b."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-sudo-gate-option-b. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/installer-vendor-cm024-knowledge"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-vendor-cm024-knowledge."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-vendor-cm024-knowledge. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/installer-vendor-cm041-pwg-people-graph"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-vendor-cm041-pwg-people-graph."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-vendor-cm041-pwg-people-graph. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/installer-vendor-email-ingest"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-vendor-email-ingest."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-vendor-email-ingest. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/installer-vendor-fda-extractors"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-vendor-fda-extractors."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-vendor-fda-extractors. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/installer-vendor-hub-power"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-vendor-hub-power."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/installer-vendor-hub-power. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/licence-drop-validation"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/licence-drop-validation."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/licence-drop-validation. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/no-em-dashes-typography-gate"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/no-em-dashes-typography-gate."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/no-em-dashes-typography-gate. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/ollama-num-parallel-1"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/ollama-num-parallel-1."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/ollama-num-parallel-1. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/ollama-user-active-lease-reader-v1.0.3"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/ollama-user-active-lease-reader-v1.0.3."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/ollama-user-active-lease-reader-v1.0.3. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/ostler-fda-apple-notes-calendar-grafts"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/ostler-fda-apple-notes-calendar-grafts."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/ostler-fda-apple-notes-calendar-grafts. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/ostler-fda-freshness-graft"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/ostler-fda-freshness-graft."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/ostler-fda-freshness-graft. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/revendor-doctor-pairing"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/revendor-doctor-pairing."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/revendor-doctor-pairing. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/skills-lockdown-tier1-config"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/skills-lockdown-tier1-config."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/skills-lockdown-tier1-config. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/v1010-bw3-spoken-transcription-copy"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1010-bw3-spoken-transcription-copy."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1010-bw3-spoken-transcription-copy. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/v1011-context-md-vendored-twin"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1011-context-md-vendored-twin."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1011-context-md-vendored-twin. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/v1011-install-gui-contract-coverage"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1011-install-gui-contract-coverage."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1011-install-gui-contract-coverage. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/v1011-shipsdark-launchd"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1011-shipsdark-launchd."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/v1011-shipsdark-launchd. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/vendor-cm041-calendar-sentinel-v1.0.3"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/vendor-cm041-calendar-sentinel-v1.0.3."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/vendor-cm041-calendar-sentinel-v1.0.3. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
   - ref: "CM051:fix/vendor-cm041-rare-name-dedup-graft-v1.0.3"
-    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/vendor-cm041-rare-name-dedup-graft-v1.0.3."
-    until_cut: "v1.0.27"
+    reason: "Legacy backlog from the 2026-08-06 branch sweep; 1 commit(s) not in main. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Tip preserved as archive/2026-08-06/fix/vendor-cm041-rare-name-dedup-graft-v1.0.3. || RE-EXAMINED AT v1.0.34 (2026-08-18) AND RE-DATED AS BOOKKEEPING, not as a fresh judgement. The v1.0.27 expiry did its job: it forced a re-read after seven versions of drift, and the answer is unchanged -- still not launch content, tip still preserved as an archive ref, so nothing is lost by holding it. Re-dated only because a row that sits permanently past its own deadline trains the reader to skim the expiry marker, and that marker is the one thing here that fires."
+    until_cut: "v1.0.34"
 
   # --- CM041 ---
   - ref: "CM041:#106"

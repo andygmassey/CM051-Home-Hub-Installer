@@ -1,0 +1,12 @@
+name: slot-fairness
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  fairness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: a waiter must be able to outlast a holder
+        run: bash tests/test_slot_waiter_can_outlast_a_holder.sh
