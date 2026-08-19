@@ -54,6 +54,15 @@ on:
       # on changes to ITSELF, the same pairing as the D024 harness above.
       - 'scripts/**.py'
       - 'lib/**.py'
+      # The ical-server vendor regression and the Doctor proxy-path check it
+      # calls. install.sh is watched because the proxy check READS it: the
+      # rendered DOCTOR_PROXY_PATHS value is the operand, so an install.sh
+      # edit that drops an endpoint must trigger this workflow or the gate
+      # cannot fire on the only change that breaks it.
+      - 'install.sh'
+      - 'scripts/check_doctor_proxy_paths.sh'
+      - 'tests/test_doctor_proxy_paths_predicate.sh'
+      - 'tests/test_ical_server_vendor_wired.sh'
       - '.github/workflows/vendor-integrity.yml'
   push:
     branches: [main]
@@ -245,6 +254,31 @@ jobs:
       - name: Browser-history vendor regression
         if: always()
         run: bash vendor/ostler_fda/test_vendor_browser_history.sh
+
+      # The controls for the Doctor proxy-path predicate. Ordered BEFORE the
+      # gate that uses it, so a broken predicate is reported as a broken
+      # predicate rather than as a mysterious failure of the gate downstream.
+      #
+      # Two of its eight arms assert that the predicate this REPLACED goes
+      # green on the same fixture. That is the point of the change and it is
+      # the part a reader cannot take on trust.
+      - name: Doctor proxy-path predicate controls
+        if: always()
+        run: bash tests/test_doctor_proxy_paths_predicate.sh
+
+      # The ical-server vendor regression, which asserts the shipped routes,
+      # the LaunchAgent block, the loopback bind, the port override AND the
+      # Doctor proxy paths.
+      #
+      # It has existed since CX-P0A (2026-05-26) and until this commit NOTHING
+      # RAN IT. Its wrapper carried the label `UNWIRED` in tests/TEST_WIRING.tsv
+      # in its own words, and the invocation count outside tests/ was zero,
+      # measured with a live positive control. It was also green, which is why
+      # it survived: a gate that is green and unreachable reports identically
+      # to a gate that is working.
+      - name: ical-server vendor regression (routes + proxy paths + bind)
+        if: always()
+        run: bash tests/test_ical_server_vendor_wired.sh
 
       # Doctor pairing-panel vendor regression step removed 2026-07-30:
       # the referenced test script vendor/doctor/test_vendor_pairing.sh
