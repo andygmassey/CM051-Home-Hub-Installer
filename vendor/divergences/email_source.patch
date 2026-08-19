@@ -1,0 +1,592 @@
+--- a/bin/email-bundle-tick.sh
++++ b/bin/email-bundle-tick.sh
+@@ -49,6 +49,98 @@
+ USER_NAME="${OSTLER_USER_DISPLAY_NAME:-You}"
+ USER_EMAIL="${OSTLER_USER_EMAIL:-}"
+ 
++# --- Interactive-chat priority yield (v1.0.3 chat-saturation fix) ----
++# Live chat (the Hub app's /ws/chat AND iMessage / WhatsApp / email
++# replies, all routed through the daemon's agent turn) must win the one
++# shared Ollama slot over background enrichment. The daemon touches a
++# marker file when an interactive turn starts and refreshes it while the
++# turn runs; we yield this whole tick if that marker is FRESH, so a new
++# background summary never starts decoding while the user is waiting on a
++# reply. The marker lives next to the single-flight lock so it resolves
++# to the same workspace on every install. Fail-safe: if the marker is
++# absent or stale the tick proceeds exactly as before, and the freshness
++# window means a crashed daemon can never wedge background work forever.
++#   OSTLER_INTERACTIVE_MARKER    -> override the marker path.
++#   OSTLER_INTERACTIVE_TTL_SECS  -> freshness window in seconds (default
++#                                   120; 0 disables this yield entirely).
++_ostler_imarker="${OSTLER_INTERACTIVE_MARKER:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/interactive-chat.active}"
++_ostler_ittl="${OSTLER_INTERACTIVE_TTL_SECS:-120}"
++if [ "$_ostler_ittl" -gt 0 ] && [ -f "$_ostler_imarker" ]; then
++    # Age the marker by its mtime. `stat` flags differ across BSD/macOS
++    # and GNU; try the BSD form first (macOS is the install target), then
++    # the GNU form. If neither works we cannot age it, so we do NOT yield
++    # (fail-safe: never wedge background work on a stat quirk).
++    _ostler_mtime="$(stat -f %m "$_ostler_imarker" 2>/dev/null || stat -c %Y "$_ostler_imarker" 2>/dev/null || true)"
++    if [ -n "${_ostler_mtime:-}" ]; then
++        _ostler_age=$(( $(date +%s) - _ostler_mtime ))
++        if [ "$_ostler_age" -ge 0 ] && [ "$_ostler_age" -lt "$_ostler_ittl" ]; then
++            echo "bundle tick: interactive chat active (${_ostler_age}s ago, < ${_ostler_ittl}s); yielding this tick to keep live replies fast."
++            exit 0
++        fi
++    fi
++fi
++# --------------------------------------------------------------------
++
++# --- Adaptive resource governor (v1.0.3 first-run-storm fix) ----------
++# This conversation-bundle feed is NON-ESSENTIAL on first run: the user's
++# first impression is People + Wiki + Chat, not the deep body reads + AI
++# summaries this feed produces. On the 16GB floor a fresh install fires
++# four of these feeds + the wiki recompile at once (all RunAtLoad), which
++# (with the Docker VM and macOS first-login indexing) drove the Studio to
++# load ~37 and made the Hub app unusable. The hardware-tier governor caps
++# that storm: on the FLOOR/LOW tiers (defer flag set) a non-essential tick
++# yields whenever the machine is busier than the tier's per-core loadavg
++# ceiling, so the spawn spike never lands while first-run load is high.
++# The watermark means nothing is lost (next StartInterval catches up).
++#
++# Fail-safe: if the tier lib is absent or the load is unreadable the tick
++# proceeds exactly as before -- the governor never wedges background work.
++# Disable entirely with OSTLER_RESOURCE_GOVERNOR=0.
++#   OSTLER_RESOURCE_TIER_LIB -> override the lib path (default
++#                               ~/.ostler/lib/ostler-resource-tier.sh).
++if [ "${OSTLER_RESOURCE_GOVERNOR:-1}" = "1" ]; then
++    _ostler_tier_lib="${OSTLER_RESOURCE_TIER_LIB:-$HOME/.ostler/lib/ostler-resource-tier.sh}"
++    if [ -f "$_ostler_tier_lib" ]; then
++        # shellcheck source=/dev/null
++        . "$_ostler_tier_lib"
++        if command -v ostler_resource_tier_detect >/dev/null 2>&1; then
++            ostler_resource_tier_detect
++            if ostler_resource_tier_should_defer_nonessential; then
++                echo "bundle tick: ${OSTLER_TIER:-?} tier, load over the per-core ceiling (${OSTLER_LOADAVG_CEILING:-?}); deferring this non-essential enrichment tick to keep first-run surfaces responsive."
++                exit 0
++            fi
++        fi
++    fi
++fi
++# --------------------------------------------------------------------
++
++# --- Off-peak ingest throttle (v1.0.0) -------------------------------
++# One shared Ollama slot serves both live chat and these conversation
++# feeds. On a fresh install the historic backlog is large and each
++# session costs a ~1-minute summary, so left unthrottled the feeds
++# saturate the slot for hours and chat feels dead. Outside the
++# 01:00-06:00 local window we shrink the read window so daytime ticks
++# only touch the last day or two (keeps the assistant current on recent
++# conversations and stays light); overnight the full configured window
++# drains at full throttle. Nothing is lost: the per-thread watermark
++# means an older thread deferred during the day is picked up on the
++# next overnight tick.
++#   OSTLER_INGEST_OFFPEAK_ONLY=0      -> disable the gate (full window
++#                                       every tick).
++#   OSTLER_INGEST_DAYTIME_SINCE_DAYS  -> daytime read window (default 2).
++if [ "${OSTLER_INGEST_OFFPEAK_ONLY:-1}" = "1" ]; then
++    # 10# forces base-10 so a leading-zero hour ("08","09") is not read
++    # as an invalid octal literal.
++    _ostler_hour=$((10#$(date +%H)))
++    if [ "$_ostler_hour" -lt 1 ] || [ "$_ostler_hour" -ge 6 ]; then
++        _ostler_daytime_days="${OSTLER_INGEST_DAYTIME_SINCE_DAYS:-2}"
++        if [ "$SINCE_DAYS" -gt "$_ostler_daytime_days" ]; then
++            SINCE_DAYS="$_ostler_daytime_days"
++        fi
++    fi
++fi
++# --------------------------------------------------------------------
++
+ ARGS=(--user-name "$USER_NAME" --since-days "$SINCE_DAYS")
+ if [ -n "$USER_EMAIL" ]; then
+     ARGS+=(--user-address "$USER_EMAIL")
+@@ -68,8 +160,73 @@
+     exit 0
+ fi
+ 
++# --- Single-flight across all conversation feeds (v1.0.0) ------------
++# The iMessage / email / WhatsApp / spoken feeds each tick on their own
++# 15-minute schedule and all summarise through the one shared Ollama
++# slot. Without a shared lock a fresh install fires several at once and
++# starves live chat. Take an atomic, non-blocking lock (a mkdir, which
++# is atomic on every POSIX filesystem -- macOS ships no flock); if
++# another feed holds it, skip this tick (the watermark means the next
++# tick catches up). The lock is reclaimed only when its recorded holder
++# PID is dead -- never on age, because the wiki summary backfill holds this
++# same lock for hours; a dead holder PID means a previous tick was
++# killed mid-run.
++_ostler_lock="${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}"
++mkdir -p "$(dirname "$_ostler_lock")" 2>/dev/null || true
++
++# --- shared slot arbitration (bounded hold, derived patience, FIFO) ---
++# Before this, every feed ran its own policy on this one mutex and NONE of
++# them bounded the HOLD. The live v1.0.26 box: the email feed held the slot
++# for over an hour while the iMessage feed woke every 15 minutes, waited a
++# flat constant, and yielded. A constant cannot win a race against a hold
++# with no bound, which is why widening it never helped.
++#
++# OSTLER_INGEST_SLOT is tested BEFORE the lib is sourced, deliberately.
++# ostler_slot_acquire returns 1 for BOTH "yield this tick" and "arbitration
++# disabled", so sourcing first and writing `acquire || exit 0` would turn
++# the documented escape hatch into a switch that stops this feed ingesting
++# at all. Guarding first makes OSTLER_INGEST_SLOT=0 fall through to the
++# inline lock below, which is what the lib header promises.
++_ostler_slot_lib="${OSTLER_INGEST_SLOT_LIB:-$HOME/.ostler/lib/ostler-ingest-slot.sh}"
++_ostler_slot_active=0
++if [ "${OSTLER_INGEST_SLOT:-1}" != "0" ] && [ -f "$_ostler_slot_lib" ]; then
++    . "$_ostler_slot_lib"
++    command -v ostler_slot_acquire >/dev/null 2>&1 && _ostler_slot_active=1
++fi
++
++if [ "$_ostler_slot_active" = "1" ]; then
++    # The lib installs its own EXIT trap; do not add another (see its header).
++    ostler_slot_acquire "email-bundle" || exit 0
++    _ostler_run() { ostler_slot_run "$@"; }
++else
++    # Fail-safe: the installer has not delivered the lib yet. Unchanged
++    # pre-lib behaviour. A tick with no lock at all would put two pipelines
++    # on Ollama simultaneously, which is worse than the starvation above.
++    _ostler_run() { "$@"; }
++    if ! mkdir "$_ostler_lock" 2>/dev/null; then
++        # Lock held. Reclaim ONLY if the recorded holder PID is dead. A
++        # time-based steal would wrongly evict the wiki summary backfill, which
++        # holds this SAME lock for hours (v1.0.0 chat-saturation fix); if the
++        # holder is alive, yield this tick (the watermark catches up next tick).
++        _ostler_h="$(cat "$_ostler_lock/pid" 2>/dev/null || true)"
++        if [ -n "${_ostler_h:-}" ] && kill -0 "$_ostler_h" 2>/dev/null; then
++            echo "email-bundle tick: another LLM job (pid ${_ostler_h}) holds the model slot; yielding this tick."
++            exit 0
++        fi
++        rm -rf "$_ostler_lock" 2>/dev/null || true
++        if ! mkdir "$_ostler_lock" 2>/dev/null; then
++            echo "email-bundle tick: lost the race for the model slot; yielding this tick."
++            exit 0
++        fi
++    fi
++    printf '%s\n' "$$" > "$_ostler_lock/pid"
++    trap 'rm -rf "$_ostler_lock" 2>/dev/null || true' EXIT
++fi
++# --------------------------------------------------------------------
++
+ cd "$SOURCE_DIR"
+ # Run as a module so the package-relative imports resolve. SOURCE_DIR
+ # is the parent of both the email_source/ package and the ostler_fda/
+ # package it imports for the Apple Mail primitives.
+-exec "$PYTHON_BIN" -m email_source.pipeline "${ARGS[@]}"
++# (No exec -- we keep the shell alive so the EXIT trap releases the lock.)
++_ostler_run "$PYTHON_BIN" -m email_source.pipeline "${ARGS[@]}"
+--- a/launchd/com.creativemachines.ostler.email-bundle.plist
++++ b/launchd/com.creativemachines.ostler.email-bundle.plist
+@@ -38,8 +38,9 @@
+ 
+     <key>ProgramArguments</key>
+     <array>
+-        <string>/bin/bash</string>
+-        <string>OSTLER_BIN/email-bundle-tick.sh</string>
++        <string>OSTLER_ASSISTANT_BINARY</string>
++        <string>run-source</string>
++        <string>email-bundle</string>
+     </array>
+ 
+     <!--
+@@ -87,6 +88,26 @@
+         <string>OSTLER_PYTHON_PATH</string>
+         <key>PWG_CONVO_CMD</key>
+         <string>PWG_CONVO_CMD_VALUE</string>
++        <!--
++            Rendered by the installer (_install_conversation_feed) so the
++            wrapper ships verbatim: SOURCE_DIR is the package parent the
++            wrapper cd's into; USER_DISPLAY_NAME labels the operator's own
++            messages as "You".
++        -->
++        <key>OSTLER_SOURCE_DIR</key>
++        <string>OSTLER_SOURCE_DIR_VALUE</string>
++        <key>OSTLER_USER_DISPLAY_NAME</key>
++        <string>OSTLER_USER_DISPLAY_NAME_VALUE</string>
++        <!--
++            OSTLER_USER_ID scopes the conversation to the operator. CM048's
++            pwg-convo fails loud at settings construction without it (the
++            productisation guard against an empty user_id silently
++            propagating), so the bundle agent must carry it or every tick
++            dies before processing a single chat. Rendered from the
++            installer's USER_ID.
++        -->
++        <key>OSTLER_USER_ID</key>
++        <string>OSTLER_USER_ID_VALUE</string>
+     </dict>
+ 
+     <key>ProcessType</key>
+--- a/pipeline.py
++++ b/pipeline.py
+@@ -41,6 +41,7 @@
+ import subprocess
+ import sys
+ import tempfile
++import time
+ from pathlib import Path
+ from typing import Callable, Optional
+ 
+@@ -50,6 +51,87 @@
+ logger = logging.getLogger(__name__)
+ 
+ 
++# --- v1018-D020: every pwg-convo dispatch is bounded ---------------------
++#
++# `subprocess.run` without a timeout waits forever. One document that never
++# returns therefore wedges this tick permanently -- and because the tick
++# holds the shared single-flight ingest lock (deliberately never reclaimed
++# on age, so the hours-long wiki summary backfill is not evicted), a single
++# wedged dispatch stops EVERY conversation feed: email, WhatsApp, iMessage
++# and spoken. `launchctl list` reports the label healthy throughout.
++#
++# Observed on the shipped v1.0.18 box, 2026-08-09: one pwg-convo alive
++# 6h47m, the shared lock held 9h19m by the email tick, 36 iMessage and 38
++# spoken ticks yielded to it. Nothing anywhere recorded a reason.
++#
++# The ceiling is per-dispatch, not per-tick, so a slow-but-progressing
++# backlog still drains; only an individual pathological document is
++# abandoned.
++_DISPATCH_TIMEOUT_DEFAULT_SECS = 900
++
++# EX_TEMPFAIL. Deliberately distinct from any code pwg-convo itself
++# returns, so "this document is slow" is never confused with "this
++# document is broken" by whoever reads the log next.
++DISPATCH_TIMEOUT_RC = 75
++
++
++def _dispatch_timeout_secs():
++    """Per-dispatch wall-clock ceiling in seconds, or None for unbounded.
++
++    ``OSTLER_DISPATCH_TIMEOUT_SECS=0`` restores the old unbounded
++    behaviour for debugging. A malformed value falls back to the default
++    rather than raising: a typo in an env var must not be the thing that
++    stops ingest.
++    """
++    raw = os.environ.get("OSTLER_DISPATCH_TIMEOUT_SECS")
++    if raw is None or not raw.strip():
++        return float(_DISPATCH_TIMEOUT_DEFAULT_SECS)
++    try:
++        secs = float(raw)
++    except ValueError:
++        return float(_DISPATCH_TIMEOUT_DEFAULT_SECS)
++    return None if secs <= 0 else secs
++
++
++# --- v1018-D032: keep the TAIL of a captured stream, never the head ------
++#
++# The original form took the FIRST 500 chars of stderr. For a process that
++# HUNG, the first 500 characters are the least informative 500 characters
++# available -- they record the run starting normally. The last thing it did
++# before wedging, the only line that localises the hang, is at the other
++# end, and was discarded on every single dispatch failure.
++#
++# This cost a real diagnosis. A document that hung 13 hours on the shipped
++# box surfaced exactly 500 characters, cut mid-word, every one of them from
++# the first ten seconds of a thirteen-hour run. It read like an ending. It
++# was a truncation, and a conclusion was drawn from it.
++#
++# The marker is not decoration: a clipped window that does not say it was
++# clipped invites the next reader to repeat that exact mistake.
++_STDERR_EXCERPT_DEFAULT_CHARS = 2000
++
++
++def _stderr_excerpt(raw):
++    """Tail of a captured stream, with an explicit marker when clipped."""
++    if raw is None:
++        return "<no stderr captured>"
++    text = raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
++    text = text.strip()
++    if not text:
++        return "<stderr empty>"
++    raw_limit = os.environ.get("OSTLER_DISPATCH_STDERR_CHARS")
++    try:
++        limit = int(raw_limit) if raw_limit and raw_limit.strip() else _STDERR_EXCERPT_DEFAULT_CHARS
++    except ValueError:
++        limit = _STDERR_EXCERPT_DEFAULT_CHARS
++    if limit <= 0 or len(text) <= limit:
++        return text
++    dropped = len(text) - limit
++    return f"<...{dropped} earlier chars dropped, showing last {limit}...>\n{text[-limit:]}"
++# ------------------------------------------------------------------------
++# ------------------------------------------------------------------------
++
++
+ # Engine-zone state under ~/.ostler/ (two-zone architecture). The
+ # watermark records the set of message-ids already bundled per thread.
+ def _default_state_dir() -> Path:
+@@ -186,17 +268,152 @@
+             metadata["conversation_id"],
+             " ".join(pwg_convo_cmd),
+         )
+-        proc = subprocess.run(cmd, capture_output=True, text=True)
++        started = time.monotonic()
++        try:
++            proc = subprocess.run(
++                cmd,
++                capture_output=True,
++                text=True,
++                timeout=_dispatch_timeout_secs(),
++            )
++        except subprocess.TimeoutExpired as exc:
++            # v1018-D020. subprocess.run has already killed the child by
++            # the time this is raised, so the shared ingest lock is
++            # released when this tick ends rather than being held until
++            # the machine reboots. Abandon this one document and let the
++            # caller move on -- the watermark is left untouched, so the
++            # next tick retries it.
++            logger.error(
++                "pwg-convo TIMED OUT for %s after %ss; abandoning this "
++                "document and continuing. Raise or disable the ceiling "
++                "with OSTLER_DISPATCH_TIMEOUT_SECS. Last output before the "
++                "kill: %s",
++                metadata["conversation_id"],
++                exc.timeout,
++                # v1018-D032. TimeoutExpired carries what was captured
++                # before the kill, and for a wedged document that tail is
++                # the ONLY record of what it was doing. The first cut of
++                # the D020 ceiling logged the timeout and dropped this --
++                # bounding the hang while discarding its diagnosis.
++                _stderr_excerpt(exc.stderr),
++            )
++            return DISPATCH_TIMEOUT_RC
++        elapsed = time.monotonic() - started
+         if proc.returncode != 0:
+             logger.error(
+-                "pwg-convo failed for %s (rc=%d): %s",
++                "pwg-convo failed for %s after %.1fs (rc=%d): %s",
+                 metadata["conversation_id"],
++                elapsed,
+                 proc.returncode,
+-                proc.stderr.strip()[:500],
++                _stderr_excerpt(proc.stderr),
+             )
++        else:
++            # v1018-D021. The ONLY per-document timing that survives a
++            # successful dispatch. capture_output=True discards pwg-convo's
++            # own instrumentation on rc=0, so without this line the feed is
++            # unmeasurable except by diffing "Dispatching" timestamps, which
++            # attributes queueing and lock waits to the document. Two windows
++            # 13h apart both measured ~100s/document that way; where the time
++            # actually goes could not be established, because the evidence was
++            # being thrown away on every success.
++            logger.info(
++                "pwg-convo completed %s in %.1fs",
++                metadata["conversation_id"],
++                elapsed,
++            )
+         return proc.returncode
++
++
++def _seed_all(
++    pending: list[tuple[str, dict]],
++    *,
++    pwg_convo_cmd: list[str],
++) -> int:
++    """v1018-D021 pass 1: make every new thread browseable, with no model.
+ 
++    Writes one JSONL manifest and hands the whole batch to a single
++    ``pwg-convo seed``. Batched on purpose: a seed is milliseconds of real
++    work, so one interpreter start per thread would cost more than the
++    seeding does.
+ 
++    Returns the number of threads the seeder reported writing. Never
++    raises: pass 2 is the durable path and must run whatever happens here.
++    """
++    if not pending:
++        return 0
++    with tempfile.TemporaryDirectory(prefix="hr015_email_seed_") as tmp:
++        tdir = Path(tmp)
++        manifest = tdir / "manifest.jsonl"
++        lines: list[str] = []
++        for idx, (transcript, metadata) in enumerate(pending):
++            tpath = tdir / f"{idx:06d}.md"
++            mpath = tdir / f"{idx:06d}.json"
++            tpath.write_text(transcript, encoding="utf-8")
++            mpath.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
++            lines.append(json.dumps(
++                {"transcript": str(tpath), "metadata": str(mpath)}
++            ))
++        manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
++
++        cmd = list(pwg_convo_cmd) + ["seed", str(manifest)]
++        started = time.monotonic()
++        try:
++            proc = subprocess.run(
++                cmd, capture_output=True, text=True,
++                timeout=_seed_timeout_secs(),
++            )
++        except subprocess.TimeoutExpired as exc:
++            logger.error(
++                "Seed pass timed out after %ss for %d thread(s); continuing "
++                "to enrichment. Last output: %s",
++                exc.timeout, len(pending), _stderr_excerpt(exc.stderr),
++            )
++            return 0
++        except OSError as exc:
++            logger.error(
++                "Seed pass could not run (%s); continuing to enrichment.",
++                type(exc).__name__,
++            )
++            return 0
++        elapsed = time.monotonic() - started
++        if proc.returncode != 0:
++            logger.error(
++                "Seed pass failed for %d thread(s) after %.1fs (rc=%d): %s",
++                len(pending), elapsed, proc.returncode,
++                _stderr_excerpt(proc.stderr),
++            )
++            return 0
++        seeded = 0
++        try:
++            seeded = int(json.loads(proc.stdout.strip()).get("seeded", 0))
++        except (ValueError, AttributeError):
++            logger.warning("Seed pass gave no parseable count; assuming 0.")
++        logger.info(
++            "Seeded %d of %d thread(s) in %.1fs with no model call; "
++            "enrichment follows.",
++            seeded, len(pending), elapsed,
++        )
++        return seeded
++
++
++def _seed_timeout_secs():
++    """Wall-clock ceiling for the whole seed batch.
++
++    Generous relative to the work (a seed is file I/O and string
++    handling) but bounded, because this pass holds the shared ingest lock
++    exactly as the enrichment pass does -- the D020 lesson applied to the
++    new limb rather than rediscovered on a customer's box.
++    """
++    raw = os.environ.get("OSTLER_SEED_TIMEOUT_SECS")
++    if raw is None or not raw.strip():
++        return 300.0
++    try:
++        secs = float(raw)
++    except ValueError:
++        return 300.0
++    return None if secs <= 0 else secs
++
++
+ def process_email(
+     *,
+     mail_dir: Optional[Path] = None,
+@@ -211,8 +428,23 @@
+ ) -> dict:
+     """Read Apple Mail, thread, and dispatch new/updated threads to CM048.
+ 
+-    Returns a summary dict: threads scanned, threads dispatched,
+-    threads skipped (no new message since last bundle), failures.
++    Two passes, in this order (v1018-D021):
++
++      1. SEED -- every new thread gets its four artefacts written with no
++         model call, so it is browseable in the wiki on this tick.
++      2. ENRICH -- the full CM048 pipeline runs per thread, newest first,
++         and rewrites the same folder with the model's summary.
++
++    The order is the whole point. The full pipeline costs six serialised
++    model calls per thread on one decode slot, and the artefact the
++    customer reads is produced by the last of them, so before this split a
++    thread was invisible until every step had finished. Time to a
++    browseable wiki was the same as time to a complete graph. Now it is a
++    tick.
++
++    Returns a summary dict: threads scanned, threads seeded, threads
++    dispatched, threads skipped (no new message since last bundle),
++    failures.
+     """
+     pwg_convo_cmd = pwg_convo_cmd or _resolve_pwg_convo_cmd()
+     state_file = state_path or _state_path()
+@@ -227,6 +459,7 @@
+     threads = thread_messages(messages, min_thread_messages=min_thread_messages)
+ 
+     scanned = dispatched = skipped = failed = 0
++    work: list[tuple[object, list[str], set, str, dict]] = []
+     for thread in threads:
+         scanned += 1
+         current_ids = [m.message_id for m in thread.messages]
+@@ -254,6 +487,23 @@
+             name_for_address=name_for_address,
+             privacy_level=level,
+         )
++        work.append((thread, current_ids, seen_ids, transcript, metadata))
++
++    # Enrich the most recent correspondence first. The backlog drains at
++    # the same rate either way, but what the customer looks at on day one
++    # is this month's mail, not the oldest thread the reader happened to
++    # walk first.
++    work.sort(key=lambda w: str(w[4].get("ended_at") or ""), reverse=True)
++
++    # ── Pass 1: seed ──────────────────────────────────────────────────
++    seeded = 0
++    if not dry_run and _seed_enabled():
++        seeded = _seed_all(
++            [(w[3], w[4]) for w in work], pwg_convo_cmd=pwg_convo_cmd
++        )
++
++    # ── Pass 2: enrich ────────────────────────────────────────────────
++    for thread, current_ids, seen_ids, transcript, metadata in work:
+         rc = _dispatch_to_cm048(
+             transcript,
+             metadata,
+@@ -268,6 +518,13 @@
+                 thread_state[thread.thread_id] = sorted(
+                     seen_ids.union(current_ids)
+                 )
++                # Persist as we go. Before the seed pass existed a crash
++                # mid-tick lost nothing that mattered, because nothing was
++                # visible until the tick's work landed anyway. Now a tick
++                # can be minutes of enrichment on top of an already-useful
++                # wiki, and re-running finished documents on the next tick
++                # would push the backlog further out, not closer.
++                _save_state(state_file, state)
+         else:
+             failed += 1
+             # Leave the watermark untouched so the next tick retries.
+@@ -277,6 +534,7 @@
+ 
+     summary = {
+         "threads_scanned": scanned,
++        "threads_seeded": seeded,
+         "threads_dispatched": dispatched,
+         "threads_skipped": skipped,
+         "threads_failed": failed,
+@@ -285,6 +543,16 @@
+     return summary
+ 
+ 
++def _seed_enabled() -> bool:
++    """``OSTLER_SEED_FIRST=0`` restores the enrich-only tick.
++
++    An escape hatch, not a feature flag: if seeding ever misbehaves on a
++    customer's box the operator can turn it off without waiting for a
++    release, and the feed returns to exactly its previous behaviour.
++    """
++    return (os.environ.get("OSTLER_SEED_FIRST") or "1").strip() != "0"
++
++
+ def _resolve_pwg_convo_cmd() -> list[str]:
+     """Resolve how to invoke CM048's CLI.
+ 
+--- a/reader.py
++++ b/reader.py
+@@ -66,8 +66,19 @@
+     source_path: Optional[Path] = None
+ 
+ 
+-def _decode(value: Optional[str]) -> str:
+-    """Decode an RFC 2047 encoded-word header value to plain text."""
++def _decode(value: object) -> str:
++    """Decode an RFC 2047 encoded-word header value to plain text.
++
++    ``value`` may be a plain ``str`` OR an ``email.header.Header`` -- the stdlib
++    email parser hands back Header objects for some fields. Coerce to ``str``
++    first: a Header is not iterable, so the ``"=?" in`` membership test below
++    would otherwise raise ``TypeError: argument of type 'Header' is not
++    iterable`` and crash every email-source run (starving email conversations
++    and email last-contact).
++    """
++    if value is None:
++        return ""
++    value = str(value)
+     if not value:
+         return ""
+     if "=?" not in value:

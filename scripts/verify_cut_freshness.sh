@@ -63,20 +63,18 @@
 #
 # Inputs checked:
 #   1. Vendor pins  (vendor/VENDOR_MANIFEST.toml -- per-tree, path-scoped)
-#   2. Daemon       (install.sh / gui/Makefile pin -> ostler-assistant tag ->
-#                    compared against the integration branch HEAD)
+#   2. Daemon       (install.sh / gui/Makefile pin -> tag -> PUBLISHED release
+#                    asset: .sha256 sidecar + build-info.json commit_sha)
 #   3. Wiki images  (install.sh digest -> scripts/wiki_image_provenance.tsv ->
 #                    recorded CM044 sha compared against CM044 main HEAD)
 #
 # Usage:   scripts/verify_cut_freshness.sh
 # Env (all optional):
-#   DAEMON_INTEGRATION_BRANCH  ostler-assistant branch the daemon must track
-#                              (default: integration/hub-v1.0.9)
 #   CM044_BRANCH               wiki source branch (default: main)
 #   WIKI_PROVENANCE_FILE       path to the digest->CM044-sha ledger
 #                              (default: scripts/wiki_image_provenance.tsv)
 #   FRESHNESS_ONLY             restrict the run to a single vendor tree by name
-#                              (ops/debug + self-demo; daemon+wiki still checked)
+#                              (ops/debug + self-demo; SKIPS the daemon check)
 #   GH_API_TIMEOUT             per-call timeout in seconds (default: 25)
 #   FRESHNESS_GH_BIN           override the `gh` binary (tests inject a mock)
 #
@@ -98,9 +96,13 @@ set +e
 # fixtures via the *_OVERRIDE env vars.
 INSTALL_SH="${INSTALL_SH_OVERRIDE:-$REPO_ROOT/install.sh}"
 GUI_MAKEFILE="${GUI_MAKEFILE_OVERRIDE:-$REPO_ROOT/gui/Makefile}"
-DAEMON_INTEGRATION_BRANCH="${DAEMON_INTEGRATION_BRANCH:-integration/hub-v1.0.9}"
 CM044_BRANCH="${CM044_BRANCH:-main}"
 WIKI_PROVENANCE_FILE="${WIKI_PROVENANCE_FILE:-$SCRIPT_DIR/wiki_image_provenance.tsv}"
+WIKI_HOLD_ACK_FILE="${WIKI_HOLD_ACK_FILE:-$SCRIPT_DIR/wiki_hold_ack.tsv}"
+# Daemon recency: the branch the daemon's own repo tracks, and the ledger that
+# lets a pin sit behind it deliberately. Same contract as the wiki hold_ack.
+OA_BRANCH="${OA_BRANCH:-main}"
+DAEMON_HOLD_ACK_FILE="${DAEMON_HOLD_ACK_FILE:-$SCRIPT_DIR/daemon_hold_ack.tsv}"
 FRESHNESS_ONLY="${FRESHNESS_ONLY:-}"
 GH_API_TIMEOUT="${GH_API_TIMEOUT:-25}"
 GH_BIN="${FRESHNESS_GH_BIN:-gh}"
@@ -110,7 +112,13 @@ n_fresh=0
 n_stale=0        # RED  -- behind live HEAD w/o hold_ack, or exempt w/o reason
 n_held=0         # behind but FULLY acknowledged via hold_ack -- non-fatal
 n_exempt=0       # genuinely-unverifiable source, exempt WITH a reason -- non-fatal
-n_cannot=0       # GitHub unreachable -- fail-closed, distinct exit
+n_cannot=0       # could not be checked at all -- fail-closed, distinct exit
+# Subset of n_cannot whose cause is "cannot READ the source repo" rather than
+# "GitHub unreachable". Tracked separately because the remedies differ: one is
+# a credential grant, the other is the network. Initialised here rather than
+# on first use -- set -u is on, and an unset read in the verdict block would
+# abort the script AFTER all the work, printing nothing.
+n_unreadable=0
 
 # Rows for the final table:  input \t pinned \t live \t status
 ROWS_FILE="$(mktemp)"
@@ -161,13 +169,50 @@ run_to() {
 # ---------------------------------------------------------------------------
 # bash 3.2 on the macOS cut host has no associative arrays -- memoise into
 # per-account plain variables (_TOK_<account-with-dashes-as-underscores>).
+#
+# ENVIRONMENT FIRST, AND THAT ORDER IS THE FIX (v1018-D621d).
+#
+# `gh auth token --user X` is a MULTI-ACCOUNT gh CLI concept. It resolves only
+# where a human has logged several accounts in, which is the operator's Mac and
+# never a hosted runner. On a runner it returns empty, `api()` then runs with
+# GH_TOKEN="" and every request 404s.
+#
+# That is what produced fifteen byte-identical rows on cut run 31682172040:
+#
+#   vendor:cm041/assistant_api RED: pinned SHA could not be resolved ...
+#   vendor:cm048_pipeline      RED: pinned SHA could not be resolved ...
+#   ... 13 more, same string
+#
+# CONTROLLED before writing this. All 24 pins in VENDOR_MANIFEST.toml resolve
+# against live GitHub with an account that HAS access -- 24 of 24, zero bad
+# pins -- and all eight source repos report `private=true`. So the pins are
+# fine and the checker could not authenticate. #642 made that report HONEST
+# (CANNOT-VERIFY rather than "bad pin"); this makes the check RUN.
+#
+# Same shape, same remedy, as `_gh_token_for` in scripts/verify_cut_manifest.py:
+# env first, `gh auth` second, and returning empty is CANNOT-RUN for the caller
+# rather than a verdict about the artefact.
+#
+# The generic OSTLER_GH_TOKEN_<ACCOUNT> form means a third account needs a
+# secret, not a code change. OSTLER_RELEASES_TOKEN stays wired for ostler-ai
+# because the cut already carries it for exactly that owner.
 token_for() {
     local acct="$1"
     [ -n "${FRESHNESS_GH_BIN:-}" ] && { printf 'mock-token'; return 0; }
     local key="_TOK_$(printf '%s' "$acct" | tr -c 'A-Za-z0-9' '_')"
     local cur; eval "cur=\${$key:-}"
     if [ -z "$cur" ]; then
-        cur="$(gh auth token --user "$acct" 2>/dev/null)"
+        # 1. Per-account environment secret. Works on a runner AND on the Mac.
+        local envname="OSTLER_GH_TOKEN_$(printf '%s' "$acct" | tr 'a-z-' 'A-Z_')"
+        eval "cur=\${$envname:-}"
+        # 2. The credential the cut already carries for the daemon's owner.
+        if [ -z "$cur" ] && [ "$acct" = "ostler-ai" ]; then
+            cur="${OSTLER_RELEASES_TOKEN:-}"
+        fi
+        # 3. Operator's Mac: the multi-account gh CLI. Absent on runners.
+        if [ -z "$cur" ]; then
+            cur="$(gh auth token --user "$acct" 2>/dev/null)"
+        fi
         eval "$key=\$cur"
     fi
     printf '%s' "$cur"
@@ -199,6 +244,47 @@ api() {
     # A reachable HTTP error (404/422) comes back as a JSON {"message":...} body.
     if printf '%s' "$out" | grep -q '"message"'; then return 1; fi
     return 2                                            # non-zero, no body -> transport failure
+}
+
+# repo_readable <acct> <owner/repo>
+#   Echoes: YES | NO
+#
+#   v1018-D621c. GitHub answers 404 for a repo that does not exist AND for a
+#   private repo the caller cannot see. api() classifies any JSON {"message":..}
+#   body as rc=1 -> "reachable, no such thing" (line ~202), so a permissions 404
+#   on the COMMITS endpoint became NONE -> UNRESOLVED -> "bad pin, or pin absent
+#   from the source repo". Fifteen vendor trees reported that at once on cut run
+#   31682172040 -- byte-identical, which is the shape of a broken probe rather
+#   than fifteen independently broken pins.
+#
+#   CONTROLLED before writing this (Andy's instruction: do not take the
+#   diagnosis as the finding). Five pins resolved by hand with the andygmassey
+#   account, which HAS access:
+#       cm041/assistant_api  f83d5aee1953  rc=0
+#       cm041/ostler_hygiene 11ad1246286e  rc=0
+#       cm048_pipeline       2133786a4532  rc=0
+#       cm021                e1eefb3d3bd9  rc=0
+#       ostler_fda           ab63b7be732d  rc=0
+#   Every pin is GOOD. Had one failed to resolve, that pin would be a real
+#   defect needing a re-pin -- reclassifying it as CANNOT-VERIFY would have
+#   been worse than the bug. They did not, so it is the probe.
+#
+#   Corroboration from the same control, worth recording: on the commits
+#   endpoint GitHub returns 422 "No commit found for SHA" for a readable repo
+#   with an absent SHA, and 404 "Not Found" when it cannot show you the repo.
+#   Different codes -- but that is not what this relies on, because a 404 can
+#   also mean a missing REF. The repo probe is the primary discriminator; the
+#   422 is only a sanity check that the two states are distinguishable at all.
+repo_readable() {
+    local acct="$1" repo="$2" rc
+    api "$acct" "repos/$repo" --jq '.full_name'
+    rc=$?
+    # ONLY the unreadable shape short-circuits. rc=2 (timeout / transport) is a
+    # DIFFERENT cannot-run and the callers below already handle it as UNREACH;
+    # sweeping it in here would widen the not-checked bucket, which is the
+    # warn-bucket-is-not-a-safe-bucket move. Deliberately narrow.
+    if [ "$rc" -eq 1 ]; then echo "NO"; return; fi
+    echo "YES"
 }
 
 # gh_head <acct> <owner/repo> <ref> [path]
@@ -306,24 +392,17 @@ classify_simple() { # input  pinned  live  verdict
     esac
 }
 
-# Read a manifest field as a boolean. Tolerates  field = true  and  field = "true".
-manifest_bool() { # tree  field
-    local v; v="$(vlib_field "$1" "$2" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
-    [ "$v" = "true" ] && { echo true; return; }
-    echo false
-}
-
-# Is <sha> acknowledged by <list> (space/comma-separated, entries may be short)?
-# Prefix-tolerant in BOTH directions so a 12-hex ack matches a 40-hex delta sha.
-sha_in_list() { # sha  list
-    local c="$1" e
-    for e in $(printf '%s' "$2" | tr ',' ' '); do
-        [ -z "$e" ] && continue
-        case "$c" in "$e"*) return 0 ;; esac
-        case "$e" in "$c"*) return 0 ;; esac
-    done
-    return 1
-}
+# hold_ack readers. THE IMPLEMENTATIONS MOVED to scripts/_vendor_lib.sh, which
+# this file already sources, and these are thin aliases so the existing call
+# sites below read unchanged.
+#
+# They used to live here, and only here. verify_vendor_fresh.sh -- the sibling
+# gate, walking the SAME manifest -- had no hold_ack support at all, so a tree
+# this gate correctly reported HELD was reported RED over there with a list of
+# commits the manifest acknowledges one by one. Two readers would have drifted
+# again; one reader cannot. Change the shared version, not a copy.
+manifest_bool() { vlib_manifest_bool "$@"; }  # tree  field
+sha_in_list()   { vlib_sha_in_list "$@"; }    # sha   list
 
 # Enumerate the LIVE path-scoped delta: SHAs of commits touching <gpath> on
 # <branch> that are AHEAD of <pin> (newest first, one per line into DELTA_OUT).
@@ -364,7 +443,7 @@ EOF
 
 echo "=== Cut-freshness gate (live GitHub HEAD) ==="
 echo "manifest:            $VLIB_MANIFEST"
-echo "daemon integration:  ostler-ai/ostler-assistant @ $DAEMON_INTEGRATION_BRANCH"
+echo "daemon provenance:   ${OSTLER_RELEASES_REPO:-ostler-ai/ostler-releases} release asset -> tag -> commit"
 echo "wiki source branch:  andygmassey/CM044-PWG-Personal-Wiki @ $CM044_BRANCH"
 echo "provenance ledger:   $WIKI_PROVENANCE_FILE"
 echo
@@ -410,6 +489,19 @@ while IFS= read -r tree; do
         n_stale=$((n_stale+1))
         add_row "vendor:$tree" "$pinned" "-" "RED no-github-source"
         add_detail "vendor:$tree RED: source_repo '$srcrepo' maps to no GitHub repo and the tree is not exempt. Wire a source or add verify_exempt = true + exempt_reason."
+        continue
+    fi
+
+    # v1018-D621c. Establish that we can READ the source repo before asking any
+    # question about the pin. Without this a permissions 404 is indistinguishable
+    # from an absent commit, and the row asserts "bad pin" from evidence that
+    # says only "I cannot see that repo". Voice matches the EXEMPT rows below:
+    # a real reason, not a shrug.
+    if [ "$(repo_readable "$acct" "$owner")" = "NO" ]; then
+        n_cannot=$((n_cannot+1))
+        n_unreadable=$((n_unreadable+1))
+        add_row "vendor:$tree" "$pinned" "-" "CANNOT-VERIFY unreadable-source"
+        add_detail "vendor:$tree CANNOT-VERIFY: cannot read $owner with the '$acct' account -- the repo is private or this token lacks scope for it. The pin was NOT evaluated; this says nothing about whether it is fresh. Grant the runner's token read access to $owner, then re-run."
         continue
     fi
 
@@ -480,14 +572,229 @@ EOF
         *) # UNRESOLVED
             n_stale=$((n_stale+1))
             add_row "vendor:$tree" "$pinned" "$live" "RED unresolved"
-            add_detail "vendor:$tree RED: pinned SHA could not be resolved against live GitHub (bad pin, or pin absent from the source repo). Re-pin, or mark verify_exempt + reason if the source is genuinely unverifiable." ;;
+            add_detail "vendor:$tree RED: the source repo IS readable, but the pinned SHA does not resolve in it -- the pin is genuinely bad or the commit is absent from that repo. Re-pin, or mark verify_exempt + reason if the source is genuinely unverifiable." ;;
     esac
 done < <(vlib_tree_names)
 
 # ===========================================================================
-# 2. DAEMON  (install.sh / gui/Makefile pin -> tag -> vs integration HEAD)
-#    Not a vendor tree: no hold_ack / exemption -- a stale daemon is always RED.
+# 2. DAEMON  (install.sh / gui/Makefile pin -> tag -> release bytes -> source
+#    commit -> vs live ostler-ai/ostler-assistant HEAD)
+#    Not a vendor tree, so there is no verify_exempt. There IS a hold_ack, in
+#    scripts/daemon_hold_ack.tsv, on the recency link only: the four
+#    provenance links are never waivable, because a broken chain means the
+#    installer downloads bytes nobody can account for.
 # ===========================================================================
+
+# ---------------------------------------------------------------------------
+# DAEMON RECENCY: docs-only delta suppression (v1018-D621f, Andy 2026-08-13)
+#
+# The daemon recency check compares the pinned commit against ostler-assistant
+# main WHOLE-REPO, unlike every vendor tree, which is path-scoped. On the
+# 2026-08-13 cut that made a two-file markdown commit -- aa488a4d, editing
+# .github/workflows/README.md and master-branch-flow.md -- a cut blocker
+# demanding a fresh signed + notarised daemon release that could not differ by
+# one byte.
+#
+# DENYLIST, NOT AN INCLUSION LIST. Andy's ruling, and the reason matters: an
+# inclusion list ("only crates/** counts") fails in the WRONG DIRECTION. Add a
+# new shipping directory, forget to list it, and the gate goes quietly green on
+# a genuinely stale daemon. A denylist fails closed both ways -- anything not
+# explicitly known-inert keeps the daemon RED.
+#
+# EVERY ENTRY CARRIES ITS REASON:
+#
+#   .github/**   CI configuration and workflow documentation. Not compiled, not
+#                in the release tarball. The tarball is OstlerAssistant.app
+#                wrapping the Mach-O; .github/ never reaches a customer.
+#
+#   *.md         Documentation. VERIFIED, not assumed: all 10 include_str! /
+#                include_bytes! sites in ostler-assistant embed .txt or .rs and
+#                none embeds a .md. The one that would have mattered is
+#                crates/ostler-consent-gate/src/wording.rs -- consent text is
+#                legally significant -- and it embeds wording_data/*.txt, so a
+#                consent change moves a .txt and stays RED. If markdown is ever
+#                include_str!'d, DELETE THIS ENTRY.
+#
+#   docs/**      Documentation tree. Same argument as *.md, by location rather
+#                than extension, so a non-.md asset under docs/ is covered too.
+#
+# NOT denylisted on purpose, though it is tempting: tests/**. A test change can
+# encode a behaviour change, and the daemon's own test suite is part of how we
+# know the binary is sound. Silence there would be the inclusion-list failure
+# wearing different clothes.
+#
+# FAIL CLOSED ON DOUBT. UNKNOWN (API error, or a file list at the 300-entry cap
+# where the un-listed remainder could contain anything) is treated exactly like
+# NO. The only path to suppression is a positive, complete answer.
+# ---------------------------------------------------------------------------
+path_is_inert() { # <path> -> 0 if denylisted (cannot affect the shipped daemon)
+    case "$1" in
+        .github/*)  return 0 ;;
+        docs/*)     return 0 ;;
+        *.md)       return 0 ;;
+        *)          return 1 ;;
+    esac
+}
+
+# delta_is_docs_only <acct> <owner/repo> <base> <head>
+#   Echoes: YES | NO | UNKNOWN
+delta_is_docs_only() {
+    local acct="$1" repo="$2" base="$3" head="$4" rc files n
+    # One call: compare's files[] is the UNION of changed files across the whole
+    # range, so this does not scale with the number of commits.
+    api "$acct" "repos/$repo/compare/${base}...${head}" --jq '.files[].filename'
+    rc=$?
+    [ "$rc" -ne 0 ] && { echo "UNKNOWN"; return; }
+    files="$API_OUT"
+    # An EMPTY file list with a non-empty commit range is not "no changes" -- it
+    # is an answer we do not understand. Do not read it as docs-only.
+    [ -z "$files" ] && { echo "UNKNOWN"; return; }
+    n="$(printf '%s
+' "$files" | grep -c .)"
+    # GitHub caps compare files[] at 300. At the cap the list is potentially
+    # truncated and the unseen remainder could be anything at all.
+    [ "$n" -ge 300 ] && { echo "UNKNOWN"; return; }
+    while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        path_is_inert "$f" || { echo "NO"; return; }
+    done <<EOF
+$files
+EOF
+    echo "YES"
+}
+
+# ---------------------------------------------------------------------------
+# DAEMON RECENCY -- the fifth link.
+#
+# Links 1-4 bind the pin to the exact bytes a customer downloads, and bind
+# those bytes back to a source commit. They say nothing about whether that
+# commit is CURRENT. A daemon can be perfectly coherent -- valid tag, published
+# non-draft release, sidecar matching gui/Makefile, build-info matching the tag
+# -- and still sit far behind oa main with a launch-blocking fix in the gap.
+#
+# Measured 2026-08-12 on CM051 main 89ae51c: pin hub-v0.4.54 @ 782a6195 scored
+# "FRESH tag+sha256+build-info" while ostler-ai/ostler-assistant main HEAD was
+# 10b003a0 -- the WhatsApp merge -- 29 commits ahead. WhatsApp was merged and
+# reached nobody, and this gate was green on the daemon that omitted it. The
+# file header has promised this check since the gate was written ("proves
+# NOTHING has silently fallen behind live upstream HEAD -- including the daemon
+# + wiki-image inputs"); the body stopped honouring it for the daemon at
+# v1.0.16. A header is a claim about a gate, never the gate.
+#
+# Why it went missing, and why THIS form does not rot the same way: the old
+# check compared the pin against $DAEMON_INTEGRATION_BRANCH -- a hand-maintained
+# branch NAME. When that branch was abandoned the comparison read "diverged,
+# ahead 3, behind 123" on a healthy daemon, so it was removed rather than
+# re-anchored to something durable. This one compares against the daemon repo's
+# own tracked branch HEAD, which cannot be abandoned without abandoning the
+# product, and it gives a deliberate hold the same auditable, must-acknowledge
+# escape that vendor trees and wiki images already have. A hold is a loud
+# decision with a name on it, not a silent WARN.
+# ---------------------------------------------------------------------------
+check_daemon_recency() { # pin  daemon_commit
+    local pin="$1" commit="$2"
+    local oa_head verdict base rc
+    local hold_shas="" hold_grafted="" hold_reason="" rp="" unacked="" s ln
+
+    oa_head="$(gh_head ostler-ai ostler-ai/ostler-assistant "$OA_BRANCH")"
+    verdict="$(freshness_verdict ostler-ai ostler-ai/ostler-assistant "$commit" "$oa_head")"
+    base="${verdict%%:*}"
+
+    if [ "$base" = FRESH ]; then
+        n_fresh=$((n_fresh+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${commit:0:8}" "FRESH tag+sha256+build-info+recency"
+        return
+    fi
+    if [ "$base" != STALE ] && [ "$base" != DIVERGED ]; then
+        # UNREACH / UNRESOLVED. Never a false pass and never a false RED: the
+        # provenance chain already passed, so say exactly what is unasserted.
+        n_cannot=$((n_cannot+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "-" "CANNOT-VERIFY recency"
+        add_detail "daemon CANNOT-VERIFY recency (${verdict}): could not resolve ostler-ai/ostler-assistant ${OA_BRANCH} HEAD. The four provenance links PASSED; recency is unasserted, not green."
+        return
+    fi
+
+    # Behind live HEAD. Consult the hold_ack ledger. A row matches only if its
+    # pinned_sha_prefix is a prefix of the daemon commit -- so a re-pin
+    # invalidates the ack and forces the decision to be made again.
+    if [ -f "$DAEMON_HOLD_ACK_FILE" ]; then
+        while IFS=$'\t' read -r rpin rshas rgraft rreason; do
+            case "$rpin" in ''|'#'*) continue ;; esac
+            case "$commit" in "$rpin"*) ;; *) continue ;; esac
+            rp="$rpin"
+            hold_shas="$rshas"
+            hold_grafted="$(printf '%s' "$rgraft" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+            hold_reason="$rreason"
+            break
+        done < "$DAEMON_HOLD_ACK_FILE"
+    fi
+
+    # Before calling a lag a defect, ask whether the delta can affect the
+    # shipped daemon at all. Suppression here is NOT a hold: a hold is a
+    # deliberate decision to ship known-stale code and needs a written reason.
+    # This is the narrower claim that nothing in the delta reaches the binary.
+    local docsonly; docsonly="$(delta_is_docs_only ostler-ai ostler-ai/ostler-assistant "$commit" "$oa_head")"
+    if [ "$docsonly" = "YES" ]; then
+        n_fresh=$((n_fresh+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "FRESH docs-only-delta"
+        add_detail "daemon: ${verdict} vs ostler-ai/ostler-assistant ${OA_BRANCH}, but EVERY file in the delta is documentation (.github/**, docs/**, *.md). None of it is compiled or shipped, so a re-cut could not change one byte. Not a hold_ack -- no stale code is being shipped. Any non-doc file in the delta returns this to RED."
+        return
+    fi
+
+    if [ -z "$hold_shas" ]; then
+        n_stale=$((n_stale+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "RED ${verdict}"
+        add_detail "daemon RED ${verdict} vs live ostler-ai/ostler-assistant ${OA_BRANCH}, NO hold_ack in $DAEMON_HOLD_ACK_FILE. The shipped daemon predates commits on the daemon's own main. Cut a new daemon release and re-pin, OR add a row (pinned_sha_prefix<TAB>delta_shas<TAB>true<TAB>reason) covering every delta commit."
+        if [ "$docsonly" = "UNKNOWN" ]; then
+            add_detail "    (the docs-only check could not complete, so it did not suppress anything -- this RED stands on the delta itself)"
+        fi
+        return
+    fi
+    if [ -z "$hold_reason" ]; then
+        n_stale=$((n_stale+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "RED hold_ack no-reason"
+        add_detail "daemon RED: $DAEMON_HOLD_ACK_FILE row ($rp) has hold_ack_shas but an empty reason. Record WHY the daemon pin is held behind its own main."
+        return
+    fi
+    if [ "$hold_grafted" != true ]; then
+        n_stale=$((n_stale+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "RED hold_ack no-grafted-assert"
+        add_detail "daemon RED: $DAEMON_HOLD_ACK_FILE row ($rp) has hold_ack_shas + reason but shipping_bugfixes_grafted is not true. Assert that no held commit is a shipping bugfix, then set the column to true."
+        return
+    fi
+
+    api ostler-ai "repos/ostler-ai/ostler-assistant/compare/${commit}...${oa_head}" \
+        --jq '.commits[].sha'
+    rc=$?
+    if [ "$rc" -eq 2 ]; then
+        n_cannot=$((n_cannot+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "CANNOT-VERIFY hold_ack (compare unreachable)"
+        return
+    fi
+    if [ "$rc" -eq 1 ]; then
+        n_stale=$((n_stale+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "RED compare-failed"
+        return
+    fi
+    while IFS= read -r ln; do
+        s="$(printf '%s' "$ln" | tr -d '[:space:]')"
+        [ -z "$s" ] && continue
+        if ! sha_in_list "$s" "$hold_shas"; then
+            unacked="$unacked $s"
+        fi
+    done <<< "$API_OUT"
+    if [ -n "$unacked" ]; then
+        n_stale=$((n_stale+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "RED hold_ack partial"
+        add_detail "daemon RED: delta commit(s) NOT in hold_ack_shas:$unacked"
+        add_detail "    classify each: cut a daemon release containing it (then re-pin + re-run), or add its SHA to hold_ack_shas with a reason."
+        return
+    fi
+    n_held=$((n_held+1))
+    add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "HELD hold_ack"
+    add_detail "daemon HELD: all delta commits acknowledged (reason: ${hold_reason})"
+}
+
 check_daemon() {
 sh_pin="$(grep -m1 -E '^OSTLER_ASSISTANT_VERSION=' "$INSTALL_SH" 2>/dev/null \
           | sed -E 's/.*:-([0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._]+)?)\}.*/\1/')"
@@ -509,16 +816,103 @@ else
         if [ "$h" = "UNREACH" ]; then daemon_unreach=1; continue; fi
         if [ "$h" != "NONE" ] && [ -n "$h" ]; then daemon_commit="$h"; break; fi
     done
-    integ_head="$(gh_head ostler-ai ostler-ai/ostler-assistant "$DAEMON_INTEGRATION_BRANCH")"
     if [ -z "$daemon_commit" ]; then
-        if [ "$daemon_unreach" = "1" ] || [ "$integ_head" = "UNREACH" ]; then
+        if [ "$daemon_unreach" = "1" ]; then
             n_cannot=$((n_cannot+1)); add_row "daemon" "$daemon_pin" "-" "CANNOT-VERIFY unreachable"
         else
             n_stale=$((n_stale+1)); add_row "daemon" "$daemon_pin" "-" "RED no-tag-for-pin"
         fi
     else
-        verdict="$(freshness_verdict ostler-ai ostler-ai/ostler-assistant "$daemon_commit" "$integ_head")"
-        classify_simple "daemon (${daemon_pin})" "$daemon_commit" "$integ_head" "$verdict"
+        # ARTEFACT-PROVENANCE CHAIN, not a branch comparison.
+        #
+        # This check used to compare the pin against $DAEMON_INTEGRATION_BRANCH,
+        # defaulted to "integration/hub-v1.0.9". By v1.0.16 that branch was
+        # abandoned: the comparison read "diverged, ahead 3, behind 123" and went
+        # RED on a perfectly coherent daemon. A gate keyed to a hand-maintained
+        # branch NAME rots silently and then cries wolf -- and the next person
+        # rightly ignores it, which is how a real divergence would have sailed
+        # through. Worse, the branch it named was not even the shipping line: the
+        # pin is a TAG, and install.sh downloads a RELEASE ASSET.
+        #
+        # So verify what actually reaches the customer, which cannot rot:
+        #   1. the pinned version resolves to a tag           (done above)
+        #   2. a published, non-draft release exists for it on the repo
+        #      install.sh really fetches from
+        #   3. that release's .sha256 sidecar == the Makefile's DAEMON_SHA256
+        #      -- binds the pin to the exact BYTES the installer downloads
+        #   4. its build-info.json commit_sha == the tag's commit
+        #      -- binds those bytes back to source
+        # Any break in the chain is RED and names which link failed.
+        rel_repo="$(grep -m1 -E 'OSTLER_ASSISTANT_REPO:-' "$INSTALL_SH" 2>/dev/null \
+                    | sed -E 's/.*:-([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\}.*/\1/')"
+        rel_repo="${rel_repo:-ostler-ai/ostler-releases}"
+        mk_sha="$(grep -m1 -E '^DAEMON_SHA256[[:space:]]*\?=' "$GUI_MAKEFILE" 2>/dev/null \
+                  | sed -E 's/.*\?=[[:space:]]*([0-9a-f]{64}).*/\1/')"
+        # Every call goes through `api ostler-ai`, NOT bare `gh` (v1018-D029).
+        # As first written this block shelled out to `gh` directly, which
+        # bypassed three things the rest of this script depends on:
+        #   1. $GH_BIN / FRESHNESS_GH_BIN -- so the daemon chain could not be
+        #      mocked, and its self-test cases could never pass. The gate sat
+        #      red from 2026-08-01 through v1.0.16/17/18 for exactly this.
+        #   2. run_to $GH_API_TIMEOUT -- an unbounded API call in a gate that
+        #      times out every other call.
+        #   3. the rc=2 UNREACHABLE signal -- so a network failure here was
+        #      indistinguishable from "no release exists" and reported RED.
+        #      That is a FALSE POSITIVE in the fail-closed direction, which is
+        #      how a gate teaches people to ignore it.
+        rel_ep="repos/${rel_repo}/releases/tags/hub-v${daemon_pin}"
+        api ostler-ai "$rel_ep"; rel_rc=$?
+        rel_json="$API_OUT"
+
+        if [ "$rel_rc" -eq 2 ]; then
+            n_cannot=$((n_cannot+1))
+            add_row "daemon (${daemon_pin})" "$daemon_commit" "-" "CANNOT-VERIFY unreachable"
+            add_detail "daemon CANNOT-VERIFY: ${rel_repo} unreachable while resolving the published release. Not asserting anything about the artefact."
+        elif [ "$rel_rc" -ne 0 ] || [ -z "$rel_json" ]; then
+            n_stale=$((n_stale+1))
+            add_row "daemon (${daemon_pin})" "$daemon_commit" "-" "RED no-published-release"
+            add_detail "daemon RED: no published release hub-v${daemon_pin} on ${rel_repo} -- install.sh downloads from there, so every customer install would 404."
+        else
+            d_draft="$(printf '%s' "$rel_json" | sed -n 's/.*"draft":[[:space:]]*\([a-z]*\).*/\1/p' | head -1)"
+            side_id=""
+            api ostler-ai "$rel_ep" --jq '.assets[]|select(.name|endswith(".sha256"))|.id' \
+                && side_id="$(printf '%s' "$API_OUT" | head -1)"
+            pub_sha=""
+            [ -n "$side_id" ] && api ostler-ai "repos/${rel_repo}/releases/assets/${side_id}" \
+                -H "Accept: application/octet-stream" \
+                && pub_sha="$(printf '%s' "$API_OUT" | awk '{print $1; exit}')"
+            bi_id=""
+            api ostler-ai "$rel_ep" --jq '.assets[]|select(.name|endswith("build-info.json"))|.id' \
+                && bi_id="$(printf '%s' "$API_OUT" | head -1)"
+            bi_commit=""
+            [ -n "$bi_id" ] && api ostler-ai "repos/${rel_repo}/releases/assets/${bi_id}" \
+                -H "Accept: application/octet-stream" \
+                && bi_commit="$(printf '%s' "$API_OUT" \
+                | sed -n 's/.*"commit_sha":[[:space:]]*"\([0-9a-f]*\)".*/\1/p' | head -1)"
+
+            if [ "$d_draft" = "true" ]; then
+                n_stale=$((n_stale+1))
+                add_row "daemon (${daemon_pin})" "$daemon_commit" "draft" "RED release-is-draft"
+                add_detail "daemon RED: release hub-v${daemon_pin} on ${rel_repo} is a DRAFT -- not downloadable by a customer."
+            elif [ -n "$mk_sha" ] && [ -n "$pub_sha" ] && [ "$mk_sha" != "$pub_sha" ]; then
+                n_stale=$((n_stale+1))
+                add_row "daemon (${daemon_pin})" "${mk_sha:0:8}" "${pub_sha:0:8}" "RED sha256-mismatch"
+                add_detail "daemon RED: gui/Makefile DAEMON_SHA256 (${mk_sha}) != the published sidecar (${pub_sha}). The installer would reject the tarball it downloads."
+            elif [ -z "$pub_sha" ]; then
+                n_stale=$((n_stale+1))
+                add_row "daemon (${daemon_pin})" "$daemon_commit" "-" "RED no-sha256-asset"
+                add_detail "daemon RED: release hub-v${daemon_pin} has no .sha256 sidecar -- the pin cannot be bound to the shipped bytes."
+            elif [ -n "$bi_commit" ] && [ "${bi_commit}" != "${daemon_commit}" ]; then
+                n_stale=$((n_stale+1))
+                add_row "daemon (${daemon_pin})" "${daemon_commit:0:8}" "${bi_commit:0:8}" "RED built-from-other-commit"
+                add_detail "daemon RED: tag hub-v${daemon_pin} points at ${daemon_commit}, but the published binary's build-info.json says it was built from ${bi_commit}. The shipped daemon is not the tagged source."
+            else
+                # Links 1-4 passed: the pin is bound to the shipped bytes and
+                # those bytes to this source commit. Link 5 asks the question
+                # they cannot: is that commit current? See check_daemon_recency.
+                check_daemon_recency "$daemon_pin" "$daemon_commit"
+            fi
+        fi
     fi
 fi
 }
@@ -526,12 +920,27 @@ fi
 
 # ===========================================================================
 # 3. WIKI IMAGES  (install.sh digest -> provenance ledger -> vs CM044 main HEAD)
-#    Not a vendor tree: no hold_ack / exemption -- a stale wiki image is always RED.
+#    hold_ack (HR015 #238 sub-item 2, 2026-08-01 ORM): a wiki pin may sit
+#    behind live CM044 HEAD only if scripts/wiki_hold_ack.tsv carries a matching
+#    row (same key + same pinned_sha_prefix) whose hold_ack_shas covers EVERY
+#    delta commit AND whose reason is non-empty AND shipping_bugfixes_grafted
+#    is asserted true. Mirrors the vendor-tree hold_ack contract; any
+#    un-acknowledged delta commit stays fail-closed RED.
 # ===========================================================================
 check_wiki() {
 cm044_head="$(gh_head andygmassey andygmassey/CM044-PWG-Personal-Wiki "$CM044_BRANCH")"
 for key in wiki-compiler wiki-site; do
-    digest="$(grep -m1 -E "image: ghcr.io/ostler-ai/ostler-${key}@sha256:" "$INSTALL_SH" 2>/dev/null \
+    # Namespace-AGNOSTIC on purpose. CI (release-images.yml) publishes to
+    # ghcr.io/creativemachines-ai/*, but install.sh ships ghcr.io/ostler-ai/*
+    # -- the automated path does not feed the shipped path (CM044 #643). This
+    # grep was pinned to the CI namespace, so it never matched the shipped
+    # line and this check has NEVER verified a wiki digest: it reported
+    # "no-digest-in-install.sh" against an install.sh that has always carried
+    # one. It failed CLOSED, which is the only reason it was not a shipping
+    # defect -- had the namespaces been the other way round it would have
+    # verified an image the customer never pulls. Match any owner, and let the
+    # provenance ledger bind digest -> CM044 sha regardless of registry path.
+    digest="$(grep -m1 -E "image: ghcr\.io/[a-z0-9-]+/ostler-${key}@sha256:" "$INSTALL_SH" 2>/dev/null \
               | sed -E 's/.*@(sha256:[0-9a-f]+).*/\1/')"
     if [ -z "$digest" ]; then
         n_stale=$((n_stale+1))
@@ -553,7 +962,79 @@ for key in wiki-compiler wiki-site; do
         continue
     fi
     verdict="$(freshness_verdict andygmassey andygmassey/CM044-PWG-Personal-Wiki "$cm044_sha" "$cm044_head")"
-    classify_simple "wiki:$key" "$cm044_sha" "$cm044_head" "$verdict"
+    base="${verdict%%:*}"
+    # FRESH / UNREACH / unresolved: same behaviour as before.
+    if [ "$base" = FRESH ] || [ "$base" != STALE ] && [ "$base" != DIVERGED ]; then
+        classify_simple "wiki:$key" "$cm044_sha" "$cm044_head" "$verdict"
+        continue
+    fi
+    # STALE / DIVERGED: consult wiki_hold_ack.tsv. A row matches only if the
+    # key equals AND the pinned_sha_prefix is a prefix of the recorded CM044
+    # sha (defensive: a re-pin invalidates the ack, forcing re-decision).
+    hold_shas=""
+    hold_grafted=""
+    hold_reason=""
+    if [ -f "$WIKI_HOLD_ACK_FILE" ]; then
+        while IFS=$'\t' read -r rk rp rshas rgraft rreason; do
+            case "$rk" in ''|'#'*) continue ;; esac
+            [ "$rk" = "$key" ] || continue
+            case "$cm044_sha" in "$rp"*) ;; *) continue ;; esac
+            hold_shas="$rshas"
+            hold_grafted="$(printf '%s' "$rgraft" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+            hold_reason="$rreason"
+            break
+        done < "$WIKI_HOLD_ACK_FILE"
+    fi
+    if [ -z "$hold_shas" ]; then
+        n_stale=$((n_stale+1))
+        add_row "wiki:$key" "$cm044_sha" "$cm044_head" "RED ${verdict}"
+        add_detail "wiki:$key RED ${verdict} vs live CM044 HEAD, NO hold_ack in $WIKI_HOLD_ACK_FILE. Add a row (key<TAB>pinned_sha_prefix<TAB>delta_shas<TAB>true<TAB>reason) covering every delta commit, OR rebuild the wiki image + re-pin."
+        continue
+    fi
+    if [ -z "$hold_reason" ]; then
+        n_stale=$((n_stale+1))
+        add_row "wiki:$key" "$cm044_sha" "$cm044_head" "RED hold_ack no-reason"
+        add_detail "wiki:$key RED: $WIKI_HOLD_ACK_FILE row for $key ($rp) has hold_ack_shas but empty reason. Record WHY the pin is held."
+        continue
+    fi
+    if [ "$hold_grafted" != true ]; then
+        n_stale=$((n_stale+1))
+        add_row "wiki:$key" "$cm044_sha" "$cm044_head" "RED hold_ack no-grafted-assert"
+        add_detail "wiki:$key RED: $WIKI_HOLD_ACK_FILE row for $key ($rp) has hold_ack_shas + reason but shipping_bugfixes_grafted is not true. Graft the bugfixes among the held commits (or assert they are not launch-blocking), then set the column to true."
+        continue
+    fi
+    # Enumerate the live delta commits and require EVERY one is in hold_shas.
+    api andygmassey "repos/andygmassey/CM044-PWG-Personal-Wiki/compare/$cm044_sha...$cm044_head" \
+        --jq '.commits[].sha'
+    rc=$?
+    if [ "$rc" -eq 2 ]; then
+        n_cannot=$((n_cannot+1))
+        add_row "wiki:$key" "$cm044_sha" "$cm044_head" "CANNOT-VERIFY hold_ack (compare unreachable)"
+        continue
+    fi
+    if [ "$rc" -eq 1 ]; then
+        n_stale=$((n_stale+1))
+        add_row "wiki:$key" "$cm044_sha" "$cm044_head" "RED compare-failed"
+        continue
+    fi
+    unacked=""
+    while IFS= read -r ln; do
+        s="$(printf '%s' "$ln" | tr -d '[:space:]')"
+        [ -z "$s" ] && continue
+        if ! sha_in_list "$s" "$hold_shas"; then
+            unacked="$unacked $s"
+        fi
+    done <<< "$API_OUT"
+    if [ -n "$unacked" ]; then
+        n_stale=$((n_stale+1))
+        add_row "wiki:$key" "$cm044_sha" "$cm044_head" "RED hold_ack partial"
+        add_detail "wiki:$key RED: delta commit(s) NOT in hold_ack_shas:$unacked"
+        add_detail "    classify each: graft-the-bugfix (then re-run), or add its SHA to hold_ack_shas with a reason."
+        continue
+    fi
+    n_held=$((n_held+1))
+    add_row "wiki:$key" "$cm044_sha" "$cm044_head" "HELD hold_ack"
+    add_detail "wiki:$key HELD: all delta commits acknowledged (reason: ${hold_reason})"
 done
 }
 [ -z "$FRESHNESS_ONLY" ] && check_wiki
@@ -585,8 +1066,22 @@ if [ "$n_stale" -gt 0 ]; then
     exit 1
 fi
 if [ "$n_cannot" -gt 0 ]; then
-    echo "GATE: CANNOT VERIFY -- $n_cannot input(s) could not be checked against GitHub (unreachable)." >&2
-    echo "      This is fail-closed: the cut must NOT proceed on an unverified input. Restore network + re-run." >&2
+    echo "GATE: CANNOT VERIFY -- $n_cannot input(s) could not be checked against GitHub." >&2
+    # Name the CAUSE, because the two causes have different remedies and only
+    # one of them is "restore network". On cut run 31685172775 fifteen trees
+    # landed here for want of a credential while this line said "unreachable"
+    # and advised restoring the network -- an accurate exit code wearing the
+    # wrong explanation, which sends the operator at the wrong thing.
+    if [ "$n_unreadable" -gt 0 ]; then
+        echo "      $n_unreadable of them: the SOURCE REPO could not be read with the account the gate" >&2
+        echo "      used. GitHub answers 404 for a private repo exactly as for a missing one, so this" >&2
+        echo "      says nothing about the pin. Grant that token read access to the repos named above." >&2
+        echo "      Do NOT re-pin them: no evidence has been produced that they are stale." >&2
+    fi
+    if [ "$n_cannot" -gt "$n_unreadable" ]; then
+        echo "      $((n_cannot - n_unreadable)) of them: GitHub was unreachable (network or timeout). Restore network + re-run." >&2
+    fi
+    echo "      This is fail-closed: the cut must NOT proceed on an unverified input." >&2
     exit 3
 fi
 extra=""

@@ -810,7 +810,7 @@ def import_connections(
                 # candidate snapshot is loaded once and frozen; without this a
                 # one-shot bulk import (e.g. 3,810 LinkedIn connections) mints a
                 # fresh node for every repeat of a name -- the root cause of
-                # "Jay Livens x6" on a fresh install, which the incrementally
+                # "Jane Doe x6" on a fresh install, which the incrementally
                 # synced graph never hit (each daily run re-snapshots). Fires in
                 # dry-run too so the reported dedup reflects real behaviour.
                 resolver.register_person(

@@ -1,0 +1,102 @@
+# cut-manifests/v1.0.24.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.24.
+#
+# The v1.0.19 manifest carried 13 assertions and NOT ONE of them was a v1.0.19
+# decision -- each was inherited from v1.0.18's shape by rewriting the version
+# string. That is recorded in OS003 cuts/v1.0.19/MUST_CONTAIN.tsv as the reason
+# the freshness gate could not answer what this cut actually changed.
+#
+# So this file is written from what was MEASURED for this cut, not carried
+# forward. Where an assertion is inherited on purpose (the installer version
+# stamp), it says so and names the incident that keeps it.
+#
+# Every proof kind below is one verify_cut_manifest.py implements. A manifest
+# asserting something the verifier cannot evaluate is a wish, not a gate.
+# ============================================================================
+version: v1.0.24
+
+entries:
+
+  # --------------------------------------------------------------------------
+  # WhatsApp pair panel. Andy's non-negotiable, and it reached the payload only
+  # hours before this cut (CM051 #598). Two assertions, not one, because the
+  # near-miss was that the MODULE applied and the SYMBOLS did not.
+  # --------------------------------------------------------------------------
+  - id: v1024-whatsapp-pair-reader-in-payload
+    title: the shipped doctor payload contains agent/whatsapp_pair.py
+    incident: >-
+      HR015 #341 merged the panel into HR015, but the DMG ships CM051's
+      vendor/doctor. Before #598 the reader was absent from the payload, so a
+      cut would have carried a panel whose reader did not exist.
+    proof:
+      kind: file_exists_in_artefact
+      target: installer-app
+      path: "Contents/Resources/doctor/agent/whatsapp_pair.py"
+
+  - id: v1024-whatsapp-pair-strings-in-payload
+    title: the shipped web_ui_copy.py defines the WHATSAPP_PAIR_ strings the panel imports
+    incident: >-
+      #341's hunk for web_ui_copy.py did NOT apply during the graft -- the
+      vendored file has diverged and is shorter than upstream, so there was no
+      anchor. All 15 WHATSAPP_PAIR_* constants were missing while web_ui.py
+      imported them. Two of three files applying is not two thirds of a graft,
+      and a module-level check passes that happily.
+    proof:
+      kind: grep_in_artefact
+      target: installer-app
+      path: "Contents/Resources/doctor/agent/web_ui_copy.py"
+      pattern: "WHATSAPP_PAIR_HEADING"
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # Every daemon-binary LaunchAgent gets the bootstrap sweep (v1018-D019).
+  # --------------------------------------------------------------------------
+  - id: v1024-app-binary-agent-bootstrap-sweep
+    title: install.sh carries the sweep that bootstraps EVERY daemon-binary agent
+    incident: >-
+      HR015 #217 fixed EX_CONFIG for com.ostler.export-scan only. Measured
+      2026-08-12: 10 agents have the app binary as ProgramArguments[0] and 1
+      was guarded. launchd does not retry EX_CONFIG, so the other 9 park
+      permanently with both log files at zero bytes.
+    proof:
+      kind: grep_in_installer
+      pattern: "_ostler_ensure_app_binary_agents_bootstrap"
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # Wiki images. Re-pinned twice in one evening; the second move is the one
+  # that matters for a fresh-install walk.
+  # --------------------------------------------------------------------------
+  - id: v1024-wiki-compiler-digest
+    title: install.sh pins the v0.1.12 wiki-compiler digest
+    incident: >-
+      v0.1.11 predated CM044 #186 and #187, the AI Chats and Browsing
+      fresh-install 404 fixes. A box walk is the one scenario that exercises
+      those nav targets, so cutting at v0.1.11 would have shipped the 404s
+      into the walk they were found by.
+    proof:
+      kind: grep_in_installer
+      pattern: "ostler-wiki-compiler@sha256:00d1602fc56ef42a9c790aa6f375eaeac1dadf2ef004091704315ed572715566"
+      must_match: true
+
+  - id: v1024-wiki-site-digest
+    title: install.sh pins the v0.1.12 wiki-site digest
+    incident: same re-pin as the compiler; asserted separately so one moving without the other is caught
+    proof:
+      kind: grep_in_installer
+      pattern: "ostler-wiki-site@sha256:fd8b89c490e5f60889febf7f7dd5a34ccbc79ae20c5bb9fe07c0ee3a58ec2941"
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # INHERITED ON PURPOSE, and the incident is why.
+  # --------------------------------------------------------------------------
+  - id: v1024-installer-app-version-stamp
+    title: built OstlerInstaller.app CFBundleShortVersionString must equal 1.0.24
+    incident: v1.0.11 AND v1.0.12 both shipped an installer stamping "1.0.10"
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: "Contents/Info.plist"
+      key: "CFBundleShortVersionString"
+      value: "1.0.24"

@@ -154,8 +154,22 @@ class ParsedPreference:
             "observed_at": self.observed_at.isoformat() if self.observed_at else None
         }
         # Include extra metadata (frequency, source_count, etc.)
-        if self.extra:
-            payload["extra"] = self.extra
+        #
+        # PROVENANCE IS ALWAYS STATED, NEVER IMPLIED BY ABSENCE. Enrichment
+        # refuses to send a subject to a third party when the routing category
+        # was GUESSED rather than declared, and it reads that fact from here.
+        # There are 23 parsers and only csv_parser has anything to say about
+        # it, so the default belongs in the one place every row passes through
+        # rather than in 22 files that would each have to remember.
+        #
+        # The point of writing False explicitly is to give ABSENCE a single
+        # unambiguous meaning: a row with no `category_inferred` key was stored
+        # before this field existed, and eligibility treats that as unknown
+        # provenance and refuses. If this defaulted silently instead, "we never
+        # recorded it" and "the source declared it" would be the same value.
+        extra = dict(self.extra or {})
+        extra.setdefault("category_inferred", False)
+        payload["extra"] = extra
         return payload
 
 

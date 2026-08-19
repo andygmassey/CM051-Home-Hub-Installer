@@ -1,0 +1,120 @@
+# cut-manifests/v1.0.27.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.27.
+#
+# Three entries, and all three use kinds verify_cut_manifest.py actually
+# implements -- checked against its DISPATCH table rather than copied from a
+# predecessor, because a manifest asserting something the verifier cannot
+# evaluate is a wish, not a gate.
+#
+# WHAT THIS CUT IS FOR
+# --------------------
+# 1. The daemon moves hub-v0.4.55 -> hub-v0.4.56. v1.0.26 shipped .55. The two
+#    pins that name the Hub had drifted apart -- HUB_APP_SHA256 still held the
+#    hub-v0.4.55 sidecar value while DAEMON_VERSION already read 0.4.56 -- which
+#    is precisely the shape that ships a daemon and a Hub app from different
+#    builds. #722 re-pinned it.
+#
+# 2. A person-name scrub reaches the VENDORED shipping tree (#725). Earlier
+#    passes reported zero and were telling the truth about the ~9 modules and
+#    the pair-shaped regex they measured; against the whole committed tree they
+#    missed 11 CM051 files, and CM051 is public and those files are vendored
+#    into what the DMG carries.
+#
+# WHY THE SCRUB IS NOT ASSERTED AS A MANIFEST ENTRY, DELIBERATELY
+# --------------------------------------------------------------
+# The obvious entry would be a grep_in_dmg_tree for the names that were removed.
+# That would WRITE THOSE NAMES INTO A PUBLIC REPOSITORY in order to check they
+# are not in a public artefact, which is the same disclosure by another route.
+# A gate's positive control must never carry the thing it hunts.
+#
+# The scrub is gated instead by bin/pii_name_guard.py, a permit-list wired into
+# scripts/run_all_cut_gates.sh, which composes its known-bad from fragments at
+# RUNTIME and never stores one. Measured on this cut base: rc=0, 989 files,
+# 7800 candidate tokens, 0 findings across all four classes, positive control
+# fired and the negative half held. Its own caveat travels with that green:
+# 1654 baseline pairs are UNREVIEWED legacy prose, so it blocks NEW names and
+# certifies nothing about the existing ones.
+# ============================================================================
+version: v1.0.27
+
+entries:
+
+  # --------------------------------------------------------------------------
+  # THE THING v1.0.27 EXISTS TO CHANGE.
+  # --------------------------------------------------------------------------
+  # Asserts the SHIPPED PAYLOAD carries 0.4.56, not that a download step ran.
+  # A green fetch proves a download happened; it does not prove the payload
+  # reached the DMG, and that gap is the shape of #225, where a stale Ostler.app
+  # shipped while every step reported success.
+  #
+  # This kind reads ostler-payload/VERSION and compares it to the cut's
+  # DAEMON_VERSION pin, descending into the nested Hub bundle when the target is
+  # the outer OstlerInstaller. It does NOT compare the daemon binary's
+  # --version, which structurally cannot match: the Cargo workspace version is
+  # frozen at 0.4.1 by design and releases go by git tag.
+  - id: v1027-payload-carries-the-0456-daemon
+    title: the shipped payload is the hub-v0.4.56 daemon, not the .55 that v1.0.26 cut
+    incident: >-
+      v1.0.26 shipped hub-v0.4.55. Moving to .56 is this cut's headline change,
+      and the two pins naming the Hub had been out of lockstep: HUB_APP_SHA256
+      held the hub-v0.4.55 sidecar value while DAEMON_VERSION already said
+      0.4.56, so a cut in that window would have paired a .56 daemon with a .55
+      Hub app. #722 re-pinned it.
+
+      Both pins were re-verified against their PUBLISHED sidecars for this cut
+      rather than inherited from the PR: the daemon tarball is
+      e918c96c... (equal to gui/Makefile DAEMON_SHA256 and to the tarball's own
+      build-info.json signed_by block) and the Hub app tarball is
+      676efe8d... (equal to gui/Makefile HUB_APP_SHA256). The release tag
+      hub-v0.4.56 is ANNOTATED, so it was dereferenced through the tag object
+      0c7b8e84 to commit acf991bf rather than pinned at the tag object, which
+      would have named a non-commit and failed every ancestry check in a way
+      that reads as a stale daemon.
+    proof:
+      kind: payload_version_matches_daemon_version
+
+  # --------------------------------------------------------------------------
+  # The Hub app must REACH the artefact. Regression guard, kept from v1.0.26.
+  # --------------------------------------------------------------------------
+  # Eight consecutive tagged cuts produced no DMG at all because OSTLER_APP_PATH
+  # defaulted to a sibling checkout that cannot exist on a hosted runner. Before
+  # that, a missing Hub app was NON-FATAL and cut a silently Hub-less DMG, which
+  # the customer met as install.sh's "Ostler.app not found" (v1018-D668).
+  # Keeping this entry costs nothing and is the only thing standing between that
+  # defect and a customer if the fetch or the staging regresses.
+  - id: v1027-hub-app-reaches-the-artefact
+    title: the shipped installer actually carries Ostler.app
+    incident: >-
+      v1018-D668: a missing Hub app was non-fatal, so a Hub-less DMG shipped
+      with every step green. #624 added download-hub-app so the demand can be
+      satisfied on a runner; the gate itself was never the defect and is not
+      loosened. Asserted against the artefact rather than the fetch step.
+    proof:
+      kind: file_exists_in_artefact
+      target: daemon-app
+      path: "Contents/MacOS/ostler-hub"
+
+  # --------------------------------------------------------------------------
+  # The version stamp.
+  # --------------------------------------------------------------------------
+  - id: v1027-installer-version-stamp
+    title: the shipped OstlerInstaller.app declares 1.0.27, not a stale predecessor
+    incident: >-
+      Task #171 records the build pipeline failing to bump
+      CFBundleShortVersionString on a cut, which ships an installer reporting
+      the previous version to the person walking it. This cut moves the stamp
+      1.0.26 -> 1.0.27 across all 5 sites (gui/project.yml x2,
+      project.pbxproj x2, Info.plist x1) with 0 residual in those files.
+
+      The 5 was MEASURED, not assumed: a tree-wide search found 20 further
+      files mentioning 1.0.26, every one of them historical prose about the
+      v1.0.26 cut (workflow comments, provenance records, box-walk notes).
+      Those must NOT move, and a global replace would have rewritten the
+      record of what an earlier cut did.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: "Contents/Info.plist"
+      key: CFBundleShortVersionString
+      value: "1.0.27"

@@ -1,0 +1,109 @@
+# cut-manifests/v1.0.14.yaml
+# ============================================================================
+# Point-in-time contract of what the v1.0.14 DMG cut MUST contain.
+#
+# Every entry is a fix that has slipped, or would silently slip, without an
+# artefact-level proof. The verifier walks this file + permanent.yaml before
+# codesign. Any FAIL fails the cut BEFORE signing (fail-closed).
+#
+# Once v1.0.14 ships, entries that are truly permanent (never-regress) should
+# be promoted into permanent.yaml so v1.0.15 and beyond keep proving them.
+#
+# Format: see cut-manifests/README.md.
+# ============================================================================
+
+version: v1.0.14
+description: |
+  v1.0.14 cut contract. Consumes permanent.yaml + these entries. Fails cut on
+  any RED before codesign. This cut ships with:
+    - Build-info sidecar consumption on the daemon pin (Stream 2 of the
+      v1.0.14 sidecar rollout; pairs with oa #259 Stream 1 sidecar emitter
+      and the Stream 3 backfill sidecars at HR015 launch/backfill-sidecars/).
+      Sidecar cross-check catches tag/pin/tarball drift a plain
+      pinned_artefact_freshness gate cannot see (spec:
+      launch/BUILD_INFO_SIDECAR_SPEC_v1.0.14.md).
+
+entries:
+
+  # --------------------------------------------------------------------------
+  # Installer version stamp -- DMG-boundary assertion (pattern from v1.0.13)
+  # --------------------------------------------------------------------------
+  # Sibling of the source-consistency gate (tests/test_installer_version_
+  # consistency.sh); this proves the BUILT OstlerInstaller.app stamps 1.0.14.
+  # Together they catch both half-bump and no-bump failure modes.
+  - id: v1014-installer-app-version-stamp
+    title: built OstlerInstaller.app CFBundleShortVersionString must equal 1.0.14
+    source_pr: andygmassey/CM051-Home-Hub-Installer#481
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: "Contents/Info.plist"
+      key: "CFBundleShortVersionString"
+      value: "1.0.14"
+
+  # --------------------------------------------------------------------------
+  # Build-info sidecar present for pinned daemon (Stream 2, v1.0.14 rollout)
+  # --------------------------------------------------------------------------
+  # Defensive backstop: any pinned daemon MUST have a matching
+  # `.build-info.json` sidecar attached to its GitHub release, OR a local
+  # backfill sidecar under `${HR015_DIR}/launch/backfill-sidecars/`.
+  #
+  # For v1.0.14 today (2026-07-31) the daemon pin is likely hub-v0.4.43, which
+  # has only a Stream 3 reconstructed backfill sidecar (`reconstructed: true`).
+  # allow_reconstructed:true accepts that; the gate reports
+  # "verified-with-caveat".
+  #
+  # Once Stream 1 (oa #259) lands and the first hub-v0.4.44 is built with a
+  # non-reconstructed sidecar, this entry grades as full "verified" without
+  # any change to the manifest. When v1.0.14 ships cleanly, promote this to
+  # permanent.yaml (and consider dropping allow_reconstructed:true once no
+  # reconstructed sidecars remain in the pin path).
+  - id: v1014-daemon-sidecar-present
+    title: pinned daemon release must carry a .build-info.json sidecar
+    incident: v1.0.13 near-miss + human-memory-only build provenance (see BUILD_INFO_SIDECAR_SPEC_v1.0.14.md §1)
+    source_pr: andygmassey/CM051-Home-Hub-Installer (Stream 2, pairs with oa #259)
+    proof:
+      kind: verify_build_info_sidecar_present
+      pinned_version_source:
+        file: "gui/Makefile"
+        pattern: 'DAEMON_VERSION\s*[?:]?=\s*(\d+\.\d+\.\d+)'
+      tag_format: "hub-v{version}"
+      source_repo: "ostler-ai/ostler-assistant"
+      allow_reconstructed: true
+      local_sidecar_dir: "${HR015_DIR}/launch/backfill-sidecars"
+
+  # --------------------------------------------------------------------------
+  # Sidecar-aware daemon freshness (Stream 2 opt-in on top of #484 primitive)
+  # --------------------------------------------------------------------------
+  # Extends the existing permanent-daemon-freshness gate to additionally
+  # cross-check the sidecar's commit_sha against the resolved tag SHA and the
+  # dirty_worktree/tamper fields. Duplicates permanent-daemon-freshness's
+  # existence intentionally: this per-cut entry adds the SIDECAR half without
+  # touching the permanent entry until v1.0.14 proves the flow in a real cut.
+  #
+  # verify_tarball_sha:false for this cut (would download the ~30MB tarball
+  # per gate run; opt-in for a later cut once the daemon build is emitting
+  # real signed_by.tarball_sha256 values from Stream 1).
+  - id: v1014-daemon-freshness-with-sidecar
+    title: pinned daemon must be fresh vs oa/main crates/ AND agree with its build-info sidecar
+    incident: closes the retroactive gap left by v1.0.13 near-miss (spec §5.A)
+    source_pr: andygmassey/CM051-Home-Hub-Installer (Stream 2)
+    proof:
+      kind: pinned_artefact_freshness
+      artefact: "daemon (ostler-assistant) [sidecar-aware]"
+      pinned_version_source:
+        file: "gui/Makefile"
+        pattern: 'DAEMON_VERSION\s*[?:]?=\s*(\d+\.\d+\.\d+)'
+      tag_format: "hub-v{version}"
+      source_repo: "ostler-ai/ostler-assistant"
+      source_paths:
+        - "crates/**"
+      ignore_commits_matching:
+        - "^chore\\(fmt\\)"
+        - "^docs:"
+        - "^chore\\(docs\\)"
+      # v1.0.14 opt-in: cross-check the release's build-info sidecar.
+      consume_build_info_sidecar: true
+      allow_reconstructed: true
+      local_sidecar_dir: "${HR015_DIR}/launch/backfill-sidecars"
+      verify_tarball_sha: false

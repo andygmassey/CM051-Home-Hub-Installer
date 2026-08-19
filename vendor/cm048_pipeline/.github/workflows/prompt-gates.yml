@@ -1,0 +1,74 @@
+name: prompt-gates
+
+# WHY THIS EXISTS, AND WHY IT IS DELIBERATELY NARROW.
+#
+# CM048 had exactly ONE workflow (operator-pii-scan.yml) and it runs no tests.
+# The repo carries 35 test files and 599+ collected tests, and NOTHING in CI has
+# ever executed a single one of them.
+#
+# That was about to swallow a gate of mine. The PR that adds this file also adds
+# tests/test_prompt_examples_do_not_teach_placeholders.py -- a 209-line guard
+# against the D014c defect, where a worked example in a prompt taught the model
+# two conventions at once and `{user_email}` reached a customer's People page. It
+# passed by hand, and after merge nothing would ever have run it again. An
+# unwired gate is decoration, which is the exact class this codebase has spent
+# the day removing from the cut pipeline.
+#
+# WHY NOT RUN THE WHOLE SUITE. Measured 2026-08-13: 6 test files fail at
+# collection and 10 more fail at runtime, all with the identical cause --
+# `ostler_security` is not installed. That module lives in the HR015 repo and is
+# a HARD requirement by design (CM048 refuses to start ingest without it rather
+# than risk unencrypted databases, which is correct and must not be softened to
+# make CI green). Wiring the full suite therefore needs a cross-repo install of
+# a private dependency. That is real work, it is not this PR's job, and pretending
+# otherwise would either produce a permanently red gate or invite someone to
+# weaken the security refusal to silence it.
+#
+# So this runs the prompt gates, which need no dependency beyond the standard
+# library, and it says plainly in its own name what it covers. The full-suite
+# wiring is tracked separately.
+
+on:
+  pull_request:
+    paths:
+      - 'prompts/**'
+      - 'tests/test_prompt_examples_do_not_teach_placeholders.py'
+      - '.github/workflows/prompt-gates.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  prompt-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+
+      # A worked example inside a prompt is a SHAPE the model reproduces, not
+      # prose it reads. This asserts no output-example fence mixes filled values
+      # with placeholder tokens, which is what taught the model to emit
+      # "{user_email}" verbatim into a rendered page.
+      - name: Prompt examples must not teach placeholders
+        run: python -m pytest tests/test_prompt_examples_do_not_teach_placeholders.py -q
+
+      # The guard is worthless if it silently stops matching the tree. Assert the
+      # population it examines is non-trivial, so a zero denominator can never be
+      # mistaken for a clean sweep.
+      - name: Prompt population is non-trivial
+        run: |
+          set -euo pipefail
+          n=$(find prompts -name '*.md' -type f | wc -l | tr -d ' ')
+          echo "prompt files: $n"
+          if [ "$n" -lt 10 ]; then
+            echo "::error::only $n prompt files found; the gate is examining almost nothing" >&2
+            exit 1
+          fi

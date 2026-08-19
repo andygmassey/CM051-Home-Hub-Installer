@@ -33,7 +33,34 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
+  # The PREDICATE's own controls, in their OWN JOB rather than as a step ahead
+  # of the gate. As sibling steps they would mask: a failing self-test skips
+  # everything after it, so a red run would never report what the gate itself
+  # said. verify_ci_steps_are_maskless caught exactly that on the first push of
+  # this change, which is the #683 shape it exists for. Same shape as
+  # swift-tests.yml's verifier-self-test job.
+  #
+  # Control (1) is the state of main on 2026-08-16 -- 1.0.32 with a uniformly
+  # frozen 2500 -- and it must go RED. Control (7) proves a version outside the
+  # encoded scheme is CANNOT-RUN rather than a quiet pass.
+  predicate-self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The gate can still tell a frozen build number from a fresh one
+        run: bash tests/test_installer_version_consistency.sh --self-test
+      - name: Parses under bash 3.2-compatible syntax
+        if: always()
+        run: bash -n tests/test_installer_version_consistency.sh
+
   version-consistency:
     runs-on: ubuntu-latest
     steps:
@@ -45,5 +72,5 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Installer version-consistency gate (#171)
+      - name: Installer version-consistency gate (#171 agreement, #703 derivation)
         run: bash tests/test_installer_version_consistency.sh

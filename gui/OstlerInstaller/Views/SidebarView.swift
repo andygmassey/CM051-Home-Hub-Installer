@@ -209,7 +209,15 @@ private struct SidebarRow: View {
             switch s {
             case .ok:
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.ostlerForest)
-            case .warn:
+            // #839: a step killed by its cap, or one whose child exited
+            // non-zero, gets the SAME amber warning glyph as an in-line
+            // warn. Deliberately not the red xmark, which stays reserved
+            // for a fatal install failure: these steps are best-effort
+            // and the install genuinely completed. What changes is only
+            // that they no longer draw the green tick of a step that did
+            // its job, which is what a 90-second timeout that ingested
+            // nothing was drawing before.
+            case .warn, .timeout, .error:
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.ostlerOxbloodWarm)
             case .fail:
                 Image(systemName: "xmark.circle.fill").foregroundStyle(Color.ostlerOxblood)

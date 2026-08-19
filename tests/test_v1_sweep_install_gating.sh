@@ -40,7 +40,9 @@
 #          defaulted INGEST_DIR + SYNC_STATE_DIR to ~/.zeroclaw/, so a
 #          ~/.zeroclaw/ dir still grew on the customer's disk.
 # Fix 9 -- the battery warning still promised "20-40 minutes" after Fix B
-#          harmonised every other estimate to "15-60 minutes".
+#          harmonised every other estimate. Both limbs now live in Fix B,
+#          which owns the whole-install duration claim on all three
+#          customer surfaces and pins the MEASURED figure.
 
 set -euo pipefail
 
@@ -142,20 +144,31 @@ if grep -Eq '^# Same 90s wall-clock cap' "$INSTALL_SH"; then
     failure "Fix A: a 'Same 90s wall-clock cap' comment survives -- the cap only fires with coreutils present, the comment must say so"
 fi
 
-# ── Fix B: honest install-duration promise (no more 10-15 min) ─────
-if grep -Eq '10-15 minutes|10-15 min|10 to 15' "$INSTALL_SH"; then
-    failure "Fix B: a '10-15 minute' under-promise survives in install.sh (a real install runs ~47 min)"
+# ── Fix B: honest whole-install duration promise ────────────────────
+# MEASURED, not estimated. The v1.0.33 box walk on a 16 GB Mini
+# (2026-08-17) recorded 4083s of step time and 70 minutes wall clock,
+# on a machine that had already downloaded nothing. Every range this
+# product has ever printed -- 10-15, 20-40, 15-60, 30-60 -- sits BELOW
+# that single real measurement, so each one is an under-promise a
+# customer can catch us on. The agreed honest claim is
+# "45 minutes to a few hours": the floor is download-bound (7.2 GB of
+# models) and the ceiling is history-bound.
+#
+# Three surfaces print it and all three must agree, because a customer
+# reads the GUI hint, the terminal banner and the strings catalogue in
+# the same sitting.
+# The claim itself lives in ONE place -- scripts/verify_install_duration_honesty.sh
+# -- so it cannot drift between limbs the way Fix B and Fix 9 did. Its own
+# controls are scripts/tests/test_install_duration_honesty.sh (16 of them).
+_DUR_GATE="$REPO_ROOT/scripts/verify_install_duration_honesty.sh"
+if [[ ! -x "$_DUR_GATE" ]]; then
+    failure "Fix B: scripts/verify_install_duration_honesty.sh is missing or not executable -- the duration claim has no owner"
+elif ! _dur_out="$(bash "$_DUR_GATE" "$REPO_ROOT" 2>&1)"; then
+    while IFS= read -r _dur_line; do
+        [[ -n "$_dur_line" ]] && failure "Fix B: $_dur_line"
+    done <<< "$_dur_out"
 fi
-if grep -Eq '10-15 minute|10 to 15' "$STRINGS"; then
-    failure "Fix B: a '10-15 minute' under-promise survives in the strings catalogue"
-fi
-if [[ -f "$HINTCOPY" ]] && grep -Eq '10 to 15 minutes' "$HINTCOPY"; then
-    failure "Fix B: a '10 to 15 minutes' under-promise survives in HintCopy.json"
-fi
-# The new copy must give the wider, history-dependent range somewhere.
-if ! grep -Eq '15-60 minutes|15 to 60 minutes' "$INSTALL_SH"; then
-    failure "Fix B: install.sh never gives the honest 15-60 minute range"
-fi
+unset _DUR_GATE _dur_out _dur_line
 
 # ── Fix 6: CONTEXT.md is written to the daemon's true workspace dir ─
 # The identity belt writes IDENTITY.md/SOUL.md to
@@ -217,17 +230,18 @@ if ! grep -Eq 'mkdir -p .*ICAL_INGEST_DIR.*ICAL_SYNC_STATE_DIR|mkdir -p .*ICAL_S
     failure "Fix 8: the ical ingest / sync-state dirs are not pre-created by the installer"
 fi
 
-# ── Fix 9: Phase-3 install duration is the honest figure, no stale stragglers ──
-#   #350 (W7, #573/#596) deliberately supersedes the older "15-60 minutes"
-#   harmonisation with honest per-phase figures: the heavy Phase 3 (Docker +
-#   Ollama + first-time setup) is "30 to 60 minutes" — matching the live
-#   install walk. The guard still pins an exact figure for this key + rejects
-#   the old "20-40 minutes" straggler.
-if grep -Eq '20-40 minutes|20 to 40 minutes' "$STRINGS"; then
-    failure "Fix 9: a '20-40 minutes' duration straggler survives in the strings catalogue"
-fi
-if ! grep -Eq 'MSG_WARN_PHASE_3_TAKES_10_15_MINUTES=.*30 to 60 minutes' "$STRINGS"; then
-    failure "Fix 9: the Phase-3 install duration is not the honest '30 to 60 minutes' figure"
+# ── Fix 9: Phase-3 install duration ── FOLDED INTO Fix B ─────────────
+# Fix 9 used to pin this key to "30 to 60 minutes" while Fix B pinned
+# install.sh to "15-60 minutes". Two gates owning the same customer
+# claim is how the product ended up printing four different durations
+# in one sitting. Fix B is now the single owner: it refuses every
+# superseded range (including the "20-40 minutes" straggler Fix 9
+# guarded) and requires the measured figure on all three surfaces.
+# The key name MSG_WARN_PHASE_3_TAKES_10_15_MINUTES is historical and
+# no longer describes its own value; renaming it is a strings-catalogue
+# change with its own blast radius, tracked separately.
+if ! grep -q 'MSG_WARN_PHASE_3_TAKES_10_15_MINUTES=' "$STRINGS"; then
+    failure "Fix 9: the Phase-3 duration warning key has vanished from the strings catalogue (customers on battery get no duration warning at all)"
 fi
 
 # ── Fix 10: Apple Health read-back proxied across the Doctor (#680) ─

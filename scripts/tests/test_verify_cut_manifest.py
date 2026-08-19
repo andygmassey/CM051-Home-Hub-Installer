@@ -9,6 +9,8 @@
 #      (or `pytest` from repo root)
 # ============================================================================
 
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -54,9 +56,16 @@ def fake_app(tmp_path):
     app = tmp_path / "OstlerInstaller.app"
     resources = app / "Contents" / "Resources"
     resources.mkdir(parents=True)
-    ostler_app_bin_dir = resources / "Ostler.app" / "Contents" / "MacOS"
+    ostler_app = resources / "Ostler.app"
+    ostler_app_bin_dir = ostler_app / "Contents" / "MacOS"
     ostler_app_bin_dir.mkdir(parents=True)
-    (ostler_app_bin_dir / "zeroclaw-desktop").write_bytes(
+    # Declare the executable the way a real bundle does. The resolver reads
+    # CFBundleExecutable rather than assuming a name, so the fixture has to
+    # carry an Info.plist -- that IS the contract under test.
+    import plistlib as _plistlib
+    with (ostler_app / "Contents" / "Info.plist").open("wb") as _fh:
+        _plistlib.dump({"CFBundleExecutable": "ostler-hub"}, _fh)
+    (ostler_app_bin_dir / "ostler-hub").write_bytes(
         b"BEGIN\nfake binary strings with iMessage and WhatsApp inside\nEND\n"
     )
     # Vendored context-refresh
@@ -627,9 +636,19 @@ def test_plist_env_key_present_regex_fallback_on_template(fake_cm051, fake_app):
 # ---------------------------------------------------------------------------
 
 
-def _write_probe(cm051: Path, name: str, body: str) -> Path:
-    """Register a probe script under scripts/box_walk_probes/."""
+def _write_probe(cm051: Path, name: str, body: str, subdir: str = "") -> Path:
+    """Register a probe script under scripts/box_walk_probes[/<subdir>]/.
+
+    `subdir` defaults to "" for the flat layout these tests have always used.
+    That default is itself part of what #778 fixed: every fixture here wrote
+    flat, the verifier only read flat, and the two agreed perfectly with each
+    other while disagreeing with the real repo, where seven of the eight probes
+    live one directory down. A fixture that encodes the shape the code handles
+    cannot fail on the shape the repo has.
+    """
     probes = cm051 / "scripts" / "box_walk_probes"
+    if subdir:
+        probes = probes / subdir
     probes.mkdir(parents=True, exist_ok=True)
     p = probes / f"{name}.sh"
     p.write_text("#!/usr/bin/env bash\n" + body + "\n")
@@ -695,6 +714,247 @@ def test_box_walk_probe_missing_probe_fails(fake_cm051, fake_app, monkeypatch):
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 1, r.stdout
     assert "not registered" in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# #778 -- the gate and the runner had ZERO probes in common.
+#
+# This gate resolved `scripts/box_walk_probes/<name>.sh`, flat. The runner,
+# scripts/box_walk_probes/run_box_walk.sh, globs `$HERE/probes/*.sh`. The repo
+# holds seven probes in `probes/` and one flat, so the two instruments looked at
+# disjoint sets: the gate could see only the probe the runner never runs, and
+# the seven the runner does run could not be named by any manifest.
+#
+# Nothing failed, because a manifest cannot declare a probe the gate cannot
+# resolve, so nobody ever wrote the rows. Silence, not an error.
+#
+# Every fixture above writes flat, which is why the existing suite was green
+# throughout: it agreed with the verifier about a layout the repo does not use.
+# ---------------------------------------------------------------------------
+
+
+def test_box_walk_probe_resolves_in_probes_subdir(fake_cm051, fake_app, monkeypatch):
+    """The seven real probes live in probes/. Before #778 this FAILED."""
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_probe(fake_cm051, "nested", "exit 0", subdir="probes")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-nested",
+        "title": "probe registered in the probes/ subdirectory",
+        "proof": {"kind": "box_walk_probe", "probe": "nested"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+
+
+def test_box_walk_probe_still_resolves_flat(fake_cm051, fake_app, monkeypatch):
+    """people_seed_and_retrieval is flat ON PURPOSE and must keep resolving.
+
+    It has no --self-test, so run_box_walk.sh would mark it BROKEN and discard
+    its result. Keeping it out of probes/ is the deliberate half of the split;
+    this gate must still be able to run it.
+    """
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_probe(fake_cm051, "flatprobe", "exit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-flat",
+        "title": "probe registered flat",
+        "proof": {"kind": "box_walk_probe", "probe": "flatprobe"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+
+
+def test_box_walk_missing_probe_names_every_path_searched(
+    fake_cm051, fake_app, monkeypatch
+):
+    """A registry FAIL must say where it looked, in both directories.
+
+    'not registered' alone sent a reader to the wrong directory for as long as
+    this defect existed. The message is the only thing standing between the
+    reader and the same wrong assumption.
+    """
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-absent",
+        "title": "probe in neither directory",
+        "proof": {"kind": "box_walk_probe", "probe": "absent_everywhere"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "box_walk_probes/probes/absent_everywhere.sh" in r.stdout, r.stdout
+    assert "box_walk_probes/absent_everywhere.sh" in r.stdout, r.stdout
+
+
+# ---------------------------------------------------------------------------
+# The coverage ratchet. This is the assertion that makes the defect
+# unrepeatable, and it runs against the REAL repo, not a fixture.
+#
+# Resolvability was only half the problem. A probe the gate CAN resolve is
+# still dark if no manifest names it, and seven of eight were in exactly that
+# state. permanent.yaml is the manifest that runs on every cut; a probe
+# declared only in a version manifest goes dark the moment that version ships,
+# which is precisely how the people probe was lost after v1.0.12.
+# ---------------------------------------------------------------------------
+
+_REPO = Path(__file__).resolve().parents[2]
+
+
+def _real_probe_names() -> set:
+    """Every probe file in the real registry, both directories, no lib/."""
+    root = _REPO / "scripts" / "box_walk_probes"
+    names = set()
+    for d in (root, root / "probes"):
+        if not d.is_dir():
+            continue
+        for f in d.glob("*.sh"):
+            if f.name == "run_box_walk.sh":
+                continue
+            names.add(f.stem)
+    return names
+
+
+def _permanent_probe_names() -> set:
+    import yaml
+    doc = yaml.safe_load((_REPO / "cut-manifests" / "permanent.yaml").read_text())
+    out = set()
+    for e in doc.get("entries") or []:
+        proof = e.get("proof") or {}
+        if proof.get("kind") == "box_walk_probe" and proof.get("probe"):
+            out.add(proof["probe"])
+    return out
+
+
+def test_real_registry_is_not_empty():
+    """POSITIVE CONTROL.
+
+    Both assertions below are set comparisons, and an empty left-hand side
+    satisfies every one of them. If a rename or a moved directory made the glob
+    return nothing, the coverage test would pass while measuring nothing, which
+    is the exact failure shape it exists to catch.
+    """
+    names = _real_probe_names()
+    assert len(names) >= 8, f"expected at least 8 probes on disk, found {sorted(names)}"
+    assert "people_seed_and_retrieval" in names
+    assert "install_error_honesty" in names
+
+
+def test_every_probe_on_disk_is_declared_in_permanent_manifest():
+    """A probe nothing declares is a probe the cut never runs."""
+    undeclared = _real_probe_names() - _permanent_probe_names()
+    assert not undeclared, (
+        "these probes exist on disk but no permanent.yaml row names them, so no "
+        f"cut will ever invoke them: {sorted(undeclared)}. Add a box_walk_probe "
+        "row to cut-manifests/permanent.yaml, or delete the probe."
+    )
+
+
+def test_every_declared_probe_resolves_to_a_real_file():
+    """The other direction: a manifest row naming a probe that is not there."""
+    sys.path.insert(0, str(SCRIPT.parent))
+    import verify_cut_manifest as V  # noqa: E402
+    missing = [
+        p for p in sorted(_permanent_probe_names())
+        if V._resolve_box_walk_probe(_REPO, p) is None
+    ]
+    assert not missing, (
+        f"permanent.yaml declares probes with no script: {missing}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# #713 -- a declared RUNTIME proof that could not run must not read as green.
+#
+# Measured on main before this change: OSTLER_BOX_HOST is set NOWHERE. Zero
+# hits across OS003 (the canonical cut mechanism); in CM051 only inside
+# scripts/tests/. Two manifests declare box_walk_probe rows, so those rows have
+# returned SKIP on every cut that has ever run, main() exits 0 because
+# `fails == 0`, and the summary printed a skip COUNT with no names.
+#
+# The four tests above pin the DEFAULT behaviour and must keep passing: SKIP is
+# right in CI and on a dev box, where there is no machine to probe. These tests
+# pin the cut behaviour, which is the opposite.
+# ---------------------------------------------------------------------------
+
+
+def test_runtime_proof_skip_is_a_failure_under_require_flag(fake_cm051, fake_app, monkeypatch):
+    """The row this whole primitive exists for cannot silently prove nothing."""
+    monkeypatch.delenv("OSTLER_BOX_HOST", raising=False)
+    _write_probe(fake_cm051, "smoke", "exit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-smoke",
+        "title": "runtime probe smoke check",
+        "proof": {"kind": "box_walk_probe", "probe": "smoke"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha", "--require-runtime-proofs")
+    assert r.returncode == 1, r.stdout
+    assert "no runtime proof happened" in r.stdout
+
+
+def test_require_flag_does_not_break_a_probe_that_can_run(fake_cm051, fake_app, monkeypatch):
+    """The flag must not turn a genuinely-runnable proof red.
+
+    Without this, the test above could be satisfied by a flag that fails
+    unconditionally -- which would be a gate that cannot pass, the mirror image
+    of a gate that cannot fail.
+    """
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_probe(fake_cm051, "green", "echo 'seeded + retrieved'\nexit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-green",
+        "title": "runtime probe passes",
+        "proof": {"kind": "box_walk_probe", "probe": "green"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha", "--require-runtime-proofs")
+    assert r.returncode == 0, r.stdout
+
+
+def test_skipped_rows_are_named_not_just_counted(fake_cm051, fake_app, monkeypatch):
+    """A skip COUNT is a silent cap. The HUMAN summary must name which proof did not happen.
+
+    🔴 THIS TEST WAS BLIND TWICE, IN DIFFERENT WAYS, AND BOTH WERE CAUGHT BY
+    PROVING RED RATHER THAN BY READING IT.
+
+    v1 asserted only that the row id appeared somewhere in stdout. Every check
+    already prints its own id via emit(), so it passed with the summary block
+    deleted -- satisfied by output the change does not touch.
+
+    v2 anchored to the summary header, and then failed against the FIX, because
+    the shared _run() helper always passes --json and the human summary branch
+    never executes under it. The JSON path was never the blind one: it emits
+    every result object including skips, with id and kind. The HUMAN path was,
+    and the human path is what a person reads during a cut.
+
+    So this runs WITHOUT --json deliberately. It is the only test in this file
+    that does, and that is the point.
+    """
+    monkeypatch.delenv("OSTLER_BOX_HOST", raising=False)
+    _write_probe(fake_cm051, "smoke", "exit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-named",
+        "title": "runtime probe smoke check",
+        "proof": {"kind": "box_walk_probe", "probe": "smoke"},
+    }])
+    run_env = {k: v for k, v in os.environ.items() if k != "DAEMON_VERSION"}
+    run_env.pop("OSTLER_BOX_HOST", None)
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT),
+         "--cm051-dir", str(fake_cm051),
+         "--app-path", str(fake_app),
+         "--skip-source-at-sha"],
+        capture_output=True, check=False, text=True, env=run_env,
+    )
+    assert r.returncode == 0, r.stdout
+    header = "Rows that did NOT prove anything (SKIP):"
+    assert header in r.stdout, "the human summary does not list skipped rows at all"
+    tail = r.stdout.split(header, 1)[1]
+    assert "box-walk-named" in tail, "the skipped row was not named in the summary block"
+    assert "box_walk_probe" in tail, "the summary block does not name the proof KIND"
 
 
 # ---------------------------------------------------------------------------
@@ -921,6 +1181,7 @@ class _FakeGh:
                  tag_target_sha: str | None = None,
                  token: str | None = "fake-token",
                  tag_error: str = "",
+                 repo_error: str = "",
                  source_repo: str = "ostler-ai/ostler-assistant",
                  tag: str = "hub-v0.4.39"):
         self.tag_sha = tag_sha
@@ -933,6 +1194,7 @@ class _FakeGh:
         self.tag_target_sha = tag_target_sha or tag_sha
         self.token = token
         self.tag_error = tag_error
+        self.repo_error = repo_error
         self.source_repo = source_repo
         self.tag = tag
         self.calls: list[str] = []
@@ -949,6 +1211,8 @@ class _FakeGh:
         if path == f"repos/{self.source_repo}/git/tags/{self.tag_sha}":
             return {"object": {"sha": self.tag_target_sha, "type": "commit"}}, ""
         if path == f"repos/{self.source_repo}":
+            if self.repo_error:
+                return None, self.repo_error
             return {"default_branch": self.default_branch}, ""
         if path == f"repos/{self.source_repo}/branches/{self.default_branch}":
             return {"commit": {"sha": self.head_sha}}, ""
@@ -1065,6 +1329,92 @@ def test_freshness_fail_when_source_paths_diverge(tmp_path):
     assert "Recovery" in result.detail
 
 
+def test_freshness_hold_ack_passes_when_all_diverging_acked(tmp_path):
+    """#238: a hotfix graft-forward may pin BEHIND HEAD when every diverging
+    commit is acknowledged by SHA with a written reason -> PASS (HELD)."""
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    commits = [
+        {"sha": "9528520a" + "0" * 32,
+         "commit": {"message": "feat(subscription): has_ever_paid sticky bit"}},
+        {"sha": "a2d2d23f" + "0" * 32,
+         "commit": {"message": "build(release): hub-vX.Y.Z tag push wiring"}},
+    ]
+    per_commit = {
+        "9528520a" + "0" * 32: [{"filename": "crates/subscription/src/lib.rs"}],
+        "a2d2d23f" + "0" * 32: [{"filename": "crates/release/src/tag.rs"}],
+    }
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40,
+                   commits=commits, per_commit_files=per_commit)
+    fake.install(mod)
+    entry = _daemon_entry()
+    entry["proof"]["hold_ack"] = {
+        # Full 40-char SHAs; the checker prefix-matches against 8-char diverging shas.
+        "shas": ["9528520a" + "0" * 32, "a2d2d23f" + "0" * 32],
+        "reason": "v1.0.13.1 hotfix pins graft-forward daemon; these oa/main commits are intentionally held",
+    }
+    result = mod.check_pinned_artefact_freshness(
+        entry, {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "PASS", result.detail
+    assert "hold_ack'd" in result.detail
+    assert "intentionally held" in result.detail
+
+
+def test_freshness_hold_ack_fails_when_reason_missing(tmp_path):
+    """#238: hold_ack.shas without a written reason FAILs closed -- an intentional
+    hold must be justified, not just silently waved through."""
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    commits = [{"sha": "9528520a" + "0" * 32,
+                "commit": {"message": "feat(subscription): has_ever_paid sticky bit"}}]
+    per_commit = {"9528520a" + "0" * 32: [{"filename": "crates/subscription/src/lib.rs"}]}
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40,
+                   commits=commits, per_commit_files=per_commit)
+    fake.install(mod)
+    entry = _daemon_entry()
+    entry["proof"]["hold_ack"] = {"shas": ["9528520a" + "0" * 32], "reason": "   "}
+    result = mod.check_pinned_artefact_freshness(
+        entry, {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL", result.detail
+    assert "reason" in result.detail.lower()
+
+
+def test_freshness_hold_ack_partial_fails_naming_only_unacked(tmp_path):
+    """#238: a hold_ack that does NOT cover the full delta narrows the failure to
+    the un-acknowledged commit(s) -- it never passes on a partial ack."""
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    commits = [
+        {"sha": "9528520a" + "0" * 32,
+         "commit": {"message": "feat(subscription): has_ever_paid sticky bit"}},
+        {"sha": "deadbeef" + "0" * 32,
+         "commit": {"message": "feat(hub): sneaky unreviewed change"}},
+    ]
+    per_commit = {
+        "9528520a" + "0" * 32: [{"filename": "crates/subscription/src/lib.rs"}],
+        "deadbeef" + "0" * 32: [{"filename": "crates/hub/src/lib.rs"}],
+    }
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40,
+                   commits=commits, per_commit_files=per_commit)
+    fake.install(mod)
+    entry = _daemon_entry()
+    entry["proof"]["hold_ack"] = {
+        "shas": ["9528520a" + "0" * 32],  # only the first commit is acknowledged
+        "reason": "acknowledging only the subscription commit; the hub one is not vouched for",
+    }
+    result = mod.check_pinned_artefact_freshness(
+        entry, {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL", result.detail
+    assert "sneaky" in result.detail            # the un-acknowledged commit IS named
+    assert "has_ever_paid" not in result.detail  # the acknowledged commit is filtered out
+
+
 def test_freshness_fail_when_tag_does_not_exist(tmp_path):
     cm051 = tmp_path / "cm051"
     cm051.mkdir()
@@ -1100,7 +1450,27 @@ def test_freshness_fail_when_source_repo_unreachable_is_not_silent_pass(tmp_path
     assert "connection reset" in result.detail
 
 
-def test_freshness_fail_when_missing_token(tmp_path):
+def test_freshness_SKIPS_when_missing_token(tmp_path, monkeypatch):
+    """No credential is CANNOT-RUN, not a stale artefact.
+
+    This test previously asserted FAIL, and that assertion was the defect
+    rather than the guard. Measured on the v1.0.26 cut: with no ostler-ai
+    token on the runner, the row rendered as
+
+        FAIL  permanent-daemon-freshness
+              pinned daemon tarball must contain all merged crates/* changes
+              could not resolve gh token for owner 'ostler-ai'
+
+    -- a headline asserting the daemon is stale, sitting above a detail saying
+    the checker could not log in. Only one of those was true, and the false one
+    is the one a reader acts on. Every CI cut that reached this row hit it.
+
+    The token env vars are cleared explicitly: the fallback added alongside
+    this change reads OSTLER_RELEASES_TOKEN, so a developer with it exported
+    would otherwise see this test pass for the wrong reason.
+    """
+    monkeypatch.delenv("OSTLER_RELEASES_TOKEN", raising=False)
+    monkeypatch.delenv("OSTLER_GH_TOKEN_OSTLER_AI", raising=False)
     cm051 = tmp_path / "cm051"
     cm051.mkdir()
     _write_daemon_pin_makefile(cm051, "0.4.39")
@@ -1109,8 +1479,94 @@ def test_freshness_fail_when_missing_token(tmp_path):
     fake.install(mod)
     result = mod.check_pinned_artefact_freshness(_daemon_entry(),
                                                  {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
-    assert result.status == "FAIL"
+    assert result.status == "SKIP", (
+        "a missing credential must not be reported as a stale artefact")
+    assert "NOT CHECKED" in result.detail
+    assert "not evaluated either way" in result.detail
+    # Both remedies named: CI and operator. A cannot-run that does not say how
+    # to make it runnable is only half an honest answer.
+    assert "OSTLER_RELEASES_TOKEN" in result.detail
     assert "gh auth login --user ostler-ai" in result.detail
+
+
+def test_freshness_SKIPS_when_the_repo_itself_cannot_be_READ(tmp_path):
+    """A 404 on a private repo is CANNOT-RUN, not a stale artefact.
+
+    Measured on the v1.0.26 cut: permanent-remotecapture-freshness rendered
+
+        FAIL  permanent-remotecapture-freshness
+              resolving tag 'remote-capture-v0.1.3' ... HTTP 404
+
+    -- a headline asserting the pinned RemoteCapture is STALE. Controlled with
+    the ostler-ai account, the repo resolves (PRIVATE) and that same tag
+    resolves to 5f9ddf32. Nothing was stale; the token could not see the repo.
+    GitHub answers 404 for "not found" and for "not yours" identically, so the
+    checker was reading a permissions signal as an artefact verdict.
+
+    Sibling of test_freshness_SKIPS_when_missing_token one level in: there the
+    credential was absent, here it is present but lacks scope.
+    """
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40,
+                   repo_error="gh api repos/... exit=1: HTTP 404: Not Found")
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _daemon_entry(), {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "SKIP", (
+        "an unreadable repo must not be reported as a stale artefact")
+    assert "NOT CHECKED" in result.detail
+    assert "cannot read" in result.detail
+    assert "not evaluated either way" in result.detail
+
+    # The REPO is probed BEFORE the tag. If the order ever flips, the tag 404
+    # lands first and the row goes back to asserting staleness from a
+    # permissions signal -- which is the entire defect.
+    assert f"repos/{fake.source_repo}" in fake.calls
+    assert f"repos/{fake.source_repo}/git/refs/tags/{fake.tag}" not in fake.calls, (
+        "the tag must not be queried once the repo has proved unreadable")
+
+
+def test_freshness_FAILS_when_repo_readable_but_tag_genuinely_absent(tmp_path):
+    """The other half, and the reason this is not just 'map 404 to SKIP'.
+
+    Mapping every 404 to SKIP would swallow a real missing tag: a genuine
+    staleness defect silently reclassified as not-checked. Both verdicts have
+    to stay reachable, distinguished by evidence -- so with the repo READABLE
+    and only the tag missing, this must still be a hard FAIL.
+    """
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40,
+                   tag_error="gh api ... exit=1: HTTP 404: Not Found")
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _daemon_entry(), {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL", (
+        "a readable repo with a missing tag is a REAL defect and must not be "
+        "downgraded to SKIP by the private-repo fix")
+    assert "genuinely absent" in result.detail
+    # And it did prove readability first, rather than guessing.
+    assert f"repos/{fake.source_repo}" in fake.calls
+
+
+def test_freshness_RUNS_when_token_comes_from_the_environment(tmp_path, monkeypatch):
+    """The env fallback is why this gate can work in CI at all.
+
+    Without it _gh_token_for resolves only via `gh auth token --user`, which
+    needs a human-logged account and therefore never resolves on a runner.
+    """
+    monkeypatch.setenv("OSTLER_RELEASES_TOKEN", "test-token-not-a-real-secret")
+    mod = _load_module()
+    assert mod._gh_token_for("ostler-ai") == "test-token-not-a-real-secret"
+    # CONTROL: the fallback is scoped to the owner it was issued for, so an
+    # unrelated owner must NOT silently borrow it.
+    monkeypatch.delenv("OSTLER_GH_TOKEN_SOME_OTHER_OWNER", raising=False)
+    assert mod._gh_token_for("some-other-owner") != "test-token-not-a-real-secret"
 
 
 def test_freshness_fail_when_pin_source_missing(tmp_path):
@@ -1179,3 +1635,418 @@ def test_freshness_remotecapture_pin_extraction(tmp_path):
     })
     assert err == "", err
     assert v == "0.1.3"
+
+
+# ---------------------------------------------------------------------------
+# verify_build_info_sidecar_present + sidecar-aware pinned_artefact_freshness
+# (v1.0.14, pairs with oa #259 Stream 1)
+#
+# Hermetic: monkey-patched _gh_api_json / _gh_token_for / _fetch_asset_content
+# so no network + no gh auth needed. Local-file fallback is exercised against
+# tmp_path directories that mirror the Stream 3 backfill layout.
+# ---------------------------------------------------------------------------
+
+_TAG = "hub-v0.4.43"
+_TAG_SHA = "2ae9ca8574dd69dee27cf1fa6a05d2adfbaaaf7c"
+_HEAD_SHA = _TAG_SHA  # same-as-HEAD keeps freshness happy; tests focus on sidecar
+_TARBALL_SHA = "8ef223f79bd61c8c00b4db3f54f8973131ce401e569404dc957d568b9d3ba17a"
+_SIDECAR_NAME = "ostler-assistant-aarch64-apple-darwin-v0.4.43.build-info.json"
+_TARBALL_NAME = "ostler-assistant-aarch64-apple-darwin-v0.4.43.tar.gz"
+
+
+def _write_daemon_pin_makefile_043(fake_cm051: Path) -> None:
+    (fake_cm051 / "gui").mkdir(parents=True, exist_ok=True)
+    (fake_cm051 / "gui" / "Makefile").write_text(
+        "# fake\nDAEMON_VERSION       ?= 0.4.43\n"
+    )
+
+
+def _sidecar_entry(*, allow_reconstructed: bool = False,
+                   local_sidecar_dir: str | None = None) -> dict:
+    proof = {
+        "kind": "verify_build_info_sidecar_present",
+        "pinned_version_source": {
+            "file": "gui/Makefile",
+            "pattern": r"DAEMON_VERSION\s*[?:]?=\s*(\d+\.\d+\.\d+)",
+        },
+        "tag_format": "hub-v{version}",
+        "source_repo": "ostler-ai/ostler-assistant",
+        "allow_reconstructed": allow_reconstructed,
+    }
+    if local_sidecar_dir is not None:
+        proof["local_sidecar_dir"] = local_sidecar_dir
+    return {"id": "sidecar-present", "title": "build-info sidecar for pinned daemon",
+            "proof": proof}
+
+
+def _freshness_entry_with_sidecar(*, allow_reconstructed: bool = False,
+                                  local_sidecar_dir: str | None = None,
+                                  verify_tarball_sha: bool = False) -> dict:
+    entry = _daemon_entry()
+    entry["proof"]["consume_build_info_sidecar"] = True
+    entry["proof"]["allow_reconstructed"] = allow_reconstructed
+    entry["proof"]["verify_tarball_sha"] = verify_tarball_sha
+    if local_sidecar_dir is not None:
+        entry["proof"]["local_sidecar_dir"] = local_sidecar_dir
+    return entry
+
+
+def _real_sidecar_json(*, commit_sha: str = _TAG_SHA,
+                       dirty_worktree: bool = False,
+                       reconstructed: bool = False,
+                       tarball_sha256: str = _TARBALL_SHA,
+                       tag_name: str = _TAG) -> dict:
+    return {
+        "schema_version": 1,
+        "artefact": "ostler-assistant",
+        "version": "0.4.43",
+        "commit_sha": commit_sha,
+        "commit_date": "2026-07-31T04:20:11Z",
+        "tag_name": tag_name,
+        "build_timestamp": "2026-07-31T05:10:00Z",
+        "build_machine": "andy-mbp-14",
+        "build_tool_versions": {"cargo": "1.93.0", "rustc": "1.93.0"},
+        "dirty_worktree": dirty_worktree,
+        "crate_versions": {"zeroclaw": "0.4.43"},
+        "signed_by": {
+            "tarball_filename": _TARBALL_NAME,
+            "tarball_sha256": tarball_sha256,
+        },
+        "reconstructed": reconstructed,
+    }
+
+
+def _backfill_sidecar_json(*, tarball_sha256: str = _TARBALL_SHA) -> dict:
+    """Shape of a Stream 3 backfill sidecar (reconstructed:true, some UNKNOWNs)."""
+    return {
+        "schema_version": 1,
+        "artefact": "ostler-assistant",
+        "version": "0.4.43",
+        "commit_sha": _TAG_SHA,
+        "commit_date": "2026-07-31T04:20:11Z",
+        "tag_name": _TAG,
+        "tag_pushed": True,
+        "build_timestamp": "<UNKNOWN - not captured at build time>",
+        "build_machine": "andy-mbp-14",
+        "build_tool_versions": "<UNKNOWN - not captured at build time>",
+        "dirty_worktree": False,
+        "crate_versions": "<UNKNOWN - not captured at build time>",
+        "signed_by": {
+            "tarball_filename": _TARBALL_NAME,
+            "tarball_sha256": tarball_sha256,
+        },
+        "reconstructed": True,
+        "reconstruction_notes": {
+            "authored_by": "test-fixture",
+            "sources": ["synthetic"],
+        },
+    }
+
+
+class _SidecarGh(_FakeGh):
+    """_FakeGh extended with release+asset routing for sidecar fetches.
+
+    Routes:
+      - repos/{repo}/releases/tags/{tag} -> {assets: [...]}
+      - repos/{repo}/releases/assets/{id} (via _fetch_asset_content) -> bytes
+    """
+
+    def __init__(self, *, sidecar_content: bytes | None = None,
+                 sidecar_asset_name: str = _SIDECAR_NAME,
+                 tarball_content: bytes = b"pretend-tarball-bytes",
+                 include_sidecar_asset: bool = True,
+                 include_tarball_asset: bool = True,
+                 sidecar_asset_id: int = 5551,
+                 tarball_asset_id: int = 5552,
+                 release_error: str = "",
+                 **kwargs):
+        super().__init__(tag_sha=_TAG_SHA, head_sha=_HEAD_SHA, tag=_TAG, **kwargs)
+        self.sidecar_content = sidecar_content
+        self.sidecar_asset_name = sidecar_asset_name
+        self.tarball_content = tarball_content
+        self.include_sidecar_asset = include_sidecar_asset
+        self.include_tarball_asset = include_tarball_asset
+        self.sidecar_asset_id = sidecar_asset_id
+        self.tarball_asset_id = tarball_asset_id
+        self.release_error = release_error
+        self.asset_fetches: list[int] = []
+
+    def gh_api_json(self, path, token):
+        # Delegate everything the base class knows about first.
+        if path == f"repos/{self.source_repo}/releases/tags/{self.tag}":
+            if self.release_error:
+                return None, self.release_error
+            assets = []
+            if self.include_sidecar_asset:
+                assets.append({"id": self.sidecar_asset_id,
+                               "name": self.sidecar_asset_name})
+            if self.include_tarball_asset:
+                assets.append({"id": self.tarball_asset_id,
+                               "name": _TARBALL_NAME})
+            return {"assets": assets}, ""
+        return super().gh_api_json(path, token)
+
+    def fetch_asset_content(self, source_repo, asset_id, token, timeout=None):
+        self.asset_fetches.append(asset_id)
+        if asset_id == self.sidecar_asset_id:
+            if self.sidecar_content is None:
+                return b"", f"asset {asset_id} not routed"
+            return self.sidecar_content, ""
+        if asset_id == self.tarball_asset_id:
+            return self.tarball_content, ""
+        return b"", f"unrouted asset id: {asset_id}"
+
+    def install(self, mod):
+        super().install(mod)
+        mod._fetch_asset_content = self.fetch_asset_content
+
+
+def _ctx(cm051, tmp_path):
+    return {"cm051_dir": cm051, "app_path": tmp_path / "no-app"}
+
+
+# --- verify_build_info_sidecar_present ---
+
+
+def test_sidecar_present_green_real_emit(tmp_path):
+    """Real (non-reconstructed) sidecar present -> PASS "fully-verified"."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=json.dumps(_real_sidecar_json()).encode())
+    fake.install(mod)
+    r = mod.check_verify_build_info_sidecar_present(_sidecar_entry(), _ctx(cm051, tmp_path))
+    assert r.status == "PASS", r.detail
+    assert "fully-verified" in r.detail
+    assert _TAG in r.detail
+
+
+def test_sidecar_present_green_with_caveat_reconstructed(tmp_path):
+    """Reconstructed sidecar + allow_reconstructed:true -> PASS with caveat."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=json.dumps(_backfill_sidecar_json()).encode())
+    fake.install(mod)
+    r = mod.check_verify_build_info_sidecar_present(
+        _sidecar_entry(allow_reconstructed=True), _ctx(cm051, tmp_path))
+    assert r.status == "PASS", r.detail
+    assert "verified-with-caveat" in r.detail
+    assert "reconstructed" in r.detail
+
+
+def test_sidecar_present_fails_when_reconstructed_but_not_allowed(tmp_path):
+    """Reconstructed sidecar without allow_reconstructed -> FAIL."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=json.dumps(_backfill_sidecar_json()).encode())
+    fake.install(mod)
+    r = mod.check_verify_build_info_sidecar_present(
+        _sidecar_entry(allow_reconstructed=False), _ctx(cm051, tmp_path))
+    assert r.status == "FAIL", r.detail
+    assert "reconstructed:true" in r.detail
+    assert "allow_reconstructed" in r.detail
+
+
+def test_sidecar_present_fails_when_asset_missing_entirely(tmp_path):
+    """No .build-info.json asset in the release -> FAIL closed."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=None, include_sidecar_asset=False)
+    fake.install(mod)
+    r = mod.check_verify_build_info_sidecar_present(_sidecar_entry(), _ctx(cm051, tmp_path))
+    assert r.status == "FAIL", r.detail
+    assert "no .build-info.json asset" in r.detail
+
+
+def test_sidecar_present_uses_local_dir_first(tmp_path):
+    """local_sidecar_dir hit skips GH; validates the Stream 3 backfill flow."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    backfill_dir = tmp_path / "backfill"
+    backfill_dir.mkdir()
+    (backfill_dir / f"{_TAG}.build-info.json").write_text(
+        json.dumps(_backfill_sidecar_json()))
+    mod = _load_module()
+    # Deliberately break the GH release fetch to prove local won.
+    fake = _SidecarGh(sidecar_content=None, include_sidecar_asset=False,
+                      release_error="should not be called")
+    fake.install(mod)
+    r = mod.check_verify_build_info_sidecar_present(
+        _sidecar_entry(allow_reconstructed=True,
+                       local_sidecar_dir=str(backfill_dir)),
+        _ctx(cm051, tmp_path))
+    assert r.status == "PASS", r.detail
+    assert "local:" in r.detail
+    assert fake.asset_fetches == []  # never went to GH
+
+
+def test_sidecar_present_local_env_var_expansion(tmp_path, monkeypatch):
+    """`${VAR}` in local_sidecar_dir is expanded before resolution."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    backfill_dir = tmp_path / "hr015" / "launch" / "backfill-sidecars"
+    backfill_dir.mkdir(parents=True)
+    (backfill_dir / f"{_TAG}.build-info.json").write_text(
+        json.dumps(_backfill_sidecar_json()))
+    monkeypatch.setenv("HR015_DIR", str(tmp_path / "hr015"))
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=None, include_sidecar_asset=False)
+    fake.install(mod)
+    r = mod.check_verify_build_info_sidecar_present(
+        _sidecar_entry(allow_reconstructed=True,
+                       local_sidecar_dir="${HR015_DIR}/launch/backfill-sidecars"),
+        _ctx(cm051, tmp_path))
+    assert r.status == "PASS", r.detail
+
+
+def test_sidecar_present_tag_mismatch_fails(tmp_path):
+    """Sidecar carries a different tag_name than the pin -> FAIL (misfile guard)."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=json.dumps(
+        _real_sidecar_json(tag_name="hub-v0.4.99")).encode())
+    fake.install(mod)
+    r = mod.check_verify_build_info_sidecar_present(_sidecar_entry(), _ctx(cm051, tmp_path))
+    assert r.status == "FAIL", r.detail
+    assert "hub-v0.4.99" in r.detail and _TAG in r.detail
+
+
+# --- sidecar-aware pinned_artefact_freshness (opt-in via consume_build_info_sidecar) ---
+
+
+def test_freshness_backward_compat_when_sidecar_field_omitted(tmp_path):
+    """Existing pinned_artefact_freshness entries (no sidecar fields) still PASS
+    with no change in behaviour. Backward-compat guard."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh()  # no sidecar_content set — never fetched
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(_daemon_entry(), _ctx(cm051, tmp_path))
+    assert result.status == "PASS", result.detail
+    assert fake.asset_fetches == []  # sidecar path never touched
+
+
+def test_freshness_with_sidecar_green(tmp_path):
+    """consume_build_info_sidecar:true + real sidecar matching pin -> PASS with note."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=json.dumps(_real_sidecar_json()).encode())
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(), _ctx(cm051, tmp_path))
+    assert result.status == "PASS", result.detail
+    assert "sidecar verified" in result.detail
+
+
+def test_freshness_with_reconstructed_sidecar_passes_when_allowed(tmp_path):
+    """Reconstructed backfill sidecar + allow_reconstructed:true -> PASS with caveat."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=json.dumps(_backfill_sidecar_json()).encode())
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(allow_reconstructed=True), _ctx(cm051, tmp_path))
+    assert result.status == "PASS", result.detail
+    assert "verified-with-caveat" in result.detail
+
+
+def test_freshness_sidecar_commit_sha_mismatch_fails(tmp_path):
+    """Sidecar declares a different commit_sha than tag resolves to -> FAIL."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    wrong = _real_sidecar_json(commit_sha="deadbeef" + "0" * 32)
+    fake = _SidecarGh(sidecar_content=json.dumps(wrong).encode())
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(), _ctx(cm051, tmp_path))
+    assert result.status == "FAIL", result.detail
+    assert "commit_sha" in result.detail
+    assert _TAG_SHA[:12] in result.detail
+    assert "deadbeef" in result.detail
+
+
+def test_freshness_sidecar_dirty_worktree_fails(tmp_path):
+    """Sidecar declares dirty_worktree:true -> FAIL (releases must be clean)."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    dirty = _real_sidecar_json(dirty_worktree=True)
+    fake = _SidecarGh(sidecar_content=json.dumps(dirty).encode())
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(), _ctx(cm051, tmp_path))
+    assert result.status == "FAIL", result.detail
+    assert "dirty_worktree:true" in result.detail
+
+
+def test_freshness_sidecar_tarball_sha_mismatch_is_tamper(tmp_path):
+    """verify_tarball_sha:true + downloaded tarball SHA-256 mismatches sidecar -> FAIL."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    # Sidecar declares one SHA; the tarball we serve hashes to a DIFFERENT one.
+    sidecar = _real_sidecar_json(tarball_sha256="a" * 64)
+    fake = _SidecarGh(sidecar_content=json.dumps(sidecar).encode(),
+                      tarball_content=b"whatever-does-not-match")
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(verify_tarball_sha=True), _ctx(cm051, tmp_path))
+    assert result.status == "FAIL", result.detail
+    assert "TAMPER" in result.detail
+
+
+def test_freshness_sidecar_tarball_sha_matches_passes(tmp_path):
+    """Tarball SHA-256 matches what the sidecar declares -> PASS."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    tarball_bytes = b"the-real-tarball-bytes"
+    expected_sha = hashlib.sha256(tarball_bytes).hexdigest()
+    sidecar = _real_sidecar_json(tarball_sha256=expected_sha)
+    fake = _SidecarGh(sidecar_content=json.dumps(sidecar).encode(),
+                      tarball_content=tarball_bytes)
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(verify_tarball_sha=True), _ctx(cm051, tmp_path))
+    assert result.status == "PASS", result.detail
+
+
+def test_freshness_sidecar_missing_fails_closed(tmp_path):
+    """consume_build_info_sidecar:true + release has no sidecar -> FAIL."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=None, include_sidecar_asset=False)
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(), _ctx(cm051, tmp_path))
+    assert result.status == "FAIL", result.detail
+    assert "no .build-info.json asset" in result.detail
+
+
+def test_freshness_backfill_tarball_sha_unknown_is_skipped(tmp_path):
+    """A reconstructed backfill whose tarball_sha256 is `<UNKNOWN...>` still
+    passes verify_tarball_sha (skipped, not failed) so older backfills grade
+    green when allow_reconstructed:true."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    unknown_sidecar = _backfill_sidecar_json(
+        tarball_sha256="<UNKNOWN - not captured at build time>")
+    fake = _SidecarGh(sidecar_content=json.dumps(unknown_sidecar).encode())
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(allow_reconstructed=True,
+                                      verify_tarball_sha=True),
+        _ctx(cm051, tmp_path))
+    assert result.status == "PASS", result.detail
+    # We never had to fetch the tarball because the expected SHA was unknown.
+    assert 5552 not in fake.asset_fetches  # tarball asset id

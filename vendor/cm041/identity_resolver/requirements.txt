@@ -1,0 +1,12 @@
+# identity_resolver runtime dependencies.
+#
+# This file exists because PR #109 added `from rapidfuzz.distance import
+# JaroWinkler` to normalise.py without declaring the dependency anywhere.
+# CI runs identity_resolver/tests but installed only the contact_syncer,
+# meeting_syncer and whatsapp_bridge requirement files, so the import failed
+# at COLLECTION time and took every assistant_api test module down with it --
+# 2 red pytest runs whose message ("No module named 'rapidfuzz'") looked like
+# an infrastructure flake rather than a missing declaration.
+#
+# The package that imports a dependency is the package that declares it.
+rapidfuzz>=3.0,<4.0

@@ -1,0 +1,131 @@
+name: install-abort-and-egress
+
+# The two gates that came out of the v1.0.35 box walk (#409, #410).
+#
+# #409  install.sh called _install_enrichment_agent at line 13480 and defined it
+#       at 18386. Bash creates a function when its definition line EXECUTES, so
+#       every install died at step 15 of 39 with `command not found`.
+#       `bash -n` parses, it does not order, so nothing here could catch it.
+#
+# #410  csv_parser inferred a category by UNANCHORED SUBSTRING ("Technology"
+#       contains "techno"), and every category it can infer routes to a client
+#       that puts the SUBJECT in an outbound query -- including the `interest`
+#       catch-all. LinkedIn InMail subjects reached Wikidata and MusicBrainz.
+#
+# Both gates carry their own controls: the install.sh scanner plants a synthetic
+# call-before-definition and refuses (rc=2) if it cannot find it, and the python
+# suite reads the SHIPPED keyword table rather than a copy so the table cannot
+# drift away from its own test.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `if: always()` ON EVERY GATE AFTER THE FIRST, and I earned this comment
+      # the embarrassing way. GitHub's default step condition is "run only if
+      # every previous step succeeded", so without it a failure in the install.sh
+      # gate SKIPS the egress gate, and a skipped gate reports nothing while
+      # looking like it was considered.
+      #
+      # That is the identical shape as the missing `if:` on upload-artifact that
+      # destroyed the v1.0.26 and v1.0.34 DMGs. ci-maskless caught it here, in a
+      # workflow written hours after fixing that exact class. These two gates are
+      # independent: neither result tells you anything about the other, so both
+      # must always report.
+      - name: No function is called before it is defined in install.sh
+        run: bash tests/test_install_sh_no_call_before_definition.sh
+
+      - name: An inferred category never authorises egress
+        if: always()
+        run: python3 tests/test_inferred_category_never_egresses.py
+
+      # The tripwire on Andy's one ratified cut of deferral. v1.0.36 ships the
+      # enrichment agent gated OFF; the cut after it must carry the question
+      # that lets the customer decide. This step is green today and turns red
+      # by itself the moment CFBundleShortVersionString goes past 1.0.36, so
+      # the deferral cannot quietly become the permanent behaviour.
+      - name: The enrichment opt-in question lands in the cut after v1.0.36
+        if: always()
+        run: bash tests/test_enrichment_optin_is_owed_after_v1_0_36.sh
+
+      # TNM's review point, and it was a fair one: the aggregation assertion in
+      # the egress suite is a regex over source text that never constructs a
+      # PreferenceFilter. It is sensitive to spelling and blind to behaviour,
+      # which is the wrong way round for the one hop between a parser that
+      # records provenance and a gate that reads it. This suite executes the
+      # real filter, including the warm-from-storage path that is the only way
+      # a preference gets built by something other than a parser.
+      - name: Provenance survives the filter, proved by running it
+        if: always()
+        run: python3 tests/test_provenance_survives_the_filter_under_execution.py
+
+      # The background Ollama callers in the enrichment pipeline must take the
+      # installer's per-tier context budget, not a hardcoded 32768.
+      # install.sh sets OSTLER_ENRICH_NUM_CTX per resource tier: unset on
+      # `high` (>=32 GB), 8192 on `low`, 4096 on `floor`. A 16 GB Mac is `low`,
+      # and 16 GB is the installer's HARD MINIMUM, so the baseline supported
+      # machine wants 8192. A literal 32768 asks the smallest supported box for
+      # four times its own budget, inside the code path added to be polite
+      # about resources.
+      #
+      # This suite needs pytest proper (monkeypatch, tmp_path), unlike the
+      # __main__-guard scripts above, so it installs it and then ASSERTS THE
+      # COLLECTED COUNT. A suite that collected nothing also reports zero
+      # failures, and "no tests ran" is indistinguishable from a pass at the
+      # exit code alone. The floor is the number that exists today; it goes up,
+      # never down.
+      - name: Background enrichment honours the tier context budget
+        if: always()
+        run: |
+          # NO `set -e`. The first version of this step had it, and pip died on
+          # PEP 668 ("externally-managed-environment") at the very first line,
+          # so the step failed having printed NOTHING: no pip error, no pytest
+          # output, no count. A gate whose failure text names nothing it
+          # measured is the defect this repo keeps re-learning. Every command
+          # below therefore reports, and only the explicit checks decide.
+          set -uo pipefail
+
+          # A venv sidesteps PEP 668 entirely rather than guessing whether this
+          # runner image happens to ship pytest or accept --break-system-packages.
+          if ! python3 -m venv /tmp/pytest-venv; then
+            echo "FAIL: could not create the venv. pytest was never installed, so" >&2
+            echo "NOTHING was measured. This is CANNOT-RUN, not a pass." >&2
+            exit 1
+          fi
+          # httpx as well as pytest. The two cm048 cases import the REAL
+          # ollama_client, which imports httpx at module scope, so without it
+          # they die on collection. Installing it is the honest fix: skipping
+          # them on ImportError would silently retire the end-to-end assertion,
+          # which is the single most valuable one here (it is the case proved
+          # RED against the hardcoded 32768). A skip reads as a pass.
+          if ! /tmp/pytest-venv/bin/pip install --quiet --disable-pip-version-check pytest httpx; then
+            echo "FAIL: pip could not install pytest + httpx. NOTHING was measured." >&2
+            exit 1
+          fi
+          /tmp/pytest-venv/bin/python -m pytest --version
+
+          # tee so the output reaches the log even when the run fails, and
+          # PIPESTATUS because `$?` after a pipeline is TEE's exit code, not
+          # pytest's. That mistake has cost this project real debugging time.
+          /tmp/pytest-venv/bin/python -m pytest tests/test_ollama_user_active.py -q 2>&1 | tee /tmp/pytest.out
+          rc="${PIPESTATUS[0]}"
+          out="$(cat /tmp/pytest.out)"
+
+          if [ "$rc" -ne 0 ]; then
+            echo "FAIL: pytest exited ${rc} on tests/test_ollama_user_active.py (output above)." >&2
+            exit 1
+          fi
+          passed="$(printf '%s\n' "$out" | grep -oE '[0-9]+ passed' | tail -1 | grep -oE '[0-9]+' || true)"
+          if [ -z "$passed" ] || [ "$passed" -lt 15 ]; then
+            echo "FAIL: expected at least 15 passing tests in tests/test_ollama_user_active.py, measured '${passed:-none}'." >&2
+            echo "A suite that collected nothing reports zero failures. Count the denominator." >&2
+            exit 1
+          fi
+          echo "OK: ${passed} tests executed in tests/test_ollama_user_active.py"

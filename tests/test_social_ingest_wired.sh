@@ -28,13 +28,45 @@ if ! grep -qE "^def ingest_social" "$VENDORED"; then
 fi
 echo "vendor check: ingest_social defined in vendored pwg_ingest"
 
-# 2. The vendored module must register ingest_social in ingest_all so a
-#    bare `ingest_all` run (the email-ingest tick) also populates Social.
-if ! grep -q '("social", ingest_social)' "$VENDORED"; then
-    echo "FAIL: $VENDORED ingest_all does not register ingest_social" >&2
+# 2. The vendored module must register ingest_social in the ingest_all dispatch
+#    table so a bare `ingest_all` run (the email-ingest tick) also populates
+#    the Social page on later runs.
+#
+#    THIS ASSERTED A RENDERING AND WENT RED WHILE THE WIRING WAS INTACT.
+#
+#    It used to grep for the literal `("social", ingest_social)` -- a BARE symbol.
+#    The dispatch table was refactored to resolve writers by NAME:
+#
+#        _INGEST_DISPATCH = (
+#            ...
+#            ("social", "ingest_social"),      <- quoted, not a bare reference
+#        )
+#
+#    so the grep missed and this test reported "ingest_all does not register
+#    ingest_social" against a tree where it is registered -- in the vendored
+#    copy, in the HR015 upstream, and invoked from install.sh. Anyone acting
+#    on that report would have gone looking for a ships-dark writer that was
+#    never dark. Nobody did, because this file runs nowhere.
+#
+#    The predicate now reads the CONTENT: inside the _INGEST_DISPATCH block,
+#    one entry naming both the result key and the writer, in either spelling.
+#    It is also SCOPED to that block, where the old one would have matched the
+#    pair anywhere in a 2,500-line module.
+DISPATCH_BLOCK="$(awk '/^_INGEST_DISPATCH[[:space:]]*=/{f=1} f{print} f&&/^\)/{exit}' "$VENDORED")"
+if [ -z "$DISPATCH_BLOCK" ]; then
+    # No table at all means this check examined nothing. An empty extract
+    # compares clean, which is the false green the rewrite exists to avoid.
+    echo "FAIL: could not locate _INGEST_DISPATCH in $VENDORED -- this check examined nothing" >&2
     exit 1
 fi
-echo "vendor check: ingest_social registered in ingest_all"
+if ! printf '%s\n' "$DISPATCH_BLOCK" \
+     | grep -qE '\("social"[[:space:]]*,[[:space:]]*"?ingest_social"?[[:space:]]*\)'; then
+    echo "FAIL: $VENDORED _INGEST_DISPATCH has no ("social", ingest_social) entry" >&2
+    echo "      the dispatch table as found was:" >&2
+    printf '%s\n' "$DISPATCH_BLOCK" | sed 's/^/        /' >&2
+    exit 1
+fi
+echo "vendor check: ingest_social registered in the ingest_all dispatch table"
 
 # 3. install.sh must actually import + call it (no ship-dark).
 if ! grep -q "ingest_social" "$INSTALL"; then

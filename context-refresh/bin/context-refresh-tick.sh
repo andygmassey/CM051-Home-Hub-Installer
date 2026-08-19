@@ -30,10 +30,20 @@
 #   ($OSTLER_DIR/assistant-config), so the digest lands where the
 #   prompt builder reads it.
 #
-# Idempotent and safe: the script exits 0 and leaves any prior
-# CONTEXT.md untouched when the ical-server is down or the graph is
-# empty, so a tick during a stack restart is a clean no-op rather
-# than a launchd-flagged failure.
+# EXIT CODES (corrected 2026-08-18). The generator used to exit 0
+# whatever happened, which is how it produced no digest at all on
+# every install for weeks while launchd reported success. It now
+# reports what it measured:
+#
+#   0  digest written, every source answered
+#   1  digest built but could not be written to disk
+#   2  zero of six sections; nothing to write (prior copy kept)
+#   3  digest written, but one or more sources failed
+#
+# A prior CONTEXT.md is still left untouched on 2 -- a stale digest
+# beats none -- but the tick no longer claims that went well. The
+# per-section counts and every source read, with the status code
+# actually observed, go to context-refresh.err.
 #
 # Configuration (env, set by the installer or the LaunchAgent):
 #   OSTLER_DIR  (default ~/.ostler) -- artefact root. The assistant
@@ -107,6 +117,8 @@ export OSTLER_ICAL_BASE_URL="${OSTLER_ICAL_BASE_URL:-http://127.0.0.1:8090}"
 mkdir -p "$ZEROCLAW_WORKSPACE_DIR"
 
 log "Refreshing personal-context digest -> ${ZEROCLAW_WORKSPACE_DIR}/CONTEXT.md"
-# The generator never raises and returns 0 on a graceful no-op, so a
-# non-zero exit here is a genuine failure worth surfacing to launchd.
+# The generator does not raise; it reports. Its exit code is the whole
+# signal launchd gets, so pass it through unaltered -- `exec` does that
+# by construction. Do NOT add a `|| true` here: swallowing the code is
+# the exact shape of the defect this file's header describes.
 exec "$PYTHON_BIN" "$GENERATOR"

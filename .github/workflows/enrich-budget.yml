@@ -1,0 +1,49 @@
+# v1018-D031. Every model call in the enrichment step was already bounded
+# at 900s individually, which is why no per-call timeout could fix this.
+# The step's BOUNDED worst case was ~4h30m for one email (3-4 chunks +
+# merge + validation retry, times MAX_RETRIES). A 236KB newsletter thread
+# sat in it holding the shared ingest lock while all four conversation
+# feeds stopped behind it. The ceiling belongs on the step.
+name: enrich-budget
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm048_pipeline/src/processor.py'
+      - 'tests/helpers/check_enrich_budget.py'
+      - 'tests/test_enrich_budget.sh'
+      - '.github/workflows/enrich-budget.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm048_pipeline/src/processor.py'
+      - 'tests/helpers/check_enrich_budget.py'
+      - 'tests/test_enrich_budget.sh'
+      - '.github/workflows/enrich-budget.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  enrich-budget:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The first cut of this gate passed on the author's Python 3.14 --
+        # where deferred annotation evaluation is the default -- and failed
+        # on CI's older interpreter, which evaluates annotations and raised
+        # NameError. A harness that only works on one interpreter is not a
+        # gate, so it is now proven on the range the fleet actually spans.
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Enrichment cannot outrun its allowance
+        run: bash tests/test_enrich_budget.sh

@@ -73,17 +73,24 @@ class NetflixParser(BaseParser):
 
     source_name = "netflix"
 
-    # Netflix-specific file patterns
+    # Netflix-specific file patterns. Every one of these is a string no other
+    # export in the registration list carries, so containment is safe.
     NETFLIX_UNIQUE_PATTERNS = [
         "viewingactivity",
         "netflixviewinghistory",
         "netflix_viewing",
         "indicatedpreferences",
-        "ratings",  # Actual ratings file in GDPR exports
         "searchhistory",
         "mylist",
         "gameplaysession",  # Netflix Games
     ]
+
+    # Netflix ships CONTENT_INTERACTION/Ratings.csv. It used to be listed above
+    # as the bare substring "ratings", which also matches Foursquare's
+    # venueRatings.json -- so this parser claimed 4sq-export.zip and yielded
+    # nothing from it, while the Foursquare parser that could read it was never
+    # asked. Matched on the path LEAF, not by containment.
+    NETFLIX_EXACT_LEAF_NAMES = frozenset({"ratings.csv"})
 
     # Directory patterns that indicate Netflix export
     NETFLIX_PATH_INDICATORS = [
@@ -113,18 +120,23 @@ class NetflixParser(BaseParser):
             # Check ZIP contents for Netflix patterns
             try:
                 with zipfile.ZipFile(file_path, 'r') as zf:
-                    names = [n.lower() for n in zf.namelist()]
-                    return any(
-                        any(p in n for p in self.NETFLIX_UNIQUE_PATTERNS)
-                        for n in names
-                    )
+                    names = [n.replace("\\", "/").lower() for n in zf.namelist()]
             except Exception:
                 return False
+            if any(any(p in n for p in self.NETFLIX_UNIQUE_PATTERNS) for n in names):
+                return True
+            return any(
+                n.rsplit("/", 1)[-1] in self.NETFLIX_EXACT_LEAF_NAMES
+                for n in names
+            )
 
         # Check for CSV files
         if file_path.suffix.lower() == '.csv':
             # Check for Netflix-unique filename patterns
             if any(p in name for p in self.NETFLIX_UNIQUE_PATTERNS):
+                return True
+
+            if name in self.NETFLIX_EXACT_LEAF_NAMES:
                 return True
 
             # Check if in Netflix directory structure

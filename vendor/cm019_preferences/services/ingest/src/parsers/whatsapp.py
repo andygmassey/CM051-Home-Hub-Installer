@@ -307,6 +307,19 @@ class WhatsAppParser(BaseParser):
 
     source_name = "whatsapp"
 
+    @staticmethod
+    def _path_indicates_whatsapp(file_path: Path) -> bool:
+        """True when some path SEGMENT names WhatsApp.
+
+        Segment-aware rather than a bare substring on the whole path, so a
+        customer folder called "WhatsApp exports" qualifies the files under it
+        while an unrelated path that merely contains the letters does not
+        qualify by accident. This is the positive evidence that separates a
+        real WhatsApp export from the generic {participants, messages} shape
+        every other messenger also emits.
+        """
+        return any('whatsapp' in part.lower() for part in file_path.parts)
+
     def can_parse(self, file_path: Path) -> bool:
         """Check if file is a WhatsApp data export."""
         name = file_path.name.lower()
@@ -335,8 +348,23 @@ class WhatsAppParser(BaseParser):
                     if isinstance(data, dict):
                         if any(k in data for k in ['wa_groups', 'wa_communities']):
                             return True
+                        # MEASURED on a real 2026 archive: claiming on these
+                        # three generic keys alone took 1,852 Facebook and 856
+                        # Instagram message_N.json files, every one of which
+                        # yields ZERO here. {participants, messages} is the
+                        # shape of EVERY messenger export, not WhatsApp's, and
+                        # this parser is registered ahead of MetaParser, so the
+                        # files were claimed and silently discarded. Require
+                        # positive WhatsApp evidence on the PATH before falling
+                        # back to a generic chat shape.
+                        if not self._path_indicates_whatsapp(file_path):
+                            return False
                         return any(k in data for k in ['chats', 'messages', 'participants'])
                     if isinstance(data, list) and len(data) > 0:
+                        # Same reasoning: sender/message/date is a generic chat
+                        # row, not a WhatsApp-specific one.
+                        if not self._path_indicates_whatsapp(file_path):
+                            return False
                         return any(k in data[0] for k in ['sender', 'message', 'date'])
             except:
                 pass

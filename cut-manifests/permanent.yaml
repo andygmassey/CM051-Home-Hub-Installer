@@ -59,14 +59,19 @@ entries:
   # the source string is present at the pinned SHA, and the daemon build
   # pipeline compiles from that SHA into the shipped binary.
   - id: firstrun-popup-governor-source
-    title: FirstRunPopup handler uses /governor route (source, at daemon-pinned SHA)
+    title: firstrun welcome modal opens the Governor route (source, at daemon-pinned SHA)
+    # v1.0.13.2 (2026-08-01 ORM): FirstRunPopup.tsx was superseded by
+    # GovernorWelcomeModal.tsx (oa #231). The equivalent invariant now: the
+    # welcome modal navigates to '/settings#governor' (the modern Governor
+    # route location; the panel scrolls to that anchor). Updated file + regex
+    # to prove the same wire-through against the current source.
     incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt
     source_pr: ostler-ai/ostler-assistant#231
     proof:
       kind: grep_in_source_at_sha
       target: ostler-assistant
-      path: "web/src/components/FirstRunPopup.tsx"
-      pattern: "navigate\\(['\"]\\/governor['\"]\\)"
+      path: "web/src/components/GovernorWelcomeModal.tsx"
+      pattern: "navigate\\(['\"]\\/settings#governor['\"]\\)"
       must_match: true
 
   # ==========================================================================
@@ -162,6 +167,39 @@ entries:
         - "^chore\\(fmt\\)"
         - "^docs:"
         - "^chore\\(docs\\)"
+      # v1.0.13.2 hotfix hold_ack (2026-08-01 ORM). The v1.0.13.2 cut is a
+      # controlled hotfix from tag hub-v0.4.45 (c638a6d7); it deliberately
+      # excludes 23 crates/** commits that landed on oa/main after the tag
+      # cut point. Each is either a fix/feature the hotfix explicitly does
+      # NOT ship (v1.1 candidate) or a CI/clippy commit that is a no-op for
+      # customer behaviour. v1.0.14 will cut from a fresh main so this
+      # hold_ack becomes harmless (diverging set empty).
+      hold_ack:
+        reason: "v1.0.13.2 hotfix from hub-v0.4.45 (c638a6d7); 23 crates/** commits on oa/main are v1.1 candidates or CI-only, intentionally not in this hotfix. Full list below. v1.0.14 will re-baseline off fresh main."
+        shas:
+          - cf82dab8ef  # fix(doctor): clippy field_reassign_with_default in probe-path tests (#173)
+          - ab20c46333  # style: cargo fmt (wrap long closure in doctor no-routes test)
+          - 6de15f6622  # fix(doctor+channels+config): v1.0.13 install-log noise cleanup (main variant of R6 in tag)
+          - 604f44590a  # fix(channels): strip leading assistant-name echo from LLM replies (#182)
+          - 882d851f76  # chore(gateway): inline single-element test loop to satisfy clippy 1.93
+          - 4c1395f3c4  # fix(doctor): count all hydrated sources not just live channels + iMessage case + pill truncation (#213)
+          - 2e0c3dbf0f  # fix(vault): envelope Deserialize + atomic signal write
+          - 293802f714  # feat(hub): vault-writer observer (LOCK-2/3/4 rework, supersedes #245)
+          - e1a4106e31  # fix(subscription): wire has_ever_paid backfill into Config::load_or_init
+          - a6784bdcba  # fix(config): add ..Default::default() to GatewayConfig test literals
+          - a1dc1a6ad2  # fix(gateway): guarantee companion TLS listener + TLS-port QR
+          - df104ba95b  # feat(gateway): dedicated companion TLS listener for iOS pairing
+          - 5ed6e2707d  # feat(gateway): self-signed cert helper + companion_* config fields
+          - 2cadbac5ff  # fix(security): #192 — Ostler-brand the WebAuthn RP name + user identity
+          - 9528520acc  # feat(subscription): has_ever_paid sticky bit gates 14-day post-lapse
+          - 16687ed6bb  # fix(broker): reconcile envelope shape stricter-wins
+          - 8dcc50800f  # feat(broker): ActionBroker v1 — action-authorization layer (CM061 spec)
+          - a12a085262  # fix(cron): preserve builtin jobs on config save, close fire-time race
+          - 6ba36274f6  # test(gateway): guard live cron reconcile in handle_api_config_put
+          - 120a2233ad  # fix(ci): drop needless struct update in headline test
+          - aa6f34890d  # fix(ci): correct doc list-item indentation
+          - 2943840b04  # fix(ci): apply cargo fmt to clear Quality Gate lint failures
+          - 66975b1472  # feat(settings): user-configurable daily-brief schedule (morning + evening)
 
   - id: permanent-remotecapture-freshness
     title: pinned RemoteCapture app must contain all merged source changes on its default branch
@@ -197,12 +235,219 @@ entries:
   # freshness belongs to the post-install box-walk gate, not this
   # artefact-only manifest. Kept out of permanent.yaml deliberately.
   #
-  # Note on wiki container image freshness:
-  # install.sh pins ghcr.io/ostler-ai/ostler-wiki-site@sha256:<digest>. That
-  # is a container digest, not a git tag, so pinned_artefact_freshness (which
-  # resolves a version -> git tag -> commit) does not apply. Bridging a
+  # Note on wiki container image FRESHNESS (still out of scope, and why):
+  # install.sh pins ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:<digest>.
+  # That is a container digest, not a git tag, so pinned_artefact_freshness
+  # (which resolves a version -> git tag -> commit) does not apply. Bridging a
   # container digest back to a source commit needs an OCI-labels lookup that
   # is out of scope for the freshness primitive as designed. A separate
   # `pinned_container_freshness` primitive can be added later if the same
   # class of drift bites us on the wiki image; the risk profile is lower
   # because the wiki image is rebuilt on every CM044 release cycle already.
+  #
+  # (This note said ghcr.io/ostler-ai until 2026-08-15. install.sh has never
+  # pinned that namespace. ostler-ai holds only a stale `:latest` -- probed
+  # 2026-08-15, ostler-ai/ostler-wiki-site:0.1.14 is 404 while
+  # creativemachines-ai/ostler-wiki-site:0.1.14 is 200 anonymously. A reader
+  # following the note during an incident would have probed the wrong
+  # registry path and concluded the image was missing.)
+  #
+  # ==========================================================================
+  # The wiki image pin had no STANDING assertion, and the coverage it did have
+  # was incidental.
+  # ==========================================================================
+  #
+  # verify_cut_manifest.py reads permanent.yaml plus the ONE per-cut manifest
+  # for the version being cut. It does not union prior cuts. So an assertion
+  # written into v1.0.24.yaml covers v1.0.24 and nothing after it.
+  #
+  # Measured 2026-08-15 across cut-manifests/:
+  #
+  #   v1.0.11 .. v1.0.15   0 wiki assertions
+  #   v1.0.16 .. v1.0.24   2 wiki assertions each  (site + compiler digest)
+  #   v1.0.25, v1.0.26     0 wiki assertions, and no mention of the wiki at all
+  #
+  # Nine consecutive cuts looked like standing coverage. They were not: each
+  # row was a per-cut incident assertion recording that THAT cut re-pinned the
+  # image. The coverage existed only for as long as consecutive cuts happened
+  # to re-pin, and it lapsed silently the first time one did not. For v1.0.25
+  # and v1.0.26 nothing anywhere in the gate's inputs asserts that install.sh
+  # carries a usable wiki image reference at all.
+  #
+  # WHAT THIS ROW ASSERTS, AND WHAT IT DOES NOT.
+  #
+  # It asserts the SHAPE of the pin, which needs no OCI lookup and so sits
+  # inside the scope the note above defines: the correct registry, the correct
+  # namespace, the correct image name, pinned BY DIGEST rather than by a
+  # mutable tag, with a well-formed 64-hex digest. That catches an absent pin,
+  # a pin moved to the wrong namespace, a pin degraded from digest to `:latest`,
+  # and a truncated or corrupted digest.
+  #
+  # It does NOT assert freshness and it does NOT assert the digest resolves in
+  # GHCR. Freshness is out of scope here for the reason given above. Resolvability
+  # is asserted at the other end, in CM044's release-images workflow, which now
+  # performs an anonymous pull of what it just pushed against a negative control.
+  # Stated plainly so this row is not read as covering more than it does: a gate
+  # quiet about its blind spot gets taken for one that has none.
+  - id: perm-wiki-site-pinned-by-digest
+    title: install.sh pins the wiki-site image by digest in the first-party namespace
+    incident: >-
+      The wiki image pin was asserted by nine consecutive per-cut manifests and
+      by none since. verify_cut_manifest.py reads permanent.yaml plus one
+      per-cut file, so v1.0.25 and v1.0.26 shipped with no assertion that the
+      customer's compose references a usable wiki image. A pin that is absent,
+      in the wrong namespace, or degraded from a digest to a mutable tag would
+      not have been caught by anything.
+    proof:
+      kind: grep_in_installer
+      pattern: "ghcr\\.io/creativemachines-ai/ostler-wiki-site@sha256:[0-9a-f]{64}"
+      must_match: true
+
+  - id: perm-wiki-compiler-pinned-by-digest
+    title: install.sh pins the wiki-compiler image by digest in the first-party namespace
+    incident: >-
+      Same lapse as the site image. Asserted separately so one moving without
+      the other is caught -- the pair have drifted apart before, which is why
+      the per-cut rows were always written as two.
+    proof:
+      kind: grep_in_installer
+      pattern: "ghcr\\.io/creativemachines-ai/ostler-wiki-compiler@sha256:[0-9a-f]{64}"
+      must_match: true
+
+  # ==========================================================================
+  # People seed-and-retrieval round-trip. THE customer-visible invariant: after
+  # a fresh install a person lands in the graph and the assistant can get them
+  # back. No static gate can see this, which is why it is a runtime probe.
+  #
+  # Why it lives HERE rather than in a per-cut manifest: this entry was
+  # originally registered in v1.0.12.yaml alone, so it protected exactly one
+  # cut and was absent from every manifest from v1.0.13 through v1.0.26. It was
+  # doubly dead, because the probe body it named was a stub that exited 0
+  # unconditionally, so even the single cut it was registered for measured
+  # nothing. permanent.yaml is the only place a gate like this cannot be lost
+  # by omission.
+  #
+  # SKIPs when OSTLER_BOX_HOST is unset, so CI and offline dev stay green; on
+  # the Studio box it MUST pass. The probe proves it can fire, against a
+  # controllable fake box: scripts/tests/test_people_seed_and_retrieval_probe.sh
+  # asserts 1 green and 11 distinct reds, and runs on macOS so it exercises the
+  # same bash 3.2 the cut host uses.
+  # ==========================================================================
+  - id: box-walk-people-seed-and-retrieval
+    title: a synthetic person must seed and be retrievable via people/context + people/search
+    incident: >-
+      v1.0.12 to v1.0.26; the probe body was a stub that could not return
+      non-zero, and the manifest entry was dropped after v1.0.12, so fourteen
+      cuts reported this gate as passed while measuring nothing
+    proof:
+      kind: box_walk_probe
+      probe: "people_seed_and_retrieval"
+
+  # ==========================================================================
+  # #778. The seven probes below have existed since the BW2 bundle and NO
+  # manifest has ever named them. Not an oversight anyone could have spotted:
+  # they live in scripts/box_walk_probes/probes/, and until #778 the verifier
+  # resolved `probe: <name>` ONLY against the flat scripts/box_walk_probes/,
+  # so a row naming any of them would have FAILED with "not registered". The
+  # gate could not see the runner's probes and the runner does not run the
+  # gate's one probe. Zero overlap, in both directions.
+  #
+  # These SKIP while OSTLER_BOX_HOST is unset, which is every environment
+  # today, so adding them changes no current result. They become live the
+  # moment a cut targets a real box, which is the point.
+  #
+  # HONEST WARNING, recorded here rather than discovered at 3am: on the first
+  # box walk (2026-08-16, andy@192.168.1.217) install_error_honesty FAILED
+  # against a real installer log. That is task #270, a known-open defect, and
+  # its row below will go RED on the first box-targeted cut. That is the row
+  # working. Fix #270 or descope it deliberately; do not delete the row.
+  # ==========================================================================
+  - id: box-walk-daemon-is-listening
+    title: the Hub gateway must accept connections, and the daemon must be able to load its config
+    incident: >-
+      v1.0.31; install.sh wrote a config the daemon could not parse, so the Hub
+      never started on a fresh install and every static gate stayed green
+    proof:
+      kind: box_walk_probe
+      probe: "daemon_is_listening"
+
+  - id: box-walk-freshness-panel-has-dates
+    title: every freshness-panel source must report a real date rather than 'unknown'
+    incident: >-
+      tasks #266 + #349; the Oxigraph client was closed before the dashboard
+      queries ran, and the panel rendered 'unknown' instead of erroring
+    proof:
+      kind: box_walk_probe
+      probe: "freshness_panel_has_dates"
+
+  - id: box-walk-install-error-honesty
+    title: the installer's closing summary must agree with the error count in its own log
+    incident: >-
+      task #270; install.sh closed with "no errors detected" over a session
+      carrying 43+ real errors. OPEN at the time this row was added, and this
+      row is expected to go RED on the first box-targeted cut
+    proof:
+      kind: box_walk_probe
+      probe: "install_error_honesty"
+
+  # ==========================================================================
+  # #722. The estate had no instrument that observes OUTBOUND traffic at all.
+  # Searched OS003 and CM051 with a positive control before building: the only
+  # lsof in a probe read INBOUND listeners. The strongest claim the product
+  # makes had a diagram behind it and no measurement.
+  #
+  # This row exists so the probe cannot become the thing it measures. It SKIPS
+  # while OSTLER_BOX_HOST is unset, like its siblings, and goes live the moment
+  # a cut targets a real box.
+  #
+  # READ THE PROBE'S OWN BLIND-SPOT LINE BEFORE QUOTING A GREEN FROM IT. It
+  # samples established TCP; it cannot see sub-sample-lifetime connections,
+  # UDP, DNS, proxied requests, or any payload content. A pass here is the
+  # floor of an evidence chain, not a proof of no leak, and this row must not
+  # be cited as one.
+  # ==========================================================================
+  - id: box-walk-no-unexpected-egress
+    title: no Ostler-owned process may hold a connection outside the declared local boundary
+    incident: >-
+      task #722; a cold outside read of the marketing site reached "a diagram,
+      not a proof" of the boundary claim, and the estate had zero runnable
+      instruments that observe the network in the outbound direction
+    proof:
+      kind: box_walk_probe
+      probe: "no_unexpected_egress"
+
+  - id: box-walk-installed-bundle-seal-intact
+    title: the installed bundle's code signature must still verify on the box
+    incident: >-
+      task #375 / CM051 #767; the installer broke the seal it had just verified,
+      and nothing checked the artefact after installation
+    proof:
+      kind: box_walk_probe
+      probe: "installed_bundle_seal_intact"
+
+  - id: box-walk-launchd-no-ephemeral-paths
+    title: no installed LaunchAgent may execute from /tmp or a mktemp staging dir
+    incident: >-
+      task #177; the ollama-logrotate plist pointed at /tmp/ostler-prelaunch-XXXX,
+      worked all day, and died at the next reboot
+    proof:
+      kind: box_walk_probe
+      probe: "launchd_no_ephemeral_paths"
+
+  - id: box-walk-pair-state-agreement
+    title: daemon health flag, devices.db and the pair-state file must agree on whether a phone is paired
+    incident: >-
+      tasks #208 + #265; Doctor reported "Your phone is connected" over a
+      devices.db with zero rows, and four signals on one box disagreed
+    proof:
+      kind: box_walk_probe
+      probe: "pair_state_agreement"
+
+  - id: box-walk-people-count-agreement
+    title: Oxigraph and the Doctor API must agree on the number of people
+    incident: >-
+      task #273; three surfaces reported 6376 / 6755 / 6547 for the same box
+      and no gate compared them
+    proof:
+      kind: box_walk_probe
+      probe: "people_count_agreement"

@@ -78,7 +78,15 @@ class IngestPipeline:
             UberParser(),
             WhoopParser(),
             FoursquareParser(),  # Before Netflix - both may match venueRatings
-            AppleTVParser(),   # Before AppleParser - tight path/name match, no overlap
+            # AFTER AppleParser, deliberately, and the previous comment here
+            # said the exact opposite. MEASURED on a real Apple Media Services
+            # export: only TWO files are contested and Apple yields MORE on
+            # both (462 vs 440, and 3167 vs 1082). Promoting AppleTV above
+            # Apple to "let the tighter matcher win" costs 2,107 records.
+            # Apple reads the same columns AppleTV expects plus rows it drops.
+            # Cost of this order is provenance, not data: these records carry
+            # source="apple". Pinned by tests/test_apple_is_registered_before_appletv.py.
+            AppleTVParser(),
             NetflixParser(),  # Before Disney+ - both have ViewingActivity.csv
             DisneyPlusParser(),
             WhatsAppParser(),

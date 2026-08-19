@@ -139,6 +139,17 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # (commit d030468), so the gate false-flagged an asset that ships. Assert
     # the bundling reference so a future removal of the cp line goes red.
     "lib/ostler-model-fit.sh": ["lib/ostler-model-fit.sh"],
+    # settling_progress.sh: install.sh sources
+    # ${SCRIPT_DIR}/lib/settling_progress.sh so CM041 contact_syncer and CM021
+    # pwg-email-ingest can report the `contacts` and `emails` channels on the
+    # wiki settling panel. Neither can import HR015's Python writer (ostler_fda
+    # is never copied into PIPELINE_DIR), so this file IS their writer. It IS
+    # bundled -- gui/project.yml cp's it into Resources/lib/ -- but it landed
+    # without a needle here, so the gate reported a GAP for a shipping asset
+    # and main went red. Exactly the false-flag lib/ostler-model-fit.sh hit
+    # above. The needle asserts the bundling reference, so removing the cp line
+    # goes red instead of shipping a silent no-op.
+    "lib/settling_progress.sh": ["lib/settling_progress.sh"],
     "THIRD_PARTY_NOTICES.md": ["vendor/THIRD_PARTY_NOTICES.md"],
     "LICENSES": ["vendor/LICENSES"],
     "Ostler.app": ["OSTLER_APP_PATH"],

@@ -32,6 +32,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   cut-freshness:
     runs-on: ubuntu-latest
@@ -43,14 +50,33 @@ jobs:
         run: bash tests/test_cut_freshness_gate.sh
 
       - name: Gate is wired fail-closed into both cut paths
+        if: always()
         run: |
           set -e
           # gui/Makefile: package must depend on check-freshness AND the target
           # must abort on non-zero (|| { ... exit 1; }).
           grep -qE '^package:.*check-freshness' gui/Makefile \
             || { echo "gui/Makefile package target does not depend on check-freshness" >&2; exit 1; }
-          grep -qE 'verify_cut_freshness\.sh \|\| \{' gui/Makefile \
-            || { echo "check-freshness target is not fail-closed (missing '|| { ... exit 1; }')" >&2; exit 1; }
+          # FAIL-CLOSED, asserted by COVERAGE not by SYNTAX.
+          #
+          # This used to grep for the literal `verify_cut_freshness.sh || {`.
+          # That pinned one spelling of fail-closed, so the gate went red the
+          # moment check-freshness was given the exit-2/3 branch the other six
+          # wrappers got -- a guard failing a fix that strictly improved the
+          # thing it guards. It is the "assert the defect, not its formatting"
+          # trap: a predicate tied to a rendering is red-while-fixed as easily
+          # as green-while-blind.
+          #
+          # The behaviour is now proven properly, by feeding the wrapper stub
+          # scripts that exit 2/3/1/0 and asserting what it says and returns
+          # (tests/test_cut_gate_wrappers.sh, run by cut-gate-wrappers.yml).
+          # All this needs to check is that the coverage still EXISTS -- if the
+          # wrapper is dropped from that table, nothing else would notice.
+          grep -q 'check-freshness' tests/test_cut_gate_wrappers.sh \
+            || { echo "check-freshness is no longer covered by the wrapper trichotomy self-test" >&2; \
+                 echo "-- add it back to TARGETS/VARS/DEFECTS in tests/test_cut_gate_wrappers.sh" >&2; exit 1; }
+          grep -qE '^check-freshness:' gui/Makefile \
+            || { echo "no check-freshness target in gui/Makefile" >&2; exit 1; }
           # release.sh: must run the gate and die on failure for a real cut.
           grep -q 'FRESHNESS_GATE=' release.sh \
             || { echo "release.sh does not invoke the freshness gate" >&2; exit 1; }

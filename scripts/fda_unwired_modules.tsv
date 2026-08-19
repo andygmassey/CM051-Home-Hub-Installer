@@ -1,0 +1,30 @@
+# fda_unwired_modules.tsv -- ostler_fda modules that SHIP and are DORMANT.
+#
+# Read by scripts/verify_fda_modules_reachable.py, printed IN FULL on every run,
+# and verified on every PR by .github/workflows/fda-reachable.yml.
+#
+# A row here is an ACKNOWLEDGEMENT, not a suppression. It says: this module is
+# in the shipped payload, nothing calls it, we know, and here is the concrete
+# thing that blocks wiring it. The dormant count is reported SEPARATELY from the
+# reachable count and never folded into it, because a dormant bucket that reads
+# as a pass is exactly how a warn bucket collapses into green.
+#
+# RULES THE GATE ENFORCES (exit 2 if broken -- a malformed register is CANNOT
+# RUN, never a quiet pass):
+#
+#   * status must be literally DORMANT. There is no other accepted value, and
+#     there is deliberately NO blanket "ignore unreachable" switch: an
+#     acknowledgement is per-module or it is not an acknowledgement.
+#   * module must be a literal module name. Globs and wildcards are REFUSED --
+#     one '*' would silently acknowledge every future orphan.
+#   * blocked_by must be a real reason. Empty, '-', 'TBD', 'n/a' and friends
+#     are refused. A row without a reason is a suppression wearing a reason's
+#     clothes.
+#
+# A row is a named, dated debt, not permission to leave it dark. The gate fails
+# the moment an UNREGISTERED orphan appears, and separately reports rows that
+# are no longer orphans so a wired module cannot leave a stale row behind.
+#
+# columns: module<TAB>status<TAB>blocked_by<TAB>note
+repair_placeholder_names	DORMANT	BLOCKED ON THE HOUSEHOLD SPLIT: main() refuses to write unless a household-split marker exists (default ~/.ostler/household-split.done, override OSTLER_HOUSEHOLD_SPLIT_MARKER) and NOTHING in this repo creates that marker. Whoever ships the household split: WIRE THIS PASS AS PART OF THAT WORK. This row is here so you find it waiting rather than discovering a dark module a third time.	v1018-D658/D659. Elects one displayName per person and demotes the rest to alternateName; deletes kinship words outright. Merged, tested by tests/test_name_repair.sh, gated by name-repair.yml, and PRESENT in the shipped v1.0.26 DMG -- verified byte-identical to main under OstlerInstaller.app/Contents/Resources/ostler_fda/. Kept deliberately rather than deleted: it is correct, it carries its own tests, and it is needed the moment the split lands. Measured 2026-08-15 against the SHIPPED copy with a stub graph and five synthetic nodes: --apply without the marker exits 2 and writes nothing; with the marker it applies three updates. Passing --households-already-split from install.sh would assert an environmental fact nobody measured, on a pass that deletes names with no undo. The intended trigger is UNRECORDED -- neither the module, its test nor its workflow says once, scheduled or on demand, and the docstring shows manual CLI use only.
+repair_role_address_people	DORMANT	NO CALLER WAS EVER WRITTEN: unlike the row above this module has NO unmet precondition in its own code -- it is dry-run by default with --apply to write, and its safety predicates stand on their own. It is dormant purely because nothing ever invoked it. It is NOT blocked on the household split, and must not be wired on the strength of that row.	Deletes Person nodes that are a notification sender rather than a person, repairing over-merges that pwg_ingest.is_role_identifier now prevents at write time. Found by the same census that found the row above, which is the point of counting rather than remembering. Reachability is ALL that was established here: it has not been reviewed for correctness, ordering or blast radius, so treat wiring it as new work needing its own measurement.

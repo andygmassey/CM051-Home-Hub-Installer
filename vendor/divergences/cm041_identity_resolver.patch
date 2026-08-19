@@ -63,7 +63,7 @@
  
  Scans all person nodes in Oxigraph (and optionally Qdrant), applies multiple
  detection strategies with confidence scoring, and merges confirmed duplicates.
-@@ -87,7 +87,7 @@
+@@ -92,7 +92,7 @@
      "fuzzy_levenshtein_max_distance": 2,
      # Phone normalisation
      "default_country_code": 852,
@@ -72,7 +72,7 @@
      "common_email_domains": {
          "gmail.com", "googlemail.com", "hotmail.com", "hotmail.co.uk",
          "outlook.com", "live.com", "yahoo.com", "yahoo.co.uk",
-@@ -95,10 +95,10 @@
+@@ -100,10 +100,10 @@
          "protonmail.com", "proton.me", "163.com", "qq.com",
      },
      # Minimum Jaro-Winkler score between names for phone match to be high-confidence.
@@ -85,7 +85,7 @@
      "email_name_similarity_threshold": 0.7,
      # BW-2 correction loop: operator merge/distinct decisions live here as
      # duplicates.yaml. distinct pairs are a permanent never-merge block;
-@@ -265,7 +265,7 @@
+@@ -270,7 +270,7 @@
  
      If the display names are very different (JW < threshold), this may be an
      inherited or shared email account (e.g. deceased spouse's email used by
@@ -94,7 +94,7 @@
      auto-merge.
      """
      email_index: Dict[str, List[str]] = defaultdict(list)
-@@ -312,7 +312,7 @@
+@@ -325,7 +325,7 @@
      """Strategy 3: Shared phone number after normalisation (confidence 0.95).
  
      If the names are very different (JW < threshold), this is likely a shared
@@ -103,7 +103,7 @@
      of auto-merge.
      """
      phone_index: Dict[str, List[str]] = defaultdict(list)
-@@ -996,7 +996,7 @@
+@@ -1019,7 +1019,7 @@
          f"  ?entry <{PWG}aboutPerson> <{discard_uri}> }}"
      )
  
@@ -112,7 +112,7 @@
      scalar_props = [
          "displayName", "givenName", "familyName", "organization",
          "jobTitle", "relationship", "howWeMet", "notes", "birthday",
-@@ -1081,7 +1081,7 @@
+@@ -1104,7 +1104,7 @@
      try:
          from qdrant_client import QdrantClient
      except ImportError:
@@ -121,7 +121,7 @@
          return
  
      client = QdrantClient(url=qdrant_url, timeout=30)
-@@ -1489,6 +1489,62 @@
+@@ -1512,6 +1512,62 @@
              self.qdrant_url, self.qdrant_collection,
              apply=apply, backup_dir=backup_dir,
          )
@@ -184,7 +184,7 @@
  
      def close(self) -> None:
          self._client.close()
-@@ -1499,7 +1555,7 @@
+@@ -1522,7 +1578,7 @@
  def format_report_yaml(report: ResolverReport) -> str:
      """Format the report as YAML-like text for human review."""
      lines = [
@@ -193,7 +193,7 @@
          f"# Generated: {datetime.now(timezone.utc).isoformat()}",
          "",
          f"total_persons: {report.total_persons}",
-@@ -1551,7 +1607,7 @@
+@@ -1574,7 +1630,7 @@
  
  def main() -> None:
      parser = argparse.ArgumentParser(
@@ -202,7 +202,7 @@
      )
      parser.add_argument(
          "--dry-run", action="store_true", default=True,
-@@ -1590,6 +1646,17 @@
+@@ -1613,6 +1669,17 @@
          help="Comma-separated list of 1-based indices to exclude from execution (e.g. '12,13,15')",
      )
      parser.add_argument(
@@ -220,7 +220,7 @@
          "--reconcile-qdrant", action="store_true",
          help="Collapse Qdrant people-points that share a person_uri "
               "(over-split vectors). Detect-only unless --execute is also set.",
-@@ -1618,6 +1685,29 @@
+@@ -1641,6 +1708,29 @@
      )
  
      try:
@@ -250,7 +250,7 @@
          if args.reconcile_qdrant:
              # Standalone Qdrant collapse sweep -- does NOT touch person nodes.
              qreport = resolver.reconcile_qdrant(
-@@ -1705,7 +1795,7 @@
+@@ -1728,7 +1818,7 @@
              with open(args.output, "w", encoding="utf-8") as f:
                  f.write(yaml_report)
          else:
@@ -559,7 +559,7 @@
 +    # colleagues on the same DID line (BW-1). The unique-by-construction
 +    # identifiers (icloud_contact_uid, linkedin_url, whatsapp_lid) are always
 +    # trusted. The strict exact-normalised-name check is deliberately
-+    # conservative: name VARIANTS (e.g. "Granny Ritchie" / "Margaret Ritchie")
++    # conservative: name VARIANTS (e.g. "Granny Halloran" / "Margaret Halloran")
 +    # stay separate rather than risk a wrong merge -- relaxing that to a fuzzy
 +    # threshold is the BW-2 design follow-up.
 +    _SHAREABLE_ID_TYPES = {"email", "phone"}

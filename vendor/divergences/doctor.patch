@@ -257,6 +257,793 @@
 +            # fail loud rather than silently leaving the brief armed.
 +            raise ConfigError(exc.status, exc.detail)
      return read_config_view(p)
+--- /dev/null
++++ b/agent/daemon_cron.py
+@@ -0,0 +1,319 @@
++"""
++Ostler Doctor -- daemon cron pause bridge (Batch-2 review #6 F1).
++
++The Doctor Settings "Pause background work" control has two jobs:
++
++1. Pause the SHELL-layer enrichment/ingest/wiki-recompile ticks. That is
++   done by ``config_panel._write_governor_env`` writing ``OSTLER_PAUSED=1``
++   into ``governor.env``, which every ``*-tick.sh`` sources.
++
++2. Pause the ASSISTANT DAEMON'S OWN embedded cron scheduler -- the one
++   that fires the morning brief (09:00) and evening wrap (18:00). THIS
++   module does that. Without it, a Pause set at 08:45 still let the 09:00
++   brief fire, because the shell governor never reaches the Rust daemon.
++
++Why it works this way (verified against the daemon source)
++----------------------------------------------------------
++The daemon (``ostler-assistant`` / zeroclaw) reads its config from
++``~/.ostler/assistant-config/config.toml``. Two facts about the shipped
++daemon decide the mechanism:
++
++* The scheduler supervisor is only spawned when ``[cron].enabled`` is
++  true, and that is read ONCE at daemon start
++  (``crates/zeroclaw-runtime/src/daemon/mod.rs``:
++  ``if config.cron.enabled { spawn scheduler }``). The running scheduler
++  holds a *cloned* ``Config`` by value, so mutating the daemon's live
++  config over the HTTP API does NOT reach the running loop -- the change
++  only takes effect on a daemon restart, when ``sync_declarative_jobs``
++  reconciles ``[[cron.jobs]]`` (and per-job ``enabled``) into the DB and
++  the supervisor re-reads ``[cron].enabled``.
++
++* The per-tick fire query is ``WHERE enabled = 1 AND next_run <= now``.
++
++So the honest, daemon-side way to stop the fire from CM051 (which cannot
++rebuild the Rust daemon) is: set ``[cron].enabled = false`` in
++``config.toml`` and restart the daemon in place with
++``launchctl kickstart -k`` -- the same idiom ``install.sh`` already uses
++after Full-Disk-Access grants. On restart the scheduler supervisor sees
++``enabled = false`` and never starts; nothing fires until the operator
++resumes (which sets it back to true and restarts again).
++
++Fail-closed discipline
++----------------------
++Editing the daemon's live TOML is delicate -- a malformed file would
++break the daemon. So every edit is validated by re-parsing the RESULT
++with ``tomllib`` and asserting (a) it still parses, (b) ``cron.enabled``
++is the value we intended, and (c) the ``[[cron.jobs]]`` are preserved
++byte-for-byte in count. If any check fails we DO NOT write and raise,
++leaving ``config.toml`` untouched (the shell-layer pause still applies).
++If there is no daemon config, or no cron jobs to pause, this is a no-op.
++"""
++
++from __future__ import annotations
++
++import os
++import shlex
++import subprocess
++import tempfile
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Optional
++
++try:  # Python 3.11+
++    import tomllib  # type: ignore
++except ModuleNotFoundError:  # pragma: no cover - old interpreters
++    tomllib = None  # type: ignore
++
++
++# The canonical LaunchAgent label for the assistant daemon (matches
++# install.sh and assistant-agent/launchd/*.plist). Overridable for tests
++# / non-default deployments.
++DEFAULT_ASSISTANT_LABEL = "com.creativemachines.ostler.assistant"
++
++
++@dataclass
++class DaemonCronError(Exception):
++    """Raised when the daemon cron gate cannot be applied safely.
++
++    Carries an HTTP status so the FastAPI route maps cleanly, matching
++    ``config_panel.ConfigError``.
++    """
++
++    status: int
++    detail: str
++
++    def __str__(self) -> str:  # pragma: no cover - trivial
++        return self.detail
++
++
++def assistant_config_file() -> Path:
++    """Resolve the daemon's ``config.toml`` path.
++
++    ``OSTLER_ASSISTANT_CONFIG_FILE`` wins (tests / non-default installs),
++    then ``OSTLER_HOME`` (``<home>/assistant-config/config.toml``), then
++    the ``~/.ostler`` default. Kept independent of the Doctor YAML path so
++    a test that points the YAML at a tmp dir does not accidentally touch
++    the real daemon config unless it also sets this override.
++    """
++    raw = os.environ.get("OSTLER_ASSISTANT_CONFIG_FILE")
++    if raw:
++        return Path(raw)
++    home = os.environ.get("OSTLER_HOME")
++    if home:
++        return Path(home) / "assistant-config" / "config.toml"
++    return Path.home() / ".ostler" / "assistant-config" / "config.toml"
++
++
++# ── TOML edit (surgical, text-level, tomllib-validated) ──────────────
++
++
++_CRON_HEADER_RE = None  # lazily compiled below to avoid import-time cost
++
++
++def _is_table_header(line: str) -> bool:
++    s = line.strip()
++    return s.startswith("[") and not s.startswith("[[") or s.startswith("[[")
++
++
++def set_cron_enabled_text(text: str, enabled: bool) -> str:
++    """Return ``text`` with ``[cron].enabled`` set to ``enabled``.
++
++    Text-level so we never reformat the operator's file. Three cases:
++
++    * a ``[cron]`` table with an ``enabled = ...`` line -> flip the value;
++    * a ``[cron]`` table without one -> insert ``enabled`` after the header;
++    * no ``[cron]`` table but at least one ``[[cron.jobs]]`` -> insert a
++      ``[cron]`` table (with ``enabled``) immediately BEFORE the first
++      ``[[cron.jobs]]`` header, because TOML forbids defining ``[cron]``
++      after its ``cron.jobs`` array has been opened.
++
++    The caller validates the result with ``tomllib`` before writing.
++    """
++    val = "true" if enabled else "false"
++    lines = text.splitlines(keepends=True)
++
++    # Locate the [cron] table header (exact table, not [cron.something]).
++    cron_hdr_idx: Optional[int] = None
++    first_cron_jobs_idx: Optional[int] = None
++    for i, ln in enumerate(lines):
++        s = ln.strip()
++        if s == "[cron]":
++            cron_hdr_idx = i
++        if first_cron_jobs_idx is None and s == "[[cron.jobs]]":
++            first_cron_jobs_idx = i
++
++    if cron_hdr_idx is not None:
++        # Scan the [cron] table body for an `enabled` key up to the next
++        # table header.
++        j = cron_hdr_idx + 1
++        while j < len(lines):
++            s = lines[j].strip()
++            if s.startswith("[") :  # next table starts
++                break
++            if s.startswith("enabled") and "=" in s:
++                indent = lines[j][: len(lines[j]) - len(lines[j].lstrip())]
++                nl = "\n" if lines[j].endswith("\n") else ""
++                lines[j] = f"{indent}enabled = {val}{nl}"
++                return "".join(lines)
++            j += 1
++        # No `enabled` key inside [cron]: insert one right after the header.
++        hdr_nl = "\n" if lines[cron_hdr_idx].endswith("\n") else "\n"
++        lines.insert(cron_hdr_idx + 1, f"enabled = {val}{hdr_nl}")
++        return "".join(lines)
++
++    if first_cron_jobs_idx is not None:
++        # No [cron] table yet: inject a managed one before the first job.
++        block = f"[cron]\nenabled = {val}\n\n"
++        lines.insert(first_cron_jobs_idx, block)
++        return "".join(lines)
++
++    # Nothing cron-related in the file: caller treats this as a no-op.
++    return text
++
++
++# ── Daemon restart (in-place, best-effort, test-injectable) ──────────
++
++
++def _restart_daemon() -> dict:
++    """Restart the assistant daemon in place so it re-reads config.toml.
++
++    ``OSTLER_SKIP_DAEMON_RESTART=1`` skips the restart entirely (tests on
++    a box with no daemon). ``OSTLER_ASSISTANT_RESTART_CMD`` overrides the
++    command (tests capture it); it is shlex-split and run WITHOUT a shell.
++    Otherwise the canonical ``launchctl kickstart -k gui/<uid>/<label>``
++    is used -- the same call install.sh makes after an FDA grant.
++
++    Returns a small status dict; never raises (a failed restart leaves the
++    config change to take effect at the next natural daemon start, and the
++    shell-layer pause is already active).
++    """
++    if os.environ.get("OSTLER_SKIP_DAEMON_RESTART") == "1":
++        return {"restarted": False, "reason": "skipped"}
++
++    override = os.environ.get("OSTLER_ASSISTANT_RESTART_CMD")
++    if override:
++        cmd = shlex.split(override)
++    else:
++        label = os.environ.get("OSTLER_ASSISTANT_LABEL", DEFAULT_ASSISTANT_LABEL)
++        cmd = [
++            "launchctl",
++            "kickstart",
++            "-k",
++            f"gui/{os.getuid()}/{label}",
++        ]
++    try:
++        proc = subprocess.run(
++            cmd,
++            capture_output=True,
++            text=True,
++            timeout=20,
++            check=False,
++        )
++    except (OSError, subprocess.SubprocessError) as exc:
++        return {"restarted": False, "reason": f"restart failed: {exc}"}
++    if proc.returncode != 0:
++        return {
++            "restarted": False,
++            "reason": f"restart exit {proc.returncode}: {proc.stderr.strip()}",
++        }
++    return {"restarted": True, "reason": "kickstart ok"}
++
++
++def _atomic_write(path: Path, text: str) -> None:
++    fd, tmp = tempfile.mkstemp(
++        dir=str(path.parent), prefix=".config-", suffix=".toml.tmp"
++    )
++    try:
++        with os.fdopen(fd, "w", encoding="utf-8") as fh:
++            fh.write(text)
++        os.replace(tmp, path)
++    except OSError as exc:
++        try:
++            os.unlink(tmp)
++        except OSError:
++            pass
++        raise DaemonCronError(500, f"Could not write daemon config: {exc}")
++
++
++# ── Public entry point ───────────────────────────────────────────────
++
++
++def apply_pause_to_cron(
++    paused: bool, *, config_path: Optional[Path] = None
++) -> dict:
++    """Reflect the operator Pause into the daemon's cron scheduler.
++
++    Sets ``[cron].enabled = false`` when ``paused`` (``= true`` when
++    resumed) in the daemon ``config.toml`` and restarts the daemon so the
++    scheduler supervisor re-reads it. A Pause set at 08:45 therefore stops
++    the 09:00 brief, which the shell-layer governor alone could not do.
++
++    No-ops (``changed=False``, no restart) when there is no daemon config,
++    no cron jobs to pause, or the gate is already in the desired state.
++    Fail-closed: an edit that would not round-trip through ``tomllib`` is
++    rejected and ``config.toml`` is left untouched.
++    """
++    p = config_path or assistant_config_file()
++    if not p.is_file():
++        return {"changed": False, "reason": "no daemon config"}
++
++    if tomllib is None:  # pragma: no cover - old interpreters
++        raise DaemonCronError(
++            500, "Python 3.11+ (tomllib) is required to gate the daemon cron."
++        )
++
++    try:
++        original_text = p.read_text(encoding="utf-8")
++    except OSError as exc:
++        raise DaemonCronError(500, f"Could not read daemon config: {exc}")
++
++    try:
++        data = tomllib.loads(original_text)
++    except tomllib.TOMLDecodeError as exc:
++        # Never edit a file we cannot parse.
++        raise DaemonCronError(500, f"Daemon config is not valid TOML: {exc}")
++
++    cron = data.get("cron")
++    jobs = cron.get("jobs", []) if isinstance(cron, dict) else []
++    has_cron_table = isinstance(cron, dict)
++    # Nothing scheduled -> nothing to pause; don't gratuitously add a
++    # [cron] table or restart the daemon.
++    if not jobs and not has_cron_table:
++        return {"changed": False, "reason": "no cron jobs"}
++
++    desired = not paused
++    current = bool(cron.get("enabled", True)) if has_cron_table else True
++    if current == desired:
++        return {"changed": False, "reason": "already in desired state"}
++
++    new_text = set_cron_enabled_text(original_text, desired)
++    if new_text == original_text:
++        return {"changed": False, "reason": "no edit applied"}
++
++    # Fail-closed validation: the result must parse, carry the intended
++    # cron.enabled, and preserve every declarative job.
++    try:
++        new_data = tomllib.loads(new_text)
++    except tomllib.TOMLDecodeError as exc:
++        raise DaemonCronError(
++            500, f"Refusing to write: edited daemon config is invalid TOML: {exc}"
++        )
++    new_cron = new_data.get("cron", {})
++    if not isinstance(new_cron, dict) or bool(new_cron.get("enabled", True)) != desired:
++        raise DaemonCronError(
++            500, "Refusing to write: cron.enabled did not take the intended value."
++        )
++    if len(new_cron.get("jobs", [])) != len(jobs):
++        raise DaemonCronError(
++            500, "Refusing to write: cron job count changed during the edit."
++        )
++
++    _atomic_write(p, new_text)
++    restart = _restart_daemon()
++    return {
++        "changed": True,
++        "paused": paused,
++        "cron_enabled": desired,
++        "config_path": str(p),
++        "restart": restart,
++    }
+--- a/agent/diagnostic_copy.py
++++ b/agent/diagnostic_copy.py
+@@ -383,4 +383,93 @@
+     "After granting access, restart the assistant: "
+     "launchctl kickstart -k gui/$(id -u)/"
+     "com.creativemachines.ostler.assistant"
++)
++
++
++# ── check_imessage_capture_stalled ───────────────────────────────────
++#
++# Distinct from check_imessage_fda: that rule fires on the install-time
++# probe signal; this one fires on the RUNTIME evidence that the iMessage
++# capture bundle is actually crash-looping. Before Full Disk Access is
++# granted, every capture tick logs
++# ``sqlite3.OperationalError: unable to open database file`` to
++# ``~/.ostler/logs/imessage-bundle.err`` -- the capture is silently stalled
++# and no messages are being read. This surfaces that as an actionable card.
++
++
++IMESSAGE_CAPTURE_STALLED_TITLE = (
++    "iMessage capture stalled: waiting for Full Disk Access"
++)
++IMESSAGE_CAPTURE_STALLED_DETAIL = (
++    "Ostler's iMessage capture is retrying but cannot open your Messages "
++    "database yet, so no messages are being read. macOS blocks access until "
++    "you grant Full Disk Access to the assistant. Grant it and the capture "
++    "resumes on its own; this card clears once Messages can be read."
++)
++IMESSAGE_CAPTURE_STALLED_FIX = "Open System Settings to Full Disk Access"
++# Same remedial action as the install-time card: the FDA deep-link. Kept as
++# its own catalogue entry so the two call sites stay decoupled, but pointed
++# at the shared command so there is one deep-link string to maintain.
++IMESSAGE_CAPTURE_STALLED_FIX_COMMAND = IMESSAGE_FDA_FIX_COMMAND
++
++
++# ── check_last_upgrade ───────────────────────────────────────────────
++#
++# The (B-lite) upgrade audit-trail row. Reads the durable, reboot-
++# surviving upgrade result the Hub records in preferences.json and
++# tells the customer, in plain terms, how the last update went.
++#
++# The success detail deliberately carries no capital "T" or "Z" so a
++# malformed timestamp can never leak an ISO string (2026-07-27T...Z)
++# into the reassurance line.
++
++LAST_UPGRADE_SUCCESS_TITLE_FMT = "Ostler updated to v{version}"
++LAST_UPGRADE_SUCCESS_DETAIL_FMT = (
++    "Last update applied {applied}. "
++    "Assistant and services have been reconciled and are running normally."
+ )
++# Shown when the recorded timestamp cannot be parsed, so the applied-time
++# clause is omitted rather than printing a half-formed value.
++LAST_UPGRADE_SUCCESS_DETAIL_NO_TIME = (
++    "Assistant and services have been reconciled and are running normally."
++)
++
++LAST_UPGRADE_FAILED_TITLE = "Last Ostler update didn't finish"
++LAST_UPGRADE_FAILED_DETAIL = (
++    "The most recent update did not complete, so your previous (working) "
++    "version of Ostler is still running. Nothing was lost. The Doctor logs "
++    "have the details if you want to see what stopped it."
++)
++LAST_UPGRADE_FAILED_FIX = (
++    "You can try the update again later. If it keeps stopping, the Doctor "
++    "logs (in this window) show where."
++)
++
++LAST_UPGRADE_ROLLED_BACK_TITLE = "Ostler update was rolled back"
++LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT = (
++    "Your previous Ostler is running. Version {version} did not install, so "
++    "the working version was restored automatically. Nothing was lost."
++)
++LAST_UPGRADE_ROLLED_BACK_FIX = (
++    "No action is needed. You can try updating again later from Settings."
++)
++
++
++# ---------------------------------------------------------------------------
++# Conversation dispatch failures (2026-08-08)
++#
++# Doctor read this log for exactly ONE signature -- the pre-FDA SQLite crash.
++# A bundle that ticks happily while every dispatch exits rc=1 was therefore
++# invisible, and Doctor said "Everything looks healthy" beside a 37KB error
++# log. Doctor was not lying; it was reporting on the only thing it checked.
++#
++# Silence and failure are different states. This copy is for the second.
++# ---------------------------------------------------------------------------
++CONVO_DISPATCH_FAILING_TITLE = "Some conversations could not be processed"
++CONVO_DISPATCH_FAILING_DETAIL = (
++    "Ostler is reading your messages, but {n} recent {noun} failed while being "
++    "summarised and {have} been skipped. Those conversations will not appear in "
++    "your wiki or answers until they are retried. Everything else is unaffected."
++)
++CONVO_DISPATCH_FAILING_FIX = "Show the error log"
++CONVO_DISPATCH_FAILING_FIX_COMMAND = "open ~/.ostler/logs/imessage-bundle.err"
+--- a/agent/diagnostic_rules.py
++++ b/agent/diagnostic_rules.py
+@@ -79,6 +79,14 @@
+     HIGH_MEM_CONTAINER_FIX,
+     HIGH_MEM_CONTAINER_FIX_COMMAND_FMT,
+     HIGH_MEM_CONTAINER_TITLE_FMT,
++    IMESSAGE_CAPTURE_STALLED_DETAIL,
++    IMESSAGE_CAPTURE_STALLED_FIX,
++    IMESSAGE_CAPTURE_STALLED_FIX_COMMAND,
++    IMESSAGE_CAPTURE_STALLED_TITLE,
++    CONVO_DISPATCH_FAILING_TITLE,
++    CONVO_DISPATCH_FAILING_DETAIL,
++    CONVO_DISPATCH_FAILING_FIX,
++    CONVO_DISPATCH_FAILING_FIX_COMMAND,
+     IMESSAGE_FDA_DETAIL,
+     IMESSAGE_FDA_FIX,
+     IMESSAGE_FDA_FIX_COMMAND,
+@@ -95,6 +103,15 @@
+     IMPORT_READY_DETAIL,
+     IMPORT_READY_FIX_COMMAND,
+     IMPORT_READY_TITLE,
++    LAST_UPGRADE_FAILED_DETAIL,
++    LAST_UPGRADE_FAILED_FIX,
++    LAST_UPGRADE_FAILED_TITLE,
++    LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT,
++    LAST_UPGRADE_ROLLED_BACK_FIX,
++    LAST_UPGRADE_ROLLED_BACK_TITLE,
++    LAST_UPGRADE_SUCCESS_DETAIL_FMT,
++    LAST_UPGRADE_SUCCESS_DETAIL_NO_TIME,
++    LAST_UPGRADE_SUCCESS_TITLE_FMT,
+     LOW_RAM_DETAIL,
+     LOW_RAM_TITLE_FMT,
+     MANY_MODELS_DETAIL,
+@@ -945,12 +962,325 @@
+         "risk": "low",
+         "category": "installation",
+     })
++    return findings
++
++
++# ── (B-lite) upgrade audit-trail row ─────────────────────────────────
++
++
++def _ostler_preferences_path() -> str:
++    """Returns the canonical ~/.ostler/preferences.json path.
++
++    Pulled to its own helper so tests can monkeypatch HOME without
++    touching the rule body (mirrors :func:`_imessage_chat_db_path`).
++    """
++    import os
++
++    return os.path.join(
++        os.path.expanduser("~"),
++        ".ostler",
++        "preferences.json",
++    )
++
++
++def _format_upgrade_applied(timestamp: str | None) -> str | None:
++    """Format an ISO 8601 upgrade timestamp as ``%Y-%m-%d %H:%M``.
++
++    Returns ``None`` when the value is missing or unparseable, so the
++    rule omits the applied-time clause rather than surfacing a raw
++    string with a "T"/"Z" in it. Mirrors :func:`_format_backfill_month`.
++    """
++    if not timestamp:
++        return None
++    from datetime import datetime as _dt
++    raw = timestamp.strip()
++    # Tolerate the trailing 'Z' zulu shape the Hub writer emits;
++    # fromisoformat accepts it from 3.11 but the doctor image targets
++    # 3.10+ so we normalise defensively.
++    if raw.endswith("Z"):
++        raw = raw[:-1] + "+00:00"
++    try:
++        parsed = _dt.fromisoformat(raw)
++    except (TypeError, ValueError):
++        return None
++    return parsed.strftime("%Y-%m-%d %H:%M")
++
++
++def check_last_upgrade(snapshot: Any) -> list[dict]:
++    """(B-lite) upgrade audit-trail Doctor row.
++
++    Reads the durable, reboot-surviving upgrade result the Hub records
++    at ``~/.ostler/preferences.json`` and surfaces exactly one row
++    describing how the last Ostler update went.
++
++    This rule is READ-ONLY: the Hub (Rust) owns writes to
++    preferences.json. Doctor never creates, modifies, or repairs the
++    file -- a malformed file is left byte-for-byte untouched.
++
++    Quiet-on-legacy posture (mirrors :func:`check_imessage_fda`): a
++    missing file, malformed JSON, or a missing / ``None`` /
++    non-object ``last_upgrade_result`` all mean "this install has no
++    upgrade audit trail yet" and return no findings rather than
++    firing a false row. An unknown ``status`` value is likewise not
++    guessed.
++
++    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9.
++    """
++    import json
++
++    findings: list[dict] = []
++
++    path = _ostler_preferences_path()
++    try:
++        with open(path, encoding="utf-8") as fh:
++            prefs = json.load(fh)
++    except OSError:
++        # Missing file (FileNotFoundError is an OSError) or unreadable:
++        # legacy install with no audit trail. Stay quiet.
++        return findings
++    except ValueError:
++        # Malformed JSON (JSONDecodeError / UnicodeDecodeError both
++        # subclass ValueError). Stay quiet, never crash, never rewrite.
++        return findings
++
++    if not isinstance(prefs, dict):
++        return findings
++
++    result = prefs.get("last_upgrade_result")
++    if not isinstance(result, dict):
++        # Missing key, explicit null, or a non-object value: no trail.
++        return findings
++
++    status = result.get("status")
++    version = result.get("version")
++    applied = _format_upgrade_applied(result.get("timestamp"))
++
++    if status == "success":
++        if applied:
++            detail = LAST_UPGRADE_SUCCESS_DETAIL_FMT.format(applied=applied)
++        else:
++            detail = LAST_UPGRADE_SUCCESS_DETAIL_NO_TIME
++        findings.append({
++            "severity": "info",
++            "title": LAST_UPGRADE_SUCCESS_TITLE_FMT.format(version=version),
++            "detail": detail,
++            "fix": None,
++            "fix_command": None,
++            "risk": "low",
++            "category": "upgrade",
++        })
++    elif status == "failed":
++        findings.append({
++            "severity": "warning",
++            "title": LAST_UPGRADE_FAILED_TITLE,
++            "detail": LAST_UPGRADE_FAILED_DETAIL,
++            "fix": LAST_UPGRADE_FAILED_FIX,
++            "fix_command": None,
++            "risk": "low",
++            "category": "upgrade",
++        })
++    elif status == "rolled-back":
++        findings.append({
++            "severity": "warning",
++            "title": LAST_UPGRADE_ROLLED_BACK_TITLE,
++            "detail": LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT.format(version=version),
++            "fix": LAST_UPGRADE_ROLLED_BACK_FIX,
++            "fix_command": None,
++            "risk": "low",
++            "category": "upgrade",
++        })
++    # Unknown status value: do not guess. Return no findings.
++
+     return findings
+ 
+ 
++# Runtime signature the iMessage capture bundle logs on every tick while it
++# cannot open ~/Library/Messages/chat.db (Full Disk Access not yet granted).
++# Matched as two tokens rather than one literal so incidental whitespace /
++# path suffix variations in the traceback line still match.
++_IMESSAGE_SQLITE_CRASH_TOKENS = (
++    "sqlite3.OperationalError",
++    "unable to open database file",
++)
++# Cap how much of the (potentially long-lived, appended-to) error log we read.
++_IMESSAGE_ERR_TAIL_BYTES = 65536
++
++
++def _imessage_bundle_err_path() -> "Any":
++    """Path to the iMessage capture bundle's stderr log.
++
++    Honours ``OSTLER_LOGS_DIR`` then ``OSTLER_DIR`` (the installer sets
++    ``OSTLER_DIR=~/.ostler`` and points launchd logs at ``${OSTLER_DIR}/logs``),
++    falling back to ``~/.ostler/logs/imessage-bundle.err``. Mirrors
++    ``web_ui._ostler_logs_dir`` so the resolution stays in lockstep, and lets
++    tests point it at a fixture via ``OSTLER_LOGS_DIR`` without touching HOME.
++    """
++    import os
++    from pathlib import Path
++
++    override = os.environ.get("OSTLER_LOGS_DIR")
++    if override:
++        base = Path(override)
++    else:
++        ostler_dir = os.environ.get("OSTLER_DIR")
++        base = Path(ostler_dir) / "logs" if ostler_dir else (
++            Path.home() / ".ostler" / "logs"
++        )
++    return base / "imessage-bundle.err"
++
++
++def _imessage_capture_crash_logged() -> bool:
++    """True if the iMessage capture stderr log shows the pre-FDA SQLite crash.
++
++    Reads only the tail of the file (the log is appended to on every tick, so
++    it can grow) and looks for the ``sqlite3.OperationalError: unable to open
++    database file`` signature. Any read failure (missing file on a fresh box,
++    permission error) is treated as "no crash observed" so the rule stays
++    quiet rather than firing a false positive.
++    """
++    path = _imessage_bundle_err_path()
++    try:
++        if not path.is_file():
++            return False
++        with open(path, "rb") as fh:
++            try:
++                fh.seek(-_IMESSAGE_ERR_TAIL_BYTES, 2)
++            except OSError:
++                # File shorter than the tail window: read from the start.
++                fh.seek(0)
++            tail = fh.read().decode("utf-8", errors="replace")
++    except OSError:
++        return False
++    return all(token in tail for token in _IMESSAGE_SQLITE_CRASH_TOKENS)
++
++
++def check_imessage_capture_stalled(snapshot: Any) -> list[dict]:
++    """#172 Doctor card: the iMessage capture bundle is crash-looping on
++    SQLite because Full Disk Access has not been granted yet.
++
++    Distinct from :func:`check_imessage_fda` (which fires on the install-time
++    probe signal): this rule reads the RUNTIME evidence. Before FDA is granted
++    every capture tick logs
++    ``sqlite3.OperationalError: unable to open database file`` to
++    ``~/.ostler/logs/imessage-bundle.err``. The capture is silently stalled --
++    no messages are being read -- so we surface an actionable card.
++
++    Fires when BOTH:
++
++    1. The crash signature is present in the log tail, AND
++    2. A live re-probe from this Doctor process *also* cannot open chat.db.
++
++    The live re-probe is the auto-dismiss path (shared with
++    :func:`check_imessage_fda`): the crash lines linger in the appended log
++    after FDA is finally granted, so without the re-probe the card would never
++    clear. Once FDA is granted and Messages is readable, the card disappears.
++
++    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9. The fix-command
++    opens System Settings -> Privacy & Security -> Full Disk Access.
++    """
++    findings: list[dict] = []
++
++    if not _imessage_capture_crash_logged():
++        return findings
++
++    # Live auto-dismiss: if this Doctor process can now open chat.db, FDA has
++    # been granted on this Mac and the logged crashes are stale history.
++    if _imessage_chat_db_readable():
++        return findings
++
++    findings.append({
++        "severity": "warning",
++        "title": IMESSAGE_CAPTURE_STALLED_TITLE,
++        "detail": IMESSAGE_CAPTURE_STALLED_DETAIL,
++        "fix": IMESSAGE_CAPTURE_STALLED_FIX,
++        "fix_command": IMESSAGE_CAPTURE_STALLED_FIX_COMMAND,
++        "risk": "low",
++        "category": "installation",
++    })
++    return findings
++
++
+ # ── Rule registry ────────────────────────────────────────────────────
+ 
+ 
++# Dispatch failures are logged as a non-zero return code from the CM048
++# conversation processor. Counted over the log TAIL only: the log is appended
++# to forever, so counting the whole file would keep surfacing failures the
++# customer already dealt with weeks ago.
++_DISPATCH_FAIL_TOKENS = ("rc=1", "sessions_failed")
++
++
++def _dispatch_failure_count() -> int:
++    """How many dispatch failures appear in the tail of the bundle error log.
++
++    Same read posture as :func:`_imessage_capture_crash_logged` -- tail only,
++    and any read failure counts as zero so a missing log on a fresh box cannot
++    manufacture a warning.
++    """
++    path = _imessage_bundle_err_path()
++    try:
++        if not path.is_file():
++            return 0
++        with open(path, "rb") as fh:
++            try:
++                fh.seek(-_IMESSAGE_ERR_TAIL_BYTES, 2)
++            except OSError:
++                fh.seek(0)
++            tail = fh.read().decode("utf-8", errors="replace")
++    except OSError:
++        return 0
++    return sum(
++        1 for line in tail.splitlines()
++        if any(tok in line for tok in _DISPATCH_FAIL_TOKENS)
++    )
++
++
++def check_conversation_dispatch_failures(snapshot: Any) -> list[dict]:
++    """Surface conversations that were READ but failed to be processed.
++
++    WHY THIS RULE EXISTS (2026-08-08 box-walk of .208)
++    Doctor's status endpoint reported "Everything looks healthy. Nice one."
++    at 16:49 while ``imessage-bundle.err`` was 37KB and carried a fresh rc=1
++    from 16:43. Doctor was not wrong about what it checked -- it checked this
++    log for the pre-FDA SQLite crash signature and for nothing else. There was
++    no rule for FAILURE, only for SILENCE.
++
++    That distinction is the whole defect. A crash-looping bundle is caught by
++    :func:`check_imessage_capture_stalled`. A bundle that ticks forever while
++    every dispatch fails looks identical to a healthy one from the outside:
++    the process is running, the log is growing, messages are being read. The
++    conversations are simply dropped on the floor.
++
++    Second-in-class after #208 (Doctor reporting a device as paired when it
++    was not). A product that reports green over a red state twice is not
++    trusted a third time, so this rule errs towards saying something.
++
++    Deliberately a WARNING, not an error: the ingest as a whole is working and
++    the customer's other data is unaffected. It is a "some of your things did
++    not make it" message, which is what actually happened.
++    """
++    findings: list[dict] = []
++
++    n = _dispatch_failure_count()
++    if n <= 0:
++        return findings
++
++    findings.append({
++        "severity": "warning",
++        "title": CONVO_DISPATCH_FAILING_TITLE,
++        "detail": CONVO_DISPATCH_FAILING_DETAIL.format(
++            n=n,
++            noun="conversation" if n == 1 else "conversations",
++            have="has" if n == 1 else "have",
++        ),
++        "fix": CONVO_DISPATCH_FAILING_FIX,
++        "fix_command": CONVO_DISPATCH_FAILING_FIX_COMMAND,
++        "risk": "low",
++        "category": "installation",
++    })
++    return findings
++
++
+ ALL_RULES = [
+     check_first_install,
+     check_container_health,
+@@ -969,6 +1299,9 @@
+     check_mail_content,
+     check_backfill_progress,
+     check_imessage_fda,
++    check_last_upgrade,
++    check_imessage_capture_stalled,
++    check_conversation_dispatch_failures,
+ ]
+ 
+ 
 --- a/agent/duplicate_decision.py
 +++ b/agent/duplicate_decision.py
 @@ -25,7 +25,7 @@
@@ -307,26 +1094,488 @@
      # distinct: record every pair so the resolver vetoes each one independently.
      return [
          {"distinct": [ids[i], ids[j]]}
---- a/agent/pair_status.py
-+++ b/agent/pair_status.py
-@@ -78,15 +78,8 @@
+--- a/agent/import_evernote_runner.py
++++ b/agent/import_evernote_runner.py
+@@ -37,6 +37,7 @@
+ 
+ import argparse
+ import json
++import logging
+ import os
+ import subprocess
+ import sys
+@@ -44,7 +45,58 @@
+ from pathlib import Path
+ from typing import Any, Dict, List
+ 
++# Best-effort settling-progress import. The runner is stdlib-only by design
++# so it can boot inside a fresh Doctor venv before extra deps land -- the
++# helper import is guarded so an absent module never blocks the runner from
++# finishing the import (the settling panel then falls back to calendar mode,
++# which is the correct honest degradation).
++try:
++    _REPO_ROOT = Path(__file__).resolve().parents[2]
++    if str(_REPO_ROOT) not in sys.path:
++        sys.path.insert(0, str(_REPO_ROOT))
++    from ostler_fda.settling_progress import (  # noqa: E402
++        report_settling_progress,
++    )
++except Exception:  # noqa: BLE001 -- see comment above
++    report_settling_progress = None  # type: ignore[assignment]
+ 
++_logger = logging.getLogger(__name__)
++
++# Channel identifier for the "notes" settling shard. Runner is a subprocess
++# of start_import (in import_evernote.py); both emit into the same shard.
++_SETTLING_CHANNEL = "notes"
++
++
++def _emit_notes_settling(
++    *,
++    done: int,
++    total: int,
++    needs_source: bool = False,
++    started_at: str,
++) -> None:
++    """Emit a `notes` settling shard from the runner subprocess.
++
++    Safe against a missing helper import or a full-disk write -- neither
++    can abort the runner (which owns the terminal state file + lockfile
++    removal). Silent failure here is degrades-to-calendar-mode, not lost
++    data.
++    """
++    if report_settling_progress is None:
++        return
++    try:
++        report_settling_progress(
++            channel=_SETTLING_CHANNEL,
++            done=done,
++            total=total,
++            needs_source=needs_source,
++            started_at=started_at,
++        )
++    except Exception:  # noqa: BLE001 -- see docstring
++        # Runner's own log stream is inherited by the parent; write a
++        # single warning line so a real problem is at least visible.
++        sys.stderr.write("runner: settling-progress emit failed\n")
++
++
+ # Sentinel that separates sequential phases in the command after ``--``.
+ # Doctor passes ``convert ... --and-then embed ...`` so the supervisor
+ # runs convert, then embed ONLY if convert succeeded. A command with no
+@@ -80,7 +132,18 @@
+     parser.add_argument("--log-path", required=True, dest="log_path")
+     parser.add_argument("--enex-path", required=True, dest="enex_path")
+     parser.add_argument("--started-at", required=True, dest="started_at")
++    # Optional: count of `<note>` tags in the ENEX, measured by start_import
++    # before fork. Feeds the settling-progress `total` denominator; 0 means
++    # "count unknown" and results in a needs_source=False, total=0 shard
++    # (reader classifies as ready). Optional so old callers still work.
+     parser.add_argument(
++        "--note-count",
++        type=int,
++        default=0,
++        dest="note_count",
++        help="ENEX <note>-tag count for settling-progress total (optional).",
++    )
++    parser.add_argument(
+         "command",
+         nargs=argparse.REMAINDER,
+         help="The command(s) to execute; precede with -- to disambiguate. "
+@@ -190,6 +253,28 @@
+         # Fall through and still try to remove the lockfile so the
+         # next start_import isn't blocked by a stale lock.
+ 
++    # Settling-progress: emit the terminal shard so the wiki "notes" panel
++    # transitions off waiting/partway once this import completes. We treat
++    # `succeeded` AND `partial` as "notes landed" -- partial means only
++    # the embed step failed (Qdrant/Ollama down); the markdown IS in the
++    # staging tree, which is what the settling panel actually cares about.
++    # A hard `failed` state does NOT emit -- the panel keeps its last-known
++    # `done` and the reader's stale-updated_at handling (via the A9 gate)
++    # catches truly-abandoned imports.
++    if status in ("succeeded", "partial"):
++        # A zero note_count means the caller could not measure a
++        # denominator (mangled ENEX, or older caller pre-dating the
++        # --note-count flag). Emit total=0/done=0 which the reader
++        # classifies as ready (needs_source=False), NOT as an invitation
++        # to add a source -- the source IS connected, an import ran.
++        note_count = max(0, args.note_count)
++        _emit_notes_settling(
++            done=note_count,
++            total=note_count,
++            needs_source=False,
++            started_at=args.started_at,
++        )
++
+     try:
+         Path(args.lock).unlink(missing_ok=True)
+     except OSError as exc:
+--- a/agent/import_evernote.py
++++ b/agent/import_evernote.py
+@@ -46,6 +46,7 @@
+ from __future__ import annotations
+ 
+ import json
++import logging
+ import os
+ import re
+ import subprocess
+@@ -59,7 +60,30 @@
+ 
+ import yaml  # PyYAML, listed in doctor/agent/requirements.txt
+ 
++# The settling-progress writer lives in ostler_fda (already vendored into
++# CM051). Doctor's sys.path may not include the HR015 root at test time; we
++# make the import best-effort so a missing module here never blocks an
++# import (the panel degrades to calendar mode -- honest fallback).
++try:
++    # ostler_fda ships as a sibling package at the HR015 repo root; add the
++    # repo root to sys.path so the import resolves whether Doctor is run
++    # from the repo, from a vendored install, or under pytest.
++    _REPO_ROOT = Path(__file__).resolve().parents[2]
++    if str(_REPO_ROOT) not in sys.path:
++        sys.path.insert(0, str(_REPO_ROOT))
++    from ostler_fda.settling_progress import (  # noqa: E402
++        report_settling_progress,
++    )
++except Exception:  # noqa: BLE001 -- best-effort import; see comment
++    report_settling_progress = None  # type: ignore[assignment]
+ 
++_logger = logging.getLogger(__name__)
++
++# Settling-progress channel for the "notes" panel. Evernote is the sole
++# producer today; Notion/Obsidian will follow the same shape once wired.
++_SETTLING_CHANNEL = "notes"
++
++
+ # ── Default paths ─────────────────────────────────────────────────────
+ 
+ DEFAULT_OSTLER_DIR = Path.home() / ".ostler"
+@@ -226,8 +250,101 @@
+         )
+ 
+     return resolved
++
++
++# ── Settling-progress emit ───────────────────────────────────────────
++
++
++# Regex compiled once. `<note>` opening tag with optional attributes; we
++# count the opening tag rather than a closing one so a truncated ENEX still
++# emits a plausible total rather than 0. Non-anchored, byte-oriented so the
++# streaming parser below can walk arbitrarily large ENEX files without
++# loading the whole document into memory.
++_NOTE_OPEN_TAG_RE = re.compile(rb"<\s*note\b", re.IGNORECASE)
++
++# ENEX files can be tens or hundreds of MB. The count helper reads in fixed
++# chunks so we never balloon Doctor's RSS on a big export.
++_ENEX_CHUNK_BYTES = 1 << 20  # 1 MiB
+ 
++# Cap the note-count scan to keep start_import fast on a very large ENEX
++# (hundreds of thousands of notes = ~seconds of scanning). If the customer's
++# export is larger than the cap we return the cap; the settling panel's job
++# is a rough denominator, not a forensic count.
++_ENEX_MAX_NOTES_FOR_TOTAL = 200_000
+ 
++
++def count_enex_notes(enex_path: Path) -> int:
++    """Count `<note>` opening tags in an ENEX export.
++
++    Streaming byte scan so a 200 MB ENEX does not balloon Doctor's memory.
++    Best-effort: any read error returns 0 so a mangled ENEX cannot abort
++    the import (the reader treats total=0 as "ready" or "waiting", never
++    as an error).
++
++    The count is a rough denominator for the settling-progress bar --
++    tiny over/under-counts are fine (a trailing `<note>` inside a CDATA
++    body counts, an ENEX header does not). We do NOT parse XML: that would
++    slow start_import measurably on a real export.
++    """
++    try:
++        with open(enex_path, "rb") as fh:
++            total = 0
++            # Carry the last 5 bytes across chunk boundaries so a `<note`
++            # split across two reads is still matched. 5 bytes is enough
++            # for the regex's `<\s*note\b` anchor plus a byte of whitespace.
++            carry = b""
++            while True:
++                chunk = fh.read(_ENEX_CHUNK_BYTES)
++                if not chunk:
++                    break
++                buffer = carry + chunk
++                # Do not double-count the carry region: the regex is
++                # matched on the whole buffer, then we keep the tail as
++                # the next carry.
++                matches = _NOTE_OPEN_TAG_RE.findall(buffer)
++                total += len(matches)
++                if total >= _ENEX_MAX_NOTES_FOR_TOTAL:
++                    return _ENEX_MAX_NOTES_FOR_TOTAL
++                carry = buffer[-8:]
++            return total
++    except OSError as exc:
++        _logger.warning(
++            "settling-progress: could not count notes in %s (%s: %s)",
++            enex_path, type(exc).__name__, exc,
++        )
++        return 0
++
++
++def _emit_notes_settling(
++    *,
++    done: int,
++    total: int,
++    needs_source: bool = False,
++    started_at: Optional[str] = None,
++) -> None:
++    """Best-effort settling-progress emit for the notes (Evernote) backfill.
++
++    Wraps :func:`report_settling_progress` in try/except so a missing
++    helper import or full-disk write can never abort ``start_import`` --
++    the settling panel is a UX affordance, not a load-bearing dependency.
++    """
++    if report_settling_progress is None:
++        return
++    try:
++        report_settling_progress(
++            channel=_SETTLING_CHANNEL,
++            done=done,
++            total=total,
++            needs_source=needs_source,
++            started_at=started_at,
++        )
++    except Exception:  # noqa: BLE001 -- see docstring
++        _logger.warning(
++            "settling-progress: notes emit failed; continuing import",
++            exc_info=True,
++        )
++
++
+ # ── Lockfile ─────────────────────────────────────────────────────────
  
  
- def gateway_port() -> int:
--    """Resolve the gateway port from env, mirroring zeroclaw-config's order.
--
--    OSTLER_CHAT_GATEWAY_PORT is the canonical override the installer writes
--    and the one chat_token.py reads (see _zeroclaw_port there). It must be
--    consulted first; without it the Pair panel falls through to the default
--    (42617), which is dead on the productised single-machine install, so the
--    panel reports the gateway as down even though it is live on :8000.
--    """
--    for var in ("OSTLER_CHAT_GATEWAY_PORT", "ZEROCLAW_GATEWAY_PORT", "PORT"):
-+    """Resolve the gateway port from env, mirroring zeroclaw-config's order."""
-+    for var in ("ZEROCLAW_GATEWAY_PORT", "PORT"):
-         raw = os.environ.get(var)
-         if raw:
+@@ -383,6 +500,25 @@
+             raise EvernoteImportError(
+                 500, f"could not open log file {log_path}: {exc}",
+             )
++
++        # Count notes in the ENEX for the settling-progress denominator.
++        # Fast streaming byte scan; a mangled ENEX returns 0 (the panel
++        # then falls back to calendar mode -- honest degradation). We do
++        # this BEFORE the fork so the panel has a real total immediately
++        # rather than 0 for the whole convert phase.
++        note_count = count_enex_notes(enex_path)
++
++        # Initial settling emit: `done=0, total=note_count`. If note_count
++        # is 0 (empty or unreadable ENEX) we still emit needs_source=False
++        # so the reader classifies as ready rather than waiting -- an
++        # empty ENEX is a completed import of zero notes, not "no source
++        # connected". The runner emits the terminal `done=total` at end.
++        _emit_notes_settling(
++            done=0,
++            total=note_count,
++            needs_source=False,
++            started_at=started_at,
++        )
+ 
+         try:
              try:
+@@ -417,6 +553,11 @@
+                         "--log-path", str(log_path),
+                         "--enex-path", str(enex_path),
+                         "--started-at", started_at,
++                        # Pass the note count through so the runner can
++                        # emit the terminal settling tick with a real
++                        # total. Runner treats 0 as "count unknown" and
++                        # emits done=0/total=0 (ready) on success.
++                        "--note-count", str(note_count),
+                         "--",
+                         *convert_phase,
+                         "--and-then",
+--- a/agent/proxy.py
++++ b/agent/proxy.py
+@@ -54,6 +54,7 @@
+ """
+ from __future__ import annotations
+ 
++import hmac
+ import logging
+ import os
+ from typing import Iterable, Optional
+@@ -200,8 +201,99 @@
+     if raw.startswith(prefix):
+         return raw[len(prefix):].strip()
+     return ""
++
++
++# Whether the gateway has been observed NOT to serve the bearer-validation
++# oracle. Set only by a 404/405 from that route, cleared by any real 401.
++# Process-local and deliberately not persisted: it describes the daemon we are
++# talking to right now, and must re-derive itself after a daemon swap.
++_ORACLE_STATE = {"absent": False}
++
++
++def _machine_admin_token() -> str:
++    """The machine-local admin token, if this install has one."""
++    for name in ("OSTLER_ADMIN_TOKEN", "OSTLER_MACHINE_ADMIN_TOKEN"):
++        raw = os.environ.get(name, "").strip()
++        if raw:
++            return raw
++    return ""
++
++
++def _local_fallback_allowed(request, client_bearer: str) -> bool:
++    """May this request proceed even though the gateway gave no auth verdict?
++
++    ONLY when all of:
++      * the bearer-validation oracle is absent (deployment skew, not denial),
++      * the caller is on loopback -- never a remote or tunnelled client, and
++      * the caller either presents the machine admin token, or is doing a
++        read-only GET.
++
++    The narrowness is the point. A missing endpoint must degrade to "the
++    person sitting at this Mac can still read their own data", never to
++    "anyone on the network is authenticated". On a daemon that serves the
++    oracle this function is unreachable, because `absent` is never set.
++
++    THE LOOPBACK ASSUMPTION, AND ITS EXPIRY DATE (Archie, 2026-08-08)
++    ----------------------------------------------------------------
++    This whole function rests on "arrived on loopback" meaning "is physically
++    at this Mac". That holds for the SHIPPED wiring and was verified against
++    it: Doctor's uvicorn binds loopback with no proxy_headers, nothing
++    tailscale-serves :8089, and the Companion TLS listener terminates on the
++    daemon, not here.
++
++    It is an assumption about WIRING, not about this file, so this file cannot
++    keep it true. The day someone puts a reverse proxy in front of Doctor,
++    enables proxy_headers, or points `tailscale serve` at a Doctor loopback
++    port -- exactly what CM051 #512 now does for the WIKI -- every remote
++    caller starts presenting as 127.0.0.1 and this fallback silently widens
++    from "the owner" to "the tailnet".
++
++    Hence the kill switch below. It defaults ON, so behaviour is unchanged
++    today. Its job is to be a thing that must be consciously kept on: a future
++    PR that wires any of the above has to come past this env var and decide,
++    at wire-time, whether the fallback is still safe -- rather than inheriting
++    a decision nobody remembers making.
++    """
++    if os.environ.get("OSTLER_DOCTOR_ORACLE_FALLBACK", "1").strip().lower() in (
++        "0", "false", "no", "off",
++    ):
++        return False
++
++    if not _ORACLE_STATE["absent"]:
++        return False
++
++    host = ""
++    try:
++        if request.client and request.client.host:
++            host = str(request.client.host)
++    except Exception:  # pragma: no cover - defensive
++        return False
++    if host not in ("127.0.0.1", "::1", "localhost"):
++        return False
++
++    admin = _machine_admin_token()
++    # compare_digest, not ==, so the comparison time does not depend on how
++    # many leading characters matched. A loopback attacker who can make
++    # repeated requests could otherwise recover the admin token one character
++    # at a time. The window is narrow -- this path is only live on a daemon
++    # that does not serve the oracle -- but the cost of closing it is one
++    # import, and "narrow" is not "closed". (Archie, 2026-08-08.)
++    # ...and compare BYTES, not str. compare_digest raises TypeError on str
++    # operands containing non-ASCII, and client_bearer is attacker-controlled:
++    # a bearer of "sekrité" would have crashed the proxy rather than being
++    # rejected. Caught by test_non_ascii_bearer_does_not_crash on the first run
++    # after the compare_digest swap -- the hardening introduced the bug and the
++    # test written alongside it found it.
++    if admin and client_bearer and hmac.compare_digest(
++        client_bearer.encode("utf-8", "surrogatepass"),
++        admin.encode("utf-8", "surrogatepass"),
++    ):
++        return True
+ 
++    method = str(getattr(request, "method", "") or "").upper()
++    return method in ("GET", "HEAD")
+ 
++
+ async def _is_paired_bearer(
+     token: str,
+     validator_url: Optional[str] = None,
+@@ -246,12 +338,47 @@
+         return False
+     if resp.status_code == 204:
+         return True
++    # 404/405 is NOT an auth decision -- it means this daemon build does not
++    # serve the oracle at all (deployment skew), and the gateway has therefore
++    # expressed no opinion about the bearer. Treating "route absent" as "auth
++    # denied" is what turned a missing endpoint into a TOTAL lockout on the
++    # v1.0.14.1 box-walk: every /api/v1/* answered 401 and the Hub sat on
++    # "Connecting..." for ever on a machine whose data layer was perfectly
++    # healthy. Record the skew so the loopback fallback below can apply; the
++    # flag is only ever set by these two statuses, so on a daemon that does
++    # serve the oracle this branch never runs and nothing changes.
++    if resp.status_code in (404, 405):
++        if not _ORACLE_STATE["absent"]:
++            # 405 is louder than 404 on purpose (Archie, 2026-08-08). 404 says
++            # "no such route" -- an older daemon, the case this exists for. 405
++            # says "route exists, wrong method", which is evidence the oracle
++            # IS there and we are calling it incorrectly. Same handling, but
++            # 405 is an API-shape drift we want visible in triage rather than
++            # quietly absorbed as skew.
++            logger.log(
++                logging.ERROR if resp.status_code == 405 else logging.WARNING,
++                "Doctor proxy: gateway does not serve /internal/validate-bearer "
++                "(HTTP %s at %s). This is deployment skew, not an auth denial. "
++                "Loopback callers will be admitted under the local fallback; "
++                "remote callers stay denied.%s",
++                resp.status_code,
++                validator_url or "<default validator url>",
++                " A 405 means the route EXISTS but rejected our method -- check"
++                " the validator API shape, this is probably not skew."
++                if resp.status_code == 405 else "",
++            )
++        _ORACLE_STATE["absent"] = True
++        return False
+     if resp.status_code != 401:
+         logger.warning(
+             "Doctor proxy: unexpected /internal/validate-bearer status %s; "
+             "failing closed",
+             resp.status_code,
+         )
++    # A real 401 means the oracle exists and rejected this bearer, so any
++    # earlier skew observation is stale -- clear it rather than letting one
++    # 404 during a restart permanently loosen the door.
++    _ORACLE_STATE["absent"] = False
+     return False
+ 
+ 
+@@ -306,10 +433,23 @@
+         client_bearer = _extract_bearer_token(request.headers)
+         # BW2-5: ask the gateway (single source of pairing truth, which decrypts
+         # the enc2: paired_tokens) rather than re-reading config.toml ourselves.
+-        if not await _is_paired_bearer(
++        authorized = await _is_paired_bearer(
+             client_bearer, validator_url=validator_url, client=client
+-        ):
++        )
++        if not authorized and _local_fallback_allowed(request, client_bearer):
++            # The gateway expressed no opinion because it does not serve the
++            # oracle at all. Admit this narrow loopback case rather than
++            # locking the owner out of their own machine. See
++            # _local_fallback_allowed for why this cannot widen access.
+             logger.warning(
++                "Doctor proxy: admitting loopback %s %s under the local "
++                "fallback (gateway serves no bearer-validation oracle)",
++                request.method,
++                path,
++            )
++            authorized = True
++        if not authorized:
++            logger.warning(
+                 "Doctor proxy: rejecting unpaired client bearer for %s %s",
+                 request.method,
+                 path,
 --- a/agent/requirements.txt
 +++ b/agent/requirements.txt
 @@ -1,4 +1,4 @@
@@ -337,21 +1586,129 @@
  pyyaml>=6.0,<7.0
 --- a/agent/web_ui_copy.py
 +++ b/agent/web_ui_copy.py
-@@ -209,6 +209,11 @@
+@@ -208,6 +208,11 @@
+ DASHBOARD_BTN_EMAIL_TITLE = (
      "Open your email client with the diagnostic report ready to send "
      "to support"
- )
++)
 +DASHBOARD_BTN_SETTINGS = "&#9881; Settings"
 +DASHBOARD_BTN_SETTINGS_TITLE = (
 +    "Pause or ease off background work, and adjust channels, model and "
 +    "schedule"
-+)
+ )
  
  DASHBOARD_LAST_CHECKED_JUST_NOW = "Last checked: just now"
- DASHBOARD_LAST_CHECKED_PREFIX = "Last checked: "
+@@ -264,6 +269,18 @@
+ 
+ DASHBOARD_CONFIG_LINK = (
+     ' &ndash; <a href="/config">Configuration</a>'
++)
++
++# The daemon generates a WhatsApp pair code on EVERY install where
++# `session_path` is set, and install.sh does set it. The code is written to
++# ~/.ostler/state/whatsapp_pair.json and /whatsapp-pair renders it. That page
++# has existed, routed and tested, while NOTHING linked to it, so the customer
++# had to already know the URL. Measured 2026-08-15: this row already carried
++# /pair-ios and /config, and /whatsapp-pair was the one pairing surface missing
++# from it. See HR015 task #322, where the original row blamed a config gap that
++# had already been fixed.
++DASHBOARD_WHATSAPP_PAIR_LINK = (
++    ' &ndash; <a href="/whatsapp-pair">Link WhatsApp</a>'
+ )
+ 
+ DASHBOARD_ALERT_REPORT_FAIL = (
+@@ -691,5 +708,70 @@
+     "enable the tick for Ostler (or for the assistant process). Once granted, "
+     "Ostler retries the blocked commitments on its next run and they appear "
+     "in the Reminders app."
++)
++
++
++
++
++# ── WhatsApp pairing panel ───────────────────────────────────────────
++#
++# The last gap between a customer and a linked WhatsApp account. The
++# daemon publishes a pair code to a declared contract; until this panel
++# existed the code's only exit from the process was daemon stderr, which
++# on a headless Hub is not a surface a human can use.
++#
++# The three failure states are deliberately THREE, with three different
++# next actions. "not requested" means turn it on or wait; "expired"
++# means one is coming; "unreadable" is a fault to report. Collapsing
++# them into one "no code available" tells a stuck customer nothing and
++# tells support less.
++
++WHATSAPP_PAIR_TITLE_TAG = "Ostler Doctor &ndash; Link WhatsApp"
++WHATSAPP_PAIR_HEADING = "Link WhatsApp"
++WHATSAPP_PAIR_LEDE = (
++    "Ostler links to WhatsApp the same way WhatsApp Web does, using a "
++    "code you type into your phone. The code is shown here for a short "
++    "time only."
++)
++
++WHATSAPP_PAIR_LOADING = "Checking for a pairing code."
++
++# Deliberately names the exact phone-side path. "Pair your device" sends
++# a customer hunting through Settings; this is the literal sequence.
++WHATSAPP_PAIR_READY_INSTRUCTION = (
++    "On your phone, open WhatsApp and go to Settings, then Linked "
++    "Devices, then Link a device. Choose Link with phone number instead, "
++    "and type this code."
+ )
++WHATSAPP_PAIR_COUNTDOWN_PREFIX = "This code expires in"
++WHATSAPP_PAIR_READY_HELP = (
++    "Codes are short-lived on purpose. If it runs out, Ostler asks "
++    "WhatsApp for another one."
++)
+ 
++WHATSAPP_PAIR_NOT_REQUESTED_TITLE = "No pairing code yet."
++WHATSAPP_PAIR_NOT_REQUESTED_HELP = (
++    "Ostler asks WhatsApp for a code when the WhatsApp connector starts. "
++    "If you turned WhatsApp on during setup, give it a minute. If you "
++    "did not, WhatsApp is switched off and there is nothing to link."
++)
++
++WHATSAPP_PAIR_EXPIRED_TITLE = "That code has expired."
++WHATSAPP_PAIR_EXPIRED_HELP = (
++    "Pairing codes last about three minutes. Ostler requests a fresh one "
++    "automatically, so wait a moment and this page will show it."
++)
++
++WHATSAPP_PAIR_UNREADABLE_TITLE = "Something is wrong with the pairing file."
++WHATSAPP_PAIR_UNREADABLE_HELP = (
++    "Ostler could not read the pairing code it wrote. This is a fault "
++    "rather than something you did. Use Copy diagnostics on the Doctor "
++    "dashboard and send it to support."
++)
++
++WHATSAPP_PAIR_BACK_LINK = "Back to Doctor"
++
++# Poll interval. Short enough that a code appearing feels immediate,
++# long enough that a customer leaving the page open is not hammering
++# the endpoint for the life of the session.
++WHATSAPP_PAIR_POLL_MS = 5000
 --- a/agent/web_ui.py
 +++ b/agent/web_ui.py
-@@ -82,6 +82,8 @@
+@@ -32,9 +32,15 @@
+ from datetime import datetime, timezone
+ from pathlib import Path
+ 
+-from fastapi import FastAPI, Request
++import httpx
++from fastapi import FastAPI, Request, Response
+ from fastapi.middleware.cors import CORSMiddleware
+-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
++from fastapi.responses import (
++    HTMLResponse,
++    JSONResponse,
++    PlainTextResponse,
++    RedirectResponse,
++)
+ 
+ from status_collector import (
+     collect_full_snapshot,
+@@ -82,6 +88,8 @@
      DASHBOARD_BTN_EMAIL_PREPARING,
      DASHBOARD_BTN_EMAIL_TITLE,
      DASHBOARD_BTN_REFRESH,
@@ -360,7 +1717,120 @@
      DASHBOARD_FIX_LABEL_FMT,
      DASHBOARD_FIX_NOTE,
      DASHBOARD_HEADING,
-@@ -1149,6 +1151,7 @@
+@@ -106,6 +114,7 @@
+     DASHBOARD_CONFIG_LINK,
+     DASHBOARD_IMPORT_EVERNOTE_LINK,
+     DASHBOARD_PAIR_IOS_LINK,
++    DASHBOARD_WHATSAPP_PAIR_LINK,
+     DASHBOARD_LAST_CHECKED_JUST_NOW,
+     DASHBOARD_LAST_CHECKED_PREFIX,
+     DASHBOARD_LAST_CHECKED_SUFFIX,
+@@ -215,6 +224,21 @@
+     PAIR_IOS_SECTION_CODE,
+     PAIR_IOS_SUBTITLE,
+     PAIR_IOS_TITLE_TAG,
++    WHATSAPP_PAIR_BACK_LINK,
++    WHATSAPP_PAIR_COUNTDOWN_PREFIX,
++    WHATSAPP_PAIR_EXPIRED_HELP,
++    WHATSAPP_PAIR_EXPIRED_TITLE,
++    WHATSAPP_PAIR_HEADING,
++    WHATSAPP_PAIR_LEDE,
++    WHATSAPP_PAIR_LOADING,
++    WHATSAPP_PAIR_NOT_REQUESTED_HELP,
++    WHATSAPP_PAIR_NOT_REQUESTED_TITLE,
++    WHATSAPP_PAIR_POLL_MS,
++    WHATSAPP_PAIR_READY_HELP,
++    WHATSAPP_PAIR_READY_INSTRUCTION,
++    WHATSAPP_PAIR_TITLE_TAG,
++    WHATSAPP_PAIR_UNREADABLE_HELP,
++    WHATSAPP_PAIR_UNREADABLE_TITLE,
+     PORT_CONFLICT_DETAIL_FMT,
+     PORT_CONFLICT_FIX,
+     PORT_CONFLICT_FIX_COMMAND_FMT,
+@@ -669,7 +693,66 @@
+     r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
+ )
+ 
++# Credential-shaped values that must never leave the machine in a report the
++# customer is about to paste into an email.
++#
++# WHY THIS EXISTS, and what was actually measured rather than assumed:
++#
++# The daemon prints a live WhatsApp pair code to its own stderr, which launchd
++# writes to ``~/.ostler/logs/ostler-assistant.err``. That is the SAME directory
++# the diagnostics bundle tails from. It was raised as a possible leak, so it was
++# measured rather than argued: ``_LOG_FILENAMES`` is an explicit two-item tuple
++# (``doctor.log``, ``doctor.err``) with no globbing, and the substring
++# ``ostler-assistant.err`` appears nowhere under the Doctor tree. **The pair
++# code does not reach the bundle today.**
++#
++# So this is not a fix for a live leak. It is a guard, because the only thing
++# keeping a credential out of a support email is one two-item tuple in a
++# neighbouring function, and "collect all the logs in the logs directory" is the
++# single most natural improvement anyone will ever make to that code. The scrub
++# costs one regex and removes the class.
++#
++# Anchored on the LABEL, not on the shape of the value. An 8-character
++# alphanumeric token has no distinguishing shape: a pattern loose enough to
++# catch it would redact ordinary words out of every log line and make the whole
++# report useless, which is how a scrub gets switched off.
++#
++# GRAFTED into the vendor tree, not re-vendored (HR015 a1245dc6). CM051's doctor
++# pin is held deliberately, so reconstruction is source@pinned_sha +
++# vendor/divergences/doctor.patch. Only the guard is grafted: a1245dc6's other
++# half, agent/whatsapp_pair.py, is a NEW file, and a new file has no durable
++# home here. sync_vendor.sh regenerates this patch via gen_patch on every sync
++# and gen_patch captures only files present in BOTH trees, so a hand-authored
++# new-file hunk is stripped on the next sync; the surviving mechanism for a
++# genuinely vendor-only file is vendor/VENDOR_ONLY.tsv, and whatsapp_pair.py
++# does NOT qualify because it exists upstream, just not at the held pin. It also
++# has no caller yet: a1245dc6 states the route and panel land separately, so
++# grafting the reader would add unreachable code the tooling cannot keep. It
++# arrives natively when the pin next moves.
++# THE `bearer` HOLE, measured rather than inherited. Upstream lists `bearer` as
++# a label, but every alternative requires a `:` or `=` immediately after it, and
++# the canonical form is ``Authorization: Bearer <token>`` -- the separator sits
++# before "Bearer", not after. So the label advertised coverage the pattern could
++# not deliver and a bearer token reached the report in the clear. Caught by
++# feeding the vendored _redact_report one header per label and requiring the
++# value to disappear; 15 of 16 dropped, `bearer` did not.
++#
++# Fixed by matching on ``authorization`` (the label that DOES carry a
++# separator) and consuming an optional ``bearer`` word before the value, so the
++# token is what gets replaced rather than the scheme name.
++#
++# DELIBERATE LIMIT, stated rather than left as a silent hole: a bare
++# ``Bearer <token>`` with no ``Authorization:`` in front of it is NOT matched.
++# Catching that needs `bearer\s+\S+`, which also eats ordinary prose ("the
++# bearer of that token"), and a scrub that mangles readable log lines is one
++# people switch off. Same reasoning upstream gives for anchoring on labels.
++_SECRET_LABEL_RE = re.compile(
++    r"(?i)\b(pair[\s_-]?code|pairing[\s_-]?code|access[\s_-]?token|api[\s_-]?key"
++    r"|verify[\s_-]?token|app[\s_-]?secret|authorization|bearer)\b\s*[:=]\s*"
++    r"(?:bearer\s+)?\S+"
++)
+ 
++
+ def _home_username() -> str | None:
+     """Best-effort current username for home-path redaction.
+ 
+@@ -718,6 +801,15 @@
+ 
+     redacted = _EMAIL_RE.sub(placeholder, redacted)
+     redacted = _IPV4_RE.sub(placeholder, redacted)
++
++    # Credential-shaped values last, so a token that happened to sit inside a
++    # path or beside an email is still caught after those substitutions have
++    # rewritten the text around it. Keeps the label, drops the value: support
++    # can still see THAT a pair code was in play, which is often the diagnosis,
++    # without receiving one that still works.
++    redacted = _SECRET_LABEL_RE.sub(
++        lambda m: f"{m.group(1)}: {placeholder}", redacted
++    )
+ 
+     return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
+ 
+@@ -1149,6 +1241,7 @@
              display: inline-flex;
              align-items: center;
              gap: 6px;
@@ -368,7 +1838,7 @@
          }}
          .refresh-btn:hover, .auto-refresh-btn:hover {{
              border-color: var(--ostler-accent);
-@@ -1543,6 +1546,7 @@
+@@ -1543,6 +1636,7 @@
              </div>
              <div>
                  <div class="header-controls">
@@ -376,3 +1846,1241 @@
                      <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
                      <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
                      <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
+@@ -1611,7 +1705,7 @@
+         </div>
+ 
+         <div class="meta" id="metaInfo">
+-            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}
++            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}{DASHBOARD_WHATSAPP_PAIR_LINK}
+         </div>
+     </div>
+ 
+@@ -2004,6 +2098,32 @@
+ # ── Endpoints ────────────────────────────────────────────────────────
+ 
+ 
++@app.get("/")
++async def front_door():
++    """Send the bare root to the dashboard. v1018-D023.
++
++    Every route on this service lives under /doctor or /api/v1, and nothing
++    served `/` at all, so the front door returned 404. A customer who opens the
++    Doctor at its host and port -- the only address they have been given -- gets
++    a 404 from a service that is running perfectly.
++
++    302 rather than 307 or 301, deliberately:
++      * 307 is FastAPI's RedirectResponse default and preserves the method,
++        meaningless for a browser hitting the root, and the D023 gate accepts
++        only 200/301/302 -- a 307 would leave the gate red.
++      * 301 is permanent and browsers cache it hard. If the dashboard ever
++        moves, every customer who visited once keeps the stale target.
++
++    GRAFTED into the vendor tree, not re-vendored: CM051's doctor pin is held
++    deliberately. Reconstruction is source@upstream + vendor/divergences/
++    doctor.patch. RedirectResponse was NOT imported in this copy -- grafting the
++    function alone would have turned a 404 into a NameError 500, which is worse,
++    so the import moved to the parenthesised form upstream already uses.
++    """
++    return RedirectResponse(url="/doctor", status_code=302)
++
++
++
+ @app.get("/doctor", response_class=HTMLResponse)
+ async def dashboard():
+     """Serve the diagnostic dashboard or first-run wizard."""
+@@ -2294,6 +2414,220 @@
+     return all_observability_postures()
+ 
+ 
++# ── Wiki hydration status: UNAUTHENTICATED passthrough (#178) ─────────
++#
++# The wiki homepage's first-run "still settling" panel (CM044
++# ``compiler/hydration.py`` bakes it into the page HTML; a small JS
++# poller then auto-hides it once hydration completes) fetches
++# ``GET /api/v1/hydration/status``. That panel renders inside the wiki
++# iframe on :8044 and carries NO paired-iOS bearer. When this path is
++# served through the ``DOCTOR_PROXY_PATHS`` reverse proxy (below) it hits
++# ``proxy._is_paired_bearer`` and 401s ("client bearer is not a paired
++# token"), so BOTH the compile-time bake-check and the runtime auto-hide
++# poller silently fail and the panel bakes into the page forever (#178,
++# live-probed as a 401 on the Mini).
++#
++# The hydration payload is non-PII by construction -- per-phase counts,
++# states and an ETA only, no names, no content. The upstream ical-server
++# already marks it a PUBLIC route that never requires the service token
++# (``_PUBLIC_GET_PATHS`` in assistant_api/ical-server.py). So the Doctor
++# serves it UNAUTHENTICATED too, the same posture as ``/doctor/api/status``:
++# a dedicated explicit route that fetches the composite from the upstream
++# server-side (no Authorization forwarded) and returns the body verbatim,
++# 200 regardless of any inbound Authorization header.
++#
++# This route is registered BEFORE ``register_proxy_routes(app)`` so it wins
++# over the proxy catch-all: Starlette matches routes in registration order,
++# so an explicit ``/api/v1/hydration/status`` registered first takes
++# precedence over the same path the proxy would otherwise register from
++# ``DOCTOR_PROXY_PATHS``.
++
++_HYDRATION_STATUS_PATH = "/api/v1/hydration/status"
++# Loopback round-trip to the upstream composite; a few seconds is generous
++# and a wedged upstream must fail fast rather than hang the panel poll.
++_HYDRATION_UPSTREAM_TIMEOUT_SECONDS = 5.0
++
++
++async def _fetch_hydration_status(
++    gateway_url: "str | None" = None,
++    client: "httpx.AsyncClient | None" = None,
++) -> httpx.Response:
++    """Fetch the composite hydration status from the upstream ical-server.
++
++    The per-phase hydration feed is owned by the upstream (it combines the
++    wiki compiler's progress file with live Qdrant / Oxigraph / conversation
++    counts), so the Doctor cannot synthesise it from a local file -- it
++    fetches server-side. NO Authorization header is sent: the upstream marks
++    this a public route and the whole point of #178 is to serve it without a
++    paired bearer. Reuses ``proxy._gateway_base_url`` so the upstream base is
++    read from one place (``DOCTOR_GATEWAY_URL``; the customer install points
++    it at the loopback ical-server on :8090).
++
++    ``gateway_url`` / ``client`` exist for tests that inject a destination or
++    a mocked transport; production callers pass neither.
++    """
++    from proxy import _gateway_base_url  # single source of the upstream base
++
++    base = (gateway_url or _gateway_base_url()).rstrip("/")
++    url = base + _HYDRATION_STATUS_PATH
++    if client is not None:
++        return await client.get(
++            url, timeout=_HYDRATION_UPSTREAM_TIMEOUT_SECONDS
++        )
++    async with httpx.AsyncClient(
++        timeout=_HYDRATION_UPSTREAM_TIMEOUT_SECONDS
++    ) as new_client:
++        return await new_client.get(url)
++
++
++@app.get(_HYDRATION_STATUS_PATH)
++async def api_hydration_status() -> Response:
++    """Unauthenticated passthrough for the first-run wiki hydration panel.
++
++    Returns the upstream hydration JSON with a 200 whenever the upstream is
++    reachable, regardless of any inbound Authorization header -- there is no
++    bearer gate on this route (that is the #178 fix). On an upstream network
++    failure we mirror the proxy's honest 502 posture rather than fabricating
++    a "complete" payload that would wrongly hide the panel; the poller keeps
++    the panel visible and retries. Never 401s for auth reasons.
++    """
++    try:
++        upstream = await _fetch_hydration_status()
++    except (httpx.HTTPError, OSError) as exc:
++        # Upstream ical-server unreachable / timed out. Honest "cannot tell"
++        # so the wiki poller keeps the settling panel up and retries, instead
++        # of a 401 (the bug) or a fabricated done-state.
++        return Response(
++            content=json.dumps(
++                {"error": "upstream hydration status unreachable",
++                 "detail": exc.__class__.__name__}
++            ),
++            status_code=502,
++            media_type="application/json",
++        )
++    return Response(
++        content=upstream.content,
++        status_code=upstream.status_code,
++        media_type=upstream.headers.get("content-type", "application/json"),
++    )
++
++
++# ── Governor: pause / resume / status (Doctor-owned control surface) ──
++#
++# CM051 GRAFT NOTE (v1018-D024). Taken verbatim from HR015 6639c79 (#282),
++# which lands AFTER the held doctor pinned_sha b0b3831, so this block does not
++# arrive from source and is carried by vendor/divergences/doctor.patch until
++# the pin next moves. Its backend, agent/pause_control.py, is grafted the same
++# way (a /dev/null new-file hunk in that patch). Without both, the Hub Governor
++# page's Pause button 404s -- which is exactly what shipped.
++# Gate: tests/test_doctor_governor_routes_vendored.sh
++#
++# The Hub Governor page + header status chip drive background-work Pause,
++# Resume and a live governor-status read against the Doctor (:8089) -- the
++# SAME origin as ``/api/v1/box-status`` and ``/api/v1/config``. These three
++# routes delegate to ``pause_control.py``, which reads/writes the
++# ``OSTLER_PAUSED`` / ``OSTLER_PAUSE_UNTIL`` keys in ``governor.env`` -- the
++# same file the shipped background engine (``ostler-resource-tier.sh``)
++# already consumes, so a pause here is honoured by every ``*-bundle-tick.sh``,
++# the wiki recompile tick and the daemon cron with NO new consumer wiring.
++# Live interactive chat is never gated by this.
++#
++# Registered BEFORE ``register_proxy_routes(app)`` (below) so these explicit
++# handlers win over the proxy catch-all (Starlette matches in registration
++# order). Without it, ``GET /api/v1/governor-status`` / ``/api/v1/pause`` fall
++# through to the gateway proxy and return SPA HTML and the POSTs 405.
++
++
++@app.get("/api/v1/governor-status", response_class=JSONResponse)
++async def api_governor_status():
++    """Live governor tier for the Governor page + acceptance gate.
++
++    Shape ``{enabled, tier, deferring}``: ``enabled`` reflects the
++    ``governor_enabled`` config, ``tier`` is the detected hardware tier
++    (``floor`` / ``low`` / ``high``, or ``null`` if the tier lib is
++    unreadable) and ``deferring`` is whether the governor is currently
++    holding non-essential work back. Reuses the exact helper
++    ``GET /api/v1/box-status`` uses so the two can never disagree. Fail-soft
++    to a minimal unknown payload -- never 500 the poll.
++    """
++    try:
++        from box_status import _governor
++
++        return _governor()
++    except Exception:
++        return {"enabled": True, "tier": None, "deferring": None}
++
++
++@app.get("/api/v1/pause", response_class=JSONResponse)
++async def api_pause_get():
++    """Current pause state read from ``governor.env``.
++
++    Shape ``{paused, expiry, indefinite, expiry_human, scope}``. Fail-soft to
++    "not paused" -- the same posture ``box_status._pause`` takes.
++    """
++    try:
++        from pause_control import read_state
++
++        return read_state()
++    except Exception:
++        return {"paused": False, "expiry": None, "indefinite": False,
++                "expiry_human": "", "scope": None}
++
++
++@app.post("/api/v1/pause", response_class=JSONResponse)
++async def api_pause_post(request: Request):
++    """Pause background work for a scope.
++
++    Body: ``{"scope": "hour" | "tonight" | "indefinite"}`` (a missing/blank
++    body defaults to an indefinite pause). Same cross-site guard as
++    ``/api/v1/config``: reject a POST whose ``Sec-Fetch-Site`` is present and
++    not same-origin. Returns the fresh pause state.
++    """
++    sec_fetch_site = request.headers.get("sec-fetch-site")
++    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
++        return JSONResponse(
++            {"error": "Cross-site request refused"}, status_code=403
++        )
++
++    from pause_control import PauseError as _PauseError, set_pause
++
++    scope = "indefinite"
++    try:
++        body = await request.json()
++        if isinstance(body, dict) and body.get("scope") is not None:
++            scope = str(body.get("scope"))
++    except Exception:
++        scope = "indefinite"  # no/blank body -> indefinite pause
++
++    try:
++        state = set_pause(scope)
++    except _PauseError as exc:
++        return JSONResponse({"error": exc.detail}, status_code=exc.status)
++    return JSONResponse(state, status_code=200)
++
++
++@app.post("/api/v1/resume", response_class=JSONResponse)
++async def api_resume_post(request: Request):
++    """Resume background work (clear the pause). Idempotent.
++
++    Same cross-site guard as ``/api/v1/pause``. Returns the fresh
++    (not-paused) state.
++    """
++    sec_fetch_site = request.headers.get("sec-fetch-site")
++    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
++        return JSONResponse(
++            {"error": "Cross-site request refused"}, status_code=403
++        )
++
++    from pause_control import PauseError as _PauseError, resume
++
++    try:
++        state = resume()
++    except _PauseError as exc:
++        return JSONResponse({"error": exc.detail}, status_code=exc.status)
++    return JSONResponse(state, status_code=200)
++
++
+ # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
+ #
+ # Forwards iOS-initiated CM019 paths to the local gateway over
+@@ -3333,6 +3667,209 @@
+ </html>"""
+ 
+ 
++def _render_whatsapp_pair_page() -> str:
++    """Render the WhatsApp pair-code panel.
++
++    Vanilla HTML + JS, no framework, chassis tokens inlined the same way
++    ``_render_pair_ios_page`` does so the two pairing surfaces sit together
++    rather than one feeling bolted on.
++
++    THREE DESIGN RULES, each load-bearing:
++
++    1. The countdown renders the daemon's MEASURED ``expires_at``. Doctor
++       applies no TTL of its own. A countdown that disagrees with WhatsApp's is
++       worse than no countdown, because the customer trusts the one on screen.
++    2. The three error states read DIFFERENTLY, because they are different
++       problems with different next actions. Collapsing them to "no code
++       available" tells a stuck customer nothing.
++    3. The code is painted by the browser from JSON and is NEVER baked into the
++       served HTML. A pair code is credential-equivalent while it lives, so it
++       must not sit in a page a browser or a screenshot tool may cache.
++    """
++    return f"""<!DOCTYPE html>
++<html lang="en">
++<head>
++    <meta charset="UTF-8">
++    <meta name="viewport" content="width=device-width, initial-scale=1.0">
++    <title>{WHATSAPP_PAIR_TITLE_TAG}</title>
++    <style>
++        /* PRIVACY: no webfont @import. A local-first product must not beacon
++           the customer IP+timestamp to a font CDN. Matches pair-ios. */
++        :root {{
++            --ostler-ink: #0d0b08;
++            --ostler-ink-deep: #07060a;
++            --ostler-chassis: #ECE8DD;
++            --ostler-accent: #C84545;
++            --ostler-accent-hover: #D76060;
++            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
++            --text: var(--ostler-chassis);
++            --text-secondary: rgba(236, 232, 221, 0.74);
++            --text-muted: rgba(236, 232, 221, 0.50);
++            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
++            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
++            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
++            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
++        }}
++        * {{ margin:0; padding:0; box-sizing:border-box; }}
++        body {{
++            font-family: var(--font-body);
++            font-size: 15px;
++            line-height: 1.5;
++            background: var(--ostler-ink);
++            color: var(--text);
++            min-height: 100vh;
++            padding: 2.5rem 1.75rem;
++            -webkit-font-smoothing: antialiased;
++        }}
++        a {{ color: var(--ostler-accent); text-decoration: none; }}
++        a:hover {{ color: var(--ostler-accent-hover); }}
++        .container {{ max-width: 600px; margin: 0 auto; }}
++        h1 {{
++            font-family: var(--font-display);
++            font-size: 1.7rem;
++            font-weight: 600;
++            margin-bottom: 0.6rem;
++        }}
++        .lede {{ color: var(--text-secondary); margin-bottom: 1.4rem; }}
++        .panel {{
++            background: var(--ostler-ink-deep);
++            border: 1px solid var(--ostler-hairline-soft);
++            border-radius: 12px;
++            padding: 1.5rem;
++            box-shadow: var(--shadow-soft);
++        }}
++        .label {{ margin-bottom: 1rem; line-height: 1.6; }}
++        .code-frame {{
++            background: var(--ostler-ink);
++            border: 1px solid var(--ostler-hairline-soft);
++            border-radius: 10px;
++            padding: 1.1rem;
++            text-align: center;
++        }}
++        .code {{
++            font-family: var(--font-mono);
++            font-size: 2rem;
++            letter-spacing: 0.34em;
++            /* Trailing letter-spacing pushes the glyphs left of centre;
++               the matching indent pulls them back so the code sits square. */
++            text-indent: 0.34em;
++        }}
++        .countdown {{ margin-top: 0.9rem; color: var(--text-secondary); }}
++        .help {{
++            font-size: 0.82rem;
++            color: var(--text-muted);
++            margin-top: 0.55rem;
++            line-height: 1.55;
++        }}
++        .back {{ margin-top: 1.5rem; font-size: 0.9rem; }}
++    </style>
++</head>
++<body>
++  <div class="container">
++    <h1>{WHATSAPP_PAIR_HEADING}</h1>
++    <p class="lede">{WHATSAPP_PAIR_LEDE}</p>
++
++    <section class="panel" aria-live="polite">
++      <div id="wa-loading" class="state">{WHATSAPP_PAIR_LOADING}</div>
++
++      <div id="wa-ready" class="state" hidden>
++        <p class="label">{WHATSAPP_PAIR_READY_INSTRUCTION}</p>
++        <div class="code-frame"><span id="wa-code" class="code"></span></div>
++        <p class="countdown">{WHATSAPP_PAIR_COUNTDOWN_PREFIX}
++          <span id="wa-remaining"></span>.</p>
++        <p class="help">{WHATSAPP_PAIR_READY_HELP}</p>
++      </div>
++
++      <div id="wa-not_requested" class="state" hidden>
++        <p class="label">{WHATSAPP_PAIR_NOT_REQUESTED_TITLE}</p>
++        <p class="help">{WHATSAPP_PAIR_NOT_REQUESTED_HELP}</p>
++      </div>
++
++      <div id="wa-expired" class="state" hidden>
++        <p class="label">{WHATSAPP_PAIR_EXPIRED_TITLE}</p>
++        <p class="help">{WHATSAPP_PAIR_EXPIRED_HELP}</p>
++      </div>
++
++      <div id="wa-unreadable" class="state" hidden>
++        <p class="label">{WHATSAPP_PAIR_UNREADABLE_TITLE}</p>
++        <p class="help">{WHATSAPP_PAIR_UNREADABLE_HELP}</p>
++      </div>
++    </section>
++
++    <p class="back"><a href="/doctor">{WHATSAPP_PAIR_BACK_LINK}</a></p>
++  </div>
++
++  <script>
++  (function () {{
++    var POLL_MS = {WHATSAPP_PAIR_POLL_MS};
++    var STATES = ["wa-loading", "wa-ready", "wa-not_requested",
++                  "wa-expired", "wa-unreadable"];
++
++    function show(id) {{
++      STATES.forEach(function (s) {{
++        var el = document.getElementById(s);
++        if (el) {{ el.hidden = (s !== id); }}
++      }});
++    }}
++
++    function humanise(secs) {{
++      if (secs === null || secs === undefined) {{ return "a moment"; }}
++      if (secs < 60) {{ return secs + " seconds"; }}
++      var m = Math.floor(secs / 60), r = secs % 60;
++      if (r === 0) {{ return m + (m === 1 ? " minute" : " minutes"); }}
++      return m + "m " + r + "s";
++    }}
++
++    function paint(data) {{
++      if (data && data.available) {{
++        // textContent, never innerHTML: the code is untrusted-by-policy
++        // output and must not be able to introduce markup.
++        document.getElementById("wa-code").textContent = data.code;
++        document.getElementById("wa-remaining").textContent =
++            humanise(data.seconds_remaining);
++        show("wa-ready");
++        return;
++      }}
++      var kind = (data && data.error_kind) || "unreadable";
++      if (STATES.indexOf("wa-" + kind) === -1) {{ kind = "unreadable"; }}
++      show("wa-" + kind);
++    }}
++
++    function tick() {{
++      fetch("/api/v1/whatsapp/pair")
++        .then(function (r) {{ return r.json(); }})
++        .then(paint)
++        // A fetch failure is Doctor being unreachable, not a bad pairing
++        // file. Reporting it as "unreadable" would send the customer to
++        // support for a page that just needs a reload.
++        .catch(function () {{ show("wa-loading"); }});
++    }}
++
++    tick();
++    setInterval(tick, POLL_MS);
++  }})();
++  </script>
++</body>
++</html>"""
++
++
++@app.get("/whatsapp-pair", response_class=HTMLResponse)
++async def whatsapp_pair_page():
++    """Render the WhatsApp pairing panel."""
++    return HTMLResponse(_render_whatsapp_pair_page())
++
++
++@app.get("/api/v1/whatsapp/pair", response_class=JSONResponse)
++async def api_whatsapp_pair():
++    """Return the current WhatsApp pair code and its state.
++
++    Read fresh on every call rather than cached: the code is short-lived and a
++    cached copy would outlive the thing it describes.
++    """
++    from whatsapp_pair import fetch_pair_status
++    return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
++
++
+ @app.get("/pair-ios", response_class=HTMLResponse)
+ async def pair_ios_page():
+     """Render the Pair iOS device panel (DFA-002)."""
+--- /dev/null
++++ b/agent/whatsapp_pair.py
+@@ -0,0 +1,192 @@
++"""Read the WhatsApp Web pair code the daemon publishes, for Doctor.
++
++WHY THIS MODULE EXISTS
++
++Andy ruled WhatsApp non-negotiable for v1. Two defects had to fall before a
++customer could link their account, and both were fixed elsewhere:
++
++  * the shipped daemon carried no ``whatsapp-web`` feature at all
++    (ostler-assistant #304);
++  * install.sh wrote ``enabled = true`` with no backend selector, which is
++    inert (CM051 #583).
++
++This is the third: even once the channel runs and requests a pair code, the
++code had exactly one exit from the process, an ``eprintln!`` to daemon stderr.
++A code on a headless Hub's stderr is not a surface a customer can use.
++
++ostler-assistant now publishes it as a state file. This module reads it.
++
++THE CONTRACT, agreed with the writer rather than reverse-engineered:
++
++    ${OSTLER_HOME}/state/whatsapp_pair.json      file 0600, dir 0700
++    {
++      "code":          "8-char string",
++      "requested_at":  unix seconds,
++      "expires_at":    unix seconds,
++      "validity_secs": integer
++    }
++
++Written temp-then-rename, so a half-written file cannot be read and a truncated
++code cannot be shown to a customer.
++
++``expires_at`` is MEASURED by the writer, not assumed here. It binds the
++``timeout`` on wa-rs's ``Event::PairingCode``, which comes from
++``PairCodeUtils::code_validity()``. Doctor must not apply its own TTL policy on
++top: a countdown that disagrees with WhatsApp's is worse than no countdown,
++because the customer trusts the one on screen.
++
++WHY THE ERROR TAXONOMY IS EXPLICIT AND NOT A BARE ``Optional``
++
++The states a customer can be in look identical from a null and are not the same
++problem at all:
++
++    no_channel     they never consented to WhatsApp
++    not_requested  channel is on, the daemon has not asked for a code yet
++    expired        there WAS a code, it aged out, ask for another
++    unreadable     the file exists and we cannot parse or open it
++
++Collapsing those into "no pair code available" tells a stuck customer nothing,
++and tells support less. ``pair_status.py`` established this shape for the iOS
++pairing panel; this mirrors it rather than inventing a second vocabulary.
++"""
++
++from __future__ import annotations
++
++import json
++import logging
++import os
++import time
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Optional
++
++log = logging.getLogger(__name__)
++
++
++# The daemon's engine zone. Same root the consent gate and the channel poll
++# cursors use. NOT under the customer's data/ tree and NOT under Caches.
++_STATE_FILENAME = "whatsapp_pair.json"
++
++# A pair code that is about to die is worse than useless: the customer types it
++# and WhatsApp rejects it. Treat a code with less than this left as expired so
++# the panel says "ask for a new one" instead of showing a doomed one.
++_MIN_USEFUL_SECONDS = 5
++
++
++@dataclass
++class WhatsAppPairStatus:
++    """Structured result a Doctor route can JSON-serialise directly."""
++
++    available: bool
++    code: Optional[str]
++    expires_at: Optional[int]
++    seconds_remaining: Optional[int]
++    error: Optional[str]
++    error_kind: Optional[str]
++
++    def to_dict(self) -> dict:
++        return {
++            "available": self.available,
++            "code": self.code,
++            "expires_at": self.expires_at,
++            "seconds_remaining": self.seconds_remaining,
++            "error": self.error,
++            "error_kind": self.error_kind,
++        }
++
++
++def state_path() -> Path:
++    """Resolve the pair-code state file.
++
++    Honours ``OSTLER_HOME`` then ``OSTLER_DIR`` (the installer sets
++    ``OSTLER_DIR=~/.ostler``), falling back to ``~/.ostler``. Mirrors how the
++    rest of Doctor resolves the engine zone so the two cannot drift onto
++    different roots.
++    """
++    base = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR")
++    root = Path(base) if base else Path.home() / ".ostler"
++    return root / "state" / _STATE_FILENAME
++
++
++def _unavailable(kind: str, message: str) -> WhatsAppPairStatus:
++    return WhatsAppPairStatus(
++        available=False,
++        code=None,
++        expires_at=None,
++        seconds_remaining=None,
++        error=message,
++        error_kind=kind,
++    )
++
++
++def fetch_pair_status(
++    path: Optional[Path] = None,
++    now: Optional[int] = None,
++) -> WhatsAppPairStatus:
++    """Read the current pair code, if there is a usable one.
++
++    Never raises. A Doctor panel that 500s tells the customer less than a panel
++    that says "not requested yet", and this runs on the dashboard's polling
++    path where an exception would blank the whole card.
++
++    ``now`` is injectable so expiry tests do not have to sleep, and so a test
++    cannot pass merely because it ran fast.
++    """
++    target = path if path is not None else state_path()
++    current = int(time.time()) if now is None else now
++
++    try:
++        if not target.is_file():
++            # Not an error. The overwhelmingly common case is a customer who
++            # never turned WhatsApp on, and the second most common is one whose
++            # daemon has not reached the pairing step yet. The caller decides
++            # which copy to show using the channel's configured state; this
++            # module refuses to guess at it from a missing file.
++            return _unavailable(
++                "not_requested",
++                "No pair code has been requested yet.",
++            )
++        raw = target.read_text(encoding="utf-8")
++    except OSError as exc:
++        log.warning("whatsapp pair state unreadable at %s: %s", target, exc)
++        return _unavailable("unreadable", "Could not read the pairing file.")
++
++    try:
++        payload = json.loads(raw)
++    except (ValueError, TypeError) as exc:
++        # Deliberately does NOT log `raw`. A malformed file may still contain a
++        # live pair code, and this logger's output lands in doctor.err, which
++        # the support-diagnostics bundle tails.
++        log.warning("whatsapp pair state is not valid JSON at %s: %s", target, exc)
++        return _unavailable("unreadable", "The pairing file could not be read.")
++
++    if not isinstance(payload, dict):
++        return _unavailable("unreadable", "The pairing file could not be read.")
++
++    code = payload.get("code")
++    expires_at = payload.get("expires_at")
++
++    if not isinstance(code, str) or not code.strip():
++        return _unavailable("unreadable", "The pairing file has no code in it.")
++    # `bool` is an `int` subclass in Python and would sail through a naive
++    # isinstance check, so exclude it explicitly rather than trust the writer.
++    if isinstance(expires_at, bool) or not isinstance(expires_at, int):
++        return _unavailable("unreadable", "The pairing file has no expiry in it.")
++
++    remaining = expires_at - current
++    if remaining < _MIN_USEFUL_SECONDS:
++        # Report the expiry honestly rather than hand back a code that WhatsApp
++        # will reject. The customer needs "ask for another", not "try harder".
++        return _unavailable(
++            "expired",
++            "That pairing code has expired. Ask for a new one.",
++        )
++
++    return WhatsAppPairStatus(
++        available=True,
++        code=code.strip(),
++        expires_at=expires_at,
++        seconds_remaining=remaining,
++        error=None,
++        error_kind=None,
++    )
+--- a/agent/box_status.py
++++ b/agent/box_status.py
+@@ -29,11 +29,17 @@
+ from __future__ import annotations
+ 
+ import json
++import logging
+ import os
+ import re
+ import subprocess
+ import urllib.request
+ from typing import Any, Optional
++
++# Fail-soft probes must still be able to SAY they failed. The Doctor is started
++# by launchd with StandardErrorPath -> ~/.ostler/logs/doctor.err, so anything
++# logged here lands in the support bundle.
++logger = logging.getLogger(__name__)
+ 
+ # Ollama endpoint - same env var the rest of the Doctor uses.
+ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
+@@ -452,16 +458,66 @@
+         except Exception:
+             pass
+     return {"enabled": enabled, "tier": tier, "deferring": deferring}
++
++
++# A guard that swallows its own failure is a defect in its own right, so this
++# module records whether the pause backend has ever failed to load. The
++# box-status poll runs every few seconds; logging on every call would bury the
++# report in its own noise, so each distinct failure is reported ONCE per
++# process and the fallback payload carries the admission from then on.
++_PAUSE_BACKEND_REPORTED: set[str] = set()
+ 
++
++def _report_pause_backend_failure(exc: BaseException) -> str:
++    """Log a pause-backend failure the first time each distinct one is seen.
+ 
++    Returns the short reason string that goes into the payload.
++    """
++    if isinstance(exc, ImportError):
++        # The build is missing agent/pause_control.py. That is a PACKAGING
++        # defect, not a runtime condition: the module is stdlib-only and always
++        # ships beside this one. This is v1018-D024 -- for as long as it was
++        # swallowed, a Doctor with no pause backend and a genuinely running box
++        # produced byte-identical output, so nothing on the box could tell them
++        # apart and the Governor page 404'd with no trace here.
++        reason = "backend-missing"
++        message = (
++            "pause_control could not be imported, so pause state cannot be "
++            "read. This build is incomplete: agent/pause_control.py is "
++            "expected beside box_status.py. Reporting pause state as "
++            "UNAVAILABLE rather than 'not paused' (%s)" % exc
++        )
++    else:
++        reason = "backend-error"
++        message = (
++            "pause_control raised while reading pause state; reporting "
++            "UNAVAILABLE rather than 'not paused' (%s: %s)"
++            % (exc.__class__.__name__, exc)
++        )
++    if reason not in _PAUSE_BACKEND_REPORTED:
++        _PAUSE_BACKEND_REPORTED.add(reason)
++        logger.error(message, exc_info=not isinstance(exc, ImportError))
++    return reason
++
++
+ def _pause() -> dict[str, Any]:
++    """Current pause state, or an HONEST unavailable payload.
++
++    Fail-soft is deliberate -- this runs on the box-status poll and must never
++    500 it -- but fail-soft is not the same as fail-silent. When the backend
++    cannot answer, the payload says ``paused: False, pause_unavailable: True``
++    so a caller can tell "the box is running" apart from "nobody knows", and
++    the reason is logged once per process.
++    """
+     try:
+         from pause_control import read_state  # type: ignore
+ 
+         return read_state()
+-    except Exception:
++    except Exception as exc:  # noqa: BLE001 - reported, then degraded
++        reason = _report_pause_backend_failure(exc)
+         return {"paused": False, "expiry": None, "indefinite": False,
+-                "expiry_human": ""}
++                "expiry_human": "", "scope": None,
++                "pause_unavailable": True, "pause_error": reason}
+ 
+ 
+ def _derive_state(load: Optional[dict], memory: Optional[dict],
+@@ -529,6 +585,9 @@
+             "paused": paused,
+             "expiry_human": pause.get("expiry_human", ""),
+             "indefinite": bool(pause.get("indefinite")),
++            # Carried through so "not paused" and "cannot tell" are
++            # distinguishable at the API surface, not only in the log.
++            "unavailable": bool(pause.get("pause_unavailable")),
+         },
+         "settling": settling,
+         "running": _running(governor, settling),
+--- /dev/null
++++ b/agent/pause_control.py
+@@ -0,0 +1,468 @@
++"""
++Ostler Doctor -- background-work Pause control (governor.env backend).
++
++This is the module ``box_status.py`` already imports (``from pause_control
++import read_state``) and the three Doctor routes ``GET /api/v1/pause``,
++``POST /api/v1/pause`` and ``POST /api/v1/resume`` delegate to. Before it
++existed that import fail-softed to a permanent ``paused: False``, so the Hub
++header status chip and Governor page could never reflect a real pause even
++though the shell engine was already honouring one. See
++``docs/SPEC_governor_status_indicator.md``.
++
++Mechanism -- reuse the SHIPPED, TESTED reader path
++--------------------------------------------------
++The five ``*-bundle-tick.sh`` wrappers, the wiki recompile tick and the CM059
++editor tick all call ``ostler_resource_tier_is_paused`` in
++``~/.ostler/lib/ostler-resource-tier.sh``, which reads exactly two keys from
++``governor.env``:
++
++* ``OSTLER_PAUSED``       -- ``1`` == paused, anything else == running.
++* ``OSTLER_PAUSE_UNTIL``  -- optional epoch-seconds soft self-expiry.
++
++So this module reads and writes those same two keys. Pausing here is honoured
++by every background surface with ZERO new consumer wiring -- we deliberately do
++NOT introduce a second ``processing.paused`` sentinel (which nothing reads) and
++we do NOT bootout the LaunchAgents (racy, not self-expiring, misses the wiki
++recompile + daemon cron). Live interactive chat is NEVER gated by this -- pause
++only stops the background enrichment / ingest / recompile storm.
++
++Expiry semantics mirror ``ostler-resource-tier.sh::ostler_resource_tier_is_paused``
++EXACTLY, so the Python reader (chip / Governor page) and the shell reader
++(every tick) can never disagree:
++
++* ``OSTLER_PAUSED != "1"``           -> not paused.
++* empty / ``forever`` ``PAUSE_UNTIL`` -> paused until an explicit resume.
++* non-numeric ``PAUSE_UNTIL``        -> FAIL OPEN (not paused) so a bad value
++                                         can never wedge background work off.
++* numeric ``PAUSE_UNTIL``            -> paused while ``now < until``, else the
++                                         window has elapsed -> auto-resumed.
++
++Scope -> expiry map (what the Governor page Pause button offers):
++
++* ``"hour"``       -> ``now + 3600``.
++* ``"tonight"``    -> the next local 01:00 (start of the overnight off-peak
++                      window the ticks drain their backlog in).
++* ``"indefinite"`` -> no ``PAUSE_UNTIL`` (paused until the operator resumes).
++
++The write is atomic (temp file + ``os.replace``, same primitive as
++``config_panel._write_governor_env``) and KEY-PRESERVING: it rewrites only the
++two pause keys and leaves ``OSTLER_THROTTLE_LEVEL`` (and any other operator
++setting in the file) untouched, so a Governor-page pause never clobbers the
++Settings-panel throttle choice.
++
++British English throughout. Deliberately dependency-free at import time
++(no yaml / fastapi / tomllib) so ``read_state`` on the ~1 Hz box-status poll
++path can never fail on a missing optional dependency. The Settings-panel and
++daemon-cron coherence mirrors are best-effort, lazily imported, and never
++allowed to break the load-bearing ``governor.env`` write.
++"""
++
++from __future__ import annotations
++
++import os
++import tempfile
++import time
++from dataclasses import dataclass
++from datetime import datetime, timedelta
++from pathlib import Path
++from typing import Any, Optional
++
++
++# -- Default paths ----------------------------------------------------
++
++DEFAULT_OSTLER_DIR = Path.home() / ".ostler"
++DEFAULT_GOVERNOR_ENV = DEFAULT_OSTLER_DIR / "config" / "governor.env"
++
++# The two keys the shell engine honours. Kept as constants so the writer,
++# the reader and the tests never drift on a typo.
++KEY_PAUSED = "OSTLER_PAUSED"
++KEY_PAUSE_UNTIL = "OSTLER_PAUSE_UNTIL"
++
++# Valid pause scopes the Governor page may request (plus a handful of
++# forgiving aliases so a client typo does not 400 a pause).
++SCOPE_HOUR = "hour"
++SCOPE_TONIGHT = "tonight"
++SCOPE_INDEFINITE = "indefinite"
++
++_SCOPE_ALIASES = {
++    "hour": SCOPE_HOUR,
++    "1h": SCOPE_HOUR,
++    "1hour": SCOPE_HOUR,
++    "60m": SCOPE_HOUR,
++    "an_hour": SCOPE_HOUR,
++    "tonight": SCOPE_TONIGHT,
++    "until_tonight": SCOPE_TONIGHT,
++    "until-tonight": SCOPE_TONIGHT,
++    "off_peak": SCOPE_TONIGHT,
++    "indefinite": SCOPE_INDEFINITE,
++    "forever": SCOPE_INDEFINITE,
++    "until_resume": SCOPE_INDEFINITE,
++    "": SCOPE_INDEFINITE,
++}
++
++# The local hour the "until tonight" scope targets: the start of the overnight
++# off-peak window the tick wrappers drain their full backlog in. Matches the
++# 01:00 off-peak start the ingest ticks assume.
++_TONIGHT_HOUR = 1
++
++
++@dataclass
++class PauseError(Exception):
++    """Carries an HTTP status so the FastAPI handler maps cleanly.
++
++    Mirrors ``config_panel.ConfigError`` so the web route can reuse the same
++    ``except PauseError as exc: JSONResponse({"error": exc.detail}, exc.status)``
++    shape.
++
++    * 400 -- unknown / unusable pause scope.
++    * 500 -- filesystem error writing the governor bridge file.
++    """
++
++    status: int
++    detail: str
++
++    def __str__(self) -> str:  # pragma: no cover - trivial
++        return self.detail
++
++
++# -- Path resolution --------------------------------------------------
++
++
++def governor_env_path() -> Path:
++    """Resolve the governor bridge file both the Settings panel and the shell
++    engine use.
++
++    Resolution order keeps all three writers/readers (``config_panel`` writer,
++    ``ostler-resource-tier.sh`` reader, this module) pointing at the SAME file
++    on a real install, while letting a test relocate it:
++
++    1. ``OSTLER_GOVERNOR_ENV_FILE`` -- exact file (matches ``config_panel``).
++    2. ``OSTLER_GOVERNOR_SETTINGS`` -- exact file (matches the shell lib).
++    3. ``OSTLER_CONFIG_FILE``       -- sibling ``governor.env`` (matches
++       ``config_panel``'s default of placing it beside ``config.yaml``).
++    4. ``OSTLER_HOME``              -- ``<home>/config/governor.env``.
++    5. default                      -- ``~/.ostler/config/governor.env``.
++    """
++    raw = os.environ.get("OSTLER_GOVERNOR_ENV_FILE")
++    if raw:
++        return Path(raw)
++    raw = os.environ.get("OSTLER_GOVERNOR_SETTINGS")
++    if raw:
++        return Path(raw)
++    cfg = os.environ.get("OSTLER_CONFIG_FILE")
++    if cfg:
++        return Path(cfg).parent / "governor.env"
++    home = os.environ.get("OSTLER_HOME")
++    if home:
++        return Path(home) / "config" / "governor.env"
++    return DEFAULT_GOVERNOR_ENV
++
++
++# -- governor.env parsing (mirrors the shell lib's defensive parser) ---
++
++
++def _strip_export(line: str) -> str:
++    """Strip a leading ``export `` from a KEY=VALUE line (shell parity)."""
++    stripped = line.lstrip()
++    if stripped.startswith("export "):
++        return stripped[len("export ") :]
++    return stripped
++
++
++def _is_pause_key_line(line: str) -> bool:
++    """True iff ``line`` assigns one of the two pause keys we own.
++
++    Used by the key-preserving writer to drop existing pause assignments (so we
++    never leave a duplicate) while keeping every other line -- throttle,
++    comments, blanks, foreign keys.
++    """
++    body = _strip_export(line)
++    return body.startswith(KEY_PAUSED + "=") or body.startswith(
++        KEY_PAUSE_UNTIL + "="
++    )
++
++
++def _parse_values(text: str) -> dict[str, str]:
++    """Parse the OSTLER_* assignments the same way the shell lib does.
++
++    Only ``OSTLER_<A-Z0-9_>*=value`` lines are honoured; a leading ``export``
++    is stripped and a single pair of matching surrounding quotes is removed.
++    FIRST occurrence of a key wins, matching the shell's fill-if-unset loop.
++    """
++    values: dict[str, str] = {}
++    for raw_line in text.splitlines():
++        body = _strip_export(raw_line)
++        if not body or body.startswith("#"):
++            continue
++        if "=" not in body:
++            continue
++        key, _, val = body.partition("=")
++        # Only OSTLER_* uppercase/digit/underscore keys.
++        if not key or not key.startswith("OSTLER_"):
++            continue
++        if not all(c.isupper() or c.isdigit() or c == "_" for c in key):
++            continue
++        # Strip a single pair of matching surrounding quotes.
++        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
++            val = val[1:-1]
++        if key not in values:  # first wins (shell parity)
++            values[key] = val
++    return values
++
++
++# -- Reading ----------------------------------------------------------
++
++
++def _human(epoch: int) -> str:
++    """Render an expiry epoch as a short local time for the UI."""
++    if epoch <= 0:
++        return ""
++    dt = datetime.fromtimestamp(epoch)
++    if dt.date() == datetime.now().date():
++        return dt.strftime("%H:%M")
++    return dt.strftime("%a %H:%M")
++
++
++def _not_paused(path: Path) -> dict[str, Any]:
++    return {
++        "paused": False,
++        "expiry": None,
++        "indefinite": False,
++        "expiry_human": "",
++        "scope": None,
++        "governor_env_path": str(path),
++    }
++
++
++def read_state(path: Optional[Path] = None) -> dict[str, Any]:
++    """Return the current pause state for the chip / Governor page.
++
++    Shape (a superset of the fallback ``box_status._pause`` returns, so the
++    header chip keeps working)::
++
++        {"paused": bool, "expiry": int|None, "indefinite": bool,
++         "expiry_human": str, "scope": str|None, "governor_env_path": str}
++
++    Never raises and never writes: this runs on the ~1 Hz box-status poll, so a
++    missing file, an unreadable file or a malformed value all degrade to a
++    well-formed "not paused" payload (fail open -- the exact posture the shell
++    lib takes) rather than 500-ing the poll or self-healing on the read path.
++    """
++    p = path or governor_env_path()
++    try:
++        if not p.is_file():
++            return _not_paused(p)
++        text = p.read_text(encoding="utf-8")
++    except OSError:
++        return _not_paused(p)
++
++    values = _parse_values(text)
++    if values.get(KEY_PAUSED, "0") != "1":
++        return _not_paused(p)
++
++    until_raw = values.get(KEY_PAUSE_UNTIL, "").strip()
++    # Empty or "forever" -> paused until an explicit resume.
++    if until_raw in ("", "forever"):
++        return {
++            "paused": True,
++            "expiry": None,
++            "indefinite": True,
++            "expiry_human": "",
++            "scope": SCOPE_INDEFINITE,
++            "governor_env_path": str(p),
++        }
++    # Non-numeric -> fail open (never wedge background work off forever).
++    if not until_raw.isdigit():
++        return _not_paused(p)
++
++    until = int(until_raw)
++    if time.time() >= until:
++        # Window elapsed -> auto-resumed. Report resumed; do NOT rewrite the
++        # file here (this is the hot read path and the file also carries the
++        # throttle choice). The next set_pause/resume tidies the stale line.
++        return _not_paused(p)
++
++    return {
++        "paused": True,
++        "expiry": until,
++        "indefinite": False,
++        "expiry_human": _human(until),
++        "scope": SCOPE_HOUR if (until - time.time()) <= 3600 + 1 else SCOPE_TONIGHT,
++        "governor_env_path": str(p),
++    }
++
++
++# -- Scope -> expiry --------------------------------------------------
++
++
++def _next_tonight_epoch(now: Optional[float] = None) -> int:
++    """Epoch of the next local ``_TONIGHT_HOUR``:00 (today if still ahead)."""
++    base = datetime.now() if now is None else datetime.fromtimestamp(now)
++    target = base.replace(hour=_TONIGHT_HOUR, minute=0, second=0, microsecond=0)
++    if base >= target:
++        target = target + timedelta(days=1)
++    return int(target.timestamp())
++
++
++def normalise_scope(scope: Optional[str]) -> str:
++    """Map a client-supplied scope (or alias) to a canonical scope."""
++    key = (scope or "").strip().lower()
++    canonical = _SCOPE_ALIASES.get(key)
++    if canonical is None:
++        raise PauseError(400, f"Unknown pause scope: {scope!r}.")
++    return canonical
++
++
++def compute_expiry(scope: str, now: Optional[float] = None) -> Optional[int]:
++    """Return the ``OSTLER_PAUSE_UNTIL`` epoch for a scope, or ``None`` for an
++    indefinite pause (no expiry line)."""
++    canonical = normalise_scope(scope)
++    if canonical == SCOPE_INDEFINITE:
++        return None
++    if canonical == SCOPE_HOUR:
++        base = time.time() if now is None else now
++        return int(base) + 3600
++    return _next_tonight_epoch(now)
++
++
++# -- Writing (atomic + key-preserving) --------------------------------
++
++
++_HEADER = (
++    "# Ostler background-work settings.\n"
++    "# OSTLER_PAUSED / OSTLER_PAUSE_UNTIL written by the Doctor Governor\n"
++    "# controls; read by ~/.ostler/lib/ostler-resource-tier.sh on the next\n"
++    "# background tick. Do not hand-edit while the Doctor is open.\n"
++)
++
++
++def _render_merged(existing: str, paused: bool, until: Optional[int]) -> str:
++    """Rewrite only the two pause keys, preserving every other line.
++
++    Existing ``OSTLER_PAUSED`` / ``OSTLER_PAUSE_UNTIL`` assignments are dropped
++    (so we never leave a stale or duplicate line that the first-wins shell
++    parser would honour over ours); throttle, comments and foreign keys survive
++    untouched. Both keys are then appended exactly once.
++    """
++    kept: list[str] = []
++    for line in existing.splitlines():
++        if _is_pause_key_line(line):
++            continue
++        kept.append(line)
++
++    body = "\n".join(kept).rstrip("\n")
++    if not body.strip():
++        body = _HEADER.rstrip("\n")
++
++    until_val = "" if until is None else str(int(until))
++    tail = (
++        f"export {KEY_PAUSED}={'1' if paused else '0'}\n"
++        f"export {KEY_PAUSE_UNTIL}={until_val}\n"
++    )
++    return body + "\n" + tail
++
++
++def _atomic_write_text(path: Path, text: str) -> None:
++    """Atomically replace ``path`` with ``text`` (temp file + os.replace)."""
++    try:
++        path.parent.mkdir(parents=True, exist_ok=True)
++        fd, tmp = tempfile.mkstemp(
++            dir=str(path.parent), prefix=".governor-", suffix=".env.tmp"
++        )
++        try:
++            with os.fdopen(fd, "w", encoding="utf-8") as fh:
++                fh.write(text)
++            os.replace(tmp, path)
++        except OSError:
++            try:
++                os.unlink(tmp)
++            except OSError:
++                pass
++            raise
++    except OSError as exc:
++        raise PauseError(500, f"Could not write governor settings file: {exc}")
++
++
++def _mirror_settings_panel(paused: bool) -> None:
++    """Best-effort: keep the Settings-panel checkbox + daemon cron coherent.
++
++    A Governor-page pause should also (a) show as ticked on the Settings panel
++    and (b) suppress the daemon-embedded 09:00 brief / 18:00 wrap, exactly like
++    a Settings-panel pause does. Both are best-effort and LAZILY imported:
++
++    * ``config_panel``'s governor.env writer graft is not upstreamed to the
++      Doctor source repo, and ``daemon_cron`` is a vendor-only module -- either
++      import can legitimately be absent (e.g. running from the source tree). A
++      failure here must NEVER break the load-bearing ``governor.env`` write
++      above, so everything is swallowed.
++
++    We mirror ``background_paused`` into ``config.yaml`` DIRECTLY (via
++    ``config_panel``'s own ``_load_raw`` + ``_atomic_write``) rather than
++    through ``write_config`` -- ``write_config`` would rewrite ``governor.env``
++    from scratch and drop the ``OSTLER_PAUSE_UNTIL`` we just wrote.
++
++    ``OSTLER_PAUSE_SKIP_MIRROR=1`` disables both mirrors -- used by the unit
++    tests so they exercise the governor.env write in isolation without
++    touching ``config.yaml`` or invoking ``launchctl`` via ``daemon_cron``.
++    """
++    if os.environ.get("OSTLER_PAUSE_SKIP_MIRROR", "").strip() in ("1", "true", "yes"):
++        return
++    try:  # config.yaml checkbox coherence
++        import config_panel as _cp  # type: ignore
++
++        cfg_path = _cp._config_file()
++        current = _cp._load_raw(cfg_path)
++        if bool(current.get("background_paused", False)) != paused:
++            current["background_paused"] = paused
++            _cp._atomic_write(cfg_path, current)
++    except Exception:
++        pass
++
++    try:  # daemon brief / wrap coherence
++        from daemon_cron import apply_pause_to_cron  # type: ignore
++
++        apply_pause_to_cron(paused)
++    except Exception:
++        pass
++
++
++def set_pause(
++    scope: str, path: Optional[Path] = None, now: Optional[float] = None
++) -> dict[str, Any]:
++    """Pause background work for ``scope`` and return the fresh state."""
++    until = compute_expiry(scope, now=now)  # raises PauseError(400) on bad scope
++    p = path or governor_env_path()
++    existing = ""
++    try:
++        if p.is_file():
++            existing = p.read_text(encoding="utf-8")
++    except OSError:
++        existing = ""
++    _atomic_write_text(p, _render_merged(existing, paused=True, until=until))
++    _mirror_settings_panel(True)
++    return read_state(p)
++
++
++def resume(path: Optional[Path] = None) -> dict[str, Any]:
++    """Resume background work (clear the pause) and return the fresh state.
++
++    Idempotent: resuming when not paused is a no-op that still returns the
++    correct not-paused state. Writes ``OSTLER_PAUSED=0`` and clears
++    ``OSTLER_PAUSE_UNTIL`` while preserving the throttle choice.
++    """
++    p = path or governor_env_path()
++    existing = ""
++    try:
++        if p.is_file():
++            existing = p.read_text(encoding="utf-8")
++    except OSError:
++        existing = ""
++    _atomic_write_text(p, _render_merged(existing, paused=False, until=None))
++    _mirror_settings_panel(False)
++    return read_state(p)
++
++
++if __name__ == "__main__":  # function-verification entrypoint
++    import json
++
++    print(json.dumps(read_state(), indent=2))

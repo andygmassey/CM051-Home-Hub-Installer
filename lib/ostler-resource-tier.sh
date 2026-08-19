@@ -45,7 +45,10 @@
 #                               high tier (use the model default)
 #   OSTLER_RAM_GB               detected RAM in whole GB (diagnostics)
 #   OSTLER_CPU_CORES            detected total cores (diagnostics)
-#   OSTLER_PERF_CORES           detected performance cores (diagnostics)
+#   OSTLER_PERF_CORES           detected performance cores. DIAGNOSTIC ONLY:
+#                               it does NOT select the tier. Every base
+#                               Apple Silicon chip reports 4, so it cannot
+#                               discriminate on the hardware we ship to.
 #
 # Fail-safe: every probe degrades to the CONSERVATIVE (floor) tier if it
 # cannot read the hardware, so a sysctl quirk can never accidentally
@@ -246,16 +249,32 @@ ostler_resource_tier_detect() {
             # 16GB is the installer's hard floor (ERR-02-PREREQ-RAM-LOW),
             # so the LOWEST supported machine sits at LOW, not floor:
             # concurrency 2, qwen3.5:9b. The "floor" tier below is reserved
-            # for the sub-16GB / <=4 P-core case (e.g. an 8GB Air, were the
+            # for the sub-16GB / <=4 TOTAL-core case (e.g. an 8GB Air, were the
             # prereq ever lowered) and the detection-failure fallback.
             tier="low"
         else
             tier="floor"
         fi
-        # Core-count override: <=4 performance cores is a floor machine
-        # even if it somehow reports plenty of RAM (e.g. an 8GB Air, were
-        # the 16GB prereq ever lowered).
-        if [ "${OSTLER_PERF_CORES:-0}" -gt 0 ] && [ "${OSTLER_PERF_CORES}" -le 4 ]; then
+        # Core-count override: a machine that reports plenty of RAM but
+        # cannot actually do concurrent work is demoted one step.
+        #
+        # THIS TESTS TOTAL CORES, NOT P-CORES, AND THAT IS THE WHOLE POINT.
+        # It used to read OSTLER_PERF_CORES against the same <=4 threshold.
+        # Every base Apple Silicon chip has exactly FOUR performance cores
+        # (M1/M2/M3 are 4P+4E, the base M4 is 4P+6E), so on the commonest
+        # hardware we ship to, the override fired on EVERY machine and
+        # silently overrode the RAM ladder it sits under. Measured on a
+        # Mac16,10 / Apple M4 / 16GB: perflevel0.physicalcpu=4, ncpu=10,
+        # tier=floor, OLLAMA_NUM_PARALLEL=1. A 24GB base M4 landed on the
+        # same floor, and no base M-series chip could reach HIGH at any RAM
+        # size at all. The rule's own comment said it was for "an 8GB Air,
+        # were the 16GB prereq ever lowered" -- an edge case. It was the
+        # modal case.
+        #
+        # Total cores is what the rule always meant: every Apple Silicon Mac
+        # has at least 8, so none is caught, while a 2-core or 4-core Intel
+        # Mac or a pinched VM still is. The threshold is unchanged.
+        if [ "${OSTLER_CPU_CORES:-0}" -gt 0 ] && [ "${OSTLER_CPU_CORES}" -le 4 ]; then
             if [ "$tier" = "high" ]; then
                 tier="low"
             else

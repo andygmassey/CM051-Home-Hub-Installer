@@ -121,14 +121,59 @@ if (( WRAP_BUNDLE_ID_COUNT < 2 )); then
 fi
 echo "PASS [case-5]: ${WRAP_BUNDLE_ID_COUNT} CFBundleIdentifier sites write ai.ostler.assistant"
 
-# Case 6: TCC pre-probe SELECT references BOTH the bundle ID and the legacy binary path
-if ! grep -qE "client IN \('ai\.ostler\.assistant', '\\\$\{ASSISTANT_BINARY_LEGACY\}'\)" "$INSTALL_SH"; then
-    echo "FAIL [case-6]: TCC pre-probe SQL does not check both bundle ID and \${ASSISTANT_BINARY_LEGACY}"
-    echo "   without the legacy path, an upgrade from v0.4.1's bare-bin layout silently loses the FDA grant"
-    grep -nE 'client IN' "$INSTALL_SH" | head -3
+# Case 6: EVERY TCC pre-probe SELECT covers BOTH the bundle ID and the legacy
+# binary path, so an upgrade from v0.4.1's bare-bin layout resolves its grant.
+#
+# THIS CASE ASSERTED A RENDERING, NOT THE DEFECT, AND WENT RED-WHILE-FIXED.
+#
+# The original predicate was an exact-literal grep for
+#     client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY}')
+# On 2026-07-26 commit 03040a7 hardened both probe sites to
+#     client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY:-none}')
+# -- a default expansion so an unset variable under `set -u` cannot abort the
+# probe. The legacy client is still covered. The grep is not: it demands the
+# closing brace immediately after the name, so `:-none` does not match and the
+# case has failed on main for three weeks while the invariant it names has
+# held throughout.
+#
+# It went unnoticed because this file runs NOWHERE (tests/TEST_WIRING.tsv), so
+# a test pinned to a formatting detail failed in silence for the entire period.
+# Both halves of that are the bug.
+#
+# The predicate below reads the CONTENT instead: for each TCC pre-probe SELECT
+# against kTCCServiceSystemPolicyAllFiles, the client list must name the bundle
+# ID and must reference ASSISTANT_BINARY_LEGACY, in any expansion form. It is
+# also STRICTER than the original, which was satisfied by a single matching
+# line anywhere in the file -- one hardened site and one regressed site would
+# have passed. Every site must cover both.
+PROBE_SITES="$(grep -nE "client IN \(.*kTCC|kTCCServiceSystemPolicyAllFiles.* client IN \(" "$INSTALL_SH" || true)"
+PROBE_COUNT="$(printf '%s\n' "$PROBE_SITES" | grep -c . || true)"
+if [ "${PROBE_COUNT:-0}" -eq 0 ]; then
+    # Zero sites would satisfy an "every site covers both" loop by examining
+    # nothing. Say so: a vacuous pass here reads identically to a real one.
+    echo "FAIL [case-6]: found NO kTCCServiceSystemPolicyAllFiles pre-probe in install.sh" >&2
+    echo "   this case examined nothing, which is not the same as finding nothing wrong" >&2
     exit 1
 fi
-echo "PASS [case-6]: TCC pre-probe SQL covers both bundle ID and legacy binary path"
+CASE6_BAD=0
+while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case "$line" in
+        *"'ai.ostler.assistant'"*) ;;
+        *) echo "FAIL [case-6]: pre-probe does not name the bundle ID: ${line%%:*}" >&2; CASE6_BAD=1; continue ;;
+    esac
+    case "$line" in
+        *ASSISTANT_BINARY_LEGACY*) ;;
+        *) echo "FAIL [case-6]: pre-probe does not reference ASSISTANT_BINARY_LEGACY: ${line%%:*}" >&2; CASE6_BAD=1 ;;
+    esac
+done <<EOF
+$PROBE_SITES
+EOF
+if [ "$CASE6_BAD" -ne 0 ]; then
+    echo "   without the legacy client, an upgrade from v0.4.1's bare-bin layout silently loses the FDA grant" >&2
+    exit 1
+fi
+echo "PASS [case-6]: all ${PROBE_COUNT} TCC pre-probe SELECT(s) cover the bundle ID and the legacy binary path"
 
 # Case 7: INSTALL_SNIPPET.sh uses ASSISTANT_MACOS_DIR (inner-bundle dir), NOT the legacy bin/
 if ! grep -qE '^esc_bin="\$\(printf .* "\$ASSISTANT_MACOS_DIR"' "$SNIPPET"; then

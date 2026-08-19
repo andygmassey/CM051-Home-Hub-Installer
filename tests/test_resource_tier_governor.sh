@@ -89,12 +89,6 @@ echo "$out" | grep -q '^OSTLER_ENRICH_CONCURRENCY=4$'  || failure "HIGH should c
 echo "$out" | grep -q '^OSTLER_DEFER_NONESSENTIAL=0$'  || failure "HIGH should not defer"
 [ "$FAILED" -eq 0 ] && pass "64GB/16-core -> HIGH (concurrency 4, no defer)"
 
-# 16GB / 8 cores / 4 P-cores. RAM says LOW but <=4 P-cores demotes HIGH->LOW
-# and FLOOR stays FLOOR; here RAM=LOW + perf<=4 keeps LOW... we instead
-# assert the explicit 16GB-with-8P case below. With 4 P-cores the demotion
-# rule turns a would-be LOW into FLOOR only if it had been HIGH. 16GB=LOW
-# and perf<=4 keeps it at LOW (the demotion only steps HIGH->LOW / *->floor
-# when it was high). Assert the documented LOW behaviour with 8 P-cores:
 out="$(detect_with $((16*1073741824)) 10 8)"
 echo "$out" | grep -q '^OSTLER_TIER=low$'              || failure "16GB/8P should be LOW tier, got: $out"
 echo "$out" | grep -q '^OSTLER_ENRICH_CONCURRENCY=2$'  || failure "LOW should cap concurrency 2"
@@ -108,10 +102,66 @@ echo "$out" | grep -q '^OSTLER_ENRICH_CONCURRENCY=1$'  || failure "FLOOR should 
 echo "$out" | grep -q '^OSTLER_DEFER_NONESSENTIAL=1$'  || failure "FLOOR should defer non-essential"
 [ "$FAILED" -eq 0 ] && pass "8GB -> FLOOR (concurrency 1, defer)"
 
-# 32GB but only 4 P-cores -> the <=4 P-core demotion steps HIGH down to LOW.
-out="$(detect_with $((32*1073741824)) 8 4)"
-echo "$out" | grep -q '^OSTLER_TIER=low$'              || failure "32GB/4P should demote HIGH->LOW, got: $out"
-[ "$FAILED" -eq 0 ] && pass "32GB but 4 P-cores demotes HIGH -> LOW"
+# --------------------------------------------------------------------
+# Section 1b -- THE BASE M-SERIES MATRIX.
+#
+# Every base Apple Silicon chip has exactly FOUR performance cores: M1,
+# M2 and M3 are 4P+4E (8 total), the base M4 is 4P+6E (10 total). Measured
+# on a Mac16,10 / Apple M4 / 16GB: hw.perflevel0.physicalcpu = 4,
+# hw.perflevel1.physicalcpu = 6, hw.ncpu = 10.
+#
+# The old core-count override tested P-CORES against <=4, and its own
+# comment said it was there to catch "an 8GB Air, were the 16GB prereq
+# ever lowered" -- a machine that "somehow reports plenty of RAM". On
+# Apple Silicon that test cannot discriminate, because the modal customer
+# machine satisfies it. Measured against the unfixed lib: a 16GB base M4
+# landed on FLOOR (OLLAMA_NUM_PARALLEL=1) and a 32GB base M4 could reach
+# no higher than LOW, so NO base M-series Mac could ever reach HIGH at any
+# RAM size. The RAM ladder was being silently overridden on the commonest
+# hardware we ship to.
+#
+# It now tests TOTAL cores, which is what actually tracks "this machine
+# cannot do concurrent work": every Apple Silicon Mac has at least 8, and
+# a 2-core or 4-core Intel Mac or a pinched VM still trips it.
+#
+# These cases are asserted TOGETHER on purpose. The suite previously had a
+# 16GB case and a 4-P-core case but never both in one fixture, so the one
+# configuration most customers run was the one it never exercised.
+# --------------------------------------------------------------------
+
+# 16GB base M4 (4P + 6E). THE MODAL CUSTOMER MACHINE.
+out="$(detect_with $((16*1073741824)) 10 4)"
+echo "$out" | grep -q '^OSTLER_TIER=low$'              || failure "16GB base M4 (4P/10 total) must be LOW, not floor -- the RAM ladder must not be overridden by P-core count, got: $out"
+echo "$out" | grep -q '^OSTLER_ENRICH_CONCURRENCY=2$'  || failure "16GB base M4 must get concurrency 2"
+[ "$FAILED" -eq 0 ] && pass "16GB base M4 (4 P-cores, 10 total) -> LOW, not FLOOR"
+
+# 24GB base M4. The RAM step must be visible, not flattened to the floor.
+out="$(detect_with $((24*1073741824)) 10 4)"
+echo "$out" | grep -q '^OSTLER_TIER=low$'              || failure "24GB base M4 must be LOW, got: $out"
+[ "$FAILED" -eq 0 ] && pass "24GB base M4 -> LOW"
+
+# 16GB base M1/M2/M3 (4P + 4E, 8 total).
+out="$(detect_with $((16*1073741824)) 8 4)"
+echo "$out" | grep -q '^OSTLER_TIER=low$'              || failure "16GB base M1/M2/M3 (4P/8 total) must be LOW, got: $out"
+[ "$FAILED" -eq 0 ] && pass "16GB base M1/M2/M3 (4 P-cores, 8 total) -> LOW"
+
+# 32GB base M4 must reach HIGH. Under the old rule no base M-series chip
+# could reach HIGH at ANY RAM size, which is the sharpest form of the bug.
+out="$(detect_with $((32*1073741824)) 10 4)"
+echo "$out" | grep -q '^OSTLER_TIER=high$'             || failure "32GB base M4 must reach HIGH -- under the P-core rule no base M-series could reach HIGH at any RAM size, got: $out"
+echo "$out" | grep -q '^OSTLER_ENRICH_CONCURRENCY=4$'  || failure "32GB base M4 must get concurrency 4"
+[ "$FAILED" -eq 0 ] && pass "32GB base M4 -> HIGH (a base chip can reach the top tier)"
+
+# THE OVERRIDE MUST STILL FIRE where it was meant to. A genuinely
+# core-starved machine with plenty of RAM is still demoted one step. This
+# is the control that stops the fix from being "delete the override".
+out="$(detect_with $((32*1073741824)) 4 4)"
+echo "$out" | grep -q '^OSTLER_TIER=low$'              || failure "32GB but only 4 TOTAL cores must still demote HIGH->LOW, got: $out"
+[ "$FAILED" -eq 0 ] && pass "32GB with 4 TOTAL cores still demotes HIGH -> LOW (the override still works)"
+
+out="$(detect_with $((16*1073741824)) 2 2)"
+echo "$out" | grep -q '^OSTLER_TIER=floor$'            || failure "16GB but only 2 TOTAL cores must demote LOW->FLOOR, got: $out"
+[ "$FAILED" -eq 0 ] && pass "16GB with 2 TOTAL cores demotes LOW -> FLOOR (the override still works)"
 
 # Detection failure (sysctl returns nothing) -> conservative FLOOR.
 out="$(detect_with "" "" "")"

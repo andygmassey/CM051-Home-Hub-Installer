@@ -2,7 +2,7 @@
 # Update these versions deliberately, not automatically.
 # TODO: add --require-hashes once hash values are captured for all platforms
 
-cryptography>=46.0.1,<47.0.0
+cryptography>=50.0.0,<51.0.0
 sqlcipher3>=0.6.0,<0.7.0
 
 # OPF (OpenAI Privacy Filter) runtime. Optional install group in

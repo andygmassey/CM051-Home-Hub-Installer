@@ -2,9 +2,9 @@
 
 The one-shot macOS installer for the Ostler Home Hub. This is the script a user runs to go from zero to a working local-first Ostler Hub on their Mac.
 
-```bash
-curl -fsSL https://ostler.ai/install.sh | bash
-```
+Ostler is a paid product. Customers buy at https://ostler.ai and install from the
+DMG they are sent. `install.sh` is what that installer runs; it is not a
+standalone entry point, and it refuses to install without a valid licence.
 
 ## Install prerequisites
 
@@ -48,11 +48,11 @@ The watcher is killed at the start of Phase 4 (so health-check output is not int
 
 ## Install
 
-Customers get the DMG via the Ostler website (after Stripe checkout). The legacy curl bootstrap remains for power users and contributors:
+Customers get the DMG via the Ostler website, after Stripe checkout. That is the
+only supported install path.
 
-```bash
-curl -fsSL https://ostler.ai/install.sh | bash
-```
+`bash install.sh --check` verifies prerequisites and needs no licence, so it is
+safe to run before buying.
 
 ## Active work (see PLAN.md)
 
