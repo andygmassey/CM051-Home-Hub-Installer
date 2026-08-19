@@ -1,0 +1,44 @@
+name: new-tests-must-be-wired
+
+# A TEST ADDED BY A PR MUST BE INVOKED BY THAT PR.
+#
+# The estate found four test suites in a single day that existed, passed, and
+# were run by nothing. The standing wiring gate cannot stop that: it counts
+# NAME MENTIONS rather than invocations (#688), and it is a ratchet that
+# grandfathered the ~128 already-dark as an accepted baseline (#675).
+#
+# This one is diff-scoped on purpose. It ignores the backlog entirely and makes
+# it impossible for a NEW dark test to be born. The backlog burns down
+# separately.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: new-tests-wired-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  new-tests-wired:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 is LOAD-BEARING. The gate asks git for the merge-base
+      # with origin/main, and a shallow clone has no merge-base to find -- it
+      # would return CANNOT-RUN (rc=3) on every PR, which is honest but useless.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure origin/main is present for the merge-base
+        run: git fetch origin main --quiet || true
+
+      # The gate's own controls run FIRST. A gate whose predicate is broken
+      # should fail here, on its own controls, rather than by silently passing
+      # every PR downstream.
+      - name: The gate can tell an invocation from a comment mention
+        run: /bin/bash scripts/tests/test_new_tests_are_wired_predicate.sh
+
+      - name: Every test this change adds is invoked by this change
+        run: /bin/bash scripts/verify_new_tests_are_wired.sh
