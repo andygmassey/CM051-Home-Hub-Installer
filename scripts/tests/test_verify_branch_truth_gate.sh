@@ -80,15 +80,62 @@ mk_makefile() { # $1=daemon_version   -> echoes path
   } > "${f}"
   echo "${f}"
 }
+DMG_A="aa11223344556677889900aabbccddeeff00112233445566778899aabbccddee"
+DMG_B="bb11223344556677889900aabbccddeeff00112233445566778899aabbccddee"
+
 mk_ledger() { # $1=last_daemon_tag   -> echoes path
   local tag="$1" f="${TMP}/ledger.$$.${RANDOM}.yaml"
   {
     echo "dmg_cuts:"
     echo "  - version: v9.9.9"
+    echo "    published_date: 2026-08-18 04:23:32+00:00"
+    echo "    dmg_sha256: ${DMG_A}"
     echo "    contains_daemon: ${tag}"
     echo "    contains_hub: hub-app-deadbeef   # trailing comment must not confuse the parser"
   } > "${f}"
   echo "${f}"
+}
+
+# ---------------------------------------------------------------------------
+# THE FIXTURE THE OLD PARSER COULD NOT SEE.
+#
+# The retired resolver took the FIRST contains_daemon in FILE ORDER. Its only
+# fixture was a one-row ledger with contains_daemon on line 2 -- exactly the
+# shape it handled -- so it could not fail. On the LIVE ledger that parser read
+# hub-v0.4.54 while the newest row that actually shipped was hub-v0.4.58, four
+# daemon releases apart, and the gate reported GREEN.
+#
+# This fixture reproduces that: FILE-FIRST and TRUE-NEWEST name DIFFERENT tags,
+# and the pinned daemon sits BETWEEN them. Read file-first and the cut is ahead
+# (GREEN). Read true-newest and the cut drops shipped commits (RED). One
+# fixture, two opposite verdicts, so the fixture discriminates.
+# ---------------------------------------------------------------------------
+mk_ledger_disagree() { # $1=file_first_tag  $2=true_newest_tag  -> echoes path
+  local first="$1" newest="$2" f="${TMP}/ledger_disagree.$$.${RANDOM}.yaml"
+  {
+    echo "dmg_cuts:"
+    echo "- version: v1.0.18"
+    echo "  published_date: 2026-08-08 11:30:00+00:00"
+    echo "  dmg_sha256: ${DMG_A}"
+    echo "  contains_daemon: ${first}   # FIRST IN FILE ORDER, and months stale"
+    echo "  contains_hub: hub-app-deadbeef   # trailing comment must not confuse the parser"
+    echo "- version: v1.0.35"
+    echo "  tagged_at: 2026-08-18 04:23:32+00:00"
+    echo "  dmg_sha256: ${DMG_B}"
+    echo "  contains_daemon: ${newest}   # LAST IN FILE ORDER, and what actually shipped"
+  } > "${f}"
+  echo "${f}"
+}
+
+# The retired resolver, preserved verbatim so the fixture's discrimination is
+# PROVEN every run rather than asserted in a comment. If a future rewrite makes
+# the new resolver agree with this on this fixture, the test says so.
+old_resolver() { # $1=ledger -> echoes the tag the pre-2026-08-19 gate would use
+  awk '
+        /^dmg_cuts:/            { inseg=1; next }
+        inseg && /^[A-Za-z_]/   { inseg=0 }
+        inseg && $1=="contains_daemon:" { print $2; exit }
+    ' "$1"
 }
 
 PASS=0; FAIL=0
@@ -201,7 +248,128 @@ EOF
 run_case "GitHub unreachable comparing tags -> CANNOT VERIFY" 3 "${MK}" "${LG}" "${ST8}"
 assert_contains "case 8 reports cannot-verify" "GitHub unreachable"
 
-# --- CASE 9: Makefile + release.sh wire-in (silent no-op guard) --------------
+# ===========================================================================
+# CASE 9 -- THE REGRESSION THE OLD PARSER SHIPPED GREEN.
+# file-first row = hub-v0.4.44, true-newest row = hub-v0.4.46, pin = hub-v0.4.45.
+# Read file-first: pin is AHEAD -> GREEN. Read true-newest: pin is BEHIND -> RED.
+# ===========================================================================
+LG_DIS="$(mk_ledger_disagree hub-v0.4.44 hub-v0.4.46)"
+
+printf '\n=== CASE: the fixture DISCRIMINATES (old parser vs new resolver) ===\n'
+OLD_ANS="$(old_resolver "${LG_DIS}")"
+NEW_ANS="$(python3 "${SCRIPTS_DIR}/ledger_newest_daemon.py" "${LG_DIS}" 2>/dev/null)"
+printf '  retired file-order parser reads: %s\n' "${OLD_ANS}"
+printf '  new recency resolver reads:      %s\n' "${NEW_ANS}"
+if [[ "${OLD_ANS}" == "hub-v0.4.44" && "${NEW_ANS}" == "hub-v0.4.46" ]]; then
+  printf 'PASS: fixture discriminates -- old parser picks the stale row, new resolver picks the newest\n'
+  PASS=$((PASS+1))
+else
+  printf 'FAIL: fixture does NOT discriminate (old=%s new=%s); expected old=hub-v0.4.44 new=hub-v0.4.46\n' \
+    "${OLD_ANS}" "${NEW_ANS}" >&2
+  FAIL=$((FAIL+1))
+fi
+
+MK="$(mk_makefile 0.4.45)"
+ST9="${TMP}/state9"
+cat > "${ST9}" <<EOF
+tag hub-v0.4.44 ${SHA_44}
+tag hub-v0.4.45 ${SHA_45}
+tag hub-v0.4.46 ${SHA_46}
+compare hub-v0.4.44 hub-v0.4.45 ahead 7 0
+compare hub-v0.4.46 hub-v0.4.45 behind 0 5
+compare main hub-v0.4.45 diverged 3 9
+EOF
+run_case "file-first != true-newest -> gate must use the NEWEST row" 1 "${MK}" "${LG_DIS}" "${ST9}"
+assert_contains "case 9 compares against the TRUE newest tag" "last ship hub-v0.4.46"
+assert_contains "case 9 does NOT settle for the file-first tag" "dmg_cuts[newest] daemon -> tag hub-v0.4.46"
+assert_contains "case 9 fires the regression message" "DROPS SHIPPED COMMITS"
+assert_contains "case 9 names the ledger row it read" "dmg_cuts row \`version: v1.0.35\`"
+assert_contains "case 9 names the Makefile it read" "DAEMON_VERSION=0.4.45 -> hub-v0.4.45"
+assert_contains "case 9 prints the row denominator" "dmg_cuts rows read: 2"
+assert_contains "case 9 prints the candidate denominator" "rows that are BOTH (candidates): 2"
+assert_contains "case 9 proves its ordering rather than assuming it" "0 inversions -> version order PROVEN"
+
+# --- CASE 10: same fixture, pin AHEAD of the true newest -> GREEN ------------
+# Control for case 9: the fixture is not simply always-RED.
+MK10="$(mk_makefile 0.4.47)"
+SHA_47="4747474747474747474747474747474747474747"
+ST10="${TMP}/state10"
+cat > "${ST10}" <<EOF
+tag hub-v0.4.46 ${SHA_46}
+tag hub-v0.4.47 ${SHA_47}
+compare hub-v0.4.46 hub-v0.4.47 ahead 4 0
+compare main hub-v0.4.47 identical 0 0
+EOF
+run_case "same fixture, pin ahead of the TRUE newest -> GREEN" 0 "${MK10}" "${LG_DIS}" "${ST10}"
+assert_contains "case 10 greens against the newest row, not the stale one" "is AHEAD of last ship hub-v0.4.46"
+
+# --- CASE 11: a BURNT row (no DMG) never becomes the baseline ----------------
+# v1.0.29 in the live ledger records contains_daemon hub-v0.4.57 and no DMG of
+# it has ever existed. A cut that never produced an artefact shipped nothing, so
+# its daemon cannot be a non-regression baseline -- but the exclusion must be
+# printed, because dropping a row makes the baseline OLDER.
+LG_BURNT="${TMP}/ledger_burnt.yaml"
+cat > "${LG_BURNT}" <<EOF
+dmg_cuts:
+- version: v1.0.35
+  tagged_at: 2026-08-18 04:23:32+00:00
+  dmg_sha256: ${DMG_B}
+  contains_daemon: hub-v0.4.45
+- version: v1.0.36
+  tagged_at: 2026-08-18 07:54:44+00:00
+  status: BURNT -- tag spent, NO artefact produced.
+  artefact_bytes: 0
+  contains_daemon: hub-v0.4.46
+EOF
+ST11="${TMP}/state11"
+cat > "${ST11}" <<EOF
+tag hub-v0.4.45 ${SHA_45}
+compare hub-v0.4.45 hub-v0.4.45 identical 0 0
+compare main hub-v0.4.45 identical 0 0
+EOF
+run_case "burnt row (no dmg_sha256) is excluded from the baseline" 0 "${MK}" "${LG_BURNT}" "${ST11}"
+assert_contains "case 11 uses the last row that really shipped" "IDENTICAL to last ship hub-v0.4.45"
+assert_contains "case 11 names the excluded burnt row out loud" "excluded as never-shipped"
+assert_contains "case 11 names the excluded tag" "hub-v0.4.46"
+
+# --- CASE 12: ZERO candidate rows -> CANNOT-RUN (rc 3), never a pass --------
+# A gate that examined nothing and found nothing must not report GREEN.
+LG_EMPTY="${TMP}/ledger_nocands.yaml"
+cat > "${LG_EMPTY}" <<'EOF'
+dmg_cuts:
+- version: v1.0.36
+  tagged_at: 2026-08-18 07:54:44+00:00
+  status: BURNT -- no artefact, no daemon recorded.
+EOF
+run_case "zero candidate rows -> CANNOT-RUN, not GREEN" 3 "${MK}" "${LG_EMPTY}" "${ST11}"
+assert_contains "case 12 reports CANNOT-RUN" "CANNOT-RUN  0 candidate rows"
+assert_contains "case 12 refuses to call zero examined a pass" "zero examined is not zero problems"
+
+# --- CASE 13: ordering control FIRES -> CANNOT-RUN (rc 3) -------------------
+# Version order is used only because it is measured against the dated rows every
+# run. Here a dated row breaks that agreement AND an undated candidate exists,
+# so nothing can be placed and the resolver must stop rather than guess.
+LG_INV="${TMP}/ledger_inverted.yaml"
+cat > "${LG_INV}" <<EOF
+dmg_cuts:
+- version: v1.0.40
+  published_date: 2026-07-01 00:00:00+00:00
+  dmg_sha256: ${DMG_A}
+  contains_daemon: hub-v0.4.44
+- version: v1.0.20
+  published_date: 2026-08-18 00:00:00+00:00
+  dmg_sha256: ${DMG_B}
+  contains_daemon: hub-v0.4.45
+- version: v1.0.30
+  dmg_sha256: ${DMG_A}
+  contains_daemon: hub-v0.4.46
+EOF
+run_case "version order contradicted by the dates -> CANNOT-RUN" 3 "${MK}" "${LG_INV}" "${ST11}"
+assert_contains "case 13 reports the inversion it measured" "version order NOT PROVEN"
+assert_contains "case 13 names the rows that cannot be placed" "cannot be placed in any proven order"
+assert_contains "case 13 refuses to guess" "refusing to guess which cut is newest"
+
+# --- CASE 14: Makefile + release.sh wire-in (silent no-op guard) -------------
 printf '\n=== CASE: gui/Makefile wires check-branch-truth into the cut ===\n'
 mk_hits="$(grep -c 'check-branch-truth' "${MAKEFILE}")"
 printf '  gui/Makefile mentions check-branch-truth %d time(s)\n' "${mk_hits}"

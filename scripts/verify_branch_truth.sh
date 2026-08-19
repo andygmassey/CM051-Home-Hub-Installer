@@ -17,7 +17,14 @@
 #   to) the daemon tag the LAST cut shipped. Anything else is a regression.
 #
 #   THIS_DAEMON_TAG        <- gui/Makefile DAEMON_VERSION  (e.g. hub-v0.4.45)
-#   LAST_SHIPPED_DAEMON_TAG<- SHIPPING_LEDGER.yaml, newest dmg_cuts.contains_daemon
+#   LAST_SHIPPED_DAEMON_TAG<- SHIPPING_LEDGER.yaml, newest dmg_cuts daemon, via
+#                             scripts/ledger_newest_daemon.py -- NOT file order.
+#                             File order is not recency in that file: the first
+#                             nine rows are newest-first and everything after is
+#                             appended. Taking the first contains_daemon in file
+#                             order resolved hub-v0.4.54 on 2026-08-19 while the
+#                             newest row that actually shipped was hub-v0.4.58,
+#                             four releases apart, and the gate said GREEN.
 #
 #   Compare  LAST...THIS  on ostler-ai/ostler-assistant and read `.status`:
 #     identical | ahead  -> PASS (this cut contains everything the last ship had)
@@ -37,8 +44,11 @@
 # FAIL-CLOSED, AUTHORITATIVE
 #   * Exit 1 if the pinned daemon is behind/diverged from the last ship without a
 #     covering ack, or if the ledger / Makefile pin / a tag cannot be read.
-#   * Exit 3 (CANNOT VERIFY) -- distinct, still-non-zero -- if GitHub is
-#     unreachable after a retry. Never a false "safe".
+#   * Exit 3 (CANNOT VERIFY / CANNOT-RUN) -- distinct, still-non-zero -- if
+#     GitHub is unreachable after a retry, OR if the ledger yields ZERO
+#     candidate rows, OR if a candidate row cannot be placed in a proven order.
+#     Zero rows examined is never reported as zero problems. Never a false
+#     "safe".
 #   * Exit 0 only when the pinned daemon provably contains the last ship.
 #
 # Wired into BOTH cut paths so it cannot be skipped:
@@ -54,6 +64,7 @@
 #   GUI_MAKEFILE_OVERRIDE  Makefile to read DAEMON_VERSION from (tests)
 #   GH_API_TIMEOUT         per-call timeout seconds (default: 25)
 #   BRANCH_TRUTH_GH_BIN    override the `gh` binary (tests inject a mock)
+#   BRANCH_TRUTH_PYTHON    python3 used to read the ledger (needs PyYAML)
 #
 # British English throughout; " -- " not em-dashes.
 # Exit 0 = GREEN (safe to cut). Exit 1 = BLOCK. Exit 3 = CANNOT VERIFY.
@@ -194,13 +205,51 @@ find_ledger() {
     printf '%s' "${cands[0]}"   # report the primary candidate in the error
 }
 
-# newest dmg_cuts.contains_daemon from the ledger (entries are newest-first).
+# ---------------------------------------------------------------------------
+# ledger_last_daemon -- newest dmg_cuts daemon tag, by a PROVEN ordering.
+#
+# THIS USED TO BE A ONE-LINE awk THAT TOOK THE FIRST contains_daemon IN FILE
+# ORDER and called it dmg_cuts[newest]. It was wrong on the live ledger every
+# day it existed. Measured 2026-08-19 on the file the cut host reads:
+#
+#     awk first-in-file-order   -> row v1.0.18 -> hub-v0.4.54
+#     newest row that shipped   -> row v1.0.35 -> hub-v0.4.58
+#
+# Four daemon releases of baseline error, and the gate reported GREEN with it.
+# The ledger's first nine dmg_cuts rows are written newest-first and everything
+# after is APPENDED, so file order is not recency in either direction.
+#
+# Resolution now lives in scripts/ledger_newest_daemon.py, which parses the YAML,
+# PROVES version order against every dated row before using it, excludes burnt
+# cuts (no dmg_sha256 means nothing shipped), prints every denominator, and
+# exits 3 (CANNOT-RUN) rather than guessing. There is deliberately NO text
+# fallback: a fallback here is how the wrong answer got shipped in the first
+# place.
+#
+# Sets LAST_TAG. Returns 0 resolved, 1 bad ledger, 3 CANNOT-RUN.
+# ---------------------------------------------------------------------------
+LEDGER_RESOLVER="${SCRIPT_DIR}/ledger_newest_daemon.py"
+PY_BIN="${BRANCH_TRUTH_PYTHON:-python3}"
 ledger_last_daemon() {
-    awk '
-        /^dmg_cuts:/            { inseg=1; next }
-        inseg && /^[A-Za-z_]/   { inseg=0 }            # next top-level key ends the section
-        inseg && $1=="contains_daemon:" { print $2; exit }
-    ' "$1"
+    local ledger="$1" report rc out
+    LAST_TAG=""
+    if [ ! -r "${LEDGER_RESOLVER}" ]; then
+        err "ledger resolver missing: ${LEDGER_RESOLVER}"
+        info "the gate cannot resolve the last-shipped daemon without it -- fail-closed."
+        return 3
+    fi
+    if ! command -v "${PY_BIN}" >/dev/null 2>&1; then
+        err "no usable python3 (${PY_BIN}) to read ${ledger}"
+        info "set BRANCH_TRUTH_PYTHON=/path/to/python3 (needs PyYAML) and re-run."
+        return 3
+    fi
+    report="$(mktemp -t branch_truth_ledger.XXXXXX)"
+    out="$("${PY_BIN}" "${LEDGER_RESOLVER}" "${ledger}" 2>"${report}")"
+    rc=$?
+    cat "${report}" >&2
+    rm -f "${report}"
+    LAST_TAG="$(printf '%s' "${out}" | tr -d '[:space:]')"
+    return "${rc}"
 }
 
 # ---------------------------------------------------------------------------
@@ -228,16 +277,31 @@ if [ ! -r "${LEDGER}" ]; then
     info "the ledger is the ONLY record of what the last cut actually shipped -- fail-closed."
     exit 1
 fi
-LAST_TAG="$(ledger_last_daemon "${LEDGER}")"
+echo "ledger:      ${LEDGER}"
+echo "--- resolving dmg_cuts[newest] daemon (denominators below) ---"
+ledger_last_daemon "${LEDGER}"
+LEDGER_RC=$?
+case "${LEDGER_RC}" in
+    0) : ;;
+    3)
+        err "cannot resolve the last-shipped daemon from ${LEDGER} (resolver exit 3)"
+        info "CANNOT-RUN is not a pass: the gate examined the ledger and could not name a"
+        info "baseline, so it has proven nothing about this cut. Fix the ledger row or the"
+        info "interpreter, then re-run. Never cut on an unresolved baseline."
+        exit 3 ;;
+    *)
+        err "SHIPPING_LEDGER.yaml unreadable/malformed: ${LEDGER} (resolver exit ${LEDGER_RC})"
+        info "the ledger is the ONLY record of what the last cut actually shipped -- fail-closed."
+        exit 1 ;;
+esac
 if [ -z "${LAST_TAG}" ]; then
-    err "no dmg_cuts.contains_daemon entry in ${LEDGER}"
-    info "the ledger has no record of a last-shipped daemon -- cannot prove non-regression."
+    err "resolver exited 0 but named no daemon tag from ${LEDGER}"
+    info "that is an internal contradiction -- fail-closed rather than compare against an empty tag."
     exit 1
 fi
 
-echo "ledger:      ${LEDGER}"
-echo "this pin:    DAEMON_VERSION=${DAEMON_VERSION} -> tag ${THIS_TAG}"
-echo "last ship:   dmg_cuts[newest].contains_daemon -> tag ${LAST_TAG}"
+echo "this pin:    DAEMON_VERSION=${DAEMON_VERSION} -> tag ${THIS_TAG}   (read: ${GUI_MAKEFILE})"
+echo "last ship:   dmg_cuts[newest] daemon -> tag ${LAST_TAG}   (read: ${LEDGER})"
 echo
 
 # --- resolve both tags to shas (proves each tag exists) --------------------
@@ -298,6 +362,9 @@ case "${STATUS}" in
             info "(intentional rollback -- proceeding, but this cut drops commits the last ship contained)"
         else
             err "pinned daemon ${THIS_TAG} is ${STATUS} vs last ship ${LAST_TAG} -- DROPS SHIPPED COMMITS"
+            info "measured: ${GUI_MAKEFILE} DAEMON_VERSION=${DAEMON_VERSION} -> ${THIS_TAG} = $(short "${THIS_SHA}")"
+            info "measured: ${LEDGER} dmg_cuts[newest] -> ${LAST_TAG} = $(short "${LAST_SHA}")"
+            info "expected: ${THIS_TAG} identical-to or ahead-of ${LAST_TAG} on ${REPO}; got '${STATUS}'"
             info "compare ${LAST_TAG}...${THIS_TAG} = ${CMP} (behind>0 means the last ship has commits this pin lacks)"
             info "this is the v1.0.12-class regression: a cut may never drop what a previous ship contained."
             info "FIX: re-pin DAEMON_VERSION to a tag that DESCENDS from ${LAST_TAG} (graft-forward, do not rebuild from a diverged main),"
