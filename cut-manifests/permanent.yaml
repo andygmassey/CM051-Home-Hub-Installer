@@ -451,3 +451,16 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "people_count_agreement"
+
+  - id: box-walk-ingest-coverage
+    title: every ingest source must be counted, and an EMPTY store must fail rather than read as healthy
+    incident: >-
+      task #441; Andy asked "does everything work" on 2026-08-19 and nobody
+      could answer, because all eight existing probes ask "did the mechanism
+      run" and none asks "did data arrive". people_count_agreement is the
+      sharpest case: it checks the count AGREES across three surfaces, so
+      three surfaces agreeing on ZERO passes it. The measured answer, once
+      someone counted by hand, was 3 of 9 sources producing output
+    proof:
+      kind: box_walk_probe
+      probe: "ingest_coverage"
