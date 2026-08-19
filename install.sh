@@ -14262,12 +14262,35 @@ fi
 # here previously made bash run a literal command named '$OSTLER_PYTHON' ->
 # "command not found" exit 127 on every fda-rerun, so the Photos/Reminders
 # backfill never ran and no reminders.done / photos.done markers appeared.
+#
+# #784: BOTH HALVES, because this wrapper IS the recurring path.
+#
+# Until 2026-08-19 this called run_all and nothing else. run_all EXTRACTS the
+# FDA sources to JSON under imports/fda/; ingest_all is what LOADS that JSON
+# into Qdrant and Oxigraph, and it only ever ran during install. So every
+# fda-rerun tick re-harvested Safari history, overwrote safari_history.json,
+# and stopped -- the data was collected on schedule and dropped on the floor.
+#
+# That is a WRITER WITH NO READER, not a stalled indexer, and it is why the
+# symptom was so hard to see: "is the extractor running" reads GREEN on every
+# box. pwg_ingest.py already calls _INGEST_DISPATCH "the install-path dispatch
+# table" and names browsing as one of three prior burns of this exact shape.
+#
+# ONE python process, not two, so the ordering cannot drift: extract first,
+# then ingest what was just written. Failures are LOUD -- the wrapper is
+# `set -euo pipefail` and this is the tick's exit status (see the sealed
+# tick.sh) -- and the extract's JSON is already on disk before ingest starts,
+# so a failing ingest never costs us the harvest.
 "$OSTLER_PYTHON" -c "
-import sys
+import json, sys
 sys.path.insert(0, '${FDA_DIR}')
 from ostler_fda.extract_all import run_all
+from ostler_fda.pwg_ingest import ingest_all
 from pathlib import Path
-run_all(Path('${OSTLER_DIR}/imports/fda'))
+fda_dir = Path('${OSTLER_DIR}/imports/fda')
+run_all(fda_dir)
+results = ingest_all(fda_dir)
+print('[ingest] ' + json.dumps(results, default=str))
 "
 FDAEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-fda"
