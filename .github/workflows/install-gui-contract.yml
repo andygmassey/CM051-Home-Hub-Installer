@@ -35,6 +35,8 @@ on:
       # quietly narrowed) in a PR that never runs it.
       - 'tests/test_bundle_phase_declares_every_copy.sh'
       - 'tests/test_ai_model_env_contract.sh'
+      - 'tests/test_gui_progress_emitter.sh'
+      - 'tests/test_marker_payloads_never_reach_install_log.sh'
       - 'vendor/legal/**'
       - 'vendor/LICENSES/**'
       - 'vendor/THIRD_PARTY_NOTICES.md'
@@ -126,6 +128,32 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/test_ai_model_env_contract.sh
+
+      - name: Emitter unit contract (marker routing, encoding, TTY parity)
+        if: always()
+        run: |
+          set -euo pipefail
+          bash tests/test_gui_progress_emitter.sh
+
+      - name: Marker payloads must not reach the durable install log
+        if: always()
+        # bin/operator-pii-scan.sh reads SOURCE and is green on this defect:
+        # the leak is not in the source, it is in what the source PRODUCES.
+        # install.sh folds stderr into the tee that appends to
+        # ~/.ostler/logs/install.log, and gui_emit wrote every marker to
+        # stderr, so prompt titles, help copy, the Contacts me-card
+        # pre-fills and the recovery key were all persisted verbatim and
+        # forever. CM051 #399 is the sharp case (three verbatim calendar
+        # event titles in a help string, a third party's display name in a
+        # prompt title).
+        #
+        # This gate drives the emitter through install.sh's OWN logging
+        # construction -- extracted from install.sh, not reimplemented --
+        # plants synthetic canaries it must find, and reads the log that
+        # construction produced. Exit 2 is CANNOT-RUN and is not a pass.
+        run: |
+          set -euo pipefail
+          bash tests/test_marker_payloads_never_reach_install_log.sh
 
       - name: Run app-bundle byte-by-byte regression
         if: always()

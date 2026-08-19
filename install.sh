@@ -1913,6 +1913,38 @@ _ostler_select_tee_cmd() {
     fi
 }
 _OSTLER_TEE_CMD="$(_ostler_select_tee_cmd)"
+
+# ── The GUI marker channel, opened BEFORE the tee ──────────────────
+#
+# The `2>&1` in both branches below folds stderr into the tee, and
+# lib/progress_emitter.sh wrote every #OSTLER marker to stderr. So
+# every marker payload -- prompt titles, help copy, the pre-filled
+# defaults read from the customer's Contacts me-card, the recovery key
+# -- was appended verbatim to ${INSTALL_LOG} and kept forever. CM051
+# #399 is the sharp version: a `calendar_owner` help string carrying
+# up to three verbatim event titles from shared and family calendars,
+# and an `identity_namesake` title carrying a third party's real
+# display name.
+#
+# fd 9 is a dup of stderr taken HERE, one line before the tee is
+# installed, so it still points at the GUI's stderr pipe (Swift's
+# InstallerCoordinator attaches to standardError as well as
+# standardOutput and feeds both to the same ProgressDecoder). gui_emit
+# writes the full marker there; the tee never sees it; nothing the
+# customer is shown changes. ${INSTALL_LOG} gets a redacted trace
+# instead -- field names and lengths, no values.
+#
+# This ordering is the whole guarantee. A prompt written next year
+# leaks nothing because its author cannot reach the tee, not because
+# they remembered to redact. Do not move this below the exec.
+#
+# The TTY path is unaffected: gui_emit no-ops entirely when
+# OSTLER_GUI is not 1 (install.sh:3 documents the TTY path as
+# supported), and fd 9 is simply an unused dup of the terminal.
+exec 9>&2
+OSTLER_MARKER_FD=9
+export OSTLER_MARKER_FD
+
 if [[ -w "${LOGS_DIR}" ]]; then
     {
         echo ""

@@ -53,6 +53,112 @@
 
 # ── Marker emission ────────────────────────────────────────────────
 
+# ── WHERE A MARKER GOES, AND WHY IT IS NOT STDERR ANY MORE ─────────
+#
+# THE DEFECT THIS REPLACES
+#
+# gui_emit used to write every marker to stderr. install.sh then does,
+# at the top of the run:
+#
+#     exec > >(${_OSTLER_TEE_CMD} -a "${INSTALL_LOG}") 2>&1
+#
+# `2>&1` folds stderr into the tee, so EVERY marker field was appended
+# verbatim to ~/.ostler/logs/install.log and kept for the life of the
+# machine. That includes the fields that exist only because the GUI
+# needs them: prompt titles, help copy, pre-filled defaults, and the
+# recovery key on the RECOVERY_KEY marker.
+#
+# Measured on main, 2026-08-19: 6 of 103 emitter call sites in
+# install.sh carry customer-identifying values into a marker payload
+# -- the Contacts me-card full name (install.sh:3846), the derived
+# first name (3888), the me-card phone (4392), the me-card phone +
+# email (4453), the customer name in a warn() (13681), and the
+# plaintext recovery key (21368). All six are first-party on main.
+# CM051 #399 then added a `calendar_owner` help string carrying up to
+# three verbatim calendar event titles from shared and family
+# calendars, plus an `identity_namesake` title carrying a third
+# party's real display name. That is the shape this routing exists to
+# make impossible, rather than asking each future author to remember.
+#
+# THE SHAPE OF THE FIX
+#
+# install.sh dups the pre-tee stderr onto fd 9 BEFORE installing the
+# tee, and exports OSTLER_MARKER_FD=9. Markers are written there. The
+# tee never sees them, so they cannot reach the durable log by any
+# route, including routes nobody has written yet.
+#
+# The Swift coordinator attaches a pipe to BOTH stdout and stderr
+# (InstallerCoordinator.launchInstaller: proc.standardOutput /
+# proc.standardError) and feeds both to the same ProgressDecoder, so
+# fd 9 lands on the stderr pipe and the GUI is unaffected. The two
+# original reasons for stderr both still hold: `$()` does not capture
+# it, and the decoder reads it.
+#
+# The durable log keeps a REDACTED trace instead -- field names and
+# value lengths, never values -- written straight to ${INSTALL_LOG}.
+# Straight to the file rather than to stderr for two reasons: stderr
+# is the tee, which is what we are getting off; and a line on stderr
+# would also reach the GUI Log drawer and duplicate every info() line
+# there, which is the `[INFO ] [info]` noise Andy reported on
+# 2026-05-19.
+#
+# THE REDACTION IS DEFAULT-DENY
+#
+# _ostler_marker_field_is_public lists the field names that may appear
+# verbatim. Everything else is redacted. A field invented next year is
+# redacted without its author knowing this function exists, which is
+# the whole point: the guarantee is a property of the emitter, not a
+# rule each caller has to remember.
+#
+# WHAT IS DELIBERATELY NOT REDACTED, AND WHY
+#
+# `msg` on LOG / WARN is the operator narrative. On the TTY path
+# install.sh echoes exactly that text and the tee writes it to the log
+# anyway; under OSTLER_GUI=1 the echo is suppressed (see info() /
+# warn() in install.sh) and the marker is the only copy. Redacting it
+# would empty the support log for every GUI install, which is the one
+# thing install.sh:1897 exists to prevent. The boundary this fix draws
+# is: redact what the GUI marker path UNIQUELY persists, keep what the
+# log would have contained regardless.
+
+# _ostler_marker_field_is_public <field-name>
+#
+# 0 (true) when the field's value may be written to the durable log
+# verbatim. Default-deny: anything not named here is redacted.
+_ostler_marker_field_is_public() {
+    case "$1" in
+        # Stable ids and enumerations. Authored in install.sh, never
+        # derived from customer data -- gui_read's one derivation path
+        # (a slug of the title when no id is passed) is handled by
+        # __OSTLER_PROMPT_ID_DERIVED below rather than trusted here.
+        id|step|name|kind|level|status|has_fetched|code|remediation)
+            [[ "$1" == "id" && "${__OSTLER_PROMPT_ID_DERIVED:-0}" == "1" ]] && return 1
+            return 0
+            ;;
+        # Machine numerics.
+        pct|idx|total|phase|elapsed_s|rc|count|failed_steps|total_permissions)
+            return 0
+            ;;
+        # Operator narrative -- see "WHAT IS DELIBERATELY NOT REDACTED".
+        msg)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Set to 1 by gui_read for the single gui_emit call that follows, when
+# the prompt id was derived from the prompt TITLE rather than passed by
+# the caller. A title is the field most likely to carry a person's name
+# (CM051 #399 `identity_namesake`), so a title-derived id must not ride
+# the `id` allowlist into the log.
+__OSTLER_PROMPT_ID_DERIVED=0
+
+# One-shot latch so a broken marker fd is reported once, not per marker.
+__OSTLER_MARKER_FD_WARNED=0
+
 # gui_emit <EVENT> [k=v ...]
 #
 # Emit a single marker line. Tab-separated. Values containing tabs or
@@ -62,57 +168,79 @@ gui_emit() {
     [[ "${OSTLER_GUI:-0}" != "1" ]] && return 0
     local event="$1"; shift
 
-    # ── Why stderr and not stdout ──
-    #
-    # Marker lines MUST go to stderr because gui_read (and any other
-    # helper that emits markers) is routinely wrapped in command
-    # substitution:
-    #
-    #     answer="$(gui_read 'Your name' text)"
-    #
-    # `$()` captures stdout. If gui_emit writes the PROMPT marker to
-    # stdout it gets swallowed into the bash variable and never
-    # reaches the Mac Hub installer GUI -- the GUI never knows to
-    # render a sheet, so the user is never asked, and gui_read blocks
-    # forever on `read -u "${OSTLER_GUI_FD}"`. That's the launch
-    # blocker Andy hit on Mac Studio 2026-05-13 PM (brief
-    # HR015/launch/TNM_BRIEF_INSTALLER_PROMPT_RENDERING_BUG_2026-05-13.md).
-    #
-    # Stderr is NOT captured by `$()`, so the marker always reaches
-    # the GUI. The Swift side parses both stdout and stderr through
-    # the same ProgressDecoder (InstallerCoordinator captures both
-    # pipes), so the routing is transparent. The same logic is why
-    # the TTY echo at line 167 below uses `>&2`.
-    #
+    # Resolve the marker fd. A non-numeric value must never reach a
+    # `>&` redirection: bash would treat it as a FILENAME and create it.
+    local marker_fd="${OSTLER_MARKER_FD:-}"
+    if [[ ! "$marker_fd" =~ ^[0-9]+$ ]]; then
+        marker_fd=""
+    fi
+
+    local kv key val enc wire="" trace=""
+    for kv in "$@"; do
+        case "$kv" in
+            *=*) key="${kv%%=*}"; val="${kv#*=}" ;;
+            # A bare token carries no field name to check, so it is
+            # redacted rather than guessed at.
+            *)   key=""; val="$kv" ;;
+        esac
+
+        # ── Value encoding (BW2-2, 2026-07-25) ──
+        # The marker line is tab-separated and newline-anchored, so a
+        # value MUST NOT contain a literal TAB, CR or LF -- those are
+        # structural delimiters. Historically we stripped newlines to a
+        # single space, which flattened every multi-paragraph question
+        # body (help=) into one dense wall of text on the GUI: the
+        # strings already carry "\n\n" paragraph breaks and "•" bullets,
+        # but they never survived the wire.
+        #
+        # Fix: percent-encode newlines instead of destroying them, so
+        # the GUI can restore paragraph/bullet structure. Encode "%"
+        # first (so the scheme is reversible), then "\n" -> "%0A". TAB
+        # and CR stay stripped -- they are never meaningful in copy and
+        # TAB is the field delimiter. ProgressDecoder decodes the
+        # reverse (%0A -> newline, %25 -> %) at the single parse site.
+        enc="${kv//'%'/%25}"
+        enc="${enc//$'\t'/ }"
+        enc="${enc//$'\r'/ }"
+        enc="${enc//$'\n'/%0A}"
+        wire="${wire}"$'\t'"${enc}"
+
+        # The trace records the RAW value's length, so the number means
+        # "characters of customer data", not "characters after encoding".
+        if [[ -n "$key" ]] && _ostler_marker_field_is_public "$key"; then
+            enc="${val//$'\t'/ }"
+            enc="${enc//$'\r'/ }"
+            enc="${enc//$'\n'/ }"
+            trace="${trace} ${key}=${enc}"
+        elif [[ -n "$key" ]]; then
+            trace="${trace} ${key}=<redacted:${#val}>"
+        else
+            trace="${trace} <redacted-field:${#val}>"
+        fi
+    done
+
     # Print on a fresh line so the GUI can anchor on \n#OSTLER\t.
     # Some upstream commands don't end with newline, so be defensive.
-    {
-        printf '\n#OSTLER\t%s' "$event"
-        local kv
-        for kv in "$@"; do
-            # ── Value encoding (BW2-2, 2026-07-25) ──
-            # The marker line is tab-separated and newline-anchored, so a
-            # value MUST NOT contain a literal TAB, CR or LF -- those are
-            # structural delimiters. Historically we stripped newlines to a
-            # single space, which flattened every multi-paragraph question
-            # body (help=) into one dense wall of text on the GUI: the
-            # strings already carry "\n\n" paragraph breaks and "•" bullets,
-            # but they never survived the wire.
-            #
-            # Fix: percent-encode newlines instead of destroying them, so
-            # the GUI can restore paragraph/bullet structure. Encode "%"
-            # first (so the scheme is reversible), then "\n" -> "%0A". TAB
-            # and CR stay stripped -- they are never meaningful in copy and
-            # TAB is the field delimiter. ProgressDecoder decodes the
-            # reverse (%0A -> newline, %25 -> %) at the single parse site.
-            kv="${kv//'%'/%25}"
-            kv="${kv//$'\t'/ }"
-            kv="${kv//$'\r'/ }"
-            kv="${kv//$'\n'/%0A}"
-            printf '\t%s' "$kv"
-        done
-        printf '\n'
-    } >&2
+    if [[ -n "$marker_fd" ]] && { : >&"$marker_fd"; } 2>/dev/null; then
+        printf '\n#OSTLER\t%s%s\n' "$event" "$wire" >&"$marker_fd"
+        if [[ -n "${INSTALL_LOG:-}" ]]; then
+            printf '[gui-marker] %s%s\n' "$event" "$trace" \
+                >> "${INSTALL_LOG}" 2>/dev/null || true
+        fi
+    else
+        # No usable dedicated channel. Behave exactly as the pre-fix
+        # emitter did, because a GUI that never receives a PROMPT marker
+        # hangs forever waiting for an answer -- an install that cannot
+        # finish is worse than a log entry. This is NOT a silent
+        # fallback: when install.sh declared a marker fd and it is not
+        # usable, that is an anomaly and it says so, once, in the log.
+        if [[ -n "${OSTLER_MARKER_FD:-}" && "${__OSTLER_MARKER_FD_WARNED}" != "1" ]]; then
+            __OSTLER_MARKER_FD_WARNED=1
+            printf 'WARN: OSTLER-MARKER-FD-UNAVAILABLE fd=%s -- marker payloads are being written to the durable install log unredacted.\n' \
+                "${OSTLER_MARKER_FD}" >&2
+        fi
+        printf '\n#OSTLER\t%s%s\n' "$event" "$wire" >&2
+    fi
 }
 
 # ── Step bookkeeping (optional convenience) ───────────────────────
@@ -318,9 +446,22 @@ gui_read() {
     local error_text="${7:-}"
 
     # Slugify a default id from the title if none provided.
+    #
+    # The wire behaviour is unchanged (scripts/extract_install_protocol.py
+    # mirrors this derivation for the cross-component contract test, and
+    # all 49 PROMPT callsites in install.sh pass an explicit id, so this
+    # branch is currently dead in the product). What changes is that a
+    # title-derived id is FLAGGED, so the redacted log trace does not
+    # print it verbatim through the `id` allowlist. A title is the field
+    # most likely to carry a person's name -- CM051 #399 shipped an
+    # `identity_namesake` prompt whose title was a third party's real
+    # display name, and its slug would have carried that name into
+    # ~/.ostler/logs/install.log through the one field the trace trusts.
+    __OSTLER_PROMPT_ID_DERIVED=0
     if [[ -z "$id" ]]; then
         id="$(printf '%s' "$title" | tr '[:upper:] ' '[:lower:]_' | tr -cd 'a-z0-9_')"
         [[ -z "$id" ]] && id="prompt"
+        __OSTLER_PROMPT_ID_DERIVED=1
     fi
 
     if [[ "${OSTLER_GUI:-0}" == "1" && -n "${OSTLER_GUI_FD:-}" ]]; then
@@ -330,6 +471,10 @@ gui_read() {
         [[ -n "$choices_csv" ]]   && args+=("choices=$choices_csv")
         [[ -n "$error_text" ]]    && args+=("error=$error_text")
         gui_emit PROMPT "${args[@]}"
+        # Clear immediately. A flag that stays set would stain every
+        # later marker's id, which is the mirror image of the defect
+        # (see the __OSTLER_STEP_STATUS reset in gui_step_begin).
+        __OSTLER_PROMPT_ID_DERIVED=0
 
         # Read one line from the GUI fd. `read -u` accepts a numeric
         # variable for the fd. Falls back to default_value if the GUI
