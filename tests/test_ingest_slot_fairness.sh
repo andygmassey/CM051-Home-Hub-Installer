@@ -550,6 +550,133 @@ else
     trap - EXIT
 fi
 
+# ---------------------------------------------------------------------
+# Section 11 -- THE BOUND MUST SURVIVE A PAYLOAD THAT IGNORES SIGTERM.
+#
+# The watchdog used to send ONE SIGTERM, never check whether anything
+# died, and then RETURN -- so a payload that trapped or was slow on TERM
+# kept the shared slot with the only enforcer already exited. That is
+# enforced-once-then-abandoned, which is not a bound, and it is the
+# mechanism behind a waiter blocked 536s past a deadline on .224 (#783).
+#
+# This is the arm that fails against the pre-fix lib.
+# ---------------------------------------------------------------------
+echo
+echo "== Section 11: a payload that ignores SIGTERM is still stopped =="
+
+# PLAIN `mktemp -d`. The BSD form `mktemp -d -t PREFIX` exits 1 with EMPTY
+# output on GNU coreutils, which is what CI runs. That silently gave
+# WS11="" and every path below became garbage, so both sections failed on
+# the runner for a reason that had nothing to do with the code under test.
+WS11="$(mktemp -d)"
+[ -n "$WS11" ] && [ -d "$WS11" ] || { failure "could not create a workspace for section 11; NOTHING was checked, which is not a pass"; WS11=""; }
+trap 'rm -rf "$WS11" 2>/dev/null || true' EXIT
+
+# A payload that TRAPS SIGTERM and keeps running. Exactly the shape of a
+# `docker compose run` whose client dies but whose work does not.
+cat > "$WS11/stubborn.sh" <<'STUBBORN'
+trap '' TERM
+i=0
+while [ "$i" -lt 120 ]; do sleep 1; i=$(( i + 1 )); done
+STUBBORN
+
+OSTLER_STATE_DIR="$WS11" OSTLER_INGEST_LOCK="$WS11/lock.d" \
+OSTLER_SLOT_STATE_DIR="$WS11/slot" OSTLER_SLOT_MAX_HOLD_SECS=2 \
+OSTLER_SLOT_POLL_SECS=1 OSTLER_SLOT_KILL_GRACE_SECS=3 \
+    /bin/bash -c '. "$1"; ostler_slot_acquire "holder11" >/dev/null 2>&1 || exit 9
+                  ostler_slot_run /bin/bash "$2" >/dev/null 2>&1' \
+    _ "$LIB" "$WS11/stubborn.sh" &
+HOLDER11=$!
+
+sleep 2
+# Enrol a waiter so the hold becomes bounded.
+OSTLER_STATE_DIR="$WS11" OSTLER_INGEST_LOCK="$WS11/lock.d" \
+OSTLER_SLOT_STATE_DIR="$WS11/slot" OSTLER_SLOT_MAX_HOLD_SECS=2 \
+OSTLER_SLOT_POLL_SECS=1 OSTLER_SLOT_WAIT_SECS=40 OSTLER_SLOT_GRACE_SECS=2 \
+OSTLER_SLOT_KILL_GRACE_SECS=3 \
+    /bin/bash -c '. "$1"; if ostler_slot_acquire "waiter11"; then echo ACQUIRED; else echo YIELDED; fi' \
+    _ "$LIB" > "$WS11/waiter.out" 2>&1
+WAIT11="$(tail -1 "$WS11/waiter.out" 2>/dev/null)"
+
+if [ "$WAIT11" = "ACQUIRED" ]; then
+    pass "a SIGTERM-ignoring payload was escalated and the waiter got the slot"
+else
+    failure "a payload that ignores SIGTERM kept the slot (waiter got '$WAIT11'). One TERM with no escalation and no verification is not a bound."
+fi
+
+kill -KILL "$HOLDER11" 2>/dev/null || true
+wait "$HOLDER11" 2>/dev/null || true
+rm -rf "$WS11" 2>/dev/null || true
+trap - EXIT
+
+# ---------------------------------------------------------------------
+# Section 12 -- THE CLOCK STARTS AT CONTENTION, NOT AT ACQUISITION.
+#
+# The contract says a holder may hold indefinitely while nobody wants the
+# slot, and is bounded only from the moment a waiter enrols. Anchoring
+# the deadline to acquired_at instead meant a long uncontended holder was
+# already past its deadline before any waiter existed -- so it was
+# preempted within one poll every tick and could never finish, and the
+# waiter's logged "deadline in Ns" ran negative (51 events on .224).
+#
+# A holder that has ALREADY held for longer than MAX_HOLD must still get
+# a full MAX_HOLD once contention starts.
+# ---------------------------------------------------------------------
+echo
+echo "== Section 12: the bound is measured from enrolment, not acquisition =="
+
+# PLAIN `mktemp -d`. The BSD form `mktemp -d -t PREFIX` exits 1 with EMPTY
+# output on GNU coreutils, which is what CI runs. That silently gave
+# WS12="" and every path below became garbage, so both sections failed on
+# the runner for a reason that had nothing to do with the code under test.
+WS12="$(mktemp -d)"
+[ -n "$WS12" ] && [ -d "$WS12" ] || { failure "could not create a workspace for section 12; NOTHING was checked, which is not a pass"; WS12=""; }
+trap 'rm -rf "$WS12" 2>/dev/null || true' EXIT
+
+OSTLER_STATE_DIR="$WS12" OSTLER_INGEST_LOCK="$WS12/lock.d" \
+OSTLER_SLOT_STATE_DIR="$WS12/slot" OSTLER_SLOT_MAX_HOLD_SECS=6 \
+OSTLER_SLOT_POLL_SECS=1 \
+    /bin/bash -c '. "$1"; ostler_slot_acquire "holder12" >/dev/null 2>&1 || exit 9
+                  ostler_slot_run sleep 300 >/dev/null 2>&1' \
+    _ "$LIB" &
+HOLDER12=$!
+
+# Let it hold UNCONTENDED for longer than MAX_HOLD. Under the old anchor
+# its deadline is now in the past.
+sleep 9
+
+if [ ! -d "$WS12/lock.d" ]; then
+    failure "the uncontended holder released before any waiter enrolled; an idle box must be allowed to finish a long pass"
+else
+    pass "the holder is still holding after MAX_HOLD with nobody waiting (uncontended holds stay unbounded)"
+fi
+
+# Now contend. Capture the acquire log so the reported remaining time can
+# be inspected: it must never be negative.
+OSTLER_STATE_DIR="$WS12" OSTLER_INGEST_LOCK="$WS12/lock.d" \
+OSTLER_SLOT_STATE_DIR="$WS12/slot" OSTLER_SLOT_MAX_HOLD_SECS=6 \
+OSTLER_SLOT_POLL_SECS=1 OSTLER_SLOT_WAIT_SECS=40 OSTLER_SLOT_GRACE_SECS=2 \
+    /bin/bash -c '. "$1"; if ostler_slot_acquire "waiter12"; then echo ACQUIRED; else echo YIELDED; fi' \
+    _ "$LIB" > "$WS12/waiter.out" 2>&1
+WAIT12="$(tail -1 "$WS12/waiter.out" 2>/dev/null)"
+
+if grep -qE 'deadline in -[0-9]+s' "$WS12/waiter.out" 2>/dev/null; then
+    failure "the waiter was told the holder's deadline is NEGATIVE: $(grep -oE 'deadline in -[0-9]+s' "$WS12/waiter.out" | head -1). The clock is anchored to the wrong event."
+else
+    pass "the reported holder deadline is not negative"
+fi
+
+if [ "$WAIT12" = "ACQUIRED" ]; then
+    pass "the waiter got the slot once the bound elapsed from enrolment"
+else
+    failure "the waiter never got the slot (got '$WAIT12')"
+fi
+
+kill -KILL "$HOLDER12" 2>/dev/null || true
+wait "$HOLDER12" 2>/dev/null || true
+rm -rf "$WS12" 2>/dev/null || true
+trap - EXIT
+
 echo
 if [ "$FAILED" -ne 0 ]; then
     echo "RESULT: FAILED"
