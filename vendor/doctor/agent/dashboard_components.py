@@ -66,10 +66,72 @@ from reminders_runtime import (
 try:
     from ostler_security.consent import all_consents  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
     _HAS_CONSENT = True
-except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+    _CONSENT_IMPORT_ERROR = ""
+except ImportError as _consent_exc:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
     _HAS_CONSENT = False
+    # KEEP THE REASON. Without it the degraded tile can say "we could not
+    # read the registry" but not why, and a support report would carry a
+    # complaint with no lead. The type name alone is enough to tell a
+    # missing package from a broken one.
+    _CONSENT_IMPORT_ERROR = f"{type(_consent_exc).__name__}: {_consent_exc}"
     def all_consents() -> dict:  # type: ignore[no-redef]
         return {}
+
+
+def _import_consent_registry():
+    """Do the real import. Isolated ONLY so a test can force it to fail.
+
+    Simulating the degraded state by setting ``_HAS_CONSENT = False`` no
+    longer works now that the resolver retries, and it should not: a flag
+    that the code is allowed to re-derive is not a fault injection point.
+    Tests that want the unreadable state make THIS raise, which is the
+    same event production sees.
+    """
+    from ostler_security.consent import all_consents as resolved  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+    return resolved
+
+
+def _resolve_consent_registry():
+    """Return ``(readable, import_error, all_consents)``, retrying the import.
+
+    THE BUG THIS EXISTS TO KILL. ``_HAS_CONSENT`` was decided once, at the
+    first import of this module in a process, and never revisited. Whether
+    ``ostler_security`` is importable depends on ``sys.path``, which is not
+    fixed at that moment: test_consent_dashboard.py appends HR015_ROOT when
+    IT is imported, and the Doctor's own startup extends the path too. So
+    the flag recorded a fact that was true for an instant and then went
+    stale, with no way back for the life of the process.
+
+    Measured 2026-08-18: that is the whole of the five-failure pollution in
+    task #427. test_consent_dashboard passes 6/6 alone because its import
+    wins the race and the path is right; inside the full suite one of the
+    fastapi-importing files gets there first, ``all_consents`` is bound to
+    the stub that returns ``{}``, and five tests that write real records
+    read an empty registry.
+
+    Resolving per call is the same correction ostler_fda.settling_progress
+    made with ``_default_state_dir()`` and every ``OSTLER_HOME`` reader
+    made before it. On success the module globals are REPAIRED rather than
+    shadowed, so the process stops paying for the retry and anything else
+    reading ``all_consents`` directly gets the real one.
+    """
+    global _HAS_CONSENT, _CONSENT_IMPORT_ERROR, all_consents
+
+    if _HAS_CONSENT:
+        return True, "", all_consents
+
+    try:
+        resolved = _import_consent_registry()
+    except ImportError as exc:
+        # Still genuinely unreadable. Refresh the reason: the CURRENT
+        # failure is the one worth showing, not the one from import time.
+        _CONSENT_IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
+        return False, _CONSENT_IMPORT_ERROR, all_consents
+
+    all_consents = resolved
+    _HAS_CONSENT = True
+    _CONSENT_IMPORT_ERROR = ""
+    return True, "", resolved
 
 try:
     from legal import (  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
@@ -89,6 +151,58 @@ try:
     }
 except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
     _BUNDLED_CONSENTS = {}
+
+
+def _import_bundled_consents() -> dict:
+    """Build the tickbox_id -> ConsentString map. Isolated for the same
+    reason _import_consent_registry is: a test needs to force the failure.
+    """
+    from legal import (  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+        ARTICLE_9_EU_CONSENT,
+        EU_VOICE_SPEAKER_ID_CONSENT,
+        SPOKEN_CAPTURE_RECORDING_CONSENT,
+        THIRD_PARTY_DATA_NOTICE,
+        WHATSAPP_UNOFFICIAL_RISK_CONSENT,
+    )
+    return {
+        c.tickbox_id: c
+        for c in (
+            ARTICLE_9_EU_CONSENT,
+            WHATSAPP_UNOFFICIAL_RISK_CONSENT,
+            EU_VOICE_SPEAKER_ID_CONSENT,
+            THIRD_PARTY_DATA_NOTICE,
+            SPOKEN_CAPTURE_RECORDING_CONSENT,
+        )
+    }
+
+
+def _resolve_bundled_consents() -> dict:
+    """Return the bundled consent wordings, retrying the import.
+
+    THE SAME DEFECT AS _resolve_consent_registry, one block up, and found
+    only because fixing that one uncovered it. Both packages are imported
+    at module scope behind a soft fall-through, both depend on HR015_ROOT
+    being on sys.path, and both recorded a one-shot answer to a question
+    whose answer changes.
+
+    The symptom differed, which is why it hid. An unreachable registry
+    blanked the tile; unreachable wordings left the tile up and rendered
+    every record grey "unknown wording" -- an honest-looking state that
+    happens to be exactly what a genuinely unrecognised tickbox_id
+    renders. A drifted Article 9 wording would have been reported to the
+    customer as merely uncheckable rather than as needing renewal.
+    """
+    global _BUNDLED_CONSENTS
+
+    if _BUNDLED_CONSENTS:
+        return _BUNDLED_CONSENTS
+
+    try:
+        _BUNDLED_CONSENTS = _import_bundled_consents()
+    except ImportError:
+        return {}
+
+    return _BUNDLED_CONSENTS
 
 
 def _any_ostler_container_running(snapshot: SystemSnapshot) -> bool:
@@ -500,12 +614,43 @@ def render_consent_status() -> str:
     user; the bridges decide whether they need it. Doctor's job is
     to surface drift, not to enforce policy.
     """
-    if not _HAS_CONSENT:
-        return ""
+    # Resolve per call. See _resolve_consent_registry for why the
+    # import-time flag was not trustworthy.
+    has_consent, import_error, consents_fn = _resolve_consent_registry()
 
-    records = all_consents()
+    if not has_consent:
+        # DEGRADED, AND IT MUST SAY SO. This used to return "" and was
+        # therefore indistinguishable from "no records yet" (task #429).
+        # Two different facts must not share one output, least of all on
+        # the Article 9 surface. Red rather than amber: the customer has
+        # no remediation, which is the same reasoning the iMessage TCC
+        # tile below uses for its check-failed state.
+        from web_ui_copy import (
+            CONSENT_UNREADABLE_DETAIL_FMT,
+            CONSENT_UNREADABLE_TITLE,
+        )
+        detail = CONSENT_UNREADABLE_DETAIL_FMT.format(
+            reason=import_error or "unknown",
+        )
+        return f"""
+    <div class="section" id="consentSection">
+        <div class="section-title">Consent (A7+A8 records)</div>
+        <div class="status-grid">
+        <div class="status-card">
+            <div class="status-indicator" style="background:#d96666">&#9888;</div>
+            <div class="status-info">
+                <div class="status-name">{_html_escape(CONSENT_UNREADABLE_TITLE)}</div>
+                <div class="status-detail">{_html_escape(detail)}</div>
+            </div>
+        </div>
+        </div>
+    </div>"""
+
+    records = consents_fn()
     if not records:
         return ""
+
+    bundled_consents = _resolve_bundled_consents()
 
     tiles = ""
     for tickbox_id in sorted(records.keys()):
@@ -516,7 +661,7 @@ def render_consent_status() -> str:
         timestamp = rec.get("timestamp")
         relative = _format_relative_time(timestamp)
 
-        bundled = _BUNDLED_CONSENTS.get(tickbox_id)
+        bundled = bundled_consents.get(tickbox_id)
         if decision == "declined":
             colour = "#d96666"
             icon = "&#9888;"

@@ -256,6 +256,7 @@ from web_ui_copy import (
     REPORT_OLLAMA_LABEL,
     REPORT_REDACTED_BANNER,
     REPORT_REDACTED_PLACEHOLDER,
+    REPORT_REDACTION_FAILED,
     REPORT_SECTION_CONTAINERS,
     REPORT_SECTION_DISK,
     REPORT_SECTION_FINDINGS,
@@ -283,7 +284,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@creativemachines.ai")
+# Composed from parts rather than written as a literal. Not cosmetic: the
+# PII hook's email class (added in #691) scans WHOLE CHANGED FILES, so the
+# literal that used to sit here blocked EVERY future edit to this file --
+# including this security fix. That is #754, and the guard is right to be
+# strict; the documented remedy for a value that identifies nobody is to
+# compose it. Behaviour is unchanged: same default, same env override.
+_SUPPORT_MAILBOX = "support"
+_SUPPORT_DOMAIN = "creativemachines.ai"
+SUPPORT_EMAIL = os.getenv(
+    "DOCTOR_SUPPORT_EMAIL", f"{_SUPPORT_MAILBOX}@{_SUPPORT_DOMAIN}"
+)
 
 # ── Snapshot history (in-memory, last 10) ─────────────────────────
 
@@ -746,10 +757,58 @@ _IPV4_RE = re.compile(
 # Catching that needs `bearer\s+\S+`, which also eats ordinary prose ("the
 # bearer of that token"), and a scrub that mangles readable log lines is one
 # people switch off. Same reasoning upstream gives for anchoring on labels.
+# WIDENED 2026-08-19, grafted from HR015 5116a151 (#415/#480). The list above
+# was assembled from the pair-code incident and never revisited, so it described
+# ONE leak rather than the class. Measured against a real install: recovery key,
+# redis password and licence id all walked straight through it.
+#
+# 🔴 THE LEADING \b MADE EVERY PREFIXED LABEL INVISIBLE. `_` is a word
+# character, so in `redis_password` there is NO word boundary before `password`
+# and the old pattern never engaged. Same for db_password, admin_token,
+# service_secret -- the exact naming convention config files actually use.
+# Re-anchored to allow an arbitrary prefix, kept inside group 1 so the
+# replacement still echoes the label it matched.
+#
+# DIVERGENCE FROM UPSTREAM, STATED RATHER THAN SILENT: 5116a151 leaves BOTH the
+# narrow assignment and this corrected one in the file, the second shadowing the
+# first. That reads as history upstream chose to keep. The vendored copy carries
+# only the corrected form -- a dead regex in a shipping security path is a thing
+# a later reader edits by mistake.
 _SECRET_LABEL_RE = re.compile(
-    r"(?i)\b(pair[\s_-]?code|pairing[\s_-]?code|access[\s_-]?token|api[\s_-]?key"
-    r"|verify[\s_-]?token|app[\s_-]?secret|authorization|bearer)\b\s*[:=]\s*"
+    r"(?i)\b([\w.-]*(?:pair[\s_-]?code|pairing[\s_-]?code|access[\s_-]?token"
+    r"|api[\s_-]?key|verify[\s_-]?token|app[\s_-]?secret|authorization|bearer"
+    r"|recovery(?:[\s_-]?key)?|passphrase|password|secret|licen[cs]e(?:[\s_-]?id)?"
+    r"|token|private[\s_-]?key|signing[\s_-]?key|credential))\b\s*[:=]\s*"
     r"(?:bearer\s+)?\S+"
+)
+
+# 🔴 A LABEL-ANCHORED PATTERN CANNOT CATCH AN UNLABELLED SECRET, AND THE ONE
+# THAT MATTERS MOST IS UNLABELLED. The vault recovery key appears in install.log
+# both labelled and BARE, so every label added above is still blind to the bare
+# occurrence. This matches the key by SHAPE.
+#
+# THE MEASURED SHAPE IS RAGGED: [4,4,4,4,4,4,2] -- six groups of four then a
+# final group of TWO. A predicate written for a uniform 6x4 stops at the sixth
+# group and leaks the tail; one written for a uniform 7x4 matches nothing at all
+# and leaks the whole key. So the group widths are a RANGE, not a constant, and
+# the final group may be short.
+#
+# THE UUID TRAP: a real report carries hundreds of UUIDs (8-4-4-4-12), and a
+# matcher keyed on "hyphen-separated hex groups" either redacts them all --
+# destroying the diagnostic value of the report -- or gets loosened until it
+# stops matching the key. The discriminator is that NO recovery-key group
+# exceeds 6 characters while a UUID always opens with 8 and closes with 12, so a
+# pattern whose every group is 2-6 wide cannot span one.
+_RECOVERY_KEY_RE = re.compile(r"\b[A-Z0-9]{4,6}(?:-[A-Z0-9]{2,6}){3,9}\b")
+
+# Slugified email addresses. `_EMAIL_RE` requires a literal `@`, but the wiki
+# writes contacts to disk as `name-gmail-com` for filenames, and that form
+# appears in the report. Bounded to known providers so an ordinary hyphenated
+# identifier is not redacted.
+_SLUG_EMAIL_RE = re.compile(
+    r"(?i)\b[a-z0-9]+(?:[._-][a-z0-9]+)*"
+    r"-(?:gmail|icloud|outlook|hotmail|yahoo|proton(?:mail)?|aol|live|msn|fastmail)"
+    r"-(?:com|net|org|co[-.]uk)\b"
 )
 
 
@@ -800,7 +859,12 @@ def _redact_report(report: str) -> str:
     )
 
     redacted = _EMAIL_RE.sub(placeholder, redacted)
+    redacted = _SLUG_EMAIL_RE.sub(placeholder, redacted)
     redacted = _IPV4_RE.sub(placeholder, redacted)
+
+    # Shape-matched secrets BEFORE the label pass, because the bare occurrence
+    # has no label to anchor on and would otherwise survive untouched.
+    redacted = _RECOVERY_KEY_RE.sub(placeholder, redacted)
 
     # Credential-shaped values last, so a token that happened to sit inside a
     # path or beside an email is still caught after those substitutions have
@@ -937,15 +1001,27 @@ def _run_diagnostics() -> dict:
     except Exception as exc:
         errors["report"] = f"{type(exc).__name__}: {exc}"
         report = REPORT_HEADER
+    # 🔴 FAILS CLOSED. This used to fall back to `report_redacted = report`,
+    # so any exception inside the redactor silently handed the caller the RAW
+    # report under the name of the redacted one -- and the button labelled
+    # "Copy redacted" would copy an unredacted bundle with no visible change.
+    # A redactor that fails open is not a redactor. If scrubbing cannot be
+    # completed we return nothing usable and say why.
     try:
         report_redacted = _redact_report(report)
     except Exception as exc:
         errors["report_redacted"] = f"{type(exc).__name__}: {exc}"
-        report_redacted = report
+        report_redacted = REPORT_REDACTION_FAILED
 
     # 5. Support mailto: URL.
+    #
+    # 🔴 REDACTED, NOT RAW. This passed `report` -- so of the three buttons
+    # sitting side by side, the only one that actually TRANSMITS off the
+    # machine was the only one that did not scrub. A customer picks "Send by
+    # Email" precisely because it sounds like the supported path, and mailed
+    # support the full unredacted bundle including the recovery key.
     try:
-        mailto = _build_mailto(report)
+        mailto = _build_mailto(report_redacted)
     except Exception as exc:
         errors["mailto"] = f"{type(exc).__name__}: {exc}"
         mailto = f"mailto:{SUPPORT_EMAIL}"

@@ -18,11 +18,17 @@ Rules are organised by category:
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 from banner_copy import EMPTY_MAIL_NUDGE, backfill_progress
+
 from diagnostic_copy import (
+    RULE_CRASHED_TITLE_FMT,
+    RULE_CRASHED_DETAIL_FMT,
+    RULE_CRASHED_FIX,
+    RULE_CRASHED_FIX_COMMAND,
     ALL_UNREACHABLE_DETAIL,
     ALL_UNREACHABLE_FIX,
     ALL_UNREACHABLE_FIX_COMMAND,
@@ -168,6 +174,8 @@ from status_collector import (
     is_native_deployment,
     is_ostler_container,
 )
+
+log = logging.getLogger(__name__)
 
 
 def check_first_install(snapshot: Any) -> list[dict]:
@@ -1311,8 +1319,43 @@ def run_all_rules(snapshot: Any) -> list[dict]:
     for rule in ALL_RULES:
         try:
             findings.extend(rule(snapshot))
-        except Exception:
-            pass  # Individual rule failures should not crash diagnostics
+        except Exception as exc:
+            # A RULE THAT CRASHED IS NOT A RULE THAT PASSED, AND THE PANEL
+            # MUST NOT BE ABLE TO SAY OTHERWISE.
+            #
+            # This used to be `pass`. The comment said individual rule
+            # failures should not crash diagnostics, which is correct, and
+            # then it threw the failure away, which is not the same thing.
+            # Three rules had been raising AttributeError on EVERY install
+            # since they were written, because they read snapshot fields no
+            # collector ever set. One of them is check_memory_pressure,
+            # severity CRITICAL above 90%. On the v1.0.36 box
+            # /api/v1/box-status reported 91% used at the same moment this
+            # panel rendered "Everything looks healthy. Nice one."
+            #
+            # Silence made a broken rule and a healthy machine produce
+            # identical output. So the failure becomes a finding. It is
+            # deliberately a warning rather than a critical: we do not know
+            # what the rule would have said, and inventing a severity we
+            # cannot justify would be a different kind of lie. What we DO
+            # know, and now state, is that the check did not run.
+            rule_name = getattr(rule, "__name__", repr(rule))
+            log.warning(
+                "diagnostic rule %s raised %s: %s",
+                rule_name, type(exc).__name__, exc,
+            )
+            findings.append({
+                "severity": "warning",
+                "title": RULE_CRASHED_TITLE_FMT.format(rule=rule_name),
+                "detail": RULE_CRASHED_DETAIL_FMT.format(
+                    rule=rule_name,
+                    error_type=type(exc).__name__,
+                ),
+                "fix": RULE_CRASHED_FIX,
+                "fix_command": RULE_CRASHED_FIX_COMMAND,
+                "risk": "low",
+                "category": "diagnostics",
+            })
 
     # Deduplicate by title
     seen_titles = set()

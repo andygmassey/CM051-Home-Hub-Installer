@@ -91,6 +91,7 @@ test_doctor_probe_errtrap_regression.sh	UNWIRED	-
 test_doctor_probe_non_fatal.sh	UNWIRED	-
 test_doctor_proxy_paths_predicate.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_repo_fallback.sh	UNWIRED	-
+test_doctor_silent_failure_grafts.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml
 test_doctor_web_ui_strings_complete.py	WIRED	.github/workflows/vendor-integrity.yml
 test_email_folder_prompt.sh	UNWIRED	-

@@ -219,6 +219,30 @@ jobs:
         if: always()
         run: bash tests/test_doctor_governor_routes_vendored.sh
 
+      # Two silent-failure grafts (2026-08-19, HR015 7feb3020 + ee511c2c),
+      # hand-spliced into the held pin and therefore droppable by the next
+      # full sync_vendor.sh. Both are invisible when lost -- the panel keeps
+      # rendering, the tile keeps rendering, and the output is wrong in the
+      # direction of "everything is fine".
+      #
+      # This step EXECUTES the shipped rules rather than reading them, which
+      # is how the defect was found in the first place: 3 of 20 ALL_RULES
+      # raised AttributeError on every install and `except Exception: pass`
+      # swallowed it, including check_memory_pressure, the CRITICAL >90% rule.
+      #
+      # httpx is a real runtime dependency of the vendored status_collector.
+      # Installing it is what makes the behavioural controls reachable at all;
+      # without it the test exits 2 (CANNOT-RUN) and CI treats that as a
+      # failure, because a subject that cannot be loaded is not one that
+      # passed.
+      - name: Install the vendored Doctor's runtime dep (behavioural controls)
+        if: always()
+        run: python3 -m pip install --quiet httpx
+
+      - name: Silent-failure grafts survive in the shipped Doctor
+        if: always()
+        run: python3 tests/test_doctor_silent_failure_grafts.py
+
       # Tests IMPORT, production EXECUTES, and nothing checked the difference.
       #
       # vendor/cm059_editor/compiler/emit_frontpage.py called _read_feed() from
