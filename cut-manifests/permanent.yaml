@@ -464,3 +464,49 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "ingest_coverage"
+
+  - id: hydrate-no-data-recorder-present
+    title: the shipped install.sh must carry the honest no-data recorder
+    incident: >-
+      2026-08-19, task #441. _hydrate_sentinel_record hardcodes status=ok, so
+      four call sites that passed "status=no_data" as the PAYLOAD had that
+      intent discarded and the sentinel claimed success. _hydrate_sentinel_fresh
+      then skipped the source for SEVEN DAYS. Andy asked for certainty the fix
+      cannot reappear. ON MAIN AND IN THE ARTEFACT ARE DIFFERENT CLAIMS: a cut
+      tagged from an older base would ship without this and main would still
+      look correct. This row closes that gap by reading the install.sh that is
+      actually being cut.
+    proof:
+      kind: grep_in_installer
+      pattern: _hydrate_sentinel_record_no_data\(\)
+      must_match: true
+
+  - id: hydrate-no-data-call-sites-repointed
+    title: no hydrate call site may pass status= through a payload argument
+    incident: >-
+      2026-08-19. The exact shape that hid the defect for months: the payload
+      LOOKS like it sets the status and cannot, because the recorder hardcodes
+      status=ok one line above it. This is the cut-time twin of the ratchet in
+      tests/test_no_data_is_not_success.sh control (10). The test guards the
+      REPO on every PR; this guards the ARTEFACT at cut time. Both are needed,
+      because a tag can be cut from a commit the PR gate never saw.
+    proof:
+      kind: grep_in_installer
+      pattern: \n[^#\n]*_hydrate_sentinel_record "(whatsapp|browsing|imessage|apple_notes)" "status=
+      must_match: false
+
+  - id: repair-flag-is-parsed
+    title: install.sh must actually parse --repair
+    incident: >-
+      2026-08-19. vendor/doctor/agent/web_ui_copy.py tells the customer to
+      "Re-run install.sh --repair" in TEN separate strings, and two posture
+      modules describe state as refreshed on each --repair run. install.sh's
+      argument loop recognised six flags, --repair was not among them, and
+      there is no *) fallthrough, so it silently ran an ordinary install, which
+      honours the 7-day sentinel and skips exactly the source the customer was
+      trying to un-stick. If this row ever goes red, the product is once again
+      instructing customers to pull a lever wired to nothing.
+    proof:
+      kind: grep_in_installer
+      pattern: --repair\) REPAIR_MODE=1
+      must_match: true
