@@ -51,15 +51,27 @@
 #   does not replace, the provenance gate.
 #
 # USAGE
-#   ./cut_hygiene_gate.sh [MANIFEST_TSV] [--integration BRANCH] [--docs "a.md b.md"]
-#     MANIFEST_TSV  default: ./cut_manifest.v1010.tsv (sibling of this script)
-#     --integration the cut's integration line (default integration/hub-v1.0.10-recut)
-#     --docs        space-separated cut docs to grep for stale deferral lines
-#                   (default: BOX_WALK_V4_CHECKLIST.md ORM_ASSEMBLY_BRIEF_v1010_recut_2026-07-25.md)
+#   ./cut_hygiene_gate.sh <MANIFEST_TSV> --integration <BRANCH> [--docs FILE]...
+#     MANIFEST_TSV  REQUIRED. The PR manifest for THIS cut.
+#     --integration REQUIRED. This cut's integration line.
+#     --docs        cut docs to grep for stale deferral lines. Repeat the flag
+#                   per doc (paths may contain spaces).
+#
+#   There are NO defaults, deliberately -- see #661. The old defaults named
+#   v1.0.10, and since that manifest is still on disk the gate validated a
+#   six-version-old cut and printed "Cut-clear". A default that names a
+#   version is a bug with a shelf life.
+#
+#   This gate reads the PR manifest (repo|pr|ebase|class|note|status): "is this
+#   work item MERGED?". It is NOT the BOM reader. The MUST_CONTAIN BOM
+#   (what|repo|landed|capability_id|verify|ref) asks "is this capability IN THE
+#   ARTEFACT?" and is read by scripts/verify_must_contain.sh. Provenance is not
+#   content; the two documents are not interchangeable and this gate refuses a
+#   BOM rather than misparse it.
 #
 #   Exit 0 = every row PASS, no doc contradictions. Cut-clear on this gate.
 #   Exit 1 = at least one RED. Do NOT cut.
-#   Exit 2 = usage / environment error.
+#   Exit 2 = usage / environment error / wrong document. NOT a pass.
 #
 # British English. No dashes in output.
 
@@ -69,11 +81,27 @@ set -u
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MANIFEST="$HERE/cut_manifest.v1010.tsv"
-INTEGRATION="integration/hub-v1.0.10-recut"
-# Default cut docs (basenames). Each --docs flag adds ONE path (space-safe;
-# repeat the flag for several docs -- paths like "HR015 - Gaming PC" have spaces).
-DOCS_DEFAULT=("BOX_WALK_V4_CHECKLIST.md" "ORM_ASSEMBLY_BRIEF_v1010_recut_2026-07-25.md")
+
+# ---------------------------------------------------------------------------
+# NO DEFAULTS. This is the #661 fix.
+#
+# These three used to default to v1.0.10 values:
+#     MANIFEST    = $HERE/cut_manifest.v1010.tsv
+#     INTEGRATION = integration/hub-v1.0.10-recut
+#     DOCS        = BOX_WALK_V4_CHECKLIST.md ORM_ASSEMBLY_BRIEF_v1010_recut_...
+#
+# cut_manifest.v1010.tsv is still ON DISK, so the gate did not error -- it ran
+# happily against a manifest six versions old and printed "GREEN. Cut-clear."
+# That is worse than a broken gate: a broken gate gets fixed, a gate that
+# validates the wrong document gets TRUSTED.
+#
+# A default that names a specific version is a bug with a shelf life. Require
+# the caller to say which cut is being gated, every time.
+# ---------------------------------------------------------------------------
+MANIFEST=""
+INTEGRATION=""
+# Each --docs flag adds ONE path (space-safe; repeat the flag for several docs
+# -- paths like "HR015 - Gaming PC" contain spaces).
 DOCS_ARR=()
 
 # --- arg parse -------------------------------------------------------------
@@ -86,11 +114,62 @@ while [[ $# -gt 0 ]]; do
     *)             if [[ $POSITIONAL_SET -eq 0 ]]; then MANIFEST="$1"; POSITIONAL_SET=1; fi; shift ;;
   esac
 done
-# fall back to defaults if no --docs given
-[[ ${#DOCS_ARR[@]} -eq 0 ]] && DOCS_ARR=("${DOCS_DEFAULT[@]}")
+die_usage() {
+  echo "ERROR: $1" >&2
+  echo "" >&2
+  echo "  usage: cut_hygiene_gate.sh <MANIFEST_TSV> --integration <BRANCH> [--docs <FILE>]..." >&2
+  echo "" >&2
+  echo "  There are deliberately NO defaults. The previous defaults named" >&2
+  echo "  v1.0.10, and because that manifest is still on disk the gate" >&2
+  echo "  validated a six-version-old cut and reported 'Cut-clear'." >&2
+  exit 2
+}
 
-if [[ ! -f "$MANIFEST" ]]; then
-  echo "ERROR: manifest not found: $MANIFEST" >&2
+[[ -n "$MANIFEST" ]]    || die_usage "no manifest given."
+[[ -f "$MANIFEST" ]]    || die_usage "manifest not found: $MANIFEST"
+[[ -n "$INTEGRATION" ]] || die_usage "no --integration branch given."
+
+# ---------------------------------------------------------------------------
+# SCHEMA REFUSAL.
+#
+# Two different TSVs live in this system and they are NOT interchangeable:
+#
+#   PR manifest (this gate)   repo | pr | ebase | class | note | status
+#       asks: "is this work item MERGED into the integration line?"
+#       -- provenance of WORK
+#
+#   MUST_CONTAIN BOM          what | repo | landed | capability_id | verify | ref
+#       (read by scripts/verify_must_contain.sh)
+#       asks: "is this capability PRESENT in the artefact, and verified how?"
+#       -- content of the ARTEFACT
+#
+# They are not two versions of one document and must not be reconciled into
+# one. Merging them would re-create the exact confusion this whole gate family
+# exists to prevent: provenance is not content. A PR can be merged and the
+# capability still absent from the artefact (stale vendor pin, unbuilt image);
+# a capability can be present with no PR row at all (grafted, vendored).
+#
+# So: if someone points this gate at a BOM, say so loudly instead of marching
+# through the rows emitting "class unknown" for every line -- which reads like
+# a broken manifest rather than the wrong document entirely.
+# ---------------------------------------------------------------------------
+# Header-row match ONLY (Archie, 2026-08-08). Scanning the whole file would
+# refuse a legitimate PR manifest whose free-text `note` column happens to say
+# "landed" -- a false refusal, which costs exactly as much trust as a false
+# pass. The header is the first non-comment, non-blank line.
+_hdr="$(grep -vE '^[[:space:]]*(#|$)' "$MANIFEST" 2>/dev/null | head -1)"
+if printf '%s' "$_hdr" | grep -qE '(^|	)(capability_id|landed)(	|$)'; then
+  echo "ERROR: this looks like a MUST_CONTAIN BOM, not a PR manifest." >&2
+  echo "       $MANIFEST" >&2
+  echo "" >&2
+  echo "  It carries a 'capability_id'/'landed' column. That document asks" >&2
+  echo "  whether a capability is PRESENT IN THE ARTEFACT; this gate asks" >&2
+  echo "  whether a PR is MERGED INTO THE INTEGRATION LINE. Different" >&2
+  echo "  questions, deliberately different documents." >&2
+  echo "" >&2
+  echo "  Read a BOM with:  scripts/verify_must_contain.sh <BOM>" >&2
+  echo "  Refusing to guess -- a misparsed manifest reports tool faults as" >&2
+  echo "  cut faults." >&2
   exit 2
 fi
 if ! command -v gh >/dev/null 2>&1; then

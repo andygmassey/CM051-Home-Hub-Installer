@@ -1,0 +1,163 @@
+# cut-manifests/v1.0.11.yaml
+# ============================================================================
+# Point-in-time contract of what the v1.0.11 DMG cut MUST contain.
+#
+# Every entry is a fix that has slipped, or would silently slip, without an
+# artefact-level proof. The verifier walks this file + permanent.yaml before
+# codesign. Any FAIL fails the cut BEFORE signing (fail-closed).
+#
+# Once v1.0.11 ships, the entries that are truly permanent (never-regress)
+# should be promoted into permanent.yaml so v1.0.12 and beyond keep proving
+# them. Cut-specific entries can retire.
+#
+# Format: see cut-manifests/README.md.
+# ============================================================================
+
+version: v1.0.11
+description: |
+  v1.0.11 cut contract. Consumes permanent.yaml + these entries. Fails cut on
+  any RED before codesign. Assembled 2026-07-27 with TNM.
+
+entries:
+
+  # --------------------------------------------------------------------------
+  # Literal / key / file provable (grep in the built artefact)
+  # --------------------------------------------------------------------------
+
+  # #451 FDA URLs. Modern scheme presence is proven in permanent.yaml; here
+  # we also require the specific v1.0.11 line-touches for the sudo-gate FDA
+  # path AND the Internet Accounts modernisation. Presence proofs help catch
+  # a regression where install.sh reverts one call site while others stay.
+  - id: v1011-fda-internet-accounts
+    title: install.sh uses modern Internet-Accounts URL scheme (Automation flow)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#451
+    proof:
+      kind: grep_in_installer
+      pattern: "com\\.apple\\.Internet-Accounts-Settings\\.extension"
+      must_match: true
+
+  # #233 Secrets explainer removal. The Config page must NOT ship the
+  # "Passwords and keys" masked-secrets explainer copy any more.
+  - id: v1011-secrets-explainer-removed
+    title: daemon web bundle must not ship removed secrets-explainer copy
+    source_pr: ostler-ai/ostler-assistant#233
+    proof:
+      kind: grep_in_artefact
+      target: daemon-web-bundle
+      pattern: "Passwords and keys"
+      must_match: false
+
+  # #455 CONTEXT.md vendored twin. The daemon fix (#232) is source-only;
+  # the box actually runs the 574-line CM051 vendored twin at
+  # context-refresh/bin/generate_pwg_context.py. This entry proves the
+  # service-token auth header is baked into the shipped vendored copy.
+  - id: v1011-context-twin-auth
+    title: vendored generate_pwg_context.py must send service-token auth header
+    source_pr: andygmassey/CM051-Home-Hub-Installer#455
+    proof:
+      kind: grep_in_artefact
+      target: vendored-context-refresh
+      path: "bin/generate_pwg_context.py"
+      pattern: "Authorization"
+      must_match: true
+
+  # #454 iMessage-78 RunAtLoad. Plist key MUST be false to break the
+  # exit-78 login-time race. Static proxy for the runtime behaviour;
+  # box-walk verifies the actual load.
+  - id: v1011-imessage-runatload-false
+    title: iMessage bundle plist RunAtLoad must be false (exit-78 kill)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#454
+    proof:
+      kind: plist_key_equals
+      target: installer-tree
+      path: "vendor/imessage_source/launchd/com.creativemachines.ostler.imessage-bundle.plist"
+      key: "RunAtLoad"
+      value: "false"
+
+  # #234 Channels tab allow-list. The display projection is server-side
+  # in the daemon Rust; the label strings themselves are literal in
+  # the API response. Prove "iMessage" and "WhatsApp" appear as labels
+  # in the daemon binary strings; the compiled allow-list logic is
+  # covered by test in the source-at-sha entry below.
+  - id: v1011-channels-imessage-label
+    title: daemon binary must contain "iMessage" channel label string
+    source_pr: ostler-ai/ostler-assistant#234
+    proof:
+      kind: grep_in_artefact
+      target: daemon-binary
+      pattern: "iMessage"
+      must_match: true
+
+  - id: v1011-channels-whatsapp-label
+    title: daemon binary must contain "WhatsApp" channel label string
+    source_pr: ostler-ai/ostler-assistant#234
+    proof:
+      kind: grep_in_artefact
+      target: daemon-binary
+      pattern: "WhatsApp"
+      must_match: true
+
+  # #453 Permission glut. install.sh gains a 60s ceiling + killall per
+  # poll. Shell text is greppable in install.sh directly.
+  - id: v1011-glut-ceiling-marker
+    title: install.sh must contain the 60s permission-glut ceiling marker
+    source_pr: andygmassey/CM051-Home-Hub-Installer#453
+    proof:
+      kind: grep_in_installer
+      pattern: "glut.*ceiling|ceiling.*glut|GLUT_CEILING"
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # Logic fixes (grep_in_source_at_sha + required regression test)
+  # --------------------------------------------------------------------------
+  # These are Swift/Rust logic edits that compile away to nothing greppable
+  # in the shipped binary. Proof is: (a) the fix is present at a pinned
+  # source SHA, and (b) a named regression test exercises the path.
+  # The pinned SHA MUST be an ancestor of the source-repo main.
+
+  # #450 PROMPT-L213 Swift decoder logic. `?? "?"` -> `?? ""` in the
+  # SwiftUI decoder. Compiles to nothing greppable in the .app binary.
+  # Proof is the source-level guard + SidebarPhaseAdvanceTests exercising
+  # the STEP_BEGIN + PHASE + PROMPT paths.
+  - id: v1011-prompt-l213-decoder
+    title: PROMPT/STEP_BEGIN/PHASE decoder must fall back to "" not "?"
+    source_pr: andygmassey/CM051-Home-Hub-Installer#450
+    proof:
+      kind: grep_in_source_at_sha
+      target: this-repo
+      path: "gui/OstlerInstaller/ProgressProtocol.swift"
+      pattern: "kv\\[\"title\"\\]\\s*\\?\\?\\s*\"\""
+      must_match: true
+      test:
+        command: "cd gui && xcodebuild test -scheme OstlerInstaller -only-testing:OstlerInstallerTests/SidebarPhaseAdvanceTests"
+        required: false
+
+  # #232 paired_tokens mirror. Rust boot-time trust in
+  # crates/zeroclaw-gateway/src/lib.rs. Not greppable in the built binary
+  # (a symbol name change would ship identically). Proof is source-at-sha
+  # + the PairingGuard test.
+  - id: v1011-paired-tokens-mirror
+    title: gateway boot must trust admin token via PairingGuard::trust_plaintext_token
+    source_pr: ostler-ai/ostler-assistant#232
+    proof:
+      kind: grep_in_source_at_sha
+      target: ostler-assistant
+      path: "crates/zeroclaw-gateway/src/lib.rs"
+      pattern: "trust_plaintext_token"
+      must_match: true
+      test:
+        command: "cargo test -p zeroclaw-gateway pairing"
+        required: false
+
+  # #148 CM044 wiki ETA fallback. Fallback string "Still settling in..."
+  # is a literal in the compiler source; when the compiler runs at
+  # install time it emits it into the wiki. Prove source-at-sha for the
+  # compiler; box-walk verifies the emitted page.
+  - id: v1011-wiki-eta-fallback
+    title: CM044 wiki compiler must emit ETA fallback string when eta_utc null
+    source_pr: andygmassey/CM044-Personal-Wiki#148
+    proof:
+      kind: grep_in_source_at_sha
+      target: cm044
+      pattern: "Still settling in"
+      must_match: true

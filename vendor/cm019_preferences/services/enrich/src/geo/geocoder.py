@@ -31,7 +31,7 @@ class Geocoder:
     """
 
     NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-    USER_AGENT = "PWG-PersonalWorldGraph/1.0 (preference-analysis)"
+    USER_AGENT = "Ostler/1.0 (+https://ostler.ai)"
 
     # Rate limiting
     MIN_REQUEST_INTERVAL = 1.1  # seconds between requests

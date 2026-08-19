@@ -101,7 +101,42 @@ struct OnboardingQuestionView: View {
 
     @ViewBuilder
     private func standardQuestionBody(_ q: DisplayedQuestion) -> some View {
+        // Layout history (three iterations, one enduring shape):
+        //   - BW3-9 (2026-07-30): the pre-fix layout was a plain
+        //     VStack + Spacer with no ScrollView. Dense legal copy
+        //     (consent_spoken_capture etc.) overflowed a fixed-ish
+        //     window and clipped BOTH the "QUESTION N" super-title and
+        //     the input toggle off-screen. Fix wrapped the body in a
+        //     ScrollView that filled the space, pinning input +
+        //     buttons to the bottom.
+        //   - #503 / BW7 (2026-08-01): that fix parked the input
+        //     toggle ~400px below short-body copy (Q1 "Ready to
+        //     continue?") with dead whitespace between. #503 swapped
+        //     in `ViewThatFits`, which for short bodies picked a
+        //     natural-height VStack top-flowing header + title + body
+        //     + input + BUTTONS together at the top.
+        //   - #632 (2026-08-05, box-walk #3): that top-flow made the
+        //     Back/Continue buttons sit directly under the
+        //     variable-length body, so the click target JUMPED from
+        //     one question to the next -- the buttons no longer stuck
+        //     to the bottom.
+        //
+        // The two complaints (toggle-hugs-body vs. buttons-pinned)
+        // only reconcile if the input and the buttons are DECOUPLED:
+        //   - Sticky top: header + title.
+        //   - Flexible middle: body copy + input + validation error,
+        //     inside ONE ScrollView that claims the remaining vertical
+        //     space. Its content is top-aligned, so the input hugs the
+        //     body copy on short prompts (kills the BW3-9 gap) and
+        //     scrolls on tall prompts (keeps the BW3-9 overflow fix).
+        //   - Pinned bottom: buttonRow, OUTSIDE the scroll region, so
+        //     Back/Continue sit at a CONSTANT viewport-bottom position
+        //     on every question (kills the #632 moving target).
+        // `.scrollBounceBehavior(.basedOnSize)` (macOS 14+, matches the
+        // gui/project.yml deployment target) stops the middle region
+        // from feeling scrollable when the content already fits.
         VStack(alignment: .leading, spacing: .ostlerSpace4) {
+            // Sticky top: super-title header + question title.
             header(q)
 
             Text(q.prompt.title)
@@ -110,19 +145,65 @@ struct OnboardingQuestionView: View {
                 .foregroundStyle(Color.ostlerInk)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // Help / body copy. Order:
-            //   - consent_install: special hyperlinked terms body
-            //   - passkey_ack (Q12): modality-branched copy because
-            //     MSG_PROMPT_PASSKEY_ACK_HELP hard-coded "Touch ID",
-            //     which is wrong on every desktop Mac without a Magic
-            //     Keyboard with Touch ID (Mac Studio / Mac Mini /
-            //     Mac Pro / standard iMac). BiometricProbe.cachedResult
-            //     drives a modality-appropriate ViewCopy string.
-            //   - assistant_name (Q6): ViewCopy-owned brand-warm helper
-            //     (the suggestion-pool intro). install.sh deliberately
-            //     sends empty help for this prompt id so we don't render
-            //     the same copy twice.
-            //   - everything else: install.sh's `help` field.
+            // Flexible middle: body copy + input + validation error.
+            // Scrolls when taller than the space; hugs the top when
+            // not. Claims all remaining height so the footer below is
+            // pinned to the same y-position on every question. Input
+            // lives here (not with the buttons) so the toggle stays
+            // next to its body copy -- the BW3-9 fix -- while the
+            // buttons stay pinned -- the #632 fix.
+            ScrollView {
+                VStack(alignment: .leading, spacing: .ostlerSpace4) {
+                    bodyRegionContent(q)
+
+                    inputField(q)
+
+                    if let err = validationError, !q.isReview {
+                        Text(err)
+                            .font(.ostlerCaption)
+                            .foregroundStyle(Color.ostlerOxblood)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .frame(maxHeight: .infinity)
+            .scrollBounceBehavior(.basedOnSize)
+
+            // Pinned bottom footer: Back / Continue. Sits outside the
+            // scroll region so its y-position is constant across every
+            // question regardless of body length (#632).
+            buttonRow(q)
+        }
+        .padding(.horizontal, .ostlerSpace4)
+        .padding(.vertical, .ostlerSpace3)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.ostlerChassis)
+        .onAppear { seed(from: q) }
+        .onChange(of: q.prompt.id) { _, _ in seed(from: q) }
+        .onChange(of: q.isReview) { _, _ in seed(from: q) }
+    }
+
+    /// Body copy + optional prompt-error banner for the middle region
+    /// of the standard onboarding-question layout. Factored out of
+    /// `standardQuestionBody`, which now renders it once inside the
+    /// scrolling middle region (see the #632 layout note there; the
+    /// two-branch `ViewThatFits` this was originally split out for is
+    /// gone). Help / body copy branching order:
+    ///   - consent_install: special hyperlinked terms body
+    ///   - passkey_ack (Q12): modality-branched copy because
+    ///     MSG_PROMPT_PASSKEY_ACK_HELP hard-coded "Touch ID",
+    ///     which is wrong on every desktop Mac without a Magic
+    ///     Keyboard with Touch ID (Mac Studio / Mac Mini /
+    ///     Mac Pro / standard iMac). BiometricProbe.cachedResult
+    ///     drives a modality-appropriate ViewCopy string.
+    ///   - assistant_name (Q6): ViewCopy-owned brand-warm helper
+    ///     (the suggestion-pool intro). install.sh deliberately
+    ///     sends empty help for this prompt id so we don't render
+    ///     the same copy twice.
+    ///   - everything else: install.sh's `help` field.
+    @ViewBuilder
+    private func bodyRegionContent(_ q: DisplayedQuestion) -> some View {
+        VStack(alignment: .leading, spacing: .ostlerSpace4) {
             if q.prompt.id == "consent_install" {
                 consentInstallBody()
             } else if q.prompt.id == "consent_third_party" {
@@ -194,26 +275,8 @@ struct OnboardingQuestionView: View {
                 )
                 .accessibilityLabel(Text(promptError))
             }
-
-            inputField(q)
-
-            if let err = validationError, !q.isReview {
-                Text(err)
-                    .font(.ostlerCaption)
-                    .foregroundStyle(Color.ostlerOxblood)
-            }
-
-            Spacer()
-
-            buttonRow(q)
         }
-        .padding(.horizontal, .ostlerSpace4)
-        .padding(.vertical, .ostlerSpace3)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.ostlerChassis)
-        .onAppear { seed(from: q) }
-        .onChange(of: q.prompt.id) { _, _ in seed(from: q) }
-        .onChange(of: q.isReview) { _, _ in seed(from: q) }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     /// F6.8 consent_install body. CX-18 (Studio retest #13, 2026-05-23):
@@ -1004,7 +1067,10 @@ struct OnboardingQuestionView: View {
 
     /// F6.1: pull one suggestion at random from the ViewCopy
     /// `assistant_name_suggestions.comma_separated` catalogue value.
-    /// Falls back to `Marvin` if the catalogue is missing.
+    /// Falls back to `Friday` (a neutral in-pool name) if the
+    /// catalogue is missing. The compiled fallback must NOT carry the
+    /// legacy operator/assistant token — the full brand-warm pool
+    /// lives in the DATA file (ViewCopy.json), never in the Mach-O.
     private func randomAssistantSuggestion(fallback: String) -> String {
         let csv = ViewCopy.shared.string(
             for: "assistant_name_suggestions.comma_separated"
@@ -1016,7 +1082,7 @@ struct OnboardingQuestionView: View {
         if let pick = pool.randomElement() {
             return pick
         }
-        return fallback.isEmpty ? "Marvin" : fallback
+        return fallback.isEmpty ? "Friday" : fallback
     }
 
     private func yesLabel(_ q: DisplayedQuestion) -> String {

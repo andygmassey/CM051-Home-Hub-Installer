@@ -210,6 +210,91 @@ if ! grep -q $'^#OSTLER\tFOO\tbar=baz$' <<<"$captured_stderr"; then
 fi
 echo "PASS: gui_emit markers route to stderr (regression: 2026-05-13 install hang)"
 
+# ── Test 9b: the SAME regression, on the path that now ships ──────
+#
+# Test 9 exercises the no-marker-fd fallback. In production install.sh
+# sets OSTLER_MARKER_FD=9 (a pre-tee dup of stderr) so marker payloads
+# never reach the durable log. The 2026-05-13 hang must stay locked on
+# THAT path too, or the regression test is guarding a path customers
+# do not take: stdout must still be empty, and the marker must arrive
+# whole on the marker fd.
+captured_stdout="$(OSTLER_GUI=1 OSTLER_MARKER_FD=9 bash -c \
+    "exec 9>&2; source '$LIB'; gui_emit FOO bar=baz" 2>/dev/null)"
+if [[ -n "$captured_stdout" ]]; then
+    echo "FAIL [marker-fd]: gui_emit leaked to stdout with OSTLER_MARKER_FD set" >&2
+    echo "  got on stdout: $captured_stdout" >&2
+    exit 1
+fi
+captured_fd9="$(OSTLER_GUI=1 OSTLER_MARKER_FD=9 bash -c \
+    "exec 9>&2; source '$LIB'; gui_emit FOO bar=baz" 2>&1 >/dev/null)"
+if ! grep -q $'^#OSTLER\tFOO\tbar=baz$' <<<"$captured_fd9"; then
+    echo "FAIL [marker-fd]: gui_emit marker missing from the marker fd" >&2
+    echo "  got: $captured_fd9" >&2
+    exit 1
+fi
+echo "PASS: gui_emit markers route to OSTLER_MARKER_FD, never stdout"
+
+# ── Test 9c: the redacted trace, and what it is allowed to say ────
+#
+# With a marker fd AND an INSTALL_LOG, the log gets a trace with field
+# names and lengths. `default` is a payload field (it carries the
+# Contacts me-card pre-fill at install.sh:3846/4453) and must be
+# redacted; `id` and `status` are authored constants and must survive,
+# or the log stops answering "which prompt hung?".
+trace_dir="$(mktemp -d "${TMPDIR:-/tmp}/ostler-emitter-trace.XXXXXX")"
+trace_log="${trace_dir}/install.log"
+OSTLER_GUI=1 OSTLER_MARKER_FD=9 INSTALL_LOG="$trace_log" bash -c \
+    "exec 9>&2; source '$LIB'; gui_emit PROMPT id=user_name kind=text 'default=Ada Lovelace'" \
+    >/dev/null 2>&1
+if grep -q -F 'Ada Lovelace' "$trace_log" 2>/dev/null; then
+    echo "FAIL [trace]: a payload value reached ${trace_log}" >&2
+    cat "$trace_log" >&2
+    rm -rf "$trace_dir"
+    exit 1
+fi
+if ! grep -q -F 'default=<redacted:12>' "$trace_log" 2>/dev/null; then
+    echo "FAIL [trace]: expected 'default=<redacted:12>' in ${trace_log}" >&2
+    cat "$trace_log" >&2
+    rm -rf "$trace_dir"
+    exit 1
+fi
+if ! grep -q -F 'id=user_name' "$trace_log" 2>/dev/null; then
+    echo "FAIL [trace]: the trace lost the prompt id, so the log can no longer say which prompt this was" >&2
+    cat "$trace_log" >&2
+    rm -rf "$trace_dir"
+    exit 1
+fi
+rm -rf "$trace_dir"
+echo "PASS: the durable-log trace carries field names and lengths, not values"
+
+# ── Test 9d: a title-derived prompt id is redacted too ────────────
+#
+# gui_read slugifies the title when no id is passed. A title is the
+# field most likely to carry a person's name (CM051 #399 shipped an
+# `identity_namesake` prompt whose title was a third party's real
+# display name), so the slug must not ride the `id` allowlist into the
+# durable log.
+slug_dir="$(mktemp -d "${TMPDIR:-/tmp}/ostler-emitter-slug.XXXXXX")"
+slug_log="${slug_dir}/install.log"
+printf 'n\n' > "${slug_dir}/answers.txt"
+OSTLER_GUI=1 OSTLER_MARKER_FD=9 OSTLER_GUI_FD=7 INSTALL_LOG="$slug_log" bash -c \
+    "exec 9>&2; exec 7<'${slug_dir}/answers.txt'; source '$LIB'; gui_read 'Is Grace Hopper you?' yesno" \
+    >/dev/null 2>&1
+if grep -q -i -F 'grace' "$slug_log" 2>/dev/null; then
+    echo "FAIL [slug]: a title-derived id carried a name into ${slug_log}" >&2
+    cat "$slug_log" >&2
+    rm -rf "$slug_dir"
+    exit 1
+fi
+if ! grep -q -F 'id=<redacted:' "$slug_log" 2>/dev/null; then
+    echo "FAIL [slug]: expected the derived id to be redacted in ${slug_log}" >&2
+    cat "$slug_log" >&2
+    rm -rf "$slug_dir"
+    exit 1
+fi
+rm -rf "$slug_dir"
+echo "PASS: a title-derived prompt id is redacted in the durable-log trace"
+
 # ── Test 10: regression -- gui_read inside \$() does NOT swallow ─
 # markers. Direct end-to-end coverage of the install-hang fix.
 TMPDIR_T2="$(mktemp -d)"

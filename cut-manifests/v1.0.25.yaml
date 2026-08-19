@@ -1,0 +1,63 @@
+# cut-manifests/v1.0.25.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.25.
+#
+# v1.0.25 exists for one reason: v1.0.24 could not be cut. CI had no cross-org
+# credential, so `make ship` could not fetch the daemon from
+# ostler-ai/ostler-releases and preflight died before anything was signed. That
+# is fixed on main by #612 (CM051_RELEASES_READ -> OSTLER_RELEASES_TOKEN). A run
+# uses the workflow file from the TAG, not from main, so v1.0.24 could not be
+# re-run into a fix and a fresh tag was the only route.
+#
+# This cut therefore carries NO new product decisions of its own. Rather than
+# inflate the manifest by restating v1.0.24's entries with the version string
+# rewritten -- exactly what v1.0.19 did, and why its freshness gate could not say
+# what the cut changed -- it asserts only what v1.0.25 itself decides.
+#
+# Two entries. Both measurable by kinds verify_cut_manifest.py implements. A
+# manifest asserting something the verifier cannot evaluate is a wish, not a gate.
+# ============================================================================
+version: v1.0.25
+
+entries:
+
+  # --------------------------------------------------------------------------
+  # The version stamp. INHERITED ON PURPOSE, and the incident that keeps it is
+  # named rather than assumed.
+  # --------------------------------------------------------------------------
+  - id: v1025-installer-version-stamp
+    title: the shipped OstlerInstaller.app declares 1.0.25, not a stale predecessor
+    incident: >-
+      Task #171 records the build pipeline failing to bump
+      CFBundleShortVersionString on a cut, which ships an installer that reports
+      the previous version to the person walking it. v1.0.24 was bumped across 8
+      sites (#604) and this cut moves the same sites 1.0.24 -> 1.0.25 (#613) with
+      0 residual. The stamp is asserted because a version bump that lands in
+      project.yml but not in the built artefact is invisible until a customer
+      reads it.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: "Contents/Info.plist"
+      key: CFBundleShortVersionString
+      value: "1.0.25"
+
+  # --------------------------------------------------------------------------
+  # The daemon this cut exists to deliver.
+  # --------------------------------------------------------------------------
+  - id: v1025-daemon-pin-is-0455
+    title: install.sh pins the 0.4.55 daemon sha256 that the published sidecar carries
+    incident: >-
+      Measured 2026-08-13: install.sh pinned a5ad3fe8 while gui/Makefile pinned
+      976c0b5d, and the published .sha256 for hub-v0.4.55 says 976c0b5d. A cut
+      from that state ships an install.sh whose daemon hash does not match the
+      daemon in its own payload. Fixed in #611 with the gate demonstrated failing
+      (rc=1, 2 FAIL) and then passing (rc=0, 7 passed).
+
+      0.4.55 is also the build that carries D002 (2c974f27), D038 (f78f56b5) and
+      D039 (bb71a40e), each confirmed by ancestry against e0234e71 with a
+      discriminating control, and is the daemon now running on the founder Mini.
+    proof:
+      kind: grep_in_installer
+      pattern: "976c0b5d5b92073dfc7fe1ec0bbdafd3d70a6f5199bcde3ff9ce047bb063fc49"
+      must_match: true

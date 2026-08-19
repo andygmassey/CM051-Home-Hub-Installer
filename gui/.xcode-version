@@ -1,0 +1,35 @@
+# gui/.xcode-version -- the Xcode the tracked project.pbxproj was generated on.
+#
+# FORMAT: marketing version, then the build version, whitespace separated.
+#
+# CORRECTION, 2026-08-13. Read this before trusting the pin.
+#
+# An earlier revision of this file claimed, as a measurement, that two Xcode
+# 26.6 installs with the same xcodegen produced different bytes, and used that
+# to argue the build version was the operative variable. THAT CLAIM WAS WRONG
+# and it is recorded here rather than quietly deleted, because it was wrong in
+# the way that matters: it was an inference presented as a measurement.
+#
+# Both machines were Xcode 26.6 build 17F113. Identical. The real cause was the
+# CI step that installed xcodegen: it copied bin/xcodegen out of the release
+# zip and left share/xcodegen/SettingPresets behind. xcodegen resolves those
+# presets relative to its own location, so it silently emitted a project with
+# every default build setting missing, and exited 0. Measured:
+#
+#   xcodegen binary alone   COMBINE_HIDPI_IMAGES occurrences: 0
+#   binary + share/         COMBINE_HIDPI_IMAGES occurrences: 4
+#   tracked pbxproj         COMBINE_HIDPI_IMAGES occurrences: 4
+#
+# So the toolchain was blamed twice, first the Xcode version and then the Xcode
+# build, for a fault in how the gate installed its own generator. The gate was
+# reading a broken instrument and reporting the project.
+#
+# WHY THE PIN STAYS, AND WHY IT KEEPS THE BUILD FIELD
+#
+# xcodegen does still take defaults that vary with the toolchain, so the Xcode
+# that generated the tracked pbxproj is worth recording. The build version is
+# kept because it identifies an Xcode exactly and costs nothing, NOT because a
+# marketing-version collision was ever observed. It has not been.
+#
+# A mismatch here is UNAVAILABLE (exit 2), never STALE (exit 1).
+26.6 17F113

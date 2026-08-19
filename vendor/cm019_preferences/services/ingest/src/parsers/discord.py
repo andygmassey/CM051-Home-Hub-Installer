@@ -30,6 +30,10 @@ class DiscordParser(BaseParser):
 
     source_name = "discord"
 
+    # The four directories that sit side by side at the root of a real Discord
+    # data package. Compared as whole path SEGMENTS, never as substrings.
+    DISCORD_PACKAGE_DIRS = frozenset({"messages", "servers", "activity", "account"})
+
     def can_parse(self, file_path: Path) -> bool:
         """Check if file is a Discord data package."""
         name = file_path.name.lower()
@@ -42,11 +46,7 @@ class DiscordParser(BaseParser):
             # Check ZIP contents for Discord structure
             try:
                 with zipfile.ZipFile(file_path, 'r') as zf:
-                    names = [n.lower() for n in zf.namelist()]
-                    # Discord packages have Messages/, Servers/, Activity/, Account/ folders
-                    # Check for these folder patterns (case-insensitive)
-                    discord_patterns = ['messages/', 'servers/', 'activity/', 'account/']
-                    return any(any(df in n for n in names) for df in discord_patterns)
+                    return self._has_discord_package_layout(zf.namelist())
             except Exception:
                 return False
 
@@ -54,11 +54,104 @@ class DiscordParser(BaseParser):
         if suffix == '.json' and 'discord' in name:
             return True
 
+        # An EXTRACTED Discord package. MEASURED on a real 2026 export: the
+        # archive on disk is package.zip PLUS an extracted/ tree of 74 .json,
+        # and NOT ONE of the 74 was claimable, because the test above requires
+        # the literal string "discord" in the FILENAME. A real package names
+        # its members messages.json, servers/index.json and so on. So the same
+        # bytes were claimed correctly inside the zip and became invisible the
+        # moment the customer unzipped them, which is what a customer does.
+        #
+        # Reuses the SAME two-of-four sibling rule as the zip path rather than
+        # inventing a second predicate, so the Facebook/Instagram exclusion it
+        # was hardened for holds identically here: their activity trees carry
+        # a "messages" directory but only that ONE of the four names, so they
+        # still score 1 and are still declined.
+        if suffix in ('.json', '.csv') and self._has_discord_dir_layout(file_path):
+            return True
+
         # Check for CSV message format (older exports)
         if suffix == '.csv' and 'messages' in name and 'discord' in name:
             return True
 
         return False
+
+    @classmethod
+    def _has_discord_dir_layout(cls, file_path: Path) -> bool:
+        """Is this file inside an EXTRACTED Discord package on disk?
+
+        The zip branch answers this from a namelist. Once the customer unzips,
+        there is no namelist, and the filename test above fails because a real
+        package names its members messages.json / servers/index.json, never
+        anything containing the literal string "discord".
+
+        Deliberately the SAME rule as _has_discord_package_layout: at least TWO
+        of the four package directories present as SIBLINGS of each other. One
+        alone is not enough, and that is what keeps Facebook and Instagram out:
+        their activity trees carry a "messages" directory and none of the other
+        three, so they score 1 and are declined here exactly as they are in the
+        zip path.
+
+        Walks the ancestors rather than assuming a fixed depth, because
+        Discord ships packages both flat and wrapped in a single top folder,
+        and the customer may unzip either into a directory of their choosing.
+        """
+        seen_ancestor_dirs = 0
+        for ancestor in file_path.parents:
+            try:
+                children = {c.name.lower() for c in ancestor.iterdir() if c.is_dir()}
+            except (OSError, PermissionError):
+                continue
+            if len(cls.DISCORD_PACKAGE_DIRS & children) >= 2:
+                return True
+            seen_ancestor_dirs += 1
+            # Bounded: a Discord package root is never more than a handful of
+            # levels above one of its own files. Walking to / would make every
+            # unrelated file pay for a full upward scan.
+            if seen_ancestor_dirs >= 6:
+                break
+        return False
+
+    @classmethod
+    def _has_discord_package_layout(cls, member_names) -> bool:
+        """Return True if the archive is laid out like a Discord data package.
+
+        Two separate things were wrong with the test this replaces, which asked
+        whether any member name CONTAINED any one of "messages/", "servers/",
+        "activity/" or "account/":
+
+        1. Containment, not path-segment equality. "activity/" is a substring
+           of "your_facebook_activity/" and of "your_instagram_activity/", so
+           every Facebook and Instagram export handed to the product was
+           claimed here. ``IngestPipeline._get_parser`` takes the FIRST parser
+           that claims a file and this parser is registered ahead of
+           MetaParser, so Meta was never asked. Measured on real export
+           archives: 0 preferences out of a Facebook export, against 4 from
+           the Meta parser that should have had it.
+
+        2. Any ONE of the four folders was enough. Facebook and Instagram both
+           ship a "messages" directory inside their activity tree, so segment
+           equality ALONE would still have handed them over.
+
+        So: compare whole path SEGMENTS, and require at least TWO of the four
+        to be siblings of each other. A real Discord package has all four. An
+        unrelated export that happens to contain one "messages" folder has one.
+
+        Discord also ships packages wrapped in a single top folder, so the
+        siblings are counted at the archive root and one level below it.
+        """
+        siblings: Dict[str, set] = {}
+        for raw in member_names:
+            parts = [p for p in raw.replace("\\", "/").split("/") if p]
+            # A directory is only evidenced by something living underneath it.
+            if len(parts) >= 2:
+                siblings.setdefault("", set()).add(parts[0].lower())
+            if len(parts) >= 3:
+                siblings.setdefault(parts[0].lower(), set()).add(parts[1].lower())
+        return any(
+            len(cls.DISCORD_PACKAGE_DIRS & found) >= 2
+            for found in siblings.values()
+        )
 
     async def parse(
         self,

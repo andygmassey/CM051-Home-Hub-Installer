@@ -1,0 +1,40 @@
+# v1018-D020. Every pwg-convo dispatch in every conversation feed must be
+# bounded. An unbounded dispatch does not merely stall its own feed: the
+# tick holds the shared single-flight ingest lock, which is deliberately
+# never reclaimed on age, so one wedged document stops email, WhatsApp,
+# iMessage and spoken together while launchctl reports them all healthy.
+name: dispatch-timeout
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/email_source/pipeline.py'
+      - 'vendor/whatsapp_source/pipeline.py'
+      - 'vendor/imessage_source/pipeline.py'
+      - 'vendor/spoken_source/pipeline.py'
+      - 'tests/test_dispatch_timeout.sh'
+      - '.github/workflows/dispatch-timeout.yml'
+  pull_request:
+    paths:
+      - 'vendor/email_source/pipeline.py'
+      - 'vendor/whatsapp_source/pipeline.py'
+      - 'vendor/imessage_source/pipeline.py'
+      - 'vendor/spoken_source/pipeline.py'
+      - 'tests/test_dispatch_timeout.sh'
+      - '.github/workflows/dispatch-timeout.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  dispatch-timeout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every conversation feed bounds its dispatch
+        run: bash tests/test_dispatch_timeout.sh

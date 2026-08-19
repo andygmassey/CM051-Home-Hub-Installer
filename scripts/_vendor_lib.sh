@@ -147,6 +147,48 @@ vlib_excludes() {
 }
 
 # ---------------------------------------------------------------------------
+# hold_ack readers -- THE ONE PARSER, shared by both freshness gates.
+#
+# These two functions lived in verify_cut_freshness.sh alone, and that is
+# precisely how the defect this section fixes came about. verify_cut_freshness.sh
+# subtracted hold_ack_shas before calling a pin stale; verify_vendor_fresh.sh had
+# never heard of the field (`grep -c hold_ack` returned 0). Two gates, one
+# manifest, two different answers about the same tree: `doctor` reconstructed
+# BYTE-CLEAN from source@pin + patch and still failed, listing 19 commits that
+# the manifest acknowledges individually with a measured reason for each.
+#
+# A hold_ack that only half the toolchain can read is worse than none. The gate
+# that ignores it cries wolf on a tree that was deliberately, auditably held, and
+# a gate whose red is routine is a gate people learn to scroll past -- which is
+# the exact failure this whole vendor toolchain exists to prevent.
+#
+# So the parser lives HERE, once, and both gates call it. Adding a second
+# reader in a caller re-opens the drift; extend these instead.
+# ---------------------------------------------------------------------------
+
+# Read a manifest field as a boolean. Tolerates  field = true  and  field = "true".
+vlib_manifest_bool() { # tree  field
+    local v; v="$(vlib_field "$1" "$2" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+    [ "$v" = "true" ] && { echo true; return; }
+    echo false
+}
+
+# Is <sha> acknowledged by <list> (space/comma-separated, entries may be short)?
+# Prefix-tolerant in BOTH directions so a 12-hex ack matches a 40-hex delta sha
+# and vice versa -- the cut gate reads 40-hex shas from the GitHub API while the
+# vendor gate reads them from local git, and the manifest records whatever length
+# the operator pasted.
+vlib_sha_in_list() { # sha  list
+    local c="$1" e
+    for e in $(printf '%s' "$2" | tr ',' ' '); do
+        [ -z "$e" ] && continue
+        case "$c" in "$e"*) return 0 ;; esac
+        case "$e" in "$c"*) return 0 ;; esac
+    done
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # Source-repo resolution (productised override).
 #
 # A manifest source_repo of "$HR015/ostler_fda" (or a literal path) can be
@@ -181,8 +223,25 @@ resolve_source_repo() {
     #    or "$HR015/ostler_fda" expands HR015 from the env if present.
     if printf '%s' "$raw" | grep -q '\$'; then
         # Let the shell expand any ${VAR} / $VAR present in the value.
+        #
+        # `set +u` INSIDE THE COMMAND SUBSTITUTION, and it is load-bearing.
+        # Callers run `set -euo pipefail`, so expanding "$CM052" with CM052
+        # unset raised "CM052: unbound variable" and killed the whole gate at
+        # the FIRST unset placeholder. An unset placeholder is not an error
+        # here: it means that source repo is simply not checked out on this
+        # host, which must expand to empty, fall through to "source repo not
+        # found ()", and be COUNTED as unverifiable so the denominator tells
+        # the truth. Hard-erroring loses every tree after the first.
+        #
+        # The `set +u` is scoped to the subshell that $( ) already creates, so
+        # the caller's `set -u` is untouched. Verified: after this call, $-
+        # still contains u.
+        #
+        # Note the sibling override lookup above already does the equivalent
+        # via ${VAR:-}; that form cannot be used here because $raw is an
+        # arbitrary string like "$HR015/doctor", not a bare variable name.
         local expanded
-        expanded="$(eval "printf '%s' \"$raw\"")"
+        expanded="$(set +u; eval "printf '%s' \"$raw\"")"
         printf '%s\n' "$expanded"
         return 0
     fi
@@ -289,28 +348,134 @@ vlib_materialise() {
 # like subscription_gate.py). "Stale" means: a file present in BOTH source and
 # vendor has DRIFTED. Source-only and vendor-only files are out of scope.
 #
-# vlib_shared_diff <srcdir> <vendordir> <outfile>
-#   writes a unified diff of only the intersecting files to <outfile>;
+# vlib_vendor_diff <tree> <srcdir> <vendordir> <outfile>
+#   writes a unified diff to <outfile> covering BOTH files that differ and
+#   files present only in the vendored tree (emitted as new-file hunks, unless
+#   an exclude glob says the tree deliberately does not carry them);
 #   exit 0 = identical, 1 = drift. The diff is rooted so `git apply` (run from
 #   the source tree) reproduces the vendor's version of each shared file.
 # ---------------------------------------------------------------------------
 
-vlib_shared_diff() {
-    local src="$1" ven="$2" out="$3"
+vlib_vendor_diff() {
+    local tree="$1" src="$2" ven="$3" out="$4"
     : > "$out"
     local drift=0 rel
-    # Iterate files present in BOTH trees.
+
+    # Exclude globs for this tree, read once. A file the tree deliberately does
+    # not vendor must NOT get a new-file hunk: that would resurrect excluded
+    # content on every materialise and quietly fight the exclude.
+    local _ex
+    _ex="$(vlib_excludes "$tree" 2>/dev/null || true)"
+    # MUST agree with how vlib_materialise strips excludes, because the two
+    # are the halves of one decision. The materialiser uses `find -name
+    # "<glob>"`, which matches a BASENAME at ANY depth. This predicate has to
+    # answer the same question or the pair disagrees.
+    #
+    # It used to disagree, for exactly one class of glob. The old patterns
+    # quoted the glob inside the any-depth alternative:
+    #
+    #     case "$_p" in $_g|*"/$_g") return 0 ;; esac
+    #                       ^^^^^^ quoted, so * and ? are LITERAL here
+    #
+    # In a `case` pattern a quoted expansion matches literally, so `*"/$_g"`
+    # with _g="test_*.py" is the pattern `*/test_*.py` where that inner `*` is
+    # an asterisk CHARACTER. No real path ever matches it. The bare `$_g`
+    # alternative is unquoted and does glob, but only against the whole
+    # relative path, so it only ever matched at the tree root.
+    #
+    # Net effect, and it is a nasty one because it is silent: a LITERAL exclude
+    # (README.md, tests/) worked at any depth, while a WILDCARD exclude
+    # (test_*.py, *.egg-info/) worked only at the top level. The materialiser
+    # stripped agent/test_*.py from the source tree; this predicate did not
+    # recognise them as excluded; so they looked VENDOR-ONLY and were emitted as
+    # /dev/null new-file hunks for files that exist perfectly well at the pin.
+    # `git apply` then aborts the WHOLE patch with "already exists in working
+    # directory" and the tree reconstructs nothing at all.
+    #
+    # That is the mirror of the bug the new-file support fixed: that one dropped
+    # creations, this one manufactured them out of modifications. Both end with
+    # a divergence patch that cannot rebuild the tree it describes.
+    _vd_excluded() {
+        local _p="$1" _g _base
+        _base="${_p##*/}"
+        while IFS= read -r _g; do
+            [ -n "$_g" ] || continue
+            case "$_g" in
+                */)
+                    # Directory glob: at the tree root, or nested at any depth.
+                    # Unquoted so a wildcard dir glob (*.egg-info/) still globs.
+                    _g="${_g%/}"
+                    case "$_p" in $_g/*|*/$_g/*) return 0 ;; esac
+                    ;;
+                *)
+                    # File glob: the whole relative path, or the basename at any
+                    # depth. The basename arm is the one that mirrors `find
+                    # -name` and the one that was missing.
+                    case "$_p" in $_g) return 0 ;; esac
+                    case "$_base" in $_g) return 0 ;; esac
+                    ;;
+            esac
+        done <<< "$_ex"
+        return 1
+    }
+
     while IFS= read -r rel; do
         rel="${rel#./}"
-        if [ -f "$src/$rel" ] && [ -f "$ven/$rel" ]; then
+        [ -f "$ven/$rel" ] || continue
+        if [ -f "$src/$rel" ]; then
+            # Present in BOTH: ordinary modification hunk.
             if ! diff -q "$src/$rel" "$ven/$rel" >/dev/null 2>&1; then
                 drift=1
                 # Emit a git-applyable hunk: a/<rel> (source) -> b/<rel> (vendor).
                 diff -u --label "a/$rel" --label "b/$rel" "$src/$rel" "$ven/$rel" >> "$out" 2>/dev/null || true
             fi
+            continue
         fi
-    done < <(cd "$ven" && find . -type f | sort)
+
+        # VENDOR-ONLY: present here, absent from source@pinned_sha.
+        #
+        # THIS IS THE CASE THAT USED TO BE SILENTLY DROPPED, and dropping it is
+        # what made a grafted new file undeliverable. The old function iterated
+        # the same list and simply skipped anything the source lacked, so a
+        # hand-authored new-file hunk was stripped by the next --regen-patch and
+        # the file had no durable home in the patch at all. That is why the old
+        # daemon_cron.py hunks are gone.
+        #
+        # A file absent BY INSTRUCTION (exclude glob) is a different thing from
+        # one absent because the pin predates it, so the excludes are honoured.
+        _vd_excluded "$rel" && continue
+
+        drift=1
+        # git's new-file shape: /dev/null -> b/<rel>. `git apply` creates it.
+        diff -u --label /dev/null --label "b/$rel" /dev/null "$ven/$rel" >> "$out" 2>/dev/null || true
+    done < <(cd "$ven" && find . -type f -not -path '*/__pycache__/*' | sort)
+
+    unset -f _vd_excluded
     return "$drift"
+}
+
+# vlib_patch_new_files <tree>
+#   Print each path the tree's declared divergence patch CREATES (its new-file
+#   hunks), one per line. Empty when there is no patch.
+#
+#   Used by sync_vendor.sh to tell a vendor-only file that already has a
+#   durable home in the patch from one that would be lost by the swap.
+vlib_patch_new_files() {
+    local tree="$1" patch abs
+    patch="$(vlib_field "$tree" divergence_patch)"
+    [ -z "$patch" ] && return 0
+    abs="$VLIB_REPO_ROOT/$patch"
+    [ -f "$abs" ] || return 0
+    # A new-file hunk is `--- /dev/null` immediately followed by `+++ b/<path>`.
+    # Matching the +++ line alone would name every file in the patch.
+    awk '
+        /^--- \/dev\/null$/ { pending = 1; next }
+        /^\+\+\+ b\// {
+            if (pending) { sub(/^\+\+\+ b\//, ""); print }
+            pending = 0; next
+        }
+        { pending = 0 }
+    ' "$abs"
 }
 
 # Apply a divergence patch (source -> vendor transform) inside <dest>.

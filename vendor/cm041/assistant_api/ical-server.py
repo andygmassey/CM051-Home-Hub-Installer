@@ -532,16 +532,6 @@ PWG_CONVO_BIN = os.environ.get("PWG_CONVO_BIN", "/usr/local/bin/pwg-convo")
 # every owner-scoped read would silently return empty. Empty stays empty so
 # the existing degraded-when-USER_ID-unset path is preserved (normalise folds
 # "" -> the "primary" label, which is wrong for a graph IRI here).
-#
-# This is a MODULE-LEVEL import that runs at import time, before any request
-# handler executes. ``_ensure_pipeline_on_path()`` (which puts the
-# import-pipeline roots -- where ``identity_resolver`` lives -- onto sys.path)
-# is otherwise only called inside the request handlers, so without the call
-# below the package is not importable here and the whole module fails to load
-# with ``ModuleNotFoundError`` in a launchd crash-loop. Prime the path first.
-# (``identity_resolver/__init__`` is lazy, so importing the stdlib-only
-# ``.compartment`` submodule does NOT pull httpx/phonenumbers.)
-_ensure_pipeline_on_path()
 from identity_resolver.compartment import normalise_user_id as _normalise_user_id
 
 _raw_user_id = os.environ.get("USER_ID", "").strip()
@@ -1133,7 +1123,18 @@ def people_search(query, limit=10):
             "contact_type", "person_uri", "privacy_level",
         ]},
         "filter": {"must": [
-            {"key": "contact_type", "match": {"value": "person"}}
+            # `any`, NOT `value`. Until 2026-08-14 the Qdrant payload was written
+            # with a hardcoded contact_type of "person" for every record, so this
+            # filter matched everything and excluded nothing -- it read as a filter
+            # while doing no work. The payload now carries the REAL classification,
+            # which makes this clause bite for the first time.
+            # It must therefore admit `unclassified` explicitly. 497 of 6,481
+            # records on the v1.0.26 box had no contactType at all; matching only
+            # "person" would silently delete every contact the classifier could not
+            # place from the People tab -- the same half-landed change, pointed the
+            # other way.
+            {"key": "contact_type",
+             "match": {"any": ["person", "unclassified"]}}
         ]},
     }).encode()
     req = urllib.request.Request(
@@ -1859,9 +1860,31 @@ def api_memory_assert(payload, now=None):
         person_slug = chosen.get("slug")
         person_uri = _resolve_person_uri_by_name(chosen.get("name", ""))
 
-    # A strong search hit whose name no longer resolves in Oxigraph (stale
-    # Qdrant point) falls through to minting -- better a fresh node than a
-    # dropped fact.
+    # LAST CHANCE BEFORE MINTING: ask Oxigraph directly.
+    #
+    # Everything above resolves via people_search, which reads QDRANT. A node
+    # this endpoint minted moments ago is in Oxigraph but NOT yet in Qdrant --
+    # Qdrant only gains it on the next contact/wiki sync. So without this
+    # check, asserting twice about the same person mints a SECOND node, then a
+    # third, and the facts scatter across all of them.
+    #
+    # That is what the operator hit on 2026-08-06: recording a spouse
+    # relationship "worked" but left a duplicate person behind, and the wiki
+    # then offered the two halves back as a merge candidate. The person was
+    # right there in the graph the whole time; we simply never asked the store
+    # that had it.
+    #
+    # Matching on displayName is the same key _resolve_person_uri_by_name
+    # already uses for the Qdrant-hit path, so an assert converges on the same
+    # node whether or not Qdrant has caught up yet.
+    if person_uri is None:
+        person_uri = _resolve_person_uri_by_name(subject)
+        if person_uri is not None:
+            person_slug = _wiki_slug(subject)
+
+    # Genuinely unknown: mint. A strong search hit whose name no longer
+    # resolves in Oxigraph (stale Qdrant point) lands here too -- better a
+    # fresh node than a dropped fact.
     if person_uri is None:
         created_person = True
         person_uri, _person_id = _mint_person_uri()
@@ -1937,18 +1960,38 @@ def api_memory_assert(payload, now=None):
     # after the INSERT so a fresh Person node already exists.
     relationship_update = ""
     if relationship:
+        # NO `PREFIX` HERE. A SPARQL Update request carries ONE prologue, at
+        # the very start; `insert_block` already declares `pwg:` and the
+        # declaration stays in scope for every operation after each `;`.
+        # Repeating `PREFIX` after a `;` is a parse error -- Oxigraph answers
+        # 400, this endpoint wraps it as
+        #     503 {"reason": "oxigraph_update_failed: HTTP Error 400"}
+        # and the assistant tells the customer "I encountered an error while
+        # saving the fact."
+        #
+        # That is exactly what shipped: EVERY relationship fact failed to
+        # save. Reported from a live box on 2026-08-06 -- the operator tried
+        # twice in one chat to record a spouse relationship ("<name> is my
+        # wife") and got "I am still unable to save this fact ... due to a
+        # system error." both times. The plain fact path (no `relationship`)
+        # has no second statement, so it never hit this and looked fine --
+        # which is why the bug survived: the 200 path and the 503 path differ
+        # by one optional field.
+        #
+        # Bisected against the live Oxigraph on the box, 2026-08-06:
+        #   single INSERT DATA ................... 204
+        #   single DELETE/WHERE .................. 204
+        #   two statements, ONE prologue ......... 204
+        #   two statements, REPEATED prologue .... 400   <-- shipped shape
         relationship_update = (
             ";\n"
-            "PREFIX pwg: <{ns}>\n"
             "DELETE {{ <{uri}> pwg:relationship ?r }}\n"
             "WHERE {{ <{uri}> pwg:relationship ?r }};\n"
-            "PREFIX pwg: <{ns}>\n"
             "DELETE {{ <{uri}> pwg:relationshipType ?rt }}\n"
             "WHERE {{ <{uri}> pwg:relationshipType ?rt }};\n"
-            "PREFIX pwg: <{ns}>\n"
             'INSERT DATA {{ <{uri}> pwg:relationship "{rel}" ;\n'
             '  pwg:relationshipType "{rel}" . }}'
-        ).format(ns=PWG_NS, uri=person_uri, rel=esc_rel)
+        ).format(uri=person_uri, rel=esc_rel)
 
     sparql = insert_block + relationship_update
 
@@ -2220,11 +2263,47 @@ def _memory_query_facts() -> list:
         return []
     # Confidence is optional on the writer side; coalesce in Python
     # rather than the SPARQL query so we don't drop rows that lack it.
+    # TWO ways a fact belongs to this user, and we must match BOTH.
+    #
+    # THE BUG THIS FIXES (2026-08-08)
+    # ------------------------------------------------------------------
+    # This query used to match only `pwg:aboutPerson <USER_URI>` -- facts
+    # about the user themselves. But the assert endpoint above writes a fact
+    # about SOMEONE ELSE and marks ownership separately:
+    #
+    #     <fact> pwg:aboutPerson   <person_marlow>   # who it is about
+    #            pwg:belongsToUser <user_andy>       # whose memory it is
+    #
+    # So "Jane Doe is your wife" was stored with aboutPerson = jane,
+    # and this reader asked for aboutPerson = Andy. It matched nothing.
+    # `pwg:belongsToUser` was written on line ~1833 and read NOWHERE -- a
+    # write-only field, the same defect class as displayNameProvisional
+    # (task #658).
+    #
+    # What that looked like to the customer, 2026-08-08:
+    #   in the app:      "I have successfully remembered that Jane Doe
+    #                     is your wife."
+    #   then on iMessage: "I cannot tell you who your wife is. I do not have
+    #                     access to that personal information."
+    # Andy: "WTAF? Why is this STILL not working?"
+    #
+    # It was never a cross-channel problem and never a privacy guardrail. The
+    # write succeeded, the fact is in the graph, and the reader was looking in
+    # the wrong place -- so EVERY channel was equally blind. The app only
+    # looked smarter because it was quoting back what it had just been told.
+    #
+    # ?about is returned so a caller can name the subject: answering "who is
+    # my wife" needs jane's name, not just the sentence.
     sparql = (
         'PREFIX pwg: <{ns}>\n'
-        'SELECT ?fact ?text ?source ?domain ?conf ?validFrom WHERE {{\n'
-        '  ?fact a pwg:PersonFact ; pwg:aboutPerson <{user}> ; '
-        'pwg:factText ?text .\n'
+        'SELECT DISTINCT ?fact ?text ?source ?domain ?conf ?validFrom ?about ?aboutName '
+        'WHERE {{\n'
+        '  ?fact a pwg:PersonFact ; pwg:factText ?text .\n'
+        '  {{ ?fact pwg:aboutPerson <{user}> }}\n'
+        '  UNION\n'
+        '  {{ ?fact pwg:belongsToUser <{user}> }}\n'
+        '  OPTIONAL {{ ?fact pwg:aboutPerson ?about .\n'
+        '             OPTIONAL {{ ?about pwg:displayName ?aboutName }} }}\n'
         '  OPTIONAL {{ ?fact pwg:factSource ?source }}\n'
         '  OPTIONAL {{ ?fact pwg:factDomain ?domain }}\n'
         '  OPTIONAL {{ ?fact pwg:confidence ?conf }}\n'
@@ -4351,7 +4430,18 @@ def people_list(sort=None, ceiling=10000):
             body = {
                 "filter": {
                     "must": [
-                        {"key": "contact_type", "match": {"value": "person"}},
+                        # `any`, NOT `value`. Until 2026-08-14 the Qdrant payload was written
+                        # with a hardcoded contact_type of "person" for every record, so this
+                        # filter matched everything and excluded nothing -- it read as a filter
+                        # while doing no work. The payload now carries the REAL classification,
+                        # which makes this clause bite for the first time.
+                        # It must therefore admit `unclassified` explicitly. 497 of 6,481
+                        # records on the v1.0.26 box had no contactType at all; matching only
+                        # "person" would silently delete every contact the classifier could not
+                        # place from the People tab -- the same half-landed change, pointed the
+                        # other way.
+                        {"key": "contact_type",
+                         "match": {"any": ["person", "unclassified"]}},
                     ]
                 },
                 "limit": page,
@@ -4504,7 +4594,18 @@ def people_stale(months=3, limit=5):
             "filter": {
                 "must": [
                     {"key": "last_contact_ts", "range": {"gt": 0, "lt": cutoff_ts}},
-                    {"key": "contact_type", "match": {"value": "person"}},
+                    # `any`, NOT `value`. Until 2026-08-14 the Qdrant payload was written
+                    # with a hardcoded contact_type of "person" for every record, so this
+                    # filter matched everything and excluded nothing -- it read as a filter
+                    # while doing no work. The payload now carries the REAL classification,
+                    # which makes this clause bite for the first time.
+                    # It must therefore admit `unclassified` explicitly. 497 of 6,481
+                    # records on the v1.0.26 box had no contactType at all; matching only
+                    # "person" would silently delete every contact the classifier could not
+                    # place from the People tab -- the same half-landed change, pointed the
+                    # other way.
+                    {"key": "contact_type",
+                     "match": {"any": ["person", "unclassified"]}},
                 ]
             },
             "limit": limit,
@@ -4909,6 +5010,93 @@ def _timeline_from_graph(past_days=730, limit=200):
     return out, None
 
 
+def _timeline_conversations(past_days=730, limit=200):
+    """Historic conversation rows for the Timeline, from Qdrant.
+
+    Meetings live in Oxigraph as pwg:Meeting nodes; CONVERSATIONS do not. They
+    live in the Qdrant `conversations` collection written by the conversation
+    pipeline, and nothing in Oxigraph carries a datable per-conversation node.
+
+    Without this leg the Timeline is meetings and nothing else. On the
+    v1.0.15 walk that meant 200 of 200 rows had kind "meeting" on a box
+    holding 337 conversations -- the endpoint looked healthy and full while
+    silently representing one source out of several. A Timeline that shows
+    only the calendar is a calendar.
+
+    Returns ``(rows, error)`` -- ``error`` is a string when the collection was
+    reachable but the read failed, so the caller can degrade visibly. A 404
+    (collection absent, e.g. no conversation sources granted) is the
+    empty-by-design path and returns ``([], None)``: nothing to show is not a
+    fault, and must not paint an error on a healthy install.
+    """
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(days=max(1, past_days))).strftime("%Y-%m-%d")
+    rows, points, next_offset = [], [], None
+    page = 256
+    try:
+        while len(points) < max(1, limit) * 4:
+            body = {
+                "limit": page,
+                "with_payload": True,
+                "with_vector": False,
+            }
+            if next_offset is not None:
+                body["offset"] = next_offset
+            req = urllib.request.Request(
+                QDRANT_URL.rstrip("/") + "/collections/conversations/points/scroll",
+                data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                result = json.loads(resp.read()).get("result", {}) or {}
+            batch = result.get("points", []) or []
+            points.extend(batch)
+            next_offset = result.get("next_page_offset")
+            if not batch or not next_offset:
+                break
+    except Exception as exc:
+        if getattr(exc, "code", None) == 404:
+            return [], None
+        return [], str(exc)
+
+    for p in points:
+        payload = p.get("payload") or {}
+        # The conversation pipeline has shipped several date field names over
+        # time (CM047/CM048 schema alignment). Accept any of them rather than
+        # dropping a whole source on a field rename -- a missing date is the
+        # only disqualifier, since the Timeline is ordered by it.
+        raw_date = ""
+        for key in ("occurred_at", "created_at", "date", "ingested_at",
+                    "timestamp", "started_at"):
+            val = payload.get(key)
+            if val:
+                raw_date = str(val)
+                break
+        date = raw_date[:10]
+        if not date or date < cutoff:
+            continue
+        counterpart = (payload.get("contact_name")
+                       or payload.get("wing")
+                       or payload.get("participant")
+                       or "")
+        participants = [counterpart] if counterpart and not _is_nameless_name(
+            counterpart) else []
+        rows.append({
+            "kind": "conversation",
+            "date": date,
+            # Deliberately NOT the message body. The Timeline is a
+            # what-happened-when view; conversation content is L2+ and has its
+            # own privacy-gated surfaces. A channel + counterpart is enough to
+            # place the event without publishing what was said.
+            "summary": (payload.get("channel") or "conversation"),
+            "participants": participants,
+        })
+
+    rows.sort(key=lambda r: r["date"], reverse=True)
+    return rows[:max(1, limit)], None
+
+
 def api_timeline(days=7, past_days=730, limit=200):
     """Mainly-historic life timeline: past meetings/events + a short forward look.
 
@@ -4963,6 +5151,19 @@ def api_timeline(days=7, past_days=730, limit=200):
         items.append({"kind": "meeting_error", "error": past_err})
     else:
         items.extend(past_rows)
+
+    # Conversations. A SECOND source, from Qdrant rather than the graph -- see
+    # _timeline_conversations. Without it the Timeline is a calendar wearing a
+    # different name: the v1.0.15 walk found 200/200 rows of kind "meeting" on
+    # a box that also held 337 conversations.
+    #
+    # Failure here is reported, never fatal: a broken conversation store must
+    # degrade this section, not empty the whole Timeline of its meetings.
+    conv_rows, conv_err = _timeline_conversations(past_days=past_days, limit=limit)
+    if conv_err is not None:
+        items.append({"kind": "conversation_error", "error": conv_err})
+    else:
+        items.extend(conv_rows)
 
     # Newest first (it is mainly a historic timeline), then cap.
     items.sort(key=lambda i: i.get("date") or "", reverse=True)
@@ -6049,6 +6250,28 @@ def api_hydration_status():
     if comp is None:
         ai["state"] = "pending"            # compiler has not started yet
     elif comp.get("complete"):
+        # v1018-D007: a DONE phase must carry its numbers.
+        #
+        # This branch used to set the state and return without touching the
+        # counters, so `done`/`total` kept the 0/0 the initialiser above gave
+        # them. A phase that had summarised everything therefore reported
+        # "done, 0 of 0" -- structurally incapable of saying otherwise, on
+        # every completed run, for every customer.
+        #
+        # Measured on the founder box 2026-08-11: the endpoint returned
+        # `{state: "done", done: 0, total: 0}` while the status file it had
+        # just read held `stage_done: 80, stage_total: 80`, and 333
+        # summary-bearing pages sat on disk. `overall_state` was "complete",
+        # so the customer was told the work had finished AND shown a zero.
+        #
+        # `count` rather than only done/total because that is the shape the
+        # other terminal phases use (contacts, graph) and what a reader of a
+        # finished phase actually wants: how many, not a ratio that is now
+        # always N of N.
+        done = int(comp.get("stage_done", 0) or 0)
+        total = int(comp.get("stage_total", 0) or 0)
+        ai["done"], ai["total"] = done, total
+        ai["count"] = done
         ai["state"] = "done"
     else:
         done = int(comp.get("stage_done", 0) or 0)

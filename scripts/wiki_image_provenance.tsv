@@ -4,7 +4,11 @@
 #
 # WHY THIS FILE EXISTS
 # The wiki-compiler / wiki-site images ship in the DMG pinned by digest in
-# install.sh (`image: ghcr.io/ostler-ai/ostler-<key>@sha256:...`). The image
+# install.sh (`image: ghcr.io/creativemachines-ai/ostler-<key>@sha256:...`).
+# (Namespace corrected 2026-08-10: this said `ostler-ai` long after the move to
+# `creativemachines-ai` landed. The data rows below and install.sh were always
+# right; only this comment was stale, and it reads as a reason to distrust the
+# CM044 release-images workflow -- which is in fact the customer path.) The image
 # metadata carries NO org.opencontainers.image.revision label and no CM044 sha
 # in its config/env, so the source commit an image was built from cannot be
 # read back from the registry. Without a recorded binding, a repin of the
@@ -39,3 +43,80 @@ wiki-site	sha256:303b3a1a164720cfbc39da5d9380c98ebde89b32600ce4653e4b02b800194a8
 # (folds #144 scaffolding strip + #145 dedup endpoint + #146 settling panel).
 wiki-compiler	sha256:2f7b0b7332f8e6e9e75206f9ea126702b46d9c4d3202d15fb040c1bd9710161a	648f7491ea2fa74aee3c669fd2be5503b4924a36
 wiki-site	sha256:563fbcecc46c2679b5aa5db47821712e51a0bfa6904a669dcfde57ab599aa5ea	648f7491ea2fa74aee3c669fd2be5503b4924a36
+# v1.0.13.3 (2026-08-01): both images rebuilt arm64 from CM044 v0.1.2 = main HEAD
+# cd79c50 (fresh; supersedes the stale 648f7491 pin that predated #219). Namespace
+# moved to creativemachines-ai per CM044 CI #31.
+wiki-compiler	sha256:2b7d494e2735693fc6d0d60d2ae28c515019fc37399442a7c015de7a8d191ddb	cd79c50234951ada51fb2fbe514ecb58220fb903
+wiki-site	sha256:f2acc0df18a800eed5230d46666f3ed98757a03f0b43b243d840d2a1dd28923c	cd79c50234951ada51fb2fbe514ecb58220fb903
+wiki-compiler	sha256:b6f33d0efc98716313b6753eb4e787e374c5ff5be18ea58680632e5f77cb0e5f	e2991e435fed37e83234a8fb356071a2e4bc56de
+wiki-site	sha256:0777ab938226cb793bb91c27df8af669bfcb00c5d5dfcdb247516994c0e84ddb	e2991e435fed37e83234a8fb356071a2e4bc56de
+# v1.0.17 (2026-08-07): both images rebuilt arm64 from CM044 tag v0.1.5 =
+# c4448cc "Merge PR #165: v1.0.17 wiki design-system rollout + box-walk fixes".
+# These are the digests CM051 #515 pinned into install.sh. That re-pin did NOT
+# add rows here, so verify_cut_freshness.sh reported RED unrecorded-provenance
+# and provenance_gate.sh reported a bogus STALE BINDING -- the pins were fine,
+# the ledger was simply silent. A re-pin and its ledger row are one step.
+#
+# The digest -> c4448cc binding was verified by CONTENT before being recorded,
+# not taken from the publishing job's claim:
+#   site     mkdocs/overrides/stylesheets/extra.css
+#            143344 bytes / 370 .pw-doc rules, byte-identical to git c4448cc
+#   compiler /app/compiler/{pages/dashboard.py,pages/person_pages.py,locale.py}
+#            sha256 identical to git c4448cc for all three
+# c4448cc is an ancestor of CM044 main f949872; the only delta to main is
+# docs/RUNBOOK_wiki_image_release.md + scripts/release_wiki_images.sh, neither
+# of which is copied into either image, so the pin is content-current.
+wiki-compiler	sha256:dbb355bc606ae1e3d6a66360ea11eabad8a68c1b91e07723e8878fde30458de4	c4448ccfd07121ce1c2aeaf465ae98990bbd424c
+wiki-site	sha256:d4436f75cd5a00efd95504938078318af3f5b34158f3f561bc40e9db6b6aa170	c4448ccfd07121ce1c2aeaf465ae98990bbd424c
+wiki-compiler	sha256:445952c69fc86738609c191cfd5b419496c62729f5ef8f04e2e6af80fb145fcd	f7313956965332d1a6f44857cd05740c69ba63e7
+wiki-site	sha256:0eed755f6fc2f603587e0cb50b8cc81bcbac4f0e5bdaa5977148733d59dc8567	f7313956965332d1a6f44857cd05740c69ba63e7
+wiki-compiler	sha256:099975d30a11344f84768c3768e52479e3eea5540c7f0b3d2127992f4ce64408	301ee165e24f846c6da60ebb0012b333355b8b75
+wiki-site	sha256:3f8e01f8952d35102eb1071ca85a70922d72e3bfc77e7d904291e18349d873cd	301ee165e24f846c6da60ebb0012b333355b8b75
+wiki-compiler	sha256:14b5b4529a8e36d14b1fa84277cbbb4fd0eaa8779e85187eb3ff5f2901ce48f1	6020803dfbc0c8376c77918f9a9636b70c053314
+wiki-site	sha256:07b472f7b45a263c80a56f6de3ab2f23ca09594d9cce87df6cd56519a728355e	6020803dfbc0c8376c77918f9a9636b70c053314
+wiki-compiler	sha256:5da56268260231494c4402d03d75598742b5187c53169bd5ee48b9f65a0188a2	d25a982f0bd92a46ffaed5e5b785b059314679ee
+wiki-site	sha256:64deb4dad629dcd316682a7a161bbd0fbda1e73eecb079565c90c80c2ca8accc	d25a982f0bd92a46ffaed5e5b785b059314679ee
+wiki-compiler	sha256:9489b0671dc6591625b7de3a1933b4a53796703f07b7b07459f998bf965583e8	48286c9fccc3d2353653ee180fe4852afc901efe
+wiki-site	sha256:2b81982ac57109f56013576637ea2e8758ad29c8df59e575bee16d569b5136f0	48286c9fccc3d2353653ee180fe4852afc901efe
+wiki-compiler	sha256:00d1602fc56ef42a9c790aa6f375eaeac1dadf2ef004091704315ed572715566	a8d423af753f7847791723ef8860a46f4453c913
+wiki-site	sha256:fd8b89c490e5f60889febf7f7dd5a34ccbc79ae20c5bb9fe07c0ee3a58ec2941	a8d423af753f7847791723ef8860a46f4453c913
+wiki-compiler	sha256:4d62a6428352b7031458316d2b8ba94929319cbe9d347a62c17886743836e5bc	0bdc1d16de7b173323c73a9cde937be0ed588a3a
+wiki-site	sha256:14f68bd10d0982084ab6ce8c1c5e290a73f1bf31e50c967f9629ade9c9282482	0bdc1d16de7b173323c73a9cde937be0ed588a3a
+# v1.0.26 (2026-08-14 ORM): both images rebuilt by CM044 CI from tag v0.1.14 =
+# main HEAD 562b2ad7, superseding the 0bdc1d16 (v0.1.13) pins. The delta is
+# exactly two commits and both are shipping fixes, which is why this was a
+# REBUILD and not a wiki_hold_ack row -- an ack here would have asserted
+# shipping_bugfixes_grafted = true, and that would have been FALSE:
+#   1642ec7a (#191) no unfilled template token may reach a rendered page
+#                   (v1018-D014), and the register already records that defect
+#                   missing a cut once through this exact delivery path
+#   562b2ad7 (#192) a dry run must not clear and repopulate the customer's
+#                   visible vault
+# CM044 #193 (person-fold, v1018-D005) was deliberately EXCLUDED and remains
+# open: it conflates two real people three ways on founder family data, and it
+# would have gone straight into the shipped compiler. The tag was created
+# against the exact SHA 562b2ad7 so a later merge of #193 cannot retroactively
+# enter this build.
+#
+# The digest -> 562b2ad7 binding was verified BY CONTENT before being recorded,
+# not taken from the publishing job's claim -- that workflow has reported green
+# while pushing nothing before (the CM_AI_GHCR_PAT "denied: denied" window that
+# silently stranded v0.1.2):
+#   compiler  /app/compiler/placeholder_strip.py  sha256 a7613c03, byte-identical
+#             to git 562b2ad7; ABSENT from the superseded 4d62a642 image
+#             (negative control, with a 56-file population control so the probe
+#             could not be returning a false zero)
+#   compiler  /app/compiler/compile.py            sha256 bc59ee00, identical to git
+#   site      /docs/compiler/html_sanitise.py     sha256 e28fbd07, identical to git
+# Both digests are OCI image-index digests, the same schema as the pins they
+# supersede (confirmed by inspecting 4d62a642).
+wiki-compiler	sha256:b92760e141078b1572c0d531aa1e7654cdd57880e3119c453c46434bb523f408	562b2ad7a764d51ba0593be29bd722204344bb4b
+wiki-site	sha256:36de411b2a649f77df6079416ccdb06ce043c30b94b248058f581afd97aec92b	562b2ad7a764d51ba0593be29bd722204344bb4b
+wiki-compiler	sha256:a346ddf239078155f1a17c596c17a82eef1988f0a9ee40b341c68b8b84ce11ff	7d6431fb1bcfaee1ba18ffd5d6536ab285351315
+wiki-site	sha256:34ecb4efb899e1e78825d82a61a7096b874ad853814617ad2e62d5e7b9adb04b	7d6431fb1bcfaee1ba18ffd5d6536ab285351315
+wiki-compiler	sha256:8be6ce78e37ba0397e74d847dc3ac1a31993ad3d5abb4f7bb0dc14d7b55f8449	c6febba25e46d92c1823596b625e12a013cdf196
+wiki-site	sha256:852351e2002fa14ac864d35cab1cd39aec4a805a246a460feafdec62dd446728	c6febba25e46d92c1823596b625e12a013cdf196
+wiki-compiler	sha256:21c59bdf1fc6032ef6efc4ba008d3b30404519fc6b196f86daa5a13514669c6e	9fd38569b3890541965a287c210da107a01bcfad
+wiki-site	sha256:510ffc6a561a5087373558994199121ababd1b7b6aa37f8f82082e3721fd413a	9fd38569b3890541965a287c210da107a01bcfad
+wiki-compiler	sha256:c6a207fc727940edcb5263748698a5d9565e39290e1c571439b57b0096e2ad1f	bf5dfe68ad67c0707b802d76cb7658736e8c4282
+wiki-site	sha256:635e3ee7cacdc31252b52771600e337e5c9ec649e0c0c6f982395d40a63f3670	bf5dfe68ad67c0707b802d76cb7658736e8c4282

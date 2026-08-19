@@ -1,0 +1,13 @@
+# cuts/REGISTER_PII_REVIEWED.tsv
+#
+# Person-page slugs in the vendored defect register that are reviewed and
+# permitted. tests/test_vendored_register_pii.sh REDs on any slug absent here,
+# so forgetting a row costs something and cannot pass quietly.
+#
+# A slug belongs here ONLY if it is provably not a real person. "I think it is
+# fine" is not a reason. If you cannot write why it is fictional, remove it from
+# the register in OS003 instead and re-sync.
+#
+# slug<TAB>reason
+mum-fairweather	Pseudonym introduced by OS003 #58 to replace a real family reference in v1018-D011. Fairweather is invented; the row describes a CLASS of defect (a kinship word becoming a display_name) and needs no real identity to state it.
+robin-fairweather	Pseudonym from the same substitution, the paired individual in v1018-D011. Invented forename and surname; the gate at the D011 section tests the class, not this person.

@@ -1,0 +1,19 @@
+name: hint-coverage
+# Not paths-filtered. The two inputs are install.sh and HintCopy.json, and the
+# defect is precisely that they drift apart. A filter naming both would work
+# today, but the emitter could move to a sourced file tomorrow and the check
+# would go quiet on the change that broke it. CM051 is public; the runner is
+# free.
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: controls first -- an unproven gate is not a gate
+        run: bash scripts/tests/test_hint_coverage.sh
+      - name: every announced step must have copy behind it
+        run: bash scripts/verify_hint_coverage.sh

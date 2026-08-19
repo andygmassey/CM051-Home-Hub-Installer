@@ -1,0 +1,46 @@
+name: wiki-compile-oracle
+
+# The wiki compile must be judged on pages produced, not on exit code.
+#
+# Measured 2026-08-17: install.sh had NO page count anywhere, so the
+# compiler's exit status was the whole oracle for the whole wiki. That status
+# cannot fail. CM044's compile.py:1577 discards the result compile.py:1438
+# returns, and __main__.py:4 calls main() without sys.exit, so the container
+# exits 0 whether it wrote eighteen thousand pages or none, and it writes
+# .compile-complete either way.
+#
+# That is how "wiki compiled zero pages" walked past a green install on a real
+# box: every directory present, every directory empty, 39 steps ok, err=0.
+#
+# Its own workflow rather than a step bolted onto an unrelated one, because
+# the paths that can reopen this defect are not the paths that reopen the
+# enrichment defects, and a filter wide enough for both is a filter that
+# reports on neither.
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_wiki_compile_has_a_page_count_oracle.sh'
+      - '.github/workflows/wiki-compile-oracle.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never cancel main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  wiki-compile-oracle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The wiki compile is judged on pages, not on exit code
+        # No dependencies: the test executes the counting predicate itself
+        # against a real temp tree, so it needs nothing installed and cannot
+        # SKIP into a false green.
+        run: bash tests/test_wiki_compile_has_a_page_count_oracle.sh

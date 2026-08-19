@@ -104,13 +104,18 @@ esc_assistant="$(printf '%s' "$OSTLER_DIR/OstlerAssistant.app/Contents/MacOS/ost
 
 # OSTLER_VENV_PYTHON: absolute path to a python3 binary that has
 # `ostler_fda` installed (created by CM051 install.sh's email-ingest
-# venv setup). If unset/empty we fall back to the literal "python3"
-# so the tick script's PATH-based default kicks in; the operator
-# will see a ModuleNotFoundError at runtime, but the LaunchAgent
-# itself still loads, which is the degraded-but-survivable shape.
+# venv setup). Falling back to the bare literal "python3" is a LAST
+# resort and is logged: launchd does not use a login PATH, so a bare
+# name may not resolve at all under it.
 # Reference: CX-17 (retest 2026-05-23) — system python lookup was
 # the launch-blocker root cause.
 OSTLER_PYTHON_PATH_VALUE="${OSTLER_VENV_PYTHON:-python3}"
+if [[ "$OSTLER_PYTHON_PATH_VALUE" != /* ]]; then
+    echo "email-ingest install: WARNING - interpreter '$OSTLER_PYTHON_PATH_VALUE'" >&2
+    echo "  is not an absolute path. launchd runs with a minimal PATH, so the" >&2
+    echo "  hourly tick's emit leg will likely fail with ModuleNotFoundError." >&2
+    echo "  Expected: the email-ingest venv python from CM051 install.sh." >&2
+fi
 esc_python="$(printf '%s' "$OSTLER_PYTHON_PATH_VALUE"        | sed 's/[&/\]/\\&/g')"
 
 # OSTLER_EMAIL_INGEST_BIN: absolute path to CM021's pwg-email-ingest
@@ -149,10 +154,49 @@ chmod 0644 "$RENDERED_PLIST"
 LABEL="com.creativemachines.ostler.email-ingest"
 DOMAIN="gui/$(id -u)"
 
+# ---------------------------------------------------------------------------
+# PRE-BOOTSTRAP GUARD: never load an agent that cannot possibly run.
+# ---------------------------------------------------------------------------
+# ProgramArguments[0] is the code-signed assistant binary inside the .app
+# (the FDA holder). launchd resolves it at BOOTSTRAP time and this plist has
+# RunAtLoad=true, so bootstrapping while that binary is absent makes launchd
+# fire the tick immediately, fail to exec, and return EX_CONFIG (78).
+#
+# EX_CONFIG is not a retry. launchd treats it as "this job is misconfigured",
+# records runs=1, and never starts the job again -- StartInterval included.
+# Both log files stay 0 bytes because nothing ever executed to write to them,
+# so it presents as total silence rather than as an error.
+#
+# That is exactly what the v1.0.15 box-walk found: email-ingest sitting at
+# runs=1 / last exit 78, no mail ingested since install, nothing in any log.
+#
+# A LaunchAgent that is absent and says so is strictly better than one that is
+# present and permanently dead, so if the binary is missing we render the
+# plist (ready to load later) and refuse to bootstrap.
+ASSISTANT_BINARY="$OSTLER_DIR/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
+if [[ ! -x "$ASSISTANT_BINARY" ]]; then
+    echo "email-ingest install: REFUSING to bootstrap the LaunchAgent." >&2
+    echo "  ProgramArguments[0] does not exist or is not executable:" >&2
+    echo "    $ASSISTANT_BINARY" >&2
+    echo "" >&2
+    echo "  Bootstrapping now would fire RunAtLoad against a missing binary," >&2
+    echo "  and launchd would answer EX_CONFIG (78) and disable the job" >&2
+    echo "  PERMANENTLY -- no retry, no logs, no mail ever ingested." >&2
+    echo "" >&2
+    echo "  The plist is rendered and ready at:" >&2
+    echo "    $RENDERED_PLIST" >&2
+    echo "  Load it once the Ostler app is in place with:" >&2
+    echo "    launchctl bootstrap $DOMAIN $RENDERED_PLIST" >&2
+    exit 1
+fi
+
 # Bootout silently if already loaded; bootstrap is not idempotent on
 # its own so we have to flush a stale agent first. Don't fail the
 # install if the bootout returns non-zero (unloaded state).
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+
+# A previous install may have left the job in the EX_CONFIG penalty box.
+# bootout above clears that state, so the bootstrap below starts clean.
 
 if launchctl bootstrap "$DOMAIN" "$RENDERED_PLIST"; then
     echo "email-ingest install: LaunchAgent bootstrapped ($LABEL)"

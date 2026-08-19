@@ -1,0 +1,91 @@
+# cut-manifests/v1.0.13.yaml
+# ============================================================================
+# Point-in-time contract of what the v1.0.13 DMG cut MUST contain.
+#
+# Every entry is a fix that has slipped, or would silently slip, without an
+# artefact-level proof. The verifier walks this file + permanent.yaml before
+# codesign. Any FAIL fails the cut BEFORE signing (fail-closed).
+#
+# Once v1.0.13 ships, entries that are truly permanent (never-regress) should
+# be promoted into permanent.yaml so v1.0.14 and beyond keep proving them.
+#
+# Format: see cut-manifests/README.md.
+# ============================================================================
+
+version: v1.0.13
+description: |
+  v1.0.13 cut contract. Consumes permanent.yaml + these entries. Fails cut on
+  any RED before codesign. This cut ships with:
+    - #170 pair-iOS gateway_port vendor sync (CM051 #479)
+    - #172 Doctor iMessage FDA-pending diagnostic rule (HR015 #273)
+    - #175 appcast trial-cohort fix (CM050 #42, Worker-side, not in DMG)
+    - #177 /tmp/ostler-prelaunch path fix in emitted plists (CM051 #480 + CI gate)
+    - #178 wiki SETTING-UP card auth wall unblocked (HR015 #273)
+    - #171 installer version consistency gate + bump to 1.0.13 (CM051 #481)
+    - CM051 #478 fresh-install regression stack (spoken-consent + FDA copy + Facebook parser)
+
+entries:
+
+  # --------------------------------------------------------------------------
+  # #171 installer version stamp — DMG-boundary assertion
+  # --------------------------------------------------------------------------
+  # The source-consistency gate (tests/test_installer_version_consistency.sh)
+  # proves the three tracked source files (project.yml + Info.plist +
+  # project.pbxproj) agree with each other, so a HALF-bump fails closed.
+  # But it cannot catch a "nobody bumped anything" cut where all three are
+  # CONSISTENTLY stale versus the release version — which is literally the
+  # #171 shape (v1.0.11 + v1.0.12 DMGs shipped with all three at 1.0.10
+  # because the source was internally consistent while the tag advanced).
+  #
+  # This manifest entry closes that gap at the built-artefact boundary:
+  # the built OstlerInstaller.app inside the DMG payload MUST stamp exactly
+  # this cut's marketing version. If the source drifts from the cut tag
+  # (all three stale), this entry fails BEFORE codesign, aborting the cut.
+  #
+  # This is the ORM/manifest-owned half of #171; the source-consistency gate
+  # (CM051 #481) is the local-Makefile half. Together they catch both
+  # half-bump AND no-bump failure modes.
+  #
+  # See VERSIONING.md (added in CM051 #481) for the full context + why
+  # both halves are load-bearing for the "100% clean cut" mandate Andy set
+  # 2026-07-30 after the v1.0.12 DMG shipped with a stale 1.0.10 stamp.
+  - id: v1013-installer-app-version-stamp
+    title: built OstlerInstaller.app CFBundleShortVersionString must equal 1.0.13.2
+    # v1.0.13.2 hotfix (2026-08-01 ORM): value bumped in lockstep with the
+    # cut's CFBundleShortVersionString. The purpose of this entry is to
+    # catch the "shipped with a stale earlier version stamp" bug (v1.0.12
+    # DMG shipped as 1.0.10), so it must equal the CURRENT cut version, not
+    # the initial v1.0.13 pin. Bumped as part of the CM051 pin PR.
+    source_pr: andygmassey/CM051-Home-Hub-Installer#481
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: "Contents/Info.plist"
+      key: "CFBundleShortVersionString"
+      value: "1.0.13.2"
+
+  # --------------------------------------------------------------------------
+  # #193 install.sh companion_enabled default MUST be true (v1.0.13)
+  # --------------------------------------------------------------------------
+  # The v1.0.10 comment on this echo line correctly deferred phone pairing
+  # because neither precondition was yet met: (a) gateway had no companion
+  # listener on 8443, (b) the pair-envelope emitter still advertised loopback.
+  # Both landed pre-v1.0.13 and were verified end-to-end on 2026-07-30 with
+  # a real iPhone completing WebAuthn Step-C 5 times over LAN + TLS. But the
+  # default was never flipped, so every fresh customer install would ship
+  # `companion_enabled = false` and every first-attempt pair would die
+  # silently ("Something went wrong pairing with the Hub").
+  #
+  # This entry proves the source-side default is `true`. A regression to
+  # `false` (accidental revert, "quick disable for testing" left in place)
+  # fails the cut BEFORE codesign. `OSTLER_COMPANION_ENABLED=false` env
+  # override remains available for internal builds that need the listener
+  # disabled — it does not defeat this gate because the DEFAULT literal in
+  # install.sh is what changes here.
+  - id: v1013-companion-enabled-default-true
+    title: install.sh must default companion_enabled to true (env-override preserved)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#485
+    proof:
+      kind: grep_in_installer
+      pattern: 'OSTLER_COMPANION_ENABLED:-true'
+      must_match: true
