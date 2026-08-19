@@ -162,6 +162,7 @@ test_no_unbounded_enrich_invocation.sh	WIRED	.github/workflows/enrichment-reache
 test_no_undefined_msg_refs_in_install_sh.sh	UNWIRED	-
 test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.yml
 test_ollama_install_path_contract.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_ollama_user_active.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_orphan_gate_cannot_verify.sh	WIRED	.github/workflows/cut.yml
 test_ostler_gui_sudo_gates.sh	UNWIRED	-
 test_parser_claims_do_not_cross_services.py	WIRED	.github/workflows/parser-claim-separation.yml
