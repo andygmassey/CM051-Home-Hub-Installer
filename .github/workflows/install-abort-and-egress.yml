@@ -84,10 +84,35 @@ jobs:
       - name: Background enrichment honours the tier context budget
         if: always()
         run: |
-          set -euo pipefail
-          python3 -m pip install --quiet --disable-pip-version-check pytest
-          out="$(python3 -m pytest tests/test_ollama_user_active.py -q 2>&1)"
+          # NO `set -e`. The first version of this step had it, and pip died on
+          # PEP 668 ("externally-managed-environment") at the very first line,
+          # so the step failed having printed NOTHING: no pip error, no pytest
+          # output, no count. A gate whose failure text names nothing it
+          # measured is the defect this repo keeps re-learning. Every command
+          # below therefore reports, and only the explicit checks decide.
+          set -uo pipefail
+
+          # A venv sidesteps PEP 668 entirely rather than guessing whether this
+          # runner image happens to ship pytest or accept --break-system-packages.
+          if ! python3 -m venv /tmp/pytest-venv; then
+            echo "FAIL: could not create the venv. pytest was never installed, so" >&2
+            echo "NOTHING was measured. This is CANNOT-RUN, not a pass." >&2
+            exit 1
+          fi
+          if ! /tmp/pytest-venv/bin/pip install --quiet --disable-pip-version-check pytest; then
+            echo "FAIL: pip could not install pytest. NOTHING was measured." >&2
+            exit 1
+          fi
+          /tmp/pytest-venv/bin/python -m pytest --version
+
+          out="$(/tmp/pytest-venv/bin/python -m pytest tests/test_ollama_user_active.py -q 2>&1)"
+          rc=$?
           printf '%s\n' "$out"
+
+          if [ "$rc" -ne 0 ]; then
+            echo "FAIL: pytest exited ${rc} on tests/test_ollama_user_active.py (output above)." >&2
+            exit 1
+          fi
           passed="$(printf '%s\n' "$out" | grep -oE '[0-9]+ passed' | tail -1 | grep -oE '[0-9]+' || true)"
           if [ -z "$passed" ] || [ "$passed" -lt 15 ]; then
             echo "FAIL: expected at least 15 passing tests in tests/test_ollama_user_active.py, measured '${passed:-none}'." >&2
