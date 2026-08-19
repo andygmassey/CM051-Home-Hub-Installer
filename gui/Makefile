@@ -1047,7 +1047,7 @@ publish-appcast:
 	    --channel "$(APPCAST_CHANNEL)" \
 	    --notes-url "$(RELEASE_NOTES_BASE)/$$VER.html" \
 	    --min-os "$$MINOS" \
-	    "$${REF_ARGS[@]}"; \
+	    "$${REF_ARGS[@]+"$${REF_ARGS[@]}"}"; \
 	printf '[OK] Appcast entry published for Hub v%s (%s)\n' "$$VER" "$(APPCAST_CHANNEL)"
 
 # ---------------------------------------------------------------------------

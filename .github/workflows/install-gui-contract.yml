@@ -23,6 +23,12 @@ on:
       - 'lib/write_pipeline_signals.py'
       - 'gui/OstlerInstaller/**'
       - 'gui/project.yml'
+      # gui/Makefile previously matched NO workflow paths filter in this
+      # repo, so every change to the file that builds, signs, notarises
+      # and publishes the DMG was completely ungated. Added with the
+      # AU-1 REF_ARGS test below.
+      - 'gui/Makefile'
+      - 'tests/test_au1_appcast_ref_args_empty_safe.sh'
       - 'scripts/extract_install_protocol.py'
       - 'scripts/check_install_sh_script_dir_coverage.py'
       - 'gui/scripts/extract_gui_renderers.py'
@@ -89,3 +95,21 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/test_installer_app_bundle_contents.sh
+
+      - name: Run AU-1 appcast REF_ARGS empty-array safety
+        # gui/Makefile ran publish-appcast under `set -u` with a BARE
+        # "${REF_ARGS[@]}" expansion, which raises `unbound variable` on
+        # an EMPTY array under macOS bash 3.2. Both documented SKIP
+        # branches (fresh box / guard disabled) left it empty, so they
+        # printed a friendly [NOTE] and then died. Nothing had ever run
+        # them: publish-appcast is reachable only from ORM's local
+        # `make ship`.
+        #
+        # THIS RUNNER IS UBUNTU AND CANNOT SEE THAT DEFECT. bash 4.4+
+        # expands an empty array harmlessly, so the behavioural arms
+        # report CANNOT-RUN here rather than a false PASS. The portable
+        # source-guard arm is what gates on this runner; the behavioural
+        # arms fire on macOS, which is where the cut is actually made.
+        run: |
+          set -euo pipefail
+          bash tests/test_au1_appcast_ref_args_empty_safe.sh
