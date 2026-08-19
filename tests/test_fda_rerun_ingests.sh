@@ -176,7 +176,21 @@ def _log(line):
 def ingest_all(fda_dir=_MISSING):
     _log("ingest_all " + ("<no-explicit-dir>" if fda_dir is _MISSING else str(fda_dir)))
     if _MODE == "raise":
+        # Structural failure: an import error or a bug in the loop itself.
         raise RuntimeError("ingest exploded")
+    if _MODE == "error_dict":
+        # THE REALISTIC FAILURE, and the one the first version of this test
+        # could not see (Archie, #864). The real ingest_all catches Exception
+        # per source and RECORDS {"status": "error"}; it does not raise. A stub
+        # that only ever raises tests a code path the shipping module cannot
+        # take, so the arm passed while the wrapper exited 0 on seven dead
+        # sources.
+        return {"browser_history": {"status": "error", "error": "qdrant refused"},
+                "bookmarks": {"status": "ok", "sent": 3}}
+    if _MODE == "error_flat":
+        # The whole-directory failure shape: FLAT, not per-source. Iterating it
+        # as if it were per-source finds no dict values and reports all clear.
+        return {"status": "error", "reason": "directory not found: /nope"}
     return {"browser_history": {"status": "ok", "sent": 1}}
 PYEOF
 
@@ -207,13 +221,42 @@ run_wrapper() {
 # The wrapper exactly as install.sh ships it.
 printf '%s\n' "$WRAPPER_BODY" > "${WORK}/ostler-fda.shipped"
 
-# A synthetic EXTRACT-ONLY wrapper, for the negative control. This is the
-# pre-#784 shape: the ingest import and call removed, everything else identical.
-grep -v 'ingest_all' "${WORK}/ostler-fda.shipped" \
-    | sed 's|^results = .*|pass|' > "${WORK}/ostler-fda.extractonly"
+# A synthetic EXTRACT-ONLY wrapper, for the negative control: the pre-#784
+# shape, everything through the extract and nothing after it.
+#
+# BUILT BY TRUNCATION, NOT BY DELETING LINES THAT MENTION ingest_all. The
+# line-deletion version worked until #864 added an error-inspection block, at
+# which point removing every ingest_all line left an `if:` whose body was a
+# comment -- a Python IndentationError, so the fixture crashed BEFORE run_all
+# and the negative control failed for a reason that had nothing to do with the
+# property it guards. A fixture built by subtraction breaks whenever the
+# original grows; truncation at a named anchor does not.
+awk '
+    !stop { print }
+    !stop && $0 == "run_all(fda_dir)" { stop = 1; next }
+    stop && $0 == "\"" { print; stop = 2; next }
+    stop == 2 { print }
+' "${WORK}/ostler-fda.shipped" > "${WORK}/ostler-fda.extractonly"
+
+# The anchor must have been found. If it moves, this fixture silently becomes
+# "the whole shipped wrapper", the negative control then sees ingest_all called
+# and fails -- which is at least loud -- but it could equally become an empty
+# file that fails for the wrong reason. Refuse instead of guessing.
+grep -q '^run_all(fda_dir)$' "${WORK}/ostler-fda.extractonly" || cannot_run \
+    "could not build the extract-only fixture: the run_all(fda_dir) anchor moved"
+# The fixture must not CALL ingest_all. Checked on the comment-stripped text
+# with call syntax, not on the raw text: the wrapper's own comments discuss
+# ingest_all at length, and a bare substring guard fails on the prose while the
+# code is correct -- a false CANNOT-RUN, which is the same class of error as a
+# false green, just noisier. This is control (2)'s predicate, reused.
+strip_comments_file "${WORK}/ostler-fda.extractonly" > "${WORK}/extractonly.stripped" \
+    || cannot_run "strip_comments_file failed on the extract-only fixture"
+! grep -q 'ingest_all(' "${WORK}/extractonly.stripped" || cannot_run \
+    "the extract-only fixture still CALLS ingest_all; truncation did not take"
 
 RC_OK=""; LOG_OK=""
 RC_RAISE=""; LOG_RAISE=""
+RC_EDICT=""; RC_EFLAT=""
 RC_NEG=""; LOG_NEG=""
 
 measure() {
@@ -222,6 +265,9 @@ measure() {
 
     RC_RAISE="$(run_wrapper shipped-raise "${WORK}/ostler-fda.shipped" raise)"
     LOG_RAISE="$(cat "${WORK}/shipped-raise.log" 2>/dev/null || true)"
+
+    RC_EDICT="$(run_wrapper shipped-edict "${WORK}/ostler-fda.shipped" error_dict)"
+    RC_EFLAT="$(run_wrapper shipped-eflat "${WORK}/ostler-fda.shipped" error_flat)"
 
     RC_NEG="$(run_wrapper extract-only "${WORK}/ostler-fda.extractonly" ok)"
     LOG_NEG="$(cat "${WORK}/extract-only.log" 2>/dev/null || true)"
@@ -279,11 +325,28 @@ c5() {
     [[ -n "$extracted" ]] && [[ "$extracted" == "$ingested" ]]
 }
 
-# (6) A FAILING INGEST IS LOUD. The wrapper is the tick's exit status (the
-#     sealed tick.sh says so explicitly), so a `|| true` bolted on to quieten a
-#     noisy tick would restore the original symptom -- ingest not happening,
-#     nothing reporting it -- with the code still present to read.
+# (6) A RAISING INGEST IS LOUD. Structural failure -- import error, a bug in
+#     the dispatch loop. `set -euo pipefail` covers this one on its own.
 c6() { [[ "$RC_RAISE" != "0" ]]; }
+
+# (11) A RECORDED-ERROR INGEST IS ALSO LOUD, and this is the arm that matters.
+#      The real ingest_all NEVER RAISES: its per-source loop catches Exception
+#      and records {"status": "error"}. So `set -e` sees nothing, and before
+#      this control all seven sources could fail with the tick reporting
+#      success. Found by Archie on #864 -- the header asserted loudness the
+#      code did not have.
+#
+#      My own fixture was the reason the gap survived: the stub only ever
+#      RAISED, which is a path the shipping module cannot take. A stand-in that
+#      cannot fail the way the real thing fails is an instrument pointed at the
+#      wrong surface, inside a gate written to catch exactly that.
+c11() { [[ "$RC_EDICT" != "0" ]]; }
+
+# (12) ...including the FLAT whole-directory error shape. Checked separately
+#      because it is a different structure: iterating {"status": "error"} as if
+#      it were per-source finds no dict values and concludes all is well. One
+#      predicate over both shapes would pass here while blind to it.
+c12() { [[ "$RC_EFLAT" != "0" ]]; }
 
 # (7) ...and the harvest still survives it. The extract writes its JSON before
 #     the ingest is attempted, so a broken ingest costs a load, never a
@@ -335,11 +398,13 @@ run_controls() {
     check "(3) running the wrapper calls BOTH extract and ingest"      c3
     check "(4) extract runs before ingest"                             c4
     check "(5) ingest is handed the extract's directory, explicitly"   c5
-    check "(6) a failing ingest exits non-zero"                        c6
+    check "(6) a RAISING ingest exits non-zero"                        c6
     check "(7) a failing ingest still leaves the harvest on disk"      c7
     check "(8) NEGATIVE CONTROL: harness detects an extract-only tick" c8
     check "(9) the wrapper is rewritten on upgrade, not only created"  c9
     check "(10) the shipped wrapper parses under bash 3.2"             c10
+    check "(11) a RECORDED-error ingest exits non-zero"                c11
+    check "(12) ...and the FLAT whole-directory error shape too"       c12
 }
 
 # ---------------------------------------------------------------------------
@@ -377,22 +442,45 @@ if [[ "$SELF_TEST" == "1" ]]; then
     # Defect A: origin/main restored. The ingest call is gone; everything else,
     # including the import, is untouched -- so this also proves (3) is not
     # quietly resting on (1).
+    # NOTE the `.*` anchors. These used to match the call line exactly; #864
+    # appended ` or {}` to it and three probes silently stopped mutating
+    # anything, so the self-test reported "did not go red" for a fixture that
+    # was never modified. A probe pinned to an exact line is a probe that
+    # expires the next time the line is edited -- assert the CALL, not its
+    # current spelling.
     probe "extract-only" \
-        's|^results = ingest_all(fda_dir)$|results = {}|' \
+        's|^results = ingest_all.*|results = {}|' \
         "(3)"
 
     # Defect B: both halves called, wrong order. The tick would ingest the
     # PREVIOUS harvest, so the destination is always one tick stale and looks
     # almost right, which is worse than looking wrong.
+    # Defect B: both halves called, WRONG ORDER -- the tick would ingest the
+    # PREVIOUS harvest, so the destination is always one tick stale and looks
+    # almost right, which is worse than looking wrong.
+    #
+    # Achieved by REBINDING run_all to a no-op and calling the real one after
+    # the ingest, rather than by deleting the `run_all(fda_dir)` line. The
+    # deleting version removed the very anchor the extract-only fixture is
+    # built from, so the run came back CANNOT-RUN and the probe proved nothing.
+    # A probe must not destroy the apparatus it is measured by.
     probe "ingest-before-extract" \
-        's|^run_all(fda_dir)$|pass|; s|^results = ingest_all(fda_dir)$|results = ingest_all(fda_dir); run_all(fda_dir)|' \
+        's|^from ostler_fda.extract_all import run_all$|from ostler_fda.extract_all import run_all as _rr; run_all = lambda *a, **k: None|; s|^results = ingest_all.*|results = ingest_all(fda_dir) or {}; _rr(fda_dir)|' \
         "(4)"
 
     # Defect C: the ingest half defaults its directory instead of being handed
     # the one the extract just wrote.
     probe "ingest-defaults-its-dir" \
-        's|^results = ingest_all(fda_dir)$|results = ingest_all()|' \
+        's|^results = ingest_all.*|results = ingest_all() or {}|' \
         "(5)"
+
+    # Defect E (#864, Archie): the wrapper inspects the result and then does
+    # nothing with it. This is the state main shipped in -- ingest ran, every
+    # source could fail, and the tick still exited 0 because ingest_all records
+    # errors rather than raising them.
+    probe "swallow-recorded-errors" \
+        's|^    sys.exit(1)$|    pass|' \
+        "(11)"
 
     # Defect D: a `|| true` bolted on to quieten a failing tick. Anchored by
     # line number because the closing quote of the `-c` string is a lone `"`
