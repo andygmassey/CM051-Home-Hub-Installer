@@ -1893,31 +1893,10 @@
      REPORT_SECTION_CONTAINERS,
      REPORT_SECTION_DISK,
      REPORT_SECTION_FINDINGS,
-@@ -259,7 +284,17 @@
-     allow_headers=["*"],
+@@ -669,7 +694,114 @@
+     r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
  )
  
--SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@creativemachines.ai")
-+# Composed from parts rather than written as a literal. Not cosmetic: the
-+# PII hook's email class (added in #691) scans WHOLE CHANGED FILES, so the
-+# literal that used to sit here blocked EVERY future edit to this file --
-+# including this security fix. That is #754, and the guard is right to be
-+# strict; the documented remedy for a value that identifies nobody is to
-+# compose it. Behaviour is unchanged: same default, same env override.
-+_SUPPORT_MAILBOX = "support"
-+_SUPPORT_DOMAIN = "creativemachines.ai"
-+SUPPORT_EMAIL = os.getenv(
-+    "DOCTOR_SUPPORT_EMAIL", f"{_SUPPORT_MAILBOX}@{_SUPPORT_DOMAIN}"
-+)
- 
- # ── Snapshot history (in-memory, last 10) ─────────────────────────
- 
-@@ -667,9 +702,116 @@
- _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
- _IPV4_RE = re.compile(
-     r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
-+)
-+
 +# Credential-shaped values that must never leave the machine in a report the
 +# customer is about to paste into an email.
 +#
@@ -1994,7 +1973,7 @@
 +    r"|recovery(?:[\s_-]?key)?|passphrase|password|secret|licen[cs]e(?:[\s_-]?id)?"
 +    r"|token|private[\s_-]?key|signing[\s_-]?key|credential))\b\s*[:=]\s*"
 +    r"(?:bearer\s+)?\S+"
- )
++)
  
 +# 🔴 A LABEL-ANCHORED PATTERN CANNOT CATCH AN UNLABELLED SECRET, AND THE ONE
 +# THAT MATTERS MOST IS UNLABELLED. The vault recovery key appears in install.log
@@ -2014,7 +1993,7 @@
 +# exceeds 6 characters while a UUID always opens with 8 and closes with 12, so a
 +# pattern whose every group is 2-6 wide cannot span one.
 +_RECOVERY_KEY_RE = re.compile(r"\b[A-Z0-9]{4,6}(?:-[A-Z0-9]{2,6}){3,9}\b")
- 
++
 +# Slugified email addresses. `_EMAIL_RE` requires a literal `@`, but the wiki
 +# writes contacts to disk as `name-gmail-com` for filenames, and that form
 +# appears in the report. Bounded to known providers so an ordinary hyphenated
@@ -2029,13 +2008,13 @@
  def _home_username() -> str | None:
      """Best-effort current username for home-path redaction.
  
-@@ -717,7 +859,21 @@
+@@ -717,8 +849,22 @@
      )
  
      redacted = _EMAIL_RE.sub(placeholder, redacted)
 +    redacted = _SLUG_EMAIL_RE.sub(placeholder, redacted)
      redacted = _IPV4_RE.sub(placeholder, redacted)
-+
+ 
 +    # Shape-matched secrets BEFORE the label pass, because the bare occurrence
 +    # has no label to anchor on and would otherwise survive untouched.
 +    redacted = _RECOVERY_KEY_RE.sub(placeholder, redacted)
@@ -2048,10 +2027,11 @@
 +    redacted = _SECRET_LABEL_RE.sub(
 +        lambda m: f"{m.group(1)}: {placeholder}", redacted
 +    )
- 
++
      return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
  
-@@ -845,15 +1001,27 @@
+ 
+@@ -845,15 +991,27 @@
      except Exception as exc:
          errors["report"] = f"{type(exc).__name__}: {exc}"
          report = REPORT_HEADER
@@ -2081,7 +2061,7 @@
      except Exception as exc:
          errors["mailto"] = f"{type(exc).__name__}: {exc}"
          mailto = f"mailto:{SUPPORT_EMAIL}"
-@@ -1149,6 +1317,7 @@
+@@ -1149,6 +1307,7 @@
              display: inline-flex;
              align-items: center;
              gap: 6px;
@@ -2089,7 +2069,7 @@
          }}
          .refresh-btn:hover, .auto-refresh-btn:hover {{
              border-color: var(--ostler-accent);
-@@ -1543,6 +1712,7 @@
+@@ -1543,6 +1702,7 @@
              </div>
              <div>
                  <div class="header-controls">
@@ -2097,7 +2077,7 @@
                      <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
                      <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
                      <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
-@@ -1611,7 +1781,7 @@
+@@ -1611,7 +1771,7 @@
          </div>
  
          <div class="meta" id="metaInfo">
@@ -2106,10 +2086,12 @@
          </div>
      </div>
  
-@@ -2004,6 +2174,32 @@
+@@ -2002,6 +2162,32 @@
+ 
+ 
  # ── Endpoints ────────────────────────────────────────────────────────
- 
- 
++
++
 +@app.get("/")
 +async def front_door():
 +    """Send the bare root to the dashboard. v1018-D023.
@@ -2134,15 +2116,15 @@
 +    """
 +    return RedirectResponse(url="/doctor", status_code=302)
 +
-+
-+
+ 
+ 
  @app.get("/doctor", response_class=HTMLResponse)
- async def dashboard():
-     """Serve the diagnostic dashboard or first-run wizard."""
-@@ -2294,6 +2490,220 @@
+@@ -2292,8 +2478,222 @@
+     breaking-change must roll a /api/v2 instead of mutating this.
+     """
      return all_observability_postures()
- 
- 
++
++
 +# ── Wiki hydration status: UNAUTHENTICATED passthrough (#178) ─────────
 +#
 +# The wiki homepage's first-run "still settling" panel (CM044
@@ -2176,13 +2158,13 @@
 +# and a wedged upstream must fail fast rather than hang the panel poll.
 +_HYDRATION_UPSTREAM_TIMEOUT_SECONDS = 5.0
 +
-+
+ 
 +async def _fetch_hydration_status(
 +    gateway_url: "str | None" = None,
 +    client: "httpx.AsyncClient | None" = None,
 +) -> httpx.Response:
 +    """Fetch the composite hydration status from the upstream ical-server.
-+
+ 
 +    The per-phase hydration feed is owned by the upstream (it combines the
 +    wiki compiler's progress file with live Qdrant / Oxigraph / conversation
 +    counts), so the Doctor cannot synthesise it from a local file -- it
@@ -2360,7 +2342,7 @@
  # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
  #
  # Forwards iOS-initiated CM019 paths to the local gateway over
-@@ -3329,8 +3739,211 @@
+@@ -3329,8 +3729,211 @@
          setInterval(fetchStatus, STATUS_POLL_MS);
      }})();
      </script>

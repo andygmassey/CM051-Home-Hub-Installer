@@ -284,17 +284,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Composed from parts rather than written as a literal. Not cosmetic: the
-# PII hook's email class (added in #691) scans WHOLE CHANGED FILES, so the
-# literal that used to sit here blocked EVERY future edit to this file --
-# including this security fix. That is #754, and the guard is right to be
-# strict; the documented remedy for a value that identifies nobody is to
-# compose it. Behaviour is unchanged: same default, same env override.
-_SUPPORT_MAILBOX = "support"
-_SUPPORT_DOMAIN = "creativemachines.ai"
-SUPPORT_EMAIL = os.getenv(
-    "DOCTOR_SUPPORT_EMAIL", f"{_SUPPORT_MAILBOX}@{_SUPPORT_DOMAIN}"
-)
+SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@creativemachines.ai")
 
 # ── Snapshot history (in-memory, last 10) ─────────────────────────
 
