@@ -65,6 +65,20 @@ cannot_run() {
 
 git rev-parse --git-dir >/dev/null 2>&1 || cannot_run "not inside a git work tree"
 
+# The comment-stripper is SHARED with verify_critical_tests_stay_invoked.sh.
+# It used to be an inline `sed 's/#.*$//'` in each, which truncated at a `#`
+# inside a quoted string and was duplicated by #858 before it was fixed.
+# Missing library is CANNOT-RUN, never a pass: without stripping, every comment
+# mention would score as an invocation, which is the defect this gate exists to
+# refuse.
+_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
+# shellcheck source=lib/strip_comments.sh
+[ -r "${_LIB_DIR}/strip_comments.sh" ] \
+    || cannot_run "cannot read ${_LIB_DIR}/strip_comments.sh; without it nothing can be comment-stripped and every mention would count as an invocation"
+. "${_LIB_DIR}/strip_comments.sh"
+command -v strip_comments_file >/dev/null 2>&1 \
+    || cannot_run "strip_comments.sh sourced but strip_comments_file is not defined"
+
 # THREE-DOT. The question is "what does this change ADD", which is the diff
 # from the MERGE BASE, not from the current tip of main. A two-dot diff also
 # reports files main gained while this branch was open, and would demand the
@@ -91,15 +105,16 @@ RUNNERS="$(git ls-files \
 RUNNER_N="$(printf '%s' "$RUNNERS" | grep -c . )"
 [ "${RUNNER_N:-0}" -gt 0 ] || cannot_run "no workflow or runner files found to search; every test would score dark for want of anywhere to look"
 
-# COMMENT-STRIPPED corpus. Built once. `#` to end of line for both YAML and
-# shell; python comments share the character. This is the line that makes the
-# gate count invocations rather than mentions.
+# COMMENT-STRIPPED corpus. Built once. `#` to end of line for YAML, shell and
+# python alike. This is the step that makes the gate count invocations rather
+# than mentions, and it is QUOTE-AWARE: see scripts/lib/strip_comments.sh for
+# why an unbalanced-quote line deliberately falls back to the blunt cut.
 CORPUS="$(mktemp -t newtestwiring_XXXXXX)"
 trap 'rm -f "$CORPUS"' EXIT
 while IFS= read -r f; do
     [ -n "$f" ] || continue
     [ -f "$f" ] || continue
-    sed 's/#.*$//' "$f"
+    strip_comments_file "$f"
 done <<EOF >"$CORPUS"
 $RUNNERS
 EOF
@@ -109,11 +124,17 @@ CHECKED=0
 while IFS= read -r t; do
     [ -n "$t" ] || continue
     CHECKED=$((CHECKED + 1))
-    base="$(basename "$t")"
-    # The path OR the bare basename, in comment-stripped runner text. A test is
-    # commonly invoked by full path from a workflow and by basename from a
-    # sibling runner, so both count -- but only outside comments.
-    if grep -qF -e "$t" -e "$base" "$CORPUS" 2>/dev/null; then
+    # The path OR the bare basename, on a line that ALSO carries an execution
+    # verb. A test is commonly invoked by full path from a workflow and by
+    # basename from a sibling runner, so both count -- but naming it is not
+    # running it, and `run: echo "... test_thing.sh"` is not an invocation.
+    #
+    # This USED to be a bare `grep -qF`. That was only safe because the blunt
+    # stripper truncated the line at the first `#`; with a correct quote-aware
+    # stripper the substring predicate lets a quoted mention through. Shared
+    # with verify_critical_tests_stay_invoked.sh so the two gates agree on what
+    # "invoked" means.
+    if is_invoked_in_corpus "$t" "$CORPUS"; then
         printf '  WIRED  %s\n' "$t"
     else
         printf '  DARK   %s\n' "$t"

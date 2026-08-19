@@ -67,9 +67,23 @@ tests/test_hydrate_sentinel_not_on_error.sh       a FAILED hydrate step suppress
 tests/test_aiconv_hydrate_honesty.sh              a timed-out or crashed drain recording itself as complete
 scripts/tests/test_egress_probe_attribution.sh    an unattributable socket being silently counted as the operator's own
 scripts/tests/test_new_tests_are_wired_predicate.sh  a newly added test never being invoked by anything
+scripts/tests/test_comment_strip_is_quote_aware.sh   a quoted # read as a comment, so a real invocation is deleted before this gate sees it
+scripts/tests/test_invocation_predicate_rejects_non_execution.sh  bash -n scoring as a run, and the sh inside shipping scoring as a shell
 "
 
 cannot_run() { echo "CANNOT-RUN: $*" >&2; exit 2; }
+
+# SHARED with verify_new_tests_are_wired.sh. This gate was written with its own
+# inline copy of the stripper, which is how the quoted-# defect ended up in two
+# files at once. One implementation, one place to fix it. Absent library is
+# CANNOT-RUN: unstripped runners would score every comment mention as an
+# invocation, which inverts what this gate asserts.
+[ -r "${HERE}/scripts/lib/strip_comments.sh" ] \
+    || cannot_run "cannot read ${HERE}/scripts/lib/strip_comments.sh; without it nothing can be comment-stripped and a mere mention would score as an invocation"
+# shellcheck source=lib/strip_comments.sh
+. "${HERE}/scripts/lib/strip_comments.sh"
+command -v strip_comments_file >/dev/null 2>&1 \
+    || cannot_run "strip_comments.sh sourced but strip_comments_file is not defined"
 
 # ── APPARATUS CONTROL ───────────────────────────────────────────────────────
 # An empty corpus would score every test DARK for want of anywhere to look,
@@ -84,18 +98,20 @@ trap 'rm -f "$CORPUS"' EXIT
 while IFS= read -r f; do
     [ -n "$f" ] || continue
     [ -f "$f" ] || continue
-    sed 's/#.*$//' "$f"
+    strip_comments_file "$f"
 done <<EOF >"$CORPUS"
 $RUNNERS
 EOF
 
 # Is $1 invoked, rather than merely named, anywhere in the comment-stripped
 # corpus? Requires an execution verb on the SAME line.
+# The pattern moved VERBATIM into scripts/lib/strip_comments.sh so that
+# verify_new_tests_are_wired.sh uses the same one. Behaviour here is unchanged:
+# same regex, same corpus, same verbs. Two gates disagreeing about what
+# "invoked" means is how a test ends up wired by one measure and dark by the
+# other.
 is_invoked() {
-    local t="$1" base
-    base="$(basename "$t")"
-    grep -E "(bash|sh|pytest|python3 -m|\./)[^#]*($(printf '%s' "$t" | sed 's/[.[\*^$/]/\\&/g')|$(printf '%s' "$base" | sed 's/[.[\*^$/]/\\&/g'))" \
-        "$CORPUS" >/dev/null 2>&1
+    is_invoked_in_corpus "$1" "$CORPUS"
 }
 
 echo "verify_critical_tests_stay_invoked"
