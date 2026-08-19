@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Ostler personal-context-digest refresh LaunchAgent (#608).
+
+        Runs generate_pwg_context.py, which queries the local
+        ical-server (127.0.0.1:8090) and writes a compact CONTEXT.md
+        digest into the assistant's workspace dir. The ostler-assistant
+        daemon injects CONTEXT.md verbatim into every system prompt,
+        so the chat assistant has baseline awareness of the customer's
+        people, meetings and preferences. Without this agent the digest
+        is never produced and the assistant answers "I have no access
+        to your data" -- the v1.0.1 launch blocker.
+
+        Pattern mirrors the wiki-recompile LaunchAgent
+        (com.creativemachines.ostler.wiki-recompile): a /bin/bash
+        wrapper does the real work; this plist just schedules it.
+
+        The installer renders the placeholders below at install time:
+          OSTLER_BIN  -> $OSTLER_DIR/bin
+          OSTLER_HOME -> $HOME (used as working directory)
+          OSTLER_LOGS -> $LOGS_DIR (~/.ostler/logs by default)
+
+        British English throughout.
+    -->
+    <key>Label</key>
+    <string>com.creativemachines.ostler.context-refresh</string>
+
+    <!--
+        Wrapper script sets the ZEROCLAW_WORKSPACE_DIR contract and
+        runs the digest generator; placeholder is replaced at install
+        time with the absolute path.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>OSTLER_BIN/context-refresh-tick.sh</string>
+    </array>
+
+    <!--
+        PATH for python3 resolution. LaunchAgents do not inherit the
+        user's shell PATH; the wrapper prepends the same set, but the
+        block keeps a hand-edited plist working too.
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!--
+        Three scheduled fires per day so the digest tracks the graph
+        as contacts and meetings sync, and is fresh around the morning
+        brief and evening wrap. The digest is a few KB over loopback,
+        so this is cheap. StartCalendarInterval honours the system
+        timezone. Andy can tune the cadence post-launch.
+
+        Separate dicts (NOT one dict with multiple Hour entries):
+        launchd treats StartCalendarInterval values as wildcards, so a
+        single dict with several hours would not do what it looks like.
+    -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key>
+            <integer>7</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>13</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>19</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+    </array>
+
+    <!--
+        RunAtLoad fires once at LaunchAgent load (login or post-
+        install). This is what produces the FIRST digest right after
+        install, so the very first chat already has context. If the
+        ical-server is not up yet the generator leaves any prior
+        CONTEXT.md untouched and the next calendar fire (or the next
+        login) catches up -- but it exits NON-ZERO while doing so.
+
+        The exit code is not cosmetic. Until 2026-08-18 the generator
+        exited 0 no matter what, and it had never once produced a
+        CONTEXT.md on a real install: it sent no Authorization header,
+        so every /api/v1/* read came back 401. `last exit code = 0`
+        was the third of three green lights over a dead pipeline. The
+        codes now mean: 0 clean, 1 write failed, 2 nothing produced,
+        3 produced but degraded. See context-refresh.err for the
+        per-section counts and the status of every source read.
+    -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!--
+        Working directory: HOME so any relative paths resolve against
+        the user's home rather than /.
+    -->
+    <key>WorkingDirectory</key>
+    <string>OSTLER_HOME</string>
+
+    <!--
+        Stdout and stderr go to $LOGS_DIR. A clean run is one short
+        line on stdout ("wrote N chars"); a failed or degraded run
+        adds a measured report on stderr naming each section's item
+        count and the status code observed for every source read.
+        Doctor surfaces these when troubleshooting why the assistant
+        lacks context.
+
+        The report deliberately states only what was OBSERVED. The
+        line it replaced ("ical-server down or empty graph") asserted
+        two causes nobody had measured, and on the install that
+        surfaced the defect BOTH were false: ical-server was
+        answering /health 200 and the graph held 6,549 person nodes.
+    -->
+    <key>StandardOutPath</key>
+    <string>OSTLER_LOGS/context-refresh.log</string>
+    <key>StandardErrorPath</key>
+    <string>OSTLER_LOGS/context-refresh.err</string>
+
+    <!--
+        Background priority: the digest refresh is not latency-critical
+        and must not compete with foreground work on the user's
+        daily-driver Mac. Matches the wiki-recompile agent's pick.
+    -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>

@@ -46,6 +46,7 @@ boundary.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
@@ -59,6 +60,29 @@ from typing import Any, Dict, Optional
 
 import yaml  # PyYAML, listed in doctor/agent/requirements.txt
 
+# The settling-progress writer lives in ostler_fda (already vendored into
+# CM051). Doctor's sys.path may not include the HR015 root at test time; we
+# make the import best-effort so a missing module here never blocks an
+# import (the panel degrades to calendar mode -- honest fallback).
+try:
+    # ostler_fda ships as a sibling package at the HR015 repo root; add the
+    # repo root to sys.path so the import resolves whether Doctor is run
+    # from the repo, from a vendored install, or under pytest.
+    _REPO_ROOT = Path(__file__).resolve().parents[2]
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    from ostler_fda.settling_progress import (  # noqa: E402
+        report_settling_progress,
+    )
+except Exception:  # noqa: BLE001 -- best-effort import; see comment
+    report_settling_progress = None  # type: ignore[assignment]
+
+_logger = logging.getLogger(__name__)
+
+# Settling-progress channel for the "notes" panel. Evernote is the sole
+# producer today; Notion/Obsidian will follow the same shape once wired.
+_SETTLING_CHANNEL = "notes"
+
 
 # ── Default paths ─────────────────────────────────────────────────────
 
@@ -68,12 +92,58 @@ DEFAULT_LOCK_DIR = DEFAULT_OSTLER_DIR / "locks"
 DEFAULT_LOG_DIR = DEFAULT_OSTLER_DIR / "logs"
 DEFAULT_STATE_DIR = DEFAULT_OSTLER_DIR / "state"
 DEFAULT_STAGING_DIR = DEFAULT_OSTLER_DIR / "data" / "knowledge-staging"
+DEFAULT_METADATA_DB = DEFAULT_OSTLER_DIR / "data" / "knowledge-metadata.db"
 
 LOCK_FILENAME = "import-evernote.lock"
 LOG_FILENAME_PREFIX = "import-evernote-"
 STATE_FILENAME_PREFIX = "import-evernote-"
 
 DEFAULT_OSTLER_KNOWLEDGE_BIN = "/usr/local/bin/ostler-knowledge"
+
+# The knowledge source this import handles. ``evernote`` for now; the
+# Notion/Obsidian sources reuse this same convert+embed path with a
+# different value, which selects the ``<source>_knowledge`` collection.
+DEFAULT_SOURCE = "evernote"
+
+# Canonical Ostler Hub embedding model. The install pre-creates the
+# knowledge Qdrant collections at 768 dims (nomic-embed-text), so embed
+# MUST use the same model or every upsert fails the dimension check and
+# the wiki Knowledge section stays silently empty. Overridable for
+# operators who standardise on a different 768-dim model.
+DEFAULT_EMBED_MODEL = "nomic-embed-text"
+
+
+def _embed_model() -> str:
+    return os.environ.get("OSTLER_KNOWLEDGE_EMBED_MODEL", DEFAULT_EMBED_MODEL)
+
+
+def _collection_for_source(source: str) -> str:
+    """The Qdrant collection the wiki + MCP read for a given source."""
+    return f"{source}_knowledge"
+
+
+# Privacy cap: the highest compartment level (sensitivity) that may be
+# embedded into the searchable collection. Default 2 keeps L3
+# (compartment_level 3, "private") notes OUT of search. They are still
+# converted to markdown in the staging tree -- just never indexed into
+# Qdrant. This matters because the wiki Knowledge reader does NOT filter
+# by level at render time, so excluding L3 at embed is the only thing
+# standing between a private note and the browsable wiki. Overridable via
+# env for an operator who deliberately wants their full corpus searchable
+# on their single-user box.
+DEFAULT_MAX_COMPARTMENT_LEVEL = 2
+
+
+def _max_compartment_level() -> int:
+    raw = os.environ.get("OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL")
+    if raw is None:
+        return DEFAULT_MAX_COMPARTMENT_LEVEL
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        # A garbled override must never widen the cap and leak L3; fall
+        # back to the safe default.
+        return DEFAULT_MAX_COMPARTMENT_LEVEL
 
 # Job IDs are ``YYYYMMDDTHHMMSSZ-<8 hex>``. The format is deliberately
 # narrow so the regex can double as a path-traversal defence on
@@ -182,6 +252,99 @@ def validate_enex_path(raw_path: Any) -> Path:
     return resolved
 
 
+# ── Settling-progress emit ───────────────────────────────────────────
+
+
+# Regex compiled once. `<note>` opening tag with optional attributes; we
+# count the opening tag rather than a closing one so a truncated ENEX still
+# emits a plausible total rather than 0. Non-anchored, byte-oriented so the
+# streaming parser below can walk arbitrarily large ENEX files without
+# loading the whole document into memory.
+_NOTE_OPEN_TAG_RE = re.compile(rb"<\s*note\b", re.IGNORECASE)
+
+# ENEX files can be tens or hundreds of MB. The count helper reads in fixed
+# chunks so we never balloon Doctor's RSS on a big export.
+_ENEX_CHUNK_BYTES = 1 << 20  # 1 MiB
+
+# Cap the note-count scan to keep start_import fast on a very large ENEX
+# (hundreds of thousands of notes = ~seconds of scanning). If the customer's
+# export is larger than the cap we return the cap; the settling panel's job
+# is a rough denominator, not a forensic count.
+_ENEX_MAX_NOTES_FOR_TOTAL = 200_000
+
+
+def count_enex_notes(enex_path: Path) -> int:
+    """Count `<note>` opening tags in an ENEX export.
+
+    Streaming byte scan so a 200 MB ENEX does not balloon Doctor's memory.
+    Best-effort: any read error returns 0 so a mangled ENEX cannot abort
+    the import (the reader treats total=0 as "ready" or "waiting", never
+    as an error).
+
+    The count is a rough denominator for the settling-progress bar --
+    tiny over/under-counts are fine (a trailing `<note>` inside a CDATA
+    body counts, an ENEX header does not). We do NOT parse XML: that would
+    slow start_import measurably on a real export.
+    """
+    try:
+        with open(enex_path, "rb") as fh:
+            total = 0
+            # Carry the last 5 bytes across chunk boundaries so a `<note`
+            # split across two reads is still matched. 5 bytes is enough
+            # for the regex's `<\s*note\b` anchor plus a byte of whitespace.
+            carry = b""
+            while True:
+                chunk = fh.read(_ENEX_CHUNK_BYTES)
+                if not chunk:
+                    break
+                buffer = carry + chunk
+                # Do not double-count the carry region: the regex is
+                # matched on the whole buffer, then we keep the tail as
+                # the next carry.
+                matches = _NOTE_OPEN_TAG_RE.findall(buffer)
+                total += len(matches)
+                if total >= _ENEX_MAX_NOTES_FOR_TOTAL:
+                    return _ENEX_MAX_NOTES_FOR_TOTAL
+                carry = buffer[-8:]
+            return total
+    except OSError as exc:
+        _logger.warning(
+            "settling-progress: could not count notes in %s (%s: %s)",
+            enex_path, type(exc).__name__, exc,
+        )
+        return 0
+
+
+def _emit_notes_settling(
+    *,
+    done: int,
+    total: int,
+    needs_source: bool = False,
+    started_at: Optional[str] = None,
+) -> None:
+    """Best-effort settling-progress emit for the notes (Evernote) backfill.
+
+    Wraps :func:`report_settling_progress` in try/except so a missing
+    helper import or full-disk write can never abort ``start_import`` --
+    the settling panel is a UX affordance, not a load-bearing dependency.
+    """
+    if report_settling_progress is None:
+        return
+    try:
+        report_settling_progress(
+            channel=_SETTLING_CHANNEL,
+            done=done,
+            total=total,
+            needs_source=needs_source,
+            started_at=started_at,
+        )
+    except Exception:  # noqa: BLE001 -- see docstring
+        _logger.warning(
+            "settling-progress: notes emit failed; continuing import",
+            exc_info=True,
+        )
+
+
 # ── Lockfile ─────────────────────────────────────────────────────────
 
 
@@ -261,15 +424,19 @@ def _runner_path() -> Path:
 def start_import(
     enex_path: Path,
     *,
+    source: str = DEFAULT_SOURCE,
     _now: Optional[datetime] = None,
     _lock_dir: Optional[Path] = None,
     _log_dir: Optional[Path] = None,
     _state_dir: Optional[Path] = None,
     _staging_dir: Optional[Path] = None,
+    _metadata_db: Optional[Path] = None,
     _binary: Optional[str] = None,
     _subprocess: Any = None,
     _runner: Optional[Path] = None,
     _python: Optional[str] = None,
+    _embed_model_name: Optional[str] = None,
+    _max_compartment_level_value: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Fork ``ostler-knowledge`` via the supervisor wrapper.
 
@@ -283,6 +450,13 @@ def start_import(
     log_dir = Path(_log_dir or DEFAULT_LOG_DIR).expanduser()
     state_dir = Path(_state_dir or DEFAULT_STATE_DIR).expanduser()
     staging_dir = Path(_staging_dir or DEFAULT_STAGING_DIR).expanduser()
+    metadata_db = Path(_metadata_db or DEFAULT_METADATA_DB).expanduser()
+    embed_model = _embed_model_name or _embed_model()
+    max_level = (
+        _max_compartment_level_value
+        if _max_compartment_level_value is not None
+        else _max_compartment_level()
+    )
 
     # Resolve subprocess at call time (not in the default arg) so
     # ``monkeypatch.setattr(ie, "subprocess", rec)`` in tests actually
@@ -327,8 +501,49 @@ def start_import(
                 500, f"could not open log file {log_path}: {exc}",
             )
 
+        # Count notes in the ENEX for the settling-progress denominator.
+        # Fast streaming byte scan; a mangled ENEX returns 0 (the panel
+        # then falls back to calendar mode -- honest degradation). We do
+        # this BEFORE the fork so the panel has a real total immediately
+        # rather than 0 for the whole convert phase.
+        note_count = count_enex_notes(enex_path)
+
+        # Initial settling emit: `done=0, total=note_count`. If note_count
+        # is 0 (empty or unreadable ENEX) we still emit needs_source=False
+        # so the reader classifies as ready rather than waiting -- an
+        # empty ENEX is a completed import of zero notes, not "no source
+        # connected". The runner emits the terminal `done=total` at end.
+        _emit_notes_settling(
+            done=0,
+            total=note_count,
+            needs_source=False,
+            started_at=started_at,
+        )
+
         try:
             try:
+                # Phase 1: convert the export to markdown in the staging
+                # tree. Phase 2: embed that markdown into the source's
+                # Qdrant collection so the wiki + MCP actually have
+                # something to read -- this is the step whose absence
+                # left Knowledge silently empty. nomic-embed-text/768
+                # matches the collection the installer pre-creates; the
+                # runner runs embed ONLY if convert exits 0.
+                convert_phase = [
+                    binary, "convert", "--source", source,
+                    str(enex_path), "--output", str(staging_dir),
+                ]
+                embed_phase = [
+                    binary, "embed", str(staging_dir),
+                    "--collection", _collection_for_source(source),
+                    "--embedding-model", embed_model,
+                    # Privacy gate: keep L3 ("private") notes out of the
+                    # searchable collection the wiki + MCP read. The
+                    # reader does not re-filter by level, so this is the
+                    # only barrier.
+                    "--max-compartment-level", str(max_level),
+                    "--db-path", str(metadata_db),
+                ]
                 proc = sub.Popen(
                     [
                         python, str(runner),
@@ -338,9 +553,15 @@ def start_import(
                         "--log-path", str(log_path),
                         "--enex-path", str(enex_path),
                         "--started-at", started_at,
+                        # Pass the note count through so the runner can
+                        # emit the terminal settling tick with a real
+                        # total. Runner treats 0 as "count unknown" and
+                        # emits done=0/total=0 (ready) on success.
+                        "--note-count", str(note_count),
                         "--",
-                        binary, "convert", "--source", "evernote",
-                        str(enex_path), "--output", str(staging_dir),
+                        *convert_phase,
+                        "--and-then",
+                        *embed_phase,
                     ],
                     stdout=log_handle,
                     stderr=sub.STDOUT,

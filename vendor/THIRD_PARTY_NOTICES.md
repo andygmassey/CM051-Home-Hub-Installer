@@ -278,7 +278,7 @@ the choice and reproduce the licence text.
 
 | Model | Default version | Licence | Used by |
 |---|---|---|---|
-| Qwen 3.5 9B | qwen3.5:9b (Q4_0) | Apache-2.0 (Alibaba) | Marvin assistant (default) |
+| Qwen 3.5 9B | qwen3.5:9b (Q4_0) | Apache-2.0 (Alibaba) | assistant (default) |
 | Qwen 3.5 35B-A3B | qwen3.5:35b-a3b | Apache-2.0 (Alibaba) | enrichment / extraction |
 | nomic-embed-text | latest | Apache-2.0 | embeddings |
 | OpenAI Whisper (medium-v3-turbo) | via WhisperKit | MIT | transcription |

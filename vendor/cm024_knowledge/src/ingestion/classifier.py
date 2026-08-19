@@ -292,11 +292,31 @@ class PrivacyClassifier:
         prompt = self._build_classification_prompt(note)
 
         url = f"{self.ollama_host}/api/generate"
+
+        # Take the installer's per-tier enrichment context budget, then yield
+        # to the user before starting a new background request (knowledge
+        # classification runs during hydration/enrichment).
+        #
+        # num_ctx is RESOLVED, not hardcoded: install.sh sets
+        # OSTLER_ENRICH_NUM_CTX per resource tier, and a 16 GB Mac (the
+        # installer's hard minimum) sits at `low` = 8192. Pinning 32768 here
+        # would ask the smallest supported box for four times its own budget.
+        #
+        # Crash-safe throughout: a missing helper falls back to the daemon's
+        # own default, and a missing/stale lease returns immediately.
+        num_ctx = 32768
+        try:
+            from ..ollama_user_active import resolve_enrich_num_ctx, wait_until_user_idle
+            num_ctx = resolve_enrich_num_ctx()
+            wait_until_user_idle()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("user-active lease check skipped: %s", exc)
+
         payload = {
             "model": self.llm_model,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": 0.1},
+            "options": {"temperature": 0.1, "num_ctx": num_ctx},
         }
 
         try:

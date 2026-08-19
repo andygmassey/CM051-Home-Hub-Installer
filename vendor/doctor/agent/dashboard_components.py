@@ -44,6 +44,21 @@ except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
     def all_observability_postures() -> dict:  # type: ignore[no-redef]
         return {}
 
+# iMessage TCC posture marker (task #278). Sibling of the
+# observability-posture readers but lives inside the doctor agent
+# rather than ostler_security because the marker is written by
+# CM051 install.sh, not by an Ostler service. No soft fall-through
+# needed: the reader module is part of the doctor package itself
+# and is always importable.
+from imessage_tcc_posture import read_imessage_tcc_posture
+from reminders_posture import read_reminders_posture
+from reminders_runtime import (
+    STATE_NO_DATA,
+    STATE_OK,
+    STATE_PERMISSION_DENIED,
+    read_reminders_runtime,
+)
+
 # A7+A8: consent registry. Same soft-fall-through rule as posture –
 # Doctor must keep rendering even when ostler_security is missing.
 # The wording-hash check is best-effort: if the legal package is
@@ -60,6 +75,7 @@ try:
     from legal import (  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
         ARTICLE_9_EU_CONSENT,
         EU_VOICE_SPEAKER_ID_CONSENT,
+        SPOKEN_CAPTURE_RECORDING_CONSENT,
         THIRD_PARTY_DATA_NOTICE,
         WHATSAPP_UNOFFICIAL_RISK_CONSENT,
     )
@@ -69,6 +85,7 @@ try:
         WHATSAPP_UNOFFICIAL_RISK_CONSENT.tickbox_id: WHATSAPP_UNOFFICIAL_RISK_CONSENT,
         EU_VOICE_SPEAKER_ID_CONSENT.tickbox_id: EU_VOICE_SPEAKER_ID_CONSENT,
         THIRD_PARTY_DATA_NOTICE.tickbox_id: THIRD_PARTY_DATA_NOTICE,
+        SPOKEN_CAPTURE_RECORDING_CONSENT.tickbox_id: SPOKEN_CAPTURE_RECORDING_CONSENT,
     }
 except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
     _BUNDLED_CONSENTS = {}
@@ -543,119 +560,529 @@ def render_consent_status() -> str:
     </div>"""
 
 
-# ── Subscription tile (Ostler Pro state) ──────────────────────────────
+# ── iMessage TCC posture tile (task #278) ─────────────────────────
 
 
-def _read_subscription_state() -> dict:
-    """Read the subscription state file Doctor needs to render the tile.
+# Colour map for the four states emitted by CM051 install.sh.
+# ``granted-and-working`` is green; the two failure states are
+# coloured by severity (``tcc-denied`` = amber warning because the
+# customer can fix it themselves via System Settings;
+# ``check-failed`` = red error because the snapshot itself is
+# untrustworthy and the customer has no clear remediation).
+# ``unknown`` matches the other tiles' grey fallback for an
+# unrecognised status field.
+_IMESSAGE_TCC_COLOURS = {
+    "granted-and-working": "#5cb579",
+    "tcc-denied": "#d4a052",
+    "check-failed": "#d96666",
+    "unknown": "rgba(236,232,221,0.40)",
+}
+_IMESSAGE_TCC_ICONS = {
+    "granted-and-working": "&#10003;",
+    "tcc-denied": "&#9888;",
+    "check-failed": "&#9888;",
+    "unknown": "?",
+}
 
-    Loose-coupled to ``subscription_gate.py``: Doctor reads the JSON
-    directly so it can render even if the helper module is missing,
-    moved, or its parent directory has not been created yet (e.g. very
-    early in install.sh, or in a CI environment where the assistant_api
-    surface is not vendored alongside Doctor).
 
-    On any read error -- file missing, parent dir missing, JSON corrupt
-    -- returns a safe default. Doctor surfaces "Inactive" rather than
-    refusing to render.
+def render_imessage_tcc_posture(now_dt=None) -> str:
+    """Render the iMessage TCC posture tile.
+
+    Reads ``~/.ostler/imessage-posture/state.md`` written by CM051
+    install.sh section 3.18. Returns:
+
+    - Empty string when the marker is absent (e.g. fresh install
+      before install.sh has run, or an install with the iMessage
+      channel not enabled). Doctor falls through to no section
+      rather than rendering an empty header.
+    - A single status card otherwise. Colour is status-dependent
+      (green / amber / red / grey) and the body carries the
+      detail copy plus a click-through ``<details>`` block with
+      remediation guidance and the full marker text.
+
+    The render is server-side static HTML; no JS needed for the
+    expand-collapse (it uses the native ``<details>`` element).
     """
-    import json
-    import os
-    from pathlib import Path
+    # Imports kept function-scoped to mirror the rest of the
+    # dashboard renderers and to avoid importing the catalogue at
+    # module-load time (which would break the no-catalogue
+    # fallback test surface).
+    from web_ui_copy import (
+        IMESSAGE_TCC_CAPTURED_AT_PREFIX_FMT,
+        IMESSAGE_TCC_DETAIL_CHECK_FAILED,
+        IMESSAGE_TCC_DETAIL_DENIED,
+        IMESSAGE_TCC_DETAIL_GRANTED,
+        IMESSAGE_TCC_DETAIL_UNKNOWN,
+        IMESSAGE_TCC_FULL_MARKER_LABEL,
+        IMESSAGE_TCC_HOW_TO_FIX_LABEL,
+        IMESSAGE_TCC_REMEDIATION_CHECK_FAILED,
+        IMESSAGE_TCC_REMEDIATION_DENIED,
+        IMESSAGE_TCC_SECTION_TITLE,
+        IMESSAGE_TCC_SOURCE_PREFIX_FMT,
+        IMESSAGE_TCC_STATUS_CHECK_FAILED,
+        IMESSAGE_TCC_STATUS_DENIED,
+        IMESSAGE_TCC_STATUS_GRANTED,
+        IMESSAGE_TCC_STATUS_UNKNOWN,
+        IMESSAGE_TCC_STDERR_LABEL,
+    )
 
-    override = os.environ.get("OSTLER_SUBSCRIPTION_STATE")
-    if override:
-        path = Path(override)
-    else:
-        path = Path.home() / ".ostler" / "state" / "subscription_state.json"
-
-    if not path.exists():
-        return {"status": "inactive", "source": "default"}
-    try:
-        raw = path.read_text()
-        parsed = json.loads(raw)
-        if not isinstance(parsed, dict):
-            return {"status": "inactive", "source": "default"}
-        return parsed
-    except (OSError, json.JSONDecodeError):
-        return {"status": "inactive", "source": "default"}
-
-
-def render_subscription_banner() -> str:
-    """Render the Ostler Pro subscription state tile.
-
-    Apple-restraint language: never "your data is locked" -- always
-    "ongoing intelligence paused". The customer's existing data stays
-    accessible regardless of state (Obsidian vault, exports). Only
-    new ingestion + brief composition + Reminders push pause.
-
-    Colour posture:
-
-    - **Green** when ``status == active`` (subscription valid).
-    - **Amber** when ``status == grace`` (post-lapse grace window).
-    - **Muted** when ``status == inactive`` (intelligence paused).
-
-    Never red: cancelling a subscription is a legitimate customer
-    action, not an error.
-
-    Returns the empty string when the state file is missing AND no
-    ``last_validated_at`` has ever been written, so a brand-new
-    install pre-license-verification does not render an empty tile.
-    """
-    state = _read_subscription_state()
-    status = state.get("status", "inactive")
-    source = state.get("source", "default")
-
-    # Pre-install: state file does not exist yet AND no Companion
-    # contact has ever been recorded. Render nothing rather than a
-    # confusing "Inactive" tile on first launch.
-    if source == "default" and not state.get("last_validated_at"):
+    marker = read_imessage_tcc_posture()
+    if marker is None:
         return ""
 
-    if status == "active":
-        colour = "#5cb579"
-        icon = "&#10003;"
-        expires = state.get("expires_at")
-        if expires:
-            # Strip the Z + time portion for the customer-facing line
-            # (we only show the date; the JSON has the full timestamp).
-            human_expires = expires.split("T")[0]
-            headline = f"Active &middot; expires {_html_escape(human_expires)}"
-        else:
-            headline = "Active"
-        if source == "first_month_free":
-            detail = "First 30 days included with Hub purchase. Subscribe via the iOS Companion to extend."
-        else:
-            detail = "Ostler Pro active &middot; ongoing intelligence is running."
-    elif status == "grace":
-        colour = "#d4a052"
-        icon = "&#9888;"
-        grace_end = state.get("grace_period_end")
-        if grace_end:
-            human_grace = grace_end.split("T")[0]
-            headline = f"Grace period &middot; resumes pause on {_html_escape(human_grace)}"
-        else:
-            headline = "Grace period"
-        detail = "Reactivate via the iOS Companion to keep ongoing intelligence running past the grace window."
-    else:  # inactive
-        colour = "rgba(236,232,221,0.40)"
-        icon = "&#9675;"
-        headline = "Inactive &middot; ongoing intelligence paused"
-        detail = (
-            "Your existing wiki, conversations, and exports remain accessible. "
-            "Reactivate via the iOS Companion to resume new ingestion."
+    status = marker.get("status", "unknown")
+    if status not in _IMESSAGE_TCC_COLOURS:
+        status = "unknown"
+    colour = _IMESSAGE_TCC_COLOURS[status]
+    icon = _IMESSAGE_TCC_ICONS[status]
+
+    status_label_map = {
+        "granted-and-working": IMESSAGE_TCC_STATUS_GRANTED,
+        "tcc-denied": IMESSAGE_TCC_STATUS_DENIED,
+        "check-failed": IMESSAGE_TCC_STATUS_CHECK_FAILED,
+        "unknown": IMESSAGE_TCC_STATUS_UNKNOWN,
+    }
+    detail_map = {
+        "granted-and-working": IMESSAGE_TCC_DETAIL_GRANTED,
+        "tcc-denied": IMESSAGE_TCC_DETAIL_DENIED,
+        "check-failed": IMESSAGE_TCC_DETAIL_CHECK_FAILED,
+        "unknown": IMESSAGE_TCC_DETAIL_UNKNOWN,
+    }
+    remediation_map = {
+        "tcc-denied": IMESSAGE_TCC_REMEDIATION_DENIED,
+        "check-failed": IMESSAGE_TCC_REMEDIATION_CHECK_FAILED,
+    }
+
+    status_label = status_label_map[status]
+    detail = detail_map[status]
+    remediation = remediation_map.get(status)
+
+    captured_at = marker.get("captured_at")
+    captured_line = ""
+    if captured_at:
+        relative = _format_relative_time(captured_at, now_dt=now_dt)
+        captured_line = (
+            f'<div class="status-detail">'
+            f'{IMESSAGE_TCC_CAPTURED_AT_PREFIX_FMT.format(relative=_html_escape(relative))}'
+            f'</div>'
         )
 
-    return f"""
-    <div class="section" id="subscriptionSection">
-        <div class="section-title">Subscription</div>
-        <div class="status-grid">
-            <div class="status-card">
-                <div class="status-indicator" style="background:{colour}">{icon}</div>
-                <div class="status-info">
-                    <div class="status-name">Ostler Pro &middot; {headline}</div>
-                    <div class="status-detail">{detail}</div>
-                </div>
+    source = marker.get("source")
+    source_line = ""
+    if source:
+        source_line = (
+            f'<div class="status-detail">'
+            f'{IMESSAGE_TCC_SOURCE_PREFIX_FMT.format(source=_html_escape(source))}'
+            f'</div>'
+        )
+
+    # How-to-fix expandable. Only renders for non-granted statuses
+    # (the customer does not need fix guidance for a working
+    # state). The block carries:
+    #   - the remediation copy from the catalogue (catalogue copy
+    #     wins over marker copy so wording bumps land in i18n)
+    #   - the in-marker remediation prose written by install.sh
+    #     (which carries the exact System Settings path the user
+    #     should follow on their specific macOS version, when
+    #     install.sh has a fresh enough copy to include it)
+    #   - the stderr fragment for check-failed status, when present
+    how_to_fix = ""
+    in_marker_remediation = marker.get("remediation")
+    stderr_fragment = marker.get("stderr_fragment")
+    if status != "granted-and-working":
+        fix_bits = []
+        if remediation:
+            fix_bits.append(
+                f'<div class="status-detail">{_html_escape(remediation)}</div>'
+            )
+        if in_marker_remediation:
+            fix_bits.append(
+                '<pre style="font-size:12px;background:#07060a;'
+                'color:rgba(236,232,221,0.74);font-family:'
+                '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
+                'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
+                'overflow:auto;margin-top:6px;'
+                f'white-space:pre-wrap">{_html_escape(in_marker_remediation)}</pre>'
+            )
+        if stderr_fragment:
+            fix_bits.append(
+                f'<div class="status-detail" style="margin-top:8px">'
+                f'<strong>{_html_escape(IMESSAGE_TCC_STDERR_LABEL)}:</strong></div>'
+                '<pre style="font-size:11px;background:#07060a;'
+                'color:rgba(236,232,221,0.74);font-family:'
+                '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
+                'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
+                'overflow:auto;margin-top:6px;'
+                f'white-space:pre-wrap">{_html_escape(stderr_fragment)}</pre>'
+            )
+        body = "".join(fix_bits)
+        how_to_fix = f"""
+                <details style="margin-top:8px">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                        {_html_escape(IMESSAGE_TCC_HOW_TO_FIX_LABEL)}
+                    </summary>
+                    {body}
+                </details>"""
+
+    # Full marker click-through. Mirrors the observability tile's
+    # bottom <details>; useful for support copy-paste.
+    raw_text = marker.get("raw_text") or ""
+    full_marker_block = ""
+    if raw_text:
+        full_marker_block = f"""
+                <details style="margin-top:8px">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                        {_html_escape(IMESSAGE_TCC_FULL_MARKER_LABEL)}
+                    </summary>
+                    <pre style="font-size:11px;background:#07060a;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
+                </details>"""
+
+    tile = f"""
+        <div class="status-card">
+            <div class="status-indicator" style="background:{colour}">{icon}</div>
+            <div class="status-info">
+                <div class="status-name">{_html_escape(status_label)}</div>
+                <div class="status-detail">{_html_escape(detail)}</div>
+                {captured_line}
+                {source_line}
+                {how_to_fix}
+                {full_marker_block}
             </div>
-        </div>
+        </div>"""
+
+    return f"""
+    <div class="section" id="imessageTccPostureSection">
+        <div class="section-title">{_html_escape(IMESSAGE_TCC_SECTION_TITLE)}</div>
+        <div class="status-grid">{tile}</div>
+    </div>"""
+
+
+# Colour map for the Reminders (EventKit) permission states. ``granted``
+# is green; ``denied`` and ``not-determined`` are amber (the customer can
+# usually fix them via System Settings / the next prompt); ``restricted``
+# and ``check-failed`` are red (a policy block or an untrustworthy snapshot
+# the customer cannot straightforwardly remedy). ``unknown`` matches the
+# other tiles' grey fallback.
+_REMINDERS_COLOURS = {
+    "granted": "#5cb579",
+    "denied": "#d4a052",
+    "not-determined": "#d4a052",
+    "restricted": "#d96666",
+    "check-failed": "#d96666",
+    "unknown": "rgba(236,232,221,0.40)",
+}
+_REMINDERS_ICONS = {
+    "granted": "&#10003;",
+    "denied": "&#9888;",
+    "not-determined": "&#9888;",
+    "restricted": "&#9888;",
+    "check-failed": "&#9888;",
+    "unknown": "?",
+}
+
+
+def render_reminders_posture(now_dt=None) -> str:
+    """Render the Reminders (EventKit) permission posture tile.
+
+    Reads ``~/.ostler/reminders-posture/state.md`` written by the
+    install-time EventKit probe. Returns:
+
+    - Empty string when the marker is absent (fresh install before the
+      probe has run, or an install with commitment capture disabled).
+      Doctor falls through to no section rather than rendering an empty
+      header.
+    - A single status card otherwise. Colour is status-dependent
+      (green / amber / red / grey) and the body carries the detail copy
+      plus a click-through ``<details>`` block with remediation guidance
+      and the full marker text.
+
+    The render is server-side static HTML; the expand-collapse uses the
+    native ``<details>`` element, so no JS is needed. Mirrors
+    ``render_imessage_tcc_posture`` exactly -- same failure class
+    (a silent macOS permission denial that breaks a core promise), same
+    surfacing shape.
+    """
+    from web_ui_copy import (
+        REMINDERS_CAPTURED_AT_PREFIX_FMT,
+        REMINDERS_DETAIL_CHECK_FAILED,
+        REMINDERS_DETAIL_DENIED,
+        REMINDERS_DETAIL_GRANTED,
+        REMINDERS_DETAIL_NOT_DETERMINED,
+        REMINDERS_DETAIL_RESTRICTED,
+        REMINDERS_DETAIL_UNKNOWN,
+        REMINDERS_FULL_MARKER_LABEL,
+        REMINDERS_HOW_TO_FIX_LABEL,
+        REMINDERS_REMEDIATION_CHECK_FAILED,
+        REMINDERS_REMEDIATION_DENIED,
+        REMINDERS_REMEDIATION_NOT_DETERMINED,
+        REMINDERS_REMEDIATION_RESTRICTED,
+        REMINDERS_SECTION_TITLE,
+        REMINDERS_SOURCE_PREFIX_FMT,
+        REMINDERS_STATUS_CHECK_FAILED,
+        REMINDERS_STATUS_DENIED,
+        REMINDERS_STATUS_GRANTED,
+        REMINDERS_STATUS_NOT_DETERMINED,
+        REMINDERS_STATUS_RESTRICTED,
+        REMINDERS_STATUS_UNKNOWN,
+        REMINDERS_STDERR_LABEL,
+    )
+
+    marker = read_reminders_posture()
+    if marker is None:
+        return ""
+
+    status = marker.get("status", "unknown")
+    if status not in _REMINDERS_COLOURS:
+        status = "unknown"
+    colour = _REMINDERS_COLOURS[status]
+    icon = _REMINDERS_ICONS[status]
+
+    status_label_map = {
+        "granted": REMINDERS_STATUS_GRANTED,
+        "denied": REMINDERS_STATUS_DENIED,
+        "restricted": REMINDERS_STATUS_RESTRICTED,
+        "not-determined": REMINDERS_STATUS_NOT_DETERMINED,
+        "check-failed": REMINDERS_STATUS_CHECK_FAILED,
+        "unknown": REMINDERS_STATUS_UNKNOWN,
+    }
+    detail_map = {
+        "granted": REMINDERS_DETAIL_GRANTED,
+        "denied": REMINDERS_DETAIL_DENIED,
+        "restricted": REMINDERS_DETAIL_RESTRICTED,
+        "not-determined": REMINDERS_DETAIL_NOT_DETERMINED,
+        "check-failed": REMINDERS_DETAIL_CHECK_FAILED,
+        "unknown": REMINDERS_DETAIL_UNKNOWN,
+    }
+    remediation_map = {
+        "denied": REMINDERS_REMEDIATION_DENIED,
+        "restricted": REMINDERS_REMEDIATION_RESTRICTED,
+        "not-determined": REMINDERS_REMEDIATION_NOT_DETERMINED,
+        "check-failed": REMINDERS_REMEDIATION_CHECK_FAILED,
+    }
+
+    status_label = status_label_map[status]
+    detail = detail_map[status]
+    remediation = remediation_map.get(status)
+
+    captured_at = marker.get("captured_at")
+    captured_line = ""
+    if captured_at:
+        relative = _format_relative_time(captured_at, now_dt=now_dt)
+        captured_line = (
+            f'<div class="status-detail">'
+            f'{REMINDERS_CAPTURED_AT_PREFIX_FMT.format(relative=_html_escape(relative))}'
+            f'</div>'
+        )
+
+    source = marker.get("source")
+    source_line = ""
+    if source:
+        source_line = (
+            f'<div class="status-detail">'
+            f'{REMINDERS_SOURCE_PREFIX_FMT.format(source=_html_escape(source))}'
+            f'</div>'
+        )
+
+    # How-to-fix expandable. Only renders for non-granted statuses (the
+    # customer does not need fix guidance for a working state).
+    how_to_fix = ""
+    in_marker_remediation = marker.get("remediation")
+    stderr_fragment = marker.get("stderr_fragment")
+    if status != "granted":
+        fix_bits = []
+        if remediation:
+            fix_bits.append(
+                f'<div class="status-detail">{_html_escape(remediation)}</div>'
+            )
+        if in_marker_remediation:
+            fix_bits.append(
+                '<pre style="font-size:12px;background:#07060a;'
+                'color:rgba(236,232,221,0.74);font-family:'
+                '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
+                'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
+                'overflow:auto;margin-top:6px;'
+                f'white-space:pre-wrap">{_html_escape(in_marker_remediation)}</pre>'
+            )
+        if stderr_fragment:
+            fix_bits.append(
+                f'<div class="status-detail" style="margin-top:8px">'
+                f'<strong>{_html_escape(REMINDERS_STDERR_LABEL)}:</strong></div>'
+                '<pre style="font-size:11px;background:#07060a;'
+                'color:rgba(236,232,221,0.74);font-family:'
+                '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
+                'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
+                'overflow:auto;margin-top:6px;'
+                f'white-space:pre-wrap">{_html_escape(stderr_fragment)}</pre>'
+            )
+        body = "".join(fix_bits)
+        how_to_fix = f"""
+                <details style="margin-top:8px">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                        {_html_escape(REMINDERS_HOW_TO_FIX_LABEL)}
+                    </summary>
+                    {body}
+                </details>"""
+
+    raw_text = marker.get("raw_text") or ""
+    full_marker_block = ""
+    if raw_text:
+        full_marker_block = f"""
+                <details style="margin-top:8px">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                        {_html_escape(REMINDERS_FULL_MARKER_LABEL)}
+                    </summary>
+                    <pre style="font-size:11px;background:#07060a;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
+                </details>"""
+
+    tile = f"""
+        <div class="status-card">
+            <div class="status-indicator" style="background:{colour}">{icon}</div>
+            <div class="status-info">
+                <div class="status-name">{_html_escape(status_label)}</div>
+                <div class="status-detail">{_html_escape(detail)}</div>
+                {captured_line}
+                {source_line}
+                {how_to_fix}
+                {full_marker_block}
+            </div>
+        </div>"""
+
+    return f"""
+    <div class="section" id="remindersPostureSection">
+        <div class="section-title">{_html_escape(REMINDERS_SECTION_TITLE)}</div>
+        <div class="status-grid">{tile}</div>
+    </div>"""
+
+
+# Colour/icon by runtime state. ok=green, permission_denied=amber
+# (operator-fixable, same colour as the install-time denied tile),
+# no-data=grey neutral.
+_REMINDERS_RUNTIME_COLOURS = {
+    STATE_OK: "#5cb579",
+    STATE_PERMISSION_DENIED: "#d4a052",
+    STATE_NO_DATA: "rgba(236,232,221,0.40)",
+}
+_REMINDERS_RUNTIME_ICONS = {
+    STATE_OK: "&#10003;",
+    STATE_PERMISSION_DENIED: "&#9888;",
+    STATE_NO_DATA: "&#8211;",
+}
+
+
+def render_reminders_runtime(now_dt=None) -> str:
+    """Render the runtime Reminders push outcome tile.
+
+    Reads CM048's ``~/.ostler/reminders_map.db`` SQLite table (the
+    record of what actually happened when the assistant pushed extracted
+    commitments to the macOS Reminders app). Returns:
+
+    - Empty string when there is no data (DB absent, or present with no
+      rows). Doctor falls through to no section -- a fresh install or an
+      install where no commitments have been captured yet should not
+      show an empty header.
+    - A single status card otherwise. Green when pushes are getting
+      through; amber when one or more pushes were refused with
+      ``status='permission_denied'`` (Reminders access denied/revoked),
+      carrying a count, a relative "most recently blocked" time, a
+      representative todo title, and a click-through ``<details>`` with
+      remediation guidance.
+
+    Complements ``render_reminders_posture`` (install-time prediction):
+    this tile is the empirical runtime evidence and catches access that
+    was granted at install but later revoked.
+
+    The render is server-side static HTML; the expand-collapse uses the
+    native ``<details>`` element, so no JS is needed. All operator-
+    derived fields (example title) are ``_html_escape``'d.
+    """
+    from web_ui_copy import (
+        REMINDERS_RUNTIME_DENIED_COUNT_FMT,
+        REMINDERS_RUNTIME_DENIED_EXAMPLE_FMT,
+        REMINDERS_RUNTIME_DENIED_SINCE_FMT,
+        REMINDERS_RUNTIME_DETAIL_DENIED,
+        REMINDERS_RUNTIME_DETAIL_NO_DATA,
+        REMINDERS_RUNTIME_DETAIL_OK,
+        REMINDERS_RUNTIME_HOW_TO_FIX_LABEL,
+        REMINDERS_RUNTIME_REMEDIATION_DENIED,
+        REMINDERS_RUNTIME_SECTION_TITLE,
+        REMINDERS_RUNTIME_STATUS_DENIED,
+        REMINDERS_RUNTIME_STATUS_NO_DATA,
+        REMINDERS_RUNTIME_STATUS_OK,
+    )
+
+    runtime = read_reminders_runtime()
+    state = runtime.get("state", STATE_NO_DATA)
+    if state not in _REMINDERS_RUNTIME_COLOURS:
+        state = STATE_NO_DATA
+
+    # No-data falls through to no section, matching the install-time
+    # tile's empty-marker behaviour. Doctor never shows an empty header.
+    if state == STATE_NO_DATA:
+        return ""
+
+    colour = _REMINDERS_RUNTIME_COLOURS[state]
+    icon = _REMINDERS_RUNTIME_ICONS[state]
+
+    status_label_map = {
+        STATE_OK: REMINDERS_RUNTIME_STATUS_OK,
+        STATE_PERMISSION_DENIED: REMINDERS_RUNTIME_STATUS_DENIED,
+    }
+    detail_map = {
+        STATE_OK: REMINDERS_RUNTIME_DETAIL_OK,
+        STATE_PERMISSION_DENIED: REMINDERS_RUNTIME_DETAIL_DENIED,
+    }
+    status_label = status_label_map[state]
+    detail = detail_map[state]
+
+    extra_lines = ""
+    how_to_fix = ""
+    if state == STATE_PERMISSION_DENIED:
+        denied_count = runtime.get("denied_count", 0)
+        count_line = (
+            f'<div class="status-detail">'
+            f'{_html_escape(REMINDERS_RUNTIME_DENIED_COUNT_FMT.format(count=denied_count))}'
+            f'</div>'
+        )
+        since_line = ""
+        latest = runtime.get("latest_denied_at")
+        if latest:
+            relative = _format_relative_time(latest, now_dt=now_dt)
+            since_line = (
+                f'<div class="status-detail">'
+                f'{_html_escape(REMINDERS_RUNTIME_DENIED_SINCE_FMT.format(relative=relative))}'
+                f'</div>'
+            )
+        example_line = ""
+        example = runtime.get("example_title")
+        if example:
+            example_line = (
+                f'<div class="status-detail">'
+                f'{_html_escape(REMINDERS_RUNTIME_DENIED_EXAMPLE_FMT.format(example=example))}'
+                f'</div>'
+            )
+        extra_lines = count_line + since_line + example_line
+
+        how_to_fix = f"""
+                <details style="margin-top:8px">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                        {_html_escape(REMINDERS_RUNTIME_HOW_TO_FIX_LABEL)}
+                    </summary>
+                    <div class="status-detail">{_html_escape(REMINDERS_RUNTIME_REMEDIATION_DENIED)}</div>
+                </details>"""
+
+    tile = f"""
+        <div class="status-card">
+            <div class="status-indicator" style="background:{colour}">{icon}</div>
+            <div class="status-info">
+                <div class="status-name">{_html_escape(status_label)}</div>
+                <div class="status-detail">{_html_escape(detail)}</div>
+                {extra_lines}
+                {how_to_fix}
+            </div>
+        </div>"""
+
+    return f"""
+    <div class="section" id="remindersRuntimeSection">
+        <div class="section-title">{_html_escape(REMINDERS_RUNTIME_SECTION_TITLE)}</div>
+        <div class="status-grid">{tile}</div>
     </div>"""

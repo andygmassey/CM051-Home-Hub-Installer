@@ -1,4 +1,4 @@
-"""Contact Syncer — reads contacts via CardDAV, classifies, and writes to Oxigraph + Qdrant."""
+"""Contact Syncer – reads contacts via CardDAV, classifies, and writes to Oxigraph + Qdrant."""
 from __future__ import annotations
 
 import argparse
@@ -35,6 +35,11 @@ from contact_syncer.dedup import DedupDetector, print_report
 from contact_syncer.photo_storage import remove_photo, write_photo
 
 from identity_resolver.resolver import IdentityResolver  # type: ignore[import-untyped]
+from identity_resolver.normalise import (  # type: ignore[import-untyped]
+    clean_display_name,
+    normalise_email,
+    normalise_phone,
+)
 
 # Qdrant client
 from qdrant_client import QdrantClient
@@ -57,6 +62,10 @@ class ContactSyncer:
         )
         self.qdrant = QdrantClient(url=self.cfg.QDRANT_URL)
         self.state_file = self.cfg.STATE_FILE
+        # Set once we have confirmed/created the Qdrant collection in this
+        # run, so the self-create probe costs one GET per sync, not one
+        # per contact (#638).
+        self._collection_ensured = False
 
     # -- state persistence ----------------------------------------------------
 
@@ -114,7 +123,7 @@ class ContactSyncer:
             current_ctag = ""
 
         if current_ctag and current_ctag == old_ctag and old_etags:
-            print("CTag unchanged — no contacts modified since last sync. Skipping.")
+            print("CTag unchanged – no contacts modified since last sync. Skipping.")
             return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
 
         # Step 2: Get ETags and determine changes
@@ -127,8 +136,8 @@ class ContactSyncer:
                 f"{len(deleted_hrefs)} deleted."
             )
         else:
-            # Initial sync — fetch everything
-            print("Initial sync — fetching all vCards...")
+            # Initial sync – fetch everything
+            print("Initial sync – fetching all vCards...")
             vcard_texts = self.carddav.get_all_vcards()
             current_etags = self.carddav.get_etags()
             deleted_hrefs = []
@@ -156,7 +165,7 @@ class ContactSyncer:
             if i % 100 == 0 or i == total:
                 pct = int(i / total * 100) if total else 0
                 print(
-                    f"Syncing contacts: {i}/{total} ({pct}%) — "
+                    f"Syncing contacts: {i}/{total} ({pct}%) – "
                     f"{counts['person']} people, {counts['business']} businesses, "
                     f"{counts['errors']} errors"
                 )
@@ -176,7 +185,7 @@ class ContactSyncer:
             uid_for_log = parsed.get("uid")
             fn_for_log = parsed.get("fn")
 
-            # Stage 2: classify / resolve / write — wrap entire body so one bad
+            # Stage 2: classify / resolve / write – wrap entire body so one bad
             # contact cannot crash the whole sync.
             try:
                 contact_type = classify_contact(parsed)
@@ -189,7 +198,16 @@ class ContactSyncer:
                 if contact_type == "business":
                     self._write_business_oxigraph(parsed)
                 else:
-                    # Person or unclassified — create person node
+                    # Person or unclassified -- clean the display name (strip
+                    # leading/trailing emoji+symbol runs, collapse duplicate
+                    # tokens like "AC AC") before it seeds the person node.
+                    # Only touch person rows; business names keep their raw
+                    # form. Empty result -> leave the original untouched so we
+                    # never blank a name we couldn't clean.
+                    _cleaned = clean_display_name(parsed.get("fn") or "")
+                    if _cleaned:
+                        parsed["fn"] = _cleaned
+                    # Person or unclassified – create person node
                     person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
                     description = self._build_description(parsed)
                     qdrant_queue.append(
@@ -317,35 +335,54 @@ class ContactSyncer:
         def _log(msg: str) -> None:
             print(msg, file=sys.stderr)
 
-        if not os.path.isfile(vcf_path):
-            _log(f"vCard file not found: {vcf_path}")
-            return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
-
-        try:
-            with open(vcf_path, "r", encoding="utf-8") as fh:
-                text = fh.read()
-        except Exception as exc:
-            _log(f"Could not read vCard file: {exc}")
-            return {
-                "imported": 0,
-                "skipped": 0,
-                "errors": [{"stage": "read", "error": str(exc)}],
-                "deleted": 0,
-            }
-
-        if not text.strip():
-            _log("vCard file is empty.")
-            return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
+        text = ""
+        if os.path.isfile(vcf_path):
+            try:
+                with open(vcf_path, "r", encoding="utf-8") as fh:
+                    text = fh.read()
+            except Exception as exc:
+                _log(f"Could not read vCard file: {exc}")
+                # Don't bail: still try the abcddb fallback below so a
+                # broken vcf path doesn't strand the customer with zero
+                # contacts when the on-disk AddressBook has thousands.
+                text = ""
+        else:
+            _log(f"vCard file not found: {vcf_path}; will try AddressBook fallback.")
 
         # Split the concatenated multi-vCard file. iCloud's export glues
         # BEGIN:VCARD ... END:VCARD blocks together with no separator
         # other than the newline before the next BEGIN.
         vcard_pattern = re.compile(r"BEGIN:VCARD.*?END:VCARD", re.DOTALL)
-        vcard_texts = vcard_pattern.findall(text)
+        vcard_texts = vcard_pattern.findall(text) if text.strip() else []
         total = len(vcard_texts)
-        _log(f"Found {total} vCards in {vcf_path}.")
+        if total > 0:
+            _log(f"Found {total} vCards in {vcf_path}.")
+
+        # Fallback: read directly from ~/Library/Application Support/
+        # AddressBook/Sources/<UUID>/AddressBook-v22.abcddb. The osascript
+        # vcf export the installer runs ahead of this step can produce
+        # an empty file (no error code) when Contacts.app TCC hasn't
+        # been granted to osascript even though Contacts data exists
+        # locally. Reading the abcddb sqlite directly bypasses the
+        # AppleEvent route and only needs Full Disk Access, which is
+        # already required for the Mail / Calendar / iMessage paths.
+        # macOS 15+ stores per-account contact stores under Sources/
+        # (one UUID dir per account); the top-level AddressBook-v22.abcddb
+        # only holds the local-only "On My Mac" address book and is
+        # typically near-empty on iCloud-only customers.
+        if total == 0:
+            try:
+                abcddb_vcards = self._read_abcddb_as_vcards()
+            except Exception as exc:
+                _log(f"AddressBook fallback failed: {exc}")
+                abcddb_vcards = []
+            if abcddb_vcards:
+                vcard_texts = abcddb_vcards
+                total = len(vcard_texts)
+                _log(f"Found {total} contacts in AddressBook (fallback path).")
 
         if total == 0:
+            _log("No vCards in file and AddressBook fallback returned 0.")
             return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
 
         counts = {"person": 0, "business": 0, "unclassified": 0, "errors": 0}
@@ -376,6 +413,11 @@ class ContactSyncer:
                 if contact_type == "business":
                     self._write_business_oxigraph(parsed)
                 else:
+                    # Clean person display names (emoji/symbol edge-strip +
+                    # duplicate-token collapse) before seeding the node.
+                    _cleaned = clean_display_name(parsed.get("fn") or "")
+                    if _cleaned:
+                        parsed["fn"] = _cleaned
                     person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
                     description = self._build_description(parsed)
                     qdrant_queue.append(
@@ -432,6 +474,218 @@ class ContactSyncer:
 
     # -- helpers --------------------------------------------------------------
 
+    def _read_abcddb_as_vcards(self) -> List[str]:
+        """Read every populated AddressBook-v22.abcddb under ~/Library
+        and synthesise minimal vCard 3.0 text per record so the existing
+        vcard_parser path can ingest them.
+
+        On macOS 15+ the iCloud account writes its contacts under
+        ~/Library/Application Support/AddressBook/Sources/<UUID>/
+        AddressBook-v22.abcddb. The top-level AddressBook-v22.abcddb
+        only holds the local-only "On My Mac" address book and is
+        usually near-empty (e.g. 2 rows on a fresh iCloud customer
+        whose 2400 contacts live entirely under Sources/).
+
+        Each ZABCDRECORD row has first/middle/last name, organisation,
+        title, email addresses, phone numbers, postal addresses, and a
+        UID. We pull those into vCard form. Anything we can't read is
+        skipped silently so one corrupt source doesn't strand the rest.
+        """
+        import glob
+        import sqlite3 as _sqlite3
+        from pathlib import Path
+
+        ab_root = Path.home() / "Library" / "Application Support" / "AddressBook"
+        if not ab_root.exists():
+            return []
+
+        # Collect every abcddb. Walk Sources/ subdirs in addition to
+        # the top-level file so per-account stores are unioned.
+        db_paths: List[Path] = []
+        top = ab_root / "AddressBook-v22.abcddb"
+        if top.is_file() and top.stat().st_size > 0:
+            db_paths.append(top)
+        sources = ab_root / "Sources"
+        if sources.is_dir():
+            for p in sorted(sources.glob("*/AddressBook-v22.abcddb")):
+                if p.is_file() and p.stat().st_size > 0:
+                    db_paths.append(p)
+
+        if not db_paths:
+            return []
+
+        vcards: List[str] = []
+        for db_path in db_paths:
+            try:
+                conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+                conn.row_factory = _sqlite3.Row
+            except _sqlite3.OperationalError as exc:
+                logger.warning("Cannot open %s: %s", db_path, exc)
+                continue
+            try:
+                # ZABCDRECORD columns vary across macOS versions; some
+                # builds split birthday into year/month/day, others
+                # store a single ZBIRTHDAY date. Detect what is
+                # actually present before building the query so we
+                # never blow up the whole DB read for one missing col.
+                avail = set()
+                try:
+                    info = conn.execute(
+                        "PRAGMA table_info(ZABCDRECORD)"
+                    ).fetchall()
+                    avail = {row["name"] for row in info}
+                except _sqlite3.OperationalError as exc:
+                    logger.warning("PRAGMA failed on %s: %s", db_path, exc)
+                    conn.close()
+                    continue
+                if "Z_PK" not in avail or "ZUNIQUEID" not in avail:
+                    logger.warning("ZABCDRECORD missing core cols in %s", db_path)
+                    conn.close()
+                    continue
+
+                def _col(name: str, alias: str) -> str:
+                    return f"{name} as {alias}" if name in avail else f"NULL as {alias}"
+
+                sel = ", ".join([
+                    _col("ZUNIQUEID", "uid"),
+                    _col("ZFIRSTNAME", "first"),
+                    _col("ZMIDDLENAME", "middle"),
+                    _col("ZLASTNAME", "last"),
+                    _col("ZORGANIZATION", "org"),
+                    _col("ZJOBTITLE", "title"),
+                    _col("ZNOTE", "note"),
+                    _col("ZBIRTHDAYYEAR", "birth_year"),
+                    _col("ZBIRTHDAYMONTH", "birth_month"),
+                    _col("ZBIRTHDAYDAY", "birth_day"),
+                    _col("ZBIRTHDAY", "birth_day_only"),
+                    _col("Z_PK", "pk"),
+                ])
+                try:
+                    rows = conn.execute(
+                        f"SELECT {sel} FROM ZABCDRECORD"
+                    ).fetchall()
+                except _sqlite3.OperationalError as exc:
+                    logger.warning("ZABCDRECORD read failed in %s: %s", db_path, exc)
+                    conn.close()
+                    continue
+
+                # Pre-fetch emails + phones + addresses for all rows
+                # in this DB, then group by parent PK. One pass each
+                # rather than N queries.
+                emails_by_pk: Dict[int, List[str]] = {}
+                try:
+                    for er in conn.execute(
+                        "SELECT ZOWNER as pk, ZADDRESS as addr FROM ZABCDEMAILADDRESS"
+                    ).fetchall():
+                        if er["addr"]:
+                            emails_by_pk.setdefault(er["pk"], []).append(str(er["addr"]))
+                except _sqlite3.OperationalError:
+                    pass
+
+                phones_by_pk: Dict[int, List[str]] = {}
+                try:
+                    for pr in conn.execute(
+                        "SELECT ZOWNER as pk, ZFULLNUMBER as num FROM ZABCDPHONENUMBER"
+                    ).fetchall():
+                        if pr["num"]:
+                            phones_by_pk.setdefault(pr["pk"], []).append(str(pr["num"]))
+                except _sqlite3.OperationalError:
+                    pass
+
+                def _s(v) -> str:
+                    if v is None:
+                        return ""
+                    try:
+                        return str(v).strip()
+                    except Exception:
+                        return ""
+
+                for r in rows:
+                    pk = r["pk"]
+                    first = _s(r["first"])
+                    middle = _s(r["middle"])
+                    last = _s(r["last"])
+                    org = _s(r["org"])
+                    title = _s(r["title"])
+                    note = _s(r["note"])
+                    uid = _s(r["uid"])
+
+                    name_parts = [p for p in (first, middle, last) if p]
+                    fn = " ".join(name_parts) or org
+                    if not fn:
+                        continue  # Skip rows with no displayable identity.
+
+                    lines = ["BEGIN:VCARD", "VERSION:3.0"]
+                    lines.append(f"FN:{fn}")
+                    # N: Last;First;Middle;;
+                    lines.append(f"N:{last};{first};{middle};;")
+                    if org:
+                        lines.append(f"ORG:{org}")
+                    if title:
+                        lines.append(f"TITLE:{title}")
+                    for em in emails_by_pk.get(pk, []):
+                        lines.append(f"EMAIL;TYPE=INTERNET:{em}")
+                    for ph in phones_by_pk.get(pk, []):
+                        lines.append(f"TEL:{ph}")
+                    if note:
+                        # vCard NOTE wants newlines escaped.
+                        escaped = note.replace("\\", "\\\\").replace("\n", "\\n")
+                        lines.append(f"NOTE:{escaped}")
+                    try:
+                        by = r["birth_year"]
+                        bm = r["birth_month"]
+                        bd = r["birth_day"]
+                    except (KeyError, IndexError):
+                        by = bm = bd = None
+                    if by and bm and bd:
+                        try:
+                            lines.append(
+                                f"BDAY:{int(by):04d}-{int(bm):02d}-{int(bd):02d}"
+                            )
+                        except (TypeError, ValueError):
+                            pass
+                    else:
+                        # Alternative schema: ZBIRTHDAY single
+                        # NSDate (Cocoa epoch 2001-01-01).
+                        try:
+                            raw = r["birth_day_only"]
+                        except (KeyError, IndexError):
+                            raw = None
+                        if raw:
+                            try:
+                                from datetime import datetime as _dt, timedelta as _td
+                                cocoa = _dt(2001, 1, 1) + _td(seconds=float(raw))
+                                lines.append(
+                                    f"BDAY:{cocoa.year:04d}-{cocoa.month:02d}-{cocoa.day:02d}"
+                                )
+                            except (TypeError, ValueError):
+                                pass
+                    if uid:
+                        lines.append(f"UID:{uid}")
+                    lines.append("END:VCARD")
+                    vcards.append("\n".join(lines))
+            except Exception as exc:
+                logger.warning("Failed to read contacts from %s: %s", db_path, exc)
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+        # Dedup across source DBs by UID. Without this, contacts that
+        # appear in both the local-only AddressBook and an iCloud Source
+        # would import twice.
+        seen_uids: set = set()
+        deduped: List[str] = []
+        for vc in vcards:
+            m = re.search(r"^UID:(.+)$", vc, re.MULTILINE)
+            key = (m.group(1).strip() if m else vc[:200])
+            if key in seen_uids:
+                continue
+            seen_uids.add(key)
+            deduped.append(vc)
+        return deduped
+
     def _build_description(
         self, parsed: Dict[str, Any], facts: Optional[List[str]] = None
     ) -> str:
@@ -475,6 +729,58 @@ class ContactSyncer:
         data = resp.json()
         return data.get("embeddings", [])
 
+    def _ensure_qdrant_collection(self, vector_size: int) -> None:
+        """Create the Qdrant collection if it does not already exist.
+
+        On a fresh single-Mac install nothing pre-creates the `people`
+        collection before this syncer runs: install.sh's graph_db_start
+        brings Qdrant up empty, the contact hydrate (hydrate_graph) is the
+        FIRST writer to `people`, and Qdrant does not auto-create a
+        collection on upsert. Without this self-create the very first
+        upsert 404s ("Collection 'people' doesn't exist"), the hydrate
+        dies after reading every contact, and the People surfaces (iOS
+        People tab, Hub People card, wiki People page, semantic search)
+        stay blank. The sibling people-ingest writer already self-creates
+        (HR015 ostler_fda.pwg_ingest._qdrant_ensure_collection); the
+        contact syncer must do the same (#638).
+
+        Idempotent: an existing collection short-circuits, so a re-run, or
+        a box where the people-ingest step created it first, never
+        clobbers data. The vector size comes from the real embedding (with
+        the nomic-embed-text default as a fallback) and the distance
+        matches the install.sh #606 pre-create and the people-ingest path:
+        768-dim, Cosine, unnamed vectors.
+        """
+        collection = self.cfg.QDRANT_COLLECTION
+        try:
+            if self.qdrant.collection_exists(collection):
+                return
+        except Exception:
+            # Probe failed (transient Qdrant hiccup): fall through and try
+            # to create. A redundant create on an existing collection is
+            # tolerated below, so this cannot make things worse.
+            pass
+
+        from qdrant_client.models import Distance, VectorParams
+
+        size = vector_size if vector_size and vector_size > 0 else 768
+        try:
+            self.qdrant.create_collection(
+                collection_name=collection,
+                vectors_config=VectorParams(size=size, distance=Distance.COSINE),
+            )
+            logger.info(
+                "Created Qdrant collection '%s' (size=%d, Cosine).",
+                collection, size,
+            )
+        except Exception:
+            # Lost a create race, or it already existed: tolerate only if
+            # the collection is now present; otherwise re-raise so a
+            # genuine Qdrant failure still surfaces to the caller.
+            if self.qdrant.collection_exists(collection):
+                return
+            raise
+
     def _upsert_qdrant(
         self,
         person_id: str,
@@ -483,6 +789,12 @@ class ContactSyncer:
         vector: List[float],
     ) -> None:
         """Upsert a single person point into Qdrant."""
+        # Fresh-install self-heal: make sure the collection exists before
+        # the first upsert of the run, sized from this real embedding.
+        # Once per syncer run via the _collection_ensured latch (#638).
+        if not getattr(self, "_collection_ensured", False):
+            self._ensure_qdrant_collection(len(vector))
+            self._collection_ensured = True
         now_iso = datetime.now(timezone.utc).isoformat()
         # last_contact: prefer the EXISTING value in Qdrant, set by
         # meetings or future conversation pipelines. For a brand-new
@@ -490,7 +802,7 @@ class ContactSyncer:
         # sentinel values ("" / 0) - we have no actual contact-event
         # evidence.
         #
-        # Historical bug (Lester demo, 2026-04-27): this branch used
+        # Historical bug (advisor demo, 2026-04-27): this branch used
         # to fall back to the vCard REV (the card's modification
         # timestamp) when no prior signal existed. REV is not a
         # contact event - it's "when the contact card was last
@@ -577,10 +889,10 @@ class ContactSyncer:
             emails=emails,
         )
 
-        # Try identity resolution — use_fuzzy=False because the CardDAV path
+        # Try identity resolution – use_fuzzy=False because the CardDAV path
         # has a strong identifier (iCloud UID). Fuzzy name matching is disabled
-        # here to prevent first-name collisions (e.g. "Sandra Andersson" being
-        # incorrectly merged into "Sandra Stewart" via Jaro-Winkler prefix
+        # here to prevent first-name collisions (e.g. "Jane Andersen" being
+        # incorrectly merged into "Jane Stewart" via Jaro-Winkler prefix
         # bonus). Fuzzy matching is still available to other callers that
         # explicitly opt in (e.g. WhatsApp / email ingest).
         match = self.resolver.resolve(identity, use_fuzzy=False)
@@ -596,6 +908,18 @@ class ContactSyncer:
             person_uri = f"https://pwg.dev/ontology#person_{person_id}"
             self._persist_photo(person_uri, parsed)
             self._create_person_oxigraph(person_uri, person_id, parsed, contact_type)
+            # Register the new person in the resolver's in-memory fuzzy index so
+            # LATER rows in this SAME run dedupe against it. The candidate
+            # snapshot is loaded once and frozen; without this a one-shot bulk
+            # import mints a fresh node for every repeat of a name -- the root
+            # cause of one-shot-import duplicates on a fresh install, which the
+            # incrementally synced graph never hit (each daily run re-snapshots).
+            self.resolver.register_person(
+                person_uri,
+                identity.display_name,
+                org=identity.organization,
+                linkedin_url=getattr(identity, "linkedin_url", None),
+            )
 
         return person_id, person_uri
 
@@ -604,7 +928,7 @@ class ContactSyncer:
 
         Side-effect: mutates ``parsed["profile_photo_path"]`` to the final
         path, or leaves it absent if the card had no photo. Failures are
-        swallowed and logged — a broken image must not stop the rest of the
+        swallowed and logged – a broken image must not stop the rest of the
         contact record from syncing.
         """
         photo = parsed.get("photo")
@@ -657,7 +981,7 @@ class ContactSyncer:
             triples.append(f'<{person_uri}> pwg:notes "{notes}"')
         if birthday:
             triples.append(f'<{person_uri}> pwg:birthday "{birthday}"^^xsd:date')
-        # foaf:img — file:// URI pointing at the locally-stored portrait.
+        # foaf:img – file:// URI pointing at the locally-stored portrait.
         # FOAF is the de-facto vocabulary for person-to-depicting-image; we
         # use foaf:img (the primary image) rather than foaf:depiction (any
         # image containing the person). The value is a file URI because the
@@ -683,24 +1007,43 @@ class ContactSyncer:
 
         for idx, phone in enumerate(parsed.get("phones", [])):
             id_uri = f"https://pwg.dev/ontology#id_{person_id}_phone{idx}"
+            # Store the NORMALISED value so it matches what the resolver's
+            # find_by_identifier queries for. Previously this wrote the raw
+            # vCard value (e.g. a space-separated international form) while the resolver looked up
+            # the E.164 form (no spaces), so Tier-1 exact-identifier dedup
+            # never fired and every repeat minted a duplicate (BW-1).
+            phone_value = normalise_phone(
+                phone["value"], self.resolver.default_country_code
+            )
             triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
             id_triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
             id_triples.append(f'<{id_uri}> pwg:identifierType "phone"')
             id_triples.append(
-                f'<{id_uri}> pwg:identifierValue "{phone["value"]}"'
+                f'<{id_uri}> pwg:identifierValue "{phone_value}"'
             )
             if phone.get("label"):
                 id_triples.append(
                     f'<{id_uri}> pwg:identifierLabel "{phone["label"]}"'
                 )
 
+        # Emails are written as NORMALISED identifiers (lowercase + trimmed via
+        # normalise_email) so they match the values the IdentityResolver looks
+        # up: the resolver normalises incoming emails the same way before its
+        # exact-identifier lookup. Without this, an email-keyed handle (e.g. an
+        # iMessage handle like person@example.com) never collapses onto the
+        # right Contacts card if the card's stored email differs only by case.
+        seen_emails: set = set()
         for idx, email in enumerate(parsed.get("emails", [])):
+            value = normalise_email(email.get("value") or "")
+            if not value or value in seen_emails:
+                continue
+            seen_emails.add(value)
             id_uri = f"https://pwg.dev/ontology#id_{person_id}_email{idx}"
             triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
             id_triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
             id_triples.append(f'<{id_uri}> pwg:identifierType "email"')
             id_triples.append(
-                f'<{id_uri}> pwg:identifierValue "{email["value"]}"'
+                f'<{id_uri}> pwg:identifierValue "{value}"'
             )
             if email.get("label"):
                 id_triples.append(
@@ -723,7 +1066,7 @@ class ContactSyncer:
 
         Updates mutable scalar properties (displayName/org/jobTitle/contactType)
         AND merges any new identifiers (iCloud UID, phones, emails) from the
-        incoming vCard onto the existing node. Idempotent — adding an
+        incoming vCard onto the existing node. Idempotent – adding an
         identifier that already exists is a no-op.
         """
         fn = (parsed.get("fn") or "").replace('"', '\\"')
@@ -777,9 +1120,12 @@ class ContactSyncer:
         for phone in parsed.get("phones", []):
             v = phone.get("value") if isinstance(phone, dict) else None
             if v:
+                # Normalise to the resolver's lookup form so dedup matches (BW-1).
+                v = normalise_phone(v, self.resolver.default_country_code)
                 new_ids.append(("phone", v, phone.get("label") if isinstance(phone, dict) else None))
         for email in parsed.get("emails", []):
-            v = email.get("value") if isinstance(email, dict) else None
+            raw = email.get("value") if isinstance(email, dict) else None
+            v = normalise_email(raw) if raw else None
             if v:
                 new_ids.append(("email", v, email.get("label") if isinstance(email, dict) else None))
 
@@ -861,12 +1207,17 @@ class ContactSyncer:
             triples.append(f'<{id_uri}> pwg:identifierType "phone"')
             triples.append(f'<{id_uri}> pwg:identifierValue "{phone["value"]}"')
 
+        seen_biz_emails: set = set()
         for idx, email in enumerate(parsed.get("emails", [])):
+            value = normalise_email(email.get("value") or "")
+            if not value or value in seen_biz_emails:
+                continue
+            seen_biz_emails.add(value)
             id_uri = f"https://pwg.dev/ontology#id_{biz_id}_email{idx}"
             triples.append(f"<{biz_uri}> pwg:hasIdentifier <{id_uri}>")
             triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
             triples.append(f'<{id_uri}> pwg:identifierType "email"')
-            triples.append(f'<{id_uri}> pwg:identifierValue "{email["value"]}"')
+            triples.append(f'<{id_uri}> pwg:identifierValue "{value}"')
 
         if self.cfg.USER_ID:
             triples.append(
@@ -982,10 +1333,10 @@ WHERE {{
                 ),
             )
         except Exception as exc:
-            # Not fatal — business contacts never had a Qdrant point
+            # Not fatal – business contacts never had a Qdrant point
             print(f"    (Qdrant delete skipped for {node_uri}: {exc})")
 
-        # Photo file: aligns with GDPR erasure — delete any portrait on disk
+        # Photo file: aligns with GDPR erasure – delete any portrait on disk
         try:
             remove_photo(node_uri, self.cfg.PHOTO_DIR)
         except Exception as exc:
@@ -1085,6 +1436,17 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--mint-owner",
+        action="store_true",
+        help=(
+            "Mint (or backfill) the owner / me-card node pwg:user_<USER_ID> "
+            "as a first-class pwg:Person with privacyLevel L0 and isOwner "
+            "true, then exit. Requires USER_ID + USER_DISPLAY_NAME. "
+            "Idempotent. Combine with --dry-run to preview. See "
+            "contact_syncer.owner_node."
+        ),
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help=(
@@ -1102,6 +1464,19 @@ def main() -> None:
     # ContactSyncer reads it inside __init__, so this must happen first.
     if args.graph_endpoint:
         config.OXIGRAPH_URL = args.graph_endpoint
+
+    # --mint-owner: mint the owner / me-card node and exit. Kept as a
+    # standalone action so install.sh can call it once (it is idempotent)
+    # without running a full contact sync. Delegates to owner_node.main so
+    # the input validation (USER_ID / display name / endpoint) is shared.
+    if args.mint_owner:
+        from contact_syncer import owner_node
+        owner_argv = []
+        if args.dry_run:
+            owner_argv.append("--dry-run")
+        if args.graph_endpoint:
+            owner_argv += ["--graph-endpoint", args.graph_endpoint]
+        sys.exit(owner_node.main(owner_argv))
 
     syncer = ContactSyncer()
     if args.vcf:

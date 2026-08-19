@@ -34,6 +34,7 @@
     "intro_photos_reason": "So the Hub can read photo metadata (date, location, captions) and tie memories to people, places, and events.",
     "intro_privacy_note": "Your data stays on this Mac. Nothing is uploaded.",
     "intro_grant_button": "Grant permissions",
+    "intro_grant_button_requesting": "Requesting access",
     "intro_skip_button": "Skip for now",
     "denial_summary_heading": "Some permissions were not granted",
     "denial_summary_footer": "You can grant these later in System Settings > Privacy & Security.",
@@ -48,7 +49,14 @@
     "continue_button": "Continue and enter your password",
     "retry_button": "Retry",
     "quit_button": "Quit installer",
-    "osascript_prompt": "Ostler Installer needs administrator access to install required software and keep your Mac awake during setup."
+    "osascript_prompt": "Ostler Installer needs administrator access to install required software and keep your Mac awake during setup.",
+    "requesting_status": "Requesting administrator access. A macOS password dialog will appear in a moment."
+  },
+
+  "install_cancelled": {
+    "heading": "Installation cancelled",
+    "body": "No problem. Nothing was installed on your Mac and nothing was changed. You can run the installer again whenever you're ready.",
+    "quit_button": "Close"
   },
 
   "install_failed_banner": {
@@ -129,6 +137,26 @@
     "continue_button": "I've granted it, continue"
   },
 
+  "fda_gate": {
+    "heading": "Welcome to Ostler",
+    "welcome": "Thank you for buying Ostler. Setup takes around half an hour, a little longer on a first run while Ostler downloads its AI models, and it keeps filling in your world for a while after that. You can leave it running.",
+    "reads_lead": "To work quietly for you, Ostler needs your permission to read a few things on this Mac:",
+    "data_messages": "Messages",
+    "data_mail": "Mail",
+    "data_calendar": "Calendar",
+    "data_contacts": "Contacts",
+    "data_reminders": "Reminders",
+    "data_photos": "Photos",
+    "privacy_line": "Private by design. Everything stays on this Mac and is never uploaded.",
+    "permissions_note": "Over the next few minutes macOS will ask you to approve these, plus a few system permissions Ostler needs to run. Just allow each one as it appears.",
+    "upnext_label": "First up: Full Disk Access",
+    "step_1": "Tap Open System Settings below.",
+    "step_2": "Switch on OstlerInstaller in the list.",
+    "step_3": "macOS will ask you to quit. Quit and reopen, and setup carries on automatically.",
+    "open_settings_button": "Open System Settings",
+    "recheck_button": "I've switched it on, continue"
+  },
+
   "log_drawer": {
     "header_label": "LOG"
   },
@@ -158,7 +186,7 @@
     "error_invalid_choice": "Pick one of: {options}",
     "assistant_name_helper": "The name in the field is a random suggestion – type over it with anything you like. Marvin, Samantha, Joshua, Friday, Athena, Sage, and Rosie are all popular choices.", "_exempt_assistant_name_helper": "assistant-name-exempt: F6.1 suggestion-pool exemplar, not a default",
     "choice_label": {
-      "_meta_channel_choice": "CX-18 (Studio retest #13, 2026-05-23): labels were out of sync with install.sh's semantics — install.sh accepts 1,2,3,4,5 with meanings iMessage / Email / iMessage+Email (recommended) / Skip / iMessage+Email+WhatsApp. The previous labels listed 1-7 (with 6 + 7 dead because install.sh rejects them via the choices=1,2,3,4,5 CSV) and mapped 3 to 'WhatsApp' which install.sh actually treats as 'iMessage + Email'. Founder report: 'Channels (Q7) still does not have the whole list of channels'. Labels now match install.sh case-block semantics 1:1. If install.sh's CHANNEL_CHOICE handler in install.sh ever grows new values, add the matching label here AND update the choices CSV passed to gui_read.",
+      "_meta_channel_choice": "CX-18 (Studio retest #13, 2026-05-23): labels were out of sync with install.sh's semantics – install.sh accepts 1,2,3,4,5 with meanings iMessage / Email / iMessage+Email (recommended) / Skip / iMessage+Email+WhatsApp. The previous labels listed 1-7 (with 6 + 7 dead because install.sh rejects them via the choices=1,2,3,4,5 CSV) and mapped 3 to 'WhatsApp' which install.sh actually treats as 'iMessage + Email'. Founder report: 'Channels (Q7) still does not have the whole list of channels'. Labels now match install.sh case-block semantics 1:1. If install.sh's CHANNEL_CHOICE handler in install.sh ever grows new values, add the matching label here AND update the choices CSV passed to gui_read.",
       "channel_choice": {
         "1": "iMessage only",
         "2": "Email only",
@@ -212,15 +240,31 @@
 
   "passkey_ack": {
     "_meta": "Q12 (passkey-ack) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (DEFIB_2026-05-22_late_afternoon_passkey_fallback.md): Studio retests #10 + #11 confirmed Apple's framework excludes Apple Watch as user verification for Secure-Enclave-backed passkeys. Mac Studio (no Touch ID) literally cannot register an ASAuthorizationPlatformPublicKeyCredentialProvider passkey regardless of Watch state. v1.0 ships passphrase-primary: customer's typed passphrase IS the primary unlock, works on every Mac. Passkey convenience returns in v1.0.1 as a Touch-ID-only layer. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
-    "help_touch_id": "Your knowledge graph is encrypted with a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. Press Continue when you're ready.",
-    "help_optic_id": "Your knowledge graph is encrypted with a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. Press Continue when you're ready.",
-    "help_password_or_watch": "Your knowledge graph is encrypted with a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. Press Continue when you're ready."
+    "help_touch_id": "Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on. Press Continue when you're ready.",
+    "help_optic_id": "Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on. Press Continue when you're ready.",
+    "help_password_or_watch": "Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on. Press Continue when you're ready."
   },
 
   "consent_third_party": {
     "_meta": "CX-18 (Studio retest #13, 2026-05-23): Q19 third-party-data acknowledgement was rendering as a wall of equal-weight body text with 'Legal note:' buried mid-paragraph and no visual separation between the customer-facing explanation and the GDPR fine-print. The SwiftUI view now overrides the default help-text render with two Text() views: a primary intro_body in standard body copy + a subordinated legal_note in smaller italic with reduced contrast. Bash-side MSG_PROMPT_CONSENT_THIRD_PARTY_HELP keeps the full text for TTY installs; the GUI uses these split strings instead. docs.ostler.ai/privacy/third-party-data link rendering is handled by the existing linkifyHelpText() Markdown post-processor.",
     "intro_body": "Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.\n\nBy continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the email messages already on your hard drive.",
     "legal_note": "Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c). Read more at docs.ostler.ai/privacy/third-party-data."
+  },
+
+  "consent_article_9": {
+    "_meta": "EU/UK Article-9 special-category consent (install.sh region==eu branch, gui_read id=consent_article_9). Bash-side MSG_PROMPT_CONSENT_ARTICLE_9_HELP is only a one-line summary, so before this entry the GUI rendered just that line while the full special-category disclosure was echoed to stdout and filtered out of the window -- a compliance gap. The SwiftUI view now overrides the default help-text render exactly like consent_third_party: a primary intro_body in standard body copy + a subordinated legal_note in smaller italic with reduced contrast. Wording mirrors legal/consent_strings.py (ARTICLE_9_EU_CONSENT, v1.1-2026-07-15) reflowed for the GUI medium: the TTY-only 'Your decision' [Y]/[N] block and the 'click Read the Privacy Policy below' button reference are omitted because the GUI carries a yes/no toggle + Continue instead. The ostler.ai/privacy reference stays plain text (linkifyHelpText only auto-links https:// and docs.ostler.ai/... substrings).",
+    "intro_body": "One last thing – what Ostler will look at on your Mac\n\nOstler is a personal assistant, so it works by looking at the parts of your life you keep on this Mac. Some of that is sensitive. UK and EU privacy law requires us to ask you, in clear words, before we touch any of it.\n\nWhere the data lives. Everything Ostler reads stays on this Mac, in encrypted folders only you can unlock. We never get a copy. There is no \"cloud\" version of your data.\n\nWhat's in scope. Depending on which connectors you turn on, Ostler may process the following kinds of information that the law treats as \"special category\" data:\n\n- Health information that you mention in emails, messages, calendar entries or transcribed conversations\n- Religious or philosophical beliefs mentioned in any of the above\n- Sexual orientation mentioned in any of the above\n- Trade union membership\n- Voice - labelling *who* is speaking on calls (speaker identification). This is done only by the optional Ostler iPhone Companion app, on your iPhone, under a separate consent screen in that app - not on this Mac. This Mac never receives voice captures or voice fingerprints. (We do not infer mood, emotion, sentiment, stress or deception from voice.)\n- Mentions of criminal offences – your own or other people's – in any of the above\n\nWe do not perform emotion recognition. If that ever changes we will ask you again, separately, on a new consent screen.\n\nThe categories above are processed on this Mac and stay on it - the one exception is voice speaker-identification, which happens only on your iPhone (as noted above) and never reaches this Mac. None of it is sent to Creative Machines or to any third party, except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: optional cloud routing for non-personal questions, software update checks, and a handful of public metadata services).\n\nYou can change your mind any time. You can:\n\n- turn individual connectors (email, calendar, WhatsApp, etc.) off in Settings, which stops Ostler reading that source\n- delete everything Ostler has stored using \"Reset Ostler\" in the menu\n- completely uninstall Ostler using the uninstaller at ~/Documents/Ostler/Uninstall Ostler.app\n\nWithdrawing consent stops processing from that point forward. It does not undo work Ostler already did with your earlier consent.",
+    "legal_note": "Legal note: You are the data controller for all special-category data Ostler processes on this Mac (UK GDPR Article 4(7)). Creative Machines never receives any of this data. Your explicit consent above (UK GDPR Article 9(2)(a)) is the lawful basis for processing. For personal and household use, Article 2(2)(c) further limits scope. This consent is revocable at any time without affecting processing that has already taken place."
+  },
+
+  "consent_spoken_capture": {
+    "_meta": "BW3-8 (box-walk-v4, 2026-07-24): the spoken-audio recording-consent screen (gui_read id=consent_spoken_capture) had NO dedicated SwiftUI renderer, so the whole MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP blob -- intro + a 'What we ask of you' bullet list + the 'Legal note:' fine-print -- fell through to the generic single-Text() help path and rendered as one 14pt run with the bullets and the legal note mashed into the same paragraph flow, no block separation, no subordinated legal styling. This split copy powers a dedicated consentSpokenCaptureBody() that mirrors consent_third_party / consent_article_9 (primary intro_body + subordinated italic legal_note) but adds a real bulleted 'What we ask of you' list. Bash-side MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP is unchanged so the TTY install path still renders the full text inline.",
+    "intro_body": "Ostler can turn spoken audio you capture – calls and meetings – into searchable text. Typing and messaging are unaffected. Getting any consent the law requires is your responsibility, not ours.",
+    "ask_heading": "What we ask of you:",
+    "bullet_1": "Obtain whatever consent your local law requires before you capture a spoken conversation.",
+    "bullet_2": "Make it clear to the people you are with that audio is being captured – say so, or keep a visible indicator on.",
+    "bullet_3": "If in doubt, leave this off. You can turn it on later in Settings.",
+    "legal_note": "Legal note: Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first. Keeping the captured audio on your own Mac does not remove this duty – Ostler never sends it anywhere, but you still need consent where your local law requires it. Recording the spoken word can be regulated by national law in its own right – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
   },
 
   "recovery_passphrase": {
@@ -246,18 +290,29 @@
 
   "pair_iphone": {
     "_meta": "CX-56 (DMG ship, 2026-05-24): iOS Companion pairing QR section rendered between the service tick list and the CTA buttons on InstallCompleteView. The Hub gateway exposes POST http://localhost:8000/admin/paircode (no auth needed on localhost) which returns a §3.3 envelope JSON; we render that JSON string as a 256x256 QR with an oxblood border. CM031 iOS app scans the QR + decodes the envelope.",
-    "title": "Pair your iPhone",
-    "help": "Open the Ostler app on your iPhone and scan this QR code to link it to this Hub. You can also pair later from the Hub's Settings menu.",
+    "title": "Already installed the app?",
+    "help": "Already have the Ostler app on your iPhone? Scan this code to pair it with this Mac. You can also pair later from inside the app.",
     "fetching": "Generating pairing code...",
     "refresh_button": "Refresh code",
     "fetch_failed": "Couldn't reach the Ostler gateway yet. It might still be starting up – click Refresh to try again."
   },
 
+  "get_ios_app": {
+    "_meta": "#599 (2026-06-02): success-screen 'Get Ostler on your iPhone' section. Static QR + link to https://ostler.ai/ios, a stable redirect Andy repoints to the App Store listing once it is live, so the DMG never needs recutting for the store URL. This is the primary iPhone call to action; the pair_iphone QR is demoted below it.",
+    "title": "Get Ostler on your iPhone",
+    "body": "Scan the code to download the Ostler app, then open it to reach your wiki and your assistant from anywhere.",
+    "url_caption": "ostler.ai/ios"
+  },
+
   "install_complete": {
-    "_meta": "CX-81 B8 (2026-05-26): completion screen copy lifted from inline Text() literals in InstallCompleteView.swift per Rule 0.9. Rendered after the install pipeline reaches DONE. heading + subheading sit above the per-service health-check tick list; CTAs sit in the sticky footer.",
-    "heading": "You're all set",
-    "subheading": "Ostler is running on this Mac. Everything you need is set up; you can close this window.",
-    "health_check_label": "Health check",
+    "_meta": "#599 (2026-06-02): completion screen reworked. Hero 'Ostler is installed' (calm, not 'everything is ready') -> a 'what's happening now' hydration explainer that is the focus -> 'Get Ostler on your iPhone' (get_ios_app) -> demoted pairing QR (pair_iphone) -> the per-service tick list moved into a collapsed 'Hub status' disclosure. CTAs sit in the sticky footer. All copy via Rule 0.9. Qualitative hydration timing only (no hard hours number).",
+    "heading": "Ostler is installed",
+    "subheading": "Ostler is set up on this Mac.",
+    "hydration_label": "What's happening now",
+    "hydration_body": "Ostler is now building your private knowledge base in the background. The first pass can take a few hours, and your wiki and assistant get richer as it keeps working. You can close this window. It carries on by itself.",
+    "hub_status_label": "Hub status",
+    "status_ok": "OK",
+    "status_see_log": "see log",
     "open_ostler_button": "Open Ostler",
     "open_wiki_button": "Open your Wiki"
   },

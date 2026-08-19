@@ -1,0 +1,39 @@
+# TICK_SEAL_INVARIANTS.tsv
+#
+# The sealed ticks inside Ostler.app/Contents/Resources/ingest/<source>/tick.sh
+# are the copies that EXECUTE. The daemon's run-source subcommand forks them so
+# TCC responsibility stays on the signed parent. The vendored copies under
+# vendor/<pkg>/bin/<feed>-bundle-tick.sh are the documented source of truth and
+# are installed to ~/.ostler/bin/ but invoked by nothing.
+#
+# The sealed header asserts it is "a VERBATIM copy of the vendored tick ... Do
+# not diverge." Nothing checked, and it diverged twice:
+#
+#   2026-08-14, measured on the live v1.0.26 box:
+#     FDA preflight tokens   sealed 0   vendored 16   (control token 13 / 17)
+#     the seal also kept the unbounded slot hold after the vendored side was
+#     reasoned about and fixed.
+#
+# A BYTE DIFF IS THE WRONG INSTRUMENT. The two files legitimately differ:
+# sealed 222 lines, vendored 268, different headers, no SOURCE_DIR placeholder
+# in the seal. A diff would be red on every cut and would be switched off.
+#
+# So the invariant is not equality, it is SURVIVAL: every behavioural guarantee
+# named below must be present on BOTH sides. Add a row whenever a tick gains a
+# guarantee a customer depends on.
+#
+# Columns, tab-separated:
+#   feed        one of: email imessage whatsapp spoken   (or * for all)
+#   id          short stable name, appears in failure output
+#   pattern     python regex, searched against the file text
+#   why         one line: what breaks for the customer if it is absent
+#
+feed	id	pattern	why
+*	slot_acquire	ostler_slot_acquire	without it the feed never enrols as a waiter, so no holder is ever bounded on its behalf and it can starve forever
+*	slot_run	ostler_slot_run	without it the payload runs outside the max-hold watchdog, so this feed's own hold is unbounded
+*	slot_lib_path	ostler-ingest-slot\.sh	the tick must resolve the shared arbitration lib installed at ~/.ostler/lib/
+*	slot_enable_guard	OSTLER_INGEST_SLOT	the escape hatch must be testable; see the ordering check, which is enforced in code not here
+*	inline_fallback_lock	mkdir "?\$_(ostler_lock|slot)	on a box where the lib is not yet delivered a tick with no lock at all puts two pipelines on Ollama at once
+imessage	fda_probe_opens_the_file	head -c 1	stat(2) succeeds under TCC while open(2) is denied, so only an actual open distinguishes "missing" from "not permitted"
+imessage	fda_exit_code	EX_CONFIG|exit 78	the tick must exit 78 so the operator surface can name Full Disk Access instead of printing a raw traceback
+imessage	fda_actionable_message	Full Disk Access	the customer was shown "unable to open database file" and nothing about the cause or the fix

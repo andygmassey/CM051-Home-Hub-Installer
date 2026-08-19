@@ -1,0 +1,107 @@
+# cut_markers.manifest -- the "did the merged fix make the cut?" ledger.
+#
+# Every line is a fix MERGED to a source main that MUST be present in the
+# about-to-be-cut artefact. scripts/verify_cut_provenance.sh reads this file and
+# blocks the cut (gui/Makefile package + release.sh) if any marker is missing.
+# When a new launch-blocking fix lands, add ONE line here -- every future cut is
+# then gated on it. This is the mechanism that stops a merged-but-not-shipped fix
+# (dead chat, 404 Doctor, unmerged same-org dupes) from recurring.
+#
+# Format (pipe-delimited, 4 fields):
+#   kind | target | pattern | description
+#
+# kinds:
+#   daemon_tag   target=<commit-sha>  pattern=<ignored>  -- the ostler-assistant
+#                tag the daemon pin (gui/Makefile DAEMON_VERSION) resolves to MUST
+#                contain this commit as an ancestor. Catches a stale daemon
+#                tarball (pin says 0.4.8 but the v0.4.8 binary predates the fix).
+#   vendor_file  target=<path-rel-CM051>  pattern=<ignored>  -- file must exist.
+#   vendor_grep  target=<path-rel-CM051 file OR dir>  pattern=<regex>  -- pattern
+#                must be present (grep -rE) under target.
+#   assistant_tag_grep  target=<path-rel-ostler-assistant>  pattern=<regex>  --
+#                pattern must appear in that file AT the daemon tag the pin
+#                resolves to. Gates daemon-side / Hub-UI fixes with no vendored
+#                footprint (the web bundle is rebuilt from source at cut time).
+#   wiki_image_grep  target=<image-key>:<path-in-image>  pattern=<regex>  --
+#                pulls the PINNED wiki Docker digest from install.sh
+#                (image-key = wiki-site | wiki-compiler) and greps inside it.
+#                FAIL-CLOSED: docker unavailable / pull fail = RED. Ends the
+#                manual "did you rebuild the right wiki image" grep dance.
+#
+# --- v1.0.0 launch blockers (the v0.4.8 walk defects) ---
+daemon_tag|383d021a|-|Mainline hub daemon (tag hub-v0.4.31 @ fa07f1c2 = hub-v0.4.30/7f585136 + #216). 383d021a = ratified mainline QR-fix anchor (CUT_PROVENANCE_CORRECTION_2026-07-08), confirmed ancestor of fa07f1c2 (ahead 54 / behind 0). Supersedes the stale df321daab7 ffpair anchor (which diverged from the hub lineage). All prior assistant_tag_grep markers remain present in the hub lineage.
+assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|Ollama model preloaded|#216 v1.0.9 recut: model-name-independent retry-on-empty + preload-model-on-config-reload (the "Ollama returned empty" chat-dead cure). Present only at hub-v0.4.31 (fa07f1c2); proves the recut daemon carries #216.
+vendor_file|vendor/doctor/agent/duplicate_decision.py|-|#171 Doctor Same-person decision module (the 404 Save button)
+vendor_grep|vendor/doctor/agent/web_ui.py|/api/v1/wiki/duplicates/decision|#171 Doctor decision route wired into web_ui
+vendor_grep|vendor/cm041/identity_resolver|name_org_auto_merge|#40 resolver same-org auto-merge (the unmerged same-org dupes)
+assistant_tag_grep|web/src/App.tsx|ReconnectingScreen|#566 passcode-flash fix (no 6-digit auto-render, calm reconnect)
+assistant_tag_grep|web/src/pages/AgentChat.tsx|useIdentity|assistant chosen-name in chat (header + greeting via /api/identity)
+wiki_image_grep|wiki-site:/docs/overrides|pwg-settling-bar|#84 REPLACEMENT: the REAL settling panel's CSS is baked into the pinned wiki-site image. The old row asserted 'pwg-hydration-temporary' -- the faked compile-time card Andy ordered removed after walking three DMGs with it. That row outlived the feature and turned this gate red against a correct image; CM044's own test_dashboard_hydration_panel.py now asserts .pwg-hydration is ABSENT, so the two checks were in direct contradiction.
+wiki_image_absent|wiki-site:/docs/overrides|pwg-hydration[a-z-]*[[:space:]]*{|#84 LOCK: no LIVE .pwg-hydration-* CSS rule may return to the shipped image ("I don't EVER want to see it again"). Matches a selector followed by an opening brace, so the two surviving deletion COMMENTS in extra.css do not trip it -- a bare "pwg-hydration" substring pattern did, which is why this one is brace-anchored. Validated both directions against the pinned image: 0 hits for pwg-hydration, 41 for the same shape on pwg-settling, so it really does detect live rules.
+wiki_image_grep|wiki-site:/docs/overrides|padding-left: 1.4rem|#76/#623 card+admonition left-inset CSS baked into the pinned wiki-site image (the collapsed-padding cure: image serves extra.css from this dir)
+wiki_image_grep|wiki-compiler:/app/compiler|_render_settling_panel|#84 REPLACEMENT: the honest settling-panel renderer is baked into the pinned wiki-compiler image (real mode = genuine done/total with a falling estimate; calendar mode = weighted burndown, no fabricated time). Supersedes the 'hydration_temporary' row, which asserted the presence of the deleted fake card.
+wiki_image_absent|wiki-compiler:/app/compiler|hydration_temporary|#84 LOCK: the faked compile-time progress renderer must never return to the shipped image
+wiki_image_grep|wiki-compiler:/app/compiler|duplicates/decision|#83 duplicates one-tap page in the pinned wiki-compiler image
+wiki_image_grep|wiki-compiler:/app/compiler|inspect.signature|#85 SKIP_LLM signature-introspection dispatch in the pinned wiki-compiler image (old leak shape used a hardcoded name=="evernote"; its absence + this presence proves the baseline-compile gate ships)
+
+# --- v1.0.0 recut blockers (the b82c58d9 .144 box-walk defects) ---
+vendor_grep|install.sh|NO /v1 suffix|#1 chat: ollama base_url written without /v1 so the native provider's think:false lands (dead-chat cure on .144 walk)
+vendor_grep|vendor/cm048_pipeline/src/ollama_client.py|format_json and not model.lower|#2 conversations: skip Ollama format:json for qwen3.x so extraction is not empty
+vendor_grep|vendor/cm048_pipeline/src/ollama_client.py|num_ctx|#2 conversations: num_ctx/num_predict so long transcripts are not truncated to a bare brace
+vendor_grep|vendor/email_source/reader.py|is not iterable, so the|#3 email: coerce Header to str in _decode (TypeError crashed every email-source run)
+vendor_grep|vendor/cm041/identity_resolver/batch_resolver.py|def converge|#4 dedupe: post-hydrate whole-graph converge pass to a fixpoint
+vendor_grep|install.sh|--execute --converge|#4 dedupe: install.sh runs the converge pass after hydrate, before people-index + wiki
+vendor_grep|install.sh|Wiki title propagation|#5 wiki: USER_FIRST_NAME propagated to the compose .env so the wiki title renders ({first}pedia)
+vendor_grep|install.sh|open -gja Contacts|#639 me-card: launch Contacts before the osascript so a cold app (-600 "isn't running") cannot silently blank name/country/phone pre-fill + self-handles (the .145 box-walk regression)
+vendor_grep|vendor/ostler_fda/pyproject.toml|httpx|ostler_fda must declare httpx (pwg_ingest imports it): the minimal email-ingest/whatsapp per-source venvs install only ostler_fda, so an undeclared httpx is absent and WhatsApp+Browsing hydration crash mid-install (the .145 box-walk install FAILURE)
+wiki_image_grep|wiki-compiler:/app/compiler|def settling_state|#87 post-install settling panel in the pinned wiki-compiler image (compiler/hydration.py)
+
+# --- v1.0.0 re-cut blockers (536a3ca .149 box-walk: chat starve + no panel) ---
+vendor_grep|install.sh|ingest-ollama.lock.d|#307 chat: wiki first-run summary backfill joins the shared Ollama slot lock (install.sh site) -- residual chat-starvation cure
+vendor_grep|wiki-recompile/bin/wiki-recompile-tick.sh|ingest-ollama.lock.d|#307 chat: wiki recompile-tick backfill also holds the shared Ollama slot lock (2nd backfill site)
+wiki_image_grep|wiki-compiler:/app/compiler|within_install_window|#88 settling/progress panel off durable install anchor so a panel renders for the WHOLE first backfill
+wiki_image_grep|wiki-compiler:/app/compiler|intentionally NOT conflicts|#89 dedupe over-merge flags LinkedIn-only; work+personal phone/email no longer false-positive (108 -> ~43)
+assistant_tag_grep|crates/zeroclaw-gateway/src/warm_intro.rs|fn render_intro_message\(user_first_name:|#116 warm-intro opens by addressing the user by name (v0.4.10 daemon; two-arg signature only exists with this fix)
+
+# --- v0.4.11 re-cut: num_ctx chat fix (ostler-assistant #118) ---
+assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|fn resolve_num_ctx|#118 num_ctx pin -- fixes one-token /ws/chat (Ollama 4096 default truncated the ~41KB agent prompt)
+assistant_tag_grep|crates/zeroclaw-providers/src/ollama_gate.rs|pub\(crate\) async fn acquire|#117 foreground/background Ollama slot-priority admission gate (carried in v0.4.11 daemon). NOTE: parens ESCAPED -- verify_cut_provenance.sh greps with `grep -E`, so an unescaped (crate) is an ERE capture group matching literal "crate" and NEVER matches the source's literal "(crate)" -> false STALE-DAEMON RED (walled the 2026-06-15 v0.4.11 cut though #117 IS in the tag).
+
+# --- v1.0.0 last-cut: daemon B1/B3 fixes (hub-v0.4.12, ostler-assistant #120) ---
+assistant_tag_grep|crates/zeroclaw-channels/src/imessage.rs|owner_cross_device_inbound_from_self_handle_is_not_dropped|#120 B3 iMessage self-handle over-broad-drop fix -- owner cross-device inbound reaches the agent (test exists only at v0.4.12)
+assistant_tag_grep|crates/zeroclaw-config/src/schema.rs|fn seeded_identity_md|#120 B1 IDENTITY/SOUL seeded from user_assistant_name, never embeds the ZeroClaw codeword (fn added at v0.4.12)
+
+# --- v1.0.0 cut: daemon P0 graph tool (hub-v0.4.13, ostler-assistant #121) ---
+assistant_tag_grep|crates/zeroclaw-runtime/src/tools/mod.rs|PwgPeopleTool|#608/#121 P0 graph tool registered in the daemon: the agent gets the loopback-only pwg_people lookup tool so Hub chat answers personal-data questions from the graph (the dead-brain cure). Matches the `pub use ...::PwgPeopleTool` + `PwgPeopleTool::new(` registration at v0.4.13.
+
+# --- v1.0.0 recut: daemon .153-walk fixes (hub-v0.4.14, ostler-assistant #126) ---
+# These three markers gate every future cut on the daemon carrying B2/B3/B4. Each
+# pattern is ERE-safe (no unescaped parens -- see the #117 escaped-parens note above)
+# and was VERIFIED present at v0.4.14 and ABSENT at v0.4.13 (freshness proof) before
+# encoding. verify_cut_provenance.sh greps `git show <DAEMON_TAG>:<path>`; DAEMON_TAG
+# resolves to v0.4.14 from the 0.4.14 pin.
+assistant_tag_grep|crates/zeroclaw-gateway/src/pwg_proxy.rs|people service is still starting|#667 B3: the gateway pwg_proxy serves /api/v1/{people,timeline,calendar,suggestions} from the loopback ical-server INDEPENDENT of web_dist_dir, so the Hub People/Timeline panes load on a clean install (no developer-only build-the-frontend 503). pwg_proxy.rs is a whole new file at v0.4.14 (absent at v0.4.13), so this also proves daemon freshness.
+assistant_tag_grep|crates/zeroclaw-runtime/src/agent/system_prompt.rs|Capability Honesty|#559 B4: capability-honesty system-prompt block bounds the assistant's advertised surface to the shipped feature set (no Slack/Telegram/Jira/Pushover/model-switch/polls over-promise). Added at v0.4.14.
+assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|Default TRUE: Ostler ships qwen3|#608 B2 (P0): Ollama native tool-calling defaults ON so the live chat agent actually calls pwg_people (the dead-brain cure). This distinctive comment exists only with the native-default-TRUE fix (absent at v0.4.13).
+
+# --- v1.0.0 cut: iMessage self-chat + Hub Doctor/lang (hub-v0.4.15; ostler-assistant #127/#128 + CM051 #334) ---
+# All three verified present at v0.4.15 and ABSENT at v0.4.14 (freshness) before encoding.
+assistant_tag_grep|crates/zeroclaw-channels/src/imessage.rs|POLL_QUERY_SELF_CHAT|#127 iMessage self-chat read: the operator can text their OWN Apple ID (Note to Self) and get a reply, no second account. Scoped self-chat predicate -- single-member chat whose lone participant's prefixed handle equals account_login; uncorrelated count=1 sub-count + GLOB guard close the group-collapse leak. Present at v0.4.15, ABSENT at v0.4.14 (also proves daemon freshness). ERE-safe.
+assistant_tag_grep|web/src/pages/config/sections/GeneralSection.tsx|return null|#128 Hub Settings hides the ZeroClaw UI-language override (a leftover Select that never re-rendered the UI and confused customers); the section renders nothing rather than an empty card. Pairs with the Health->Doctor nav rename. Present at v0.4.15, ABSENT at v0.4.14.
+vendor_grep|assistant-agent/launchd/com.creativemachines.ostler.assistant.plist|OSTLER_IMESSAGE_SELF_CHAT|#334 the daemon LaunchAgent ships OSTLER_IMESSAGE_SELF_CHAT=true so #127 self-chat is live (DORMANT without it). Hard-coded product constant in the plist template.
+wiki_image_grep|wiki-compiler:/app/compiler|final post-complete re-render|#97/#616 wiki first-run hydration panel dropped after compile completes: compile.py re-renders index.md ONCE after hydration.complete() so the static homepage is not frozen at "step 5 of 5" for the whole backfill window. Baked into the pinned wiki-compiler image (digest b417dbf2; built from CM044 main ffb8515 = #97 merged).
+
+# --- v1.0.0 recut: headless dead-brain fix (hub-v0.4.16; ostler-assistant #131) ---
+# Verified present at v0.4.16 and ABSENT at v0.4.15 (freshness) before encoding.
+assistant_tag_grep|crates/zeroclaw-config/src/schema.rs|Read-only PWG knowledge-graph lookup|#131 the headless dead-brain fix: pwg_people + remember_fact are added to default_auto_approve() so the headless daemon (iMessage / scheduled runs, no human to approve) stops returning "Denied by user." for every graph lookup under level=supervised. ensure_default_auto_approve() (called in load_or_init) also self-heals existing installs. This distinctive comment exists only with #131 -- present at v0.4.16, ABSENT at v0.4.15 (also proves daemon freshness). ERE-safe.
+
+# --- v1.0.1 cut: iMessage date-floor replay (hub-v0.4.18; ostler-assistant #135) ---
+# Verified present at v0.4.18 and ABSENT at v0.4.17 (freshness) before encoding.
+assistant_tag_grep|crates/zeroclaw-channels/src/imessage.rs|date_floor_filters_old_high_rowid_synced_message|#135 iMessage date-floor replay fix: both poll queries are floored (AND m.date > ?2) so an iCloud back-fill of OLD messages carrying HIGH ROWIDs is not replayed as "new" on daemon restart (the old-message-spam trap). This regression test exists only with #135 -- present at v0.4.18, ABSENT at v0.4.17 (also proves daemon freshness). ERE-safe.
+
+# --- spoken-capture recording-consent notice (vendor grafts; canonical source HR015 feat/spoken-capture-consent-source) ---
+# Region-agnostic member-state recording-consent acknowledgement gate. Verified: the
+# vendored consent string + registration + installer wiring are all present in this tree.
+vendor_grep|vendor/legal/consent_strings.py|SPOKEN_CAPTURE_RECORDING_CONSENT = ConsentString|spoken-capture consent string bundled in vendored legal (graft; canonical in HR015 legal source)
+vendor_grep|vendor/ostler_security/consent_cli.py|SPOKEN_CAPTURE_RECORDING_CONSENT.tickbox_id: SPOKEN_CAPTURE_RECORDING_CONSENT|spoken-capture consent registered in vendored consent_cli TICKBOX_REGISTRY (else argparse drops the record -- #659 failure mode)
+vendor_grep|install.sh|OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION|install.sh prompts + persists the spoken-capture recording-consent acknowledgement (every region)

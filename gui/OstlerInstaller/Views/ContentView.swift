@@ -13,6 +13,19 @@ struct ContentView: View {
 
     var body: some View {
         Group {
+            // CX-126: a deliberate user-cancel / consent-decline takes
+            // over the whole window with a calm neutral terminal. Checked
+            // first so it overrides every other gate once install.sh has
+            // emitted DONE status=cancelled.
+            if coordinator.cancelled {
+                InstallCancelledView()
+            // CX-87 (2026-06-01): Full Disk Access gate sits ahead of
+            // everything except the cancelled terminal. On first launch
+            // with no FDA, this is the only screen shown until the
+            // customer grants it and reopens -- so the quit-and-reopen
+            // happens before any questions, not mid-install.
+            } else if coordinator.needsFullDiskAccessUpfront {
+                FullDiskAccessGateView()
             // CX-17 (2026-05-23): the permissions intro screen lands
             // BEFORE everything else (licence, admin gate, install).
             // The macOS TCC dialogs must fire while the customer is
@@ -20,7 +33,7 @@ struct ContentView: View {
             // walked away to read their welcome email. Once the
             // intro flow is `.complete` or `.skipped` we fall
             // through to the existing licence + admin gates.
-            if !coordinator.permissionsPrewarmFinished {
+            } else if !coordinator.permissionsPrewarmFinished {
                 PermissionsIntroView()
             } else if coordinator.licenseVerified {
                 gatedContent
@@ -88,6 +101,13 @@ struct ContentView: View {
             )
         case .fatal(let reason):
             DeviceRegistrationErrorView(reason: reason)
+        case .offlineGraceExhausted(let attempts):
+            // v1.0.10 security lockdown: the bounded offline fail-open
+            // grace is used up. Refuse to proceed until this Mac can
+            // reach our server and complete a real device registration.
+            DeviceRegistrationErrorView(
+                reason: "This licence has been installed offline \(attempts) time(s) on this Mac without ever confirming your device with our server. To protect your licence allowance, please connect this Mac to the internet and re-run the installer so we can verify your device."
+            )
         case .idle, .registering:
             // The install layout itself is fine to render -- bootstrap()
             // is gated separately, so the subprocess does not launch
@@ -715,6 +735,46 @@ private struct DeviceRegistrationErrorView: View {
             HStack {
                 Spacer()
                 Button(ViewCopy.shared.string(for: "device_registration_error.quit_button")) {
+                    NSApp.terminate(nil)
+                }
+                    .buttonStyle(.ostlerPrimary)
+                    .keyboardShortcut(.defaultAction)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 48)
+        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.ostlerChassis)
+    }
+}
+
+/// CX-126: shown when the customer deliberately cancelled / declined a
+/// consent gate and install.sh exited cleanly having written nothing.
+/// This is NOT a failure, so it uses calm ink colours (no oxblood/red,
+/// no "contact support") -- just a neutral acknowledgement + a way out.
+private struct InstallCancelledView: View {
+    var body: some View {
+        VStack(spacing: 24) {
+            HStack(spacing: 12) {
+                Image(systemName: "xmark.circle")
+                    .font(.system(size: 28, weight: .regular))
+                    .foregroundColor(.ostlerInkMuted)
+                Text(ViewCopy.shared.string(for: "install_cancelled.heading"))
+                    .font(.ostlerH1)
+                    .foregroundColor(.ostlerInk)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(ViewCopy.shared.string(for: "install_cancelled.body"))
+                .font(.ostlerBody)
+                .foregroundColor(.ostlerInk)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack {
+                Spacer()
+                Button(ViewCopy.shared.string(for: "install_cancelled.quit_button")) {
                     NSApp.terminate(nil)
                 }
                     .buttonStyle(.ostlerPrimary)

@@ -158,6 +158,140 @@ struct FingerprintState {
         try? FileManager.default.removeItem(at: url)
     }
 
+    // MARK: - Offline-grace ledger (bounded fail-open, v1.0.10)
+    //
+    // Pre-v1.0.10 a `.networkFailure` reaching the registration Worker
+    // set the gate straight to `.ready` and proceeded -- an UNBOUNDED
+    // fail-open. An attacker who blocks appcast.ostler.ai could install
+    // one licence on unlimited Macs, each just proceeding. We cannot
+    // fully close the cross-Mac case client-side (a blocked network
+    // means the client cannot learn the cap; true deactivation is
+    // Hub-side), but we CAN bound the fail-open per licence on a given
+    // Mac and record it, so a repeatedly-offline install cannot proceed
+    // forever while the deferred re-check never completes.
+
+    static let offlineGracePath: URL =
+        stateDir.appendingPathComponent("offline_grace.json")
+
+    struct OfflineGrace: Codable, Equatable {
+        let licenseId: String
+        let firstOfflineAt: String  // ISO-8601 UTC
+        var count: Int
+
+        enum CodingKeys: String, CodingKey {
+            case licenseId = "license_id"
+            case firstOfflineAt = "first_offline_at"
+            case count
+        }
+    }
+
+    static func readOfflineGrace(at url: URL = offlineGracePath) -> OfflineGrace? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(OfflineGrace.self, from: data)
+    }
+
+    @discardableResult
+    static func writeOfflineGrace(
+        _ grace: OfflineGrace,
+        at url: URL = offlineGracePath
+    ) throws -> OfflineGrace {
+        try ensureDirectory(parent: url.deletingLastPathComponent())
+        let data: Data
+        do {
+            data = try JSONEncoder().encode(grace)
+        } catch {
+            throw FingerprintStateError.encode(error)
+        }
+        do {
+            try data.write(to: url, options: [.atomic])
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: url.path
+            )
+        } catch {
+            throw FingerprintStateError.write(error)
+        }
+        return grace
+    }
+
+    /// Clear the ledger once a real registration resolves (success or
+    /// a definitive cap answer). Safe when the file does not exist.
+    static func clearOfflineGrace(at url: URL = offlineGracePath) {
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    // MARK: - Offline-grace policy
+
+    enum OfflineGraceDecision: Equatable {
+        /// Within the bounded grace -- proceed (and queue a deferred
+        /// hard re-check). `attempt` is the 1-based count including
+        /// this one.
+        case proceed(attempt: Int)
+        /// Bound exceeded -- the caller MUST block rather than proceed.
+        case exhausted(attempts: Int)
+    }
+
+    /// How many offline installs a single licence may fail open on a
+    /// given Mac before we refuse, and the window they must fall
+    /// within. Deliberately small: a genuine appcast outage or a
+    /// travelling laptop needs one or two, not dozens.
+    static let maxOfflineProceeds = 3
+    static let offlineGraceWindow: TimeInterval = 14 * 24 * 60 * 60  // 14 days
+
+    /// Evaluate + advance the bounded fail-open ledger for `licenseId`.
+    /// Returns `.proceed` while under the cap within the window, else
+    /// `.exhausted`. Side effect: persists the advanced ledger on a
+    /// `.proceed` so repeated calls converge on the cap. A ledger for a
+    /// DIFFERENT licence (licence swapped on this Mac) resets the
+    /// window -- the new licence gets its own bounded grace.
+    static func evaluateOfflineGrace(
+        licenseId: String,
+        now: Date = Date(),
+        at url: URL = offlineGracePath
+    ) -> OfflineGraceDecision {
+        if let existing = readOfflineGrace(at: url), existing.licenseId == licenseId {
+            let first = isoFormatter.date(from: existing.firstOfflineAt) ?? now
+            let withinWindow = now.timeIntervalSince(first) <= offlineGraceWindow
+            if withinWindow {
+                let nextCount = existing.count + 1
+                if nextCount > maxOfflineProceeds {
+                    return .exhausted(attempts: existing.count)
+                }
+                try? writeOfflineGrace(
+                    OfflineGrace(
+                        licenseId: licenseId,
+                        firstOfflineAt: existing.firstOfflineAt,
+                        count: nextCount
+                    ),
+                    at: url
+                )
+                return .proceed(attempt: nextCount)
+            } else {
+                // Window elapsed -- roll it forward with a fresh count.
+                try? writeOfflineGrace(
+                    OfflineGrace(
+                        licenseId: licenseId,
+                        firstOfflineAt: isoFormatter.string(from: now),
+                        count: 1
+                    ),
+                    at: url
+                )
+                return .proceed(attempt: 1)
+            }
+        } else {
+            try? writeOfflineGrace(
+                OfflineGrace(
+                    licenseId: licenseId,
+                    firstOfflineAt: isoFormatter.string(from: now),
+                    count: 1
+                ),
+                at: url
+            )
+            return .proceed(attempt: 1)
+        }
+    }
+
     // MARK: - Helpers
 
     private static func ensureDirectory(parent: URL) throws {

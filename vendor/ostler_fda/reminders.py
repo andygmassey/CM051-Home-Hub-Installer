@@ -1,7 +1,13 @@
 """Extract reminders from macOS Reminders database.
 
-macOS Reminders stores data in a CoreData SQLite database:
-    ~/Library/Reminders/Container_v1/Stores/
+macOS Reminders stores data in a CoreData SQLite database. The path
+varies by macOS version:
+
+    macOS 15 (Sequoia) and later (sandboxed Group Container):
+        ~/Library/Group Containers/group.com.apple.reminders/Container_v1/Stores/
+
+    macOS 14 (Sonoma) and earlier (legacy non-sandboxed):
+        ~/Library/Reminders/Container_v1/Stores/
 
 The database uses the CoreData schema with tables like
 ZREMCDREMINDER for individual reminders and ZREMCDCALENDARLIST
@@ -24,9 +30,21 @@ MAC_EPOCH_OFFSET = 978307200
 
 # Reminders database lives inside a Container_v1/Stores directory.
 # The actual .sqlite file name varies, but there's usually one.
-DEFAULT_REMINDERS_DIR = (
+# macOS 15+ (Sequoia) moved the store inside a sandboxed Group
+# Container; the legacy non-sandboxed path remains as a fallback
+# for older macOS versions.
+DEFAULT_REMINDERS_DIR_SEQUOIA = (
+    Path.home() / "Library" / "Group Containers"
+    / "group.com.apple.reminders" / "Container_v1" / "Stores"
+)
+
+DEFAULT_REMINDERS_DIR_LEGACY = (
     Path.home() / "Library" / "Reminders" / "Container_v1" / "Stores"
 )
+
+# Public default kept for backwards compatibility with callers that
+# referenced DEFAULT_REMINDERS_DIR directly. Resolved at lookup time.
+DEFAULT_REMINDERS_DIR = DEFAULT_REMINDERS_DIR_SEQUOIA
 
 
 @dataclass
@@ -48,26 +66,47 @@ def _find_reminders_db(search_dir: Optional[Path] = None) -> Path:
 
     Apple doesn't use a fixed filename, so we search for .sqlite
     files in the Stores directory.
-    """
-    search_dir = search_dir or DEFAULT_REMINDERS_DIR
 
-    if not search_dir.exists():
+    Probes the macOS 15+ Group Container path first, then falls back
+    to the legacy non-sandboxed path for macOS 14 and earlier.
+    """
+    # Caller-supplied dir wins (tests + explicit overrides).
+    if search_dir is not None:
+        candidate_dirs = [search_dir]
+    else:
+        # New path FIRST so macOS 15+ customers find data; older Macs
+        # fall through to the legacy path.
+        candidate_dirs = [
+            DEFAULT_REMINDERS_DIR_SEQUOIA,
+            DEFAULT_REMINDERS_DIR_LEGACY,
+        ]
+
+    chosen_dir: Optional[Path] = None
+    for d in candidate_dirs:
+        if d.exists():
+            chosen_dir = d
+            break
+
+    if chosen_dir is None:
         raise FileNotFoundError(
-            f"Reminders directory not found at {search_dir}"
+            "Reminders directory not found. Tried: "
+            + ", ".join(str(d) for d in candidate_dirs)
         )
 
     # Look for .sqlite files (not -wal or -shm)
-    candidates = list(search_dir.glob("*.sqlite"))
+    candidates = list(chosen_dir.glob("*.sqlite"))
     if not candidates:
         # Also check one level deeper
-        candidates = list(search_dir.glob("*/*.sqlite"))
+        candidates = list(chosen_dir.glob("*/*.sqlite"))
 
     if not candidates:
         raise FileNotFoundError(
-            f"No Reminders database found in {search_dir}"
+            f"No Reminders database found in {chosen_dir}"
         )
 
-    # If multiple, pick the largest (most likely the active one)
+    # If multiple, pick the largest (most likely the active one).
+    # macOS 15 keeps multiple per-account stores (Data-<UUID>.sqlite)
+    # alongside a Data-local.sqlite; largest is the most populated.
     candidates.sort(key=lambda p: p.stat().st_size, reverse=True)
     return candidates[0]
 

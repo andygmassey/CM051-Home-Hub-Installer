@@ -32,8 +32,19 @@ final class InstallerCoordinator: ObservableObject {
     @Published var logLines: [LogLine] = []
     @Published var pendingPrompt: PendingPrompt? = nil
     @Published var needsFDA: NeedsFDA? = nil
+    // CX-87: front-loaded FDA gate. True when the very first launch has
+    // no Full Disk Access yet; ContentView shows FullDiskAccessGateView
+    // and nothing else runs until the customer grants it and reopens.
+    @Published var needsFullDiskAccessUpfront: Bool = false
     @Published var needsSudo: String? = nil
     @Published var finished: StepStatus? = nil
+    /// CX-126: set true when install.sh emits `DONE status=cancelled`
+    /// on a deliberate user-cancel / consent-decline path. Distinct
+    /// from `finished == .fail` so ContentView can render a calm
+    /// neutral "Installation cancelled" terminal instead of the red
+    /// failure banner. ContentView checks this BEFORE the gated/finished
+    /// branches.
+    @Published var cancelled: Bool = false
     @Published var devModeRawLog: Bool = false
     @Published var error: String? = nil
     /// CX-17 (2026-05-23): stable error code carried on the DONE
@@ -146,6 +157,12 @@ final class InstallerCoordinator: ObservableObject {
         case .none: return .running
         case .some(.ok): return .success
         case .some(.warn): return .success // warn surfaces in-line; not a failure transition
+        // #839: DONE never carries these two today (they are step-level
+        // statuses), but the enum is shared, so state the intent rather
+        // than leaving it to a default. A run that gave up waiting still
+        // reached the end; a run that errored did not.
+        case .some(.timeout): return .success
+        case .some(.error): return .failed(step: currentStepId)
         case .some(.fail): return .failed(step: currentStepId)
         }
     }
@@ -235,6 +252,11 @@ final class InstallerCoordinator: ObservableObject {
         case ready
         case limitReached(maxFingerprints: Int, registeredCount: Int)
         case fatal(reason: String)
+        // v1.0.10 security lockdown: the bounded offline fail-open
+        // grace has been exhausted for this licence on this Mac. We
+        // refuse to proceed until the device can reach the Worker and
+        // complete a real registration.
+        case offlineGraceExhausted(attempts: Int)
     }
 
     /// Test hook: inject a client with a mock transport.
@@ -489,6 +511,16 @@ final class InstallerCoordinator: ObservableObject {
         }
         requestingAdmin = true
         needsAdminAcknowledgement = false
+        // CX-126: light the HintPanel spinner the instant the customer
+        // taps Continue. Clearing needsAdminAcknowledgement flips the
+        // view from AdminAccessRequiredView to installLayout, whose
+        // HintPanel only renders its spinner+status when preInstallStatus
+        // is non-empty. The osascript admin dialog has a visible spin-up
+        // wait (longest on the post-FDA Quit&Reopen relaunch path), and
+        // without this only the easily-missed footer dot spins, so the
+        // tap reads as ignored. Subprocess LOG markers overwrite this on
+        // the granted path; the not-granted path clears it below.
+        preInstallStatus = ViewCopy.shared.string(for: "admin_access_required.requesting_status")
         defer { requestingAdmin = false }
 
         let reason = ViewCopy.shared.string(for: "admin_access_required.prompt_reason")
@@ -496,6 +528,7 @@ final class InstallerCoordinator: ObservableObject {
         OstlerLog.lifecycle.info("requestAdminAndLaunch: requesting admin authorisation before subprocess launch")
         let granted = await adminAuthorizationProvider(reason)
         if !granted {
+            preInstallStatus = nil
             needsAdminRetry = true
             error = ViewCopy.shared.string(for: "admin_access_required.retry_message")
             appendLog(level: "warn", msg: "Administrator access not granted -- holding install at retry gate")
@@ -677,6 +710,39 @@ final class InstallerCoordinator: ObservableObject {
     /// prompting), so this method can be safely called from
     /// onAppear without worrying about re-prompting on a re-launch.
     /// We still log per-call to surface state in the LogDrawer.
+    /// CX-87: the FIRST thing the app does on launch (after the
+    /// self-relocator). If the bundle already has Full Disk Access we
+    /// fall straight through to the normal permissions/licence/install
+    /// flow. If not, we raise the up-front FDA gate and stop -- the
+    /// customer switches FDA on, macOS makes them quit, and on reopen
+    /// this runs again, the probe passes, and the entire setup runs
+    /// once with FDA in place. This is what stops the mid-install
+    /// quit-and-reopen that used to drop the app onto the reuse path.
+    func gateFullDiskAccessThenStart() {
+        if AuthorizationHelper.shared.hasFullDiskAccess() {
+            needsFullDiskAccessUpfront = false
+            OstlerLog.lifecycle.info("FDA gate: access present -- continuing to permissions/licence flow")
+            requestPermissionsThenStart()
+        } else {
+            needsFullDiskAccessUpfront = true
+            OstlerLog.lifecycle.info("FDA gate: access NOT granted -- showing up-front Full Disk Access screen")
+        }
+    }
+
+    /// CX-87: bound to the "I've switched it on" button on the FDA gate,
+    /// as a fallback for the case where macOS did not force-quit the app
+    /// after the grant. Re-probes; if FDA is now present, drops the gate
+    /// and proceeds, otherwise leaves the gate up.
+    func recheckFullDiskAccessAndProceed() {
+        if AuthorizationHelper.shared.hasFullDiskAccess() {
+            OstlerLog.lifecycle.info("FDA gate: re-check passed -- continuing")
+            needsFullDiskAccessUpfront = false
+            requestPermissionsThenStart()
+        } else {
+            OstlerLog.lifecycle.info("FDA gate: re-check still without access -- holding on gate")
+        }
+    }
+
     func requestPermissionsThenStart() {
         // CX-17: this method now ONLY puts the intro screen on
         // screen. The actual prewarm() fires when the customer
@@ -833,6 +899,9 @@ final class InstallerCoordinator: ObservableObject {
             OstlerLog.fingerprint.info("result=ok max=\(max, privacy: .public) count=\(count, privacy: .public)")
             persistFingerprintCache(fingerprint: fingerprint)
             FingerprintState.clearPending()
+            // v1.0.10: a real registration resolved -- reset the
+            // bounded offline fail-open ledger.
+            FingerprintState.clearOfflineGrace()
             registrationGate = .ready
             bootstrap()
         case .limitReached(let max, let count):
@@ -841,6 +910,9 @@ final class InstallerCoordinator: ObservableObject {
                 msg: "Device limit reached (\(count)/\(max == 0 ? "?" : String(max)) Macs). Refusing install."
             )
             OstlerLog.fingerprint.warning("result=limitReached max=\(max, privacy: .public) count=\(count, privacy: .public)")
+            // v1.0.10: a definitive cap answer resolves the bounded
+            // offline fail-open ledger.
+            FingerprintState.clearOfflineGrace()
             registrationGate = .limitReached(
                 maxFingerprints: max,
                 registeredCount: count
@@ -864,25 +936,47 @@ final class InstallerCoordinator: ObservableObject {
                 reason: "Your licence file was rejected by our server (\(reason)). Please email hello@ostler.ai."
             )
         case .networkFailure(let message):
-            appendLog(
-                level: "warn",
-                msg: "Device registration deferred (network: \(message)). Proceeding with install -- Hub will retry."
-            )
-            OstlerLog.fingerprint.warning("result=networkFailure message=\(message, privacy: .public) -- queuing for deferred retry")
-            do {
-                try FingerprintState.writePending(
-                    licenseId: claims.licenseId,
-                    fingerprint: fingerprint
-                )
-            } catch {
+            // v1.0.10 security lockdown: BOUNDED fail-open. Pre-fix
+            // this unconditionally set `.ready` + bootstrapped, so a
+            // blocked appcast.ostler.ai let one licence install on
+            // unlimited Macs. We now consult a per-licence, per-Mac
+            // bounded grace: proceed a small, time-boxed number of
+            // times (each queuing a deferred hard re-check), then
+            // refuse. The cross-Mac case is only fully closable
+            // Hub-side (the deferred re-check must DEACTIVATE, not
+            // just warn, on a 409) -- see the PR body tradeoff note.
+            switch FingerprintState.evaluateOfflineGrace(licenseId: claims.licenseId) {
+            case .proceed(let attempt):
                 appendLog(
                     level: "warn",
-                    msg: "Could not write pending-registration queue: \(error.localizedDescription)"
+                    msg: "Device registration deferred (network: \(message)). Proceeding offline (grace \(attempt)/\(FingerprintState.maxOfflineProceeds)) -- Hub will hard re-check."
                 )
-                OstlerLog.fingerprint.error("writePending failed: \(error.localizedDescription, privacy: .public)")
+                OstlerLog.fingerprint.warning("result=networkFailure message=\(message, privacy: .public) -- offline grace attempt=\(attempt, privacy: .public) queuing for deferred retry")
+                do {
+                    try FingerprintState.writePending(
+                        licenseId: claims.licenseId,
+                        fingerprint: fingerprint
+                    )
+                } catch {
+                    appendLog(
+                        level: "warn",
+                        msg: "Could not write pending-registration queue: \(error.localizedDescription)"
+                    )
+                    OstlerLog.fingerprint.error("writePending failed: \(error.localizedDescription, privacy: .public)")
+                }
+                registrationGate = .ready
+                bootstrap()
+            case .exhausted(let attempts):
+                appendLog(
+                    level: "error",
+                    msg: "Device registration keeps failing offline (\(attempts) attempts). Refusing to proceed until this Mac can reach our server."
+                )
+                OstlerLog.fingerprint.error("result=networkFailure offline grace EXHAUSTED attempts=\(attempts, privacy: .public) -- blocking install")
+                // Keep the pending queue so a later online run / the
+                // Hub-side deferred script can still resolve it, but do
+                // NOT bootstrap: the install is blocked.
+                registrationGate = .offlineGraceExhausted(attempts: attempts)
             }
-            registrationGate = .ready
-            bootstrap()
         }
     }
 
@@ -1174,6 +1268,27 @@ final class InstallerCoordinator: ObservableObject {
             // some sub-tools (mkdocs, pip).
             "TERM": "dumb",
             "NO_COLOR": "1",
+            // KEEP PYTHON BYTECODE OUT OF THE SIGNED BUNDLE.
+            //
+            // install.sh runs the Python interpreter shipped at
+            // Contents/Resources/python. CPython writes __pycache__/*.pyc NEXT
+            // TO the source it imports, and that source is inside the notarised
+            // app, so every run breaks the code seal.
+            //
+            // MEASURED on the v1.0.36 box, 2026-08-18, after the walk:
+            //   codesign --verify --deep --strict  rc=1
+            //   spctl -a -t exec -vv               rc=1, Gatekeeper REFUSES
+            //   239 .pyc inside the bundle (plus 17 egg-info, fixed separately
+            //   by routing the ostler_fda pip install through
+            //   _ostler_pip_install_pkg)
+            //
+            // PYTHONPYCACHEPREFIX rather than PYTHONDONTWRITEBYTECODE: the
+            // prefix REDIRECTS the cache to a writable dir, so repeat runs keep
+            // the startup benefit. DONTWRITEBYTECODE would suppress caching
+            // entirely and would also be silently defeated if anything later
+            // sets the prefix. One mechanism, not two fighting.
+            "PYTHONPYCACHEPREFIX": (NSHomeDirectory() as NSString)
+                .appendingPathComponent(".ostler/cache/pycache"),
         ]
         let env = ProcessInfo.processInfo.environment
             .merging(overrides) { _, new in new }
@@ -1389,6 +1504,7 @@ final class InstallerCoordinator: ObservableObject {
         let key: String
         switch event {
         case .stepBegin:   key = "stepBegin"
+        case .step:        key = "step"
         case .pct:         key = "pct"
         case .log:         key = "log"
         case .warn:        key = "warn"
@@ -1398,6 +1514,7 @@ final class InstallerCoordinator: ObservableObject {
         case .needsFDA:    key = "needsFDA"
         case .needsSudo:   key = "needsSudo"
         case .done:        key = "done"
+        case .cancelled:   key = "cancelled"
         case .recoveryKey: key = "recoveryKey"
         case .rawLine:     key = "rawLine"
         case .unknown:     key = "unknown"
@@ -1420,6 +1537,34 @@ final class InstallerCoordinator: ObservableObject {
             totalSteps = total ?? totalSteps
             appendLog(level: "info", msg: "→ \(title) [\(id)]")
             OstlerLog.subprocess.info("event STEP_BEGIN id=\(id, privacy: .public) idx=\(idx ?? -1, privacy: .public)/\(total ?? -1, privacy: .public) title=\(title, privacy: .public)")
+        case .step(let id, let metadata):
+            // #201 (v1.0.13.1 box-walk, 2026-08-01): bare STEP marker.
+            // install.sh emits `#OSTLER STEP name=<id> [k=v ...]` for
+            // out-of-band screens that don't fit the stepBegin/stepEnd
+            // cadence (the original callsite is permissions_briefing --
+            // the "10 macOS popups coming up" walk-through slotted
+            // between the setup_questions PHASE and the first install
+            // stepBegin). Route through the same backfill +
+            // currentStepId path stepBegin uses so the sidebar advances
+            // rather than stranding "A few questions" as active for the
+            // duration of the briefing. Title falls back to the
+            // StepCatalog entry when one exists, otherwise a formatted
+            // version of the id -- matches the fallback pattern in
+            // markStepCompletedIfMissing so out-of-band ids get a
+            // readable label without needing a HintCopy.json entry.
+            backfillCanonicalEntriesBefore(id: id)
+            currentStepId = id
+            currentStepTitle = StepCatalog.shared.meta(for: id)?.title
+                ?? id.replacingOccurrences(of: "_", with: " ").capitalized
+            currentStepPercent = 0
+            appendLog(level: "info", msg: "→ \(currentStepTitle) [\(id)]")
+            // Sort metadata by key so the os_log line is stable across
+            // runs (dict ordering is unspecified; a stable line makes
+            // log-diffing across box-walks tractable).
+            let metaSuffix = metadata.isEmpty
+                ? ""
+                : " " + metadata.keys.sorted().map { "\($0)=\(metadata[$0] ?? "")" }.joined(separator: " ")
+            OstlerLog.subprocess.info("event STEP id=\(id, privacy: .public)\(metaSuffix, privacy: .public)")
         case .pct(_, let pct):
             currentStepPercent = pct
         case .log(let level, let msg):
@@ -1487,7 +1632,11 @@ final class InstallerCoordinator: ObservableObject {
                 status: status,
                 elapsed: elapsed
             ))
-            appendLog(level: status == .ok ? "info" : "warn",
+            // #839: `isProblem` rather than `!= .ok` so a status added
+            // later is logged as a problem by default. The rc that
+            // produced a timeout/error is on the STEP_END marker itself
+            // and reaches the Log drawer through the raw line.
+            appendLog(level: status.isProblem ? "warn" : "info",
                       msg: "← \(id) (\(status.rawValue), \(elapsed)s)")
             OstlerLog.subprocess.info("event STEP_END id=\(id, privacy: .public) status=\(status.rawValue, privacy: .public) elapsed=\(elapsed, privacy: .public)s")
         case .phase(let id, let title):
@@ -1525,6 +1674,15 @@ final class InstallerCoordinator: ObservableObject {
             appendLog(level: status == .ok ? "info" : "error",
                       msg: "Install finished: \(status.rawValue)\(suffix)")
             OstlerLog.lifecycle.info("event DONE status=\(status.rawValue, privacy: .public) code=\(code ?? "", privacy: .public)")
+        case .cancelled:
+            // CX-126: the customer deliberately cancelled / declined a
+            // consent gate; install.sh exited cleanly having written
+            // nothing. NOT a failure -- render the calm neutral
+            // terminal. Set BEFORE finished stays nil so handleTermination
+            // does not re-interpret the no-`finished` state as a crash.
+            cancelled = true
+            appendLog(level: "info", msg: "Installation cancelled by the user. Nothing was installed.")
+            OstlerLog.lifecycle.info("event DONE status=cancelled -- user cancelled, neutral terminal (CX-126)")
         case .recoveryKey(let value):
             // CX-53 (DMG ship, 2026-05-24): capture the recovery key
             // from install.sh into a dedicated @Published property.
@@ -1560,13 +1718,107 @@ final class InstallerCoordinator: ObservableObject {
         }
     }
 
+    /// Outcome of reconciling the two completion signals install.sh
+    /// hands the GUI: the protocol DONE marker (parsed into `finished`)
+    /// AND the OS process exit code. CX-454 made both load-bearing so a
+    /// disagreement can never be papered over as success.
+    enum TerminationOutcome: Equatable {
+        /// Clean success: a `DONE status=ok` marker AND exit 0. Nothing
+        /// to change; the existing `.ok` terminal stands.
+        case confirmedSuccess
+        /// Clean failure already signalled by a `DONE status=fail`
+        /// marker (whatever the exit code). Nothing to override.
+        case confirmedFailure
+        /// User cancel / consent-decline. Neutral terminal stands.
+        case cancelled
+        /// The two signals disagree, or there was no DONE marker at all.
+        /// MUST be surfaced as a loud failure with `message`, even if
+        /// the OS exit code was 0. Covers: (a) no DONE marker (script
+        /// died mid-flight, e.g. a `set -u` abort) -- CX-126; and
+        /// (b) a `DONE status=ok` marker that is contradicted by a
+        /// non-zero exit code (a tail command after the marker, or the
+        /// bash wrapper itself, died) -- CX-454.
+        case failure(message: String)
+    }
+
+    /// Pure reconciliation of the DONE marker against the OS exit code.
+    /// Extracted as a static function so the status-mapping logic has a
+    /// unit-testable seam that does not require standing up a real
+    /// `Process` (whose `terminationStatus` cannot be mocked).
+    ///
+    /// Contract (CX-454): success requires BOTH signals to agree --
+    /// a `DONE status=ok` marker AND a zero exit code. Any disagreement
+    /// (ok marker + non-zero exit, or exit 0 + no marker) is a loud
+    /// failure, never a silent success. The legacy `set -u`-dies-with-
+    /// no-marker path (CX-126) is the `donedMarker == nil` arm here.
+    static func reconcileTermination(
+        donedMarker finished: StepStatus?,
+        cancelled: Bool,
+        exitCode: Int32
+    ) -> TerminationOutcome {
+        if cancelled {
+            return .cancelled
+        }
+        switch finished {
+        case .none:
+            // No DONE marker ever arrived -- the script died mid-flight.
+            // Failure regardless of the reported exit code (a `set -u`
+            // abort can surface as exit 0 through pipeline / wrapper
+            // masking). CX-126.
+            if exitCode == 0 {
+                return .failure(message: "The installer stopped before it finished. Some steps did not run. Use Copy log and Try again, or contact support@ostler.ai.")
+            }
+            return .failure(message: "The installer stopped before it finished (exit \(exitCode)). Some steps did not run. Use Copy log and Try again, or contact support@ostler.ai.")
+        case .fail, .error:
+            // install.sh already told us it failed. Honour it.
+            return .confirmedFailure
+        case .timeout, .warn:
+            // A terminal `warn` finish is treated as a (non-fatal)
+            // completion; require a clean exit to call it success.
+            if exitCode == 0 {
+                return .confirmedSuccess
+            }
+            return .failure(message: "The installer reported it finished but the process exited with an error (exit \(exitCode)). Some steps may not have completed. Use Copy log and Try again, or contact support@ostler.ai.")
+        case .ok:
+            // CX-454: a success marker is only trustworthy if the OS
+            // exit code agrees. A `DONE status=ok` followed by a
+            // non-zero exit (a post-marker tail command, or the bash
+            // wrapper, dying) previously rendered the green "all set"
+            // screen over a broken install. Fail loud on disagreement.
+            if exitCode == 0 {
+                return .confirmedSuccess
+            }
+            return .failure(message: "The installer reported it finished but the process exited with an error (exit \(exitCode)). Some steps may not have completed. Use Copy log and Try again, or contact support@ostler.ai.")
+        }
+    }
+
     private func handleTermination() {
         let exitCode = process?.terminationStatus ?? -1
-        if finished == nil {
-            // Process ended without a DONE marker – surface an error.
-            finished = exitCode == 0 ? .ok : .fail
-            if exitCode != 0 {
-                error = "Installer exited with code \(exitCode) before signalling DONE."
+        let outcome = Self.reconcileTermination(
+            donedMarker: finished,
+            cancelled: cancelled,
+            exitCode: exitCode
+        )
+        switch outcome {
+        case .confirmedSuccess, .confirmedFailure, .cancelled:
+            // The marker and exit code agree (or the user cancelled);
+            // the terminal state set during marker handling stands.
+            break
+        case .failure(let message):
+            // The two completion signals disagree, or no DONE marker
+            // arrived. Override any optimistic `.ok` and surface a loud
+            // failure -- never a silent success. Covers CX-126 (no
+            // marker, e.g. a `set -u` abort) AND CX-454 (ok marker
+            // contradicted by a non-zero exit code).
+            let wasFalseSuccess = (finished == .ok)
+            finished = .fail
+            if error == nil {
+                error = message
+            }
+            if wasFalseSuccess {
+                OstlerLog.lifecycle.error("handleTermination: DONE status=ok contradicted by non-zero exit \(exitCode, privacy: .public) -- overriding to failure (CX-454)")
+            } else {
+                OstlerLog.lifecycle.error("handleTermination: subprocess ended with NO DONE marker (exit \(exitCode, privacy: .public)) -- treating as failure (CX-126)")
             }
         }
         appendLog(level: "info", msg: "Subprocess terminated (exit \(exitCode))")

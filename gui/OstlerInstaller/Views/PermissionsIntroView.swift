@@ -107,8 +107,25 @@ struct PermissionsIntroView: View {
 
                 Spacer()
 
-                Button(ViewCopy.shared.string(for: "permissions_prewarm.intro_grant_button")) {
-                    coordinator.beginPermissionsPrewarm()
+                Button(action: { coordinator.beginPermissionsPrewarm() }) {
+                    // CX-127: while the serial TCC pre-warm runs (the
+                    // four macOS dialogs fire 800ms apart, several
+                    // seconds of otherwise-silent wait), show a spinner
+                    // + "Requesting access" label so the tap reads as
+                    // taken. The earlier spinner fix landed on the
+                    // admin-auth button, not this one -- this is the
+                    // button the customer taps first after the FDA
+                    // relaunch, so it is where the feedback belongs.
+                    if coordinator.permissionsIntroState == .requesting {
+                        HStack(spacing: CGFloat.ostlerSpace1) {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.white)
+                            Text(ViewCopy.shared.string(for: "permissions_prewarm.intro_grant_button_requesting"))
+                        }
+                    } else {
+                        Text(ViewCopy.shared.string(for: "permissions_prewarm.intro_grant_button"))
+                    }
                 }
                 .buttonStyle(.ostlerPrimary)
                 .keyboardShortcut(.defaultAction)

@@ -18,6 +18,7 @@ if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
 from identity_resolver.models import PersonIdentity
+from identity_resolver.normalise import clean_display_name
 from identity_resolver.resolver import IdentityResolver
 
 from meeting_syncer import config
@@ -125,8 +126,25 @@ class MeetingSyncer:
         meeting_date = _parse_event_datetime_iso(event.get("start"))
         now = datetime.now(timezone.utc).isoformat()
 
+        # BOTH TYPES, EXPLICITLY.
+        #
+        # A calendar item is an Event; a Meeting is an Event with people.
+        # This syncer is already correct about the SECOND half: sync() skips
+        # any event with no non-owner attendee (see `if not other_attendees:
+        # continue`), so it never manufactured the attendee-less meetings
+        # measured on the v1.0.26 box -- those all came from HR015
+        # ostler_fda/pwg_ingest.ingest_calendar, which typed every row.
+        #
+        # But it must still assert the base type. Oxigraph does NOT
+        # materialise rdfs:subClassOf, so `?e a pwg:Event` would not match
+        # a node carrying only `a pwg:Meeting`, and every meeting created
+        # here would be invisible to the Events surface while the ones
+        # created by HR015 showed up. A split-brain across two writers is
+        # harder to see than a clean absence.
         triples = [
+            "<{}> a pwg:Event".format(meeting_uri),
             "<{}> a pwg:Meeting".format(meeting_uri),
+            '<{}> pwg:eventCategory "meeting"'.format(meeting_uri),
             '<{}> pwg:calendarEventId "{}"'.format(meeting_uri, event_uid),
             '<{}> pwg:meetingSummary "{}"'.format(meeting_uri, summary),
             '<{}> pwg:createdAt "{}"^^xsd:dateTime'.format(meeting_uri, now),
@@ -179,7 +197,14 @@ class MeetingSyncer:
         Updates both Oxigraph and Qdrant. Oxigraph upsert uses the
         atomic DELETE-INSERT-WHERE-FILTER pattern: equal or older
         dates are no-ops, so the call is idempotent on re-runs.
+
+        Future-dated meetings are never a last contact and are rejected
+        here as well as at the call site, so no caller can poison the
+        freshness signal with an upcoming meeting.
         """
+        if meeting_date and meeting_date > datetime.now().strftime("%Y-%m-%d"):
+            return  # Upcoming meeting: a "next meeting", not a last contact
+
         current = self._get_last_calendar_contact(person_uri)
         if current and current >= meeting_date:
             return  # Stored value is already at or beyond this meeting
@@ -241,6 +266,11 @@ class MeetingSyncer:
         "updates", "auto", "automated", "mailer", "mailer-daemon",
         "postmaster", "bounce", "bounces", "feedback", "reply", "replies",
         "system", "webmaster", "hostmaster", "abuse", "security",
+        # Calendar-system sentinels. Google Calendar stamps an
+        # 'unknownorganizer' local-part (at the calendar.google.com host)
+        # as the organiser on events with no resolvable organiser; it is a
+        # placeholder, never a human.
+        "unknownorganizer",
     }
 
     # Domain substrings that signal bulk / transactional senders. Matched
@@ -262,6 +292,10 @@ class MeetingSyncer:
         ".beehiiv.com",
         ".mail.beehiiv.com",
         ".notifications.github.com",
+        # Calendar-system resource domain. Google Calendar uses
+        # 'calendar.google.com' for placeholder organisers and event
+        # resources, never for a real human's address.
+        ".calendar.google.com",
     )
 
     # Substrings that indicate a brand-ish display name even when the
@@ -342,8 +376,12 @@ class MeetingSyncer:
             )
             return None
 
+        # Clean emoji/symbol decorations + duplicate tokens from the attendee
+        # display name before it seeds a person node. Keep the cleaned value
+        # only if non-empty (else fall back to the raw name/email).
+        cleaned_name = clean_display_name(name) if name else ""
         identity = PersonIdentity(
-            display_name=name or email,
+            display_name=cleaned_name or name or email,
             emails=[email] if email else [],
         )
         # use_fuzzy=False: calendar attendees share the "common first name"

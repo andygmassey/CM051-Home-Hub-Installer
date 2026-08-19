@@ -82,13 +82,76 @@ rm -rf "$HOME/Library/Application Support/com.creativemachines."*
 
 if [ "$WITH_TCC" = "1" ]; then
   echo "[wipe] resetting TCC permission grants (--with-tcc)"
-  for bundle in com.creativemachines.OstlerInstaller \
-                com.creativemachines.Ostler \
-                com.creativemachines.RemoteCapture \
-                ai.ostler.installer \
-                ai.ostler.hub; do
+
+  # ── Current Ostler TCC client bundle identifiers (backlog #446) ──────
+  #
+  # These MUST match the CFBundleIdentifier the live apps actually ship
+  # with, or tccutil silently no-ops and the next install inherits stale
+  # grants, polluting retests. Each id below is sourced from a real
+  # Info.plist / project config; keep this list in sync if any of those
+  # change. Sources (paths relative to each repo's root):
+  #
+  #   ai.ostler.installer
+  #     OstlerInstaller GUI (drives the install-time consent step:
+  #     Contacts, Calendar, Reminders, Photos, AppleEvents/admin,
+  #     Desktop/Documents/Downloads folder access).
+  #     Source: CM051 gui/OstlerInstaller/Info.plist (CFBundleIdentifier)
+  #             + CM051 gui/project.yml (CFBundleIdentifier).
+  #
+  #   ai.ostler.assistant
+  #     Ostler Assistant daemon, locally-wrapped .app. Holds Full Disk
+  #     Access (kTCCServiceSystemPolicyAllFiles) for chat.db / Contacts /
+  #     Calendars reads.
+  #     Source: CM051 install.sh Info.plist heredocs (CFBundleIdentifier
+  #             string ai.ostler.assistant) + the FDA TCC probe that
+  #             queries client='ai.ostler.assistant'.
+  #
+  #   ai.creativemachines.ostler-hub
+  #     Ostler.app, the Tauri Hub desktop companion.
+  #     Source: ostler-ai/ostler-assistant apps/tauri/tauri.conf.json
+  #             ("identifier": "ai.creativemachines.ostler-hub").
+  #
+  #   com.creativemachines.RemoteCapture
+  #     Ostler RemoteCapture.app (Microphone, System Audio / Screen
+  #     Recording, Calendar, Location).
+  #     Source: CM042 project.yml (bundleIdPrefix com.creativemachines +
+  #             target name RemoteCapture, no PRODUCT_BUNDLE_IDENTIFIER
+  #             override); corroborated by runtime defaults domain
+  #             com.creativemachines.RemoteCapture.
+  #
+  # NOTE on the legacy bare binary: pre-.app-wrap installs ran the
+  # assistant as ~/.ostler/bin/ostler-assistant, whose TCC client id is
+  # the executable PATH, not a bundle id. tccutil can reset by path too,
+  # so we also reset that to clear any FDA grant left by an older install.
+  for bundle in ai.ostler.installer \
+                ai.ostler.assistant \
+                ai.creativemachines.ostler-hub \
+                com.creativemachines.RemoteCapture; do
+    # Reset every TCC service this fleet touches. `All` covers the
+    # per-bundle resettable buckets (AddressBook=Contacts, Calendar,
+    # Reminders, AppleEvents/Automation, ScreenCapture, Microphone,
+    # Photos, plus SystemPolicyAllFiles where the system allows a
+    # per-client reset). We also fire the named services explicitly so a
+    # macOS build that scopes `All` more narrowly than expected still
+    # gets each bucket cleared.
     tccutil reset All "$bundle" 2>/dev/null || true
+    for svc in AddressBook Calendar Reminders AppleEvents \
+               ScreenCapture Microphone Photos SystemPolicyAllFiles; do
+      tccutil reset "$svc" "$bundle" 2>/dev/null || true
+    done
   done
+
+  # Legacy bare-binary assistant client (id = executable path, not a
+  # bundle id). Only the FDA bucket was ever granted to it.
+  tccutil reset SystemPolicyAllFiles "$HOME/.ostler/bin/ostler-assistant" 2>/dev/null || true
+
+  # Full Disk Access (kTCCServiceSystemPolicyAllFiles) cannot always be
+  # reset per-client on every macOS version; the SystemPolicyAllFiles
+  # resets above are best-effort. If FDA grants survive, clear them by
+  # hand in System Settings > Privacy & Security > Full Disk Access (the
+  # next install re-prompts regardless, so a leftover entry there is
+  # cosmetic, not a grant the new app silently inherits under a fresh
+  # bundle id).
 fi
 
 echo "[wipe] done"

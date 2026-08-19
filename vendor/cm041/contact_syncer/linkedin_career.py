@@ -43,6 +43,7 @@ if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
 from contact_syncer import config
+from contact_syncer import privacy_model as _pm
 from identity_resolver.models import PersonIdentity
 from identity_resolver.resolver import IdentityResolver
 
@@ -226,6 +227,8 @@ def import_positions(
                 f"<{fact_uri}> pwg:aboutPerson <{user_uri}>",
                 f'<{fact_uri}> pwg:createdAt "{now}"^^xsd:dateTime',
                 f'<{fact_uri}> pwg:source "linkedin_positions"',
+                f'<{fact_uri}> pwg:privacyLevel '
+                f'"{_pm.level_for(rdf_type="PersonFact", source="linkedin_positions")}"',
             ]
             if company:
                 triples.append(f'<{fact_uri}> pwg:organization "{_escape(company)}"')
@@ -441,6 +444,8 @@ def import_endorsements(
                 triples = [
                     f"<{endorsement_uri}> a pwg:RelationshipSignal",
                     f'<{endorsement_uri}> pwg:signalType "linkedin_endorsement"',
+                    f'<{endorsement_uri}> pwg:privacyLevel '
+                    f'"{_pm.level_for(rdf_type="RelationshipSignal", source="linkedin_endorsement")}"',
                     f'<{endorsement_uri}> pwg:skillName "{_escape(skill)}"',
                     f"<{endorsement_uri}> pwg:fromPerson <{person_uri}>",
                     f"<{endorsement_uri}> pwg:aboutPerson <{user_uri}>",
@@ -604,6 +609,8 @@ def import_recommendations(
             triples = [
                 f"<{rec_uri}> a pwg:PersonFact",
                 f'<{rec_uri}> pwg:factType "linkedin_recommendation"',
+                f'<{rec_uri}> pwg:privacyLevel '
+                f'"{_pm.level_for(rdf_type="PersonFact", source="linkedin_recommendation")}"',
                 f'<{rec_uri}> pwg:factText "{_escape(text)}"',
                 f"<{rec_uri}> pwg:aboutPerson <{user_uri}>",
                 f"<{rec_uri}> pwg:fromPerson <{person_uri}>",

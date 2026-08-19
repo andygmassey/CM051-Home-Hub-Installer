@@ -1,0 +1,162 @@
+name: declared-gates-reachable
+
+# A file that says it blocks the cut must be reachable FROM the cut, and its
+# caller must be reachable too.
+#
+# WHY. Three files across three repos were found in one night, each declaring
+# itself a cut blocker in its own header, each invoked by nothing. None was
+# caught by the test-wiring register, because that register enumerates `test_*`
+# and these are named otherwise: they were not scored UNWIRED, they were
+# UNENUMERABLE, which prints as nothing at all.
+#
+# AND ONE-HOP IS NOT ENOUGH. scripts/run_all_cut_gates.sh is invoked by nothing
+# (its only appearance in an executable file is an @echo printing its name as
+# advice), and scripts/verify_must_contain.sh -- the gate that reads the cut's
+# Bill of Materials -- has exactly one real call site, inside that dark runner.
+# A one-hop grep says "something calls it" and reports it wired. Only a
+# fixpoint from real cut entry points sees that the caller is dark too.
+#
+# THE SELF-TEST IS THE POINT OF THIS WORKFLOW. The sweep result changes as the
+# tree changes and is reported by the gate itself; what CI must protect is the
+# gate's ability to DISCRIMINATE. Seventeen controls, including a green one
+# and both directions of the proved-red ratchet.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_declared_gates_reachable.sh'
+      - '.github/workflows/declared-gates-reachable.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  # Renamed from 'self-test': cut-pin-is-current used the same job name, so the
+  # two rendered as one indistinguishable entry in the PR check list and a
+  # reader could not tell which gate had reported.
+  declared-gates-self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Seventeen controls, each built as a real git fixture and run through the
+      # SHIPPING script via --repo. The first version of this self-test carried
+      # an inline copy of the walk, which proved a copy correct and said
+      # nothing about what ships.
+      #
+      # Two of the controls are regressions of defects this gate itself had:
+      #   (4) variable-indirection call sites, which v1 called orphans
+      #   (5) print-only references, which must NOT rescue a dark gate
+      # and (7) is the transitive case that found the BOM gate.
+      - name: The gate can still tell a reachable gate from an orphaned one
+        run: bash scripts/verify_declared_gates_reachable.sh --self-test
+
+      # The cut runs on a Mac, where /bin/bash is 3.2. A script that only
+      # parses under bash 5 is a gate that reads CANNOT-RUN forever there.
+      - name: Parses under bash 3.2-compatible syntax
+        run: bash -n scripts/verify_declared_gates_reachable.sh
+
+      # REPORT, DO NOT BLOCK, ON THE REAL TREE -- for now, and deliberately.
+      #
+      # There are THREE known orphans on main (cut_hygiene_gate.sh,
+      # run_all_cut_gates.sh, verify_must_contain.sh) and they need triage, not
+      # an immediate red: wiring a rotted predicate manufactures a permanent
+      # false red, and permanent false reds teach people that red means
+      # nothing. The ratio is printed on every run so the number cannot drift
+      # silently while nobody is blocked by it.
+      #
+      # WAS FOUR. verify_hub_chat.sh was dispositioned on 2026-08-16 by
+      # DELETION, naming its survivor, which is the second of the two options
+      # this gate offers. Evidence for that call, gathered before making it:
+      #
+      #   not in tests/TEST_WIRING.tsv, no cut manifest row, no BOM row, so it
+      #   was cited as wiring evidence NOWHERE and deleting it voids no claim
+      #
+      #   the survivor is OS003 gates/behavioural_chat_probe.py, and it is
+      #   REACHED: pipeline/release.yml:169 runs
+      #   gates/verify_behavioural_acceptance.sh --seed, which invokes it.
+      #   Checked by behaviour (ws/chat) rather than by filename, because a
+      #   filename search for "hub_chat" in OS003 returns nothing and would
+      #   have concluded there was no survivor at all.
+      #
+      # The remaining three are ONE knot, not three problems: verify_must_
+      # contain.sh (the BOM gate) has real call sites, but only inside
+      # cut_hygiene_gate.sh and run_all_cut_gates.sh, which are themselves
+      # orphans. Wiring run_all_cut_gates.sh into the cut makes all three
+      # reachable at once. That is #699 and it is Archie's.
+      #
+      # FLIP THIS TO BLOCKING the moment the three are dispositioned. A
+      # report-only gate that stays report-only is the next thing on this list.
+      # AXIS TWO IS RATCHETED, NOT REPORT-ONLY.
+      #
+      # 5 of 12 declared gates currently have a known-failing fixture. Turning
+      # that into a hard red today would block main on a backlog that predates
+      # this check, which is the permanent-false-red failure described above.
+      # But leaving it purely advisory would make it the very thing it
+      # measures: a check that cannot say no.
+      #
+      # So the floor is the ratchet. It is set to what main measures TODAY. A
+      # gate losing its known-failing fixture fails this step; the standing
+      # backlog does not. Raise the floor as gates are proven; lowering it
+      # needs a reason in the same commit.
+      #
+      # THE EXIT CODE CANNOT CARRY THIS, so do not pretend it does. Axis one
+      # exits 1 on its three known orphans no matter what axis two finds, so a
+      # step that just checks the exit status would either be permanently red
+      # (blocking on #699, which is not this PR's to fix) or permanently
+      # continue-on-error, which is a ratchet that can never fire.
+      #
+      # So the step asserts the DEFECT, not the status: it fails if and only if
+      # the run prints a PROVED-RED REGRESSION. The ratio is printed either way.
+      # 5 -> 6 on 2026-08-17. verify_cut_pin_is_current.sh was reading
+      # PROVED-RED-NONE while carrying a 9-control self-test whose control (1)
+      # reproduces the v1.0.31 stale-pin defect on a real git fixture and
+      # asserts exit 1. The predicate could not see it because that self-test
+      # calls run_gate IN-PROCESS rather than re-invoking the script as a
+      # subprocess, which is the better construction and the one the
+      # subprocess-shaped search is blind to. Registered with an explicit
+      # `# PROVED-RED-BY:` header, which is exactly what that escape hatch is
+      # for: a proof the predicate cannot infer, declared and then CHECKED.
+      #
+      # NONE now means one of two things, and both are honest: no proof exists,
+      # or a proof exists in a shape nobody has declared yet. The remaining six
+      # are the standing backlog, three of them the #699 orphan knot.
+      - name: Ratio on the real tree, and the proved-red ratchet
+        env:
+          OSTLER_PROVED_RED_FLOOR: "6"
+        run: |
+          set +e
+          out="$(bash scripts/verify_declared_gates_reachable.sh 2>&1)"
+          set -e
+          printf '%s\n' "$out"
+          if printf '%s' "$out" | grep -q 'PROVED-RED REGRESSION'; then
+            echo "::error::a declared gate lost its known-failing fixture" >&2
+            exit 1
+          fi
+          if ! printf '%s' "$out" | grep -q 'PROVED RED:'; then
+            echo "::error::the proved-red axis did not report at all" >&2
+            exit 1
+          fi
+
+      # The ratchet, proved able to fire. Without this the floor above is a
+      # number nobody has ever seen enforced.
+      - name: The proved-red floor can actually fail
+        run: |
+          set +e
+          OSTLER_PROVED_RED_FLOOR=99 bash scripts/verify_declared_gates_reachable.sh >/dev/null 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "the proved-red floor did not fire on an impossible floor" >&2
+            exit 1
+          fi
+          echo "ok: an impossible floor fails the run (exit $rc)"

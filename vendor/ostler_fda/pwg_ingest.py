@@ -17,15 +17,22 @@ Requires:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import re
+import sys
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import httpx
+
+from .role_addresses import is_role_identifier  # noqa: F401
+from .identifier_quality import observe as _observe_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +46,367 @@ QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "people")
 DEFAULT_PRIVACY = os.getenv("DEFAULT_PRIVACY_LEVEL", "L2")
 
 
+# ── Wiki slug (CM041 reader-contract parity) ──────────────────────
+#
+# Non-decomposable Latin letters NFKD leaves intact (atomic code points, not
+# base+combining-mark). Mapped to an ASCII transliteration so accented
+# international names yield clean, stable slugs. Mirrors CM041
+# ical-server.py::_SLUG_TRANSLIT verbatim -- the wiki slug is the iOS
+# Identifiable key and the People-page URL, so the two derivations MUST agree.
+_SLUG_TRANSLIT = {
+    "ø": "o", "Ø": "o",
+    "ß": "ss",
+    "æ": "ae", "Æ": "ae",
+    "œ": "oe", "Œ": "oe",
+    "ð": "d", "Ð": "d",
+    "þ": "th", "Þ": "th",
+    "ł": "l", "Ł": "l",
+    "đ": "d", "Đ": "d",
+    "ı": "i",
+    "ŋ": "n",
+}
+
+
+def _wiki_slug(name: str) -> str:
+    """Compute a person's wiki slug from a display name.
+
+    Byte-for-byte port of CM041 ``ical-server.py::_wiki_slug`` (the people
+    reader's ``slug`` derivation). The CM041 read paths -- people_search,
+    people_list, person_enrichment -- all RECOMPUTE the slug from the stored
+    ``display_name`` via this exact transform and use it as the iOS
+    ``Identifiable`` id + the ``/People/<slug>/`` URL. The writer must stamp
+    the SAME value into the payload so a consumer that trusts the stored slug
+    can never diverge from a consumer that recomputes it.
+    """
+    if not name:
+        return "unknown"
+    pre = "".join(_SLUG_TRANSLIT.get(c, c) for c in name)
+    folded = unicodedata.normalize("NFKD", pre)
+    folded = "".join(c for c in folded if not unicodedata.combining(c))
+    s = folded.strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    s = re.sub(r"-+", "-", s).strip("-")
+    if s:
+        return s[:80]
+    # Non-Latin name: stable per-name hex suffix so distinct names don't all
+    # collide on "unknown" (matches CM041's fallback).
+    digest = hashlib.sha1(name.strip().encode("utf-8")).hexdigest()[:10]
+    return f"person-{digest}"
+
+
 # ── Shared utilities (same patterns as contact_syncer) ────────────
+
+
+# v1018-D658. Andy's ruling 2026-08-10: a displayName is RANKED and
+# overwrites go UPWARD ONLY.
+#
+#   tier 0  "+852 1234 5678"       replaces nothing
+#   tier 1  "j.smith@company.com"  replaces tier 0
+#   tier 2  "Jane Smith"           replaces tier 0 or 1
+#
+# His reasoning: a phone number is "totally indecipherable to a human",
+# where an email gives you the company from the domain and usually a
+# surname-plus-initial from the local-part. So an email IS worth writing
+# over a phone -- but it is an IMPROVEMENT, not a RESOLUTION, and
+# `displayNameProvisional` therefore STAYS SET at tier 1, clearing only
+# at tier 2. The earlier proposal ("only overwrite with a real human
+# name") was rejected for leaving a phone number on screen when a
+# strictly better email was available.
+#
+# This also dissolves "which SOURCES may overwrite a name?": the answer
+# is per-VALUE-SHAPE, so calendar, photos and mail-contacts all go
+# through the same door and the tier decides. No per-source allowlist to
+# drift out of date.
+# v1018-D659. A kinship word is a RELATIONSHIP, not a name -- and the
+# relationship it records is almost never the account owner's.
+#
+# A label on a contact card is PERSPECTIVAL: it says how SOMEBODY refers
+# to this person, and on a shared address book that somebody is usually
+# not the account owner -- a card filed by one household member carries
+# THEIR relationships, not the owner's. Stored as a name it is offered to
+# the assistant as "another name this person goes by", so the assistant
+# will assert a parent, sibling or spouse the user does not have. The
+# worst case is not a cosmetic one: told that a living contact is the
+# user's parent, it contradicts a bereavement the user never has to
+# explain to it. Product-side this is task #298.
+#
+# So a kinship word is REFUSED outright: never a displayName, never an
+# alternateName, and never grounds to clear the provisional flag. Only
+# the BARE word goes -- "Auntie Jane" and "Granny Doe" carry a real
+# name and are kept, because a false positive here erases a real
+# person's name, which is worse than keeping an odd alias.
+#
+# Same rule, same env contract (OSTLER_KINSHIP_WORDS_FILE) as
+# cm041.contact_syncer.relationship_labels, deliberately, so the two
+# lists can be collapsed into one later instead of drifting -- the drift
+# class that produced most of this cut. Not imported: ostler_fda ships
+# independently of cm041 and must not take a hard import on it (the same
+# reason stated on _is_provisional_display_name below).
+_KINSHIP_DEFAULT = frozenset({
+    "mum", "mummy", "mom", "mommy", "mother", "ma", "mam", "mama",
+    "dad", "daddy", "father", "pa", "papa", "pop",
+    "nan", "nana", "nanny", "gran", "granny", "grandma", "grandmother",
+    "grandad", "granddad", "grandpa", "grandfather", "gramps",
+    "bro", "brother", "sis", "sister", "auntie", "aunty", "aunt", "uncle",
+    "cousin", "nephew", "niece", "godmother", "godfather", "godson",
+    "goddaughter", "stepmum", "stepmom", "stepdad", "stepfather",
+    "stepmother", "stepbrother", "stepsister",
+    "hubby", "hubbie", "husband", "wife", "wifey", "partner", "spouse",
+    "other half", "missus", "fiance", "fiancee",
+    "son", "daughter", "kid", "boy", "girl", "bairn",
+    "home", "house", "work", "office", "landline",
+})
+_KINSHIP_QUALIFIERS = frozenset({"my", "our", "the", "big", "little", "wee"})
+
+
+def _kinship_words() -> frozenset:
+    """The refusal list, overridable as locale data.
+
+    Read on every call rather than cached at import: a customer's locale
+    file is written during install, and this module is imported by
+    long-lived ingest processes that would otherwise hold a list from
+    before it existed. The cost is a stat per name and the list is small.
+    """
+    path = os.environ.get("OSTLER_KINSHIP_WORDS_FILE")
+    if not path:
+        return _KINSHIP_DEFAULT
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, list):
+            words = {str(w).strip().lower() for w in data if str(w).strip()}
+            if words:
+                return frozenset(words)
+    except (OSError, ValueError):
+        pass
+    # A malformed or unreadable locale file must NEVER open the gate --
+    # failing back to English refuses less than intended but never more.
+    return _KINSHIP_DEFAULT
+
+
+# Kinship words that also serve as a given name or a surname somewhere in
+# the English-speaking world, and therefore must NOT refuse a two-token
+# label on the strength of the first token alone:
+#
+#   Nan Goldin, Ma Rainey, Pop, Gran, Bro, Sis as nicknames; Boy, House,
+#   Work, Home, Bairn, Son and Daughter all occur as surnames; Aunt is
+#   rare but attested.
+#
+# Everything NOT on this list is a word no parent names a child, so
+# "<word> <surname>" is a relationship, not a name. Keeping the exception
+# list rather than an inclusion list means a customer's locale file gets
+# the composed rule for free on every word it adds.
+_KINSHIP_AMBIGUOUS = frozenset({
+    "nan", "gran", "ma", "pa", "pop", "bro", "sis", "aunt",
+    "brother", "sister", "cousin", "nephew", "niece",
+    "son", "daughter", "kid", "boy", "girl", "bairn",
+    "wife", "partner", "spouse", "missus", "fiance", "fiancee",
+    "other half", "home", "house", "work", "office", "landline",
+})
+
+
+def _is_relationship_label(value: str) -> bool:
+    """True when this label is a kinship/household term, not a name.
+
+    Three shapes, and the third is the one that shipped broken.
+
+      1. the WHOLE label: "Mum"
+      2. a qualifier in front: "my mum", "our nan", "big sis"
+      3. a kinship word COMPOSED WITH A SURNAME: "Mum Okonjo"
+
+    Shape 3 used to be allowed through, on the reasoning -- written into
+    this docstring -- that '"Mum Zhang" is plausibly somebody's actual
+    name'. Measured on the founder box 2026-08-17, that reasoning cost:
+    13 people carried a name beginning with a kinship word, and the one
+    the owner noticed was his SPOUSE rendered as "Mum Okonjo", on a box
+    where his mother had died the previous year.
+
+    The premise was wrong in a specific way. The worry was about the
+    SECOND token being a real surname, but the thing that makes the label
+    a relationship is the FIRST token, and no parent names a child "Mum".
+    Words that genuinely double as names -- Nan, Ma, Pop, Sis, and the
+    surname-shaped Boy/House/Work -- are listed in _KINSHIP_AMBIGUOUS and
+    still require a whole-label match, so "Nan Goldin" survives.
+
+    Refusing shape 3 is also the only thing that unsticks such a record.
+    "Mum Okonjo" and "Fenella Okonjo" are BOTH tier 2, so the repair pass
+    in repair_placeholder_names.py sees two real-looking names, calls it
+    a tie, and by its own contract declines to choose. Nothing downstream
+    can fix a name the writer accepted.
+    """
+    n = re.sub(r"[^\w\s]", " ", (value or "").strip().lower(), flags=re.UNICODE)
+    n = " ".join(n.split())
+    if not n:
+        return False
+    words = _kinship_words()
+    if n in words:
+        return True
+    parts = n.split()
+    # "my mum", "our nan", "big sis" -- a single qualifier in front.
+    return (
+        len(parts) == 2
+        and parts[0] in _KINSHIP_QUALIFIERS
+        and parts[1] in words
+    )
+
+
+
+_NAME_TIER_REFUSED = -1
+_NAME_TIER_PLACEHOLDER = 0
+_NAME_TIER_HANDLE = 1
+_NAME_TIER_NAME = 2
+
+
+def _display_name_tier(value: str) -> int:
+    """Rank a candidate displayName. See the tier table above."""
+    if not value:
+        return _NAME_TIER_PLACEHOLDER
+    v = value.strip()
+    if not v:
+        return _NAME_TIER_PLACEHOLDER
+    if "@" in v and "." in v.split("@", 1)[1]:
+        return _NAME_TIER_HANDLE
+    digits = sum(c.isdigit() for c in v)
+    phoneish = all(c in "+()-. \t0123456789" for c in v)
+    if phoneish and digits >= 5:
+        return _NAME_TIER_PLACEHOLDER
+    # v1018-D659. Checked LAST, and only against something already
+    # name-shaped: a kinship word outranks nothing, so it must not be
+    # allowed to reach tier 2 where it would clear the provisional flag.
+    if _is_relationship_label(v):
+        return _NAME_TIER_REFUSED
+    return _NAME_TIER_NAME
+
+
+def _is_provisional_display_name(value: str) -> bool:
+    """True when ``value`` is a raw phone/handle placeholder, not a name.
+
+    WhatsApp/iMessage chat-only contacts get a ``+<e164>`` (or bare
+    handle) placeholder because the extractor reads JIDs/handles only --
+    no pushName, no Contacts match. Those placeholders must be marked
+    PROVISIONAL so (a) the identity resolver may freely overwrite them
+    when a real name later arrives from contact_syncer / CM046, and (b)
+    surfaces can suppress the "+44 7700 900123 as a name" leak (#576).
+
+    Mirrors cm041.identity_resolver.canonical_name._looks_like_phone
+    (>= 5 digits, phone-shaped) but is kept local: ostler_fda ships
+    independently of cm041 and must not take a hard import on it.
+    """
+    # v1018-D658: expressed via the tier so the two predicates cannot
+    # drift apart. "Provisional" is exactly "not yet a real human name",
+    # which covers BOTH the phone placeholder and the email stand-in.
+    return _display_name_tier(value) < _NAME_TIER_NAME
+
+
+def _is_kinship_composed_label(value: str) -> bool:
+    """True for "<kinship word> <anything>", e.g. a relationship plus a surname.
+
+    SEPARATE from _is_relationship_label ON PURPOSE, and the separation is
+    the whole point of this function existing.
+
+    _is_relationship_label feeds _display_name_tier, and
+    repair_placeholder_names.py DELETES any stored name whose tier is below
+    PLACEHOLDER. Folding the composed shape into that predicate makes the
+    repair pass delete "Auntie Emma" -- and its own suite pins the case
+    where that is somebody's ONLY name, which would leave a real person
+    with no name at all and no undo. Seven assertions caught exactly that
+    when this was first written as one predicate.
+
+    So the composed shape is refused at the WRITE path only. Refusing a
+    write is reversible in the way a delete is not: the node is still
+    created, still carries its identifiers, and `!BOUND(?old)` still holds,
+    so it stays eligible for the first real name any source offers.
+
+    The first token is what makes it a relationship, and no parent names a
+    child "Mum". Words that genuinely double as names are excluded via
+    _KINSHIP_AMBIGUOUS, so "Nan Goldin" and "Boy George" are untouched. The
+    tail is deliberately not inspected: the punctuation strip turns an
+    apostrophe surname into two words, so a len == 2 test lets a
+    three-token normalisation straight through.
+    """
+    n = re.sub(r"[^\w\s]", " ", (value or "").strip().lower(), flags=re.UNICODE)
+    parts = " ".join(n.split()).split()
+    if len(parts) < 2:
+        return False
+    return parts[0] in _kinship_words() and parts[0] not in _KINSHIP_AMBIGUOUS
+    # Shape 3: "Mum Okonjo". Everything after the first token is
+    # deliberately NOT inspected, for two reasons.
+    #
+    # Requiring the tail to match a surname already on the person would
+    # need caller context this predicate does not have, and would miss the
+    # CREATION write -- the write that does the damage.
+    #
+    # And the tail is not reliably one token. The punctuation strip above
+    # turns an apostrophe surname into two words, so "Grandma O'Rourke"
+    # normalises to "grandma o neill" and a len == 2 test lets it straight
+    # through. That case is SYNTHETIC -- no such contact was observed --
+    # but the surname shape is not: apostrophe surnames are ordinary, and
+    # the first version of this fix passed every hand-picked example while
+    # failing on one punctuation mark. Match on the FIRST token only.
+    return parts[0] in words and parts[0] not in _KINSHIP_AMBIGUOUS
+
+
+def _creation_name_triples(person_uri: str, value: str) -> list:
+    """The displayName triples for a person node being CREATED.
+
+    v1018-D011. ``_upsert_display_name`` below holds the whole name rule,
+    and every source calls it -- but it was never the only writer. Each
+    source ALSO emitted its own ``pwg:displayName`` inside its
+    ``if not _person_exists(uri)`` creation ``INSERT DATA``, and that write
+    went nowhere near the tier. On a FRESH INSTALL nothing exists, so the
+    creation branch is the branch every customer takes, and the guarded
+    upsert that runs immediately afterwards could only ever look at a value
+    it had already lost the argument about. Two consequences, both measured
+    on a real box before this was written:
+
+    * **A refused label was written anyway.** A Photos face label and a
+      calendar attendee name are free text off a contact card, so either can
+      be a relationship word. The creation INSERT wrote "Mum"; the upsert
+      then declined to write "Mum"; the node kept "Mum". v1018-D659 was
+      enforced on the path that runs SECOND.
+
+    * **A handle was written un-flagged, so it became permanent.** Only
+      iMessage and WhatsApp appended ``displayNameProvisional``; calendar,
+      photos and mail did not. The tier-2 upgrade guard is
+      ``!BOUND(?old) || BOUND(?prov)``, so with a name bound and no flag
+      BOTH disjuncts are false and a real name arriving later can never
+      land. On the founder box that is 30 of the 33 people whose name is an
+      email address -- every one of them stuck with it for good.
+
+    One helper, five call sites, and the rule stays in
+    ``_display_name_tier`` rather than being restated here.
+
+    A REFUSED value yields the flag and NO name. That is deliberate and it
+    is the conservative direction: the node is still created, still carries
+    its identifiers, and is still eligible for the first real name any
+    source offers, because ``!BOUND(?old)`` holds. The alternative -- keep
+    writing the relationship word -- is the defect this row is named for.
+    """
+    tier = _display_name_tier(value)
+    flag = f'<{person_uri}> pwg:displayNameProvisional "true"^^xsd:boolean'
+    # "<kinship word> <surname>" is a relationship label wearing the shape
+    # of a name, so the tier alone cannot see it. Refused HERE rather than
+    # in the tier because the tier also drives deletion in
+    # repair_placeholder_names, and a delete has no undo. See
+    # _is_kinship_composed_label.
+    if _is_kinship_composed_label(value):
+        logger.debug(
+            "Refused %r as a displayName for %s at creation: a kinship word "
+            "composed with a surname is still a relationship (v1018-D659)",
+            value, person_uri,
+        )
+        return [flag]
+    if tier < _NAME_TIER_PLACEHOLDER:
+        logger.debug(
+            "Refused %r as a displayName for %s at creation: it is a "
+            "relationship, not a name (v1018-D659)", value, person_uri,
+        )
+        return [flag]
+    triples = [f'<{person_uri}> pwg:displayName "{_escape(value)}"']
+    if tier < _NAME_TIER_NAME:
+        triples.append(flag)
+    return triples
+
 
 def _sparql_update(sparql: str) -> None:
     """Execute a SPARQL UPDATE against Oxigraph."""
@@ -132,13 +499,51 @@ def _embed_text(text: str) -> list[float]:
 
 
 def _person_id_from_identifier(identifier: str) -> str:
-    """Generate a stable person ID from a phone number or email."""
+    """Generate a stable person ID from a phone number or email.
+
+    A role address (see :func:`is_role_identifier`) is NOT an identity, so it
+    must never be the key -- callers should skip creating a person at all.
+    This function raises rather than silently returning a colliding ID,
+    because the silent version is exactly what merged nine people into one.
+    """
     clean = identifier.strip().lower()
+    if is_role_identifier(clean):
+        raise ValueError(
+            f"refusing to key a person on the role address {clean!r}: "
+            "it is a sender, not a person, and keying on it merges everyone "
+            "who was ever mailed by it into a single node (#659)"
+        )
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://pwg.dev/person/{clean}"))
 
 
 def _person_uri(person_id: str) -> str:
     return f"https://pwg.dev/ontology#person_{person_id}"
+
+
+def _whatsapp_display_name(jid: str) -> str:
+    """Placeholder display name for an un-named WhatsApp phone contact.
+
+    The local-part of an `@s.whatsapp.net` JID is an E.164 number. Show it as
+    a `+`-prefixed phone so the placeholder reads as a phone contact rather
+    than a bare "random number" (BW-4). Non-numeric local-parts (defensive)
+    are returned unchanged. A real name replaces this once contact_syncer or
+    CM046 email enrichment supplies one.
+    """
+    local = jid.split("@", 1)[0] if "@" in jid else jid
+    if local.isdigit():
+        return "+" + local
+    return local
+
+
+def _whatsapp_phone_e164(jid: str) -> str:
+    """E.164 phone string for an ``@s.whatsapp.net`` JID, used as the phone
+    ``identifierValue`` so a WhatsApp contact shares ONE key with the same
+    number from Contacts / iMessage and RULE 1 (``dedupe_merge``) folds
+    them. Without this the raw JID (``<number>@s.whatsapp.net``) never
+    matched the E.164 (``+<number>``) and the same human stayed split as
+    a "duplicate +number". Non-numeric / non-JID inputs pass through."""
+    local = jid.split("@", 1)[0] if "@" in jid else jid
+    return "+" + local if local.isdigit() else jid
 
 
 # ── iMessage ingestion ────────────────────────────────────────────
@@ -162,11 +567,23 @@ def ingest_imessage(fda_dir: Path) -> dict:
         participants = convo.get("participants", [])
         msg_count = convo.get("message_count", 0)
         last_msg = convo.get("last_message")
+        # The label this conversation presents its participants under. Fed to
+        # observe() so the structural rule can spot an identifier that turns
+        # up wearing two different people's names.
+        convo_name = convo.get("display_name") or ""
 
         for participant in participants:
             if not participant:
                 continue
 
+            # A role/bulk sender is not a person. Keying on it merges every
+            # iMessage participant who shared it into ONE node (#659).
+            # observe() also applies the STRUCTURAL rule: the moment this
+            # identifier presents as a second distinct person it is refused
+            # from then on, whatever it is called and in whatever language.
+            if _observe_identifier(participant, convo_name):
+                logger.debug("skipping role address %s", participant)
+                continue
             person_id = _person_id_from_identifier(participant)
             uri = _person_uri(person_id)
 
@@ -180,12 +597,18 @@ def ingest_imessage(fda_dir: Path) -> dict:
 
                 triples = [
                     f"<{uri}> a pwg:Person",
-                    f'<{uri}> pwg:displayName "{_escape(participant)}"',
                     f'<{uri}> pwg:contactType "person"',
                     f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
                     f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
                     f'<{uri}> pwg:source "imessage_fda"',
                 ]
+
+                # #576 / v1018-D011: the iMessage participant is a raw handle
+                # (phone or email) used as the displayName. The helper emits
+                # the name AND the provisional flag together, so the resolver
+                # may overwrite it with a Contacts name and surfaces can
+                # suppress the bare-number leak.
+                triples.extend(_creation_name_triples(uri, participant))
 
                 # Add identifier
                 id_uri = f"https://pwg.dev/ontology#id_{person_id}_imessage"
@@ -222,6 +645,12 @@ def ingest_imessage(fda_dir: Path) -> dict:
                     )
                     _sparql_update(sparql)
                     people_enriched += 1
+
+            # v1018-D658: runs for NEW and EXISTING alike. Every name write
+            # above sits inside the not-exists guard, so an existing person's
+            # placeholder was never revisited by any source. Upward-only -- a
+            # same-tier or lower value is a no-op.
+            _upsert_display_name(uri, participant)
 
             # Update last_contact if this conversation is more recent
             if last_msg and msg_count > 0:
@@ -289,6 +718,14 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
     _SOURCE_PREDICATE and produce a debug-log no-op rather than
     poisoning the freshness signal. Same discipline as the PR-A fix
     that stopped contact_syncer using vCard REV as a contact event.
+
+    Future-dated events are NEVER a "last contact". A calendar export
+    routinely carries upcoming meetings, so this writer must reject any
+    timestamp after today, otherwise an upcoming meeting (e.g. a fixture
+    a week away) wins the read-side max() and the assistant reports a
+    future date as "last contact". A scheduled future meeting is a
+    "next meeting" signal, not a last-contact one; it is surfaced by the
+    Meeting nodes the calendar ingest also emits, never here.
     """
     predicate = _SOURCE_PREDICATE.get(source)
     if predicate is None:
@@ -304,6 +741,20 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
         dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
         date_str = dt.strftime("%Y-%m-%d")
 
+        # A last-contact must be in the past (or today). Comparing the
+        # derived YYYY-MM-DD strings sidesteps tz-aware/naive subtraction
+        # errors: both sides are plain ISO date strings, lexicographically
+        # ordered the same as chronologically. Future-dated events (an
+        # upcoming meeting in a calendar export) are dropped here.
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if date_str > today_str:
+            logger.debug(
+                "Skipping future last-contact %s for %s (source=%s); "
+                "future events are not last-contact signals",
+                date_str, person_uri, source,
+            )
+            return
+
         sparql = (
             "PREFIX pwg: <https://pwg.dev/ontology#>\n"
             "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
@@ -317,6 +768,84 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
         _sparql_update(sparql)
     except Exception as e:
         logger.debug("Could not update last_contact: %s", e)
+
+
+def _upsert_display_name(person_uri: str, value: str) -> None:
+    """Write ``value`` as displayName only if it OUTRANKS what is stored.
+
+    v1018-D658. EVERY displayName write in this module sits inside an
+    ``if not _person_exists(uri)`` branch, so a name is written once at
+    creation and never revisited. That is the whole defect: ingest marks
+    a raw handle `displayNameProvisional`, meaning "replace me when a real
+    name arrives"; a real name later arrives from another source; nothing
+    retracts anything, and the node accumulates both. 43 person nodes on
+    the founder box carry two names and 5 wiki pages show one person's
+    identity on another person's page.
+
+    Upward-only, per the tier table above. tier 2 replaces anything still
+    provisional and CLEARS the flag; tier 1 replaces a phone placeholder
+    only -- never another email, never a real name -- and KEEPS the flag;
+    tier 0 never overwrites.
+
+    One atomic DELETE-INSERT-WHERE, the same idiom as
+    ``_update_last_contact``. If the guard does not hold the WHERE yields
+    nothing and the node is untouched, flag included -- which is correct:
+    no upgrade means no change.
+
+    The tier-1 guard tests the STORED value's shape (``!CONTAINS(?old,
+    "@")``) rather than trusting the flag, because tier 0 and tier 1 are
+    both flagged and the flag cannot tell them apart.
+    """
+    tier = _display_name_tier(value)
+    if _is_kinship_composed_label(value):
+        logger.debug(
+            "Refused %r as a displayName for %s on upsert: a kinship word "
+            "composed with a surname is still a relationship (v1018-D659)",
+            value, person_uri,
+        )
+        return
+    if tier < _NAME_TIER_PLACEHOLDER:
+        # v1018-D659: refused outright. Not a weaker write, NO write --
+        # a kinship word must not become a name, must not displace one,
+        # and must not clear the provisional flag. Returning here rather
+        # than emitting a never-satisfied guard keeps the refusal legible
+        # in the log instead of hiding it inside a SPARQL FILTER.
+        logger.debug(
+            "Refused %r as a displayName for %s: it is a relationship, "
+            "not a name (v1018-D659)", value, person_uri,
+        )
+        return
+    if tier == _NAME_TIER_PLACEHOLDER:
+        guard = "!BOUND(?old)"
+    elif tier == _NAME_TIER_HANDLE:
+        guard = '!BOUND(?old) || (BOUND(?prov) && !CONTAINS(STR(?old), "@"))'
+    else:
+        guard = "!BOUND(?old) || BOUND(?prov)"
+
+    keep_flag = (
+        f'\n  <{person_uri}> pwg:displayNameProvisional "true"^^xsd:boolean .'
+        if tier < _NAME_TIER_NAME
+        else ""
+    )
+    try:
+        _sparql_update(
+            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+            "DELETE {\n"
+            f"  <{person_uri}> pwg:displayName ?old .\n"
+            f"  <{person_uri}> pwg:displayNameProvisional ?prov .\n"
+            "}\n"
+            "INSERT {\n"
+            f'  <{person_uri}> pwg:displayName "{_escape(value)}" .{keep_flag}\n'
+            "}\n"
+            "WHERE {\n"
+            f"  OPTIONAL {{ <{person_uri}> pwg:displayName ?old }}\n"
+            f"  OPTIONAL {{ <{person_uri}> pwg:displayNameProvisional ?prov }}\n"
+            f"  FILTER ({guard})\n"
+            "}"
+        )
+    except Exception as e:  # a name upgrade must never break an ingest
+        logger.debug("Could not upsert displayName for %s: %s", person_uri, e)
 
 
 # ── WhatsApp historical ingestion (CX-85) ─────────────────────────
@@ -400,31 +929,61 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
             if not participant:
                 continue
 
+            # Defensive belt-and-braces (whatsapp_history already rejects
+            # these at source): `@lid` is WhatsApp's opaque linked-id, not a
+            # phone and not a name. As a contact's sole identity it is pure
+            # noise, so it must not become a number-named Person (BW-4).
+            if participant.endswith("@lid"):
+                continue
+
+            # A role/bulk sender is not a person. Keying on it merges every
+            # WhatsApp participant who shared it into ONE node (#659).
+            # No name is passed: the WhatsApp extractor deliberately carries
+            # JIDs only, never display names (privacy). observe() is still the
+            # right call -- it consults what OTHER sources have already learned
+            # about this identifier, so a channel exposed by mail is refused
+            # here too.
+            if _observe_identifier(participant, ""):
+                logger.debug("skipping role address %s", participant)
+                continue
             person_id = _person_id_from_identifier(participant)
             uri = _person_uri(person_id)
             exists = _person_exists(uri)
 
+            # `@s.whatsapp.net` JIDs are phone-rooted: the local-part is an
+            # E.164 number. Present it as a `+`-prefixed phone so the
+            # placeholder reads as a phone contact rather than a bare
+            # "random number" (BW-4); real names arrive later from
+            # contact_syncer / CM046 email signatures.
+            #
+            # v1018-D011: bound HERE, not inside the not-exists branch. It is
+            # read by the upsert below, which runs for new and existing
+            # alike, so an already-existing FIRST participant used to raise
+            # UnboundLocalError and kill the whole WhatsApp ingest -- and on
+            # any later iteration it still held the PREVIOUS participant's
+            # handle, which the tier-0 guard would write onto any node that
+            # had no name yet: one person's page titled with another
+            # person's phone number.
+            display = _whatsapp_display_name(participant)
+
             if not exists:
-                # JIDs from WhatsApp are always phone-rooted
-                # (e.g. "<phone_e164>@s.whatsapp.net"). Stripping the
-                # suffix gives the E.164-shaped local-part the wiki
-                # uses as the displayName until enriched by other
-                # sources (contact_syncer, CM046 email signatures, etc.).
-                display = participant.split("@", 1)[0] if "@" in participant else participant
                 triples = [
                     f"<{uri}> a pwg:Person",
-                    f'<{uri}> pwg:displayName "{_escape(display)}"',
                     f'<{uri}> pwg:contactType "person"',
                     f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
                     f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
                     f'<{uri}> pwg:source "whatsapp_fda"',
                 ]
+
+                # #576: the helper flags the bare-number placeholder so the
+                # resolver may overwrite it and surfaces can suppress it.
+                triples.extend(_creation_name_triples(uri, display))
                 id_uri = f"https://pwg.dev/ontology#id_{person_id}_whatsapp"
                 triples.extend([
                     f"<{uri}> pwg:hasIdentifier <{id_uri}>",
                     f"<{id_uri}> a pwg:PersonIdentifier",
                     f'<{id_uri}> pwg:identifierType "phone"',
-                    f'<{id_uri}> pwg:identifierValue "{_escape(participant)}"',
+                    f'<{id_uri}> pwg:identifierValue "{_escape(_whatsapp_phone_e164(participant))}"',
                     f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                     f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                 ])
@@ -473,6 +1032,12 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                     _sparql_update(sparql)
                     people_enriched += 1
 
+            # v1018-D658: runs for NEW and EXISTING alike. Every name write
+            # above sits inside the not-exists guard, so an existing person's
+            # placeholder was never revisited by any source. Upward-only -- a
+            # same-tier or lower value is a no-op.
+            _upsert_display_name(uri, display)
+
             # Always upsert lastContactWhatsApp regardless of person
             # existing or not. The DELETE-INSERT-WHERE-FILTER pattern
             # in _update_last_contact ensures older timestamps never
@@ -513,18 +1078,29 @@ def ingest_calendar(fda_dir: Path) -> dict:
     events = json.loads(events_file.read_text())
     people_seen: set[str] = set()
     events_processed = 0
+    meetings_created = 0
 
     for event in events:
         attendees = event.get("attendees", [])
         start_date = event.get("start_date", "")
         title = event.get("title", "")
+        location = event.get("location", "")
 
+        attendee_uris: list[str] = []
         for attendee in attendees:
             if not attendee:
                 continue
 
+            # A role/bulk sender is not a person. Keying on it merges every
+            # calendar attendee who shared it into ONE node (#659). An invite
+            # carries no attendee display name, so this contributes nothing to
+            # the structural rule -- but it still honours it.
+            if _observe_identifier(attendee, ""):
+                logger.debug("skipping role address %s", attendee)
+                continue
             person_id = _person_id_from_identifier(attendee)
             uri = _person_uri(person_id)
+            attendee_uris.append(uri)
 
             if person_id not in people_seen:
                 people_seen.add(person_id)
@@ -532,12 +1108,16 @@ def ingest_calendar(fda_dir: Path) -> dict:
                 if not _person_exists(uri):
                     triples = [
                         f"<{uri}> a pwg:Person",
-                        f'<{uri}> pwg:displayName "{_escape(attendee)}"',
                         f'<{uri}> pwg:contactType "person"',
                         f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
                         f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
                         f'<{uri}> pwg:source "calendar_fda"',
                     ]
+                    # v1018-D011. An attendee display name comes off a
+                    # contact card, so it can be a relationship word; and an
+                    # attendee is very often a bare address. Un-flagged, that
+                    # address became the person's permanent name.
+                    triples.extend(_creation_name_triples(uri, attendee))
                     sparql = (
                         "PREFIX pwg: <https://pwg.dev/ontology#>\n"
                         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
@@ -545,20 +1125,70 @@ def ingest_calendar(fda_dir: Path) -> dict:
                     )
                     _sparql_update(sparql)
 
+                # v1018-D658: runs for NEW and EXISTING alike. Every name write
+                # above sits inside the not-exists guard, so an existing person's
+                # placeholder was never revisited by any source. Upward-only -- a
+                # same-tier or lower value is a no-op.
+                _upsert_display_name(uri, attendee)
+
             # Update last contact from meeting date
             if start_date:
                 _update_last_contact(uri, start_date, "calendar")
 
+        # Emit a Meeting node so the wiki Meetings page renders this event.
+        # The CM044 reader (pwg_data.load_meetings) queries `pwg:Meeting`
+        # with pwg:meetingSummary / pwg:meetingDate / pwg:meetingLocation /
+        # pwg:meetingAttendee, so we write exactly those predicates. Without
+        # this the calendar events only ever became contact-date signals and
+        # the Meetings wiki page rendered empty even though events existed.
+        # Meeting URI is a stable uuid5 of title+date so re-ingest is
+        # idempotent (Oxigraph INSERT DATA on identical triples is a no-op).
+        if title or attendee_uris:
+            meeting_id = uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"https://pwg.dev/meeting/{title}|{start_date}",
+            )
+            meeting_uri = f"https://pwg.dev/ontology#meeting_{meeting_id}"
+            m_triples = [
+                f"<{meeting_uri}> a pwg:Meeting",
+                f'<{meeting_uri}> pwg:source "calendar_fda"',
+                f'<{meeting_uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
+            ]
+            if title:
+                m_triples.append(
+                    f'<{meeting_uri}> pwg:meetingSummary "{_escape(title)}"'
+                )
+            if start_date:
+                m_triples.append(
+                    f'<{meeting_uri}> pwg:meetingDate "{_escape(start_date)}"'
+                )
+            if location:
+                m_triples.append(
+                    f'<{meeting_uri}> pwg:meetingLocation "{_escape(location)}"'
+                )
+            for a_uri in attendee_uris:
+                m_triples.append(
+                    f"<{meeting_uri}> pwg:meetingAttendee <{a_uri}>"
+                )
+            m_sparql = (
+                "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+                "INSERT DATA {\n  " + " .\n  ".join(m_triples) + " .\n}"
+            )
+            _sparql_update(m_sparql)
+            meetings_created += 1
+
         events_processed += 1
 
     logger.info(
-        "Calendar: %d events processed, %d unique attendees",
-        events_processed, len(people_seen),
+        "Calendar: %d events processed, %d unique attendees, %d meetings",
+        events_processed, len(people_seen), meetings_created,
     )
     return {
         "status": "ok",
         "events_processed": events_processed,
         "unique_attendees": len(people_seen),
+        "meetings_created": meetings_created,
     }
 
 
@@ -593,12 +1223,16 @@ def ingest_photos_people(fda_dir: Path) -> dict:
 
             triples = [
                 f"<{uri}> a pwg:Person",
-                f'<{uri}> pwg:displayName "{_escape(name)}"',
                 f'<{uri}> pwg:contactType "person"',
                 f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
                 f'<{uri}> pwg:source "photos_fda"',
                 f'<{uri}> pwg:photoCount "{photo_count}"^^xsd:integer',
             ]
+            # v1018-D011. A face label is free text the user typed into
+            # Photos, and "Mum" is one of the commonest things anybody types
+            # there. It is a relationship, not a name, and it must not become
+            # one just because this write happened to run before the guard.
+            triples.extend(_creation_name_triples(uri, name))
 
             if first_seen:
                 triples.append(
@@ -616,6 +1250,12 @@ def ingest_photos_people(fda_dir: Path) -> dict:
             )
             _sparql_update(sparql)
             people_created += 1
+
+        # v1018-D658: runs for NEW and EXISTING alike. Every name write
+        # above sits inside the not-exists guard, so an existing person's
+        # placeholder was never revisited by any source. Upward-only -- a
+        # same-tier or lower value is a no-op.
+        _upsert_display_name(uri, name)
 
     logger.info("Photos: %d people created from face labels", people_created)
     return {"status": "ok", "people_created": people_created}
@@ -642,17 +1282,27 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
             # Skip very infrequent senders
             continue
 
+        # A role/bulk sender is not a person. Keying on it merges every
+        # email correspondent who shared it into ONE node (#659). The frequency
+        # map is address->count with no names, so this consults the learned set
+        # rather than adding to it.
+        if _observe_identifier(email, ""):
+            logger.debug("skipping role address %s", email)
+            continue
         person_id = _person_id_from_identifier(email)
         uri = _person_uri(person_id)
 
         if not _person_exists(uri):
             triples = [
                 f"<{uri}> a pwg:Person",
-                f'<{uri}> pwg:displayName "{_escape(email)}"',
                 f'<{uri}> pwg:contactType "person"',
                 f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
                 f'<{uri}> pwg:source "apple_mail_fda"',
             ]
+            # v1018-D011. This source names people after their address by
+            # construction, and it never flagged one. Every person it created
+            # was stuck with an email address as their name for good.
+            triples.extend(_creation_name_triples(uri, email))
 
             id_uri = f"https://pwg.dev/ontology#id_{person_id}_mail"
             triples.extend([
@@ -671,170 +1321,1297 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
             _sparql_update(sparql)
             people_created += 1
 
+        # v1018-D658: runs for NEW and EXISTING alike. Every name write
+        # above sits inside the not-exists guard, so an existing person's
+        # placeholder was never revisited by any source. Upward-only -- a
+        # same-tier or lower value is a no-op.
+        _upsert_display_name(uri, email)
+
     logger.info("Apple Mail: %d contacts created", people_created)
     return {"status": "ok", "people_created": people_created}
 
 
-# ── Browser history ingestion (CX-86 Gap A) ───────────────────────
+# ── Browser history ingestion (direct path, v1.0) ─────────────────
 #
-# Streams safari_history.json + chrome_history.json (written by
-# extract_all.py) through the CM019 gateway's POST /api/safari/ingest
-# endpoint. The gateway writes to the `safari_history` Qdrant
-# collection (renamed from `safari_browsing` in Gap B), where the
-# CM044 wiki Browsing page reads from.
+# Single-Mac product: there is NO PWG gateway on a customer install.
+# The zeroclaw-gateway daemon on :8000 does not implement
+# /api/safari/ingest, and nothing listens on :8765. So this writer
+# embeds visits with the local Ollama instance and upserts directly
+# into the Qdrant `safari_history` collection -- the exact collection
+# the CM044 wiki Browsing page and the person-matching reader scroll.
 #
-# Auth: Bearer token from ~/.ostler/secrets/service_token. Blocklist
-# (Q3 sign-off): banking / medical / etc. URLs are rejected by the
-# gateway with HTTP 422 and counted as "skipped_sensitive".
-# needs_reprocessing=true (Q2 sign-off): backfilled rows land in
-# Qdrant with empty topics/category; gateway background tick enriches.
+# Blocklist: because there is no server-side gateway to enforce it,
+# the sensitive-domain blocklist (banking / medical / auth / adult)
+# is enforced HERE, client-side, before anything is embedded or
+# stored. A blocked visit never reaches Ollama or Qdrant. Dropped
+# visits are counted as "skipped_sensitive".
 #
-# Privacy AC mirror B2 + CX-85: stdout payload contains counts only.
-# No URLs, titles, or domain names cross the install.sh boundary.
+# Privacy: the return dict is counts only. No URLs, titles, or
+# domains cross the install.sh process boundary (install.sh reads
+# `sent` and `skipped_sensitive`).
 
-# #48g historical backfill (CX-86): the customer-install gateway binds
-# 127.0.0.1:8000 (locked at CX-59 / DMG #34, 2026-05-24). The previous
-# default of :8765 was the dev-only port the gateway used pre-launch;
-# leaving it as a fallback meant every install where OSTLER_GATEWAY_URL
-# was not explicitly set would silently fail to ingest browsing history
-# (connection refused -> errored++, sent=0). install.sh's hydrate_browsing
-# step does NOT set OSTLER_GATEWAY_URL today, so the :8765 default was
-# the runtime path on every customer Mac.
-_GATEWAY_ENDPOINT_DEFAULT = "http://localhost:8000/api/safari/ingest"
-_SERVICE_TOKEN_PATH = Path.home() / ".ostler" / "secrets" / "service_token"
+# The CM044 Browsing page + person-matching reader BOTH scroll the
+# Qdrant collection named exactly "safari_history". Chrome visits land
+# in the SAME collection (readers key off url/title/domain, not the
+# source). Overridable for tests only.
+BROWSING_QDRANT_COLLECTION = os.getenv(
+    "BROWSING_QDRANT_COLLECTION", "safari_history"
+)
+# Batch sizes: 64 keeps Ollama responsive on a 16GB Mac across
+# thousands of visits; 200 is Qdrant's tested upsert chunk.
+_BROWSING_EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "64"))
+_BROWSING_QDRANT_BATCH_SIZE = int(os.getenv("QDRANT_UPSERT_BATCH_SIZE", "200"))
+
+# Sensitive-domain blocklist. Substring match on the lowercased domain
+# so subdomains (e.g. secure.bank.example.com) are caught too.
+_SENSITIVE_DOMAIN_SUBSTRINGS = (
+    # Banking / finance
+    "bank", "paypal", "stripe.com", "wise.com", "revolut", "monzo",
+    "barclays", "hsbc", "natwest", "lloyds", "santander", "halifax",
+    "nationwide", "amex", "americanexpress", "mastercard", "visa.com",
+    "coinbase", "binance", "kraken.com",
+    # Medical / health
+    "nhs.uk", "patient", "healthgrades", "webmd", "mayoclinic",
+    "pharmacy", "doctolib", "zocdoc", "medical", "clinic", "hospital",
+    "therapy", "psychology", "mentalhealth",
+    # Adult
+    "pornhub", "xvideos", "xnxx", "onlyfans", "xhamster", "redtube",
+    # Auth / account-recovery surfaces
+    "accounts.google.com", "appleid.apple.com", "login.microsoftonline",
+)
 
 
-def _read_service_token() -> Optional[str]:
-    """Read the Bearer token install.sh's auth_tokens phase wrote."""
-    try:
-        return _SERVICE_TOKEN_PATH.read_text(encoding="utf-8").strip() or None
-    except (OSError, FileNotFoundError):
-        return None
+def _is_sensitive_domain(domain: str) -> bool:
+    """True if ``domain`` matches the sensitive blocklist (substring,
+    case-insensitive). A blank domain is never sensitive (it is dropped
+    upstream as unusable)."""
+    if not domain:
+        return False
+    d = domain.lower()
+    return any(token in d for token in _SENSITIVE_DOMAIN_SUBSTRINGS)
 
 
-def ingest_browser_history(fda_dir: Path, gateway_url: Optional[str] = None) -> dict:
-    """Stream browser history JSON to the gateway.
+def _ollama_embed_batch(texts: list[str]) -> list[list[float]]:
+    """Batch-embed texts via Ollama /api/embed.
 
-    Reads safari_history.json + chrome_history.json from ``fda_dir``,
-    POSTs each entry to ``POST /api/safari/ingest`` with Bearer auth
-    and ``needs_reprocessing: true``. Counts ok / skipped (HTTP 422
-    blocklist) / errored. Returns a counts-only dict.
+    Returns one vector per input, in order. On any failure a given
+    slot is padded with an empty list so the caller keeps index
+    alignment; empty vectors are dropped at upsert time. Falls back to
+    the per-text :func:`_embed_text` if a batch response is malformed.
     """
-    endpoint = gateway_url or os.environ.get(
-        "OSTLER_GATEWAY_URL", _GATEWAY_ENDPOINT_DEFAULT,
-    )
+    if not texts:
+        return []
+    transport = httpx.HTTPTransport(proxy=None)
+    vectors: list[list[float]] = []
+    with httpx.Client(timeout=120.0, transport=transport) as client:
+        for start in range(0, len(texts), _BROWSING_EMBED_BATCH_SIZE):
+            chunk = texts[start : start + _BROWSING_EMBED_BATCH_SIZE]
+            try:
+                resp = client.post(
+                    f"{OLLAMA_URL}/api/embed",
+                    json={"model": EMBED_MODEL, "input": chunk},
+                )
+                resp.raise_for_status()
+                embs = resp.json().get("embeddings")
+                if embs is None or len(embs) != len(chunk):
+                    # Malformed/short batch: degrade to one-at-a-time.
+                    embs = []
+                    for t in chunk:
+                        try:
+                            embs.append(_embed_text(t))
+                        except Exception as inner:
+                            logger.warning(
+                                "Ollama embed failed for one visit: %s",
+                                type(inner).__name__,
+                            )
+                            embs.append([])
+                vectors.extend(embs)
+            except Exception as exc:
+                logger.warning(
+                    "Ollama embed batch failed (start=%d, size=%d): %s",
+                    start, len(chunk), type(exc).__name__,
+                )
+                vectors.extend([[] for _ in chunk])
+    return vectors
 
-    payload_entries: list[dict] = []
-    safari_count = 0
-    chrome_count = 0
-    for filename, label in [
-        ("safari_history.json", "safari_history"),
-        ("chrome_history.json", "chrome_history"),
-    ]:
+
+def _qdrant_ensure_collection(
+    collection: str, vector_size: int, distance: str = "Cosine"
+) -> None:
+    """Create a Qdrant collection if it does not already exist.
+
+    On a fresh single-Mac install nothing pre-creates the Qdrant
+    collections (``install.sh graph_db_start`` brings the container up
+    empty). A bare PUT of points into a missing collection lands 0 rows
+    and Qdrant does NOT auto-create it, so the writer must self-create
+    -- otherwise the iOS People tab / Hub People card / semantic search
+    stay blank by design. See HR015 #600 + the
+    feedback_qdrant_collections_no_self_create_fresh_install memory.
+
+    Idempotent: a GET on an existing collection short-circuits, so a
+    re-install does not clobber existing vectors. A genuinely missing
+    collection (404 on GET) is created with the given vector size +
+    distance. Any other error is logged and re-raised so the caller can
+    decide whether to fail loud.
+    """
+    transport = httpx.HTTPTransport(proxy=None)
+    url = f"{QDRANT_URL}/collections/{collection}"
+    with httpx.Client(timeout=30.0, transport=transport) as client:
+        try:
+            resp = client.get(url)
+            if resp.status_code == 200:
+                return
+        except Exception as exc:
+            logger.warning(
+                "Qdrant collection probe for %s failed: %s",
+                collection, type(exc).__name__,
+            )
+        # Not present (or probe failed): create it. Qdrant treats a PUT
+        # to an existing collection as an error, but we only reach here
+        # when the GET did not return 200, so this is the create path.
+        body = {"vectors": {"size": vector_size, "distance": distance}}
+        resp = client.put(url, json=body)
+        resp.raise_for_status()
+        logger.info(
+            "Created Qdrant collection '%s' (size=%d, distance=%s).",
+            collection, vector_size, distance,
+        )
+
+
+def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
+    """Batch-upsert points into a named Qdrant collection.
+
+    Each point is ``{"id", "vector", "payload"}``. Points with an empty
+    vector are dropped (Qdrant rejects zero-length vectors). Flushes in
+    chunks; logs and continues on a chunk failure. Returns the count
+    the server acknowledged.
+    """
+    valid = [p for p in points if p.get("vector")]
+    dropped = len(points) - len(valid)
+    if dropped:
+        logger.warning(
+            "Dropping %d browsing points with empty vectors "
+            "(Ollama embed failure upstream).", dropped,
+        )
+    if not valid:
+        return 0
+    upserted = 0
+    transport = httpx.HTTPTransport(proxy=None)
+    # Qdrant REST upsert is PUT /collections/{name}/points (NOT
+    # /points/upsert, which 404s). Verified live on Studio 2026-05-30.
+    url = f"{QDRANT_URL}/collections/{collection}/points"
+    with httpx.Client(timeout=60.0, transport=transport) as client:
+        for start in range(0, len(valid), _BROWSING_QDRANT_BATCH_SIZE):
+            chunk = valid[start : start + _BROWSING_QDRANT_BATCH_SIZE]
+            body = {"points": [
+                {"id": p["id"], "vector": p["vector"], "payload": p["payload"]}
+                for p in chunk
+            ]}
+            try:
+                resp = client.put(url, json=body, params={"wait": "true"})
+                resp.raise_for_status()
+                upserted += len(chunk)
+            except Exception as exc:
+                logger.warning(
+                    "Qdrant upsert into %s failed (start=%d, size=%d): %s",
+                    collection, start, len(chunk), type(exc).__name__,
+                )
+    return upserted
+
+
+def _load_browsing_visits(fda_dir: Path) -> list[dict]:
+    """Read safari_history.json + chrome_history.json from ``fda_dir``.
+
+    Both are lists of timeline dicts emitted by the FDA extractor with
+    keys: type, timestamp, url, domain, title, visit_count, source.
+    Only safari_history.json is produced by extract_all.py today;
+    chrome_history.json is read forward-compatibly (skipped if absent)
+    so a future Chrome extractor needs no change here. A missing file
+    is skipped silently; a malformed file logs and contributes nothing.
+    """
+    visits: list[dict] = []
+    for filename in ("safari_history.json", "chrome_history.json"):
         path = fda_dir / filename
         if not path.exists():
             continue
         try:
-            entries = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning(
-                "Could not read %s: %s; skipping that source.",
+                "Could not parse %s: %s; skipping.",
                 filename, type(exc).__name__,
             )
             continue
-        if not isinstance(entries, list):
-            logger.warning("%s root is not a list; skipping.", filename)
-            continue
-        payload_entries.extend(entries)
-        if label == "safari_history":
-            safari_count = len(entries)
+        if isinstance(data, list):
+            visits.extend(v for v in data if isinstance(v, dict))
         else:
-            chrome_count = len(entries)
+            logger.warning("%s root is not a list; skipping.", filename)
+    return visits
 
-    if not payload_entries:
-        logger.info("No browser history to ingest.")
+
+def ingest_browser_history(fda_dir: Path) -> dict:
+    """Ingest Safari (and Chrome, if present) browsing history into the
+    Qdrant ``safari_history`` collection via the local Ollama embedder.
+
+    Direct, single-machine path: no gateway. Sensitive domains are
+    dropped client-side before embed/store. Defensive: missing, empty,
+    or all-sensitive input returns ``{"status": "no_data", ...}`` with
+    zero counts and never raises; an Ollama/Qdrant hiccup degrades the
+    count rather than crashing the installer.
+
+    Returns counts only (HR015 #134 privacy contract):
+      ``status``           : "ok" | "no_data" | "error"
+      ``sent``             : points upserted into Qdrant (install.sh reads this)
+      ``points_created``   : alias of ``sent`` (parity with other ingestors)
+      ``skipped_sensitive``: visits dropped by the blocklist (install.sh reads this)
+      ``total``            : ingestible visits considered (after url filter)
+    """
+    visits = _load_browsing_visits(fda_dir)
+    if not visits:
+        logger.info("No browsing history to ingest.")
         return {
             "status": "no_data",
-            "total": 0,
             "sent": 0,
+            "points_created": 0,
             "skipped_sensitive": 0,
-            "errored": 0,
-            "safari_entries": 0,
-            "chrome_entries": 0,
+            "total": 0,
         }
 
-    token = _read_service_token()
-    if not token:
-        logger.warning(
-            "No service token at %s; the gateway requires Bearer auth.",
-            _SERVICE_TOKEN_PATH,
+    skipped_sensitive = 0
+    queue: list[dict] = []
+    for v in visits:
+        url = (v.get("url") or "").strip()
+        if not url:
+            continue
+        domain = (v.get("domain") or "").strip()
+        if _is_sensitive_domain(domain):
+            skipped_sensitive += 1
+            continue
+        title = (v.get("title") or "").strip()
+        timestamp = (v.get("timestamp") or "").strip()
+        source = v.get("source") or "safari_history"
+        visit_count = v.get("visit_count") or 0
+
+        # Embedding document: title carries the human-readable signal
+        # the person-matcher scans; domain + url anchor it.
+        doc = " ".join(part for part in (title, domain, url) if part)
+        # Stable point id: same url+timestamp re-runs upsert in place
+        # (idempotent re-install) rather than duplicating rows.
+        point_id = str(uuid.uuid5(
+            uuid.NAMESPACE_URL, f"browsing|{source}|{url}|{timestamp}"
+        ))
+        queue.append({
+            "point_id": point_id,
+            "doc": doc,
+            "payload": {
+                "url": url,
+                "domain": domain,
+                "title": title,
+                # Readers look for visit_date / created_at / date; the
+                # extractor names it `timestamp`. Provide all aliases so
+                # the Browsing timeline buckets visits regardless of key.
+                "timestamp": timestamp,
+                "visit_date": timestamp,
+                "created_at": timestamp,
+                "date": timestamp,
+                "visit_count": visit_count,
+                "source": source,
+                "type": "web_visit",
+                "privacy_level": DEFAULT_PRIVACY,
+            },
+        })
+
+    if not queue:
+        logger.info(
+            "Browsing: 0 ingestible visits (%d skipped sensitive).",
+            skipped_sensitive,
         )
         return {
-            "status": "no_token",
-            "total": len(payload_entries),
+            "status": "no_data",
             "sent": 0,
-            "skipped_sensitive": 0,
-            "errored": 0,
-            "safari_entries": safari_count,
-            "chrome_entries": chrome_count,
+            "points_created": 0,
+            "skipped_sensitive": skipped_sensitive,
+            "total": 0,
         }
 
     sent = 0
-    skipped_sensitive = 0
-    errored = 0
+    try:
+        vectors = _ollama_embed_batch([item["doc"] for item in queue])
+        # Self-create the collection before the first upsert. On a fresh
+        # single-Mac install nothing else creates `safari_history`, and a PUT
+        # of points into a missing collection lands 0 rows (Qdrant does not
+        # auto-create) -- so the Browsing page ships EMPTY by design. Mirror
+        # the people-sweep sizing: take the dim from the first real embedding,
+        # falling back to the module's embed dim if nothing embedded.
+        vector_size = PREFERENCES_EMBED_DIM
+        for vec in vectors:
+            if vec:
+                vector_size = len(vec)
+                break
+        _qdrant_ensure_collection(BROWSING_QDRANT_COLLECTION, vector_size)
+        points = [
+            {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
+            for item, vec in zip(queue, vectors)
+        ]
+        sent = _qdrant_upsert_points(BROWSING_QDRANT_COLLECTION, points)
+    except Exception as exc:
+        # Non-fatal: the installer must not abort on a vector-store hiccup.
+        logger.warning(
+            "Browsing vector-store write failed: %s", type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": sent,
+            "points_created": sent,
+            "skipped_sensitive": skipped_sensitive,
+            "total": len(queue),
+        }
 
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-    with httpx.Client(timeout=30.0) as client:
-        for entry in payload_entries:
-            payload = {
-                "url": entry.get("url"),
-                "title": entry.get("title"),
-                "timestamp": entry.get("timestamp"),
-                "device": entry.get("source", "unknown"),
-                "needs_reprocessing": True,
-            }
-            if not payload["url"]:
-                errored += 1
-                continue
-            try:
-                resp = client.post(endpoint, json=payload, headers=headers)
-            except (httpx.RequestError, httpx.HTTPError) as exc:
-                if errored < 5:
-                    logger.warning(
-                        "gateway POST failed (%s); continuing batch.",
-                        type(exc).__name__,
-                    )
-                errored += 1
-                continue
-
-            if resp.status_code in (200, 201, 202):
-                sent += 1
-            elif resp.status_code == 422:
-                skipped_sensitive += 1
-            else:
-                errored += 1
+    if sent == 0:
+        # We had visits to store but none landed (every chunk failed).
+        # Report error, not "ok" -- a silent ok-with-zero would let the
+        # installer claim success while the Browsing page stays blank.
+        logger.warning(
+            "Browsing: embedded %d visits but 0 landed in Qdrant '%s'.",
+            len(queue), BROWSING_QDRANT_COLLECTION,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_sensitive": skipped_sensitive,
+            "total": len(queue),
+        }
 
     logger.info(
-        "Browser history ingest: %d sent, %d skipped (sensitive), "
-        "%d errored across %d Safari + %d Chrome entries.",
-        sent, skipped_sensitive, errored,
-        safari_count, chrome_count,
+        "Browsing: %d visits upserted to Qdrant '%s' (%d skipped sensitive).",
+        sent, BROWSING_QDRANT_COLLECTION, skipped_sensitive,
     )
     return {
         "status": "ok",
-        "total": len(payload_entries),
         "sent": sent,
+        "points_created": sent,
         "skipped_sensitive": skipped_sensitive,
-        "errored": errored,
-        "safari_entries": safari_count,
-        "chrome_entries": chrome_count,
+        "total": len(queue),
+    }
+
+
+# ── Safari bookmarks ingestion (Reading wiki page) ────────────────
+#
+# extract_all.py writes safari_bookmarks.json (the installer offers
+# `safari_bookmarks` as a Recommended FDA source), but nothing ever
+# ingested it -- so the data died on disk after extraction and the
+# CM044 Reading wiki page rendered an empty bookmarks section for every
+# customer (the silent-fail caught in the 2026-06-04 resweep).
+#
+# Reader contract (confirmed against the live reader, file:line):
+#   - collection NAME : "preferences"
+#       CM044 compiler/pages/reading_pages.py:46 (scroll_all),
+#       compiler/incremental.py:44 ("reading" -> ["qdrant:preferences"]),
+#       compiler/compile.py:69 ("reading" page registered).
+#   - reader FILTER   : payload `category == "bookmark"`
+#       reading_pages.py:43 ({"key": "category", "match": {"value": cat}})
+#       for cat in ("bookmark", "website").
+#   - payload FIELDS the reader consumes:
+#       subject       (reading_pages.py:124 -- the bookmark title)
+#       strength      (reading_pages.py:98/132 -- sort + bar)
+#       source        (reading_pages.py:93/133)
+#       observed_at / created_at (reading_pages.py:94 -- timeline buckets)
+#       extra.url     (reading_pages.py:127 -- makes the title clickable)
+#   The full payload mirrors CM019 ParsedPreference.to_payload
+#   (parsers/base.py:118) so FDA-extracted bookmarks render identically
+#   to GDPR-imported ones.
+#
+# Counts-only return (install.sh reads `sent`); no bookmark titles or
+# URLs cross the process boundary. Fails LOUD (status "error") if there
+# were bookmarks to ingest but nothing landed in Qdrant -- a silent
+# ok-with-zero would let the installer claim success while the Reading
+# page stays blank, the exact silent-fail this function exists to kill.
+
+# The reader scrolls exactly this collection name. Overridable for
+# tests only. Defaults to "preferences" to match CM019 + reading_pages.
+PREFERENCES_QDRANT_COLLECTION = os.getenv(
+    "PREFERENCES_QDRANT_COLLECTION", "preferences"
+)
+# nomic-embed-text emits 768-dim vectors; fallback used only when no
+# live embedding length is available to size a fresh collection.
+PREFERENCES_EMBED_DIM = int(os.getenv("PREFERENCES_EMBED_DIM", "768"))
+
+# Folder -> strength. Reading List items were explicitly saved to read
+# later; Favourites (BookmarksBar) are pinned. Both are stronger signals
+# than an ordinary filed bookmark. Mirrors CM019 apple.py's favourite
+# vs ordinary split (0.75 / 0.70).
+_BOOKMARK_STRENGTH_BY_FOLDER = {
+    "Reading List": 0.75,
+    "Favourites": 0.72,
+}
+_BOOKMARK_DEFAULT_STRENGTH = 0.70
+
+
+def _load_safari_bookmarks(fda_dir: Path) -> list[dict]:
+    """Read safari_bookmarks.json from ``fda_dir``.
+
+    The file is a list of dicts emitted by extract_all.py
+    (``[asdict(b) for b in bookmarks]``) with keys: title, url, domain,
+    folder. A missing file is skipped silently (the source was not
+    enabled); a malformed file logs and contributes nothing.
+    """
+    path = fda_dir / "safari_bookmarks.json"
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(
+            "Could not parse safari_bookmarks.json: %s; skipping.",
+            type(exc).__name__,
+        )
+        return []
+    if not isinstance(data, list):
+        logger.warning("safari_bookmarks.json root is not a list; skipping.")
+        return []
+    return [b for b in data if isinstance(b, dict)]
+
+
+def ingest_bookmarks(fda_dir: Path) -> dict:
+    """Ingest Safari bookmarks into the Qdrant ``preferences`` collection
+    so the CM044 Reading wiki page can render them.
+
+    Direct, single-machine path: no gateway. Sensitive domains are
+    dropped client-side before embed/store (same blocklist as browsing).
+    Defensive: missing, empty, or all-sensitive input returns
+    ``{"status": "no_data", ...}`` with zero counts and never raises; an
+    Ollama/Qdrant hiccup degrades the count rather than crashing the
+    installer.
+
+    Each bookmark becomes one ``preferences`` point with
+    ``category == "bookmark"`` and the payload field set the Reading page
+    reads. The point id is derived stably from the bookmark URL so a
+    re-install upserts in place rather than duplicating rows.
+
+    Returns counts only (parity with the other ingesters; install.sh
+    reads ``sent``):
+      ``status``           : "ok" | "no_data" | "error"
+      ``sent``             : points upserted into Qdrant
+      ``points_created``   : alias of ``sent``
+      ``skipped_sensitive``: bookmarks dropped by the blocklist
+      ``total``            : ingestible bookmarks considered
+    """
+    bookmarks = _load_safari_bookmarks(fda_dir)
+    if not bookmarks:
+        logger.info("No bookmarks to ingest.")
+        return {
+            "status": "no_data",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_sensitive": 0,
+            "total": 0,
+        }
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    skipped_sensitive = 0
+    queue: list[dict] = []
+    seen_urls: set[str] = set()
+    for b in bookmarks:
+        url = (b.get("url") or "").strip()
+        if not url or url in seen_urls:
+            continue
+        domain = (b.get("domain") or "").strip()
+        if _is_sensitive_domain(domain):
+            skipped_sensitive += 1
+            continue
+        seen_urls.add(url)
+        title = (b.get("title") or "").strip() or domain or url
+        folder = (b.get("folder") or "").strip()
+        strength = _BOOKMARK_STRENGTH_BY_FOLDER.get(
+            folder, _BOOKMARK_DEFAULT_STRENGTH
+        )
+
+        # Embedding document: title carries the human-readable signal;
+        # domain anchors it. Mirrors the browsing path's doc construction
+        # and CM019's "Like <subject> category:bookmark" embedding text.
+        doc = " ".join(
+            part for part in ("Like", title, "category:bookmark", domain) if part
+        )
+        # Stable point id: same URL re-runs upsert in place (idempotent
+        # re-install) rather than duplicating rows.
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"bookmark|{url}"))
+        queue.append({
+            "point_id": point_id,
+            "doc": doc,
+            "payload": {
+                # Reader contract (CM044 reading_pages.py) + CM019
+                # ParsedPreference.to_payload parity so FDA bookmarks
+                # render identically to GDPR-imported ones.
+                "preference_id": point_id,
+                "subject": title,
+                "preference_type": "Like",
+                "category": "bookmark",
+                "strength": strength,
+                "source": "safari_bookmarks",
+                "context": folder or None,
+                "size": "Medium",
+                "compartment_level": DEFAULT_PRIVACY,
+                "privacy_level": DEFAULT_PRIVACY,
+                "created_at": now_iso,
+                "observed_at": now_iso,
+                "extra": {
+                    "url": url,
+                    "domain": domain,
+                    "folder": folder,
+                    "source_type": "safari_bookmarks",
+                },
+            },
+        })
+
+    if not queue:
+        logger.info(
+            "Bookmarks: 0 ingestible (%d skipped sensitive).",
+            skipped_sensitive,
+        )
+        return {
+            "status": "no_data",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_sensitive": skipped_sensitive,
+            "total": 0,
+        }
+
+    vectors = _ollama_embed_batch([item["doc"] for item in queue])
+
+    # Size the collection from the first real embedding; fall back to
+    # the nomic-embed-text default only if nothing embedded.
+    vector_size = PREFERENCES_EMBED_DIM
+    for vec in vectors:
+        if vec:
+            vector_size = len(vec)
+            break
+
+    try:
+        _qdrant_ensure_collection(PREFERENCES_QDRANT_COLLECTION, vector_size)
+    except Exception as exc:
+        logger.warning(
+            "Bookmarks: could not ensure Qdrant collection '%s': %s",
+            PREFERENCES_QDRANT_COLLECTION, type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_sensitive": skipped_sensitive,
+            "total": len(queue),
+        }
+
+    points = [
+        {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
+        for item, vec in zip(queue, vectors)
+    ]
+
+    sent = 0
+    try:
+        sent = _qdrant_upsert_points(PREFERENCES_QDRANT_COLLECTION, points)
+    except Exception as exc:
+        logger.warning(
+            "Bookmarks vector-store write failed: %s", type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": sent,
+            "points_created": sent,
+            "skipped_sensitive": skipped_sensitive,
+            "total": len(queue),
+        }
+
+    if sent == 0:
+        # We had bookmarks to store but none landed (every chunk failed).
+        # Report error, not "ok" -- a silent ok-with-zero would let the
+        # installer claim success while the Reading page stays blank.
+        logger.warning(
+            "Bookmarks: had %d to ingest but 0 landed in Qdrant '%s'.",
+            len(queue), PREFERENCES_QDRANT_COLLECTION,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_sensitive": skipped_sensitive,
+            "total": len(queue),
+        }
+
+    logger.info(
+        "Bookmarks: %d upserted to Qdrant '%s' (%d skipped sensitive).",
+        sent, PREFERENCES_QDRANT_COLLECTION, skipped_sensitive,
+    )
+    return {
+        "status": "ok",
+        "sent": sent,
+        "points_created": sent,
+        "skipped_sensitive": skipped_sensitive,
+        "total": len(queue),
+    }
+
+
+# ── iMessage social-graph signal (Social wiki page) ───────────────
+#
+# extract_all.py writes imessage_conversations.json (iMessage is a
+# Recommended FDA source) and ingest_imessage() above turns each
+# participant into a pwg:Person node in Oxigraph. But the CM044 Social
+# wiki page does NOT read Oxigraph -- it reads the Qdrant `preferences`
+# collection filtered to the social categories. Nothing ever wrote
+# those points, so the Social page rendered empty on every fresh
+# install even when the customer had years of iMessage history. This is
+# the same silent-fail class the bookmarks ingest above was built to
+# kill (2026-06-04 resweep), now closed for the Social section.
+#
+# The day-one social signal is "who you talk to most": each frequent
+# 1:1 iMessage contact becomes one `category == "social"` preference
+# point whose strength is derived from how much you message them. Group
+# chats are skipped (a group's "participants" are not a who-I-talk-to
+# signal and the handles would be noisy in the Social table).
+#
+# Reader contract (confirmed against the live reader, file:line):
+#   - collection NAME : "preferences"
+#       CM044 compiler/pages/social_pages.py:31 (scroll_all).
+#   - reader FILTER   : payload `category == "social"`
+#       social_pages.py:23 SOCIAL_CATEGORIES + :30 match filter.
+#   - payload FIELDS the reader consumes:
+#       subject          (social_pages.py:64 -- the contact label, the
+#                         "account/content" row key + top-accounts table)
+#       strength         (social_pages.py:65/89 -- sort + the table value)
+#       source           (social_pages.py:61 -- "Platform" column +
+#                         the by-platform breakdown)
+#       preference_type  (social_pages.py:63 -- by-interaction breakdown)
+#   The full payload mirrors CM019 ParsedPreference.to_payload parity so
+#   FDA-derived social signals render identically to GDPR-imported ones.
+#
+# Privacy posture (conservative, matches the bookmarks blocklist intent):
+# the contact handle is a phone number or email. Phone numbers are
+# partially masked for the rendered `subject` so the Social page never
+# shows a full personal number; the unmasked value is NOT stored in the
+# payload at all. Group chats are excluded entirely. The point id is
+# derived stably from the handle so a re-install upserts in place.
+#
+# Counts-only return (install.sh reads `sent`); no full handles cross
+# the process boundary in the return value. Fails LOUD (status "error")
+# if there were contacts to ingest but nothing landed -- a silent
+# ok-with-zero would let the installer claim success while the Social
+# page stays blank, the exact failure this function exists to kill.
+
+# Message-count -> strength. More messages = stronger social tie. We
+# bucket rather than use a raw ratio so a single heavy thread cannot
+# dominate the 0..1 range. Mirrors the bookmarks folder-strength split.
+_SOCIAL_STRENGTH_BANDS = (
+    (200, 0.90),   # very frequent contact
+    (50, 0.80),    # regular contact
+    (10, 0.70),    # occasional contact
+)
+_SOCIAL_MIN_MESSAGES = 5      # below this, too thin to be a "social tie"
+_SOCIAL_DEFAULT_STRENGTH = 0.60
+
+
+def _social_strength_for(message_count: int) -> float:
+    """Map an iMessage message count onto a 0..1 social-tie strength."""
+    for threshold, strength in _SOCIAL_STRENGTH_BANDS:
+        if message_count >= threshold:
+            return strength
+    return _SOCIAL_DEFAULT_STRENGTH
+
+
+def _is_phone_handle(handle: str) -> bool:
+    """True if the handle looks like a phone number (vs an email)."""
+    stripped = handle.replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
+    return handle.startswith("+") or stripped.isdigit()
+
+
+def _mask_social_subject(handle: str) -> str:
+    """Privacy-mask a contact handle for the rendered Social table.
+
+    Phone numbers are reduced to a country/area prefix plus the last two
+    digits (``+44 … 56``) so the page conveys "a UK contact" without
+    publishing a full personal number. Emails keep the local part's first
+    character plus the domain (``j…@example.com``). The unmasked value
+    is never stored in the payload.
+    """
+    handle = (handle or "").strip()
+    if not handle:
+        return "Unknown contact"
+    if _is_phone_handle(handle):
+        digits = "".join(c for c in handle if c.isdigit())
+        if len(digits) < 4:
+            return "Phone contact"
+        prefix = ("+" + digits[:2]) if handle.startswith("+") else digits[:2]
+        return f"{prefix} … {digits[-2:]}"
+    # Email handle.
+    local, _, domain = handle.partition("@")
+    if not domain:
+        return handle[:1] + "…"
+    return f"{local[:1]}…@{domain}"
+
+
+def _load_imessage_conversations(fda_dir: Path) -> list[dict]:
+    """Read imessage_conversations.json from ``fda_dir``.
+
+    The file is a list of dicts emitted by extract_all.py
+    (``[asdict(c) for c in conversations]``) with keys: chat_id,
+    display_name, participants, message_count, is_group, last_message.
+    A missing file is skipped silently (the source was not enabled); a
+    malformed file logs and contributes nothing.
+    """
+    path = fda_dir / "imessage_conversations.json"
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(
+            "Could not parse imessage_conversations.json: %s; skipping.",
+            type(exc).__name__,
+        )
+        return []
+    if not isinstance(data, list):
+        logger.warning(
+            "imessage_conversations.json root is not a list; skipping."
+        )
+        return []
+    return [c for c in data if isinstance(c, dict)]
+
+
+def ingest_social(fda_dir: Path) -> dict:
+    """Ingest iMessage social-tie signal into the Qdrant ``preferences``
+    collection so the CM044 Social wiki page renders on a fresh install.
+
+    Direct, single-machine path: no gateway. Group chats are skipped;
+    contacts below ``_SOCIAL_MIN_MESSAGES`` are skipped as too thin.
+    Defensive: missing, empty, or all-skipped input returns
+    ``{"status": "no_data", ...}`` with zero counts and never raises; an
+    Ollama/Qdrant hiccup degrades the count rather than crashing the
+    installer.
+
+    Each frequent 1:1 contact becomes one ``preferences`` point with
+    ``category == "social"`` and the payload fields the Social page reads
+    (subject, strength, source, preference_type). The displayed subject
+    is privacy-masked; the unmasked handle is never stored. The point id
+    is derived stably from the handle so a re-install upserts in place.
+
+    Returns counts only (parity with the other ingesters; install.sh
+    reads ``sent``):
+      ``status``         : "ok" | "no_data" | "error"
+      ``sent``           : points upserted into Qdrant
+      ``points_created`` : alias of ``sent``
+      ``skipped_group``  : group-chat threads excluded
+      ``skipped_thin``   : contacts below the message floor
+      ``total``          : ingestible contacts considered
+    """
+    conversations = _load_imessage_conversations(fda_dir)
+    if not conversations:
+        logger.info("No iMessage conversations to ingest for social signal.")
+        return {
+            "status": "no_data",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_group": 0,
+            "skipped_thin": 0,
+            "total": 0,
+        }
+
+    # Aggregate per handle: a contact may appear across several 1:1
+    # threads (e.g. phone + email handle); sum their messages.
+    handle_messages: dict[str, int] = {}
+    skipped_group = 0
+    for convo in conversations:
+        if convo.get("is_group"):
+            skipped_group += 1
+            continue
+        msg_count = int(convo.get("message_count") or 0)
+        for participant in convo.get("participants") or []:
+            handle = (participant or "").strip()
+            if not handle:
+                continue
+            handle_messages[handle] = handle_messages.get(handle, 0) + msg_count
+
+    skipped_thin = 0
+    queue: list[dict] = []
+    for handle, total_messages in handle_messages.items():
+        if total_messages < _SOCIAL_MIN_MESSAGES:
+            skipped_thin += 1
+            continue
+        subject = _mask_social_subject(handle)
+        strength = _social_strength_for(total_messages)
+        # Embedding document: the masked subject keeps personal numbers
+        # out of the vector store too. Mirrors CM019's "Like <subject>
+        # category:social" embedding text.
+        doc = " ".join(("Like", subject, "category:social", "imessage"))
+        # Stable point id keyed on the raw handle so re-installs upsert
+        # in place; the raw handle never reaches the payload.
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"social|imessage|{handle}"))
+        queue.append({
+            "point_id": point_id,
+            "doc": doc,
+            "payload": {
+                "preference_id": point_id,
+                "subject": subject,
+                "preference_type": "Like",
+                "category": "social",
+                "strength": strength,
+                "source": "imessage",
+                "size": "Medium",
+                "compartment_level": DEFAULT_PRIVACY,
+                "privacy_level": DEFAULT_PRIVACY,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "extra": {
+                    "message_count": total_messages,
+                    "source_type": "imessage_social",
+                    "handle_kind": "phone" if _is_phone_handle(handle) else "email",
+                },
+            },
+        })
+
+    if not queue:
+        logger.info(
+            "Social: 0 ingestible (%d group threads, %d thin contacts).",
+            skipped_group, skipped_thin,
+        )
+        return {
+            "status": "no_data",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_group": skipped_group,
+            "skipped_thin": skipped_thin,
+            "total": 0,
+        }
+
+    vectors = _ollama_embed_batch([item["doc"] for item in queue])
+
+    vector_size = PREFERENCES_EMBED_DIM
+    for vec in vectors:
+        if vec:
+            vector_size = len(vec)
+            break
+
+    try:
+        _qdrant_ensure_collection(PREFERENCES_QDRANT_COLLECTION, vector_size)
+    except Exception as exc:
+        logger.warning(
+            "Social: could not ensure Qdrant collection '%s': %s",
+            PREFERENCES_QDRANT_COLLECTION, type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_group": skipped_group,
+            "skipped_thin": skipped_thin,
+            "total": len(queue),
+        }
+
+    points = [
+        {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
+        for item, vec in zip(queue, vectors)
+    ]
+
+    sent = 0
+    try:
+        sent = _qdrant_upsert_points(PREFERENCES_QDRANT_COLLECTION, points)
+    except Exception as exc:
+        logger.warning(
+            "Social vector-store write failed: %s", type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": sent,
+            "points_created": sent,
+            "skipped_group": skipped_group,
+            "skipped_thin": skipped_thin,
+            "total": len(queue),
+        }
+
+    if sent == 0:
+        logger.warning(
+            "Social: had %d to ingest but 0 landed in Qdrant '%s'.",
+            len(queue), PREFERENCES_QDRANT_COLLECTION,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_group": skipped_group,
+            "skipped_thin": skipped_thin,
+            "total": len(queue),
+        }
+
+    logger.info(
+        "Social: %d upserted to Qdrant '%s' (%d group, %d thin skipped).",
+        sent, PREFERENCES_QDRANT_COLLECTION, skipped_group, skipped_thin,
+    )
+    return {
+        "status": "ok",
+        "sent": sent,
+        "points_created": sent,
+        "skipped_group": skipped_group,
+        "skipped_thin": skipped_thin,
+        "total": len(queue),
+    }
+
+
+# ── People search index (#600) ────────────────────────────────────
+#
+# Populate the Qdrant `people` collection from Oxigraph so the iOS
+# People tab, the Hub People card, and semantic people-search have
+# something to read. Those three readers scroll/search the collection
+# named exactly "people" and key off `contact_type == "person"`; the
+# wiki People page also scrolls "people" (compiler/pages/people.py).
+#
+# Reader contract (confirmed against live readers, file:line in the
+# #600 PR description):
+#   - collection NAME : "people"
+#       CM044 compiler/pages/people.py:46, enrich_from_qdrant.py:89,
+#       demo_mode.py:344 ("people")
+#   - vector DIMENSION: 768 (nomic-embed-text); every other collection
+#       in this repo embeds at 768 (see the safari path tests using
+#       [0.1] * 768) and install.sh self-creates `people` at 768-dim.
+#       We size the collection from the FIRST real embedding length and
+#       fall back to 768 only if no live embedder is reachable.
+#   - payload FIELDS the readers consume:
+#       display_name   (people.py:74, enrich_from_qdrant.py:119,
+#                       person_pages.py:761)
+#       organization   (people.py / person_pages.py:763)
+#       job_title      (people.py / person_pages.py:764)
+#       given_name / family_name (person_pages.py:762)
+#       contact_type   ("person"; the readers' filter, person_pages.py:768)
+#       phones / emails (lists; people.py:160-161, enrich_from_qdrant.py
+#                       :154-164)
+#       person_id / person_uri (demo_mode.py:336-337)
+#       privacy_level / source / last_contact (demo_mode.py:344-348)
+#
+# Counts-only return (install.sh reads `sent`); no display names cross
+# the process boundary. Fails LOUD (status "error") if Oxigraph holds
+# Person nodes but nothing landed in Qdrant -- a silent ok-with-zero
+# would let the installer claim success while the People surfaces stay
+# blank, the exact #600 silent-fail this function exists to kill.
+
+# The readers scroll/search exactly this collection name. Overridable
+# for tests only.
+PEOPLE_QDRANT_COLLECTION = os.getenv("PEOPLE_QDRANT_COLLECTION", "people")
+# nomic-embed-text emits 768-dim vectors; this is the fallback used
+# only when no live embedding length is available to size the
+# collection (e.g. the embedder is down and every embed returns []).
+PEOPLE_EMBED_DIM = int(os.getenv("PEOPLE_EMBED_DIM", "768"))
+
+
+def _load_people_from_oxigraph() -> list[dict]:
+    """SPARQL-query Oxigraph for every pwg:Person with a display name.
+
+    Returns one dict per person with the fields the Qdrant reader
+    contract needs. Identifiers (phone/email) are folded into ``phones``
+    and ``emails`` lists via a second grouped query so a person with
+    several numbers still produces one row.
+    """
+    people_rows = _sparql_query(
+        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "SELECT ?uri ?displayName ?contactType ?org ?jobTitle "
+        "?givenName ?familyName ?createdAt WHERE {\n"
+        "  ?uri a pwg:Person ;\n"
+        "       pwg:displayName ?displayName .\n"
+        "  OPTIONAL { ?uri pwg:contactType ?contactType }\n"
+        "  OPTIONAL { ?uri pwg:organization ?org }\n"
+        "  OPTIONAL { ?uri pwg:jobTitle ?jobTitle }\n"
+        "  OPTIONAL { ?uri pwg:givenName ?givenName }\n"
+        "  OPTIONAL { ?uri pwg:familyName ?familyName }\n"
+        # pwg:createdAt holds the REAL historical contact-creation date
+        # (e.g. a 2013/2018/2022 LinkedIn/Facebook connection date written
+        # by contact_syncer) -- distinct from the install-time stamp. The
+        # time-ordered wiki views (year pages, person timeline, "recent")
+        # key on observed_at/created_at, so without surfacing this here the
+        # FDA-sourced people are ABSENT from those views, not just stamped
+        # wrong. OPTIONAL: a person with no real date stays omitted from
+        # time views (consistent with the iCloud-contacts decision) -- we
+        # never fabricate now().
+        "  OPTIONAL { ?uri pwg:createdAt ?createdAt }\n"
+        "}"
+    )
+
+    # Second query: identifiers grouped per person.
+    id_rows = _sparql_query(
+        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "SELECT ?uri ?idType ?idValue WHERE {\n"
+        "  ?uri a pwg:Person ;\n"
+        "       pwg:hasIdentifier ?id .\n"
+        "  ?id pwg:identifierType ?idType ;\n"
+        "      pwg:identifierValue ?idValue .\n"
+        "}"
+    )
+    phones_by_uri: dict[str, list[str]] = {}
+    emails_by_uri: dict[str, list[str]] = {}
+    for row in id_rows:
+        uri = (row.get("uri", {}) or {}).get("value", "")
+        id_type = (row.get("idType", {}) or {}).get("value", "")
+        id_value = (row.get("idValue", {}) or {}).get("value", "")
+        if not uri or not id_value:
+            continue
+        if id_type == "phone":
+            phones_by_uri.setdefault(uri, [])
+            if id_value not in phones_by_uri[uri]:
+                phones_by_uri[uri].append(id_value)
+        elif id_type == "email":
+            emails_by_uri.setdefault(uri, [])
+            if id_value not in emails_by_uri[uri]:
+                emails_by_uri[uri].append(id_value)
+
+    # A person may produce more than one row when they carry several
+    # pwg:createdAt values (the contact_syncer "update if earlier" path can
+    # leave more than one historic date across re-runs). Keep the first row
+    # for the scalar fields, but track the EARLIEST createdAt across all
+    # rows for the URI so the time-ordered views anchor on the person's
+    # true first-seen date rather than whichever row SPARQL returned first.
+    people: list[dict] = []
+    seen_uris: set[str] = set()
+    index_by_uri: dict[str, int] = {}
+    for row in people_rows:
+        uri = (row.get("uri", {}) or {}).get("value", "")
+        display_name = (row.get("displayName", {}) or {}).get("value", "").strip()
+        if not uri or not display_name:
+            continue
+        created_at = (row.get("createdAt", {}) or {}).get("value", "").strip()
+        if uri in seen_uris:
+            # Already have this person; only fold in an earlier real date.
+            if created_at:
+                idx = index_by_uri[uri]
+                existing = people[idx]["created_at"]
+                if not existing or created_at < existing:
+                    people[idx]["created_at"] = created_at
+            continue
+        seen_uris.add(uri)
+        index_by_uri[uri] = len(people)
+        people.append({
+            "uri": uri,
+            "display_name": display_name,
+            "contact_type": (row.get("contactType", {}) or {}).get("value", "")
+            or "person",
+            "organization": (row.get("org", {}) or {}).get("value", ""),
+            "job_title": (row.get("jobTitle", {}) or {}).get("value", ""),
+            "given_name": (row.get("givenName", {}) or {}).get("value", ""),
+            "family_name": (row.get("familyName", {}) or {}).get("value", ""),
+            "phones": phones_by_uri.get(uri, []),
+            "emails": emails_by_uri.get(uri, []),
+            # Real historical first-seen date (may be ""). Surfaced to the
+            # Qdrant payload as observed_at/created_at so time-ordered views
+            # can place this person. Empty -> omitted from those views (no
+            # now() fabrication).
+            "created_at": created_at,
+        })
+    return people
+
+
+def _person_embed_doc(person: dict) -> str:
+    """Build the descriptive text embedded for semantic people-search.
+
+    Name carries the human-readable signal the matcher scans; org +
+    job title anchor it. Mirrors the browsing path's title+domain+url
+    doc construction.
+    """
+    parts = [
+        person.get("display_name", ""),
+        person.get("job_title", ""),
+        person.get("organization", ""),
+    ]
+    return " ".join(p for p in parts if p).strip()
+
+
+def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+    """Populate the Qdrant ``people`` collection from Oxigraph (#600).
+
+    Accepts (and ignores) ``fda_dir`` so it can run through the unified
+    ``_INGEST_DISPATCH`` loop, which calls every writer as ``func(fda_dir)``.
+    This sweep reads Oxigraph, not the FDA JSON, so the argument is unused.
+
+    On a fresh single-Mac install the per-source hydrate steps write
+    pwg:Person nodes into Oxigraph (the wiki People page reads those
+    directly), but nothing ever embeds them into Qdrant -- so the iOS
+    People tab, the Hub People card, and semantic people-search (which
+    all read the Qdrant ``people`` collection filtered on
+    contact_type == "person") render blank.
+
+    This function: (1) reads every pwg:Person with a display name from
+    Oxigraph, (2) self-creates the ``people`` collection if absent at
+    the embedder's vector size, (3) embeds each person's descriptive
+    text via local Ollama, (4) upserts one point per person (id derived
+    stably from the person URI so a re-install is idempotent) with a
+    payload matching the reader contract, (5) returns a counts-only
+    dict, (6) fails LOUD (status "error") if Oxigraph held Person nodes
+    but nothing landed in Qdrant.
+
+    Returns counts only (parity with the other ingesters; install.sh
+    reads ``sent``):
+      ``status``         : "ok" | "no_data" | "error"
+      ``sent``           : points upserted into Qdrant
+      ``points_created`` : alias of ``sent``
+      ``total``          : Person nodes considered (with a display name)
+    """
+    try:
+        people = _load_people_from_oxigraph()
+    except Exception as exc:
+        logger.warning(
+            "People: Oxigraph query failed: %s", type(exc).__name__,
+        )
+        return {"status": "error", "sent": 0, "points_created": 0, "total": 0}
+
+    if not people:
+        logger.info("No people in Oxigraph to index.")
+        return {"status": "no_data", "sent": 0, "points_created": 0, "total": 0}
+
+    docs = [_person_embed_doc(p) for p in people]
+    vectors = _ollama_embed_batch(docs)
+
+    # Size the collection from the first real embedding; fall back to
+    # the nomic-embed-text default only if nothing embedded.
+    vector_size = PEOPLE_EMBED_DIM
+    for vec in vectors:
+        if vec:
+            vector_size = len(vec)
+            break
+
+    try:
+        _qdrant_ensure_collection(PEOPLE_QDRANT_COLLECTION, vector_size)
+    except Exception as exc:
+        logger.warning(
+            "People: could not ensure Qdrant collection '%s': %s",
+            PEOPLE_QDRANT_COLLECTION, type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "total": len(people),
+        }
+
+    points: list[dict] = []
+    for person, vec in zip(people, vectors):
+        uri = person["uri"]
+        # Stable point id: same URI re-runs upsert in place rather than
+        # duplicating rows on re-install.
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, uri))
+        payload = {
+            "person_uri": uri,
+            "person_id": point_id,
+            "display_name": person["display_name"],
+            "contact_type": person["contact_type"] or "person",
+            "organization": person["organization"],
+            "job_title": person["job_title"],
+            "given_name": person["given_name"],
+            "family_name": person["family_name"],
+            "phones": person["phones"],
+            "emails": person["emails"],
+            # Person-level privacy tag. DEFAULT_PRIVACY is "L2" (the CM041
+            # documented default -- ical-server.py ~L1019 "Default person tag
+            # today is L2"). The reader (ical-server.py ~L1020) drops a person
+            # from People/search ONLY on an EXACT "L3" tag, so an L2 person is
+            # searchable; an unstamped person would predate the default and is
+            # still searchable, but stamping keeps the writer/reader explicit.
+            "privacy_level": DEFAULT_PRIVACY,
+            # Wiki slug the CM041 read paths RECOMPUTE from display_name. Stamp
+            # the same derivation so a consumer trusting the stored slug never
+            # diverges from one that recomputes it (iOS Identifiable id + URL).
+            "slug": _wiki_slug(person["display_name"]),
+            "source": "fda_people_index",
+            "last_contact": "",
+        }
+        # Surface the REAL pwg:createdAt date so the time-ordered wiki
+        # views (year pages, person timeline, "recent people") can place
+        # this person. The CM044 readers key on observed_at first, then
+        # fall back to created_at, so write BOTH from the same real date.
+        # Omit entirely when there is no real date: a no-real-date FDA
+        # person stays absent from time views rather than being stamped
+        # with a fabricated now() (consistent with the iCloud-contacts
+        # decision).
+        created_at = (person.get("created_at") or "").strip()
+        if created_at:
+            payload["observed_at"] = created_at
+            payload["created_at"] = created_at
+        points.append({
+            "id": point_id,
+            "vector": vec,
+            "payload": payload,
+        })
+
+    sent = 0
+    try:
+        sent = _qdrant_upsert_points(PEOPLE_QDRANT_COLLECTION, points)
+    except Exception as exc:
+        logger.warning(
+            "People: Qdrant upsert failed: %s", type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": sent,
+            "points_created": sent,
+            "total": len(people),
+        }
+
+    if sent == 0:
+        # We had Person nodes to index but none landed (embed failure
+        # for every row, or every chunk failed). Report error, not
+        # "ok" -- a silent ok-with-zero is the #600 bug.
+        logger.warning(
+            "People: %d Person nodes in Oxigraph but 0 landed in Qdrant '%s'.",
+            len(people), PEOPLE_QDRANT_COLLECTION,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "total": len(people),
+        }
+
+    logger.info(
+        "People: %d of %d Person nodes indexed into Qdrant '%s'.",
+        sent, len(people), PEOPLE_QDRANT_COLLECTION,
+    )
+    return {
+        "status": "ok",
+        "sent": sent,
+        "points_created": sent,
+        "total": len(people),
     }
 
 
 # ── Master runner ─────────────────────────────────────────────────
+
+# The install-path dispatch table: (result_key, function_name). ingest_all
+# loops this in order, resolving each name off the module at call time. Every
+# public ``ingest_*`` writer MUST appear here (or in ``_DISPATCH_EXEMPT``) or
+# the dispatch-completeness gate (tests/test_ingest_dispatch_complete.py)
+# fails -- the anti-recurrence guard for a "ships-dark" writer that is defined
+# but never wired, so its collection lands EMPTY on every fresh install (has
+# burned us three times: imessage-only people, browsing, the people-sweep).
+#
+# The people search-index sweep runs LAST so every per-source step above has
+# finished writing pwg:Person nodes into Oxigraph before we index them into
+# the Qdrant `people` collection. It reads Oxigraph, not the FDA JSON, so it
+# ignores the fda_dir the loop passes it.
+_INGEST_DISPATCH = (
+    ("imessage", "ingest_imessage"),
+    ("whatsapp", "ingest_whatsapp"),
+    ("calendar", "ingest_calendar"),
+    ("photos", "ingest_photos_people"),
+    ("apple_mail", "ingest_mail_contacts"),
+    ("browser_history", "ingest_browser_history"),
+    ("bookmarks", "ingest_bookmarks"),
+    ("social", "ingest_social"),
+    ("people_index", "ingest_people_to_qdrant"),
+)
+
+# Public ``ingest_*`` functions that are deliberately NOT dispatch entries.
+# The dispatch-completeness gate requires every other public ``ingest_*``
+# module function to appear in ``_INGEST_DISPATCH``; anything genuinely not a
+# dispatched writer must be listed here with a one-line reason so the omission
+# is explicit, never silent.
+_DISPATCH_EXEMPT = frozenset({
+    # ingest_all IS the dispatcher/runner -- it loops _INGEST_DISPATCH; it is
+    # not itself a writer the loop should call.
+    "ingest_all",
+})
+
 
 def ingest_all(fda_dir: Optional[Path] = None) -> dict:
     """Run all FDA -> PWG ingestion steps.
@@ -856,14 +2633,11 @@ def ingest_all(fda_dir: Optional[Path] = None) -> dict:
     logger.info("Ingesting FDA data into PWG knowledge graph...")
     logger.info("")
 
-    for name, func in [
-        ("imessage", ingest_imessage),
-        ("whatsapp", ingest_whatsapp),
-        ("calendar", ingest_calendar),
-        ("photos", ingest_photos_people),
-        ("apple_mail", ingest_mail_contacts),
-        ("browser_history", ingest_browser_history),
-    ]:
+    this_module = sys.modules[__name__]
+    for name, func_name in _INGEST_DISPATCH:
+        # Resolve by name at call time so mock.patch on the module attr is
+        # honoured (and so the dispatch can't drift from the real function).
+        func = getattr(this_module, func_name)
         try:
             results[name] = func(fda_dir)
         except Exception as e:

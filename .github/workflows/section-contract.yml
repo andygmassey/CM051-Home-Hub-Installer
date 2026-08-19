@@ -1,0 +1,48 @@
+# v1018-D014b. 29 of 129 conversation summaries rendered `### Participants`
+# and `### Thread` with no `### Narrative` -- the prose the section exists
+# for was simply absent, and the surrounding metadata read as raw prompt
+# scaffolding. The chunk-merge pass loads a template that declares no
+# sub-headings, and the expected-heading check was `##`-only, so nothing
+# asked for the section and nothing noticed it was gone.
+name: section-contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm048_pipeline/src/processor.py'
+      - 'vendor/cm048_pipeline/src/enrichment_validation.py'
+      - 'tests/helpers/check_section_contract.py'
+      - 'tests/test_section_contract.sh'
+      - '.github/workflows/section-contract.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm048_pipeline/src/processor.py'
+      - 'vendor/cm048_pipeline/src/enrichment_validation.py'
+      - 'tests/helpers/check_section_contract.py'
+      - 'tests/test_section_contract.sh'
+      - '.github/workflows/section-contract.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  section-contract:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Proven on the range the fleet spans, per the v1018-D032 lesson:
+        # a harness that only works on the author's interpreter is not a gate.
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: A merged document keeps every section it declared
+        run: bash tests/test_section_contract.sh

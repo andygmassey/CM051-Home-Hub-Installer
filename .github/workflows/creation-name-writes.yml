@@ -1,0 +1,46 @@
+# v1018-D011. The name rule lives in `_display_name_tier` and is enforced by
+# `_upsert_display_name`, which every ingest source calls -- but that was
+# never the only writer. Each source also emitted a `pwg:displayName` inside
+# its own `if not _person_exists(uri)` creation INSERT, and that write went
+# nowhere near the tier. On a fresh install the creation branch is the branch
+# every customer takes, so a kinship label was written and then declined, and
+# a handle from calendar/photos/mail was written with no provisional flag --
+# permanently un-renameable, 30 of 33 email-named people on the founder box.
+name: creation-name-writes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/helpers/check_creation_name_writes.py'
+      - 'tests/test_creation_name_writes.sh'
+      - '.github/workflows/creation-name-writes.yml'
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/helpers/check_creation_name_writes.py'
+      - 'tests/test_creation_name_writes.sh'
+      - '.github/workflows/creation-name-writes.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  creation-name-writes:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: A creation write cannot outrank the name rule
+        run: bash tests/test_creation_name_writes.sh

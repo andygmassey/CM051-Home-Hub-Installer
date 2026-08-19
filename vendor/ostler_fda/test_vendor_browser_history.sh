@@ -51,19 +51,49 @@ if ! grep -q "with _copy_history_db" "$SCRIPT_DIR/chrome_history.py"; then
 fi
 echo "lock-workaround check: extract_history uses _copy_history_db context manager"
 
-# pwg_ingest must register ingest_browser_history + the gateway endpoint.
+# pwg_ingest must register ingest_browser_history in the dispatcher.
+# (Direct Ollama -> Qdrant writer since HR015 PR #138: no gateway.)
 if ! grep -qE "def ingest_browser_history" "$SCRIPT_DIR/pwg_ingest.py"; then
     echo "FAIL: pwg_ingest.py missing ingest_browser_history()" >&2
     exit 1
 fi
-if ! grep -q '"browser_history", ingest_browser_history' "$SCRIPT_DIR/pwg_ingest.py"; then
+if ! grep -q '"browser_history", "ingest_browser_history"' "$SCRIPT_DIR/pwg_ingest.py"; then
     echo "FAIL: pwg_ingest.ingest_all dispatcher missing browser_history entry" >&2
+    echo "      Expected tuple form (key, name-as-string): ('browser_history', 'ingest_browser_history')" >&2
+    echo "      _INGEST_DISPATCH holds names as strings for late-binding." >&2
     exit 1
 fi
 echo "pwg_ingest check: ingest_browser_history defined + registered in dispatcher"
 
-# Privacy AC: return dict must contain counts only -- key set is pinned.
-for key in '"status":' '"sent":' '"skipped_sensitive":' '"errored":' '"safari_entries":' '"chrome_entries":'; do
+# Direct-Qdrant writer must self-create its collection. On a fresh
+# single-Mac install nothing else creates safari_history, and an upsert
+# into a missing collection 404s into zero rows -- a blank Browsing page
+# that looks "installed". Guards against re-vendoring a writer that
+# dropped the ensure (the exact disease browsing-at-v1.0 fixed).
+if ! grep -qE "def _qdrant_ensure_collection" "$SCRIPT_DIR/pwg_ingest.py"; then
+    echo "FAIL: pwg_ingest.py missing _qdrant_ensure_collection (direct writer must self-create its collection)" >&2
+    exit 1
+fi
+if ! grep -q "_qdrant_ensure_collection(BROWSING_QDRANT_COLLECTION" "$SCRIPT_DIR/pwg_ingest.py"; then
+    echo "FAIL: ingest_browser_history must call _qdrant_ensure_collection before upsert" >&2
+    exit 1
+fi
+echo "self-create check: ingest_browser_history ensures safari_history before upsert"
+
+# Direct-path writer must NOT carry the retired gateway POST machinery.
+# (The direct writer's explanatory comment mentions /api/safari/ingest
+# to say it does NOT use it, so we sentinel on the gateway config
+# constant that only the old POST writer defined.)
+if grep -qE "_GATEWAY_ENDPOINT_DEFAULT|OSTLER_GATEWAY_URL" "$SCRIPT_DIR/pwg_ingest.py"; then
+    echo "FAIL: pwg_ingest.py still carries the retired gateway POST machinery (stale vendor pre-PR #138)" >&2
+    exit 1
+fi
+echo "no-gateway check: pwg_ingest.py carries no gateway POST machinery"
+
+# Privacy AC: return dict must contain counts only -- key set is pinned
+# to the direct contract (status + sent + points_created + skipped +
+# total; the gateway-era errored/safari_entries/chrome_entries are gone).
+for key in '"status":' '"sent":' '"points_created":' '"skipped_sensitive":' '"total":'; do
     if ! grep -q -- "$key" "$SCRIPT_DIR/pwg_ingest.py"; then
         echo "FAIL: pwg_ingest.py missing return-dict key in ingest_browser_history: $key" >&2
         exit 1
@@ -72,8 +102,18 @@ done
 echo "privacy contract check: ingest_browser_history returns counts-only dict"
 
 # extract_all must wire chrome_history (opt-in, default OFF).
-if ! grep -qE 'ALL_SOURCES.*chrome_history' "$SCRIPT_DIR/extract_all.py"; then
+# ALL_SOURCES is a multi-line set literal, so grep-E on a single line
+# does not match. Use a small Python check that reads the block from
+# ALL_SOURCES to its closing brace and verifies chrome_history is inside.
+if ! python3 - "$SCRIPT_DIR/extract_all.py" <<'PY'
+import re, sys
+content = open(sys.argv[1]).read()
+match = re.search(r'ALL_SOURCES\s*=[^}]*chrome_history', content, re.DOTALL)
+sys.exit(0 if match else 1)
+PY
+then
     echo "FAIL: extract_all.ALL_SOURCES missing chrome_history" >&2
+    echo "      Expected the set literal opened by ALL_SOURCES= to contain 'chrome_history'." >&2
     exit 1
 fi
 if ! grep -q 'if "chrome_history" in sources:' "$SCRIPT_DIR/extract_all.py"; then

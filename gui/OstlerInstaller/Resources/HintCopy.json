@@ -12,7 +12,7 @@
   "setup_questions": {
     "id": "setup_questions",
     "title": "A few questions",
-    "subtitle": "Two minutes, then you can walk away",
+    "subtitle": "About two minutes; setup keeps going on its own afterwards",
     "why": "Your name, your country, your timezone, your assistant's name. These shape everything Ostler does later, but you only answer them once.",
     "duration_estimate_s": 120,
     "long_running_threshold_s": 300,
@@ -21,9 +21,9 @@
   },
   "setup_complete_wrap_up": {
     "id": "setup_complete_wrap_up",
-    "title": "All set. You can walk away now.",
-    "subtitle": "The installer will run on its own",
-    "why": "Your answers are saved. Phase 3 takes 10 to 15 minutes and runs unattended – Docker, Ollama, the knowledge graph, the assistant binary. You can come back when it's done. Nothing else needs your input.",
+    "title": "Questions done. Setup continues in the background.",
+    "subtitle": "Roughly 45 minutes to a few hours; it runs on its own",
+    "why": "Your answers are saved. The install now runs unattended for roughly 45 minutes to a few hours, depending on how much history is on your Mac and how fast your connection is: Docker, Ollama, the knowledge graph, the assistant binary. Long quiet stretches are normal while things download and set up. You can leave it running and check back later. Nothing else needs your input.",
     "duration_estimate_s": 5,
     "long_running_threshold_s": 30,
     "illustration": null,
@@ -72,9 +72,9 @@
   },
   "encrypt_db": {
     "id": "encrypt_db",
-    "title": "Encrypting your databases",
+    "title": "Securing your databases",
     "subtitle": "Passphrase + SQLCipher",
-    "why": "Your knowledge graph is encrypted at rest with a passphrase you choose during setup. A recovery key is also generated and saved to your macOS Keychain. You'll type the passphrase each time you start the Hub UI.",
+    "why": "A passphrase you choose encrypts Ostler's sensitive databases with SQLCipher, and a recovery key is generated and stored securely on this Mac in case you forget it. You'll type the passphrase each time you start the Hub UI. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on.",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
     "illustration": null,
@@ -167,7 +167,7 @@
   "knowledge_setup": {
     "id": "knowledge_setup",
     "title": "Setting up the Knowledge service",
-    "subtitle": "Evernote ingest (CM024)",
+    "subtitle": "Evernote import",
     "why": "Installs the ostler-knowledge CLI under ~/.ostler/services/knowledge/. Lets you import an Evernote export into your local graph later from the Doctor dashboard. Your notes and images stay on your Mac.",
     "duration_estimate_s": 30,
     "long_running_threshold_s": 120,
@@ -193,6 +193,46 @@
     "long_running_threshold_s": 60,
     "illustration": null,
     "needs_fda": false
+  },
+  "whatsapp_bundle": {
+    "id": "whatsapp_bundle",
+    "title": "WhatsApp conversations",
+    "subtitle": "Conversation memory",
+    "why": "Every fifteen minutes, Ostler reads recent WhatsApp conversations your Mac has synced (about the last year) and turns each into a short summary, any to-dos, a clean transcript, and metadata. Everything stays on your Mac; nothing is sent to us.",
+    "duration_estimate_s": 10,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": true
+  },
+  "email_bundle": {
+    "id": "email_bundle",
+    "title": "Email conversations",
+    "subtitle": "Conversation memory",
+    "why": "Ostler turns your recent email threads (from Apple Mail's local store) into short summaries, to-dos, clean transcripts and metadata, so you can search and reference them. Everything stays on your Mac; nothing is sent to us.",
+    "duration_estimate_s": 10,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": true
+  },
+  "spoken_bundle": {
+    "id": "spoken_bundle",
+    "title": "Meeting and voice conversations",
+    "subtitle": "Conversation memory",
+    "why": "Ostler turns your own recorded meetings and voice notes into short summaries, to-dos, clean transcripts and metadata. These are your own recordings, consented when you captured them. Everything stays on your Mac.",
+    "duration_estimate_s": 10,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "imessage_bundle": {
+    "id": "imessage_bundle",
+    "title": "iMessage conversations",
+    "subtitle": "Conversation memory",
+    "why": "Ostler turns your recent iMessage conversations (from this Mac's Messages store) into short summaries, to-dos, clean transcripts and metadata, so you can search and reference them. Everything stays on your Mac; nothing is sent to us.",
+    "duration_estimate_s": 10,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": true
   },
   "wiki_recompile_agent": {
     "id": "wiki_recompile_agent",
@@ -232,6 +272,182 @@
     "why": "Quick sanity pass – every container running, every LaunchAgent loaded, the wiki responding. If anything is off, the report tells you exactly what.",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "initial_hydrate": {
+    "id": "initial_hydrate",
+    "title": "Loading your data into Ostler",
+    "subtitle": "The first pass over everything you just connected",
+    "why": "Ostler now walks everything you gave it access to and turns it into your knowledge graph: who you know, what you have talked about, where you have been. This is the longest single stretch of the install and it runs entirely on this Mac. Nothing is uploaded.",
+    "duration_estimate_s": 900,
+    "long_running_threshold_s": 300,
+    "long_running_copy": "This scales with your history. A Mac with years of mail and messages can sit here for a long while. It is working, not stuck.",
+    "illustration": null,
+    "needs_fda": true
+  },
+  "hydrate_graph": {
+    "id": "hydrate_graph",
+    "title": "Hydrating your graph from iCloud",
+    "subtitle": "Contacts, calendars and reminders",
+    "why": "Your iCloud contacts, calendars and reminders are read straight off this Mac and folded into the graph, so the assistant knows who your people are before you ask it anything. This is a local read. Nothing is fetched from Apple and nothing is sent to us.",
+    "duration_estimate_s": 556,
+    "long_running_threshold_s": 180,
+    "long_running_copy": "Large address books and long calendar histories take a few minutes.",
+    "illustration": null,
+    "needs_fda": true
+  },
+  "hydrate_imessage": {
+    "id": "hydrate_imessage",
+    "title": "Hydrating iMessage contacts",
+    "subtitle": "Who you actually talk to",
+    "why": "Ostler reads your local Messages database to work out who you speak to and how often, which is what lets it tell an old colleague from your sister. The conversations stay on this Mac.",
+    "duration_estimate_s": 304,
+    "long_running_threshold_s": 120,
+    "long_running_copy": "Years of message history take a few minutes to walk.",
+    "illustration": null,
+    "needs_fda": true
+  },
+  "hydrate_browsing": {
+    "id": "hydrate_browsing",
+    "title": "Hydrating your browsing history",
+    "subtitle": "Interests, from your own browser",
+    "why": "Safari and Chrome history is read locally to learn what you are interested in, so recommendations are about you rather than about averages. If you would rather it did not, you can turn browsing capture off later in Preferences.",
+    "duration_estimate_s": 120,
+    "long_running_threshold_s": 90,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": true
+  },
+  "hydrate_email_preferences": {
+    "id": "hydrate_email_preferences",
+    "title": "Loading your email preferences",
+    "subtitle": "How you use your inbox",
+    "why": "Ostler looks at how you handle mail: who you reply to quickly, what you archive unread, which senders matter. That is what later lets it triage for you instead of just listing things.",
+    "duration_estimate_s": 120,
+    "long_running_threshold_s": 90,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": true
+  },
+  "hydrate_apple_notes": {
+    "id": "hydrate_apple_notes",
+    "title": "Reading your Apple Notes",
+    "subtitle": "Your own written notes",
+    "why": "Apple Notes often holds the things nothing else does: lists, drafts, half-finished thoughts. Ostler reads them locally so they are searchable alongside everything else.",
+    "duration_estimate_s": 90,
+    "long_running_threshold_s": 60,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": true
+  },
+  "hydrate_people": {
+    "id": "hydrate_people",
+    "title": "Indexing your people for search",
+    "subtitle": "Making everyone findable",
+    "why": "Every person Ostler has found is indexed so you can search by name, by company, or by how you know them. This is the step that makes the People tab useful rather than a list.",
+    "duration_estimate_s": 180,
+    "long_running_threshold_s": 120,
+    "long_running_copy": "Indexing scales with how many people were found.",
+    "illustration": null,
+    "needs_fda": true
+  },
+  "cm048_setup": {
+    "id": "cm048_setup",
+    "title": "Setting up conversation memory",
+    "subtitle": "So it remembers what you said",
+    "why": "This is the piece that lets the assistant carry context between conversations rather than starting cold every time. It runs locally against your own model.",
+    "duration_estimate_s": 90,
+    "long_running_threshold_s": 60,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "cm019_setup": {
+    "id": "cm019_setup",
+    "title": "Setting up preference enrichment",
+    "subtitle": "Turning history into preferences",
+    "why": "Preference enrichment is what turns raw history into something useful: not just that you went somewhere, but that you liked it. It runs in the background after the install and keeps improving.",
+    "duration_estimate_s": 90,
+    "long_running_threshold_s": 60,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "ical_server_setup": {
+    "id": "ical_server_setup",
+    "title": "Setting up your calendar and contacts service",
+    "subtitle": "The local service the assistant asks",
+    "why": "A small service runs on this Mac and answers questions about your calendar, contacts and email on the assistant's behalf. It listens on this machine only.",
+    "duration_estimate_s": 60,
+    "long_running_threshold_s": 45,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "imessage_bridge": {
+    "id": "imessage_bridge",
+    "title": "Tidying up an old messaging helper",
+    "subtitle": "Housekeeping from an earlier design",
+    "why": "Ostler used to need a separate helper to read Messages across two machines. It runs on one Mac now, so this step switches that helper off. Nothing you set up is lost.",
+    "duration_estimate_s": 20,
+    "long_running_threshold_s": 30,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "wiki_recompile_catchup_agent": {
+    "id": "wiki_recompile_catchup_agent",
+    "title": "Scheduling your first-day catch-up",
+    "subtitle": "Your wiki keeps building after this finishes",
+    "why": "Your personal wiki is not finished when the installer is. This schedules a catch-up pass that keeps compiling pages over your first day, so the wiki fills out while you get on with things.",
+    "duration_estimate_s": 30,
+    "long_running_threshold_s": 30,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "editor_frontpage": {
+    "id": "editor_frontpage",
+    "title": "Setting up your Front Page",
+    "subtitle": "Refreshed every hour",
+    "why": "The Front Page is what Ostler thinks you should see right now: what is coming up, who you owe a reply, what changed. It rebuilds itself every hour from your own graph.",
+    "duration_estimate_s": 60,
+    "long_running_threshold_s": 45,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "ostler_remotecapture": {
+    "id": "ostler_remotecapture",
+    "title": "Setting up call and meeting transcripts",
+    "subtitle": "Recording is always your choice",
+    "why": "This installs the app that can record and transcribe your calls and meetings on this Mac. It records nothing until you explicitly start it, and transcription happens locally.",
+    "duration_estimate_s": 120,
+    "long_running_threshold_s": 90,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "ostler_hub_app": {
+    "id": "ostler_hub_app",
+    "title": "Setting up the Ostler app",
+    "subtitle": "The window you will actually use",
+    "why": "This is the desktop app: your wiki, your people, your timeline and the chat. It lives in the menu bar and opens on this Mac.",
+    "duration_estimate_s": 120,
+    "long_running_threshold_s": 90,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "tailscale_connect": {
+    "id": "tailscale_connect",
+    "title": "Connect your iPhone and Watch",
+    "subtitle": "One QR code, on your phone",
+    "why": "Scan the code with the Ostler iOS app to link your phone to this Mac. The connection is private between your own devices. You can skip this and pair later from the app.",
+    "duration_estimate_s": 120,
+    "long_running_threshold_s": 300,
+    "long_running_copy": "This step waits for you. Nothing is timing out.",
     "illustration": null,
     "needs_fda": false
   }

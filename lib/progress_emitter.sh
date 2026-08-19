@@ -19,7 +19,12 @@
 #   WARN        step=<id>       msg=<line>
 #   PROMPT      id=<id>  kind=text|secret|yesno|choice  title=<...>
 #               default=<...>  choices=<comma-separated>  help=<...>
-#   STEP_END    id=<id>  status=ok|warn|fail  elapsed_s=<n>
+#   STEP_END    id=<id>  status=ok|warn|timeout|error|fail  elapsed_s=<n>
+#               [rc=<n>]
+#               `rc=` is present whenever status is not ok, and carries
+#               the exit code of the child that produced the status.
+#               See "Step status accounting" below for why the status
+#               is accumulated rather than passed by the call site.
 #   PHASE       id=<n>   title=<...>
 #   NEEDS_FDA   probe=<path>  reason=<...>
 #   NEEDS_SUDO  reason=<...>
@@ -30,7 +35,11 @@
 #               from ~/.ostler/state/pipeline_signals.json directly,
 #               so this marker is informational only; installs
 #               without GUI handling silently ignore it.
-#   DONE        status=ok|fail
+#   DONE        status=ok|fail  failed_steps=<n>
+#               `failed_steps` is ALWAYS present and counts the steps
+#               that ended with a status other than ok. It is printed
+#               even when it is zero, so a reader can tell "no step
+#               failed" apart from "this build does not report it".
 #
 # Usage in install.sh:
 #
@@ -81,11 +90,25 @@ gui_emit() {
         printf '\n#OSTLER\t%s' "$event"
         local kv
         for kv in "$@"; do
-            # Strip tabs and CR/LF from values, replace with single space.
-            # The GUI parser will reject malformed lines, so be tolerant.
+            # ── Value encoding (BW2-2, 2026-07-25) ──
+            # The marker line is tab-separated and newline-anchored, so a
+            # value MUST NOT contain a literal TAB, CR or LF -- those are
+            # structural delimiters. Historically we stripped newlines to a
+            # single space, which flattened every multi-paragraph question
+            # body (help=) into one dense wall of text on the GUI: the
+            # strings already carry "\n\n" paragraph breaks and "•" bullets,
+            # but they never survived the wire.
+            #
+            # Fix: percent-encode newlines instead of destroying them, so
+            # the GUI can restore paragraph/bullet structure. Encode "%"
+            # first (so the scheme is reversible), then "\n" -> "%0A". TAB
+            # and CR stay stripped -- they are never meaningful in copy and
+            # TAB is the field delimiter. ProgressDecoder decodes the
+            # reverse (%0A -> newline, %25 -> %) at the single parse site.
+            kv="${kv//'%'/%25}"
             kv="${kv//$'\t'/ }"
-            kv="${kv//$'\n'/ }"
             kv="${kv//$'\r'/ }"
+            kv="${kv//$'\n'/%0A}"
             printf '\t%s' "$kv"
         done
         printf '\n'
@@ -99,11 +122,111 @@ gui_emit() {
 __OSTLER_STEP_ID=""
 __OSTLER_STEP_START=0
 
+# ── Step status accounting (#839, 2026-08-18) ──────────────────────
+#
+# THE DEFECT THIS REPLACES
+#
+# gui_step_end used to take the status as an argument and default it to
+# "ok". Every call site in install.sh passed the literal `ok`:
+#
+#     progress()          install.sh:7811   gui_step_end ok
+#     health_check        install.sh:20732  gui_step_end ok
+#     completion markers  install.sh:21988  gui_step_end ok
+#
+# The status field was therefore a constant, not a measurement. No child
+# exit code could reach it by any route, because no route existed. The
+# install.sh comment at line ~20607 states the consequence outright:
+# "install.sh has no path that ends a step in failure (every
+# gui_step_end call site passes `ok`)".
+#
+# Measured on a v1.0.36 install, 2026-08-18: 40 STEP_END lines, 40 of
+# them status=ok, while two of those same steps were killed by their
+# 90 s timeout cap and moved no data. Their own completion markers under
+# ~/.ostler/state/hydrate/ recorded status=error rc=124 payload=sent=0.
+# The marker files were right; the log line was a constant. A reviewer
+# grepping the log for ERR- codes found none, because a timeout emits
+# none, and reported the install clean.
+#
+# THE SHAPE OF THE FIX
+#
+# The status is now ACCUMULATED for the open step and read at close
+# time, so it comes from the same rc the marker files already write.
+# gui_step_record_rc is the single entry point, and
+# _hydrate_sentinel_record_error calls it, so the log line and the
+# marker file are produced from one value on one surface. They can no
+# longer disagree.
+#
+# THREE STATES, NEVER TWO
+#
+#   ok       the step's children all exited 0
+#   timeout  a child was killed by its cap (rc 124 SIGTERM / 137 SIGKILL).
+#            "We gave up waiting", NOT "it failed". Best-effort hydrate
+#            steps legitimately end this way and the customer-facing copy
+#            ("Still indexing your people in the background") stays
+#            exactly as it is. Only the machine-readable record changes.
+#   error    a child exited non-zero for any other reason.
+#
+# error outranks timeout outranks ok, so a step that both timed out and
+# errored reports the error.
+__OSTLER_STEP_STATUS="ok"
+__OSTLER_STEP_RC=0
+
+# Count of steps closed with a status other than ok. Read by gui_done so
+# the single terminal line carries the truth about the whole run.
+__OSTLER_FAILED_STEPS=0
+
+# gui_step_record_rc <rc>
+#
+# Fold a child's exit code into the open step's status. rc 0 is a no-op,
+# so this is safe to call unconditionally after any child.
+#
+# NOTE ON PIPELINES: a pipeline's exit code belongs to its LAST command,
+# so `foo | tail -n 1` yields tail's rc, not foo's. Callers must capture
+# the rc they mean (`rc=$?` straight after the command substitution, or
+# ${PIPESTATUS[0]}) and pass THAT here. Passing a pipeline's own rc
+# records a success that was never measured.
+gui_step_record_rc() {
+    local rc="${1:-0}"
+    # Non-numeric rc is a caller bug; treat it as an error rather than
+    # silently discarding it, which is the failure mode being fixed.
+    if ! [[ "$rc" =~ ^[0-9]+$ ]]; then
+        __OSTLER_STEP_STATUS="error"
+        __OSTLER_STEP_RC=1
+        return 0
+    fi
+    [[ "$rc" -eq 0 ]] && return 0
+
+    if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
+        # timeout must not overwrite an already-recorded error.
+        if [[ "$__OSTLER_STEP_STATUS" == "ok" ]]; then
+            __OSTLER_STEP_STATUS="timeout"
+            __OSTLER_STEP_RC="$rc"
+        fi
+    else
+        __OSTLER_STEP_STATUS="error"
+        __OSTLER_STEP_RC="$rc"
+    fi
+    return 0
+}
+
+# gui_step_status
+#
+# Print the status the open step would close with right now. Lets
+# install.sh branch on the accumulated state without reaching into the
+# private variables.
+gui_step_status() {
+    printf '%s' "${__OSTLER_STEP_STATUS:-ok}"
+}
+
 gui_step_begin() {
     # gui_step_begin <id> <title> [phase] [idx] [total]
     local id="$1" title="$2" phase="${3:-}" idx="${4:-}" total="${5:-}"
     __OSTLER_STEP_ID="$id"
     __OSTLER_STEP_START=$(date +%s)
+    # A new step starts clean. Without this reset one failed step would
+    # stain every step after it, which is the mirror image of the defect.
+    __OSTLER_STEP_STATUS="ok"
+    __OSTLER_STEP_RC=0
     local args=("id=$id" "title=$title")
     [[ -n "$phase" ]] && args+=("phase=$phase")
     [[ -n "$idx" ]]   && args+=("idx=$idx")
@@ -112,16 +235,40 @@ gui_step_begin() {
 }
 
 gui_step_end() {
-    # gui_step_end [status]   defaults to ok
-    local status="${1:-ok}"
+    # gui_step_end [status]
+    #
+    # With no argument the accumulated status is used. An argument can
+    # only ESCALATE: a caller may force a warn/fail, but a literal `ok`
+    # can never overwrite a recorded timeout or error. That asymmetry is
+    # deliberate. The whole defect was a call site asserting `ok` over a
+    # measurement, and a fix that a future call site can undo by passing
+    # `ok` again is not a fix.
+    local requested="${1:-}"
+    local status="${__OSTLER_STEP_STATUS:-ok}"
+    if [[ -n "$requested" && "$requested" != "ok" ]]; then
+        status="$requested"
+    fi
+
     local id="${__OSTLER_STEP_ID:-unknown}"
     local elapsed=0
     if [[ "$__OSTLER_STEP_START" -gt 0 ]]; then
         elapsed=$(( $(date +%s) - __OSTLER_STEP_START ))
     fi
-    gui_emit STEP_END "id=$id" "status=$status" "elapsed_s=$elapsed"
+
+    if [[ "$status" == "ok" ]]; then
+        gui_emit STEP_END "id=$id" "status=$status" "elapsed_s=$elapsed"
+    else
+        # Count it even when OSTLER_GUI is unset: the counter is
+        # bookkeeping, gui_emit is the wire, and only the wire is gated.
+        __OSTLER_FAILED_STEPS=$(( __OSTLER_FAILED_STEPS + 1 ))
+        gui_emit STEP_END "id=$id" "status=$status" "elapsed_s=$elapsed" \
+                          "rc=${__OSTLER_STEP_RC:-1}"
+    fi
+
     __OSTLER_STEP_ID=""
     __OSTLER_STEP_START=0
+    __OSTLER_STEP_STATUS="ok"
+    __OSTLER_STEP_RC=0
 }
 
 # ── Interactive prompt redirection ────────────────────────────────
@@ -281,12 +428,48 @@ gui_done() {
     # surface it on the failure banner + the auto-copied log header.
     # Empty code (legacy bare `fail "..."`) emits no code= keyword
     # which the parser tolerates -- matches the pre-CX-17 wire shape.
+    #
+    # #839 (2026-08-18): the DONE line now also carries failed_steps.
+    # A reviewer greps ONE line and learns whether any step ended other
+    # than ok. Before this, `#OSTLER DONE status=ok` was emitted over an
+    # install in which two steps were killed by their timeout cap and
+    # ingested nothing, and there was no line anywhere in the log that
+    # said so.
+    #
+    # status and failed_steps answer DIFFERENT questions and both are
+    # needed. status=ok means the install reached the end. failed_steps
+    # counts the steps inside it that did not do their job. A best-effort
+    # hydrate step that times out is exactly the case where those two
+    # answers differ, and collapsing them is what hid this for 36 cuts.
+    #
+    # ALWAYS emitted, including the zero. An absent field cannot be told
+    # apart from a build too old to report one, so the clean install
+    # prints failed_steps=0 and thereby proves the counter ran.
     local status="${1:-ok}"
+    # CX-454: record that a terminal DONE marker has gone out, so the
+    # install.sh ERR trap + EXIT backstop never double-report or
+    # overwrite this with a synthetic mid-script-death failure.
+    OSTLER_DONE_EMITTED=1
     if [[ -n "${OSTLER_LAST_ERROR_CODE:-}" ]]; then
-        gui_emit DONE "status=$status" "code=${OSTLER_LAST_ERROR_CODE}"
+        gui_emit DONE "status=$status" "code=${OSTLER_LAST_ERROR_CODE}" \
+                      "failed_steps=${__OSTLER_FAILED_STEPS:-0}"
     else
-        gui_emit DONE "status=$status"
+        gui_emit DONE "status=$status" \
+                      "failed_steps=${__OSTLER_FAILED_STEPS:-0}"
     fi
+}
+
+gui_cancelled() {
+    # CX-126: emit a DONE marker with status=cancelled on the deliberate
+    # user-cancel / consent-decline exit paths. The GUI routes this to a
+    # calm neutral "Installation cancelled" terminal -- NOT the red
+    # failure banner (which is what the no-DONE crash fallback now
+    # renders). Without this, those clean `exit 0` paths reach the GUI
+    # with no DONE marker and get mislabelled as a crash.
+    # CX-454: a cancel is a terminal marker too -- record it so the EXIT
+    # backstop does not relabel a deliberate cancel as a failure.
+    OSTLER_DONE_EMITTED=1
+    gui_emit DONE "status=cancelled"
 }
 
 # Surface a sudo-required pause to the GUI. install.sh's existing

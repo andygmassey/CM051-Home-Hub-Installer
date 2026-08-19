@@ -119,25 +119,41 @@ if ! grep -q $'#OSTLER\tPROMPT\t' <<<"$got_stderr"; then
 fi
 echo "PASS: gui_read reads from OSTLER_GUI_FD; marker on stderr, answer on stdout"
 
-# ── Test 6: gui_emit strips tab/newline from values ─────────────
+# ── Test 6: gui_emit encodes newlines, strips structural tab/CR ──
+# BW2-2 (2026-07-25): newlines are percent-encoded (%0A) instead of
+# destroyed, so multi-paragraph question bodies survive the wire and
+# the GUI can restore paragraphs/bullets. TAB and CR are structural
+# (TAB is the delimiter) and stay stripped. A literal "%" is encoded
+# to "%25" so the scheme is reversible. ProgressDecoder does the
+# inverse at parse time (see ProgressDecoderTests.swift).
 out="$(OSTLER_GUI=1 bash -c "source '$LIB'; gui_emit LOG 'level=info' 'msg=line1
-line2	with	tabs'" 2>&1 >/dev/null)"
-# Should not contain literal newline or tab in the msg= field (tabs
-# would break the marker shape; newlines would split the line).
-# Re-extract everything after the LOG marker:
+line2	with	tabs 100%'" 2>&1 >/dev/null)"
+# The marker line itself must never carry a literal newline or tab in
+# a value (those are structural delimiters that would split the line).
 msg_field="$(grep '^#OSTLER' <<<"$out" | head -1)"
 if [[ "$msg_field" == *$'\n'* ]]; then
-    echo "FAIL [strip]: marker contains a newline" >&2
+    echo "FAIL [encode]: marker value contains a literal newline" >&2
     exit 1
 fi
-# Tabs split fields – count them. STEP_BEGIN with k=v args = 2 + nargs tabs.
+# Tabs split fields – count them.
 # Here: "#OSTLER<TAB>LOG<TAB>level=info<TAB>msg=..."
 nfields="$(awk -F'\t' '{print NF}' <<<"$msg_field")"
 if [[ "$nfields" != "4" ]]; then
-    echo "FAIL [strip]: expected 4 tab-separated fields, got $nfields ($msg_field)" >&2
+    echo "FAIL [encode]: expected 4 tab-separated fields, got $nfields ($msg_field)" >&2
     exit 1
 fi
-echo "PASS: gui_emit strips tab/newline from values"
+# The newline must be PRESERVED as the %0A sentinel (not lost), and the
+# literal percent encoded as %25 — this is what lets the GUI rebuild
+# paragraph structure instead of showing a wall of text.
+if [[ "$msg_field" != *"%0A"* ]]; then
+    echo "FAIL [encode]: newline was not preserved as %0A sentinel" >&2
+    exit 1
+fi
+if [[ "$msg_field" != *"100%25"* ]]; then
+    echo "FAIL [encode]: literal percent was not encoded as %25" >&2
+    exit 1
+fi
+echo "PASS: gui_emit encodes newline->%0A + %->%25, strips structural tab/CR"
 
 # ── Test 7: install.sh sources lib/progress_emitter.sh ──────────
 if ! grep -q 'lib/progress_emitter.sh' "${REPO_ROOT}/install.sh"; then

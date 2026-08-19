@@ -9,6 +9,7 @@
 //
 // Events:
 //   STEP_BEGIN  id title phase idx total
+//   STEP        name [k=v ...]     bare step announcement, no _BEGIN/_END framing
 //   PCT         step pct
 //   LOG         level msg
 //   WARN        step msg
@@ -26,6 +27,22 @@ import Foundation
 /// line in the log drawer.
 enum InstallerEvent: Equatable {
     case stepBegin(id: String, title: String, phase: Int?, idx: Int?, total: Int?)
+    /// #201 (v1.0.13.1 box-walk, 2026-08-01): bare STEP marker without
+    /// _BEGIN/_END framing. install.sh emits these for out-of-band
+    /// screens that don't fit the stepBegin/stepEnd cadence -- the
+    /// original callsite is the permissions_briefing walk-through slotted
+    /// between the setup_questions PHASE and the actual install work, so
+    /// the customer sees the "10 macOS popups coming up" preamble
+    /// announced in the sidebar rather than the sidebar sitting stuck on
+    /// "A few questions" while install.sh has moved on. `name=` is the
+    /// step id; any remaining k=v pairs (e.g. `total_permissions=10`) are
+    /// carried in `metadata` so the coordinator can render them as an
+    /// optional subtitle without needing to teach the parser about every
+    /// STEP variant's specific fields. Pre-#201 the parser fell through
+    /// to `.unknown`, which the coordinator surfaced as an
+    /// "Unrecognised marker" warning and, more visibly, left the sidebar
+    /// unable to advance past the last stepBegin-handled row.
+    case step(id: String, metadata: [String: String])
     case pct(step: String, pct: Int)
     case log(level: String, msg: String)
     case warn(step: String, msg: String)
@@ -58,6 +75,16 @@ enum InstallerEvent: Equatable {
     /// `errorCode` is `nil` for the success path and for any legacy
     /// `fail "..."` callsite that did not pass through fail_with_code.
     case done(status: StepStatus, errorCode: String?)
+    /// CX-126: install.sh emits `DONE status=cancelled` on the
+    /// deliberate user-cancel / consent-decline `exit 0` paths
+    /// (Article 9 decline, third-party decline, perms=no,
+    /// passkey-cancel, typed-INSTALL cancel). These are NOT failures
+    /// (nothing was installed, by the customer's choice) and must NOT
+    /// render the red failure banner; they get a calm neutral
+    /// "Installation cancelled" terminal. Kept distinct from `.done`
+    /// so StepStatus stays {ok,warn,fail} and the per-step status
+    /// switches are untouched.
+    case cancelled
     /// Non-marker stdout/stderr line from the subprocess. Surfaced in
     /// the Log drawer only when `devModeRawLog` is on; otherwise these
     /// are filtered out so the customer-facing drawer stays curated.
@@ -108,6 +135,19 @@ enum PromptKind: String, Equatable {
 
 enum StepStatus: String, Equatable {
     case ok, warn, fail
+    /// #839: a child was killed by its wall-clock cap (rc 124 SIGTERM /
+    /// 137 SIGKILL). "We gave up waiting", NOT "it failed". Best-effort
+    /// hydrate steps end this way legitimately and the customer keeps
+    /// the same reassuring copy; the difference is that the record no
+    /// longer claims the step succeeded.
+    case timeout
+    /// #839: a child exited non-zero for a reason other than its cap.
+    case error
+
+    /// True when the step did not do its job, whatever the reason.
+    /// Everything that is not `ok` counts, so a status added later is
+    /// counted as a problem by default rather than silently ignored.
+    var isProblem: Bool { self != .ok }
 }
 
 /// Stateful line buffer that pulls #OSTLER markers out of a stream
@@ -116,6 +156,39 @@ enum StepStatus: String, Equatable {
 /// so the log drawer never silently drops install.sh's TTY chatter.
 struct ProgressDecoder {
     private static let marker = "#OSTLER"
+
+    /// Reverse of the value encoding gui_emit applies (BW2-2, 2026-07-25).
+    /// install.sh percent-encodes "%" -> "%25" then newline -> "%0A" so
+    /// multi-paragraph question bodies survive the newline-anchored,
+    /// tab-separated marker wire. Decode "%0A" back to a real newline
+    /// first, then "%25" back to "%" -- order matters so a literal "%0A"
+    /// typed in copy (encoded as "%250A") round-trips unharmed. Values
+    /// without the sentinel pass through unchanged, so this is safe for
+    /// every marker field, not just help=.
+    /// Decode a `status=` field without failing open.
+    ///
+    /// #839: both STEP_END and DONE used to decode their status as
+    /// `StepStatus(rawValue: kv["status"] ?? "ok") ?? .ok`. That `?? .ok`
+    /// is a fail-open: any status the Swift side did not recognise -- an
+    /// older GUI reading a newer install.sh, a typo, or the `timeout` and
+    /// `error` values this change introduces -- decoded to SUCCESS. The
+    /// shell would have said the step was killed and the GUI would have
+    /// drawn a green tick, which is the same lie on a second surface.
+    ///
+    /// An ABSENT status is still `.ok`: that is the legacy wire shape and
+    /// means "nothing to report". An UNRECOGNISED status is `.warn`: we do
+    /// not know what it means, and "unknown" must never round to "fine".
+    private static func decodeStatus(_ raw: String?) -> StepStatus {
+        guard let raw, !raw.isEmpty else { return .ok }
+        return StepStatus(rawValue: raw) ?? .warn
+    }
+
+    private static func decodeValue(_ v: String) -> String {
+        guard v.contains("%") else { return v }
+        return v
+            .replacingOccurrences(of: "%0A", with: "\n")
+            .replacingOccurrences(of: "%25", with: "%")
+    }
 
     static func decode(line raw: String) -> InstallerEvent {
         let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -137,7 +210,7 @@ struct ProgressDecoder {
         for pair in parts.dropFirst(2) {
             if let eq = pair.firstIndex(of: "=") {
                 let k = String(pair[..<eq])
-                let v = String(pair[pair.index(after: eq)...])
+                let v = decodeValue(String(pair[pair.index(after: eq)...]))
                 kv[k] = v
             }
         }
@@ -151,6 +224,18 @@ struct ProgressDecoder {
                 idx: kv["idx"].flatMap(Int.init),
                 total: kv["total"].flatMap(Int.init)
             )
+        case "STEP":
+            // #201: bare step announcement. `name=` is the step id;
+            // strip it out of the metadata dict so the coordinator gets
+            // just the auxiliary k=v pairs (e.g. `total_permissions=10`)
+            // and can render them as an optional sidebar subtitle. The
+            // coordinator routes the id through the same
+            // backfill + currentStepId path as stepBegin so the sidebar
+            // advances to the announced step instead of sitting stuck
+            // on the previous one.
+            var metadata = kv
+            let id = metadata.removeValue(forKey: "name") ?? "?"
+            return .step(id: id, metadata: metadata)
         case "PCT":
             return .pct(
                 step: kv["step"] ?? "?",
@@ -185,7 +270,7 @@ struct ProgressDecoder {
         case "STEP_END":
             return .stepEnd(
                 id: kv["id"] ?? "?",
-                status: StepStatus(rawValue: kv["status"] ?? "ok") ?? .ok,
+                status: Self.decodeStatus(kv["status"]),
                 elapsedSeconds: Int(kv["elapsed_s"] ?? "0") ?? 0
             )
         case "PHASE":
@@ -195,9 +280,16 @@ struct ProgressDecoder {
         case "NEEDS_SUDO":
             return .needsSudo(reason: kv["reason"] ?? "")
         case "DONE":
+            // CX-126: a deliberate user-cancel emits status=cancelled,
+            // which is neither ok nor fail -- route it to its own event
+            // so the GUI shows a neutral "cancelled" terminal, not the
+            // red failure banner.
+            if kv["status"] == "cancelled" {
+                return .cancelled
+            }
             let code = kv["code"].flatMap { $0.isEmpty ? nil : $0 }
             return .done(
-                status: StepStatus(rawValue: kv["status"] ?? "ok") ?? .ok,
+                status: Self.decodeStatus(kv["status"]),
                 errorCode: code
             )
         case "RECOVERY_KEY":
@@ -219,6 +311,7 @@ enum ProgressDecoderSelfTest {
     static func runOnce() {
         let cases: [(String, String)] = [
             ("#OSTLER\tSTEP_BEGIN\tid=foo\ttitle=Hello", "stepBegin"),
+            ("#OSTLER\tSTEP\tname=permissions_briefing\ttotal_permissions=10", "step"),
             ("#OSTLER\tPCT\tstep=foo\tpct=50",           "pct"),
             ("#OSTLER\tLOG\tlevel=info\tmsg=hi",          "log"),
             ("#OSTLER\tDONE\tstatus=ok",                  "done"),
@@ -228,7 +321,7 @@ enum ProgressDecoderSelfTest {
         for (raw, want) in cases {
             let got = ProgressDecoder.decode(line: raw)
             switch (got, want) {
-            case (.stepBegin, "stepBegin"), (.pct, "pct"),
+            case (.stepBegin, "stepBegin"), (.step, "step"), (.pct, "pct"),
                  (.log, "log"), (.done, "done"),
                  (.rawLine, "rawLine"), (.unknown, "unknown"):
                 continue

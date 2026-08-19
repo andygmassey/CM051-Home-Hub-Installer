@@ -46,7 +46,23 @@ from pathlib import Path
 #   STEP event before the customer-facing TCC briefing block (NOT a
 #   STEP_BEGIN sidebar advance). GUI falls through to .unknown; the
 #   briefing text surfaces via subsequent echo lines on the log pane.
-SOFT_UNKNOWN_OK: set[str] = {"MAIL_ACCOUNTS_FOUND", "STEP"}
+# - CX106_QDRANT_BEFORE / CX106_QDRANT_AFTER: CX-106 initial-hydration
+#   diagnostic count markers ("count=N" of Qdrant collections before/after
+#   the synchronous hydrate). Log-pane telemetry only, not a sidebar row;
+#   the GUI intentionally falls through to .unknown.
+# - IMESSAGE_TCC_DENIED: CX-278 iMessage-TCC posture marker
+#   ("status=denied" + remediation hint). install.sh already opens the
+#   Privacy pane and surfaces a customer-facing info() line on the log
+#   pane; the emit is telemetry, not a sidebar row, so the GUI falls
+#   through to .unknown. (Surfaced once CX106_QDRANT was resolved -- it
+#   was masked behind that failure on origin/main.)
+SOFT_UNKNOWN_OK: set[str] = {
+    "MAIL_ACCOUNTS_FOUND",
+    "STEP",
+    "CX106_QDRANT_BEFORE",
+    "CX106_QDRANT_AFTER",
+    "IMESSAGE_TCC_DENIED",
+}
 
 
 def _strip_swift_comments(source: str) -> str:
@@ -72,18 +88,42 @@ def _extract_decoder_cases(src: str, rel: str) -> list[dict]:
     `switch event {` to avoid matching `case` in any other switch in
     the file.
     """
-    # The decoder is the only top-level `switch event {` in the file;
-    # be defensive and bound on the next top-level `}` followed by a
-    # blank line.
-    switch_pat = re.compile(r"switch\s+event\s*\{(.*?)^\s*\}\s*$", re.DOTALL | re.MULTILINE)
-    m = switch_pat.search(src)
-    if not m:
+    # Anchor on the leading `switch event {`, then capture the body by
+    # balancing braces from the opening `{` to its matching close. A naive
+    # `(.*?)^\s*\}\s*$` regex stops at the FIRST standalone `}` line, which
+    # is the nested `}` closing the `if ... {` block inside the DONE arm --
+    # so it silently dropped RECOVERY_KEY and every other case after DONE.
+    # Brace-balancing (skipping `}` inside string literals) captures the
+    # whole switch regardless of nested blocks.
+    open_pat = re.compile(r"switch\s+event\s*\{")
+    om = open_pat.search(src)
+    if not om:
         return []
-    body = m.group(1)
+    case_offset = om.end()  # index just past the opening brace
+    depth = 1
+    i = case_offset
+    in_str = False
+    while i < len(src) and depth > 0:
+        ch = src[i]
+        if in_str:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                break
+        i += 1
+    body = src[case_offset:i]
     case_pat = re.compile(r'case\s+"([A-Z][A-Z0-9_]+)"\s*:')
     handlers: list[dict] = []
     # Compute line numbers by counting newlines up to the match start.
-    case_offset = m.start(1)
     for case_m in case_pat.finditer(body):
         event_kind = case_m.group(1)
         abs_offset = case_offset + case_m.start()

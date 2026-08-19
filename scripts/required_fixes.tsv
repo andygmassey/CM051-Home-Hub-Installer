@@ -1,0 +1,43 @@
+# required_fixes.tsv -- the launch-blocking fixes every cut's ARTIFACTS must contain.
+# ============================================================================
+# Read by scripts/provenance_gate.sh. Each row names ONE fix commit that MUST be
+# proven present -- by ancestry AND by baked-in content -- in a shipped artifact.
+# This is the single list that drives content verification, so a merged fix can
+# no longer slip the cut because a human forgot to add a wiki_image_grep marker.
+#
+# THE CLASS THIS KILLS
+# A fix merges to a source main; the artifact (Docker image / daemon / vendor) is
+# re-pinned; a ledger row is recorded claiming the new source sha. Every existing
+# gate then trusts that CLAIM. Nothing checks the digest was ACTUALLY built from
+# that sha (the image has no revision label -- proven). This file + the gate grep
+# INSIDE the real artifact for a marker that exists ONLY with the fix, so a false
+# ledger row (right sha recorded, old content baked) is caught.
+#
+# Format (TAB-separated, 6 fields; '#' = comment, '#TODO ' = surfaced reminder):
+#   repo  fix_commit  artifact  content_marker  marker_path  description
+#
+#   repo           CM044 | ostler-assistant | CM051  (ancestry resolution)
+#   fix_commit     the launch-required commit SHA (short ok)
+#   artifact       wiki-compiler | wiki-site | daemon | vendor:<path-rel-CM051>
+#   content_marker distinctive regex introduced BY the fix -- MUST be verified
+#                  present-at-fix AND absent-before-fix on a real artifact before
+#                  encoding (the same discipline cut_markers.manifest documents).
+#   marker_path    path to grep inside the artifact (image path / daemon path)
+#   description    human note (PR number etc.)
+#
+# ---------------------------------------------------------------------------
+# v1.0.10 CM044 wiki fixes (648f7491 tip). Markers verified present in the pinned
+# images (compiler 2f7b0b73 / site 563fbcec) AND absent in the pre-#146 build
+# a7e8c7e8 (built from 77300f6 = the parent of f936095) -- so each discriminates.
+CM044	f936095	wiki-compiler	settling_phase_states	/app/compiler	#146 settling-panel redesign -- per-phase renderer
+CM044	f936095	wiki-site	pwg-settling-phases	/docs/overrides	#146 settling-panel redesign -- per-phase CSS
+CM044	3baa916	wiki-compiler	PWG_GATEWAY_URL	/app/compiler	#145 dup-decision posts via shared gateway origin (not :8089)
+CM044	9061847	wiki-compiler	clean_body	/app/compiler	#144 timeline provenance-sentinel strip (compiler/provenance.py)
+#
+# ---------------------------------------------------------------------------
+# TODO rows -- add a real row (with a verified marker) once the fix is MERGED and
+# the artifact is re-pinned. Until then the gate surfaces them as reminders so
+# they are not forgotten. ORM maintains this block per cut.
+#TODO	oa#226	daemon	<marker-after-merge>	<path>	ostler-assistant #226 (add daemon row on merge + re-tag)
+#TODO	oa#227	daemon	<marker-after-merge>	<path>	ostler-assistant #227 (add daemon row on merge + re-tag)
+#TODO	CM051#435	vendor:vendor/<tree>	<marker-after-merge>	-	CM051 PR #435 (add vendor row on merge + re-vendor)

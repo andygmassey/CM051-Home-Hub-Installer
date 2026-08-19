@@ -1,0 +1,193 @@
+@prefix pwg: <https://pwg.dev/ontology#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# =============================================================================
+# PWG SHACL Rules - Preference Validation
+# Ensures all preferences are properly formed
+# =============================================================================
+
+pwg:PreferenceShape a sh:NodeShape ;
+    sh:targetClass pwg:Preference ;
+    sh:name "Preference Shape" ;
+    sh:description "Validates that preferences have required properties" ;
+
+    sh:property [
+        sh:path pwg:belongsToCompartment ;
+        sh:class pwg:Compartment ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:name "belongs to compartment" ;
+        sh:message "Every preference must belong to exactly one compartment" ;
+    ] ;
+
+    sh:property [
+        sh:path pwg:createdAt ;
+        sh:datatype xsd:dateTime ;
+        sh:maxCount 1 ;
+        sh:name "created at" ;
+        sh:message "createdAt must be a valid dateTime" ;
+    ] ;
+
+    sh:property [
+        sh:path pwg:source ;
+        sh:datatype xsd:string ;
+        sh:maxCount 1 ;
+        sh:name "source" ;
+        sh:message "source must be a string" ;
+    ] ;
+
+    sh:property [
+        sh:path pwg:confidence ;
+        sh:datatype xsd:float ;
+        sh:minInclusive 0.0 ;
+        sh:maxInclusive 1.0 ;
+        sh:maxCount 1 ;
+        sh:name "confidence" ;
+        sh:message "confidence must be a float between 0.0 and 1.0" ;
+    ] .
+
+# =============================================================================
+# Like/Dislike Preference Validation
+# =============================================================================
+
+pwg:LikePreferenceShape a sh:NodeShape ;
+    sh:targetClass pwg:LikePreference ;
+    sh:name "Like Preference Shape" ;
+
+    sh:property [
+        sh:path pwg:preferenceStrength ;
+        sh:datatype xsd:float ;
+        sh:minInclusive 0.0 ;
+        sh:maxInclusive 1.0 ;
+        sh:name "preference strength" ;
+        sh:message "Like preference strength must be between 0.0 and 1.0" ;
+    ] .
+
+pwg:DislikePreferenceShape a sh:NodeShape ;
+    sh:targetClass pwg:DislikePreference ;
+    sh:name "Dislike Preference Shape" ;
+
+    sh:property [
+        sh:path pwg:preferenceStrength ;
+        sh:datatype xsd:float ;
+        sh:minInclusive -1.0 ;
+        sh:maxInclusive 0.0 ;
+        sh:name "preference strength" ;
+        sh:message "Dislike preference strength must be between -1.0 and 0.0" ;
+    ] .
+
+# =============================================================================
+# Size Validation
+# =============================================================================
+
+pwg:SizeShape a sh:NodeShape ;
+    sh:targetClass pwg:Size ;
+    sh:name "Size Shape" ;
+    sh:description "Validates size information" ;
+
+    sh:property [
+        sh:path pwg:sizeValue ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:name "size value" ;
+        sh:message "Size must have exactly one sizeValue" ;
+    ] ;
+
+    sh:property [
+        sh:path pwg:sizeSystem ;
+        sh:datatype xsd:string ;
+        sh:maxCount 1 ;
+        sh:in ( "US" "EU" "UK" "AU" "JP" "CN" "universal" ) ;
+        sh:name "size system" ;
+        sh:message "sizeSystem must be one of: US, EU, UK, AU, JP, CN, universal" ;
+    ] .
+
+pwg:ClothingSizeShape a sh:NodeShape ;
+    sh:targetClass pwg:ClothingSize ;
+    sh:name "Clothing Size Shape" ;
+
+    sh:property [
+        sh:path pwg:garmentType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:name "garment type" ;
+        sh:message "Clothing size must specify garment type" ;
+    ] .
+
+# =============================================================================
+# Context Validation
+# =============================================================================
+
+pwg:ContextShape a sh:NodeShape ;
+    sh:targetClass pwg:Context ;
+    sh:name "Context Shape" ;
+
+    sh:property [
+        sh:path pwg:contextValue ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:name "context value" ;
+        sh:message "Context must have exactly one contextValue" ;
+    ] .
+
+pwg:TimeContextShape a sh:NodeShape ;
+    sh:targetClass pwg:TimeContext ;
+    sh:name "Time Context Shape" ;
+
+    sh:property [
+        sh:path pwg:contextValue ;
+        sh:in ( "morning" "afternoon" "evening" "night" "weekday" "weekend" "holiday" ) ;
+        sh:severity sh:Warning ;
+        sh:message "Time context should be one of: morning, afternoon, evening, night, weekday, weekend, holiday" ;
+    ] .
+
+pwg:WeatherContextShape a sh:NodeShape ;
+    sh:targetClass pwg:WeatherContext ;
+    sh:name "Weather Context Shape" ;
+
+    sh:property [
+        sh:path pwg:contextValue ;
+        sh:in ( "sunny" "cloudy" "rainy" "snowy" "hot" "cold" "mild" "humid" ) ;
+        sh:severity sh:Warning ;
+        sh:message "Weather context should be one of: sunny, cloudy, rainy, snowy, hot, cold, mild, humid" ;
+    ] .
+
+# =============================================================================
+# Query Validation
+# =============================================================================
+
+pwg:QueryShape a sh:NodeShape ;
+    sh:targetClass pwg:Query ;
+    sh:name "Query Shape" ;
+
+    sh:property [
+        sh:path pwg:queryId ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:pattern "^[a-zA-Z0-9-]+$" ;
+        sh:name "query ID" ;
+        sh:message "Query must have a valid queryId (alphanumeric with hyphens)" ;
+    ] ;
+
+    sh:property [
+        sh:path pwg:queryTimestamp ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:name "query timestamp" ;
+        sh:message "Query must have a timestamp" ;
+    ] ;
+
+    sh:property [
+        sh:path pwg:queryCompartment ;
+        sh:class pwg:Compartment ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:name "query compartment" ;
+        sh:message "Query must specify target compartment" ;
+    ] .

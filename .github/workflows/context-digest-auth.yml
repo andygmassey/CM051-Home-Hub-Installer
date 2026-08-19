@@ -1,0 +1,117 @@
+name: context-digest-auth
+
+# The personal-context digest is dead on arrival without this gate.
+#
+# ============================================================================
+# WHAT WAS BROKEN, AND WHY EVERY LIGHT STAYED GREEN
+# ============================================================================
+#
+# generate_pwg_context.py reads six sections; four of them come from the
+# ical-server's /api/v1/* routes. That data plane has required a bearer since
+# v1.0.10 (#200). The script sent no Authorization header. Measured on a real
+# v1.0.36 install, 2026-08-18:
+#
+#     GET /health              -> 200      (unauthenticated, always was)
+#     GET /api/v1/timeline     -> 401
+#     GET /api/v1/suggestions  -> 401
+#     find ~/.ostler -name CONTEXT.md   -> nothing, on any install
+#     ls ~/.ostler/secrets/             -> service_token, there the whole time
+#
+# Three separate green lights sat on top of it:
+#   1. _get_json swallowed the HTTPError and returned None, which every caller
+#      reads as "this section is unavailable".
+#   2. The failure line blamed "ical-server down or empty graph". Both were
+#      false: /health answered 200 and the graph held 6,549 person nodes.
+#   3. The LaunchAgent reported last exit code = 0.
+#
+# THE GATE/DEFECT SPLIT: the install-time health check probes /health, which is
+# UNAUTHENTICATED. The consumer uses /api/v1/*, which is not. Gate and defect
+# on different surfaces means green forever, so this workflow deliberately
+# exercises the AUTHENTICATED surface and asserts on the exit code, which is
+# the thing that lied.
+#
+# ============================================================================
+# WHY THE EXISTING SUITE IS WIRED HERE TOO
+# ============================================================================
+#
+# context-refresh/tests/test_generate_pwg_context.py has twelve tests covering
+# the digest layout, the L3 withholding and the calendar-owner attribution
+# fix. Measured on main 2026-08-18: no workflow in this repo ran it. Those
+# twelve tests were dark, including the ones guarding a privacy invariant.
+# Adding a thirteenth dark test would have been the same mistake with a fresh
+# filename, so both suites run here.
+#
+# ============================================================================
+# WHY ubuntu IS FINE HERE
+# ============================================================================
+#
+# Unlike the installer gates, nothing under test shells out to BSD-only tools.
+# The generator is pure Python standard library and the suite drives it as a
+# subprocess against an in-process HTTP fixture, so the runner OS is not a
+# variable. Kept on ubuntu because it is the cheaper runner and the result is
+# identical.
+
+on:
+  pull_request:
+    paths:
+      - 'context-refresh/**'
+      - 'tests/test_context_refresh_wired.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/context-digest-auth.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  digest-auth:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+
+      # The regression suite for the defect. Two halves, and the PR does not
+      # land without both: a valid token must produce a non-empty CONTEXT.md,
+      # and an absent or rejected token must exit NON-ZERO. Without the second
+      # half the fix is unprotected and the defect returns in silence.
+      - name: Digest authenticates, and a digest-less run does not exit 0
+        run: python -m pytest context-refresh/tests/test_context_digest_auth.py -v
+
+      # if: always() so a failure above cannot silence the suite below.
+      # A skipped test reads as "no objection", which is the shape of the
+      # whole defect this workflow exists to close.
+      - name: Digest layout, L3 withholding and calendar-owner attribution
+        if: always()
+        run: python -m pytest context-refresh/tests/test_generate_pwg_context.py -v
+
+      # The end-to-end chain guard. Also previously dark (TEST_WIRING.tsv:53
+      # UNWIRED), and it had encoded the defect as a REQUIREMENT: its final
+      # assertion was that a run producing no digest exits 0, described as
+      # "a graceful no-op". It now drives the tick against a fixture that
+      # ENFORCES the bearer, so the chain is exercised the way the real one
+      # behaves rather than the way it was hoped to.
+      - name: The full generator-to-CONTEXT.md chain, with the bearer enforced
+        if: always()
+        run: bash tests/test_context_refresh_wired.sh
+
+      # The generator is the artefact that ships to a customer Mac; a syntax
+      # error in it is a dead LaunchAgent, not a failing import.
+      - name: Shipped artefacts parse
+        if: always()
+        run: |
+          python -m py_compile context-refresh/bin/generate_pwg_context.py
+          bash -n context-refresh/bin/context-refresh-tick.sh
+          bash -n context-refresh/INSTALL_SNIPPET.sh

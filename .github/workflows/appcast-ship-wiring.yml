@@ -1,0 +1,280 @@
+name: appcast-ship-wiring
+
+# THE CUT MUST STILL PUBLISH AN APPCAST ENTRY, AND MUST STILL RUN EVERY GATE
+# IT RAN BEFORE.
+#
+# WHY. Auto-update has three pieces: the Sparkle updater inside the Hub, the
+# feed it polls, and the step that publishes a release into that feed. The
+# third was built in CM050 and called by nothing. Measured on CM051 origin/main
+# before this workflow existed, over Makefile / *.mk / *.sh / *.yml:
+#
+#     publish-appcast | PUBLISH_APPCAST | ostler-release publish     0 hits
+#     sparkle-embed          (positive control, same search style)  14 hits
+#     notarise               (positive control, same search style) 124 hits
+#
+# So every installed Hub polled a feed, got a well-formed "nothing newer", and
+# stayed on its version for ever. No error, no log line. A bug that ships is
+# permanent for whoever installed it.
+#
+# WHAT THIS WORKFLOW PROTECTS is not the publisher -- it is the WIRING, which
+# is the part that was missing and the part a merge conflict silently undoes.
+#
+#   Control A  ship: still names every prerequisite it named before, BY SET.
+#              A count is satisfied by a swap: drop verify-stapling, add
+#              publish-appcast, and the count is unchanged while the cut has
+#              stopped checking notarisation tickets.
+#   Control B  publish-appcast is REACHED FROM ship, has a recipe, and runs
+#              after the verification gates. A defined-but-unreachable target
+#              is the original defect one layer up, and it satisfies every
+#              grep for its own name.
+#
+# ALWAYS RUNS. No `paths:` filter, deliberately, and for the same reason as
+# test-wiring: a path filter means the gate skips on exactly the PR that breaks
+# something it did not think to watch, and "skipped" renders as a grey tick
+# that reads like a pass. The whole job is seconds long.
+#
+# Every step carries `if: always()` so a failure in one does not silently skip
+# the rest. GitHub stops a job at its first failing step, and a skipped proof
+# is indistinguishable from a proof that passed.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  appcast-ship-wiring:
+    # The cut host is macOS and /bin/bash there is 3.2. Both controls read
+    # make's database, and make 3.81 (macOS) and 4.x (ubuntu) print that
+    # database differently -- "commands to execute" against "recipe to
+    # execute". Running on the platform that actually cuts is the only way
+    # that difference is exercised rather than assumed.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # WITHOUT THIS, ASSERTION 4 IS DARK, AND IT WAS DARK FROM THE DAY IT WAS
+      # WRITTEN. macos-latest python3 has no PyYAML, so the only assertion in
+      # Control B that parses YAML -- the one proving the artefact is captured
+      # unconditionally -- took its skip branch on EVERY run while the summary
+      # still printed "all four assertions hold".
+      #
+      # MEASURED 2026-08-18 over every appcast-ship-wiring run since it landed
+      # (32095389421, 32095682207, 32095929595, and 32096418569 on the v1.0.35
+      # cut branch): "CAPTURE-UNCONDITIONAL not checked" three hits each,
+      # "[OK] CAPTURED UNCONDITIONALLY" zero. Never once executed on a runner.
+      #
+      # THE VERIFY LINE IS NOT DECORATION. An install that quietly does nothing
+      # reproduces the same defect one layer up, so the import is proved AFTER
+      # the install and the step dies if it is still missing. No `|| true`.
+      - name: PyYAML must be present, or the capture assertion cannot run
+        run: |
+          set -uo pipefail
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            python3 -m pip install --quiet --break-system-packages pyyaml \
+              || python3 -m pip install --quiet pyyaml \
+              || pip3 install --quiet pyyaml \
+              || true
+          fi
+          python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
+
+      - name: CONTROL A -- ship still names every prerequisite it named before
+        run: /bin/bash tests/test_ship_prereqs_are_a_superset.sh
+
+      - name: "CONTROL B -- publish-appcast is OUT of ship, and invoked after upload"
+        if: always()
+        run: /bin/bash tests/test_appcast_publish_cannot_destroy_the_dmg.sh
+
+      # The guard is what stops a publish Sparkle would silently skip. Its own
+      # controls include both directions plus the cannot-run branch, because a
+      # guard only ever seen passing is not known to be able to fail.
+      - name: The AU-1 version guard can still tell newer from not-newer
+        if: always()
+        run: python3 scripts/appcast_version_guard.py --self-test
+
+      # The staging step's own predicate. `if: always()` made it run on failed
+      # cuts too, so it has to tell "the build never produced one" apart from
+      # "the build produced a bad one" -- four branches, and the fix is which
+      # branch fires when. Stubs make, xcrun and spctl on PATH so the shipped
+      # code path runs unmodified; carries a declared control floor.
+      - name: The staging step can tell CANNOT-RUN from FAIL
+        if: always()
+        run: /bin/bash scripts/stage_and_verify_dmg.sh --self-test
+
+      # A gate that only parses under bash 5 reads CANNOT-RUN for ever on the
+      # machine that cuts.
+      - name: Everything parses under /bin/bash 3.2 (the cut host's shell)
+        if: always()
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n tests/test_ship_prereqs_are_a_superset.sh
+          /bin/bash -n tests/test_appcast_publish_cannot_destroy_the_dmg.sh
+          /bin/bash -n scripts/stage_and_verify_dmg.sh
+          python3 -m py_compile scripts/appcast_version_guard.py
+          echo "OK: parses under the shell and interpreter the cut actually uses"
+
+      # A COMPILE CHECK, AND NOTHING MORE -- said plainly so it is not read as
+      # coverage. `make -n` expands the recipe without running it; piping the
+      # expansion through `bash -n` proves the 100-odd continued lines of shell
+      # PARSE. It does not run a single branch of them, and it says nothing
+      # about whether the publish works.
+      #
+      # It is still worth a step. This recipe is the LAST thing `make ship`
+      # does, so a stray quote in it surfaces only after the notarisation
+      # cycles have been paid for, on the one run nobody wants to repeat.
+      #
+      # `-n` is safe here: publish-appcast has no prerequisites and no $(MAKE)
+      # line, and $(MAKE) lines are the only thing make executes under -n.
+      - name: The publish-appcast recipe PARSES as shell (compile only, runs nothing)
+        if: always()
+        run: |
+          cd gui
+          make -n publish-appcast > /tmp/recipe.txt
+          tail -n +2 /tmp/recipe.txt > /tmp/recipe_body.sh
+          /bin/bash -n /tmp/recipe_body.sh
+          echo "OK: the recipe parses under /bin/bash 3.2. NOT a proof that it works."
+
+      # PROVE THE CONTROLS CAN FAIL, HERE, ON EVERY RUN. Both were watched
+      # failing by hand before this landed, but a red observed once in a
+      # terminal is not a property CI holds. Each mutation is applied to a COPY
+      # of the Makefile; the tracked file is never touched.
+      #
+      # The first mutation is a SWAP -- remove verify-stapling, keep
+      # publish-appcast -- so the prerequisite count is 22 before and 22 after.
+      # That is the exact case a count-based assertion waves through.
+      - name: Control A goes RED when a prerequisite is dropped (a swap, count unchanged)
+        if: always()
+        run: |
+          set -uo pipefail
+          MUT="$(mktemp -d)"
+          sed 's/^ship: \(.*\) verify-stapling \(.*\)$/ship: \1 \2/' gui/Makefile > "$MUT/Makefile"
+          # A MUTATION THAT DID NOT APPLY PRODUCES A GREEN RUN THAT PROVES
+          # NOTHING, and it looks exactly like a working proof.
+          if grep '^ship:' "$MUT/Makefile" | grep -q 'verify-stapling'; then
+            echo "MUTATION DID NOT APPLY -- verify-stapling is still in ship:." >&2
+            exit 1
+          fi
+          rc=0
+          out="$(/bin/bash tests/test_ship_prereqs_are_a_superset.sh --makefile "$MUT/Makefile" 2>&1)" || rc=$?
+          echo "$out"
+          if [ "$rc" -ne 1 ]; then
+            echo "EXPECTED exit 1 from the mutant, got $rc." >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$out" | grep -q -- '- verify-stapling'; then
+            echo "The failure did not NAME the dropped prerequisite." >&2
+            echo "'ship changed' sends a reader to diff 2400 lines; the name sends them to the line." >&2
+            exit 1
+          fi
+          echo "OK: Control A fails, exit 1, naming verify-stapling."
+
+      # v1.0.34 REVERSED THIS CONTROL'S POLARITY, and the incident is the reason.
+      # publish-appcast used to be required IN ship:, last. It got there in #776,
+      # fired on the first cut that reached it, and firing there destroyed a
+      # finished build: notarised, stapled, spctl-verified, then killed on an
+      # unset signing key five seconds later, with upload SKIPPED and the runner
+      # torn down. actions/runs/32093975602/artifacts returned total_count=0.
+      # Now the defect is BEING in ship:, and the mutation asserts that.
+      - name: "Control B goes RED when publish-appcast is back inside ship:"
+        if: always()
+        run: |
+          set -uo pipefail
+          MUT="$(mktemp -d)"
+          sed 's/^\(ship: .*verify-commit-parity archive\)$/\1 publish-appcast/' gui/Makefile > "$MUT/Makefile"
+          if ! grep '^ship:' "$MUT/Makefile" | grep -c 'publish-appcast' | grep -qv '^0$'; then
+            echo "MUTATION DID NOT APPLY -- ship: does not name publish-appcast." >&2
+            exit 1
+          fi
+          rc=0
+          out="$(/bin/bash tests/test_appcast_publish_cannot_destroy_the_dmg.sh --makefile "$MUT/Makefile" 2>&1)" || rc=$?
+          echo "$out"
+          if [ "$rc" -ne 1 ]; then
+            echo "EXPECTED exit 1 from the mutant, got $rc." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$out" | grep -c 'IS reachable from')" -eq 0 ]; then
+            echo "The failure did not name reachability from ship, which is the defect." >&2
+            exit 1
+          fi
+          echo "OK: Control B fails, exit 1, on a publish that can abort the cut."
+
+      # The OTHER direction, and the one that matters more: removing the hazard
+      # must not remove the FEATURE. Task #370 was "auto-update is dark because
+      # nothing calls the publisher". Detaching from ship: without re-attaching
+      # in the workflow reinstates exactly that, and every grep for the name
+      # still hits.
+      - name: Control B goes RED when the cut workflow stops invoking it (#370 re-dark)
+        if: always()
+        run: |
+          set -uo pipefail
+          MUT="$(mktemp -d)"
+          # NOT anchored on `run: make ...`. The publish step now wraps the
+          # invocation in a block so it can annotate its own failure with the
+          # fact that the DMG survived, which moved the command off the `run:`
+          # line. A mutation anchored on the old spelling would stop applying
+          # and this control would report MUTATION DID NOT APPLY on every run
+          # -- red for a reason that is not the defect, which is how a control
+          # gets deleted rather than fixed. Match the INVOCATION, not its
+          # position.
+          sed 's|make -C gui publish-appcast|echo not-published|' \
+            .github/workflows/cut.yml > "$MUT/cut.yml"
+          if [ "$(grep -c 'make -C gui publish-appcast' "$MUT/cut.yml")" -ne 0 ]; then
+            echo "MUTATION DID NOT APPLY -- workflow still invokes the publisher." >&2
+            exit 1
+          fi
+          rc=0
+          out="$(OSTLER_CUT_WORKFLOW="$MUT/cut.yml" /bin/bash tests/test_appcast_publish_cannot_destroy_the_dmg.sh 2>&1)" || rc=$?
+          echo "$out"
+          if [ "$rc" -ne 1 ]; then
+            echo "EXPECTED exit 1 from the mutant, got $rc." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$out" | grep -c 'never invokes')" -eq 0 ]; then
+            echo "The failure did not name the dark publisher, which is task #370." >&2
+            exit 1
+          fi
+          echo "OK: Control B fails, exit 1, when the publisher goes dark again."
+
+      # THE ASSERTION THAT GUARDS THE ASSERTIONS. Assertion 4 finds its steps by
+      # NAME, so renaming one turns its loop into a loop over zero matches --
+      # and an empty findings list printed as [OK] is a check reporting success
+      # about something it never looked at. That is not hypothetical: the
+      # obvious tidy-up while working on this file is to rename the staging step
+      # to something more descriptive.
+      #
+      # The mutation renames it and leaves everything else correct, so the ONLY
+      # thing that can go red is the floor.
+      - name: Assertion 4 goes RED when a step is RENAMED out of its own check
+        if: always()
+        run: |
+          set -uo pipefail
+          MUT="$(mktemp -d)"
+          sed 's|Verify the artefact, not the build log|Stage and check the disk image|' \
+            .github/workflows/cut.yml > "$MUT/cut.yml"
+          if [ "$(grep -c 'Verify the artefact' "$MUT/cut.yml")" -ne 0 ]; then
+            echo "MUTATION DID NOT APPLY -- the step is still named 'Verify the artefact'." >&2
+            exit 1
+          fi
+          rc=0
+          out="$(OSTLER_CUT_WORKFLOW="$MUT/cut.yml" /bin/bash tests/test_appcast_publish_cannot_destroy_the_dmg.sh 2>&1)" || rc=$?
+          echo "$out"
+          if [ "$rc" -ne 1 ]; then
+            echo "EXPECTED exit 1 from the renamed mutant, got $rc." >&2
+            echo "A rename must not be able to switch a check off silently." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$out" | grep -c 'examined NOTHING')" -eq 0 ]; then
+            echo "The failure did not say the check examined nothing, which IS the defect." >&2
+            exit 1
+          fi
+          echo "OK: assertion 4 fails, exit 1, when a rename empties its denominator."

@@ -39,6 +39,34 @@
 #                            wrap). Default unset => skip. Only
 #                            meaningful when the customer enabled
 #                            the WhatsApp channel during install.
+#   OSTLER_IMESSAGE_SELF_HANDLES  the customer's OWN iMessage handles
+#                            (comma-separated phone + email), rendered
+#                            into the plist EnvironmentVariables so the
+#                            daemon's self-echo loop guard is armed
+#                            (#646). Default empty => guard inactive
+#                            (the daemon's content-based backstop still
+#                            applies). Must be the user's own identity
+#                            only, NOT the allowed-contacts list.
+#   PWG_SERVICE_TOKEN        the per-install #200 service token
+#                            (secrets/service_token, seeded by install.sh),
+#                            rendered into the plist EnvironmentVariables so
+#                            the daemon's pwg_* retrieval tools carry
+#                            `Authorization: Bearer <token>` to the
+#                            locked-down loopback ical-server on :8090
+#                            (v1.0.12 assistant-retrieval fix). Default empty
+#                            => harmless: the daemon falls back to reading
+#                            ~/.ostler/secrets/service_token directly.
+#   OSTLER_ASSISTANT_DEFER_START  "true" => render + clean up the
+#                            LaunchAgent but do NOT bootstrap it, so the
+#                            plist's RunAtLoad start does not fire yet.
+#                            The installer defers the daemon start until
+#                            AFTER the Full Disk Access grant flow so the
+#                            FDA-less daemon cannot touch ~/Documents and
+#                            raise the per-folder Documents TCC prompt on
+#                            top of the FDA windows (BW3-1 pile-up). The
+#                            installer bootstraps the agent itself once all
+#                            permission flows have finished. Default unset
+#                            => bootstrap immediately (legacy behaviour).
 #
 # Side effects:
 #   - Renders com.creativemachines.ostler.assistant.plist into
@@ -107,11 +135,35 @@ esc_home="$(printf '%s' "$ASSISTANT_HOME_RESOLVED"     | sed 's/[&/\]/\\&/g')"
 esc_logs="$(printf '%s' "$LOGS_DIR"                    | sed 's/[&/\]/\\&/g')"
 esc_assistant_cfg="$(printf '%s' "$ASSISTANT_CONFIG_DIR" | sed 's/[&/\]/\\&/g')"
 
+# #646 self-echo loop guard: the customer's OWN iMessage handles
+# (comma-separated phone + email), passed in by install.sh from the
+# me-card identity captured during the wizard. Rendered into the plist
+# EnvironmentVariables so the daemon's OSTLER_IMESSAGE_SELF_HANDLES guard
+# is armed and the assistant cannot reply to its own output echoing back.
+# Empty/unset is safe: the guard stays inactive and the daemon's
+# content-based backstop still applies. The token OSTLER_IMESSAGE_SELF_
+# HANDLES_VALUE differs from every other sed pattern (none is a substring
+# of it) so its substitution cannot collide with the passes below.
+esc_self_handles="$(printf '%s' "${OSTLER_IMESSAGE_SELF_HANDLES:-}" | sed 's/[&/\]/\\&/g')"
+
+# v1.0.12 assistant-retrieval fix: the per-install #200 service token
+# (secrets/service_token), passed in by install.sh. Rendered into the plist
+# EnvironmentVariables as PWG_SERVICE_TOKEN so the daemon's pwg_* tools carry
+# `Authorization: Bearer <token>` to the locked-down ical-server on :8090
+# (which fails-closed 401 without it -- v1.0.10 #200 lockdown). Empty/unset is
+# safe: the daemon falls back to reading ~/.ostler/secrets/service_token
+# directly (the code-side file fallback). The token PWG_SERVICE_TOKEN_VALUE
+# shares no substring with any other sed pattern below, so its pass cannot
+# collide.
+esc_pwg_token="$(printf '%s' "${PWG_SERVICE_TOKEN:-}" | sed 's/[&/\]/\\&/g')"
+
 # Order matters: the OSTLER_ASSISTANT_CONFIG token contains the
 # OSTLER_HOME prefix in the default install layout
 # ($HOME/.ostler/assistant-config). Substitute the most specific
 # token first so a later OSTLER_HOME pass cannot eat its prefix.
 sed \
+    -e "s/OSTLER_IMESSAGE_SELF_HANDLES_VALUE/$esc_self_handles/g" \
+    -e "s/PWG_SERVICE_TOKEN_VALUE/$esc_pwg_token/g" \
     -e "s/OSTLER_ASSISTANT_CONFIG/$esc_assistant_cfg/g" \
     -e "s/OSTLER_LOGS/$esc_logs/g" \
     -e "s/OSTLER_BIN/$esc_bin/g" \
@@ -129,7 +181,22 @@ DOMAIN="gui/$(id -u)"
 
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 
-if launchctl bootstrap "$DOMAIN" "$RENDERED_PLIST"; then
+# BW3-1 (2026-07-23): defer the daemon's RunAtLoad start until FDA is
+# granted. The rendered plist sets RunAtLoad=true + KeepAlive, so
+# `launchctl bootstrap` starts the daemon PROCESS immediately. On a fresh
+# install this snippet runs BEFORE the daemon's Full Disk Access has been
+# granted (the daemon FDA grant flow runs later in install.sh), so the
+# freshly started, FDA-less daemon touches ~/Documents and macOS raises
+# the per-folder "OstlerAssistant would like to access files in your
+# Documents folder" TCC prompt -- which stacks on top of the FDA grant
+# flow (System Settings + Finder + the Allow/Done modal), the window
+# pile-up seen on the .98 box-walk. When the installer sets
+# OSTLER_ASSISTANT_DEFER_START=true we render + bootout the agent here but
+# leave it UNLOADED; install.sh bootstraps it once, after every permission
+# flow has finished (see _ostler_start_assistant_daemon in install.sh).
+if [ "${OSTLER_ASSISTANT_DEFER_START:-}" = "true" ]; then
+    echo "ostler-assistant install: plist rendered; RunAtLoad start deferred until FDA granted ($LABEL)"
+elif launchctl bootstrap "$DOMAIN" "$RENDERED_PLIST"; then
     echo "ostler-assistant install: LaunchAgent bootstrapped ($LABEL)"
 else
     rc=$?

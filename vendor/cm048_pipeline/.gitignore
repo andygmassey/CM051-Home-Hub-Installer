@@ -1,0 +1,42 @@
+# Sensitive server info (contains IPs, passwords, API keys)
+SERVER_INFO.md
+
+# Secrets
+*.env
+.env.*
+!.env.example
+*credentials*
+*secret*
+*token*
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+venv/
+.venv/
+
+# Build artefacts
+dist/
+build/
+
+# State directories (never commit actual conversation data)
+state/
+processing/
+fixtures_private/
+conversations/
+
+# Claude Code internal
+.claude/
+
+# MS Office autosave locks
+~$*

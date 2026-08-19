@@ -3,13 +3,37 @@
 .env.*
 !.env.example
 *.env
+# ^ BROAD GLOB. It eats cuts/<tag>/cut.env, which is a CUT RECORD, not a
+# secret: two pins the rollforward gate binds, and no credential ever. The
+# negation below is deliberately narrow -- one filename under one directory --
+# so nothing else escapes the rule above.
+#
+# This bit hard. The v1.0.24 cut.env was written, staged, and silently dropped;
+# the gate passed locally because the file was on DISK, and would have failed
+# in CI where the checkout has only what git tracks. A green measured against
+# a working tree is not a green.
+#
+# ANY credential belongs in a *.env that this negation does NOT cover.
+!cuts/*/cut.env
 SERVER_INFO.md
 config.local.*
 *.pem
 *.key
 *_private*
 *credentials*
+# This one bit on 2026-08-10 too: bin/require_signing_credentials.sh, a guard
+# script holding no secret at all, was silently skipped by `git add -A`. The
+# commit pushed without it and cut.yml was left calling a file absent from the
+# repo. Caught only because its test asserts the script exists. Renamed to
+# bin/require_signing_secrets.sh rather than adding a second negation below --
+# for a file we own, a rename is cheaper than an exception to a security rule.
+# If you add a script whose name contains any word on this list, check
+# `git check-ignore -v <path>` BEFORE you commit.
 *token*
+# Vendored Doctor source module (NOT a secret) - the broad *token* guard above
+# otherwise swallows it, which dropped it from the vendor and blanked the iOS
+# Pairing tab (chat_token.py is lazy-imported by web_ui.py). Keep tracked.
+!vendor/doctor/agent/chat_token.py
 secrets/
 credentials/
 
@@ -33,6 +57,13 @@ venv/
 *.egg-info/
 dist/
 build/
+
+# W8 / F6: the signed Safari extension .app.zip is a binary build artefact
+# produced by CM020's bin/build-safari-extension.sh and staged here by ORM at
+# cut time. It is large + signed-per-cut, so it is NOT committed to git; the
+# vendor/extensions/ directory is kept tracked via its .gitkeep so the path
+# exists for the staging step.
+vendor/extensions/OstlerSafariExtension.app.zip
 
 # IDE
 .vscode/
@@ -90,3 +121,13 @@ assistant-agent/bin/
 # at xcodebuild time. NOT tracked in source -- the tarball is recreated
 # on every `make ship` run.
 assistant-agent/OstlerAssistant.app/
+
+# F1 hygiene: never bundle stale python-build output (pre-F1 consent_cli)
+vendor/ostler_security/build/
+**/*.egg-info/
+
+# tests/test_wiki_tailnet_gate.sh scratch (repo-local so Docker Desktop can bind-mount it)
+.wiki-gate-test.*
+
+# scratch dir for tests/test_pinned_wiki_image_has_design_system.sh
+.wikicheck.*/

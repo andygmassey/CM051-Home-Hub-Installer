@@ -22,20 +22,31 @@ fix issues).
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
+import re
 import urllib.parse
 from collections import deque
 from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+import httpx
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 
 from status_collector import (
     collect_full_snapshot,
     SystemSnapshot,
     detect_ostler_prefix,
+    is_native_deployment,
     is_ostler_container,
     EXPECTED_OSTLER_SERVICES,
 )
@@ -44,9 +55,11 @@ from first_run import is_first_run, get_wizard_steps, render_wizard, mark_setup_
 from dashboard_components import (
     all_observability_postures,
     render_consent_status,
+    render_imessage_tcc_posture,
     render_observability_posture,
+    render_reminders_posture,
+    render_reminders_runtime,
     render_security_posture,
-    render_subscription_banner,
 )
 from web_ui_copy import (
     ALL_HEALTHY_DETAIL,
@@ -61,21 +74,47 @@ from web_ui_copy import (
     CONTAINER_NOT_RUNNING_FIX,
     CONTAINER_NOT_RUNNING_FIX_COMMAND,
     CONTAINER_NOT_RUNNING_TITLE_FMT,
+    DASHBOARD_ALERT_COPY_FAIL,
     DASHBOARD_ALERT_REPORT_ERROR_FMT,
     DASHBOARD_ALERT_REPORT_FAIL,
     DASHBOARD_BTN_AUTO_OFF,
     DASHBOARD_BTN_AUTO_ON,
+    DASHBOARD_BTN_COPIED,
+    DASHBOARD_BTN_COPY_RAW,
+    DASHBOARD_BTN_COPY_RAW_TITLE,
+    DASHBOARD_BTN_COPY_REDACTED,
+    DASHBOARD_BTN_COPY_REDACTED_TITLE,
     DASHBOARD_BTN_EMAIL,
     DASHBOARD_BTN_EMAIL_PREPARING,
     DASHBOARD_BTN_EMAIL_TITLE,
     DASHBOARD_BTN_REFRESH,
+    DASHBOARD_BTN_SETTINGS,
+    DASHBOARD_BTN_SETTINGS_TITLE,
     DASHBOARD_FIX_LABEL_FMT,
     DASHBOARD_FIX_NOTE,
     DASHBOARD_HEADING,
     DASHBOARD_HELP_PARAGRAPH_1,
     DASHBOARD_HELP_PARAGRAPH_2,
     DASHBOARD_HOSTNAME_UNKNOWN,
+    CONFIG_BTN_SAVE,
+    CONFIG_BTN_SAVING,
+    CONFIG_ERR_LOAD_PREFIX,
+    CONFIG_ERR_SAVE_GENERIC,
+    CONFIG_ERR_SAVE_PREFIX,
+    CONFIG_HEADING,
+    CONFIG_META_FOOTER,
+    CONFIG_OPT_UNSET,
+    CONFIG_READONLY_INTRO,
+    CONFIG_SAVED,
+    CONFIG_SECRET_SET,
+    CONFIG_SECRET_UNSET,
+    CONFIG_SECTION_READONLY,
+    CONFIG_SUBTITLE,
+    CONFIG_TITLE_TAG,
+    DASHBOARD_CONFIG_LINK,
     DASHBOARD_IMPORT_EVERNOTE_LINK,
+    DASHBOARD_PAIR_IOS_LINK,
+    DASHBOARD_WHATSAPP_PAIR_LINK,
     DASHBOARD_LAST_CHECKED_JUST_NOW,
     DASHBOARD_LAST_CHECKED_PREFIX,
     DASHBOARD_LAST_CHECKED_SUFFIX,
@@ -162,6 +201,44 @@ from web_ui_copy import (
     OLLAMA_MODELS_DISK_USE_FIX,
     OLLAMA_MODELS_DISK_USE_FIX_COMMAND,
     OLLAMA_MODELS_DISK_USE_TITLE_FMT,
+    PAIR_IOS_BTN_REGENERATE,
+    PAIR_IOS_BTN_REGENERATING,
+    PAIR_IOS_CAMERA_HINT_HTML,
+    PAIR_IOS_DISABLED_DETAIL,
+    PAIR_IOS_DISABLED_TITLE,
+    PAIR_IOS_EMPTY_DETAIL,
+    PAIR_IOS_EMPTY_TITLE,
+    PAIR_IOS_ENVELOPE_INVALID_DETAIL,
+    PAIR_IOS_ENVELOPE_INVALID_TITLE,
+    PAIR_IOS_ERROR_NETWORK_PREFIX,
+    PAIR_IOS_ERROR_REGENERATE_PREFIX,
+    PAIR_IOS_HEADING,
+    PAIR_IOS_HUB_ADDR_LABEL,
+    PAIR_IOS_INTRO_HTML,
+    PAIR_IOS_META_FOOTER_HTML,
+    PAIR_IOS_NETWORK_BANNER_HTML,
+    PAIR_IOS_NO_CODE_DETAIL,
+    PAIR_IOS_NO_CODE_TITLE,
+    PAIR_IOS_QR_RENDER_DETAIL,
+    PAIR_IOS_QR_RENDER_TITLE,
+    PAIR_IOS_SECTION_CODE,
+    PAIR_IOS_SUBTITLE,
+    PAIR_IOS_TITLE_TAG,
+    WHATSAPP_PAIR_BACK_LINK,
+    WHATSAPP_PAIR_COUNTDOWN_PREFIX,
+    WHATSAPP_PAIR_EXPIRED_HELP,
+    WHATSAPP_PAIR_EXPIRED_TITLE,
+    WHATSAPP_PAIR_HEADING,
+    WHATSAPP_PAIR_LEDE,
+    WHATSAPP_PAIR_LOADING,
+    WHATSAPP_PAIR_NOT_REQUESTED_HELP,
+    WHATSAPP_PAIR_NOT_REQUESTED_TITLE,
+    WHATSAPP_PAIR_POLL_MS,
+    WHATSAPP_PAIR_READY_HELP,
+    WHATSAPP_PAIR_READY_INSTRUCTION,
+    WHATSAPP_PAIR_TITLE_TAG,
+    WHATSAPP_PAIR_UNREADABLE_HELP,
+    WHATSAPP_PAIR_UNREADABLE_TITLE,
     PORT_CONFLICT_DETAIL_FMT,
     PORT_CONFLICT_FIX,
     PORT_CONFLICT_FIX_COMMAND_FMT,
@@ -177,6 +254,8 @@ from web_ui_copy import (
     REPORT_HOST_OS_LABEL,
     REPORT_NOTES_PLACEHOLDER,
     REPORT_OLLAMA_LABEL,
+    REPORT_REDACTED_BANNER,
+    REPORT_REDACTED_PLACEHOLDER,
     REPORT_SECTION_CONTAINERS,
     REPORT_SECTION_DISK,
     REPORT_SECTION_FINDINGS,
@@ -191,9 +270,18 @@ from web_ui_copy import (
     SERVICE_UNREACHABLE_FIX_COMMAND_FMT,
     SERVICE_UNREACHABLE_FIX_FMT,
     SERVICE_UNREACHABLE_TITLE_FMT,
+    SUPPORT_SECTION_INTRO,
+    SUPPORT_SECTION_TITLE,
 )
 
 app = FastAPI(title=APP_TITLE)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@creativemachines.ai")
 
@@ -248,12 +336,24 @@ def run_local_diagnostics(snapshot: SystemSnapshot) -> list[dict]:
     # Check Docker containers. Detect the deployment's prefix dynamically
     # so we work for productised installs (ostler-) and the dev compose
     # setup (pwg-).
+    #
+    # This Docker-container management section is suppressed on the
+    # productised native build. NOTE: native does NOT mean "no Docker" --
+    # the data tier (Qdrant/Oxigraph/Redis) runs in containers via Colima
+    # even here. The section is suppressed because its criticals are framed
+    # around Docker *Desktop* container management, which is false-RED on a
+    # healthy native install (Colima, not Docker Desktop) and leads the
+    # support-email report. A genuine data-tier outage is already surfaced
+    # by the per-service unreachable rules, so suppressing this loses no
+    # coverage. The legacy Docker-Desktop dev deploy opts back in via
+    # OSTLER_DEPLOY_MODE=docker. See is_native_deployment().
+    docker_deployment = not is_native_deployment()
     prefix = detect_ostler_prefix(snapshot)
     expected_containers = {f"{prefix}{svc}" for svc in EXPECTED_OSTLER_SERVICES}
     running_names = {c.name for c in snapshot.docker_containers if c.state == "running"}
     missing = expected_containers - running_names
 
-    if not snapshot.docker_containers:
+    if docker_deployment and not snapshot.docker_containers:
         findings.append({
             "severity": "critical",
             "title": DOCKER_NOT_RUNNING_TITLE,
@@ -262,7 +362,7 @@ def run_local_diagnostics(snapshot: SystemSnapshot) -> list[dict]:
             "fix_command": DOCKER_NOT_RUNNING_FIX_COMMAND,
             "risk": "low",
         })
-    elif missing:
+    elif docker_deployment and missing:
         for name in missing:
             findings.append({
                 "severity": "critical",
@@ -569,6 +669,324 @@ def _build_mailto(report: str, version: str = "1.0.0") -> str:
     return f"mailto:{SUPPORT_EMAIL}?{params}"
 
 
+# ── Redacted diagnostics (the "Copy redacted" action) ────────────────
+#
+# The raw report is already low-PII by design: ``_format_report`` builds
+# from ``status_collector``'s safe snapshot and deliberately omits the
+# hostname. The one realistic leak vector is free-text inside findings:
+# disk mount points and suggested ``fix_command`` lines can carry
+# ``/Users/<username>/...`` paths, and a misbehaving service URL could
+# surface an email or IP. ``_redact_report`` does a deterministic,
+# offline scrub of exactly those classes.
+#
+# Why a deterministic regex scrub and not the OPF model
+# (``ostler_security.opf_filter``)? OPF needs onnxruntime + a pinned ONNX
+# model on disk; neither is guaranteed present on a fresh Doctor install,
+# and a 50M-param MoE is heavy artillery for a structured, mostly-known
+# report. A field-shaped scrub is on-device, dependency-free and
+# predictable. OPF remains the documented upgrade path for free-text
+# blobs (see launch/SCOPE_doctor_support_diagnostics_2026-06-21.md).
+
+# Standard email and IPv4 patterns.
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+_IPV4_RE = re.compile(
+    r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
+)
+
+# Credential-shaped values that must never leave the machine in a report the
+# customer is about to paste into an email.
+#
+# WHY THIS EXISTS, and what was actually measured rather than assumed:
+#
+# The daemon prints a live WhatsApp pair code to its own stderr, which launchd
+# writes to ``~/.ostler/logs/ostler-assistant.err``. That is the SAME directory
+# the diagnostics bundle tails from. It was raised as a possible leak, so it was
+# measured rather than argued: ``_LOG_FILENAMES`` is an explicit two-item tuple
+# (``doctor.log``, ``doctor.err``) with no globbing, and the substring
+# ``ostler-assistant.err`` appears nowhere under the Doctor tree. **The pair
+# code does not reach the bundle today.**
+#
+# So this is not a fix for a live leak. It is a guard, because the only thing
+# keeping a credential out of a support email is one two-item tuple in a
+# neighbouring function, and "collect all the logs in the logs directory" is the
+# single most natural improvement anyone will ever make to that code. The scrub
+# costs one regex and removes the class.
+#
+# Anchored on the LABEL, not on the shape of the value. An 8-character
+# alphanumeric token has no distinguishing shape: a pattern loose enough to
+# catch it would redact ordinary words out of every log line and make the whole
+# report useless, which is how a scrub gets switched off.
+#
+# GRAFTED into the vendor tree, not re-vendored (HR015 a1245dc6). CM051's doctor
+# pin is held deliberately, so reconstruction is source@pinned_sha +
+# vendor/divergences/doctor.patch. Only the guard is grafted: a1245dc6's other
+# half, agent/whatsapp_pair.py, is a NEW file, and a new file has no durable
+# home here. sync_vendor.sh regenerates this patch via gen_patch on every sync
+# and gen_patch captures only files present in BOTH trees, so a hand-authored
+# new-file hunk is stripped on the next sync; the surviving mechanism for a
+# genuinely vendor-only file is vendor/VENDOR_ONLY.tsv, and whatsapp_pair.py
+# does NOT qualify because it exists upstream, just not at the held pin. It also
+# has no caller yet: a1245dc6 states the route and panel land separately, so
+# grafting the reader would add unreachable code the tooling cannot keep. It
+# arrives natively when the pin next moves.
+# THE `bearer` HOLE, measured rather than inherited. Upstream lists `bearer` as
+# a label, but every alternative requires a `:` or `=` immediately after it, and
+# the canonical form is ``Authorization: Bearer <token>`` -- the separator sits
+# before "Bearer", not after. So the label advertised coverage the pattern could
+# not deliver and a bearer token reached the report in the clear. Caught by
+# feeding the vendored _redact_report one header per label and requiring the
+# value to disappear; 15 of 16 dropped, `bearer` did not.
+#
+# Fixed by matching on ``authorization`` (the label that DOES carry a
+# separator) and consuming an optional ``bearer`` word before the value, so the
+# token is what gets replaced rather than the scheme name.
+#
+# DELIBERATE LIMIT, stated rather than left as a silent hole: a bare
+# ``Bearer <token>`` with no ``Authorization:`` in front of it is NOT matched.
+# Catching that needs `bearer\s+\S+`, which also eats ordinary prose ("the
+# bearer of that token"), and a scrub that mangles readable log lines is one
+# people switch off. Same reasoning upstream gives for anchoring on labels.
+_SECRET_LABEL_RE = re.compile(
+    r"(?i)\b(pair[\s_-]?code|pairing[\s_-]?code|access[\s_-]?token|api[\s_-]?key"
+    r"|verify[\s_-]?token|app[\s_-]?secret|authorization|bearer)\b\s*[:=]\s*"
+    r"(?:bearer\s+)?\S+"
+)
+
+
+def _home_username() -> str | None:
+    """Best-effort current username for home-path redaction.
+
+    Tries ``getpass.getuser`` first, then the basename of ``Path.home``.
+    Returns ``None`` if neither yields a usable value, in which case the
+    home-path scrub falls back to the generic ``/Users/<name>`` pattern.
+    """
+    try:
+        user = getpass.getuser()
+        if user:
+            return user
+    except Exception:
+        pass
+    try:
+        name = Path.home().name
+        return name or None
+    except Exception:
+        return None
+
+
+def _redact_report(report: str) -> str:
+    """Return *report* with identifying details removed, on-device.
+
+    Scrubs, in order: the operator's own home path (``/Users/<me>`` and
+    ``/home/<me>``), any other ``/Users/<x>`` or ``/home/<x>`` path
+    segment, email addresses and IPv4 addresses. A banner is prepended
+    so the recipient knows the report was redacted.
+    """
+    placeholder = REPORT_REDACTED_PLACEHOLDER
+    redacted = report
+
+    user = _home_username()
+    if user:
+        # Exact home paths for the current operator first.
+        for root in ("/Users/", "/home/"):
+            redacted = redacted.replace(
+                f"{root}{user}", f"{root}{placeholder}"
+            )
+
+    # Any remaining home-dir usernames (other accounts, sudo paths).
+    redacted = re.sub(
+        r"(/Users/|/home/)[^/\s\"']+",
+        lambda m: f"{m.group(1)}{placeholder}",
+        redacted,
+    )
+
+    redacted = _EMAIL_RE.sub(placeholder, redacted)
+    redacted = _IPV4_RE.sub(placeholder, redacted)
+
+    # Credential-shaped values last, so a token that happened to sit inside a
+    # path or beside an email is still caught after those substitutions have
+    # rewritten the text around it. Keeps the label, drops the value: support
+    # can still see THAT a pair code was in play, which is often the diagnosis,
+    # without receiving one that still works.
+    redacted = _SECRET_LABEL_RE.sub(
+        lambda m: f"{m.group(1)}: {placeholder}", redacted
+    )
+
+    return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
+
+
+# ── Diagnostics run (the "Run diagnostics" / send-to-Support core) ───
+#
+# Single fail-soft entry point shared by every action that needs the
+# diagnostic bundle: the dashboard "Copy diagnostics", "Copy redacted"
+# and "Send by Email" buttons, and any external "Run diagnostics" /
+# "send to Support" caller.
+#
+# Why fail-soft matters here: the dashboard fetches this over HTTP and a
+# raised handler returns a 500, which the browser surfaces as a bare
+# "Load failed" with no diagnostic data to send. On a fresh install some
+# probes (Docker, Ollama, half-open service sockets) can behave in ways
+# the rules engine was not exercised against, so a single rogue raise
+# anywhere in collection must not blank the whole panel. Each stage is
+# isolated; a failure degrades that one section and still yields a
+# well-formed, non-empty bundle the Support flow can use.
+
+# Doctor's own log files, written by the launchd job
+# (``StandardOutPath``/``StandardErrorPath`` -> ``~/.ostler/logs``).
+# Tailing the last few lines of these is the single most useful thing a
+# support request can carry, and it is on-device and low-PII.
+_LOG_TAIL_LINES = 40
+_LOG_FILENAMES = ("doctor.log", "doctor.err")
+
+
+def _ostler_logs_dir() -> Path:
+    """Resolve Doctor's log directory.
+
+    Honours ``OSTLER_LOGS_DIR`` then ``OSTLER_DIR`` (the installer sets
+    ``OSTLER_DIR=~/.ostler`` and points the launchd job's logs at
+    ``${OSTLER_DIR}/logs``); falls back to ``~/.ostler/logs``.
+    """
+    override = os.environ.get("OSTLER_LOGS_DIR")
+    if override:
+        return Path(override)
+    base = os.environ.get("OSTLER_DIR")
+    if base:
+        return Path(base) / "logs"
+    return Path.home() / ".ostler" / "logs"
+
+
+def _tail_log(path: Path, lines: int = _LOG_TAIL_LINES) -> str:
+    """Return the last *lines* lines of *path*, or an empty string.
+
+    Never raises: a missing or unreadable log is normal on a fresh
+    install and must not break the diagnostics bundle.
+    """
+    try:
+        if not path.is_file():
+            return ""
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+    tail = text.splitlines()[-lines:]
+    return "\n".join(tail)
+
+
+def _collect_log_tails() -> dict:
+    """Tail Doctor's own logs. Always returns a dict (possibly empty)."""
+    logs_dir = _ostler_logs_dir()
+    tails: dict[str, str] = {}
+    for name in _LOG_FILENAMES:
+        tail = _tail_log(logs_dir / name)
+        if tail:
+            tails[name] = tail
+    return tails
+
+
+def _run_diagnostics() -> dict:
+    """Gather the full diagnostic bundle, fail-soft.
+
+    Returns a well-formed, non-empty dict even when individual stages
+    fail. Keys:
+
+    - ``snapshot``        : JSON snapshot (service health, versions, disk)
+    - ``findings``        : deduplicated rule findings
+    - ``report``          : the human-readable report (raw)
+    - ``report_redacted`` : the same report, PII scrubbed on-device
+    - ``mailto``          : pre-filled support mailto: URL
+    - ``logs``            : last lines of Doctor's own log files
+    - ``errors``          : per-stage failures (empty when all is well)
+    """
+    errors: dict[str, str] = {}
+
+    # 1. Snapshot. The one stage we cannot meaningfully degrade past, but
+    #    still guard so a probe blow-up does not 500 the endpoint.
+    try:
+        snapshot = collect_full_snapshot()
+    except Exception as exc:  # pragma: no cover - defensive
+        errors["snapshot"] = f"{type(exc).__name__}: {exc}"
+        snapshot = _degraded_snapshot()
+
+    # 2. Findings from both rule sets, deduplicated by title.
+    findings: list[dict] = []
+    try:
+        findings = run_all_rules(snapshot) + run_local_diagnostics(snapshot)
+        seen: set = set()
+        findings = [
+            f for f in findings
+            if f.get("title") not in seen and not seen.add(f.get("title"))
+        ]
+    except Exception as exc:
+        errors["findings"] = f"{type(exc).__name__}: {exc}"
+        findings = []
+
+    # 3. Snapshot dict for JSON consumers.
+    try:
+        snap_dict = _snapshot_to_dict(snapshot)
+    except Exception as exc:  # pragma: no cover - defensive
+        errors["snapshot_dict"] = f"{type(exc).__name__}: {exc}"
+        snap_dict = {}
+
+    # Record history best-effort; never let it break the run.
+    try:
+        _record_snapshot(snapshot, findings)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+    # 4. Human-readable report (raw + redacted).
+    try:
+        report = _format_report(snapshot, findings)
+    except Exception as exc:
+        errors["report"] = f"{type(exc).__name__}: {exc}"
+        report = REPORT_HEADER
+    try:
+        report_redacted = _redact_report(report)
+    except Exception as exc:
+        errors["report_redacted"] = f"{type(exc).__name__}: {exc}"
+        report_redacted = report
+
+    # 5. Support mailto: URL.
+    try:
+        mailto = _build_mailto(report)
+    except Exception as exc:
+        errors["mailto"] = f"{type(exc).__name__}: {exc}"
+        mailto = f"mailto:{SUPPORT_EMAIL}"
+
+    # 6. Log tails (already fail-soft internally).
+    logs = _collect_log_tails()
+
+    return {
+        "snapshot": snap_dict,
+        "findings": findings,
+        "report": report,
+        # ``report_preview`` retained for older callers that read it.
+        "report_preview": report,
+        "report_redacted": report_redacted,
+        "mailto": mailto,
+        "logs": logs,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "errors": errors,
+    }
+
+
+def _degraded_snapshot() -> SystemSnapshot:
+    """A minimal valid snapshot for when collection itself failed.
+
+    Keeps the report/rules path working so the user still gets a bundle
+    they can send, clearly marked as degraded via the ``errors`` field.
+    """
+    return SystemSnapshot(
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        hostname="unknown",
+        os_version="unknown",
+        docker_containers=[],
+        ollama_models=[],
+        ollama_version=None,
+        disk_usage=[],
+        services=[],
+        network_checks=[],
+        docker_version=None,
+    )
+
+
 # ── HTML template ────────────────────────────────────────────────────
 
 
@@ -667,10 +1085,32 @@ def render_dashboard(
     # bundled wording-hash drifts from stored hash (renewal needed).
     consent_section = render_consent_status()
 
-    # Subscription state (Ostler Pro). Reads ``~/.ostler/state/subscription_state.json``
-    # written by subscription_gate.py. Apple-restraint posture: never red.
-    # Empty string on a brand-new install pre-license-verification.
-    subscription_section = render_subscription_banner()
+    # iMessage TCC posture (task #278): install-time snapshot of
+    # the macOS AppleEvents permission for Messages.app. Empty
+    # string when the marker is absent (fresh install before
+    # install.sh has run, or install with iMessage disabled). A
+    # silent denial here is one of the most common ways a daily
+    # brief never arrives, so surfacing it explicitly is part of
+    # the productisation posture story.
+    imessage_tcc_section = render_imessage_tcc_posture()
+
+    # Reminders (EventKit) posture (task #279): install-time snapshot
+    # of the macOS Reminders permission. Empty string when the marker
+    # is absent (fresh install before the probe has run, or an install
+    # with commitment capture disabled). A silent denial here blocks
+    # commitment -> Reminders writes -- Ostler says it will remember
+    # something, then the reminder never appears -- so surfacing it is
+    # the same productisation-posture story as the iMessage tile.
+    reminders_section = render_reminders_posture()
+
+    # Reminders runtime push outcome (task #279, runtime half): reads
+    # CM048's reminders_map SQLite table for what actually happened when
+    # the assistant pushed extracted commitments to the Reminders app.
+    # Amber when one or more pushes were refused with
+    # status='permission_denied' (access denied/revoked); empty string
+    # when no commitments have been pushed yet. Catches the case the
+    # install-time tile cannot: access granted at install, later revoked.
+    reminders_runtime_section = render_reminders_runtime()
 
     # Build findings
     findings_html = ""
@@ -719,7 +1159,7 @@ def render_dashboard(
            (assets/ostler.css on os001) shifted to a dark-mode admin
            dashboard palette. Components: header, status-grid + status-card,
            findings + fix-box, disk + model lists, chat. */
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
 
         :root {{
             --ostler-ink: #0d0b08;
@@ -801,6 +1241,7 @@ def render_dashboard(
             display: inline-flex;
             align-items: center;
             gap: 6px;
+            text-decoration: none;
         }}
         .refresh-btn:hover, .auto-refresh-btn:hover {{
             border-color: var(--ostler-accent);
@@ -1195,6 +1636,7 @@ def render_dashboard(
             </div>
             <div>
                 <div class="header-controls">
+                    <a class="refresh-btn" href="/config" id="settingsBtn" title="{DASHBOARD_BTN_SETTINGS_TITLE}">{DASHBOARD_BTN_SETTINGS}</a>
                     <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
                     <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
                     <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
@@ -1224,7 +1666,11 @@ def render_dashboard(
 
         {consent_section}
 
-        {subscription_section}
+        {imessage_tcc_section}
+
+        {reminders_section}
+
+        {reminders_runtime_section}
 
         <div class="section">
             <div class="section-title">{DASHBOARD_SECTION_MODELS}</div>
@@ -1234,6 +1680,18 @@ def render_dashboard(
         <div class="section">
             <div class="section-title">{DASHBOARD_SECTION_DISK}</div>
             <div id="diskContent">{disk_items}</div>
+        </div>
+
+        <div class="section" id="supportSection">
+            <div class="section-title">{SUPPORT_SECTION_TITLE}</div>
+            <p style="color:#94a3b8; line-height:1.6; margin-bottom:1rem;">
+                {SUPPORT_SECTION_INTRO}
+            </p>
+            <div class="header-controls" style="flex-wrap:wrap; gap:0.5rem;">
+                <button class="refresh-btn" id="copyRawBtn" onclick="copyDiagnostics(false)" title="{DASHBOARD_BTN_COPY_RAW_TITLE}">{DASHBOARD_BTN_COPY_RAW}</button>
+                <button class="refresh-btn" id="copyRedactedBtn" onclick="copyDiagnostics(true)" title="{DASHBOARD_BTN_COPY_REDACTED_TITLE}">{DASHBOARD_BTN_COPY_REDACTED}</button>
+                <button class="refresh-btn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
+            </div>
         </div>
 
         <div class="chat-section">
@@ -1247,7 +1705,7 @@ def render_dashboard(
         </div>
 
         <div class="meta" id="metaInfo">
-            {meta_info_html}{import_evernote_link}
+            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}{DASHBOARD_WHATSAPP_PAIR_LINK}
         </div>
     </div>
 
@@ -1418,6 +1876,34 @@ def render_dashboard(
             }});
         }};
 
+        // --- Copy diagnostics (raw or redacted, local-only) ---
+        // Pulls the report from the same /doctor/api/email-report
+        // endpoint that powers Send by Email, so there is one source of
+        // truth and nothing is assembled client-side. Redaction happens
+        // on the server, on-device.
+        window.copyDiagnostics = function(redacted) {{
+            const btn = document.getElementById(redacted ? 'copyRedactedBtn' : 'copyRawBtn');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            fetch('/doctor/api/email-report')
+                .then(r => r.json())
+                .then(data => {{
+                    const text = redacted ? (data && data.report_redacted) : (data && data.report);
+                    if (!text) {{
+                        alert('{DASHBOARD_ALERT_COPY_FAIL}');
+                        return;
+                    }}
+                    return navigator.clipboard.writeText(text).then(function() {{
+                        btn.innerHTML = '{DASHBOARD_BTN_COPIED}';
+                        setTimeout(function() {{ btn.innerHTML = original; }}, 1500);
+                    }});
+                }})
+                .catch(function() {{
+                    alert('{DASHBOARD_ALERT_COPY_FAIL}');
+                }})
+                .finally(() => {{ btn.disabled = false; }});
+        }};
+
         // --- Send by Email (local-only mailto) ---
         window.sendByEmail = function() {{
             const btn = document.getElementById('emailReportBtn');
@@ -1512,7 +1998,7 @@ def render_history(history_entries: list[dict]) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{HISTORY_TITLE_TAG}</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap');
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-panel: #1a1612;
@@ -1612,6 +2098,32 @@ def render_history(history_entries: list[dict]) -> str:
 # ── Endpoints ────────────────────────────────────────────────────────
 
 
+@app.get("/")
+async def front_door():
+    """Send the bare root to the dashboard. v1018-D023.
+
+    Every route on this service lives under /doctor or /api/v1, and nothing
+    served `/` at all, so the front door returned 404. A customer who opens the
+    Doctor at its host and port -- the only address they have been given -- gets
+    a 404 from a service that is running perfectly.
+
+    302 rather than 307 or 301, deliberately:
+      * 307 is FastAPI's RedirectResponse default and preserves the method,
+        meaningless for a browser hitting the root, and the D023 gate accepts
+        only 200/301/302 -- a 307 would leave the gate red.
+      * 301 is permanent and browsers cache it hard. If the dashboard ever
+        moves, every customer who visited once keeps the stale target.
+
+    GRAFTED into the vendor tree, not re-vendored: CM051's doctor pin is held
+    deliberately. Reconstruction is source@upstream + vendor/divergences/
+    doctor.patch. RedirectResponse was NOT imported in this copy -- grafting the
+    function alone would have turned a 404 into a NameError 500, which is worse,
+    so the import moved to the parenthesised form upstream already uses.
+    """
+    return RedirectResponse(url="/doctor", status_code=302)
+
+
+
 @app.get("/doctor", response_class=HTMLResponse)
 async def dashboard():
     """Serve the diagnostic dashboard or first-run wizard."""
@@ -1646,17 +2158,16 @@ async def dashboard():
 
 @app.get("/doctor/api/status", response_class=JSONResponse)
 async def api_status():
-    """Return raw system status as JSON (for programmatic access)."""
-    snapshot = collect_full_snapshot()
-    findings = run_local_diagnostics(snapshot)
-    findings.extend(run_all_rules(snapshot))
-    seen = set()
-    findings = [f for f in findings if f["title"] not in seen and not seen.add(f["title"])]
-    _record_snapshot(snapshot, findings)
-    snap_dict = _snapshot_to_dict(snapshot)
+    """Return raw system status as JSON (for programmatic access).
+
+    Powers the dashboard's 10s auto-refresh. Uses the same fail-soft
+    diagnostics core so a transient probe failure degrades a section
+    rather than 500-ing the poll and freezing the dashboard.
+    """
+    bundle = _run_diagnostics()
     return {
-        "snapshot": snap_dict,
-        "findings": findings,
+        "snapshot": bundle["snapshot"],
+        "findings": bundle["findings"],
     }
 
 
@@ -1669,14 +2180,28 @@ async def api_email_report():
     with a pre-filled subject and body. The user reviews the content
     and chooses whether to send. Nothing is sent automatically and
     nothing leaves the machine without the user's action.
+
+    Shares the fail-soft :func:`_run_diagnostics` core with
+    ``/doctor/api/diagnostics`` so every action that needs the report
+    has one source of truth and can never blank the panel with a 500.
+    The response is a superset of the historical shape (``mailto``,
+    ``report``, ``report_preview``, ``report_redacted``) so the existing
+    dashboard JavaScript keeps working unchanged.
     """
-    snapshot = collect_full_snapshot()
-    findings = run_all_rules(snapshot) + run_local_diagnostics(snapshot)
-    seen = set()
-    findings = [f for f in findings if f["title"] not in seen and not seen.add(f["title"])]
-    report = _format_report(snapshot, findings)
-    mailto = _build_mailto(report)
-    return {"mailto": mailto, "report_preview": report}
+    return _run_diagnostics()
+
+
+@app.get("/doctor/api/diagnostics", response_class=JSONResponse)
+async def api_diagnostics():
+    """Run diagnostics and return the full bundle.
+
+    The canonical "Run diagnostics" / "send to Support" endpoint. Returns
+    a well-formed, non-empty bundle (snapshot, findings, report, redacted
+    report, mailto, log tails) even when individual collection stages
+    fail, so the Support flow always has data to send. See
+    :func:`_run_diagnostics`.
+    """
+    return _run_diagnostics()
 
 
 @app.get("/doctor/history", response_class=HTMLResponse)
@@ -1693,7 +2218,67 @@ async def api_history():
 
 @app.get("/doctor/api/health")
 async def health():
+    # Test-only gate (env var OSTLER_TEST_DISABLE_HEALTH). When set to "1" the
+    # route returns 503 so the (B-lite) upgrade brain's 60s health poll times
+    # out and Row 6 of the upgrade matrix can deterministically force a
+    # rollback. Any other value (or unset) is a no-op. Unset in production.
+    if os.environ.get("OSTLER_TEST_DISABLE_HEALTH") == "1":
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unavailable",
+                "service": "ostler-doctor",
+                "test_gate": "OSTLER_TEST_DISABLE_HEALTH",
+            },
+        )
     return {"status": "healthy", "service": "ostler-doctor"}
+
+
+@app.get("/api/v1/box-status", response_class=JSONResponse)
+async def api_box_status():
+    """Aggregated live box status for the Hub header chip + Governor page.
+
+    The Hub WebView polls ``GET /api/v1/box-status`` on the Doctor
+    (:8089) roughly once a second (``web/src/lib/boxStatus.ts`` in
+    ostler-assistant). The chip is typed against ``BoxStatus`` and reads
+    ``status.state`` first; anything without a top-level ``state`` field
+    falls into the ``unknown`` branch and renders "Status unavailable".
+
+    This returns the correct ``BoxStatus`` shape from the slim
+    :mod:`box_status` aggregator: a real ``state`` band derived from
+    load / memory / resident-model pressure, plus the ``load``,
+    ``memory``, ``llm``, ``governor``, ``pause``, ``settling``,
+    ``running`` and ``attribution`` sub-objects the client reads.
+
+    Fail-soft by construction: :func:`box_status.box_status` never
+    raises -- every probe degrades its own field to ``None`` (or a
+    documented idle default) independently, so a transient probe failure
+    degrades a section rather than 500-ing the ~1 Hz poll. Only when the
+    aggregator genuinely cannot read *either* load or memory does
+    ``state`` become ``"unknown"`` (an honest "can't tell", not a
+    default). The whole call is still wrapped so an unexpected import or
+    environment failure returns a well-formed unknown payload instead of
+    a 500.
+    """
+    try:
+        from box_status import box_status as _box_status
+
+        return _box_status()
+    except Exception:
+        # Last-resort degrade: a well-formed, honest "unknown" payload the
+        # chip can render as "Status unavailable" -- never a 500 that would
+        # 404/500-spam the once-a-second poll.
+        return {
+            "state": "unknown",
+            "load": None,
+            "memory": None,
+            "llm": None,
+            "governor": None,
+            "pause": None,
+            "settling": None,
+            "running": [],
+            "attribution": None,
+        }
 
 
 @app.post("/api/v1/wiki/correct", response_class=JSONResponse)
@@ -1739,6 +2324,45 @@ async def api_wiki_correct(request: Request):
         return JSONResponse(
             {"error": f"oxigraph write failed: {exc}"},
             status_code=502,
+        )
+
+    return result
+
+
+@app.post("/api/v1/wiki/duplicates/decision", response_class=JSONResponse)
+async def api_wiki_duplicates_decision(request: Request):
+    """Record a duplicate-contact decision (#3 duplicates UX).
+
+    The CM044 "Possible duplicate contacts" page renders Combine /
+    Not-the-same buttons that POST here. We append the decision to
+    ``duplicates.yaml`` in the corrections dir; the CM041 resolver enacts
+    it on the next sweep (merge = forced union, distinct = permanent
+    never-merge) and the page reads it back to stop re-nagging. Thin HTTP
+    plumbing only -- schema + write live in ``duplicate_decision.py``.
+    """
+    from duplicate_decision import (
+        ValidationError as _DupError,
+        validate_payload as _validate,
+        write_decision as _write,
+    )
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return JSONResponse({"error": f"invalid JSON: {exc}"}, status_code=400)
+
+    try:
+        normalised = _validate(body)
+    except _DupError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+    try:
+        result = _write(normalised)
+    except _DupError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"could not record decision: {exc}"}, status_code=500,
         )
 
     return result
@@ -1790,6 +2414,220 @@ async def api_observability_posture():
     return all_observability_postures()
 
 
+# ── Wiki hydration status: UNAUTHENTICATED passthrough (#178) ─────────
+#
+# The wiki homepage's first-run "still settling" panel (CM044
+# ``compiler/hydration.py`` bakes it into the page HTML; a small JS
+# poller then auto-hides it once hydration completes) fetches
+# ``GET /api/v1/hydration/status``. That panel renders inside the wiki
+# iframe on :8044 and carries NO paired-iOS bearer. When this path is
+# served through the ``DOCTOR_PROXY_PATHS`` reverse proxy (below) it hits
+# ``proxy._is_paired_bearer`` and 401s ("client bearer is not a paired
+# token"), so BOTH the compile-time bake-check and the runtime auto-hide
+# poller silently fail and the panel bakes into the page forever (#178,
+# live-probed as a 401 on the Mini).
+#
+# The hydration payload is non-PII by construction -- per-phase counts,
+# states and an ETA only, no names, no content. The upstream ical-server
+# already marks it a PUBLIC route that never requires the service token
+# (``_PUBLIC_GET_PATHS`` in assistant_api/ical-server.py). So the Doctor
+# serves it UNAUTHENTICATED too, the same posture as ``/doctor/api/status``:
+# a dedicated explicit route that fetches the composite from the upstream
+# server-side (no Authorization forwarded) and returns the body verbatim,
+# 200 regardless of any inbound Authorization header.
+#
+# This route is registered BEFORE ``register_proxy_routes(app)`` so it wins
+# over the proxy catch-all: Starlette matches routes in registration order,
+# so an explicit ``/api/v1/hydration/status`` registered first takes
+# precedence over the same path the proxy would otherwise register from
+# ``DOCTOR_PROXY_PATHS``.
+
+_HYDRATION_STATUS_PATH = "/api/v1/hydration/status"
+# Loopback round-trip to the upstream composite; a few seconds is generous
+# and a wedged upstream must fail fast rather than hang the panel poll.
+_HYDRATION_UPSTREAM_TIMEOUT_SECONDS = 5.0
+
+
+async def _fetch_hydration_status(
+    gateway_url: "str | None" = None,
+    client: "httpx.AsyncClient | None" = None,
+) -> httpx.Response:
+    """Fetch the composite hydration status from the upstream ical-server.
+
+    The per-phase hydration feed is owned by the upstream (it combines the
+    wiki compiler's progress file with live Qdrant / Oxigraph / conversation
+    counts), so the Doctor cannot synthesise it from a local file -- it
+    fetches server-side. NO Authorization header is sent: the upstream marks
+    this a public route and the whole point of #178 is to serve it without a
+    paired bearer. Reuses ``proxy._gateway_base_url`` so the upstream base is
+    read from one place (``DOCTOR_GATEWAY_URL``; the customer install points
+    it at the loopback ical-server on :8090).
+
+    ``gateway_url`` / ``client`` exist for tests that inject a destination or
+    a mocked transport; production callers pass neither.
+    """
+    from proxy import _gateway_base_url  # single source of the upstream base
+
+    base = (gateway_url or _gateway_base_url()).rstrip("/")
+    url = base + _HYDRATION_STATUS_PATH
+    if client is not None:
+        return await client.get(
+            url, timeout=_HYDRATION_UPSTREAM_TIMEOUT_SECONDS
+        )
+    async with httpx.AsyncClient(
+        timeout=_HYDRATION_UPSTREAM_TIMEOUT_SECONDS
+    ) as new_client:
+        return await new_client.get(url)
+
+
+@app.get(_HYDRATION_STATUS_PATH)
+async def api_hydration_status() -> Response:
+    """Unauthenticated passthrough for the first-run wiki hydration panel.
+
+    Returns the upstream hydration JSON with a 200 whenever the upstream is
+    reachable, regardless of any inbound Authorization header -- there is no
+    bearer gate on this route (that is the #178 fix). On an upstream network
+    failure we mirror the proxy's honest 502 posture rather than fabricating
+    a "complete" payload that would wrongly hide the panel; the poller keeps
+    the panel visible and retries. Never 401s for auth reasons.
+    """
+    try:
+        upstream = await _fetch_hydration_status()
+    except (httpx.HTTPError, OSError) as exc:
+        # Upstream ical-server unreachable / timed out. Honest "cannot tell"
+        # so the wiki poller keeps the settling panel up and retries, instead
+        # of a 401 (the bug) or a fabricated done-state.
+        return Response(
+            content=json.dumps(
+                {"error": "upstream hydration status unreachable",
+                 "detail": exc.__class__.__name__}
+            ),
+            status_code=502,
+            media_type="application/json",
+        )
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        media_type=upstream.headers.get("content-type", "application/json"),
+    )
+
+
+# ── Governor: pause / resume / status (Doctor-owned control surface) ──
+#
+# CM051 GRAFT NOTE (v1018-D024). Taken verbatim from HR015 6639c79 (#282),
+# which lands AFTER the held doctor pinned_sha b0b3831, so this block does not
+# arrive from source and is carried by vendor/divergences/doctor.patch until
+# the pin next moves. Its backend, agent/pause_control.py, is grafted the same
+# way (a /dev/null new-file hunk in that patch). Without both, the Hub Governor
+# page's Pause button 404s -- which is exactly what shipped.
+# Gate: tests/test_doctor_governor_routes_vendored.sh
+#
+# The Hub Governor page + header status chip drive background-work Pause,
+# Resume and a live governor-status read against the Doctor (:8089) -- the
+# SAME origin as ``/api/v1/box-status`` and ``/api/v1/config``. These three
+# routes delegate to ``pause_control.py``, which reads/writes the
+# ``OSTLER_PAUSED`` / ``OSTLER_PAUSE_UNTIL`` keys in ``governor.env`` -- the
+# same file the shipped background engine (``ostler-resource-tier.sh``)
+# already consumes, so a pause here is honoured by every ``*-bundle-tick.sh``,
+# the wiki recompile tick and the daemon cron with NO new consumer wiring.
+# Live interactive chat is never gated by this.
+#
+# Registered BEFORE ``register_proxy_routes(app)`` (below) so these explicit
+# handlers win over the proxy catch-all (Starlette matches in registration
+# order). Without it, ``GET /api/v1/governor-status`` / ``/api/v1/pause`` fall
+# through to the gateway proxy and return SPA HTML and the POSTs 405.
+
+
+@app.get("/api/v1/governor-status", response_class=JSONResponse)
+async def api_governor_status():
+    """Live governor tier for the Governor page + acceptance gate.
+
+    Shape ``{enabled, tier, deferring}``: ``enabled`` reflects the
+    ``governor_enabled`` config, ``tier`` is the detected hardware tier
+    (``floor`` / ``low`` / ``high``, or ``null`` if the tier lib is
+    unreadable) and ``deferring`` is whether the governor is currently
+    holding non-essential work back. Reuses the exact helper
+    ``GET /api/v1/box-status`` uses so the two can never disagree. Fail-soft
+    to a minimal unknown payload -- never 500 the poll.
+    """
+    try:
+        from box_status import _governor
+
+        return _governor()
+    except Exception:
+        return {"enabled": True, "tier": None, "deferring": None}
+
+
+@app.get("/api/v1/pause", response_class=JSONResponse)
+async def api_pause_get():
+    """Current pause state read from ``governor.env``.
+
+    Shape ``{paused, expiry, indefinite, expiry_human, scope}``. Fail-soft to
+    "not paused" -- the same posture ``box_status._pause`` takes.
+    """
+    try:
+        from pause_control import read_state
+
+        return read_state()
+    except Exception:
+        return {"paused": False, "expiry": None, "indefinite": False,
+                "expiry_human": "", "scope": None}
+
+
+@app.post("/api/v1/pause", response_class=JSONResponse)
+async def api_pause_post(request: Request):
+    """Pause background work for a scope.
+
+    Body: ``{"scope": "hour" | "tonight" | "indefinite"}`` (a missing/blank
+    body defaults to an indefinite pause). Same cross-site guard as
+    ``/api/v1/config``: reject a POST whose ``Sec-Fetch-Site`` is present and
+    not same-origin. Returns the fresh pause state.
+    """
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse(
+            {"error": "Cross-site request refused"}, status_code=403
+        )
+
+    from pause_control import PauseError as _PauseError, set_pause
+
+    scope = "indefinite"
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and body.get("scope") is not None:
+            scope = str(body.get("scope"))
+    except Exception:
+        scope = "indefinite"  # no/blank body -> indefinite pause
+
+    try:
+        state = set_pause(scope)
+    except _PauseError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+    return JSONResponse(state, status_code=200)
+
+
+@app.post("/api/v1/resume", response_class=JSONResponse)
+async def api_resume_post(request: Request):
+    """Resume background work (clear the pause). Idempotent.
+
+    Same cross-site guard as ``/api/v1/pause``. Returns the fresh
+    (not-paused) state.
+    """
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse(
+            {"error": "Cross-site request refused"}, status_code=403
+        )
+
+    from pause_control import PauseError as _PauseError, resume
+
+    try:
+        state = resume()
+    except _PauseError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+    return JSONResponse(state, status_code=200)
+
+
 # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
 #
 # Forwards iOS-initiated CM019 paths to the local gateway over
@@ -1802,6 +2640,17 @@ async def api_observability_posture():
 from proxy import register_proxy_routes
 
 _registered_proxy_paths = register_proxy_routes(app)
+
+
+def _config_section_order() -> tuple[str, ...]:
+    """Section display order for the Configuration panel.
+
+    Imported lazily from ``config_panel`` so the panel's renderer and
+    its backend share one source of truth for section ordering.
+    """
+    from config_panel import SECTION_ORDER
+
+    return SECTION_ORDER
 
 
 # ── CM024 Evernote import (feature-flagged, launch-scope brief 2026-05-13) ──
@@ -1841,7 +2690,7 @@ def _render_import_evernote_page(active_job_id=None) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{EVERNOTE_TITLE_TAG}</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
@@ -2035,6 +2884,7 @@ def _render_import_evernote_page(active_job_id=None) -> str:
         }}
         .status-pill.running {{ background: var(--yellow); }}
         .status-pill.succeeded {{ background: var(--green); }}
+        .status-pill.partial {{ background: #d4a052; }}
         .status-pill.failed {{ background: var(--red); }}
         .status-meta {{
             font-family: var(--font-mono);
@@ -2181,9 +3031,12 @@ def _render_import_evernote_page(active_job_id=None) -> str:
             if (state.exit_code !== null && state.exit_code !== undefined) {{
                 bits.push('exit ' + state.exit_code);
             }}
+            // A degraded ('partial') import carries a human-facing note
+            // explaining what landed and what is pending; surface it.
+            if (state.note) bits.push(state.note);
             statusMeta.textContent = bits.join(' \\u00b7 ');
 
-            if (status === 'succeeded' || status === 'failed') {{
+            if (status === 'succeeded' || status === 'failed' || status === 'partial') {{
                 resetRow.style.display = '';
                 stopPolling();
                 // One last tail fetch to make sure the final output is shown.
@@ -2419,6 +3272,1184 @@ async def api_import_evernote_tail(job_id: str):
         return PlainTextResponse(_tail(job_id), status_code=200)
     except _Err as exc:
         return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
+# ── Pair iOS device panel (DFA-002) ──────────────────────────────────
+
+
+def _render_pair_ios_page() -> str:
+    """Render the Pair iOS device panel.
+
+    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
+    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
+    visually next to ``/doctor`` rather than feeling bolted on.
+
+    The QR image is rendered server-side as inline SVG and embedded in
+    the API JSON; the client just sets ``innerHTML``. No external
+    JavaScript libraries are loaded.
+    """
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{PAIR_IOS_TITLE_TAG}</title>
+    <style>
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
+        :root {{
+            --ostler-ink: #0d0b08;
+            --ostler-ink-deep: #07060a;
+            --ostler-panel: #1a1612;
+            --ostler-panel-elev: #221c16;
+            --ostler-chassis: #ECE8DD;
+            --ostler-accent: #C84545;
+            --ostler-accent-hover: #D76060;
+            --ostler-accent-warm: #E26A6A;
+            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
+            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --text: var(--ostler-chassis);
+            --text-secondary: rgba(236, 232, 221, 0.74);
+            --text-muted: rgba(236, 232, 221, 0.50);
+            --text-faint: rgba(236, 232, 221, 0.32);
+            --red: #d96666;
+            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+        }}
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        body {{
+            font-family: var(--font-body);
+            font-size: 15px;
+            line-height: 1.5;
+            background: var(--ostler-ink);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2.5rem 1.75rem;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }}
+        a {{ color: var(--ostler-accent); text-decoration: none; }}
+        a:hover {{ color: var(--ostler-accent-hover); }}
+        .container {{ max-width: 600px; margin: 0 auto; }}
+        h1 {{
+            font-family: var(--font-display);
+            font-size: 1.7rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.3rem;
+        }}
+        .subtitle {{
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+        }}
+        .subtitle a {{ color: var(--text-muted); }}
+        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
+        .section-title {{
+            font-family: var(--font-display);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--text-muted);
+            margin-bottom: 0.85rem;
+            font-weight: 500;
+        }}
+        .panel {{
+            background: var(--ostler-panel);
+            border: 1px solid var(--ostler-hairline-faint);
+            border-radius: 12px;
+            padding: 1.4rem 1.5rem;
+            box-shadow: var(--shadow-soft);
+            margin-bottom: 1.4rem;
+        }}
+        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
+        .help {{
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            margin-top: 0.55rem;
+            line-height: 1.55;
+        }}
+        .qr-wrap {{
+            display: flex;
+            justify-content: center;
+            margin: 0.6rem 0 0.4rem;
+        }}
+        .qr-frame {{
+            background: var(--ostler-chassis);
+            border-radius: 12px;
+            padding: 1rem;
+            box-shadow: var(--shadow-soft);
+        }}
+        .qr-frame svg {{
+            display: block;
+            width: 240px;
+            height: 240px;
+        }}
+        .hub-addr {{
+            font-family: var(--font-mono);
+            font-size: 0.92rem;
+            letter-spacing: 0.04em;
+            color: var(--text-secondary);
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 8px;
+            padding: 0.55rem 0.85rem;
+            text-align: center;
+            margin: 1rem 0 0.4rem;
+            user-select: all;
+            -webkit-user-select: all;
+        }}
+        .hub-addr-label {{
+            font-family: var(--font-display);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+            color: var(--text-muted);
+            text-align: center;
+            margin-top: 0.85rem;
+        }}
+        .camera-hint {{
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            text-align: center;
+            line-height: 1.5;
+            margin-top: 0.85rem;
+        }}
+        .empty-state-title {{
+            font-family: var(--font-display);
+            font-size: 1.05rem;
+            font-weight: 600;
+            margin-bottom: 0.55rem;
+            color: var(--text);
+        }}
+        .button-row {{
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+            margin-top: 1.1rem;
+            flex-wrap: wrap;
+        }}
+        button.secondary {{
+            font-family: var(--font-display);
+            font-weight: 500;
+            font-size: 0.85rem;
+            padding: 0.65rem 1.4rem;
+            border-radius: 999px;
+            cursor: pointer;
+            background: var(--ostler-panel);
+            color: var(--text-secondary);
+            border: 1px solid var(--ostler-hairline-soft);
+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s, border-color 0.18s, color 0.18s;
+        }}
+        button.secondary:hover {{
+            border-color: var(--ostler-accent);
+            color: var(--text);
+            background: var(--ostler-panel-elev);
+            transform: translateY(-1px);
+        }}
+        button.secondary:disabled {{
+            background: var(--ostler-panel);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            transform: none;
+            border-color: var(--ostler-hairline-faint);
+        }}
+        button:focus-visible {{
+            outline: 2px solid var(--ostler-accent);
+            outline-offset: 2px;
+        }}
+        .banner {{
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-size: 0.86rem;
+            margin-bottom: 1.2rem;
+            border-left: 3px solid var(--red);
+            background: rgba(217, 102, 102, 0.10);
+            color: var(--text);
+            display: none;
+        }}
+        .banner.visible {{ display: block; }}
+        .network-notice {{
+            padding: 0.7rem 1rem;
+            border-radius: 8px;
+            font-size: 0.82rem;
+            margin-bottom: 1.4rem;
+            border-left: 3px solid #e0a437;
+            background: rgba(224, 164, 55, 0.10);
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }}
+        .meta-bottom {{
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            color: var(--text-faint);
+            margin-top: 2rem;
+            padding-top: 1.1rem;
+            border-top: 1px solid var(--ostler-hairline-faint);
+            line-height: 1.55;
+        }}
+        @media (max-width: 720px) {{
+            body {{ padding: 1.4rem 1rem; }}
+            h1 {{ font-size: 1.4rem; }}
+            .qr-frame svg {{ width: 200px; height: 200px; }}
+            .hub-addr {{ font-size: 0.82rem; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{PAIR_IOS_HEADING}</h1>
+        <div class="subtitle">
+            {PAIR_IOS_SUBTITLE}
+        </div>
+
+        <div class="network-notice">{PAIR_IOS_NETWORK_BANNER_HTML}</div>
+
+        <div id="errorBanner" class="banner"></div>
+
+        <div id="codePanel" class="panel" style="display:none">
+            <div class="section-title">{PAIR_IOS_SECTION_CODE}</div>
+            <p>{PAIR_IOS_INTRO_HTML}</p>
+            <div class="qr-wrap">
+                <div class="qr-frame" id="qrFrame"></div>
+            </div>
+            <div class="camera-hint">{PAIR_IOS_CAMERA_HINT_HTML}</div>
+            <div class="hub-addr-label">{PAIR_IOS_HUB_ADDR_LABEL}</div>
+            <div class="hub-addr" id="hubAddr"></div>
+            <div class="button-row">
+                <button type="button" class="secondary" id="regenerateBtn">{PAIR_IOS_BTN_REGENERATE}</button>
+            </div>
+        </div>
+
+        <div id="emptyPanel" class="panel" style="display:none">
+            <div class="empty-state-title" id="emptyTitle"></div>
+            <p id="emptyDetail"></p>
+            <div class="button-row" id="emptyButtonRow" style="display:none">
+                <button type="button" class="secondary" id="regenerateBtnEmpty">{PAIR_IOS_BTN_REGENERATE}</button>
+            </div>
+        </div>
+
+        <div class="meta-bottom">
+            {PAIR_IOS_META_FOOTER_HTML}
+        </div>
+    </div>
+
+    <script>
+    (function() {{
+        const STATUS_POLL_MS = 15000;
+
+        const codePanel = document.getElementById('codePanel');
+        const emptyPanel = document.getElementById('emptyPanel');
+        const qrFrame = document.getElementById('qrFrame');
+        const hubAddrEl = document.getElementById('hubAddr');
+        const emptyTitle = document.getElementById('emptyTitle');
+        const emptyDetail = document.getElementById('emptyDetail');
+        const emptyButtonRow = document.getElementById('emptyButtonRow');
+        const regenerateBtn = document.getElementById('regenerateBtn');
+        const regenerateBtnEmpty = document.getElementById('regenerateBtnEmpty');
+        const errorBanner = document.getElementById('errorBanner');
+
+        function showError(msg) {{
+            errorBanner.textContent = msg;
+            errorBanner.classList.add('visible');
+        }}
+
+        function clearError() {{
+            errorBanner.classList.remove('visible');
+            errorBanner.textContent = '';
+        }}
+
+        function showCode(state) {{
+            emptyPanel.style.display = 'none';
+            codePanel.style.display = '';
+            qrFrame.innerHTML = state.qr_svg || '';
+            hubAddrEl.textContent = state.hub_addr || '';
+        }}
+
+        function showEmpty(title, detail, withRegenerate) {{
+            codePanel.style.display = 'none';
+            emptyPanel.style.display = '';
+            emptyTitle.innerHTML = title;
+            emptyDetail.innerHTML = detail;
+            emptyButtonRow.style.display = withRegenerate ? '' : 'none';
+        }}
+
+        function renderState(state) {{
+            if (state.available && state.qr_svg) {{
+                showCode(state);
+                return;
+            }}
+            switch (state.error_kind) {{
+                case 'pairing_disabled':
+                    showEmpty(
+                        '{PAIR_IOS_DISABLED_TITLE}',
+                        '{PAIR_IOS_DISABLED_DETAIL}',
+                        false
+                    );
+                    break;
+                case 'no_code_active':
+                    showEmpty(
+                        '{PAIR_IOS_NO_CODE_TITLE}',
+                        '{PAIR_IOS_NO_CODE_DETAIL}',
+                        true
+                    );
+                    break;
+                case 'qr_render_failed':
+                    showEmpty(
+                        '{PAIR_IOS_QR_RENDER_TITLE}',
+                        '{PAIR_IOS_QR_RENDER_DETAIL}',
+                        true
+                    );
+                    break;
+                case 'gateway_envelope_invalid':
+                    showEmpty(
+                        '{PAIR_IOS_ENVELOPE_INVALID_TITLE}',
+                        '{PAIR_IOS_ENVELOPE_INVALID_DETAIL}',
+                        true
+                    );
+                    break;
+                default:
+                    // gateway_down / timeout / unreachable / http_error /
+                    // malformed -- all surface the same friendly "Hub not
+                    // ready yet" empty state.
+                    showEmpty(
+                        '{PAIR_IOS_EMPTY_TITLE}',
+                        '{PAIR_IOS_EMPTY_DETAIL}',
+                        false
+                    );
+            }}
+        }}
+
+        function fetchStatus() {{
+            fetch('/api/v1/pair/status')
+                .then(function(r) {{ return r.json(); }})
+                .then(function(state) {{
+                    clearError();
+                    renderState(state);
+                }})
+                .catch(function(err) {{
+                    showError('{PAIR_IOS_ERROR_NETWORK_PREFIX}' + err);
+                }});
+        }}
+
+        function regenerate(btn) {{
+            const originalLabel = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '{PAIR_IOS_BTN_REGENERATING}';
+            fetch('/api/v1/pair/regenerate', {{method: 'POST'}})
+                .then(function(r) {{ return r.json(); }})
+                .then(function(state) {{
+                    clearError();
+                    renderState(state);
+                }})
+                .catch(function(err) {{
+                    showError('{PAIR_IOS_ERROR_REGENERATE_PREFIX}' + err);
+                }})
+                .finally(function() {{
+                    btn.disabled = false;
+                    btn.textContent = originalLabel;
+                }});
+        }}
+
+        regenerateBtn.addEventListener('click', function() {{ regenerate(regenerateBtn); }});
+        regenerateBtnEmpty.addEventListener('click', function() {{ regenerate(regenerateBtnEmpty); }});
+
+        fetchStatus();
+        setInterval(fetchStatus, STATUS_POLL_MS);
+    }})();
+    </script>
+</body>
+</html>"""
+
+
+def _render_whatsapp_pair_page() -> str:
+    """Render the WhatsApp pair-code panel.
+
+    Vanilla HTML + JS, no framework, chassis tokens inlined the same way
+    ``_render_pair_ios_page`` does so the two pairing surfaces sit together
+    rather than one feeling bolted on.
+
+    THREE DESIGN RULES, each load-bearing:
+
+    1. The countdown renders the daemon's MEASURED ``expires_at``. Doctor
+       applies no TTL of its own. A countdown that disagrees with WhatsApp's is
+       worse than no countdown, because the customer trusts the one on screen.
+    2. The three error states read DIFFERENTLY, because they are different
+       problems with different next actions. Collapsing them to "no code
+       available" tells a stuck customer nothing.
+    3. The code is painted by the browser from JSON and is NEVER baked into the
+       served HTML. A pair code is credential-equivalent while it lives, so it
+       must not sit in a page a browser or a screenshot tool may cache.
+    """
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{WHATSAPP_PAIR_TITLE_TAG}</title>
+    <style>
+        /* PRIVACY: no webfont @import. A local-first product must not beacon
+           the customer IP+timestamp to a font CDN. Matches pair-ios. */
+        :root {{
+            --ostler-ink: #0d0b08;
+            --ostler-ink-deep: #07060a;
+            --ostler-chassis: #ECE8DD;
+            --ostler-accent: #C84545;
+            --ostler-accent-hover: #D76060;
+            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --text: var(--ostler-chassis);
+            --text-secondary: rgba(236, 232, 221, 0.74);
+            --text-muted: rgba(236, 232, 221, 0.50);
+            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+        }}
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        body {{
+            font-family: var(--font-body);
+            font-size: 15px;
+            line-height: 1.5;
+            background: var(--ostler-ink);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2.5rem 1.75rem;
+            -webkit-font-smoothing: antialiased;
+        }}
+        a {{ color: var(--ostler-accent); text-decoration: none; }}
+        a:hover {{ color: var(--ostler-accent-hover); }}
+        .container {{ max-width: 600px; margin: 0 auto; }}
+        h1 {{
+            font-family: var(--font-display);
+            font-size: 1.7rem;
+            font-weight: 600;
+            margin-bottom: 0.6rem;
+        }}
+        .lede {{ color: var(--text-secondary); margin-bottom: 1.4rem; }}
+        .panel {{
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: var(--shadow-soft);
+        }}
+        .label {{ margin-bottom: 1rem; line-height: 1.6; }}
+        .code-frame {{
+            background: var(--ostler-ink);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 10px;
+            padding: 1.1rem;
+            text-align: center;
+        }}
+        .code {{
+            font-family: var(--font-mono);
+            font-size: 2rem;
+            letter-spacing: 0.34em;
+            /* Trailing letter-spacing pushes the glyphs left of centre;
+               the matching indent pulls them back so the code sits square. */
+            text-indent: 0.34em;
+        }}
+        .countdown {{ margin-top: 0.9rem; color: var(--text-secondary); }}
+        .help {{
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            margin-top: 0.55rem;
+            line-height: 1.55;
+        }}
+        .back {{ margin-top: 1.5rem; font-size: 0.9rem; }}
+    </style>
+</head>
+<body>
+  <div class="container">
+    <h1>{WHATSAPP_PAIR_HEADING}</h1>
+    <p class="lede">{WHATSAPP_PAIR_LEDE}</p>
+
+    <section class="panel" aria-live="polite">
+      <div id="wa-loading" class="state">{WHATSAPP_PAIR_LOADING}</div>
+
+      <div id="wa-ready" class="state" hidden>
+        <p class="label">{WHATSAPP_PAIR_READY_INSTRUCTION}</p>
+        <div class="code-frame"><span id="wa-code" class="code"></span></div>
+        <p class="countdown">{WHATSAPP_PAIR_COUNTDOWN_PREFIX}
+          <span id="wa-remaining"></span>.</p>
+        <p class="help">{WHATSAPP_PAIR_READY_HELP}</p>
+      </div>
+
+      <div id="wa-not_requested" class="state" hidden>
+        <p class="label">{WHATSAPP_PAIR_NOT_REQUESTED_TITLE}</p>
+        <p class="help">{WHATSAPP_PAIR_NOT_REQUESTED_HELP}</p>
+      </div>
+
+      <div id="wa-expired" class="state" hidden>
+        <p class="label">{WHATSAPP_PAIR_EXPIRED_TITLE}</p>
+        <p class="help">{WHATSAPP_PAIR_EXPIRED_HELP}</p>
+      </div>
+
+      <div id="wa-unreadable" class="state" hidden>
+        <p class="label">{WHATSAPP_PAIR_UNREADABLE_TITLE}</p>
+        <p class="help">{WHATSAPP_PAIR_UNREADABLE_HELP}</p>
+      </div>
+    </section>
+
+    <p class="back"><a href="/doctor">{WHATSAPP_PAIR_BACK_LINK}</a></p>
+  </div>
+
+  <script>
+  (function () {{
+    var POLL_MS = {WHATSAPP_PAIR_POLL_MS};
+    var STATES = ["wa-loading", "wa-ready", "wa-not_requested",
+                  "wa-expired", "wa-unreadable"];
+
+    function show(id) {{
+      STATES.forEach(function (s) {{
+        var el = document.getElementById(s);
+        if (el) {{ el.hidden = (s !== id); }}
+      }});
+    }}
+
+    function humanise(secs) {{
+      if (secs === null || secs === undefined) {{ return "a moment"; }}
+      if (secs < 60) {{ return secs + " seconds"; }}
+      var m = Math.floor(secs / 60), r = secs % 60;
+      if (r === 0) {{ return m + (m === 1 ? " minute" : " minutes"); }}
+      return m + "m " + r + "s";
+    }}
+
+    function paint(data) {{
+      if (data && data.available) {{
+        // textContent, never innerHTML: the code is untrusted-by-policy
+        // output and must not be able to introduce markup.
+        document.getElementById("wa-code").textContent = data.code;
+        document.getElementById("wa-remaining").textContent =
+            humanise(data.seconds_remaining);
+        show("wa-ready");
+        return;
+      }}
+      var kind = (data && data.error_kind) || "unreadable";
+      if (STATES.indexOf("wa-" + kind) === -1) {{ kind = "unreadable"; }}
+      show("wa-" + kind);
+    }}
+
+    function tick() {{
+      fetch("/api/v1/whatsapp/pair")
+        .then(function (r) {{ return r.json(); }})
+        .then(paint)
+        // A fetch failure is Doctor being unreachable, not a bad pairing
+        // file. Reporting it as "unreadable" would send the customer to
+        // support for a page that just needs a reload.
+        .catch(function () {{ show("wa-loading"); }});
+    }}
+
+    tick();
+    setInterval(tick, POLL_MS);
+  }})();
+  </script>
+</body>
+</html>"""
+
+
+@app.get("/whatsapp-pair", response_class=HTMLResponse)
+async def whatsapp_pair_page():
+    """Render the WhatsApp pairing panel."""
+    return HTMLResponse(_render_whatsapp_pair_page())
+
+
+@app.get("/api/v1/whatsapp/pair", response_class=JSONResponse)
+async def api_whatsapp_pair():
+    """Return the current WhatsApp pair code and its state.
+
+    Read fresh on every call rather than cached: the code is short-lived and a
+    cached copy would outlive the thing it describes.
+    """
+    from whatsapp_pair import fetch_pair_status
+    return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
+
+
+@app.get("/pair-ios", response_class=HTMLResponse)
+async def pair_ios_page():
+    """Render the Pair iOS device panel (DFA-002)."""
+    return HTMLResponse(_render_pair_ios_page())
+
+
+@app.get("/api/v1/pair/status", response_class=JSONResponse)
+async def api_pair_status():
+    """Return the current pair code, QR SVG, and any error state."""
+    from pair_status import fetch_pair_status
+    return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
+
+
+@app.post("/api/v1/pair/regenerate", response_class=JSONResponse)
+async def api_pair_regenerate(request: Request):
+    """Rotate the pair code via the gateway and return the new shape.
+
+    Cross-origin POSTs from a malicious local browser tab can DOS the
+    pair code (rotate it under the customer's feet) even though the
+    same-origin policy blocks the attacker from reading the new code.
+    Modern browsers set ``Sec-Fetch-Site`` automatically; reject
+    anything that is not ``same-origin`` or ``none`` (the latter
+    covers direct navigation and bookmarks). Older browsers do not
+    send the header; in that case the request is allowed through and
+    the same-origin policy remains the defence-in-depth.
+    """
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse(
+            {"error": "Cross-site request refused"},
+            status_code=403,
+        )
+    from pair_status import fetch_pair_status
+    return JSONResponse(
+        fetch_pair_status(fresh=True).to_dict(), status_code=200,
+    )
+
+
+# ── Configuration panel (backlog #261) ───────────────────────────────
+#
+# A view-and-edit surface for the customer-safe Ostler settings file at
+# ``~/.ostler/config/config.yaml``. Read-first: it always renders the
+# current config; a small strict whitelist of fields (channel toggles,
+# model, schedule times, privacy default) can be edited and written
+# back. Secrets are never rendered -- secret-looking keys show
+# "set"/"not set" only. See ``config_panel.py`` for the schema, the
+# whitelist, validation, and the atomic write.
+
+
+def _render_config_page() -> str:
+    """Render the Doctor Configuration panel.
+
+    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
+    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
+    visually next to ``/doctor`` and ``/pair-ios``.
+
+    The form is built client-side from the ``/api/v1/config`` view
+    model, so the whitelist and current values live in one place
+    (``config_panel.py``) and the page stays in sync automatically.
+    """
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{CONFIG_TITLE_TAG}</title>
+    <style>
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
+        :root {{
+            --ostler-ink: #0d0b08;
+            --ostler-ink-deep: #07060a;
+            --ostler-panel: #1a1612;
+            --ostler-panel-elev: #221c16;
+            --ostler-chassis: #ECE8DD;
+            --ostler-accent: #C84545;
+            --ostler-accent-hover: #D76060;
+            --ostler-accent-warm: #E26A6A;
+            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --text: var(--ostler-chassis);
+            --text-secondary: rgba(236, 232, 221, 0.74);
+            --text-muted: rgba(236, 232, 221, 0.50);
+            --text-faint: rgba(236, 232, 221, 0.32);
+            --green: #5cb579;
+            --red: #d96666;
+            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+        }}
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        body {{
+            font-family: var(--font-body);
+            font-size: 15px;
+            line-height: 1.5;
+            background: var(--ostler-ink);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2.5rem 1.75rem;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }}
+        a {{ color: var(--ostler-accent); text-decoration: none; }}
+        a:hover {{ color: var(--ostler-accent-hover); }}
+        .container {{ max-width: 640px; margin: 0 auto; }}
+        h1 {{
+            font-family: var(--font-display);
+            font-size: 1.7rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.3rem;
+        }}
+        .subtitle {{
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+        }}
+        .subtitle a {{ color: var(--text-muted); }}
+        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
+        .section-title {{
+            font-family: var(--font-display);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--text-muted);
+            margin-bottom: 0.85rem;
+            font-weight: 500;
+        }}
+        .panel {{
+            background: var(--ostler-panel);
+            border: 1px solid var(--ostler-hairline-faint);
+            border-radius: 12px;
+            padding: 1.4rem 1.5rem;
+            box-shadow: var(--shadow-soft);
+            margin-bottom: 1.4rem;
+        }}
+        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
+        .field {{
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 0.85rem 0;
+            border-top: 1px solid var(--ostler-hairline-faint);
+        }}
+        .field:first-of-type {{ border-top: none; padding-top: 0.2rem; }}
+        .field-text {{ flex: 1 1 auto; min-width: 0; }}
+        .field-label {{
+            font-family: var(--font-display);
+            font-weight: 500;
+            font-size: 0.95rem;
+            color: var(--text);
+        }}
+        .field-help {{
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.2rem;
+            line-height: 1.5;
+        }}
+        .field-control {{ flex: 0 0 auto; padding-top: 0.1rem; }}
+        select {{
+            font-family: var(--font-body);
+            font-size: 0.88rem;
+            color: var(--text);
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 8px;
+            padding: 0.45rem 0.7rem;
+            min-width: 9rem;
+        }}
+        input[type="time"] {{
+            font-family: var(--font-mono);
+            font-size: 0.88rem;
+            color: var(--text);
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 8px;
+            padding: 0.4rem 0.6rem;
+            color-scheme: dark;
+        }}
+        select:focus, input:focus {{
+            outline: none;
+            border-color: var(--ostler-accent);
+        }}
+        /* Toggle switch */
+        .toggle {{
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 26px;
+        }}
+        .toggle input {{ opacity: 0; width: 0; height: 0; }}
+        .toggle .slider {{
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 999px;
+            transition: background 0.18s, border-color 0.18s;
+        }}
+        .toggle .slider::before {{
+            content: "";
+            position: absolute;
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            top: 3px;
+            background: var(--text-secondary);
+            border-radius: 50%;
+            transition: transform 0.18s, background 0.18s;
+        }}
+        .toggle input:checked + .slider {{
+            background: var(--ostler-accent);
+            border-color: var(--ostler-accent);
+        }}
+        .toggle input:checked + .slider::before {{
+            transform: translateX(18px);
+            background: var(--ostler-chassis);
+        }}
+        .toggle input:focus-visible + .slider {{
+            outline: 2px solid var(--ostler-accent);
+            outline-offset: 2px;
+        }}
+        .readonly-row {{
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 0.5rem 0;
+            border-top: 1px solid var(--ostler-hairline-faint);
+            font-size: 0.86rem;
+        }}
+        .readonly-row:first-of-type {{ border-top: none; }}
+        .readonly-key {{
+            font-family: var(--font-mono);
+            color: var(--text-secondary);
+            word-break: break-all;
+        }}
+        .readonly-val {{
+            font-family: var(--font-mono);
+            color: var(--text-muted);
+            text-align: right;
+        }}
+        .badge {{
+            font-family: var(--font-display);
+            font-size: 0.68rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            padding: 0.15rem 0.5rem;
+            border-radius: 999px;
+            border: 1px solid var(--ostler-hairline-soft);
+            color: var(--text-muted);
+        }}
+        .badge.set {{ color: var(--green); border-color: rgba(92,181,121,0.4); }}
+        .badge.secret {{ color: var(--text-faint); }}
+        .button-row {{
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+            margin-top: 1.1rem;
+            flex-wrap: wrap;
+        }}
+        button.primary {{
+            font-family: var(--font-display);
+            font-weight: 500;
+            font-size: 0.85rem;
+            padding: 0.65rem 1.5rem;
+            border-radius: 999px;
+            cursor: pointer;
+            background: var(--ostler-accent);
+            color: var(--ostler-chassis);
+            border: 1px solid var(--ostler-accent);
+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s;
+        }}
+        button.primary:hover {{
+            background: var(--ostler-accent-hover);
+            transform: translateY(-1px);
+        }}
+        button.primary:disabled {{
+            background: var(--ostler-panel);
+            color: var(--text-muted);
+            border-color: var(--ostler-hairline-faint);
+            cursor: not-allowed;
+            transform: none;
+        }}
+        button:focus-visible {{
+            outline: 2px solid var(--ostler-accent);
+            outline-offset: 2px;
+        }}
+        .config-path {{
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            color: var(--text-faint);
+        }}
+        .banner {{
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-size: 0.86rem;
+            margin-bottom: 1.2rem;
+            border-left: 3px solid var(--red);
+            background: rgba(217, 102, 102, 0.10);
+            color: var(--text);
+            display: none;
+        }}
+        .banner.visible {{ display: block; }}
+        .banner.ok {{
+            border-left-color: var(--green);
+            background: rgba(92, 181, 121, 0.10);
+        }}
+        .empty {{ color: var(--text-muted); font-size: 0.86rem; }}
+        .meta-bottom {{
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            color: var(--text-faint);
+            margin-top: 2rem;
+            padding-top: 1.1rem;
+            border-top: 1px solid var(--ostler-hairline-faint);
+            line-height: 1.55;
+        }}
+        @media (max-width: 720px) {{
+            body {{ padding: 1.4rem 1rem; }}
+            h1 {{ font-size: 1.4rem; }}
+            .field {{ flex-direction: column; }}
+            .field-control {{ align-self: flex-start; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{CONFIG_HEADING}</h1>
+        <div class="subtitle">
+            {CONFIG_SUBTITLE}
+        </div>
+
+        <div id="statusBanner" class="banner"></div>
+
+        <div id="editPanels"></div>
+
+        <div id="readonlyPanel" class="panel" style="display:none">
+            <div class="section-title">{CONFIG_SECTION_READONLY}</div>
+            <p>{CONFIG_READONLY_INTRO}</p>
+            <div id="readonlyRows"></div>
+        </div>
+
+        <div class="button-row">
+            <button type="button" class="primary" id="saveBtn">{CONFIG_BTN_SAVE}</button>
+            <span class="config-path" id="configPath"></span>
+        </div>
+
+        <div class="meta-bottom">
+            {CONFIG_META_FOOTER}
+        </div>
+    </div>
+
+    <script>
+    (function() {{
+        const editPanels = document.getElementById('editPanels');
+        const readonlyPanel = document.getElementById('readonlyPanel');
+        const readonlyRows = document.getElementById('readonlyRows');
+        const saveBtn = document.getElementById('saveBtn');
+        const statusBanner = document.getElementById('statusBanner');
+        const configPathEl = document.getElementById('configPath');
+
+        const SECTION_ORDER = {json.dumps(list(_config_section_order()))};
+
+        function showStatus(msg, ok) {{
+            statusBanner.textContent = msg;
+            statusBanner.className = 'banner visible' + (ok ? ' ok' : '');
+        }}
+        function clearStatus() {{
+            statusBanner.className = 'banner';
+            statusBanner.textContent = '';
+        }}
+
+        function esc(s) {{
+            const d = document.createElement('div');
+            d.textContent = s == null ? '' : String(s);
+            return d.innerHTML;
+        }}
+
+        function controlFor(field) {{
+            const id = 'cfg_' + field.key;
+            if (field.kind === 'bool') {{
+                const checked = field.value === true ? ' checked' : '';
+                return '<label class="toggle"><input type="checkbox" id="' + id +
+                    '" data-key="' + esc(field.key) + '" data-kind="bool"' + checked +
+                    '><span class="slider"></span></label>';
+            }}
+            if (field.kind === 'enum') {{
+                let opts = '';
+                if (field.value == null) {{
+                    opts += '<option value="" selected>{CONFIG_OPT_UNSET}</option>';
+                }}
+                field.choices.forEach(function(c) {{
+                    const sel = (c === field.value) ? ' selected' : '';
+                    opts += '<option value="' + esc(c) + '"' + sel + '>' + esc(c) + '</option>';
+                }});
+                return '<select id="' + id + '" data-key="' + esc(field.key) +
+                    '" data-kind="enum">' + opts + '</select>';
+            }}
+            if (field.kind === 'time') {{
+                const v = field.value == null ? '' : esc(field.value);
+                return '<input type="time" id="' + id + '" data-key="' + esc(field.key) +
+                    '" data-kind="time" value="' + v + '">';
+            }}
+            return '';
+        }}
+
+        function renderEdit(view) {{
+            editPanels.innerHTML = '';
+            const bySection = {{}};
+            view.editable.forEach(function(f) {{
+                (bySection[f.section] = bySection[f.section] || []).push(f);
+            }});
+            SECTION_ORDER.forEach(function(section) {{
+                const fields = bySection[section];
+                if (!fields || !fields.length) return;
+                let rows = '';
+                fields.forEach(function(f) {{
+                    rows += '<div class="field"><div class="field-text">' +
+                        '<div class="field-label">' + esc(f.label) + '</div>' +
+                        '<div class="field-help">' + esc(f.help) + '</div></div>' +
+                        '<div class="field-control">' + controlFor(f) + '</div></div>';
+                }});
+                editPanels.insertAdjacentHTML('beforeend',
+                    '<div class="panel"><div class="section-title">' + esc(section) +
+                    '</div>' + rows + '</div>');
+            }});
+        }}
+
+        function renderReadonly(view) {{
+            if (!view.read_only || !view.read_only.length) {{
+                readonlyPanel.style.display = 'none';
+                return;
+            }}
+            readonlyPanel.style.display = '';
+            let rows = '';
+            view.read_only.forEach(function(r) {{
+                let right;
+                if (r.is_secret) {{
+                    const cls = r.is_set ? 'badge set secret' : 'badge secret';
+                    right = '<span class="' + cls + '">' +
+                        (r.is_set ? '{CONFIG_SECRET_SET}' : '{CONFIG_SECRET_UNSET}') + '</span>';
+                }} else {{
+                    right = '<span class="readonly-val">' + esc(r.value) + '</span>';
+                }}
+                rows += '<div class="readonly-row"><span class="readonly-key">' +
+                    esc(r.key) + '</span>' + right + '</div>';
+            }});
+            readonlyRows.innerHTML = rows;
+        }}
+
+        function render(view) {{
+            renderEdit(view);
+            renderReadonly(view);
+            configPathEl.textContent = view.config_path || '';
+        }}
+
+        function load() {{
+            fetch('/api/v1/config')
+                .then(function(r) {{ return r.json(); }})
+                .then(function(view) {{
+                    if (view.error) {{ showStatus(view.error, false); return; }}
+                    clearStatus();
+                    render(view);
+                }})
+                .catch(function(err) {{
+                    showStatus('{CONFIG_ERR_LOAD_PREFIX}' + err, false);
+                }});
+        }}
+
+        function collectUpdates() {{
+            const updates = {{}};
+            const controls = editPanels.querySelectorAll('[data-key]');
+            controls.forEach(function(el) {{
+                const key = el.getAttribute('data-key');
+                const kind = el.getAttribute('data-kind');
+                if (kind === 'bool') {{
+                    updates[key] = el.checked;
+                }} else {{
+                    const v = el.value;
+                    if (v !== '') updates[key] = v;
+                }}
+            }});
+            return updates;
+        }}
+
+        function save() {{
+            const updates = collectUpdates();
+            const label = saveBtn.textContent;
+            saveBtn.disabled = true;
+            saveBtn.textContent = '{CONFIG_BTN_SAVING}';
+            fetch('/api/v1/config', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify(updates)
+            }})
+                .then(function(r) {{ return r.json().then(function(b) {{ return {{ok: r.ok, body: b}}; }}); }})
+                .then(function(res) {{
+                    if (!res.ok) {{
+                        showStatus(res.body.error || '{CONFIG_ERR_SAVE_GENERIC}', false);
+                        return;
+                    }}
+                    render(res.body);
+                    showStatus('{CONFIG_SAVED}', true);
+                }})
+                .catch(function(err) {{
+                    showStatus('{CONFIG_ERR_SAVE_PREFIX}' + err, false);
+                }})
+                .finally(function() {{
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = label;
+                }});
+        }}
+
+        saveBtn.addEventListener('click', save);
+        load();
+    }})();
+    </script>
+</body>
+</html>"""
+
+
+@app.get("/config", response_class=HTMLResponse)
+async def config_page():
+    """Render the Doctor Configuration panel (backlog #261)."""
+    return HTMLResponse(_render_config_page())
+
+
+@app.get("/api/v1/config", response_class=JSONResponse)
+async def api_config_get():
+    """Return the current config view model.
+
+    Secrets are never included as values: secret-looking keys are
+    reported presence-only (set / not set). See ``config_panel.py``.
+    """
+    from config_panel import ConfigError as _ConfigError, read_config_view
+
+    try:
+        return JSONResponse(read_config_view(), status_code=200)
+    except _ConfigError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
+@app.post("/api/v1/config", response_class=JSONResponse)
+async def api_config_post(request: Request):
+    """Validate + persist a whitelist of safe config edits.
+
+    Same cross-site guard as the pair-regenerate route: reject any POST
+    whose ``Sec-Fetch-Site`` is present and not same-origin, so a
+    malicious local tab cannot mutate the customer's config under them.
+    Only whitelisted, non-secret fields are writable; everything else is
+    rejected by ``config_panel.write_config``.
+    """
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse(
+            {"error": "Cross-site request refused"},
+            status_code=403,
+        )
+
+    from config_panel import ConfigError as _ConfigError, write_config
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"invalid JSON: {exc}"}, status_code=400,
+        )
+
+    try:
+        view = write_config(body)
+    except _ConfigError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+    return JSONResponse(view, status_code=200)
 
 
 # ── Main ─────────────────────────────────────────────────────────────

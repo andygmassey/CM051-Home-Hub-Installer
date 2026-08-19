@@ -525,13 +525,17 @@ def _whatsapp_adapter(
 ) -> ConversationBundle:
     """Build the bundle for a WhatsApp conversation.
 
-    CM047 publishes WhatsApp threads via ZeroClaw's three Rust
-    tools (whatsapp_list_chats, whatsapp_read_history,
-    whatsapp_get_contact -- task #156 closed 2026-05-09). The
-    metadata payload arriving here carries chat_jid, chat_type
-    ("private" | "group"), participants (phone numbers),
-    group_subject (for groups), and the operator-applied
-    group_label / contact_label hints.
+    The publisher hands us a metadata dict; the v1.0 publisher
+    path is CM047's local ChatStorage.sqlite extractor (the
+    historical "three ZeroClaw Rust tools" plan -- whatsapp_list_
+    chats, whatsapp_read_history, whatsapp_get_contact, briefly
+    flagged as task #156 -- was never shipped into ostler-
+    assistant/crates/zeroclaw-tools/ and is dead code for v1.0;
+    re-introduce only if a live WhatsApp Web runtime use case
+    re-emerges post-launch). The metadata payload arriving here
+    carries chat_jid, chat_type ("private" | "group"),
+    participants (phone numbers), group_subject (for groups),
+    and the operator-applied group_label / contact_label hints.
 
     Privacy ladder (HR015 brief):
       L2  default
@@ -813,6 +817,27 @@ def _build_extra_metadata(
     location = metadata.get("location")
     if isinstance(location, str) and location.strip():
         extra["location"] = location.strip()
+    # Non-relational flag (bulk / marketing / no-reply email). Set
+    # upstream by ``processor.process`` via ``bulk_classifier`` so the
+    # on-disk bundle records that this "conversation" must not be
+    # attached to any participant's person page (CM044 reads it to keep
+    # a newsletter off the co-recipients' wiki pages while still
+    # rendering it as browseable content in the Conversations wing).
+    if metadata.get("non_relational"):
+        extra["non_relational"] = True
+        reason = metadata.get("non_relational_reason")
+        if isinstance(reason, str) and reason.strip():
+            extra["non_relational_reason"] = reason.strip()
+    # v1018-D021. Set by ``seed.seed_conversation`` on a bundle written
+    # WITHOUT a model call, so the page is browseable on the tick the
+    # thread arrives instead of weeks later. It must reach the frontmatter:
+    # CM044 renders from these artefacts and has no other way to tell a
+    # placeholder summary from a real one, and a reader has no way to tell
+    # "the assistant read this and this is what it said" from "nothing has
+    # read this yet". The full pass rewrites the same folder and, because
+    # it never sets the flag, clears it.
+    if metadata.get("enrichment_pending"):
+        extra["enrichment_pending"] = True
     return extra
 
 

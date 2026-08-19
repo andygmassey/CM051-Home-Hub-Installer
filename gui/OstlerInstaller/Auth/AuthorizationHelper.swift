@@ -276,4 +276,25 @@ actor AuthorizationHelper {
             NSWorkspace.shared.open(url)
         }
     }
+
+    /// CX-87: probe whether THIS app bundle currently holds Full Disk
+    /// Access. The user-domain TCC database is readable only with FDA,
+    /// so a successful read of one byte is a reliable positive signal.
+    /// Used by the front-loaded FDA gate so the quit-and-reopen happens
+    /// before any questions, not mid-install.
+    nonisolated func hasFullDiskAccess() -> Bool {
+        let tccPath = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Library/Application Support/com.apple.TCC/TCC.db")
+        guard FileManager.default.fileExists(atPath: tccPath),
+              let handle = FileHandle(forReadingAtPath: tccPath) else {
+            return false
+        }
+        defer { try? handle.close() }
+        // TCC denies the actual read (not just the open) without FDA.
+        if #available(macOS 10.15.4, *) {
+            return (try? handle.read(upToCount: 1)) != nil
+        } else {
+            return !handle.readData(ofLength: 1).isEmpty
+        }
+    }
 }

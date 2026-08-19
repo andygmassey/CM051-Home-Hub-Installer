@@ -226,6 +226,83 @@ class TimelineDegradedShapeTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# BW-3 – Timeline meeting de-duplication
+# ---------------------------------------------------------------------------
+
+
+class TimelineMeetingDedupeTests(unittest.TestCase):
+    """BW-3 / #663: the timeline must emit ONE entry per distinct meeting with
+    attendee names merged, never the meeting once per participant (the box-walk
+    double-entry bug). The historic past-side now sources from the graph via
+    ``_timeline_from_graph`` (``SELECT ... GROUP BY ?m``), so the per-meeting
+    collapse happens at the SPARQL level; these tests pin that one graph row =
+    one timeline item with all attendees, and distinct meetings stay separate."""
+
+    def _patch_no_calendar(self):
+        """Silence the calendar half so only the meeting path is exercised."""
+        return (
+            mock.patch.object(
+                ical_server.subprocess, "run",
+                side_effect=RuntimeError("no calendar in test"),
+            ),
+            mock.patch.object(
+                ical_server, "query_google_calendar",
+                side_effect=RuntimeError("no google cal in test"),
+            ),
+        )
+
+    def test_three_attendee_meeting_collapses_to_one_entry(self):
+        # The historic past-side now comes from the graph (one row PER MEETING,
+        # attendees GROUP_CONCAT'd) via _sparql_select - the collapse happens at
+        # the SPARQL level, not in Python. A 3-attendee dinner is one graph row.
+        graph_rows = [{
+            "m": "urn:dinner-2026-06-01",
+            "date": "2026-06-01",
+            "summary": "Dinner - Alexandre, Rhys & Andy",
+            "location": "Yu Chuan Club",
+            "attendees": "Alexandre|Rhys|Andy",
+        }]
+        p_run, p_gcal = self._patch_no_calendar()
+        with p_run, p_gcal, mock.patch.object(
+            ical_server, "_sparql_select", return_value=graph_rows
+        ):
+            result = ical_server.api_timeline(days=7)
+
+        meetings = [i for i in result["items"] if i.get("kind") == "meeting"]
+        self.assertEqual(
+            len(meetings), 1,
+            f"BW-3: a 3-attendee meeting must yield ONE item, got "
+            f"{len(meetings)}: {meetings!r}",
+        )
+        self.assertEqual(
+            sorted(meetings[0]["participants"]), ["Alexandre", "Andy", "Rhys"],
+            "BW-3: the single meeting entry must merge all attendee names",
+        )
+        # The CM031 `entries` projection must also carry exactly one row.
+        entry_meetings = [e for e in result["entries"] if e.get("type") == "meeting"]
+        self.assertEqual(len(entry_meetings), 1, "BW-3: entries[] must also dedupe")
+
+    def test_distinct_meetings_stay_separate(self):
+        # Two distinct meetings = two graph rows = two timeline items.
+        graph_rows = [
+            {"m": "urn:dinner", "date": "2026-06-01", "summary": "Dinner",
+             "location": "", "attendees": "Alexandre"},
+            {"m": "urn:tour", "date": "2026-07-08", "summary": "Campus tour",
+             "location": "", "attendees": "Bob"},
+        ]
+        p_run, p_gcal = self._patch_no_calendar()
+        with p_run, p_gcal, mock.patch.object(
+            ical_server, "_sparql_select", return_value=graph_rows
+        ):
+            result = ical_server.api_timeline(days=30)
+        meetings = [i for i in result["items"] if i.get("kind") == "meeting"]
+        self.assertEqual(
+            len(meetings), 2,
+            "BW-3: two genuinely distinct meetings must NOT be collapsed",
+        )
+
+
+# ---------------------------------------------------------------------------
 # F-2 – people_stale British spelling
 # ---------------------------------------------------------------------------
 
@@ -368,6 +445,257 @@ class ReadIso8601MarkerTests(unittest.TestCase):
             self.assertEqual(ical_server._read_sync_marker(path), "42")
         finally:
             path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# #596 – GET /api/v1/people (people_list) full-set + empty-by-design
+# ---------------------------------------------------------------------------
+
+
+class PeopleListEndpointTests(unittest.TestCase):
+    """#596: the Hub People page reads /api/v1/people and counts the rows it
+    returns. people_list must return the FULL Qdrant `people` set (paginated
+    scroll) as {people, total} with the same contact_type == person filter as
+    people_search / people_stale, so the Hub count matches the wiki. A missing
+    `people` collection is empty-by-design and must be calm, NOT an error."""
+
+    @staticmethod
+    def _fake_resp(body):
+        class _R:
+            def __enter__(self_inner):
+                return self_inner
+
+            def __exit__(self_inner, *args):
+                return False
+
+            def read(self_inner):
+                import json as _json
+                return _json.dumps(body).encode()
+
+        return _R()
+
+    def _point(self, pid, name, **payload):
+        pl = {"display_name": name, "contact_type": "person"}
+        pl.update(payload)
+        return {"id": pid, "payload": pl}
+
+    def test_shape_total_and_role_mapping(self):
+        page = {"result": {"points": [
+            self._point("p1", "Alice Example", organization="Example Corp"),
+            self._point("p2", "Bob Example", job_title="Builder"),
+        ], "next_page_offset": None}}
+        with mock.patch("urllib.request.urlopen",
+                        return_value=self._fake_resp(page)):
+            result = ical_server.people_list()
+        self.assertIn("people", result)
+        self.assertIn("total", result)
+        self.assertEqual(result["total"], 2)
+        self.assertEqual(len(result["people"]), 2,
+                         "total must equal len(people) so the Hub header "
+                         "count matches the wiki")
+        for row in result["people"]:
+            self.assertIn("id", row)
+            self.assertIn("name", row)
+            # Each row must carry slug + wiki_url so the Hub People tab
+            # can link the row through to the person's wiki page. Same
+            # slug derivation + WIKI_BASE_URL as people_search/recent.
+            self.assertIn("slug", row,
+                          "people_list row must emit slug so the Hub "
+                          "People row can click through")
+            self.assertIn("wiki_url", row,
+                          "people_list row must emit wiki_url so the Hub "
+                          "People row can click through")
+            self.assertEqual(row["slug"], ical_server._wiki_slug(row["name"]))
+            self.assertEqual(
+                row["wiki_url"],
+                f"{ical_server.WIKI_BASE_URL}/People/{row['slug']}/",
+            )
+            self.assertTrue(row["wiki_url"].endswith(f"/People/{row['slug']}/"))
+        by_name = {r["name"]: r for r in result["people"]}
+        # job_title preferred, organization fallback for the row's role.
+        self.assertEqual(by_name["Bob Example"]["role"], "Builder")
+        self.assertEqual(by_name["Alice Example"]["role"], "Example Corp")
+
+    def test_sort_recency_orders_desc_and_strips_internal_key(self):
+        page = {"result": {"points": [
+            self._point("old", "Old Contact", last_contact_ts=1_600_000_000),
+            self._point("new", "New Contact", last_contact_ts=1_900_000_000),
+        ], "next_page_offset": None}}
+        with mock.patch("urllib.request.urlopen",
+                        return_value=self._fake_resp(page)):
+            result = ical_server.people_list(sort="recency")
+        self.assertEqual([r["name"] for r in result["people"]],
+                         ["New Contact", "Old Contact"])
+        self.assertNotIn("_lc_ts", result["people"][0],
+                         "internal sort key must not leak onto the wire")
+
+    def test_missing_collection_is_empty_by_design(self):
+        import urllib.error
+        err = urllib.error.HTTPError(
+            "http://localhost:6333/collections/people/points/scroll",
+            404, "Not Found", {}, None)
+        with mock.patch("urllib.request.urlopen", side_effect=err):
+            result = ical_server.people_list()
+        self.assertEqual(result, {"people": [], "total": 0})
+        self.assertNotIn("error", result,
+                         "a missing collection is empty-by-design, not a fault")
+        self.assertNotIn("degraded", result)
+
+    def test_qdrant_down_degrades_not_crashes(self):
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=RuntimeError("connection refused")):
+            result = ical_server.people_list()
+        self.assertEqual(result["people"], [])
+        self.assertEqual(result["total"], 0)
+        self.assertTrue(result.get("degraded"))
+        self.assertIn("error", result)
+
+    def test_pagination_collects_every_page(self):
+        page1 = {"result": {"points": [self._point("p1", "Alice Example")],
+                            "next_page_offset": "cursor-2"}}
+        page2 = {"result": {"points": [self._point("p2", "Bob Example")],
+                            "next_page_offset": None}}
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=[self._fake_resp(page1),
+                                     self._fake_resp(page2)]):
+            result = ical_server.people_list()
+        self.assertEqual(result["total"], 2)
+        self.assertEqual({r["name"] for r in result["people"]},
+                         {"Alice Example", "Bob Example"})
+
+    def test_route_and_alias_registered_in_source(self):
+        source = ICAL_SERVER_PY.read_text(encoding="utf-8")
+        self.assertIn('"/api/v1/people":', source,
+                      "#596: /api/v1/people must remap to /people in the "
+                      "version alias table")
+        self.assertIn('if parsed.path == "/people":', source,
+                      "#596: a bare /people GET handler must exist")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/people/{slug}/enrichment – person-detail card payload.
+# Grafted from CM041 upstream so a People row (slug + wiki_url) resolves to
+# a 200 enrichment card instead of the deployed build's 404.
+# ---------------------------------------------------------------------------
+
+
+class PersonEnrichmentEndpointTests(unittest.TestCase):
+    """person_enrichment(slug) must resolve a known slug to a 200 card and
+    reject unknown / malformed slugs. SPARQL + Qdrant are mocked so the test
+    has no dependency on a running Oxigraph or Qdrant."""
+
+    _JANE_NAME = "Jane Doe"
+    _JANE_URI = "urn:pwg:person/jane-doe"
+
+    @staticmethod
+    def _qdrant_empty(*_args, **_kwargs):
+        class _Resp:
+            def __enter__(self_inner):
+                return self_inner
+
+            def __exit__(self_inner, *exc):
+                return False
+
+            def read(self_inner):
+                import json as _json
+                return _json.dumps({"result": {"points": []}}).encode()
+
+        return _Resp()
+
+    def _make_fake_sparql(self, *, core_row, identifiers=None, meetings=None,
+                          candidates=None):
+        cand_rows = candidates if candidates is not None else [
+            {"person": self._JANE_URI, "name": self._JANE_NAME},
+            {"person": "urn:pwg:person/other", "name": "Other Person"},
+        ]
+
+        def fake_sparql(query):
+            if ("pwg:Person" in query and "displayName" in query
+                    and "lastContactCalendar" not in query
+                    and "hasIdentifier" not in query):
+                return cand_rows
+            if "lastContactCalendar" in query:
+                return [core_row] if core_row is not None else []
+            if "hasIdentifier" in query:
+                return identifiers or []
+            if "PersonFact" in query:
+                return []
+            if "pwg:Meeting" in query:
+                return meetings or []
+            if "urn:pwg:warmth" in query:
+                return []
+            return []
+
+        return fake_sparql
+
+    def test_known_slug_returns_200_with_person(self):
+        core_row = {
+            "org": "Example Corp",
+            "title": "VP Product",
+            "rel": "colleague",
+            "lcEmail": "2026-03-01",
+        }
+        identifiers = [
+            {"type": "phone", "value": "+10000000000"},
+            {"type": "email", "value": "jane@example.com"},
+        ]
+        fake = self._make_fake_sparql(core_row=core_row, identifiers=identifiers)
+        with mock.patch.object(ical_server, "_sparql_select", side_effect=fake), \
+                mock.patch("urllib.request.urlopen", self._qdrant_empty):
+            result, status = ical_server.person_enrichment("jane-doe")
+        self.assertEqual(status, 200, msg=f"body={result!r}")
+        self.assertTrue(result["found"])
+        self.assertEqual(result["slug"], "jane-doe")
+        person = result["person"]
+        # British-English keys, role alias, flat phone/email for the card.
+        self.assertEqual(person["organisation"], "Example Corp")
+        self.assertEqual(person["role"], "VP Product")
+        self.assertEqual(person["phone"], "+10000000000")
+        self.assertEqual(person["email"], "jane@example.com")
+        self.assertNotIn("organization", person)
+        # slug + wiki_url match the People-row identifier the click came from.
+        self.assertEqual(person["slug"], "jane-doe")
+        self.assertTrue(person["wiki_url"].endswith("/People/jane-doe/"))
+
+    def test_unknown_slug_returns_404(self):
+        fake = self._make_fake_sparql(
+            core_row={},
+            candidates=[{"person": "urn:pwg:person/x", "name": "Someone Else"}],
+        )
+        with mock.patch.object(ical_server, "_sparql_select", side_effect=fake):
+            result, status = ical_server.person_enrichment("no-such-person")
+        self.assertEqual(status, 404)
+        self.assertFalse(result["found"])
+        self.assertEqual(result["slug"], "no-such-person")
+
+    def test_malformed_slug_returns_400_without_querying(self):
+        with mock.patch.object(
+            ical_server, "_sparql_select",
+            side_effect=AssertionError("must not query on a bad slug"),
+        ):
+            result, status = ical_server.person_enrichment("UPPER case")
+        self.assertEqual(status, 400)
+        self.assertFalse(result["found"])
+        self.assertIn("error", result)
+
+    def test_oxigraph_unreachable_returns_503(self):
+        def boom(_query):
+            raise OSError("oxigraph unreachable")
+
+        with mock.patch.object(ical_server, "_sparql_select", side_effect=boom):
+            result, status = ical_server.person_enrichment("jane-doe")
+        self.assertEqual(status, 503)
+        self.assertTrue(result["degraded"])
+        self.assertFalse(result["found"])
+
+    def test_enrichment_route_registered_in_source(self):
+        source = ICAL_SERVER_PY.read_text(encoding="utf-8")
+        self.assertIn('endswith("/enrichment")', source,
+                      "the GET /api/v1/people/{slug}/enrichment route must be "
+                      "dispatched in do_GET so a clicked People row resolves "
+                      "to a 200 enrichment card, not a 404")
+        self.assertIn("def person_enrichment(", source,
+                      "person_enrichment must exist in the shipping copy")
 
 
 if __name__ == "__main__":
