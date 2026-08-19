@@ -40,6 +40,7 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_hydrate_sentinel_not_on_error.sh'
+      - 'tests/test_no_data_is_not_success.sh'
       - 'tests/test_aiconv_hydrate_honesty.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/hydrate-sentinel.yml'
@@ -74,8 +75,17 @@ jobs:
         if: always()
         run: bash tests/test_aiconv_hydrate_honesty.sh
 
-      - name: Both tests parse under bash 3.2-compatible syntax
+      # A source that RAN AND FOUND NO INPUT must not claim success, and the
+      # --repair flag Doctor advertises in 10 separate strings must actually
+      # be parsed. Both were false on main until this test landed; the second
+      # left customers in a closed loop pulling a lever wired to nothing.
+      - name: No-data is not success, and --repair is real
+        if: always()
+        run: bash tests/test_no_data_is_not_success.sh
+
+      - name: All three tests parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_hydrate_sentinel_not_on_error.sh
           bash -n tests/test_aiconv_hydrate_honesty.sh
+          bash -n tests/test_no_data_is_not_success.sh
