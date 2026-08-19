@@ -733,6 +733,107 @@ PROBE
     rm -rf "$WS13" 2>/dev/null || true
 fi
 
+# ---------------------------------------------------------------------
+# Section 14 -- THE SCHEDULER MUST WRITE DOWN WHAT IT DID.
+#
+# #789: working out that the email feed drains at ~6 conversations/hour and
+# holds ~6% of the machine took an agent with ssh reading two log files and
+# correlating them by hand. No operator can do that, and #721 is open precisely
+# because a healthy box and a starved one look identical from outside.
+#
+# The scheduler already knows every number needed. It just never recorded them.
+# So: per feed, how many holds, how much wall-clock held, how many ended at the
+# cap. Share-of-machine is then total_hold_s over elapsed, and a feed whose
+# holds are almost all preempted is starving BY DEFINITION rather than by an
+# analyst's judgement.
+#
+# THE ORDER IS THE DEFECT WORTH GUARDING. acquired_at and the preempted marker
+# both live inside the slot directory, and release() rm -rf's it. Accounting
+# after the delete reports 0s and reason=released for EVERY hold -- numbers
+# that are present, plausible, and meaningless. That is the failure this
+# section exists to catch, so it asserts a NON-ZERO duration and the right
+# reason, never merely that a line was emitted.
+# ---------------------------------------------------------------------
+echo
+echo "== Section 14: every hold is accounted for, with a real duration =="
+
+WS14="$(mktemp -d)"
+[ -n "$WS14" ] && [ -d "$WS14" ] || { failure "could not create a workspace for section 14; NOTHING was checked, which is not a pass"; WS14=""; }
+
+if [ -n "$WS14" ]; then
+    cat > "$WS14/probe.sh" <<'PROBE'
+. "$1"
+# Hold 1: a normal release after ~2s of work.
+ostler_slot_acquire "acct14" >/dev/null 2>&1 || exit 9
+sleep 2
+ostler_slot_release
+# Hold 2: preempted. Plant the marker the watchdog would write.
+ostler_slot_acquire "acct14" >/dev/null 2>&1 || exit 9
+sleep 1
+: > "$_OSTLER_SLOT_DIR/preempted"
+ostler_slot_release
+# Report the accumulated books.
+printf 'holds=%s\n'           "$(_ostler_slot_state_get acct14 holds)"
+printf 'holds_preempted=%s\n' "$(_ostler_slot_state_get acct14 holds_preempted)"
+printf 'total_hold_s=%s\n'    "$(_ostler_slot_state_get acct14 total_hold_s)"
+PROBE
+
+    OSTLER_STATE_DIR="$WS14" OSTLER_INGEST_LOCK="$WS14/lock.d" \
+    OSTLER_SLOT_STATE_DIR="$WS14/slot" OSTLER_SLOT_MAX_HOLD_SECS=600 \
+    OSTLER_SLOT_POLL_SECS=1 \
+        /bin/bash "$WS14/probe.sh" "$LIB" > "$WS14/out" 2>&1
+
+    A_HOLDS="$(sed -n 's/^holds=//p'           "$WS14/out" | tail -1)"
+    A_PRE="$(  sed -n 's/^holds_preempted=//p' "$WS14/out" | tail -1)"
+    A_TOTAL="$(sed -n 's/^total_hold_s=//p'    "$WS14/out" | tail -1)"
+
+    # (a) both holds counted.
+    if [ "$A_HOLDS" = "2" ]; then
+        pass "both holds were counted (holds=2)"
+    else
+        failure "holds=${A_HOLDS:-<empty>}, expected 2. The scheduler is not recording what it did."
+    fi
+
+    # (b) the preempted one is distinguishable from the clean one. Without this
+    #     a starving feed and a well-served feed produce identical books.
+    if [ "$A_PRE" = "1" ]; then
+        pass "exactly the preempted hold was flagged (holds_preempted=1)"
+    else
+        failure "holds_preempted=${A_PRE:-<empty>}, expected 1. A starved feed would be indistinguishable from a well-served one."
+    fi
+
+    # (c) THE ORDER CONTROL. Two holds of ~2s and ~1s must total at least 2s.
+    #     Accounting after the rm -rf reads no acquired_at and totals 0 -- a
+    #     number that looks like an answer. Assert it is not zero.
+    if [ -n "$A_TOTAL" ] && [ "$A_TOTAL" -ge 2 ] 2>/dev/null; then
+        pass "held duration is real (total_hold_s=${A_TOTAL}, >= 2)"
+    else
+        failure "total_hold_s=${A_TOTAL:-<empty>}, expected >= 2. The books were read AFTER the slot dir was deleted, so every hold reports 0s -- present, plausible and meaningless."
+    fi
+
+    # (d) the machine-readable series exists, in its OWN file, carrying the
+    #     reason. It must NOT go through the shared logger: Sections 10 and 11
+    #     identify the current holder by reading that log's LAST line, so a
+    #     release-time summary there becomes the answer to "who holds the slot"
+    #     and reddens both. A shared log is an interface; appending to it
+    #     changes what every existing reader sees.
+    if grep -q 'hold_summary feed=acct14 held_s=[0-9]* reason=preempted' "$WS14/slot/holds.log" 2>/dev/null; then
+        pass "the hold series is written to holds.log, with the reason"
+    else
+        failure "no 'hold_summary ... reason=preempted' row in slot/holds.log; the books are unreadable by anything but a person."
+    fi
+
+    # (e) ...and it stayed OUT of the shared prose log, which is the half that
+    #     protects the other sections.
+    if grep -q 'hold_summary' "$WS14/out"; then
+        failure "hold_summary leaked into the shared log stream; Sections 10 and 11 read its last line to identify the holder and will red for the wrong reason."
+    else
+        pass "the shared log stream is unpolluted (no hold_summary in it)"
+    fi
+
+    rm -rf "$WS14" 2>/dev/null || true
+fi
+
 echo
 if [ "$FAILED" -ne 0 ]; then
     echo "RESULT: FAILED"

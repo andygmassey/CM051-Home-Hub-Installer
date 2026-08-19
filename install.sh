@@ -6737,6 +6737,48 @@ ostler_slot_run() {
     return "$rc"
 }
 
+# --- accounting ------------------------------------------------------
+#
+# WHY THIS EXISTS (#789). Working out that the email feed drains at ~6
+# conversations/hour and holds ~6% of the machine took an agent with ssh
+# reading two log files and correlating them by hand. Nobody operating a
+# customer's box can do that, and #721 is open precisely because a healthy box
+# and a starved one are indistinguishable from outside.
+#
+# The scheduler already KNOWS every number needed to answer "is this feed
+# getting a fair share, and is it converging". It just never wrote them down.
+# So record, per feed: how many holds, how much wall-clock held, and how many
+# ended at the cap. Share-of-machine is then total_hold_s over elapsed, and a
+# feed whose holds are ~all preempted is starving BY DEFINITION rather than by
+# an analyst's judgement.
+#
+# Best-effort throughout: accounting must never be able to fail a release.
+_ostler_slot_account() {
+    local feed="$1" held="$2" reason="$3" cur
+    _ostler_slot_bump "$feed" holds
+    [ "$reason" = "preempted" ] && _ostler_slot_bump "$feed" holds_preempted
+    cur="$(_ostler_slot_state_get "$feed" total_hold_s)"
+    case "$cur" in ''|*[!0-9]*) cur=0 ;; esac
+    case "$held" in ''|*[!0-9]*) held=0 ;; esac
+    _ostler_slot_state_set "$feed" total_hold_s "$((cur + held))"
+    # ONE machine-readable line per hold, in its OWN file.
+    #
+    # NOT through _ostler_slot_log, and that is not a style preference. The
+    # first version of this wrote through the shared logger and immediately
+    # reddened Sections 10 and 11, which identify the current holder by reading
+    # the LAST line of that log -- so a release-time summary became the answer
+    # to "who holds the slot". Those assertions are pinned to a rendering
+    # rather than to the property, which is its own defect, but the lesson here
+    # is mine: a shared log is an INTERFACE, and appending to it changes what
+    # every existing reader sees.
+    #
+    # The counters above are the durable record; this file is the time series
+    # for anyone asking "when did the share change, and why".
+    mkdir -p "$_OSTLER_SLOT_STATE" 2>/dev/null || return 0
+    printf 'hold_summary feed=%s held_s=%s reason=%s\n' \
+        "$feed" "$held" "$reason" >> "$_OSTLER_SLOT_STATE/holds.log" 2>/dev/null || true
+}
+
 # --- public: release -------------------------------------------------
 ostler_slot_release() {
     if [ -n "$_OSTLER_SLOT_WATCHDOG_PID" ]; then
@@ -6745,8 +6787,25 @@ ostler_slot_release() {
     fi
     _ostler_slot_withdraw
     if [ "$_OSTLER_SLOT_HELD" = "1" ]; then
+        # Read the books BEFORE rm -rf: acquired_at and the preempted marker
+        # both live in the directory we are about to delete. Getting this order
+        # wrong would make every hold report 0s and reason=released, which is a
+        # green that means nothing -- the exact failure this code exists to end.
+        local _acq _now _held _reason
+        _acq="$(cat "$_OSTLER_SLOT_DIR/acquired_at" 2>/dev/null || true)"
+        _now="$(_ostler_slot_now)"
+        case "$_acq" in
+            ''|*[!0-9]*) _held="" ;;
+            *)           _held="$(( _now - _acq ))" ;;
+        esac
+        if [ -f "$_OSTLER_SLOT_DIR/preempted" ]; then
+            _reason="preempted"
+        else
+            _reason="released"
+        fi
         _OSTLER_SLOT_HELD=0
         rm -rf "$_OSTLER_SLOT_DIR" 2>/dev/null || true
+        _ostler_slot_account "$_OSTLER_SLOT_FEED" "${_held:-0}" "$_reason" || true
     fi
     return 0
 }
