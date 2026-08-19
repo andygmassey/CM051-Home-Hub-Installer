@@ -36,6 +36,33 @@ SHOW_LICENSES=false
 ALLOW_PLAINTEXT=0
 ALLOW_UNLICENSED=0
 NO_EXTENSIONS=false
+# --repair: re-attempt every hydrate source, ignoring the 7-day sentinel.
+#
+# THIS FLAG WAS ADVERTISED FOR MONTHS AND PARSED BY NOTHING. Measured
+# 2026-08-19 against this very case statement, which recognised eight flags
+# and had no `--repair` arm and no `*)` fallthrough. So `install.sh --repair`
+# silently ran an ordinary install -- and an ordinary install SKIPS any source
+# whose sentinel reads `status=ok` and is under seven days old, which is
+# exactly the state a source lands in when it ran early and found no input.
+#
+# The customer-visible loop that produced:
+#
+#   1. install runs; browsing/apple_notes/imessage find no export yet
+#   2. sentinel records status=ok  -> source locked out for 7 days
+#   3. Doctor sees the empty source and says, in 10 separate strings in
+#      vendor/doctor/agent/web_ui_copy.py, "Re-run install.sh --repair"
+#   4. the customer does exactly that
+#   5. the flag is unrecognised, a plain install runs, the sentinel is still
+#      fresh, THE SOURCE IS SKIPPED AGAIN, nothing changes
+#   6. Doctor says the same thing again
+#
+# A closed loop with no exit for a week, in which the product repeatedly
+# instructs the customer to pull a lever that is not connected to anything.
+# Three more sites treat the flag as real in prose: install.sh:17976,
+# vendor/doctor/agent/imessage_tcc_posture.py:23, and
+# vendor/doctor/agent/reminders_posture.py:28 ("refreshed on each --repair
+# run"). It refreshed nothing.
+REPAIR_MODE=0
 
 for arg in "$@"; do
     case "$arg" in
@@ -47,6 +74,7 @@ for arg in "$@"; do
         # spellings, matching --licenses|--licences above.
         --allow-unlicensed|--allow-unlicenced) ALLOW_UNLICENSED=1 ;;
         --no-extensions) NO_EXTENSIONS=true ;;
+        --repair) REPAIR_MODE=1 ;;
     esac
 done
 
@@ -18879,6 +18907,13 @@ mkdir -p "$_HYDRATE_SENTINEL_DIR"
 # This is the difference between "not known to have failed" and "known
 # to have succeeded". Only the second is evidence.
 _hydrate_sentinel_fresh() {
+    # --repair means "re-attempt everything". Nothing is ever fresh under it.
+    # This is the ONLY thing that makes the flag Doctor advertises in 10
+    # separate strings actually do something; see the parser at the top of
+    # this file for the closed loop it was leaving customers in.
+    if [[ "${REPAIR_MODE:-0}" == "1" ]]; then
+        return 1
+    fi
     local sentinel="${_HYDRATE_SENTINEL_DIR}/$1.done"
     [[ -f "$sentinel" ]] || return 1
     # POSITIVE evidence required. A recorded failure never suppresses a
@@ -18951,6 +18986,58 @@ _hydrate_sentinel_record_error() {
         printf 'rc=%s\n' "$rc"
         if [[ -n "$payload" ]]; then
             printf 'payload=%s\n' "$payload"
+        fi
+    } > "$sentinel"
+}
+
+# Records a hydrate step that RAN AND FOUND NO INPUT. Distinct from both
+# siblings, and the distinction is the whole point.
+#
+# THE DEFECT THIS REPLACES, measured 2026-08-19 in source.
+#
+# Four call sites passed a status through the PAYLOAD argument, plainly
+# intending it to be the recorded status:
+#
+#     _hydrate_sentinel_record "whatsapp"    "status=no_app"
+#     _hydrate_sentinel_record "browsing"    "status=no_data"
+#     _hydrate_sentinel_record "imessage"    "status=no_data"
+#     _hydrate_sentinel_record "apple_notes" "status=no_data"
+#
+# _hydrate_sentinel_record hardcodes `status=ok`, so the intent was
+# discarded: the file said `status=ok` and carried the author's
+# `status=no_data` one line lower as `payload=status=no_data`.
+# _hydrate_sentinel_fresh greps `^status=ok`, matched, and skipped the
+# source for SEVEN DAYS. The code did not do what its call sites said.
+#
+# WHY NO-DATA MUST NOT SUPPRESS THE RETRY, which is the substantive half.
+# Those four branches are not "ran and legitimately found zero records".
+# They are "THE INPUT WAS NOT THERE" -- browsing and apple_notes reach
+# them when the FDA export has not produced its JSON yet, which is a
+# TRANSIENT condition on a box where the customer grants Full Disk Access
+# late or the export lands after the hydrate block runs. Suppressing for a
+# week converts a one-run miss into a week-long outage, silently, on the
+# happy path. `status=no_app` is the same shape: a customer can install
+# WhatsApp tomorrow.
+#
+# The cost of retrying is a file-existence test that short-circuits in
+# microseconds while the input is still absent. That is the correct trade.
+#
+# _hydrate_sentinel_fresh needs no change: it already requires a positive
+# `^status=ok`, so a no_data record reads as stale and the source retries.
+# The record still lands on disk, so Doctor and a human reading
+# ~/.ostler/state/hydrate/ can tell "looked, found nothing" apart from
+# "never looked" -- which is the four-states-one-appearance problem this
+# whole area suffers from.
+_hydrate_sentinel_record_no_data() {
+    local source="$1"
+    local detail="${2:-}"
+    local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    {
+        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'source=%s\n' "$source"
+        printf 'status=no_data\n'
+        if [[ -n "$detail" ]]; then
+            printf 'detail=%s\n' "$detail"
         fi
     } > "$sentinel"
 }
@@ -19928,10 +20015,18 @@ elif [[ ! -x "$_HYDRATE_WHATSAPP_PY" ]]; then
     info "$MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING"
 else
     info "$MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP"
-    # Record the sentinel even for "no app" so re-runs don't re-probe;
-    # if the customer installs WhatsApp Desktop later, they re-trigger
-    # via Doctor's source-repair flow, not by re-running install.sh.
-    _hydrate_sentinel_record "whatsapp" "status=no_app"
+    # WhatsApp Desktop is not installed. Record that HONESTLY -- the old
+    # call passed "status=no_app" as the PAYLOAD, which the recorder threw
+    # away in favour of a hardcoded status=ok, so a machine with no WhatsApp
+    # claimed a successful WhatsApp hydrate.
+    #
+    # The old comment here said re-runs should not re-probe because "the
+    # customer installs WhatsApp Desktop later, they re-trigger via Doctor's
+    # source-repair flow, not by re-running install.sh". That flow did not
+    # exist: `--repair` was parsed by nothing until the arm added at the top
+    # of this file. Re-probing costs one app-existence test, and a customer
+    # who installs WhatsApp tomorrow should not wait a week.
+    _hydrate_sentinel_record_no_data "whatsapp" "no_app"
 fi
 
 unset _HYDRATE_WHATSAPP_VENV _HYDRATE_WHATSAPP_PY _HYDRATE_WHATSAPP_DB
@@ -20089,7 +20184,11 @@ elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
     info "$MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING"
 else
     info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
-    _hydrate_sentinel_record "browsing" "status=no_data"
+    # No safari_history.json and no chrome_history.json. That is USUALLY the
+    # FDA export not having landed yet, not a customer with no browsing
+    # history -- and this branch cannot tell those apart. Record no_data so
+    # the next run looks again instead of skipping for a week.
+    _hydrate_sentinel_record_no_data "browsing" "no_export_json"
 fi
 
 unset _HYDRATE_BROWSING_VENV _HYDRATE_BROWSING_PY
@@ -20395,7 +20494,9 @@ elif [[ ! -x "$_HYDRATE_IMESSAGE_PY" ]]; then
     info "$MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING"
 else
     info "$MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA"
-    _hydrate_sentinel_record "imessage" "status=no_data"
+    # Same shape as browsing: the input was absent, which on a box where Full
+    # Disk Access is granted late is a TRANSIENT condition.
+    _hydrate_sentinel_record_no_data "imessage" "no_export_json"
 fi
 
 unset _HYDRATE_IMESSAGE_VENV _HYDRATE_IMESSAGE_PY
@@ -20753,7 +20854,8 @@ elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" != "true" ]]; then
     info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_PIPELINE_PENDING"
 else
     info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
-    _hydrate_sentinel_record "apple_notes" "status=no_data"
+    # Same shape as browsing and imessage.
+    _hydrate_sentinel_record_no_data "apple_notes" "no_export_json"
 fi
 
 unset _HYDRATE_APPLENOTES_FDA_DIR _HYDRATE_APPLENOTES_JSON_FILE
@@ -21115,9 +21217,9 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     # the sentinel exists for.
     if [[ "$_places_rc" -ne 0 ]] \
        && ! printf '%s' "$_places_log_tail" | grep -q "PLACES INGEST GUARD"; then
-        _hydrate_sentinel_record_error "places" "$_places_rc" "status=run"
+        _hydrate_sentinel_record_error "places" "$_places_rc" "ran=1"
     else
-        _hydrate_sentinel_record "places" "status=run rc=$_places_rc"
+        _hydrate_sentinel_record "places" "ran=1,rc=$_places_rc"
     fi
     unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP \
           _places_rc _places_log_tail
@@ -21167,9 +21269,9 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     # customer on screen while the sentinel recorded success and suppressed
     # the retry for seven days. Route it.
     if [[ "$_privacy_rc" -ne 0 ]]; then
-        _hydrate_sentinel_record_error "privacy_backfill" "$_privacy_rc" "status=run"
+        _hydrate_sentinel_record_error "privacy_backfill" "$_privacy_rc" "ran=1"
     else
-        _hydrate_sentinel_record "privacy_backfill" "status=run rc=$_privacy_rc"
+        _hydrate_sentinel_record "privacy_backfill" "ran=1,rc=$_privacy_rc"
     fi
     unset _privacy_rc
 fi
