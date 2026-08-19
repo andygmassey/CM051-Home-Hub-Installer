@@ -103,8 +103,7 @@ assert_contains "case 7 says what is missing" "--base-ref and --head-sha are bot
 
 # --- CASE 8: a real git diff, pin line changed -> BLOCK ---------------------
 # The pin-line triggers need an actual diff, so this case builds a throwaway
-# repo. It also proves the two-dot diff is used: a file that MAIN changed and
-# the branch did not must not count.
+# repo. Case 14 below covers the merge-base question separately.
 G="${TMP}/gitrepo"
 mkdir -p "${G}/gui"
 (
@@ -133,6 +132,83 @@ else
 fi
 assert_contains "case 8 names the pin line it saw change" "DAEMON_VERSION|DAEMON_SHA256 line changed"
 assert_contains "case 8 confirms the pin scan actually ran" "version-pin line scan: measured"
+
+# --- CASE 10: the TEMPLATE is not a marker (the live false-GREEN) -----------
+# Found by the gate's own first real run, 32225829777 on PR #493. That PR body
+# explains the rule and therefore contains the literal string
+# "[skip-ledger-enforce: <reason>]". The bare substring match accepted it and
+# reported the enforcement bypassed. Every PR that documents the rule or copies
+# the README would have waved itself through.
+BODY_TEMPLATE="$(mk_body 'The PR body MUST contain [ledger-entry: <HR015 URL>] or [skip-ledger-enforce: <reason>].')"
+run_case "quoted bypass TEMPLATE must not bypass" 1 \
+  --changed-files-file "${CH}" --pr-body-file "${BODY_TEMPLATE}"
+assert_contains "case 10 names the template it rejected" "reason is the TEMPLATE"
+assert_contains "case 10 prints the payload it measured" "payload after the colon"
+
+# --- CASE 11: the ledger TEMPLATE is not a link ----------------------------
+BODY_LTPL="$(mk_body 'Add [ledger-entry: <URL to HR015 SHIPPING_LEDGER.yaml PR or commit>] to the body.')"
+run_case "quoted ledger TEMPLATE must not pass" 1 \
+  --changed-files-file "${CH}" --pr-body-file "${BODY_LTPL}"
+assert_contains "case 11 names the template it rejected" "payload is the TEMPLATE"
+
+# --- CASE 12: a ledger marker that is not a URL ----------------------------
+BODY_NOTURL="$(mk_body 'Done it. [ledger-entry: yes I wrote the ledger row honest]')"
+run_case "ledger marker that is not a URL -> BLOCK" 1 \
+  --changed-files-file "${CH}" --pr-body-file "${BODY_NOTURL}"
+assert_contains "case 12 says a reviewer must be able to open it" "expected: an http(s) URL"
+
+# --- CASE 13: a REAL bypass reason still passes (the control) --------------
+# Cases 10-12 must not have made every marker unusable.
+BODY_REAL="$(mk_body 'Reverting an experiment that never shipped.
+
+[skip-ledger-enforce: reverts unshipped experiment, no artefact ever existed]')"
+run_case "a real bypass reason still passes" 0 \
+  --changed-files-file "${CH}" --pr-body-file "${BODY_REAL}"
+assert_contains "case 13 passes on a real reason" "enforcement bypassed"
+
+# --- CASE 14: MERGE-BASE diff, not base-tip diff ---------------------------
+# The HR015 original diffed origin/<base>..<head>, so on a branch that is
+# behind, every file MAIN touched counted as changed. Measured on PR #493 run
+# 32225829777: 6 files changed, 25 reported, and it fired on two vendor/ files
+# the PR never touched. This builds that exact shape: main moves a vendor file,
+# the branch does not.
+G2="${TMP}/gitrepo2"
+mkdir -p "${G2}/vendor/thing"
+(
+  cd "${G2}" || exit 1
+  git init -q .
+  git config user.email t@example.invalid
+  git config user.name  Test
+  printf 'v1\n' > vendor/thing/file.py
+  printf 'readme\n' > README.md
+  git add -A && git commit -qm base
+  git branch -q feature
+  # main advances and touches a vendored file; the branch never does.
+  printf 'v2\n' > vendor/thing/file.py
+  git add -A && git commit -qm 'main touches a vendored file'
+  git checkout -q feature
+  printf 'docs\n' >> README.md
+  git add -A && git commit -qm 'branch touches only the readme'
+)
+FEAT_SHA="$(git -C "${G2}" rev-parse feature)"
+CAP="${TMP}/out.mergebase"
+printf '\n=== CASE: stale branch, main touched vendor/ (expect rc=0) ===\n'
+( cd "${G2}" && /bin/bash "${GATE}" --base-ref master --head-sha "${FEAT_SHA}" \
+    --pr-body-file "${EMPTY_BODY}" ) >"${CAP}" 2>&1
+rc=$?
+if [ "${rc}" -ne 0 ]; then
+  ( cd "${G2}" && /bin/bash "${GATE}" --base-ref main --head-sha "${FEAT_SHA}" \
+      --pr-body-file "${EMPTY_BODY}" ) >"${CAP}" 2>&1
+  rc=$?
+fi
+sed 's/^/  | /' "${CAP}"
+if [ "${rc}" -eq 0 ]; then
+  printf 'PASS: a vendored file that MAIN moved does not trigger this branch (rc=%s)\n' "${rc}"; PASS=$((PASS+1))
+else
+  printf 'FAIL: expected rc=0, got %s -- the base-tip diff bug is back\n' "${rc}" >&2; FAIL=$((FAIL+1))
+fi
+assert_contains "case 14 diffs from the merge base and says so" "merge base of"
+assert_contains "case 14 counts only the branch's own file" "files in the diff:   1"
 
 # --- CASE 9: the wiring. The old failure was INVISIBILITY, so assert the ----
 # workflow defines its jobs LOCALLY and calls this script.

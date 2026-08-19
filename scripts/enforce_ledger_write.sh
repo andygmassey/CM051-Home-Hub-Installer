@@ -129,11 +129,31 @@ else
         echo "  ${C_R}CANNOT-RUN${C_0}  head sha not present in this checkout: ${HEAD_SHA}" >&2
         exit 3
     fi
-    # Two-dot on purpose. A...B measures from the merge-base and would report a
-    # file as changed because MAIN touched it, which is not what this asks.
-    CHANGED="$(git diff --name-only --diff-filter=ACMR "${BASE_REF}" "${HEAD_SHA}")"
-    SOURCE_DESC="git diff --name-only --diff-filter=ACMR ${BASE_REF} ${HEAD_SHA}"
+    # FROM THE MERGE BASE, not from the base branch tip.
+    #
+    # The HR015 original diffed `origin/<base>..<head>`, which answers "how do
+    # these two trees differ" and NOT "what did this PR change". On any branch
+    # that is behind, every file MAIN touched shows up as changed. Measured on
+    # this very PR (#493) in run 32225829777: the PR changes 6 files, the gate
+    # saw 25, and it fired on
+    #     vendor/cm041/assistant_api/test_vendor_import.sh
+    #     vendor/imessage_source/launchd/com.creativemachines.ostler.imessage-bundle.plist
+    # neither of which the PR touches. Main did.
+    #
+    # The merge base is computed and PRINTED rather than relying on `...`
+    # notation, because two-dot and three-dot mean opposite things for ranges
+    # and for diffs and nobody should have to remember which is which here.
+    MB="$(git merge-base "${BASE_REF}" "${HEAD_SHA}" 2>/dev/null)"
+    if [ -z "${MB}" ]; then
+        echo "  ${C_R}CANNOT-RUN${C_0}  no merge base between ${BASE_REF} and ${HEAD_SHA}" >&2
+        echo "        histories are unrelated or the fetch was shallow. fetch-depth must be 0." >&2
+        exit 3
+    fi
+    CHANGED="$(git diff --name-only --diff-filter=ACMR "${MB}" "${HEAD_SHA}")"
+    SOURCE_DESC="git diff --name-only --diff-filter=ACMR ${MB} ${HEAD_SHA} (merge base of ${BASE_REF} and ${HEAD_SHA})"
+    DIFF_BASE="${MB}"
 fi
+DIFF_BASE="${DIFF_BASE:-${BASE_REF}}"
 
 N_CHANGED="$(printf '%s' "${CHANGED}" | grep -c . )"
 echo "  changed-file source: ${SOURCE_DESC}"
@@ -171,14 +191,14 @@ if [ -n "${CHANGED_FILE}" ]; then
     PIN_SCAN="NOT measured (--changed-files-file mode has no diff to read)"
 else
     for p in $(printf '%s\n' "${CHANGED}" | grep '\(^\|/\)gui/Makefile$' || true); do
-        if git diff --unified=0 "${BASE_REF}" "${HEAD_SHA}" -- "$p" \
+        if git diff --unified=0 "${DIFF_BASE}" "${HEAD_SHA}" -- "$p" \
              | grep '^+' | grep -v '^+++' \
              | grep -w 'DAEMON_VERSION\|DAEMON_SHA256' >/dev/null 2>&1; then
             note "${p}: a DAEMON_VERSION|DAEMON_SHA256 line changed"
         fi
     done
     for p in $(printf '%s\n' "${CHANGED}" | grep '\(^\|/\)install\.sh$' || true); do
-        if git diff --unified=0 "${BASE_REF}" "${HEAD_SHA}" -- "$p" \
+        if git diff --unified=0 "${DIFF_BASE}" "${HEAD_SHA}" -- "$p" \
              | grep '^+' | grep -v '^+++' \
              | grep -w 'OSTLER_ASSISTANT_VERSION\|DEFAULT_ASSISTANT_TARBALL_SHA256' >/dev/null 2>&1; then
             note "${p}: an OSTLER_ASSISTANT_VERSION|DEFAULT_ASSISTANT_TARBALL_SHA256 line changed"
@@ -208,15 +228,69 @@ fi
 BODY_BYTES="$(printf '%s' "${BODY}" | wc -c | tr -d '[:space:]')"
 echo "  PR body: ${BODY_BYTES} byte(s) read from ${PR_BODY_FILE:-<none supplied>}"
 
-if printf '%s' "${BODY}" | grep -qF -- "${BYPASS_MARKER}"; then
-    reason="$(printf '%s' "${BODY}" | grep -o '\[skip-ledger-enforce:[^]]*\]' | head -1)"
-    echo "  ${C_Y}WARN${C_0}  enforcement bypassed by PR body marker: ${reason}"
+# A MARKER WHOSE PAYLOAD IS THE TEMPLATE IS NOT A MARKER.
+#
+# Caught by the gate's own first live run, 32225829777 on PR #493. That PR body
+# explains the rule in prose and therefore contains the literal string
+#     [skip-ledger-enforce: <reason>]
+# The original logic did a bare substring match, accepted it, and reported the
+# enforcement BYPASSED. Every PR that documents the rule, copies the template
+# out of the README, or leaves the checklist unfilled would have waved itself
+# through. That is a false GREEN in the gate's single decision.
+#
+# So the payload must be real: non-empty, and not a `<...>` placeholder.
+# Encodes feedback_a_placeholder_that_expands_is_not_a_placeholder.
+marker_payload() { # $1 = marker regex body -> echoes the payload, trimmed
+    printf '%s' "${BODY}" | grep -o "\\[$1:[^]]*\\]" | head -1 \
+      | sed -e "s/^\\[$1:[[:space:]]*//" -e 's/\][[:space:]]*$//' \
+      | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+is_placeholder() { # $1 = payload -> 0 when it is a template stub
+    case "$1" in
+        ''|'<'*'>') return 0 ;;
+    esac
+    [ "${#1}" -lt 8 ] && return 0
+    return 1
+}
+
+BYPASS_RAW="$(printf '%s' "${BODY}" | grep -o '\[skip-ledger-enforce:[^]]*\]' | head -1)"
+LEDGER_RAW="$(printf '%s' "${BODY}" | grep -o '\[ledger-entry:[^]]*\]' | head -1)"
+
+if [ -n "${BYPASS_RAW}" ]; then
+    reason="$(marker_payload 'skip-ledger-enforce')"
+    if is_placeholder "${reason}"; then
+        echo "  ${C_R}FAIL${C_0}  the bypass marker is present but its reason is the TEMPLATE, not a reason" >&2
+        echo "        measured: PR body contains ${BYPASS_RAW}" >&2
+        echo "        measured: payload after the colon = '${reason}' (${#reason} chars)" >&2
+        echo "        expected: a real reason, at least 8 characters, not a <...> placeholder" >&2
+        echo "        a body that merely quotes the template -- documenting the rule, copying" >&2
+        echo "        the README, or leaving the checklist unfilled -- must not wave itself through." >&2
+        exit 1
+    fi
+    echo "  ${C_Y}WARN${C_0}  enforcement bypassed by PR body marker: ${BYPASS_RAW}"
     echo "        reviewer: verify that reason before merging."
     exit 0
 fi
-if printf '%s' "${BODY}" | grep -qF -- "${LEDGER_MARKER}"; then
-    link="$(printf '%s' "${BODY}" | grep -o '\[ledger-entry:[^]]*\]' | head -1)"
-    echo "  ${C_G}PASS${C_0}  PR body references a SHIPPING_LEDGER.yaml entry: ${link}"
+if [ -n "${LEDGER_RAW}" ]; then
+    link="$(marker_payload 'ledger-entry')"
+    if is_placeholder "${link}"; then
+        echo "  ${C_R}FAIL${C_0}  the ledger marker is present but its payload is the TEMPLATE, not a link" >&2
+        echo "        measured: PR body contains ${LEDGER_RAW}" >&2
+        echo "        measured: payload after the colon = '${link}' (${#link} chars)" >&2
+        echo "        expected: a URL to the HR015 SHIPPING_LEDGER.yaml PR or commit" >&2
+        exit 1
+    fi
+    case "${link}" in
+        http://*|https://*) : ;;
+        *)
+            echo "  ${C_R}FAIL${C_0}  the ledger marker payload is not a URL" >&2
+            echo "        measured: PR body contains ${LEDGER_RAW}" >&2
+            echo "        measured: payload after the colon = '${link}'" >&2
+            echo "        expected: an http(s) URL to the HR015 SHIPPING_LEDGER.yaml PR or commit," >&2
+            echo "                  because a reviewer has to be able to open it" >&2
+            exit 1 ;;
+    esac
+    echo "  ${C_G}PASS${C_0}  PR body references a SHIPPING_LEDGER.yaml entry: ${LEDGER_RAW}"
     echo "        reviewer: verify the linked entry lands before merging."
     exit 0
 fi
