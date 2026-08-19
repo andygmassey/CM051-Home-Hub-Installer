@@ -1124,7 +1124,7 @@ MSG_HYDRATE_EMAIL_STARTED="Reading your last 90 days of email – your emails st
 MSG_HYDRATE_EMAIL_DONE="Found %s people in your recent email"
 MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT="No recent email to read. You can add a Mail account in Apple Mail and re-run later."
 MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING="Email reader not ready yet. You can add a Mail account in Apple Mail and re-run later."
-MSG_HYDRATE_EMAIL_BACKGROUND_CONTINUES="Email is still loading in the background – your wiki will fill in over the next hour."
+MSG_HYDRATE_EMAIL_BACKGROUND_CONTINUES="Email is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_EMAIL_HEARTBEAT="  Still reading your email (%ss so far). This can take a while on a Mac with years of history."
 
 # Three-state data-source UX strings (CX-100, CX-101)
@@ -1175,7 +1175,7 @@ MSG_HYDRATE_WHATSAPP_DONE="Found %s people in your WhatsApp chats"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS="No WhatsApp chats to read. You can re-run later from Settings."
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="WhatsApp Desktop is not installed. Install it from the Mac App Store and re-run from Settings."
 MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="WhatsApp reader not ready yet. You can re-run later from Settings."
-MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsApp is still loading in the background – your wiki will fill in over the next hour."
+MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsApp is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
 
 # AI Conversations hydration strings (#553 / #613)
 # Used by install.sh's AI Conversations leg (after the first-month-free
@@ -1188,7 +1188,7 @@ MSG_HYDRATE_AICONV_STARTED="Reading your AI chat history – your conversations 
 MSG_HYDRATE_AICONV_DONE="Saved %s AI conversations to your wiki"
 MSG_HYDRATE_AICONV_SKIPPED_NOT_READY="AI-conversation reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_AICONV_SKIPPED_NO_DATA="No AI chat history to read. You can re-run later from Settings."
-MSG_HYDRATE_AICONV_BACKGROUND_CONTINUES="AI chats are still loading in the background – your wiki will fill in over the next hour."
+MSG_HYDRATE_AICONV_BACKGROUND_CONTINUES="AI chats are still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_AICONV_HEARTBEAT="  Still reading your AI chat history (%ss so far). A large history can take several minutes."
 
 # Browser history hydration strings (CX-86 Gap A + Gap C)
@@ -1203,7 +1203,7 @@ MSG_HYDRATE_BROWSING_DONE="Imported %s pages of browsing history"
 MSG_HYDRATE_BROWSING_SKIPPED_SENSITIVE="Skipped %s pages flagged as sensitive (banking, medical, etc.)"
 MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA="No browsing history to import. You can re-run later from Settings."
 MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING="Browsing-history reader not ready yet. You can re-run later from Settings."
-MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES="Browsing history is still loading in the background – your wiki will fill in over the next hour."
+MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES="Browsing history is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
 
 # Email-preferences hydration strings (v1.0.3)
 # Used by install.sh's hydrate_email_preferences step. It ingests a
@@ -1219,7 +1219,7 @@ MSG_HYDRATE_EMAIL_PREFERENCES_DONE="Loaded %s preferences from your email histor
 MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE="No email-preferences file configured. Nothing to load."
 MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE_AT="No email-preferences file found at %s. Nothing to load."
 MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_PIPELINE_PENDING="Preference pipeline not ready yet. You can re-run later from Settings."
-MSG_HYDRATE_EMAIL_PREFERENCES_BACKGROUND_CONTINUES="Email preferences are still loading in the background. Your wiki will fill in shortly."
+MSG_HYDRATE_EMAIL_PREFERENCES_BACKGROUND_CONTINUES="Email preferences are still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_EMAIL_PREFERENCES_HEARTBEAT="  Still loading your email preferences (%ss so far). A large history can take a few minutes."
 
 # Preferences import counts-only confirmation, shown by phase 3.12b after
@@ -1261,7 +1261,7 @@ MSG_HYDRATE_IMESSAGE_STARTED="Reading your iMessage history – your messages st
 MSG_HYDRATE_IMESSAGE_DONE="Found %s people in your iMessage history"
 MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA="No iMessage history to read. You can re-run later from Settings."
 MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING="iMessage reader not ready yet. You can re-run later from Settings."
-MSG_HYDRATE_IMESSAGE_BACKGROUND_CONTINUES="iMessage is still loading in the background – your wiki will fill in over the next hour."
+MSG_HYDRATE_IMESSAGE_BACKGROUND_CONTINUES="iMessage is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_IMESSAGE_HEARTBEAT="  Still reading your iMessage history (%ss so far). A large message history can take several minutes."
 
 # Apple Notes knowledge hydration (CM024 apple_notes adapter). Notes are
@@ -1272,7 +1272,7 @@ MSG_HYDRATE_APPLE_NOTES_STARTED="Reading your Apple Notes - they stay on this Ma
 MSG_HYDRATE_APPLE_NOTES_DONE="Added %s notes to your knowledge base"
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA="No Apple Notes to read. You can re-run later from Settings."
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_PIPELINE_PENDING="Knowledge importer not ready yet. You can re-run later from Settings."
-MSG_HYDRATE_APPLE_NOTES_BACKGROUND_CONTINUES="Apple Notes are still loading in the background - your knowledge base will fill in shortly."
+MSG_HYDRATE_APPLE_NOTES_BACKGROUND_CONTINUES="Apple Notes are still loading in the background. Your knowledge base fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_APPLE_NOTES_HEARTBEAT="  Still reading your Apple Notes (%ss so far). A large notes library can take a few minutes."
 
 # People search index (#600)
@@ -1280,7 +1280,7 @@ MSG_HYDRATE_PEOPLE_STARTED="Indexing your people for search"
 MSG_HYDRATE_PEOPLE_DONE="Indexed %s people for search"
 MSG_HYDRATE_PEOPLE_SKIPPED_NO_DATA="No people to index yet. You can re-run later from Settings."
 MSG_HYDRATE_PEOPLE_SKIPPED_FDA_PENDING="People indexer not ready yet. You can re-run later from Settings."
-MSG_HYDRATE_PEOPLE_BACKGROUND_CONTINUES="Still indexing your people in the background; search will fill in shortly."
+MSG_HYDRATE_PEOPLE_BACKGROUND_CONTINUES="Your people are still being indexed in the background. Search fills in as it goes, and the wiki shows you where it is up to."
 
 # CX-47 (DMG #30, 2026-05-24): elevated pre-warn banner for the three
 # folder-access TCC prompts triggered by the GDPR-export scan.
