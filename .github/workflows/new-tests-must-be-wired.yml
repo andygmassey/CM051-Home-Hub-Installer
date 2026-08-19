@@ -37,6 +37,13 @@ jobs:
       # The gate's own controls run FIRST. A gate whose predicate is broken
       # should fail here, on its own controls, rather than by silently passing
       # every PR downstream.
+      #
+      # The comment-stripper is the FIRST of those controls, because both gates
+      # below are only as honest as it is. Strip too little and a comment
+      # becomes an invocation, which is #688 rebuilt by hand.
+      - name: The comment-stripper knows a quoted # from a comment
+        run: /bin/bash scripts/tests/test_comment_strip_is_quote_aware.sh
+
       - name: The gate can tell an invocation from a comment mention
         run: /bin/bash scripts/tests/test_new_tests_are_wired_predicate.sh
 
