@@ -131,46 +131,33 @@ fi
 echo "PASS: install.sh bootstraps the ical-server LaunchAgent"
 
 # -------------------------------------------------------------------
-# Part 4: Doctor LaunchAgent DOCTOR_PROXY_PATHS contains the 13
-# production iOS endpoint templates (with FastAPI {slug}/{id} syntax
-# for the two path-parameter routes).
+# Part 4: Doctor LaunchAgent DOCTOR_PROXY_PATHS contains every
+# production iOS endpoint template (with FastAPI {slug}/{id} syntax
+# for the path-parameter routes).
+#
+# The list and the predicate now live in the repo at
+# scripts/check_doctor_proxy_paths.sh, for two reasons.
+#
+# The predicate used to be `grep -q "$path" install.sh`, a whole-file
+# substring search. That passed when a path appeared only in a COMMENT,
+# and install.sh comments name these paths while explaining why each
+# was added. It also could not fail for any path that is a PREFIX of
+# another required path, and /api/v1/calendar is a prefix of
+# /api/v1/calendar/today. The replacement extracts the rendered
+# <string> and compares comma-delimited FIELDS.
+#
+# And this file is vendor-only (see vendor/VENDOR_ONLY.tsv), so a
+# re-pin can delete it. The list of endpoints the iOS app depends on
+# should not be the thing that disappears when CM041 moves.
 # -------------------------------------------------------------------
 
-REQUIRED_PROXY_PATHS=(
-    "/api/v1/hub/health"
-    "/api/v1/timeline"
-    "/api/v1/people/search"
-    "/api/v1/people/context"
-    "/api/v1/people/stale"
-    "/api/v1/suggestions"
-    "/api/v1/calendar"
-    "/api/v1/conversation/process"
-    "/api/v1/conversation/status/{id}"
-    "/api/v1/ingest/ios"
-    "/api/v1/people/{slug}/forget"
-    "/api/v1/email/recent"
-    "/api/v1/recording/active"
-    "/api/v1/coach/recent"
-)
-
-MISSING_PROXY=()
-for path in "${REQUIRED_PROXY_PATHS[@]}"; do
-    # Look for the path within the DOCTOR_PROXY_PATHS env-var
-    # rendering. The rendered line has the path embedded inside a
-    # comma-separated <string>...</string> value.
-    if ! grep -q "${path}" "$INSTALL_SH"; then
-        MISSING_PROXY+=("$path")
-    fi
-done
-
-if [[ ${#MISSING_PROXY[@]} -gt 0 ]]; then
-    echo "FAIL: install.sh DOCTOR_PROXY_PATHS is missing:" >&2
-    for p in "${MISSING_PROXY[@]}"; do
-        echo "    - $p" >&2
-    done
+PROXY_CHECK="$REPO_ROOT/scripts/check_doctor_proxy_paths.sh"
+if [[ ! -x "$PROXY_CHECK" ]]; then
+    echo "FAIL: proxy-path check missing or not executable at $PROXY_CHECK" >&2
+    echo "      Not skipping. A check that cannot run has not passed." >&2
     exit 1
 fi
-echo "PASS: all ${#REQUIRED_PROXY_PATHS[@]} required Doctor proxy paths are wired"
+"$PROXY_CHECK" "$INSTALL_SH"
 
 # -------------------------------------------------------------------
 # Part 5: ical-server.py binds 127.0.0.1 by default (loopback only).

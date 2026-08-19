@@ -57,7 +57,7 @@ Final structure of this section:
 ## Summary
 
 ### Participants
-- {user_name} (user)
+- Jordan Reyes (user)
 - Alex Chen (friend, fellow consultant)
 
 ### Location
@@ -128,7 +128,7 @@ reminders_candidates:
   - action: "Run price prediction extractor against Sarah's luxury resale DB"
     deadline: 2026-04-16
     priority: high
-    source_conversation_id: {conversation_id}
+    source_conversation_id: 2026-04-15_alex_chen_zoom
   - ...
 ```
 
@@ -255,7 +255,7 @@ sensitivity:
   categories: []
 participants:
   - id: user
-    display: {user_display_name}
+    display: Jordan Reyes
     role: user
   - id: alex_chen
     display: Alex Chen

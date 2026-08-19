@@ -29,11 +29,17 @@ Design constraints (see ``docs/SPEC_governor_status_indicator.md`` in
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
 import urllib.request
 from typing import Any, Optional
+
+# Fail-soft probes must still be able to SAY they failed. The Doctor is started
+# by launchd with StandardErrorPath -> ~/.ostler/logs/doctor.err, so anything
+# logged here lands in the support bundle.
+logger = logging.getLogger(__name__)
 
 # Ollama endpoint - same env var the rest of the Doctor uses.
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
@@ -454,14 +460,64 @@ def _governor() -> dict[str, Any]:
     return {"enabled": enabled, "tier": tier, "deferring": deferring}
 
 
+# A guard that swallows its own failure is a defect in its own right, so this
+# module records whether the pause backend has ever failed to load. The
+# box-status poll runs every few seconds; logging on every call would bury the
+# report in its own noise, so each distinct failure is reported ONCE per
+# process and the fallback payload carries the admission from then on.
+_PAUSE_BACKEND_REPORTED: set[str] = set()
+
+
+def _report_pause_backend_failure(exc: BaseException) -> str:
+    """Log a pause-backend failure the first time each distinct one is seen.
+
+    Returns the short reason string that goes into the payload.
+    """
+    if isinstance(exc, ImportError):
+        # The build is missing agent/pause_control.py. That is a PACKAGING
+        # defect, not a runtime condition: the module is stdlib-only and always
+        # ships beside this one. This is v1018-D024 -- for as long as it was
+        # swallowed, a Doctor with no pause backend and a genuinely running box
+        # produced byte-identical output, so nothing on the box could tell them
+        # apart and the Governor page 404'd with no trace here.
+        reason = "backend-missing"
+        message = (
+            "pause_control could not be imported, so pause state cannot be "
+            "read. This build is incomplete: agent/pause_control.py is "
+            "expected beside box_status.py. Reporting pause state as "
+            "UNAVAILABLE rather than 'not paused' (%s)" % exc
+        )
+    else:
+        reason = "backend-error"
+        message = (
+            "pause_control raised while reading pause state; reporting "
+            "UNAVAILABLE rather than 'not paused' (%s: %s)"
+            % (exc.__class__.__name__, exc)
+        )
+    if reason not in _PAUSE_BACKEND_REPORTED:
+        _PAUSE_BACKEND_REPORTED.add(reason)
+        logger.error(message, exc_info=not isinstance(exc, ImportError))
+    return reason
+
+
 def _pause() -> dict[str, Any]:
+    """Current pause state, or an HONEST unavailable payload.
+
+    Fail-soft is deliberate -- this runs on the box-status poll and must never
+    500 it -- but fail-soft is not the same as fail-silent. When the backend
+    cannot answer, the payload says ``paused: False, pause_unavailable: True``
+    so a caller can tell "the box is running" apart from "nobody knows", and
+    the reason is logged once per process.
+    """
     try:
         from pause_control import read_state  # type: ignore
 
         return read_state()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - reported, then degraded
+        reason = _report_pause_backend_failure(exc)
         return {"paused": False, "expiry": None, "indefinite": False,
-                "expiry_human": ""}
+                "expiry_human": "", "scope": None,
+                "pause_unavailable": True, "pause_error": reason}
 
 
 def _derive_state(load: Optional[dict], memory: Optional[dict],
@@ -529,6 +585,9 @@ def box_status() -> dict[str, Any]:
             "paused": paused,
             "expiry_human": pause.get("expiry_human", ""),
             "indefinite": bool(pause.get("indefinite")),
+            # Carried through so "not paused" and "cannot tell" are
+            # distinguishable at the API surface, not only in the log.
+            "unavailable": bool(pause.get("pause_unavailable")),
         },
         "settling": settling,
         "running": _running(governor, settling),

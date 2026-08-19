@@ -174,75 +174,106 @@ fi
 _ostler_lock="${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}"
 mkdir -p "$(dirname "$_ostler_lock")" 2>/dev/null || true
 
-# --- Anti-starvation fairness (CM044 conversations-ingest fix) -------
-# On a fresh install with several feeds active, WhatsApp + email each
-# grab the shared slot for long runs and the iMessage feed instant-yields
-# on EVERY tick -- the live-box symptom was an iMessage feed that had
-# never run a single pass (no watermark, empty Conversations dir) while
-# the slot churned through other feeds. A feed that has NEVER produced a
-# watermark is starving, so it waits (bounded) for the slot instead of
-# yielding immediately, guaranteeing it a first drain. Once it has a
-# watermark it reverts to the instant-yield behaviour, so a healthy feed
-# never blocks live chat for hours.
-#   OSTLER_INGEST_STARVE_WAIT  -> max seconds a never-run feed waits for
-#                                 the slot (default 75; 0 disables, i.e.
-#                                 restores pure instant-yield).
-_ostler_watermark="${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/imessage_source_state.json"
-_ostler_starve_wait="${OSTLER_INGEST_STARVE_WAIT:-75}"
-_ostler_never_ran=0
-if [ ! -s "$_ostler_watermark" ]; then
-    _ostler_never_ran=1
+# --- shared slot arbitration (bounded hold, derived patience, FIFO) ---
+# Before this, every feed ran its own policy on this one mutex and NONE of
+# them bounded the HOLD. The live v1.0.26 box: the email feed held the slot
+# for over an hour while the imessage feed woke every 15 minutes, waited a
+# flat constant, and yielded. A constant cannot win a race against a hold
+# with no bound, which is why widening it never helped.
+#
+# OSTLER_INGEST_SLOT is tested BEFORE the lib is sourced, deliberately.
+# ostler_slot_acquire returns 1 for BOTH "yield this tick" and "arbitration
+# disabled", so sourcing first and writing `acquire || exit 0` would turn
+# the documented escape hatch into a switch that stops this feed ingesting
+# at all. Guarding first makes OSTLER_INGEST_SLOT=0 fall through to the
+# inline lock below, which is what the lib header promises.
+_ostler_slot_lib="${OSTLER_INGEST_SLOT_LIB:-$HOME/.ostler/lib/ostler-ingest-slot.sh}"
+_ostler_slot_active=0
+if [ "${OSTLER_INGEST_SLOT:-1}" != "0" ] && [ -f "$_ostler_slot_lib" ]; then
+    . "$_ostler_slot_lib"
+    command -v ostler_slot_acquire >/dev/null 2>&1 && _ostler_slot_active=1
 fi
 
-if ! mkdir "$_ostler_lock" 2>/dev/null; then
-    # Lock held. Reclaim ONLY if the recorded holder PID is dead. A
-    # time-based steal would wrongly evict the wiki summary backfill, which
-    # holds this SAME lock for hours (v1.0.0 chat-saturation fix); if the
-    # holder is alive, yield this tick (the watermark catches up next tick)
-    # -- UNLESS this feed has never run, in which case wait (bounded) for
-    # the slot so a starving feed gets its first turn.
-    _ostler_h="$(cat "$_ostler_lock/pid" 2>/dev/null || true)"
-    if [ -n "${_ostler_h:-}" ] && kill -0 "$_ostler_h" 2>/dev/null; then
-        if [ "$_ostler_never_ran" = "1" ] && [ "$_ostler_starve_wait" -gt 0 ]; then
-            echo "imessage-bundle tick: slot held by pid ${_ostler_h}; this feed has never run, waiting up to ${_ostler_starve_wait}s for a turn."
-            _ostler_waited=0
-            _ostler_got_lock=0
-            while [ "$_ostler_waited" -lt "$_ostler_starve_wait" ]; do
-                sleep 5
-                _ostler_waited=$((_ostler_waited + 5))
-                if mkdir "$_ostler_lock" 2>/dev/null; then
-                    _ostler_got_lock=1
-                    break
-                fi
-                # Holder died mid-wait -> reclaim the stale lock.
-                _ostler_h2="$(cat "$_ostler_lock/pid" 2>/dev/null || true)"
-                if [ -z "${_ostler_h2:-}" ] || ! kill -0 "$_ostler_h2" 2>/dev/null; then
-                    rm -rf "$_ostler_lock" 2>/dev/null || true
+if [ "$_ostler_slot_active" = "1" ]; then
+    # The lib installs its own EXIT trap; do not add another (see its header).
+    ostler_slot_acquire "imessage-bundle" || exit 0
+    _ostler_run() { ostler_slot_run "$@"; }
+else
+    # Fail-safe: the installer has not delivered the lib yet. Unchanged
+    # pre-lib behaviour. A tick with no lock at all would put two pipelines
+    # on Ollama simultaneously, which is worse than the starvation above.
+    _ostler_run() { "$@"; }
+
+    # --- Anti-starvation fairness (CM044 conversations-ingest fix) -------
+    # On a fresh install with several feeds active, WhatsApp + email each
+    # grab the shared slot for long runs and the iMessage feed instant-yields
+    # on EVERY tick -- the live-box symptom was an iMessage feed that had
+    # never run a single pass (no watermark, empty Conversations dir) while
+    # the slot churned through other feeds. A feed that has NEVER produced a
+    # watermark is starving, so it waits (bounded) for the slot instead of
+    # yielding immediately, guaranteeing it a first drain. Once it has a
+    # watermark it reverts to the instant-yield behaviour, so a healthy feed
+    # never blocks live chat for hours.
+    #   OSTLER_INGEST_STARVE_WAIT  -> max seconds a never-run feed waits for
+    #                                 the slot (default 75; 0 disables, i.e.
+    #                                 restores pure instant-yield).
+    _ostler_watermark="${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/imessage_source_state.json"
+    _ostler_starve_wait="${OSTLER_INGEST_STARVE_WAIT:-75}"
+    _ostler_never_ran=0
+    if [ ! -s "$_ostler_watermark" ]; then
+        _ostler_never_ran=1
+    fi
+
+    if ! mkdir "$_ostler_lock" 2>/dev/null; then
+        # Lock held. Reclaim ONLY if the recorded holder PID is dead. A
+        # time-based steal would wrongly evict the wiki summary backfill, which
+        # holds this SAME lock for hours (v1.0.0 chat-saturation fix); if the
+        # holder is alive, yield this tick (the watermark catches up next tick)
+        # -- UNLESS this feed has never run, in which case wait (bounded) for
+        # the slot so a starving feed gets its first turn.
+        _ostler_h="$(cat "$_ostler_lock/pid" 2>/dev/null || true)"
+        if [ -n "${_ostler_h:-}" ] && kill -0 "$_ostler_h" 2>/dev/null; then
+            if [ "$_ostler_never_ran" = "1" ] && [ "$_ostler_starve_wait" -gt 0 ]; then
+                echo "imessage-bundle tick: slot held by pid ${_ostler_h}; this feed has never run, waiting up to ${_ostler_starve_wait}s for a turn."
+                _ostler_waited=0
+                _ostler_got_lock=0
+                while [ "$_ostler_waited" -lt "$_ostler_starve_wait" ]; do
+                    sleep 5
+                    _ostler_waited=$((_ostler_waited + 5))
                     if mkdir "$_ostler_lock" 2>/dev/null; then
                         _ostler_got_lock=1
                         break
                     fi
+                    # Holder died mid-wait -> reclaim the stale lock.
+                    _ostler_h2="$(cat "$_ostler_lock/pid" 2>/dev/null || true)"
+                    if [ -z "${_ostler_h2:-}" ] || ! kill -0 "$_ostler_h2" 2>/dev/null; then
+                        rm -rf "$_ostler_lock" 2>/dev/null || true
+                        if mkdir "$_ostler_lock" 2>/dev/null; then
+                            _ostler_got_lock=1
+                            break
+                        fi
+                    fi
+                done
+                if [ "$_ostler_got_lock" != "1" ]; then
+                    # Still could not take it within the window -- next tick retries.
+                    echo "imessage-bundle tick: slot still busy after waiting ${_ostler_waited}s; yielding this tick (next tick retries)."
+                    exit 0
                 fi
-            done
-            if [ "$_ostler_got_lock" != "1" ]; then
-                # Still could not take it within the window -- next tick retries.
-                echo "imessage-bundle tick: slot still busy after waiting ${_ostler_waited}s; yielding this tick (next tick retries)."
+            else
+                echo "imessage-bundle tick: another LLM job (pid ${_ostler_h}) holds the model slot; yielding this tick."
                 exit 0
             fi
         else
-            echo "imessage-bundle tick: another LLM job (pid ${_ostler_h}) holds the model slot; yielding this tick."
-            exit 0
-        fi
-    else
-        rm -rf "$_ostler_lock" 2>/dev/null || true
-        if ! mkdir "$_ostler_lock" 2>/dev/null; then
-            echo "imessage-bundle tick: lost the race for the model slot; yielding this tick."
-            exit 0
+            rm -rf "$_ostler_lock" 2>/dev/null || true
+            if ! mkdir "$_ostler_lock" 2>/dev/null; then
+                echo "imessage-bundle tick: lost the race for the model slot; yielding this tick."
+                exit 0
+            fi
         fi
     fi
+    printf '%s\n' "$$" > "$_ostler_lock/pid"
+    trap 'rm -rf "$_ostler_lock" 2>/dev/null || true' EXIT
 fi
-printf '%s\n' "$$" > "$_ostler_lock/pid"
-trap 'rm -rf "$_ostler_lock" 2>/dev/null || true' EXIT
 # --------------------------------------------------------------------
 
 cd "$SOURCE_DIR"
@@ -255,7 +286,7 @@ cd "$SOURCE_DIR"
 # one-line summary keyed on the exit code so the feed's .err log always
 # names WHY the tick failed (chat.db read denied = 2, db not found = 1).
 set +e
-"$PYTHON_BIN" -m services.imessage_source.pipeline "${ARGS[@]}"
+_ostler_run "$PYTHON_BIN" -m services.imessage_source.pipeline "${ARGS[@]}"
 _pipeline_rc=$?
 set -e
 if [ "$_pipeline_rc" -ne 0 ]; then

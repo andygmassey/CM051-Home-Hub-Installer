@@ -33,7 +33,12 @@ _PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
-from identity_resolver.normalise import _jaro_winkler, normalise_email, normalise_phone
+from identity_resolver.normalise import (
+    _jaro_winkler,
+    names_agree,
+    normalise_email,
+    normalise_phone,
+)
 from identity_resolver.decisions import apply_user_decisions, load_duplicate_decisions
 from identity_resolver.canonical_name import choose_canonical_display_name
 
@@ -283,16 +288,24 @@ def detect_email_matches(
             continue
         for i in range(len(uris)):
             for j in range(i + 1, len(uris)):
-                name_a = _normalise_name(persons[uris[i]].display_name)
-                name_b = _normalise_name(persons[uris[j]].display_name)
-                name_sim = _jaro_winkler(name_a, name_b) if name_a and name_b else 0.0
-
-                if name_sim >= name_threshold:
+                verdict = names_agree(
+                    persons[uris[i]].display_name, persons[uris[j]].display_name
+                )
+                if verdict == "agree":
                     confidence = high_conf
-                    detail = f"Shared email: {email} (names similar: {name_sim:.2f})"
+                    detail = f"Shared email: {email} (names agree)"
+                elif verdict == "disagree":
+                    confidence = low_conf
+                    detail = (
+                        f"Shared email: {email} (different surnames, so most "
+                        f"likely two people sharing one account)"
+                    )
                 else:
                     confidence = low_conf
-                    detail = f"Shared email: {email} (names differ: {name_sim:.2f}, possible shared/inherited account)"
+                    detail = (
+                        f"Shared email: {email} (names may or may not be the "
+                        f"same person)"
+                    )
 
                 matches.append(DuplicateMatch(
                     uri_a=uris[i],
@@ -332,14 +345,24 @@ def detect_phone_matches(
             for j in range(i + 1, len(uris)):
                 name_a = _normalise_name(persons[uris[i]].display_name)
                 name_b = _normalise_name(persons[uris[j]].display_name)
-                name_sim = _jaro_winkler(name_a, name_b) if name_a and name_b else 0.0
-
-                if name_sim >= name_threshold:
+                verdict = names_agree(
+                    persons[uris[i]].display_name, persons[uris[j]].display_name
+                )
+                if verdict == "agree":
                     confidence = high_conf
-                    detail = f"Shared phone: {phone} (names similar: {name_sim:.2f})"
+                    detail = f"Shared phone: {phone} (names agree)"
+                elif verdict == "disagree":
+                    confidence = low_conf
+                    detail = (
+                        f"Shared phone: {phone} (different surnames, so most "
+                        f"likely a household, office or shared handset)"
+                    )
                 else:
                     confidence = low_conf
-                    detail = f"Shared phone: {phone} (names differ: {name_sim:.2f}, likely office number)"
+                    detail = (
+                        f"Shared phone: {phone} (names may or may not be the "
+                        f"same person)"
+                    )
 
                 matches.append(DuplicateMatch(
                     uri_a=uris[i],
@@ -872,12 +895,39 @@ def _fetch_all_persons(
 ) -> Dict[str, PersonRecord]:
     """Fetch all person nodes from Oxigraph with identifiers and triple counts."""
     # Get all persons with identifiers
+    # NON-PERSON RECORDS ARE NOT MERGE CANDIDATES.
+    #
+    # This query did not load contactType at all, so a retailer was a full
+    # candidate for every match path below: email, phone, exact name and
+    # Jaro-Winkler fuzzy name. Measured on the live v1.0.26 box, four
+    # AliExpress records were pwg:Person and one already carried
+    # pwg:mergedInto dated 2026-08-14 -- the queue had offered a retailer
+    # to the customer as a human to merge, and the merge had been taken.
+    # Andy: "AliExpress is not a person!!"
+    #
+    # Fuzzy name matching makes this worse than it sounds: a retailer's
+    # brand name scores highly against itself across several campaign
+    # addresses, so these records merge with each other readily and
+    # present as a confident, high-scoring duplicate group.
+    #
+    # The filter is on the NON-PERSON set, not on == "person", so a record
+    # with contactType absent or "unclassified" is still a candidate. 497
+    # of 6,481 records on that box carried no type at all; excluding them
+    # would silently stop de-duplicating 7.7% of the address book, which
+    # is the same defect pointed the other way.
     rows = _sparql_query(url, client, f"""
         PREFIX pwg: <{PWG}>
         SELECT ?person ?name ?org ?title ?givenName ?familyName ?idType ?idValue WHERE {{
             ?person a pwg:Person ;
                     pwg:displayName ?name .
             FILTER NOT EXISTS {{ ?person pwg:mergedInto ?merged }}
+            FILTER NOT EXISTS {{
+                ?person pwg:contactType ?ct .
+                FILTER(LCASE(STR(?ct)) IN (
+                    "organisation", "organization", "company", "business",
+                    "brand", "venue", "service", "group"
+                ))
+            }}
             OPTIONAL {{ ?person pwg:organization ?org }}
             OPTIONAL {{ ?person pwg:jobTitle ?title }}
             OPTIONAL {{ ?person pwg:givenName ?givenName }}

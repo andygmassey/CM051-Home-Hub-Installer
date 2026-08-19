@@ -38,6 +38,22 @@ def main(argv: list[str] | None = None) -> int:
     p_process.add_argument("--priority", default="medium", choices=["high", "medium", "low", "deferred"])
     p_process.add_argument("--no-sinks", action="store_true")
 
+    # v1018-D021. The fast first pass: write the four artefacts with no
+    # model call so a thread is browseable in the wiki on the tick it
+    # arrives, then let `process` rewrite the same folder when enrichment
+    # reaches it. Batched via a JSONL manifest because the whole point is
+    # that a seed costs milliseconds -- one interpreter start per
+    # conversation would dwarf the work.
+    p_seed = sub.add_parser(
+        "seed",
+        help="Write four-artefact bundles with no LLM call (fast first pass)",
+    )
+    p_seed.add_argument(
+        "manifest",
+        type=Path,
+        help='JSONL, one {"transcript": path, "metadata": path} per line',
+    )
+
     p_status = sub.add_parser("status", help="Show status of one or all conversations")
     p_status.add_argument("conversation_id", nargs="?")
 
@@ -107,6 +123,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "process":
         return cmd_process(args, settings)
+    if args.cmd == "seed":
+        return cmd_seed(args, settings)
     if args.cmd == "status":
         return cmd_status(args, settings)
     if args.cmd == "retry":
@@ -146,6 +164,24 @@ def cmd_process(args, settings) -> int:
     )
     print(json.dumps(state.to_dict(), indent=2))
     return 0 if state.failed_step is None else 1
+
+
+def cmd_seed(args, settings) -> int:
+    """v1018-D021 fast first pass. Always exits 0 on a readable manifest.
+
+    A seed is an optimisation on top of the durable pipeline. Failing the
+    caller because some conversations could not be seeded would stop the
+    enrichment pass that follows, which is the thing that actually has to
+    run. The counts are reported so a tick log still shows what happened.
+    """
+    from .seed import seed_from_manifest
+
+    if not args.manifest.exists():
+        print(f"No such manifest: {args.manifest}", file=sys.stderr)
+        return 2
+    seeded, other = seed_from_manifest(args.manifest, settings)
+    print(json.dumps({"seeded": seeded, "skipped_or_failed": other}))
+    return 0
 
 
 def cmd_status(args, settings) -> int:

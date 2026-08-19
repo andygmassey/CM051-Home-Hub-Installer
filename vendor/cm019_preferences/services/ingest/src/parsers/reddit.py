@@ -49,14 +49,21 @@ class RedditParser(BaseParser):
                 return False
 
         name = file_path.name.lower()
+        # Exactly the five files _parse_csv has an arm for, and no more.
+        #
+        # "comments.csv" and "posts.csv" used to be claimed here as well. Both
+        # fall through _parse_csv's if/elif chain without matching anything, so
+        # claiming them took a file this parser then silently dropped: a claim
+        # wider than the handler behind it is worse than no claim, because it
+        # stops the parser that could have read the file. Measured on a Reddit
+        # export: 0 preferences from comments.csv here, against 2 from the
+        # generic CSV parser, which reads it through the "subreddit" column.
         reddit_files = [
             "post_votes.csv",
             "comment_votes.csv",
             "saved_posts.csv",
             "saved_comments.csv",
             "subscribed_subreddits.csv",
-            "comments.csv",
-            "posts.csv"
         ]
         return any(name == f for f in reddit_files) or \
                name.startswith("export_") and name.endswith(".zip")

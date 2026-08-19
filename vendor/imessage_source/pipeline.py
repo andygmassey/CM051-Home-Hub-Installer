@@ -34,6 +34,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import timedelta
 from pathlib import Path
 from typing import Callable, Optional
@@ -47,6 +48,87 @@ from .threader import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# --- v1018-D020: every pwg-convo dispatch is bounded ---------------------
+#
+# `subprocess.run` without a timeout waits forever. One document that never
+# returns therefore wedges this tick permanently -- and because the tick
+# holds the shared single-flight ingest lock (deliberately never reclaimed
+# on age, so the hours-long wiki summary backfill is not evicted), a single
+# wedged dispatch stops EVERY conversation feed: email, WhatsApp, iMessage
+# and spoken. `launchctl list` reports the label healthy throughout.
+#
+# Observed on the shipped v1.0.18 box, 2026-08-09: one pwg-convo alive
+# 6h47m, the shared lock held 9h19m by the email tick, 36 iMessage and 38
+# spoken ticks yielded to it. Nothing anywhere recorded a reason.
+#
+# The ceiling is per-dispatch, not per-tick, so a slow-but-progressing
+# backlog still drains; only an individual pathological document is
+# abandoned.
+_DISPATCH_TIMEOUT_DEFAULT_SECS = 900
+
+# EX_TEMPFAIL. Deliberately distinct from any code pwg-convo itself
+# returns, so "this document is slow" is never confused with "this
+# document is broken" by whoever reads the log next.
+DISPATCH_TIMEOUT_RC = 75
+
+
+def _dispatch_timeout_secs():
+    """Per-dispatch wall-clock ceiling in seconds, or None for unbounded.
+
+    ``OSTLER_DISPATCH_TIMEOUT_SECS=0`` restores the old unbounded
+    behaviour for debugging. A malformed value falls back to the default
+    rather than raising: a typo in an env var must not be the thing that
+    stops ingest.
+    """
+    raw = os.environ.get("OSTLER_DISPATCH_TIMEOUT_SECS")
+    if raw is None or not raw.strip():
+        return float(_DISPATCH_TIMEOUT_DEFAULT_SECS)
+    try:
+        secs = float(raw)
+    except ValueError:
+        return float(_DISPATCH_TIMEOUT_DEFAULT_SECS)
+    return None if secs <= 0 else secs
+
+
+# --- v1018-D032: keep the TAIL of a captured stream, never the head ------
+#
+# The original form took the FIRST 500 chars of stderr. For a process that
+# HUNG, the first 500 characters are the least informative 500 characters
+# available -- they record the run starting normally. The last thing it did
+# before wedging, the only line that localises the hang, is at the other
+# end, and was discarded on every single dispatch failure.
+#
+# This cost a real diagnosis. A document that hung 13 hours on the shipped
+# box surfaced exactly 500 characters, cut mid-word, every one of them from
+# the first ten seconds of a thirteen-hour run. It read like an ending. It
+# was a truncation, and a conclusion was drawn from it.
+#
+# The marker is not decoration: a clipped window that does not say it was
+# clipped invites the next reader to repeat that exact mistake.
+_STDERR_EXCERPT_DEFAULT_CHARS = 2000
+
+
+def _stderr_excerpt(raw):
+    """Tail of a captured stream, with an explicit marker when clipped."""
+    if raw is None:
+        return "<no stderr captured>"
+    text = raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
+    text = text.strip()
+    if not text:
+        return "<stderr empty>"
+    raw_limit = os.environ.get("OSTLER_DISPATCH_STDERR_CHARS")
+    try:
+        limit = int(raw_limit) if raw_limit and raw_limit.strip() else _STDERR_EXCERPT_DEFAULT_CHARS
+    except ValueError:
+        limit = _STDERR_EXCERPT_DEFAULT_CHARS
+    if limit <= 0 or len(text) <= limit:
+        return text
+    dropped = len(text) - limit
+    return f"<...{dropped} earlier chars dropped, showing last {limit}...>\n{text[-limit:]}"
+# ------------------------------------------------------------------------
+# ------------------------------------------------------------------------
 
 
 # Engine-zone state under ~/.ostler/ (two-zone architecture). The
@@ -159,13 +241,58 @@ def _dispatch_to_cm048(
             metadata["conversation_id"],
             " ".join(pwg_convo_cmd),
         )
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        started = time.monotonic()
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=_dispatch_timeout_secs(),
+            )
+        except subprocess.TimeoutExpired as exc:
+            # v1018-D020. subprocess.run has already killed the child by
+            # the time this is raised, so the shared ingest lock is
+            # released when this tick ends rather than being held until
+            # the machine reboots. Abandon this one document and let the
+            # caller move on -- the watermark is left untouched, so the
+            # next tick retries it.
+            logger.error(
+                "pwg-convo TIMED OUT for %s after %ss; abandoning this "
+                "document and continuing. Raise or disable the ceiling "
+                "with OSTLER_DISPATCH_TIMEOUT_SECS. Last output before the "
+                "kill: %s",
+                metadata["conversation_id"],
+                exc.timeout,
+                # v1018-D032. TimeoutExpired carries what was captured
+                # before the kill, and for a wedged document that tail is
+                # the ONLY record of what it was doing. The first cut of
+                # the D020 ceiling logged the timeout and dropped this --
+                # bounding the hang while discarding its diagnosis.
+                _stderr_excerpt(exc.stderr),
+            )
+            return DISPATCH_TIMEOUT_RC
+        elapsed = time.monotonic() - started
         if proc.returncode != 0:
             logger.error(
-                "pwg-convo failed for %s (rc=%d): %s",
+                "pwg-convo failed for %s after %.1fs (rc=%d): %s",
                 metadata["conversation_id"],
+                elapsed,
                 proc.returncode,
-                proc.stderr.strip()[:500],
+                _stderr_excerpt(proc.stderr),
+            )
+        else:
+            # v1018-D021. The ONLY per-document timing that survives a
+            # successful dispatch. capture_output=True discards pwg-convo's
+            # own instrumentation on rc=0, so without this line the feed is
+            # unmeasurable except by diffing "Dispatching" timestamps, which
+            # attributes queueing and lock waits to the document. Two windows
+            # 13h apart both measured ~100s/document that way; where the time
+            # actually goes could not be established, because the evidence was
+            # being thrown away on every success.
+            logger.info(
+                "pwg-convo completed %s in %.1fs",
+                metadata["conversation_id"],
+                elapsed,
             )
         return proc.returncode
 
@@ -205,6 +332,10 @@ def process_imessage(
             continue
         prev_watermark = watermarks.get(convo.chat_id, -1)
         max_rowid = prev_watermark
+        # Lowest rowid that FAILED to dispatch in this chat, if any. The
+        # watermark is capped below it after the loop -- see the comment at
+        # the cap for why an inline claw-back is not enough.
+        first_failed_rowid = None
 
         sessions = thread_messages(
             convo.chat_id,
@@ -251,9 +382,33 @@ def process_imessage(
                 dispatched += 1
             else:
                 failed += 1
-                # Don't advance the watermark past a failed session so
-                # the next tick retries it.
-                max_rowid = min(max_rowid, session_max - 1)
+                if first_failed_rowid is None or session_max < first_failed_rowid:
+                    first_failed_rowid = session_max
+
+        # Cap the watermark BELOW the earliest failure in this chat.
+        #
+        # 2026-08-08: this used to claw back inline --
+        #     max_rowid = min(max_rowid, session_max - 1)
+        # -- immediately after a failure. That is defeated by any LATER
+        # success in the same chat, because the top of the loop does
+        #     max_rowid = max(max_rowid, session_max)
+        # unconditionally:
+        #
+        #     session A rowid 100 FAILS -> max_rowid = 99
+        #     session B rowid 200 OK    -> max_rowid = max(99, 200) = 200
+        #     watermark advances to 200, past the failure at 100
+        #
+        # The failed session is then permanently skipped, because the next
+        # tick's `session_max <= prev_watermark` check treats it as already
+        # processed. Observed on the .208 box-walk: `sessions_failed: 1`, tick
+        # reported complete, conversation never in the graph. Silent, and
+        # unrecoverable without resetting the watermark by hand.
+        #
+        # Capping once, after the loop, is order-independent: a failure at any
+        # position holds the line for everything after it. Re-dispatching a
+        # few already-successful sessions on the next tick is cheap and
+        # idempotent; losing a conversation forever is neither.
+        max_rowid = cap_watermark(max_rowid, first_failed_rowid)
 
         if not dry_run and max_rowid > prev_watermark:
             watermarks[convo.chat_id] = max_rowid
@@ -267,7 +422,17 @@ def process_imessage(
         "sessions_skipped": skipped,
         "sessions_failed": failed,
     }
-    logger.info("iMessage source tick complete: %s", summary)
+    # Do not call a tick with failures "complete". A tick that dropped work
+    # and reported completion is what let this go unnoticed for a whole
+    # box-walk; Doctor now surfaces the same signal to the customer.
+    if failed:
+        logger.error(
+            "iMessage source tick FINISHED WITH FAILURES (%s session(s) not "
+            "processed; watermark held so they retry next tick): %s",
+            failed, summary,
+        )
+    else:
+        logger.info("iMessage source tick complete: %s", summary)
     return summary
 
 
@@ -283,6 +448,20 @@ def _resolve_pwg_convo_cmd() -> list[str]:
     if override:
         return override.split()
     return ["pwg-convo"]
+
+
+
+def cap_watermark(max_rowid: int, first_failed_rowid: "Optional[int]") -> int:
+    """Highest rowid safe to record, given the earliest failure in this chat.
+
+    Pure, so the rule can be tested without a chat.db. The rule itself:
+    a watermark may never advance past a session that failed to dispatch,
+    because the next tick treats anything at or below the watermark as already
+    processed and will never retry it.
+    """
+    if first_failed_rowid is None:
+        return max_rowid
+    return min(max_rowid, first_failed_rowid - 1)
 
 
 def run(argv: Optional[list[str]] = None) -> int:

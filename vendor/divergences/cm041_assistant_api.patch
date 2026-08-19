@@ -403,7 +403,7 @@
          }, 503
  
      # Generate conversation_id from metadata or UUID
-@@ -4433,7 +4531,10 @@
+@@ -4511,7 +4609,10 @@
              "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(name)}/",
              "last_contact": p.get("last_contact", ""),
              "months_since_contact": months_since,
@@ -415,7 +415,7 @@
          })
      contacts.sort(key=lambda c: c["months_since_contact"], reverse=True)
      return {"contacts": contacts[:limit]}
-@@ -5192,6 +5293,9 @@
+@@ -5370,6 +5471,9 @@
              "ok": True,
              "batch_id": batch_id,
              "item_count": len(batch),
@@ -425,7 +425,7 @@
              "path": path,
          }
          if health_written:
-@@ -5210,13 +5314,74 @@
+@@ -5388,13 +5492,74 @@
  # can fan out work and collect named results. Every helper is wrapped in
  # a blanket try/except – a misbehaving dependency must NEVER propagate
  # up to the endpoint handler.
@@ -501,7 +501,7 @@
      """
      try:
          if path.exists():
-@@ -5227,6 +5392,185 @@
+@@ -5405,6 +5570,185 @@
      return None
  
  
@@ -687,7 +687,7 @@
  def _hub_check_zeroclaw():
      """Is ZeroClaw running? Uses pgrep rather than parsing ps output.
  
-@@ -5339,7 +5683,7 @@
+@@ -5517,7 +5861,7 @@
      Absence of a marker is treated as unhealthy but not an error – fresh
      installs have never synced.
      """
@@ -696,7 +696,7 @@
      if ts:
          return {"healthy": True, "last_refresh": ts}
      return {"healthy": False, "last_refresh": None, "error": "no refresh recorded"}
-@@ -5462,7 +5806,7 @@
+@@ -5640,7 +5984,7 @@
      except Exception:
          queue_depth = 0
  
@@ -705,7 +705,7 @@
  
      # Derive hub_status from service health + queue depth.
      all_healthy = all(s.get("healthy") for s in services.values())
-@@ -6307,7 +6651,11 @@
+@@ -6507,7 +6851,11 @@
              try:
                  result = api_timeline(days=days, past_days=past_days, limit=limit)
              except Exception as exc:
@@ -718,7 +718,7 @@
                            "degraded": True, "reason": str(exc), "error": str(exc)}
              self.send_response(200)
              self.send_header("Content-Type", "application/json")
-@@ -6649,6 +6997,31 @@
+@@ -6849,6 +7197,31 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -750,7 +750,7 @@
          # Conversation processing status (CM048)
          # Per-slug person enrichment for the iOS / Hub person card.
          # GET /api/v1/people/{slug}/enrichment
-@@ -6874,6 +7247,22 @@
+@@ -7074,6 +7447,22 @@
          if parsed.path == "/api/v1/ingest/ios":
              try:
                  result, status = api_ingest_ios(payload)

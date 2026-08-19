@@ -296,7 +296,7 @@ class GeocoderClient(BaseClient[GeocodingResult]):
         return {
             "Accept": "application/json",
             # REQUIRED by Nominatim - identifies the application
-            "User-Agent": "PWG-GeoEnricher/0.1 (Personal World Graph location enrichment; https://github.com/andybrandt)",
+            "User-Agent": "Ostler/1.0 (+https://ostler.ai)",
         }
 
     async def geocode(

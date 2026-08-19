@@ -46,6 +46,60 @@ final class ProgressDecoderTests: XCTestCase {
         )
     }
 
+    // MARK: - #201: bare STEP marker
+
+    func testBareStepMarkerYieldsStepEventWithNameAsId() {
+        // #201 (v1.0.13.1 box-walk, 2026-08-01): install.sh emits
+        //   #OSTLER<TAB>STEP<TAB>name=permissions_briefing<TAB>total_permissions=10
+        // for the "10 macOS popups coming up" walk-through between the
+        // setup_questions PHASE and the first install stepBegin. Pre-#201
+        // this fell through to `.unknown` and the sidebar stayed stuck on
+        // "A few questions" while install.sh had already moved on. The
+        // decoder must:
+        //   - route the marker to `.step` (not `.unknown`)
+        //   - lift `name=` out as the step id
+        //   - keep the remaining k=v pairs in `metadata` so the coordinator
+        //     can render them as an optional sidebar subtitle
+        //   - NOT leave a residual `name` key in `metadata` (that would
+        //     round-trip as a bogus subtitle line "name=...")
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP\tname=permissions_briefing\ttotal_permissions=10"
+        )
+        guard case .step(let id, let metadata) = event else {
+            return XCTFail("expected .step, got \(event)")
+        }
+        XCTAssertEqual(id, "permissions_briefing")
+        XCTAssertEqual(metadata, ["total_permissions": "10"])
+        XCTAssertNil(metadata["name"], "name= key must not leak into metadata dict")
+    }
+
+    func testBareStepMarkerWithoutMetadataYieldsEmptyDict() {
+        // Minimal shape: just `name=`, no auxiliary pairs. `metadata`
+        // is present-but-empty; the coordinator uses `isEmpty` to decide
+        // whether to render a subtitle so the empty-dict path must be
+        // honest.
+        let event = ProgressDecoder.decode(line: "#OSTLER\tSTEP\tname=foo")
+        guard case .step(let id, let metadata) = event else {
+            return XCTFail("expected .step, got \(event)")
+        }
+        XCTAssertEqual(id, "foo")
+        XCTAssertTrue(metadata.isEmpty)
+    }
+
+    func testBareStepMarkerWithoutNameFallsBackToQuestionMark() {
+        // Defensive: a malformed STEP marker with no `name=` field must
+        // still return `.step`, not `.unknown`, so the coordinator's
+        // event-count telemetry treats it as a STEP that arrived in a
+        // bad shape (surfaces "?" as the id in the log). Matches the
+        // `id=kv["id"] ?? "?"` fallback stepBegin uses.
+        let event = ProgressDecoder.decode(line: "#OSTLER\tSTEP\tfoo=bar")
+        guard case .step(let id, let metadata) = event else {
+            return XCTFail("expected .step, got \(event)")
+        }
+        XCTAssertEqual(id, "?")
+        XCTAssertEqual(metadata, ["foo": "bar"])
+    }
+
     func testUnknownMarkerStillYieldsUnknownEvent() {
         // `.unknown` is a different concern from `.rawLine` -- it
         // means "the line LOOKED like a marker but the event name
@@ -106,5 +160,81 @@ final class ProgressDecoderTests: XCTestCase {
             return XCTFail("expected .stepBegin, got \(event)")
         }
         XCTAssertEqual(title, "Installing Docker")
+    }
+
+    // ── #839: the status field must not fail open ─────────────────────
+    //
+    // install.sh now emits `status=timeout` (rc 124/137, "we gave up
+    // waiting") and `status=error` (any other non-zero rc) on STEP_END.
+    // Before this change the decoder read the field as
+    // `StepStatus(rawValue: ...) ?? .ok`, so ANY status it did not
+    // recognise decoded to success. The shell would have reported a
+    // step killed by its cap and the GUI would have drawn a green tick
+    // over it: the same lie on a second surface.
+
+    func testTimedOutStepDoesNotDecodeAsOK() {
+        // The exact line shape the v1.0.36 install should have written
+        // for the step that was killed by its 90-second cap.
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_END\tid=hydrate_people\tstatus=timeout\telapsed_s=90\trc=124"
+        )
+        guard case .stepEnd(let id, let status, let elapsed) = event else {
+            return XCTFail("expected .stepEnd, got \(event)")
+        }
+        XCTAssertEqual(id, "hydrate_people")
+        XCTAssertNotEqual(status, .ok, "a timed-out step decoded as success")
+        XCTAssertEqual(status, .timeout)
+        XCTAssertTrue(status.isProblem)
+        XCTAssertEqual(elapsed, 90)
+    }
+
+    func testErroredStepDecodesAsErrorNotOK() {
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_END\tid=hydrate_browsing\tstatus=error\telapsed_s=4\trc=3"
+        )
+        guard case .stepEnd(_, let status, _) = event else {
+            return XCTFail("expected .stepEnd, got \(event)")
+        }
+        XCTAssertEqual(status, .error)
+        XCTAssertTrue(status.isProblem)
+    }
+
+    func testCleanStepStillDecodesAsOK() {
+        // POSITIVE CONTROL. Without this a decoder that returned .warn
+        // for everything would pass both tests above.
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_END\tid=cm048_setup\tstatus=ok\telapsed_s=2"
+        )
+        guard case .stepEnd(_, let status, _) = event else {
+            return XCTFail("expected .stepEnd, got \(event)")
+        }
+        XCTAssertEqual(status, .ok)
+        XCTAssertFalse(status.isProblem)
+    }
+
+    func testUnrecognisedStatusDoesNotDecodeAsOK() {
+        // An older GUI reading a newer install.sh. "Unknown" must never
+        // round to "fine": that rounding is what the `?? .ok` did.
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_END\tid=some_step\tstatus=exploded\telapsed_s=1"
+        )
+        guard case .stepEnd(_, let status, _) = event else {
+            return XCTFail("expected .stepEnd, got \(event)")
+        }
+        XCTAssertNotEqual(status, .ok)
+        XCTAssertEqual(status, .warn)
+    }
+
+    func testAbsentStatusStillDecodesAsOK() {
+        // The legacy wire shape carried no status at all. Absent means
+        // "nothing to report" and stays ok; only an UNRECOGNISED value
+        // is downgraded.
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_END\tid=some_step\telapsed_s=1"
+        )
+        guard case .stepEnd(_, let status, _) = event else {
+            return XCTFail("expected .stepEnd, got \(event)")
+        }
+        XCTAssertEqual(status, .ok)
     }
 }

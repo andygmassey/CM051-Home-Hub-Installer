@@ -193,6 +193,20 @@ def _profile_from_flat(art: dict) -> dict:
     }
 
 
+def _read_feed(path: str) -> dict | None:
+    """Read an existing feed artefact, or None when absent/unreadable.
+
+    Deliberately forgiving: a corrupt or half-written previous feed must not
+    stop the degraded path writing its stub, because then the stub really is
+    the better of the two.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else None
+    except Exception:  # noqa: BLE001 - missing, unreadable or malformed
+        return None
+
 def emit(oxigraph_url: str | None = None, *, from_artefact: bool = False,
          now: datetime | None = None) -> dict:
     """Build + write the Front Page artefacts. Returns
@@ -210,6 +224,7 @@ def emit(oxigraph_url: str | None = None, *, from_artefact: bool = False,
     # Pro entitlement (entitlement.py): None = enforcement off (default until
     # the daemon-side sidecar writer ships), else a fail-closed boolean.
     entitled = ent.front_page_entitled(now)
+    degraded = False
     try:
         profile = _obtain_profile(oxigraph_url, from_artefact)
         scout_cards = None if demo else read_scout_cards(profile, now, ledger)
@@ -223,9 +238,52 @@ def emit(oxigraph_url: str | None = None, *, from_artefact: bool = False,
         print(f"front-page: profile unavailable ({type(exc).__name__}: {exc}); "
               "emitting settling-only feed", file=sys.stderr)
         feed = fp.empty_frontpage(now=now, settling=settling)
+        degraded = True
 
     out_dir = editor_dir()
-    feed_path = _atomic_write(os.path.join(out_dir, FEED_NAME),
+    feed_target = os.path.join(out_dir, FEED_NAME)
+
+    # A DEGRADED build must never overwrite a good one.
+    #
+    # The settling-only fallback exists so a FRESH install still renders a
+    # graceful page. It was written unconditionally, which is right on a fresh
+    # box and destructive on an established one: any transient outage of the
+    # contact-name service replaced a full Front Page with a one-card stub,
+    # and the next good build was an hour away.
+    #
+    # Andy hit exactly that on the v1.0.15 reboot test, 2026-08-06. The daemon
+    # blocks its gateway bind behind a Colima cold start (3m12s, measured from
+    # the daemon log), the hourly agent fired inside that window, and his log
+    # shows the damage in four lines:
+    #     front-page: 12 cards (phase=steady)      x5
+    #     interest-profile: contact-name fetch failed (Connection refused)
+    #     front-page: profile unavailable; emitting settling-only feed
+    #     front-page: 1 cards (phase=hydrating)
+    # The Front Page emptied on every reboot, and the cause looked like the
+    # Front Page rather than a boot-order race.
+    #
+    # So: fall back only when there is nothing better to keep. An existing feed
+    # carrying cards beats a settling stub even an hour stale, because it is
+    # TRUE and the stub is not.
+    if degraded:
+        previous = _read_feed(feed_target)
+        if previous and previous.get("card_count", 0) > 0:
+            print(
+                "front-page: keeping the previous "
+                f"{previous.get('card_count', 0)}-card feed "
+                f"(phase={previous.get('phase')}) rather than overwriting it "
+                "with a settling stub; will rebuild on the next tick",
+                file=sys.stderr,
+            )
+            return {
+                "feed": feed_target,
+                "html": os.path.join(out_dir, HTML_NAME),
+                "phase": previous.get("phase"),
+                "cards": previous.get("card_count", 0),
+                "degraded_write_skipped": True,
+            }
+
+    feed_path = _atomic_write(feed_target,
                               json.dumps(feed, indent=2, ensure_ascii=False))
     html_path = _atomic_write(os.path.join(out_dir, HTML_NAME), rf.render(feed))
 

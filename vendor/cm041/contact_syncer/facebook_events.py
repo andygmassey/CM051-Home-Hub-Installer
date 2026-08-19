@@ -4,7 +4,7 @@ timeline events in the PWG knowledge graph.
 
 Stores event name, date, location (when available), and description
 as PersonFacts about the user — these become timeline entries in the
-wiki and are searchable via Marvin.
+wiki and are searchable via the assistant.
 
 Usage:
     python -m contact_syncer.facebook_events \

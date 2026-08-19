@@ -43,18 +43,18 @@ if [[ -z "$BLOCK" ]]; then
     echo "FAIL [case-2]: could not extract CX-60 probe block" >&2
     exit 1
 fi
-if ! printf '%s\n' "$BLOCK" | grep -q "set +e"; then
+if ! grep -q "set +e" <<< "$BLOCK"; then
     echo "FAIL [case-2]: probe block missing 'set +e' best-effort guard" >&2
     exit 1
 fi
-if ! printf '%s\n' "$BLOCK" | grep -q "set -e"; then
+if ! grep -q "set -e" <<< "$BLOCK"; then
     echo "FAIL [case-2]: probe block missing 'set -e' restore" >&2
     exit 1
 fi
 echo "PASS [case-2]: probe block is best-effort (set +e / set -e wrap)"
 
 # ── Case 3: writer invocation passes --imessage-fda-needed ──────
-if ! printf '%s\n' "$BLOCK" | grep -q "imessage-fda-needed"; then
+if ! grep -q "imessage-fda-needed" <<< "$BLOCK"; then
     echo "FAIL [case-3]: probe block does not call writer with --imessage-fda-needed" >&2
     exit 1
 fi
@@ -144,12 +144,12 @@ if [[ -z "$ASSIST_BLOCK" ]]; then
     exit 1
 fi
 # Block must be gated on OSTLER_GUI=1 (no AppleScript dialog in headless installs)
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'OSTLER_GUI.*== "1"'; then
+if ! grep -q 'OSTLER_GUI.*== "1"' <<< "$ASSIST_BLOCK"; then
     echo "FAIL [case-6]: assist block missing OSTLER_GUI gate" >&2
     exit 1
 fi
 # Block must open System Settings via x-apple URL scheme
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'x-apple.systempreferences.*Privacy_AllFiles'; then
+if ! grep -q 'x-apple.systempreferences.*Privacy_AllFiles' <<< "$ASSIST_BLOCK"; then
     echo "FAIL [case-6]: assist block missing System Settings deep-link" >&2
     exit 1
 fi
@@ -158,17 +158,17 @@ fi
 # customer can drag the app itself into the FDA pane; earlier revisions
 # revealed the bare ostler-assistant binary path, hence the historical
 # grep -- updated to the current .app-bundle reveal.
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'open -R.*ASSISTANT_APP_BUNDLE'; then
+if ! grep -q 'open -R.*ASSISTANT_APP_BUNDLE' <<< "$ASSIST_BLOCK"; then
     echo "FAIL [case-6]: assist block missing Finder reveal" >&2
     exit 1
 fi
 # Block must invoke osascript + display dialog (may be split across
 # multiple -e args for the System Events activate front-bringer).
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'osascript'; then
+if ! grep -q 'osascript' <<< "$ASSIST_BLOCK"; then
     echo "FAIL [case-6]: assist block missing osascript invocation" >&2
     exit 1
 fi
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'display dialog'; then
+if ! grep -q 'display dialog' <<< "$ASSIST_BLOCK"; then
     echo "FAIL [case-6]: assist block missing display dialog AppleScript" >&2
     exit 1
 fi
@@ -176,12 +176,12 @@ fi
 # dropped the standalone `activate` (it stole focus back off System
 # Settings/Finder); the dialog is now run THROUGH System Events, which
 # is app-modal and frontmost on its own. Lock that mechanism.
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'System Events.*display dialog'; then
+if ! grep -q 'System Events.*display dialog' <<< "$ASSIST_BLOCK"; then
     echo "FAIL [case-6]: assist block missing System Events frontmost dialog" >&2
     exit 1
 fi
 # Block must re-probe chat.db after dialog dismissal
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'sleep 2' ; then
+if ! grep -q 'sleep 2' <<< "$ASSIST_BLOCK" ; then
     echo "FAIL [case-6]: assist block missing re-probe sleep" >&2
     exit 1
 fi
@@ -190,7 +190,7 @@ fi
 # helper _ostler_start_assistant_daemon (it bootstraps the LaunchAgent
 # on first call now that RunAtLoad is deferred until FDA lands, and
 # kickstart -k's it on subsequent calls). Lock the helper call.
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q '_ostler_start_assistant_daemon'; then
+if ! grep -q '_ostler_start_assistant_daemon' <<< "$ASSIST_BLOCK"; then
     echo "FAIL [case-6]: assist block missing assistant-daemon start on success" >&2
     exit 1
 fi
@@ -244,23 +244,23 @@ if [[ -z "$ASSIST_DIALOG_BLOCK" ]]; then
     exit 1
 fi
 # Must probe SCRIPT_DIR for DialogIcon.icns FIRST (B8b: preferred icon).
-if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q '\${SCRIPT_DIR}/DialogIcon.icns'; then
+if ! grep -q '\${SCRIPT_DIR}/DialogIcon.icns' <<< "$ASSIST_DIALOG_BLOCK"; then
     echo "FAIL [case-8]: icon resolution missing \${SCRIPT_DIR}/DialogIcon.icns probe (B8b)" >&2
     exit 1
 fi
 # Must probe /Applications/.../Resources/DialogIcon.icns as the B8b
 # tarball-stripped fallback.
-if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q '/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns'; then
+if ! grep -q '/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns' <<< "$ASSIST_DIALOG_BLOCK"; then
     echo "FAIL [case-8]: icon resolution missing /Applications DialogIcon fallback probe (B8b)" >&2
     exit 1
 fi
 # Must retain AppIcon.icns probes as secondary fallback (B8 -> B8b
 # transition safety net: in-flight DMG cuts).
-if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q '\${SCRIPT_DIR}/AppIcon.icns'; then
+if ! grep -q '\${SCRIPT_DIR}/AppIcon.icns' <<< "$ASSIST_DIALOG_BLOCK"; then
     echo "FAIL [case-8]: icon resolution missing \${SCRIPT_DIR}/AppIcon.icns secondary fallback" >&2
     exit 1
 fi
-if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q '/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns'; then
+if ! grep -q '/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns' <<< "$ASSIST_DIALOG_BLOCK"; then
     echo "FAIL [case-8]: icon resolution missing /Applications AppIcon.icns secondary fallback" >&2
     exit 1
 fi
@@ -279,12 +279,12 @@ if (( DIALOG_LINE >= APPICON_LINE )); then
     exit 1
 fi
 # Must build a `with icon file POSIX file` clause when an icns is found.
-if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q 'with icon file POSIX file'; then
+if ! grep -q 'with icon file POSIX file' <<< "$ASSIST_DIALOG_BLOCK"; then
     echo "FAIL [case-8]: icon resolution missing POSIX file icon clause" >&2
     exit 1
 fi
 # Must retain a `with icon note` fallback for dev/CI/headless paths.
-if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q 'with icon note'; then
+if ! grep -q 'with icon note' <<< "$ASSIST_DIALOG_BLOCK"; then
     echo "FAIL [case-8]: icon resolution missing `with icon note` fallback" >&2
     exit 1
 fi
@@ -336,14 +336,18 @@ echo "PASS [case-9]: DialogIcon.icns asset bundled + parses as valid .icns"
 # extracted in case-6.
 # Must launch the assistant .app bundle via LaunchServices (`open`),
 # NOT a bare fork/exec (which TCC attributes to the installer ancestor).
-# `-W` is deliberately gone (no waiter to mis-target); accept -gjn.
+# `-W` is deliberately gone. It is the flag that created the waiter
+# subshell the old timing killer mis-targeted, and the anti-regression
+# assertion further down forbids that killer's return -- so an assertion
+# that still REQUIRED -gjnW would contradict it and no tree could satisfy
+# both. Accept -gjn.
 if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'open -gjn -a "\$ASSISTANT_APP_BUNDLE"'; then
     echo "FAIL [case-10]: register nudge missing LaunchServices open of the assistant .app" >&2
     exit 1
 fi
 # Must hand it the one-shot self-test probe (attributes a chat.db read
 # to ai.ostler.assistant; exits immediately; never touches ~/Documents).
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'run-source imessage --self-test'; then
+if ! grep -q 'run-source imessage --self-test' <<< "$ASSIST_BLOCK"; then
     echo "FAIL [case-10]: register nudge missing 'run-source imessage --self-test' probe" >&2
     exit 1
 fi

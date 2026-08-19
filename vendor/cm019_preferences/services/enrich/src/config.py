@@ -56,17 +56,27 @@ class Settings(BaseSettings):
     batch_size: int = Field(default=50, alias="ENRICH_BATCH_SIZE")
     request_timeout: float = Field(default=30.0, alias="REQUEST_TIMEOUT")
 
-    # MusicBrainz User-Agent (required by their API)
+    # MusicBrainz User-Agent (required by their API).
+    #
+    # This is the ONE client whose identity is composed from settings rather
+    # than written literally in the client, which is why it was a version
+    # and a contact behind the other 22 after the identity sweep: they were
+    # fixed by editing the strings, and this one is not a string.
+    #
+    # It composed to "Ostler/0.1.0" -- a stale version, and no contact at
+    # all, which MusicBrainz's own policy asks for by name. Now composes to
+    # "Ostler/1.0 ( https://ostler.ai )", matching every other client and
+    # satisfying their requirement.
     musicbrainz_app_name: str = Field(
-        default="PWG-Enrichment",
+        default="Ostler",
         alias="MUSICBRAINZ_APP_NAME"
     )
     musicbrainz_app_version: str = Field(
-        default="0.1.0",
+        default="1.0",
         alias="MUSICBRAINZ_APP_VERSION"
     )
     musicbrainz_contact: str = Field(
-        default="",
+        default="https://ostler.ai",
         alias="MUSICBRAINZ_CONTACT"
     )
 

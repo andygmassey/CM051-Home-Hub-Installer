@@ -1,0 +1,43 @@
+# v1018-D658. Ingest names an unknown person after their raw handle and
+# flags it provisional -- "replace me when a real name arrives" -- and
+# nothing ever did, because every displayName write sits inside an
+# `if not _person_exists(uri)` branch. 43 person nodes on the founder box
+# carry two names; 5 wiki pages show one person's identity on another's.
+name: display-name-tiers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/helpers/check_display_name_tiers.py'
+      - 'tests/test_display_name_tiers.sh'
+      - '.github/workflows/display-name-tiers.yml'
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/helpers/check_display_name_tiers.py'
+      - 'tests/test_display_name_tiers.sh'
+      - '.github/workflows/display-name-tiers.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  display-name-tiers:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: A placeholder name cannot outlive a better one
+        run: bash tests/test_display_name_tiers.sh
