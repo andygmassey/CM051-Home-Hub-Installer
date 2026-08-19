@@ -85,6 +85,34 @@ repo = os.environ["REPO_ROOT"]
 manifest_path = os.environ["MANIFEST"]
 tests_dir = os.environ["TESTS_DIR"]
 workflows_dir = os.environ["WORKFLOWS_DIR"]
+
+# Directories whose *.swift files are test files. Listed rather than discovered
+# so that adding a second test target is a VISIBLE edit here, not a silent
+# widening -- the whole defect being fixed is a population nobody declared.
+SWIFT_TEST_DIRS = ("gui/OstlerInstallerTests",)
+
+# What it takes to START a Swift test. Xcode runs a TARGET, never a file, so
+# searching starters for an individual .swift filename would be the wrong
+# question and would score all 36 UNWIRED even after someone wired the target
+# properly -- red-while-fixed, which is as bad as green-while-blind.
+# THIS LIST WAS TOO LOOSE ON ITS FIRST DRAFT AND MANUFACTURED 36 FALSE WIRED.
+#
+# It included "xcodebuild -scheme", which matches every ordinary BUILD
+# invocation in this repo -- `xcodebuild -scheme OstlerInstaller ... build`.
+# Building a scheme compiles the test target and runs none of it. The gate
+# promptly reported all 36 Swift files WIRED, which is precisely the
+# green-while-blind result this whole exercise exists to stop, produced by the
+# person writing the fix. Caught by the count, not by re-reading.
+#
+# So: only the TEST ACTION counts. If someone wires the target by a spelling
+# not listed here, this reports UNWIRED -- noise a human clears in a minute.
+# The opposite error blesses a dark suite silently and forever.
+SWIFT_TEST_STARTERS = (
+    "xcodebuild test",
+    "test-without-building",
+    "-testPlan",
+    "swift test",
+)
 regen = os.environ["REGEN"] == "1"
 
 
@@ -97,11 +125,59 @@ def read(path):
 
 
 # --- the test set -----------------------------------------------------------
-tests = sorted(
+#
+# THE DEFECT THIS ENUMERATION USED TO HAVE WAS NOT IN THE WIRING. IT WAS HERE.
+#
+# Until 2026-08-16 this globbed tests/test_*.sh and tests/test_*.py and nothing
+# else. gui/OstlerInstallerTests carries 36 Swift test files, in a different
+# directory AND a different naming convention, and not one of them was ever
+# scored. They were not reported UNWIRED. They were UNENUMERABLE, which prints
+# as nothing at all and reads as a clean bill of health.
+#
+# That is the zero-denominator failure wearing a register's uniform: a register
+# that cannot enumerate a population reports zero problems in it, forever, and
+# a reader cannot tell that from "no problems". The header line below used to
+# say "N test file(s) under tests/", which was true and still misled, because
+# nobody reads a scope note as an exclusion.
+#
+# It surfaced the expensive way. The env-var licence bypass shipped past 13
+# LicenseVerifier tests, and the three tests written to catch it would not have
+# run either -- but "would not have run" was never the report, because the
+# files were not in the report at all.
+shell_py_tests = sorted(
     os.path.basename(p)
     for p in glob.glob(os.path.join(tests_dir, "test_*.sh"))
     + glob.glob(os.path.join(tests_dir, "test_*.py"))
 )
+
+# Swift tests are keyed by REPO-RELATIVE PATH, not basename. They live outside
+# tests/ and a bare basename could collide with a shell test of the same name,
+# which would silently merge two rows into one.
+# FIXTURE HERMETICITY. The existing self-tests point TESTS_DIR at a temp fixture
+# while REPO_ROOT still names the real checkout. Anchoring the Swift glob on
+# REPO_ROOT therefore leaked 36 real files into every fixture run and broke two
+# tests that had passed for weeks -- including the empty-scan CANNOT-RUN case,
+# which could never be empty again.
+#
+# So: enumerate Swift only when this run is scoped to the REAL tests dir, or
+# when a caller names the dirs explicitly. A fixture run stays hermetic, and a
+# real run cannot silently skip the population, because the printed breakdown
+# below would show the line missing.
+_swift_env = os.environ.get("TEST_WIRING_SWIFT_DIRS", "")
+if _swift_env:
+    swift_dirs = tuple(d for d in _swift_env.split(":") if d)
+elif os.path.realpath(tests_dir) == os.path.realpath(os.path.join(repo, "tests")):
+    swift_dirs = SWIFT_TEST_DIRS
+else:
+    swift_dirs = ()
+
+swift_tests = sorted(
+    os.path.relpath(p, repo)
+    for d in swift_dirs
+    for p in glob.glob(os.path.join(repo, d, "*.swift"))
+)
+
+tests = shell_py_tests + swift_tests
 if not tests:
     print(
         "verify_test_wiring: CANNOT RUN -- found NO test files under "
@@ -123,7 +199,23 @@ for rel in ("Makefile", "gui/Makefile", "release.sh"):
     if os.path.exists(p):
         starters[rel] = read(p)
 for p in sorted(glob.glob(os.path.join(repo, "scripts", "*.sh"))):
-    starters[os.path.relpath(p, repo)] = read(p)
+    rel = os.path.relpath(p, repo)
+    # THE REGISTER IS NOT A STARTER. IT IS A READER.
+    #
+    # This exclusion is load-bearing and it was learned the hard way, inside
+    # the commit that added Swift enumeration. scripts/*.sh is in the starter
+    # set, this file is a scripts/*.sh, and this file now contains the literal
+    # strings "xcodebuild test" and "swift test" in SWIFT_TEST_STARTERS. So the
+    # gate matched its OWN PATTERN LIST, concluded the Swift test target was
+    # invoked, and reported all 36 files WIRED.
+    #
+    # A guard compared to itself always agrees. The instrument's source is not
+    # evidence about the tree, and any file that merely NAMES a runner spelling
+    # is documentation, not a call site -- which is the same distinction this
+    # script already draws for comments.
+    if rel == "scripts/verify_test_wiring.sh":
+        continue
+    starters[rel] = read(p)
 
 if not starters:
     print(
@@ -173,7 +265,24 @@ starters = {k: strip_comment_lines(v) for k, v in starters.items()}
 bodies = {k: strip_comment_lines(v) for k, v in bodies.items()}
 
 runner = {}
+
+# SWIFT: reachability is asked ONCE, at the TARGET, and the answer applies to
+# every file in that target. Xcode does not run files, it runs a scheme's test
+# action, so "does anything invoke the test action" is the only question with a
+# truthful answer. Asking it per-file would keep them all UNWIRED forever even
+# after the target was wired.
+swift_runner = None
+for name, text in starters.items():
+    if any(s in text for s in SWIFT_TEST_STARTERS):
+        swift_runner = name
+        break
+if swift_runner:
+    for t in swift_tests:
+        runner[t] = swift_runner
+
 for t in tests:
+    if t in runner:
+        continue
     for name, text in starters.items():
         if t in text:
             runner[t] = name
@@ -246,9 +355,30 @@ for line in read(manifest_path).splitlines():
     if parts[1] == "UNWIRED":
         recorded_unwired.add(parts[0])
 
-print(f"verify_test_wiring: {len(tests)} test file(s) under tests/")
+# THE BREAKDOWN IS PRINTED PER POPULATION, ALWAYS.
+#
+# A single total is what let 36 files hide: "174 test files" was true of the
+# population it enumerated and silent about the one it did not. Naming each
+# population and its count means a future language arriving with no row here is
+# visible as a missing LINE, not as an unchanged number.
+swift_unwired = [t for t in unwired if t in set(swift_tests)]
+# Built outside the f-string on purpose. Nesting a same-type quote inside an
+# f-string is PEP 701, i.e. Python 3.12 or newer. ubuntu-latest has 3.12 and the
+# CUT MACHINE IS A MAC, where system python3 can be 3.9 -- so the 3.12-only form
+# would parse in CI and SyntaxError on the box that ships the product, which is
+# the worst place for a gate to discover its own portability.
+_swift_label = "+".join(swift_dirs) if swift_dirs else "swift (not in scope)"
+_swift_note = "" if swift_runner else ", target invoked by NOTHING"
+print(f"verify_test_wiring: {len(tests)} test file(s) enumerated")
+print(f"  tests/*.sh + *.py      : {len(shell_py_tests)}")
+print(f"  {_swift_label}/*.swift : {len(swift_tests)}"
+      f"   ({len(swift_unwired)} UNWIRED{_swift_note})")
 print(f"  WIRED   : {len(tests) - len(unwired)}")
 print(f"  UNWIRED : {len(unwired)}   (recorded backlog: {len(recorded_unwired)})")
+if swift_tests and not swift_runner:
+    print("  NOTE: no starter invokes the Swift test action, so every file in")
+    print("        that target asserts nothing for anyone. Counting them is not")
+    print("        wiring them; see task #704 for why wiring is post-tag.")
 
 new_unwired = sorted(set(unwired) - recorded_unwired)
 missing_rows = sorted(set(tests) - recorded_all)

@@ -88,9 +88,18 @@
         RunAtLoad fires once at LaunchAgent load (login or post-
         install). This is what produces the FIRST digest right after
         install, so the very first chat already has context. If the
-        ical-server is not up yet, the generator exits 0 and leaves
-        any prior CONTEXT.md untouched; the next calendar fire (or the
-        next login) catches up.
+        ical-server is not up yet the generator leaves any prior
+        CONTEXT.md untouched and the next calendar fire (or the next
+        login) catches up -- but it exits NON-ZERO while doing so.
+
+        The exit code is not cosmetic. Until 2026-08-18 the generator
+        exited 0 no matter what, and it had never once produced a
+        CONTEXT.md on a real install: it sent no Authorization header,
+        so every /api/v1/* read came back 401. `last exit code = 0`
+        was the third of three green lights over a dead pipeline. The
+        codes now mean: 0 clean, 1 write failed, 2 nothing produced,
+        3 produced but degraded. See context-refresh.err for the
+        per-section counts and the status of every source read.
     -->
     <key>RunAtLoad</key>
     <true/>
@@ -103,10 +112,18 @@
     <string>OSTLER_HOME</string>
 
     <!--
-        Stdout and stderr go to $LOGS_DIR. One short line per run
-        ("wrote N chars" or "no data available"), so the log stays
-        tiny. Doctor surfaces these when troubleshooting why the
-        assistant lacks context.
+        Stdout and stderr go to $LOGS_DIR. A clean run is one short
+        line on stdout ("wrote N chars"); a failed or degraded run
+        adds a measured report on stderr naming each section's item
+        count and the status code observed for every source read.
+        Doctor surfaces these when troubleshooting why the assistant
+        lacks context.
+
+        The report deliberately states only what was OBSERVED. The
+        line it replaced ("ical-server down or empty graph") asserted
+        two causes nobody had measured, and on the install that
+        surfaced the defect BOTH were false: ical-server was
+        answering /health 200 and the graph held 6,549 person nodes.
     -->
     <key>StandardOutPath</key>
     <string>OSTLER_LOGS/context-refresh.log</string>

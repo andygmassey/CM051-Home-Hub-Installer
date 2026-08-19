@@ -132,7 +132,7 @@ def _wiki_slug(name: str) -> str:
 #
 # So a kinship word is REFUSED outright: never a displayName, never an
 # alternateName, and never grounds to clear the provisional flag. Only
-# the BARE word goes -- "Auntie Emma" and "Granny Halloran" carry a real
+# the BARE word goes -- "Auntie Jane" and "Granny Doe" carry a real
 # name and are kept, because a false positive here erases a real
 # person's name, which is worse than keeping an odd alias.
 #
@@ -184,11 +184,55 @@ def _kinship_words() -> frozenset:
     return _KINSHIP_DEFAULT
 
 
+# Kinship words that also serve as a given name or a surname somewhere in
+# the English-speaking world, and therefore must NOT refuse a two-token
+# label on the strength of the first token alone:
+#
+#   Nan Goldin, Ma Rainey, Pop, Gran, Bro, Sis as nicknames; Boy, House,
+#   Work, Home, Bairn, Son and Daughter all occur as surnames; Aunt is
+#   rare but attested.
+#
+# Everything NOT on this list is a word no parent names a child, so
+# "<word> <surname>" is a relationship, not a name. Keeping the exception
+# list rather than an inclusion list means a customer's locale file gets
+# the composed rule for free on every word it adds.
+_KINSHIP_AMBIGUOUS = frozenset({
+    "nan", "gran", "ma", "pa", "pop", "bro", "sis", "aunt",
+    "brother", "sister", "cousin", "nephew", "niece",
+    "son", "daughter", "kid", "boy", "girl", "bairn",
+    "wife", "partner", "spouse", "missus", "fiance", "fiancee",
+    "other half", "home", "house", "work", "office", "landline",
+})
+
+
 def _is_relationship_label(value: str) -> bool:
     """True when this label is a kinship/household term, not a name.
 
-    Matches the WHOLE label only. "Mum" is a relationship; "Mum Zhang" is
-    plausibly somebody's actual name and is left alone.
+    Three shapes, and the third is the one that shipped broken.
+
+      1. the WHOLE label: "Mum"
+      2. a qualifier in front: "my mum", "our nan", "big sis"
+      3. a kinship word COMPOSED WITH A SURNAME: "Mum Okonjo"
+
+    Shape 3 used to be allowed through, on the reasoning -- written into
+    this docstring -- that '"Mum Zhang" is plausibly somebody's actual
+    name'. Measured on the founder box 2026-08-17, that reasoning cost:
+    13 people carried a name beginning with a kinship word, and the one
+    the owner noticed was his SPOUSE rendered as "Mum Okonjo", on a box
+    where his mother had died the previous year.
+
+    The premise was wrong in a specific way. The worry was about the
+    SECOND token being a real surname, but the thing that makes the label
+    a relationship is the FIRST token, and no parent names a child "Mum".
+    Words that genuinely double as names -- Nan, Ma, Pop, Sis, and the
+    surname-shaped Boy/House/Work -- are listed in _KINSHIP_AMBIGUOUS and
+    still require a whole-label match, so "Nan Goldin" survives.
+
+    Refusing shape 3 is also the only thing that unsticks such a record.
+    "Mum Okonjo" and "Fenella Okonjo" are BOTH tier 2, so the repair pass
+    in repair_placeholder_names.py sees two real-looking names, calls it
+    a tie, and by its own contract declines to choose. Nothing downstream
+    can fix a name the writer accepted.
     """
     n = re.sub(r"[^\w\s]", " ", (value or "").strip().lower(), flags=re.UNICODE)
     n = " ".join(n.split())
@@ -197,13 +241,14 @@ def _is_relationship_label(value: str) -> bool:
     words = _kinship_words()
     if n in words:
         return True
-    # "my mum", "our nan", "big sis" -- a single qualifier in front.
     parts = n.split()
+    # "my mum", "our nan", "big sis" -- a single qualifier in front.
     return (
         len(parts) == 2
         and parts[0] in _KINSHIP_QUALIFIERS
         and parts[1] in words
     )
+
 
 
 _NAME_TIER_REFUSED = -1
@@ -253,6 +298,54 @@ def _is_provisional_display_name(value: str) -> bool:
     return _display_name_tier(value) < _NAME_TIER_NAME
 
 
+def _is_kinship_composed_label(value: str) -> bool:
+    """True for "<kinship word> <anything>", e.g. a relationship plus a surname.
+
+    SEPARATE from _is_relationship_label ON PURPOSE, and the separation is
+    the whole point of this function existing.
+
+    _is_relationship_label feeds _display_name_tier, and
+    repair_placeholder_names.py DELETES any stored name whose tier is below
+    PLACEHOLDER. Folding the composed shape into that predicate makes the
+    repair pass delete "Auntie Emma" -- and its own suite pins the case
+    where that is somebody's ONLY name, which would leave a real person
+    with no name at all and no undo. Seven assertions caught exactly that
+    when this was first written as one predicate.
+
+    So the composed shape is refused at the WRITE path only. Refusing a
+    write is reversible in the way a delete is not: the node is still
+    created, still carries its identifiers, and `!BOUND(?old)` still holds,
+    so it stays eligible for the first real name any source offers.
+
+    The first token is what makes it a relationship, and no parent names a
+    child "Mum". Words that genuinely double as names are excluded via
+    _KINSHIP_AMBIGUOUS, so "Nan Goldin" and "Boy George" are untouched. The
+    tail is deliberately not inspected: the punctuation strip turns an
+    apostrophe surname into two words, so a len == 2 test lets a
+    three-token normalisation straight through.
+    """
+    n = re.sub(r"[^\w\s]", " ", (value or "").strip().lower(), flags=re.UNICODE)
+    parts = " ".join(n.split()).split()
+    if len(parts) < 2:
+        return False
+    return parts[0] in _kinship_words() and parts[0] not in _KINSHIP_AMBIGUOUS
+    # Shape 3: "Mum Okonjo". Everything after the first token is
+    # deliberately NOT inspected, for two reasons.
+    #
+    # Requiring the tail to match a surname already on the person would
+    # need caller context this predicate does not have, and would miss the
+    # CREATION write -- the write that does the damage.
+    #
+    # And the tail is not reliably one token. The punctuation strip above
+    # turns an apostrophe surname into two words, so "Grandma O'Rourke"
+    # normalises to "grandma o neill" and a len == 2 test lets it straight
+    # through. That case is SYNTHETIC -- no such contact was observed --
+    # but the surname shape is not: apostrophe surnames are ordinary, and
+    # the first version of this fix passed every hand-picked example while
+    # failing on one punctuation mark. Match on the FIRST token only.
+    return parts[0] in words and parts[0] not in _KINSHIP_AMBIGUOUS
+
+
 def _creation_name_triples(person_uri: str, value: str) -> list:
     """The displayName triples for a person node being CREATED.
 
@@ -291,6 +384,18 @@ def _creation_name_triples(person_uri: str, value: str) -> list:
     """
     tier = _display_name_tier(value)
     flag = f'<{person_uri}> pwg:displayNameProvisional "true"^^xsd:boolean'
+    # "<kinship word> <surname>" is a relationship label wearing the shape
+    # of a name, so the tier alone cannot see it. Refused HERE rather than
+    # in the tier because the tier also drives deletion in
+    # repair_placeholder_names, and a delete has no undo. See
+    # _is_kinship_composed_label.
+    if _is_kinship_composed_label(value):
+        logger.debug(
+            "Refused %r as a displayName for %s at creation: a kinship word "
+            "composed with a surname is still a relationship (v1018-D659)",
+            value, person_uri,
+        )
+        return [flag]
     if tier < _NAME_TIER_PLACEHOLDER:
         logger.debug(
             "Refused %r as a displayName for %s at creation: it is a "
@@ -692,6 +797,13 @@ def _upsert_display_name(person_uri: str, value: str) -> None:
     both flagged and the flag cannot tell them apart.
     """
     tier = _display_name_tier(value)
+    if _is_kinship_composed_label(value):
+        logger.debug(
+            "Refused %r as a displayName for %s on upsert: a kinship word "
+            "composed with a surname is still a relationship (v1018-D659)",
+            value, person_uri,
+        )
+        return
     if tier < _NAME_TIER_PLACEHOLDER:
         # v1018-D659: refused outright. Not a weaker write, NO write --
         # a kinship word must not become a name, must not displace one,

@@ -221,8 +221,10 @@ proof:
 
 A **runtime** gate. Invokes a named shell probe against a real box; captures
 the class of bug that static gates cannot see (seed-and-query round-trip
-proof). The registry maps `probe: <name>` to `scripts/box_walk_probes/<name>.sh`.
-See `scripts/box_walk_probes/README.md` for the per-probe contract.
+proof). The registry resolves `probe: <name>` against two directories, in this
+order: `scripts/box_walk_probes/probes/<name>.sh`, then
+`scripts/box_walk_probes/<name>.sh`. See `scripts/box_walk_probes/README.md`
+for what the two directories mean and the per-probe contract.
 
 The primitive SKIPs when `OSTLER_BOX_HOST` is not set — runtime probes require
 a reachable box, and CI + offline dev pass cleanly without one. When
@@ -236,8 +238,16 @@ proof:
   probe: "people_seed_and_retrieval"
 ```
 
-Registered probes live in `scripts/box_walk_probes/`. The
-`people_seed_and_retrieval` probe seeds a Person "Sofia Testperson" into the
+Every probe on disk MUST be declared by a `box_walk_probe` row in
+`cut-manifests/permanent.yaml`. A version manifest is not enough: it stops
+running the moment that version ships, which is exactly how the
+`people_seed_and_retrieval` row was lost after v1.0.12 and fourteen cuts
+reported a gate that measured nothing.
+`scripts/tests/test_verify_cut_manifest.py` enforces this in both directions,
+with a positive control, because a coverage check over an empty registry
+passes every assertion it makes.
+
+The `people_seed_and_retrieval` probe seeds a Person "Sofia Testperson" into the
 graph on the box, asks the daemon via the iMessage tool-call path, and asserts
 the reply contains the name and does NOT contain the confabulation-tell "I
 don't have any information". The full body ships with the Studio matrix

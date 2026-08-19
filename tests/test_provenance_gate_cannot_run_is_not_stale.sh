@@ -106,13 +106,38 @@ STUB
 
 make_docker() {  # $1 = present|absent, $2 = found|missing
     if [ "$1" = absent ]; then rm -f "$WORK/bin/docker"; return; fi
+    # THE STUB MODELS create + cp, NOT run, AND THAT IS THE POINT OF THE CHANGE.
+    #
+    # provenance_gate.sh used to exec the image (`docker run --entrypoint sh`)
+    # to grep it. On the amd64 cut runner an arm64-only image cannot exec, so it
+    # read nothing and called that STALE IMAGE -- which burned v1.0.28. It now
+    # EXTRACTS with docker create + docker cp, which executes nothing.
+    #
+    # This stub therefore has to materialise FILES rather than return an exit
+    # code. Left as a `run` stub it fell through to a bare `exit 0` with no
+    # container id, the extraction found 0 files, and the gate correctly said
+    # CANNOT-RUN (exit 2) -- which read as three test failures against a gate
+    # that was behaving properly. The harness was modelling the old mechanism.
     cat >"$WORK/bin/docker" <<STUB
 #!/bin/bash
 # image_revision_label passes --format; plain inspect is the presence probe.
 for a in "\$@"; do [ "\$a" = "--format" ] && exit 0; done
 case "\$1" in
-  image) exit 0 ;;                      # digest already local, no pull needed
-  run)   [ "$2" = found ] && exit 0 || exit 1 ;;
+  image)  exit 0 ;;                     # digest already local, no pull needed
+  create) echo stubcontainerid0000; exit 0 ;;
+  rm)     exit 0 ;;
+  cp)     # \$2 = <cid>:<path>, \$3 = destination directory
+          d="\$3"
+          mkdir -p "\$d/app" || exit 1
+          # A NON-EMPTY extraction either way: "missing" must mean the marker is
+          # genuinely absent from files that WERE read, not that nothing was read.
+          # Those are different verdicts and conflating them is the whole bug.
+          if [ "$2" = found ]; then
+              printf 'SETTLING_MARKER\n' > "\$d/app/marker.txt"
+          else
+              printf 'this build carries no such marker\n' > "\$d/app/marker.txt"
+          fi
+          exit 0 ;;
 esac
 exit 0
 STUB

@@ -115,7 +115,7 @@ fi
 
 while IFS= read -r flag_line; do
     flag_name="${flag_line%=*}"
-    if ! echo "$CLEANUP_BODY" | grep -qE "if \[\[ -n \"\\\$\{${flag_name}:-\}\" \]\]; then"; then
+    if ! grep -qE "if \[\[ -n \"\\\$\{${flag_name}:-\}\" \]\]; then" <<< "$CLEANUP_BODY"; then
         echo "FAIL [flag-no-stanza]: flag '${flag_name}' declared but no cleanup stanza in composite_cleanup" >&2
         echo "  Add: if [[ -n \"\${${flag_name}:-}\" ]]; then ...; ${flag_name}=\"\"; fi" >&2
         exit 1
@@ -131,7 +131,7 @@ echo "PASS: ${FLAG_COUNT} resource flag(s) declared, each has a matching cleanup
 while IFS= read -r stanza; do
     [[ -z "$stanza" ]] && continue
     stanza_flag="$(echo "$stanza" | sed -E 's/.*\$\{([A-Z0-9_]+):-\}.*/\1/')"
-    if ! echo "$FLAG_INITS" | grep -qE "^${stanza_flag}=\"\"$"; then
+    if ! grep -qE "^${stanza_flag}=\"\"$" <<< "$FLAG_INITS"; then
         echo "FAIL [stanza-no-flag]: stanza references '${stanza_flag}' but no init declaration found" >&2
         exit 1
     fi
@@ -207,7 +207,7 @@ fi
 echo "PASS: composite_cleanup removed the mocked TAILSCALE_TMP_ENV"
 
 # Inside the subshell the flags should have been cleared.
-if echo "$RESULT" | grep -qE '^SUDO=[1-9]'; then
+if grep -qE '^SUDO=[1-9]' <<< "$RESULT"; then
     echo "FAIL [end-to-end-flag]: SUDO_KEEPALIVE_PID was not cleared inside composite_cleanup" >&2
     echo "$RESULT" >&2
     exit 1

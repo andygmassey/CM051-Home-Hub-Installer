@@ -80,6 +80,49 @@ jobs:
       - name: Probe must fire (1 green + 11 distinct reds)
         run: /bin/bash scripts/tests/test_people_seed_and_retrieval_probe.sh
 
+      # The step above is now fast and reliable (task #348 removed a 35s
+      # reverse-DNS stall from the fixture). Fast and reliable is also what a
+      # vacuous gate looks like, so prove the harness still goes RED: hand it
+      # the exact stub it exists to catch -- a probe that examines nothing and
+      # exits 0 -- and demand a specific red, not merely a non-zero.
+      #
+      # Exit 1 specifically, plus harness_failures=0. Accepting any non-zero
+      # would let a dead fixture (exit 2) satisfy the control, which is the same
+      # false-pass shape in a new costume.
+      - name: Negative control - the harness must go RED on the stub probe
+        # always(): a run where the step above went red is exactly the run where
+        # you most need to know whether the harness can still produce a red at
+        # all. Skipping this on failure would mask the one measurement that
+        # separates "the probe regressed" from "the harness stopped working".
+        if: always()
+        run: |
+          set -u
+          PROBE=scripts/box_walk_probes/people_seed_and_retrieval.sh
+          cp "$PROBE" "${RUNNER_TEMP}/probe.real"
+          printf '#!/usr/bin/env bash\necho "people_seed_and_retrieval: PASS -- nothing examined"\nexit 0\n' > "$PROBE"
+          set +e
+          /bin/bash scripts/tests/test_people_seed_and_retrieval_probe.sh > "${RUNNER_TEMP}/stub.out" 2>&1
+          rc=$?
+          set -e
+          cp "${RUNNER_TEMP}/probe.real" "$PROBE"
+          echo "stubbed-probe run exited ${rc}"
+          grep -E '^EXAMINED|^test_people_seed_and_retrieval_probe:' "${RUNNER_TEMP}/stub.out"
+          if [ "$rc" -ne 1 ]; then
+            echo "NEGATIVE CONTROL FAILED: expected exit 1 (expectations missed), got ${rc}."
+            echo "A stub probe that examines nothing must be caught as a missed"
+            echo "expectation. Any other code means the control did not measure"
+            echo "what it claims to measure."
+            tail -40 "${RUNNER_TEMP}/stub.out"
+            exit 1
+          fi
+          if ! grep -q 'harness_failures=0' "${RUNNER_TEMP}/stub.out"; then
+            echo "NEGATIVE CONTROL FAILED: the fixture did not stand up cleanly,"
+            echo "so the red above is not attributable to the stubbed probe."
+            tail -40 "${RUNNER_TEMP}/stub.out"
+            exit 1
+          fi
+          echo "negative control OK: stub probe -> exit 1, harness healthy"
+
   manifest-parse:
     runs-on: ubuntu-latest
     steps:

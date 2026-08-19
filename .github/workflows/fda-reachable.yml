@@ -1,0 +1,52 @@
+# A shipped ostler_fda module with no caller must be RED.
+#
+# repair_placeholder_names.py is merged, tested by tests/test_name_repair.sh,
+# gated by .github/workflows/name-repair.yml, registered in VENDOR_ONLY.tsv and
+# PRESENT in the shipped v1.0.26 DMG. Nothing calls it. Every one of those
+# signals reads as a shipped fix.
+#
+# MERGED is not DELIVERED is not INVOKED. verify_test_wiring.sh already reads
+# the third gate for tests; its surface is tests/*.sh, so it is structurally
+# blind to this. This is the same reader pointed at the shipping Python.
+name: fda-reachable
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/ostler_fda/**'
+      - 'install.sh'
+      - 'scripts/verify_fda_modules_reachable.py'
+      - 'scripts/fda_unwired_modules.tsv'
+      - 'tests/test_fda_module_reachable.sh'
+      - '.github/workflows/fda-reachable.yml'
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/**'
+      - 'install.sh'
+      - 'scripts/verify_fda_modules_reachable.py'
+      - 'scripts/fda_unwired_modules.tsv'
+      - 'tests/test_fda_module_reachable.sh'
+      - '.github/workflows/fda-reachable.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  fda-reachable:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: A module with no caller is not a shipped fix
+        run: bash tests/test_fda_module_reachable.sh

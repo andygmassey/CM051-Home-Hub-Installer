@@ -45,6 +45,15 @@ on:
       - 'tests/test_doctor_governor_routes_vendored.sh'
       - 'lib/ostler-resource-tier.sh'
       - 'tests/vendor_import_resolution_baseline.txt'
+      # The __main__-guard reachability gate. It scans vendor/, scripts/ and
+      # lib/, so all three of its roots are watched -- vendor/** is already
+      # above, and the two .py globs below are the other two. Without them a
+      # change to a shipped script could introduce the defect and this workflow
+      # would not even trigger, which is the "wired but never fires" shape the
+      # step's own comment describes. The gate file itself is listed so it fires
+      # on changes to ITSELF, the same pairing as the D024 harness above.
+      - 'scripts/**.py'
+      - 'lib/**.py'
       - '.github/workflows/vendor-integrity.yml'
   push:
     branches: [main]
@@ -200,6 +209,38 @@ jobs:
       - name: Governor control surface reaches the shipped Doctor (D024)
         if: always()
         run: bash tests/test_doctor_governor_routes_vendored.sh
+
+      # Tests IMPORT, production EXECUTES, and nothing checked the difference.
+      #
+      # vendor/cm059_editor/compiler/emit_frontpage.py called _read_feed() from
+      # emit() and defined _read_feed BELOW the `if __name__ == "__main__":`
+      # guard. Imported, the whole file runs and the name binds, so every
+      # upstream test passed. Run as a SCRIPT, which is how the LaunchAgent runs
+      # it, Python reaches the guard and calls main() before executing that def:
+      # NameError on every Front Page tick, for the life of the release. It
+      # presented as "the Front Page never updates" rather than as a crash,
+      # because the degraded-feed guard preserved the last good feed.
+      #
+      # THE CHECK WAS CORRECT AND NOTHING RAN IT, which is the same finding as
+      # the symbol-resolution step above. Measured before this step was added:
+      # zero references to scripts/verify_no_defs_after_main_guard.py across
+      # tests/TEST_WIRING.tsv, scripts/run_all_cut_gates.sh and every file in
+      # .github/workflows/. Control for that absence: the same sweep for
+      # test_vendor_only_survives_sync.sh returns hits in this file and in
+      # cut.yml, so the predicate can see a wired gate when there is one.
+      #
+      # DEMONSTRATED RED before wiring, not assumed: a temporary scripts/*.py
+      # with a def below its guard and a call above it raises a real NameError
+      # under python3, and took this gate 335-files-GREEN -> RED naming the
+      # file, the definition line and the guard line. Removing the file returned
+      # it to GREEN. A gate wired without a demonstrated red is worse than none.
+      #
+      # Run with python3 and NOT under pytest, for the reason the step above
+      # gives: it is a script with a __main__ guard, and "no tests ran" reads
+      # identically to a pass.
+      - name: No definitions after a __main__ guard in shipped Python
+        if: always()
+        run: python3 scripts/verify_no_defs_after_main_guard.py
 
       - name: Browser-history vendor regression
         if: always()

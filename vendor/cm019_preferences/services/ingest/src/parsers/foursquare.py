@@ -71,30 +71,61 @@ class FoursquareParser(BaseParser):
 
     source_name = "foursquare"
 
+    # Filenames that only a FourSquare/Swarm export ships. These identify the
+    # export on their own.
+    FOURSQUARE_GENERIC_FILES = frozenset({
+        'tips.json', 'expertise.json', 'lists.json'
+    })
+
+    # Path fragments that mark a FourSquare export directory. FourSquare's own
+    # archive is named 4sq-export.zip, so "foursquare" alone is not enough.
+    FOURSQUARE_PATH_INDICATORS = ('foursquare', '4sq', 'swarm')
+
+    @staticmethod
+    def _is_foursquare_signature_file(leaf: str) -> bool:
+        """Return True for checkins*.json and venueRatings.json.
+
+        These two names belong to no other export in the registration list, so
+        finding either is enough to identify the archive.
+        """
+        return leaf == 'venueratings.json' or (
+            leaf.startswith('checkins') and leaf.endswith('.json')
+        )
+
     def can_parse(self, file_path: Path) -> bool:
         """Check if file is a FourSquare data export."""
         name = file_path.name.lower()
         full_path = str(file_path).lower()
+        in_foursquare_path = any(
+            indicator in full_path for indicator in self.FOURSQUARE_PATH_INDICATORS
+        )
 
-        # Require 'foursquare' in path to avoid false matches
-        if 'foursquare' not in full_path:
-            return False
-
-        # Check for ZIP file
+        # Identify a ZIP by what is INSIDE it, not by what it is called.
+        #
+        # This branch used to begin by requiring the literal string
+        # "foursquare" somewhere in the path. FourSquare's own export archive
+        # is called 4sq-export.zip and contains that string nowhere, so this
+        # parser could not recognise its own data and the archive fell through
+        # to the Netflix parser -- which claimed it, because "ratings" was a
+        # substring of venueRatings.json, and yielded nothing.
         if file_path.suffix.lower() == '.zip':
             try:
                 with zipfile.ZipFile(file_path, 'r') as zf:
-                    names = [n.lower() for n in zf.namelist()]
-                    return any('checkins' in n or 'venueratings' in n for n in names)
-            except:
+                    leaves = {
+                        n.replace("\\", "/").rsplit("/", 1)[-1].lower()
+                        for n in zf.namelist()
+                    }
+            except Exception:
                 return False
+            return any(self._is_foursquare_signature_file(leaf) for leaf in leaves)
 
         # Also handle individual JSON files
         if file_path.suffix.lower() == '.json':
-            return name in (
-                'checkins1.json', 'venueratings.json', 'tips.json',
-                'expertise.json', 'lists.json'
-            )
+            if self._is_foursquare_signature_file(name):
+                return True
+            # tips/expertise/lists are names anything could use, so they are
+            # claimed only from inside a FourSquare export directory.
+            return in_foursquare_path and name in self.FOURSQUARE_GENERIC_FILES
 
         return False
 

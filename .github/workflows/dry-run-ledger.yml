@@ -1,0 +1,159 @@
+name: dry-run-ledger
+
+# THE DRY RUN'S LEDGER MUST STILL DESCRIBE gui/Makefile, AND UNTIL NOW NOTHING
+# CHECKED THAT UNTIL SOMEBODY DISPATCHED.
+#
+# scripts/dry_run_cut_checks.sh classifies every prerequisite of `ship:`,
+# `release:` and `package:` and reconciles that plan against the Makefile. If a
+# row names a target that is no longer a prerequisite, or a prerequisite has no
+# row, it refuses with CANNOT RUN and exit 2 rather than print a denominator
+# that describes a Makefile we no longer have. That refusal is correct and it
+# is not what this workflow is about.
+#
+# WHAT THIS IS ABOUT IS WHEN IT FIRES. Measured 2026-08-18: the only invocation
+# of that script anywhere is in the `dry-run` job of cut.yml, which is
+# `if: github.event_name == 'workflow_dispatch'`. So the reconciliation runs
+# ONLY when a human manually dispatches, and a PR that drifts the ledger merges
+# green.
+#
+# That is not hypothetical either. #828 lifted publish-appcast out of `ship:`
+# and did not update the ledger. It merged clean. The drift surfaced on run
+# 32097494057, the dispatch at 03:59:56Z -- which happened to be the pre-cut
+# check immediately before the v1.0.35 tag. So the gates-only check that exists
+# to find defects WITHOUT spending a version number was itself unavailable, on
+# the cut straight after the one lost to a check defect. #831 fixed the row.
+# This stops the next one reaching main at all.
+#
+# The reconciliation needs nothing but the repo: prereqs_of() is a grep over
+# gui/Makefile, not `make -p`, and `--plan` returns before anything is executed.
+# No signing, no network, no Xcode, seconds long.
+#
+# NO `paths:` FILTER, DELIBERATELY, and it is this repo's own conclusion from
+# appcast-ship-wiring: "a path filter means the gate skips on exactly the PR
+# that breaks something it did not think to watch, and 'skipped' renders as a
+# grey tick that reads like a pass". The inputs here are gui/Makefile AND the
+# script AND anything that edits either indirectly, so enumerating them is the
+# same bet that just lost.
+#
+# macos-latest, not ubuntu, because that is where this script actually runs:
+# the cut host is macOS with /bin/bash 3.2, and this file has already been bitten
+# by constructs that parse under bash 5 and not under 3.2.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  dry-run-ledger:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The assertion. --plan validates the classification and runs nothing.
+      - name: The ledger still describes gui/Makefile
+        run: /bin/bash scripts/dry_run_cut_checks.sh --plan
+
+      # A gate that only parses under bash 5 reads CANNOT-RUN for ever on the
+      # machine that cuts.
+      - name: Parses under /bin/bash 3.2 (the cut host's shell)
+        if: always()
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n scripts/dry_run_cut_checks.sh
+          echo "OK: parses under the shell the cut actually uses"
+
+      # PROVE BOTH ARMS CAN FAIL, ON EVERY RUN. A reconciliation that has only
+      # ever been watched passing is not known to be able to fail, and this
+      # workflow exists precisely because the previous answer to "does it fire?"
+      # was "only if somebody dispatches".
+      #
+      # Mutations are applied to a COPY. The tracked file is never touched.
+      #
+      # 🔴 EXIT 2 IS NOT ENOUGH, AND ASSERTING ONLY ON IT GAVE ME A FALSE PASS
+      # WHILE WRITING THIS. The script resolves its Makefile from
+      # `dirname "$BASH_SOURCE"/..`, so a mutant dropped in a bare mktemp dir
+      # looks for gui/Makefile beside itself, does not find it, and exits 2
+      # from cannot_run:
+      #
+      #     CANNOT RUN  no Makefile at /var/folders/.../gui/Makefile
+      #     Nothing has been checked. This is not a pass.
+      #
+      # Both controls went "green" on rc=2 having reconciled nothing at all --
+      # the script even said so in the line I was not reading. cannot_run() and
+      # validate_plan() share exit 2, so the CODE cannot tell "the ledger has
+      # drifted" from "I could not find the thing to compare it against".
+      #
+      # So the mutant is staged with gui/ symlinked beside it, and the assertion
+      # is on the MESSAGE, not the number.
+      - name: RED when a prerequisite has no row (a row is deleted)
+        if: always()
+        run: |
+          set -uo pipefail
+          MUT="$(mktemp -d)"
+          mkdir -p "$MUT/scripts"
+          ln -s "$PWD/gui" "$MUT/gui"
+          sed '/^check-pr-age|/d' scripts/dry_run_cut_checks.sh > "$MUT/scripts/m.sh"
+          # A mutation that did not apply produces a green run proving nothing,
+          # and it looks exactly like a working proof.
+          if grep -q '^check-pr-age|' "$MUT/scripts/m.sh"; then
+            echo "MUTATION DID NOT APPLY -- check-pr-age still has a row." >&2
+            exit 1
+          fi
+          rc=0
+          out="$(/bin/bash "$MUT/scripts/m.sh" --plan 2>&1)" || rc=$?
+          echo "$out"
+          if [ "$rc" -ne 2 ]; then
+            echo "EXPECTED exit 2 (CANNOT RUN) from the mutant, got $rc." >&2
+            exit 1
+          fi
+          # The staging assertion. If this fires, the control measured nothing
+          # and its exit 2 came from a missing Makefile, not from the defect.
+          if printf '%s\n' "$out" | grep -q 'no Makefile at'; then
+            echo "CONTROL IS BLIND: the mutant could not find gui/Makefile, so" >&2
+            echo "  its exit 2 says nothing about ledger drift." >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$out" | grep -q 'no row here'; then
+            echo "The failure did not NAME the unclassified prerequisite." >&2
+            echo "'plan changed' sends a reader to diff the file; the name sends them to the line." >&2
+            exit 1
+          fi
+          echo "OK: exit 2, naming the prerequisite with no row."
+
+      - name: RED when a row names nothing (the #828 shape)
+        if: always()
+        run: |
+          set -uo pipefail
+          MUT="$(mktemp -d)"
+          mkdir -p "$MUT/scripts"
+          ln -s "$PWD/gui" "$MUT/gui"
+          awk '/^archive\|SKIP\|/{print; print "not-a-real-target|SKIP|synthetic phantom, this control only"; next} {print}' \
+            scripts/dry_run_cut_checks.sh > "$MUT/scripts/m.sh"
+          if ! grep -q '^not-a-real-target|' "$MUT/scripts/m.sh"; then
+            echo "MUTATION DID NOT APPLY -- no phantom row was inserted." >&2
+            exit 1
+          fi
+          rc=0
+          out="$(/bin/bash "$MUT/scripts/m.sh" --plan 2>&1)" || rc=$?
+          echo "$out"
+          if [ "$rc" -ne 2 ]; then
+            echo "EXPECTED exit 2 (CANNOT RUN) from the mutant, got $rc." >&2
+            exit 1
+          fi
+          if printf '%s\n' "$out" | grep -q 'no Makefile at'; then
+            echo "CONTROL IS BLIND: the mutant could not find gui/Makefile." >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$out" | grep -q 'naming no prerequisite'; then
+            echo "The failure did not NAME the phantom row, which IS the #828 defect." >&2
+            exit 1
+          fi
+          echo "OK: exit 2, naming the row that describes nothing."

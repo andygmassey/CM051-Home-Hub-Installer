@@ -181,7 +181,7 @@ if [ "${SYNC_ACCEPT_DIVERGENCE_LOSS:-0}" != "1" ]; then
         exit 1
     fi
     _pf_diff="$(mktemp)"
-    if ! vlib_shared_diff "$_pf_tmp" "$abs_vendor" "$_pf_diff"; then
+    if ! vlib_vendor_diff "$TREE" "$_pf_tmp" "$abs_vendor" "$_pf_diff"; then
         _pf_files="$(grep -c '^--- a/' "$_pf_diff" || true)"
         cat >&2 <<REFUSE
 REFUSING TO SYNC $TREE.

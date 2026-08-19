@@ -900,7 +900,7 @@ class ContactSyncer:
         # sentinel values ("" / 0) - we have no actual contact-event
         # evidence.
         #
-        # Historical bug (Lester demo, 2026-04-27): this branch used
+        # Historical bug (advisor demo, 2026-04-27): this branch used
         # to fall back to the vCard REV (the card's modification
         # timestamp) when no prior signal existed. REV is not a
         # contact event - it's "when the contact card was last
@@ -989,8 +989,8 @@ class ContactSyncer:
 
         # Try identity resolution – use_fuzzy=False because the CardDAV path
         # has a strong identifier (iCloud UID). Fuzzy name matching is disabled
-        # here to prevent first-name collisions (e.g. "Sandra Andersson" being
-        # incorrectly merged into "Sandra Stewart" via Jaro-Winkler prefix
+        # here to prevent first-name collisions (e.g. "Jane Andersen" being
+        # incorrectly merged into "Jane Stewart" via Jaro-Winkler prefix
         # bonus). Fuzzy matching is still available to other callers that
         # explicitly opt in (e.g. WhatsApp / email ingest).
         match = self.resolver.resolve(identity, use_fuzzy=False)

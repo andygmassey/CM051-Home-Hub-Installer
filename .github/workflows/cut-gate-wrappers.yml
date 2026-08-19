@@ -35,6 +35,12 @@ on:
       - 'gui/scripts/sign-python-bundle.sh'
       - 'tests/test_sign_python_bundle_reports_why.sh'
       - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
+      - 'tests/test_no_gate_execs_a_pinned_image.sh'
+      - 'scripts/lib_image_extract.sh'
+      - 'scripts/provenance_gate.sh'
+      - 'tests/test_pinned_wiki_image_has_design_system.sh'
+      - 'scripts/verify_cut_provenance.sh'
+      - 'tests/test_wiki_provenance_extracts_without_exec.sh'
       - '.github/workflows/cut-gate-wrappers.yml'
   push:
     branches: [main]
@@ -117,3 +123,70 @@ jobs:
       - name: provenance gate -- cannot-run is never reported as stale
         if: always()
         run: bash tests/test_provenance_gate_cannot_run_is_not_stale.sh
+
+      # REPO-WIDE, and static, so it runs anywhere and needs no docker.
+      # Two tags burned because the same exec-a-pinned-image bug lived in more
+      # than one file: v1.0.27 on verify_cut_provenance.sh, then v1.0.28 on its
+      # twin provenance_gate.sh, with three more sites in the design-system test
+      # that neither incident looked at. Both times the right grep was run and
+      # then scoped to one file while a verdict was reported about the repo.
+      # This asks the whole tree every run and prints what it examined.
+      - name: no gate execs a pinned image to read it (repo-wide)
+        if: always()
+        run: bash tests/test_no_gate_execs_a_pinned_image.sh
+
+      # NOTE: the wiki-provenance extraction test is NOT here. This job is
+      # macos-latest, which has no docker, so the test skipped and the step went
+      # green having examined nothing -- see the wiki-provenance-extract job
+      # below, which runs it on ubuntu where docker exists and the defect lives.
+
+  # ---------------------------------------------------------------------------
+  # The wiki provenance checks must READ the image, never EXECUTE it.
+  #
+  # v1.0.27 was burned by the exec form: the wiki images are arm64-ONLY by
+  # design, cut.yml preflight is amd64, so `docker run` died with "exec format
+  # error". wiki_image_grep called that a STALE WIKI IMAGE, and -- far worse --
+  # wiki_image_absent called it PROOF THE PATTERN WAS GONE.
+  #
+  # UBUNTU ON PURPOSE, AND IT IS THE WHOLE POINT OF THE JOB. amd64 is the host
+  # where the defect is reachable. It was first wired into the macos job above,
+  # where docker does not exist at all: the test printed "SKIP: docker
+  # unavailable" and the step reported success having examined nothing. That is
+  # the same vacuous-green shape this test exists to kill, reproduced inside the
+  # guard itself, so the skip is now a hard failure rather than a pass.
+  # ---------------------------------------------------------------------------
+  wiki-provenance-extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: docker must really be here -- a missing docker is a FAILURE, not a skip
+        run: |
+          set -euo pipefail
+          command -v docker >/dev/null 2>&1 || { echo "::error::docker is absent on a runner chosen BECAUSE it has docker"; exit 1; }
+          docker info >/dev/null 2>&1 || { echo "::error::docker daemon unreachable"; exit 1; }
+          docker --version
+
+      - name: wiki provenance -- extract, never exec (and no vacuous absence)
+        run: |
+          # NOT set -e. The first version of this step was
+          #     set -euo pipefail; out="$(bash <test> 2>&1)"; printf '%s' "$out"
+          # and `set -e` aborted at the ASSIGNMENT the moment the test exited
+          # non-zero, so the printf never ran and the log showed the step's own
+          # source with no test output at all. A step that hides the output you
+          # need to diagnose it is worse than one that simply fails.
+          set -uo pipefail
+          bash tests/test_wiki_provenance_extracts_without_exec.sh 2>&1 | tee /tmp/wpe.out
+          rc=${PIPESTATUS[0]}
+          echo "test exit code: ${rc}"
+          # A PASS that examined nothing is the defect, not the proof. The test
+          # keeps its SKIP arm so a developer without docker is not blocked; here
+          # that arm must never be taken, so assert the denominator explicitly.
+          if ! grep -q 'EXAMINED: 6 assertion(s)' /tmp/wpe.out; then
+            echo "::error::the test did not examine its 6 assertions -- it skipped or narrowed, and a skip is not a pass"
+            exit 1
+          fi
+          if [ "${rc}" -ne 0 ]; then
+            echo "::error::the test examined its assertions and FAILED (rc=${rc}) -- see the arms above"
+            exit 1
+          fi

@@ -29,16 +29,39 @@ A bump must touch **all three**, and they must agree:
 | `gui/OstlerInstaller.xcodeproj/project.pbxproj` | `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION` (Debug + Release) | Generated from `project.yml` by `xcodegen generate` — regenerate, don't hand-edit |
 
 - **Short/marketing version** (e.g. `1.0.13`): `CFBundleShortVersionString` + `MARKETING_VERSION`.
-- **Build number** (e.g. `13`): `CFBundleVersion` + `CURRENT_PROJECT_VERSION`.
+- **Build number** (e.g. `1300`): `CFBundleVersion` + `CURRENT_PROJECT_VERSION`.
+
+## The build number is DERIVED, not chosen (#703)
+
+    1.0.P     ->  P * 100          1.0.32   -> 3200
+    1.0.P.H   ->  P * 100 + H      1.0.13.2 -> 1302
+
+That rule reproduces every build number shipped since v1.0.13.1, and
+`tests/test_installer_version_consistency.sh` now asserts it on every PR and
+every push to `main`. A version outside the `1.0.x` line is **CANNOT-RUN**
+(exit 2), not a pass: a new release series needs a deliberate decision about
+the scheme, taken in the same commit that introduces the version.
+
+**Why it is a derivation and not another checklist line.** The build number was
+last bumped for v1.0.25 and then shipped unchanged through v1.0.26, .27, .28,
+.29, .30, .31 and .32. The only thing that had ever compared it to an expected
+value was a hand-copied row in `cut-manifests/v1.0.NN.yaml`; v1.0.24 rewrote
+that file and the row was simply not re-typed, so `check-manifest` went green on
+eight cuts by no longer asking. Restoring a hand-copied row would restore
+exactly the thing that got forgotten.
+
+`CFBundleVersion` is the field Sparkle compares. An update whose build number is
+less than or equal to the installed one is skipped **silently** — no error, no
+prompt, nothing in a log a customer would see.
 
 ## Bump checklist (the residual manual step)
 
-Version derivation from the cut tag is **not yet wired** (see proposals below), so
-bumping the installer app is still a deliberate manual step:
+Marketing-version derivation from the cut tag is **not yet wired** (see proposals
+below), so bumping the installer app is still a deliberate manual step:
 
 1. Edit `gui/project.yml`: set `MARKETING_VERSION` + `CFBundleShortVersionString`
    to the new marketing version, and `CURRENT_PROJECT_VERSION` + `CFBundleVersion`
-   to the new build number.
+   to the build number **derived** from it by the rule above.
 2. Edit `gui/OstlerInstaller/Info.plist`: set `CFBundleShortVersionString` +
    `CFBundleVersion` to match.
 3. `cd gui && xcodegen generate` — refreshes the tracked `project.pbxproj`.

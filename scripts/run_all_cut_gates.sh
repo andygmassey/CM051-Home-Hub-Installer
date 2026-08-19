@@ -156,10 +156,44 @@ run "wiki image PLATFORM" \
     bash tests/test_pinned_wiki_images_are_arm64_only.sh
 
 echo
+echo "-- Privacy: no real person's name in the shipping payload --------"
+# THE CUT, not just the PR. A workflow gate protects what goes through review;
+# it does not protect what is ASSEMBLED. Of the gate scripts in this repo, most
+# are invoked by nothing, so wiring a check into CI alone is not evidence that
+# it runs before a DMG exists.
+#
+# CM051 is PUBLIC and vendors the identity modules, so this is the last point
+# at which a real name can be stopped before it is inside a customer artefact.
+#
+# `run` treats any non-zero as RED, so exit 2 (CANNOT-RUN) blocks the cut. A
+# check that did not happen is indistinguishable from a check that passed.
+run "person-name permit-list" "no name outside the synthetic cast ships" \
+    python3 bin/pii_name_guard.py --root .
+
+echo
 echo "-- Vendor + artefact freshness -----------------------------------"
+# Tests IMPORT, production EXECUTES. A top-level def below a `__main__` guard
+# binds fine on import, so the whole test suite passes, and raises NameError
+# the moment the file is run as a script -- which is how every LaunchAgent in
+# the DMG runs it. That shipped once already, in the Front Page producer, and
+# for the life of the release it presented as "the page never updates" because
+# the degraded-feed path kept serving the last good feed.
+#
+# It belongs in the CUT gates and not only in CI: the gate reads the three
+# shipped roots (vendor/, scripts/, lib/) in the tree being cut, so it is
+# asking about the artefact rather than about a branch.
+run "no defs after __main__ guard" \
+    "shipped .py files run as scripts, not just import" \
+    python3 scripts/verify_no_defs_after_main_guard.py
 run "cut freshness"   "vendored inputs match live upstream"  bash scripts/verify_cut_freshness.sh
 run "cut provenance"  "components are the intended builds"   bash scripts/verify_cut_provenance.sh
 run "content provenance" "artefacts contain the required fixes" bash scripts/provenance_gate.sh
+# --require-full is LOAD-BEARING. Without it the gate runs in CI mode and
+# reports an unresolvable enforced pair as a gap while exiting 0. At cut time
+# the app bundle exists, so an enforced pair it cannot resolve means the
+# resolution has rotted, and a gate that cannot see what it enforces must fail.
+run "vendor pair drift" "the copy that RUNS matches the copy that was reviewed" \
+    python3 tests/test_vendor_pair_drift.py --require-full
 
 echo
 echo "-- The BOM: is everything we said would ship, shipping? ----------"

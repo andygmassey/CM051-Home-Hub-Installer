@@ -636,9 +636,19 @@ def test_plist_env_key_present_regex_fallback_on_template(fake_cm051, fake_app):
 # ---------------------------------------------------------------------------
 
 
-def _write_probe(cm051: Path, name: str, body: str) -> Path:
-    """Register a probe script under scripts/box_walk_probes/."""
+def _write_probe(cm051: Path, name: str, body: str, subdir: str = "") -> Path:
+    """Register a probe script under scripts/box_walk_probes[/<subdir>]/.
+
+    `subdir` defaults to "" for the flat layout these tests have always used.
+    That default is itself part of what #778 fixed: every fixture here wrote
+    flat, the verifier only read flat, and the two agreed perfectly with each
+    other while disagreeing with the real repo, where seven of the eight probes
+    live one directory down. A fixture that encodes the shape the code handles
+    cannot fail on the shape the repo has.
+    """
     probes = cm051 / "scripts" / "box_walk_probes"
+    if subdir:
+        probes = probes / subdir
     probes.mkdir(parents=True, exist_ok=True)
     p = probes / f"{name}.sh"
     p.write_text("#!/usr/bin/env bash\n" + body + "\n")
@@ -704,6 +714,247 @@ def test_box_walk_probe_missing_probe_fails(fake_cm051, fake_app, monkeypatch):
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 1, r.stdout
     assert "not registered" in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# #778 -- the gate and the runner had ZERO probes in common.
+#
+# This gate resolved `scripts/box_walk_probes/<name>.sh`, flat. The runner,
+# scripts/box_walk_probes/run_box_walk.sh, globs `$HERE/probes/*.sh`. The repo
+# holds seven probes in `probes/` and one flat, so the two instruments looked at
+# disjoint sets: the gate could see only the probe the runner never runs, and
+# the seven the runner does run could not be named by any manifest.
+#
+# Nothing failed, because a manifest cannot declare a probe the gate cannot
+# resolve, so nobody ever wrote the rows. Silence, not an error.
+#
+# Every fixture above writes flat, which is why the existing suite was green
+# throughout: it agreed with the verifier about a layout the repo does not use.
+# ---------------------------------------------------------------------------
+
+
+def test_box_walk_probe_resolves_in_probes_subdir(fake_cm051, fake_app, monkeypatch):
+    """The seven real probes live in probes/. Before #778 this FAILED."""
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_probe(fake_cm051, "nested", "exit 0", subdir="probes")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-nested",
+        "title": "probe registered in the probes/ subdirectory",
+        "proof": {"kind": "box_walk_probe", "probe": "nested"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+
+
+def test_box_walk_probe_still_resolves_flat(fake_cm051, fake_app, monkeypatch):
+    """people_seed_and_retrieval is flat ON PURPOSE and must keep resolving.
+
+    It has no --self-test, so run_box_walk.sh would mark it BROKEN and discard
+    its result. Keeping it out of probes/ is the deliberate half of the split;
+    this gate must still be able to run it.
+    """
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_probe(fake_cm051, "flatprobe", "exit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-flat",
+        "title": "probe registered flat",
+        "proof": {"kind": "box_walk_probe", "probe": "flatprobe"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+
+
+def test_box_walk_missing_probe_names_every_path_searched(
+    fake_cm051, fake_app, monkeypatch
+):
+    """A registry FAIL must say where it looked, in both directories.
+
+    'not registered' alone sent a reader to the wrong directory for as long as
+    this defect existed. The message is the only thing standing between the
+    reader and the same wrong assumption.
+    """
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-absent",
+        "title": "probe in neither directory",
+        "proof": {"kind": "box_walk_probe", "probe": "absent_everywhere"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "box_walk_probes/probes/absent_everywhere.sh" in r.stdout, r.stdout
+    assert "box_walk_probes/absent_everywhere.sh" in r.stdout, r.stdout
+
+
+# ---------------------------------------------------------------------------
+# The coverage ratchet. This is the assertion that makes the defect
+# unrepeatable, and it runs against the REAL repo, not a fixture.
+#
+# Resolvability was only half the problem. A probe the gate CAN resolve is
+# still dark if no manifest names it, and seven of eight were in exactly that
+# state. permanent.yaml is the manifest that runs on every cut; a probe
+# declared only in a version manifest goes dark the moment that version ships,
+# which is precisely how the people probe was lost after v1.0.12.
+# ---------------------------------------------------------------------------
+
+_REPO = Path(__file__).resolve().parents[2]
+
+
+def _real_probe_names() -> set:
+    """Every probe file in the real registry, both directories, no lib/."""
+    root = _REPO / "scripts" / "box_walk_probes"
+    names = set()
+    for d in (root, root / "probes"):
+        if not d.is_dir():
+            continue
+        for f in d.glob("*.sh"):
+            if f.name == "run_box_walk.sh":
+                continue
+            names.add(f.stem)
+    return names
+
+
+def _permanent_probe_names() -> set:
+    import yaml
+    doc = yaml.safe_load((_REPO / "cut-manifests" / "permanent.yaml").read_text())
+    out = set()
+    for e in doc.get("entries") or []:
+        proof = e.get("proof") or {}
+        if proof.get("kind") == "box_walk_probe" and proof.get("probe"):
+            out.add(proof["probe"])
+    return out
+
+
+def test_real_registry_is_not_empty():
+    """POSITIVE CONTROL.
+
+    Both assertions below are set comparisons, and an empty left-hand side
+    satisfies every one of them. If a rename or a moved directory made the glob
+    return nothing, the coverage test would pass while measuring nothing, which
+    is the exact failure shape it exists to catch.
+    """
+    names = _real_probe_names()
+    assert len(names) >= 8, f"expected at least 8 probes on disk, found {sorted(names)}"
+    assert "people_seed_and_retrieval" in names
+    assert "install_error_honesty" in names
+
+
+def test_every_probe_on_disk_is_declared_in_permanent_manifest():
+    """A probe nothing declares is a probe the cut never runs."""
+    undeclared = _real_probe_names() - _permanent_probe_names()
+    assert not undeclared, (
+        "these probes exist on disk but no permanent.yaml row names them, so no "
+        f"cut will ever invoke them: {sorted(undeclared)}. Add a box_walk_probe "
+        "row to cut-manifests/permanent.yaml, or delete the probe."
+    )
+
+
+def test_every_declared_probe_resolves_to_a_real_file():
+    """The other direction: a manifest row naming a probe that is not there."""
+    sys.path.insert(0, str(SCRIPT.parent))
+    import verify_cut_manifest as V  # noqa: E402
+    missing = [
+        p for p in sorted(_permanent_probe_names())
+        if V._resolve_box_walk_probe(_REPO, p) is None
+    ]
+    assert not missing, (
+        f"permanent.yaml declares probes with no script: {missing}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# #713 -- a declared RUNTIME proof that could not run must not read as green.
+#
+# Measured on main before this change: OSTLER_BOX_HOST is set NOWHERE. Zero
+# hits across OS003 (the canonical cut mechanism); in CM051 only inside
+# scripts/tests/. Two manifests declare box_walk_probe rows, so those rows have
+# returned SKIP on every cut that has ever run, main() exits 0 because
+# `fails == 0`, and the summary printed a skip COUNT with no names.
+#
+# The four tests above pin the DEFAULT behaviour and must keep passing: SKIP is
+# right in CI and on a dev box, where there is no machine to probe. These tests
+# pin the cut behaviour, which is the opposite.
+# ---------------------------------------------------------------------------
+
+
+def test_runtime_proof_skip_is_a_failure_under_require_flag(fake_cm051, fake_app, monkeypatch):
+    """The row this whole primitive exists for cannot silently prove nothing."""
+    monkeypatch.delenv("OSTLER_BOX_HOST", raising=False)
+    _write_probe(fake_cm051, "smoke", "exit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-smoke",
+        "title": "runtime probe smoke check",
+        "proof": {"kind": "box_walk_probe", "probe": "smoke"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha", "--require-runtime-proofs")
+    assert r.returncode == 1, r.stdout
+    assert "no runtime proof happened" in r.stdout
+
+
+def test_require_flag_does_not_break_a_probe_that_can_run(fake_cm051, fake_app, monkeypatch):
+    """The flag must not turn a genuinely-runnable proof red.
+
+    Without this, the test above could be satisfied by a flag that fails
+    unconditionally -- which would be a gate that cannot pass, the mirror image
+    of a gate that cannot fail.
+    """
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_probe(fake_cm051, "green", "echo 'seeded + retrieved'\nexit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-green",
+        "title": "runtime probe passes",
+        "proof": {"kind": "box_walk_probe", "probe": "green"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha", "--require-runtime-proofs")
+    assert r.returncode == 0, r.stdout
+
+
+def test_skipped_rows_are_named_not_just_counted(fake_cm051, fake_app, monkeypatch):
+    """A skip COUNT is a silent cap. The HUMAN summary must name which proof did not happen.
+
+    🔴 THIS TEST WAS BLIND TWICE, IN DIFFERENT WAYS, AND BOTH WERE CAUGHT BY
+    PROVING RED RATHER THAN BY READING IT.
+
+    v1 asserted only that the row id appeared somewhere in stdout. Every check
+    already prints its own id via emit(), so it passed with the summary block
+    deleted -- satisfied by output the change does not touch.
+
+    v2 anchored to the summary header, and then failed against the FIX, because
+    the shared _run() helper always passes --json and the human summary branch
+    never executes under it. The JSON path was never the blind one: it emits
+    every result object including skips, with id and kind. The HUMAN path was,
+    and the human path is what a person reads during a cut.
+
+    So this runs WITHOUT --json deliberately. It is the only test in this file
+    that does, and that is the point.
+    """
+    monkeypatch.delenv("OSTLER_BOX_HOST", raising=False)
+    _write_probe(fake_cm051, "smoke", "exit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-named",
+        "title": "runtime probe smoke check",
+        "proof": {"kind": "box_walk_probe", "probe": "smoke"},
+    }])
+    run_env = {k: v for k, v in os.environ.items() if k != "DAEMON_VERSION"}
+    run_env.pop("OSTLER_BOX_HOST", None)
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT),
+         "--cm051-dir", str(fake_cm051),
+         "--app-path", str(fake_app),
+         "--skip-source-at-sha"],
+        capture_output=True, check=False, text=True, env=run_env,
+    )
+    assert r.returncode == 0, r.stdout
+    header = "Rows that did NOT prove anything (SKIP):"
+    assert header in r.stdout, "the human summary does not list skipped rows at all"
+    tail = r.stdout.split(header, 1)[1]
+    assert "box-walk-named" in tail, "the skipped row was not named in the summary block"
+    assert "box_walk_probe" in tail, "the summary block does not name the proof KIND"
 
 
 # ---------------------------------------------------------------------------

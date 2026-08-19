@@ -1,0 +1,122 @@
+# cut-manifests/v1.0.33.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.33.
+#
+# WHY v1.0.33 EXISTS: THE WIKI IS NAVIGABLE AND THE CUSTOMER CAN CORRECT IT.
+# ---------------------------------------------------------------------------
+# v1.0.32 fixed a Hub that could not start. It shipped wiki images at v0.1.16,
+# which carry the navigation fix (CM044 #208) and NOT the correction pencil
+# (CM044 #209), because #209 merged AFTER v0.1.16 was built. v1.0.33 moves both
+# wiki pins to v0.1.17, whose source commit 9fd38569 IS #209.
+#
+# That distinction is the whole reason this file leads with the image pins. A
+# reader glancing at "the wiki fixes shipped" would be right about the nav and
+# wrong about the pencil, and the difference is a customer who can read their
+# own wiki versus one who can also fix it when it is wrong about them.
+#
+# WHAT ELSE THIS CUT CARRIES
+#   CM051 #776  the appcast publisher is wired into `make ship`
+#   CM051 #778  the box-walk gate and its runner had ZERO probes in common
+#   CM051 #779  the supply-chain workflow now watches gui/Makefile too
+#   CM051 #781  daemon 0.4.58 + Hub app 7a45722d
+#   CM051 #782  the v0.1.17 digests are bound to their CM044 commit
+#
+# WHY #782 IS IN THE LIST AND WHY IT NEARLY WAS NOT
+# ---------------------------------------------------------------------------
+# #780 re-pinned install.sh to the v0.1.17 images and did NOT add the rows in
+# scripts/wiki_image_provenance.tsv binding those digests to a CM044 commit.
+# Nothing failed at merge time. It surfaced only when a cut was attempted, as 4
+# provenance FAILs plus 2 freshness REDs, and the cut was correctly refused.
+#
+# The transferable part: A RE-PIN IS TWO EDITS, NOT ONE. Moving the digest is
+# the visible half; recording what the digest IS remains owed, and the gate that
+# catches the omission does not run on the PR that commits it.
+#
+# NOT ASSERTED HERE, DELIBERATELY
+# ---------------------------------------------------------------------------
+# The pencil SAVING on a real box. It is latched statically only: the endpoint
+# fix and the removal of `credentials: "include"` were derived from the Doctor's
+# middleware config plus the Fetch standard, not from a browser run. A row here
+# asserting "the pencil works" would be a claim about an artefact nobody opened,
+# which is the failure this whole manifest format exists to prevent. It is a
+# box-walk item and it stays one until somebody clicks it.
+version: v1.0.33
+entries:
+  # --------------------------------------------------------------------------
+  # THE POINT OF THIS CUT. Two entries, not one, because the two images are
+  # pinned on separate lines and a single assertion would pass with one of them
+  # left on v0.1.16 -- which is exactly the half-shipped state v1.0.32 was in.
+  #
+  # The patterns are anchored on the FULL 64-hex digest, so they cannot be
+  # satisfied by an unrelated `ostler-wiki-site@sha256:` line.
+  # --------------------------------------------------------------------------
+  - id: v1033-wiki-site-is-v0117
+    title: install.sh pins the wiki-site image that carries the correction pencil
+    incident: >-
+      v1.0.32 shipped wiki images at v0.1.16. CM044 #208 (navigation) was in that
+      build; CM044 #209 (the correction pencil) was NOT, because #209 merged after
+      v0.1.16 was cut. Shipping "the wiki fixes" while one of the two is absent is
+      the half-delivery this entry exists to make impossible to do silently.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-site@sha256:510ffc6a561a5087373558994199121ababd1b7b6aa37f8f82082e3721fd413a'
+      must_match: true
+
+  - id: v1033-wiki-compiler-is-v0117
+    title: install.sh pins the wiki-compiler image from the same v0.1.17 source
+    incident: >-
+      The compiler and the site are pinned on different lines and have drifted apart
+      before. Both must come from CM044 9fd38569 or the rendered wiki and the compiler
+      that produced it disagree about what the page template is.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-compiler@sha256:21c59bdf1fc6032ef6efc4ba008d3b30404519fc6b196f86daa5a13514669c6e'
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # Carried forward. An unchanged claim still has to be measured.
+  # --------------------------------------------------------------------------
+  - id: v1033-payload-carries-the-0458-daemon
+    title: the shipped payload is the hub-v0.4.58 daemon, in lockstep with the Hub app
+    incident: >-
+      v1.0.31 moved this line and had to move the pins naming the daemon with it or
+      ship halves of two builds: install.sh's DEFAULT_ASSISTANT_TARBALL_SHA256 held the
+      previous digest while the version string had already advanced, and a customer
+      install would have fetched the new tarball and aborted on its own fail-closed
+      checksum. v1.0.33 moves the daemon 0.4.57 to 0.4.58, so the pair is re-measured
+      rather than assumed to have moved together.
+    proof:
+      kind: payload_version_matches_daemon_version
+
+  - id: v1033-hub-app-reaches-the-artefact
+    title: the shipped installer actually carries Ostler.app
+    incident: >-
+      v1018-D668: a missing Hub app was non-fatal, so a Hub-less DMG shipped with every
+      step green. Re-asserted every cut because "the DMG contains the Hub" is the kind
+      of claim that is only ever true of an artefact somebody opened.
+    proof:
+      kind: file_exists_in_artefact
+      target: daemon-app
+      path: Contents/MacOS/ostler-hub
+
+  - id: v1033-installer-version-stamp
+    title: the shipped OstlerInstaller.app declares 1.0.33
+    incident: >-
+      Task #171 records the build pipeline failing to bump CFBundleShortVersionString on
+      a cut, shipping an installer that reports the previous version to the customer and
+      to support. Measured again before this cut: all five marketing-version sites still
+      read 1.0.32 (Info.plist, project.yml twice, pbxproj twice). They move together here.
+      CFBundleVersion moves WITH them, 3200 to 3300. I first left it alone on the strength
+      of the v1.0.32 record's prose, "matching the .26 through .31 precedent where only the
+      marketing version moves". The version-consistency gate refuted that on this very PR:
+      CFBundleVersion is the field SPARKLE COMPARES, and an update whose build number is at
+      or below the installed one is skipped SILENTLY, with no error, no prompt and no log
+      line a customer would ever see. The "precedent" was the #703 defect, not a rule: the
+      build number was last bumped for v1.0.25 and then carried unchanged through seven
+      signed and notarised cuts. All four build sites now derive from the version.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: "1.0.33"

@@ -9,10 +9,10 @@ notification email was being used as the RECIPIENT's identity, so every mail
 from a given robot collapsed onto a single "person". Proven by matching the
 uuid5 of each candidate against the merged node in Oxigraph:
 
-    invitations@linkedin.com -> one node holding 9 people
-    notifications@github.com -> one node holding 7 (Max Braun, andygmassey,
+    invitations@social.example -> one node holding 9 people
+    notifications@forge.example -> one node holding 7 (John Smith, bobdoe,
                                 dependabot[bot], github-actions[bot], ...)
-    dan@tldrnewsletter.com   -> one node holding 6 newsletters
+    dan@newsletter.example   -> one node holding 6 newsletters
 
 Measured on a real box: 6,583 Person nodes, 265 with more than one display
 name. 40 of those have ZERO identifiers -- the over-merge signature -- and
@@ -43,7 +43,8 @@ satisfy ALL of:
 
   * is a pwg:Person
   * its pwg:email is a role/bulk address (pwg_ingest.is_role_identifier)
-  * has ZERO pwg:hasIdentifier -- a real merged person has many (Anthony has 12)
+  * has ZERO pwg:hasIdentifier -- a real merged person has many (a dozen is
+    typical for a long-standing contact)
   * NOTHING in the graph references it as an object
 
 The last two are what keep a real person safe. A node with identifiers, or one

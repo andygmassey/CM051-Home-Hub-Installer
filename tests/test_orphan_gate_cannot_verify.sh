@@ -35,6 +35,29 @@
 # ============================================================================
 set -uo pipefail
 
+# grep -c, never grep -q, in every assertion below.
+#
+# Under `pipefail`, `printf ... | grep -q PAT` is a RACE. grep -q exits the
+# instant it matches, which closes the pipe under a still-writing printf,
+# which takes SIGPIPE and returns non-zero, which makes the PIPELINE
+# non-zero -- so the `if` takes its ELSE branch BECAUSE THE ASSERTION WAS
+# TRUE. Whether it fires depends on how much output the gate produced, so
+# it is invisible until some unrelated change makes the gate wordier.
+#
+# MEASURED 2026-08-18, cut v1.0.34 dry run on main: line 97 lost that race
+# and reported 'summary lumps cannot-verify in with orphaned work' while the
+# gate was behaving correctly. A re-run went green, which is the trap -- it
+# reads as transient and leaves the other seven sites armed.
+#
+# The NEGATIVE assertions are the dangerous half: sites that fail on a match
+# take the else-branch under SIGPIPE and report a silent PASS, so a broken
+# gate would look green. grep -c reads all input, so there is no early exit
+# and no race.
+#
+# Same fix, same reason, already standard in this repo -- see
+# scripts/box_walk_probes/probes/no_unexpected_egress.sh:189
+# "grep -c not -q: under pipefail a -q exit races SIGPIPE."
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GATE="$HERE/scripts/verify_no_orphaned_fixes.sh"
 fails=0
@@ -84,17 +107,17 @@ else
 fi
 
 # -- 2. ...but it must say CANNOT VERIFY, not 'orphaned' ---------------------
-if printf '%s' "$out" | grep -q 'CANNOT VERIFY'; then
+if [ "$(printf '%s' "$out" | grep -c 'CANNOT VERIFY')" -gt 0 ]; then
 	pass "names it CANNOT VERIFY"
 else
 	fail "does not say CANNOT VERIFY -- the v1.0.22 wording is back"
 fi
-if printf '%s' "$out" | grep -q 'NOT a finding of orphaned work'; then
+if [ "$(printf '%s' "$out" | grep -c 'NOT a finding of orphaned work')" -gt 0 ]; then
 	pass "states explicitly that nothing was measured"
 else
 	fail "does not disclaim the finding -- reads as abandoned work"
 fi
-if printf '%s' "$out" | grep -q 'CANNOT-VERIFY, not orphaned work'; then
+if [ "$(printf '%s' "$out" | grep -c 'CANNOT-VERIFY, not orphaned work')" -gt 0 ]; then
 	pass "summary separates cannot-verify from real findings"
 else
 	fail "summary lumps cannot-verify in with orphaned work"
@@ -107,19 +130,19 @@ if [ "$rc2" -eq 0 ]; then
 else
 	fail "declaring a repo unverifiable still blocks (rc=$rc2) -- no route forward"
 fi
-if printf '%s' "$out2" | grep -q 'NOT CHECKED IN THIS ENVIRONMENT: SIB'; then
+if [ "$(printf '%s' "$out2" | grep -c 'NOT CHECKED IN THIS ENVIRONMENT: SIB')" -gt 0 ]; then
 	pass "names the unchecked repo by label"
 else
 	fail "unchecked repo is not named -- coverage gap is invisible"
 fi
-if printf '%s' "$out2" | grep -q 'GREEN, PARTIAL'; then
+if [ "$(printf '%s' "$out2" | grep -c 'GREEN, PARTIAL')" -gt 0 ]; then
 	pass "green is qualified as PARTIAL when coverage is incomplete"
 else
 	fail "reports unqualified GREEN while a repo went unexamined"
 fi
 # The exact failure mode being prevented: a declared skip quietly becoming a
 # full clean bill. The word GREEN alone must never appear unqualified here.
-if printf '%s' "$out2" | grep -qE '^GREEN: every written fix'; then
+if [ "$(printf '%s' "$out2" | grep -cE '^GREEN: every written fix')" -gt 0 ]; then
 	fail "unqualified 'GREEN: every written fix' printed despite 1 repo unchecked"
 else
 	pass "does not claim every fix was checked when one repo was not"
@@ -129,7 +152,7 @@ fi
 out3="$(env OSTLER_CUT_DEFERRALS="$work/empty-deferrals.yaml" \
             OSTLER_ORPHAN_GATE_REPOS="CUT|$real|origin/main|" \
             bash "$GATE" 2>&1)"; rc3=$?
-if [ "$rc3" -eq 0 ] && printf '%s' "$out3" | grep -qE '^GREEN: every written fix'; then
+if [ "$rc3" -eq 0 ] && [ "$(printf '%s' "$out3" | grep -cE '^GREEN: every written fix')" -gt 0 ]; then
 	pass "control: fully-checked clean run still reports plain GREEN"
 else
 	fail "control: a clean fully-checked run no longer passes (rc=$rc3) -- gate is unusable"
@@ -137,7 +160,7 @@ fi
 # Match the BLOCK HEADER, not the bare phrase: the summary line always carries
 # "N NOT CHECKED" including at zero, so grepping "NOT CHECKED" alone matches a
 # correct run. Caught by this control on first execution.
-if printf '%s' "$out3" | grep -q 'NOT CHECKED IN THIS ENVIRONMENT'; then
+if [ "$(printf '%s' "$out3" | grep -c 'NOT CHECKED IN THIS ENVIRONMENT')" -gt 0 ]; then
 	fail "control: reports unchecked repos when every repo was checked"
 else
 	pass "control: no spurious NOT CHECKED on a complete run"

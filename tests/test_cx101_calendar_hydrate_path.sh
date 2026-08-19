@@ -78,15 +78,15 @@ CAL_BLOCK="$(sed -n "${CAL_HEADER_LINE},${NEXT_HEADER_LINE}p" "$INSTALL_SH")"
 # (It can legitimately appear elsewhere in install.sh -- the Phase 3
 # pipeline copy + the cm041/meeting_syncer dir bundle -- so we only
 # enforce its absence inside the Calendar hydration block.)
-if printf '%s' "$CAL_BLOCK" | grep -qE 'python.*-m meeting_syncer'; then
+if grep -qE 'python.*-m meeting_syncer' <<< "$CAL_BLOCK"; then
     failure "Calendar hydration block still invokes 'python -m meeting_syncer' -- CX-101 contract broken"
 fi
-if printf '%s' "$CAL_BLOCK" | grep -qE 'meeting_syncer\.syncer'; then
+if grep -qE 'meeting_syncer\.syncer' <<< "$CAL_BLOCK"; then
     failure "Calendar hydration block still references meeting_syncer.syncer -- CX-101 contract broken"
 fi
 
 # Axis 2: ingest_calendar (or its module path) IS present.
-if ! printf '%s' "$CAL_BLOCK" | grep -qE 'ingest_calendar|pwg_ingest'; then
+if ! grep -qE 'ingest_calendar|pwg_ingest' <<< "$CAL_BLOCK"; then
     failure "Calendar hydration block does not reference ingest_calendar / pwg_ingest -- FDA path missing"
 fi
 
@@ -100,10 +100,10 @@ fi
 # the legacy 5-year var counts -- the contract is "the calendar
 # hydration block uses a documented env var for since_days", not a
 # specific name.
-if ! printf '%s' "$CAL_BLOCK" | grep -qE 'OSTLER_HYDRATE_CALENDAR_DAYS|OSTLER_HYDRATE_BACKFILL_DAYS'; then
+if ! grep -qE 'OSTLER_HYDRATE_CALENDAR_DAYS|OSTLER_HYDRATE_BACKFILL_DAYS' <<< "$CAL_BLOCK"; then
     failure "Calendar hydration block does not pass a documented backfill-days env var"
 fi
-if ! printf '%s' "$CAL_BLOCK" | grep -qE 'since_days=.{0,30}OSTLER_HYDRATE_(CALENDAR|BACKFILL)_DAYS'; then
+if ! grep -qE 'since_days=.{0,30}OSTLER_HYDRATE_(CALENDAR|BACKFILL)_DAYS' <<< "$CAL_BLOCK"; then
     failure "Calendar hydration block does not plumb backfill days to extract_events since_days"
 fi
 
@@ -111,15 +111,15 @@ fi
 # ~/.ostler/imports/fda/ is written by the inline extractor block
 # AND read by ingest_calendar(fda_dir). The block must reference
 # imports/fda explicitly.
-if ! printf '%s' "$CAL_BLOCK" | grep -qE 'imports/fda'; then
+if ! grep -qE 'imports/fda' <<< "$CAL_BLOCK"; then
     failure "Calendar hydration block does not reference ~/.ostler/imports/fda/ -- writer/reader contract drift risk"
 fi
 
 # Axis 5: state-2 wait helper invocation for calendar.
-if ! printf '%s' "$CAL_BLOCK" | grep -q '_three_state_wait_for_populate'; then
+if ! grep -q '_three_state_wait_for_populate' <<< "$CAL_BLOCK"; then
     failure "Calendar hydration block does not invoke _three_state_wait_for_populate for state 2"
 fi
-if ! printf '%s' "$CAL_BLOCK" | grep -q '"calendar"'; then
+if ! grep -q '"calendar"' <<< "$CAL_BLOCK"; then
     failure "Calendar hydration block does not pass 'calendar' slug to the wait helper"
 fi
 

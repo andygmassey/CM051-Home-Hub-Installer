@@ -36,6 +36,18 @@ on:
     paths:
       - 'gui/project.yml'
       - 'gui/OstlerInstaller.xcodeproj/**'
+      # THE SOURCE TREES xcodegen INDEXES. project.yml declares four:
+      # OstlerInstaller, OstlerInstaller/Resources, .../Resources/Fonts and
+      # OstlerInstallerTests. ADDING OR REMOVING ANY FILE UNDER THEM CHANGES
+      # THE GENERATED pbxproj, and until 2026-08-16 none of them was listed
+      # here, so the gate did not run on the PR that caused the drift.
+      #
+      # Measured: #763 added gui/OstlerInstallerTests/.test-count-floor. No
+      # pbxproj-sync check appeared on that PR. It fired on the push to main
+      # instead, went RED at d617a49a, and stayed RED at 76f99742 -- a gate
+      # discovering on main what it exists to stop before the merge.
+      - 'gui/OstlerInstaller/**'
+      - 'gui/OstlerInstallerTests/**'
       # The gate scrubs the variables gui/Makefile exports before generating,
       # so a change to that export list changes what the gate does.
       - 'gui/Makefile'

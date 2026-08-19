@@ -149,7 +149,7 @@ class CrossRefClient(BaseClient[CrossRefMetadata]):
     def _get_headers(self) -> Dict[str, str]:
         headers = {
             "Accept": "application/json",
-            "User-Agent": "PWG-Enrichment/0.1.0 (https://github.com/pwg; mailto:pwg@example.com)",
+            "User-Agent": "Ostler/1.0 (+https://ostler.ai)",
         }
         return headers
 
