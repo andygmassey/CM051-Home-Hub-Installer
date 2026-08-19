@@ -44,7 +44,12 @@ jobs:
       - name: The comment-stripper knows a quoted # from a comment
         run: /bin/bash scripts/tests/test_comment_strip_is_quote_aware.sh
 
+      # if: always() because this step is no longer FIRST in the job. Adding the
+      # stripper control above it made it maskable -- a failure there would skip
+      # this one, and a skipped step reads as "no objection", which is the whole
+      # family of defect this workflow exists to remove. ci-maskless caught it.
       - name: The gate can tell an invocation from a comment mention
+        if: always()
         run: /bin/bash scripts/tests/test_new_tests_are_wired_predicate.sh
 
       - name: Every test this change adds is invoked by this change
