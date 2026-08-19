@@ -76,6 +76,7 @@ test_daemon_fda_app_bundle_path.sh	WIRED	.github/workflows/consent-data-handling
 test_daemon_pins_agree.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_dedupe_defer_background.sh	UNWIRED	-
 test_dedupe_heartbeat.sh	UNWIRED	-
+test_deferral_reachability.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferral_reason_reads_block_scalars.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_discord_claims_an_extracted_package.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_dispatch_timeout.sh	WIRED	.github/workflows/dispatch-timeout.yml
@@ -114,7 +115,7 @@ test_gen_patch_new_files.sh	UNWIRED	-
 test_governor_pause_throttle.sh	UNWIRED	-
 test_graph_db_pull_retry.sh	UNWIRED	-
 test_grep_c_arith_safety.sh	UNWIRED	-
-test_gui_progress_emitter.sh	WIRED	.github/workflows/step-end-status-honesty.yml
+test_gui_progress_emitter.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_hub_app_fetch_wired.sh	WIRED	.github/workflows/hub-app-fetch.yml
 test_hydrate_apple_notes_wired.sh	UNWIRED	-
 test_hydrate_email_preferences_wired.sh	UNWIRED	-
@@ -147,6 +148,7 @@ test_mail_content_probe.sh	UNWIRED	-
 test_mail_onboarding_259_260.sh	UNWIRED	-
 test_mailbox_ingest_leg_wired.sh	UNWIRED	-
 test_makefile_app_path_default.sh	WIRED	.github/workflows/hub-app-fetch.yml
+test_marker_payloads_never_reach_install_log.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_meeting_brief_sender.sh	UNWIRED	-
 test_memory_embeddings_wired.sh	WIRED	.github/workflows/memory-embeddings.yml
 test_migration_marker_guard_fresh_install.py	UNWIRED	-
