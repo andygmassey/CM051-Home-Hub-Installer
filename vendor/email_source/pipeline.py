@@ -414,6 +414,93 @@ def _seed_timeout_secs():
     return None if secs <= 0 else secs
 
 
+def _report_email_settling(thread_state: dict[str, list[str]]) -> None:
+    """Advance the ``emails`` settling-progress shard after a tick.
+
+    WHY THIS EXISTS. Measured on the shipped v1.0.36 box, 2026-08-19:
+    ``~/.ostler/state/settling_progress.d/emails.json`` had not been written
+    for 27h44m and read ``done=707 total=17609``, while the email pipeline
+    was demonstrably alive -- a tick at 19:35 emitted 8 messages and ingested
+    them successfully, and ``ps`` showed this module running with 1:05 of
+    accumulated CPU. install.sh writes that shard ONCE (``settling_report_measured
+    emails ...``) and, before this function, nothing ever wrote it again.
+
+    So the "Your emails" row of the customer's setup panel was frozen at its
+    install-time value forever. Counted with a positive control:
+    ``vendor/ostler_fda/calendar.py`` has 3 emitter calls, ``imessage.py`` and
+    ``whatsapp_history.py`` likewise -- and those three are exactly the rows
+    that were advancing. Both email tick scripts had ZERO. The wire was never
+    run to this source.
+
+    The customer-visible consequence is worse than a stale number: a frozen
+    counter and a dead source are indistinguishable. "Your emails: just
+    getting started" reads identically whether email is crawling or has
+    stopped, so the panel cannot report the one thing it exists to report.
+
+    TOTAL IS READ, NEVER INVENTED. ``report_settling_progress`` requires an
+    explicit ``total`` and its docstring is emphatic that the backfill size is
+    measured once, up front, by the producer -- recomputing per tick walks the
+    bar backwards. This tick has no way to measure the backfill (it sees only
+    the threads Apple Mail returns for its window), so it reads the total the
+    installer already measured and passes that back unchanged. If no shard
+    exists, or its total is unusable, THIS FUNCTION WRITES NOTHING and says
+    why, naming the file. Inventing a denominator here would turn a frozen
+    counter into a confident wrong percentage, which is the worse failure:
+    a denominator equal to the numerator reads as 100% complete.
+
+    Resolves the shard directory through the EMITTER's own resolver, not this
+    module's ``_default_state_dir``. They are same-named functions in two
+    modules with different defaults -- ``~/.ostler/state`` there,
+    ``~/.ostler/workspace`` here -- and reimplementing the path is how a
+    writer and a reader end up pointed at different directories.
+
+    Never raises. A progress-writer fault must not abort an ingest tick.
+    """
+    try:
+        from ostler_fda.settling_progress import (  # noqa: PLC0415
+            _SETTLING_SUBDIR,
+            _default_state_dir,
+            report_settling_progress,
+        )
+    except ImportError as exc:
+        logger.warning(
+            "settling progress not reported: ostler_fda.settling_progress "
+            "is not importable (%s). The 'Your emails' row will not advance.",
+            exc,
+        )
+        return
+
+    shard_path = _default_state_dir() / _SETTLING_SUBDIR / "emails.json"
+
+    try:
+        existing = json.loads(shard_path.read_text())
+        total = int(existing["total"])
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        logger.warning(
+            "settling progress not reported: cannot read a usable 'total' from "
+            "%s (%s). install.sh sets it once at hydrate time; this tick does "
+            "not measure the backfill and will not invent a denominator.",
+            shard_path,
+            exc,
+        )
+        return
+
+    done = sum(len(ids) for ids in thread_state.values())
+
+    try:
+        report_settling_progress("emails", done=done, total=total)
+    except Exception as exc:  # noqa: BLE001 -- never abort a tick over a counter
+        logger.warning("settling progress write failed for 'emails': %s", exc)
+        return
+
+    logger.info(
+        "settling progress reported: emails done=%s total=%s (shard %s)",
+        done,
+        total,
+        shard_path,
+    )
+
+
 def process_email(
     *,
     mail_dir: Optional[Path] = None,
@@ -531,6 +618,7 @@ def process_email(
 
     if not dry_run:
         _save_state(state_file, state)
+        _report_email_settling(thread_state)
 
     summary = {
         "threads_scanned": scanned,
