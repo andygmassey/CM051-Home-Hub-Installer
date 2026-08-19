@@ -14303,10 +14303,25 @@ fi
 # table" and names browsing as one of three prior burns of this exact shape.
 #
 # ONE python process, not two, so the ordering cannot drift: extract first,
-# then ingest what was just written. Failures are LOUD -- the wrapper is
-# `set -euo pipefail` and this is the tick's exit status (see the sealed
-# tick.sh) -- and the extract's JSON is already on disk before ingest starts,
-# so a failing ingest never costs us the harvest.
+# then ingest what was just written. The extract's JSON is already on disk
+# before ingest starts, so a failing ingest costs a load, never a harvest.
+#
+# FAILURES ARE LOUD, AND THE WRAPPER HAS TO MAKE THEM SO (Archie, #864).
+#
+# `set -euo pipefail` alone does NOT achieve this, and the first version of
+# this comment claimed it did. ingest_all cannot produce a non-zero exit: its
+# per-source loop catches Exception, logs a warning and records
+# {"status": "error"} in the results dict, and the whole-directory failure path
+# RETURNS {"status": "error", ...} rather than raising. So all seven sources
+# could fail and this wrapper would print its dict and exit 0 -- the tick would
+# record a success. Strictly better than the old behaviour, where ingest did
+# not run at all, but a comment asserting a property the code lacks is worse
+# than no comment, because the next reader stops checking.
+#
+# So inspect the result and exit non-zero ourselves. The tick's exit status is
+# this script's exit status (the sealed tick.sh says so), which is the only
+# channel a scheduler can act on -- a loud log tells a human, an rc tells the
+# system, and only one of those is watching at 04:00.
 "$OSTLER_PYTHON" -c "
 import json, sys
 sys.path.insert(0, '${FDA_DIR}')
@@ -14315,8 +14330,22 @@ from ostler_fda.pwg_ingest import ingest_all
 from pathlib import Path
 fda_dir = Path('${OSTLER_DIR}/imports/fda')
 run_all(fda_dir)
-results = ingest_all(fda_dir)
+results = ingest_all(fda_dir) or {}
 print('[ingest] ' + json.dumps(results, default=str))
+failed = []
+if results.get('status') == 'error':
+    # The whole-directory failure shape: a FLAT dict, not per-source. Checked
+    # first and separately, because iterating it as if it were per-source finds
+    # no dict values and reports everything fine.
+    failed.append('ingest_all: ' + str(results.get('reason', 'error')))
+else:
+    for name in sorted(results):
+        res = results[name]
+        if isinstance(res, dict) and res.get('status') == 'error':
+            failed.append(name + ': ' + str(res.get('error', 'error')))
+if failed:
+    sys.stderr.write('[ingest] FAILED: ' + '; '.join(failed) + chr(10))
+    sys.exit(1)
 "
 FDAEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-fda"
