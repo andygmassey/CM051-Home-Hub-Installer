@@ -442,7 +442,14 @@ SAFARI_EXT_TAG     ?= hub-v0.4.55
 # the box. So the enforcement does not weaken, it MOVES: CI stops pretending
 # it might publish, and the debt is collected by
 # tests/test_appcast_debt_is_collected.sh, which refuses the NEXT cut while a
-# shipped version still has no appcast entry.
+# RELEASED version still has no appcast entry.
+#
+# RELEASED, not cut. A cut is a build; a release is a build somebody can
+# obtain. A version with no release has no download for a feed entry to point
+# AT, so demanding one is a false accusation rather than strictness. The first
+# version of that gate keyed on cuts/<v>/cut.env and would have refused the
+# launch cut over eight versions that were never released. Measured 2026-08-19:
+# 13 cut records, 0 releases, 0 <item> elements in the live feed.
 #
 # That pairing is the whole point. `onbox` alone would be a silent deferral
 # wearing a green tick, which is #370 again. `onbox` PLUS a tripwire is a
@@ -2528,7 +2535,8 @@ publish-appcast:
 	    echo "    make -C gui publish-appcast PUBLISH_APPCAST=1" ; \
 	    echo "" ; \
 	    echo "  This debt is not left to memory. tests/test_appcast_debt_is_collected.sh" ; \
-	    echo "  REFUSES the next cut while a shipped version has no appcast entry." ; \
+	    echo "  REFUSES the next cut while a RELEASED version has no appcast entry." ; \
+	    echo "  (Released, not merely cut: a build nobody can download owes no feed entry.)" ; \
 	    echo "============================================================================" ; \
 	    exit 0; \
 	fi; \
