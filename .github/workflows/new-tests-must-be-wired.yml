@@ -42,3 +42,26 @@ jobs:
 
       - name: Every test this change adds is invoked by this change
         run: /bin/bash scripts/verify_new_tests_are_wired.sh
+
+      # THE OTHER HALF OF THIS WORKFLOW'S SUBJECT.
+      #
+      # The gate above is diff-scoped: it catches a NEW test that nothing
+      # invokes. It cannot see a test that was wired last month and quietly
+      # unwired today, and its substring predicate is also satisfied by a bare
+      # `paths:` trigger entry.
+      #
+      # Measured 2026-08-19: removing the invocation of
+      # tests/test_no_data_is_not_success.sh while leaving its paths: line in
+      # place was caught by NOTHING -- verify_test_wiring.sh reported "no test
+      # file is newly unwired" and its regeneration diff was identical.
+      #
+      # This step guards a short, explicit register of tests that pin defects
+      # which already cost a cut or reached a box, and it requires an EXECUTION
+      # VERB on the same line, so a trigger entry cannot satisfy it.
+      #
+      # if: always() so a failure in the step above cannot silence this one. A
+      # skipped check reads as "no objection", which is the whole family of
+      # defect this workflow exists to remove.
+      - name: Critical tests must stay INVOKED, not merely mentioned
+        if: always()
+        run: bash scripts/verify_critical_tests_stay_invoked.sh
