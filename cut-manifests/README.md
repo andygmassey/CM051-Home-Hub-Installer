@@ -399,7 +399,48 @@ proof:
     - "^chore\\(docs\\)"
 ```
 
-Recovery: rebase onto the target branch and push.
+Recovery: merge the target branch into the PR branch and push. Never rebase --
+a rebase rewrites SHAs, after which `git merge-base --is-ancestor` can never
+prove the work landed.
+
+#### This row was unreachable for its entire life, and read green
+
+Measured 2026-08-19. `grep -rn PR_NUMBER .github/workflows/` returned nothing.
+Control: the same grep for `pull_request` matched 12 files, so the absence was
+real rather than a broken predicate. No caller ever set the variable, so step 1
+returned SKIP on every invocation, and `main()` collapses SKIP and PASS onto
+exit 0. **A row that always skips is indistinguishable from a row that always
+passes**, which is why it survived from 2026-07-31 untouched.
+
+Two things changed:
+
+* `.github/workflows/pr-branch-staleness.yml` runs the primitive in PR context
+  with `PR_NUMBER` set. It carries **no `paths:` filter** on purpose: staleness
+  is a property of the branch, not of the files it touches, so a filter would
+  skip the gate on exactly the PRs it exists to catch, and a skipped job renders
+  as a grey tick that reads like a pass.
+* `--require-kind KIND` demands the kind actually ran. If every entry of that
+  kind ended SKIP, or the manifests hold none, the run exits **3
+  (CANNOT-RUN)** -- a distinct, still-non-zero code. The workflow's first step
+  is a positive control that deliberately unsets `PR_NUMBER` and asserts exit 3,
+  so the gate cannot become unfalsifiable again without CI saying so.
+
+Live proof, real PRs, real API, 2026-08-19:
+
+| PR | base.sha behind `main` | verdict | exit |
+|----|------------------------|---------|------|
+| #509 | 393 | FAIL, `max_commits_behind=10 exceeded` | 1 |
+| #493 | 10 | PASS, within bound | 0 |
+| (none) `PR_NUMBER` unset | n/a | CANNOT-RUN | 3 |
+
+#### The compare endpoint caps `.commits` at 250
+
+`.ahead_by` reports the true total; `.commits` returns at most 250 entries with
+no error and no flag. Measured on PR #509: `ahead_by=393`, `len(commits)=250`.
+Applying `ignore_commits_matching` to the returned page alone understates the
+gap and can **falsely PASS**: a branch 393 behind whose first 250 commits all
+match an ignore pattern would count as 0 behind. Un-inspected commits are
+counted as non-ignored and the split is printed in the detail line.
 
 ## Vendor drift check (sibling workflow, not a manifest primitive)
 

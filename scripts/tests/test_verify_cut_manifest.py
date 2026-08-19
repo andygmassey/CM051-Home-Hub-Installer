@@ -1539,7 +1539,11 @@ def test_stale_branch_fail_when_behind_exceeds_threshold(tmp_path, monkeypatch):
     assert result.status == "FAIL", result.detail
     assert "0.4.43" in result.detail  # the critical merge that would be reverted
     assert "Recovery" in result.detail
-    assert "rebase" in result.detail
+    # The recovery instruction says MERGE, not rebase. House rule: branches are
+    # updated by merge, never rebase, because a rebase rewrites shas and
+    # `git merge-base --is-ancestor` can then never prove the work landed.
+    assert "merge main into the branch" in result.detail, result.detail
+    assert "rebase" not in result.detail, result.detail
 
 
 def test_stale_branch_ignore_patterns_reduce_count(tmp_path, monkeypatch):
@@ -1599,3 +1603,170 @@ def test_stale_branch_pass_via_ignore_and_below_threshold(tmp_path, monkeypatch)
         _stale_branch_entry(max_behind=10, ignore=[r"^docs:"]),
         {"cm051_dir": tmp_path, "app_path": tmp_path})
     assert result.status == "PASS", result.detail
+
+
+# ---------------------------------------------------------------------------
+# THE ROW THAT COULD NOT FAIL.
+#
+# permanent-pr-branch-not-stale-vs-main was written 2026-07-31 and never ran
+# once. It reads PR_NUMBER; `grep -rn PR_NUMBER .github/workflows/` returned
+# nothing (control: the same grep for `pull_request` matched 12 files), so every
+# invocation returned SKIP, and SKIP and PASS both leave the exit code at 0.
+#
+# The eight cases above all stub the API and call the primitive DIRECTLY, so
+# every one of them passed while the row was unreachable in production. They
+# tested the check. Nothing tested that the check RUNS. These do.
+# ---------------------------------------------------------------------------
+
+def _run_verifier(args, env=None, cwd=None):
+    """Invoke verify_cut_manifest.py as a subprocess; return (rc, stdout+stderr)."""
+    proc_env = dict(os.environ)
+    proc_env.pop("PR_NUMBER", None)
+    proc_env.pop("GITHUB_REPOSITORY", None)
+    proc_env.update(env or {})
+    r = subprocess.run([sys.executable, str(SCRIPT)] + args,
+                       capture_output=True, env=proc_env,
+                       cwd=str(cwd) if cwd else None, timeout=120)
+    return r.returncode, (r.stdout + r.stderr).decode("utf-8", "replace")
+
+
+@pytest.fixture
+def staleness_manifest_dir(tmp_path):
+    """A manifest dir holding ONLY the staleness row, plus an empty per-cut file."""
+    d = tmp_path / "cut-manifests"
+    d.mkdir()
+    (d / "permanent.yaml").write_text(
+        "version: permanent\n"
+        "entries:\n"
+        "  - id: permanent-pr-branch-not-stale-vs-main\n"
+        "    title: current PR branch must not be more than N commits behind its target branch\n"
+        "    proof:\n"
+        "      kind: pr_branch_not_stale_vs_main\n"
+        "      max_commits_behind: 10\n"
+    )
+    (d / "v9.9.9.yaml").write_text("version: v9.9.9\nentries: []\n")
+    return d
+
+
+def test_require_kind_turns_the_silent_skip_into_cannot_run(staleness_manifest_dir):
+    """RED-to-GREEN for the defect itself.
+
+    With PR_NUMBER unset the row SKIPs. Without --require-kind that is exit 0,
+    which is the bug: identical to a row that ran and passed. With
+    --require-kind it must be exit 3.
+    """
+    args = ["--manifest-dir", str(staleness_manifest_dir),
+            "--only-kind", "pr_branch_not_stale_vs_main"]
+
+    rc_without, out_without = _run_verifier(args)
+    assert rc_without == 0, out_without
+    assert "SKIP" in out_without
+    # The defect, stated as an assertion: a skipped row and a passing row are
+    # the same exit code without the lever.
+    assert "0 PASS  0 FAIL  1 SKIP" in out_without, out_without
+
+    rc_with, out_with = _run_verifier(
+        args + ["--require-kind", "pr_branch_not_stale_vs_main"])
+    assert rc_with == 3, out_with
+    assert "CANNOT-RUN" in out_with
+    assert "0 RAN" in out_with, out_with
+
+
+def test_require_kind_names_the_denominator_when_the_kind_is_absent(tmp_path):
+    """A manifest with no entry of the required kind is CANNOT-RUN, not a pass.
+
+    Deleting the row is the other way to make the gate unreachable, and it must
+    not read as green either.
+    """
+    d = tmp_path / "cut-manifests"
+    d.mkdir()
+    (d / "permanent.yaml").write_text("version: permanent\nentries: []\n")
+    (d / "v9.9.9.yaml").write_text("version: v9.9.9\nentries: []\n")
+    rc, out = _run_verifier(["--manifest-dir", str(d),
+                             "--require-kind", "pr_branch_not_stale_vs_main"])
+    assert rc == 3, out
+    assert "0 entries of that kind exist" in out, out
+
+
+def test_require_kind_is_satisfied_when_the_row_actually_runs(staleness_manifest_dir,
+                                                              monkeypatch, tmp_path):
+    """Positive control: the lever must not fail a run in which the row DID run.
+
+    A gate that always exits 3 proves as little as one that always exits 0.
+    """
+    fake_gh = tmp_path / "bin"
+    fake_gh.mkdir()
+    script = fake_gh / "gh"
+    script.write_text(
+        "#!/bin/sh\n"
+        'case "$*" in\n'
+        '  "auth token --user"*) exit 1 ;;\n'
+        '  *"/pulls/"*) echo \'{"base":{"sha":"aaaaaaaa","ref":"main"}}\' ;;\n'
+        '  *"/branches/main") echo \'{"commit":{"sha":"aaaaaaaa"}}\' ;;\n'
+        "  *) exit 1 ;;\n"
+        "esac\n"
+    )
+    script.chmod(0o755)
+    rc, out = _run_verifier(
+        ["--manifest-dir", str(staleness_manifest_dir),
+         "--only-kind", "pr_branch_not_stale_vs_main",
+         "--require-kind", "pr_branch_not_stale_vs_main"],
+        env={"PR_NUMBER": "123",
+             "GITHUB_REPOSITORY": "andygmassey/CM051-Home-Hub-Installer",
+             "GH_TOKEN": "fake-token",
+             "PATH": f"{fake_gh}:{os.environ.get('PATH', '')}"},
+    )
+    assert rc == 0, out
+    assert "1 RAN, 0 did not" in out, out
+    assert "PASS" in out
+
+
+def test_workflow_wiring_sets_pr_number(tmp_path):
+    """The wiring itself is the thing that rotted; assert it exists.
+
+    The primitive was correct all along. What was missing was a caller that set
+    PR_NUMBER. Nothing guarded that, so nothing noticed for the row's entire
+    lifetime.
+    """
+    repo_root = SCRIPT.resolve().parent.parent
+    wf = repo_root / ".github" / "workflows" / "pr-branch-staleness.yml"
+    assert wf.is_file(), f"the PR-context runner is missing: {wf}"
+    text = wf.read_text(encoding="utf-8")
+    assert "PR_NUMBER:" in text, "the runner does not set PR_NUMBER"
+    assert "github.event.pull_request.number" in text
+    assert "--require-kind" in text, (
+        "without --require-kind the runner can go green by not running")
+    # Positive control for the greps above: a string that MUST be present.
+    assert "verify_cut_manifest.py" in text
+    # No `paths:` filter -- staleness is a property of the branch, not of the
+    # files it touches, so a filter would skip exactly the PRs it must catch.
+    assert "\n    paths:" not in text and "\n      paths:" not in text, (
+        "pr-branch-staleness.yml must not carry a paths: filter")
+
+
+def test_compare_commit_cap_counts_uninspected_commits_as_non_ignored():
+    """GitHub caps compare .commits at 250 while .ahead_by reports the truth.
+
+    Measured against PR #509 on 2026-08-19: ahead_by=393, len(commits)=250. If
+    the ignore filter is applied only to the returned page, a branch 393 behind
+    whose first 250 commits all match an ignore pattern counts as 0 behind and
+    PASSES. An un-inspected commit is not an ignorable one.
+    """
+    mod = _load_module()
+    import os as _os
+    _os.environ["PR_NUMBER"] = "509"
+    _os.environ["GITHUB_REPOSITORY"] = "andygmassey/CM051-Home-Hub-Installer"
+    try:
+        commits = [{"sha": f"d{i:03d}" * 8, "commit": {"message": "docs: churn"}}
+                   for i in range(250)]
+        _FakePR(base_sha="a" * 40, head_sha="b" * 40, pr_number="509",
+                ahead_by=393, commits=commits).install(mod)
+        result = mod.check_pr_branch_not_stale_vs_main(
+            _stale_branch_entry(max_behind=10, ignore=[r"^docs:"]),
+            {"cm051_dir": Path("."), "app_path": Path(".")})
+        assert result.status == "FAIL", result.detail
+        assert "143 NOT inspected" in result.detail, result.detail
+        assert "143 non-ignored" in result.detail, result.detail
+    finally:
+        _os.environ.pop("PR_NUMBER", None)
+        _os.environ.pop("GITHUB_REPOSITORY", None)
