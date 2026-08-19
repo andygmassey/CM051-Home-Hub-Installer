@@ -1,0 +1,96 @@
+name: fda-rerun-ingests
+
+# The sibling gate, fda-rerun-recurs, proves the agent RUNS AGAIN. This one
+# proves that what it runs is the WHOLE job.
+#
+# ============================================================================
+# A WRITER WITH NO READER (#784)
+# ============================================================================
+#
+# ~/.ostler/bin/ostler-fda -- the script the recurring tick executes -- called
+# ostler_fda.extract_all.run_all and nothing else. run_all EXTRACTS the FDA
+# sources to imports/fda/*.json; ingest_all is what LOADS that JSON into Qdrant
+# and Oxigraph, and until 2026-08-19 it ran only during install.
+#
+# So the data was harvested on schedule and dropped on the floor: the JSON was
+# rewritten every tick, nothing read it, and the stores the wiki and retrieval
+# query stayed at install age. Every plausible health check -- is the agent
+# scheduled, is the extractor running, is the JSON fresh -- reads GREEN.
+#
+# ============================================================================
+# WHY THE CONTROLS EXECUTE THE WRAPPER
+# ============================================================================
+#
+# "install.sh mentions ingest_all" is the #688 defect: a name in a comment
+# scores as wired. The controls here extract the wrapper heredoc verbatim and
+# RUN it against a stand-in ostler_fda that records which entry points were
+# called, then assert on the record. One control is a negative control that
+# feeds the harness a wrapper which provably does not ingest and requires the
+# harness to say so -- without it, a harness broken toward "called" would
+# report every other arm green while measuring nothing.
+#
+# ============================================================================
+# WHY THE SELF-TEST IS ITS OWN JOB
+# ============================================================================
+#
+# A failing step skips everything after it, so a broken predicate would take
+# the gate it guards down with it and report one red line instead of two.
+# Same reason ci-maskless exists.
+#
+# ============================================================================
+# WHY macos, NOT ubuntu
+# ============================================================================
+#
+# The controls run shell extracted out of the shipping installer, with BSD sed
+# and BSD mktemp semantics in the harness. The installer only runs on macOS;
+# the gate runs where the code runs.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'scripts/lib/strip_comments.sh'
+      - 'tests/test_fda_rerun_ingests.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/fda-rerun-ingests.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  ingest-half-controls:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # 9 controls. Exit 2 is CANNOT-RUN, and CI treats it as failure, which is
+      # correct: a gate that cannot find or cannot run what it guards has not
+      # passed.
+      - name: The recurring tick must run the ingest half, not just the extract
+        run: bash tests/test_fda_rerun_ingests.sh
+
+      - name: Test parses under bash 3.2-compatible syntax
+        if: always()
+        run: bash -n tests/test_fda_rerun_ingests.sh
+
+  # SEPARATE JOB, deliberately. See the header.
+  predicate-self-test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reinstates four distinct defects in a copy of install.sh -- ingest
+      # removed, ingest before extract, ingest defaulting its directory, and a
+      # `|| true` silencing the failure -- and requires the matching control to
+      # go RED each time. A control that has never been observed failing is not
+      # evidence that it can fail.
+      - name: The controls must go red when the defect is reinstated
+        run: bash tests/test_fda_rerun_ingests.sh --self-test
