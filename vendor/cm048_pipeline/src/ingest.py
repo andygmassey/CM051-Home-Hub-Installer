@@ -87,6 +87,7 @@ from pathlib import Path
 import httpx
 
 from .turtle_escape import escape_turtle_literal
+from . import outstanding_todos as _outstanding_todos
 from .schemas import (
     Classification,
     ExtractedFact,
@@ -99,6 +100,123 @@ from .settings import Settings
 logger = logging.getLogger(__name__)
 
 
+# ── Participant-identity bridge (CM044 conversations-ingest fix) ─────
+#
+# The gist-sink writers below historically had no access to the
+# conversation metadata, so a conversation's Qdrant points carried no
+# `channel` tag and its Oxigraph facts/signals could not be linked back
+# to the JID/handle-keyed `pwg:Person` nodes that ostler_fda.pwg_ingest
+# creates for the SAME contacts. Result: a graph that "mentioned"
+# whatsapp/imessage facts but could not answer "who did I talk to"
+# structurally, because the conversation participants were never tied to
+# the people graph.
+#
+# These helpers reconstruct the exact Person URI pwg_ingest keys a
+# contact by (uuid5 over the normalised phone/email identifier), so a
+# conversation can emit a `pwg:participatedIn` edge from the real Person
+# node to the conversation. The key derivation here MUST stay
+# byte-identical to ostler_fda.pwg_ingest._person_id_from_identifier /
+# _person_uri / _whatsapp_phone_e164 -- it is duplicated (not imported)
+# because CM048 ships independently of ostler_fda and must not take a
+# hard dependency on it. See the ORM upstream-twin note in the PR body.
+
+
+def _person_id_from_identifier(identifier: str) -> str:
+    """Stable person id from a phone number or email.
+
+    MUST match ostler_fda.pwg_ingest._person_id_from_identifier.
+    """
+    clean = identifier.strip().lower()
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://pwg.dev/person/{clean}"))
+
+
+def _person_graph_uri(person_id: str) -> str:
+    """Person node URI. MUST match ostler_fda.pwg_ingest._person_uri."""
+    return f"https://pwg.dev/ontology#person_{person_id}"
+
+
+def _participant_uri_key(channel: str, raw: str) -> str:
+    """The EXACT string pwg_ingest feeds to ``_person_id_from_identifier``
+    when it keys this participant's Person node URI.
+
+    This is the only thing that decides whether the conversation's
+    ``pwg:participatedIn`` / ``pwg:hasParticipant`` edge resolves to the
+    real Person node or dangles to a phantom URI, so it MUST match
+    ostler_fda.pwg_ingest byte-for-byte (modulo the shared
+    ``.strip().lower()`` inside ``_person_id_from_identifier``).
+
+    pwg_ingest keys a WhatsApp participant by the **raw JID**
+    (``<e164>@s.whatsapp.net``) -- ``ingest_whatsapp`` passes the JID
+    verbatim into ``_person_id_from_identifier`` (it only NORMALISES the
+    number for the displayed phone ``identifierValue``, NOT for the URI
+    key). iMessage/SMS participants arrive as a bare handle which
+    pwg_ingest keys verbatim. So: raw JID for WhatsApp, verbatim handle
+    otherwise.
+    """
+    if not raw:
+        return ""
+    return raw.strip()
+
+
+def _normalise_chat_identifier(channel: str, raw: str) -> str:
+    """Human-facing chat identifier literal (NOT the URI key).
+
+    WhatsApp participants arrive as a JID (``<e164>@s.whatsapp.net``);
+    this presents the ``+<e164>`` phone so the surfaced
+    ``pwg:chatIdentifier`` reads as a phone (and mirrors pwg_ingest's
+    own ``identifierValue`` via ``_whatsapp_phone_e164``). iMessage/SMS
+    handles pass through verbatim.
+
+    NOTE: this is deliberately NOT used to derive the Person URI key --
+    see ``_participant_uri_key``. Keying the URI off the e164 form here
+    was the original dangling-edge bug (the URI no longer matched
+    pwg_ingest's raw-JID-keyed node).
+    """
+    if not raw:
+        return ""
+    raw = raw.strip()
+    if channel == "whatsapp":
+        local = raw.split("@", 1)[0] if "@" in raw else raw
+        return ("+" + local) if local.isdigit() else raw
+    return raw
+
+
+def _participant_identifier(channel: str, entry: dict) -> str:
+    """Pull the raw chat identifier from a participant dict.
+
+    Returns the RAW chat identifier (JID for WhatsApp, handle for
+    iMessage) -- the URI-key derivation (``_participant_uri_key``) and
+    the display normalisation (``_normalise_chat_identifier``) are
+    applied by the caller. WhatsApp renderer carries it as ``jid``;
+    iMessage threader as ``handle``. Both fall back to nothing for the
+    operator's own ``user`` row (role == "user"), which never maps to a
+    contact node.
+    """
+    if not isinstance(entry, dict):
+        return ""
+    if (entry.get("role") or "").lower() == "user":
+        return ""
+    raw = entry.get("jid") or entry.get("handle") or ""
+    return raw.strip()
+
+
+def _load_metadata(state_dir: Path) -> dict:
+    """Best-effort read of the persisted conversation metadata.
+
+    Step 00 writes ``00_metadata.json`` with at least ``channel`` and
+    ``participants``. A missing/garbled file degrades to ``{}`` so the
+    sink writers keep working on legacy state dirs.
+    """
+    meta_path = state_dir / "00_metadata.json"
+    if not meta_path.exists():
+        return {}
+    try:
+        data = read_json(meta_path)
+        return data if isinstance(data, dict) else {}
+    except Exception:  # pragma: no cover - defensive
+        return {}
+
+
 # ── Public entry point ──────────────────────────────────────────────
 
 
@@ -109,12 +227,21 @@ def write_all(
     classification: Classification,
     settings: Settings,
     dry_run: bool = False,
+    metadata: dict | None = None,
 ) -> dict:
     """Write every step's output to its destination sink.
 
     Returns a dict summarising what was written (counts per sink),
     useful for logs and tests.
+
+    ``metadata`` carries the conversation's ``channel`` + ``participants``
+    so the gist sinks can (a) tag Qdrant points with the channel and
+    (b) link the conversation to the JID/handle-keyed people-graph Person
+    nodes. When omitted it is read from ``state_dir/00_metadata.json``;
+    a missing file degrades the channel tag / participant edges to no-op.
     """
+    if metadata is None:
+        metadata = _load_metadata(state_dir)
     summary: dict = {
         "md": None,
         "qdrant_points": 0,
@@ -131,12 +258,14 @@ def write_all(
 
     # 2. Qdrant: conversation chunks + facts
     summary["qdrant_points"] = _write_qdrant(
-        state_dir, conversation_id, classification, settings, dry_run
+        state_dir, conversation_id, classification, settings, dry_run,
+        metadata=metadata,
     )
 
     # 3. Oxigraph: relationship signals + facts as RDF
     summary["oxigraph_triples"] = _write_oxigraph(
-        state_dir, conversation_id, classification, settings, dry_run
+        state_dir, conversation_id, classification, settings, dry_run,
+        metadata=metadata,
     )
 
     # 4. SQLite: coach observation
@@ -184,6 +313,7 @@ def _write_qdrant(
     classification: Classification,
     settings: Settings,
     dry_run: bool,
+    metadata: dict | None = None,
 ) -> int:
     """Write conversation summary + per-fact Qdrant points.
 
@@ -194,6 +324,26 @@ def _write_qdrant(
     """
     from .ollama_client import OllamaClient
     from .linker import extract_summary_for_linking
+    from . import provenance
+
+    if metadata is None:
+        metadata = _load_metadata(state_dir)
+    # `channel` discriminates whatsapp / imessage / sms / email / spoken
+    # in the points. Legacy points carried only the un-channelled
+    # `source=human_conversation`, so nothing downstream could filter or
+    # label by channel. Keep `source` for back-compat; ADD the channel tag.
+    channel = (metadata.get("channel") or "").strip().lower() or None
+
+    # Provenance header (REUSE-5): each chunk's *embedded text* gets a
+    # compact one-line source tag so retrieved chunks self-describe their
+    # origin and citations are strong. `src` = channel (the source kind:
+    # imessage/email/whatsapp/sms/spoken); fall back to `source` then a
+    # safe default. `id`/`date` come from the conversation metadata.
+    prov_src = channel or (metadata.get("source") or "").strip().lower() or "conversation"
+    prov_date = (
+        (metadata.get("date") or metadata.get("started_at") or "").strip()[:10]
+        or None
+    )
 
     client = OllamaClient(base_url=settings.ollama_url)
     points = []
@@ -201,6 +351,7 @@ def _write_qdrant(
         "user_id": settings.user_id,
         "visibility": "private",
         "source": "human_conversation",
+        "channel": channel,
         "conversation_id": conversation_id,
         "classification_slug": classification.suggested_type_slug,
         "sensitivity_level": classification.sensitivity.level,
@@ -216,6 +367,18 @@ def _write_qdrant(
             logger.info("dry_run: would embed conversation summary")
         else:
             try:
+                # The summary point doubles as the linker's
+                # cross-conversation similarity target. The linker embeds
+                # a *raw* summary as its query, so the stored summary
+                # vector must also be raw or the symmetry breaks. We
+                # therefore keep the embedded text un-headered here and
+                # carry provenance only in the payload (header string +
+                # headered `text` for citation display).
+                summary_header = provenance.build_header(
+                    src=prov_src,
+                    source_id=conversation_id,
+                    date=prov_date,
+                )
                 vec = client.embed(summary_text)
                 point_id = _deterministic_id(conversation_id, "summary", summary_text)
                 points.append({
@@ -223,7 +386,13 @@ def _write_qdrant(
                     "vector": vec,
                     "payload": {
                         **base_payload,
-                        "text": summary_text[:500],
+                        "text": provenance.prepend_header(
+                            summary_text[:500],
+                            src=prov_src,
+                            source_id=conversation_id,
+                            date=prov_date,
+                        ),
+                        "provenance_header": summary_header,
                         "point_type": "conversation_summary",
                     },
                 })
@@ -242,8 +411,24 @@ def _write_qdrant(
                 if dry_run:
                     points.append({"id": "dry_run", "vector": [], "payload": {}})
                     continue
+                # `subject` is the fact's speaker/sender ("user" for the
+                # operator); surface it as the header's `from=` field.
+                fact_speaker = (fact.get("subject") or "").strip() or None
+                fact_header = provenance.build_header(
+                    src=prov_src,
+                    source_id=conversation_id,
+                    date=prov_date,
+                    speaker=fact_speaker,
+                )
+                fact_chunk = provenance.prepend_header(
+                    text,
+                    src=prov_src,
+                    source_id=conversation_id,
+                    date=prov_date,
+                    speaker=fact_speaker,
+                )
                 try:
-                    vec = client.embed(text)
+                    vec = client.embed(fact_chunk)
                 except Exception as exc:
                     logger.warning("Embed failed for fact: %s", exc)
                     continue
@@ -254,6 +439,7 @@ def _write_qdrant(
                     "payload": {
                         **fact,
                         **base_payload,
+                        "provenance_header": fact_header,
                         "point_type": "fact",
                     },
                 })
@@ -288,8 +474,11 @@ def _write_oxigraph(
     classification: Classification,
     settings: Settings,
     dry_run: bool,
+    metadata: dict | None = None,
 ) -> int:
     """Write relationship signals + facts as RDF triples."""
+    if metadata is None:
+        metadata = _load_metadata(state_dir)
     triples: list[str] = []
 
     # Conversation metadata — setting is required for the Foundry
@@ -297,6 +486,14 @@ def _write_oxigraph(
     triples.extend(_conversation_to_triples(
         conversation_id, classification, settings
     ))
+
+    # Participant-identity bridge: link the conversation to the
+    # JID/handle-keyed Person nodes ostler_fda.pwg_ingest creates, so
+    # "who did I talk to" walks pwg:hasParticipant structurally. No-op
+    # when metadata lacks resolvable participants.
+    triples.extend(
+        _participant_identity_triples(conversation_id, metadata, settings)
+    )
 
     # Signals
     signals_dir = state_dir / "03_relationship_signals"
@@ -311,7 +508,18 @@ def _write_oxigraph(
         facts = read_json(facts_path)
         if isinstance(facts, list):
             for fact in facts:
-                triples.extend(_fact_to_triples(conversation_id, fact, settings))
+                triples.extend(
+                    _fact_to_triples(conversation_id, fact, settings, metadata)
+                )
+
+    # Outstanding todos (pre-meeting brief input). Each todo is linked
+    # to every non-user participant of the source conversation so the
+    # brief subagent (CM041 meeting_syncer/brief.py) can query
+    # pwg:OutstandingTodo triples by attendee URI and surface them on
+    # the next meeting with that person. Best-effort: missing sidecar
+    # is a silent no-op (the extractor warns at run time).
+    for todo in _outstanding_todos.load_sidecar(state_dir):
+        triples.extend(_todo_to_triples(conversation_id, todo, settings))
 
     if not triples:
         return 0
@@ -396,16 +604,114 @@ def _conversation_to_triples(
     return ["\n".join(t)]
 
 
+def _participant_identity_triples(
+    conversation_id: str,
+    metadata: dict,
+    settings: Settings,
+) -> list[str]:
+    """Link a conversation to the JID/handle-keyed Person nodes.
+
+    For every non-user participant carrying a resolvable chat identifier
+    (WhatsApp JID / iMessage handle), emit:
+
+        <person>  pwg:participatedIn  <conversation> .
+        <person>  pwg:hasChatChannel  "whatsapp" .
+        <conversation>  pwg:hasParticipant  <person> .
+
+    The ``<person>`` URI is reconstructed to match exactly the node
+    ostler_fda.pwg_ingest creates for the same contact, so the
+    conversation and the person graph share one node and the assistant
+    can answer "who did I talk to" by walking ``pwg:hasParticipant``.
+
+    Participants with no chat identifier (the operator's own ``user``
+    row, or an LLM-only slug with no JID/handle) are skipped -- we never
+    fabricate a Person node from a name we cannot key.
+    """
+    channel = (metadata.get("channel") or "").strip().lower()
+    participants = metadata.get("participants") or []
+    if not isinstance(participants, list):
+        return []
+
+    conv_uri = _urn(f"conversation/{conversation_id}")
+    safe_user = escape_turtle_literal(settings.user_id)
+    safe_channel = escape_turtle_literal(channel or "unknown")
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for entry in participants:
+        raw = _participant_identifier(channel, entry)
+        if not raw:
+            continue
+        # `@lid` is WhatsApp's opaque linked-id, not a phone or a name.
+        # pwg_ingest refuses to create a Person node from it (BW-4), so a
+        # participant edge keyed off it would dangle. Skip it here too.
+        if raw.endswith("@lid"):
+            continue
+        # The URI key MUST be derived from the SAME string pwg_ingest
+        # keys the Person node by (raw JID for WhatsApp), else the edge
+        # dangles to a phantom node. The surfaced chatIdentifier literal
+        # may stay normalised (e164 phone) for readability.
+        uri_key = _participant_uri_key(channel, raw)
+        if not uri_key or uri_key in seen:
+            continue
+        seen.add(uri_key)
+        person_id = _person_id_from_identifier(uri_key)
+        person_uri = _person_graph_uri(person_id)
+        ident = _normalise_chat_identifier(channel, raw)
+        # The Person URI is a full http(s) IRI -> valid Turtle in
+        # angle brackets. The identifier literal is escaped defensively
+        # even though it is phone/email-shaped.
+        safe_ident = escape_turtle_literal(ident)
+        block = "\n".join([
+            _turtle_prefixes(),
+            f"<{person_uri}> <urn:pwg:participatedIn> {conv_uri} ;",
+            f'  <urn:pwg:hasChatChannel> "{safe_channel}" ;',
+            f'  <urn:pwg:chatIdentifier> "{safe_ident}" ;',
+            f'  <urn:pwg:userId> "{safe_user}" .',
+            f"{conv_uri} <urn:pwg:hasParticipant> <{person_uri}> .",
+        ])
+        out.append(block)
+    return out
+
+
+def _coerce_signal_field(value: object, inner_key: str, default: str = "unknown") -> object:
+    """Extract a scalar from an LLM signal field that may arrive as either a
+    nested object (``{inner_key: X}``) or a bare scalar (``X``).
+
+    The model is *supposed* to emit nested objects (``{"score": "high"}``)
+    but in practice sometimes returns the bare value (``"high"``). The old
+    code did ``sig.get("warmth", {}).get("score", ...)`` which raises
+    ``AttributeError`` the moment ``warmth`` is a string. This tolerates both
+    shapes: dicts are dug into, bare scalars are used as-is, empty/None falls
+    back to ``default``.
+    """
+    if isinstance(value, dict):
+        return value.get(inner_key, default)
+    if value in (None, ""):
+        return default
+    return value
+
+
 def _signal_to_triples(conversation_id: str, sig: dict, settings: Settings) -> list[str]:
     """Emit a minimal-but-useful triple set for a relationship signal."""
     slug = sig.get("target_participant", "unknown")
     signal_uri = _urn(f"signal/{conversation_id}/{slug}")
     person_uri = _urn(f"person/{slug}")
     conv_uri = _urn(f"conversation/{conversation_id}")
-    warmth = sig.get("warmth", {}).get("score", "unknown")
-    trust = sig.get("trust_and_rapport", {}).get("signal",
-            sig.get("trust_signals", {}).get("level",
-            sig.get("trust", {}).get("score", "unknown")))
+    warmth = _coerce_signal_field(sig.get("warmth"), "score")
+    # Trust may be reported under any of three differently-shaped keys; take
+    # the first that yields a real value (preserving the original precedence).
+    trust: object = "unknown"
+    for _src_key, _inner in (
+        ("trust_and_rapport", "signal"),
+        ("trust_signals", "level"),
+        ("trust", "score"),
+    ):
+        if _src_key in sig:
+            _candidate = _coerce_signal_field(sig.get(_src_key), _inner)
+            if _candidate not in (None, "", "unknown"):
+                trust = _candidate
+                break
     confidence = sig.get("overall_confidence", 0.0)
     observed_at = sig.get("observed_at", "")
     # Each interpolated literal sourced from the LLM signal payload
@@ -416,6 +722,14 @@ def _signal_to_triples(conversation_id: str, sig: dict, settings: Settings) -> l
     safe_trust = escape_turtle_literal(trust)
     safe_confidence = escape_turtle_literal(confidence)
     safe_observed_at = escape_turtle_literal(observed_at)
+    # Privacy level stamped at write time so the signal is born-tagged.
+    # CM041's fact/signal readers are fail-closed: an untagged node is
+    # treated as L3/hidden and stays invisible until a reboot re-sweeps
+    # it via the startup backfill. This mirrors the sibling Fact node
+    # (`_fact_to_triples`) exactly -- read `privacy_level` off the payload
+    # with an L1 (visible / personal) default; the extractor may override
+    # via the payload. L1, never L3, matches the Fact default.
+    safe_privacy = escape_turtle_literal(sig.get("privacy_level", "L1"))
     t = [
         _turtle_prefixes(),
         f"{signal_uri} a <urn:pwg:RelationshipSignal> ;",
@@ -423,6 +737,7 @@ def _signal_to_triples(conversation_id: str, sig: dict, settings: Settings) -> l
         f'  <urn:pwg:about> {person_uri} ;',
         f'  <urn:pwg:userId> "{safe_user}" ;',
         f'  <urn:pwg:visibility> "private" ;',
+        f'  <urn:pwg:privacyLevel> "{safe_privacy}" ;',
         f'  <urn:pwg:warmth> "{safe_warmth}" ;',
         f'  <urn:pwg:trust> "{safe_trust}" ;',
         f'  <urn:pwg:overallConfidence> "{safe_confidence}"^^<http://www.w3.org/2001/XMLSchema#float> ;',
@@ -431,7 +746,180 @@ def _signal_to_triples(conversation_id: str, sig: dict, settings: Settings) -> l
     return ["\n".join(t)]
 
 
-def _fact_to_triples(conversation_id: str, fact: dict, settings: Settings) -> list[str]:
+def _todo_to_triples(
+    conversation_id: str,
+    todo: "_outstanding_todos.OutstandingTodo",
+    settings: Settings,
+) -> list[str]:
+    """Emit pwg:OutstandingTodo triples for one extracted action item.
+
+    Schema (mirrors brief.py's SPARQL on the consumer side):
+
+    - ``<urn:pwg:todo/<todo_id>> a <urn:pwg:OutstandingTodo>``
+    - ``pwg:fromConversation`` → the source conversation URI
+    - ``pwg:aboutPerson`` → one triple per non-user participant
+      (so a 3-person meeting fans out 3 ``aboutPerson`` triples)
+    - ``pwg:owner`` → the structured owner id (``"user"`` /
+      ``"other:<slug>"`` / ``UNOWNED`` sentinel)
+    - ``pwg:ownerDisplay`` → the literal display name from the table
+    - ``pwg:todoText`` → the action item verbatim
+    - ``pwg:deadline`` → ISO date literal, omitted if null
+    - ``pwg:priority`` → ``"high" | "medium" | "low"``, omitted if null
+    - ``pwg:status`` → ``"open"`` (future v1.0.1 closes from later convos)
+    - ``pwg:todoCreatedAt`` → RFC3339 UTC of extractor run
+    - ``pwg:visibility`` → ``"private"`` (always)
+    - ``pwg:userId`` → owning operator's id
+
+    All literal interpolations route through ``escape_turtle_literal``
+    so an LLM-extracted action text containing a stray quote or newline
+    cannot terminate the literal early and inject triples.
+    """
+    todo_uri = _urn(f"todo/{todo.todo_id}")
+    conv_uri = _urn(f"conversation/{conversation_id}")
+
+    safe_user = escape_turtle_literal(settings.user_id)
+    safe_owner = escape_turtle_literal(todo.owner)
+    safe_owner_display = escape_turtle_literal(todo.owner_display)
+    # action_text uses json.dumps for the same reason fact text does
+    # (JSON-quoting is a superset of Turtle string-literal quoting).
+    action_quoted = json.dumps(todo.action_text)
+    safe_status = escape_turtle_literal(todo.status)
+    safe_created_at = escape_turtle_literal(todo.created_at)
+    safe_source_date = escape_turtle_literal(todo.source_conversation_date)
+
+    lines = [
+        _turtle_prefixes(),
+        f"{todo_uri} a <urn:pwg:OutstandingTodo> ;",
+        f'  <urn:pwg:fromConversation> {conv_uri} ;',
+        f'  <urn:pwg:userId> "{safe_user}" ;',
+        f'  <urn:pwg:visibility> "private" ;',
+        f'  <urn:pwg:owner> "{safe_owner}" ;',
+        f'  <urn:pwg:ownerDisplay> "{safe_owner_display}" ;',
+        f'  <urn:pwg:todoText> {action_quoted} ;',
+        f'  <urn:pwg:status> "{safe_status}" ;',
+        f'  <urn:pwg:todoCreatedAt> "{safe_created_at}"^^<http://www.w3.org/2001/XMLSchema#dateTime> ;',
+        f'  <urn:pwg:sourceConversationDate> "{safe_source_date}" ;',
+    ]
+    if todo.deadline:
+        safe_deadline = escape_turtle_literal(todo.deadline)
+        lines.append(
+            f'  <urn:pwg:deadline> "{safe_deadline}"^^<http://www.w3.org/2001/XMLSchema#date> ;'
+        )
+    if todo.priority:
+        safe_priority = escape_turtle_literal(todo.priority)
+        lines.append(
+            f'  <urn:pwg:priority> "{safe_priority}" ;'
+        )
+    # aboutPerson fan-out: one triple per non-user participant. Each
+    # subject_person_id is the conversation metadata ``id`` (e.g.
+    # ``other:alice-chen``) which the brief subagent maps to a
+    # ``pwg:person`` URI via _urn(subject.replace(":", "/")) on the
+    # consumer side (mirroring _fact_to_triples).
+    person_lines = []
+    for person_id in todo.subject_person_ids:
+        person_uri = _urn(person_id.replace(":", "/"))
+        person_lines.append(
+            f'  <urn:pwg:aboutPerson> {person_uri} ;'
+        )
+    if not person_lines:
+        # No non-user participants. Skip (brief use case doesn't apply).
+        return []
+    # Replace the trailing semicolon on the last person line with a
+    # period so the Turtle block terminates cleanly.
+    lines.extend(person_lines[:-1])
+    last = person_lines[-1].rstrip(" ;") + " ."
+    lines.append(last)
+
+    return ["\n".join(lines)]
+
+
+def _slugify_sentinel_value(value: str) -> str:
+    """Reduce a value to a single space-free token for a REUSE-5 sentinel.
+
+    The provenance sentinel grammar (``[pwg:src=... id=... date=...
+    from=...]``) is whitespace-separated ``key=value`` pairs, so a value
+    must never contain a space (or a ``]`` that would close the marker
+    early). We lowercase, drop the bracket/equals/whitespace characters
+    that would break the grammar, and collapse the rest to hyphens. This
+    mirrors the slug shape CM044's ``provenance.parse_header`` expects on
+    the consume side.
+    """
+    if not value:
+        return ""
+    out = []
+    for ch in str(value).strip().lower():
+        if ch.isalnum() or ch in ".:_-/":
+            out.append(ch)
+        elif ch.isspace():
+            out.append("-")
+        # else: drop '=', '[', ']' and other grammar-breaking chars.
+    token = "".join(out).strip("-")
+    # Collapse any run of hyphens a drop/space left behind.
+    while "--" in token:
+        token = token.replace("--", "-")
+    return token
+
+
+def _fact_provenance_header(
+    conversation_id: str, fact: dict, metadata: dict | None
+) -> str:
+    """Build the REUSE-5 provenance sentinel for one extracted fact.
+
+    Produces a single-line marker the CM044 wiki compiler parses with
+    ``compiler.provenance.parse_header`` to render an inline source
+    citation (``via WhatsApp, Pierre, 20 Jun 2026``) on the person page::
+
+        [pwg:src=whatsapp id=2026-06-20_pierre date=2026-06-20 from=pierre]
+
+    All fields are best-effort: ``src`` from the conversation channel,
+    ``id`` from the conversation id, ``date`` from the conversation
+    metadata, ``from`` from the fact's subject (the person the fact is
+    about, which is the person whose wiki page renders it). Any field we
+    cannot source is simply omitted; the consume side renders whatever is
+    present and skips the citation entirely when nothing meaningful
+    remains. Returns ``""`` when there is no attributable provenance at
+    all, so the caller can skip the predicate.
+    """
+    metadata = metadata or {}
+
+    src = _slugify_sentinel_value(metadata.get("channel") or "")
+    conv = _slugify_sentinel_value(conversation_id or "")
+    # metadata['date'] is the conversation date (YYYY-MM-DD), the same
+    # field the outstanding-todo writer reads for sourceConversationDate.
+    date = _slugify_sentinel_value(metadata.get("date") or "")
+    # The fact subject is "user" or "other:<slug>"; the person the fact
+    # is about is the wiki-page owner, so attribute the citation to them.
+    subject = str(fact.get("subject") or "")
+    sender = ""
+    if subject and subject != "user":
+        sender = _slugify_sentinel_value(subject.split(":", 1)[-1])
+
+    # The consume side (CM044 compiler.provenance.render_citation) renders
+    # nothing unless there is a source kind or a sender. An id/date-only
+    # header would be dead weight on the wire, so we only stamp a header
+    # when it will actually drive a visible citation.
+    if not src and not sender:
+        return ""
+
+    parts: list[str] = []
+    if src:
+        parts.append(f"src={src}")
+    if conv:
+        parts.append(f"id={conv}")
+    if date:
+        parts.append(f"date={date}")
+    if sender:
+        parts.append(f"from={sender}")
+
+    return "[pwg:" + " ".join(parts) + "]"
+
+
+def _fact_to_triples(
+    conversation_id: str,
+    fact: dict,
+    settings: Settings,
+    metadata: dict | None = None,
+) -> list[str]:
     fact_id = _deterministic_id(conversation_id, "fact", fact.get("text", ""))
     fact_uri = _urn(f"fact/{fact_id}")
     conv_uri = _urn(f"conversation/{conversation_id}")
@@ -468,8 +956,17 @@ def _fact_to_triples(conversation_id: str, fact: dict, settings: Settings) -> li
         f'  <urn:pwg:privacyLevel> "{safe_privacy}" ;',
         f'  <urn:pwg:signalStrength> "{safe_strength}" ;',
         f'  <urn:pwg:candidate> "{candidate_literal}"^^xsd:boolean ;',
-        f'  <urn:pwg:text> {text_escaped} .',
     ]
+    # REUSE-5 provenance sentinel (consumed by CM044's wiki person-page
+    # renderer via compiler.provenance). Emitted as a sibling predicate
+    # so the marker never has to live inline in the fact text. Omitted
+    # when no provenance is attributable (keeps the triple clean).
+    header = _fact_provenance_header(conversation_id, fact, metadata)
+    if header:
+        safe_header = escape_turtle_literal(header)
+        t.append(f'  <urn:pwg:provenanceHeader> "{safe_header}" ;')
+    # The text predicate terminates the block.
+    t.append(f'  <urn:pwg:text> {text_escaped} .')
     return ["\n".join(t)]
 
 

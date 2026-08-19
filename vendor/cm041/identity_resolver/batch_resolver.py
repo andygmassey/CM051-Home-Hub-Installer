@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import logging
 import os
 import sys
@@ -32,7 +33,14 @@ _PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
-from identity_resolver.normalise import _jaro_winkler, normalise_email, normalise_phone
+from identity_resolver.normalise import (
+    _jaro_winkler,
+    names_agree,
+    normalise_email,
+    normalise_phone,
+)
+from identity_resolver.decisions import apply_user_decisions, load_duplicate_decisions
+from identity_resolver.canonical_name import choose_canonical_display_name
 
 logger = logging.getLogger(__name__)
 
@@ -47,13 +55,38 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # Detection weights
     "exact_name_confidence": 0.9,
     "email_match_confidence": 1.0,
+    # Shared LinkedIn profile URL is an exact identifier (RULE 1): always merge.
+    "linkedin_url_match_confidence": 1.0,
     "phone_match_confidence": 0.95,
     "phone_name_mismatch_confidence": 0.6,  # shared phone but very different names
     "email_name_mismatch_confidence": 0.7,  # shared email but very different names (inherited/shared account)
     "fuzzy_base_confidence": 0.6,
     "fuzzy_same_org_bonus": 0.1,
     "fuzzy_same_domain_bonus": 0.1,
+    # Name+org auto-merge (2026-06-10): a same-org match whose names are a
+    # strong variant (Jaro-Winkler >= name_org_auto_merge_jw_threshold, i.e.
+    # NOT a first-name-prefix collision) and which has cleared the hard-conflict
+    # veto is auto-merged at this confidence instead of nagging the user.
+    "name_org_auto_merge_confidence": 0.85,
+    "name_org_auto_merge_jw_threshold": 0.93,
     "name_subset_confidence": 0.5,
+    # Rare-full-name auto-merge (2026-06-24, v1.0.3): a full-name match
+    # (given AND family both present and equal) on a RARE surname is
+    # overwhelmingly the same person even when their organisations differ.
+    # This is the "Jane Doe" golden case: same name, one node LinkedIn
+    # (Insurance, blank email), one node another source, no shared identifier,
+    # different orgs, so name+org auto-merge never fires and they stay split.
+    # GUARD: it fires ONLY when the shared surname is held by no more than
+    # rare_surname_max_holders distinct people in the whole graph, so common
+    # surnames (Chan, Smith, Wong, Jones) never auto-merge on name alone --
+    # those stay split unless a shared identifier proves them the same. The
+    # hard-conflict veto (distinct LinkedIn/phone/corporate email) is checked
+    # BEFORE this boost, so the two real John Smiths (distinct LinkedIn)
+    # are never reached.
+    "rare_name_auto_merge_confidence": 0.85,
+    "rare_name_auto_merge_jw_threshold": 0.90,
+    "rare_surname_max_holders": 2,
+    "rare_surname_min_length": 3,
     # Fuzzy thresholds
     "fuzzy_jaro_winkler_threshold": 0.85,
     "fuzzy_levenshtein_max_distance": 2,
@@ -72,6 +105,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # Minimum Jaro-Winkler score between names for email match to stay high-confidence.
     # Below this, shared email is likely an inherited/shared account — downgrade to review.
     "email_name_similarity_threshold": 0.7,
+    # BW-2 correction loop: operator merge/distinct decisions live here as
+    # duplicates.yaml. distinct pairs are a permanent never-merge block;
+    # merge pairs are forced. Shared contract with the CM044 review page.
+    "corrections_dir": os.path.expanduser(
+        os.environ.get("WIKI_CORRECTIONS_DIR", "~/.ostler/corrections")
+    ),
 }
 
 
@@ -155,10 +194,45 @@ def _levenshtein(s1: str, s2: str) -> int:
     return prev[-1]
 
 
+def has_hard_conflict(
+    a: PersonRecord, b: PersonRecord, config: Dict[str, Any]
+) -> Optional[str]:
+    """BW-2 hard-conflict veto (spec §3b). A single conflicting *verified*
+    identifier means two records are different people no matter how well their
+    names match – this is the two-Stuart-Baileys guard.
+
+    Vetoes when the two records each carry a value of the same kind and the
+    values are disjoint:
+      - different LinkedIn URLs (one human, one LinkedIn identity => two people),
+      - different phone numbers (normalised E.164),
+      - different *corporate* email domains (free webmail like gmail is too
+        generic to count, so it is excluded).
+
+    Returns the conflicting kind ("linkedin"/"phone"/"email") or None. Only
+    meaningful for name-based strategies; shared-identifier strategies
+    (email_match/phone_match) are the opposite signal and must not call this.
+    """
+    if a.linkedin_urls and b.linkedin_urls and not (a.linkedin_urls & b.linkedin_urls):
+        return "linkedin"
+    if a.phones and b.phones and not (a.phones & b.phones):
+        return "phone"
+    common = config.get("common_email_domains", set())
+    a_corp = a.email_domains - common
+    b_corp = b.email_domains - common
+    if a_corp and b_corp and not (a_corp & b_corp):
+        return "email"
+    return None
+
+
 def detect_exact_name_matches(
     persons: Dict[str, PersonRecord], config: Dict[str, Any]
 ) -> List[DuplicateMatch]:
-    """Strategy 1: Exact display name match (confidence 0.9)."""
+    """Strategy 1: Exact display name match (confidence 0.9).
+
+    Hard-conflict veto applies (spec §3b): two records with an identical name
+    but a conflicting verified identifier are different people (the two real
+    John Smiths), so they are never matched.
+    """
     by_name: Dict[str, List[str]] = defaultdict(list)
     for uri, p in persons.items():
         norm = _normalise_name(p.display_name)
@@ -173,11 +247,10 @@ def detect_exact_name_matches(
             for j in range(i + 1, len(uris)):
                 a = persons[uris[i]]
                 b = persons[uris[j]]
-                # Hard blocker: different LinkedIn URLs = different people,
-                # even with identical names (e.g. two "John Smith"s)
-                if a.linkedin_urls and b.linkedin_urls:
-                    if not a.linkedin_urls & b.linkedin_urls:
-                        continue
+                # Hard-conflict veto: different LinkedIn / phone / corporate
+                # email = different people, even with identical names.
+                if has_hard_conflict(a, b, config):
+                    continue
                 matches.append(DuplicateMatch(
                     uri_a=uris[i],
                     name_a=a.display_name,
@@ -215,16 +288,24 @@ def detect_email_matches(
             continue
         for i in range(len(uris)):
             for j in range(i + 1, len(uris)):
-                name_a = _normalise_name(persons[uris[i]].display_name)
-                name_b = _normalise_name(persons[uris[j]].display_name)
-                name_sim = _jaro_winkler(name_a, name_b) if name_a and name_b else 0.0
-
-                if name_sim >= name_threshold:
+                verdict = names_agree(
+                    persons[uris[i]].display_name, persons[uris[j]].display_name
+                )
+                if verdict == "agree":
                     confidence = high_conf
-                    detail = f"Shared email: {email} (names similar: {name_sim:.2f})"
+                    detail = f"Shared email: {email} (names agree)"
+                elif verdict == "disagree":
+                    confidence = low_conf
+                    detail = (
+                        f"Shared email: {email} (different surnames, so most "
+                        f"likely two people sharing one account)"
+                    )
                 else:
                     confidence = low_conf
-                    detail = f"Shared email: {email} (names differ: {name_sim:.2f}, possible shared/inherited account)"
+                    detail = (
+                        f"Shared email: {email} (names may or may not be the "
+                        f"same person)"
+                    )
 
                 matches.append(DuplicateMatch(
                     uri_a=uris[i],
@@ -264,14 +345,24 @@ def detect_phone_matches(
             for j in range(i + 1, len(uris)):
                 name_a = _normalise_name(persons[uris[i]].display_name)
                 name_b = _normalise_name(persons[uris[j]].display_name)
-                name_sim = _jaro_winkler(name_a, name_b) if name_a and name_b else 0.0
-
-                if name_sim >= name_threshold:
+                verdict = names_agree(
+                    persons[uris[i]].display_name, persons[uris[j]].display_name
+                )
+                if verdict == "agree":
                     confidence = high_conf
-                    detail = f"Shared phone: {phone} (names similar: {name_sim:.2f})"
+                    detail = f"Shared phone: {phone} (names agree)"
+                elif verdict == "disagree":
+                    confidence = low_conf
+                    detail = (
+                        f"Shared phone: {phone} (different surnames, so most "
+                        f"likely a household, office or shared handset)"
+                    )
                 else:
                     confidence = low_conf
-                    detail = f"Shared phone: {phone} (names differ: {name_sim:.2f}, likely office number)"
+                    detail = (
+                        f"Shared phone: {phone} (names may or may not be the "
+                        f"same person)"
+                    )
 
                 matches.append(DuplicateMatch(
                     uri_a=uris[i],
@@ -281,6 +372,164 @@ def detect_phone_matches(
                     confidence=confidence,
                     strategy="phone_match",
                     details=detail,
+                ))
+    return matches
+
+
+def _surname_of(p: PersonRecord) -> str:
+    """Best-effort normalised surname for a person.
+
+    Prefers the explicit ``familyName`` field; falls back to the last token of
+    the normalised display name when that field is blank (common for
+    LinkedIn-/social-sourced nodes that only carry a display name). Returns ""
+    when no surname can be determined (single-token names), which disqualifies
+    the record from the rare-name boost.
+    """
+    if p.family_name and p.family_name.strip():
+        return _normalise_name(p.family_name)
+    norm = _normalise_name(p.display_name)
+    parts = norm.split()
+    return parts[-1] if len(parts) >= 2 else ""
+
+
+def _given_of(p: PersonRecord) -> str:
+    """Best-effort normalised given name (mirror of _surname_of)."""
+    if p.given_name and p.given_name.strip():
+        return _normalise_name(p.given_name)
+    norm = _normalise_name(p.display_name)
+    parts = norm.split()
+    return parts[0] if len(parts) >= 2 else ""
+
+
+def _build_surname_holder_counts(
+    persons: Dict[str, PersonRecord]
+) -> Dict[str, int]:
+    """Count how many DISTINCT given names share each normalised surname.
+
+    Used to decide whether a surname is RARE enough that a full-name match on
+    it can auto-merge across differing organisations. A common surname (Chan,
+    Smith, Wong) is borne by many different given names, so a shared surname
+    there is not a same-person signal.
+
+    Counting DISTINCT GIVEN NAMES (not raw node count) is deliberate:
+      * two duplicate "Jane Doe" nodes count as ONE holder ("jane"),
+        so the pair under test does not inflate its own surname's rarity;
+      * a family that shares a surname (e.g. "Jane Doe" + "John Doe")
+        counts as TWO holders, which is the correct distinct-people count and
+        still well under the rare cap.
+    This keeps the rare gate measuring "how many different people wear this
+    surname", which is what makes a full-name collision conclusive.
+    """
+    by_surname: Dict[str, Set[str]] = defaultdict(set)
+    for p in persons.values():
+        surname = _surname_of(p)
+        given = _given_of(p)
+        if surname and given:
+            by_surname[surname].add(given)
+    return {surname: len(givens) for surname, givens in by_surname.items()}
+
+
+def _normalise_linkedin_url(url: str) -> str:
+    """Canonicalise a LinkedIn profile URL so trivial spelling variants of the
+    SAME profile collapse, while genuinely different profiles stay distinct.
+
+    LinkedIn writes the same person's profile in several harmless forms across
+    a connections export, a re-export, and a messages export:
+      - http vs https, with or without www.,
+      - a trailing slash,
+      - a tracking query string (``?originalSubdomain=...``),
+      - upper/lower-case host (the path slug after ``/in/`` is case-sensitive
+        on LinkedIn so we never fold the slug itself).
+
+    We fold ONLY those host/scheme/trailing variations, never the ``/in/<slug>``
+    path, so two different people (two different slugs) can never collapse.
+    Returns the canonical key, or the stripped original if it does not look
+    like a LinkedIn profile URL (so non-LinkedIn values never accidentally
+    group together).
+    """
+    if not url:
+        return ""
+    s = url.strip()
+    # Drop any query string / fragment -- tracking params never identify a
+    # different profile.
+    for sep in ("?", "#"):
+        if sep in s:
+            s = s.split(sep, 1)[0]
+    # Normalise scheme + host casing without touching the path slug.
+    low = s.lower()
+    for prefix in ("https://", "http://"):
+        if low.startswith(prefix):
+            s = s[len(prefix):]
+            low = low[len(prefix):]
+            break
+    if low.startswith("www."):
+        s = s[4:]
+        low = low[4:]
+    # Only fold the host segment (everything up to the first path slash) to
+    # lower-case; keep the path slug exactly as-is (case-sensitive on LinkedIn).
+    slash = s.find("/")
+    if slash >= 0:
+        s = s[:slash].lower() + s[slash:]
+    else:
+        s = s.lower()
+    # Collapse a single trailing slash.
+    s = s.rstrip("/")
+    return s
+
+
+def detect_linkedin_url_matches(
+    persons: Dict[str, PersonRecord], config: Dict[str, Any]
+) -> List[DuplicateMatch]:
+    """Strategy 2b: Shared LinkedIn profile URL (confidence 1.0).
+
+    A LinkedIn profile URL is an EXACT identifier: two nodes carrying the same
+    ``/in/<slug>`` are the same LinkedIn identity, so under the locked dedup
+    RULE 1 (a shared exact identifier always merges, ignoring names and source)
+    they collapse. This is the missing positive counterpart to the LinkedIn
+    branch of ``has_hard_conflict`` -- until now a shared LinkedIn URL was used
+    only as a *veto* signal (DIFFERENT urls => different people) and never as a
+    *merge* signal, so two nodes that share the identical url were invisible to
+    every batch strategy and survived forever.
+
+    This closes BUG-004 directly:
+      * Double LinkedIn import -- the connections importer writes the same
+        ``linkedin_url`` value on each pass, so a re-import that fails the
+        per-row resolve (no email/phone, fuzzy name below threshold) creates a
+        second node carrying the SAME url. They now merge here.
+      * Handle-split -- a person's connections node and their linkedin_messages
+        node share one profile url even when they carry different phones/emails
+        (which would otherwise VETO the exact-name strategy as "different
+        people"). The shared url is the opposite signal, so -- exactly like
+        ``detect_email_matches`` / ``detect_phone_matches`` -- this strategy
+        does NOT call ``has_hard_conflict``: a shared exact identifier wins.
+
+    Conservative by construction: keyed on the exact ``/in/<slug>`` path, which
+    two genuinely different people never share, so it can never over-merge.
+    """
+    url_index: Dict[str, List[str]] = defaultdict(list)
+    for uri, p in persons.items():
+        seen_keys: Set[str] = set()
+        for raw_url in p.linkedin_urls:
+            key = _normalise_linkedin_url(raw_url)
+            if key and key not in seen_keys:
+                seen_keys.add(key)
+                url_index[key].append(uri)
+
+    confidence = config.get("linkedin_url_match_confidence", 1.0)
+    matches = []
+    for key, uris in url_index.items():
+        if len(uris) < 2:
+            continue
+        for i in range(len(uris)):
+            for j in range(i + 1, len(uris)):
+                matches.append(DuplicateMatch(
+                    uri_a=uris[i],
+                    name_a=persons[uris[i]].display_name,
+                    uri_b=uris[j],
+                    name_b=persons[uris[j]].display_name,
+                    confidence=confidence,
+                    strategy="linkedin_url_match",
+                    details=f"Shared LinkedIn profile URL: {key}",
                 ))
     return matches
 
@@ -306,6 +555,15 @@ def detect_fuzzy_name_matches(
     domain_bonus = config["fuzzy_same_domain_bonus"]
     common_domains = config.get("common_email_domains", set())
 
+    # Surname-frequency index for the rare-full-name boost (see below). Built
+    # once over the whole graph so "rare" means rare across all known people,
+    # not just within this pair.
+    surname_holder_counts = _build_surname_holder_counts(persons)
+    rare_jw = config.get("rare_name_auto_merge_jw_threshold", 0.90)
+    rare_conf = config.get("rare_name_auto_merge_confidence", 0.85)
+    rare_max_holders = config.get("rare_surname_max_holders", 2)
+    rare_min_len = config.get("rare_surname_min_length", 3)
+
     for i in range(len(uris)):
         a = persons[uris[i]]
         norm_a = _normalise_name(a.display_name)
@@ -327,12 +585,10 @@ def detect_fuzzy_name_matches(
             if jw_score < jw_threshold and lev_dist > lev_max:
                 continue
 
-            # Hard blocker: if BOTH persons have LinkedIn URLs and they
-            # are different, these are definitely different people.
-            # Two different LinkedIn profiles = never merge.
-            if a.linkedin_urls and b.linkedin_urls:
-                if not a.linkedin_urls & b.linkedin_urls:
-                    continue
+            # Hard-conflict veto (spec §3b): different LinkedIn / phone /
+            # corporate email = different people, never merge.
+            if has_hard_conflict(a, b, config):
+                continue
 
             confidence = base
             reasons = []
@@ -351,10 +607,60 @@ def detect_fuzzy_name_matches(
                 confidence += domain_bonus
                 reasons.append(f"shared email domain {next(iter(shared_domains))}")
 
+            # Rare-full-name eligibility (v1.0.3). A genuine FULL-NAME match
+            # (given AND family both present and equal) on a surname that is
+            # held by no more than rare_surname_max_holders people in the whole
+            # graph is overwhelmingly the same person, even across differing
+            # organisations. This is the "Jane Doe" golden case:
+            # "Jane Doe" (JW 0.914 vs "Jane Q Doe") at different
+            # orgs with no shared identifier. The hard-conflict veto above has
+            # already eliminated pairs with a distinct LinkedIn/phone/corporate
+            # email, so the two real John Smiths never reach this point.
+            surname_a = _surname_of(a)
+            surname_b = _surname_of(b)
+            given_a = _given_of(a)
+            given_b = _given_of(b)
+            rare_full_name_match = (
+                bool(surname_a) and surname_a == surname_b
+                and bool(given_a) and given_a == given_b
+                and len(surname_a) >= rare_min_len
+                and jw_score >= rare_jw
+                and surname_holder_counts.get(surname_a, 0) <= rare_max_holders
+            )
+
             # Require corroboration for JW in the 0.85-0.93 "danger zone" where
-            # shared first-name prefixes inflate scores artificially.
-            if jw_score < 0.93 and not same_org and not has_corporate_domain:
+            # shared first-name prefixes inflate scores artificially. A rare
+            # full-name match is its own corroboration (a rare surname shared by
+            # the same given name is not a prefix collision), so it bypasses the
+            # gate.
+            if (
+                jw_score < 0.93 and not same_org and not has_corporate_domain
+                and not rare_full_name_match
+            ):
                 continue
+
+            # Name + org auto-merge (Andy 2026-06-10): a strong name match
+            # (jw >= name_org_auto_merge_jw_threshold, so NOT a first-name-prefix
+            # collision) at the same organisation -- having already cleared the
+            # hard-conflict veto above -- is a confident same-person merge. Lift
+            # it over the auto-merge line so the user is never asked to confirm
+            # the obvious. The jw gate deliberately leaves the 0.85-0.93 danger
+            # zone (e.g. "David Freer" ~ "David Gallagher" at the same employer)
+            # in review, where a shared first name could mask two real people.
+            if same_org and jw_score >= config["name_org_auto_merge_jw_threshold"]:
+                confidence = max(confidence, config["name_org_auto_merge_confidence"])
+                reasons.append("name+org auto-merge")
+
+            # Rare-full-name auto-merge (v1.0.3): lift a rare full-name match
+            # over the auto-merge line even when orgs differ. Conservative by
+            # construction -- gated on surname rarity across the whole graph.
+            if rare_full_name_match:
+                confidence = max(confidence, rare_conf)
+                reasons.append(
+                    f"rare full-name auto-merge "
+                    f"(surname '{surname_a}' held by "
+                    f"{surname_holder_counts.get(surname_a, 0)})"
+                )
 
             detail_parts = [
                 f"Jaro-Winkler={jw_score:.3f}",
@@ -407,6 +713,10 @@ def detect_name_subset_matches(
         # Only match if unambiguous (exactly one full-name candidate)
         if len(candidates) == 1:
             full_uri = candidates[0]
+            # Hard-conflict veto: a single name matching a full name with a
+            # conflicting verified identifier is a different person.
+            if has_hard_conflict(persons[single_uri], persons[full_uri], config):
+                continue
             matches.append(DuplicateMatch(
                 uri_a=single_uri,
                 name_a=persons[single_uri].display_name,
@@ -585,12 +895,39 @@ def _fetch_all_persons(
 ) -> Dict[str, PersonRecord]:
     """Fetch all person nodes from Oxigraph with identifiers and triple counts."""
     # Get all persons with identifiers
+    # NON-PERSON RECORDS ARE NOT MERGE CANDIDATES.
+    #
+    # This query did not load contactType at all, so a retailer was a full
+    # candidate for every match path below: email, phone, exact name and
+    # Jaro-Winkler fuzzy name. Measured on the live v1.0.26 box, four
+    # AliExpress records were pwg:Person and one already carried
+    # pwg:mergedInto dated 2026-08-14 -- the queue had offered a retailer
+    # to the customer as a human to merge, and the merge had been taken.
+    # Andy: "AliExpress is not a person!!"
+    #
+    # Fuzzy name matching makes this worse than it sounds: a retailer's
+    # brand name scores highly against itself across several campaign
+    # addresses, so these records merge with each other readily and
+    # present as a confident, high-scoring duplicate group.
+    #
+    # The filter is on the NON-PERSON set, not on == "person", so a record
+    # with contactType absent or "unclassified" is still a candidate. 497
+    # of 6,481 records on that box carried no type at all; excluding them
+    # would silently stop de-duplicating 7.7% of the address book, which
+    # is the same defect pointed the other way.
     rows = _sparql_query(url, client, f"""
         PREFIX pwg: <{PWG}>
         SELECT ?person ?name ?org ?title ?givenName ?familyName ?idType ?idValue WHERE {{
             ?person a pwg:Person ;
                     pwg:displayName ?name .
             FILTER NOT EXISTS {{ ?person pwg:mergedInto ?merged }}
+            FILTER NOT EXISTS {{
+                ?person pwg:contactType ?ct .
+                FILTER(LCASE(STR(?ct)) IN (
+                    "organisation", "organization", "company", "business",
+                    "brand", "venue", "service", "group"
+                ))
+            }}
             OPTIONAL {{ ?person pwg:organization ?org }}
             OPTIONAL {{ ?person pwg:jobTitle ?title }}
             OPTIONAL {{ ?person pwg:givenName ?givenName }}
@@ -737,7 +1074,54 @@ def _merge_oxigraph(
         f"DELETE DATA {{ <{discard_uri}> a <{PWG}Person> }}"
     )
 
+    # 8. Collapse accumulated displayName values on the kept node to ONE
+    #    canonical value. Step 5 copies every displayName off the discard when
+    #    keep has none, so without this a merge leaves several (e.g.
+    #    "Jane Doe" + "root" + "me@..."). Pick one.
+    _canonicalise_display_name_oxigraph(url, client, keep_uri)
+
     logger.info("Oxigraph merge: %s → %s", discard_uri, keep_uri)
+
+
+def _canonicalise_display_name_oxigraph(
+    url: str, client: httpx.Client, person_uri: str,
+) -> Optional[str]:
+    """Collapse a person's possibly-multiple displayName values to ONE canonical.
+
+    Mirror of ``IdentityResolver.canonicalise_display_name`` for the batch path.
+    Prefers a real Contacts name (given+family); rejects system aliases, bare
+    emails and raw phone numbers. No-op for zero/one displayName.
+    """
+    rows = _sparql_query(url, client,
+        f"SELECT ?name ?given ?family WHERE {{ "
+        f"  <{person_uri}> <{PWG}displayName> ?name . "
+        f"  OPTIONAL {{ <{person_uri}> <{PWG}givenName> ?given }} "
+        f"  OPTIONAL {{ <{person_uri}> <{PWG}familyName> ?family }} "
+        f"}}"
+    )
+    if len(rows) <= 1:
+        return rows[0].get("name") if rows else None
+
+    candidates = [r["name"] for r in rows if r.get("name")]
+    given = next((r["given"] for r in rows if r.get("given")), None)
+    family = next((r["family"] for r in rows if r.get("family")), None)
+
+    canonical = choose_canonical_display_name(
+        candidates, given_name=given, family_name=family
+    )
+    if not canonical:
+        return None
+
+    _sparql_update(url, client,
+        f"DELETE {{ <{person_uri}> <{PWG}displayName> ?old }} "
+        f"WHERE {{ <{person_uri}> <{PWG}displayName> ?old }} ; "
+        f'INSERT DATA {{ <{person_uri}> <{PWG}displayName> "{_escape(canonical)}" }}'
+    )
+    logger.info(
+        "Canonicalised displayName for %s -> %r (was %d values)",
+        person_uri, canonical, len(candidates),
+    )
+    return canonical
 
 
 def _merge_qdrant(
@@ -803,6 +1187,232 @@ def _merge_qdrant(
     logger.info("Qdrant merge: %s → %s (deleted %s)", discard_point_id, keep_point_id, discard_point_id)
 
 
+# ── Same-person_uri reconcile (collapse over-split vectors) ───────────────────
+#
+# The four ``people``-collection writers (contact_syncer.syncer,
+# facebook_friends, linkedin_connections, instagram_social) all derive the
+# Qdrant point id deterministically from person_uri
+# (``uuid5(NAMESPACE_URL, person_uri)``), so a re-upsert of an already-known
+# person OVERWRITES rather than duplicates. Two failure modes still leave
+# more than one point carrying the same ``person_uri``:
+#
+#   1. whatsapp_bridge.create_qdrant_point writes ``id=uuid4()`` (a random
+#      point id, not derived from person_uri) -- so a WhatsApp-created point
+#      and a later canonical point can co-exist under one uri.
+#   2. Historical / cross-version node merges: a person was first ingested
+#      from source B under its OWN uri, the resolver later merged that node
+#      into the iCloud node in Oxigraph, but the source-B Qdrant point was
+#      written (under an old code path, or before _merge_qdrant was wired)
+#      carrying the surviving person_uri in its payload while keeping a
+#      point id that does NOT match uuid5(surviving_uri).
+#
+# Either way the assistant's people search (which reads Qdrant) returns N
+# vectors for one graph node and reports a PHANTOM duplicate. This sweep is
+# the safety net: it is name-independent and trivially safe under the locked
+# dedup ruleset -- points sharing the same exact person_uri ARE the same
+# person (shared exact ID always merges). It NEVER touches the graph / person
+# nodes (those dedupe correctly) and NEVER inspects names.
+
+
+def _payload_richness(payload: Dict[str, Any]) -> Tuple[int, int]:
+    """Score a Qdrant people-point payload for "which to keep".
+
+    Returns (filled_scalar_count, list_value_count); higher is richer. The
+    point with the richest payload survives the collapse so we preserve the
+    most-enriched record.
+    """
+    if not payload:
+        return (0, 0)
+    scalar_fields = (
+        "display_name", "given_name", "family_name", "organization",
+        "job_title", "icloud_uid", "profile_photo_path", "last_contact",
+        "linkedin_url", "observed_at",
+    )
+    scalars = sum(1 for f in scalar_fields if payload.get(f))
+    lists = sum(len(payload.get(f) or []) for f in ("phones", "emails"))
+    return (scalars, lists)
+
+
+def _merge_payloads(keep: Dict[str, Any], orphan: Dict[str, Any]) -> Dict[str, Any]:
+    """Union list fields and fill scalar gaps on ``keep`` from ``orphan``."""
+    merged = dict(keep)
+    for list_field in ("phones", "emails"):
+        union = set(merged.get(list_field) or []) | set(orphan.get(list_field) or [])
+        if union:
+            merged[list_field] = sorted(union)
+    for scalar_field in (
+        "organization", "job_title", "given_name", "family_name",
+        "icloud_uid", "profile_photo_path", "linkedin_url", "observed_at",
+        "last_contact", "last_contact_ts",
+    ):
+        if not merged.get(scalar_field) and orphan.get(scalar_field):
+            merged[scalar_field] = orphan[scalar_field]
+    # last_contact_ts: keep the most-recent contact signal across both points
+    keep_ts = merged.get("last_contact_ts") or 0
+    orphan_ts = orphan.get("last_contact_ts") or 0
+    if orphan_ts > keep_ts:
+        merged["last_contact_ts"] = orphan_ts
+        if orphan.get("last_contact"):
+            merged["last_contact"] = orphan["last_contact"]
+    return merged
+
+
+@dataclass
+class QdrantReconcileGroup:
+    """A set of Qdrant points found sharing one person_uri."""
+    person_uri: str
+    keep_point_id: str
+    discard_point_ids: List[str]
+    keep_name: str = ""
+
+
+@dataclass
+class QdrantReconcileReport:
+    total_points: int = 0
+    distinct_person_uris: int = 0
+    groups: List[QdrantReconcileGroup] = field(default_factory=list)
+
+    @property
+    def duplicate_points(self) -> int:
+        return sum(len(g.discard_point_ids) for g in self.groups)
+
+
+def reconcile_qdrant_by_person_uri(
+    qdrant_url: str,
+    collection: str,
+    *,
+    apply: bool = False,
+    backup_dir: str = "./backups",
+    scroll_batch: int = 256,
+) -> QdrantReconcileReport:
+    """Collapse Qdrant ``people`` points that share a ``person_uri``.
+
+    Scrolls the whole collection, groups points by their ``person_uri``
+    payload, and for every group with more than one point keeps the richest
+    payload (merging list/scalar fields from the orphans into it) and deletes
+    the orphan points.
+
+    Propose-then-apply discipline (mirrors the Oxigraph merge path):
+      * ``apply=False`` (default) -- DETECT only. Returns the report; makes no
+        Qdrant writes. This is the dry-run posture.
+      * ``apply=True`` -- before any delete, every orphan point (id + vector +
+        payload) is written to a timestamped backup file under ``backup_dir``
+        so a destructive collapse is recoverable, then the keep payload is
+        updated and orphans are deleted. Every delete is logged.
+
+    Points with no ``person_uri`` payload are left untouched (we cannot prove
+    they are the same person).
+    """
+    try:
+        from qdrant_client import QdrantClient
+    except ImportError:
+        logger.warning("qdrant-client not installed -- skipping Qdrant reconcile")
+        return QdrantReconcileReport()
+
+    client = QdrantClient(url=qdrant_url, timeout=60)
+
+    # Group all points by person_uri.
+    by_uri: Dict[str, List[Any]] = defaultdict(list)
+    total = 0
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=collection,
+            limit=scroll_batch,
+            offset=offset,
+            with_payload=True,
+            with_vectors=True,
+        )
+        for p in points:
+            total += 1
+            uri = (p.payload or {}).get("person_uri")
+            if uri:
+                by_uri[uri].append(p)
+        if offset is None:
+            break
+
+    report = QdrantReconcileReport(
+        total_points=total,
+        distinct_person_uris=len(by_uri),
+    )
+
+    for uri, points in by_uri.items():
+        if len(points) < 2:
+            continue
+        # Richest payload survives; everything else is an orphan.
+        points_sorted = sorted(
+            points,
+            key=lambda p: _payload_richness(p.payload or {}),
+            reverse=True,
+        )
+        keep = points_sorted[0]
+        orphans = points_sorted[1:]
+        report.groups.append(QdrantReconcileGroup(
+            person_uri=uri,
+            keep_point_id=str(keep.id),
+            discard_point_ids=[str(o.id) for o in orphans],
+            keep_name=(keep.payload or {}).get("display_name", ""),
+        ))
+
+    logger.info(
+        "Qdrant reconcile: %d points, %d distinct person_uris, %d over-split "
+        "groups, %d duplicate points to collapse",
+        report.total_points, report.distinct_person_uris,
+        len(report.groups), report.duplicate_points,
+    )
+
+    if not apply or not report.groups:
+        return report
+
+    # --- apply path: backup orphans, merge payloads, delete orphans ---
+    os.makedirs(backup_dir, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    backup_path = os.path.join(
+        backup_dir, f"qdrant_reconcile_backup_{timestamp}.jsonl"
+    )
+
+    # Re-resolve the actual point objects so we can persist their full state.
+    point_by_id = {
+        str(p.id): p for ps in by_uri.values() for p in ps
+    }
+
+    with open(backup_path, "w", encoding="utf-8") as bf:
+        for group in report.groups:
+            keep_point = point_by_id[group.keep_point_id]
+            keep_payload = dict(keep_point.payload or {})
+            for discard_id in group.discard_point_ids:
+                orphan = point_by_id[discard_id]
+                orphan_payload = orphan.payload or {}
+                # Persist the orphan for recovery before we touch anything.
+                bf.write(json.dumps({
+                    "person_uri": group.person_uri,
+                    "deleted_point_id": discard_id,
+                    "kept_point_id": group.keep_point_id,
+                    "payload": orphan_payload,
+                    "vector": orphan.vector,
+                }) + "\n")
+                keep_payload = _merge_payloads(keep_payload, orphan_payload)
+
+            keep_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+            client.set_payload(
+                collection_name=collection,
+                payload=keep_payload,
+                points=[group.keep_point_id],
+            )
+            client.delete(
+                collection_name=collection,
+                points_selector=group.discard_point_ids,
+            )
+            logger.info(
+                "Qdrant reconcile: person_uri=%s kept %s, deleted %d orphan(s): %s",
+                group.person_uri, group.keep_point_id,
+                len(group.discard_point_ids), group.discard_point_ids,
+            )
+
+    logger.info("Qdrant reconcile: orphan backup written to %s", backup_path)
+    return report
+
+
 # ── Main orchestrator ────────────────────────────────────────────────────────
 
 class BatchResolver:
@@ -829,11 +1439,27 @@ class BatchResolver:
         all_matches: List[DuplicateMatch] = []
         all_matches.extend(detect_exact_name_matches(persons, self.config))
         all_matches.extend(detect_email_matches(persons, self.config))
+        all_matches.extend(detect_linkedin_url_matches(persons, self.config))
         all_matches.extend(detect_phone_matches(persons, self.config))
         all_matches.extend(detect_fuzzy_name_matches(persons, self.config))
         all_matches.extend(detect_name_subset_matches(persons, self.config))
 
         auto, review = consolidate_matches(all_matches, self.config)
+
+        # BW-2 correction loop: honour operator merge/distinct decisions from
+        # duplicates.yaml. distinct = permanent never-merge block; merge =
+        # forced union. Shared contract with the CM044 review page.
+        decisions = load_duplicate_decisions(self.config.get("corrections_dir", ""))
+        if decisions["merge_groups"] or decisions["distinct_pairs"]:
+            def _user_match(ua: str, na: str, ub: str, nb: str) -> DuplicateMatch:
+                return DuplicateMatch(
+                    uri_a=ua, name_a=na, uri_b=ub, name_b=nb,
+                    confidence=1.0, strategy="user_decision",
+                    details="Operator marked these as the same person",
+                )
+            auto, review = apply_user_decisions(
+                auto, review, persons, decisions, match_factory=_user_match,
+            )
 
         report = ResolverReport(total_persons=len(persons))
 
@@ -894,6 +1520,81 @@ class BatchResolver:
                 action.keep_uri, action.discard_uri,
             )
             action.executed = True
+
+        # Safety-net sweep: a node merge can leave the Qdrant collection with
+        # more than one point carrying the surviving person_uri (see
+        # reconcile_qdrant_by_person_uri). Collapse those now so the assistant
+        # never reports a phantom duplicate for a node we just merged.
+        self.reconcile_qdrant(apply=True, backup_dir=backup_dir)
+
+    def reconcile_qdrant(
+        self, *, apply: bool = False, backup_dir: str = "./backups",
+    ) -> QdrantReconcileReport:
+        """Collapse Qdrant people-points that share a person_uri.
+
+        Thin instance wrapper over reconcile_qdrant_by_person_uri so callers
+        (execute() and the CLI) hit the configured collection/url.
+        """
+        return reconcile_qdrant_by_person_uri(
+            self.qdrant_url, self.qdrant_collection,
+            apply=apply, backup_dir=backup_dir,
+        )
+
+    def converge(
+        self,
+        max_rounds: int = 10,
+        backup_dir: str = "./backups",
+        dry_run: bool = False,
+    ) -> List[ResolverReport]:
+        """Whole-graph consolidation to a fixpoint.
+
+        ``detect()`` is already a whole-graph pass, but it merges each URI at
+        most once per run (the ``seen_uris`` guard in detect()), so a cluster
+        of 3+ nodes for the same person only partially collapses in a single
+        round -- the remainder spills to ``needs_review``. The under-merge seen
+        on a one-shot install is that gap: cross-source twins that never shared
+        an incremental batch are only reconciled by a whole-graph pass, and a
+        single pass leaves transitive 3+ clusters half-merged.
+
+        Running detect()->execute() repeatedly closes it: after each round the
+        merged-away nodes drop out (``_merge_oxigraph`` writes ``mergedInto``
+        and removes their Person type, so detect()'s filter skips them) and the
+        surviving node inherits their identifiers (step 1 of the merge), so the
+        next round picks up the transitive matches. The loop terminates when a
+        round yields zero auto-merges -- the fixpoint.
+
+        This is PURE ORCHESTRATION over the existing detect/execute. It adds NO
+        new rule, threshold, or flag and changes no individual merge decision
+        (the BW-2 hard-conflict veto and duplicates.yaml decisions still apply
+        unchanged, every round). It only ensures the existing decisions are
+        applied across the WHOLE graph after all sources have hydrated, instead
+        of per-source / per-batch only.
+
+        Returns the per-round reports (round 0 first). With ``dry_run`` it runs
+        a single detect() and does not execute, so a caller can preview the
+        first round's auto-merges without mutating the graph.
+        """
+        rounds: List[ResolverReport] = []
+        if dry_run:
+            rounds.append(self.detect())
+            return rounds
+        for i in range(max_rounds):
+            report = self.detect()
+            rounds.append(report)
+            n = len(report.auto_merges)
+            logger.info(
+                "Converge round %d: %d auto-merge(s), %d need review (of %d persons)",
+                i + 1, n, len(report.needs_review), report.total_persons,
+            )
+            if n == 0:
+                break
+            self.execute(report, backup_dir=backup_dir)
+        else:
+            logger.warning(
+                "Converge hit max_rounds=%d without a fixpoint; remaining "
+                "auto-merges left for the next run / review", max_rounds,
+            )
+        return rounds
 
     def close(self) -> None:
         self._client.close()
@@ -995,6 +1696,22 @@ def main() -> None:
         help="Comma-separated list of 1-based indices to exclude from execution (e.g. '12,13,15')",
     )
     parser.add_argument(
+        "--converge", action="store_true",
+        help="Whole-graph consolidation: loop detect+merge to a fixpoint so "
+             "transitive 3+ node clusters fully collapse (run once after all "
+             "sources have hydrated). Requires --execute. Pure orchestration: "
+             "changes no merge rule or threshold.",
+    )
+    parser.add_argument(
+        "--max-rounds", type=int, default=10,
+        help="Safety cap on --converge rounds (default 10)",
+    )
+    parser.add_argument(
+        "--reconcile-qdrant", action="store_true",
+        help="Collapse Qdrant people-points that share a person_uri "
+             "(over-split vectors). Detect-only unless --execute is also set.",
+    )
+    parser.add_argument(
         "--verbose", "-v", action="store_true",
         help="Enable verbose logging",
     )
@@ -1018,6 +1735,54 @@ def main() -> None:
     )
 
     try:
+        # Whole-graph convergence path: loop to a fixpoint, then report the
+        # final round. Used by the post-hydrate install pass so transitive
+        # clusters collapse fully rather than spilling to review.
+        if args.converge and args.execute:
+            rounds = resolver.converge(
+                max_rounds=args.max_rounds, backup_dir=args.backup_dir,
+            )
+            total_merged = sum(len(r.auto_merges) for r in rounds)
+            report = rounds[-1]
+            print(f"\n{'=' * 70}")
+            print("IDENTITY RESOLVER - WHOLE-GRAPH CONVERGENCE")
+            print(f"{'=' * 70}")
+            print(f"Rounds run:        {len(rounds)}")
+            print(f"Total merged:      {total_merged}")
+            print(f"Final persons:     {report.total_persons}")
+            print(f"Remaining review:  {len(report.needs_review)}")
+            yaml_report = format_report_yaml(report)
+            with open(args.output, "w", encoding="utf-8") as f:
+                f.write(yaml_report)
+            print(f"Report written to {args.output}")
+            print(f"\n{'=' * 70}")
+            return
+
+        if args.reconcile_qdrant:
+            # Standalone Qdrant collapse sweep -- does NOT touch person nodes.
+            qreport = resolver.reconcile_qdrant(
+                apply=bool(args.execute), backup_dir=args.backup_dir,
+            )
+            print(f"\n{'=' * 70}")
+            print("QDRANT PERSON_URI RECONCILE")
+            print(f"{'=' * 70}")
+            print(f"Total points:         {qreport.total_points}")
+            print(f"Distinct person_uris: {qreport.distinct_person_uris}")
+            print(f"Over-split groups:    {len(qreport.groups)}")
+            print(f"Duplicate points:     {qreport.duplicate_points}")
+            for g in qreport.groups[:20]:
+                print(
+                    f"  {g.person_uri} ({g.keep_name!r}): "
+                    f"keep {g.keep_point_id}, drop {len(g.discard_point_ids)}"
+                )
+            if len(qreport.groups) > 20:
+                print(f"  ... and {len(qreport.groups) - 20} more groups")
+            if args.execute:
+                print("\nCollapsed. Orphan points backed up before deletion.")
+            else:
+                print("\nDry run -- no Qdrant changes. Use --execute to collapse.")
+            return
+
         report = resolver.detect()
 
         print(f"\n{'=' * 70}")

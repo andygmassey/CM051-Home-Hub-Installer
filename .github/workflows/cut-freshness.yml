@@ -1,0 +1,85 @@
+name: cut-freshness
+
+# Guards the live-HEAD pre-cut freshness gate (scripts/verify_cut_freshness.sh)
+# -- the structural cure for "built but not in the cut". The gate itself talks
+# to the GitHub API across TWO accounts (andygmassey source repos + ostler-ai
+# daemon) and so can only run for real on the ORM cut host, where it is wired
+# fail-closed into gui/Makefile `package` and release.sh. On CI we cannot reach
+# those private cross-org repos, so we run the HERMETIC self-test (mocked gh)
+# that proves the gate's logic still holds: all-fresh -> 0, stale vendor/daemon/
+# wiki -> 1, unrecorded wiki provenance -> 1, GitHub-unreachable -> distinct
+# CANNOT-VERIFY (never a false pass); a fetchable verify=skip tree that is stale
+# -> RED (no silent WARN downgrade); exempt-with-reason -> GREEN, exempt-without
+# -> RED; a pin behind HEAD -> RED unless a hold_ack covers the WHOLE delta with
+# shipping_bugfixes_grafted = true (partial ack names the un-acknowledged commit).
+#
+# Registering the self-test here means the gate cannot be silently dropped or
+# rotted: any change to the gate, its provenance ledger, or its test fails CI.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_cut_freshness.sh'
+      - 'scripts/wiki_image_provenance.tsv'
+      - 'scripts/_vendor_lib.sh'
+      - 'tests/test_cut_freshness_gate.sh'
+      - 'gui/Makefile'
+      - 'release.sh'
+      - '.github/workflows/cut-freshness.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  cut-freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cut-freshness gate self-test (hermetic, mocked gh)
+        run: bash tests/test_cut_freshness_gate.sh
+
+      - name: Gate is wired fail-closed into both cut paths
+        if: always()
+        run: |
+          set -e
+          # gui/Makefile: package must depend on check-freshness AND the target
+          # must abort on non-zero (|| { ... exit 1; }).
+          grep -qE '^package:.*check-freshness' gui/Makefile \
+            || { echo "gui/Makefile package target does not depend on check-freshness" >&2; exit 1; }
+          # FAIL-CLOSED, asserted by COVERAGE not by SYNTAX.
+          #
+          # This used to grep for the literal `verify_cut_freshness.sh || {`.
+          # That pinned one spelling of fail-closed, so the gate went red the
+          # moment check-freshness was given the exit-2/3 branch the other six
+          # wrappers got -- a guard failing a fix that strictly improved the
+          # thing it guards. It is the "assert the defect, not its formatting"
+          # trap: a predicate tied to a rendering is red-while-fixed as easily
+          # as green-while-blind.
+          #
+          # The behaviour is now proven properly, by feeding the wrapper stub
+          # scripts that exit 2/3/1/0 and asserting what it says and returns
+          # (tests/test_cut_gate_wrappers.sh, run by cut-gate-wrappers.yml).
+          # All this needs to check is that the coverage still EXISTS -- if the
+          # wrapper is dropped from that table, nothing else would notice.
+          grep -q 'check-freshness' tests/test_cut_gate_wrappers.sh \
+            || { echo "check-freshness is no longer covered by the wrapper trichotomy self-test" >&2; \
+                 echo "-- add it back to TARGETS/VARS/DEFECTS in tests/test_cut_gate_wrappers.sh" >&2; exit 1; }
+          grep -qE '^check-freshness:' gui/Makefile \
+            || { echo "no check-freshness target in gui/Makefile" >&2; exit 1; }
+          # release.sh: must run the gate and die on failure for a real cut.
+          grep -q 'FRESHNESS_GATE=' release.sh \
+            || { echo "release.sh does not invoke the freshness gate" >&2; exit 1; }
+          grep -q 'cut-freshness preflight FAILED' release.sh \
+            || { echo "release.sh does not abort on a failed freshness preflight" >&2; exit 1; }
+          echo "OK: freshness gate wired fail-closed into gui/Makefile + release.sh"

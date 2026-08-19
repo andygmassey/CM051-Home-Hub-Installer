@@ -12,8 +12,9 @@
 #   F3  iMessage allowed default = "$USER_PHONE, $USER_EMAIL"
 #   F4  WhatsApp recipient default = "$USER_PHONE"
 #   F5  Country-code "We detected +..." prompt fires when source=phone
-#   F6  MSG_INFO_PLEASE_WAIT_READING_CONTACTS is emitted before the
-#       all-contacts osascript scan
+#   F6  the Phase-2 me-card osascript read + DETECTED_* pre-fill is
+#       present (#639 restored it; only the single me-card read, no
+#       bulk all-contacts scan, and no fabricated "Decision" comment)
 #
 # Synthetic fixture only — locked memory
 # feedback_synthetic_fixtures_no_real_data_default. Phone is in the
@@ -170,24 +171,33 @@ if ! grep -q 'MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_TITLE=' "$STRINGS_SH";
 fi
 echo "PASS [case-5]: Q4 country-code prompt swaps to DETECTED_FROM_PHONE when source=phone"
 
-# ── Case 6: MSG_INFO_PLEASE_WAIT_READING_CONTACTS exists + is wired ─
-if ! grep -q 'MSG_INFO_PLEASE_WAIT_READING_CONTACTS=' "$STRINGS_SH"; then
-    echo "FAIL [case-6]: catalogue missing MSG_INFO_PLEASE_WAIT_READING_CONTACTS" >&2
+# ── Case 6: #639 -- the Phase-2 me-card pre-fill read is RESTORED ──
+# PR #220 deleted the me-card osascript read (and wrote a fabricated
+# "Decision (Andy)" comment). #639 restores it: the read pre-fills the
+# customer's details so they do not retype data we can already see. The
+# whole-address-book "count of every person" scan stays GONE (only the
+# single me-card read is back, not a bulk Contacts scan).
+if grep -q 'count of every person' "$INSTALL_SH"; then
+    echo "FAIL [case-6]: Phase-2 'count of every person' bulk osascript scan present (only the single me-card read should be restored)" >&2
     exit 1
 fi
-if ! grep -q 'info "\$MSG_INFO_PLEASE_WAIT_READING_CONTACTS"' "$INSTALL_SH"; then
-    echo "FAIL [case-6]: install.sh not emitting MSG_INFO_PLEASE_WAIT_READING_CONTACTS" >&2
+if ! grep -q 'set myCard to my card' "$INSTALL_SH"; then
+    echo "FAIL [case-6]: me-card osascript read (set myCard to my card) is missing -- pre-fill regressed" >&2
     exit 1
 fi
-# Ordering: the status line must appear BEFORE the count-of-every-person
-# osascript. Otherwise the silent-wait alarm isn't actually solved.
-WAIT_LINE=$(grep -n 'info "\$MSG_INFO_PLEASE_WAIT_READING_CONTACTS"' "$INSTALL_SH" | head -n 1 | cut -d: -f1)
-COUNT_LINE=$(grep -n 'count of every person' "$INSTALL_SH" | head -n 1 | cut -d: -f1)
-if [[ -z "$WAIT_LINE" || -z "$COUNT_LINE" || "$WAIT_LINE" -ge "$COUNT_LINE" ]]; then
-    echo "FAIL [case-6]: wait line (#${WAIT_LINE:-?}) must fire before count osascript (#${COUNT_LINE:-?})" >&2
+if ! grep -qE 'DETECTED_FIRST=\$\(echo "\$CARD_DATA"' "$INSTALL_SH"; then
+    echo "FAIL [case-6]: me-card read does not parse DETECTED_FIRST from CARD_DATA -- pre-fill regressed" >&2
     exit 1
 fi
-echo "PASS [case-6]: contacts-wait line wired and fires before count-of-every-person scan"
+if ! grep -q 'info "\$MSG_INFO_READING_YOUR_CONTACT_CARD_PRE_FILL"' "$INSTALL_SH"; then
+    echo "FAIL [case-6]: me-card site not emitting the reading-contact-card pre-fill info" >&2
+    exit 1
+fi
+if grep -q 'Decision (Andy, 2026-06-05)' "$INSTALL_SH"; then
+    echo "FAIL [case-6]: fabricated 'Decision (Andy, 2026-06-05)' comment is back" >&2
+    exit 1
+fi
+echo "PASS [case-6]: #639 -- me-card pre-fill read restored; bulk scan + fabricated comment absent"
 
 # ── Case 7: synthetic-fixture invariant (locked memory) ────────────
 #
@@ -202,6 +212,74 @@ if ! grep -q 'alice@example.com' "$FIXTURE"; then
     exit 1
 fi
 echo "PASS [case-7]: fixture pinned to synthetic NANP + example.com data"
+
+# ── Case 8: BW2-1 -- the native me-card reader is preferred ─────────
+# The osascript `my card` read broke on macOS 26.5 (-1728) and left the
+# pre-fill blank on the .185 box-walk. install.sh now prefers a bundled
+# native helper (ostler-mecard, an AddressBook -[ABAddressBook me] reader)
+# and only falls through to the osascript path when the helper returns
+# nothing. This case walks the exact shape so a future edit cannot drop
+# the native reader, un-gate the osascript fallback, or stop bundling the
+# helper into the app.
+MECARD_SRC="${REPO_ROOT}/gui/ostler-mecard/main.swift"
+MECARD_PLIST="${REPO_ROOT}/gui/ostler-mecard/Info.plist"
+PROJECT_YML="${REPO_ROOT}/gui/project.yml"
+for path in "$MECARD_SRC" "$MECARD_PLIST" "$PROJECT_YML"; do
+    if [[ ! -f "$path" ]]; then
+        echo "FAIL [case-8]: required file not found: $path" >&2
+        exit 1
+    fi
+done
+# install.sh: the native reader function exists and targets the bundled binary.
+if ! grep -q '_read_my_card_native()' "$INSTALL_SH"; then
+    echo "FAIL [case-8]: install.sh missing _read_my_card_native() (native me-card reader dropped)" >&2
+    exit 1
+fi
+if ! grep -q 'SCRIPT_DIR:-}/ostler-mecard' "$INSTALL_SH"; then
+    echo "FAIL [case-8]: native reader no longer invokes \${SCRIPT_DIR}/ostler-mecard" >&2
+    exit 1
+fi
+# install.sh: the native result seeds CARD_DATA, and the osascript read is
+# gated behind an empty-CARD_DATA fallback (so it only runs when native gave
+# nothing -- no double read, no Contacts.app launch when native succeeded).
+if ! grep -q 'CARD_DATA="\$CARD_DATA_NATIVE"' "$INSTALL_SH"; then
+    echo "FAIL [case-8]: native reader result not assigned into CARD_DATA" >&2
+    exit 1
+fi
+# The `open -gja Contacts` cold-start launch must sit inside the
+# fallback guard, not run unconditionally.
+if ! awk '
+    /if \[\[ -z "\$CARD_DATA" \]\]; then/ { guard=1 }
+    guard && /open -gja Contacts/ { found=1 }
+    END { exit(found?0:1) }
+' "$INSTALL_SH"; then
+    echo "FAIL [case-8]: osascript Contacts launch is not gated behind the empty-CARD_DATA fallback" >&2
+    exit 1
+fi
+# project.yml: the helper is compiled + bundled into Resources.
+if ! grep -q 'Compile + bundle ostler-mecard helper into Resources' "$PROJECT_YML"; then
+    echo "FAIL [case-8]: gui/project.yml no longer bundles the ostler-mecard helper" >&2
+    exit 1
+fi
+if ! grep -q 'UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler-mecard' "$PROJECT_YML"; then
+    echo "FAIL [case-8]: ostler-mecard not declared as a bundled Resources output" >&2
+    exit 1
+fi
+# helper source: reads the me-card via AddressBook, emits the 5-field line.
+if ! grep -q 'ABAddressBook' "$MECARD_SRC" || ! grep -q '\.me()' "$MECARD_SRC"; then
+    echo "FAIL [case-8]: helper no longer reads the me-card via ABAddressBook.me()" >&2
+    exit 1
+fi
+if ! grep -qE 'clean\(name\)\).*clean\(first\)\).*clean\(country\)\).*clean\(email\)\).*clean\(phone\)\)' "$MECARD_SRC"; then
+    echo "FAIL [case-8]: helper no longer emits the name|first|country|email|phone contract" >&2
+    exit 1
+fi
+# helper carries its own Contacts usage string (belt-and-braces for TCC).
+if ! grep -q 'NSContactsUsageDescription' "$MECARD_PLIST"; then
+    echo "FAIL [case-8]: helper Info.plist missing NSContactsUsageDescription" >&2
+    exit 1
+fi
+echo "PASS [case-8]: BW2-1 -- native me-card helper preferred, osascript gated as fallback, helper bundled"
 
 echo ""
 echo "ALL CONTACT_CARD_PREFILL TESTS PASSED"

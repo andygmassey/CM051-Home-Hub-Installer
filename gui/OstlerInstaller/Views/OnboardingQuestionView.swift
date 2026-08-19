@@ -101,7 +101,42 @@ struct OnboardingQuestionView: View {
 
     @ViewBuilder
     private func standardQuestionBody(_ q: DisplayedQuestion) -> some View {
+        // Layout history (three iterations, one enduring shape):
+        //   - BW3-9 (2026-07-30): the pre-fix layout was a plain
+        //     VStack + Spacer with no ScrollView. Dense legal copy
+        //     (consent_spoken_capture etc.) overflowed a fixed-ish
+        //     window and clipped BOTH the "QUESTION N" super-title and
+        //     the input toggle off-screen. Fix wrapped the body in a
+        //     ScrollView that filled the space, pinning input +
+        //     buttons to the bottom.
+        //   - #503 / BW7 (2026-08-01): that fix parked the input
+        //     toggle ~400px below short-body copy (Q1 "Ready to
+        //     continue?") with dead whitespace between. #503 swapped
+        //     in `ViewThatFits`, which for short bodies picked a
+        //     natural-height VStack top-flowing header + title + body
+        //     + input + BUTTONS together at the top.
+        //   - #632 (2026-08-05, box-walk #3): that top-flow made the
+        //     Back/Continue buttons sit directly under the
+        //     variable-length body, so the click target JUMPED from
+        //     one question to the next -- the buttons no longer stuck
+        //     to the bottom.
+        //
+        // The two complaints (toggle-hugs-body vs. buttons-pinned)
+        // only reconcile if the input and the buttons are DECOUPLED:
+        //   - Sticky top: header + title.
+        //   - Flexible middle: body copy + input + validation error,
+        //     inside ONE ScrollView that claims the remaining vertical
+        //     space. Its content is top-aligned, so the input hugs the
+        //     body copy on short prompts (kills the BW3-9 gap) and
+        //     scrolls on tall prompts (keeps the BW3-9 overflow fix).
+        //   - Pinned bottom: buttonRow, OUTSIDE the scroll region, so
+        //     Back/Continue sit at a CONSTANT viewport-bottom position
+        //     on every question (kills the #632 moving target).
+        // `.scrollBounceBehavior(.basedOnSize)` (macOS 14+, matches the
+        // gui/project.yml deployment target) stops the middle region
+        // from feeling scrollable when the content already fits.
         VStack(alignment: .leading, spacing: .ostlerSpace4) {
+            // Sticky top: super-title header + question title.
             header(q)
 
             Text(q.prompt.title)
@@ -110,23 +145,73 @@ struct OnboardingQuestionView: View {
                 .foregroundStyle(Color.ostlerInk)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // Help / body copy. Order:
-            //   - consent_install: special hyperlinked terms body
-            //   - passkey_ack (Q12): modality-branched copy because
-            //     MSG_PROMPT_PASSKEY_ACK_HELP hard-coded "Touch ID",
-            //     which is wrong on every desktop Mac without a Magic
-            //     Keyboard with Touch ID (Mac Studio / Mac Mini /
-            //     Mac Pro / standard iMac). BiometricProbe.cachedResult
-            //     drives a modality-appropriate ViewCopy string.
-            //   - assistant_name (Q6): ViewCopy-owned brand-warm helper
-            //     (the suggestion-pool intro). install.sh deliberately
-            //     sends empty help for this prompt id so we don't render
-            //     the same copy twice.
-            //   - everything else: install.sh's `help` field.
+            // Flexible middle: body copy + input + validation error.
+            // Scrolls when taller than the space; hugs the top when
+            // not. Claims all remaining height so the footer below is
+            // pinned to the same y-position on every question. Input
+            // lives here (not with the buttons) so the toggle stays
+            // next to its body copy -- the BW3-9 fix -- while the
+            // buttons stay pinned -- the #632 fix.
+            ScrollView {
+                VStack(alignment: .leading, spacing: .ostlerSpace4) {
+                    bodyRegionContent(q)
+
+                    inputField(q)
+
+                    if let err = validationError, !q.isReview {
+                        Text(err)
+                            .font(.ostlerCaption)
+                            .foregroundStyle(Color.ostlerOxblood)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .frame(maxHeight: .infinity)
+            .scrollBounceBehavior(.basedOnSize)
+
+            // Pinned bottom footer: Back / Continue. Sits outside the
+            // scroll region so its y-position is constant across every
+            // question regardless of body length (#632).
+            buttonRow(q)
+        }
+        .padding(.horizontal, .ostlerSpace4)
+        .padding(.vertical, .ostlerSpace3)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.ostlerChassis)
+        .onAppear { seed(from: q) }
+        .onChange(of: q.prompt.id) { _, _ in seed(from: q) }
+        .onChange(of: q.isReview) { _, _ in seed(from: q) }
+    }
+
+    /// Body copy + optional prompt-error banner for the middle region
+    /// of the standard onboarding-question layout. Factored out of
+    /// `standardQuestionBody`, which now renders it once inside the
+    /// scrolling middle region (see the #632 layout note there; the
+    /// two-branch `ViewThatFits` this was originally split out for is
+    /// gone). Help / body copy branching order:
+    ///   - consent_install: special hyperlinked terms body
+    ///   - passkey_ack (Q12): modality-branched copy because
+    ///     MSG_PROMPT_PASSKEY_ACK_HELP hard-coded "Touch ID",
+    ///     which is wrong on every desktop Mac without a Magic
+    ///     Keyboard with Touch ID (Mac Studio / Mac Mini /
+    ///     Mac Pro / standard iMac). BiometricProbe.cachedResult
+    ///     drives a modality-appropriate ViewCopy string.
+    ///   - assistant_name (Q6): ViewCopy-owned brand-warm helper
+    ///     (the suggestion-pool intro). install.sh deliberately
+    ///     sends empty help for this prompt id so we don't render
+    ///     the same copy twice.
+    ///   - everything else: install.sh's `help` field.
+    @ViewBuilder
+    private func bodyRegionContent(_ q: DisplayedQuestion) -> some View {
+        VStack(alignment: .leading, spacing: .ostlerSpace4) {
             if q.prompt.id == "consent_install" {
                 consentInstallBody()
             } else if q.prompt.id == "consent_third_party" {
                 consentThirdPartyBody()
+            } else if q.prompt.id == "consent_article_9" {
+                consentArticle9Body()
+            } else if q.prompt.id == "consent_spoken_capture" {
+                consentSpokenCaptureBody()
             } else if q.prompt.id == "passkey_ack" {
                 passkeyAckBody()
             } else if q.prompt.id == "recovery_passphrase" {
@@ -190,26 +275,8 @@ struct OnboardingQuestionView: View {
                 )
                 .accessibilityLabel(Text(promptError))
             }
-
-            inputField(q)
-
-            if let err = validationError, !q.isReview {
-                Text(err)
-                    .font(.ostlerCaption)
-                    .foregroundStyle(Color.ostlerOxblood)
-            }
-
-            Spacer()
-
-            buttonRow(q)
         }
-        .padding(.horizontal, .ostlerSpace4)
-        .padding(.vertical, .ostlerSpace3)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.ostlerChassis)
-        .onAppear { seed(from: q) }
-        .onChange(of: q.prompt.id) { _, _ in seed(from: q) }
-        .onChange(of: q.isReview) { _, _ in seed(from: q) }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     /// F6.8 consent_install body. CX-18 (Studio retest #13, 2026-05-23):
@@ -295,6 +362,113 @@ struct OnboardingQuestionView: View {
                 .foregroundStyle(Color.ostlerInkMuted)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
+            Text(linkifiedHelp(legal))
+                .font(.ostlerCaption.italic())
+                .foregroundStyle(.secondary)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// consent_article_9 (EU/UK Article-9 special-category) body.
+    /// Compliance fix 2026-07-15: the install.sh `region==eu` branch
+    /// emits a `consent_article_9` PROMPT whose bash-side
+    /// MSG_PROMPT_CONSENT_ARTICLE_9_HELP is only a one-line summary,
+    /// while the full special-category disclosure is echoed to stdout
+    /// and filtered out of the GUI window. The customer therefore only
+    /// ever saw the one-liner -- the actual Article-9 wording (health,
+    /// beliefs, orientation, union, voice speaker-ID, criminal offences)
+    /// never rendered. That is a GDPR disclosure gap.
+    ///
+    /// Sister to consentThirdPartyBody(): the screen splits into two
+    /// Text() views, both fed from ViewCopy keys (Rule 0.9 catalogue):
+    ///   - intro_body  (standard body copy, the special-category
+    ///                  disclosure reflowed for the GUI medium)
+    ///   - legal_note  (smaller, italic, .secondary-coloured fine
+    ///                  print: the UK GDPR Article 4(7) / 9(2)(a) /
+    ///                  2(2)(c) controller + lawful-basis note)
+    ///
+    /// The yes/no toggle + Continue button rendered by the standard
+    /// body carry the actual consent decision, so the intro_body omits
+    /// the TTY-only "Your decision" [Y]/[N] block (mirroring how
+    /// consentThirdPartyBody omits its own [Y]/[N] lines).
+    ///
+    /// Bash-side MSG_PROMPT_CONSENT_ARTICLE_9_HELP is unchanged so the
+    /// TTY install path still renders the full text inline.
+    private func consentArticle9Body() -> some View {
+        let intro = ViewCopy.shared.string(for: "consent_article_9.intro_body")
+        let legal = ViewCopy.shared.string(for: "consent_article_9.legal_note")
+        return VStack(alignment: .leading, spacing: .ostlerSpace3) {
+            Text(linkifiedHelp(intro))
+                .font(.ostlerBodyLg)
+                .foregroundStyle(Color.ostlerInkMuted)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(linkifiedHelp(legal))
+                .font(.ostlerCaption.italic())
+                .foregroundStyle(.secondary)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// consent_spoken_capture (spoken-audio recording consent) body.
+    /// BW3-8 (box-walk-v4, 2026-07-24): this screen had NO dedicated
+    /// renderer, so the entire MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP
+    /// blob -- intro + a "What we ask of you" list + the "Legal note:"
+    /// fine-print -- fell through to the generic single-Text() help
+    /// path at ostlerBodyLg. The bullet lines and the legal note were
+    /// mashed into one paragraph run with no block separation and no
+    /// subordinated legal styling ("mashed together / wrong size /
+    /// legal not a distinct block").
+    ///
+    /// Sister to consentThirdPartyBody() / consentArticle9Body(), but
+    /// richer: the middle "What we ask of you" section renders as a
+    /// real bulleted list (the DeviceLimitReachedView bullet recipe:
+    /// a "•" + text HStack per item) rather than inline prose. Three
+    /// blocks, all fed from ViewCopy keys (Rule 0.9 catalogue):
+    ///   - intro_body                (primary body copy)
+    ///   - ask_heading + bullet_1..3 (a scannable ask list)
+    ///   - legal_note                (smaller italic .secondary fine
+    ///                                print)
+    ///
+    /// Bash-side MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP is unchanged so
+    /// the TTY install path still renders the full text inline.
+    private func consentSpokenCaptureBody() -> some View {
+        let intro = ViewCopy.shared.string(for: "consent_spoken_capture.intro_body")
+        let askHeading = ViewCopy.shared.string(for: "consent_spoken_capture.ask_heading")
+        let bullets = [
+            ViewCopy.shared.string(for: "consent_spoken_capture.bullet_1"),
+            ViewCopy.shared.string(for: "consent_spoken_capture.bullet_2"),
+            ViewCopy.shared.string(for: "consent_spoken_capture.bullet_3")
+        ]
+        let legal = ViewCopy.shared.string(for: "consent_spoken_capture.legal_note")
+        return VStack(alignment: .leading, spacing: .ostlerSpace3) {
+            Text(linkifiedHelp(intro))
+                .font(.ostlerBodyLg)
+                .foregroundStyle(Color.ostlerInkMuted)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: .ostlerSpace2) {
+                Text(askHeading)
+                    .font(.ostlerBodyLg)
+                    .foregroundStyle(Color.ostlerInk)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(Array(bullets.enumerated()), id: \.offset) { _, line in
+                    HStack(alignment: .firstTextBaseline, spacing: .ostlerSpace2) {
+                        Text("•")
+                            .font(.ostlerBodyLg)
+                            .foregroundStyle(Color.ostlerInkMuted)
+                        Text(linkifiedHelp(line))
+                            .font(.ostlerBodyLg)
+                            .foregroundStyle(Color.ostlerInkMuted)
+                            .lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
             Text(linkifiedHelp(legal))
                 .font(.ostlerCaption.italic())
                 .foregroundStyle(.secondary)
@@ -893,7 +1067,10 @@ struct OnboardingQuestionView: View {
 
     /// F6.1: pull one suggestion at random from the ViewCopy
     /// `assistant_name_suggestions.comma_separated` catalogue value.
-    /// Falls back to `Marvin` if the catalogue is missing.
+    /// Falls back to `Friday` (a neutral in-pool name) if the
+    /// catalogue is missing. The compiled fallback must NOT carry the
+    /// legacy operator/assistant token — the full brand-warm pool
+    /// lives in the DATA file (ViewCopy.json), never in the Mach-O.
     private func randomAssistantSuggestion(fallback: String) -> String {
         let csv = ViewCopy.shared.string(
             for: "assistant_name_suggestions.comma_separated"
@@ -905,7 +1082,7 @@ struct OnboardingQuestionView: View {
         if let pick = pool.randomElement() {
             return pick
         }
-        return fallback.isEmpty ? "Marvin" : fallback
+        return fallback.isEmpty ? "Friday" : fallback
     }
 
     private func yesLabel(_ q: DisplayedQuestion) -> String {

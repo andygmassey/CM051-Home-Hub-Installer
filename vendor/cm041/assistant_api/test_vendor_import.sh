@@ -203,5 +203,96 @@ if ! grep -q "OSTLER_API_PORT" "$ICAL_SERVER_PY"; then
 fi
 echo "PASS: ical-server.py honours OSTLER_API_PORT env var"
 
+# -------------------------------------------------------------------
+# Part 7: #596 Hub People page wiring -- the bare list endpoint.
+# -------------------------------------------------------------------
+# The Hub dashboard People page reads GET /api/v1/people (list + count).
+# Pre-#596 there was NO such handler, so the page always fell to its
+# empty-state regardless of how full Qdrant/Oxigraph were. Lock all
+# three legs so a future refactor cannot silently re-break it:
+#   (a) the bare /people GET handler in ical-server.py,
+#   (b) the /api/v1/people -> /people version alias,
+#   (c) the bare /api/v1/people token in DOCTOR_PROXY_PATHS, matched
+#       comma-bounded so the longer /api/v1/people/search entry does
+#       NOT satisfy it (substring matching would mask a removal).
+
+if ! grep -q 'parsed.path == "/people":' "$ICAL_SERVER_PY"; then
+    echo "FAIL: ical-server.py is missing the bare GET /people handler (#596)" >&2
+    exit 1
+fi
+if ! grep -q '"/api/v1/people":' "$ICAL_SERVER_PY"; then
+    echo "FAIL: ical-server.py is missing the /api/v1/people -> /people alias (#596)" >&2
+    exit 1
+fi
+if ! grep -qF "/api/v1/people," "$INSTALL_SH"; then
+    echo "FAIL: install.sh DOCTOR_PROXY_PATHS is missing the bare /api/v1/people" >&2
+    echo "      (the /api/v1/people/search entry does NOT cover the list route)" >&2
+    exit 1
+fi
+echo "PASS: #596 Hub People list endpoint wired (handler + alias + proxy path)"
+
+# -------------------------------------------------------------------
+# Part 8: #624 wiki hydration panel -- cross-process wiring.
+# -------------------------------------------------------------------
+# The wiki homepage's first-run hydration panel reads
+# GET /api/v1/hydration/status. The silent-bail shape this guards: the
+# route exists in ical-server but is not reachable through the Doctor
+# :8089 front door (missing from DOCTOR_PROXY_PATHS), OR the compiler
+# container has nowhere host-visible to write the status file (missing
+# the ~/.ostler/state bind-mount + WIKI_HYDRATION_STATUS_FILE env), so
+# the host endpoint reads nothing and the panel hangs on "pending"
+# forever. Lock all four legs:
+#   (a) the route handler in ical-server.py,
+#   (b) the proxy path in DOCTOR_PROXY_PATHS,
+#   (c) the compiler's host state bind-mount in the compose heredoc,
+#   (d) the WIKI_HYDRATION_STATUS_FILE env pointing into that mount.
+
+if ! grep -q 'parsed.path == "/api/v1/hydration/status"' "$ICAL_SERVER_PY"; then
+    echo "FAIL: ical-server.py is missing the GET /api/v1/hydration/status handler (#624)" >&2
+    exit 1
+fi
+if ! grep -qF "/api/v1/hydration/status" "$INSTALL_SH"; then
+    echo "FAIL: install.sh DOCTOR_PROXY_PATHS is missing /api/v1/hydration/status" >&2
+    echo "      (the route is unreachable through the Doctor :8089 front door)" >&2
+    exit 1
+fi
+if ! grep -qF '${HOME}/.ostler/state:/state' "$INSTALL_SH"; then
+    echo "FAIL: install.sh wiki-compiler is missing the host state bind-mount (#624)" >&2
+    echo "      (the compiler has nowhere host-visible to write the status file)" >&2
+    exit 1
+fi
+if ! grep -qF "WIKI_HYDRATION_STATUS_FILE=/state/wiki_hydration.json" "$INSTALL_SH"; then
+    echo "FAIL: install.sh wiki-compiler is missing WIKI_HYDRATION_STATUS_FILE env (#624)" >&2
+    exit 1
+fi
+echo "PASS: #624 hydration panel wired (handler + proxy path + bind-mount + env)"
+
+# -------------------------------------------------------------------
+# Part 9: speaker-identity round-route -- GET /api/v1/conversation/{id}/speakers.
+# -------------------------------------------------------------------
+# The TEXT-only speaker-naming round-route (HR015 DESIGN section 4):
+# CM048 infers who each "Speaker N" is and writes 06_speaker_feedback.json;
+# this Hub route serves it back so the device can bind the name to its
+# LOCAL voiceprint via the opaque voice_fingerprint_ref. CM031's consumer
+# polls it on processing-complete. The silent-bail shape this guards: a
+# re-vendor of CM041 that drops the graft -> the iOS consumer hits a 404
+# and speaker suggestions silently never surface. Lock both legs:
+#   (a) the api_conversation_speakers handler is present in the vendored
+#       ical-server.py, and
+#   (b) the do_GET dispatch routes the /speakers suffix to it (so the
+#       handler is actually reachable, not just defined).
+
+if ! grep -q "def api_conversation_speakers" "$ICAL_SERVER_PY"; then
+    echo "FAIL: ical-server.py is missing the api_conversation_speakers handler" >&2
+    echo "      (CM048 speaker round-route producer-before-consumer graft lost)" >&2
+    exit 1
+fi
+if ! grep -qF 'endswith("/speakers")' "$ICAL_SERVER_PY"; then
+    echo "FAIL: ical-server.py do_GET does not dispatch /api/v1/conversation/{id}/speakers" >&2
+    echo "      (handler defined but unreachable -> iOS consumer 404s)" >&2
+    exit 1
+fi
+echo "PASS: speaker-feedback round-route wired (handler + /speakers dispatch)"
+
 echo ""
 echo "PASS: vendor/cm041/assistant_api/ regression test green"

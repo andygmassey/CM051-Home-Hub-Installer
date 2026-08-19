@@ -1,0 +1,66 @@
+name: pip-stage
+
+# `pip install <dir>` builds IN PLACE. When install.sh runs from the signed app
+# the package directories are inside the notarised bundle, so five call sites
+# were writing *.egg-info and build/lib/ into it and voiding its seal.
+#
+# ============================================================================
+# WHY THIS GATE, WHEN THE SEAL ALREADY HAS A PROBE
+# ============================================================================
+#
+# scripts/box_walk_probes/probes/installed_bundle_seal_intact.sh measures the
+# seal AFTER a real install, which is the only place the defect is visible. It
+# is also, by construction, unavailable on CI: there is no installed bundle on
+# a runner, and the probe correctly returns CANNOT-RUN rather than passing.
+#
+# So the probe cannot protect the fix from regression. This gate does the other
+# half: it drives the REAL helper and asserts the property the probe would
+# later measure -- that a pip which builds in place cannot reach the source
+# directory it was handed.
+#
+# ============================================================================
+# macos-14, DELIBERATELY
+# ============================================================================
+#
+# MEASURED 2026-08-16: BSD `mktemp -d -t PREFIX` IGNORES TMPDIR and always uses
+# the system default, where GNU mktemp honours it. The helper's original comment
+# claimed the GNU behaviour. The staging path is now an explicit template so it
+# behaves the same on both, but the shell this code ships under is macOS bash
+# and that is where the gate belongs.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_pip_stage_outside_bundle.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/pip-stage.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  pip-stage-outside-bundle:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # Extracts the real helper from install.sh and executes it. Exits 2
+      # CANNOT-RUN rather than passing if the extraction fails, so it cannot go
+      # green against a copy of the logic.
+      - name: pip must never build inside the signed bundle (#767)
+        run: bash tests/test_pip_stage_outside_bundle.sh
+
+      # /bin/bash on macOS is 3.2, which is the shell install.sh ships under.
+      # A test that only parses under 5.x is a test that never ran.
+      - name: The test parses under bash 3.2, the customer's shell
+        if: always()
+        run: /bin/bash -n tests/test_pip_stage_outside_bundle.sh

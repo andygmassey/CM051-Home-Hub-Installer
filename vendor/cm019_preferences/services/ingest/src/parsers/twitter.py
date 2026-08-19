@@ -72,34 +72,40 @@ class TwitterParser(BaseParser):
 
     source_name = "twitter"
 
+    # Members of a Twitter/X archive, matched on the path LEAF rather than by
+    # containment.
+    #
+    # "following.js" is a PREFIX of "following.json", and Instagram ships
+    # connections/followers_and_following/following.json in every export. A
+    # containment test therefore claimed Instagram archives here, and this
+    # parser is registered ahead of MetaParser, so Meta was never asked and the
+    # export yielded nothing. Same defect as the Discord/Facebook and
+    # Netflix/Foursquare collisions: a substring test standing in for an
+    # identity test.
+    TWITTER_ARCHIVE_FILES = frozenset({
+        "tweet.js",
+        "tweets.js",
+        "like.js",
+        "likes.js",
+        "follower.js",
+        "following.js",
+        "personalization.js",
+    })
+
     def can_parse(self, file_path: Path) -> bool:
         """Check if file is a Twitter data export."""
         if file_path.suffix.lower() == ".zip":
             try:
                 with zipfile.ZipFile(file_path, 'r') as zf:
-                    names = [n.lower() for n in zf.namelist()]
-                    twitter_files = [
-                        "tweet.js",
-                        "like.js",
-                        "follower.js",
-                        "following.js",
-                        "personalization.js"
-                    ]
-                    return any(f in n for n in names for f in twitter_files)
+                    return any(
+                        n.replace("\\", "/").rsplit("/", 1)[-1].lower()
+                        in self.TWITTER_ARCHIVE_FILES
+                        for n in zf.namelist()
+                    )
             except Exception:
                 return False
 
-        name = file_path.name.lower()
-        twitter_files = [
-            "tweet.js",
-            "tweets.js",
-            "like.js",
-            "likes.js",
-            "follower.js",
-            "following.js",
-            "personalization.js"
-        ]
-        return any(f in name for f in twitter_files)
+        return file_path.name.lower() in self.TWITTER_ARCHIVE_FILES
 
     async def parse(
         self,

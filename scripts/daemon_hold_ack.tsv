@@ -1,0 +1,32 @@
+# daemon_hold_ack.tsv -- deliberate holds on the DAEMON RECENCY link.
+#
+# Consumed by scripts/verify_cut_freshness.sh (check_daemon_recency). Mirrors
+# the contract in wiki_hold_ack.tsv, and applies to the RECENCY link ONLY. The
+# four provenance links (tag -> published release -> .sha256 sidecar ->
+# build-info commit) are NEVER waivable: a break there means the installer
+# downloads bytes nobody can account for.
+#
+# TAB-separated. Four columns:
+#   1. pinned_sha_prefix           prefix of the daemon commit the hold covers.
+#                                  A re-pin invalidates the row on purpose, so
+#                                  the decision has to be made again.
+#   2. hold_ack_shas               EVERY commit in pin..oa-main, space- or
+#                                  comma-separated. Short shas are fine; the
+#                                  match is prefix-tolerant in both directions.
+#                                  ANY unlisted delta commit is RED.
+#   3. shipping_bugfixes_grafted   must be exactly `true`. An explicit human
+#                                  assertion that nothing held back is a
+#                                  shipping bugfix a customer needs.
+#   4. reason                      why the pin is held. Empty reason is RED.
+#
+# THIS FILE IS DELIBERATELY EMPTY OF ROWS.
+#
+# It is not an oversight and it must not be pre-populated to make a cut go
+# green. The gap it exposes on 2026-08-12 is real: CM051 pins hub-v0.4.54 @
+# 782a6195 while ostler-ai/ostler-assistant main is 10b003a0, 29 commits ahead,
+# and those 29 commits contain the WhatsApp channel work. The correct response
+# is to cut a daemon release that CONTAINS them and re-pin -- not to write a
+# row here. A hold is for a commit you have consciously decided a customer does
+# not need yet; it is not a way to silence the gate.
+#
+# pinned_sha_prefix	hold_ack_shas	shipping_bugfixes_grafted	reason

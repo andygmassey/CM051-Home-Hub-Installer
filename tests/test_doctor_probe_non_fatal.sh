@@ -50,22 +50,24 @@ if [[ -z "$BLOCK" ]]; then
     exit 1
 fi
 
-if printf '%s\n' "$BLOCK" | grep -q 'HEALTHY=false'; then
+if grep -q 'HEALTHY=false' <<< "$BLOCK"; then
     printf 'FAIL: doctor probe block sets HEALTHY=false (must be non-fatal)\n' >&2
     printf '%s\n' "$BLOCK" | grep -n 'HEALTHY=false' >&2
     exit 1
 fi
 printf 'PASS: doctor probe block is non-fatal (does not flip HEALTHY)\n'
 
-# 4. Deferred-on-failure path is wired
-if ! printf '%s\n' "$BLOCK" | grep -q 'deferred (daemon may still be'; then
+# 4. Deferred-on-failure path is wired: on a non-zero/failed probe the
+# block emits the deferred-doctor info messages (keyed by this MSG id)
+# rather than failing the install.
+if ! grep -q 'MSG_INFO_OSTLER_ASSISTANT_DOCTOR_DEFERRED_DAEMON_MAY' <<< "$BLOCK"; then
     printf 'FAIL: doctor probe block missing deferred-on-failure log\n' >&2
     exit 1
 fi
 printf 'PASS: deferred-on-failure log present\n'
 
 # 5. timeout invocation is present (10s upper bound)
-if ! printf '%s\n' "$BLOCK" | grep -q 'timeout 10'; then
+if ! grep -q 'timeout 10' <<< "$BLOCK"; then
     printf 'FAIL: doctor probe block missing timeout 10s guard\n' >&2
     exit 1
 fi

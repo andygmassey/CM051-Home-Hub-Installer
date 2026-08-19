@@ -4,13 +4,11 @@ This file provides guidance to Claude Code agents working in this repo.
 
 ## Project purpose
 
-CM051 is the public-facing installer for the Ostler Hub. Users run:
+CM051 is the installer for the Ostler Hub. Customers buy at https://ostler.ai and
+install from the DMG; `OstlerInstaller.app` runs `install.sh`, which verifies the
+licence before it touches the machine and refuses without one.
 
-```bash
-curl -fsSL https://ostler.ai/install.sh | bash
-```
-
-...and end up with a working local-first Ostler Hub on their Mac.
+This repo is PUBLIC. Treat every string in it as customer-facing copy.
 
 ## Related repos (sibling projects)
 
@@ -64,3 +62,16 @@ See `PLAN.md` for the current workstream (channel configurator + OAuth for launc
 - British English in all user-facing messages
 - En-dashes ` – ` with spaces, never emdashes
 - Short, direct copy; no marketing fluff inside the installer
+
+---
+
+## 🗿 THE CUT MECHANISM LIVES IN OS003 -- NON-NEGOTIABLE
+
+**Before answering any question about what ships, where a component lives, or whether a fix is in the cut, read `~/Documents/Projects/OS003 - Ostler Release`.** It is the canonical cut mechanism, cut register and release truth. Do not infer the answer from this repo's scripts or their defaults -- `release.sh`'s `HR015_DIR` sibling-path default caused two false cut-blockers on 2026-08-08.
+
+- `release.toml` -- the pins. Names where every component lives and how it ships.
+- `cuts/<version>/MUST_CONTAIN.tsv` -- the BOM. **The moment anything here is built it gets a row**, via `OS003/bin/bom_add.sh`.
+- `manifest/capability_manifest.tsv` -- how a change is PROVEN present in the artefact.
+- `CUT_MECHANISM_CANONICAL.md` -- how a cut actually happens.
+
+Never build a competing gate or a second release repo. A missing gate belongs in `OS003/gates/`.

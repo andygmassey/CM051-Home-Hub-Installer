@@ -2,13 +2,13 @@
 
 Usage:
     # Ingest email preferences from CM021 (dry run)
-    python -m services.ingest.src.cli ingest-email /path/to/preferences.jsonl -u andy --dry-run
+    python -m services.ingest.src.cli ingest-email /path/to/preferences.jsonl -u jane --dry-run
 
     # Ingest email preferences for real
-    python -m services.ingest.src.cli ingest-email /path/to/preferences.jsonl -u andy
+    python -m services.ingest.src.cli ingest-email /path/to/preferences.jsonl -u jane
 
     # Ingest a directory of files
-    python -m services.ingest.src.cli ingest-dir /path/to/archives -u andy
+    python -m services.ingest.src.cli ingest-dir /path/to/archives -u jane
 
     # Show statistics about an email preferences file
     python -m services.ingest.src.cli stats /path/to/preferences.jsonl
@@ -74,16 +74,16 @@ def ingest_email(
 
     Examples:
         # Dry run - validate and show stats
-        python -m services.ingest.src.cli ingest-email ./preferences.jsonl -u andy --dry-run
+        python -m services.ingest.src.cli ingest-email ./preferences.jsonl -u jane --dry-run
 
         # Real ingestion
-        python -m services.ingest.src.cli ingest-email ./preferences.jsonl -u andy
+        python -m services.ingest.src.cli ingest-email ./preferences.jsonl -u jane
 
         # With cross-source reinforcement (email Nike strengthens social Nike)
-        python -m services.ingest.src.cli ingest-email ./preferences.jsonl -u andy --reinforce
+        python -m services.ingest.src.cli ingest-email ./preferences.jsonl -u jane --reinforce
 
         # With options
-        python -m services.ingest.src.cli ingest-email ./preferences.jsonl -u andy --min-strength 0.3 -v
+        python -m services.ingest.src.cli ingest-email ./preferences.jsonl -u jane --min-strength 0.3 -v
     """
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
@@ -264,11 +264,11 @@ def ingest_dir(
     existing preferences (frequencies combined, cross-source reinforcement).
 
     Examples:
-        python -m services.ingest.src.cli ingest-dir /path/to/archives -u andy
-        python -m services.ingest.src.cli ingest-dir /path/to/archives -u andy --no-recursive
+        python -m services.ingest.src.cli ingest-dir /path/to/archives -u jane
+        python -m services.ingest.src.cli ingest-dir /path/to/archives -u jane --no-recursive
 
         # Incremental mode - merge with existing preferences
-        python -m services.ingest.src.cli ingest-dir /path/to/new_data -u andy --incremental
+        python -m services.ingest.src.cli ingest-dir /path/to/new_data -u jane --incremental
     """
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)

@@ -101,6 +101,13 @@ struct ContentView: View {
             )
         case .fatal(let reason):
             DeviceRegistrationErrorView(reason: reason)
+        case .offlineGraceExhausted(let attempts):
+            // v1.0.10 security lockdown: the bounded offline fail-open
+            // grace is used up. Refuse to proceed until this Mac can
+            // reach our server and complete a real device registration.
+            DeviceRegistrationErrorView(
+                reason: "This licence has been installed offline \(attempts) time(s) on this Mac without ever confirming your device with our server. To protect your licence allowance, please connect this Mac to the internet and re-run the installer so we can verify your device."
+            )
         case .idle, .registering:
             // The install layout itself is fine to render -- bootstrap()
             // is gated separately, so the subprocess does not launch

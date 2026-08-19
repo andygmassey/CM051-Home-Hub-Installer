@@ -1,0 +1,99 @@
+name: colima-autostart
+
+# Colima holds the entire data tier. A reboot that does not start it takes
+# Qdrant, Oxigraph, Redis, Vane, wiki-site and store-proxy down with it, and
+# the customer's wiki with those.
+#
+# ============================================================================
+# WHAT WAS BROKEN
+# ============================================================================
+#
+# Measured on a v1.0.36 install, 2026-08-18:
+#
+#   brew services list                -> colima: none
+#   LaunchAgents mentioning colima    -> none of the 23 installed
+#   grep "colima start" ~/.ostler/bin ~/.ostler/services -> empty
+#
+# The daemon owns Colima's start by design (v1.0.10 Group C, 6723acc): a bare
+# LaunchAgent has no Full Disk Access, so a LaunchAgent-spawned Colima cannot
+# mount ~/Documents, and install.sh bind-mounts
+# ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki} into wiki-site and
+# wiki-compiler. That design is right. Two things around it were not:
+#
+#   1. install.sh:8347 claimed "Upgrade cleanup of any pre-existing
+#      com.ostler.colima agent lives in the LaunchAgent teardown section
+#      below". It does not. The only bootout of that label sits inside the
+#      `cat > ostler-uninstall <<'UNINSTALLEOF'` heredoc, so install.sh WRITES
+#      it into the uninstaller and never RUNS it. An upgraded box kept the
+#      FDA-less agent, racing the daemon.
+#
+#   2. Nothing asserted the mechanism at all. There was no test in this repo
+#      that Colima had an autostart, that the agent owning it was well-formed,
+#      or that a bare colima agent was not being created.
+#
+# ============================================================================
+# WHAT THIS GATE CAN AND CANNOT SAY
+# ============================================================================
+#
+# It asserts the MECHANISM is present and well-formed. It does NOT assert that
+# a reboot starts Colima, because that needs a real power cycle on real
+# hardware. The guard says so in its own output rather than letting a green
+# tick imply it. A gate that overclaims is how this defect survived three
+# green lights in the first place.
+#
+# ============================================================================
+# WHY macos
+# ============================================================================
+#
+# The guard lints the rendered LaunchAgent with `plutil`, which is the repo's
+# convention (install.sh:300, tests/test_install_daily_briefs.sh:209) and is
+# macOS-only. It falls back to a plistlib parse where plutil is absent, but
+# the installer only ever runs on macOS, so the gate runs where the code runs
+# and gets the real parser rather than the fallback.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'assistant-agent/launchd/**'
+      - 'tests/test_colima_autostart_mechanism.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/colima-autostart.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  autostart-mechanism:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The Colima autostart mechanism exists and is well-formed
+        run: bash tests/test_colima_autostart_mechanism.sh
+
+      # if: always() so a failure above cannot silence this one. The retry
+      # gate around the install-time `colima start` is a different failure
+      # from the login-time one and was already UNWIRED (TEST_WIRING.tsv:45),
+      # which is how a Colima defect reached a customer with a test sitting
+      # in the repo that never ran.
+      - name: The install-time colima start still retries
+        if: always()
+        run: bash tests/test_colima_start_retry.sh
+
+      - name: Both parse under bash 3.2-compatible syntax
+        if: always()
+        run: |
+          bash -n tests/test_colima_autostart_mechanism.sh
+          bash -n tests/test_colima_start_retry.sh
+          bash -n install.sh
+          bash -n install.sh.strings.en-GB.sh

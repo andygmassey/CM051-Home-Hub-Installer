@@ -51,6 +51,12 @@ VERSION=""
 DO_VERIFY=0
 DO_DRY_RUN=0
 DO_NOTES_SKELETON=0
+# W8 / F6: stage the Safari extension by default. The artefact is absent
+# only on a deliberate dev/partial build; a real cut MUST ship it, so the
+# default is "required" and the build fails loudly if it is missing (this
+# is the whole point -- the artefact used to be silently absent). Pass
+# --no-safari-extension to opt out for a dev/inspection build.
+SKIP_SAFARI_EXTENSION=0
 DIFF_AGAINST_TAG=""
 
 GREEN='\033[0;32m'
@@ -104,6 +110,13 @@ HR015_SOURCES=(
 # ${CM051_DIR}/vendor/cm041/.
 CM051_VENDOR_CM041_SUBDIRS=(
     "assistant_api"
+    # CM041 v1.0.9 (2026-07-15): repo-root companions of assistant_api.
+    # pwg_privacy.py is HARD-imported by ical-server.py (CM041 #97) from
+    # the parent dir of assistant_api/ -- the install root in this
+    # layout. ostler_hygiene/ is the memory-hygiene engine (CM041 #98),
+    # resolved fail-open from the same parent dir.
+    "pwg_privacy.py"
+    "ostler_hygiene"
 )
 
 # Files / dirs sourced from CM021. Format: src_relpath. Staged under
@@ -116,6 +129,23 @@ CM021_SOURCES=(
 
 # Special: copy HR015/contact_syncer/requirements.txt -> install/requirements.txt
 HR015_AGGREGATE_REQUIREMENTS_SRC="contact_syncer/requirements.txt"
+
+# Safari Web Extension artefact (W8 / F6). The signed + notarised + stapled
+# .app.zip is produced by CM020's bin/build-safari-extension.sh as
+# dist/OstlerSafariExtension-<version>.app.zip and staged by ORM at cut time
+# into CM051/vendor/extensions/ (it is a binary build artefact, NOT committed
+# to git -- see .gitignore note). release.sh and the gui postBuildScript both
+# read it from this single, fixed path and rename to the versionless name
+# install.sh's section 3.17 consumer expects
+# (${SCRIPT_DIR}/extensions/OstlerSafariExtension.app.zip).
+#
+# ORM HOOK: before a cut, produce + stage the artefact:
+#   (in CM020)  xcodegen generate && bin/build-safari-extension.sh
+#   then        cp dist/OstlerSafariExtension-<version>.app.zip \
+#                  "${CM051_DIR}/vendor/extensions/OstlerSafariExtension.app.zip"
+# The artefact MUST be Developer-ID signed (V95N2B8X7A) + notarised + stapled;
+# a --dry-run (unsigned) artefact will fail Gatekeeper and must never ship.
+SAFARI_EXTENSION_VENDOR_SRC="vendor/extensions/OstlerSafariExtension.app.zip"
 
 # Forbidden patterns (extended grep regex). One match anywhere in the staged
 # tree fails the build. See RELEASE.md for the policy.
@@ -204,6 +234,7 @@ while [[ $# -gt 0 ]]; do
         --dry-run)            DO_DRY_RUN=1; shift ;;
         --diff-against-tag)   DIFF_AGAINST_TAG="$2"; shift 2 ;;
         --notes-skeleton)     DO_NOTES_SKELETON=1; shift ;;
+        --no-safari-extension) SKIP_SAFARI_EXTENSION=1; shift ;;
         -h|--help)
             sed -n '2,30p' "${BASH_SOURCE[0]}"
             exit 0
@@ -215,6 +246,48 @@ done
 [[ -z "${VERSION}" ]] && die "--version is required" 1
 [[ -d "${HR015_DIR}" ]] || die "--hr015 path not found: ${HR015_DIR}" 3
 [[ -d "${CM021_DIR}" ]] || die "--cm021 path not found: ${CM021_DIR}" 3
+
+# -----------------------------------------------------------------------------
+# Cut-freshness preflight (UNBYPASSABLE for a real cut)
+# -----------------------------------------------------------------------------
+# Compares EVERY shippable input (vendor pins, daemon, wiki images) to its LIVE
+# upstream GitHub HEAD and hard-fails if anything lags. This is the structural
+# cure for "built but not in the cut": it would have caught RED a daemon tarball
+# predating the Ollama fix, and wiki images lagging the CM044 privacy fixes
+# #121/#122. It runs BEFORE provenance (broad live-HEAD sweep first, then the
+# named-fix ledger). Fail-closed: RED (exit 1) or CANNOT-VERIFY (exit 3, GitHub
+# unreachable) both abort. Skipped only for --dry-run (never a shippable cut).
+FRESHNESS_GATE="${CM051_DIR}/scripts/verify_cut_freshness.sh"
+if [[ "${DO_DRY_RUN}" -eq 0 ]]; then
+    echo "==> Cut-freshness preflight (live GitHub HEAD)"
+    [[ -x "${FRESHNESS_GATE}" ]] || die "freshness gate missing/not executable: ${FRESHNESS_GATE}" 2
+    if ! "${FRESHNESS_GATE}"; then
+        die "cut-freshness preflight FAILED -- a shippable input lags live upstream HEAD (or could not be verified). Re-pin/re-vendor/rebuild each RED input, then re-cut. DO NOT SHIP." 2
+    fi
+    ok "cut-freshness preflight GREEN"
+else
+    warn "--dry-run: skipping cut-freshness preflight (inspection only, not a shippable cut)"
+fi
+
+# -----------------------------------------------------------------------------
+# Cut-provenance preflight (UNBYPASSABLE for a real cut)
+# -----------------------------------------------------------------------------
+# Proves every fix merged to a source main is actually present in this tree +
+# the pinned daemon tag. This is the wall between "merged" and "shipped" -- it
+# exists because v0.4.8 shipped a dead-chat daemon and a stale-vendored Doctor,
+# both of which were merged but never made the cut. Skipped only for --dry-run
+# (inspection, never a shippable artefact). See scripts/cut_markers.manifest.
+PROVENANCE_GATE="${CM051_DIR}/scripts/verify_cut_provenance.sh"
+if [[ "${DO_DRY_RUN}" -eq 0 ]]; then
+    echo "==> Cut-provenance preflight"
+    [[ -x "${PROVENANCE_GATE}" ]] || die "provenance gate missing/not executable: ${PROVENANCE_GATE}" 2
+    if ! "${PROVENANCE_GATE}"; then
+        die "cut-provenance preflight FAILED -- a merged fix is stale/missing. Fix the FAILs above, then re-cut. DO NOT SHIP." 2
+    fi
+    ok "cut-provenance preflight GREEN"
+else
+    warn "--dry-run: skipping cut-provenance preflight (inspection only, not a shippable cut)"
+fi
 
 # -----------------------------------------------------------------------------
 # Stage
@@ -271,6 +344,41 @@ for src in "${CM021_SOURCES[@]}"; do
     for pat in "${RSYNC_EXCLUDES[@]}"; do EXCLUDE_FLAGS+=(--exclude="${pat}"); done
     rsync -a "${EXCLUDE_FLAGS[@]}" "${SRC}" "${INSTALL_DIR}/cm021/"
 done
+
+# -----------------------------------------------------------------------------
+# Stage the Safari Web Extension (W8 / F6) into install/extensions/
+# -----------------------------------------------------------------------------
+# install.sh section 3.17 probes ${SCRIPT_DIR}/extensions/OstlerSafariExtension.app.zip
+# and copies it to /Applications. For the curl|bash tarball path that means
+# install/extensions/OstlerSafariExtension.app.zip must be present in the
+# tarball. We source the signed artefact from CM051/vendor/extensions/ (staged
+# there by ORM from CM020's build output -- see SAFARI_EXTENSION_VENDOR_SRC).
+#
+# LOUD FAIL: if the artefact is missing this is a release defect, not a
+# graceful skip. The old behaviour silently shipped a tarball with no
+# extension and install.sh hit its info-level skip branch, which is exactly
+# how this gap went unnoticed across cuts. A real cut now fails here.
+# Use --no-safari-extension for a deliberate dev/partial build.
+SAFARI_EXTENSION_SRC="${CM051_DIR}/${SAFARI_EXTENSION_VENDOR_SRC}"
+if [[ "${SKIP_SAFARI_EXTENSION}" -eq 1 ]]; then
+    warn "--no-safari-extension: NOT staging the Safari extension (dev/partial build)"
+elif [[ -f "${SAFARI_EXTENSION_SRC}" ]]; then
+    echo "==> Staging Safari extension from ${SAFARI_EXTENSION_VENDOR_SRC}"
+    mkdir -p "${INSTALL_DIR}/extensions"
+    # Rename to the versionless name install.sh's consumer expects. CM020
+    # emits OstlerSafariExtension-<version>.app.zip; the installer probes the
+    # fixed name OstlerSafariExtension.app.zip.
+    cp "${SAFARI_EXTENSION_SRC}" "${INSTALL_DIR}/extensions/OstlerSafariExtension.app.zip"
+    ok "Safari extension staged into install/extensions/"
+else
+    die "Safari extension artefact missing: ${SAFARI_EXTENSION_SRC}
+      W8 / F6: ORM must build + sign + notarise + stage it before cutting.
+        (in CM020)  xcodegen generate && bin/build-safari-extension.sh
+        then        cp dist/OstlerSafariExtension-<version>.app.zip \\
+                       '${SAFARI_EXTENSION_SRC}'
+      The artefact MUST be Developer-ID signed (V95N2B8X7A) + notarised +
+      stapled. Pass --no-safari-extension only for a deliberate dev build." 3
+fi
 
 echo "==> Aggregating requirements.txt from HR015/${HR015_AGGREGATE_REQUIREMENTS_SRC}"
 cp "${HR015_DIR}/${HR015_AGGREGATE_REQUIREMENTS_SRC}" "${INSTALL_DIR}/requirements.txt"

@@ -1,0 +1,151 @@
+name: launchd-plist-paths
+
+# Regression gate for #177 (v1.0.13 launch-blocker, live-confirmed on the
+# Mini). The Ollama + ollama-logrotate LaunchAgents shipped with dead
+# /tmp/ostler-prelaunch-<pid>/... paths baked into ProgramArguments /
+# StandardOutPath / StandardErrorPath: the ollama section of install.sh
+# runs PRE-FDA, while _ostler_set_paths still has LOGS_DIR/OSTLER_DIR bound
+# to the /tmp staging tree (rebound to ~/.ostler only at the post-FDA
+# promotion). /tmp is wiped on reboot + macOS periodic cleanup, so both
+# agents failed after every reboot.
+#
+# This gate renders the two ollama plist heredocs under a POISONED prelaunch
+# environment and fails if any shipped com.*ostler*.plist path resolves
+# under /tmp -- catching the next re-introduction at CI, not at a customer
+# reboot. Companion test: tests/test_launchd_plist_no_tmp.sh.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_launchd_plist_no_tmp.sh'
+      - 'tests/test_enrichment_identity_and_disclosure.sh'
+      - 'vendor/cm019_preferences/services/enrich/**'
+      - 'tests/test_assistant_config_no_tmp.sh'
+      - 'tests/test_export_scan_plist_bootstrap_race_217.sh'
+      - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
+      - 'tests/test_laptop_hub_power_copy_fires_on_laptops_only.sh'
+      - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
+      - 'tests/test_launchagent_bootstrap_after_staging.py'
+      - '**/launchd/*.plist'
+      - '.github/workflows/launchd-plist-paths.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  launchd-plist-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assert no shipped LaunchAgent plist path resolves under /tmp
+        run: bash tests/test_launchd_plist_no_tmp.sh
+
+      # THE SAME ROOT CAUSE, ONE FILE OVER, AND THE STEP ABOVE WAS BLIND TO IT.
+      # Measured on the .219 box running v1.0.33 on 2026-08-17:
+      #
+      #     session_path = "/tmp/ostler-prelaunch-3992/state/whatsapp-session.db"
+      #
+      # in the SHIPPED ~/.ostler/assistant-config/config.toml. The assistant
+      # config is written pre-FDA, exactly like the ollama plists were, so the
+      # customer's WhatsApp Web device credentials were pointed at a directory
+      # macOS purges. The link dies on reboot and the daemon carries on
+      # printing "Channels: imessage, whatsapp" as though nothing happened.
+      #
+      # The step above did not catch it because it is keyed to the two ollama
+      # PLISTS by name. A gate keyed to a name does not cover a class, so this
+      # one asserts over the WHOLE rendered config, every key, not just the one
+      # that was broken.
+      #
+      # `if: always()` for the same reason as every step here (CM051 #656): an
+      # earlier limb's failure must not delete this measurement.
+      - name: Assert no shipped assistant-config value resolves under /tmp
+        if: always()
+        run: bash tests/test_assistant_config_no_tmp.sh
+
+      # What Ostler announces itself as to third parties, and whether the
+      # installer's disclosure names the set it actually contacts. 23 shipped
+      # User-Agents said PWG-Enrichment, pointed at accounts that are not ours,
+      # or impersonated Chrome to scrape Amazon. Every enrichment destination
+      # receives the customer's IP, the query and this string.
+      - name: Assert our outbound identity is ours, and the disclosure names the live set
+        if: always()
+        run: bash tests/test_enrichment_identity_and_disclosure.sh
+
+      - name: Assert com.ostler.export-scan bootstrap is race-safe (HR015 #217)
+        if: always()
+        run: bash tests/test_export_scan_plist_bootstrap_race_217.sh
+
+      # Task #338. The GUI install left the Mac's own sleep policy untouched,
+      # so the Hub slept every ~100 s and spent 1430 of 1439 wakes in DARK
+      # wake, where launchd does not schedule user agents. The assistant's
+      # iMessage poll never ran and inbound messages were silently never seen.
+      # This asserts the com.ostler.stay-awake agent is installed on BOTH the
+      # GUI and CLI paths, and that it carries `caffeinate -s` and NOT -i/-d,
+      # which would flatten a MacBook Hub's battery or hold its display on.
+      #
+      # `if: always()` for the same reason as the step above: a failure in an
+      # earlier step must not delete this measurement. That exact shape --
+      # one limb's cannot-run silently removing another limb's answer -- is
+      # what CM051 #656 fixed across 26 steps.
+      - name: Assert the Hub stays awake after the installer exits (#338)
+        if: always()
+        run: bash tests/test_stay_awake_agent_survives_installer_exit.sh
+
+      # The half of #338 that the agent cannot fix. `caffeinate -s` is valid
+      # only on AC (caffeinate(8)) and a closed lid sleeps the Mac regardless
+      # of any power assertion, so on a Mac mini or Studio the agent closes the
+      # gap and on a laptop it does not. `-s` is still the right flag -- `-i`
+      # would flatten a laptop -- which makes the remedy honest copy, and makes
+      # the copy the shipped artefact. This renders the two real install.sh
+      # blocks against a stubbed pmset and asserts a laptop is told and a
+      # desktop is not.
+      - name: Assert the laptop-Hub power copy reaches laptops only
+        if: always()
+        run: bash tests/test_laptop_hub_power_copy_fires_on_laptops_only.sh
+
+      # The other half of the same agent's life. `launchctl bootout` unloads a
+      # job for the current login session only; launchd rescans
+      # ~/Library/LaunchAgents at every login, so a plist left on disk is
+      # loaded again next time the customer logs in. An uninstall that boots
+      # out com.ostler.stay-awake and leaves its plist behind keeps holding a
+      # `caffeinate -s` power assertion on a Mac with no Ostler on it.
+      #
+      # This runs the uninstaller's teardown against a sandboxed HOME seeded
+      # with one plist per agent and fails on anything still on disk after.
+      # Presence of an `rm -f` line is not what it measures; what is left in
+      # the directory is.
+      #
+      # `if: always()` for the same reason as the steps above: an earlier
+      # failure must not delete this measurement (CM051 #656).
+      - name: Assert uninstall removes every LaunchAgent plist, not just the job
+        if: always()
+        run: bash tests/test_uninstall_removes_every_launchagent_plist.sh
+
+      # The ORDERING half of the same fault the step above gates by guard.
+      # A real install log showed step 19 of 39 reaching the email-ingest
+      # LaunchAgent while ProgramArguments[0] did not yet exist; the vendor
+      # guard refused and named EX_CONFIG (78). The guard was right, the
+      # ordering was the defect, and it exposed seven agents, not one. This
+      # asserts the invariant directly: no agent is bootstrapped before its
+      # ProgramArguments[0] is staged. It carries its own negative and
+      # positive controls and exits 2 rather than 0 if either misbehaves,
+      # so a checker that resolves nothing cannot print a green.
+      #
+      # `if: always()` for the same reason as every step above: an earlier
+      # limb's failure must not delete this measurement.
+      - name: Assert no LaunchAgent is bootstrapped before the daemon is staged
+        if: always()
+        run: python3 tests/test_launchagent_bootstrap_after_staging.py

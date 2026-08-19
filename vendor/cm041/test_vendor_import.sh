@@ -58,6 +58,24 @@ do
 done
 echo "file check: syncer.py + resolver.py present in all three packages"
 
+# Content guard (#638 + #145). The vendored contact_syncer/syncer.py is a
+# divergent twin: it is AHEAD of CM041 origin/main by the abcddb
+# Full-Disk-Access fallback (#145) and must carry the Qdrant
+# self-create (#638). A clean re-vendor from CM041 main would silently
+# drop both and re-break a fresh install, so assert both are present.
+CS_SYNCER="$SCRIPT_DIR/contact_syncer/syncer.py"
+for marker in \
+    "_ensure_qdrant_collection" \
+    "_read_abcddb_as_vcards"
+do
+    if ! grep -q "$marker" "$CS_SYNCER"; then
+        echo "FAIL: vendor/cm041/contact_syncer/syncer.py is missing '$marker'" \
+             "-- a clean re-vendor from CM041 main likely reverted it" >&2
+        exit 1
+    fi
+done
+echo "content check: contact_syncer has the #638 self-create + #145 abcddb fallback"
+
 # Optional import-time check. Mirrors how install.sh invokes the
 # syncers (sys.path hack inside syncer.py expects identity_resolver
 # as a sibling package).

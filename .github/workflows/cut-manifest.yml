@@ -1,0 +1,219 @@
+name: cut-manifest
+
+# Guards the cut-manifest gate (scripts/verify_cut_manifest.py + .sh).
+# Runs the hermetic smoke suite (10 tests against synthetic manifests +
+# fake artefact tree) and validates that both cut-manifests/permanent.yaml
+# and every cut-manifests/v*.yaml parse cleanly with the expected schema.
+#
+# CI cannot exercise the real gate end-to-end (that needs a built .app +
+# sibling ostler-assistant / CM044 checkouts + cross-org GH access, which
+# live only on the cut host). CI's job is: prove the verifier's logic
+# still works, and prove the manifests are well-formed. The real gate
+# runs on the cut host, wired fail-closed into gui/Makefile `ship` via
+# the `check-manifest` target.
+#
+# Registering these here means: any change to the verifier, the manifests,
+# or the wrapper is CI-guarded — the gate cannot silently rot.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_cut_manifest.py'
+      - 'scripts/verify_cut_manifest.sh'
+      - 'scripts/tests/test_verify_cut_manifest.py'
+      - 'scripts/box_walk_probes/**'
+      - 'scripts/tests/test_people_seed_and_retrieval_probe.sh'
+      - 'cut-manifests/**'
+      - 'gui/Makefile'
+      - '.github/workflows/cut-manifest.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  manifest-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml pytest
+
+      - name: Run verify_cut_manifest smoke tests
+        run: |
+          python -m pytest scripts/tests/test_verify_cut_manifest.py -v
+
+  # The box-walk probe body itself. The primitive above only proves the
+  # verifier honours a probe's exit code; this job proves the people probe
+  # actually FIRES, by driving it against a controllable fake box and
+  # asserting it goes RED on every way the round-trip can be wrong.
+  #
+  # macOS on purpose: the cut host runs the probe under /bin/bash, which is
+  # 3.2 on macOS. An ubuntu runner's bash 5 would accept 3.2-invalid syntax
+  # and pass a probe that dies on the real cut host.
+  people-probe-fires:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Confirm we are testing under bash 3.2, as the cut host does
+        run: /bin/bash --version | head -1
+
+      - name: Probe must fire (1 green + 11 distinct reds)
+        run: /bin/bash scripts/tests/test_people_seed_and_retrieval_probe.sh
+
+      # The step above is now fast and reliable (task #348 removed a 35s
+      # reverse-DNS stall from the fixture). Fast and reliable is also what a
+      # vacuous gate looks like, so prove the harness still goes RED: hand it
+      # the exact stub it exists to catch -- a probe that examines nothing and
+      # exits 0 -- and demand a specific red, not merely a non-zero.
+      #
+      # Exit 1 specifically, plus harness_failures=0. Accepting any non-zero
+      # would let a dead fixture (exit 2) satisfy the control, which is the same
+      # false-pass shape in a new costume.
+      - name: Negative control - the harness must go RED on the stub probe
+        # always(): a run where the step above went red is exactly the run where
+        # you most need to know whether the harness can still produce a red at
+        # all. Skipping this on failure would mask the one measurement that
+        # separates "the probe regressed" from "the harness stopped working".
+        if: always()
+        run: |
+          set -u
+          PROBE=scripts/box_walk_probes/people_seed_and_retrieval.sh
+          cp "$PROBE" "${RUNNER_TEMP}/probe.real"
+          printf '#!/usr/bin/env bash\necho "people_seed_and_retrieval: PASS -- nothing examined"\nexit 0\n' > "$PROBE"
+          set +e
+          /bin/bash scripts/tests/test_people_seed_and_retrieval_probe.sh > "${RUNNER_TEMP}/stub.out" 2>&1
+          rc=$?
+          set -e
+          cp "${RUNNER_TEMP}/probe.real" "$PROBE"
+          echo "stubbed-probe run exited ${rc}"
+          grep -E '^EXAMINED|^test_people_seed_and_retrieval_probe:' "${RUNNER_TEMP}/stub.out"
+          if [ "$rc" -ne 1 ]; then
+            echo "NEGATIVE CONTROL FAILED: expected exit 1 (expectations missed), got ${rc}."
+            echo "A stub probe that examines nothing must be caught as a missed"
+            echo "expectation. Any other code means the control did not measure"
+            echo "what it claims to measure."
+            tail -40 "${RUNNER_TEMP}/stub.out"
+            exit 1
+          fi
+          if ! grep -q 'harness_failures=0' "${RUNNER_TEMP}/stub.out"; then
+            echo "NEGATIVE CONTROL FAILED: the fixture did not stand up cleanly,"
+            echo "so the red above is not attributable to the stubbed probe."
+            tail -40 "${RUNNER_TEMP}/stub.out"
+            exit 1
+          fi
+          echo "negative control OK: stub probe -> exit 1, harness healthy"
+
+  manifest-parse:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Validate all manifests parse + have required fields
+        run: |
+          python3 <<'PY'
+          import sys, yaml
+          from pathlib import Path
+          errors = []
+          root = Path("cut-manifests")
+          if not root.is_dir():
+              print("ERROR: cut-manifests/ dir missing", file=sys.stderr)
+              sys.exit(1)
+          # Single source of truth: derive the allowed proof kinds from the
+          # verifier's DISPATCH table so this schema check can never drift out
+          # of lock-step with the real handlers again. This exact drift bit
+          # twice with a hand-maintained copy here — grep_in_dmg_tree (#457)
+          # and pinned_artefact_freshness (#484) — each time a new kind was
+          # added to DISPATCH but not mirrored here. verify_cut_manifest imports
+          # only the stdlib at module scope, so importing it under this
+          # pyyaml-only job is safe; if it ever gains a heavy top-level import
+          # this fails loudly (correct) rather than silently going stale.
+          sys.path.insert(0, "scripts")
+          from verify_cut_manifest import DISPATCH
+          KINDS = set(DISPATCH)
+          for path in sorted(root.glob("*.yaml")):
+              try:
+                  doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+              except Exception as e:
+                  errors.append(f"{path}: YAML parse error: {e}")
+                  continue
+              if not isinstance(doc, dict):
+                  errors.append(f"{path}: root must be a mapping")
+                  continue
+              if "entries" not in doc:
+                  errors.append(f"{path}: missing 'entries' key")
+                  continue
+              for i, entry in enumerate(doc.get("entries") or []):
+                  where = f"{path.name}#entries[{i}]"
+                  for req in ("id", "title", "proof"):
+                      if req not in entry:
+                          errors.append(f"{where}: missing '{req}'")
+                  proof = entry.get("proof", {})
+                  kind = proof.get("kind")
+                  if kind not in KINDS:
+                      errors.append(f"{where}: unknown proof.kind {kind!r}; must be one of {sorted(KINDS)}")
+                  if kind in ("grep_in_installer", "grep_in_artefact", "grep_in_dmg_tree", "grep_in_source_at_sha") and "pattern" not in proof:
+                      errors.append(f"{where}: {kind} requires 'pattern'")
+                  if kind == "grep_in_dmg_tree" and "exempt_paths" in proof:
+                      ep = proof.get("exempt_paths")
+                      if not isinstance(ep, list) or not all(isinstance(x, str) for x in ep):
+                          errors.append(f"{where}: grep_in_dmg_tree.exempt_paths must be a list of strings")
+                  if kind == "plist_key_equals":
+                      for req in ("path", "key", "value"):
+                          if req not in proof:
+                              errors.append(f"{where}: plist_key_equals requires '{req}'")
+                  if kind == "plist_env_key_present":
+                      for req in ("path", "key"):
+                          if req not in proof:
+                              errors.append(f"{where}: plist_env_key_present requires '{req}'")
+                  if kind == "box_walk_probe" and "probe" not in proof:
+                      errors.append(f"{where}: box_walk_probe requires 'probe'")
+                  if kind == "file_exists_in_artefact" and "path" not in proof:
+                      errors.append(f"{where}: file_exists_in_artefact requires 'path'")
+                  if kind in ("pinned_artefact_freshness", "verify_build_info_sidecar_present"):
+                      for req in ("pinned_version_source", "tag_format", "source_repo"):
+                          if req not in proof:
+                              errors.append(f"{where}: {kind} requires '{req}'")
+                      pvs = proof.get("pinned_version_source") or {}
+                      if not isinstance(pvs, dict) or not pvs.get("file") or not pvs.get("pattern"):
+                          errors.append(f"{where}: {kind}.pinned_version_source needs both 'file' and 'pattern'")
+                  if kind == "pinned_artefact_freshness" and "source_paths" not in proof:
+                      errors.append(f"{where}: pinned_artefact_freshness requires 'source_paths'")
+              print(f"OK   {path.name} ({len(doc.get('entries') or [])} entries)")
+          if errors:
+              print()
+              print("FAIL — manifest schema errors:", file=sys.stderr)
+              for e in errors:
+                  print("  " + e, file=sys.stderr)
+              sys.exit(1)
+          print()
+          print("All manifests parse + validate.")
+          PY

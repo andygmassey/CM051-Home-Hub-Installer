@@ -1,0 +1,36 @@
+# CUT MANIFEST -- v1.0.10 recut (canonical; update as SHAs land)
+# The single source of truth for what is IN the cut. If a built PR is not a row
+# here, cut_hygiene_gate.sh flags it as an ORPHAN. Seeded from CUT_HYGIENE_CHARTER.md.
+#
+# TAB-SEPARATED. Columns:
+#   repo            alias -> owner/slug + gh account resolved in cut_hygiene_gate.sh
+#                   (hr015/pwg/cm051=andygmassey ; oa/rc=ostler-ai ; "—" = no-repo/ancestor)
+#   pr              PR number
+#   expected_base   the base branch this PR MUST target for the cut
+#                   (main, or the integration line integration/hub-v1.0.10-recut)
+#   class           path-to-artifact class:
+#                     install-sh-native | vendored | pinned-binary |
+#                     pinned-image | build-config | separate-release | ancestor
+#                   (unset/unknown -> RED, fail closed)
+#   note            the accompanying declaration the class check requires
+#                   (vendored: a re-vendor pointer ; pinned-binary: a rebuild+re-pin step)
+#   status          human status (APPROVE / OPEN / rebased / NEW / no-merge ...)
+#
+# repo	pr	expected_base	class	note	status
+hr015	256	main	vendored	re-vendor consent legal strings -> CM051 #434	APPROVE
+hr015	258	main	vendored	Doctor proxy Part A; re-vendor -> CM051 #439	OPEN
+pwg	287	main	vendored	surgical 2-file re-vendor -> CM051 meta.py (fixes Facebook #431 group-name regression)	merge-first
+oa	228	integration/hub-v1.0.10-recut	pinned-binary	rebuild daemon 0.4.38 from a SHA containing the fix + bump pin	rebased
+oa	229	integration/hub-v1.0.10-recut	pinned-binary	folds into daemon 0.4.38 release (consent wording mirror)	APPROVE
+cm051	436	main	build-config	content-provenance gate tooling (scripts/provenance_gate.sh); merge FIRST	APPROVE
+cm051	434	main	install-sh-native	install.sh consent wording + re-vendor consent_strings	APPROVE
+cm051	435	main	install-sh-native	BW3-8 spoken-consent layout (needs screenshot)	APPROVE
+cm051	437	main	install-sh-native	intro-iMessage self-handle	APPROVE
+cm051	438	main	install-sh-native	BW4-A FDA auto-list (+ hang wrapper 38f6063)	APPROVE
+cm051	439	main	vendored	Part A vendored copy (Doctor proxy) -> re-vendor from HR015 #258	APPROVE
+cm051	440	main	build-config	project.yml dedup for clean build	NEW
+rc	10	main	pinned-binary	new remote-capture release: rebuild binary + bump pin	APPROVE
+rc	9	main	pinned-binary	SAME remote-capture release as #10; must merge + rebuild + re-pin	OPEN
+oa	201	—	ancestor	already in base 3cbc50dc (fail-closed gateway auth)	no-merge
+oa	226	—	ancestor	ancestor of 3cbc50dc (verified)	verified
+oa	227	—	ancestor	ancestor of 3cbc50dc (verified)	verified

@@ -1,0 +1,164 @@
+name: cut-pin-is-current
+
+# The CM051 pin in cuts/<tag>/cut.env must name the tree whose install.sh
+# actually ships. cut.yml's preflight is where it BLOCKS A CUT; this workflow
+# is where it must block a WRONG PIN FROM MERGING.
+#
+# ============================================================================
+# WHY THIS FILE CHANGED, 2026-08-16, AND IT IS THE GATE'S OWN FAILURE
+# ============================================================================
+#
+# PR #760 was the v1.0.32 pin re-point -- the single PR whose entire purpose is
+# to set the value this gate reads. This workflow RAN on it and reported
+# SUCCESS. It did not look at the pin.
+#
+# The job only executed `--self-test` and `bash -n`. Both passed, because the
+# gate's ability to discriminate was fine. What never happened was pointing it
+# at the tree in front of it. So a green check named `self-test` sat beside a
+# pin change and told the reviewer nothing about that pin, and a WRONG pin
+# would have merged with this workflow displaying a tick.
+#
+# That is worse than not running. A gate that does not run is a gap someone can
+# see; a gate that runs, passes, and is blind to the one defect it is named for
+# is a gap that actively reassures. It is the same shape as the dark BOM gate
+# and the WIRED-via-unreachable-runner tests found the same day -- an instrument
+# whose verdict does not reach the decision it claims to govern.
+#
+# ============================================================================
+# THE PREDICATE IS SPLIT, DELIBERATELY, TO AVOID A PERMANENT FALSE RED
+# ============================================================================
+#
+# Two different PR shapes touch this gate's inputs and they deserve opposite
+# treatment. Collapsing them into one blocking check would red every install.sh
+# PR forever, and a permanent false red teaches people that red means nothing.
+#
+#   A PR THAT EDITS cuts/**/cut.env  -- the author is ASSERTING a pin. That
+#      assertion is checkable right now, so it is checked, and it BLOCKS. This
+#      is exactly #760's shape.
+#
+#   A PR THAT EDITS install.sh ONLY  -- the pin going stale is the EXPECTED
+#      consequence, not a defect in this PR. The fix is a follow-up re-point,
+#      so this reports a REMINDER and does not block. #757 was this shape: it
+#      moved the install.sh blob and correctly needed #760 after it.
+#
+# Blocking the first and reminding on the second is the difference between a
+# gate that gets obeyed and one that gets bypassed.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_cut_pin_is_current.sh'
+      - '.github/workflows/cut-pin-is-current.yml'
+      - 'cuts/**/cut.env'
+      - 'install.sh'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  # RENAMED from 'self-test'. Two of my workflows used that job name, so in the
+  # PR check list they rendered as one indistinguishable entry and a reader
+  # could not tell which gate had reported. A check you cannot attribute is a
+  # check you cannot act on.
+  cut-pin-self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # the gate resolves historical pins
+
+      # Nine controls: the RED limb on a fixture reproducing the v1.0.31 shape
+      # (pin is a genuine ancestor, install.sh differs), a GREEN limb so the
+      # gate is known to be able to pass, a blob-vs-commit discrimination check,
+      # an ancestry-is-not-a-defence check, and three CANNOT-RUN limbs that must
+      # exit 2 rather than 0.
+      - name: The gate can still tell a stale pin from a current one
+        run: bash scripts/verify_cut_pin_is_current.sh --self-test
+
+      # Parse under /bin/bash EXPLICITLY. On macOS that is 3.2, and the cut runs
+      # on a Mac. A script that only parses under bash 5 is a gate that exits 2
+      # on the build machine and reads as CANNOT-RUN forever.
+      - name: Parses under bash 3.2-compatible syntax
+        run: bash -n scripts/verify_cut_pin_is_current.sh
+
+      # The CLASSIFIER's own controls. Control (2) is the regression that
+      # review caught: a branch touching no cut.env, on a main that HAS moved
+      # cut.env since the merge-base. Two-dot classified that `block`.
+      - name: The classifier does not mistake main's movement for this branch's
+        run: bash scripts/classify_pr_pin_shape.sh --self-test
+
+      - name: Classifier parses under bash 3.2-compatible syntax
+        run: bash -n scripts/classify_pr_pin_shape.sh
+
+  # THE JOB THAT WAS MISSING. Runs the gate against the tree in the PR.
+  cut-pin-is-actually-current:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Which inputs did this PR touch?
+        id: shape
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE:-}" ]; then
+            # push-to-main run: there is no PR diff to classify. Check the pin
+            # anyway, non-blocking, so main always prints its current state.
+            echo "mode=report" >> "$GITHUB_OUTPUT"
+            echo "  push to main: reporting the pin state, not blocking."
+            exit 0
+          fi
+          # THE CLASSIFIER IS A SCRIPT, NOT FOUR LINES HERE, AND THAT MATTERS.
+          #
+          # It WAS four lines here, and it shipped with a two-dot diff that
+          # classified most open PRs as `block`. Nothing could test it, because
+          # logic inside a workflow `run:` block is only exercised by opening a
+          # pull request -- which is exactly when a false red does its damage.
+          #
+          # scripts/classify_pr_pin_shape.sh carries the dots, the reasoning,
+          # and a 4-control self-test whose control (2) is precisely the case
+          # that failed review: a branch touching no cut.env, on a main that HAS
+          # moved cut.env since the merge-base.
+          MODE="$(bash scripts/classify_pr_pin_shape.sh "$BASE" "$HEAD")"
+          case "$MODE" in
+            block)  echo "  -> this PR ASSERTS a pin. Checking it, and it BLOCKS." ;;
+            report) echo "  -> this PR does not assert a pin. Reminder only." ;;
+            *)      echo "::error::classifier returned '$MODE', refusing to guess" >&2; exit 1 ;;
+          esac
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+
+      # BLOCKING limb. rc is taken DIRECTLY, never through a pipe.
+      - name: The pin this PR asserts must name the tree being cut
+        if: steps.shape.outputs.mode == 'block'
+        run: bash scripts/verify_cut_pin_is_current.sh --ref HEAD
+
+      # REPORTING limb. A stale pin here is expected and owed, not this PR's
+      # defect -- but it must be VISIBLE, because "someone will remember to
+      # re-point it" is precisely the sentence that let v1.0.31 keep a dead pin.
+      - name: Reminder -- does the newest cut record still match this tree?
+        if: steps.shape.outputs.mode == 'report'
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          bash scripts/verify_cut_pin_is_current.sh --ref HEAD
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::warning::The newest cut record's pin no longer matches this tree."
+            echo "::warning::That is EXPECTED if this PR changed install.sh -- a follow-up"
+            echo "::warning::re-point of cuts/<tag>/cut.env is now OWED before the tag."
+          fi
+          exit 0

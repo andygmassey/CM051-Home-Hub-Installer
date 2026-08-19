@@ -100,7 +100,7 @@ class TMDBClient(BaseClient[MovieMetadata]):
     def _get_headers(self):
         return {
             "Accept": "application/json",
-            "User-Agent": "PWG-Enrichment/0.1.0",
+            "User-Agent": "Ostler/1.0 (+https://ostler.ai)",
         }
 
     async def _get(

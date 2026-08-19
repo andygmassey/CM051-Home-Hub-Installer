@@ -19,6 +19,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -26,9 +28,11 @@ from pathlib import Path
 
 from . import prompts
 from . import enrichment_validation
+from . import bulk_classifier as _bulk_classifier
 from . import bundle_extractor as _bundle_extractor
 from . import channel_adapter as _channel_adapter
 from . import conversation_writer as _conversation_writer
+from . import outstanding_todos as _outstanding_todos
 from . import privacy as _privacy
 from .chunker import chunk_transcript, describe as describe_chunks
 from .ollama_client import OllamaClient
@@ -43,6 +47,8 @@ from .schemas import (
     ReminderCandidate,
     RelationshipSignal,
     Sensitivity,
+    SpeakerLabel,
+    SpeakerLabelFeedback,
     read_json,
     write_json,
 )
@@ -130,6 +136,34 @@ def process(
         conversation_id,
     )
 
+    # Non-relational gate (bulk / marketing / no-reply email).
+    # CM046 feeds newsletters, shipping notifications and marketing
+    # blasts through this pipeline as ``channel="email"`` conversations
+    # that are structurally identical to genuine person-to-person mail.
+    # Left ungated they fan a relationship signal, extracted facts and a
+    # contact-recency bump onto every co-recipient's person page – a
+    # "28car" digest ends up as an interaction on two real people who
+    # never corresponded. Detect it here, UPSTREAM of the relationship-
+    # graph steps, and keep it out of the graph while still letting the
+    # message land as browseable content in the Conversations wing (the
+    # bundle step stamps ``non_relational`` so CM044 can suppress the
+    # person-page attachment). Only the email channel carries the
+    # signals; every other channel returns a non-bulk verdict.
+    bulk_verdict = _bulk_classifier.classify(metadata)
+    if bulk_verdict.is_non_relational:
+        logger.info(
+            "Non-relational (bulk/marketing) conversation %s "
+            "[%s]: %s – skipping relationship / coaching / fact "
+            "fan-out and tagging bundle non_relational.",
+            conversation_id,
+            bulk_verdict.confidence,
+            bulk_verdict.reason_text,
+        )
+        # Stamp the metadata so the bundle adapter records the verdict
+        # in ``extra_metadata`` for the downstream (CM044) consumer.
+        metadata["non_relational"] = True
+        metadata["non_relational_reason"] = bulk_verdict.reason_text
+
     # Step 02  –  enrich
     if _should_run("02_enrich", state.completed_steps, resume_from_step):
         _run_step(
@@ -142,9 +176,11 @@ def process(
         )
 
     # Step 03  –  relationship signal (conditional)
+    #  Skipped for non-relational bulk mail: a mailing-list / no-reply
+    #  "conversation" has no relationship to signal about its recipients.
     if _should_run(
         "03_relationship_signal", state.completed_steps, resume_from_step
-    ) and _should_run_relationship(classification):
+    ) and _should_run_relationship(classification) and not bulk_verdict.is_non_relational:
         _run_step(
             state_dir,
             state,
@@ -155,9 +191,11 @@ def process(
         )
 
     # Step 04  –  coaching (conditional)
+    #  Skipped for non-relational bulk mail: there is no two-way
+    #  conversation for the user to be coached on.
     if _should_run(
         "04_coaching", state.completed_steps, resume_from_step
-    ) and _should_run_coach(classification):
+    ) and _should_run_coach(classification) and not bulk_verdict.is_non_relational:
         _run_step(
             state_dir,
             state,
@@ -168,9 +206,13 @@ def process(
         )
 
     # Step 05  –  fact extraction
+    #  Skipped for non-relational bulk mail: facts extracted from a
+    #  marketing / transactional body fan onto ``other:<slug>`` subjects
+    #  (co-recipients), polluting real people's pages with newsletter
+    #  content. Genuine correspondence is unaffected.
     if _should_run(
         "05_fact_extraction", state.completed_steps, resume_from_step
-    ) and classification.processing_depth == "full":
+    ) and classification.processing_depth == "full" and not bulk_verdict.is_non_relational:
         _run_step(
             state_dir,
             state,
@@ -180,14 +222,23 @@ def process(
             ),
         )
 
-    # Step 06  –  speaker feedback (placeholder; full impl wired in Phase C)
+    # Step 06  –  speaker feedback: infer who each "Speaker N" is from
+    # the transcript text + the people graph, so the device can bind the
+    # name to its LOCAL voiceprint via the opaque voice_fingerprint_ref.
+    # TEXT-ONLY: no embedding ever crosses the wire (DESIGN §4).
     if _should_run("06_speaker_feedback", state.completed_steps, resume_from_step):
         _run_step(
             state_dir,
             state,
             "06_speaker_feedback",
             lambda: _step_speaker_feedback(
-                state_dir, conversation_id, metadata, classification
+                client,
+                state_dir,
+                conversation_id,
+                metadata,
+                classification,
+                settings,
+                dry_run,
             ),
         )
 
@@ -316,6 +367,76 @@ def _should_run_coach(c: Classification) -> bool:
 
 
 MAX_RETRIES = 3
+
+# --- v1018-D031: a total wall-clock allowance for the enrichment step ----
+#
+# Every LLM call in _step_enrich was already individually bounded at 900s.
+# That is why no per-call timeout could fix this: nothing was ever stuck.
+# The step simply has a very large BOUNDED worst case --
+#
+#   3-4 chunks x 900s + merge 900s + validation retry 900s   ~= 1h15m
+#   x MAX_RETRIES (3), backoff 30s + 60s                     ~= 4h30m
+#
+# -- four and a half hours, by design, for one email. On the shipped box a
+# single 236KB newsletter thread (2.8x the next largest document) sat in
+# this step from 03:47 until it was killed, holding the shared ingest lock
+# and stopping all four conversation feeds.
+#
+# So the ceiling belongs on the STEP, not on the call. Each call is given
+# whatever remains of the document's allowance, so the total cannot exceed
+# it however the chunks divide up.
+#
+# The deadline is module-level rather than threaded through
+# _merge_chunk_outputs / _validate_and_maybe_retry because pwg-convo
+# processes exactly ONE document per invocation (`pwg-convo process
+# <transcript> <metadata>`), single-threaded -- so there is never a second
+# concurrent budget in this process. Threading it through would mean
+# changing three signatures in a vendored tree whose source repo is
+# git-sick and whose divergence patch must be hand-crafted.
+_ENRICH_BUDGET_DEFAULT_SECS = 1800
+_ENRICH_CALL_CEILING_SECS = 900.0
+
+_enrich_deadline: float | None = None
+
+
+class EnrichmentBudgetExceeded(Exception):
+    """The enrichment step used up its total wall-clock allowance."""
+
+
+def _enrich_budget_secs():
+    """Total allowance for one document, or None for unbounded.
+
+    ``OSTLER_ENRICH_BUDGET_SECS=0`` restores the old behaviour. A
+    malformed value falls back to the default rather than raising -- a
+    typo in an env var must not be the thing that stops ingest.
+    """
+    raw = os.environ.get("OSTLER_ENRICH_BUDGET_SECS")
+    if raw is None or not raw.strip():
+        return float(_ENRICH_BUDGET_DEFAULT_SECS)
+    try:
+        secs = float(raw)
+    except ValueError:
+        return float(_ENRICH_BUDGET_DEFAULT_SECS)
+    return None if secs <= 0 else secs
+
+
+def _budget_timeout(ceiling: float = _ENRICH_CALL_CEILING_SECS) -> float:
+    """Timeout for the next LLM call: whatever is left of the allowance.
+
+    Raises EnrichmentBudgetExceeded rather than issuing a call that
+    cannot finish inside the document's remaining time.
+    """
+    if _enrich_deadline is None:
+        return ceiling
+    remaining = _enrich_deadline - time.monotonic()
+    if remaining <= 0:
+        raise EnrichmentBudgetExceeded(
+            f"enrichment budget exhausted before the next model call "
+            f"(allowance {_enrich_budget_secs()}s; raise or disable it with "
+            f"OSTLER_ENRICH_BUDGET_SECS)"
+        )
+    return min(ceiling, remaining)
+# ------------------------------------------------------------------------
 BASE_DELAY_SECONDS = 30
 
 
@@ -329,6 +450,14 @@ def _is_retryable(exc: Exception) -> bool:
     JSON parse failures, value errors  –  retrying won't help.
     """
     import httpx
+
+    # v1018-D031. Retrying a budget exhaustion just spends the budget
+    # again, and MAX_RETRIES would multiply the step ceiling by three --
+    # which is precisely the arithmetic that made a 4h30m worst case
+    # possible in the first place. Checked FIRST because the function
+    # ends in `return True`: every unrecognised exception is retried.
+    if isinstance(exc, EnrichmentBudgetExceeded):
+        return False
 
     if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
         return True
@@ -544,6 +673,41 @@ def _step_enrich(
     if out_path.exists():
         return
 
+    # v1018-D031. Arm the document's total allowance. Disarmed in the
+    # finally below so a later step never inherits a spent budget, and so
+    # a _run_step retry starts from a full one rather than a stale
+    # deadline in the past.
+    global _enrich_deadline
+    _budget = _enrich_budget_secs()
+    _enrich_deadline = None if _budget is None else time.monotonic() + _budget
+    if _budget is not None:
+        logger.info(
+            "Enrichment budget for %s: %.0fs total across all model calls.",
+            metadata["conversation_id"],
+            _budget,
+        )
+    try:
+        _step_enrich_inner(
+            client, transcript, metadata, classification, settings, dry_run,
+            state_dir, out_path, sidecar_path,
+        )
+    finally:
+        _enrich_deadline = None
+    return
+
+
+def _step_enrich_inner(
+    client: OllamaClient,
+    transcript: str,
+    metadata: dict,
+    classification: Classification,
+    settings: Settings,
+    dry_run: bool,
+    state_dir,
+    out_path,
+    sidecar_path,
+) -> None:
+
     prompt_name = prompts.enrichment_prompt_name_for(
         classification.suggested_type_slug
     )
@@ -586,7 +750,7 @@ def _step_enrich(
             full_prompt,
             system=enrichment_system,
             priority="medium",
-            timeout=900.0,
+            timeout=_budget_timeout(),
         )
         rendered, retry_attempted, validation = _validate_and_maybe_retry(
             client=client,
@@ -596,7 +760,39 @@ def _step_enrich(
             expected_headings=expected_headings,
             settings=settings,
         )
+        # v1018-D014c: last stop before the customer's wiki page. A
+        # placeholder the model copied out of the prompt template must not
+        # reach disk. Stripped, not retried -- see the helper's docstring.
+        rendered, _dropped = enrichment_validation.strip_placeholder_tokens(rendered)
+        if _dropped:
+            logger.warning(
+                "Dropped %d prompt-template placeholder(s) from %s output: %s",
+                len(_dropped),
+                metadata.get("conversation_id"),
+                ", ".join(_dropped),
+            )
         out_path.write_text(rendered)
+        # Pre-meeting brief input: walk the enrichment's Action items
+        # table and emit a per-participant outstanding_todos.json
+        # sidecar. Best-effort: if the LLM didn't produce a parseable
+        # table this is a no-op. Wired here (not in step 07) because
+        # the sidecar reads the just-written enrichment markdown and
+        # because the ingest step's L3 short-circuit skips Oxigraph
+        # for L3 conversations -- writing the sidecar regardless of
+        # privacy level keeps it available for tooling that runs
+        # outside the SPARQL surface (e.g. debug review of the
+        # rejected gist arm).
+        try:
+            _todos = _outstanding_todos.extract_outstanding_todos(
+                rendered, metadata
+            )
+            _outstanding_todos.write_sidecar(state_dir, _todos)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "outstanding_todos extraction failed for %s: %s",
+                metadata.get("conversation_id"),
+                exc,
+            )
         write_json(
             sidecar_path,
             {
@@ -635,7 +831,7 @@ def _step_enrich(
                 full_prompt,
                 system=enrichment_system,
                 priority="medium",
-                timeout=900.0,
+                timeout=_budget_timeout(),
             )
             per_chunk_outputs.append(result.raw_response)
 
@@ -670,7 +866,31 @@ def _step_enrich(
             expected_headings=expected_headings,
             settings=settings,
         )
+        # v1018-D014c: last stop before the customer's wiki page. A
+        # placeholder the model copied out of the prompt template must not
+        # reach disk. Stripped, not retried -- see the helper's docstring.
+        rendered, _dropped = enrichment_validation.strip_placeholder_tokens(rendered)
+        if _dropped:
+            logger.warning(
+                "Dropped %d prompt-template placeholder(s) from %s output: %s",
+                len(_dropped),
+                metadata.get("conversation_id"),
+                ", ".join(_dropped),
+            )
         out_path.write_text(rendered)
+        # See note above (single-chunk branch) for the rationale on
+        # extracting outstanding_todos here rather than during ingest.
+        try:
+            _todos = _outstanding_todos.extract_outstanding_todos(
+                rendered, metadata
+            )
+            _outstanding_todos.write_sidecar(state_dir, _todos)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "outstanding_todos extraction failed for %s: %s",
+                metadata.get("conversation_id"),
+                exc,
+            )
 
         write_json(
             sidecar_path,
@@ -687,6 +907,31 @@ def _step_enrich(
                 },
             },
         )
+
+
+def _validate_document(
+    text: str, prompt_name: str, expected_headings: list[str],
+):
+    """Validate a document against BOTH heading levels.
+
+    v1018-D014b. The `##` check alone passed a merged document whose
+    `### Narrative` had been dropped -- the check was one level coarser
+    than the defect, so the defect was invisible to it. A missing
+    sub-section is reported as `### Name` so the retry prompt and the
+    log say which level is wrong.
+    """
+    top = enrichment_validation.validate_headings(text, expected_headings)
+    subs = enrichment_validation.validate_subheadings(
+        text, enrichment_validation.expected_subheadings_for(prompt_name),
+    )
+    if subs.ok:
+        return top
+    return enrichment_validation.HeadingValidation(
+        ok=False,
+        missing=top.missing + [f"### {m}" for m in subs.missing],
+        extras=top.extras,
+        found=top.found + subs.found,
+    )
 
 
 def _validate_and_maybe_retry(
@@ -707,9 +952,7 @@ def _validate_and_maybe_retry(
     is still written - downstream consumers will see whatever the model
     produced and the sidecar records the gap.
     """
-    validation = enrichment_validation.validate_headings(
-        initial_text, expected_headings,
-    )
+    validation = _validate_document(initial_text, prompt_name, expected_headings)
     if validation.ok:
         if validation.extras:
             logger.info(
@@ -731,10 +974,10 @@ def _validate_and_maybe_retry(
         full_prompt,
         system=retry_system,
         priority="medium",
-        timeout=900.0,
+        timeout=_budget_timeout(),
     )
-    retry_validation = enrichment_validation.validate_headings(
-        retry_result.raw_response, expected_headings,
+    retry_validation = _validate_document(
+        retry_result.raw_response, prompt_name, expected_headings,
     )
     if not retry_validation.ok:
         logger.warning(
@@ -854,6 +1097,8 @@ Locale: {settings.locale}
 {conventions}
 
 {chunks_body}
+
+{enrichment_validation.build_section_contract(prompt_name)}
 """
     merge_system = (
         "You are merging multiple enrichment outputs into one coherent "
@@ -866,7 +1111,7 @@ Locale: {settings.locale}
         full_prompt,
         system=merge_system,
         priority="medium",
-        timeout=900.0,
+        timeout=_budget_timeout(),
     )
     return result.raw_response
 
@@ -1254,26 +1499,335 @@ participants: {json.dumps(metadata.get("participants") or [])}
 
 
 def _step_speaker_feedback(
+    client: OllamaClient,
     state_dir: Path,
     conversation_id: str,
     metadata: dict,
     classification: Classification,
+    settings: Settings,
+    dry_run: bool,
 ) -> None:
-    """v1: emit an empty feedback record so sinks have a consistent
-    artefact. Real inference lives in a later iteration."""
+    """Infer the real person behind each unresolved "Speaker N" label.
+
+    TEXT-ONLY round-route (DESIGN_capture_ingest_and_speaker_identity §4):
+    the Hub LLM reads the transcript plus a candidate list from the people
+    graph and suggests a name for each generic speaker label. The device
+    later binds the confirmed name to its LOCAL voiceprint, keyed by the
+    opaque ``voice_fingerprint_ref`` the capture surface attached. The
+    voice embedding NEVER crosses the wire; only the opaque ref is echoed.
+
+    Writes ``06_speaker_feedback.json`` matching
+    ``docs/speaker_label_feedback.schema.json``. Resolved speakers go in
+    ``labels`` with an ``apply_mode`` derived from confidence; speakers the
+    model could not name go in ``unresolved_labels`` (still carrying their
+    ``voice_fingerprint_ref`` so the device can prompt the user to label).
+    """
     out_path = state_dir / "06_speaker_feedback.json"
     if out_path.exists():
         return
-    feedback = {
-        "feedback_id": str(uuid.uuid4()),
-        "conversation_id": conversation_id,
-        "produced_at": datetime.now(timezone.utc).isoformat(),
-        "capture_source": metadata.get("capture_source", "cm042_mac"),
-        "labels": [],
-        "unresolved_labels": [],
-        "conversation_sensitivity_level": classification.sensitivity.level,
-    }
-    write_json(out_path, feedback)
+
+    capture_source = metadata.get("capture_source", "cm042_mac")
+    # Map of "Speaker N" -> voice_fingerprint_ref attached by the device.
+    ref_by_label = _speaker_fingerprint_refs(metadata)
+
+    def _empty() -> SpeakerLabelFeedback:
+        return SpeakerLabelFeedback(
+            feedback_id=str(uuid.uuid4()),
+            conversation_id=conversation_id,
+            produced_at=datetime.now(timezone.utc).isoformat(),
+            capture_source=capture_source,
+            labels=[],
+            unresolved_labels=[],
+            conversation_sensitivity_level=classification.sensitivity.level,
+        )
+
+    # Nothing to infer for a dry run, or when there are no generic speaker
+    # labels in the transcript at all.
+    raw_path = state_dir / "00_raw_transcript.md"
+    if dry_run or not raw_path.exists():
+        write_json(out_path, _empty().to_dict())
+        return
+
+    raw_transcript = raw_path.read_text()
+    speaker_labels = _unresolved_speaker_labels(raw_transcript, ref_by_label)
+    if not speaker_labels:
+        write_json(out_path, _empty().to_dict())
+        return
+
+    candidates = _load_candidate_people(metadata, settings)
+    template = prompts.load_prompt("06_speaker_inference")
+
+    prompt_body = f"""
+--- SPEAKER LABELS TO RESOLVE ---
+{json.dumps(speaker_labels)}
+
+--- CANDIDATE PEOPLE (known contacts; slug = inferred_person_id) ---
+{json.dumps(candidates, indent=2)}
+
+--- TRANSCRIPT ---
+{raw_transcript}
+"""
+    schema_hint = (
+        '{"labels": [{"raw_label": "Speaker 2", '
+        '"inferred_person_id": "john_smith", '
+        '"inferred_display_name": "John Smith", "confidence": 0.92, '
+        '"evidence": "addressed as John at turn 4"}], '
+        '"unresolved_labels": [{"raw_label": "Speaker 3", '
+        '"sample_turns": ["Speaker 3: I will send the deck."]}]}'
+    )
+    full_prompt = template + "\n\n---\n\n" + prompt_body
+
+    try:
+        result = client.generate_json(
+            settings.ollama_fact_model,
+            full_prompt,
+            expect="object",
+            schema_hint=schema_hint,
+            priority="medium",
+            timeout=600.0,
+        )
+        parsed = result.parsed_json if isinstance(result.parsed_json, dict) else {}
+    except Exception as exc:  # inference must never wedge the pipeline
+        logger.warning("speaker inference LLM call failed: %s", exc)
+        parsed = {}
+
+    feedback = _build_speaker_feedback(
+        conversation_id=conversation_id,
+        capture_source=capture_source,
+        sensitivity_level=classification.sensitivity.level,
+        parsed=parsed,
+        speaker_labels=speaker_labels,
+        ref_by_label=ref_by_label,
+    )
+    write_json(out_path, feedback.to_dict())
+
+
+# Confidence at/above which a label may be auto-applied without prompting.
+_SPEAKER_AUTO_APPLY_THRESHOLD = 0.9
+# Confidence below which a label needs explicit user review before applying.
+_SPEAKER_REVIEW_THRESHOLD = 0.7
+
+
+def _speaker_fingerprint_refs(metadata: dict) -> dict[str, str | None]:
+    """Map each "Speaker N" label to the opaque voice_fingerprint_ref the
+    capture device attached. Returns {} when the device sent none.
+
+    The device may carry refs either on participants (role-keyed) or on a
+    dedicated ``speaker_fingerprints`` map ("Speaker 1" -> ref). We accept
+    both shapes; the embedding itself is never present, only the ref.
+    """
+    refs: dict[str, str | None] = {}
+    explicit = metadata.get("speaker_fingerprints")
+    if isinstance(explicit, dict):
+        for label, ref in explicit.items():
+            refs[str(label)] = ref if isinstance(ref, str) else None
+    participants = metadata.get("participants") or []
+    for i, p in enumerate(participants, 1):
+        if not isinstance(p, dict):
+            continue
+        ref = p.get("voice_fingerprint_ref")
+        if ref:
+            refs.setdefault(f"Speaker {i}", ref)
+    return refs
+
+
+def _unresolved_speaker_labels(
+    transcript: str, ref_by_label: dict[str, str | None]
+) -> list[dict]:
+    """Find every distinct "Speaker N" label appearing as a turn prefix.
+
+    Returns a list of {raw_label, voice_fingerprint_ref, sample_turns}
+    in first-appearance order. Only generic labels are returned -- a turn
+    already prefixed with a real name is considered resolved.
+    """
+    import re
+
+    pattern = re.compile(r"^\s*(Speaker\s+\d+)\s*:\s*(.*)$")
+    order: list[str] = []
+    samples: dict[str, list[str]] = {}
+    for line in transcript.splitlines():
+        m = pattern.match(line)
+        if not m:
+            continue
+        label = m.group(1).strip()
+        # Normalise internal whitespace ("Speaker  2" -> "Speaker 2").
+        label = re.sub(r"\s+", " ", label)
+        if label not in samples:
+            order.append(label)
+            samples[label] = []
+        if len(samples[label]) < 3 and m.group(2).strip():
+            samples[label].append(f"{label}: {m.group(2).strip()}")
+    return [
+        {
+            "raw_label": label,
+            "voice_fingerprint_ref": ref_by_label.get(label),
+            "sample_turns": samples[label],
+        }
+        for label in order
+    ]
+
+
+def _load_candidate_people(metadata: dict, settings: Settings) -> list[dict]:
+    """Assemble candidate {id, display} contacts for the inference prompt.
+
+    Sources, deduped by slug:
+    1. non-user participants already named in the request metadata, and
+    2. up to 200 known ``pwg:Person`` display names from the people graph.
+
+    Degrades to whatever it can reach -- a graph outage yields the
+    metadata-only list rather than failing the step.
+    """
+    candidates: dict[str, str] = {}
+    for p in metadata.get("participants") or []:
+        if not isinstance(p, dict) or p.get("role") == "user":
+            continue
+        slug = p.get("id")
+        display = p.get("display") or p.get("id")
+        if slug and display:
+            candidates[str(slug)] = str(display)
+
+    for row in _query_graph_people(settings):
+        slug = row.get("slug")
+        display = row.get("display")
+        if slug and display:
+            candidates.setdefault(slug, display)
+
+    return [{"id": s, "display": d} for s, d in candidates.items()]
+
+
+def _query_graph_people(settings: Settings) -> list[dict]:
+    """Best-effort SPARQL fetch of known people (slug + display name).
+
+    Person nodes are typed ``pwg:Person`` in the ``https://pwg.dev/
+    ontology#`` namespace (see last_contact_updater). Returns [] on any
+    failure -- candidate enrichment is optional, never load-bearing.
+    """
+    import httpx
+
+    sparql = """
+PREFIX pwg: <https://pwg.dev/ontology#>
+SELECT DISTINCT ?slug ?display WHERE {
+  ?person a pwg:Person ;
+          pwg:displayName ?display .
+  OPTIONAL { ?person pwg:slug ?slug . }
+}
+LIMIT 200
+"""
+    try:
+        with httpx.Client(
+            timeout=15.0, transport=httpx.HTTPTransport(proxy=None)
+        ) as hc:
+            resp = hc.post(
+                f"{settings.oxigraph_url}/query",
+                content=sparql,
+                headers={
+                    "Content-Type": "application/sparql-query",
+                    "Accept": "application/sparql-results+json",
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        logger.info("speaker candidate people query unavailable: %s", exc)
+        return []
+
+    out: list[dict] = []
+    for binding in data.get("results", {}).get("bindings", []):
+        display = binding.get("display", {}).get("value", "")
+        slug = binding.get("slug", {}).get("value", "")
+        if not display:
+            continue
+        if not slug:
+            slug = _slugify(display)
+        out.append({"slug": slug, "display": display})
+    return out
+
+
+def _slugify(name: str) -> str:
+    import re
+
+    s = name.strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    return s.strip("_") or "unknown"
+
+
+def _build_speaker_feedback(
+    *,
+    conversation_id: str,
+    capture_source: str,
+    sensitivity_level: str,
+    parsed: dict,
+    speaker_labels: list[dict],
+    ref_by_label: dict[str, str | None],
+) -> SpeakerLabelFeedback:
+    """Turn the raw LLM JSON into a validated SpeakerLabelFeedback.
+
+    - Only labels whose raw_label was actually in the transcript survive.
+    - Each resolved label is re-stamped with the device's
+      voice_fingerprint_ref (the device is authoritative for the ref; the
+      model must not influence it).
+    - apply_mode is derived from confidence so the consumer knows whether
+      to auto-apply, suggest, or force review.
+    - Every transcript speaker not resolved (and >= the floor) lands in
+      unresolved_labels, carrying its ref + sample turns.
+    """
+    valid_raw = {s["raw_label"] for s in speaker_labels}
+    samples_by_label = {s["raw_label"]: s.get("sample_turns", []) for s in speaker_labels}
+
+    labels: list[SpeakerLabel] = []
+    resolved_raw: set[str] = set()
+    for item in parsed.get("labels", []) or []:
+        if not isinstance(item, dict):
+            continue
+        raw_label = str(item.get("raw_label", "")).strip()
+        person_id = str(item.get("inferred_person_id", "")).strip()
+        if raw_label not in valid_raw or not person_id:
+            continue
+        try:
+            confidence = float(item.get("confidence", 0.0))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        confidence = max(0.0, min(1.0, confidence))
+        display = str(item.get("inferred_display_name", "")).strip() or person_id
+        if confidence >= _SPEAKER_AUTO_APPLY_THRESHOLD:
+            apply_mode: str = "auto"
+        elif confidence >= _SPEAKER_REVIEW_THRESHOLD:
+            apply_mode = "suggest"
+        else:
+            apply_mode = "review_required"
+        labels.append(
+            SpeakerLabel(
+                raw_label=raw_label,
+                inferred_person_id=person_id,
+                inferred_display_name=display,
+                confidence=confidence,
+                evidence=str(item.get("evidence", "")).strip(),
+                # Device-authoritative ref; ignore anything the model emitted.
+                voice_fingerprint_ref=ref_by_label.get(raw_label),
+                apply_mode=apply_mode,  # type: ignore[arg-type]
+            )
+        )
+        resolved_raw.add(raw_label)
+
+    unresolved: list[dict] = []
+    for raw_label in valid_raw - resolved_raw:
+        unresolved.append(
+            {
+                "raw_label": raw_label,
+                "voice_fingerprint_ref": ref_by_label.get(raw_label),
+                "sample_turns": samples_by_label.get(raw_label, [])[:3],
+            }
+        )
+
+    return SpeakerLabelFeedback(
+        feedback_id=str(uuid.uuid4()),
+        conversation_id=conversation_id,
+        produced_at=datetime.now(timezone.utc).isoformat(),
+        capture_source=capture_source,
+        labels=labels,
+        unresolved_labels=unresolved,
+        conversation_sensitivity_level=sensitivity_level,
+    )
 
 
 # ── Step 07: ingest sinks ────────────────────────────────────────────
@@ -1553,6 +2107,35 @@ def _step_bundle(
         output.privacy_level,
         output.gist_status,
     )
+
+    # #311: refresh per-person lastContact<Channel> recency signal.
+    # Post-CM047 retirement, CM048 owns the WhatsApp lastContactWhatsApp
+    # write the wiki person-page recency row / CM041 stale-contacts /
+    # CM031 badge consume. update_last_contact_for_bundle is a no-op for
+    # channels without a recency predicate, for L3 bundles, and on a
+    # SPARQL hiccup -- the conversation is already written, this is a
+    # secondary index and must never fail the ingest.
+    # A non-relational bulk message must not bump any participant's
+    # contact-recency: a "last contacted on email" badge driven by a
+    # marketing blast is exactly the false-interaction symptom this
+    # change removes. The bundle carries the flag in extra_metadata.
+    if bundle.extra_metadata.get("non_relational"):
+        logger.info(
+            "Non-relational bundle %s: skipping lastContact recency bump",
+            bundle.conversation_id,
+        )
+        return
+
+    from .last_contact_updater import update_last_contact_for_bundle
+    try:
+        update_last_contact_for_bundle(
+            bundle, oxigraph_url=settings.oxigraph_url
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "lastContact update failed for %s: %s",
+            bundle.conversation_id, type(exc).__name__,
+        )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────

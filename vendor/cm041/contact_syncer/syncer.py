@@ -35,6 +35,11 @@ from contact_syncer.dedup import DedupDetector, print_report
 from contact_syncer.photo_storage import remove_photo, write_photo
 
 from identity_resolver.resolver import IdentityResolver  # type: ignore[import-untyped]
+from identity_resolver.normalise import (  # type: ignore[import-untyped]
+    clean_display_name,
+    normalise_email,
+    normalise_phone,
+)
 
 # Qdrant client
 from qdrant_client import QdrantClient
@@ -57,6 +62,10 @@ class ContactSyncer:
         )
         self.qdrant = QdrantClient(url=self.cfg.QDRANT_URL)
         self.state_file = self.cfg.STATE_FILE
+        # Set once we have confirmed/created the Qdrant collection in this
+        # run, so the self-create probe costs one GET per sync, not one
+        # per contact (#638).
+        self._collection_ensured = False
 
     # -- state persistence ----------------------------------------------------
 
@@ -189,6 +198,15 @@ class ContactSyncer:
                 if contact_type == "business":
                     self._write_business_oxigraph(parsed)
                 else:
+                    # Person or unclassified -- clean the display name (strip
+                    # leading/trailing emoji+symbol runs, collapse duplicate
+                    # tokens like "AC AC") before it seeds the person node.
+                    # Only touch person rows; business names keep their raw
+                    # form. Empty result -> leave the original untouched so we
+                    # never blank a name we couldn't clean.
+                    _cleaned = clean_display_name(parsed.get("fn") or "")
+                    if _cleaned:
+                        parsed["fn"] = _cleaned
                     # Person or unclassified – create person node
                     person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
                     description = self._build_description(parsed)
@@ -395,6 +413,11 @@ class ContactSyncer:
                 if contact_type == "business":
                     self._write_business_oxigraph(parsed)
                 else:
+                    # Clean person display names (emoji/symbol edge-strip +
+                    # duplicate-token collapse) before seeding the node.
+                    _cleaned = clean_display_name(parsed.get("fn") or "")
+                    if _cleaned:
+                        parsed["fn"] = _cleaned
                     person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
                     description = self._build_description(parsed)
                     qdrant_queue.append(
@@ -706,6 +729,58 @@ class ContactSyncer:
         data = resp.json()
         return data.get("embeddings", [])
 
+    def _ensure_qdrant_collection(self, vector_size: int) -> None:
+        """Create the Qdrant collection if it does not already exist.
+
+        On a fresh single-Mac install nothing pre-creates the `people`
+        collection before this syncer runs: install.sh's graph_db_start
+        brings Qdrant up empty, the contact hydrate (hydrate_graph) is the
+        FIRST writer to `people`, and Qdrant does not auto-create a
+        collection on upsert. Without this self-create the very first
+        upsert 404s ("Collection 'people' doesn't exist"), the hydrate
+        dies after reading every contact, and the People surfaces (iOS
+        People tab, Hub People card, wiki People page, semantic search)
+        stay blank. The sibling people-ingest writer already self-creates
+        (HR015 ostler_fda.pwg_ingest._qdrant_ensure_collection); the
+        contact syncer must do the same (#638).
+
+        Idempotent: an existing collection short-circuits, so a re-run, or
+        a box where the people-ingest step created it first, never
+        clobbers data. The vector size comes from the real embedding (with
+        the nomic-embed-text default as a fallback) and the distance
+        matches the install.sh #606 pre-create and the people-ingest path:
+        768-dim, Cosine, unnamed vectors.
+        """
+        collection = self.cfg.QDRANT_COLLECTION
+        try:
+            if self.qdrant.collection_exists(collection):
+                return
+        except Exception:
+            # Probe failed (transient Qdrant hiccup): fall through and try
+            # to create. A redundant create on an existing collection is
+            # tolerated below, so this cannot make things worse.
+            pass
+
+        from qdrant_client.models import Distance, VectorParams
+
+        size = vector_size if vector_size and vector_size > 0 else 768
+        try:
+            self.qdrant.create_collection(
+                collection_name=collection,
+                vectors_config=VectorParams(size=size, distance=Distance.COSINE),
+            )
+            logger.info(
+                "Created Qdrant collection '%s' (size=%d, Cosine).",
+                collection, size,
+            )
+        except Exception:
+            # Lost a create race, or it already existed: tolerate only if
+            # the collection is now present; otherwise re-raise so a
+            # genuine Qdrant failure still surfaces to the caller.
+            if self.qdrant.collection_exists(collection):
+                return
+            raise
+
     def _upsert_qdrant(
         self,
         person_id: str,
@@ -714,6 +789,12 @@ class ContactSyncer:
         vector: List[float],
     ) -> None:
         """Upsert a single person point into Qdrant."""
+        # Fresh-install self-heal: make sure the collection exists before
+        # the first upsert of the run, sized from this real embedding.
+        # Once per syncer run via the _collection_ensured latch (#638).
+        if not getattr(self, "_collection_ensured", False):
+            self._ensure_qdrant_collection(len(vector))
+            self._collection_ensured = True
         now_iso = datetime.now(timezone.utc).isoformat()
         # last_contact: prefer the EXISTING value in Qdrant, set by
         # meetings or future conversation pipelines. For a brand-new
@@ -721,7 +802,7 @@ class ContactSyncer:
         # sentinel values ("" / 0) - we have no actual contact-event
         # evidence.
         #
-        # Historical bug (Lester demo, 2026-04-27): this branch used
+        # Historical bug (advisor demo, 2026-04-27): this branch used
         # to fall back to the vCard REV (the card's modification
         # timestamp) when no prior signal existed. REV is not a
         # contact event - it's "when the contact card was last
@@ -810,8 +891,8 @@ class ContactSyncer:
 
         # Try identity resolution – use_fuzzy=False because the CardDAV path
         # has a strong identifier (iCloud UID). Fuzzy name matching is disabled
-        # here to prevent first-name collisions (e.g. "Sandra Andersson" being
-        # incorrectly merged into "Sandra Stewart" via Jaro-Winkler prefix
+        # here to prevent first-name collisions (e.g. "Jane Andersen" being
+        # incorrectly merged into "Jane Stewart" via Jaro-Winkler prefix
         # bonus). Fuzzy matching is still available to other callers that
         # explicitly opt in (e.g. WhatsApp / email ingest).
         match = self.resolver.resolve(identity, use_fuzzy=False)
@@ -827,6 +908,18 @@ class ContactSyncer:
             person_uri = f"https://pwg.dev/ontology#person_{person_id}"
             self._persist_photo(person_uri, parsed)
             self._create_person_oxigraph(person_uri, person_id, parsed, contact_type)
+            # Register the new person in the resolver's in-memory fuzzy index so
+            # LATER rows in this SAME run dedupe against it. The candidate
+            # snapshot is loaded once and frozen; without this a one-shot bulk
+            # import mints a fresh node for every repeat of a name -- the root
+            # cause of one-shot-import duplicates on a fresh install, which the
+            # incrementally synced graph never hit (each daily run re-snapshots).
+            self.resolver.register_person(
+                person_uri,
+                identity.display_name,
+                org=identity.organization,
+                linkedin_url=getattr(identity, "linkedin_url", None),
+            )
 
         return person_id, person_uri
 
@@ -914,24 +1007,43 @@ class ContactSyncer:
 
         for idx, phone in enumerate(parsed.get("phones", [])):
             id_uri = f"https://pwg.dev/ontology#id_{person_id}_phone{idx}"
+            # Store the NORMALISED value so it matches what the resolver's
+            # find_by_identifier queries for. Previously this wrote the raw
+            # vCard value (e.g. a space-separated international form) while the resolver looked up
+            # the E.164 form (no spaces), so Tier-1 exact-identifier dedup
+            # never fired and every repeat minted a duplicate (BW-1).
+            phone_value = normalise_phone(
+                phone["value"], self.resolver.default_country_code
+            )
             triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
             id_triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
             id_triples.append(f'<{id_uri}> pwg:identifierType "phone"')
             id_triples.append(
-                f'<{id_uri}> pwg:identifierValue "{phone["value"]}"'
+                f'<{id_uri}> pwg:identifierValue "{phone_value}"'
             )
             if phone.get("label"):
                 id_triples.append(
                     f'<{id_uri}> pwg:identifierLabel "{phone["label"]}"'
                 )
 
+        # Emails are written as NORMALISED identifiers (lowercase + trimmed via
+        # normalise_email) so they match the values the IdentityResolver looks
+        # up: the resolver normalises incoming emails the same way before its
+        # exact-identifier lookup. Without this, an email-keyed handle (e.g. an
+        # iMessage handle like person@example.com) never collapses onto the
+        # right Contacts card if the card's stored email differs only by case.
+        seen_emails: set = set()
         for idx, email in enumerate(parsed.get("emails", [])):
+            value = normalise_email(email.get("value") or "")
+            if not value or value in seen_emails:
+                continue
+            seen_emails.add(value)
             id_uri = f"https://pwg.dev/ontology#id_{person_id}_email{idx}"
             triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
             id_triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
             id_triples.append(f'<{id_uri}> pwg:identifierType "email"')
             id_triples.append(
-                f'<{id_uri}> pwg:identifierValue "{email["value"]}"'
+                f'<{id_uri}> pwg:identifierValue "{value}"'
             )
             if email.get("label"):
                 id_triples.append(
@@ -1008,9 +1120,12 @@ class ContactSyncer:
         for phone in parsed.get("phones", []):
             v = phone.get("value") if isinstance(phone, dict) else None
             if v:
+                # Normalise to the resolver's lookup form so dedup matches (BW-1).
+                v = normalise_phone(v, self.resolver.default_country_code)
                 new_ids.append(("phone", v, phone.get("label") if isinstance(phone, dict) else None))
         for email in parsed.get("emails", []):
-            v = email.get("value") if isinstance(email, dict) else None
+            raw = email.get("value") if isinstance(email, dict) else None
+            v = normalise_email(raw) if raw else None
             if v:
                 new_ids.append(("email", v, email.get("label") if isinstance(email, dict) else None))
 
@@ -1092,12 +1207,17 @@ class ContactSyncer:
             triples.append(f'<{id_uri}> pwg:identifierType "phone"')
             triples.append(f'<{id_uri}> pwg:identifierValue "{phone["value"]}"')
 
+        seen_biz_emails: set = set()
         for idx, email in enumerate(parsed.get("emails", [])):
+            value = normalise_email(email.get("value") or "")
+            if not value or value in seen_biz_emails:
+                continue
+            seen_biz_emails.add(value)
             id_uri = f"https://pwg.dev/ontology#id_{biz_id}_email{idx}"
             triples.append(f"<{biz_uri}> pwg:hasIdentifier <{id_uri}>")
             triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
             triples.append(f'<{id_uri}> pwg:identifierType "email"')
-            triples.append(f'<{id_uri}> pwg:identifierValue "{email["value"]}"')
+            triples.append(f'<{id_uri}> pwg:identifierValue "{value}"')
 
         if self.cfg.USER_ID:
             triples.append(
@@ -1316,6 +1436,17 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--mint-owner",
+        action="store_true",
+        help=(
+            "Mint (or backfill) the owner / me-card node pwg:user_<USER_ID> "
+            "as a first-class pwg:Person with privacyLevel L0 and isOwner "
+            "true, then exit. Requires USER_ID + USER_DISPLAY_NAME. "
+            "Idempotent. Combine with --dry-run to preview. See "
+            "contact_syncer.owner_node."
+        ),
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help=(
@@ -1333,6 +1464,19 @@ def main() -> None:
     # ContactSyncer reads it inside __init__, so this must happen first.
     if args.graph_endpoint:
         config.OXIGRAPH_URL = args.graph_endpoint
+
+    # --mint-owner: mint the owner / me-card node and exit. Kept as a
+    # standalone action so install.sh can call it once (it is idempotent)
+    # without running a full contact sync. Delegates to owner_node.main so
+    # the input validation (USER_ID / display name / endpoint) is shared.
+    if args.mint_owner:
+        from contact_syncer import owner_node
+        owner_argv = []
+        if args.dry_run:
+            owner_argv.append("--dry-run")
+        if args.graph_endpoint:
+            owner_argv += ["--graph-endpoint", args.graph_endpoint]
+        sys.exit(owner_node.main(owner_argv))
 
     syncer = ContactSyncer()
     if args.vcf:

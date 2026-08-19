@@ -129,10 +129,14 @@ def _stage_inputs(tmp_path: Path, *, with_binary: bool = True) -> dict:
     )
 
     ostler_dir = tmp_path / "ostler"
-    bin_dir = ostler_dir / "bin"
-    bin_dir.mkdir(parents=True)
+    # v0.4.3+ shape: the daemon binary lives inside the .app bundle at
+    # OstlerAssistant.app/Contents/MacOS/, NOT the legacy ~/.ostler/bin/.
+    # The snippet resolves and exec-checks that bundle path, so stage the
+    # stub there or the binary-staged guard aborts before rendering.
+    macos_dir = ostler_dir / "OstlerAssistant.app" / "Contents" / "MacOS"
+    macos_dir.mkdir(parents=True)
     if with_binary:
-        binary = bin_dir / "ostler-assistant"
+        binary = macos_dir / "ostler-assistant"
         binary.write_text("#!/bin/sh\nexit 0\n")
         binary.chmod(binary.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
@@ -172,7 +176,13 @@ def _stage_inputs(tmp_path: Path, *, with_binary: bool = True) -> dict:
     }
 
 
-def _run_snippet(setup: dict) -> subprocess.CompletedProcess:
+def _run_snippet(
+    setup: dict,
+    *,
+    self_handles: str | None = None,
+    service_token: str | None = None,
+    defer_start: bool | None = None,
+) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env.update(
         {
@@ -184,6 +194,12 @@ def _run_snippet(setup: dict) -> subprocess.CompletedProcess:
             "PATH": f"{setup['stub_dir']}:{env.get('PATH','')}",
         }
     )
+    if self_handles is not None:
+        env["OSTLER_IMESSAGE_SELF_HANDLES"] = self_handles
+    if service_token is not None:
+        env["PWG_SERVICE_TOKEN"] = service_token
+    if defer_start is not None:
+        env["OSTLER_ASSISTANT_DEFER_START"] = "true" if defer_start else "false"
     return subprocess.run(
         ["bash", str(SNIPPET)],
         env=env,
@@ -206,18 +222,114 @@ def test_snippet_renders_plist_and_substitutes_every_placeholder(tmp_path):
     assert "OSTLER_HOME" not in text
     assert "OSTLER_LOGS" not in text
     assert "OSTLER_ASSISTANT_CONFIG" not in text
+    # The #646 placeholder must also be fully substituted -- a stray
+    # token would land a literal "OSTLER_IMESSAGE_SELF_HANDLES_VALUE"
+    # in the daemon env and the self-handle guard would match nothing.
+    assert "OSTLER_IMESSAGE_SELF_HANDLES_VALUE" not in text
+    # v1.0.12 assistant-retrieval fix: the service-token placeholder must be
+    # substituted too -- a stray "PWG_SERVICE_TOKEN_VALUE" would land as a
+    # literal bearer, so the daemon's pwg_* tools would send a bogus token to
+    # the ical-server and still 401 (assistant "can't find anyone").
+    assert "PWG_SERVICE_TOKEN_VALUE" not in text
 
     data = plistlib.loads(rendered.read_bytes())
-    assert data["ProgramArguments"][0] == str(setup["ostler_dir"] / "bin" / "ostler-assistant")
+    macos_binary = setup["ostler_dir"] / "OstlerAssistant.app" / "Contents" / "MacOS" / "ostler-assistant"
+    assert data["ProgramArguments"][0] == str(macos_binary)
     assert data["EnvironmentVariables"]["ZEROCLAW_WORKSPACE"] == str(setup["config_dir"])
+    # Self-chat reachability must ship ON in the daemon env, or texting the
+    # assistant from the operator's own Apple ID silently does nothing (the
+    # core "text your assistant" promise). Hard-coded constant in the plist
+    # template; lock it here so a future plist edit cannot drop it unnoticed.
+    assert data["EnvironmentVariables"]["OSTLER_IMESSAGE_SELF_CHAT"] == "true"
     assert data["StandardOutPath"] == str(setup["logs_dir"] / "ostler-assistant.log")
     assert data["StandardErrorPath"] == str(setup["logs_dir"] / "ostler-assistant.err")
     assert data["WorkingDirectory"] == str(setup["home_dir"])
 
 
+def test_snippet_renders_self_handles_into_plist(tmp_path):
+    # #646: the customer's own iMessage handles must land in the daemon
+    # env so the self-echo loop guard is armed on a clean install.
+    setup = _stage_inputs(tmp_path)
+    handles = "+447700900123,owner@example.com"
+    result = _run_snippet(setup, self_handles=handles)
+    assert result.returncode == 0, result.stderr
+
+    rendered = setup["home_dir"] / "Library" / "LaunchAgents" / "com.creativemachines.ostler.assistant.plist"
+    data = plistlib.loads(rendered.read_bytes())
+    assert data["EnvironmentVariables"]["OSTLER_IMESSAGE_SELF_HANDLES"] == handles
+
+
+def test_snippet_renders_pwg_service_token_into_plist(tmp_path):
+    # v1.0.12 assistant-retrieval fix: the per-install #200 service token must
+    # land in the daemon env so its pwg_* retrieval tools carry
+    # `Authorization: Bearer <token>` to the locked-down ical-server on :8090
+    # (which fails-closed 401 without it). Belt-and-braces for fresh installs;
+    # existing customers are fixed by the daemon's code-side file fallback.
+    setup = _stage_inputs(tmp_path)
+    token = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6abcd"
+    result = _run_snippet(setup, service_token=token)
+    assert result.returncode == 0, result.stderr
+
+    rendered = setup["home_dir"] / "Library" / "LaunchAgents" / "com.creativemachines.ostler.assistant.plist"
+    data = plistlib.loads(rendered.read_bytes())
+    assert data["EnvironmentVariables"]["PWG_SERVICE_TOKEN"] == token
+
+
+def test_snippet_renders_empty_self_handles_when_unset(tmp_path):
+    # No handles captured (iMessage off, or me-card had neither phone nor
+    # email): the key is still present but empty, so the guard simply
+    # stays inactive. An empty string is a valid plist value and must not
+    # leave the literal placeholder token behind.
+    setup = _stage_inputs(tmp_path)
+    result = _run_snippet(setup)  # OSTLER_IMESSAGE_SELF_HANDLES unset
+    assert result.returncode == 0, result.stderr
+
+    rendered = setup["home_dir"] / "Library" / "LaunchAgents" / "com.creativemachines.ostler.assistant.plist"
+    data = plistlib.loads(rendered.read_bytes())
+    assert data["EnvironmentVariables"]["OSTLER_IMESSAGE_SELF_HANDLES"] == ""
+
+
 def test_snippet_calls_launchctl_bootstrap(tmp_path):
     setup = _stage_inputs(tmp_path)
     result = _run_snippet(setup)
+    assert result.returncode == 0, result.stderr
+
+    log = setup["launchctl_log"].read_text()
+    assert "bootstrap" in log
+    assert "com.creativemachines.ostler.assistant.plist" in log
+
+
+def test_snippet_defers_bootstrap_when_defer_start_set(tmp_path):
+    # BW3-1: with OSTLER_ASSISTANT_DEFER_START=true the snippet must render
+    # the plist but NOT bootstrap the agent, so the daemon's RunAtLoad start
+    # does not fire (and self-prompt for the Documents folder) before FDA is
+    # granted. install.sh bootstraps it later, after the FDA grant flow.
+    setup = _stage_inputs(tmp_path)
+    result = _run_snippet(setup, defer_start=True)
+    assert result.returncode == 0, result.stderr
+
+    # Plist is still rendered (so install.sh can bootstrap it later).
+    rendered = setup["home_dir"] / "Library" / "LaunchAgents" / "com.creativemachines.ostler.assistant.plist"
+    assert rendered.is_file()
+
+    # But the main agent must NOT have been bootstrapped. The only launchctl
+    # call permitted is the idempotent bootout that precedes the (skipped)
+    # bootstrap; a `bootstrap` of the assistant label would mean the deferral
+    # failed.
+    log = setup["launchctl_log"].read_text() if setup["launchctl_log"].exists() else ""
+    assert "bootstrap gui" not in log, log
+    assert "bootstrap" not in log or "bootout" in log
+    # Belt-and-braces: no line should bootstrap the assistant plist.
+    for line in log.splitlines():
+        if "bootstrap" in line:
+            assert "com.creativemachines.ostler.assistant.plist" not in line, line
+
+
+def test_snippet_bootstraps_when_defer_start_false(tmp_path):
+    # Default / explicit-false path must keep the legacy immediate bootstrap
+    # so a caller that does NOT opt into deferral is unaffected.
+    setup = _stage_inputs(tmp_path)
+    result = _run_snippet(setup, defer_start=False)
     assert result.returncode == 0, result.stderr
 
     log = setup["launchctl_log"].read_text()

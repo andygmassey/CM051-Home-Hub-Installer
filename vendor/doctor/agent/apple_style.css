@@ -26,8 +26,13 @@
    ========================================================================== */
 
 /* Outfit for display, IBM Plex Sans for body, IBM Plex Mono for mono.
-   Loaded from Google Fonts; system-ui fallbacks for offline. */
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+   PRIVACY: the Google Fonts @import is removed -- a privacy-first local
+   product must not beacon the customer's IP + timestamp to googleapis.com
+   on every dashboard open. The --font-* tokens below already declare full
+   -apple-system / system-ui fallbacks, so the UI renders cleanly on the
+   native stack. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex woff2 via
+   @font-face if the branded type is wanted back -- do NOT re-add the
+   googleapis @import. */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 

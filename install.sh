@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Ostler – Beta Installer
-# Usage: curl -fsSL https://ostler.ai/install.sh | bash
+# Usage: bash install.sh            (run by OstlerInstaller.app from the DMG)
+#        bash install.sh --check    (prerequisites only, no licence needed)
 #
 # Structure:
 #   Phase 1: Check prerequisites (automatic, no input)
 #   Phase 2: Collect ALL user input upfront (~2 minutes)
-#   Phase 3: Install everything unattended (~10-15 minutes)
+#   Phase 3: Install everything unattended (~45 minutes to a few
+#            hours, depending on how much history is on your Mac
+#            and how fast your connection is)
 #   Phase 4: Health check + next steps
 #
 # What this does NOT do:
@@ -16,7 +19,14 @@
 #   - Install anything without telling you first.
 #   - Touch your existing Docker containers or Homebrew packages.
 
-set -euo pipefail
+# -E (errtrace): make the ERR trap fire for failures INSIDE shell
+# functions / subshells / command substitutions, not just top-level
+# commands. Without it a `set -u` death inside a helper function (the
+# common abort shape -- CX-98 et al) would skip the ERR trap entirely
+# and die silently with no DONE marker. The ERR trap itself
+# (_ostler_on_err) is registered later, once the real gui helpers are
+# sourced. See CX-454 (task #454).
+set -Eeuo pipefail
 
 # ── Flags ──────────────────────────────────────────────────────────
 
@@ -24,6 +34,7 @@ CHECK_ONLY=false
 SHOW_HELP=false
 SHOW_LICENSES=false
 ALLOW_PLAINTEXT=0
+ALLOW_UNLICENSED=0
 NO_EXTENSIONS=false
 
 for arg in "$@"; do
@@ -32,9 +43,486 @@ for arg in "$@"; do
         --help|-h) SHOW_HELP=true ;;
         --licenses|--licences) SHOW_LICENSES=true ;;
         --allow-plaintext) ALLOW_PLAINTEXT=1 ;;
+        # Developer escape hatch for the licence gate below. Both
+        # spellings, matching --licenses|--licences above.
+        --allow-unlicensed|--allow-unlicenced) ALLOW_UNLICENSED=1 ;;
         --no-extensions) NO_EXTENSIONS=true ;;
     esac
 done
+
+# ── Upgrade / rollback mode (B-lite delivery mechanism, v1.0.12) ────
+#
+# Two NON-INTERACTIVE modes the Hub invokes to reconcile the pieces of
+# Ostler that Sparkle cannot update on its own (the Rust daemon, its
+# launchd plists, and the vendored Python service trees). Design and
+# invariants: HR015/launch/BLITE_DELIVERY_DESIGN_v1.0.12.md, section 4
+# "install.sh upgrade-mode contract" and "Failure modes + rollback".
+#
+#   OSTLER_UPGRADE_MODE=1      forward upgrade from the embedded payload
+#   OSTLER_UPGRADE_ROLLBACK=1  restore the previous daemon from .old
+#
+# Both read OSTLER_UPGRADE_PAYLOAD_DIR (payload root) and append to
+# OSTLER_UPGRADE_LOG_PATH. This block sits BEFORE the /dev/tty redirect
+# and every interactive phase on purpose: an upgrade must be FULLY
+# non-interactive (never read stdin, never prompt, never re-request
+# Full Disk Access / licence / consent / the first-run wizard, never
+# touch colima). It runs self-contained against ~/.ostler and exits
+# without falling through into the normal installer. (Recon anchored
+# this near the SKIP_PHASE2 re-run gate; it is hoisted to here instead
+# so the tty redirect at the next block and every Phase 1 check are
+# skipped too, which is what "fully non-interactive" requires.)
+#
+# Exit-code semantics (also written to the log):
+#   0   success
+#   10  bad invocation (both modes set, missing payload dir / VERSION,
+#       or no prior install to upgrade)
+#   20  payload daemon .app missing (or only a bare binary shipped;
+#       upgrade-mode requires a signed .app to honour codesign verify)
+#   21  codesign --verify --deep --strict FAILED on the staged .new
+#       daemon; nothing swapped, running daemon left untouched
+#   22  staging copy (ditto) of the payload daemon failed
+#   23  atomic swap (mv) failed
+#   30  plist re-render (INSTALL_SNIPPET.sh) failed
+#   31  plist bootstrap (launchctl) failed
+#   40  VERSION write failed
+#   50  rollback: no OstlerAssistant.app.old to restore from
+#   51  rollback: daemon swap failed
+#   52  rollback: plist re-render / bootstrap failed
+# Vendored service-tree refreshes are best-effort (logged, never
+# fatal): per Invariant 4 a service may lag the daemon and that is an
+# acceptable transient state.
+if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "1" ]]; then
+
+    # Own the error handling from here: manage exit codes explicitly so
+    # a transient non-zero can never abort mid-swap under `set -e`.
+    set +e
+
+    _UPG_HOME="${HOME}"
+    _UPG_OSTLER_DIR="${_UPG_HOME}/.ostler"
+    _UPG_APP="${_UPG_OSTLER_DIR}/OstlerAssistant.app"
+    _UPG_APP_NEW="${_UPG_APP}.new"
+    _UPG_APP_OLD="${_UPG_APP}.old"
+    _UPG_APP_FAILED="${_UPG_APP}.failed"
+    _UPG_VERSION_FILE="${_UPG_OSTLER_DIR}/VERSION"
+    _UPG_SECRETS_TOKEN="${_UPG_OSTLER_DIR}/secrets/service_token"
+    _UPG_LOGS_DIR="${_UPG_OSTLER_DIR}/logs"
+    _UPG_ASSISTANT_CONFIG_DIR="${_UPG_OSTLER_DIR}/assistant-config"
+    _UPG_LA_DIR="${_UPG_HOME}/Library/LaunchAgents"
+    _UPG_ASSISTANT_LABEL="com.creativemachines.ostler.assistant"
+    _UPG_KEEPALIVE_LABEL="com.creativemachines.ostler.whatsapp-keepalive"
+    _UPG_ASSISTANT_PLIST="${_UPG_LA_DIR}/${_UPG_ASSISTANT_LABEL}.plist"
+    _UPG_KEEPALIVE_PLIST="${_UPG_LA_DIR}/${_UPG_KEEPALIVE_LABEL}.plist"
+    _UPG_DOMAIN="gui/$(id -u)"
+    _UPG_PB="/usr/libexec/PlistBuddy"
+    # Same Developer-ID Team pin the fresh-install daemon gate uses
+    # (_verify_daemon_signature, ~L12937): a foreign-but-notarised
+    # bundle is rejected here too, not just any notarised app.
+    _UPG_CODESIGN_REQ='=anchor apple generic and certificate leaf[subject.OU] = "V95N2B8X7A"'
+
+    _UPG_PAYLOAD="${OSTLER_UPGRADE_PAYLOAD_DIR:-}"
+    _UPG_PAYLOAD_AGENT="${_UPG_PAYLOAD}/assistant-agent"
+    _UPG_PAYLOAD_APP="${_UPG_PAYLOAD_AGENT}/OstlerAssistant.app"
+    _UPG_PAYLOAD_BIN="${_UPG_PAYLOAD_AGENT}/bin/ostler-assistant"
+    _UPG_PAYLOAD_SNIPPET="${_UPG_PAYLOAD_AGENT}/INSTALL_SNIPPET.sh"
+    _UPG_PAYLOAD_VERSION_FILE="${_UPG_PAYLOAD}/VERSION"
+
+    if [[ -n "${OSTLER_UPGRADE_LOG_PATH:-}" ]]; then
+        mkdir -p "$(dirname "$OSTLER_UPGRADE_LOG_PATH")" 2>/dev/null || true
+    fi
+    _upg_log() {
+        local _ts _m
+        _ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo '?')"
+        _m="[ostler-upgrade ${_ts}] $*"
+        printf '%s\n' "$_m"
+        if [[ -n "${OSTLER_UPGRADE_LOG_PATH:-}" ]]; then
+            printf '%s\n' "$_m" >> "$OSTLER_UPGRADE_LOG_PATH" 2>/dev/null || true
+        fi
+    }
+    _upg_die() {
+        local _code="$1"; shift
+        _upg_log "FATAL(exit ${_code}): $*"
+        exit "$_code"
+    }
+
+    # Resolve a base python3 for venv rebuilds. Prefer the same
+    # homebrew interpreters install.sh uses; fall back to PATH. On any
+    # machine that already has Ostler installed, python3 is present
+    # (the original install built the venvs with it).
+    _upg_resolve_python3() {
+        local _p
+        for _p in /opt/homebrew/opt/python@3.11/bin/python3.11 \
+                  /usr/local/opt/python@3.11/bin/python3.11 \
+                  /opt/homebrew/bin/python3 /usr/local/bin/python3; do
+            if [[ -x "$_p" ]]; then printf '%s' "$_p"; return 0; fi
+        done
+        _p="$(command -v python3 2>/dev/null)"
+        if [[ -n "$_p" ]]; then printf '%s' "$_p"; return 0; fi
+        return 1
+    }
+
+    # Overlay EVERY EnvironmentVariables key from an EXISTING plist onto a
+    # freshly-rendered one, so customer-specific / daemon-added keys
+    # survive an upgrade generically. This decouples the upgrade from any
+    # specific key name (#236 PWG_SERVICE_TOKEN, #464, or a future addition
+    # the daemon build introduces): whatever the customer's live plist
+    # carries is re-applied verbatim. Old value wins on a key collision, so
+    # the customer's real self-handles / token are not clobbered by the new
+    # template's empty / placeholder render.
+    _upg_preserve_plist_env() {
+        local _old="$1" _new="$2"
+        [[ -f "$_old" && -f "$_new" ]] || return 0
+        [[ -x "$_UPG_PB" ]] || { _upg_log "WARN: PlistBuddy unavailable; cannot preserve plist env for $(basename "$_new")"; return 0; }
+        "$_UPG_PB" -c "Print :EnvironmentVariables" "$_new" >/dev/null 2>&1 \
+            || "$_UPG_PB" -c "Add :EnvironmentVariables dict" "$_new" >/dev/null 2>&1 || true
+        local _keys _k _v
+        _keys="$("$_UPG_PB" -c "Print :EnvironmentVariables" "$_old" 2>/dev/null \
+            | sed -n 's/^ *\([A-Za-z_][A-Za-z0-9_]*\) = .*/\1/p')"
+        while IFS= read -r _k; do
+            [[ -n "$_k" ]] || continue
+            _v="$("$_UPG_PB" -c "Print :EnvironmentVariables:${_k}" "$_old" 2>/dev/null)" || continue
+            if "$_UPG_PB" -c "Print :EnvironmentVariables:${_k}" "$_new" >/dev/null 2>&1; then
+                "$_UPG_PB" -c "Set :EnvironmentVariables:${_k} ${_v}" "$_new" >/dev/null 2>&1
+            else
+                "$_UPG_PB" -c "Add :EnvironmentVariables:${_k} string ${_v}" "$_new" >/dev/null 2>&1
+            fi
+        done <<< "$_keys"
+        _upg_log "preserved EnvironmentVariables from previous $(basename "$_new")"
+        return 0
+    }
+
+    # Stable service-token fallback. If, after the generic overlay, the
+    # plist still lacks a non-empty PWG_SERVICE_TOKEN (e.g. a pre-#236
+    # v1.0.11 customer whose old plist never carried it) seed it from
+    # ~/.ostler/secrets/service_token. This is the one explicitly-named
+    # fallback the spec calls for; it closes the token gap that the
+    # daemon retrieval blocker was rooted in.
+    _upg_ensure_token() {
+        local _plist="$1"
+        [[ -f "$_plist" && -x "$_UPG_PB" ]] || return 0
+        [[ -f "$_UPG_SECRETS_TOKEN" ]] || return 0
+        local _tok _cur
+        _tok="$(cat "$_UPG_SECRETS_TOKEN" 2>/dev/null)"
+        [[ -n "$_tok" ]] || return 0
+        _cur="$("$_UPG_PB" -c "Print :EnvironmentVariables:PWG_SERVICE_TOKEN" "$_plist" 2>/dev/null)"
+        if [[ -n "$_cur" ]]; then return 0; fi
+        "$_UPG_PB" -c "Print :EnvironmentVariables" "$_plist" >/dev/null 2>&1 \
+            || "$_UPG_PB" -c "Add :EnvironmentVariables dict" "$_plist" >/dev/null 2>&1 || true
+        if "$_UPG_PB" -c "Print :EnvironmentVariables:PWG_SERVICE_TOKEN" "$_plist" >/dev/null 2>&1; then
+            "$_UPG_PB" -c "Set :EnvironmentVariables:PWG_SERVICE_TOKEN ${_tok}" "$_plist" >/dev/null 2>&1
+        else
+            "$_UPG_PB" -c "Add :EnvironmentVariables:PWG_SERVICE_TOKEN string ${_tok}" "$_plist" >/dev/null 2>&1
+        fi
+        _upg_log "token fallback: seeded PWG_SERVICE_TOKEN from $(basename "$_UPG_SECRETS_TOKEN") into $(basename "$_plist")"
+        return 0
+    }
+
+    # Stage the payload daemon at ~/.ostler/OstlerAssistant.app.new and
+    # gate it on codesign --verify --deep --strict (Team pinned). The
+    # running daemon and the live .app are NOT touched here: on a verify
+    # failure we return non-zero with nothing moved, so the old daemon is
+    # never even booted out. Returns 0 (verified, .new staged), 20 (no
+    # verifiable payload daemon), 21 (verify failed), 22 (copy failed).
+    _upg_stage_daemon() {
+        rm -rf "$_UPG_APP_NEW" 2>/dev/null || true
+        if [[ -d "$_UPG_PAYLOAD_APP" ]]; then
+            _upg_log "staging daemon: ditto ${_UPG_PAYLOAD_APP} -> ${_UPG_APP_NEW}"
+            mkdir -p "$(dirname "$_UPG_APP_NEW")" 2>/dev/null || true
+            if ! ditto "$_UPG_PAYLOAD_APP" "$_UPG_APP_NEW"; then
+                _upg_log "ERROR: ditto of payload daemon failed"
+                rm -rf "$_UPG_APP_NEW" 2>/dev/null || true
+                return 22
+            fi
+        elif [[ -e "$_UPG_PAYLOAD_BIN" ]]; then
+            _upg_log "ERROR: payload ships a bare binary at ${_UPG_PAYLOAD_BIN} but no signed OstlerAssistant.app."
+            _upg_log "       upgrade-mode requires a signed .app to honour the codesign verify invariant; refusing."
+            return 20
+        else
+            _upg_log "ERROR: no payload daemon found at ${_UPG_PAYLOAD_APP}"
+            return 20
+        fi
+        chmod 0755 "${_UPG_APP_NEW}/Contents/MacOS/ostler-assistant" 2>/dev/null || true
+        _upg_log "verifying staged daemon (codesign --verify --deep --strict, Team V95N2B8X7A)"
+        if ! codesign --verify --deep --strict -R "$_UPG_CODESIGN_REQ" "$_UPG_APP_NEW" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}"; then
+            _upg_log "ERROR: codesign verify FAILED on ${_UPG_APP_NEW}; refusing swap (old daemon untouched)."
+            rm -rf "$_UPG_APP_NEW" 2>/dev/null || true
+            return 21
+        fi
+        _upg_log "staged daemon verified OK"
+        return 0
+    }
+
+    # Re-render both launchd plists from the PAYLOAD's INSTALL_SNIPPET.sh
+    # (new templates), preserving each plist's existing EnvironmentVariables
+    # generically, then bootstrap. Returns 0, 30 (render error) or 31
+    # (bootstrap error). Used by both the upgrade and rollback paths.
+    _upg_rerender_plists() {
+        if [[ ! -f "$_UPG_PAYLOAD_SNIPPET" ]]; then
+            _upg_log "ERROR: payload INSTALL_SNIPPET.sh missing at ${_UPG_PAYLOAD_SNIPPET}"
+            return 30
+        fi
+        local _tmp
+        _tmp="$(mktemp -d -t ostler-upgrade-plist.XXXXXX)" || return 30
+        local _old_assistant="" _old_keepalive="" _keepalive_flag="false"
+        # Snapshot the live plists BEFORE the snippet overwrites them.
+        if [[ -f "$_UPG_ASSISTANT_PLIST" ]]; then
+            cp "$_UPG_ASSISTANT_PLIST" "${_tmp}/old-assistant.plist" && _old_assistant="${_tmp}/old-assistant.plist"
+        fi
+        if [[ -f "$_UPG_KEEPALIVE_PLIST" ]]; then
+            cp "$_UPG_KEEPALIVE_PLIST" "${_tmp}/old-keepalive.plist" && _old_keepalive="${_tmp}/old-keepalive.plist"
+            _keepalive_flag="true"   # preserve the customer's WhatsApp keepalive choice
+        fi
+        # Render via the payload snippet. DEFER_START=true so it renders +
+        # boots-out but does NOT bootstrap the assistant; we bootstrap
+        # ourselves after re-applying the preserved env. Self-handles are
+        # passed empty on purpose: the real value is restored from the old
+        # plist by the overlay below (the me-card is not re-captured).
+        _upg_log "re-rendering launchd plists via payload INSTALL_SNIPPET.sh (keepalive=${_keepalive_flag})"
+        (
+            cd "$_UPG_PAYLOAD_AGENT" || exit 1
+            OSTLER_INSTALL_ROOT="$_UPG_PAYLOAD_AGENT" \
+            OSTLER_DIR="$_UPG_OSTLER_DIR" \
+            LOGS_DIR="$_UPG_LOGS_DIR" \
+            ASSISTANT_CONFIG_DIR="$_UPG_ASSISTANT_CONFIG_DIR" \
+            INSTALL_WHATSAPP_KEEPALIVE="$_keepalive_flag" \
+            OSTLER_IMESSAGE_SELF_HANDLES="" \
+            OSTLER_ASSISTANT_DEFER_START="true" \
+            bash "$_UPG_PAYLOAD_SNIPPET"
+        ) >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1
+        local _rc=$?
+        if [[ $_rc -ne 0 ]]; then
+            _upg_log "ERROR: INSTALL_SNIPPET.sh returned ${_rc}"
+            rm -rf "$_tmp" 2>/dev/null || true
+            return 30
+        fi
+        # Assistant: preserve env generically, seed token fallback, lint, bootstrap.
+        [[ -n "$_old_assistant" ]] && _upg_preserve_plist_env "$_old_assistant" "$_UPG_ASSISTANT_PLIST"
+        _upg_ensure_token "$_UPG_ASSISTANT_PLIST"
+        if ! plutil -lint "$_UPG_ASSISTANT_PLIST" >/dev/null 2>&1; then
+            _upg_log "ERROR: rendered assistant plist failed plutil lint"
+            rm -rf "$_tmp" 2>/dev/null || true
+            return 30
+        fi
+        launchctl bootout "${_UPG_DOMAIN}/${_UPG_ASSISTANT_LABEL}" 2>/dev/null || true
+        if ! launchctl bootstrap "$_UPG_DOMAIN" "$_UPG_ASSISTANT_PLIST" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}"; then
+            if ! launchctl load "$_UPG_ASSISTANT_PLIST" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}"; then
+                _upg_log "ERROR: launchctl bootstrap/load of assistant failed"
+                rm -rf "$_tmp" 2>/dev/null || true
+                return 31
+            fi
+        fi
+        _upg_log "assistant LaunchAgent bootstrapped"
+        # Keepalive (only if the customer had it): same preserve + bootstrap.
+        if [[ "$_keepalive_flag" == "true" && -f "$_UPG_KEEPALIVE_PLIST" ]]; then
+            [[ -n "$_old_keepalive" ]] && _upg_preserve_plist_env "$_old_keepalive" "$_UPG_KEEPALIVE_PLIST"
+            _upg_ensure_token "$_UPG_KEEPALIVE_PLIST"
+            if plutil -lint "$_UPG_KEEPALIVE_PLIST" >/dev/null 2>&1; then
+                launchctl bootout "${_UPG_DOMAIN}/${_UPG_KEEPALIVE_LABEL}" 2>/dev/null || true
+                launchctl bootstrap "$_UPG_DOMAIN" "$_UPG_KEEPALIVE_PLIST" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" \
+                    || launchctl load "$_UPG_KEEPALIVE_PLIST" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" || true
+                _upg_log "whatsapp-keepalive LaunchAgent re-bootstrapped"
+            else
+                _upg_log "WARN: rendered keepalive plist failed plutil lint; leaving previous keepalive"
+            fi
+        fi
+        rm -rf "$_tmp" 2>/dev/null || true
+        return 0
+    }
+
+    # ── Vendored service refreshes (best-effort; never fatal) ──────────
+    # Each mirrors the fresh-install logic in install.sh but wholesale-
+    # replaces only the CODE directory. Service STATE lives OUTSIDE these
+    # dirs (~/.ostler/data, processing, coach, posture, config,
+    # assistant-config) and is never touched here.
+    _upg_refresh_doctor() {
+        local _src="" _c
+        for _c in "${_UPG_PAYLOAD}/doctor/agent" "${_UPG_PAYLOAD}/services/doctor" "${_UPG_PAYLOAD}/doctor"; do
+            if [[ -d "$_c" ]]; then _src="$_c"; break; fi
+        done
+        if [[ -z "$_src" ]]; then
+            _upg_log "WARN: doctor code not in payload; leaving ~/.ostler/doctor unchanged"
+            return 0
+        fi
+        local _dir="${_UPG_OSTLER_DIR}/doctor"
+        mkdir -p "$_dir" 2>/dev/null || true
+        _upg_log "refreshing doctor code from ${_src} -> ${_dir}"
+        cp -R "${_src}/." "$_dir/" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" || { _upg_log "WARN: doctor cp failed"; return 0; }
+        if [[ -f "${_dir}/requirements.txt" ]]; then
+            local _py; _py="$(_upg_resolve_python3)" || { _upg_log "WARN: no python3 for doctor venv"; return 0; }
+            if [[ ! -d "${_dir}/.venv" ]]; then
+                "$_py" -m venv "${_dir}/.venv" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || { _upg_log "WARN: doctor venv create failed"; return 0; }
+            fi
+            "${_dir}/.venv/bin/pip" install --quiet -r "${_dir}/requirements.txt" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
+                && _upg_log "doctor deps installed" || _upg_log "WARN: doctor pip failed (non-fatal)"
+        fi
+        return 0
+    }
+    _upg_refresh_knowledge() {
+        local _src="" _c
+        for _c in "${_UPG_PAYLOAD}/cm024_knowledge" "${_UPG_PAYLOAD}/services/knowledge" "${_UPG_PAYLOAD}/knowledge"; do
+            if [[ -d "$_c" && -f "${_c}/pyproject.toml" ]]; then _src="$_c"; break; fi
+        done
+        if [[ -z "$_src" ]]; then
+            _upg_log "WARN: knowledge code not in payload; leaving ~/.ostler/services/knowledge unchanged"
+            return 0
+        fi
+        local _dir="${_UPG_OSTLER_DIR}/services/knowledge"
+        local _py; _py="$(_upg_resolve_python3)" || { _upg_log "WARN: no python3 for knowledge venv"; return 0; }
+        mkdir -p "$(dirname "$_dir")" 2>/dev/null || true
+        _upg_log "refreshing knowledge code (wholesale replace) from ${_src} -> ${_dir}"
+        rm -rf "$_dir" 2>/dev/null || true
+        mkdir -p "$_dir"
+        cp -R "${_src}/." "$_dir/" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" || { _upg_log "WARN: knowledge cp failed"; return 0; }
+        "$_py" -m venv "${_dir}/.venv" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || { _upg_log "WARN: knowledge venv create failed"; return 0; }
+        "${_dir}/.venv/bin/pip" install --quiet --upgrade pip >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || true
+        "${_dir}/.venv/bin/pip" install --quiet "$_dir" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
+            && _upg_log "knowledge installed into venv" || _upg_log "WARN: knowledge pip failed (non-fatal)"
+        return 0
+    }
+    _upg_refresh_cm048() {
+        local _src="" _c
+        for _c in "${_UPG_PAYLOAD}/cm048_pipeline" "${_UPG_PAYLOAD}/services/cm048" "${_UPG_PAYLOAD}/cm048"; do
+            if [[ -d "$_c" && -f "${_c}/pyproject.toml" ]]; then _src="$_c"; break; fi
+        done
+        if [[ -z "$_src" ]]; then
+            _upg_log "WARN: cm048 code not in payload; leaving ~/.ostler/services/cm048 unchanged"
+            return 0
+        fi
+        # cm048's pipeline imports ostler_security at load but does NOT
+        # declare it (repos decoupled, Rule 0.5). A wholesale venv rebuild
+        # without it would leave cm048 broken, so refuse unless the dep is
+        # also in the payload and keep the working install (Invariant 4).
+        local _sec=""
+        for _c in "${_UPG_PAYLOAD}/ostler_security" "${_UPG_PAYLOAD}/services/ostler_security"; do
+            if [[ -d "$_c" && -f "${_c}/pyproject.toml" ]]; then _sec="$_c"; break; fi
+        done
+        if [[ -z "$_sec" ]]; then
+            _upg_log "WARN: cm048 in payload but ostler_security dep is not; skipping cm048 refresh to avoid breaking it"
+            return 0
+        fi
+        local _dir="${_UPG_OSTLER_DIR}/services/cm048"
+        local _py; _py="$(_upg_resolve_python3)" || { _upg_log "WARN: no python3 for cm048 venv"; return 0; }
+        mkdir -p "$(dirname "$_dir")" 2>/dev/null || true
+        _upg_log "refreshing cm048 code (wholesale replace) from ${_src} -> ${_dir}"
+        rm -rf "$_dir" 2>/dev/null || true
+        mkdir -p "$_dir"
+        cp -R "${_src}/." "$_dir/" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" || { _upg_log "WARN: cm048 cp failed"; return 0; }
+        "$_py" -m venv "${_dir}/.venv" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || { _upg_log "WARN: cm048 venv create failed"; return 0; }
+        "${_dir}/.venv/bin/pip" install --quiet --upgrade pip >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || true
+        "${_dir}/.venv/bin/pip" install --quiet "$_sec" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
+            || _upg_log "WARN: ostler_security install into cm048 venv failed"
+        "${_dir}/.venv/bin/pip" install --quiet "$_dir" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
+            && _upg_log "cm048 installed into venv" || _upg_log "WARN: cm048 pip failed (non-fatal)"
+        return 0
+    }
+
+    _upg_do_upgrade() {
+        _upg_log "=== OSTLER_UPGRADE_MODE start ==="
+        [[ -n "$_UPG_PAYLOAD" ]] || _upg_die 10 "OSTLER_UPGRADE_PAYLOAD_DIR not set"
+        [[ -d "$_UPG_PAYLOAD" ]] || _upg_die 10 "payload dir does not exist: ${_UPG_PAYLOAD}"
+        [[ -f "$_UPG_PAYLOAD_VERSION_FILE" ]] || _upg_die 10 "payload VERSION missing: ${_UPG_PAYLOAD_VERSION_FILE}"
+        [[ -d "$_UPG_OSTLER_DIR" ]] || _upg_die 10 "no prior ~/.ostler install to upgrade"
+        [[ -d "$_UPG_APP" ]] || _upg_die 10 "no installed OstlerAssistant.app to upgrade"
+
+        local _new_version
+        _new_version="$(head -n1 "$_UPG_PAYLOAD_VERSION_FILE" 2>/dev/null | tr -d '[:space:]')"
+        [[ -n "$_new_version" ]] || _upg_die 10 "payload VERSION is empty"
+        _upg_log "target version: ${_new_version}"
+
+        # (2) Deferred .old cleanup FIRST (the n+1 sweep). Only when the
+        # current app is present AND ~/.ostler/VERSION is set: then the
+        # .old is a stale anchor from a PRIOR successful upgrade. This
+        # never touches the .old THIS run creates (it does not exist yet).
+        if [[ -d "$_UPG_APP_OLD" && -d "$_UPG_APP" && -f "$_UPG_VERSION_FILE" ]]; then
+            _upg_log "n+1 cleanup: removing stale ${_UPG_APP_OLD} from a prior successful upgrade"
+            rm -rf "$_UPG_APP_OLD" 2>/dev/null || true
+        fi
+
+        # (4a) Stage + verify the new daemon. No swap yet; running daemon
+        # stays up, so a verify failure leaves it entirely untouched.
+        _upg_stage_daemon
+        local _src=$?
+        if [[ $_src -ne 0 ]]; then
+            exit "$_src"   # 20/21/22 already logged; old daemon untouched
+        fi
+
+        # (3) Bootout the running daemon BEFORE touching the live .app.
+        _upg_log "booting out running daemon before swap"
+        launchctl bootout "${_UPG_DOMAIN}/${_UPG_ASSISTANT_LABEL}" 2>/dev/null || true
+        launchctl bootout "${_UPG_DOMAIN}/${_UPG_KEEPALIVE_LABEL}" 2>/dev/null || true
+
+        # (4b) Atomic swap. Keep .old as the rollback anchor (Invariant 1).
+        # Clear any stray pre-existing .old the gated n+1 sweep did not
+        # remove (never this run's .old, which does not exist yet), else
+        # `mv` would nest the app inside it.
+        [[ -e "$_UPG_APP_OLD" ]] && rm -rf "$_UPG_APP_OLD" 2>/dev/null
+        if ! mv "$_UPG_APP" "$_UPG_APP_OLD"; then
+            _upg_die 23 "failed to move current daemon to .old"
+        fi
+        if ! mv "$_UPG_APP_NEW" "$_UPG_APP"; then
+            _upg_log "ERROR: failed to move .new into place; restoring .old so the customer is not left daemon-less"
+            mv "$_UPG_APP_OLD" "$_UPG_APP" 2>/dev/null || true
+            _upg_die 23 "failed to move .new daemon into place"
+        fi
+        _upg_log "daemon swapped; previous kept at ${_UPG_APP_OLD} (rollback anchor)"
+
+        # (5) Re-render plists (generic env preserve + token fallback) + bootstrap.
+        _upg_rerender_plists
+        local _prc=$?
+        if [[ $_prc -ne 0 ]]; then
+            exit "$_prc"   # 30/31 logged; the Hub health-check will roll back
+        fi
+
+        # (6) Refresh vendored service code trees (best-effort; Invariant 4).
+        _upg_refresh_doctor
+        _upg_refresh_knowledge
+        _upg_refresh_cm048
+        launchctl kickstart -k "${_UPG_DOMAIN}/com.ostler.doctor" 2>/dev/null || true
+
+        # (7) Write VERSION last, as the success marker the Hub reads.
+        if ! printf '%s\n' "$_new_version" > "$_UPG_VERSION_FILE" 2>/dev/null; then
+            _upg_die 40 "failed to write ${_UPG_VERSION_FILE}"
+        fi
+        _upg_log "wrote ${_UPG_VERSION_FILE} = ${_new_version}"
+        _upg_log "=== OSTLER_UPGRADE_MODE success (exit 0) ==="
+        exit 0
+    }
+
+    _upg_do_rollback() {
+        _upg_log "=== OSTLER_UPGRADE_ROLLBACK start ==="
+        [[ -d "$_UPG_APP_OLD" ]] || _upg_die 50 "no ${_UPG_APP_OLD} to restore from"
+        _upg_log "booting out current daemon for rollback"
+        launchctl bootout "${_UPG_DOMAIN}/${_UPG_ASSISTANT_LABEL}" 2>/dev/null || true
+        launchctl bootout "${_UPG_DOMAIN}/${_UPG_KEEPALIVE_LABEL}" 2>/dev/null || true
+        if [[ -d "$_UPG_APP" ]]; then
+            rm -rf "$_UPG_APP_FAILED" 2>/dev/null || true
+            if ! mv "$_UPG_APP" "$_UPG_APP_FAILED"; then
+                _upg_die 51 "failed to move current daemon to .failed"
+            fi
+        fi
+        if ! mv "$_UPG_APP_OLD" "$_UPG_APP"; then
+            _upg_die 51 "failed to restore .old daemon"
+        fi
+        _upg_log "restored previous daemon from .old; broken build parked at ${_UPG_APP_FAILED}"
+        _upg_rerender_plists
+        local _prc=$?
+        if [[ $_prc -ne 0 ]]; then
+            exit 52
+        fi
+        _upg_log "=== OSTLER_UPGRADE_ROLLBACK success (exit 0) ==="
+        exit 0
+    }
+
+    if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" && "${OSTLER_UPGRADE_ROLLBACK:-0}" == "1" ]]; then
+        _upg_die 10 "both OSTLER_UPGRADE_MODE and OSTLER_UPGRADE_ROLLBACK set; ambiguous"
+    fi
+    if [[ "${OSTLER_UPGRADE_ROLLBACK:-0}" == "1" ]]; then
+        _upg_do_rollback
+    else
+        _upg_do_upgrade
+    fi
+    # Neither returns; both exit explicitly.
+    exit 0
+fi
 
 # ── stdin check ────────────────────────────────────────────────────
 # When piped via `curl | bash`, stdin is the script not the terminal.
@@ -81,8 +569,11 @@ fi
 if [[ "$SHOW_HELP" == true ]]; then
     echo "Ostler Installer"
     echo ""
-    echo "Usage: curl -fsSL ostler.ai/install.sh | bash"
-    echo "       bash install.sh [--check] [--help]"
+    echo "Usage: bash install.sh [--check] [--help]"
+    echo ""
+    echo "Ostler is a paid product. Installing requires a valid licence;"
+    echo "buy at https://ostler.ai and install from the DMG you are sent."
+    echo "--check verifies prerequisites only and needs no licence."
     echo ""
     echo "Options:"
     echo "  --check             Check prerequisites without installing anything"
@@ -92,6 +583,10 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "                      database encryption. NOT FOR PRODUCTION USE."
     echo "                      Writes a posture marker at"
     echo "                      ~/.ostler/security-posture/install.json."
+    echo "  --allow-unlicensed  Dev only. Install without a licence. Prints a"
+    echo "                      loud unlicensed banner and carries on. The"
+    echo "                      OSTLER_DEV=1 environment variable does the"
+    echo "                      same thing. NOT FOR PRODUCTION USE."
     echo "  --no-extensions     Skip the browser-extensions install phase"
     echo "                      (Safari .app copy + Chrome Web Store open)."
     echo "                      The Hub still works; you just enable"
@@ -100,10 +595,16 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "What this does:"
     echo "  1. Checks prerequisites (macOS, Apple Silicon, RAM, disk)"
     echo "  2. Asks you a few questions (~2 minutes)"
-    echo "  3. Installs everything automatically (~10-15 minutes)"
+    echo "  3. Installs everything automatically (~45 minutes to a few hours, depending on your history)"
     echo "  4. You walk away and come back to a working system"
     echo ""
     echo "Environment variables (advanced - override before running):"
+    echo ""
+    echo "  OSTLER_DEV"
+    echo "    Set to 1 to skip the licence check and install unlicensed."
+    echo "    Identical to --allow-unlicensed. Developer escape hatch; the"
+    echo "    install prints an unlicensed banner and the resulting Hub is"
+    echo "    not a supported install."
     echo ""
     echo "  OSTLER_INSTALLER_TARBALL_URL"
     echo "    Where install.sh fetches the installer tarball when invoked"
@@ -127,7 +628,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    Default: pinned to the most recent ostler-installer release."
     echo ""
     echo "  PWG_PIPELINE_REPO"
-    echo "    Source repo for the import pipeline (CM041 People Graph)."
+    echo "    Source repo for the import pipeline (People Graph)."
     echo "    Default: empty (productised tarball bundles the pipeline)."
     echo "    Set this env var to a clone URL if you are running install.sh"
     echo "    directly without a tarball (e.g. dev or private beta access)."
@@ -146,7 +647,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    the Doctor LaunchAgent is skipped with a warn-only message."
     echo ""
     echo "  PWG_KNOWLEDGE_REPO"
-    echo "    Source repo for the Knowledge service (CM024 Evernote ingest)."
+    echo "    Source repo for the Knowledge service (Evernote ingest)."
     echo "    Default: empty (Knowledge service skipped warn-only; the"
     echo "    Doctor 'Import Evernote' surface, when the feature flag is"
     echo "    eventually flipped on, will surface 'service unavailable')."
@@ -155,7 +656,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    a dedicated venv at ~/.ostler/services/knowledge/."
     echo ""
     echo "  PWG_CM048_REPO"
-    echo "    Source repo for the CM048 conversation processing pipeline."
+    echo "    Source repo for the conversation memory engine."
     echo "    Default: empty (productised tarball bundles the pipeline at"
     echo "    Contents/Resources/cm048_pipeline/; install.sh discovers it"
     echo "    and pip-installs into a dedicated venv at"
@@ -176,7 +677,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo ""
     echo "  OLLAMA_HEADLINE_MODEL"
     echo "    Model used for short fact headlines in the wiki compiler"
-    echo "    (CM044). Larger narrative summaries use a separate model."
+    echo "    (the wiki). Larger narrative summaries use a separate model."
     echo "    Default: qwen3:8b"
     echo ""
     echo "  POWER_POLICY"
@@ -191,11 +692,30 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    granted-and-working | tcc-denied | check-failed."
     echo "    Real macOS installs leave this unset."
     echo ""
-    echo "Your personal data stays on your machine. Ostler makes only narrow"
-    echo "public-data queries (Wikidata for enrichment, local web search via"
-    echo "the bundled Vane + SearXNG container at http://localhost:3000) and"
-    echo "downloads model and software updates. See the privacy policy at"
-    echo "creativemachines.ai/ostler/legal-privacy for full detail."
+    # NAMES THE SET, NOT ONE MEMBER OF IT. This used to say "Wikidata for
+    # enrichment" and stop there. Measured 2026-08-17: enrichment also reaches
+    # MusicBrainz and OpenLibrary on a stock install, and follows links you have
+    # bookmarked. Naming one of four is not disclosing four, and the whole point
+    # of this paragraph is that a customer can check it.
+    #
+    # AND IT MUST NOT CLAIM A CONTROL WE DO NOT SHIP. A draft of this paragraph
+    # said "You can turn them off in Settings". Measured on this tree: there is
+    # no such control. Every OSTLER_ENRICH_* knob is a throttle (budget,
+    # concurrency, interval), there is no installer prompt, and no settings
+    # surface mentions enrichment at all. Claiming an off switch that does not
+    # exist is worse than the incomplete list this paragraph replaced: the old
+    # copy was merely thin, that would have been untrue, on a consent screen.
+    # The missing switch is a real gap and is filed as its own row; until it
+    # ships, this says only what a customer can actually verify.
+    echo "Your personal data stays on your machine. To label things it finds,"
+    echo "Ostler looks them up in public reference sources -- Wikidata,"
+    echo "MusicBrainz and OpenLibrary -- and follows links you have bookmarked."
+    echo "Those lookups send the thing being looked up (a book title, an"
+    echo "artist), never your files, messages or contacts. It also runs local"
+    echo "web search via the bundled Vane + SearXNG container at"
+    echo "http://localhost:3000, and downloads model and software updates."
+    echo "The full list of everything Ostler contacts, and why, is in the"
+    echo "privacy policy at creativemachines.ai/ostler/legal-privacy."
     exit 0
 fi
 
@@ -222,6 +742,11 @@ fi
 gui_emit()        { :; }
 gui_step_begin()  { :; }
 gui_step_end()    { :; }
+# #839: rc folding is a no-op before the emitter is sourced, same as
+# every other helper here. Present so the hydrate sentinel recorders
+# can call it unguarded.
+gui_step_record_rc() { :; }
+gui_step_status() { printf 'ok'; }
 gui_log()         { :; }
 gui_warn()        { :; }
 gui_phase()       { :; }
@@ -272,6 +797,25 @@ err()   { gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log
 # patches only.
 OSTLER_LAST_ERROR_CODE=""
 
+# CX-454 (task #454): the single "a terminal DONE marker has gone out"
+# sentinel. It is set =1 inside the real gui_done / gui_cancelled
+# (lib/progress_emitter.sh), which are the only chokepoints that emit a
+# DONE ok / fail / cancelled marker. Every explicit fail/fail_with_code
+# routes through gui_done, so an anticipated failure sets it too.
+#
+# Two trap handlers read it so we report a mid-script death exactly
+# once, never twice and never as a false success:
+#   - the ERR trap (_ostler_on_err) stays silent if a terminal marker
+#     already went out (so a curated ERR-NN-* is not overwritten by the
+#     synthetic ERR-99);
+#   - the EXIT backstop (top of composite_cleanup) emits a synthetic
+#     DONE-fail ONLY if no terminal marker was emitted and the install
+#     had actually started (see _ostler_on_err / composite_cleanup).
+#
+# Declared empty up-front so both `set -u`-safe handlers can read it via
+# ${OSTLER_DONE_EMITTED:-} before the lib is sourced.
+OSTLER_DONE_EMITTED=""
+
 fail_with_code() {
     # fail_with_code <CODE> <MSG...>
     # CODE must match ERR-NN-* shape. We do not enforce that here
@@ -286,6 +830,12 @@ fail_with_code() {
 }
 
 fail()  {
+    # CX-454: this routes through gui_done below, which sets
+    # OSTLER_DONE_EMITTED. That marks the failure as already terminally
+    # reported, so the ERR trap (_ostler_on_err) and the EXIT backstop
+    # both stay silent and never double-report this explicit failure
+    # with the synthetic ERR-99 code. Every fail_with_code routes
+    # through here, so both helpers are covered.
     # Render the code prefix on the TTY line + the GUI log so the
     # error is greppable end-to-end. The code may be empty -- a
     # legacy fail "..." call (no code attached) renders without a
@@ -315,6 +865,51 @@ step()  {
     gui_phase "$id" "$title"
 }
 
+# BW2-4 (2026-07-25): surface `ollama pull` progress to the GUI.
+#
+# The "Downloading AI models" step is the longest single step of the
+# install (a 7.2 GB model over a slow link is ~30-50 min). `ollama pull`
+# streams "NN% X.X/Y.Y GB rate ETA" to its own progress bar, but that
+# never reached the GUI, which showed only a spinner -- indistinguishable
+# from a hang. Andy hit exactly this on the .185 box-walk (thought it had
+# stalled; it was pulling at 42%).
+#
+# This wrapper parses the pull stream and emits `PCT step=ai_models` +
+# a cleaned LOG line on every percentage change, driving the GUI bar.
+# It is a no-op passthrough when OSTLER_GUI != 1, so the curl|bash TTY
+# path keeps ollama's native progress bar byte-for-byte. ollama's exit
+# status is preserved through the pipe via a temp file (PIPESTATUS is not
+# reliable across the process-substitution boundary).
+_gui_ollama_pull() {
+    local model="$1"
+    local step="${2:-ai_models}"
+    if [[ "${OSTLER_GUI:-0}" != "1" ]]; then
+        ollama pull "$model"
+        return
+    fi
+    local rc_file line pct last=-1 clean
+    rc_file="$(mktemp -t ostler-ollama-pull)"
+    # `tr \r \n` splits ollama's carriage-return redraws into lines so a
+    # plain `read` sees each progress update whether ollama writes CR
+    # (tty-style) or LF (pipe-style) frames.
+    while IFS= read -r line; do
+        [[ "$line" == *%* ]] || continue
+        [[ "$line" =~ ([0-9]{1,3})% ]] || continue
+        pct="${BASH_REMATCH[1]}"
+        (( pct > 100 )) && pct=100
+        (( pct == last )) && continue
+        last="$pct"
+        gui_emit PCT "step=$step" "pct=$pct"
+        # Strip ANSI escapes + non-printables so the log line is clean.
+        clean="$(printf '%s' "$line" | LC_ALL=C sed $'s/\033\\[[0-9;?]*[a-zA-Z]//g' | tr -cd '[:print:] ')"
+        [[ -n "$clean" ]] && gui_log info "$clean"
+    done < <( { ollama pull "$model"; echo $? > "$rc_file"; } 2>&1 | tr '\r' '\n' )
+    local rc
+    rc="$(cat "$rc_file" 2>/dev/null)"
+    rm -f "$rc_file"
+    return "${rc:-1}"
+}
+
 # Retry a model pull up to 3 times with exponential backoff. A 6.6 GB
 # pull over hotel WiFi is fragile; a single network blip should not
 # abort the entire install at 80% progress.
@@ -323,7 +918,7 @@ ollama_pull_with_retry() {
     local attempt=1
     local backoff=10
     while (( attempt <= 3 )); do
-        if ollama pull "$model"; then
+        if _gui_ollama_pull "$model"; then
             return 0
         fi
         if (( attempt < 3 )); then
@@ -347,6 +942,455 @@ if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
     warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."  # i18n-exempt
     warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."  # i18n-exempt
     warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."  # i18n-exempt
+fi
+
+# ── Licence gate (ERR-02-LICENCE-REQUIRED) ─────────────────────────
+#
+# WHY THIS BLOCK EXISTS (Andy decision, 2026-08-16)
+#
+# install.sh is a PUBLIC script advertised at the top of this file and
+# in README.md as `curl -fsSL https://ostler.ai/install.sh | bash`.
+# Until today that one command installed the whole paid product for
+# free: there was no licence enforcement anywhere in these 20k lines.
+# The only Ed25519 verification in the repo lived in the Swift GUI
+# (gui/OstlerInstaller/Auth/LicenseVerifier.swift), which the shell
+# path never runs. The "Licence / activation check" comment further
+# down recorded the assumption that the GUI always goes first. For the
+# DMG it does. For curl|bash it never did.
+#
+# So verify here, and verify FOR REAL: Ed25519 over the canonical
+# licence body, same bytes and same public key as the Swift verifier.
+# A file-exists check would be worse than nothing -- it reads as a
+# gate in review while a zero-byte file walks straight through it.
+#
+# WHERE THE LICENCE LIVES, AND THE TRAP SITTING NEXT TO IT
+#   ~/.ostler/license/license.json   <- THIS ONE. Singular, lowercase.
+#                                       Written by the GUI's
+#                                       LicensePersistence at 0600.
+#   ~/.ostler/LICENSES/              <- NOT THIS ONE. Plural, upper.
+#                                       Third-party open-source licence
+#                                       texts (see --licenses above).
+#                                       Nothing to do with entitlement.
+#
+# ORDERING: this runs before the /tmp staging tree is created, before
+# the curl|bash tarball download, before Homebrew, before anything at
+# all touches the customer's Mac. Failing late is worse than not
+# failing.
+#
+# ESCAPE HATCH (Andy asked for one; it is deliberately loud):
+#   OSTLER_DEV=1        environment variable
+#   --allow-unlicensed  flag
+# Either proceeds without a licence and says so three times, in the
+# log the customer would send to support. A silent hatch is how this
+# defect comes back.
+#
+# DELIBERATELY NOT GATED:
+#   - OSTLER_UPGRADE_MODE / OSTLER_UPGRADE_ROLLBACK exit long before
+#     this point. They reconcile an EXISTING install and bail with
+#     exit 10 when there is nothing installed, so they cannot be
+#     turned into a free fresh install.
+#   - --check installs nothing and exits after the prerequisite
+#     probes. README documents it as the pre-install compatibility
+#     check, so it stays usable before a licence exists.
+#
+# Proof it fires: tests/test_licence_gate.sh (five cases, synthetic
+# keys generated per run, nothing real committed).
+
+# American spelling on the path and on the pubkey override env var:
+# both are contracts shared with the Swift side (LicensePersistence
+# writes `license.json`; LicenseVerifier reads
+# OSTLER_LICENSE_PUBKEY_OVERRIDE). British spelling everywhere else.
+OSTLER_LICENCE_FILE="${HOME}/.ostler/license/license.json"
+
+# Ed25519 public key, 32 bytes as hex. Verbatim copy of
+# productionPublicKeyHex in gui/OstlerInstaller/Auth/LicenseVerifier.swift
+# (keypair ceremonied 2026-05-13). A PUBLIC key, safe in a public repo;
+# the private half is a CM050 Worker secret. tests/test_licence_gate.sh
+# asserts this constant still equals the Swift one -- if the Swift key
+# rotates and this copy does not, every real licence fails here.
+OSTLER_LICENCE_PUBKEY="ad31903baa3b2d84ec4bdbfbab860f10e69d5f31649ad5e2a369dbf3377b3dd3"
+
+# Resolve an interpreter that can run the verifier. Order matters:
+# the bundled python-build-standalone 3.11 inside the .app is the one
+# every customer install has (CX-19), and it works on a stock Mac with
+# no Command Line Tools, where /usr/bin/python3 is an Apple stub that
+# fires the CLT dialog and returns non-zero. SCRIPT_DIR proper is not
+# resolved until much later in this script, so redo the dirname dance
+# locally rather than reordering the world.
+_ostler_licence_python() {
+    local _cand _dir=""
+    if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+        _dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    fi
+    for _cand in ${_dir:+"${_dir}/python/bin/python3.11"} \
+                 /opt/homebrew/opt/python@3.11/bin/python3.11 \
+                 /usr/local/opt/python@3.11/bin/python3.11 \
+                 /opt/homebrew/bin/python3 \
+                 /usr/local/bin/python3 \
+                 "$(command -v python3 2>/dev/null || true)"; do
+        [[ -n "$_cand" && -x "$_cand" ]] || continue
+        if "$_cand" -c 'import base64, hashlib, json' >/dev/null 2>&1; then
+            printf '%s' "$_cand"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Refuse, with somewhere for the customer to go next. No internals:
+# the reason lines say what is wrong with the licence, never what the
+# verifier did about it.
+_ostler_licence_refuse() {
+    local _reason="$1"
+    err "Ostler needs a valid licence before it can install."                    # i18n-exempt
+    err "  ${_reason}"                                                           # i18n-exempt
+    echo "" >&2
+    echo "  The licence file belongs here:" >&2                                  # i18n-exempt
+    echo "      ${OSTLER_LICENCE_FILE}" >&2
+    echo "" >&2
+    echo "  If you have not bought Ostler yet:" >&2                              # i18n-exempt
+    echo "      https://ostler.ai" >&2
+    echo "" >&2
+    echo "  If you have: your welcome email has the licence attached as" >&2     # i18n-exempt
+    echo "  ostler-licence.json. Save it, then put it in place:" >&2             # i18n-exempt
+    echo "" >&2
+    echo "      mkdir -p ~/.ostler/license" >&2
+    echo "      cp ~/Downloads/ostler-licence.json ~/.ostler/license/license.json" >&2
+    echo "" >&2
+    echo "  and run this installer again. The OstlerInstaller app from the" >&2  # i18n-exempt
+    echo "  DMG does that step for you: drop the licence on its licence" >&2     # i18n-exempt
+    echo "  screen and it writes the file itself." >&2                           # i18n-exempt
+    echo "" >&2
+    echo "  Bought Ostler and still seeing this? Email support@ostler.ai." >&2   # i18n-exempt
+    echo "" >&2
+    fail_with_code "ERR-02-LICENCE-REQUIRED" "Licence check failed: ${_reason}"  # i18n-exempt
+}
+
+if [[ "${OSTLER_DEV:-0}" == "1" || "$ALLOW_UNLICENSED" == "1" ]]; then
+    # Loud on purpose, three times, matching the --allow-plaintext
+    # precedent above. This is the line support needs to see in a
+    # pasted log before spending an hour on a Hub that was never
+    # licensed. Fires before the strings catalogue is sourced, so it
+    # cannot use MSG_* -- same constraint as --allow-plaintext.
+    # if/else rather than `[[ ... ]] && x=y`: a false test in an AND-list
+    # is exempt from set -e today, but it is one refactor away from not
+    # being, and this block must never be the thing that aborts.
+    if [[ "${OSTLER_DEV:-0}" == "1" ]]; then
+        _lic_switch="OSTLER_DEV=1"
+    else
+        _lic_switch="--allow-unlicensed"
+    fi
+    warn "RUNNING UNLICENSED (${_lic_switch}): licence check SKIPPED. NOT A SUPPORTED INSTALL."  # i18n-exempt
+    warn "RUNNING UNLICENSED (${_lic_switch}): licence check SKIPPED. NOT A SUPPORTED INSTALL."  # i18n-exempt
+    warn "RUNNING UNLICENSED (${_lic_switch}): licence check SKIPPED. NOT A SUPPORTED INSTALL."  # i18n-exempt
+    unset _lic_switch
+elif [[ "$CHECK_ONLY" == true ]]; then
+    info "Prerequisites check only -- installing Ostler needs a licence."  # i18n-exempt
+else
+    _lic_python="$(_ostler_licence_python)" || _lic_python=""
+    if [[ -z "$_lic_python" ]]; then
+        # Fail closed. Not a hardship: there is no successful install
+        # without python3 anyway (venvs, FDA extraction, the security
+        # module all need it), so this refuses earlier and with a
+        # clearer message than the failure that was coming regardless.
+        err "Cannot verify your licence: no usable python3 on this Mac."        # i18n-exempt
+        err "Install the Xcode Command Line Tools, then run this again:"        # i18n-exempt
+        err "    xcode-select --install"                                        # i18n-exempt
+        fail_with_code "ERR-02-LICENCE-UNVERIFIABLE" "No python3 available to verify the licence."  # i18n-exempt
+    fi
+
+    # QA / staging keypair override. A wrong-length value falls back to the
+    # production key, and says so.
+    #
+    # 🔴 DO NOT "RESTORE CONSISTENCY" WITH THE SWIFT SIDE. This comment used to
+    # read "same env var and same 64-hex-char rule as LicenseVerifier.swift"
+    # and "falls back to the production key exactly like the Swift side". Both
+    # sentences described a branch that had ALREADY BEEN DELETED, on
+    # 2026-08-16, as a security defect: it let anyone launching the shipped
+    # installer substitute their own trust anchor and self-sign a licence.
+    # LicenseVerifierTests.swift now asserts its absence, and the assertion
+    # message states the principle this block is in tension with:
+    #
+    #     "Whatever the variable is called, a trust anchor the launching
+    #      process can set is not a trust anchor."
+    #
+    # So the two implementations DIFFER on purpose. Swift removed its override
+    # because `init(publicKey:)` already existed as a compile-time seam. The
+    # shell has no equivalent seam yet -- OSTLER_LICENCE_PUBKEY below is a baked
+    # assignment, not a ${VAR:-default}, and tests/test_licence_gate.sh:364
+    # injects through this very variable. Held, not blessed:
+    # scripts/verify_no_env_trust_anchors.sh carries it as the estate's ONE
+    # exemption, with the reason, so the exception is auditable rather than
+    # inferred. It goes when the seam arrives. See #733.
+    _lic_pubkey="$OSTLER_LICENCE_PUBKEY"
+    if [[ -n "${OSTLER_LICENSE_PUBKEY_OVERRIDE:-}" ]]; then
+        if [[ "${#OSTLER_LICENSE_PUBKEY_OVERRIDE}" -eq 64 ]]; then
+            _lic_pubkey="$OSTLER_LICENSE_PUBKEY_OVERRIDE"
+            warn "OSTLER_LICENSE_PUBKEY_OVERRIDE set: verifying against a NON-PRODUCTION licence key."  # i18n-exempt
+        else
+            warn "OSTLER_LICENSE_PUBKEY_OVERRIDE is not 64 hex characters -- ignored."  # i18n-exempt
+        fi
+    fi
+
+    # Exit codes are the contract between the heredoc and the case
+    # below. Captured explicitly with `|| rc=$?` because `set -e` would
+    # otherwise abort here and the customer would see nothing at all.
+    _lic_rc=0
+    _lic_detail="$("$_lic_python" - "$OSTLER_LICENCE_FILE" "$_lic_pubkey" <<'OSTLER_LICENCE_VERIFY_PY'
+# Verify a CM050 v1 licence file. Mirrors, decision for decision,
+# gui/OstlerInstaller/Auth/LicenseVerifier.swift:
+#
+#   parse JSON -> require the v1 fields and types -> version == 1 ->
+#   signature_algorithm == "Ed25519" -> drop `signature` -> canonical
+#   JSON (sorted keys, no whitespace, ensure_ascii=False, flat values
+#   only) -> Ed25519 verify -> expiry window.
+#
+# Ed25519 is implemented here in pure Python (RFC 8032 reference
+# construction) because neither macOS system Python nor the bundled
+# python-build-standalone ships an Ed25519 primitive, and the gate
+# must not depend on `pip install` having already happened -- it runs
+# before anything is installed. tests/test_licence_gate.sh pins the
+# implementation to the RFC 8032 section 7.1 known-answer vector, so a
+# broken edit here cannot pass as "verification".
+#
+# Exit codes (consumed by the case statement in install.sh):
+#   0 valid   10 no file   11 empty   12 malformed
+#  13 signature did not verify   14 expired   20 internal error
+import base64
+import binascii
+import datetime
+import hashlib
+import json
+import os
+import sys
+
+RC_OK, RC_MISSING, RC_EMPTY, RC_MALFORMED = 0, 10, 11, 12
+RC_BADSIG, RC_EXPIRED, RC_INTERNAL = 13, 14, 20
+
+p = 2 ** 255 - 19
+# Curve25519 group order L (RFC 8032 s5.1), in hex. Written in hex, not
+# in the usual 2**252 + <38-digit> decimal form, because
+# .github/scripts/ci-pii-shape-scan.sh refuses any run of 15+ digits on
+# sight: it matches on SHAPE, and a maths constant is indistinguishable
+# from an account number to a shape matcher. Do not "tidy" this back to
+# decimal -- CI goes red and the reason is not obvious from the message.
+q = 0x1000000000000000000000000000000014DEF9DEA2F79CD65812631A5CF5D3ED
+
+
+def _modp_inv(x):
+    return pow(x, p - 2, p)
+
+
+d = -121665 * _modp_inv(121666) % p
+modp_sqrt_m1 = pow(2, (p - 1) // 4, p)
+
+
+def _recover_x(y, sign):
+    if y >= p:
+        return None
+    x2 = (y * y - 1) * _modp_inv(d * y * y + 1) % p
+    if x2 == 0:
+        return None if sign else 0
+    x = pow(x2, (p + 3) // 8, p)
+    if (x * x - x2) % p != 0:
+        x = x * modp_sqrt_m1 % p
+    if (x * x - x2) % p != 0:
+        return None
+    if (x & 1) != sign:
+        x = p - x
+    return x
+
+
+_g_y = 4 * _modp_inv(5) % p
+_g_x = _recover_x(_g_y, 0)
+G = (_g_x, _g_y, 1, _g_x * _g_y % p)
+
+
+def _point_add(P, Q):
+    a = (P[1] - P[0]) * (Q[1] - Q[0]) % p
+    b = (P[1] + P[0]) * (Q[1] + Q[0]) % p
+    c = 2 * P[3] * Q[3] * d % p
+    e = 2 * P[2] * Q[2] % p
+    return ((b - a) * (e - c) % p, (e + c) * (b + a) % p,
+            (e - c) * (e + c) % p, (b - a) * (b + a) % p)
+
+
+def _point_mul(s, P):
+    Q = (0, 1, 1, 0)
+    while s > 0:
+        if s & 1:
+            Q = _point_add(Q, P)
+        P = _point_add(P, P)
+        s >>= 1
+    return Q
+
+
+def _point_equal(P, Q):
+    if (P[0] * Q[2] - Q[0] * P[2]) % p != 0:
+        return False
+    return (P[1] * Q[2] - Q[1] * P[2]) % p == 0
+
+
+def _point_decompress(s):
+    if len(s) != 32:
+        return None
+    y = int.from_bytes(s, "little")
+    sign = y >> 255
+    y &= (1 << 255) - 1
+    x = _recover_x(y, sign)
+    if x is None:
+        return None
+    return (x, y, 1, x * y % p)
+
+
+def _sha512_modq(s):
+    return int.from_bytes(hashlib.sha512(s).digest(), "little") % q
+
+
+def ed25519_verify(public, msg, signature):
+    if len(public) != 32 or len(signature) != 64:
+        return False
+    a_point = _point_decompress(public)
+    if a_point is None:
+        return False
+    r_bytes = signature[:32]
+    r_point = _point_decompress(r_bytes)
+    if r_point is None:
+        return False
+    s = int.from_bytes(signature[32:], "little")
+    if s >= q:
+        return False
+    h = _sha512_modq(r_bytes + public + msg)
+    return _point_equal(_point_mul(s, G),
+                        _point_add(r_point, _point_mul(h, a_point)))
+
+
+# Byte-for-byte the Swift canonicaliser: flat body only, no floats, no
+# negative integers, no nested containers. Diverging bytes here would
+# read as a bad signature, so refuse rather than guess.
+def canonical_body(body):
+    for value in body.values():
+        if isinstance(value, bool) or value is None:
+            continue
+        if isinstance(value, int):
+            if value < 0:
+                return None
+            continue
+        if isinstance(value, str):
+            continue
+        return None
+    return json.dumps(body, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False).encode("utf-8")
+
+
+def parse_iso8601_utc(text):
+    # [.withInternetDateTime] equivalent, no fractional seconds. An
+    # unparseable stamp is NOT treated as expired -- same as Swift,
+    # where `if let expiry = ...` simply skips the comparison.
+    if not isinstance(text, str) or len(text) < 20:
+        return None
+    stamp = text.strip()
+    if stamp.endswith("Z"):
+        stamp = stamp[:-1] + "+0000"
+    else:
+        stamp = stamp[:-3] + stamp[-2:] if stamp[-3:-2] == ":" else stamp
+    try:
+        return datetime.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%S%z")
+    except ValueError:
+        return None
+
+
+STRING_FIELDS = ("license_id", "issued_to_email", "purchased_at",
+                 "update_window_expires_at", "stripe_payment_id",
+                 "signature_algorithm", "signature")
+
+
+def main():
+    path, pubkey_hex = sys.argv[1], sys.argv[2]
+    if not os.path.isfile(path):
+        return RC_MISSING
+    try:
+        with open(path, "rb") as handle:
+            raw = handle.read()
+    except OSError:
+        return RC_EMPTY
+    if not raw.strip():
+        return RC_EMPTY
+    try:
+        pubkey = binascii.unhexlify(pubkey_hex)
+    except (binascii.Error, ValueError):
+        return RC_INTERNAL
+    if len(pubkey) != 32:
+        return RC_INTERNAL
+    try:
+        doc = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return RC_MALFORMED
+    if not isinstance(doc, dict):
+        return RC_MALFORMED
+    for field in STRING_FIELDS:
+        if not isinstance(doc.get(field), str):
+            return RC_MALFORMED
+    for field in ("version", "max_hardware_fingerprints"):
+        if not isinstance(doc.get(field), int) or isinstance(doc.get(field), bool):
+            return RC_MALFORMED
+    if doc["version"] != 1:
+        return RC_MALFORMED
+    if doc["signature_algorithm"] != "Ed25519":
+        return RC_MALFORMED
+    body = dict(doc)
+    body.pop("signature", None)
+    canonical = canonical_body(body)
+    if canonical is None:
+        return RC_MALFORMED
+    try:
+        signature = base64.b64decode(doc["signature"], validate=True)
+    except (binascii.Error, ValueError):
+        return RC_MALFORMED
+    if not ed25519_verify(pubkey, canonical, signature):
+        return RC_BADSIG
+    expires = parse_iso8601_utc(doc["update_window_expires_at"])
+    if expires is not None:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if expires < now:
+            # The only value this script prints. The customer already
+            # knows the date; support needs it to renew them.
+            sys.stdout.write(doc["update_window_expires_at"])
+            return RC_EXPIRED
+    return RC_OK
+
+
+# === entrypoint === (tests/test_licence_gate.sh splits the source here
+# so it can run the KAT against the definitions above without invoking
+# main(). Keep this marker if you move the driver.)
+try:
+    sys.exit(main())
+except Exception:
+    sys.exit(RC_INTERNAL)
+OSTLER_LICENCE_VERIFY_PY
+)" || _lic_rc=$?
+
+    case "$_lic_rc" in
+        0)  ok "Licence verified." ;;                                                  # i18n-exempt
+        10) _ostler_licence_refuse "No licence file found." ;;                         # i18n-exempt
+        11) _ostler_licence_refuse "The licence file is empty." ;;                     # i18n-exempt
+        12) _ostler_licence_refuse "The licence file is not a valid Ostler licence." ;; # i18n-exempt
+        13) _ostler_licence_refuse "The licence signature did not verify." ;;          # i18n-exempt
+        14) _ostler_licence_refuse "This licence expired on ${_lic_detail}." ;;        # i18n-exempt
+        *)  _ostler_licence_refuse "The licence could not be checked." ;;              # i18n-exempt
+    esac
+    unset _lic_python _lic_pubkey _lic_rc _lic_detail
+fi
+
+# Test-only stop. Placed AFTER the gate, so it can only ever STOP the
+# installer, never skip the gate: a refusal above has already exited
+# non-zero before this line is reached. tests/test_licence_gate.sh
+# uses it for the positive control (a valid licence has to be observed
+# PASSING, not merely observed failing), and asserts that setting it
+# with no licence still refuses.
+if [[ "${OSTLER_TEST_STOP_AFTER_LICENCE_GATE:-0}" == "1" ]]; then
+    echo "OSTLER_TEST: licence gate passed, stopping before install."  # i18n-exempt
+    exit 0
 fi
 
 # ── Paths ──────────────────────────────────────────────────────────
@@ -586,6 +1630,129 @@ _ostler_promote_prelaunch_tree() {
 # Safe to call when no venv exists (no-op). Safe to call when venv
 # was created at the final location (shebang check finds no drift,
 # no rebuild).
+# ---------------------------------------------------------------------------
+# _ostler_pip_install_pkg -- pip install a bundled package WITHOUT writing into
+# the bundle it came from.
+#
+# WHY THIS EXISTS. `pip install <dir>` builds IN PLACE: it writes <dir>/*.egg-info
+# and <dir>/build/lib/ into the SOURCE directory. When install.sh runs from the
+# signed app, SCRIPT_DIR is
+#   /Applications/OstlerInstaller.app/Contents/Resources
+# so those writes land inside a NOTARISED BUNDLE and break its code seal.
+#
+# MEASURED on the v1.0.32 box, 2026-08-16, after a real install:
+#   spctl -a -vv /Applications/OstlerInstaller.app
+#     -> "a sealed resource is missing or invalid"   rc=1
+#   codesign --verify --deep --strict  -> 346 unsealed files
+#   263 of them written during the install window; PKG-INFO mtime 20:25:29
+#   against a signature timestamp of 17:09:52
+#
+# The bundle still LAUNCHED on that box only because com.apple.quarantine
+# happened to be absent. A customer who downloads the DMG carries the quarantine
+# bit, and Gatekeeper then refuses.
+#
+# ostler_fda already did the right thing (cp -R out of the bundle, then use the
+# copy). This generalises that pattern to every pip install sourced from
+# SCRIPT_DIR.
+#
+# Usage: _ostler_pip_install_pkg <pip-binary> <source-dir> [extra pip args...]
+# Returns pip's exit code. Callers keep their own tolerance policy.
+# Where _ostler_pip_install_pkg records its OWN failures.
+#
+# TNM's review of #767: two call sites are `... 2>/dev/null || true`, so the
+# helper's diagnostics went to /dev/null and its rc=2 was discarded. "Could not
+# stage the package" and "pip itself failed" then present identically, as
+# ostler_security silently missing. The tolerance is pre-existing and
+# deliberate; the invisibility is new and is not.
+#
+# A file write cannot be silenced by a caller's stderr redirect, so the record
+# survives regardless of how the call site is written. stderr is kept too, for
+# the sites that do show it.
+_OSTLER_PIP_STAGE_LOG="${_OSTLER_PIP_STAGE_LOG:-/tmp/ostler-pip-stage.log}"
+
+_ostler_pip_stage_note() {
+    printf '%s _ostler_pip_install_pkg: %s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$_OSTLER_PIP_STAGE_LOG" 2>/dev/null || true
+    echo "_ostler_pip_install_pkg: $*" >&2
+}
+
+_ostler_pip_install_pkg() {
+    local pip_bin="$1"; shift
+    local src_dir="$1"; shift
+    local stage rc
+
+    if [[ ! -d "$src_dir" ]]; then
+        _ostler_pip_stage_note "no such package dir: $src_dir"
+        return 2
+    fi
+
+    # Stage OUTSIDE the bundle.
+    #
+    # This previously read `mktemp -d -t ostler-pipsrc-XXXXXX`, with a comment
+    # claiming "mktemp -d honours TMPDIR". MEASURED on macOS 2026-08-16, that
+    # is false: BSD mktemp -t IGNORES TMPDIR and always uses the system default.
+    #
+    #     TMPDIR=<...>/Foo.app/Contents/Resources/tmpstage
+    #     mktemp -d -t ostler-pipsrc-XXXXXX
+    #       -> /var/folders/<user>/T/ostler-pipsrc-XXXXXX.H70ZLN60ZP
+    #
+    # The OUTCOME was right by accident: the default is the per-user temp dir,
+    # which can never be inside /Applications. GNU mktemp does honour TMPDIR, so
+    # the comment described the wrong platform. An explicit template does what
+    # the comment always claimed, behaves identically on both, and -- the reason
+    # this matters -- makes the stage location reachable by a test, so the
+    # refusal arms below are exercised rather than merely present.
+    stage="$(mktemp -d "${TMPDIR:-/tmp}/ostler-pipsrc-XXXXXX")" || return 2
+
+    # ASSERT the thing this function is named for, rather than reasoning about
+    # it. The comment above argues that mktemp -d honours TMPDIR and that TMPDIR
+    # is not inside /Applications. An argument is not a control, and this helper
+    # exists precisely because a plausible argument about where files land was
+    # wrong for 32 cuts. TNM's review of #767.
+    #
+    # TWO predicates, deliberately, and NOT the single
+    #     case "$stage" in "$SCRIPT_DIR"*) ...
+    # that suggests itself. That form is a trap: this file runs under `set -u`
+    # but "${SCRIPT_DIR:-}" expands happily to empty in any context that has not
+    # set it, and the pattern then degenerates to `*`, which matches EVERY path.
+    # Every call would return 2 and ostler_security would silently stop being
+    # installed -- a worse failure than the one being guarded, delivered by the
+    # guard. So the bundle test below needs no variable at all and can never be
+    # silently absent, and the SCRIPT_DIR test only runs when there is a value
+    # to test against.
+    #
+    # `"$SCRIPT_DIR"/*` and not `"$SCRIPT_DIR"*`: the second also matches a
+    # sibling whose name merely shares the prefix (/a/b vs /a/bc).
+    case "$stage" in
+        *.app/*)
+            _ostler_pip_stage_note "refusing to stage inside an app bundle: $stage"
+            rm -rf "$stage"
+            return 2
+            ;;
+    esac
+    if [[ -n "${SCRIPT_DIR:-}" ]]; then
+        case "$stage" in
+            "$SCRIPT_DIR"|"$SCRIPT_DIR"/*)
+                _ostler_pip_stage_note "refusing to stage under SCRIPT_DIR: $stage"
+                rm -rf "$stage"
+                return 2
+                ;;
+        esac
+    fi
+    # cp the CONTENTS into a same-named dir so any build metadata pip emits
+    # lands in the throwaway copy.
+    if ! cp -R "$src_dir" "$stage/"; then
+        rm -rf "$stage"
+        _ostler_pip_stage_note "failed to stage $src_dir"
+        return 2
+    fi
+
+    "$pip_bin" install "$@" "${stage}/$(basename "$src_dir")"
+    rc=$?
+    rm -rf "$stage"
+    return $rc
+}
+
 _ostler_repair_venv_after_promote() {
     local venv_dir="${OSTLER_FINAL_DIR}/.venv"
     local pip_path="${venv_dir}/bin/pip"
@@ -681,10 +1848,10 @@ _ostler_repair_venv_after_promote() {
     # post-promote venv is at least syntactically valid even on a
     # partial reinstall.
     if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/pyproject.toml" ]]; then
-        "${venv_dir}/bin/pip" install --quiet "${SCRIPT_DIR}/ostler_security" 2>/dev/null || true
+        _ostler_pip_install_pkg "${venv_dir}/bin/pip" "${SCRIPT_DIR}/ostler_security" --quiet 2>/dev/null || true
     fi
     if [[ -d "${SCRIPT_DIR}/legal" && -f "${SCRIPT_DIR}/legal/pyproject.toml" ]]; then
-        "${venv_dir}/bin/pip" install --quiet "${SCRIPT_DIR}/legal" 2>/dev/null || true
+        _ostler_pip_install_pkg "${venv_dir}/bin/pip" "${SCRIPT_DIR}/legal" --quiet 2>/dev/null || true
     fi
     "${venv_dir}/bin/pip" install --quiet "sqlcipher3>=0.6.0,<0.7.0" 2>/dev/null || true
 }
@@ -1067,6 +2234,31 @@ elif [[ -f "${HOME}/.ostler/lib/progress_emitter.sh" ]]; then
     _ostler_emitter_candidate="${HOME}/.ostler/lib/progress_emitter.sh"
 fi
 
+# Settling-progress shell writer. Same resolution order as the emitter.
+#
+# `contacts` and `emails` are the two settling channels whose producers CANNOT
+# import HR015's ostler_fda/settling_progress.py: contact_syncer runs from
+# PIPELINE_DIR and pwg-email-ingest from its own venv, and neither has
+# ostler_fda on its path (this script copies contact_syncer, meeting_syncer and
+# identity_resolver into PIPELINE_DIR -- never ostler_fda). So those two report
+# from here, against the same filesystem contract.
+#
+# UNLIKE the emitter this is never fatal and never no-op'd loudly: a missing
+# settling writer costs a progress row on the wiki homepage, nothing more.
+# Define no-ops so every call site stays unguarded.
+_ostler_settling_candidate=""
+if [[ -f "${SCRIPT_DIR}/lib/settling_progress.sh" ]]; then
+    _ostler_settling_candidate="${SCRIPT_DIR}/lib/settling_progress.sh"
+elif [[ -f "${HOME}/.ostler/lib/settling_progress.sh" ]]; then
+    _ostler_settling_candidate="${HOME}/.ostler/lib/settling_progress.sh"
+fi
+if [[ -n "${_ostler_settling_candidate}" ]]; then
+    # shellcheck source=lib/settling_progress.sh
+    source "${_ostler_settling_candidate}"
+else
+    settling_report() { :; }
+fi
+
 if [[ -n "${_ostler_emitter_candidate}" ]]; then
     # shellcheck source=lib/progress_emitter.sh
     source "${_ostler_emitter_candidate}"
@@ -1089,6 +2281,8 @@ else
     gui_emit()        { :; }
     gui_step_begin()  { :; }
     gui_step_end()    { :; }
+    gui_step_record_rc() { :; }
+    gui_step_status() { printf 'ok'; }
     gui_read()        {
         # Mirrors the TTY half of the full helper so install.sh keeps
         # working when sourced direct from a terminal. Handles the
@@ -1122,6 +2316,29 @@ else
     gui_needs_fda()   { :; }
 fi
 unset _ostler_emitter_candidate
+
+# ── Hardware-fit model picker helper (REUSE-4) ────────────────────
+#
+# lib/ostler-model-fit.sh holds the static model->min-RAM-for-num_ctx
+# table plus the pure fit/recommend logic used by the "AI model
+# (automatic)" step further down. Sourced here (alongside
+# progress_emitter.sh) so the same multi-location resolution applies:
+#   1. ${SCRIPT_DIR}/lib/ostler-model-fit.sh   (tarball / dev / .app bundle)
+#   2. ${HOME}/.ostler/lib/ostler-model-fit.sh (post-install re-run)
+# Sourcing is side-effect-free (defines functions + arrays, prints
+# nothing). If it is missing we fall back to the legacy RAM ladder in
+# the AI-model step, so a stripped bundle degrades rather than aborts.
+_ostler_modelfit_candidate=""
+if [[ -f "${SCRIPT_DIR}/lib/ostler-model-fit.sh" ]]; then
+    _ostler_modelfit_candidate="${SCRIPT_DIR}/lib/ostler-model-fit.sh"
+elif [[ -f "${HOME}/.ostler/lib/ostler-model-fit.sh" ]]; then
+    _ostler_modelfit_candidate="${HOME}/.ostler/lib/ostler-model-fit.sh"
+fi
+if [[ -n "${_ostler_modelfit_candidate}" ]]; then
+    # shellcheck source=lib/ostler-model-fit.sh
+    source "${_ostler_modelfit_candidate}"
+fi
+unset _ostler_modelfit_candidate
 
 # ── Three-state data-source detection (CX-100, CX-101) ────────────
 #
@@ -1522,7 +2739,7 @@ KNOWLEDGE_REPO="${PWG_KNOWLEDGE_REPO:-}"
 # bundles a copy under ${SCRIPT_DIR}/cm048_pipeline/; install.sh
 # pip-installs it into a dedicated venv at ~/.ostler/services/cm048/
 # and symlinks .venv/bin/pwg-convo into /usr/local/bin/pwg-convo so
-# Doctor + Marvin + the assistant can invoke it without venv juggling.
+# Doctor + the assistant can invoke it without venv juggling.
 # Without bundling AND without an override, the install hard-fails
 # (rather than the older silent-skip which only surfaced as confusing
 # downstream failures). Pass --allow-plaintext to skip warn-only for
@@ -1605,8 +2822,17 @@ gui_emit PCT "step=prereq_check" "pct=5"
 #      `install.sh` is running, the licence is on disk + verified
 #      + the device is registered.
 #
-# This script therefore does NOT touch the licence file. Anything
-# Hub-side that needs licence introspection should read the
+# That is the DMG path, and for the DMG the sequence above holds.
+#
+# CORRECTED 2026-08-16: this block used to end "this script therefore
+# does NOT touch the licence file", which was true and also the whole
+# defect. install.sh is public and advertised as curl|bash, so the GUI
+# does not always run first -- and when it does not, nothing checked
+# anything. The shell path now verifies the licence itself, up at the
+# "Licence gate (ERR-02-LICENCE-REQUIRED)" block near the top of this
+# file, before any download or system modification. Same file, same
+# Ed25519 public key, same canonical bytes as LicenseVerifier.swift.
+# Hub-side code that needs licence introspection still reads the
 # canonical path written by the GUI -- single source of truth.
 #
 # TODO (post-App Store): StoreKit receipt verification replaces the
@@ -1649,6 +2875,19 @@ gui_emit PCT "step=prereq_check" "pct=20"
 # also takes ~5 min). The wait-for-CLT loop has moved to the top of
 # the homebrew_install step (lower in this script), where it only
 # fires if CLT is still finishing.
+#
+# BW3-1 (2026-07-23): cross-process marker so the CLT focus-bounce loop
+# below (a disowned subshell) never fights an FDA/permission modal for
+# focus. A modal site touches this file for the lifetime of its dialog;
+# the loop skips its OstlerInstaller re-activation while the file exists
+# (but keeps polling, so it still exits when the CLT installer closes).
+# File-based because the loop runs in a disowned subshell that cannot see
+# later in-process variable changes; the path is expanded here so both
+# the forked subshell and the main process reference the same file. PID
+# suffix avoids collision between concurrent installs.
+OSTLER_MODAL_LOCK_FILE="${TMPDIR:-/tmp}/ostler-installer-modal-active.$$"
+rm -f "$OSTLER_MODAL_LOCK_FILE" 2>/dev/null || true
+export OSTLER_MODAL_LOCK_FILE
 CLT_INSTALL_TRIGGERED=false
 if ! /usr/bin/xcode-select -p &>/dev/null; then
     info "$MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND"
@@ -1703,6 +2942,15 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
                 # against a window that does not exist.
                 if ! pgrep -f "Install Command Line Developer Tools" >/dev/null 2>&1; then
                     break
+                fi
+                # BW3-1: never bounce focus while an FDA/permission modal
+                # is on screen -- that is the focus-fight the pile-up fix
+                # removes. Skip only the re-activation; keep polling (the
+                # pgrep break above still fires) so the loop exits promptly
+                # when the CLT installer closes.
+                if [[ -e "$OSTLER_MODAL_LOCK_FILE" ]]; then
+                    sleep 4
+                    continue
                 fi
                 osascript -e 'tell application "OstlerInstaller" to activate' 2>/dev/null || \
                     open -a "OstlerInstaller" 2>/dev/null || true
@@ -1760,8 +3008,11 @@ else
 fi
 gui_emit PCT "step=prereq_check" "pct=85"
 
-# Power source check. On a MacBook, Phase 3 takes 10-15 minutes of
-# continuous Docker pulls and Ollama model downloads. The hub power
+# Power source check. On a MacBook, Phase 3 runs ~45 minutes to a few
+# hours of
+# continuous Docker pulls, Ollama model downloads and history
+# backfill (the upper end on a Mac with years of mail / messages).
+# The hub power
 # LaunchAgent installed at step 3.14 pauses Docker and Ollama when
 # the battery drops below the policy threshold, which can hang the
 # installer's readiness probes for the full timeout (90 s / 300 s).
@@ -1782,6 +3033,40 @@ if [[ "$HAS_BATTERY" == true ]]; then
         warn "$MSG_WARN_DOCKER_OLLAMA_MID_INSTALL_HANG_READINESS"
         warn "$MSG_WARN_PLUG_INTO_AC_POWER_FULL_INSTALL"
     fi
+    # ── Laptop Hub: the ONGOING condition, not just the install window ──
+    #
+    # The block above is about Phase 3 stalling. This is about the rest of
+    # the machine's life as a Hub, and it fires on every laptop whether or
+    # not it is plugged in right now.
+    #
+    # Two measured facts sit behind it, neither visible to a customer:
+    #
+    #   1. The stay-awake LaunchAgent installed at 3.0-bis runs
+    #      `caffeinate -s`. caffeinate(8): that assertion "is valid only
+    #      when system is running on AC power". On battery it holds
+    #      nothing, which is deliberate (`-i` would flatten the battery),
+    #      so the Mac idle-sleeps on its own schedule.
+    #   2. Closing the lid sleeps the Mac regardless of any power
+    #      assertion, unless it is in closed-display mode. Apple states
+    #      the requirement for that directly: "If the display is connected
+    #      to a Mac laptop computer with a closed lid, make sure that the
+    #      Mac is connected to power and using an external keyboard and
+    #      mouse." (support.apple.com/en-us/102501)
+    #
+    # A slept Hub is not a degraded Hub, it is a silent one: launchd does
+    # not schedule user agents in dark wake, so the assistant's poll never
+    # runs and inbound messages are never seen (task #338, measured
+    # 2026-08-13: 1430 of 1439 wakes were dark). Nothing on screen says
+    # so. The installer is the only place that can, and Phase 1 is the
+    # last point where choosing a different Mac costs the customer
+    # nothing, so it is said here rather than only in the recap.
+    #
+    # info, not warn: on a lid-open laptop on mains power this is a
+    # condition being met, not a fault.
+    info "$MSG_INFO_LAPTOP_HUB_AWAKE_CONDITIONS"
+    info "$MSG_INFO_LAPTOP_HUB_SLEEP_COST"
+    info "$MSG_INFO_LAPTOP_HUB_CLOSED_DISPLAY"
+    info "$MSG_INFO_LAPTOP_HUB_DESKTOP_ALTERNATIVE"
 else
     ok "$MSG_OK_POWER_SOURCE_AC_DESKTOP_MAC_NO"
 fi
@@ -1895,6 +3180,9 @@ WA_CONSENT=""
 OSTLER_CONSENT_ARTICLE_9_DECISION=""
 OSTLER_CONSENT_VOICE_EU_DECISION=""
 OSTLER_CONSENT_THIRD_PARTY_DECISION=""
+# Spoken-capture recording-consent acknowledgement (every region). Empty
+# default = spoken transcription off on a reuse run until re-acknowledged.
+OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION=""
 
 # Region + ISO + source. Read at line ~3498 (EU branch entry),
 # ~5265 (region-persist Python heredoc), ~5300 (consent_cli
@@ -1929,6 +3217,18 @@ OSTLER_REGION_SOURCE="default_eu"
 # USER_ID="..." as its first non-comment line.
 SKIP_PHASE2=false
 FV_ENABLED=false
+# CX-123 (#643): belt-and-braces. Initialise the summary's OPTIONAL display
+# vars to safe defaults UNCONDITIONALLY here, so they are set on EVERY path
+# (fresh install + reuse), not only the path that happens to assign them.
+# The real conditional assignments below / later still override on their
+# own path; these just guarantee the final-summary recap never sees an
+# unset value. (The recap is also wrapped in set +u/-u as the primary
+# guard; this keeps the printed recap sensible rather than blank.)
+CONTACT_COUNT=0
+EXPORTS_DIR=""
+WIKI_FIRST_COMPILE_OK=false
+IMESSAGE_TCC_STATUS=""
+VANE_OK=false
 if [[ -f "${OSTLER_FINAL_DIR}/config/.env" ]] \
    && grep -q '^USER_ID=' "${OSTLER_FINAL_DIR}/config/.env" 2>/dev/null; then
     ok "$MSG_OK_PREVIOUS_INSTALLATION_DETECTED_LOADING_CONFIG"
@@ -2030,11 +3330,24 @@ step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 #   6. Documents folder               (CX-70 pre-warm)
 #   7. Full Disk Access -- installer  (FDA-only data sources)
 #   8. Full Disk Access -- daemon     (CX-60 ostler-assistant chat.db)
-#   9. iMessage Automation            (CX-55 if iMessage channel enabled)
-#  10. macOS admin password           (sudo for Homebrew, sleep-disable)
+#   9. Downloads folder -- daemon     (the DAEMON asks AGAIN, separately from
+#                                      the installer's #4. Measured on a fresh
+#                                      install 2026-08-17:
+#                                      kTCCServiceSystemPolicyDownloadsFolder
+#                                      -> ai.ostler.assistant at 07:22:53)
+#  10. App data -- daemon             (kTCCServiceSystemPolicyAppData, granted
+#                                      07:23:32, 39s after the one above. macOS
+#                                      words this "wants to access data from
+#                                      other apps" -- which matched NOTHING in
+#                                      this list, so it read as a random popup
+#                                      30 steps into a run that had promised a
+#                                      complete inventory. Naming it here is the
+#                                      whole point of this list.)
+#  11. iMessage Automation            (CX-55 if iMessage channel enabled)
+#  12. macOS admin password           (sudo for Homebrew, sleep-disable)
 # Plus, on a fresh Mac: the Xcode CLT installer dialog (not a TCC
 # permission per se, but customer-visible).
-PERMISSIONS_TOTAL=10
+PERMISSIONS_TOTAL=12
 gui_emit STEP "name=permissions_briefing" "total_permissions=${PERMISSIONS_TOTAL}"
 
 echo ""
@@ -2052,10 +3365,13 @@ echo -e "    1. ${BOLD}Contacts${NC}              Your name + your address book"
 echo -e "    2. ${BOLD}Calendar${NC}              Meetings + events in your graph"
 echo -e "    3. ${BOLD}Reminders${NC}             Tasks in your graph"
 echo -e "    4-6. ${BOLD}Downloads/Desktop/Documents${NC}    Find data exports"
-echo -e "    7. ${BOLD}Full Disk Access (installer)${NC}     Read Safari, Notes etc."
-echo -e "    8. ${BOLD}Full Disk Access (daemon)${NC}        Read iMessage history"
-echo -e "    9. ${BOLD}Messages automation${NC}    Send + receive iMessages as you"
-echo -e "    10. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
+echo -e "    7. ${BOLD}Full Disk Access (installer)${NC}     Read Safari, Notes etc. (asked now, upfront)"
+echo -e "    8. ${BOLD}Full Disk Access (daemon)${NC}        Read iMessage history (asked near the end)"
+echo -e "    9. ${BOLD}Downloads (assistant)${NC}            The assistant asks for itself, after the installer (near the end)"
+echo -e "    10. ${BOLD}Data from other apps${NC}            macOS words it exactly that way. It is the assistant"
+echo -e "        ${BOLD}(assistant)${NC}                     reading the app data you already approved (near the end)"
+echo -e "    11. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
+echo -e "    12. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
 echo ""
 echo "  Plus, on a fresh Mac, a Command Line Tools installer dialog"
 echo "  from Apple (Xcode); these are downloaded in the background"
@@ -2110,27 +3426,350 @@ if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
 fi
 osascript -e 'tell application "Calendar" to count calendars' >/dev/null 2>&1 || true
 
+# FDA_PREWARM (#572, 2026-06-09; refined 2026-06-13): register
+# OstlerInstaller in the System Settings > Full Disk Access list early by
+# attempting a read of an FDA-gated database. macOS only lists an app in
+# that pane once it has ATTEMPTED an FDA-protected read.
+#
+# 2026-06-13 (.149 walk): the original list ALSO prewarmed
+# ~/Library/Messages/chat.db and the Mail Envelope Index, on the comment's
+# assumption that FDA reads are "silent, no popup". That is FALSE on
+# current macOS -- reading chat.db fires the "Allow Ostler to read your
+# messages" TCC dialog. Prewarming them HERE popped that dialog ~30s into
+# the install, decoupled from the in-context FDA guidance and against a
+# pane that did not yet show the entry. So Messages/Mail are deliberately
+# NOT prewarmed here any more: the in-context FDA probe
+# (FDA_ASSIST_TRIGGER, ~line 6491) reads them just before the grant
+# assist, which already refreshes the System Settings pane
+# (FDA_PANE_REFRESH, ~line 6580) -- so the dialog now fires where the
+# guidance is, and the entry is present when the pane opens. Safari
+# History.db reads silently and stays, keeping the Files entry warm for
+# the common case. Best-effort: never fails the install.
+if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    # Safari only -- chat.db / Mail are NOT prewarmed here because their
+    # reads fire a user-facing TCC dialog (see note above). They are read
+    # in context at the FDA probe + assist downstream.
+    _fda_prime="$HOME/Library/Safari/History.db"
+    [[ -e "$_fda_prime" ]] && head -c 1 "$_fda_prime" >/dev/null 2>&1 || true
+    unset _fda_prime
+fi
+
+# ── 9-fda. Full Disk Access (installer) -- hoisted upfront (WALK-1 / Wave 2.1) ──
+#
+# WALK-1 (2026-06-19, Andy's live walk): the installer Full Disk Access
+# grant dialog used to fire deep in the Phase-3 fda_extract step (~the
+# 86% point), breaking the locked "answer the questions upfront, then
+# walk away" promise -- a customer who left the install running came
+# back to a blocking FDA grant modal mid-run.
+#
+# Fix: lift-and-shift the installer FDA grant assist HERE, into the
+# Phase-2 questions block, right after the permissions briefing
+# (PERMS_OK) and the Safari FDA_PREWARM above, and BEFORE the me-card
+# read -- so the FDA toggle and any macOS "Quit & Reopen" relaunch
+# happen before the customer has typed any answers. This mirrors the
+# CX-37 / CX-130 Apple Mail hoist and the Wave 2.1 Tailscale decision
+# hoist (TAILSCALE_CONFIRM_SHOWN_EARLY). The late fda_extract site
+# (search "INSTALLER_FDA_SHOWN_EARLY") becomes a guarded fallback plus
+# an UNCONDITIONAL re-probe, so a deferred / declined / relaunch-settled
+# grant is always recovered before the extractor runs, never silently
+# skipped.
+#
+# Honest limits (do NOT over-claim):
+#   * No auto-grant. macOS requires the human to toggle the app in
+#     System Settings; we open the pane, pre-warm the entry, present a
+#     blocking modal and re-probe -- the ceiling, same as the proven
+#     late assist this lifts.
+#   * The grant path is pure bash + osascript + `head -c 1`; it does NOT
+#     need the Python venv or the FDA module (both established later), so
+#     hoisting it above encrypt_db / the module copy is safe (spec 1.3).
+#   * Promotion of the pre-FDA staging tree stays LATE (the late
+#     fda_extract catch-all). We do NOT promote here -- promoting in
+#     Phase 2 would populate ~/.ostler/ before a later abort and re-trip
+#     the CX-87 Phase-2-skip bug. The early block only sets FDA_GRANTED
+#     plus the INSTALLER_FDA_SHOWN_EARLY guard.
+#   * The DAEMON FDA grant (ai.ostler.assistant) is NOT front-loaded here.
+#     It is pre-announced in the briefing copy above and granted late; we
+#     do not claim "zero late prompts". NOTE: the reason this used to be
+#     impossible -- the daemon binary did not exist until late Phase 3 --
+#     no longer holds. Since the phase-3.7c ordering fix the binary is
+#     staged immediately after fda_extract, so hoisting the daemon grant
+#     to sit alongside the installer grant is now a live option. Not taken
+#     in this PR: it moves a permission dialog, which is box-walk work,
+#     not an ordering fix. Do not re-cite "the binary does not exist yet"
+#     as the blocker; it is no longer true.
+if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
+    # Honest read-probe (same shape as the late fda_extract probe): a
+    # first-byte read of an FDA-gated SQLite DB. macOS TCC denies open()
+    # on these without FDA, so `head -c 1` exits non-zero on denial --
+    # unlike `[[ -r ]]` / `ls` which only check directory-entry perms
+    # (the DMG #48c false-positive trap).
+    _fda_read_probe_early() {
+        [[ -e "$1" ]] && head -c 1 "$1" >/dev/null 2>&1
+    }
+    INSTALLER_FDA_PROBE_PATHS_EARLY=(
+        "$HOME/Library/Safari/History.db"
+        "$HOME/Library/Messages/chat.db"
+        "$HOME/Library/Mail/V10/MailData/Envelope Index"
+    )
+    _fda_early_tried=0
+    _fda_early_ok=0
+    for probe in "${INSTALLER_FDA_PROBE_PATHS_EARLY[@]}"; do
+        [[ -e "$probe" ]] || continue
+        _fda_early_tried=$((_fda_early_tried + 1))
+        if _fda_read_probe_early "$probe"; then
+            _fda_early_ok=$((_fda_early_ok + 1))
+        fi
+    done
+    # Conservative posture: only believe FDA is granted when at least one
+    # probe ran AND every attempted probe succeeded. No probe path exists
+    # (clean Mac, no Safari / Messages / Mail ever opened) -> default
+    # false so the assist fires once; a spurious prompt is recoverable,
+    # missing extraction is not.
+    if [[ $_fda_early_tried -gt 0 && $_fda_early_ok -eq $_fda_early_tried ]]; then
+        FDA_GRANTED=true
+    else
+        FDA_GRANTED=false
+    fi
+
+    if [[ "$FDA_GRANTED" == false ]]; then
+        warn "$MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL"
+        warn "$MSG_WARN_MACOS_WILL_NOT_PROMPT_IT_FROM"
+
+        # BW3-1 (2026-07-23): hold the modal lock for the WHOLE early-FDA
+        # grant interaction -- prewarn, the send-to-Settings step, the
+        # assist modal, and the poll-until-detected re-probe below. The
+        # concurrently-running CLT focus-bounce loop skips its
+        # OstlerInstaller re-activation while this file exists, so it never
+        # yanks focus off our dialogs or off System Settings where we just
+        # sent the customer to toggle FDA. Cleared before the branch closes.
+        : > "$OSTLER_MODAL_LOCK_FILE" 2>/dev/null || true
+
+        # Pre-warn modal (CX-87 shape). The crucial guidance is the
+        # "Quit & Reopen" hint -- macOS fires that dialog straight after
+        # the customer toggles FDA on for OstlerInstaller.app, and a
+        # click on Later silently breaks the grant for this process. The
+        # CX-87 pre-launch staging tree (OSTLER_PRELAUNCH_DIR) keeps
+        # ~/.ostler/ empty until the late promote, so a Quit & Reopen
+        # here relaunches into a clean Phase 2 (no auto-skip).
+        info "$MSG_INFO_INSTALLER_FDA_PREWARN"
+        _prewarn_msg="$(printf '%s\n\n%s\n\n%s' \
+            "$MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE1" \
+            "$MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE2" \
+            "$MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE3")"
+        _prewarn_msg_esc="${_prewarn_msg//\"/\\\"}"
+        _prewarn_title_esc="${MSG_PROMPT_INSTALLER_FDA_PREWARN_TITLE//\"/\\\"}"
+        _prewarn_button_esc="${MSG_PROMPT_INSTALLER_FDA_PREWARN_BUTTON//\"/\\\"}"
+        _prewarn_icon_path=""
+        if [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+            _prewarn_icon_path="${SCRIPT_DIR}/DialogIcon.icns"
+        elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+            _prewarn_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+        elif [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+            _prewarn_icon_path="${SCRIPT_DIR}/AppIcon.icns"
+        elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+            _prewarn_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+        fi
+        if [[ -n "$_prewarn_icon_path" ]]; then
+            _prewarn_icon_path_esc="${_prewarn_icon_path//\"/\\\"}"
+            _prewarn_icon_clause="with icon file POSIX file \"${_prewarn_icon_path_esc}\""
+        else
+            _prewarn_icon_clause="with icon note"
+        fi
+        osascript \
+            -e 'tell application "System Events" to activate' \
+            -e "tell application \"System Events\" to display dialog \"${_prewarn_msg_esc}\" with title \"${_prewarn_title_esc}\" buttons {\"${_prewarn_button_esc}\"} default button \"${_prewarn_button_esc}\" ${_prewarn_icon_clause}" \
+            >/dev/null 2>&1 || true
+        unset _prewarn_msg _prewarn_msg_esc _prewarn_title_esc \
+              _prewarn_button_esc _prewarn_icon_path \
+              _prewarn_icon_path_esc _prewarn_icon_clause
+
+        info "$MSG_INFO_INSTALLER_FDA_ASSIST_OPENING"
+        # FDA_PANE_REFRESH (#572, 2026-06-09): force a fresh System
+        # Settings load before pointing the customer at the FDA pane. A
+        # Settings window left open from an earlier prompt can show a
+        # STALE Full Disk Access list that predates the OstlerInstaller
+        # entry primed at install start -- killall + reopen guarantees the
+        # list is current. Kept VERBATIM from the late assist; the #279
+        # race fix is reused unchanged. Best-effort.
+        killall "System Settings" >/dev/null 2>&1 || true
+        killall "System Preferences" >/dev/null 2>&1 || true
+        sleep 1
+        open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
+
+        _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
+            "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1" \
+            "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE2" \
+            "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE3")"
+        _installer_fda_msg_esc="${_installer_fda_msg//\"/\\\"}"
+        _installer_fda_title_esc="${MSG_PROMPT_INSTALLER_FDA_ASSIST_TITLE//\"/\\\"}"
+        _installer_fda_button_esc="${MSG_PROMPT_INSTALLER_FDA_ASSIST_BUTTON//\"/\\\"}"
+
+        _installer_fda_icon_path=""
+        if [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+            _installer_fda_icon_path="${SCRIPT_DIR}/DialogIcon.icns"
+        elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+            _installer_fda_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+        elif [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+            _installer_fda_icon_path="${SCRIPT_DIR}/AppIcon.icns"
+        elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+            _installer_fda_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+        fi
+        if [[ -n "$_installer_fda_icon_path" ]]; then
+            _installer_fda_icon_path_esc="${_installer_fda_icon_path//\"/\\\"}"
+            _installer_fda_icon_clause="with icon file POSIX file \"${_installer_fda_icon_path_esc}\""
+        else
+            _installer_fda_icon_clause="with icon note"
+        fi
+
+        # Pause briefly to let System Settings finish its window animation
+        # before raising the modal, then display it. BW3-2 (2026-07-23):
+        # the standalone `activate` was DROPPED here -- `display dialog` is
+        # already app-modal and frontmost, and the extra activate only
+        # yanked focus back off System Settings, where we just sent the
+        # customer to toggle FDA (the focus-steal flagged on the box-walk).
+        sleep 1
+        osascript \
+            -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
+            >/dev/null 2>&1 || true
+        unset _installer_fda_msg _installer_fda_msg_esc \
+              _installer_fda_title_esc _installer_fda_button_esc \
+              _installer_fda_icon_path _installer_fda_icon_path_esc \
+              _installer_fda_icon_clause
+
+        # Re-probe: macOS refreshes the TCC posture for the caller binary
+        # as soon as the user toggles it on, so a direct read returns the
+        # live state without re-exec. Same honest read-probe so a false
+        # positive cannot creep back in.
+        #
+        # BW3-6 (2026-07-23): POLL until the protected read actually
+        # succeeds rather than a single post-dismiss `sleep 2` re-probe.
+        # The customer needs several seconds to find + flip the FDA toggle
+        # after the modal appears, so a single probe reported "still needed"
+        # while the grant was seconds away (the "Done before detected"
+        # ambiguity). Cap ~40s (20 x 2s); on timeout FDA_GRANTED stays
+        # false and we fall through to the existing graceful-degrade /
+        # Doctor-card path unchanged.
+        for _fda_early_poll in $(seq 1 20); do
+            _fda_early_retried=0
+            _fda_early_reok=0
+            for probe in "${INSTALLER_FDA_PROBE_PATHS_EARLY[@]}"; do
+                [[ -e "$probe" ]] || continue
+                _fda_early_retried=$((_fda_early_retried + 1))
+                if _fda_read_probe_early "$probe"; then
+                    _fda_early_reok=$((_fda_early_reok + 1))
+                fi
+            done
+            if [[ $_fda_early_retried -gt 0 && $_fda_early_reok -eq $_fda_early_retried ]]; then
+                FDA_GRANTED=true
+                break
+            fi
+            sleep 2
+        done
+        unset _fda_early_poll
+        if [[ "$FDA_GRANTED" == true ]]; then
+            info "$MSG_INFO_INSTALLER_FDA_ASSIST_GRANTED"
+        else
+            info "$MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED"
+        fi
+        unset _fda_early_retried _fda_early_reok
+        # BW3-1: grant interaction over -- release the CLT focus-bounce.
+        rm -f "$OSTLER_MODAL_LOCK_FILE" 2>/dev/null || true
+    fi
+    unset _fda_early_tried _fda_early_ok
+
+    # Mark the upfront grant as shown so the late fda_extract site runs
+    # as a guarded fallback (assist suppressed) but ALWAYS re-probes.
+    # Promotion of the staging tree deliberately does NOT happen here
+    # (spec 3.4) -- it stays at the late catch-all.
+    INSTALLER_FDA_SHOWN_EARLY=1
+    export INSTALLER_FDA_SHOWN_EARLY FDA_GRANTED
+
+    # WALK-1 (Wave 2.1): now that the installer FDA grant is behind us at
+    # the START, reassure the customer that the long middle is unattended,
+    # and PRE-ANNOUNCE the one genuinely-late permission we cannot
+    # front-load: the DAEMON Full Disk Access (Messages history for the
+    # assistant). We flag it here exactly as the Tailscale sign-in step is
+    # pre-announced, so it is expected rather than a surprise. We do NOT
+    # claim "zero late prompts".
+    #
+    # The old reason for the lateness -- "its binary does not exist until
+    # late Phase 3" -- stopped being true at the phase-3.7c ordering fix:
+    # ai.ostler.assistant is now staged immediately after fda_extract.
+    # The grant itself stays late in this PR (moving a permission dialog
+    # is box-walk work), but the constraint is gone, so do not re-cite it.
+    info "$MSG_INFO_INSTALLER_FDA_WALKAWAY_PREANNOUNCE"
+    info "$MSG_INFO_DAEMON_FDA_LATER_PREANNOUNCE"
+fi
+
 # ── Auto-detect from macOS contact card ────────────────────────────
 
 DETECTED_NAME=""
+DETECTED_FIRST=""
 DETECTED_COUNTRY=""
 DETECTED_EMAIL=""
 DETECTED_PHONE=""
 
+# Auto-detect the customer's name/country/email/phone from their macOS
+# "my card" in Contacts, to pre-fill the questions below so they do not
+# retype data we can already read (#639). This uses
+# `osascript -e 'tell application "Contacts" ...'`, which fires the macOS
+# AppleEvent Automation consent prompt the first time ("OstlerInstaller
+# wants to control Contacts"). That prompt is accepted for v1.0: the
+# pre-fill is worth the one extra dialog. A denial (errAEEventNotPermitted
+# / -1743) is detected from stderr and handled gracefully below -- we warn
+# and fall back to plain questions, never a silent pass.
+#
+# (The promptless CNContact `ostler-contacts` helper is the #453 v1.0.1
+# follow-up. PyObjC via the bundled Python is not an option here: the
+# bundled venv is not created until the Phase-3 encrypt_db step, well
+# after this Phase-2 question block.)
 info "$MSG_INFO_READING_YOUR_CONTACT_CARD_PRE_FILL"
-echo "  macOS may ask permission to access Contacts."
-echo "  This reads your name, country, and phone number to save you typing."
-echo "  It also exports your contacts for the knowledge graph."
-echo "  (Your data stays on this machine -- nothing is sent anywhere.)"
-echo ""
 
-# Capture stderr separately so we can detect a Contacts permission denial
-# (errAEEventNotPermitted = -1743) and surface it cleanly. The previous
-# `2>/dev/null || echo ""` swallowed denials silently and left the user
-# wondering why nothing happened.
+CARD_DATA=""
+
+# BW2-1 (box-walk recut #2, 2026-07-25): prefer the bundled native reader.
+# `ostler-mecard` reads the "My Card" via AddressBook (-[ABAddressBook me]),
+# which is stable across macOS versions -- unlike the osascript `my card`
+# read below, which broke on macOS 26.5 (-1728) and left the pre-fill blank
+# on the .185 box-walk (blank name/country, empty wiki title, empty self-
+# handles). The helper is signed as part of the installer app and inherits
+# its already-granted Contacts access, so it neither prompts nor needs
+# Contacts.app to be running. It prints `name|first|country|email|phone` on
+# success (exit 0) and nothing on failure (exit 1: no card / no access /
+# helper absent), in which case we fall through to the osascript path below
+# unchanged (covers older bundles + older macOS).
+_read_my_card_native() {
+    local bin="${SCRIPT_DIR:-}/ostler-mecard"
+    [[ -n "${SCRIPT_DIR:-}" && -x "$bin" ]] || return 1
+    # stderr → the install log (not /dev/null) for debuggability; stdout is the
+    # captured `name|first|country|email|phone` line.
+    "$bin" 2>>"${INSTALL_LOG:-/dev/null}"
+}
+if CARD_DATA_NATIVE=$(_read_my_card_native); then
+    CARD_DATA="$CARD_DATA_NATIVE"
+fi
+
+# osascript fallback: only when the native reader gave us nothing. `my card`
+# only resolves when Contacts.app is actually RUNNING. On a Mac right after
+# first setup -- or any login where the user has not opened Contacts -- the
+# app is cold, the AppleEvent fails with -600 "Application isn't running",
+# and the read returns empty with NO consent prompt. The pre-fill then
+# silently produces nothing (#646, the v1.0.0 .145 box-walk regression).
+# Launch Contacts hidden in the background first (-g keeps the installer in
+# focus, -j launches it hidden) so the event lands against a live app and
+# the normal automation-consent prompt can appear.
+if [[ -z "$CARD_DATA" ]]; then
+open -gja Contacts >/dev/null 2>&1 || true
+
+# Capture stderr separately so a Contacts permission denial (-1743) or a
+# cold-app failure (-600) is detected and surfaced cleanly instead of
+# silently swallowed. The inner `|| true` keeps the failure inside the
+# $(...) subshell so set -E cannot fire the ERR trap on a denial (cf. #640).
 CARD_STDERR=$(mktemp)
-CARD_DATA=$(osascript -e '
+_read_my_card() {
+    osascript -e '
 tell application "Contacts"
+    launch
     set myCard to my card
     set myName to name of myCard
     set firstName to first name of myCard
@@ -2151,14 +3790,27 @@ tell application "Contacts"
     end try
 
     return myName & "|" & firstName & "|" & myCountry & "|" & myEmail & "|" & myPhone
-end tell' 2>"$CARD_STDERR" || true)
+end tell' 2>"$CARD_STDERR"
+}
+CARD_DATA=$(_read_my_card || true)
+# Cold-start race: if the first event beat Contacts to readiness (-600),
+# give the background launch a moment to take hold and read once more.
+if [[ -z "$CARD_DATA" ]] && grep -q -- '-600' "$CARD_STDERR" 2>/dev/null; then
+    sleep 2
+    CARD_DATA=$(_read_my_card || true)
+fi
 
-if [[ -z "$CARD_DATA" ]] && grep -qE '\-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
+if [[ -z "$CARD_DATA" ]] && grep -qE -- '-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
     warn "$MSG_WARN_MACOS_CONTACTS_PERMISSION_WAS_DECLINED_NOT"
     warn "$MSG_WARN_YOU_CAN_RE_GRANT_IT_SYSTEM"
     warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
+elif [[ -z "$CARD_DATA" ]] && grep -q -- '-600' "$CARD_STDERR" 2>/dev/null; then
+    # Contacts could not be brought up to read the card; continue without
+    # auto-fill rather than swallowing the failure silently as before.
+    warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
 fi
 rm -f "$CARD_STDERR"
+fi
 
 if [[ -n "$CARD_DATA" ]]; then
     DETECTED_NAME=$(echo "$CARD_DATA" | cut -d'|' -f1)
@@ -2166,46 +3818,6 @@ if [[ -n "$CARD_DATA" ]]; then
     DETECTED_COUNTRY=$(echo "$CARD_DATA" | cut -d'|' -f3)
     DETECTED_EMAIL=$(echo "$CARD_DATA" | cut -d'|' -f4)
     DETECTED_PHONE=$(echo "$CARD_DATA" | cut -d'|' -f5)
-    ok "$(printf "$MSG_OK_FOUND" "${DETECTED_NAME}")"
-
-    # Back up contacts FIRST -- before we do anything with them.
-    # This is a safety net in case anything goes wrong during import.
-    CONTACTS_BACKUP="${OSTLER_DIR}/backups/contacts-backup-$(date +%Y%m%d-%H%M%S).vcf"
-    CONTACTS_EXPORT="${OSTLER_DIR}/imports/icloud-contacts.vcf"
-    mkdir -p "${OSTLER_DIR}/imports" "${OSTLER_DIR}/backups"
-    # CX-12 F6 (locked 2026-05-23): the osascript that follows counts +
-    # exports the entire address book and can dwell silently for up to
-    # ~30s on large libraries. Without a status line the GUI panel sits
-    # blank while the customer wonders whether the installer has frozen
-    # (Studio retest #5 "21s blank-wait" finding). Emit a structured
-    # info line first so the Log drawer + the spinner caption both
-    # surface what is happening.
-    info "$MSG_INFO_PLEASE_WAIT_READING_CONTACTS"
-    CONTACT_COUNT=$(osascript -e '
-tell application "Contacts"
-    set vcfData to vcard of every person
-    return count of every person
-end tell' 2>/dev/null || echo "0")
-
-    if [[ "$CONTACT_COUNT" -gt 0 ]]; then
-        # Save backup copy first
-        osascript -e "
-tell application \"Contacts\"
-    set vcfData to vcard of every person
-    set fp to POSIX file \"${CONTACTS_BACKUP}\"
-    set fRef to open for access fp with write permission
-    write vcfData to fRef
-    close access fRef
-end tell" 2>/dev/null && \
-        ok "$(printf "$MSG_OK_BACKED_UP_CONTACTS" "${CONTACT_COUNT}" "${CONTACTS_BACKUP}")"
-
-        # Export working copy for import
-        cp "$CONTACTS_BACKUP" "$CONTACTS_EXPORT" 2>/dev/null && \
-        ok "$(printf "$MSG_OK_EXPORTED_CONTACTS_WILL_IMPORT_AUTOMATICALLY" "${CONTACT_COUNT}")" || \
-        info "$MSG_INFO_COULD_NOT_EXPORT_CONTACTS_YOU_CAN"
-    fi
-else
-    info "$MSG_INFO_COULD_NOT_READ_CONTACT_CARD_NO"
 fi
 
 # ── Map country name to dialling code ──────────────────────────────
@@ -2322,6 +3934,24 @@ DETECTED_FIRST_LOWER=$(echo "${DETECTED_FIRST:-}" | tr '[:upper:]' '[:lower:]')
 DEFAULT_ID=${DETECTED_FIRST_LOWER:-$(echo "$USER_NAME" | tr '[:upper:]' '[:lower:]' | cut -d' ' -f1)}
 USER_ID="$(gui_read "$MSG_PROMPT_USER_ID_TITLE" text "${DEFAULT_ID}" "$MSG_PROMPT_USER_ID_HELP" "" "user_id")"
 USER_ID=${USER_ID:-$DEFAULT_ID}
+
+# The "What should your assistant call you?" answer (USER_ID) is the
+# customer's EXPLICIT preferred form of address. It MUST win over the
+# me-card first name for every assistant + wiki surface: USER_FIRST_NAME
+# feeds the welcome iMessage, chat replies, daily briefs and the
+# {first_name}pedia wiki title. Before this, USER_FIRST_NAME was derived
+# above purely from the me-card "first name of myCard" (DETECTED_FIRST),
+# so a customer who answered "Andy" was still addressed by their formal
+# me-card name "Andrew" -- the question was asked, then ignored. Re-derive
+# USER_FIRST_NAME from the preferred answer, first letter capitalised for
+# display (USER_ID can arrive lower-cased from DEFAULT_ID). Fall back to
+# the earlier me-card/full-name derivation only if USER_ID is blank.
+if [[ -n "${USER_ID:-}" ]]; then
+    _uid_first="$(printf '%s' "${USER_ID:0:1}" | tr '[:lower:]' '[:upper:]')"
+    USER_FIRST_NAME="${_uid_first}${USER_ID:1}"
+    USER_FIRST_NAME="${USER_FIRST_NAME# }"
+    USER_FIRST_NAME="${USER_FIRST_NAME% }"
+fi
 
 # ── 2. Confirm country code ───────────────────────────────────────
 
@@ -2620,6 +4250,62 @@ case "$CHANNEL_CHOICE" in
         ;;
 esac
 
+# ── Messages Automation prompt - FRONT-LOADED (v1.0.2, P1) ────────
+#
+# Previously the macOS "OstlerInstaller wants to control Messages"
+# Automation prompt fired only at section 3.18 (~95% through install),
+# which on the .156 walk landed ~75 s AFTER the success banner -- i.e.
+# the customer saw "all done", walked away, then got ambushed by a
+# system permission popup. That breaks the launch promise that NOTHING
+# prompts after the success screen.
+#
+# The Automation grant depends only on (a) the iMessage channel being
+# chosen -- known NOW, immediately after CHANNEL_CHOICE above -- and
+# (b) Messages.app being launchable. Neither needs the late daemon or
+# channel config, so we trigger the consent prompt HERE, in the same
+# attention window as the FDA + Contacts prompts, while the customer is
+# still answering questions. The late 3.18 block then becomes a
+# RE-PROBE only (it records posture but no longer fires a fresh prompt
+# or a second pre-warn modal) -- guarded by IMESSAGE_AUTOMATION_PRIMED_EARLY.
+#
+# Keeping the grant (vs dropping it like Mail's AppleScript) is
+# deliberate: driving the main Messages.app via AppleScript is how the
+# assistant SENDS iMessages as the user. We only move WHEN it is asked,
+# not whether.
+IMESSAGE_AUTOMATION_PRIMED_EARLY=false
+if [[ "$CHANNEL_IMESSAGE_ENABLED" == true && "${OSTLER_GUI:-0}" == "1" ]]; then
+    # Warm the main Messages.app so the probe's `count of accounts`
+    # AppleEvent does not -1712 against a cold app. `-g` keeps it in the
+    # background (no focus steal mid-install). Best-effort + non-fatal.
+    open -ga Messages 2>/dev/null || true
+
+    # Pre-warn ack so the "wants to control Messages" popup is expected,
+    # not an ambush. Mirrors the 3.18 wording. Short cooldown so it does
+    # not stack on the FDA/Contacts dialogs that just closed.
+    info "$MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION"
+    sleep 2
+    _="$(gui_read \
+        "$MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_TITLE" \
+        acknowledge \
+        "" \
+        "$MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_HELP" \
+        "" \
+        "imessage_automation_incoming_ack_early")"
+    info "$MSG_INFO_PROBING_IMESSAGE_AUTOMATION_PERMISSION_READ_ONLY"
+
+    # READ-ONLY probe that requires the SAME Automation grant a real send
+    # would -- this is what triggers the macOS consent prompt. We discard
+    # the posture here (3.18 records the authoritative snapshot); the only
+    # side-effect we want now is the prompt landing in the attention
+    # window. Test-shim escape hatch honoured so harnesses never osascript.
+    if [[ -z "${PWG_IMESSAGE_PROBE_OUTCOME:-}" ]]; then
+        osascript -e 'tell application "Messages" to count of accounts' \
+            >/dev/null 2>&1 || true
+    fi
+    IMESSAGE_AUTOMATION_PRIMED_EARLY=true
+fi
+export IMESSAGE_AUTOMATION_PRIMED_EARLY
+
 # ── WhatsApp risk tickbox (A7 - locked 2026-05-02) ────────────────
 #
 # Per the implementation brief at
@@ -2870,6 +4556,32 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         CHANNEL_EMAIL_APPLE_MAIL_ENABLED=true
     fi
 
+    # #260 / #639: collect the Mail history-window choice HERE, upfront in
+    # Phase 2, adjacent to the Apple Mail question. It was previously a
+    # blocking gui_read mid-install (~L6498), which stalled a walk-away
+    # install. Default keeps 5 years; "extend" pulls the full local
+    # mailbox. The choice is stored in OSTLER_MAIL_BACKFILL_DAYS and
+    # consumed by the first FDA extraction with no further prompt. Only
+    # relevant when Apple Mail is the email source.
+    if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]]; then
+        _mail_extend_answer="$(gui_read \
+            "$MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE" \
+            yesno \
+            "N" \
+            "$MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP" \
+            "" \
+            "mail_extend_history")"
+        case "${_mail_extend_answer:-N}" in
+            y|Y|yes|YES|Yes)
+                # 50 years comfortably covers any realistic local mailbox
+                # without an unbounded query.
+                OSTLER_MAIL_BACKFILL_DAYS="18250"
+                ;;
+            *) : ;;  # leave unset -> defaults to 1825 (5y) at extract time
+        esac
+        unset _mail_extend_answer
+    fi
+
     if [[ "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" == true ]]; then
         echo ""
         # Cloud-provider block list. The whole point of this branch
@@ -3025,6 +4737,72 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         fi
         set -e
         gui_log info "CX-37 probe: exiting"
+
+        # CX-130 (v1.0.1): hoist the "account exists but Mail.app has
+        # not fetched yet -> open Mail and wait while it syncs" prompt
+        # out of the unattended Phase 3 and into this questions phase,
+        # exactly as CX-37 did for the "no Mail account" prompt above.
+        #
+        # The shipped install fired this populate-wait at ~L10263 inside
+        # the Phase-3 execution region (the "you can walk away now"
+        # stretch), so a customer who left the install running came back
+        # to a blocking "Open Apple Mail?" dialog ~16% in. Asking it HERE,
+        # while the customer is already answering questions, keeps Phase 3
+        # interaction-free. The Phase-3 block remains as a fallback for the
+        # case where this early prompt did not run (e.g. FDA not yet
+        # granted at question time, or the GUI was off then on).
+        #
+        # Same belt-and-braces shape as the CX-37 probe: wrap in `set +e`
+        # so a probe sub-step failure can never kill the install -- worst
+        # case we skip the early prompt and the Phase-3 fallback fires.
+        # Guarded on the SAME conditions as the Phase-3 block: accounts > 0
+        # (source of truth via Accounts4.sqlite), Mail.app has not pulled
+        # a message yet, GUI on. FDA must be readable or the account count
+        # is unreliable (CX-103) -- reuse _has_fda to skip cleanly.
+        gui_log info "CX-130 populate probe: entering"
+        set +e
+        if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
+           && [[ "${OSTLER_GUI:-0}" == "1" ]] \
+           && [[ -z "${MAIL_POPULATE_PROMPT_SHOWN_EARLY:-}" ]] \
+           && _has_fda; then
+            _early_pop_accounts="$(_accountsdb_count_mail)"
+            _early_pop_accounts="${_early_pop_accounts:-0}"
+            gui_log info "CX-130 populate probe: accountsdb mail count=[${_early_pop_accounts}]"
+            if [[ "$_early_pop_accounts" -gt 0 ]] 2>/dev/null \
+               && ! _store_populated_mail; then
+                # State 2: accounts configured but Mail.app has not pulled
+                # anything yet. Offer to open Mail + wait while it syncs.
+                # CX-110: pass "Mail" (canonical bundle name) to the
+                # `open -a` path; customer-facing copy still reads
+                # "Apple Mail" via the help string.
+                _early_pop_help="$(printf "$MSG_PROMPT_OPEN_MAIL_TO_POPULATE_HELP" "${_early_pop_accounts}")"
+                if _three_state_wait_for_populate \
+                    "mail" \
+                    "Mail" \
+                    "" \
+                    "$MSG_PROMPT_OPEN_MAIL_TO_POPULATE_TITLE" \
+                    "$_early_pop_help"; then
+                    # Mail synced during the wait. The Phase-3 probe re-runs
+                    # _store_populated_mail and will now see the populated
+                    # store, so it writes mail_has_fetched=true to the
+                    # pipeline_signals.json sidecar + emits the gui_emit
+                    # MAIL_ACCOUNTS_FOUND marker for Doctor. We do not write
+                    # the sidecar here because the writer + signals path are
+                    # only resolved in Phase 3; re-detection in Phase 3
+                    # carries the side-effects without duplication.
+                    gui_log info "CX-130 populate probe: Mail populated during early wait"
+                fi
+                unset _early_pop_help
+            fi
+            # Mark the early prompt as shown so the Phase-3 populate block
+            # SKIPS -- asking twice mid-install would be worse than asking
+            # once early. The Phase-3 sidecar write + gui_emit still run.
+            MAIL_POPULATE_PROMPT_SHOWN_EARLY=1
+            export MAIL_POPULATE_PROMPT_SHOWN_EARLY
+            unset _early_pop_accounts
+        fi
+        set -e
+        gui_log info "CX-130 populate probe: exiting"
     fi
 
     # Folder / label scoping. Connecting the assistant to the main
@@ -3128,18 +4906,59 @@ FV_ENABLED=false
 if echo "$FV_STATUS" | grep -q "FileVault is On"; then
     FV_ENABLED=true
 else
+    # FileVault posture (v1.0.10). Plaintext-at-rest is an ACCEPTED v1
+    # posture, so a Mac with FileVault off must NOT block the install.
+    # But the operator must not slide past it silently either: we
+    # surface a strengthened, explicit warning that spells out exactly
+    # what stays unencrypted, then require a deliberate informed choice.
+    # Continuing is allowed (and recorded); the safe "enable FileVault
+    # first" path is offered but never forced.
     warn "$MSG_WARN_FILEVAULT_NOT_ENABLED"
     echo ""
-    echo "  FileVault encrypts your entire disk. Without it, anyone"
-    echo "  with physical access to your Mac can read your data."
+    echo "  Your disk is NOT encrypted at rest. If you continue, everything"
+    echo "  Ostler stores is written to disk UNENCRYPTED:"
     echo ""
-    echo "  Enable it: System Settings > Privacy & Security > FileVault"
+    echo "    - your whole personal graph (wiki, conversations, knowledge)"
+    echo "      under ~/Documents/Ostler"
+    echo "    - service secrets and databases under ~/.ostler"
     echo ""
-    FV_CONTINUE="$(gui_read "$MSG_PROMPT_FILEVAULT_SKIP_TITLE" yesno "n" "$MSG_PROMPT_FILEVAULT_SKIP_HELP" "" "filevault_skip")"
-    if [[ "${FV_CONTINUE:-n}" != "y" && "${FV_CONTINUE:-n}" != "Y" ]]; then
-        echo "  Enable FileVault first, then re-run this installer."
+    echo "  Anyone who can boot from this drive, remove it, or reach an"
+    echo "  unlocked session can then read all of it. Ostler still encrypts"
+    echo "  its most sensitive databases with your passphrase, but the rest"
+    echo "  is only as protected as the disk itself."
+    echo ""
+    echo "  FileVault is strongly recommended. Turn it on any time in"
+    echo "  System Settings > Privacy & Security > FileVault (it encrypts"
+    echo "  in the background -- no reinstall needed)."
+    echo ""
+    # Default Yes: plaintext-at-rest is accepted for v1, so the install
+    # continues by default rather than blocking. The choice is still
+    # explicit and informed (the warning above + the prompt copy spell
+    # out the unencrypted-at-rest consequence), and it is recorded below.
+    FV_CONTINUE="$(gui_read "$MSG_PROMPT_FILEVAULT_SKIP_TITLE" yesno "y" "$MSG_PROMPT_FILEVAULT_SKIP_HELP" "" "filevault_skip")"
+    if [[ "${FV_CONTINUE:-y}" == "n" || "${FV_CONTINUE:-y}" == "N" ]]; then
+        # The operator chose the safer path: stop so they can enable
+        # FileVault first. This is a user-selected exit, not an
+        # installer-imposed block on the plaintext posture.
+        echo ""
+        echo "  Stopping here as you asked -- nothing has failed."
+        echo "  Turn FileVault on (System Settings > Privacy & Security >"
+        echo "  FileVault), then re-run this installer to continue."
         exit 1
     fi
+    # v1.0.10 security lockdown: the operator made the deliberate,
+    # informed choice to proceed with an UNENCRYPTED disk. Record a
+    # loud, timestamped acknowledgement so the Doctor surface + a later
+    # support touch can see the at-rest protection was knowingly
+    # declined (rather than silently absent). Best-effort -- never abort
+    # on a marker write failure this early.
+    warn "Proceeding WITHOUT FileVault -- your Ostler data is NOT encrypted at rest on this disk (you acknowledged this)."
+    mkdir -p "${SECURITY_CONFIG_DIR:-${HOME}/.ostler/config/security}" 2>/dev/null || true
+    {
+        echo "filevault_declined_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        echo "filevault_status=${FV_STATUS}"
+        echo "filevault_decline_acknowledged=true"
+    } > "${SECURITY_CONFIG_DIR:-${HOME}/.ostler/config/security}/filevault_ack.txt" 2>/dev/null || true
 fi
 
 fi  # end of SKIP_PHASE2 check (user input questions)
@@ -3179,6 +4998,62 @@ if [[ ! -f "$USER_TREE_SENTINEL" ]]; then
 else
     info "$MSG_INFO_USER_FACING_TREE_ALREADY_ANNOUNCED_SENTINEL"
 fi
+
+# ── At-rest exposure hardening (v1.0.10 security lockdown) ─────────
+# The plaintext personal graph lives in two host trees:
+#   * ${OSTLER_DIR} (~/.ostler): secrets/ (service + admin tokens,
+#     JWT_SECRET in .env), the SQLCipher DBs, and state/. Some of
+#     this is encrypted (SQLCipher) but the secrets + .env are NOT.
+#   * ${USER_FACING_ROOT} (~/Documents/Ostler): the compiled wiki +
+#     Obsidian vault + conversation transcripts + daily briefs, all
+#     plaintext markdown of the customer's entire life graph.
+#
+# Two exposures we close here:
+#   1. Spotlight indexing. Spotlight builds a searchable index (and
+#      snippet cache) of everything under these trees. Drop a
+#      `.metadata_never_index` marker in each so mds stops indexing
+#      the subtree -- the plaintext graph no longer leaks into the
+#      Spotlight store (which itself is not encrypted the way the
+#      SQLCipher DBs are).
+#   2. Time Machine. A TM destination is frequently a NAS or an
+#      external disk that leaves the house, so a plaintext copy of
+#      the graph would travel OFF-box. `tmutil addexclusion` (path
+#      xattr form, no sudo) keeps these trees out of every backup.
+#
+# The Qdrant / Oxigraph / Redis volumes are Docker NAMED volumes
+# inside the Colima VM disk image. The individual volumes are not
+# host-FS paths, but the VM disk image that CONTAINS them
+# (~/.colima/default/) very much is: it is an ordinary host file that
+# Spotlight indexes and Time Machine copies off-box, and the embedded
+# Qdrant + Oxigraph stores inside it are PLAINTEXT (not SQLCipher). So
+# ~/.colima is added to the exclusion set (FIX-RT2-F4); the Colima
+# image as a whole is otherwise rebuildable state.
+#
+# All best-effort + idempotent: a marker that already exists or an
+# exclusion already set is a no-op, and a tmutil / touch failure
+# must never abort the install.
+_ostler_harden_at_rest() {
+    local _dir="$1"
+    [[ -d "$_dir" ]] || return 0
+    # Spotlight opt-out marker.
+    touch "${_dir}/.metadata_never_index" 2>/dev/null || true
+    # Time Machine exclusion (per-path xattr form -- no root needed).
+    tmutil addexclusion "$_dir" 2>/dev/null || true
+}
+# FIX-RT2-F3 (v1.0.10 red-team wave 2): the at-rest hardening call
+# used to live HERE, but at this point in the fresh-install flow
+# OSTLER_DIR is still the ephemeral staging tree
+# (${OSTLER_PRELAUNCH_DIR}, /tmp/ostler-prelaunch-$$). Setting the
+# tmutil exclusion + .metadata_never_index marker on that /tmp node was
+# useless: _ostler_promote_prelaunch_tree later rm -rf's the staging
+# tree, so ~/.ostler/ (holding secrets/service_token,
+# secrets/zeroclaw_admin_token and the .env JWT_SECRET) NEVER got the
+# exclusion and got copied off-box by Time Machine -- while the banner
+# lied that the /tmp path was "excluded". The call is therefore
+# deferred to Phase 3.7b (search "FIX-RT2-F3"), AFTER promotion has
+# rebound OSTLER_DIR to the real ~/.ostler node. USER_FACING_ROOT is a
+# host path (created just above) and was never staged, but it moves
+# with the OSTLER_DIR call so the whole exclusion set lands in one place.
 
 # ── 2.99 Python 3.10/3.11 check (must run BEFORE any venv is created) ──
 #
@@ -3289,7 +5164,7 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
     # tools that read non-Python assets (e.g. setup wizard reading
     # bip39_english.txt from a known on-disk path) still work; the
     # package_data inclusion in the wheel covers the import path.
-    if "$OSTLER_PIP" install --quiet "${SCRIPT_DIR}/ostler_security" 2>/tmp/ostler-pip-install.log; then
+    if _ostler_pip_install_pkg "$OSTLER_PIP" "${SCRIPT_DIR}/ostler_security" --quiet 2>/tmp/ostler-pip-install.log; then
         HAS_SECURITY_MODULE=true
         # Mirror the source for diagnostic / read-the-file flows.
         mkdir -p "$SECURITY_DIR"
@@ -3301,7 +5176,7 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
         # raise via consent_cli with a clearer error than a bare
         # ImportError.
         if [[ -d "${SCRIPT_DIR}/legal" && -f "${SCRIPT_DIR}/legal/pyproject.toml" ]]; then
-            "$OSTLER_PIP" install --quiet "${SCRIPT_DIR}/legal" 2>/dev/null || \
+            _ostler_pip_install_pkg "$OSTLER_PIP" "${SCRIPT_DIR}/legal" --quiet 2>/dev/null || \
                 warn "$MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS"
         else
             # Surface a missing-bundle warning so a future buried-failure
@@ -3413,9 +5288,10 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
     echo "  relationship, every conversation, every pattern in your life."
     echo "  Think of it like the lock for your entire digital soul."
     echo ""
-    echo "  Your knowledge graph is encrypted with a passphrase you"
-    echo "  choose on the next screen. You will type it each time you"
-    echo "  start the Hub UI."
+    echo "  Ostler's sensitive databases are encrypted with SQLCipher"
+    echo "  using a passphrase you choose on the next screen. You will"
+    echo "  type it each time you start the Hub UI. For full at-rest"
+    echo "  protection of everything on your Mac, keep macOS FileVault on."
     echo ""
     echo "  Pick something memorable but strong. A password manager"
     echo "  is a good place to store it."
@@ -3548,21 +5424,59 @@ fi
 
 # ── 8. AI model (automatic) ────────────────────────────────────────
 
-# Model selection based on available RAM.
+# Model selection based on detected hardware (REUSE-4 hardware-fit picker).
+#
+# WHY NOT A FLAT RAM LADDER: the daemon runs every chat at num_ctx=32768
+# (OLLAMA_NUM_CTX, see assistant-agent plist + test_assistant_ollama_num_ctx.sh).
+# A 32k KV cache costs gigabytes ON TOP of the model weights, so "enough RAM
+# for the weights" is not the same as "fits at the required context window".
+# Several box-walks cold-start-failed because a model was picked that could
+# not allocate its 32k context. lib/ostler-model-fit.sh scores each candidate
+# Fits / may be slow / won't fit against the agent's real num_ctx and names
+# the best comfortable fit as Recommended.
+#
 # MoE models (35B-A3B) have 35B total knowledge but only 3B active params,
-# so they need ~23GB of VRAM/RAM but run at 3B speed.
-if [[ $RAM_GB -ge 48 ]]; then
-    AI_MODEL="qwen3.6:35b-a3b"
-    AI_MODEL_SIZE="~23 GB"
-elif [[ $RAM_GB -ge 24 ]]; then
-    AI_MODEL="qwen3.5:9b"
-    AI_MODEL_SIZE="~6.6 GB"
-else
-    AI_MODEL="gemma4:e2b"
-    AI_MODEL_SIZE="~5 GB"
-fi
+# so they need ~23GB resident but run at 3B speed.
+if declare -F ostler_recommend_model >/dev/null 2>&1; then
+    _mf_chip="$(ostler_detect_chip)"
+    _mf_numctx="${OSTLER_MODEL_FIT_NUM_CTX:-32768}"
+    info "$(printf "$MSG_MODELFIT_HEADER" "${_mf_chip}" "${RAM_GB}" "${_mf_numctx}")"
 
-ok "$(printf "$MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM" "${AI_MODEL}" "${AI_MODEL_SIZE}" "${RAM_GB}")"
+    AI_MODEL="$(ostler_recommend_model "${RAM_GB}")"
+
+    # Print the per-model fit assessment (pills + quant + Recommended tag) so
+    # the customer sees WHY a model was chosen and what they would get with
+    # more RAM. Best-first ordering matches the table in the helper.
+    for _mf_model in "${OSTLER_MODEL_TAGS[@]}"; do
+        _mf_verdict="$(ostler_model_fit "${_mf_model}" "${RAM_GB}")"
+        _mf_pill="$(ostler_model_fit_pill "${_mf_verdict}")"
+        _mf_size="$(ostler_model_size_label "${_mf_model}")"
+        _mf_quant="$(ostler_model_quant "${_mf_model}")"
+        _mf_row="$(printf "$MSG_MODELFIT_ROW" "${_mf_pill}" "${_mf_model}" "${_mf_size}" "${_mf_quant}")"
+        if [[ "${_mf_model}" == "${AI_MODEL}" ]]; then
+            _mf_row="${_mf_row}${MSG_MODELFIT_RECOMMENDED_TAG}"
+        fi
+        info "${_mf_row}"
+    done
+
+    AI_MODEL_SIZE="$(ostler_model_size_label "${AI_MODEL}")"
+    unset _mf_chip _mf_numctx _mf_model _mf_verdict _mf_pill _mf_size _mf_quant _mf_row
+    ok "$(printf "$MSG_MODELFIT_SELECTED" "${AI_MODEL}" "${AI_MODEL_SIZE}" "${RAM_GB}")"
+else
+    # Fallback: helper not on disk (stripped bundle). Legacy RAM ladder --
+    # same thresholds the fit table encodes for the comfortable ("fits") tier.
+    if [[ $RAM_GB -ge 48 ]]; then
+        AI_MODEL="qwen3.6:35b-a3b"
+        AI_MODEL_SIZE="~23 GB"
+    elif [[ $RAM_GB -ge 24 ]]; then
+        AI_MODEL="qwen3.5:9b"
+        AI_MODEL_SIZE="~6.6 GB"
+    else
+        AI_MODEL="gemma4:e2b"
+        AI_MODEL_SIZE="~5 GB"
+    fi
+    ok "$(printf "$MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM" "${AI_MODEL}" "${AI_MODEL_SIZE}" "${RAM_GB}")"
+fi
 PULL_MODEL="y"
 
 # ── 9. GDPR data exports (auto-detect) ────────────────────────────
@@ -3572,6 +5486,36 @@ if [[ "$SKIP_PHASE2" == false ]]; then
 
 EXPORTS_DIR=""
 DETECTED_EXPORTS=()
+# #619 (2026-06-06): folders the scan could not read (TCC or POSIX
+# permission denied). Recorded so a denied folder is surfaced as an
+# actionable message rather than masquerading as an empty one.
+DENIED_FOLDERS=()
+
+# #619 diagnosis note (verify before assuming a prompt bug). The
+# announce-no-prompt symptom Andy sees is most likely a #446 artifact,
+# not a code bug here: the three folder-TCC grants persist for the
+# installer bundle (ai.ostler.installer) across dev wipes because
+# dev-wipe-studio.sh does not reset TCC for the installer bundle IDs.
+# With the grant already present the `ls` pre-warm finds access and
+# macOS shows no prompt, while the scan still works. To reproduce a
+# genuinely TCC-clean state, reset the three services for the bundle
+# before a run:
+#   tccutil reset SystemPolicyDownloadsFolder ai.ostler.installer
+#   tccutil reset SystemPolicyDesktopFolder   ai.ostler.installer
+#   tccutil reset SystemPolicyDocumentsFolder ai.ostler.installer
+# (macOS attributes folder TCC to the responsible app carrying the
+# NSDownloads/NSDesktop/NSDocumentsFolderUsageDescription keys in
+# gui/OstlerInstaller/Info.plist.) The hardening below is correct
+# regardless of that diagnosis: a denied folder must never read as
+# empty in silence.
+
+# #619: true if the directory can actually be listed. A folder blocked
+# by TCC or POSIX permissions still passes [[ -d ]] but fails `ls`;
+# without this check the find-scan below swallows the denial (its
+# `2>/dev/null || true`) and the folder looks empty.
+_gdpr_folder_readable() {
+    ls "$1" >/dev/null 2>&1
+}
 
 # CX-18 (2026-05-23): Studio retest #13 surfaced three unannounced
 # macOS folder-access prompts (Downloads, Desktop, Documents) firing
@@ -3633,8 +5577,1070 @@ if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
     ls "${HOME}/Documents" >/dev/null 2>&1 || true
 fi
 
+# --- #657: bulletproof, name-agnostic GDPR export detection -----------------
+# Write the shared signature-based detector to ~/.ostler/lib so BOTH this
+# install-time scan AND the post-install export watcher use the SAME logic.
+# Embedded as a QUOTED heredoc (the lib body uses $'...', $(...), ${...} and
+# must be written verbatim, not expanded here) and shipped inside install.sh,
+# so no cut-tooling / Makefile change is needed. Canonical source + tests:
+# lib/ostler-detect-exports.sh; tests/test_gdpr_export_detect.sh runs a drift
+# guard in CI that fails if this embedded copy diverges from that file.
+mkdir -p "${HOME}/.ostler/lib" 2>/dev/null || true
+cat > "${HOME}/.ostler/lib/ostler-detect-exports.sh" <<'OSTLER_DETECT_EXPORTS_EOF'
+#!/usr/bin/env bash
+# Bulletproof GDPR-export detection for Ostler's import.
+#
+# Identifies exports by their SIGNATURE FILES (content), never by the folder
+# or zip NAME -- so a customer can drop ANY shape of export and Ostler still
+# finds it:
+#   - LinkedIn "Basic" OR "Complete" export, or a renamed folder/zip
+#   - an export left ZIPPED (never unzipped) or already extracted
+#   - exports nested a few folders deep inside the download
+#
+# The actual importer (ostler-import) is content-based and recurses the whole
+# search dir, so detection only has to (a) decide whether an import is worth
+# running and (b) --unzip any signature-bearing .zip first so its loose files
+# become visible to the parsers.
+#
+# Usage:
+#   ostler-detect-exports.sh <dir> [--unzip]
+# Prints one  "LABEL<TAB>path"  line per detected export (path = the export's
+# top-level folder under <dir>, or the .zip itself). Exit 0 if >=1 detected,
+# 1 if none. With --unzip, signature-bearing zips are extracted in place first.
+set -uo pipefail
+
+DIR="${1:-}"
+DO_UNZIP=0
+[[ "${2:-}" == "--unzip" ]] && DO_UNZIP=1
+[[ -n "$DIR" && -d "$DIR" ]] || exit 1
+
+# platform <US> extended-regex of signature basenames (a file OR dir whose
+# name is specific enough to identify the source export). Kept deliberately
+# high-signal to avoid false positives. <US> = unit separator (0x1f).
+SIGS=(
+  $'LinkedIn\x1f^Connections\\.csv$'
+  $'Facebook\x1f^your_friends\\.json$|^friends\\.json$'
+  $'Instagram\x1f^followers_and_following$|^followers_1\\.json$'
+  $'X\x1f^tweets\\.js$|^tweet\\.js$'
+  $'Google\x1f^watch-history\\.json$|^MyActivity\\.json$|^My Activity$'
+  $'Spotify\x1f^StreamingHistory.*\\.json$|^YourLibrary\\.json$|^Userdata\\.json$'
+  $'Netflix\x1f^ViewingActivity\\.csv$'
+  $'Amazon\x1f^Retail\\.OrderHistory.*\\.csv$|^Digital Items\\.csv$'
+  $'Reddit\x1f^post_headers\\.csv$|^saved_posts\\.csv$'
+  $'TikTok\x1f^user_data.*\\.json$'
+  $'Pinterest\x1f^boards\\.csv$|^pins\\.csv$'
+  $'Discord\x1f^messages\\.csv$|^activity$'
+)
+
+# --- 1. Optionally unzip any signature-bearing archive -----------------------
+# Build one combined regex (path form) for matching zip member lists.
+_zip_re=""
+for entry in "${SIGS[@]}"; do
+    re="${entry#*$'\x1f'}"
+    # member paths look like "folder/Connections.csv"; strip the ^...$ anchors
+    re_unanchored="${re//^/}"; re_unanchored="${re_unanchored//\$/}"
+    _zip_re="${_zip_re:+$_zip_re|}${re_unanchored}"
+done
+
+if [[ "$DO_UNZIP" == "1" ]]; then
+    while IFS= read -r z; do
+        [[ -f "$z" ]] || continue
+        if unzip -Z1 "$z" 2>/dev/null | grep -qiE "(${_zip_re})"; then
+            dest="${z%.zip}"
+            # Only extract once; never clobber an already-unzipped folder.
+            if [[ ! -d "$dest" ]]; then
+                mkdir -p "$dest" 2>/dev/null || true
+                unzip -oq "$z" -d "$dest" 2>/dev/null || true
+            fi
+        fi
+    done < <(find "$DIR" -maxdepth 2 -type f -iname '*.zip' 2>/dev/null || true)
+fi
+
+# --- 2. Content detection over loose files (post-unzip) ----------------------
+# Resolve the export's top-level folder under DIR (so the friendly label and
+# the dedupe key are stable regardless of the export's internal nesting).
+_top_under() {  # $1 = a hit path; echoes the first path component below DIR
+    local p="$1" parent
+    while :; do
+        parent="$(dirname "$p")"
+        [[ "$parent" == "$DIR" || "$parent" == "/" || "$parent" == "." ]] && break
+        p="$parent"
+    done
+    printf '%s\n' "$p"
+}
+
+found_any=1
+declare -a SEEN_TOPS=()
+for entry in "${SIGS[@]}"; do
+    label="${entry%%$'\x1f'*}"
+    re="${entry#*$'\x1f'}"
+    while IFS= read -r hit; do
+        [[ -n "$hit" ]] || continue
+        top="$(_top_under "$hit")"
+        # de-dup identical top folders reported by multiple signatures
+        skip=0
+        for s in ${SEEN_TOPS[@]+"${SEEN_TOPS[@]}"}; do [[ "$s" == "$label::$top" ]] && skip=1 && break; done
+        [[ "$skip" == "1" ]] && continue
+        SEEN_TOPS+=("$label::$top")
+        printf '%s\t%s\n' "$label" "$top"
+        found_any=0
+    done < <(find "$DIR" -maxdepth 6 \( -type f -o -type d \) 2>/dev/null \
+                | awk -F/ -v re="$re" 'tolower($NF) ~ tolower(re) || $NF ~ re {print}' \
+                | head -5)
+done
+
+exit "$found_any"
+OSTLER_DETECT_EXPORTS_EOF
+chmod +x "${HOME}/.ostler/lib/ostler-detect-exports.sh" 2>/dev/null || true
+
+# ── Resource-tier governor lib (v1.0.3 first-run-storm fix) ────────
+# Adaptive first-run resource governor: detects the hardware tier
+# (RAM + CPU cores) and emits a per-tier first-run policy that the
+# tick wrappers consult so the background enrichment storm scales to
+# the machine and the interactive surfaces stay responsive. Same
+# embed pattern as ostler-detect-exports.sh above: a QUOTED heredoc
+# shipped inside install.sh, with a CI drift guard
+# (tests/test_resource_tier_governor.sh) that fails if this embedded
+# copy diverges from the canonical lib/ostler-resource-tier.sh.
+mkdir -p "${HOME}/.ostler/lib" 2>/dev/null || true
+cat > "${HOME}/.ostler/lib/ostler-resource-tier.sh" <<'OSTLER_RESOURCE_TIER_EOF'
+#!/usr/bin/env bash
+#
+# ostler-resource-tier.sh
+#
+# Adaptive first-run resource governor: hardware-tier detector (v1.0.3).
+#
+# A fresh install fires a storm of background enrichment work (the four
+# conversation-bundle feeds + the wiki recompile, all RunAtLoad=true at
+# install completion) on top of the Docker VM and macOS first-login
+# Spotlight indexing. On capable hardware this is tolerable; on the
+# 16GB floor it drives the 1-minute load average past 30 and the Hub app
+# becomes unusable (dashboard "Load failed", Doctor fails, chat WS dies).
+#
+# This library detects the machine's tier from RAM + CPU cores and emits
+# a per-tier first-run policy that the installer and the tick wrappers
+# consult, so the background storm scales to the actual hardware and the
+# interactive surfaces (chat, dashboard, Doctor, wiki) stay responsive.
+#
+# It REUSES the RAM detection already in install.sh
+# (sysctl hw.memsize) and ADDS core-count detection (hw.ncpu /
+# hw.perflevel0.physicalcpu for performance cores). It is installed to
+# ~/.ostler/lib/ostler-resource-tier.sh (the same pattern as
+# ostler-detect-exports.sh) so the policy is defined ONCE and both the
+# installer and every tick wrapper source it.
+#
+# Usage (source it, then read the exported vars):
+#
+#     . "${HOME}/.ostler/lib/ostler-resource-tier.sh"
+#     ostler_resource_tier_detect
+#     echo "$OSTLER_TIER $OSTLER_ENRICH_CONCURRENCY"
+#
+# Or, as a one-shot CLI that prints the policy as KEY=VALUE lines:
+#
+#     bash ostler-resource-tier.sh
+#
+# Emitted variables (also printed by the CLI form):
+#   OSTLER_TIER                 floor | low | high
+#   OSTLER_ENRICH_CONCURRENCY   max simultaneous LLM enrichment jobs (1|2|4)
+#   OSTLER_DEFER_NONESSENTIAL   1 = defer non-essential enrichment on first
+#                               run; 0 = allow (high tier)
+#   OSTLER_LOADAVG_CEILING      per-core 1-min loadavg above which a
+#                               non-essential tick defers (tenths allowed)
+#   OSTLER_ENRICH_NUM_CTX       reduced num_ctx for ENRICHMENT summaries
+#                               ONLY (never the interactive chat); empty on
+#                               high tier (use the model default)
+#   OSTLER_RAM_GB               detected RAM in whole GB (diagnostics)
+#   OSTLER_CPU_CORES            detected total cores (diagnostics)
+#   OSTLER_PERF_CORES           detected performance cores. DIAGNOSTIC ONLY:
+#                               it does NOT select the tier. Every base
+#                               Apple Silicon chip reports 4, so it cannot
+#                               discriminate on the hardware we ship to.
+#
+# Fail-safe: every probe degrades to the CONSERVATIVE (floor) tier if it
+# cannot read the hardware, so a sysctl quirk can never accidentally
+# unleash the unbounded storm. British English throughout.
+
+# Detect RAM in whole GB. Echoes 0 on failure (caller treats 0 as floor).
+ostler_rt_ram_gb() {
+    local bytes
+    bytes="$(sysctl -n hw.memsize 2>/dev/null || true)"
+    case "$bytes" in
+        ''|*[!0-9]*) echo 0; return 0 ;;
+    esac
+    echo "$(( bytes / 1073741824 ))"
+}
+
+# Detect total logical cores. Echoes 0 on failure.
+ostler_rt_cpu_cores() {
+    local n
+    n="$(sysctl -n hw.ncpu 2>/dev/null || true)"
+    case "$n" in
+        ''|*[!0-9]*) echo 0; return 0 ;;
+    esac
+    echo "$n"
+}
+
+# Detect performance cores. Apple Silicon exposes
+# hw.perflevel0.physicalcpu (P-cores); Intel does not, so fall back to
+# physical cores, then to total cores. Echoes 0 on total failure.
+ostler_rt_perf_cores() {
+    local n
+    n="$(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null || true)"
+    case "$n" in
+        ''|*[!0-9]*) n="" ;;
+    esac
+    if [ -z "${n:-}" ]; then
+        n="$(sysctl -n hw.physicalcpu 2>/dev/null || true)"
+        case "$n" in
+            ''|*[!0-9]*) n="" ;;
+        esac
+    fi
+    if [ -z "${n:-}" ]; then
+        n="$(ostler_rt_cpu_cores)"
+    fi
+    echo "${n:-0}"
+}
+
+# Read the 1-minute load average. Echoes it (a decimal) or empty on
+# failure. macOS `sysctl -n vm.loadavg` -> "{ 1.23 4.56 7.89 }".
+ostler_rt_loadavg_1m() {
+    local raw
+    raw="$(sysctl -n vm.loadavg 2>/dev/null || true)"
+    if [ -z "$raw" ]; then
+        # Linux / fallback: /proc/loadavg "1.23 4.56 7.89 ..."
+        if [ -r /proc/loadavg ]; then
+            raw="$(cut -d' ' -f1 /proc/loadavg 2>/dev/null || true)"
+            printf '%s' "$raw"
+            return 0
+        fi
+        return 0
+    fi
+    # Strip the braces, take the first number.
+    printf '%s' "$raw" | tr -d '{}' | awk '{print $1}'
+}
+
+# ── User-facing controls (the Doctor "Settings" panel) ───────────────
+#
+# The hardware-tier policy above is the automatic floor. On top of it the
+# operator gets two explicit controls, surfaced in the Doctor Settings
+# panel and persisted by it as a tiny KEY=VALUE file the panel writes and
+# THIS engine reads (closing the writer/reader gap that made the old
+# Config page a no-op):
+#
+#   * Pause  -- stop background enrichment/ingest entirely (OSTLER_PAUSED).
+#   * Throttle -- how hard background work may push the machine
+#                 (OSTLER_THROTTLE_LEVEL = full | balanced | gentle).
+#
+# Both are read here so EVERY consumer (all five conversation feeds + the
+# wiki recompile) honours them from the one place they already source.
+
+# Load the operator's Settings-panel choices. The panel writes a small
+# KEY=VALUE file (governor.env). We parse it DEFENSIVELY -- only OSTLER_*
+# assignments, values stripped of optional surrounding quotes -- and
+# export each, so a corrupt or hostile file can never execute code the way
+# a blind `source` would. An already-set environment variable always wins
+# (we only fill keys the caller has not set), so a test or command-line
+# override still takes precedence over the file.
+#   OSTLER_GOVERNOR_SETTINGS -> override the settings file path
+#                               (default ~/.ostler/config/governor.env).
+ostler_rt_load_user_settings() {
+    local f="${OSTLER_GOVERNOR_SETTINGS:-$HOME/.ostler/config/governor.env}"
+    [ -f "$f" ] || return 0
+    local line key val
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Trim leading whitespace, drop blanks and comments.
+        line="${line#"${line%%[![:space:]]*}"}"
+        case "$line" in
+            ''|'#'*) continue ;;
+            'export '*) line="${line#export }" ;;
+        esac
+        # Only OSTLER_* = ... assignments are honoured; anything else is
+        # ignored (never executed).
+        case "$line" in
+            OSTLER_[A-Z0-9_]*=*) ;;
+            *) continue ;;
+        esac
+        key="${line%%=*}"
+        val="${line#*=}"
+        # Strip a single pair of matching surrounding quotes.
+        case "$val" in
+            \"*\") val="${val#\"}"; val="${val%\"}" ;;
+            \'*\') val="${val#\'}"; val="${val%\'}" ;;
+        esac
+        # Explicit environment wins: only fill what is not already set.
+        if [ -z "${!key+x}" ]; then
+            export "$key=$val"
+        fi
+    done < "$f"
+}
+
+# Map the operator's throttle choice onto the concrete knobs the gates
+# already read. Only fills a knob the operator/tier has not pinned, so an
+# explicit ceiling still wins. "balanced" leaves the hardware-tier default
+# untouched.
+#   full    -- run freely: high per-core ceiling, no first-run defer, no
+#              off-peak clamp. The single-flight lock + interactive-chat
+#              yield still protect live replies.
+#   gentle  -- ease right off: low per-core ceiling, defer on, and restrict
+#              heavy history reads to the overnight off-peak window.
+ostler_rt_apply_throttle_level() {
+    case "${OSTLER_THROTTLE_LEVEL:-}" in
+        full)
+            OSTLER_LOADAVG_CEILING="${OSTLER_LOADAVG_CEILING:-8.0}"
+            OSTLER_DEFER_NONESSENTIAL="${OSTLER_DEFER_NONESSENTIAL:-0}"
+            OSTLER_INGEST_OFFPEAK_ONLY="${OSTLER_INGEST_OFFPEAK_ONLY:-0}"
+            ;;
+        gentle)
+            OSTLER_LOADAVG_CEILING="${OSTLER_LOADAVG_CEILING:-1.0}"
+            OSTLER_DEFER_NONESSENTIAL="${OSTLER_DEFER_NONESSENTIAL:-1}"
+            OSTLER_INGEST_OFFPEAK_ONLY="${OSTLER_INGEST_OFFPEAK_ONLY:-1}"
+            ;;
+        balanced|'') ;;   # keep the hardware-tier default
+        *) ;;             # unknown value: ignore, keep the tier default
+    esac
+}
+
+# True (return 0) if the operator has paused background work. Pause is a
+# soft, self-expiring yield: the panel writes OSTLER_PAUSED=1, optionally
+# with OSTLER_PAUSE_UNTIL=<epoch-seconds>. With an until in the future we
+# stay paused until it passes (auto-resume); with no until we stay paused
+# until the operator resumes. A malformed until fails OPEN (treated as not
+# paused) so a bad value can never wedge background work forever. Live
+# interactive chat is never gated by this -- pause only stops the
+# background enrichment/ingest storm.
+ostler_resource_tier_is_paused() {
+    [ "${OSTLER_PAUSED:-0}" = "1" ] || return 1
+    local until="${OSTLER_PAUSE_UNTIL:-}"
+    case "$until" in
+        ''|forever) return 0 ;;      # paused until the operator resumes
+        *[!0-9]*)  return 1 ;;       # malformed -> fail open (not paused)
+    esac
+    local now
+    now="$(date +%s 2>/dev/null || echo 0)"
+    if [ "$now" -lt "$until" ]; then
+        return 0                     # still inside the pause window
+    fi
+    return 1                         # window elapsed -> auto-resume
+}
+
+# Compose the tier policy. Sets the OSTLER_* vars in the caller's shell.
+# Honours pre-set overrides: if OSTLER_TIER is already exported we trust
+# it and only fill the blanks (lets tests and operators pin a tier).
+ostler_resource_tier_detect() {
+    # Seed the operator's Settings-panel choices FIRST so pause/throttle
+    # shape everything below, then let the throttle level fill its knobs
+    # before the hardware-tier defaults do.
+    ostler_rt_load_user_settings
+    ostler_rt_apply_throttle_level
+
+    OSTLER_RAM_GB="$(ostler_rt_ram_gb)"
+    OSTLER_CPU_CORES="$(ostler_rt_cpu_cores)"
+    OSTLER_PERF_CORES="$(ostler_rt_perf_cores)"
+
+    # Allow an explicit override (testing / operator opt-out). An empty or
+    # unknown value falls through to detection.
+    local tier="${OSTLER_TIER:-}"
+    case "$tier" in
+        floor|low|high) ;;   # accept
+        *) tier="" ;;
+    esac
+
+    if [ -z "$tier" ]; then
+        # Conservative default: if we could read NOTHING, stay at floor.
+        if [ "${OSTLER_RAM_GB:-0}" -le 0 ]; then
+            tier="floor"
+        elif [ "${OSTLER_RAM_GB}" -ge 32 ]; then
+            tier="high"
+        elif [ "${OSTLER_RAM_GB}" -ge 16 ]; then
+            # 16GB is the installer's hard floor (ERR-02-PREREQ-RAM-LOW),
+            # so the LOWEST supported machine sits at LOW, not floor:
+            # concurrency 2, qwen3.5:9b. The "floor" tier below is reserved
+            # for the sub-16GB / <=4 TOTAL-core case (e.g. an 8GB Air, were the
+            # prereq ever lowered) and the detection-failure fallback.
+            tier="low"
+        else
+            tier="floor"
+        fi
+        # Core-count override: a machine that reports plenty of RAM but
+        # cannot actually do concurrent work is demoted one step.
+        #
+        # THIS TESTS TOTAL CORES, NOT P-CORES, AND THAT IS THE WHOLE POINT.
+        # It used to read OSTLER_PERF_CORES against the same <=4 threshold.
+        # Every base Apple Silicon chip has exactly FOUR performance cores
+        # (M1/M2/M3 are 4P+4E, the base M4 is 4P+6E), so on the commonest
+        # hardware we ship to, the override fired on EVERY machine and
+        # silently overrode the RAM ladder it sits under. Measured on a
+        # Mac16,10 / Apple M4 / 16GB: perflevel0.physicalcpu=4, ncpu=10,
+        # tier=floor, OLLAMA_NUM_PARALLEL=1. A 24GB base M4 landed on the
+        # same floor, and no base M-series chip could reach HIGH at any RAM
+        # size at all. The rule's own comment said it was for "an 8GB Air,
+        # were the 16GB prereq ever lowered" -- an edge case. It was the
+        # modal case.
+        #
+        # Total cores is what the rule always meant: every Apple Silicon Mac
+        # has at least 8, so none is caught, while a 2-core or 4-core Intel
+        # Mac or a pinched VM still is. The threshold is unchanged.
+        if [ "${OSTLER_CPU_CORES:-0}" -gt 0 ] && [ "${OSTLER_CPU_CORES}" -le 4 ]; then
+            if [ "$tier" = "high" ]; then
+                tier="low"
+            else
+                tier="floor"
+            fi
+        fi
+    fi
+    OSTLER_TIER="$tier"
+
+    # Per-tier policy. Operator/test overrides win if already set.
+    case "$OSTLER_TIER" in
+        high)
+            OSTLER_ENRICH_CONCURRENCY="${OSTLER_ENRICH_CONCURRENCY:-4}"
+            OSTLER_DEFER_NONESSENTIAL="${OSTLER_DEFER_NONESSENTIAL:-0}"
+            OSTLER_LOADAVG_CEILING="${OSTLER_LOADAVG_CEILING:-3.0}"
+            OSTLER_ENRICH_NUM_CTX="${OSTLER_ENRICH_NUM_CTX:-}"
+            ;;
+        low)
+            OSTLER_ENRICH_CONCURRENCY="${OSTLER_ENRICH_CONCURRENCY:-2}"
+            OSTLER_DEFER_NONESSENTIAL="${OSTLER_DEFER_NONESSENTIAL:-1}"
+            OSTLER_LOADAVG_CEILING="${OSTLER_LOADAVG_CEILING:-2.0}"
+            OSTLER_ENRICH_NUM_CTX="${OSTLER_ENRICH_NUM_CTX:-8192}"
+            ;;
+        *)  # floor (the conservative fallback)
+            OSTLER_TIER="floor"
+            OSTLER_ENRICH_CONCURRENCY="${OSTLER_ENRICH_CONCURRENCY:-1}"
+            OSTLER_DEFER_NONESSENTIAL="${OSTLER_DEFER_NONESSENTIAL:-1}"
+            OSTLER_LOADAVG_CEILING="${OSTLER_LOADAVG_CEILING:-1.5}"
+            OSTLER_ENRICH_NUM_CTX="${OSTLER_ENRICH_NUM_CTX:-4096}"
+            ;;
+    esac
+
+    export OSTLER_TIER OSTLER_ENRICH_CONCURRENCY OSTLER_DEFER_NONESSENTIAL \
+        OSTLER_LOADAVG_CEILING OSTLER_ENRICH_NUM_CTX \
+        OSTLER_RAM_GB OSTLER_CPU_CORES OSTLER_PERF_CORES
+    # Carry the operator controls into the caller's environment so the
+    # later off-peak block (and any downstream tool) sees the same values.
+    export OSTLER_PAUSED="${OSTLER_PAUSED:-0}" \
+        OSTLER_PAUSE_UNTIL="${OSTLER_PAUSE_UNTIL:-}" \
+        OSTLER_THROTTLE_LEVEL="${OSTLER_THROTTLE_LEVEL:-balanced}" \
+        OSTLER_INGEST_OFFPEAK_ONLY="${OSTLER_INGEST_OFFPEAK_ONLY:-1}"
+}
+
+# Decide whether a NON-ESSENTIAL enrichment tick should defer right now.
+# Returns 0 (yield) if it should defer, 1 (proceed) otherwise.
+#
+# A non-essential tick defers when EITHER the tier sets the defer flag
+# (floor/low first-run posture) AND the machine is currently busier than
+# the tier ceiling, OR -- regardless of the defer flag -- the normalised
+# load is already over the ceiling. Essential work never calls this.
+#
+# "Normalised load" = 1-min loadavg / total cores, compared against
+# OSTLER_LOADAVG_CEILING. We avoid floating point (POSIX sh has none) by
+# scaling both sides by 100 and comparing integers via awk only for the
+# division, falling back to "proceed" if anything is unreadable
+# (fail-safe: never wedge background work on a probe quirk).
+#
+# Args: none. Reads OSTLER_DEFER_NONESSENTIAL, OSTLER_LOADAVG_CEILING,
+# OSTLER_CPU_CORES (call ostler_resource_tier_detect first).
+ostler_resource_tier_should_defer_nonessential() {
+    # Operator pause wins over everything: yield unconditionally while
+    # paused (auto-resumes when the pause window elapses).
+    if ostler_resource_tier_is_paused; then
+        OSTLER_DEFER_REASON="paused"
+        return 0
+    fi
+    OSTLER_DEFER_REASON="load"
+
+    local defer="${OSTLER_DEFER_NONESSENTIAL:-1}"
+    local ceiling="${OSTLER_LOADAVG_CEILING:-1.5}"
+    local cores="${OSTLER_CPU_CORES:-0}"
+
+    local load
+    load="$(ostler_rt_loadavg_1m)"
+
+    # If we cannot read load or cores, fall back to the defer flag alone:
+    # floor/low defer (conservative), high proceeds.
+    if [ -z "${load:-}" ] || [ "${cores:-0}" -le 0 ]; then
+        if [ "$defer" = "1" ]; then
+            return 0
+        fi
+        return 1
+    fi
+
+    # over_ceiling = (load / cores) > ceiling ? 1 : 0, computed in awk so
+    # the decimals are honoured. awk failure -> treat as NOT over (proceed).
+    local over
+    over="$(awk -v l="$load" -v c="$cores" -v cap="$ceiling" \
+        'BEGIN { if (c <= 0) { print 0; exit } if ((l / c) > cap) print 1; else print 0 }' \
+        2>/dev/null || echo 0)"
+
+    if [ "$over" = "1" ]; then
+        return 0   # busy: defer regardless of the flag
+    fi
+
+    # Not over the ceiling. Defer only on the floor/low first-run posture
+    # is NOT applied here: the off-peak window + interactive marker handle
+    # the steady-state drip. The defer flag's job is to keep the FIRST-RUN
+    # spike from running at all while load is high, which the over-ceiling
+    # check above already enforces. So below the ceiling we proceed.
+    return 1
+}
+
+# CLI form: print the policy as KEY=VALUE lines (consumable by install.sh
+# via `eval`), then exit. Only runs when executed directly, not sourced.
+if [ "${BASH_SOURCE[0]:-$0}" = "${0}" ]; then
+    ostler_resource_tier_detect
+    printf 'OSTLER_TIER=%s\n' "$OSTLER_TIER"
+    printf 'OSTLER_ENRICH_CONCURRENCY=%s\n' "$OSTLER_ENRICH_CONCURRENCY"
+    printf 'OSTLER_DEFER_NONESSENTIAL=%s\n' "$OSTLER_DEFER_NONESSENTIAL"
+    printf 'OSTLER_LOADAVG_CEILING=%s\n' "$OSTLER_LOADAVG_CEILING"
+    printf 'OSTLER_ENRICH_NUM_CTX=%s\n' "$OSTLER_ENRICH_NUM_CTX"
+    printf 'OSTLER_RAM_GB=%s\n' "$OSTLER_RAM_GB"
+    printf 'OSTLER_CPU_CORES=%s\n' "$OSTLER_CPU_CORES"
+    printf 'OSTLER_PERF_CORES=%s\n' "$OSTLER_PERF_CORES"
+    printf 'OSTLER_PAUSED=%s\n' "${OSTLER_PAUSED:-0}"
+    printf 'OSTLER_THROTTLE_LEVEL=%s\n' "${OSTLER_THROTTLE_LEVEL:-balanced}"
+    printf 'OSTLER_INGEST_OFFPEAK_ONLY=%s\n' "${OSTLER_INGEST_OFFPEAK_ONLY:-1}"
+fi
+OSTLER_RESOURCE_TIER_EOF
+chmod +x "${HOME}/.ostler/lib/ostler-resource-tier.sh" 2>/dev/null || true
+
+# -- Shared ingest-slot arbitration lib (2026-08-14 starvation fix) --
+# Fair, time-bounded arbitration of the one shared Ollama ingest slot.
+# Before this lib the four conversation feeds and the wiki recompile
+# ran three mutually incompatible policies on one mkdir mutex and NONE
+# of them bounded the HOLD, so a feed could yield on every tick
+# forever. Measured on the live v1.0.26 box on 2026-08-14: the email
+# feed held the slot for over an hour while the iMessage feed, which
+# had never completed a single pass, waited its flat 75s and yielded.
+# Same embed pattern as ostler-resource-tier.sh above: a QUOTED
+# heredoc with a CI drift guard (tests/test_ingest_slot_fairness.sh)
+# that fails if this embedded copy diverges from the canonical
+# lib/ostler-ingest-slot.sh.
+mkdir -p "${HOME}/.ostler/lib" 2>/dev/null || true
+cat > "${HOME}/.ostler/lib/ostler-ingest-slot.sh" <<'OSTLER_INGEST_SLOT_EOF'
+#!/usr/bin/env bash
+#
+# ostler-ingest-slot.sh
+#
+# Fair, time-bounded arbitration of the ONE shared Ollama ingest slot.
+#
+# ---------------------------------------------------------------------
+# The defect this replaces
+# ---------------------------------------------------------------------
+# Five LaunchAgents contend for a single mkdir mutex
+# (~/.ostler/workspace/ingest-ollama.lock.d): the four conversation
+# feeds (email / iMessage / WhatsApp / spoken) and the wiki recompile.
+# Before this lib they implemented THREE mutually incompatible policies
+# on that one mutex:
+#
+#   * email + spoken      -- instant-yield if held.
+#   * iMessage + WhatsApp -- if the feed has NEVER run, wait a flat 75s,
+#                            then yield.
+#   * wiki recompile      -- blocking `while ! mkdir` spin, unbounded.
+#
+# and NONE of them bounded the HOLD. A holder kept the slot for as long
+# as its pipeline ran, and those pipelines loop over a whole document
+# queue dispatching each one to pwg-convo (measured on the live v1.0.26
+# box: 17s to 900s per document, per-document, in an unbounded loop).
+#
+# Measured on the box 2026-08-14: the email feed held the slot for over
+# an hour while the iMessage feed -- which had NEVER completed a single
+# pass -- woke every 15 minutes, waited its flat 75s, and yielded. It
+# logged "this feed has NEVER RUN" forever. The moment the holder was
+# stopped the waiting feed took the slot and drained normally, which is
+# the proof that the feed was never slow: it was starved.
+#
+# The flat 75s patience was the whole bug: it is a CONSTANT, and it was
+# being compared against a hold with NO BOUND. No constant can win that
+# race. Widening the constant does not fix it, and neither does copying
+# the same constant into the other feeds.
+#
+# ---------------------------------------------------------------------
+# The contract this lib enforces
+# ---------------------------------------------------------------------
+# 1. BOUNDED HOLD. A holder may keep the slot indefinitely while nobody
+#    wants it (so the multi-hour wiki summary backfill is undisturbed on
+#    an idle box, which was the original reason no time-based steal
+#    existed). The moment another feed enrols as a waiter, the holder is
+#    bounded: at OSTLER_SLOT_MAX_HOLD_SECS the holder stops ITSELF at a
+#    clean point and releases. Nothing is lost -- every pipeline is
+#    watermarked and idempotent, so the next tick resumes.
+#
+#    The bound is HOLDER-ENFORCED, never waiter-enforced. A waiter never
+#    kills a holder. That keeps the single-flight invariant absolute:
+#    there is never a window where two pipelines drive Ollama at once.
+#
+# 2. DERIVED PATIENCE. A waiter no longer guesses. It reads the holder's
+#    own recorded deadline out of the lock and waits until that deadline
+#    plus a grace. Patience is therefore always >= the hold, which is
+#    exactly the property the flat 75s constant lacked.
+#
+# 3. FIFO FAIRNESS. Waiters enrol in a queue directory. Only the
+#    longest-waiting live feed attempts the lock, so a feed cannot be
+#    beaten to the slot repeatedly by a luckier neighbour.
+#
+# 4. VISIBILITY. Every acquire / yield / completion is recorded per feed
+#    under the slot state dir, so "this feed has never run" is a fact a
+#    human can be shown rather than a line in a log nobody reads.
+#
+# ---------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------
+#   ostler_slot_acquire <feed-label>   -> 0 acquired, 1 caller should
+#                                         yield this tick (exit 0)
+#   ostler_slot_run <cmd> [args...]    -> run the payload under the
+#                                         max-hold watchdog; returns the
+#                                         payload's rc, except a
+#                                         deliberate max-hold stop which
+#                                         is reported as 0 (it is a
+#                                         scheduled yield, not a failure)
+#   ostler_slot_release                -> idempotent; also runs on EXIT
+#
+# Callers MUST NOT install their own EXIT trap after ostler_slot_acquire.
+#
+# ---------------------------------------------------------------------
+# Tunables (all optional)
+# ---------------------------------------------------------------------
+#   OSTLER_INGEST_SLOT=0             disable this lib entirely; the
+#                                    caller keeps its own inline lock
+#   OSTLER_INGEST_LOCK               lock dir (unchanged default, so a
+#                                    tick that has not yet been rewired
+#                                    still interlocks correctly)
+#   OSTLER_SLOT_MAX_HOLD_SECS        max hold once someone is waiting
+#                                    (default 900 = one tick interval)
+#   OSTLER_SLOT_WAIT_SECS            patience floor for a HEALTHY feed
+#                                    (default 75, i.e. prior behaviour)
+#   OSTLER_SLOT_GRACE_SECS           slack added past a holder deadline
+#                                    (default 60)
+#   OSTLER_SLOT_POLL_SECS            poll interval (default 5)
+#   OSTLER_SLOT_STARVE_AFTER_SECS    a feed unseen this long counts as
+#                                    starving and waits out the holder
+#                                    (default 21600 = 6h)
+#   OSTLER_SLOT_LEGACY_MAX_HOLD_SECS assumed bound for a pre-lib holder
+#                                    that recorded no deadline
+#                                    (default 3600)
+#   OSTLER_SLOT_STATE_DIR            per-feed state dir
+#
+# macOS ships bash 3.2, and the sealed ticks run under /bin/bash, so this
+# file stays bash-3.2 clean: no associative arrays, no mapfile, no ${x^^}.
+# British English throughout.
+
+# --- resolved configuration ------------------------------------------
+_ostler_slot_ws() {
+    printf '%s\n' "${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}"
+}
+
+_OSTLER_SLOT_DIR="${OSTLER_INGEST_LOCK:-$(_ostler_slot_ws)/ingest-ollama.lock.d}"
+_OSTLER_SLOT_WAITERS="${_OSTLER_SLOT_DIR%.d}.waiters.d"
+_OSTLER_SLOT_STATE="${OSTLER_SLOT_STATE_DIR:-$(_ostler_slot_ws)/ingest-slot}"
+# MEASURED on the v1.0.33 box, 2026-08-17. The mechanism was not missing --
+# waiters dir, max-hold and starve-after all exist and all worked. The RATIO
+# between two of them guaranteed starvation:
+#
+#   MAX_HOLD 900s   a holder keeps the slot 15 minutes even with a waiter
+#   WAIT      75s   a HEALTHY waiter gives up after 75 seconds
+#
+# A waiter's patience was 1/12th of a holder's right, so it could never
+# outlast one. Observed: email-bundle held with 895s remaining while
+# imessage-bundle got 4s. Twelve contentions in the log, email-bundle winning
+# eight of them, and whatsapp/imessage/spoken all starved in turn.
+#
+# STARVE_AFTER 21600s meant the "this feed is starving" escalation fired only
+# after SIX HOURS -- long after the install finished and the owner had already
+# looked at an empty Messages surface and concluded the product was broken.
+#
+# MAX_HOLD is now 180s: longer than any feed's real work (imessage needed 4s)
+# and comfortably above WAIT=75s, so a holder still finishes a unit of work
+# but a waiter that keeps asking now outlives it. STARVE_AFTER 1800s puts the
+# escalation inside the install window where somebody can act on it.
+_OSTLER_SLOT_MAX_HOLD="${OSTLER_SLOT_MAX_HOLD_SECS:-180}"
+_OSTLER_SLOT_WAIT="${OSTLER_SLOT_WAIT_SECS:-75}"
+_OSTLER_SLOT_GRACE="${OSTLER_SLOT_GRACE_SECS:-60}"
+_OSTLER_SLOT_POLL="${OSTLER_SLOT_POLL_SECS:-5}"
+_OSTLER_SLOT_STARVE_AFTER="${OSTLER_SLOT_STARVE_AFTER_SECS:-1800}"
+_OSTLER_SLOT_LEGACY_HOLD="${OSTLER_SLOT_LEGACY_MAX_HOLD_SECS:-3600}"
+
+_OSTLER_SLOT_FEED=""
+_OSTLER_SLOT_HELD=0
+_OSTLER_SLOT_DEADLINE=0
+_OSTLER_SLOT_WATCHDOG_PID=""
+
+_ostler_slot_now() { date +%s; }
+
+_ostler_slot_log() { echo "ostler-slot[${_OSTLER_SLOT_FEED:-?}]: $*"; }
+
+# --- per-feed state --------------------------------------------------
+# One key=value file per feed. Deliberately plain text: it is read by
+# Doctor, by the tests, and by a human with `cat`, and it must never be
+# able to fail a tick, so every write is best-effort.
+_ostler_slot_state_file() {
+    printf '%s\n' "$_OSTLER_SLOT_STATE/$1.state"
+}
+
+_ostler_slot_state_get() {
+    # _ostler_slot_state_get <feed> <key> -- prints value or empty
+    local f
+    f="$(_ostler_slot_state_file "$1")"
+    [ -f "$f" ] || return 0
+    # Exact key match at line start; the value is everything after "=".
+    sed -n "s/^$2=//p" "$f" 2>/dev/null | tail -1
+}
+
+_ostler_slot_state_set() {
+    # _ostler_slot_state_set <feed> <key> <value> -- best effort
+    local f tmp
+    f="$(_ostler_slot_state_file "$1")"
+    mkdir -p "$_OSTLER_SLOT_STATE" 2>/dev/null || return 0
+    tmp="$f.$$"
+    if [ -f "$f" ]; then
+        grep -v "^$2=" "$f" 2>/dev/null > "$tmp" || true
+    else
+        : > "$tmp" 2>/dev/null || return 0
+    fi
+    printf '%s=%s\n' "$2" "$3" >> "$tmp" 2>/dev/null || return 0
+    mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
+}
+
+_ostler_slot_bump() {
+    # _ostler_slot_bump <feed> <key> -- increment an integer counter
+    local cur
+    cur="$(_ostler_slot_state_get "$1" "$2")"
+    case "$cur" in ''|*[!0-9]*) cur=0 ;; esac
+    _ostler_slot_state_set "$1" "$2" "$((cur + 1))"
+}
+
+# Has this feed EVER completed a pass? This is the fact the operator
+# needs, and it is the input to both the starvation policy and the
+# Doctor card.
+ostler_slot_feed_never_ran() {
+    local completed
+    completed="$(_ostler_slot_state_get "$1" last_completed)"
+    case "$completed" in ''|0|*[!0-9]*) return 0 ;; esac
+    return 1
+}
+
+# --- waiter queue ----------------------------------------------------
+_ostler_slot_enrol() {
+    mkdir -p "$_OSTLER_SLOT_WAITERS" 2>/dev/null || return 0
+    printf '%s %s\n' "$(_ostler_slot_now)" "$$" \
+        > "$_OSTLER_SLOT_WAITERS/$_OSTLER_SLOT_FEED" 2>/dev/null || true
+}
+
+_ostler_slot_withdraw() {
+    [ -n "$_OSTLER_SLOT_FEED" ] || return 0
+    rm -f "$_OSTLER_SLOT_WAITERS/$_OSTLER_SLOT_FEED" 2>/dev/null || true
+}
+
+# Reap entries whose owning shell is gone, so a crashed waiter can never
+# wedge the queue for the feeds behind it.
+_ostler_slot_reap_waiters() {
+    local f ts pid
+    [ -d "$_OSTLER_SLOT_WAITERS" ] || return 0
+    for f in "$_OSTLER_SLOT_WAITERS"/*; do
+        [ -f "$f" ] || continue
+        ts=""; pid=""
+        read -r ts pid < "$f" 2>/dev/null || true
+        [ -n "$pid" ] || continue
+        kill -0 "$pid" 2>/dev/null || rm -f "$f" 2>/dev/null || true
+    done
+}
+
+_ostler_slot_waiters_present() {
+    local f
+    _ostler_slot_reap_waiters
+    [ -d "$_OSTLER_SLOT_WAITERS" ] || return 1
+    for f in "$_OSTLER_SLOT_WAITERS"/*; do
+        [ -f "$f" ] && return 0
+    done
+    return 1
+}
+
+# FIFO: the longest-waiting live feed. Glob order is lexicographic, so
+# an exact timestamp tie resolves deterministically by feed name.
+_ostler_slot_oldest_waiter() {
+    local f ts pid best_ts best_feed
+    best_ts=""; best_feed=""
+    _ostler_slot_reap_waiters
+    [ -d "$_OSTLER_SLOT_WAITERS" ] || return 0
+    for f in "$_OSTLER_SLOT_WAITERS"/*; do
+        [ -f "$f" ] || continue
+        ts=""; pid=""
+        read -r ts pid < "$f" 2>/dev/null || true
+        case "$ts" in ''|*[!0-9]*) continue ;; esac
+        if [ -z "$best_ts" ] || [ "$ts" -lt "$best_ts" ]; then
+            best_ts="$ts"
+            best_feed="$(basename "$f")"
+        fi
+    done
+    printf '%s\n' "$best_feed"
+}
+
+# --- lock metadata ---------------------------------------------------
+_ostler_slot_meta() {
+    # _ostler_slot_meta <name> -- prints the value or empty
+    cat "$_OSTLER_SLOT_DIR/$1" 2>/dev/null || true
+}
+
+_ostler_slot_holder_pid() { _ostler_slot_meta pid; }
+
+_ostler_slot_holder_alive() {
+    local h
+    h="$(_ostler_slot_holder_pid)"
+    [ -n "$h" ] || return 1
+    kill -0 "$h" 2>/dev/null
+}
+
+# When does the current holder have to be out by? A holder that recorded
+# its own deadline is authoritative. A PRE-LIB holder recorded nothing,
+# so we fall back to the lock's mtime plus a generous legacy bound --
+# that keeps a waiter's patience finite during the upgrade window instead
+# of inheriting the old unbounded wait.
+_ostler_slot_holder_deadline() {
+    local acquired hold
+    acquired="$(_ostler_slot_meta acquired_at)"
+    hold="$(_ostler_slot_meta max_hold)"
+    case "$acquired" in ''|*[!0-9]*) acquired="" ;; esac
+    case "$hold" in ''|*[!0-9]*) hold="" ;; esac
+    if [ -n "$acquired" ] && [ -n "$hold" ]; then
+        printf '%s\n' "$((acquired + hold))"
+        return 0
+    fi
+    acquired="$(stat -f %m "$_OSTLER_SLOT_DIR" 2>/dev/null || stat -c %Y "$_OSTLER_SLOT_DIR" 2>/dev/null || true)"
+    case "$acquired" in ''|*[!0-9]*) acquired="$(_ostler_slot_now)" ;; esac
+    printf '%s\n' "$((acquired + _OSTLER_SLOT_LEGACY_HOLD))"
+}
+
+_ostler_slot_take() {
+    # Atomic. mkdir is the only primitive that is atomic on every POSIX
+    # filesystem and macOS ships no flock(1).
+    mkdir "$_OSTLER_SLOT_DIR" 2>/dev/null || return 1
+    _OSTLER_SLOT_HELD=1
+    _OSTLER_SLOT_DEADLINE=$(( $(_ostler_slot_now) + _OSTLER_SLOT_MAX_HOLD ))
+    printf '%s\n' "$$" > "$_OSTLER_SLOT_DIR/pid" 2>/dev/null || true
+    printf '%s\n' "$_OSTLER_SLOT_FEED" > "$_OSTLER_SLOT_DIR/holder" 2>/dev/null || true
+    printf '%s\n' "$(_ostler_slot_now)" > "$_OSTLER_SLOT_DIR/acquired_at" 2>/dev/null || true
+    printf '%s\n' "$_OSTLER_SLOT_MAX_HOLD" > "$_OSTLER_SLOT_DIR/max_hold" 2>/dev/null || true
+    _ostler_slot_withdraw
+    _ostler_slot_state_set "$_OSTLER_SLOT_FEED" last_acquired "$(_ostler_slot_now)"
+    _ostler_slot_state_set "$_OSTLER_SLOT_FEED" consecutive_yields 0
+    trap 'ostler_slot_release' EXIT
+    return 0
+}
+
+# A holder whose shell is gone leaves the directory behind. Reclaiming it
+# is safe precisely because the PID is dead.
+_ostler_slot_reclaim_if_dead() {
+    _ostler_slot_holder_alive && return 1
+    rm -rf "$_OSTLER_SLOT_DIR" 2>/dev/null || true
+    return 0
+}
+
+# --- public: acquire -------------------------------------------------
+ostler_slot_acquire() {
+    _OSTLER_SLOT_FEED="${1:-unknown}"
+
+    if [ "${OSTLER_INGEST_SLOT:-1}" = "0" ]; then
+        _ostler_slot_log "arbitration disabled by OSTLER_INGEST_SLOT=0."
+        return 1
+    fi
+
+    mkdir -p "$(dirname "$_OSTLER_SLOT_DIR")" 2>/dev/null || true
+    _ostler_slot_state_set "$_OSTLER_SLOT_FEED" feed "$_OSTLER_SLOT_FEED"
+
+    # Uncontended: take it and go.
+    if _ostler_slot_take; then
+        return 0
+    fi
+
+    # Contended. Enrol FIRST, so the holder can see that someone is
+    # waiting and start counting down its bounded hold.
+    _ostler_slot_enrol
+    trap '_ostler_slot_withdraw' EXIT
+
+    local starving=0 patience_floor
+    if ostler_slot_feed_never_ran "$_OSTLER_SLOT_FEED"; then
+        starving=1
+    else
+        local last_done now
+        last_done="$(_ostler_slot_state_get "$_OSTLER_SLOT_FEED" last_completed)"
+        now="$(_ostler_slot_now)"
+        case "$last_done" in
+            ''|*[!0-9]*) starving=1 ;;
+            *) [ "$((now - last_done))" -ge "$_OSTLER_SLOT_STARVE_AFTER" ] && starving=1 ;;
+        esac
+    fi
+
+    if [ "$starving" = "1" ]; then
+        # Patience DERIVED from the holder's recorded deadline, never a
+        # bare constant. This is the property the old flat 75s lacked.
+        local deadline limit
+        deadline="$(_ostler_slot_holder_deadline)"
+        limit=$(( deadline + _OSTLER_SLOT_GRACE ))
+        patience_floor=$(( $(_ostler_slot_now) + _OSTLER_SLOT_WAIT ))
+        [ "$limit" -lt "$patience_floor" ] && limit="$patience_floor"
+        _ostler_slot_log "slot held by $(_ostler_slot_holder_pid) ($(_ostler_slot_meta holder)); this feed is starving, waiting for the holder's bounded hold to expire (deadline in $(( deadline - $(_ostler_slot_now) ))s)."
+    else
+        local limit
+        limit=$(( $(_ostler_slot_now) + _OSTLER_SLOT_WAIT ))
+        _ostler_slot_log "slot held by $(_ostler_slot_holder_pid) ($(_ostler_slot_meta holder)); this feed is healthy, waiting up to ${_OSTLER_SLOT_WAIT}s."
+    fi
+
+    local me
+    while [ "$(_ostler_slot_now)" -lt "$limit" ]; do
+        sleep "$_OSTLER_SLOT_POLL"
+
+        # Keep our enrolment fresh so the reaper never drops us.
+        [ -f "$_OSTLER_SLOT_WAITERS/$_OSTLER_SLOT_FEED" ] || _ostler_slot_enrol
+
+        if [ -d "$_OSTLER_SLOT_DIR" ] && ! _ostler_slot_holder_alive; then
+            _ostler_slot_reclaim_if_dead
+        fi
+
+        if [ ! -d "$_OSTLER_SLOT_DIR" ]; then
+            # FIFO: only the longest-waiting feed may take the free slot.
+            me="$(_ostler_slot_oldest_waiter)"
+            if [ -n "$me" ] && [ "$me" != "$_OSTLER_SLOT_FEED" ]; then
+                continue
+            fi
+            if _ostler_slot_take; then
+                _ostler_slot_log "acquired the slot after waiting."
+                return 0
+            fi
+        fi
+
+        # A starving waiter re-derives its limit: if the holder changed,
+        # the new holder's deadline governs from here.
+        if [ "$starving" = "1" ]; then
+            local d2
+            d2="$(_ostler_slot_holder_deadline)"
+            [ "$((d2 + _OSTLER_SLOT_GRACE))" -gt "$limit" ] && limit=$(( d2 + _OSTLER_SLOT_GRACE ))
+        fi
+    done
+
+    _ostler_slot_bump "$_OSTLER_SLOT_FEED" consecutive_yields
+    _ostler_slot_state_set "$_OSTLER_SLOT_FEED" last_yield "$(_ostler_slot_now)"
+    if [ "$starving" = "1" ]; then
+        _ostler_slot_log "STARVED: still could not get the slot; this feed has produced nothing yet. Holder $(_ostler_slot_holder_pid) ($(_ostler_slot_meta holder)) has exceeded its bounded hold. Yielding; the next tick retries."
+    else
+        _ostler_slot_log "slot still busy; yielding this tick (next tick retries)."
+    fi
+    _ostler_slot_withdraw
+    return 1
+}
+
+# --- holder-side max-hold watchdog -----------------------------------
+# Terminates the PAYLOAD, never the holder shell, so the EXIT trap still
+# runs and the lock is released cleanly rather than left for the reaper.
+_ostler_slot_kill_tree() {
+    local pid="$1" kid
+    for kid in $(pgrep -P "$pid" 2>/dev/null); do
+        _ostler_slot_kill_tree "$kid"
+    done
+    kill -TERM "$pid" 2>/dev/null || true
+}
+
+_ostler_slot_watchdog() {
+    local work_pid="$1" now
+    while :; do
+        sleep "$_OSTLER_SLOT_POLL"
+        kill -0 "$work_pid" 2>/dev/null || return 0
+        [ -d "$_OSTLER_SLOT_DIR" ] || return 0
+        now="$(_ostler_slot_now)"
+        [ "$now" -ge "$_OSTLER_SLOT_DEADLINE" ] || continue
+        # Nobody waiting: a long backfill on an idle box is not a
+        # problem, so let it run. This is why the wiki summary pass is
+        # still allowed to take hours.
+        _ostler_slot_waiters_present || continue
+        : > "$_OSTLER_SLOT_DIR/preempted" 2>/dev/null || true
+        _ostler_slot_log "reached the ${_OSTLER_SLOT_MAX_HOLD}s maximum hold with another feed waiting; stopping cleanly so the waiting feed gets a turn. Progress is watermarked; the next tick resumes."
+        _ostler_slot_kill_tree "$work_pid"
+        return 0
+    done
+}
+
+# --- public: run the payload ----------------------------------------
+ostler_slot_run() {
+    if [ "$_OSTLER_SLOT_HELD" != "1" ]; then
+        # Not holding (arbitration disabled / caller used its own lock).
+        "$@"
+        return $?
+    fi
+
+    "$@" &
+    local work_pid=$!
+    printf '%s\n' "$work_pid" > "$_OSTLER_SLOT_DIR/work_pid" 2>/dev/null || true
+
+    _ostler_slot_watchdog "$work_pid" &
+    _OSTLER_SLOT_WATCHDOG_PID=$!
+
+    # `wait` on a signalled child makes the shell print "Terminated: 15"
+    # to stderr, which launchd files as an error for what is in fact a
+    # deliberate, correct yield. Silence only that reaping report.
+    local rc=0
+    wait "$work_pid" 2>/dev/null || rc=$?
+
+    if [ -n "$_OSTLER_SLOT_WATCHDOG_PID" ]; then
+        kill "$_OSTLER_SLOT_WATCHDOG_PID" 2>/dev/null || true
+        wait "$_OSTLER_SLOT_WATCHDOG_PID" 2>/dev/null || true
+        _OSTLER_SLOT_WATCHDOG_PID=""
+    fi
+
+    if [ -f "$_OSTLER_SLOT_DIR/preempted" ]; then
+        # A scheduled yield is not a failure -- reporting it as one would
+        # make launchd log a hard error for correct behaviour. But it is
+        # NOT a completed pass either: recording it as one would tell the
+        # starvation detector this feed is healthy when it has still
+        # never finished a drain, which is precisely the blindness that
+        # let the live box report a feed as fine while it produced
+        # nothing. A preempted feed stays "starving" and keeps priority.
+        _ostler_slot_state_set "$_OSTLER_SLOT_FEED" last_preempted "$(_ostler_slot_now)"
+        _ostler_slot_bump "$_OSTLER_SLOT_FEED" preempt_count
+        return 0
+    fi
+
+    if [ "$rc" = "0" ]; then
+        _ostler_slot_state_set "$_OSTLER_SLOT_FEED" last_completed "$(_ostler_slot_now)"
+    fi
+    return "$rc"
+}
+
+# --- public: release -------------------------------------------------
+ostler_slot_release() {
+    if [ -n "$_OSTLER_SLOT_WATCHDOG_PID" ]; then
+        kill "$_OSTLER_SLOT_WATCHDOG_PID" 2>/dev/null || true
+        _OSTLER_SLOT_WATCHDOG_PID=""
+    fi
+    _ostler_slot_withdraw
+    if [ "$_OSTLER_SLOT_HELD" = "1" ]; then
+        _OSTLER_SLOT_HELD=0
+        rm -rf "$_OSTLER_SLOT_DIR" 2>/dev/null || true
+    fi
+    return 0
+}
+OSTLER_INGEST_SLOT_EOF
+chmod +x "${HOME}/.ostler/lib/ostler-ingest-slot.sh" 2>/dev/null || true
+
+# Auto-unzip any signature-bearing export zips in the scan dirs FIRST, so the
+# content detection below (and the parsers) can read a still-zipped download.
+# Runs AFTER the prewarm above has cleared the TCC prompts and AFTER the lib is
+# written, so the call always finds it. Name-agnostic; failure-tolerant.
+for _sd in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
+    [[ -d "$_sd" ]] || continue
+    bash "${HOME}/.ostler/lib/ostler-detect-exports.sh" "$_sd" --unzip >/dev/null 2>&1 || true
+done
+
 for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$search_dir" ]] || continue
+
+    # #619: distinguish a permission-denied folder from an empty one.
+    # The find scans below all end `2>/dev/null || true`, so an access
+    # denial yields zero hits indistinguishable from "nothing here" --
+    # the customer's exports could be sitting in this folder, unreadable,
+    # and they would be told nothing was found. Record the denial and
+    # skip this folder's scan; the post-scan block surfaces it.
+    if ! _gdpr_folder_readable "$search_dir"; then
+        DENIED_FOLDERS+=("$search_dir")
+        continue
+    fi
 
     # LinkedIn: Connections.csv in a folder. The previous
     # `-path "*/linkedin*"` predicate was case-sensitive and
@@ -3697,6 +6703,19 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     done < <(find "$search_dir" -maxdepth 4 -name "*.mbox" -size +1k 2>/dev/null | head -3 || true)
 done
 
+# #619: surface any folder the scan could not read. Without this, a
+# permission-denied folder is silently indistinguishable from an empty
+# one and the customer is told "no exports found" while their exports
+# sit unread. Name each denied folder and route the customer toward the
+# manual-exports path below (and toward granting access + re-running).
+if [[ ${#DENIED_FOLDERS[@]} -gt 0 ]]; then
+    echo ""
+    for denied_dir in "${DENIED_FOLDERS[@]}"; do
+        warn "$(printf "$MSG_WARN_FOLDER_ACCESS_DENIED_SCAN" "${denied_dir}")"
+    done
+    info "$MSG_INFO_FOLDER_ACCESS_DENIED_GUIDANCE"
+fi
+
 if [[ ${#DETECTED_EXPORTS[@]} -gt 0 ]]; then
     echo ""
     ok "$(printf "$MSG_OK_FOUND_GDPR_EXPORT_S" "${#DETECTED_EXPORTS[@]}")"
@@ -3710,7 +6729,15 @@ if [[ ${#DETECTED_EXPORTS[@]} -gt 0 ]]; then
     fi
 else
     echo ""
-    info "$MSG_INFO_NO_GDPR_EXPORTS_FOUND_DOWNLOADS_DESKTOP"
+    # #619: be honest about WHY nothing was found. If a folder was
+    # denied, "no exports found" is misleading -- the scan was blocked,
+    # not the folder empty. The manual-exports prompt below is the route
+    # in either case, so a denial is never a silent dead-end.
+    if [[ ${#DENIED_FOLDERS[@]} -gt 0 ]]; then
+        info "$MSG_INFO_GDPR_SCAN_BLOCKED_BY_PERMISSIONS"
+    else
+        info "$MSG_INFO_NO_GDPR_EXPORTS_FOUND_DOWNLOADS_DESKTOP"
+    fi
     echo "  That is fine -- you can import later. Request your data from:"
     echo "     LinkedIn, Facebook, Instagram, Google, Twitter, WhatsApp"
     echo "  Exports typically take 1-3 days to arrive."
@@ -3781,7 +6808,18 @@ try:
 except Exception as e:
     print(str(e), file=sys.stderr)
     sys.exit(1)
-" 2>/dev/null)
+" 2>/dev/null) || EXTRACTED_MBOX=""
+            # CX-127: the helper above exits 1 when the zip holds no .mbox
+            # (e.g. a SPLIT multi-part Google Takeout -- takeout-...-6-001.zip
+            # whose non-first part has no mailbox) or on any zip exception.
+            # Under the script-wide `set -Eeuo pipefail`, a bare
+            # `VAR=$(... exit 1)` assignment aborts the WHOLE install on the
+            # spot -- jumping over the graceful warn-and-continue branch just
+            # below and killing a fully-recoverable optional step with no
+            # error and no DONE marker (the GUI then shows "failed"). The
+            # `|| EXTRACTED_MBOX=""` neutralises the errexit abort so the
+            # empty-result handler below runs as designed. Same set -e family
+            # as #640 / #643.
             if [[ -n "$EXTRACTED_MBOX" && -f "$EXTRACTED_MBOX" ]]; then
                 OSTLER_TAKEOUT_PATH="$EXTRACTED_MBOX"
                 ok "$(printf "$MSG_OK_EXTRACTED" "${EXTRACTED_MBOX}")"
@@ -3839,13 +6877,22 @@ if [[ -f "${HOME}/Library/Application Support/Google/Chrome/Default/History" ]];
     HAS_CHROME=true
 fi
 
+# DMG fix 3 (#618 partial): name Chrome in the Recommended description
+# (TTY menu) when it is installed, so a Chrome-primary customer sees
+# that their real main browser is included. The GUI preset label
+# (MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED) already promises this.
+_recommended_chrome_note=""
+if [[ "$HAS_CHROME" == true ]]; then
+    _recommended_chrome_note=", Chrome history"
+fi
+
 cat <<MENU
 
   Three presets, or pick each one yourself:
 
     [1] Recommended  Safari history + bookmarks, Notes, Calendar,
-                     Reminders, iMessage, Apple Mail. The everyday
-                     sources -- privacy-friendly, all local.
+                     Reminders, iMessage, Apple Mail${_recommended_chrome_note}. The
+                     everyday sources -- privacy-friendly, all local.
 
     [2] Everything   The above + WhatsApp + Chrome (if installed),
                      Photos events (NOT face recognition). Slower,
@@ -3872,19 +6919,32 @@ PRESET=${PRESET:-recommended}
 # and Safari history"). Pre-fix the strings file promised those sources
 # but the bash var did not include them, so install completed with the
 # wiki empty of iMessage + email-correspondent data on every install.
-RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail"
+RECOMMENDED="safari_history,safari_bookmarks,calendar,reminders,imessage,apple_mail"
 
-# EVERYTHING adds whatsapp_history + chrome_history conditionally -- the
+# DMG fix 3 (#618 partial): most customers are Chrome-primary, so a
+# Recommended install must ingest Chrome history too when Chrome is
+# installed -- otherwise it silently captures the barely-used Safari and
+# misses the real main browser. chrome_history.py already ships and is
+# exercised by the Everything path; this just lists the source. Safari
+# stays in Recommended regardless (harmless if empty). Without Chrome,
+# Recommended is unchanged. The GUI preset label already promises this
+# (MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED) -- the var was the gap, the
+# same strings-promise-vs-var mismatch as the #48g imessage/apple_mail
+# fix. Brave / Edge / Arc / Firefox stay post-launch (#618).
+if [[ "$HAS_CHROME" == true ]]; then
+    RECOMMENDED="${RECOMMENDED},chrome_history"
+fi
+
+# EVERYTHING adds whatsapp_history + photos conditionally -- the
 # extractors throw FileNotFoundError if the source DB is missing, so it
 # is safe to list them, but skipping the listing when the app isn't
 # installed keeps the post-install summary honest ("Found 0 WhatsApp
 # people" reads as a bug; not listing the source reads as fine).
+# chrome_history is inherited from RECOMMENDED above, so it is NOT
+# re-added here (a duplicate in OSTLER_FDA_SOURCES would double-list it).
 EVERYTHING="${RECOMMENDED},photos_metadata"
 if [[ "$HAS_WHATSAPP_DESKTOP" == true ]]; then
     EVERYTHING="${EVERYTHING},whatsapp_history"
-fi
-if [[ "$HAS_CHROME" == true ]]; then
-    EVERYTHING="${EVERYTHING},chrome_history"
 fi
 
 case "$PRESET" in
@@ -3915,7 +6975,6 @@ case "$PRESET" in
         echo "  Recommended (defaults on):"
         _ask_source "safari_history"   "Safari history          " Y
         _ask_source "safari_bookmarks" "Safari bookmarks        " Y
-        _ask_source "apple_notes"      "Apple Notes             " Y
         _ask_source "calendar"         "Calendar                " Y
         _ask_source "reminders"        "Reminders               " Y
         _ask_source "imessage"         "iMessage                " Y
@@ -4008,6 +7067,7 @@ fi
 OSTLER_CONSENT_ARTICLE_9_DECISION=""
 OSTLER_CONSENT_VOICE_EU_DECISION=""
 OSTLER_CONSENT_THIRD_PARTY_DECISION=""
+OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION=""
 
 if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo ""
@@ -4029,11 +7089,11 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo "  law treats as \"special category\" data:"
     echo ""
     echo "    - Health information mentioned in emails, messages, calendar"
-    echo "      entries or recorded conversations"
+    echo "      entries or transcribed conversations"
     echo "    - Religious or philosophical beliefs"
     echo "    - Sexual orientation"
     echo "    - Trade union membership"
-    echo "    - Voice recordings, used only to label *who* is speaking on"
+    echo "    - Voice captures, used only to label *who* is speaking on"
     echo "      calls (speaker identification). We do not infer mood,"
     echo "      emotion, sentiment, stress or deception from voice."
     echo "    - Mentions of criminal offences – your own or other people's"
@@ -4116,30 +7176,64 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}Recognising voices on calls${NC}"
+    # WHERE THE BIOMETRIC LIVES. This block used to tell the customer the
+    # voice fingerprint is stored "locally on this Mac", that it "stays on
+    # this Mac", and that they withdraw consent in "Settings -> Privacy ->
+    # Voice recognition" on the Mac. All three were false, on the one screen
+    # where being wrong is an Article 9 problem rather than a copy nit.
+    #
+    # The shipped code is unambiguous. vendor/cm041/assistant_api/ical-server.py
+    # states it as a locked invariant: "the Hub holds no voiceprint registry.
+    # The biometric never crosses the wire in either direction." The Hub
+    # receives a TEXT label plus an opaque voice_fingerprint_ref the DEVICE
+    # supplied; the embedding itself never leaves the phone.
+    #
+    # vendor/legal/consent_strings.py (EU_VOICE_SPEAKER_ID_CONSENT,
+    # v1.1-2026-06-21) says the same thing, and is the version whose hash the
+    # consent record pins. So the installer was the only artefact claiming the
+    # Mac holds biometric data, and it was the one the customer actually read
+    # before ticking the box.
+    #
+    # Two concrete harms, not one. The obvious one is that the Article 9
+    # consent was taken against a false description of where special-category
+    # data is processed. The quieter one is worse in practice: the withdrawal
+    # route was fiction. A customer following "Settings -> Privacy -> Voice
+    # recognition" on this Mac finds nothing, because there is nothing on this
+    # Mac to turn off. The real switch is in the iPhone Companion app.
+    #
+    # Text below is now verbatim from the catalogue, reflowed for an 80-column
+    # terminal and nothing else. tests/test_voice_consent_matches_catalogue.sh
+    # asserts the load-bearing claims cannot drift apart again.
+    echo -e "  ${BOLD}Recognising voices on calls (in the Ostler iPhone app)${NC}"
     echo ""
-    echo "  Ostler can label transcripts with who is speaking – for"
-    echo "  example, \"Speaker A\", \"Speaker B\" – by storing a numeric"
-    echo "  fingerprint of each voice locally on this Mac. Under UK and"
-    echo "  EU privacy law this is biometric data, so we have to ask"
-    echo "  first."
+    echo "  The Ostler iPhone Companion app can label transcripts with who"
+    echo "  is speaking – for example, \"Sam\", \"Alex\" – by storing a numeric"
+    echo "  fingerprint of each voice in an encrypted store on your iPhone."
+    echo "  The fingerprints never leave your phone and are never sent to"
+    echo "  this Mac or to us; the Mac only ever receives the text label"
+    echo "  (the name), never the fingerprint. Under UK and EU privacy law a"
+    echo "  voice fingerprint is biometric data, so we ask before the"
+    echo "  Companion enrols any voices."
     echo ""
-    echo -e "  ${BOLD}What we do.${NC} Identify *who* is speaking on a recording you make."
+    echo -e "  ${BOLD}What we do.${NC} Identify *who* is speaking on a call you capture."
     echo -e "  ${BOLD}What we do not do.${NC} Detect mood, emotion, sentiment, stress"
     echo "  or any other inferred psychological state from voice."
     echo ""
-    echo "  The fingerprints stay on this Mac. We never receive them. You"
-    echo "  can turn this off any time in Settings -> Privacy -> Voice"
-    echo "  recognition; turning it off deletes any fingerprints already"
-    echo "  stored."
+    echo "  The fingerprints stay on your iPhone. We never receive them, and"
+    echo "  neither does this Mac. You can turn this off any time in the"
+    echo "  iPhone app under Settings -> Voice recognition; turning it off"
+    echo "  deletes any fingerprints already stored on the phone. If you"
+    echo "  never install the iPhone Companion, no voice fingerprint is ever"
+    echo "  created."
     echo ""
-    echo -e "  ${DIM}Legal note: Voice fingerprints stored on this Mac are"
-    echo -e "  biometric data under UK GDPR Article 9(1). Your explicit"
-    echo -e "  consent above (Article 9(2)(a)) is the lawful basis for"
-    echo -e "  processing. You are the data controller (Article 4(7));"
-    echo -e "  Creative Machines never receives the fingerprints. For"
+    echo -e "  ${DIM}Legal note: Voice fingerprints stored on your iPhone by the"
+    echo -e "  Ostler Companion app are biometric data under UK GDPR Article"
+    echo -e "  9(1). Your explicit consent above (Article 9(2)(a)) is the"
+    echo -e "  lawful basis for processing. You are the data controller"
+    echo -e "  (Article 4(7)); Creative Machines never receives the"
+    echo -e "  fingerprints, and they are never sent to this Mac. For"
     echo -e "  personal and household use, Article 2(2)(c) further limits"
-    echo -e "  scope. Withdrawing consent in Settings deletes stored"
+    echo -e "  scope. Withdrawing consent in the iPhone app deletes stored"
     echo -e "  fingerprints.${NC}"
     echo ""
     while true; do
@@ -4264,6 +7358,107 @@ while true; do
     esac
 done
 
+# ── 10b.6 Spoken-capture recording-consent acknowledgement ───────
+#
+# Region-agnostic. DISTINCT from the EU voice gate at 10b: that one is
+# the operator's own biometric (voice fingerprint => who is speaking);
+# THIS one is the operator's obligation towards OTHER people they record.
+# Spoken/meeting transcription is governed by member-state recording law
+# (e.g. German StGB §201, French Penal Code Art. 226-1) which keeping
+# everything local does NOT override. Text/messaging is unaffected.
+#
+# Not EU-gated: recording-consent law is not EU-exclusive (US two-party
+# states, etc.), and the notice tells the operator to follow THEIR local
+# law, so every region sees it.
+#
+# Wording is verbatim from legal/consent_strings.py
+# (SPOKEN_CAPTURE_RECORDING_CONSENT). Decision held in
+# OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION until Phase 3 pip-installs
+# ostler_security; then persisted via consent_cli alongside the others.
+#
+# Decline does NOT abort (proportionate, normie-facing): it mirrors the
+# EU voice gate -- declining just keeps spoken transcription off; text
+# conversations are unaffected. Default seeded "n" so spoken transcription
+# is opt-in (the safe posture for someone who clicks straight through).
+echo ""
+echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "  ${BOLD}${MSG_CONSENT_SPOKEN_CAPTURE_HEADING}${NC}"
+echo ""
+echo "  ${MSG_CONSENT_SPOKEN_CAPTURE_INTRO}"
+echo ""
+echo "  ${MSG_CONSENT_SPOKEN_CAPTURE_LAW}"
+echo ""
+echo "  ${MSG_CONSENT_SPOKEN_CAPTURE_LOCAL}"
+echo ""
+echo -e "  ${BOLD}${MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING}${NC}"
+echo ""
+echo "    - ${MSG_CONSENT_SPOKEN_CAPTURE_ASK_1}"
+echo "    - ${MSG_CONSENT_SPOKEN_CAPTURE_ASK_2}"
+echo "    - ${MSG_CONSENT_SPOKEN_CAPTURE_ASK_3}"
+echo ""
+echo "  ${MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL}"
+echo ""
+echo "    ${MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y}"
+echo "    ${MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N}"
+echo ""
+echo -e "  ${DIM}${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL}${NC}"
+echo ""
+while true; do
+    # gui_read so the GUI installer renders a sheet (bare `read -p`
+    # hangs OSTLER_GUI=1 because stdin is /dev/null).
+    SPOKEN_CAPTURE="$(gui_read "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE" yesno "n" "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP" "" "consent_spoken_capture")"
+    case "${SPOKEN_CAPTURE:-}" in
+        y|Y)
+            OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="accepted"
+            break
+            ;;
+        n|N)
+            OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="declined"
+            info "$MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF"
+            break
+            ;;
+        *)
+            echo "  Please answer Y or N."
+            ;;
+    esac
+done
+
+# ── 10b-ts. Tailscale DECISION -- hoisted upfront (WALK-1 / Wave 2.1) ──
+#
+# WALK-1 (2026-06-19, Andy's live walk): the Tailscale setup/skip CHOICE
+# used to fire deep in Phase 3 (~L12255, roughly 86% through the install),
+# breaking the locked "answer the questions upfront, then walk away"
+# promise -- a customer who left the install running came back to a
+# blocking "Connect your iPhone and Watch / setup or skip" dialog mid-run.
+#
+# Fix: collect the DECISION here, in the Phase-2 questions block, exactly
+# as CX-37 / CX-130 hoisted the Apple Mail prompts. The actual Tailscale
+# install + browser sign-in stays in Phase 3 (it needs Homebrew + the
+# tailscale binary, both established later), but it is now PRE-ANNOUNCED
+# below and runs without any surprise decision prompt: the late code reads
+# the answer collected here via TAILSCALE_CONFIRM_SHOWN_EARLY and never
+# re-prompts. So the long unattended middle has zero human decision gates;
+# the only late interaction is the expected, pre-announced sign-in step
+# (URL printed + browser opened + a timed wait), which is informational,
+# not a blocking question.
+#
+# Belt-and-braces like the Mail probes: a non-GUI (TTY) operator still
+# gets the gui_read fallback; the SHOWN_EARLY guard is set unconditionally
+# once we have asked (or decided not to ask), so the Phase-3 site is fully
+# driven by the upfront answer.
+if [[ -z "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]; then
+    TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
+    TAILSCALE_CONFIRM_SHOWN_EARLY=1
+    export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
+    # Pre-announce the late sign-in step so the customer knows that, while
+    # they CAN walk away for the unattended middle, there is one short
+    # optional step waiting for them near the end if they chose "setup".
+    if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
+        info "$MSG_INFO_TAILSCALE_SIGNIN_LATER_PREANNOUNCE"
+    fi
+fi
+
 # ── 10c. Final install confirmation (every region) ────────────────
 
 echo ""
@@ -4283,10 +7478,15 @@ echo "    - Import ${CONTACT_COUNT} contacts from iCloud"
 echo "    - Import GDPR exports from ${EXPORTS_DIR}"
 echo "    - Import from your selected Mac sources (above)"
 echo ""
-echo "  Your personal data stays on this machine. Ostler makes only narrow"
-echo "  outbound queries for public-data enrichment and local web search"
-echo "  (Vane + SearXNG, bundled), plus model/software updates. Full detail"
-echo "  in the privacy policy."
+# Same correction as the block near line 695: name the set, not one member,
+# and claim no control we do not ship. See the reasoning there.
+echo "  Your personal data stays on this machine. To label things it finds,"
+echo "  Ostler looks them up in public reference sources -- Wikidata,"
+echo "  MusicBrainz and OpenLibrary -- and follows links you have bookmarked."
+echo "  Those lookups send the thing being looked up, never your files,"
+echo "  messages or contacts. Also local web search (Vane + SearXNG,"
+echo "  bundled) and model/software updates. Full list of everything Ostler"
+echo "  contacts in the privacy policy."
 echo "  You can remove everything at any time with: ostler-uninstall"
 echo ""
 echo -e "  ${BOLD}By continuing, you confirm:${NC}"
@@ -4335,7 +7535,7 @@ done
 # while Phase 3 kicks off. The step itself is a no-op marker -- the
 # GUI renders the HintCopy "setup_complete_wrap_up" block until the
 # next step (homebrew_install) fires its STEP_BEGIN.
-step "All set. You can walk away now." "setup_complete_wrap_up"
+step "$MSG_STEP_SETUP_COMPLETE_WRAP_UP" "setup_complete_wrap_up"
 
 fi  # end of SKIP_PHASE2 check (GDPR scan + consent)
 
@@ -4423,6 +7623,31 @@ TAILSCALE_TMP_ENV=""
 # branch may already have set.
 
 composite_cleanup() {
+    # ─── CX-454 EXIT backstop (runs FIRST, before any cleanup) ───
+    # The load-bearing half of the mid-script-death fix. On bash 3.2 a
+    # `set -u` unbound-variable abort skips the ERR trap and can mask
+    # its exit code to 0 (verified), so the ONLY reliable signal that we
+    # died mid-install is: a step had started AND no terminal DONE
+    # marker was ever emitted. In that case emit a synthetic DONE-fail
+    # naming the failing step BEFORE we tear down resources, so the GUI
+    # shows a real failure with a code + step instead of the generic
+    # no-DONE catch-all. Guards:
+    #   - OSTLER_DONE_EMITTED empty: no ok/fail/cancelled marker went
+    #     out (a clean success, an explicit fail, or a user-cancel all
+    #     set it, so none of those false-trigger here).
+    #   - __OSTLER_STEP_ID non-empty: the install had actually begun, so
+    #     an early `--help`/`--version`/pre-step `exit 0` (which never
+    #     opens a step) cannot be mislabelled as a failure.
+    # Fully ${VAR:-}-guarded so the backstop itself is set -u safe.
+    # ─── OSTLER_EXIT_BACKSTOP_BEGIN ───
+    if [[ -z "${OSTLER_DONE_EMITTED:-}" && -n "${__OSTLER_STEP_ID:-}" ]]; then
+        OSTLER_LAST_ERROR_CODE="ERR-99-INSTALL-ABORT-${__OSTLER_STEP_ID}"
+        export OSTLER_LAST_ERROR_CODE
+        gui_log error "Install aborted before completion during step '${__OSTLER_STEP_ID}' with no completion marker (likely a set -u unbound-variable abort)."
+        gui_done fail
+    fi
+    # ─── OSTLER_EXIT_BACKSTOP_END ───
+
     if [[ -n "${SUDO_KEEPALIVE_PID:-}" ]]; then
         kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
         SUDO_KEEPALIVE_PID=""
@@ -4463,6 +7688,66 @@ trap composite_cleanup EXIT
 # block under the "Atomic-promote the pre-FDA staging tree" comment
 # above the path-variable setup.
 
+# ─── OSTLER_ERR_TRAP_BEGIN (CX-454 / task #454) ───────────────────
+# Report a mid-script death as a loud DONE-fail BEFORE the script
+# exits, so the GUI surfaces a real failure with a step + stable code
+# instead of the generic "stopped before it finished" catch-all (or,
+# historically, a masked green success).
+#
+# TWO HANDLERS, because of a VERIFIED bash 3.2 behaviour (3.2.57 is the
+# system bash on the customer's Mac, both /bin/bash and PATH):
+#
+#   1. The ERR trap fires only for a genuine COMMAND failure under
+#      `set -e` (e.g. an uncaught `docker`/`cp` non-zero). On bash 3.2
+#      it does NOT fire for a `set -u` unbound-variable abort -- that
+#      death happens during word expansion, skips the ERR trap, AND can
+#      surface with a MASKED exit code of 0 (verified). Since the
+#      unbound-var abort is the single most common install death shape
+#      (CX-18/52/95/98 were all this), an ERR trap ALONE would miss the
+#      class this task is aimed at. The ERR trap is still worth keeping:
+#      for the command-failure class it gives the precise failing line.
+#
+#   2. The EXIT backstop (top of composite_cleanup) is the load-bearing
+#      net. The EXIT trap DOES fire on a `set -u` abort (verified), so
+#      if the install had started (a step id exists) and NO terminal
+#      DONE marker was emitted, it emits a synthetic DONE-fail naming
+#      the step that was running. This catches the unbound-var /
+#      exit-code-masked class the ERR trap cannot see.
+#
+# `set -E` (errtrace, set at the top of the script) makes the ERR trap
+# fire for command failures inside functions, not just at top level.
+#
+# Both handlers are `set -u` safe (every var read via ${VAR:-}) so the
+# reporter can never trip `set -u` and die while reporting.
+_ostler_on_err() {
+    local exit_code="${1:-1}"
+    local line="${2:-0}"
+    local cmd="${3:-}"
+    # If a terminal DONE marker already went out (an explicit
+    # fail/fail_with_code, a clean gui_done ok, a cancel, or a prior
+    # ERR fire), stay silent: report exactly once, and never overwrite
+    # a curated ERR-NN-* with the synthetic ERR-99.
+    if [[ -n "${OSTLER_DONE_EMITTED:-}" ]]; then
+        return
+    fi
+    # Synthetic, stable, support-greppable code carrying the failing
+    # line. Documented shape: ERR-99-INSTALL-ABORT-L<line>.
+    OSTLER_LAST_ERROR_CODE="ERR-99-INSTALL-ABORT-L${line}"
+    export OSTLER_LAST_ERROR_CODE
+    # Record command + step + line in the LOG stream (already redacted
+    # by the GUI's LogRedactor) so support has the raw context. Keep the
+    # raw command OFF the customer banner -- the banner carries step +
+    # code only, via the DONE marker below.
+    local step="${__OSTLER_STEP_ID:-}"
+    gui_log error "Install aborted unexpectedly at line ${line}${step:+ (step ${step})}: ${cmd}"
+    # Emit the one DONE-fail marker the GUI keys on. gui_done attaches
+    # OSTLER_LAST_ERROR_CODE as code= AND sets OSTLER_DONE_EMITTED, so
+    # the EXIT backstop below then stays silent.
+    gui_done fail
+}
+trap '_ostler_on_err $? $LINENO "$BASH_COMMAND"' ERR
+# ─── OSTLER_ERR_TRAP_END ──────────────────────────────────────────
+
 # Refresh the sudo timestamp every 60s while this script runs, so a long
 # Phase 3 (e.g. slow ollama pull) does not silently expire it. Under
 # OSTLER_GUI=1 (Option B) install.sh has no downstream sudo callers, so
@@ -4480,7 +7765,7 @@ NEEDS_HOMEBREW=false
 if ! command -v brew &>/dev/null; then
     NEEDS_HOMEBREW=true
 else
-    echo -e "  ${GREEN}  You can walk away -- this takes about 10-15 minutes.${NC}"
+    echo -e "  ${GREEN}  You can walk away -- this takes 45 minutes to a few hours, depending on how much history is on your Mac.${NC}"
 fi
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -4511,7 +7796,13 @@ PHASE3_START=$(date +%s)
 # computation against a fixture; a new conditional `progress`
 # call must be paired with a matching subtract entry below.
 
-TOTAL_STEPS="$(grep -cE '^[[:space:]]*progress "' "${BASH_SOURCE[0]}" 2>/dev/null || echo 0)"
+# Same `grep -c ... || echo 0` trap as the DOCTOR_ERRORS site: on no-match
+# grep prints "0" AND exits 1, so both sides produce output and the variable
+# becomes "0\n0". Here the pattern always matches in a real install, so it
+# never fired -- but it is the identical latent defect, so it is fixed the
+# same way rather than left as a trap for the next person.
+TOTAL_STEPS="$(grep -cE '^[[:space:]]*progress "' "${BASH_SOURCE[0]}" 2>/dev/null || true)"
+TOTAL_STEPS="${TOTAL_STEPS:-0}"
 
 # Conditional `progress` calls -- one entry per gated section.
 # Subtract from the auto-count if the gate evaluates false. Add
@@ -4523,7 +7814,11 @@ TOTAL_STEPS="$(grep -cE '^[[:space:]]*progress "' "${BASH_SOURCE[0]}" 2>/dev/nul
 # resolves to an unreadable /dev/fd/N, the grep returns 0, etc.).
 # Better to overshoot 100% by a step or two than divide by zero.
 if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
-    TOTAL_STEPS=16
+    # Fallback base = the non-GDPR progress-call count. Must track the real
+    # count (currently 39 calls; 38 non-GDPR + the EXPORTS_DIR-gated GDPR step).
+    # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
+    # unresolvable under `bash -c`) and fails if this constant drifts.
+    TOTAL_STEPS=38
     [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
 CURRENT_STEP=0
@@ -4566,8 +7861,14 @@ progress() {
     # Close any prior step (no-op if none open) before opening this
     # one. STEP_BEGIN carries idx/total so the GUI can render its own
     # progress bar without re-deriving from PCT.
+    #
+    # #839: NO ARGUMENT. This call used to read `gui_step_end ok`, and
+    # since it closes 38 of the 39 steps, that literal was the status
+    # field for almost the entire install. gui_step_end now reads the
+    # status accumulated by gui_step_record_rc from the step's own
+    # children. Passing `ok` here would assert over a measurement.
     if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
-        gui_step_end ok
+        gui_step_end
     fi
     gui_step_begin "$id" "$title" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
     gui_emit PCT "step=$id" "pct=$PCT"
@@ -4626,6 +7927,86 @@ else
         fi
     fi
 fi
+
+# ── 3.0-bis Keep the Hub awake AFTER the installer exits ───────────
+#
+# Section 3.0 above only covers the INSTALL WINDOW, and on the GUI
+# path it covers nothing persistent at all. Both mechanisms it can
+# use are process-scoped or install-scoped:
+#
+#   - GUI: the parent .app's `caffeinate -dimsu` (CaffeinateManager
+#     .swift). That assertion is released when the .app quits, which
+#     is by design and correct for what it was built for.
+#   - CLI: `sudo pmset` does persist, so the CLI path was fine.
+#
+# CaffeinateManager.swift's header justifies dropping pmset under GUI
+# with "the post-install LaunchAgent + Hub idle-power policy already
+# cover the running case". MEASURED 2026-08-13 on a v1.0.13.3 GUI
+# install: that coverage does not exist. There is no such agent among
+# the 23 Ostler LaunchAgents on the box, and the hub-power agent that
+# sentence refers to PAUSES DOCKER AND OLLAMA ON BATTERY (see the
+# 3.0a comment below and line ~2342) -- it has never held a power
+# assertion and was never a sleep-prevention mechanism.
+#
+# The consequence was the launch blocker: `pmset -g custom` still read
+# `sleep 1` on AC, the Mac slept roughly every 100 seconds, and
+# 1430 of its 1439 wakes were DARK wakes. launchd does not schedule
+# user agents in dark wake, so the assistant's iMessage poll never
+# ran. Every self-handle message that arrived during a dark wake was
+# never seen, answered, or written to memory, silently. Six-for-six
+# separation against the power log: the three processed on 10 Aug
+# arrived in a window with ZERO power events, the two missed arrived
+# mid-dark-wake, the one processed on 13 Aug arrived 35 s after
+# "DarkWake to FullWake".
+#
+# WHY A LAUNCHAGENT AND NOT `sudo pmset` ON THE GUI PATH. install.sh
+# under OSTLER_GUI=1 must need no sudo at all. Its prompt fires on a
+# pty the log drawer does not render, so it wedges invisibly -- that
+# is Studio retest #5 and the 2026-05-22 00:42 HKT failure, and it is
+# the reason section 3.0 branches in the first place. Re-adding sudo
+# there would reintroduce a closed launch blocker to fix this one.
+#
+# `caffeinate -s` needs no root: it takes a user-level IOPMAssertion.
+# Run from a KeepAlive LaunchAgent it lasts as long as the user is
+# logged in, survives the installer exiting, and is removed when
+# Ostler is uninstalled. It mutates no system-wide power policy, so
+# the customer's own Energy Saver settings are left as they found
+# them -- which `pmset -a sleep 0` cannot say for itself.
+#
+# `-s` ONLY, deliberately. It is documented as valid only on AC, so a
+# MacBook Hub on battery still sleeps normally and hands over to the
+# hub-power agent exactly as section 3.0's battery-aware branch
+# intends. `-i` would prevent idle sleep on battery too and flatten a
+# laptop; `-d` would hold the display on all night. Neither is wanted.
+#
+# Installed on BOTH paths on purpose. The CLI path already sets
+# `pmset sleep 0`, so this is redundant there -- but two paths with
+# one behaviour is worth more than a saved assertion, and it means the
+# box-walk gate asserts the same thing however the Hub was installed.
+mkdir -p "${HOME}/Library/LaunchAgents"
+STAY_AWAKE_PLIST="${HOME}/Library/LaunchAgents/com.ostler.stay-awake.plist"
+cat > "$STAY_AWAKE_PLIST" <<'STAYAWAKEEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.stay-awake</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/caffeinate</string>
+        <string>-s</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>
+STAYAWAKEEOF
+launchctl bootstrap "gui/$(id -u)" "$STAY_AWAKE_PLIST" 2>/dev/null || \
+    launchctl load "$STAY_AWAKE_PLIST" 2>/dev/null || true
+ok "$MSG_OK_STAY_AWAKE_AGENT_INSTALLED"
 
 # ── 3.0a Phase 3 battery watcher ───────────────────────────────────
 # The hub-power LaunchAgent that pauses Docker / Ollama on battery is
@@ -4700,15 +8081,31 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
     XCODE_WAIT=0
     XCODE_TIMEOUT=900  # 15 minutes -- generous; CLI install is ~150 MB
     LAST_HEARTBEAT=0
+    XCODE_REPOPPED=0
     until /usr/bin/xcode-select -p &>/dev/null; do
         if [[ $XCODE_WAIT -ge $XCODE_TIMEOUT ]]; then
             fail_with_code "ERR-02-PREREQ-XCODE-CLI" "$MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID"
         fi
         sleep 10
         XCODE_WAIT=$((XCODE_WAIT + 10))
-        # Heartbeat every 30s so the GUI watchdog stays quiet + customer
-        # sees progress. Without this, install.sh emits nothing for the
-        # entire CLT download and the watchdog fires WARN/ERROR.
+        # .153 cold-wipe walk: the wait is driven by the macOS "install
+        # developer tools?" GUI dialog, which the customer must CLICK. If
+        # they look away (as on .153) the only repeated line was a passive
+        # "Still waiting...", reading as a download in progress -- so they
+        # never clicked, and a dismissed/lost dialog would silently burn the
+        # full 15-min timeout into ERR-02. Two safe, no-sudo mitigations:
+        #
+        # (a) Re-pop the dialog ONCE at ~2 min. `xcode-select --install` is
+        #     user-level; if the install is genuinely running it no-ops, if
+        #     the dialog was dismissed it comes back. `|| true` keeps it
+        #     errexit-safe.
+        if [[ $XCODE_REPOPPED -eq 0 && $XCODE_WAIT -ge 120 ]]; then
+            /usr/bin/xcode-select --install &>/dev/null || true
+            XCODE_REPOPPED=1
+        fi
+        # (b) Heartbeat every 30s so the GUI watchdog stays quiet AND the
+        # customer sees an ACTIONABLE line (click the dialog), not a passive
+        # "still waiting" that hides the pending click.
         if (( XCODE_WAIT - LAST_HEARTBEAT >= 30 )); then
             info "$(printf "$MSG_INFO_CLT_STILL_INSTALLING_ELAPSED" "$XCODE_WAIT")"
             LAST_HEARTBEAT=$XCODE_WAIT
@@ -4834,6 +8231,35 @@ if ! command -v brew &>/dev/null; then
     fail_with_code "ERR-04-DMG48-HOMEBREW-NOT-ON-PATH" "$MSG_FAIL_HOMEBREW_NOT_ON_PATH"
 fi
 
+# ── 3.1b GNU coreutils (gtimeout) ──────────────────────────────────
+#
+# Stock macOS ships NO `timeout` and NO `gtimeout`. The hydrate_*
+# phases later in the install each pick a timeout wrapper
+# (gtimeout > timeout > empty) and, when both are absent, run the
+# ingest UNBOUNDED. An iMessage backfill has been observed running
+# 27 minutes (1647s) silently, which reads as a frozen GUI row and
+# the customer force-quits a still-healthy install.
+#
+# Homebrew is guaranteed present by this point (Phase 3.1 hard-fails
+# above if it is not), so install GNU coreutils now -- BEFORE the
+# first hydrate phase -- so `gtimeout` exists and the existing
+# wrap-pickers actually fire. Non-fatal: if the formula cannot be
+# poured the hydrate caps simply stay no-ops as before, but the
+# heartbeat added to the long hydrate steps still keeps the GUI
+# from looking hung.
+if ! command -v gtimeout &>/dev/null; then
+    info "$MSG_INFO_INSTALLING_COREUTILS_GTIMEOUT"
+    brew install coreutils >/tmp/ostler-coreutils-install.log 2>&1 || true
+    if [[ -x /opt/homebrew/bin/brew ]]; then
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+    fi
+    if command -v gtimeout &>/dev/null; then
+        ok "$MSG_OK_COREUTILS_GTIMEOUT_INSTALLED"
+    else
+        warn "$MSG_WARN_COREUTILS_GTIMEOUT_NOT_AVAILABLE"
+    fi
+fi
+
 # ── 3.2 Docker ─────────────────────────────────────────────────────
 
 progress "Starting Docker" "docker_install"
@@ -4879,15 +8305,61 @@ else
 
         if ! docker info &>/dev/null 2>&1; then
             info "$MSG_INFO_STARTING_COLIMA_LIGHTWEIGHT_DOCKER_RUNTIME"
-            # Allocate enough resources for 3 containers
-            colima start --cpu 2 --memory 4 --disk 30 2>/dev/null || {
+
+            # CX-80 (task #509, v1.0.1): the lima hostagent that
+            # backs Colima discovers + forwards the guest's Docker
+            # socket port asynchronously after `colima start` returns.
+            # On a cold first boot the hostagent port-discovery can
+            # race: `colima start` either exits non-zero ("error at
+            # instance: failed to get the host agent ... no forwarded
+            # port") OR exits 0 but leaves ${HOME}/.colima/default/
+            # docker.sock unforwarded, so the very next `docker info`
+            # cannot reach the daemon. The DMG #46 Studio retest hit
+            # exactly this: containers never came up and :8044 wiki
+            # was unreachable. The old single-shot `colima start ||
+            # fallback` had no retry, so one transient port-discovery
+            # miss dropped the customer straight to the Docker Desktop
+            # fallback (or a hard fail) even though a plain retry
+            # recovers it 100% of the time in practice.
+            #
+            # Self-heal: try up to COLIMA_START_MAX_ATTEMPTS times with
+            # a short backoff. Between attempts run `colima stop` to
+            # clear the half-started instance so the next `colima
+            # start` begins from a clean state rather than tripping on
+            # "instance already running but socket not forwarded". Log
+            # each attempt. Only after the bounded retries are
+            # exhausted do we fall through to the Docker Desktop
+            # fallback / hard fail. Readiness is the `docker info`
+            # wait loop further below; here we just need ONE clean
+            # start that leaves the socket reachable.
+            COLIMA_START_MAX_ATTEMPTS=3
+            COLIMA_START_BACKOFF=5
+            colima_started=0
+            for colima_attempt in $(seq 1 "$COLIMA_START_MAX_ATTEMPTS"); do
+                info "$(printf "$MSG_INFO_COLIMA_START_ATTEMPT" "$colima_attempt" "$COLIMA_START_MAX_ATTEMPTS")"
+                # Allocate enough resources for 3 containers.
+                if colima start --cpu 2 --memory 4 --disk 30 2>/dev/null \
+                    && docker info &>/dev/null 2>&1; then
+                    colima_started=1
+                    break
+                fi
+                if [[ "$colima_attempt" -lt "$COLIMA_START_MAX_ATTEMPTS" ]]; then
+                    warn "$(printf "$MSG_WARN_COLIMA_START_RETRY" "$COLIMA_START_BACKOFF")"
+                    # Clear the half-started instance so the next
+                    # attempt re-runs port-discovery from scratch.
+                    colima stop --force 2>/dev/null || colima stop 2>/dev/null || true
+                    sleep "$COLIMA_START_BACKOFF"
+                fi
+            done
+
+            if [[ "$colima_started" -ne 1 ]]; then
                 warn "$MSG_WARN_COLIMA_FAILED_START_TRYING_DOCKER_DESKTOP"
                 if [[ -d "/Applications/Docker.app" ]]; then
                     open -a Docker 2>/dev/null || true
                 else
                     fail_with_code "ERR-06-DOCKER-COLIMA-FAIL" "$MSG_FAIL_NEITHER_COLIMA_NOR_DOCKER_DESKTOP_COULD"
                 fi
-            }
+            fi
         fi
     elif [[ -d "/Applications/Docker.app" ]]; then
         # Docker Desktop is installed but not running
@@ -4922,44 +8394,68 @@ else
     echo ""
     ok "$(printf "$MSG_OK_DOCKER_RUNNING_TOOK_S" "${DOCKER_WAIT}")"
 
-    # Set up Colima auto-start on boot (if using Colima)
-    if command -v colima &>/dev/null && colima status 2>/dev/null | grep -q "Running"; then
-        COLIMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
-        if [[ ! -f "$COLIMA_PLIST" ]]; then
-            mkdir -p "${HOME}/Library/LaunchAgents"
-            cat > "$COLIMA_PLIST" <<COLEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.ostler.colima</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$(which colima)</string>
-        <string>start</string>
-        <string>--cpu</string>
-        <string>2</string>
-        <string>--memory</string>
-        <string>4</string>
-        <string>--disk</string>
-        <string>30</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>${LOGS_DIR}/colima.log</string>
-    <key>StandardErrorPath</key>
-    <string>${LOGS_DIR}/colima.err</string>
-</dict>
-</plist>
-COLEOF
-            launchctl bootstrap "gui/$(id -u)" "$COLIMA_PLIST" 2>/dev/null || \
-                launchctl load "$COLIMA_PLIST" 2>/dev/null || true
-            ok "$MSG_OK_COLIMA_WILL_START_AUTOMATICALLY_BOOT"
-        fi
+    # Colima auto-start on boot is now OWNED BY THE DAEMON (v1.0.10, Group C).
+    #
+    # The old bare `com.ostler.colima` LaunchAgent started Colima at login with
+    # NO Full Disk Access, so Colima could not mount ~/Documents and the wiki
+    # died on every reboot. The signed daemon (OstlerAssistant.app) holds FDA,
+    # and a child it fork-execs inherits that FDA (Gate A). So the daemon now
+    # runs `colima start` itself on launch (see ostler-assistant
+    # ensure_colima_running()), and the bare LaunchAgent is intentionally NOT
+    # created here. The install-time `colima start` above still runs under the
+    # installer's own FDA, which is correct for the first install; steady-state
+    # reboot start is the daemon's job.
+    #
+    # CORRECTED 2026-08-18: this comment used to end "Upgrade cleanup of any
+    # pre-existing com.ostler.colima agent lives in the LaunchAgent teardown
+    # section below", and that was never true. The only bootout of that label
+    # sits inside the `cat > ostler-uninstall <<'UNINSTALLEOF'` heredoc, so
+    # install.sh WRITES it into the uninstaller and never RUNS it. An upgrade
+    # therefore left the FDA-less agent in place. The real removal now happens
+    # immediately after this block; see the section below the `fi`.
+fi
+
+# ── 3.2b Remove any stale FDA-less Colima LaunchAgent ──────────────
+#
+# An install upgrading from before v1.0.10 still has
+# ~/Library/LaunchAgents/com.ostler.colima.plist on disk. That agent
+# runs `colima start` directly from launchd, which means NO Full Disk
+# Access, which means Colima cannot mount ~/Documents, which means the
+# wiki-site and wiki-compiler binds
+#   ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}...
+# fail and the wiki dies on every reboot. That is the exact Group C
+# failure the agent was deleted to fix (6723acc).
+#
+# Leaving it also RACES the daemon: whichever of the two reaches
+# `colima start` first wins, so an upgraded box could come up with an
+# FDA-less VM even though the daemon was ready to start a correct one.
+#
+# WHY THIS IS NOT IN THE UNINSTALLER'S REGISTER: that register runs when
+# the customer removes Ostler. This has to run when they KEEP it. The
+# comment above claimed the uninstaller's copy covered upgrades for four
+# weeks; it is inside a quoted heredoc and has never executed at install
+# time.
+#
+# Unconditional and outside the HAS_DOCKER branch on purpose: a box that
+# now uses Docker Desktop can still carry the stale agent from when it
+# used Colima, and that agent is just as wrong there.
+_STALE_COLIMA_LABEL="com.ostler.colima"
+_STALE_COLIMA_PLIST="${HOME}/Library/LaunchAgents/${_STALE_COLIMA_LABEL}.plist"
+if [[ -f "$_STALE_COLIMA_PLIST" ]]; then
+    info "$MSG_INFO_REMOVING_STALE_COLIMA_LAUNCHAGENT"
+    # bootout is not removal (#706): unload the running job AND delete the
+    # file, or launchd re-bootstraps it at the next login and the agent is
+    # back with the same missing FDA.
+    launchctl bootout "gui/$(id -u)/${_STALE_COLIMA_LABEL}" 2>/dev/null || \
+        launchctl unload "$_STALE_COLIMA_PLIST" 2>/dev/null || true
+    rm -f "$_STALE_COLIMA_PLIST"
+    if [[ -f "$_STALE_COLIMA_PLIST" ]]; then
+        warn "$MSG_WARN_STALE_COLIMA_LAUNCHAGENT_NOT_REMOVED"
+    else
+        ok "$MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED"
     fi
 fi
+unset _STALE_COLIMA_LABEL _STALE_COLIMA_PLIST
 
 # ── 3.3 Ollama ─────────────────────────────────────────────────────
 
@@ -5032,9 +8528,38 @@ else
     # Serve headless via our own LaunchAgent running the cask's inner
     # binary (NOT `open -a Ollama`, NOT brew services). This persists
     # across reboots and avoids the GUI app-launch quarantine dialog.
-    OLLAMA_LOG_DIR="${LOGS_DIR:-${HOME}/.ostler/logs}"
+    # #177: pin to the FINAL canonical path, NOT ${LOGS_DIR}. This
+    # block runs pre-FDA, while _ostler_set_paths still has LOGS_DIR
+    # bound to the /tmp/ostler-prelaunch-<pid> staging tree (it is not
+    # rebound to ~/.ostler until the post-FDA promotion at ~line 8960).
+    # Interpolating ${LOGS_DIR} into the LaunchAgent plist below baked a
+    # dead /tmp StandardOut/Err path that the /tmp reboot-wipe + macOS
+    # periodic cleanup broke, so the Ollama agent failed after reboot.
+    OLLAMA_LOG_DIR="${HOME}/.ostler/logs"
     mkdir -p "$OLLAMA_LOG_DIR" "${HOME}/Library/LaunchAgents"
     OLLAMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
+
+    # Resource-tier governor (v1.0.3): OLLAMA_NUM_PARALLEL scales to the
+    # hardware tier. A second decode slot reserves chat headroom against
+    # background enrichment, but on the FLOOR tier (sub-16GB / <=4 total cores)
+    # the extra KV cache is RAM the machine cannot spare, so it drops to 1
+    # (chat queues briefly behind a background decode rather than swapping).
+    # LOW (16GB floor that ships today) and HIGH keep 2. Fail-safe: if the
+    # tier lib is missing we keep the historic 2.
+    OSTLER_NUM_PARALLEL=2
+    _ostler_tier_lib="${HOME}/.ostler/lib/ostler-resource-tier.sh"
+    if [[ -f "$_ostler_tier_lib" ]]; then
+        # shellcheck source=/dev/null
+        . "$_ostler_tier_lib"
+        if command -v ostler_resource_tier_detect >/dev/null 2>&1; then
+            ostler_resource_tier_detect
+            if [[ "${OSTLER_TIER:-}" == "floor" ]]; then
+                OSTLER_NUM_PARALLEL=1
+            fi
+            info "$(printf '    resource tier: %s (RAM %sGB, %s cores) -- OLLAMA_NUM_PARALLEL=%s' "${OSTLER_TIER:-?}" "${OSTLER_RAM_GB:-?}" "${OSTLER_CPU_CORES:-?}" "$OSTLER_NUM_PARALLEL")"
+        fi
+    fi
+
     cat > "$OLLAMA_PLIST" <<OLLAMAPLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -5051,6 +8576,34 @@ else
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <!--
+        The Hub runs ONE shared local model slot. Live chat and the
+        background conversation feeds (iMessage / email / WhatsApp /
+        spoken) all summarise through it. Two settings keep chat snappy
+        on a fresh install while the historic backlog is still draining:
+
+          OLLAMA_NUM_PARALLEL (2 on LOW/HIGH, 1 on the FLOOR tier) --
+            serve two requests against the one loaded model concurrently.
+            Combined with the single-flight lock the conversation feeds
+            take (they never run more than one summary at a time), this
+            reserves a slot so a chat turn never queues behind a
+            minute-long backfill summary. It is
+            RAM-cheap: the model weights are shared across slots; only a
+            second (small, 4K-context) KV cache is added -- safe even on
+            a 16GB Mac.
+
+          OLLAMA_KEEP_ALIVE=-1 -- keep the model resident instead of
+            unloading it after each idle gap. Stops the cold-reload
+            thrash that made the first chat after a quiet spell take
+            tens of seconds.
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>OLLAMA_NUM_PARALLEL</key>
+        <string>${OSTLER_NUM_PARALLEL}</string>
+        <key>OLLAMA_KEEP_ALIVE</key>
+        <string>-1</string>
+    </dict>
     <key>StandardOutPath</key>
     <string>${OLLAMA_LOG_DIR}/ollama.log</string>
     <key>StandardErrorPath</key>
@@ -5060,9 +8613,29 @@ else
 OLLAMAPLIST
     launchctl bootstrap "gui/$(id -u)" "$OLLAMA_PLIST" 2>/dev/null || \
         launchctl load "$OLLAMA_PLIST" 2>/dev/null || true
-    # Wait up to 90 seconds for Ollama to be ready
+    # Wait for Ollama to be ready. The launchd bootstrap above can fail
+    # transiently ("Bootstrap failed: 5: Input/output error") when launchd
+    # state is messy -- e.g. after a mid-install reboot -- leaving the agent
+    # registered but not serving. Rather than hard-abort at the timeout (which
+    # aborted a box-walk), fall back to launching the cask binary DIRECTLY for
+    # this run if the launchd path hasn't come up within a grace window. The
+    # LaunchAgent stays installed and takes over on the next reboot; the
+    # upstream line-6459 "already running" check then sees :11434 and the
+    # install proceeds. We only hard-abort if BOTH the launchd path and the
+    # direct start fail to serve within the full timeout.
     OLLAMA_WAIT=0
+    OLLAMA_BOOTSTRAP_GRACE=45
+    _ollama_direct_started=0
     while ! curl -s http://localhost:11434/api/tags &>/dev/null; do
+        if [[ $_ollama_direct_started -eq 0 && $OLLAMA_WAIT -ge $OLLAMA_BOOTSTRAP_GRACE ]]; then
+            warn "$MSG_WARN_OLLAMA_BOOTSTRAP_FALLBACK_DIRECT"
+            if [[ -x "$OLLAMA_APP_BIN" ]]; then
+                OLLAMA_NUM_PARALLEL="$OSTLER_NUM_PARALLEL" OLLAMA_KEEP_ALIVE=-1 \
+                    nohup "$OLLAMA_APP_BIN" serve \
+                    >>"${OLLAMA_LOG_DIR}/ollama.log" 2>>"${OLLAMA_LOG_DIR}/ollama.err" &
+            fi
+            _ollama_direct_started=1
+        fi
         if [[ $OLLAMA_WAIT -ge 90 ]]; then
             warn "$MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY"
             info "$(printf "$MSG_INFO_OLLAMA_MANUAL_START_HINT" "$OLLAMA_PLIST")"
@@ -5073,6 +8646,88 @@ OLLAMAPLIST
     done
     ok "$MSG_OK_OLLAMA_RUNNING"
 fi
+
+# ── 3.3b Ollama log rotation ──────────────────────────────────────
+#
+# v1.0.12 FIX B: bound the Ollama stderr log. The cask's bundled
+# llama.cpp server emits verbose, benign slot-timing chatter
+# ("slot print_timing", "all slots are idle") to STDERR on every
+# request; with KeepAlive=-1 the serve process runs for weeks, so
+# ollama.err grew ~32MB/20h (~1GB/month), unrotated, on the recut3 box.
+# There is no reliable cross-version Ollama env knob that silences just
+# that INFO-level slot spam without also dropping genuine errors, so we
+# BOUND the file rather than filter it: a tiny hourly LaunchAgent
+# truncates ollama.err / ollama.log IN PLACE (inode-preserving, so the
+# serve process's open O_APPEND fd keeps writing to the same file and
+# disk is reclaimed immediately) whenever either exceeds the cap. We
+# keep the most recent half-cap of bytes, so recent context -- INCLUDING
+# any real errors -- survives; we never inspect or drop content by kind.
+# The rotation agent is independent of the serve path: if it fails,
+# Ollama is unaffected (status quo, just an unrotated log).
+# #177: pin the rotate-agent log dir AND the rotate-script bin dir to
+# the FINAL ${HOME}/.ostler path. Both ${LOGS_DIR} and ${OSTLER_DIR}
+# are still the /tmp/ostler-prelaunch-<pid> staging tree at this pre-FDA
+# point (rebound to ~/.ostler only at the post-FDA promotion ~line 8960).
+# Interpolating either into the plist below (StandardOut/Err via
+# _ollama_rot_logs, ProgramArguments via the script path) baked dead
+# /tmp paths that broke the logrotate agent after reboot. The rotate
+# SCRIPT is written straight to the final bin dir so the plist's
+# ProgramArguments reference is always valid, independent of the later
+# staging-tree promotion (nothing else writes ${OSTLER_DIR}/bin pre-FDA,
+# so this direct write cannot be clobbered by the promotion rm+mv).
+_ollama_rot_logs="${HOME}/.ostler/logs"
+mkdir -p "${HOME}/.ostler/bin" "$_ollama_rot_logs" "${HOME}/Library/LaunchAgents"
+cat > "${HOME}/.ostler/bin/ostler-ollama-logrotate" <<'OLLAMAROTEOF'
+#!/usr/bin/env bash
+# Truncate the Ollama serve logs in place when they exceed the cap.
+# In-place overwrite (`cat tmp > file`) preserves the inode so ollama's
+# open append fd keeps writing to the same file; disk is reclaimed at
+# once. We retain the most recent half-cap so recent lines (incl. any
+# real errors) survive. Driven hourly by com.ostler.ollama-logrotate.
+set -euo pipefail
+LOG_DIR="${HOME}/.ostler/logs"
+OLLAMA_LOG_MAX_BYTES="${OLLAMA_LOG_MAX_BYTES:-10485760}"   # 10 MiB
+_keep=$(( OLLAMA_LOG_MAX_BYTES / 2 ))
+for _f in "${LOG_DIR}/ollama.err" "${LOG_DIR}/ollama.log"; do
+    [[ -f "$_f" ]] || continue
+    _sz=$(stat -f%z "$_f" 2>/dev/null || echo 0)
+    if [[ "$_sz" -gt "$OLLAMA_LOG_MAX_BYTES" ]]; then
+        # tail -> temp -> overwrite-in-place (same inode). A few lines
+        # racing in during the swap is acceptable for a log file.
+        if tail -c "$_keep" "$_f" > "${_f}.rot" 2>/dev/null; then
+            cat "${_f}.rot" > "$_f" 2>/dev/null || true
+            rm -f "${_f}.rot" 2>/dev/null || true
+        fi
+    fi
+done
+OLLAMAROTEOF
+chmod +x "${HOME}/.ostler/bin/ostler-ollama-logrotate"
+
+OLLAMA_ROT_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama-logrotate.plist"
+cat > "$OLLAMA_ROT_PLIST" <<OLLAMAROTPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.ollama-logrotate</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${HOME}/.ostler/bin/ostler-ollama-logrotate</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>3600</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${_ollama_rot_logs}/ollama-logrotate.log</string>
+    <key>StandardErrorPath</key>
+    <string>${_ollama_rot_logs}/ollama-logrotate.err</string>
+</dict>
+</plist>
+OLLAMAROTPLIST
+launchctl bootstrap "gui/$(id -u)" "$OLLAMA_ROT_PLIST" 2>/dev/null || \
+    launchctl load "$OLLAMA_ROT_PLIST" 2>/dev/null || true
 
 # ── 3.4 Python check ──────────────────────────────────────────────
 #
@@ -5121,7 +8776,16 @@ DEFAULT_PRIVACY_LEVEL=L2
 # Per-source FDA consent – comma-separated list of enabled sources.
 # Set in Phase 2 (or read from a previous install on re-run). Read by
 # ostler_fda.extract_all via the OSTLER_FDA_SOURCES env var.
-OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES:-safari_history,safari_bookmarks,apple_notes,calendar,reminders}"
+# apple_notes deliberately ABSENT from this default. The extractor
+# (vendor/ostler_fda/extract_all.py) reads every note and writes
+# apple_notes.json, but the converter that would make them searchable ships in
+# vendor/cm024_knowledge, whose VENDOR_MANIFEST.toml pin is held at 43d6c5da --
+# the re-pin to 7ace7672, which carries the apple_notes.py adapter, is DEFERRED.
+# So `convert --source apple_notes` exits non-zero on an unknown source and the
+# notes go nowhere. Asking Full Disk Access for data we then do not use is the
+# one option that trades consent for nothing. Restore this entry in the same
+# change that lands the CM024 re-pin, not before.
+OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES:-safari_history,safari_bookmarks,calendar,reminders}"
 
 # If a Google Takeout mbox is registered, point extract_all at it.
 OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}"
@@ -5131,6 +8795,12 @@ OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}"
 # this Mac from anywhere. Empty if Tailscale is not in use.
 OSTLER_TAILSCALE_IP="${OSTLER_TAILSCALE_IP:-}"
 ENVEOF
+
+# This .env carries USER_ID + config the whole install reads; it is
+# created under the default umask (world-readable 0644). Every other
+# Ostler dotfile is 0600 -- tighten this one to match so a second local
+# user cannot read the operator's identity/config.
+chmod 600 "${CONFIG_DIR}/.env"
 
 ok "$(printf "$MSG_OK_CONFIG_SAVED_ENV" "${CONFIG_DIR}")"
 
@@ -5285,6 +8955,90 @@ else
     info "$(printf "$MSG_INFO_REUSING_EXISTING_JWT_SECRET" "${OSTLER_ENV_FILE}")"
 fi
 
+# Wiki title propagation (#5). docker compose interpolates the literal
+# ${USER_FIRST_NAME:-} in docker-compose.yml (a quoted heredoc) at `up` time,
+# reading the compose-dir .env (THIS file) -- NOT config/.env, and not an
+# unexported shell var. USER_FIRST_NAME is captured to config/.env for the
+# host tools, but unless it also lands here the wiki-site title falls back to
+# "Personal wiki" instead of "{first_name}pedia". Write it to the compose .env
+# so every compose invocation (install-time up + the recompile LaunchAgent)
+# resolves it. Idempotent: replace any prior line, preserve the rest.
+umask_ufn_orig=$(umask)
+umask 0077
+touch "$OSTLER_ENV_FILE"
+chmod 600 "$OSTLER_ENV_FILE"
+if grep -q '^USER_FIRST_NAME=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^USER_FIRST_NAME=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'USER_FIRST_NAME=%s\n' "${USER_FIRST_NAME:-}" >> "$OSTLER_ENV_FILE"
+
+# #259 (the load-bearing half): the wiki-compiler compose block references
+# ${AI_MODEL:-qwen3.5:9b}. docker-compose.yml is a QUOTED heredoc, so that
+# literal is NOT baked at write time -- docker compose interpolates it at
+# `compose run` time from THIS compose .env (exactly like USER_FIRST_NAME
+# above), NOT from an unexported install.sh shell var. Without AI_MODEL here
+# the reference resolves to the qwen3.5:9b FALLBACK, which is not pulled on
+# <=23GB Macs (the RAM picker gives them gemma4:e2b) -> CM044's compiler hits
+# Ollama with a model that was never pulled -> ~2000x 404 in one compile ->
+# Person/Org/Year pages render empty. Write the installer's RAM-tier pick
+# (AI_MODEL, set ~install.sh:4685) so BOTH the install-time compile AND the
+# recompile LaunchAgent (both `docker compose` from $OSTLER_DIR, reading this
+# .env) resolve the real model. Idempotent: replace any prior line.
+if grep -q '^AI_MODEL=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^AI_MODEL=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'AI_MODEL=%s\n' "${AI_MODEL:-qwen3.5:9b}" >> "$OSTLER_ENV_FILE"
+
+# Operator self-identity for the wiki self/me-card exclusion (CM044 PR #92).
+# The wiki compiler drops the operator's OWN person node from Featured
+# Contact / top Frequent Collaborator / Upcoming Birthdays by matching:
+#   - WIKI_OPERATOR_EMAILS: comma-separated operator email addresses (exact
+#     match against the person node's emails). Primary signal.
+#   - WIKI_OPERATOR_NAME:   the operator's full display name. Fallback match.
+# Both are interpolated into the wiki-compiler env block (docker-compose.yml)
+# from THIS compose .env at `compose run` time, exactly like USER_FIRST_NAME.
+# Source values are the me-card identity captured at Q3: USER_EMAIL (me-card
+# email) + USER_NAME (me-card full name). Empty values are safe -- the
+# compiler treats "" as "no self-exclusion" and renders normally.
+#
+# WIKI_OPERATOR_EMAILS = me-card email plus any email-shaped self-handles,
+# de-duplicated, no leading/trailing commas. ASSISTANT_SELF_HANDLES is built
+# later (iMessage self-echo guard), so we assemble the email list inline here
+# from the values already in scope.
+_wiki_operator_emails=""
+for _wiki_op_email in "${USER_EMAIL:-}"; do
+    _wiki_op_email="${_wiki_op_email# }"; _wiki_op_email="${_wiki_op_email% }"
+    [[ -n "$_wiki_op_email" ]] || continue
+    # email-shaped only (must contain an @); skip anything phone-like.
+    [[ "$_wiki_op_email" == *"@"* ]] || continue
+    case ",${_wiki_operator_emails}," in
+        *",${_wiki_op_email},"*) continue ;;  # already present (de-dup)
+    esac
+    if [[ -z "$_wiki_operator_emails" ]]; then
+        _wiki_operator_emails="$_wiki_op_email"
+    else
+        _wiki_operator_emails="${_wiki_operator_emails},${_wiki_op_email}"
+    fi
+done
+unset _wiki_op_email
+if grep -q '^WIKI_OPERATOR_NAME=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^WIKI_OPERATOR_NAME=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'WIKI_OPERATOR_NAME=%s\n' "${USER_NAME:-}" >> "$OSTLER_ENV_FILE"
+if grep -q '^WIKI_OPERATOR_EMAILS=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^WIKI_OPERATOR_EMAILS=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'WIKI_OPERATOR_EMAILS=%s\n' "${_wiki_operator_emails}" >> "$OSTLER_ENV_FILE"
+unset _wiki_operator_emails
+
+chmod 600 "$OSTLER_ENV_FILE"
+umask "$umask_ufn_orig"
+unset umask_ufn_orig
+
 # Service token: separate file under secrets/. Reuse if present
 # (regenerating would invalidate any local CLI tool / assistant
 # instance that bootstrapped against the prior token).
@@ -5301,11 +9055,154 @@ else
     ok "$(printf "$MSG_OK_SEEDED_PWG_SERVICE_TOKEN" "${SERVICE_TOKEN_FILE}")"
 fi
 
+# ── Data-store auth secrets + compose auth-readiness (v1.0.10
+# security lockdown: unauthenticated data stores) ─────────────────
+# Qdrant (:6333), Oxigraph (:7878) and Redis/valkey (:6379) all bind
+# 127.0.0.1 ONLY (see the host port maps in the compose heredoc --
+# nothing is reachable off-box without Tailscale, and the wiki is no
+# longer tailscale-served). The remaining exposure is LOCAL: any
+# process / user on this Mac can read the stores with no credential.
+#
+# We generate a strong per-install secret for each store now so the
+# stack is auth-READY, and the compose heredoc is parameterised so
+# enforcement is a single-switch flip. Enforcement is DEFAULT-OFF
+# for v1.0.10: the vendored, pinned client code the cut ships (CM041
+# syncers build QdrantClient(url=...) with no api_key; every Oxigraph
+# client POSTs /query,/update with no Authorization header; the
+# Doctor's _check_redis does a raw unauthenticated PING and
+# int()-parses REDIS_URL) does NOT send credentials, so flipping
+# native auth ON without the matching client-side changes would 401
+# the whole ingest/hydration pipeline and crash the Doctor's status
+# collector -- i.e. red the box-walk. Those client changes live in
+# feature repos consumed at pinned SHAs and must NOT be edited here.
+# See the PR body + the filed follow-ups for the client half.
+_seed_store_secret() {
+    # $1 = secrets/ filename, $2 = out-var name. Reuse if present +
+    # non-empty (rotating would strand any client already bootstrapped
+    # against the old value); else generate 32 bytes of hex, 0600.
+    local _file="${SECRETS_DIR}/$1" _outvar="$2" _val=""
+    if [[ -s "$_file" ]]; then
+        _val="$(cat "$_file")"
+    else
+        _val="$(openssl rand -hex 32)"
+        local _um; _um="$(umask)"; umask 0077
+        printf '%s' "$_val" > "$_file"
+        umask "$_um"
+        chmod 600 "$_file"
+    fi
+    printf -v "$_outvar" '%s' "$_val"
+}
+_seed_store_secret "qdrant_api_key" QDRANT_API_KEY
+_seed_store_secret "redis_password" REDIS_PASSWORD
+_seed_store_secret "oxigraph_token" OXIGRAPH_TOKEN
+ok "Generated per-install data-store auth secrets under ${SECRETS_DIR} (qdrant_api_key, redis_password, oxigraph_token)."
+
+# Enforcement plumbing. When OSTLER_STORE_AUTH_ENFORCE=1, thread the
+# secrets into the compose .env (the docker-compose heredoc
+# interpolates ${QDRANT_API_KEY} / ${REDIS_AUTH_ARGS} from it) and
+# into the client config .env so host-side clients authenticate.
+# Default (unset) leaves both empty => Qdrant sees an empty api key
+# (no auth) and valkey starts with no --requirepass (no auth),
+# matching today's behaviour so the pinned clients keep working.
+_store_auth_upsert_env() {
+    # $1 = env file, $2 = KEY, $3 = VALUE. Replace-or-append, 0600.
+    local _f="$1" _k="$2" _v="$3"
+    touch "$_f"; chmod 600 "$_f"
+    if grep -q "^${_k}=" "$_f" 2>/dev/null; then
+        sed -i.bak "/^${_k}=/d" "$_f"; rm -f "${_f}.bak"
+    fi
+    printf '%s=%s\n' "$_k" "$_v" >> "$_f"
+}
+if [[ "${OSTLER_STORE_AUTH_ENFORCE:-0}" == "1" ]]; then
+    warn "OSTLER_STORE_AUTH_ENFORCE=1: enabling native auth on Qdrant + Redis. This REQUIRES the matching client-side PRs (CM041/CM024/CM052/doctor); without them, ingest + Doctor status will fail."
+    _store_auth_upsert_env "$OSTLER_ENV_FILE" "QDRANT_API_KEY" "$QDRANT_API_KEY"
+    _store_auth_upsert_env "$OSTLER_ENV_FILE" "REDIS_AUTH_ARGS" "--requirepass ${REDIS_PASSWORD}"
+    _store_auth_upsert_env "${CONFIG_DIR}/.env" "QDRANT_API_KEY" "$QDRANT_API_KEY"
+    _store_auth_upsert_env "${CONFIG_DIR}/.env" "REDIS_URL" "redis://:${REDIS_PASSWORD}@localhost:6379"
+    ok "Store auth ENFORCED: Qdrant API key + Redis requirepass threaded into compose + client env."
+else
+    # v1.0.10 install-abort fix: default-OFF must be an ENFORCED keyless
+    # state, not merely "not written". The compose project .env
+    # ($OSTLER_ENV_FILE) is PRESERVED across installs, so a QDRANT_API_KEY /
+    # REDIS_AUTH_ARGS / credentialled REDIS_URL threaded by any prior
+    # enforce=1 run (or an earlier candidate / red-team install) would
+    # persist and make Qdrant boot REQUIRING auth while every shipped client
+    # sends none -- a 401 that aborts "Importing your data" 37 min in.
+    # Scrub those lines so compose interpolation always resolves empty =>
+    # Qdrant no-auth + valkey no --requirepass, matching the pinned keyless
+    # client fleet regardless of box history.
+    for _sa_env in "$OSTLER_ENV_FILE" "${CONFIG_DIR}/.env"; do
+        [[ -f "$_sa_env" ]] || continue
+        sed -i.bak \
+            -e '/^QDRANT_API_KEY=/d' \
+            -e '/^REDIS_AUTH_ARGS=/d' \
+            -e '/^REDIS_URL=redis:\/\/:/d' \
+            "$_sa_env" 2>/dev/null && rm -f "${_sa_env}.bak"
+    done
+    # Ensure clients still find a (keyless) REDIS_URL if the credentialled
+    # form was scrubbed from config/.env.
+    if [[ -f "${CONFIG_DIR}/.env" ]] && ! grep -q '^REDIS_URL=' "${CONFIG_DIR}/.env" 2>/dev/null; then
+        printf 'REDIS_URL=%s\n' "redis://localhost:6379" >> "${CONFIG_DIR}/.env"
+    fi
+    unset _sa_env
+    info "Store native token-auth is staged but DEFAULT-OFF -- deferred to the v1.0.1 project. Any previously-threaded store credentials have been scrubbed so the stores boot keyless (matching the shipped clients). Operative controls for v1.0.10: 127.0.0.1-only binds + the store-proxy Host-header gate (defeats DNS-rebind) on Qdrant/Oxigraph. Set OSTLER_STORE_AUTH_ENFORCE=1 once the client-side auth PRs land."
+fi
+
 unset _existing_jwt_secret _need_new_jwt _jwt_secret_min_length
 
 ASSISTANT_CONFIG_DIR="${OSTLER_DIR}/assistant-config"
 mkdir -p "$ASSISTANT_CONFIG_DIR"
 ASSISTANT_CONFIG="${ASSISTANT_CONFIG_DIR}/config.toml"
+
+# P0-β (box-walk recut #2, 2026-07-26): PRESERVE existing gateway pairings
+# across upgrades. The `{ ... } > "$ASSISTANT_CONFIG"` block below REGENERATES
+# the config from scratch, and its [gateway] line historically wrote
+#     paired_tokens = ["${CHAT_ADMIN_TOKEN}"]
+# UNCONDITIONALLY -- so every upgrade-over-install clobbered the tokens the
+# gateway had persisted for each paired iOS device / browser, silently
+# unpairing them (the box then reports every previously-paired client as
+# "unpaired" until it re-pairs). Fix: read the existing paired_tokens out of
+# the current config BEFORE the block truncates it, and union them with the
+# admin token. Existing entries are carried VERBATIM -- once the gateway has
+# booted they are hashed / enc2:-encrypted at rest (that opacity is exactly why
+# the Doctor validates bearers via the gateway oracle, not by reading this
+# file; see doctor/agent/proxy.py DOCTOR_VALIDATOR_URL). We neither decrypt nor
+# interpret them; the gateway re-canonicalises the freshly-added plaintext admin
+# token on next boot, and a duplicate of the already-persisted admin entry is
+# harmless because membership is a set test.
+_merged_paired_tokens=()
+_paired_tokens_add() {
+    local _new="$1" _e
+    for _e in "${_merged_paired_tokens[@]:-}"; do
+        [[ "$_e" == "$_new" ]] && return 0
+    done
+    _merged_paired_tokens+=("$_new")
+}
+if [[ -f "$ASSISTANT_CONFIG" ]]; then
+    while IFS= read -r _existing_tok; do
+        [[ -n "$_existing_tok" ]] && _paired_tokens_add "$_existing_tok"
+    done < <(
+        awk '
+            !cap && $0 ~ /^[ \t]*paired_tokens[ \t]*=/ { cap = 1 }
+            cap { buf = buf $0 "\n"; if (index($0, "]") > 0) cap = 0 }
+            END { printf "%s", buf }
+        ' "$ASSISTANT_CONFIG" | grep -oE '"[^"]*"' | sed 's/^"//; s/"$//'
+    )
+fi
+# Always ensure the admin token is present (fresh install => this is the only
+# entry; upgrade => appended to the preserved device tokens).
+_paired_tokens_add "$CHAT_ADMIN_TOKEN"
+_paired_tokens_toml=""
+for _pt in "${_merged_paired_tokens[@]}"; do
+    _pt_esc=${_pt//\"/\\\"}
+    if [[ -z "$_paired_tokens_toml" ]]; then
+        _paired_tokens_toml="\"${_pt_esc}\""
+    else
+        _paired_tokens_toml="${_paired_tokens_toml}, \"${_pt_esc}\""
+    fi
+done
+unset _existing_tok _pt _pt_esc
+
 umask_orig=$(umask)
 umask 0077
 {
@@ -5387,6 +9284,19 @@ TOMLPREAMBLE
     echo "fallback = \"ollama\""
     echo
     echo "[providers.models.ollama]"
+    # NO /v1 suffix. The "ollama" provider key resolves to the daemon's
+    # NATIVE Ollama provider (create_provider_with_url_and_options ->
+    # "ollama" arm in zeroclaw-providers/src/lib.rs), which POSTs to
+    # `{base_url}/api/chat` and carries the API-level `think` field. With a
+    # `/v1` suffix the native provider POSTs to the malformed
+    # `.../v1/api/chat` (its normalize_base_url strips `/api`+`/api/chat`
+    # but NOT `/v1`), so the qwen3.x think:false switch never lands and
+    # interactive chat returns empty/1-token replies. The `/v1`-stripping
+    # fix (commit 286ede80) only covers the `custom:` provider arm, not
+    # this `ollama` arm, so the base MUST be the bare host here. The `/v1`
+    # OpenAI-compatible surface is only for non-native custom: providers.
+    # Box-proven dead chat on the v1.0.0 .144 walk; see
+    # launch/BRIEF_chat_thinking_mode_v1.0.0.md.
     echo "base_url = \"http://localhost:11434\""
     echo "model = \"${_ai_model_esc}\""
     echo "timeout_secs = 300"
@@ -5439,6 +9349,82 @@ TOMLPREAMBLE
     echo "[http_request]"
     echo "enabled = true"
     echo "allow_private_hosts = true"
+
+    # ── Memory embeddings ────────────────────────────────────────────
+    #
+    # WITHOUT THIS BLOCK THE ASSISTANT CANNOT REMEMBER ANYTHING.
+    #
+    # install.sh never wrote a [memory] section, so every field came from
+    # the daemon's schema defaults -- and `default_embedding_provider()` is
+    # "none". That routes through create_embedding_provider's fallback arm to
+    # NoopEmbedding, whose dimensions() is 0, which makes
+    # get_or_compute_embedding return Ok(None) immediately, which makes
+    # store() write a NULL embedding and report SUCCESS.
+    #
+    # Result on a real box: `memories` populated, FTS populated, every
+    # `embedding` column NULL, `embedding_cache` at 0 rows. The assistant
+    # stores what you tell it and cannot recall it. Observed 2026-08-14: a
+    # fact stated at 21:08 could not be retrieved at 21:13 on the same
+    # channel. Every layer returned success; nothing logged.
+    #
+    # THE ENGINE WAS ALREADY HERE. Phase 3 installs nomic-embed-text, and the
+    # CX-43/#177 block below POSTs to /api/embed and HARD-FAILS the install
+    # unless real vectors come back. So the embedder is installed, running and
+    # proven -- the assistant's memory just was never pointed at it. Two halves
+    # of one feature; only one was wired.
+    #
+    # `custom:<base-url>` is the daemon's OpenAI-compatible provider. Ollama
+    # serves that shape at /v1, and OpenAiEmbedding appends "/embeddings",
+    # giving http://localhost:11434/v1/embeddings.
+    #
+    # dimensions MUST match the model: nomic-embed-text emits 768. The schema
+    # default is 1536 (text-embedding-3-small); leaving it would mis-size
+    # every stored vector.
+    echo
+    echo "[memory]"
+    # `backend` IS REQUIRED AND ITS ABSENCE IS FATAL. Do not remove it, and do
+    # not assume the daemon will fill it in.
+    #
+    # MemoryConfig.backend (zeroclaw-config/src/schema.rs) is a plain
+    # `pub backend: String` with NO #[serde(default)]. The Config struct's
+    # `memory` FIELD does carry #[serde(default)], and that is the trap:
+    # serde's field default fires when the WHOLE TABLE is absent, not when a
+    # field inside a present table is absent. For as long as install.sh wrote
+    # no [memory] section at all, MemoryConfig::default() supplied
+    # backend = "sqlite" and nobody noticed it was mandatory.
+    #
+    # The moment this block was added (219ee4e, 2026-08-14, the #677 fix that
+    # finally pointed memory at the embedder) the table became PRESENT and
+    # partial, the default stopped applying, and `ostler-assistant daemon`
+    # began failing to boot on every fresh install with:
+    #     Error: Failed to deserialize config file
+    #     TOML parse error at line 1, column 1 ... missing field `backend`
+    # crash-looping on the LaunchAgent KeepAlive roughly every 10 seconds.
+    # Found on a clean 16 GB Mini at v1.0.31, "ATTEMPT 34".
+    #
+    # "sqlite" is not a new choice. It is the exact value MemoryConfig::default()
+    # has always used, so writing it explicitly restores the previous behaviour
+    # rather than changing it.
+    echo "backend = \"sqlite\""
+    # THE REST OF THE REQUIRED SET. `backend` alone is NOT enough.
+    #
+    # #745 added `backend` and that unblocked the FIRST failure. It is not the
+    # only one: every MemoryConfig field whose Default impl uses a LITERAL
+    # rather than a default_xxx() helper has NO #[serde(default)], and a
+    # present-but-partial [memory] table makes ALL of them required at once.
+    # The daemon only ever reports the first one it hits, so fixing one moves
+    # the error to the next and the install still dies.
+    #
+    # Measured on the v1.0.31 box: adding `backend` moved the failure to
+    # `missing field auto_save`. Adding these seven let the daemon boot and
+    # bind :8000. Values are exactly what MemoryConfig::default() has always
+    # used, so this restores prior behaviour rather than choosing anything.
+    #
+    # DO NOT trim this list to "the one that is failing today".
+    echo "auto_save = true"
+    echo "embedding_provider = \"custom:${EMBED_OLLAMA_URL:-http://localhost:11434}/v1\""
+    echo "embedding_model = \"${EMBED_MODEL:-nomic-embed-text}\""
+    echo "embedding_dimensions = 768"
 
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true || "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         echo
@@ -5521,6 +9507,47 @@ TOMLPREAMBLE
     fi
     unset _email_section_active
 
+    # #134 (v1.0.1): the Apple Mail COMMS channel -- email the assistant from
+    # your OWN address (the email analogue of the iMessage Note-to-Self) and
+    # get a reply. Distinct from the [channels.email] INGEST flags above, which
+    # only drain mail INTO the graph. The daemon activates this channel from
+    # [channels.apple_mail] (AppleMailConfig: default enabled=false, deny-all
+    # allowed_senders), so WITHOUT this block the channel ships inert. Enable
+    # it out-of-the-box only when the customer opted into Apple Mail AND we know
+    # their own address: owner-only allowed_senders means the assistant replies
+    # solely to mail FROM the operator (no third-party auto-reply). Local Full
+    # Disk Access read of Apple Mail's Envelope Index; no IMAP/SMTP creds.
+    # When USER_EMAIL is unknown we omit the block entirely (absent = inert),
+    # never enabling a deny-all reply loop with an unknown owner.
+    #
+    # v0.4.17 GATE (2026-06-18, Andy decision): the Apple Mail COMMS *reply*
+    # channel is held OFF for this cut. The live .157 walk exposed three
+    # defects in the daemon channel (ostler-assistant), all of which must be
+    # fixed + verified before re-enable:
+    #   (A) a NoReply outcome still emitted an outbound email whose body was
+    #       the internal "[No reply sent: ...]" history marker;
+    #   (B) no self-echo / owner-loop guard, so an auto-reply landing back in
+    #       the watched local mailbox can re-trigger -> a reply loop into the
+    #       operator's own inbox;
+    #   (C) on connect the channel processed the existing mail backlog
+    #       (~3 min/email, pegging Ollama) instead of only mail arriving after
+    #       start; needs a high-water-mark.
+    # We omit the [channels.apple_mail] block so the daemon ships it inert
+    # (AppleMailConfig default enabled=false). Email INGEST ([channels.email]
+    # apple_mail = true, above) is UNAFFECTED and still drains mail into the
+    # graph. Flip OSTLER_APPLE_MAIL_COMMS_GATE back to "on" (or remove this
+    # guard) once A+B+C are fixed. Tracked in ARCHIE_TNM_CHANNEL.
+    OSTLER_APPLE_MAIL_COMMS_GATE="${OSTLER_APPLE_MAIL_COMMS_GATE:-off}"
+    if [[ "$OSTLER_APPLE_MAIL_COMMS_GATE" == on \
+       && "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true && -n "${USER_EMAIL:-}" ]]; then
+        _apple_mail_owner_esc=$(printf '%s' "$USER_EMAIL" | sed 's/"/\\"/g')
+        echo
+        echo "[channels.apple_mail]"
+        echo "enabled = true"
+        echo "allowed_senders = [\"${_apple_mail_owner_esc}\"]"
+        unset _apple_mail_owner_esc
+    fi
+
     if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         # Web mode (wa-rs). Pair-code linking happens at runtime
         # the first time the assistant binary boots; the user runs
@@ -5538,12 +9565,90 @@ TOMLPREAMBLE
         echo "[channels.whatsapp]"
         echo "enabled = true"
         echo "mode = \"personal\""
+        # BACKEND SELECTOR. `enabled = true` on its own is INERT: the daemon
+        # picks its WhatsApp backend by which credentials are present, and with
+        # neither `session_path` (Web / wa-rs) nor phone_number_id + access_token
+        # + verify_token (Cloud API) it logs
+        #
+        #     WhatsApp channel enabled but not configured (set `session_path`
+        #     for Web pair-code mode, or phone_number_id + access_token +
+        #     verify_token for Cloud API)
+        #
+        # and never registers in the cron-delivery registry. That WAS the defect:
+        # installs wrote `enabled = true` with no selector, so the consent
+        # ceremony recorded a yes and the channel was never reachable. Found
+        # 2026-08-12 on the gate box by putting session_path into the config by
+        # hand and restarting the daemon.
+        #
+        # IT IS FIXED, AND THIS COMMENT USED TO SAY OTHERWISE. The selector is
+        # written eleven lines below, at the `session_path = ` echo. A stale
+        # past-tense claim sitting directly above the code that falsifies it is
+        # how a refuted defect gets re-filed: this text seeded a false triple-red
+        # launch blocker (#322) because it reads as a live statement about the
+        # current install path. Corrected 2026-08-15. If the echo below is ever
+        # removed, this paragraph becomes true again and must be restored.
+        #
+        # SQLite file, not a directory: wa-rs opens it through RusqliteStore and
+        # writes `-wal` / `-shm` siblings alongside. Engine zone, not the
+        # customer's data/ tree, and NOT under Caches, which the OS purges. The
+        # dir is created here rather than relying on the later `mkdir -p
+        # "${OSTLER_DIR}/state"` around line 11200, so this block does not carry
+        # a silent ordering dependency on a line 3000 lines further down.
+        #
+        # OSTLER_FINAL_DIR, NOT OSTLER_DIR, AND THIS IS #177 ALL OVER AGAIN.
+        # Measured on the .219 box running v1.0.33, 2026-08-17:
+        #
+        #     session_path = "/tmp/ostler-prelaunch-3992/state/whatsapp-session.db"
+        #
+        # This block runs PRE-FDA, when _ostler_set_paths still has OSTLER_DIR
+        # bound to the /tmp/ostler-prelaunch-<pid> staging tree. The config FILE
+        # is promoted onto ~/.ostler/ later; the VALUE inside it is not. So the
+        # shipped config pointed the WhatsApp Web device credentials at a
+        # directory macOS purges on reboot and on periodic cleanup: the link
+        # dies, the customer has to re-pair, and the daemon goes on printing
+        # "Channels: imessage, whatsapp" as though nothing happened.
+        #
+        # The comment above reasoned about Caches and missed /tmp, which is
+        # worse than Caches. Exactly the root cause of #177 (the two ollama
+        # LaunchAgents), one file over -- and tests/test_launchd_plist_no_tmp.sh
+        # was blind to it because that gate is keyed to the PLISTS by name.
+        # A gate keyed to a name does not cover a class.
+        #
+        # Do NOT also `mkdir -p "${OSTLER_FINAL_DIR}/state"` here.
+        # _ostler_promote_prelaunch_tree walks the staging tree and, on a name
+        # collision, `rm -rf`s the target before `mv`. Pre-creating the final
+        # state/ dir would hand the promote a collision to resolve by deleting
+        # whatever session the daemon had already written into it. The staging
+        # `state/` below is promoted into place, which is the intended route.
+        mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
+        _wa_session_path_esc="${OSTLER_FINAL_DIR}/state/whatsapp-session.db"
+        _wa_session_path_esc="${_wa_session_path_esc//\"/\\\"}"
+        echo "session_path = \"${_wa_session_path_esc}\""
+        unset _wa_session_path_esc
         if [[ -n "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
             # Escape any embedded double quotes (paranoia: E.164
             # validation rejects them already, but the TOML emit
             # path stays safe regardless).
             _wa_recipient_esc="${CHANNEL_WHATSAPP_RECIPIENT//\"/\\\"}"
             echo "allowed_numbers = [\"${_wa_recipient_esc}\"]"
+
+            # pair_phone selects pair-CODE linking over QR. Without it wa-rs
+            # falls back to a QR code, and a QR printed to daemon stderr on a
+            # headless Hub is not a surface a customer can use.
+            #
+            # DIGITS ONLY, and this is not cosmetic. `allowed_numbers` is E.164
+            # and keeps its leading `+`; `pair_phone` is documented as
+            # "country code + number (e.g. 15551234567)" and is handed to
+            # wa-rs VERBATIM as PairCodeOptions.phone_number
+            # (whatsapp_web.rs:1529, `phone.clone()`). Only the internal
+            # bot_phone identity is digit-filtered, so a stored `+` reaches
+            # Meta unchanged. Reusing the E.164 value here would be a silent
+            # pairing failure whose only symptom is a code that never arrives.
+            _wa_pair_phone="${CHANNEL_WHATSAPP_RECIPIENT//[^0-9]/}"
+            if [[ -n "$_wa_pair_phone" ]]; then
+                echo "pair_phone = \"${_wa_pair_phone}\""
+            fi
+            unset _wa_pair_phone
         fi
     fi
 
@@ -5564,7 +9669,26 @@ TOMLPREAMBLE
     # after the CX-58 assistant-agent bundling fix surfaced the
     # daemon successfully but on the wrong port.
     echo "port = 8000"
-    echo "paired_tokens = [\"${CHAT_ADMIN_TOKEN}\"]"
+    # P0-β: emit the MERGED set (preserved device tokens + admin), computed
+    # above BEFORE this block truncated the file. Never write the admin token
+    # unconditionally here -- that unpairs every device on upgrade.
+    echo "paired_tokens = [${_paired_tokens_toml}]"
+
+    # v1.0.13: phone pairing ENABLED by default. Prior comment
+    # (v1.0.10 DEFERRED) is superseded -- the two preconditions have
+    # landed:
+    #   1. Gateway-side companion listener binds 0.0.0.0:8443 with a
+    #      TLS certificate (self-signed CN=ostler-hub for LAN, or the
+    #      Tailscale-served cert if OSTLER_TAILSCALE_IP is set).
+    #   2. The gateway advertises the routable LAN or Tailscale address
+    #      in the pair-envelope, never 127.0.0.1.
+    # Both were verified end-to-end 2026-07-30 (LAN + TLS + WebAuthn
+    # Step-C from a real iPhone). Setting companion_enabled = false on
+    # a fresh customer install would leave every pair attempt dead on
+    # arrival, so the default flips to true. Override with
+    # OSTLER_COMPANION_ENABLED=false at re-cut only for internal builds
+    # that specifically need the listener disabled.
+    echo "companion_enabled = ${OSTLER_COMPANION_ENABLED:-true}"
 
     # Wire the assistant's web_search tool to the bundled Vane
     # container (Phase 3.8b). Without this block the customer has
@@ -5650,17 +9774,53 @@ TOMLPREAMBLE
     # so we do not have to spell out "look at yesterday's data"
     # twice. Customers can edit the prompt after install by hand
     # in ${OSTLER_DIR}/assistant-config/config.toml.
+    # BRIEF DELIVERY CHANNEL -- resolved from what the customer actually set
+    # up, not assumed to be iMessage.
+    #
+    # This whole block used to be gated on CHANNEL_IMESSAGE_ENABLED alone, so a
+    # WhatsApp-only customer got NO [[cron.jobs]] written at all -- no morning
+    # brief, no evening wrap, ever. Not "delivered to the wrong channel": the
+    # jobs did not exist.
+    #
+    # And the installer had ALREADY promised them. The WhatsApp number prompt
+    # says, in as many words, "Where the morning brief (09:00) and evening wrap
+    # (18:00) get delivered". We asked for the number, told them what it was
+    # for, and then wrote a config with nothing to deliver.
+    #
+    # The daemon half of this was fixed on 2026-07-07 (oa 21b2e27c, task #446):
+    # its delivery-channel validator had silently rejected `channel =
+    # "whatsapp"`. That fix is in the shipping pin. But it only removed the
+    # BLOCKER -- nothing ever emitted a whatsapp brief job for it to accept.
+    # A validator that would accept the config and a writer that never produces
+    # it are the two halves of the same feature, and only one of them landed.
+    #
+    # iMessage stays FIRST when both are available: it is the lower-friction
+    # channel on a Mac and the long-standing default. WhatsApp is the fallback,
+    # not a downgrade.
+    _brief_channel=""
+    _brief_to=""
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true && -n "$CHANNEL_IMESSAGE_ALLOWED" ]]; then
         # Pick the first allowed contact as the brief recipient.
         # The allowed_contacts list is comma-separated; trim
         # whitespace around the first entry.
-        _imsg_brief_recipient="${CHANNEL_IMESSAGE_ALLOWED%%,*}"
-        _imsg_brief_recipient="${_imsg_brief_recipient# }"
-        _imsg_brief_recipient="${_imsg_brief_recipient% }"
-        _imsg_brief_recipient_esc="${_imsg_brief_recipient//\"/\\\"}"
+        _brief_channel="imessage"
+        _brief_to="${CHANNEL_IMESSAGE_ALLOWED%%,*}"
+        _brief_to="${_brief_to# }"
+        _brief_to="${_brief_to% }"
+    elif [[ "$CHANNEL_WHATSAPP_ENABLED" == true && -n "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
+        _brief_channel="whatsapp"
+        _brief_to="$CHANNEL_WHATSAPP_RECIPIENT"
+    fi
+
+    # No channel resolved = genuinely nowhere to deliver, so writing the jobs
+    # would only manufacture a daily delivery error. That is the ONE correct
+    # reason to emit nothing.
+    if [[ -n "$_brief_channel" ]]; then
+        _brief_channel_esc="${_brief_channel//\"/\\\"}"
+        _brief_to_esc="${_brief_to//\"/\\\"}"
         _user_tz_esc="${USER_TZ//\"/\\\"}"
-        _morning_prompt="You are the user's personal assistant. Write a concise morning brief in plain prose for delivery as a short message. Summarise the most relevant items from yesterday's conversations, meetings and emails. Aim for three or four short sentences. If yesterday was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the brief itself."
-        _evening_prompt="You are the user's personal assistant. Write a concise evening wrap in plain prose for delivery as a short message. Reflect on the most notable items from today's conversations, meetings and emails. Aim for three or four short sentences. If today was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the wrap itself."
+        _morning_prompt="You are the user's personal assistant. Write a concise morning brief in plain prose for delivery as a short message. Summarise the most relevant items from yesterday's conversations, meetings and emails. Use ONLY the facts provided in your context; do not add, infer or embellish details, and never invent flight numbers, routings, destinations, times or connections. Calendar items are labelled with whose calendar they belong to: keep each person's events distinct, never merge two people's events, and never reassign one person's trip to another. If an item is on another person's calendar, attribute it to that person, not to the user. Aim for three or four short sentences. If yesterday was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the brief itself."
+        _evening_prompt="You are the user's personal assistant. Write a concise evening wrap in plain prose for delivery as a short message. Reflect on the most notable items from today's conversations, meetings and emails. Use ONLY the facts provided in your context; do not add, infer or embellish details, and never invent flight numbers, routings, destinations, times or connections. Calendar items are labelled with whose calendar they belong to: keep each person's events distinct, never merge two people's events, and never reassign one person's trip to another. If an item is on another person's calendar, attribute it to that person, not to the user. Aim for three or four short sentences. If today was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the wrap itself."
         _morning_prompt_esc="${_morning_prompt//\"/\\\"}"
         _evening_prompt_esc="${_evening_prompt//\"/\\\"}"
         echo
@@ -5670,7 +9830,7 @@ TOMLPREAMBLE
         echo "job_type = \"agent\""
         echo "schedule = { kind = \"cron\", expr = \"0 9 * * *\", tz = \"${_user_tz_esc}\" }"
         echo "prompt = \"${_morning_prompt_esc}\""
-        echo "delivery = { mode = \"announce\", channel = \"imessage\", to = \"${_imsg_brief_recipient_esc}\", best_effort = false }"
+        echo "delivery = { mode = \"announce\", channel = \"${_brief_channel_esc}\", to = \"${_brief_to_esc}\", best_effort = false }"
         echo
         echo "[[cron.jobs]]"
         echo "id = \"evening-wrap\""
@@ -5678,7 +9838,7 @@ TOMLPREAMBLE
         echo "job_type = \"agent\""
         echo "schedule = { kind = \"cron\", expr = \"0 18 * * *\", tz = \"${_user_tz_esc}\" }"
         echo "prompt = \"${_evening_prompt_esc}\""
-        echo "delivery = { mode = \"announce\", channel = \"imessage\", to = \"${_imsg_brief_recipient_esc}\", best_effort = false }"
+        echo "delivery = { mode = \"announce\", channel = \"${_brief_channel_esc}\", to = \"${_brief_to_esc}\", best_effort = false }"
     fi
 } > "$ASSISTANT_CONFIG"
 chmod 600 "$ASSISTANT_CONFIG"
@@ -5692,11 +9852,76 @@ unset CHANNEL_EMAIL_PASSWORD
 # Same treatment for the chat admin token. Both copies (TOML +
 # secrets file) are written and locked down by now.
 unset CHAT_ADMIN_TOKEN
+# P0-β scratch: drop the preserved-pairings working state now it is emitted.
+unset _merged_paired_tokens _paired_tokens_toml
+unset -f _paired_tokens_add 2>/dev/null || true
 
 ok "$(printf "$MSG_OK_ASSISTANT_CONFIG_SAVED_MODE_0600" "${ASSISTANT_CONFIG}")"
+
+# The ONLY assistant config this installer writes is
+# ${ASSISTANT_CONFIG_DIR}/config.toml (above), and the daemon reads it
+# via ZEROCLAW_WORKSPACE=${OSTLER_DIR}/assistant-config. A config.toml
+# sitting at the workspace ROOT (${OSTLER_DIR}/config.toml) is never
+# read by the shipped daemon, but a legacy installer used to drop one
+# there and it becomes an edit-wrong-file trap: the operator edits the
+# root copy, nothing changes, because the live config is under
+# assistant-config/. Remove any stale root copy so re-installs and
+# upgrades cannot leave the shadow file behind. (This installer no
+# longer emits it; this is a one-line belt-and-braces cleanup.)
+if [[ -f "${OSTLER_DIR}/config.toml" ]]; then
+    rm -f "${OSTLER_DIR}/config.toml"
+    info "$MSG_INFO_REMOVED_LEGACY_ROOT_CONFIG_TOML"
+fi
+
 if [[ "$CHANNEL_IMESSAGE_ENABLED" != true && "$CHANNEL_EMAIL_ENABLED" != true && "$CHANNEL_WHATSAPP_ENABLED" != true ]]; then
     info "$(printf "$MSG_INFO_NO_CHANNELS_CONFIGURED_RUN_LATER_BIN" "${OSTLER_DIR}")"
 fi
+
+# ── 3.5b Assistant identity belt-and-braces (B1, v1.0.0 LAST-CUT) ──
+#
+# The daemon seeds workspace/IDENTITY.md and workspace/SOUL.md on its
+# first run, templated from user_assistant_name. But its seeder only
+# writes when the file is absent (Rust: if !path.exists()), so a stale
+# workspace that pre-dates the customer rename keeps the old engine
+# codename and the assistant introduces itself by it. The installer
+# guarantees a fresh, codename-free identity here: write both files
+# from ${ASSISTANT_NAME} when they are absent OR still carry the old
+# codename. Never emit an engine or product word as the assistant's
+# identity; fall back to a neutral phrase when no name was chosen.
+ASSISTANT_WORKSPACE_DIR="${ASSISTANT_CONFIG_DIR}/workspace"
+_identity_name="${ASSISTANT_NAME:-your assistant}"
+mkdir -p "$ASSISTANT_WORKSPACE_DIR"
+for _idf in IDENTITY.md SOUL.md; do
+    _idf_path="${ASSISTANT_WORKSPACE_DIR}/${_idf}"
+    if [[ -f "$_idf_path" ]] && ! grep -qi 'zeroclaw' "$_idf_path" 2>/dev/null; then
+        continue
+    fi
+    if [[ "$_idf" == "IDENTITY.md" ]]; then
+        cat > "$_idf_path" <<IDENTITYEOF
+# IDENTITY.md -- Who Am I?
+
+I am ${_identity_name}, your personal assistant.
+
+## Traits
+- Helpful, precise, and safety-conscious
+- I prioritise clarity and correctness
+IDENTITYEOF
+    else
+        cat > "$_idf_path" <<SOULEOF
+# SOUL.md -- Who You Are
+
+You are ${_identity_name}, the user's personal assistant.
+
+## Core Principles
+- Be helpful and accurate
+- Respect user intent and boundaries
+- Ask before taking destructive actions
+- Prefer safe, reversible operations
+SOULEOF
+    fi
+done
+unset _idf _idf_path _identity_name
+ok "$(printf "%s" "Assistant identity seeded for ${ASSISTANT_NAME:-your assistant}")"
 
 # ── 3.6 Security setup ────────────────────────────────────────────
 
@@ -5823,7 +10048,12 @@ except Exception as e:
             fail_with_code "ERR-09-PASSKEY-SETUP" "$MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH"
         fi
     else
-        RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_PHRASE=" | cut -d= -f2-)
+        # Inner `|| true`: a grep no-match (marker absent) returns non-zero
+        # and, under set -E, would fire the ERR trap INSIDE this $(...)
+        # subshell and abort a successful encryption (same class as
+        # CX-122 / #640). An empty RECOVERY_KEY is handled downstream by
+        # the `[[ -n "$RECOVERY_KEY" ]]` guard before the show-once render.
+        RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_PHRASE=" | cut -d= -f2- || true)
         ok "$MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP"
     fi
 elif [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" || -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
@@ -5984,8 +10214,841 @@ PY
             "Could not persist third-party-data acknowledgement (continuing)"
     fi
 
+    # Spoken-capture recording-consent acknowledgement (every region).
+    # accepted => spoken/meeting transcription allowed; declined => it
+    # stays off (decline does not abort the install). Record either way so
+    # Doctor shows "user declined" rather than "missing".
+    if [[ "$OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION" == "accepted" ]]; then
+        _consent_cli_record blocking \
+            spoken_capture_recording_consent \
+            accepted \
+            "Could not persist spoken-capture consent (continuing - transcription will stay off)"
+    elif [[ "$OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION" == "declined" ]]; then
+        _consent_cli_record declined \
+            spoken_capture_recording_consent \
+            declined \
+            "Could not persist spoken-capture decline record"
+    fi
+
     ok "$MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE"
 fi
+
+# ── 3.7c Assistant daemon binary -- STAGED HERE, BEFORE ANY AGENT ──
+#
+# ORDERING CONTRACT. Ten LaunchAgents written by this installer carry
+# ${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant as
+# ProgramArguments[0]. Until v1.0.18 the .app was not staged until phase
+# 3.14e, several thousand lines and twenty-two progress steps after the
+# first of those agents was bootstrapped.
+#
+# Bootstrapping a LaunchAgent whose program does not exist makes launchd
+# fail to exec, record last-exit-code=78 (EX_CONFIG) and write zero-byte
+# .log/.err -- nothing ran, so nothing wrote. EX_CONFIG IS NOT A RETRY:
+# launchd reads it as "this job is misconfigured" and parks it. The 78
+# survives reboots and reinstalls until something calls
+# `launchctl kickstart -k`. It presents as silence, not error, under a
+# clean-looking install log.
+#
+# The per-agent refusals (vendor/email_ingest/INSTALL_SNIPPET.sh, the
+# -x gate on com.ostler.export-scan, the gate in
+# _install_conversation_feed) are what caught this, and they STAY. They
+# are defence in depth, and they are still load-bearing on an install
+# where staging fails or is skipped (non-Apple-Silicon, rejected
+# signature). What changes is that on a healthy install they are no
+# longer the thing standing between the customer and a dead agent: the
+# binary is simply already there.
+#
+# WHY HERE AND NOT EARLIER. Every one of those plists interpolates
+# ${OSTLER_DIR}. Before _ostler_promote_prelaunch_tree runs, OSTLER_DIR
+# is the /tmp/ostler-prelaunch-<pid> staging tree, and a plist (or a
+# staged .app) written against it is dead after the next reboot -- the
+# exact fault #177 fixed for the two Ollama agents, gated ever since by
+# tests/test_launchd_plist_no_tmp.sh. The promote is guaranteed only at
+# the tail of 3.7, so 3.7 is the earliest sound staging point. The call
+# sites are inside 3.7 (immediately before com.ostler.fda-rerun, the
+# first app-binary agent in the install) plus an idempotent catch-all
+# after 3.7 for the no-FDA-module arm, mirroring how
+# _ostler_promote_prelaunch_tree itself is called.
+#
+# The LaunchAgent half of the old 3.14e (assistant-agent assets, the
+# daemon's own agent, the WhatsApp keepalive, the iMessage FDA probe)
+# stays at 3.14e. Only the staging moved.
+#
+# Invariant gated by tests/test_launchagent_bootstrap_after_staging.py.
+
+# ── 3.14e Ostler assistant binary + LaunchAgent ──────────────────
+#
+# Stages the customer-facing assistant binary and registers a daemon
+# LaunchAgent that runs it under the user's account. The binary is
+# the upstream zeroclaw runtime renamed at tar time by Phase B's
+# release pipeline; the LaunchAgent points it at the config.toml
+# Phase D's wizard wrote in section 3.5b.
+#
+# Pieces:
+#   1. Resolve the release URL and SHA-256 sidecar URL.
+#   2. Download both into a temp dir.
+#   3. Verify SHA-256 (abort on mismatch -- silent acceptance of
+#      a bad download would put a tampered binary on the daily
+#      driver Mac, so this is an explicit hard fail).
+#   4. Extract to ${OSTLER_DIR}/bin/ostler-assistant.
+#   5. Clear the macOS quarantine xattr so the bundled binary
+#      runs immediately. Gatekeeper still verifies the
+#      notarisation ticket online on first execution; xattr
+#      removal just skips the double-click confirmation dialog
+#      that curl-installed binaries otherwise trigger.
+#   6. Source assistant-agent/INSTALL_SNIPPET.sh to register the
+#      LaunchAgent.
+#
+# Failure mode: if the download / verify / extract chain fails,
+# warn and skip the LaunchAgent install. The wizard-written
+# config.toml stays in place so a later manual binary install
+# (re-run the installer when the network recovers, or stage the
+# binary by hand) wires up cleanly.
+#
+# Productisation: OSTLER_ASSISTANT_VERSION + OSTLER_ASSISTANT_REPO
+# are env-overridable so an enterprise fork or pre-release smoke
+# can point at a different release without editing install.sh.
+# Default tracks the last-known-good upstream release. If a future
+# bump (e.g. v0.4.2 not yet published) raises 404, the inline
+# fallback below retries against ASSISTANT_FALLBACK_VERSION so the
+# install completes on the proven-good binary.
+#
+# Open question: there is no zeroclaw subcommand for "encrypt the
+# plaintext password the wizard just wrote" -- the secrets store
+# auto-migrates legacy enc: values to enc2: on read but does not
+# bootstrap from plaintext. The TOML stays mode 0600 in the
+# meantime. A `config encrypt-secrets` subcommand would close the
+# window; flagged as a follow-up Rust PR (or roll into Phase E).
+
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.58}"
+
+# Hard-coded last-known-good release. The fallback path below
+# retries against this version if the primary URL returns 404 /
+# non-200, so a missing tag never strands the customer on an
+# un-installable Hub.
+#
+# v0.4.3+ ships the daemon as OstlerAssistant.app in the release
+# tarball (instead of a bare Mach-O at the tar root) so macOS TCC
+# can read the bundle's Info.plist + Resources/icon.icns and
+# render the Ostler v4 oxblood squircle next to the Full Disk
+# Access entry. The extraction + path logic below detects which
+# shape the tarball ships and stages both correctly, so the same
+# install.sh works against a fallback v0.4.1 tarball (bare
+# binary) AND the new v0.4.3 tarball (app bundle). v0.4.2 was
+# never published per task #507 -- the version was burned on a
+# pre-release dry-run.
+ASSISTANT_FALLBACK_VERSION="0.4.1"
+# Customer-facing distribution.
+#
+# CX-88 (DMG #48g, 2026-05-29): the daemon ships from the public
+# release repo ostler-ai/ostler-releases, NOT the private source
+# repo ostler-ai/ostler-assistant (which 404s for every customer).
+# Tags are component-prefixed: the daemon release tag is `hub-vX.Y.Z`
+# (not bare `vX.Y.Z`) so a single release repo can host multiple
+# component release streams. Pre-fix the install.sh default pointed
+# at the source repo, which is private + would 404 on every clean
+# install whose bundled-daemon tarball was missing (silent-warn-skip
+# pattern caught 2026-05-29).
+#
+# The primary install path is the bundled-in-DMG tarball at
+# ${SCRIPT_DIR}/assistant-agent/OstlerAssistant.app (see CX-79b
+# below). This URL is the recovery-only fallback for customers
+# whose DMG is corrupted or whose extraction step dropped the
+# bundled payload.
+OSTLER_ASSISTANT_REPO="${OSTLER_ASSISTANT_REPO:-ostler-ai/ostler-releases}"
+OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
+
+# ── Daemon tarball integrity pin (v1.0.10 security lockdown) ───────
+# Cross-origin defence for the curl recovery path. The same-origin
+# `<archive>.sha256` sidecar (fetched from the SAME GitHub release
+# as the tarball) proves nothing against a compromised release: an
+# attacker who can replace the tarball can replace its sidecar too.
+# This pin is baked into install.sh itself, which is served from a
+# DIFFERENT origin (ostler.ai/install.sh via the CM055 edge worker,
+# or the notarised DMG), so a tampered release cannot satisfy it.
+# The ORM re-pins DEFAULT_ASSISTANT_TARBALL_SHA256 to the notarised
+# tarball's sha256 at cut time -- same discipline as the installer
+# tarball pin (DEFAULT_INSTALLER_TARBALL_SHA256) and the GWS pins.
+#
+# ┌─ ORM CUT-TIME ACTION REQUIRED (v1.0.10 red-team-3 lockdown) ──┐
+# │ The sentinel below MUST be replaced with the real 64-hex     │
+# │ sha256 of the notarised ostler-assistant tarball AT CUT      │
+# │ ASSEMBLY. As of red-team-3 the curl RECOVERY DOWNLOAD PATH   │
+# │ now FAILS CLOSED while this is still the sentinel: the       │
+# │ cross-origin pin is the mandatory second origin of trust for │
+# │ a network-fetched daemon, so an unresolved pin ABORTS that   │
+# │ path rather than proceeding on same-origin sidecar +         │
+# │ notarisation alone. The DMG-BUNDLED .app path (no network    │
+# │ download) still proceeds on the Team-ID-pinned signature     │
+# │ gate. Ship the sentinel unpinned => curl-recovery installs   │
+# │ are refused. Pin the real hex => curl-recovery re-enabled    │
+# │ with cross-origin integrity + Team-ID signature both         │
+# │ enforced. Do NOT hard-code a real SHA in source control --   │
+# │ this is the ORM's assembly-time step ONLY.                   │
+# └──────────────────────────────────────────────────────────────┘
+#
+# A real 64-hex value => an ADDITIONAL hard check layered on top of
+# the Team-ID signature gate. Override at install time with
+# OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
+DEFAULT_ASSISTANT_TARBALL_SHA256="d4f274cbc32d7029fe24c3cebde9cd199dab8135cc6e165e2fedf0ae9c2cc6bf"
+ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
+
+# ── Creative Machines Developer-ID pin (v1.0.10 red-team-3) ──────
+# Team ID of the ONLY Apple Developer-ID account allowed to sign a
+# bundle this installer will stage + quarantine-strip + LaunchAgent.
+# Without this pin, `spctl --assess` + `codesign --verify` accept ANY
+# notarised Developer-ID app -- an attacker who notarises their own
+# $99 Apple-ID malware and can steer a release asset / download URL
+# gets it staged as a persistent user LaunchAgent. The designated
+# requirement below is enforced (codesign -R) behind ALL THREE
+# staging gates: the daemon, RemoteCapture, and the Hub .app.
+# Validated empirically against the notarised 0.4.34 daemon and the
+# signed Hub Ostler.app (subject.OU == TeamIdentifier for our
+# Developer ID Application cert); a wrong Team ID is rejected.
+OSTLER_TEAM_ID="V95N2B8X7A"
+OSTLER_CODESIGN_REQ="anchor apple generic and certificate leaf[subject.OU] = \"${OSTLER_TEAM_ID}\""
+
+OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
+# .app bundle path (v0.4.3+ shape). The bundle wrapper carries
+# CFBundleIconFile + icon.icns, so macOS TCC and Activity Monitor
+# render the Ostler v4 oxblood squircle next to the daemon.
+ASSISTANT_APP_BUNDLE="${OSTLER_DIR}/OstlerAssistant.app"
+# Inner Mach-O path: the LaunchAgent and `ostler-assistant doctor`
+# / `setup channels` / etc. invocations target this directly.
+# Whether the tarball shipped as a bare binary (legacy v0.4.1
+# shape) or as an .app bundle (v0.4.3+ shape), this variable
+# always points at an executable Mach-O after the staging logic
+# below.
+ASSISTANT_BINARY="${ASSISTANT_APP_BUNDLE}/Contents/MacOS/ostler-assistant"
+# Legacy bare-binary path. Kept here for the fallback-to-v0.4.1
+# code path further down: if the tarball does not contain an .app
+# bundle (older release), the binary lands at this path instead
+# and ASSISTANT_BINARY is rewritten to point here. Quoted symbol
+# `_LEGACY_` makes a grep for `bin/ostler-assistant` easy if a
+# future migration wants to flatten the dual-shape support.
+ASSISTANT_BINARY_LEGACY="${OSTLER_DIR}/bin/ostler-assistant"
+
+# Apple Silicon only. The Phase B release workflow does
+# not produce an x86_64 build (customer Macs are arm64 by the
+# brief). Surface this clearly rather than letting curl 404 on
+# a non-existent Intel asset.
+ARCH_DETECTED="$(uname -m 2>/dev/null || echo unknown)"
+
+_ostler_assistant_set_urls() {
+    OSTLER_ASSISTANT_VERSION="$1"
+    ASSISTANT_ARCHIVE_NAME="ostler-assistant-${OSTLER_ASSISTANT_TARGET}-v${OSTLER_ASSISTANT_VERSION}.tar.gz"
+    # CX-88 (2026-05-29): tag is `hub-vX.Y.Z` -- the release repo at
+    # ostler-ai/ostler-releases uses component-prefixed tags so it can
+    # host multiple release streams (hub, remote-capture, iOS, etc.)
+    # under one repository.
+    ASSISTANT_ARCHIVE_URL="https://github.com/${OSTLER_ASSISTANT_REPO}/releases/download/hub-v${OSTLER_ASSISTANT_VERSION}/${ASSISTANT_ARCHIVE_NAME}"
+    ASSISTANT_CHECKSUM_URL="${ASSISTANT_ARCHIVE_URL}.sha256"
+}
+
+# ── Daemon signature gate (v1.0.10 security lockdown) ─────────────
+# Returns 0 iff the staged daemon bundle clears BOTH
+# codesign --verify --deep --strict AND spctl --assess --type
+# execute -- the exact Gatekeeper posture RemoteCapture and
+# Ostler.app are held to before their quarantine is cleared. Tool
+# output goes to the caller-provided log paths for surfacing on
+# failure.
+_verify_daemon_signature() {
+    local _bundle="$1" _cs_log="$2" _sp_log="$3"
+    # -R pins the Creative Machines Team ID (V95N2B8X7A) so a
+    # foreign-but-notarised Developer-ID bundle is REJECTED here, not
+    # just any notarised app. spctl alone accepts anyone's notarised
+    # $99 build; codesign -R with our designated requirement does not.
+    codesign --verify --deep --strict -R "=${OSTLER_CODESIGN_REQ}" "$_bundle" 2>"$_cs_log" \
+        && spctl --assess --type execute "$_bundle" 2>"$_sp_log"
+}
+
+# ── Deferred export-scan LaunchAgent bootstrap (HR015 #217) ───────
+# The com.ostler.export-scan plist is written earlier in install.sh
+# ("Set up launchd plist to scan every 4 hours"), long before the
+# signed OstlerAssistant.app is staged. Its ProgramArguments[0] is
+# ${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant
+# and RunAtLoad=true, so a bare launchctl bootstrap at plist-write
+# time makes launchd fire the tick against a missing binary and
+# record last-exit-code=78 (EX_CONFIG) with zero-byte log files.
+#
+# This helper is called from _finalise_daemon_staging once the daemon
+# is on-disk. It:
+#   * skips silently if the plist was not written (export-scan block
+#     didn't run, or was toggled off);
+#   * skips silently if the daemon binary still isn't there (defensive
+#     -- the finaliser only reaches here on success, but the guard
+#     keeps a future call-site refactor from re-introducing the race);
+#   * bootstraps the plist if not yet loaded (the fresh-install path
+#     that the earlier gated bootstrap deferred);
+#   * kickstart -k's it if already loaded (an upgrade install where
+#     the bootstrap succeeded earlier, or a re-run install where a
+#     previous EX_CONFIG(78) result is still parked on the job --
+#     kickstart -k forcibly restarts and clears the stale exit code).
+# Non-fatal in every branch; export-scan is enrichment, not gating.
+# ── The SAME race, for every agent that runs the daemon binary ────
+#
+# HR015 #217 diagnosed this exactly once and fixed it exactly once. The
+# diagnosis is in the comment above and it is correct: an agent whose
+# ProgramArguments[0] lives inside OstlerAssistant.app, bootstrapped before
+# the .app is staged, makes launchd fail to exec, record last-exit-code=78
+# (EX_CONFIG) and write zero-byte .log/.err -- because nothing ever ran, so
+# nothing ever wrote. The zero bytes ARE the evidence, not a mystery.
+#
+# The part that was missed: EX_CONFIG IS NOT A RETRY. launchd reads it as
+# "this job is misconfigured" and parks it. The 78 stays on the job across
+# reboots and reinstalls until something calls `launchctl kickstart -k`.
+# So the fault is not transient and does not self-heal.
+#
+# MEASURED 2026-08-12, which is why this table exists:
+#   * 10 LaunchAgents have the app binary as ProgramArguments[0];
+#   * exactly 1 of them (export-scan) gated its initial bootstrap and got a
+#     post-staging sweep. `grep -n "_ostler_ensure_.*_bootstrap()"` returned
+#     one hit, hard-coded to one label;
+#   * the other 9 -- including whatsapp-bundle, which is v1018-D019 -- get
+#     the race and no clearing kickstart, so a parked 78 is permanent.
+#
+# A guard that has only ever seen one label is green by construction for
+# every label it has not seen. This table is the class; add a row when you
+# add an agent whose ProgramArguments[0] is the daemon binary, and
+# tests/test_app_binary_agents_bootstrap.sh will tell you if you forget.
+#
+# The set is not arbitrary: it mirrors the daemon's own `run-source` Source
+# enum, because these are precisely the agents that fork the FDA-holding
+# binary rather than a standalone script.
+_OSTLER_APP_BINARY_AGENTS="\
+com.ostler.export-scan
+com.ostler.fda-rerun
+com.ostler.contact-resync
+com.ostler.aiconv-resume
+com.ostler.imessage-bridge
+com.creativemachines.ostler.imessage-bundle
+com.creativemachines.ostler.whatsapp-bundle
+com.creativemachines.ostler.spoken-bundle
+com.creativemachines.ostler.email-bundle
+com.creativemachines.ostler.email-ingest"
+
+# Bootstrap-or-rekick every agent in the table, once the signed daemon is
+# actually on disk. Same body as the export-scan helper below, applied to
+# the class instead of to one instance:
+#   * skip silently if that agent's plist was never written (its block was
+#     gated off, or the channel was declined) -- absence is not a failure;
+#   * skip entirely if the daemon binary still is not there (defensive);
+#   * bootstrap if not loaded (the fresh-install path a gated bootstrap
+#     deferred);
+#   * kickstart -k if already loaded, which is the ONLY thing that clears a
+#     parked EX_CONFIG(78) from a previous run.
+# Non-fatal in every branch: these feeds are enrichment, not gating.
+#
+# export-scan is deliberately covered TWICE -- here, and by its own #217-era
+# helper that tests/test_export_scan_plist_bootstrap_race_217.sh pins line by
+# line. kickstart -k is idempotent so the duplicate costs nothing, and it
+# means neither mechanism can be quietly deleted without the other noticing.
+_ostler_ensure_app_binary_agents_bootstrap() {
+    local _bin="${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
+    [[ -x "$_bin" ]] || return 0
+    local _domain="gui/$(id -u)"
+    local _label _plist
+    while IFS= read -r _label; do
+        [[ -n "$_label" ]] || continue
+        _plist="${HOME}/Library/LaunchAgents/${_label}.plist"
+        [[ -f "$_plist" ]] || continue
+        if launchctl print "${_domain}/${_label}" >/dev/null 2>&1; then
+            launchctl kickstart -k "${_domain}/${_label}" 2>/dev/null || true
+        else
+            launchctl bootstrap "$_domain" "$_plist" 2>/dev/null || \
+                launchctl load "$_plist" 2>/dev/null || true
+        fi
+    done <<< "$_OSTLER_APP_BINARY_AGENTS"
+}
+
+_ostler_ensure_export_scan_bootstrap() {
+    local _plist="${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
+    local _bin="${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
+    local _label="com.ostler.export-scan"
+    [[ -f "$_plist" ]] || return 0
+    [[ -x "$_bin" ]] || return 0
+    if launchctl print "gui/$(id -u)/${_label}" >/dev/null 2>&1; then
+        launchctl kickstart -k "gui/$(id -u)/${_label}" 2>/dev/null || true
+    else
+        launchctl bootstrap "gui/$(id -u)" "$_plist" 2>/dev/null || \
+            launchctl load "$_plist" 2>/dev/null || true
+    fi
+}
+
+# ── Shared daemon-staging finaliser (v1.0.10 security lockdown) ───
+# EVERY path that stages a daemon into ${ASSISTANT_APP_BUNDLE}
+# (DMG-bundled .app, DMG-bundled bare binary wrapped locally, or the
+# curl recovery download) MUST funnel through this gate before the
+# quarantine xattr is stripped or ASSISTANT_BINARY_INSTALLED is set.
+# There is NO unsigned-launch path: a bundle that is not a
+# Developer-ID-signed, notarised .app is deleted and the install
+# aborts. Pre-v1.0.10 the curl path stripped quarantine on ANY valid
+# Mach-O ("unsigned" state) and launched it, so an attacker who could
+# serve a tarball plus a matching SAME-ORIGIN sidecar ran arbitrary
+# code as the daemon. Uses ASSISTANT_TMPDIR (always allocated by this
+# phase) for the codesign/spctl logs.
+_finalise_daemon_staging() {
+    local _cs_log="${ASSISTANT_TMPDIR}/daemon-codesign.log"
+    local _sp_log="${ASSISTANT_TMPDIR}/daemon-spctl.log"
+
+    local _ft
+    _ft="$(/usr/bin/file --brief "$ASSISTANT_BINARY" 2>&1 || true)"
+    if [[ "$_ft" != *"Mach-O"* ]]; then
+        # Not even a Mach-O -- malformed extract or upstream pipeline
+        # bug. Refuse: delete + abort.
+        err "$(printf "$MSG_ERR_OSTLER_ASSISTANT_BINARY_NOT_MACH_O" "${ASSISTANT_BINARY}")"
+        err "$(printf "$MSG_ERR_FILE_BRIEF_REPORTED" "${_ft}")"
+        err "$MSG_ERR_REFUSING_STRIP_QUARANTINE_LOAD_LAUNCHAGENT"
+        rm -rf "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+        rm -rf "$ASSISTANT_TMPDIR" 2>/dev/null || true
+        ASSISTANT_TMPDIR=""
+        exit 1
+    fi
+
+    if _verify_daemon_signature "$ASSISTANT_APP_BUNDLE" "$_cs_log" "$_sp_log"; then
+        # Signed + notarised => Gatekeeper-trusted. Clear quarantine
+        # so launchctl can spawn it without a first-run dialog.
+        xattr -rd com.apple.quarantine "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+        ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
+        info "$MSG_INFO_APPLE_NOTARISATION_WILL_VERIFIED_GATEKEEPER_FIRST"
+        if "$ASSISTANT_BINARY" --version >/dev/null 2>&1; then
+            # v1.0.10 run-source preflight gate (BLOCKER: version-skew silent
+            # ingest death). The v1.0.10 install emits `run-source <enum>`
+            # LaunchAgent plists for every ingest source so each tick reads
+            # under the FDA-holding signed daemon. A daemon that PREDATES the
+            # run-source subcommand (an OSTLER_ASSISTANT_VERSION pin skew to
+            # v0.4.34 / v0.4.1) passes --version yet clap-REJECTS run-source,
+            # so every ingest tick would silently no-op and the product would
+            # go stale with no visible error. `run-source --help` exits 0 iff
+            # the subcommand exists in the staged daemon's clap tree; if it
+            # fails, this is a skew -- hard-fail rather than ship dead ingest.
+            # This makes the pin skew impossible to ship silently regardless
+            # of the pin value.
+            if ! "$ASSISTANT_BINARY" run-source --help >/dev/null 2>&1; then
+                fail_with_code "ERR-11-DAEMON-RUN-SOURCE-SKEW" \
+                    "$(printf "$MSG_FAIL_DAEMON_RUN_SOURCE_UNSUPPORTED_SKEW" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
+            fi
+            ASSISTANT_BINARY_INSTALLED=true
+            # HR015 #217: the export-scan LaunchAgent (com.ostler.export-scan)
+            # is written far earlier than the daemon .app is staged, and its
+            # ProgramArguments[0] is inside the .app bundle. On a fresh
+            # install its RunAtLoad tick therefore fires before the binary
+            # exists on disk, launchd fails to exec, and the job's
+            # last-exit-code is EX_CONFIG(78) with zero-byte log files.
+            # Now that _finalise_daemon_staging has put a signed daemon in
+            # place, bootstrap (or re-kick) the agent so the first scan
+            # runs against a real binary. Idempotent, non-fatal.
+            _ostler_ensure_export_scan_bootstrap
+            # v1018-D019: and the same treatment for every OTHER agent that
+            # runs this binary. export-scan was never special; it was just
+            # the one the fault was reported on first.
+            _ostler_ensure_app_binary_agents_bootstrap
+        else
+            warn "$MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK"
+            warn "$(printf "$MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_TRY_VERSION" "${ASSISTANT_BINARY}")"
+        fi
+    else
+        # Signature / notarisation FAILED. No unsigned-launch path:
+        # delete the staged bundle and abort. Mirrors the
+        # RemoteCapture fail_with_code + Ostler.app posture.
+        err "Refusing to install ostler-assistant: not a Developer-ID-signed, notarised bundle (no unsigned-launch path)."
+        err "Both codesign --verify --deep --strict and spctl --assess --type execute must pass on this daemon."
+        if [[ -s "$_cs_log" ]]; then
+            err "codesign reported:"
+            sed -e 's/^/    /' "$_cs_log" | head -5
+        fi
+        if [[ -s "$_sp_log" ]]; then
+            err "spctl reported:"
+            sed -e 's/^/    /' "$_sp_log" | head -5
+        fi
+        err "Deleting the staged bundle and aborting. Re-run once a signed + notarised daemon is available."
+        rm -rf "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+        rm -rf "$ASSISTANT_TMPDIR" 2>/dev/null || true
+        ASSISTANT_TMPDIR=""
+        exit 1
+    fi
+}
+
+# Stage the daemon binary at ${OSTLER_DIR}/OstlerAssistant.app. Idempotent:
+# the first caller does the work, later callers return immediately, so the
+# `progress` marker fires exactly once however many call sites exist.
+_ostler_stage_assistant_daemon() {
+    if [[ "${OSTLER_ASSISTANT_STAGING_DONE:-false}" == true ]]; then
+        return 0
+    fi
+    OSTLER_ASSISTANT_STAGING_DONE=true
+
+    progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION})" "ostler_assistant"
+
+    # Apple Silicon only. The Phase B release workflow does not produce an
+    # x86_64 build (customer Macs are arm64 by the brief). Surface this
+    # clearly rather than letting curl 404 on a non-existent Intel asset.
+    # The LaunchAgent half at 3.14e re-tests ARCH_DETECTED and skips too.
+    if [[ "$ARCH_DETECTED" != "arm64" && "$ARCH_DETECTED" != "aarch64" ]]; then
+    warn "$(printf "$MSG_WARN_OSTLER_ASSISTANT_V_APPLE_SILICON_ONLY" "${OSTLER_ASSISTANT_VERSION}" "${ARCH_DETECTED}")"
+    warn "$MSG_WARN_SKIPPING_BINARY_INSTALL_WIZARD_WRITTEN_CONFIG"
+    info "$MSG_INFO_INTEL_SUPPORT_NOT_ROADMAP_RAISE_REQUEST"
+    ASSISTANT_BINARY_INSTALLED=false
+        ASSISTANT_BINARY_INSTALLED=false
+        return 0
+    fi
+
+    _ostler_assistant_set_urls "${OSTLER_ASSISTANT_VERSION}"
+
+# ASSISTANT_TMPDIR is declared in the Phase 3 composite_cleanup
+# block; this allocator sets it. composite_cleanup will rm -rf
+# the dir if we exit before the explicit cleanups below fire.
+ASSISTANT_TMPDIR="$(mktemp -d)"
+
+ASSISTANT_BINARY_INSTALLED=false
+
+# CX-79b (DMG #46, 2026-05-25): prefer the daemon binary bundled in
+# Resources/assistant-agent/ over the GitHub release download.
+# The bundled binary is built from the same commit that defines the
+# DMG signing + notarisation posture, so version skew between the
+# customer's daemon and the rest of the install is impossible. The
+# DMG bundling also makes the install network-independent for the
+# critical-path binary (a customer with flaky DNS / GitHub outage /
+# Tailscale rerouting still gets a working daemon).
+#
+# Falls through to the curl path if no bundled artefact is present
+# (older DMGs predating this bundling, or a corrupted install
+# extraction). OSTLER_ASSISTANT_FORCE_DOWNLOAD=1 env-var override
+# forces the curl path even when bundled is present -- used in CI
+# to exercise the customer-network code path.
+#
+# v0.4.3+ shape: the DMG bundles OstlerAssistant.app at
+# assistant-agent/OstlerAssistant.app/. Legacy DMGs bundled a bare
+# binary at assistant-agent/bin/ostler-assistant. Probe for the
+# .app first (preferred), then fall back to the bare-binary path.
+# Both paths are then staged into ~/.ostler/OstlerAssistant.app/
+# downstream (the bare-binary shape gets wrapped in a minimal .app
+# locally so the TCC icon works regardless of which shape the
+# operator's DMG was cut from).
+ASSISTANT_BUNDLED_APP="${SCRIPT_DIR}/assistant-agent/OstlerAssistant.app"
+ASSISTANT_BUNDLED_BIN="${SCRIPT_DIR}/assistant-agent/bin/ostler-assistant"
+
+# Determine whether a bundled artefact (.app or bare bin) is
+# present in the DMG. The .app shape is preferred (v0.4.3+); the
+# bare-binary shape stays supported for older DMGs.
+_assistant_bundled_shape=""
+if [[ -z "${OSTLER_ASSISTANT_FORCE_DOWNLOAD:-}" ]]; then
+    if [[ -x "${ASSISTANT_BUNDLED_APP}/Contents/MacOS/ostler-assistant" ]]; then
+        _assistant_bundled_shape="app"
+    elif [[ -x "$ASSISTANT_BUNDLED_BIN" ]]; then
+        _assistant_bundled_shape="bin"
+    fi
+fi
+
+# Try the primary download URL, then fall back once to
+# ASSISTANT_FALLBACK_VERSION (last-known-good). The fallback only
+# activates when (a) no bundled artefact is present in the DMG
+# and (b) the primary URL returns non-200. v0.4.2 of
+# ostler-assistant was never published to ostler-ai/ostler-installer
+# (default bumped in error pre-DMG#48; caught on a clean Studio
+# install). If the primary URL 404s, the install still completes
+# on a proven-good binary rather than stranding the customer at
+# the launch step.
+_assistant_download_ok=false
+if [[ -z "$_assistant_bundled_shape" ]]; then
+    if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
+       && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
+        _assistant_download_ok=true
+    elif [[ "${OSTLER_ASSISTANT_VERSION}" != "${ASSISTANT_FALLBACK_VERSION}" ]]; then
+        warn "$(printf "$MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_ARCHIVE_URL}")"
+        warn "Retrying with last-known-good v${ASSISTANT_FALLBACK_VERSION}..."
+        _ostler_assistant_set_urls "${ASSISTANT_FALLBACK_VERSION}"
+        rm -f "$ASSISTANT_TMPDIR"/*
+        if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
+           && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
+            _assistant_download_ok=true
+        fi
+    fi
+fi
+
+if [[ "$_assistant_bundled_shape" == "app" ]]; then
+    # DMG bundled the v0.4.3+ shape: an .app bundle. Copy the
+    # whole bundle tree to ~/.ostler/OstlerAssistant.app/. ditto
+    # preserves Apple-specific filesystem metadata (extended
+    # attributes, ACLs, signature resources) that a plain cp -R
+    # can occasionally strip on edge filesystems; this matters
+    # because a signed bundle's _CodeSignature dir is part of the
+    # signature envelope.
+    info "$MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY"
+    rm -rf "$ASSISTANT_APP_BUNDLE"
+    mkdir -p "$(dirname "$ASSISTANT_APP_BUNDLE")"
+    ditto "$ASSISTANT_BUNDLED_APP" "$ASSISTANT_APP_BUNDLE"
+    chmod 0755 "$ASSISTANT_BINARY"
+    # v1.0.10 security lockdown: gate the DMG-bundled daemon on the
+    # SAME codesign + spctl chain RemoteCapture and Ostler.app clear
+    # (both are also DMG-sourced and still verified) before the
+    # quarantine xattr is stripped. A notarised daemon .app passes
+    # cleanly; anything else is deleted and the install aborts.
+    _finalise_daemon_staging
+elif [[ "$_assistant_bundled_shape" == "bin" ]]; then
+    # DMG bundled the legacy bare-binary shape. Stage the binary
+    # into the .app bundle structure locally so the TCC icon
+    # surface stays consistent regardless of which DMG cut the
+    # customer is installing from. The local-wrap uses the same
+    # Info.plist + icon.icns shipped in the DMG Resources/ so the
+    # customer sees the Ostler v4 icon in System Settings even on
+    # an older daemon build.
+    info "$MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY"
+    rm -rf "$ASSISTANT_APP_BUNDLE"
+    mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/MacOS"
+    mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/Resources"
+    cp "$ASSISTANT_BUNDLED_BIN" "$ASSISTANT_BINARY"
+    chmod 0755 "$ASSISTANT_BINARY"
+    # Synthesise a minimal Info.plist for the locally-wrapped
+    # bundle. The bundle ID matches the daemon's TCC client
+    # identifier so a future v0.4.3+ upgrade preserves the FDA
+    # grant. CFBundleIconFile=icon + the icns copied below give
+    # macOS what it needs to render the Ostler v4 mark.
+    cat > "$ASSISTANT_APP_BUNDLE/Contents/Info.plist" <<INFOPLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>ostler-assistant</string>
+    <key>CFBundleIdentifier</key>
+    <string>ai.ostler.assistant</string>
+    <key>CFBundleName</key>
+    <string>Ostler Assistant</string>
+    <key>CFBundleDisplayName</key>
+    <string>Ostler</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${OSTLER_ASSISTANT_VERSION}</string>
+    <key>CFBundleVersion</key>
+    <string>${OSTLER_ASSISTANT_VERSION}</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>LSBackgroundOnly</key>
+    <true/>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (c) 2026 Creative Machines Limited. All rights reserved.</string>
+</dict>
+</plist>
+INFOPLISTEOF
+    # Copy the v4 oxblood squircle icns into the bundle.
+    # Resolution order matches the FDA dialog icon path used
+    # downstream: prefer the DMG's Resources, then fall back to
+    # the installed-app Resources/ if the operator ran an unusual
+    # SCRIPT_DIR path. If neither is present we leave
+    # CFBundleIconFile dangling -- macOS falls back to the
+    # generic icon, which is the same outcome as not wrapping;
+    # better than failing the install over a missing icns.
+    _local_wrap_icon_src=""
+    if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+        _local_wrap_icon_src="${SCRIPT_DIR}/AppIcon.icns"
+    elif [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+        _local_wrap_icon_src="${SCRIPT_DIR}/DialogIcon.icns"
+    elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+        _local_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+    elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+        _local_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+    fi
+    if [[ -n "$_local_wrap_icon_src" ]]; then
+        cp "$_local_wrap_icon_src" "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
+        chmod 0644 "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
+    fi
+    unset _local_wrap_icon_src
+    # v1.0.10 security lockdown: this legacy path wraps a BARE binary
+    # in a locally-synthesised .app, which is unsigned by
+    # construction and therefore cannot clear the signature gate.
+    # That is intentional -- "no unsigned daemon may ever launch".
+    # v1.0.10 DMGs ship the signed .app shape, so this path is dead
+    # in practice; a customer on a pre-.app legacy DMG is refused
+    # rather than silently run an unsigned daemon.
+    _finalise_daemon_staging
+elif [[ "$_assistant_download_ok" == "true" ]]; then
+
+    # Verify SHA-256. Phase B writes the sidecar as
+    # `<hex>  <filename>` (shasum default). Recompute against
+    # the local download and compare hex prefixes. A mismatch
+    # is an explicit hard fail: continuing past this point
+    # would stage a tampered or partial binary.
+    EXPECTED_SHA="$(awk '{print $1}' "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256")"
+    ACTUAL_SHA="$(shasum -a 256 "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" | awk '{print $1}')"
+    if [[ -z "$EXPECTED_SHA" || "$EXPECTED_SHA" != "$ACTUAL_SHA" ]]; then
+        err "$MSG_ERR_OSTLER_ASSISTANT_TARBALL_SHA_256_MISMATCH"
+        err "$(printf "$MSG_ERR_EXPECTED" "${EXPECTED_SHA:-<empty sidecar>}")"
+        err "$(printf "$MSG_ERR_ACTUAL" "${ACTUAL_SHA}")"
+        err "$(printf "$MSG_ERR_URL" "${ASSISTANT_ARCHIVE_URL}")"
+        err "$MSG_ERR_REFUSING_STAGE_BINARY_THAT_DOES_NOT"
+        rm -rf "$ASSISTANT_TMPDIR"
+        ASSISTANT_TMPDIR=""
+        exit 1
+    fi
+
+    # Cross-origin pin (v1.0.10 security lockdown). The sidecar
+    # verified above is SAME-ORIGIN (fetched from the same release as
+    # the tarball) and is worthless against a compromised release.
+    # ASSISTANT_TARBALL_SHA256 is baked into install.sh (a different
+    # origin) so a tampered release cannot satisfy it. Enforce it as
+    # an additional hard check when the ORM has populated a real
+    # value; a placeholder / empty pin leaves the codesign + spctl
+    # gate below as the authority (still no unsigned-launch path).
+    if [[ -n "$ASSISTANT_TARBALL_SHA256" && "$ASSISTANT_TARBALL_SHA256" != "REPLACE_AT_RELEASE_TIME" ]]; then
+        if [[ "$ACTUAL_SHA" != "$ASSISTANT_TARBALL_SHA256" ]]; then
+            err "ostler-assistant tarball failed the cross-origin integrity pin baked into install.sh."
+            err "$(printf "$MSG_ERR_EXPECTED" "${ASSISTANT_TARBALL_SHA256}")"
+            err "$(printf "$MSG_ERR_ACTUAL" "${ACTUAL_SHA}")"
+            err "$(printf "$MSG_ERR_URL" "${ASSISTANT_ARCHIVE_URL}")"
+            err "$MSG_ERR_REFUSING_STAGE_BINARY_THAT_DOES_NOT"
+            rm -rf "$ASSISTANT_TMPDIR"
+            ASSISTANT_TMPDIR=""
+            exit 1
+        fi
+    else
+        # v1.0.10 red-team-3: FAIL CLOSED on the curl RECOVERY DOWNLOAD
+        # path when the cross-origin pin is unresolved (still the
+        # REPLACE_AT_RELEASE_TIME sentinel or empty). A network-fetched
+        # daemon has ONLY a same-origin sidecar for byte integrity --
+        # worthless against a compromised release -- so notarisation +
+        # the same-origin sidecar alone are NOT sufficient to stage it.
+        # The cross-origin pin (baked into install.sh, a DIFFERENT
+        # origin) is the mandatory second root of trust for this path.
+        # Abort rather than proceed. NOTE: this does NOT affect the
+        # DMG-bundled .app path -- that path never runs this download
+        # branch and is authorised by the Team-ID-pinned signature gate
+        # alone. The ORM re-pins DEFAULT_ASSISTANT_TARBALL_SHA256 at cut
+        # time to re-enable curl-recovery installs.
+        err "ostler-assistant curl-recovery download refused: the cross-origin integrity pin is unresolved."
+        err "DEFAULT_ASSISTANT_TARBALL_SHA256 is still the REPLACE_AT_RELEASE_TIME sentinel, so a network-fetched"
+        err "daemon cannot be verified against a second origin of trust. This build only supports the"
+        err "DMG-bundled daemon path. Re-run from the notarised DMG, or set OSTLER_ASSISTANT_TARBALL_SHA256"
+        err "to the notarised tarball's sha256 to authorise a curl-recovery install."
+        err "$(printf "$MSG_ERR_URL" "${ASSISTANT_ARCHIVE_URL}")"
+        rm -rf "$ASSISTANT_TMPDIR"
+        ASSISTANT_TMPDIR=""
+        exit 1
+    fi
+
+    # Extract the tarball into a private staging dir first so we
+    # can inspect the shape (bare binary vs .app bundle) before
+    # committing to a final layout. v0.4.3+ tarballs contain
+    # OstlerAssistant.app at the tar root; legacy v0.4.1
+    # tarballs contain a bare ostler-assistant binary. The
+    # release-pipeline rename plan is described in the
+    # companion ostler-assistant PR (Path A).
+    _assistant_extract_dir="$(mktemp -d)"
+    if tar xzf "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" -C "$_assistant_extract_dir"; then
+        if [[ -d "$_assistant_extract_dir/OstlerAssistant.app" ]]; then
+            # v0.4.3+ shape: tarball contained OstlerAssistant.app
+            # at the root. Stage it into ~/.ostler/.
+            rm -rf "$ASSISTANT_APP_BUNDLE"
+            mkdir -p "$(dirname "$ASSISTANT_APP_BUNDLE")"
+            ditto "$_assistant_extract_dir/OstlerAssistant.app" "$ASSISTANT_APP_BUNDLE"
+        elif [[ -f "$_assistant_extract_dir/ostler-assistant" ]]; then
+            # Legacy v0.4.1 shape: tarball contained a bare
+            # binary. Wrap it in a minimal .app locally so the
+            # TCC icon surface stays consistent regardless of
+            # which release the customer is installing.
+            rm -rf "$ASSISTANT_APP_BUNDLE"
+            mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/MacOS"
+            mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/Resources"
+            cp "$_assistant_extract_dir/ostler-assistant" "$ASSISTANT_BINARY"
+            cat > "$ASSISTANT_APP_BUNDLE/Contents/Info.plist" <<INFOPLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>ostler-assistant</string>
+    <key>CFBundleIdentifier</key>
+    <string>ai.ostler.assistant</string>
+    <key>CFBundleName</key>
+    <string>Ostler Assistant</string>
+    <key>CFBundleDisplayName</key>
+    <string>Ostler</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${OSTLER_ASSISTANT_VERSION}</string>
+    <key>CFBundleVersion</key>
+    <string>${OSTLER_ASSISTANT_VERSION}</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>LSBackgroundOnly</key>
+    <true/>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (c) 2026 Creative Machines Limited. All rights reserved.</string>
+</dict>
+</plist>
+INFOPLISTEOF
+            _curl_wrap_icon_src=""
+            if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+                _curl_wrap_icon_src="${SCRIPT_DIR}/AppIcon.icns"
+            elif [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+                _curl_wrap_icon_src="${SCRIPT_DIR}/DialogIcon.icns"
+            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+                _curl_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+                _curl_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+            fi
+            if [[ -n "$_curl_wrap_icon_src" ]]; then
+                cp "$_curl_wrap_icon_src" "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
+                chmod 0644 "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
+            fi
+            unset _curl_wrap_icon_src
+        else
+            # Tarball shape we don't understand. Leave
+            # ASSISTANT_APP_BUNDLE absent; the Mach-O check below
+            # will mark it corrupt + skip the launch agent.
+            warn "Tarball at $ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME contained neither OstlerAssistant.app nor a bare ostler-assistant binary at the root."
+            warn "Skipping LaunchAgent install. Re-download once the release pipeline is back online."
+        fi
+        rm -rf "$_assistant_extract_dir"
+        chmod 0755 "$ASSISTANT_BINARY" 2>/dev/null || true
+
+        # v1.0.10 security lockdown (daemon download integrity).
+        # The SHA sidecar + cross-origin pin above prove the bytes
+        # match what the ORM published, but a curl-fetched bundle on
+        # the curl|bash path never passes through a DMG Gatekeeper
+        # ceremony, so it is NOT yet trusted to run. Funnel it
+        # through the SAME codesign --verify --deep --strict + spctl
+        # --assess --type execute gate that RemoteCapture and
+        # Ostler.app clear. Pass => strip quarantine + mark installed.
+        # Fail => delete the staged bundle and abort. There is NO
+        # unsigned-launch path any more: pre-v1.0.10 an "unsigned"
+        # (valid Mach-O, no Developer ID) daemon had its quarantine
+        # xattr stripped and was launched, so an attacker who could
+        # serve a tarball plus a matching same-origin sidecar ran
+        # arbitrary code as the daemon.
+        _finalise_daemon_staging
+    else
+        warn "$MSG_WARN_COULD_NOT_EXTRACT_OSTLER_ASSISTANT_TARBALL"
+    fi
+else
+    warn "$(printf "$MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_ARCHIVE_URL}")"
+    if [[ -s "$ASSISTANT_TMPDIR/curl.log" ]]; then
+        warn "$MSG_WARN_CURL_SAID"
+        sed -e 's/^/    /' "$ASSISTANT_TMPDIR/curl.log" | head -5
+    fi
+    warn "$(printf "$MSG_WARN_COMMON_CAUSES_TAG_V_NOT_YET" "${OSTLER_ASSISTANT_VERSION}")"
+    warn "$MSG_WARN_OR_RUNNING_AHEAD_PHASE_B_S"
+    warn "$MSG_WARN_RELEASE_LANDS_STAGE_BINARY_MANUALLY"
+    info "$(printf "$MSG_INFO_CURL_FL_O_TMP_OSTLER_TGZ" "${ASSISTANT_ARCHIVE_URL}")"
+    info "$(printf "$MSG_INFO_TAR_XZF_TMP_OSTLER_TGZ_C" "${OSTLER_DIR}")"
+    info "$(printf "$MSG_INFO_BASH_INSTALL_SNIPPET_SH_2" "${OSTLER_ASSISTANT_DIR}")"
+fi
+
+rm -rf "$ASSISTANT_TMPDIR"
+ASSISTANT_TMPDIR=""
+}
 
 # ── 3.7 FDA extraction (instant onboarding data) ─────────────────
 #
@@ -6138,7 +11201,17 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
         # then re-probe. If granted, the extractor downstream runs
         # with full FDA. Gated on OSTLER_GUI=1; TTY-only installs
         # fall through to the previous text-only message.
-        if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        #
+        # WALK-1 (Wave 2.1): the FULL grant assist (pre-warn + pane
+        # refresh + blocking modal) now also requires INSTALLER_FDA_SHOWN_EARLY
+        # to be UNSET. The grant is hoisted into the Phase-2 questions
+        # block (search "9-fda. Full Disk Access (installer)"), so on the
+        # normal walk-away path this late assist is suppressed -- it only
+        # fires for a reuse install / GUI-toggled-late edge where the
+        # upfront block did not run. Either way, an UNCONDITIONAL re-probe
+        # plus a short recovery modal run BELOW (outside this guard) so a
+        # deferred / declined / relaunch-settled grant is always recovered.
+        if [[ "${OSTLER_GUI:-0}" == "1" && -z "${INSTALLER_FDA_SHOWN_EARLY:-}" ]]; then
             # CX-87 (DMG #48g, 2026-05-29): pre-warn modal before the
             # FDA grant flow. Same shape as the CX-47
             # (Downloads/Desktop/Documents) and CX-55 (iMessage
@@ -6180,7 +11253,20 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
                   _prewarn_icon_path_esc _prewarn_icon_clause
 
             info "$MSG_INFO_INSTALLER_FDA_ASSIST_OPENING"
-            open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+            # FDA_PANE_REFRESH (#572, 2026-06-09): force a fresh System
+            # Settings load before pointing the customer at the FDA pane.
+            # A Settings window left open from an earlier prompt (e.g.
+            # Internet Accounts) can show a STALE Full Disk Access list
+            # that predates the OstlerInstaller entry primed at install
+            # start -- so the entry looks "missing" until the pane
+            # happens to refresh (the ~30-60s lag customers reported).
+            # killall + reopen guarantees the list is current. Best-effort;
+            # covers both the "System Settings" (macOS 13+) and legacy
+            # "System Preferences" process names.
+            killall "System Settings" >/dev/null 2>&1 || true
+            killall "System Preferences" >/dev/null 2>&1 || true
+            sleep 1
+            open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
 
             _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
                 "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1" \
@@ -6209,12 +11295,13 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             fi
 
             # Pause briefly to let System Settings finish its window
-            # animation before raising the modal, then activate +
-            # display so the dialog renders in front of Settings
-            # (same z-order fix as CX-66).
+            # animation before raising the modal, then display it. BW3-2
+            # (2026-07-23): the standalone `activate` was DROPPED --
+            # `display dialog` is already app-modal and frontmost, and the
+            # extra activate only stole focus back off System Settings
+            # where we just sent the customer to grant FDA.
             sleep 1
             osascript \
-                -e 'tell application "System Events" to activate' \
                 -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
                 >/dev/null 2>&1 || true
             unset _installer_fda_msg _installer_fda_msg_esc \
@@ -6228,19 +11315,30 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             # the live state without needing to re-exec. Use the
             # same honest read-probe as the initial check so a false
             # positive cannot creep back in.
-            sleep 2
-            FDA_REPROBE_TRIED=0
-            FDA_REPROBE_SUCCEEDED=0
-            for probe in "${FDA_PROBE_PATHS[@]}"; do
-                [[ -e "$probe" ]] || continue
-                FDA_REPROBE_TRIED=$((FDA_REPROBE_TRIED + 1))
-                if _fda_read_probe "$probe"; then
-                    FDA_REPROBE_SUCCEEDED=$((FDA_REPROBE_SUCCEEDED + 1))
+            #
+            # BW3-6 (2026-07-23): POLL until the read succeeds rather than
+            # a single post-dismiss `sleep 2` re-probe -- the customer
+            # takes several seconds to flip the toggle, so a lone probe
+            # reported "still needed" while the grant was seconds away.
+            # Cap ~40s (20 x 2s); on timeout FDA_GRANTED stays false and
+            # the existing graceful-degrade / Doctor-card path is unchanged.
+            for _fda_reprobe_poll in $(seq 1 20); do
+                FDA_REPROBE_TRIED=0
+                FDA_REPROBE_SUCCEEDED=0
+                for probe in "${FDA_PROBE_PATHS[@]}"; do
+                    [[ -e "$probe" ]] || continue
+                    FDA_REPROBE_TRIED=$((FDA_REPROBE_TRIED + 1))
+                    if _fda_read_probe "$probe"; then
+                        FDA_REPROBE_SUCCEEDED=$((FDA_REPROBE_SUCCEEDED + 1))
+                    fi
+                done
+                if [[ $FDA_REPROBE_TRIED -gt 0 && $FDA_REPROBE_SUCCEEDED -eq $FDA_REPROBE_TRIED ]]; then
+                    FDA_GRANTED=true
+                    break
                 fi
+                sleep 2
             done
-            if [[ $FDA_REPROBE_TRIED -gt 0 && $FDA_REPROBE_SUCCEEDED -eq $FDA_REPROBE_TRIED ]]; then
-                FDA_GRANTED=true
-            fi
+            unset _fda_reprobe_poll
             if [[ "$FDA_GRANTED" == true ]]; then
                 info "$MSG_INFO_INSTALLER_FDA_ASSIST_GRANTED"
             else
@@ -6265,6 +11363,114 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             echo ""
         fi
     fi
+
+    # WALK-1 (Wave 2.1): UNCONDITIONAL re-probe before run_all(). The
+    # upfront Phase-2 grant (9-fda) may have been DEFERRED by the
+    # customer, or macOS may have needed the Quit & Reopen relaunch to
+    # settle the toggle -- in both cases FDA can be live now even though
+    # the early FDA_GRANTED came back false (and the guarded assist above
+    # was suppressed). Re-read the live TCC posture here so the extractor
+    # below sees the truth, never a stale "false". Same honest read-probe.
+    if [[ "$HAS_FDA_MODULE" == true ]]; then
+        FDA_FINAL_REPROBE_TRIED=0
+        FDA_FINAL_REPROBE_SUCCEEDED=0
+        for probe in "${FDA_PROBE_PATHS[@]}"; do
+            [[ -e "$probe" ]] || continue
+            FDA_FINAL_REPROBE_TRIED=$((FDA_FINAL_REPROBE_TRIED + 1))
+            if _fda_read_probe "$probe"; then
+                FDA_FINAL_REPROBE_SUCCEEDED=$((FDA_FINAL_REPROBE_SUCCEEDED + 1))
+            fi
+        done
+        if [[ $FDA_FINAL_REPROBE_TRIED -gt 0 && $FDA_FINAL_REPROBE_SUCCEEDED -eq $FDA_FINAL_REPROBE_TRIED ]]; then
+            FDA_GRANTED=true
+        fi
+        unset FDA_FINAL_REPROBE_TRIED FDA_FINAL_REPROBE_SUCCEEDED
+
+        # WALK-1 (Wave 2.1, spec 3.5): one targeted late recovery modal,
+        # and ONLY for the customer who saw the early ask but did not grant
+        # (INSTALLER_FDA_SHOWN_EARLY set, still not granted). This is the
+        # single honest late prompt we accept -- it never fires on the
+        # normal walk-away path (where FDA was granted upfront) and never
+        # fires for the reuse / GUI-late edge (which got the full assist
+        # above instead). The customer can grant now or continue with less
+        # data; deferring still completes the install (graceful degrade
+        # below is unchanged).
+        if [[ "$FDA_GRANTED" == false && -n "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
+            info "$MSG_INFO_INSTALLER_FDA_ASSIST_OPENING"
+            killall "System Settings" >/dev/null 2>&1 || true
+            killall "System Preferences" >/dev/null 2>&1 || true
+            sleep 1
+            open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
+
+            _fda_recover_msg="$(printf '%s\n\n%s' \
+                "$MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE1" \
+                "$MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE2")"
+            _fda_recover_msg_esc="${_fda_recover_msg//\"/\\\"}"
+            _fda_recover_title_esc="${MSG_PROMPT_INSTALLER_FDA_RECOVER_TITLE//\"/\\\"}"
+            _fda_recover_button_esc="${MSG_PROMPT_INSTALLER_FDA_RECOVER_BUTTON//\"/\\\"}"
+            _fda_recover_icon_path=""
+            if [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+                _fda_recover_icon_path="${SCRIPT_DIR}/DialogIcon.icns"
+            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+                _fda_recover_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+            elif [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+                _fda_recover_icon_path="${SCRIPT_DIR}/AppIcon.icns"
+            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+                _fda_recover_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+            fi
+            if [[ -n "$_fda_recover_icon_path" ]]; then
+                _fda_recover_icon_path_esc="${_fda_recover_icon_path//\"/\\\"}"
+                _fda_recover_icon_clause="with icon file POSIX file \"${_fda_recover_icon_path_esc}\""
+            else
+                _fda_recover_icon_clause="with icon note"
+            fi
+            # BW3-2 (2026-07-23): standalone `activate` DROPPED -- `display
+            # dialog` is already app-modal and frontmost; the extra activate
+            # only stole focus back off System Settings where the customer
+            # was just sent to grant FDA.
+            sleep 1
+            osascript \
+                -e "tell application \"System Events\" to display dialog \"${_fda_recover_msg_esc}\" with title \"${_fda_recover_title_esc}\" buttons {\"${_fda_recover_button_esc}\"} default button \"${_fda_recover_button_esc}\" ${_fda_recover_icon_clause}" \
+                >/dev/null 2>&1 || true
+            unset _fda_recover_msg _fda_recover_msg_esc _fda_recover_title_esc \
+                  _fda_recover_button_esc _fda_recover_icon_path \
+                  _fda_recover_icon_path_esc _fda_recover_icon_clause
+
+            # Final re-probe after the recovery grant.
+            #
+            # BW3-6 (2026-07-23): POLL until the read succeeds rather than a
+            # single post-dismiss `sleep 2` re-probe. This recovery modal is
+            # the FDA prompt the NORMAL walk-away path reaches (site 1 ran, so
+            # the late-assist above is suppressed and this one fires), so the
+            # same "Done before detected" gate applies here. Cap ~40s (20 x
+            # 2s); on timeout FDA_GRANTED stays false and the graceful-degrade
+            # / Doctor-card path below is unchanged.
+            for _fda_recover_poll in $(seq 1 20); do
+                FDA_RECOVER_TRIED=0
+                FDA_RECOVER_SUCCEEDED=0
+                for probe in "${FDA_PROBE_PATHS[@]}"; do
+                    [[ -e "$probe" ]] || continue
+                    FDA_RECOVER_TRIED=$((FDA_RECOVER_TRIED + 1))
+                    if _fda_read_probe "$probe"; then
+                        FDA_RECOVER_SUCCEEDED=$((FDA_RECOVER_SUCCEEDED + 1))
+                    fi
+                done
+                if [[ $FDA_RECOVER_TRIED -gt 0 && $FDA_RECOVER_SUCCEEDED -eq $FDA_RECOVER_TRIED ]]; then
+                    FDA_GRANTED=true
+                    break
+                fi
+                sleep 2
+            done
+            unset _fda_recover_poll
+            if [[ "$FDA_GRANTED" == true ]]; then
+                info "$MSG_INFO_INSTALLER_FDA_ASSIST_GRANTED"
+            else
+                info "$MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED"
+            fi
+            unset FDA_RECOVER_TRIED FDA_RECOVER_SUCCEEDED
+        fi
+    fi
+
     # CX-87 (DMG #48g): catch-all promotion of the staging tree.
     # The branches above call _ostler_promote_prelaunch_tree from
     # within their happy paths; this idempotent re-call guarantees
@@ -6298,18 +11504,97 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     # OSTLER_WHATSAPP_BACKFILL_DAYS: new env var, hard-coded extract
     #                                 (whatsapp_history extract_all
     #                                  branch reads it now)
-    : "${OSTLER_IMESSAGE_BACKFILL_DAYS:=1825}"
+    # OSTLER_MAIL_BACKFILL_DAYS:    #260 -- Apple Mail history window.
+    #                                 Previously hard-coded at 365 days
+    #                                 in extract_all.py, so a fresh
+    #                                 customer only ever got the last 12
+    #                                 months of mail in the graph. Now
+    #                                 configurable + defaults to 5 years
+    #                                 like the other sources. Customers
+    #                                 can extend further post-install via
+    #                                 `ostler-fda` with a larger value
+    #                                 (the "extend now?" affordance).
+    # iMessage is the ONE exception to the 5-year rule, and it is not a
+    # preference -- it is arithmetic. (2026-08-08, FIX 1.)
+    #
+    # Every other source here is cheap per item: extract, normalise, write.
+    # iMessage is not. Each conversation is dispatched to the CM048 pipeline,
+    # and each dispatch makes TEN chained Ollama calls (processor.py -- the
+    # call sites were grep-verified). Measured cost: 1.20 min per dispatch.
+    #
+    # At 1825 days a real box yielded 28,405 conversations:
+    #
+    #     28,405 x 1.20 min  =  ~24 days of continuous local inference
+    #
+    # while the installer tells the customer they can walk away. That is not a
+    # slow install, it is a promise the product cannot keep -- and the machine
+    # is pinned the whole time.
+    #
+    # 45 days for FIRST ingest, then the tail is pulled progressively over the
+    # settle-in period (Andy's call, 2026-08-08). This is a floor, not a cap:
+    # extract_all.py walks a widening ladder on subsequent ticks
+    # (45 -> 90 -> 180 -> 365 -> 730 -> 1825) so the full five years still
+    # arrives, just without pinning the machine during onboarding.
+    #
+    #     1825d  28,405 convos  ~24 days   <- what a fresh box did before
+    #       90d  ~1,401         ~28 hours  <- still not "walk away"
+    #       45d    ~700         ~14 hours
+    #
+    # Those projections scale LINEARLY with the window, which FLATTERS the
+    # shorter ones: recent months are denser than a 5-year average, so the
+    # true count at 45d is above 700. Measure on a real box.
+    #
+    # The ladder's first rung is 45 days, and that rung is chosen by
+    # backfill_ladder.py -- NOT set here.
+    #
+    # ── WHY THIS LINE NO LONGER SETS A DEFAULT (2026-08-16) ───────────────
+    # The comment block above has always described a widening ladder, and the
+    # paragraph that used to sit here said it outright: "Setting the env var
+    # explicitly pins the window and DISABLES the ladder entirely." The next
+    # line then did exactly that, on every install:
+    #
+    #     : "${OSTLER_IMESSAGE_BACKFILL_DAYS:=45}"
+    #
+    # resolve_backfill_days() treats ANY explicit value as an operator pin and
+    # returns before it ever consults the ladder. So the widening never ran on
+    # a single customer machine. MEASURED on the v1.0.32 box:
+    #
+    #     install.log:851
+    #       [backfill-ladder] imessage pinned to 45d by
+    #       OSTLER_IMESSAGE_BACKFILL_DAYS; ladder disabled
+    #
+    #     no ~/.ostler/state/backfill_horizon_imessage.json existed anywhere,
+    #     which is consistent: the pinned path returns before persisting.
+    #
+    #     45 days -> 33 of 2,130 conversations, permanently.
+    #
+    # Andy's call, 2026-08-16: the backlog should EVENTUALLY be all of
+    # iMessage; 45 days is only what the customer sees first, so the product
+    # looks recent and reasonable on first sight. That is the ladder, so the
+    # ladder must be allowed to run.
+    #
+    # Leaving the variable UNSET is what enables it. An operator who exports a
+    # value still pins it -- that affordance is unchanged and is now the only
+    # thing that pins.
+    #
+    # NOTE the `:-` at the pass-through below. install.sh runs under `set -u`
+    # (line 28, set -Eeuo pipefail), so an unset variable read bare would abort
+    # the install rather than pass an empty value. resolve_backfill_days() does
+    # `os.environ.get(var, "").strip()` and treats empty as absent, so an empty
+    # pass-through is exactly equivalent to not setting it.
     : "${OSTLER_BROWSER_BACKFILL_DAYS:=1825}"
     : "${OSTLER_SAFARI_BACKFILL_DAYS:=1825}"
     : "${OSTLER_WHATSAPP_BACKFILL_DAYS:=1825}"
+    : "${OSTLER_MAIL_BACKFILL_DAYS:=1825}"
 
     set +e
     FDA_OUTPUT=$(OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES}" \
                  OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}" \
-                 OSTLER_IMESSAGE_BACKFILL_DAYS="${OSTLER_IMESSAGE_BACKFILL_DAYS}" \
+                 OSTLER_IMESSAGE_BACKFILL_DAYS="${OSTLER_IMESSAGE_BACKFILL_DAYS:-}" \
                  OSTLER_BROWSER_BACKFILL_DAYS="${OSTLER_BROWSER_BACKFILL_DAYS}" \
                  OSTLER_SAFARI_BACKFILL_DAYS="${OSTLER_SAFARI_BACKFILL_DAYS}" \
                  OSTLER_WHATSAPP_BACKFILL_DAYS="${OSTLER_WHATSAPP_BACKFILL_DAYS}" \
+                 OSTLER_MAIL_BACKFILL_DAYS="${OSTLER_MAIL_BACKFILL_DAYS}" \
                  "$OSTLER_PYTHON" -c "
 import sys, json
 sys.path.insert(0, '${FDA_DIR}')
@@ -6346,18 +11631,92 @@ print(json.dumps(summary, default=str))
         info "$MSG_INFO_AND_RE_RUN_OSTLER_FDA"
     fi
 
-    # Schedule a one-shot FDA re-run ~12 hours from now to catch slow
-    # iCloud syncs. Calendar, Notes, Photos face recognition etc. can
-    # take hours to fully sync after first app launch.
-    FDA_RERUN_PLIST="${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
-    if [[ ! -f "$FDA_RERUN_PLIST" ]]; then
-        # Calculate the run date: now + 12 hours
-        FDA_RERUN_HOUR=$(date -v+12H +%H)
-        FDA_RERUN_MIN=$(date +%M)
-        FDA_RERUN_DAY=$(date -v+12H +%d)
-        FDA_RERUN_MONTH=$(date -v+12H +%m)
-        FDA_RERUN_YEAR=$(date -v+12H +%Y)
+    # #259: Apple Mail no-content guidance. The apple_mail extractor
+    # arm now reports status "empty_no_content" when Mail is in the
+    # source set but the local store holds no messages in the window
+    # (no accounts connected, or accounts configured but never synced).
+    # Without this, the install records a silent zero and the customer
+    # never learns why their email surfaces are blank. Surface a calm,
+    # informational message pointing them at Apple Mail; this is not a
+    # hard failure and the install continues. Bracket with set +e so a
+    # grep miss under pipefail can never abort the install.
+    set +e
+    if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
+       && printf '%s' "$FDA_OUTPUT" | grep -q '"apple_mail"[^}]*"empty_no_content"'; then
+        info "$MSG_INFO_APPLE_MAIL_NO_CONTENT_CONNECT_ACCOUNT"
+        info "$MSG_INFO_APPLE_MAIL_NO_CONTENT_RERUN"
+    fi
+    set -e
 
+    # #260 / #639: the Mail history window was chosen UPFRONT in Phase 2
+    # (OSTLER_MAIL_BACKFILL_DAYS) and already applied by the FDA extraction
+    # above, so there is NO prompt here -- a walk-away install must never
+    # block mid-run. Just confirm which window was applied, when Apple Mail
+    # actually produced content (status "ok"). Bracket with set +e so a
+    # grep miss under pipefail can never abort the install.
+    set +e
+    if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
+       && printf '%s' "$FDA_OUTPUT" | grep -q '"apple_mail"[^}]*"status": "ok"'; then
+        if [[ "${OSTLER_MAIL_BACKFILL_DAYS:-1825}" -gt 1825 ]]; then
+            ok "$MSG_OK_MAIL_EXTENDING_FULL_HISTORY"
+        else
+            ok "$MSG_OK_MAIL_KEEPING_DEFAULT_HISTORY"
+        fi
+    fi
+    set -e
+
+    # ORDERING CONTRACT (see 3.7c): stage the daemon binary BEFORE the
+    # first LaunchAgent whose ProgramArguments[0] is that binary is
+    # bootstrapped. com.ostler.fda-rerun, immediately below, is that
+    # agent. _ostler_promote_prelaunch_tree has run by this point, so
+    # OSTLER_DIR is ~/.ostler and neither the .app nor the plist can
+    # end up pinned to the /tmp staging tree (#177).
+    _ostler_stage_assistant_daemon
+
+    # Schedule a RECURRING FDA re-run to catch slow iCloud syncs.
+    # Calendar, Notes, Photos face recognition etc. can take hours to
+    # fully sync after first app launch, and Calendar in particular is
+    # deliberately truncated at install time.
+    #
+    # 🔴 WHY THIS IS StartInterval AND NOT StartCalendarInterval (#714).
+    # Until 2026-08-16 this plist carried a StartCalendarInterval with
+    # Year, Month, Day, Hour AND Minute all pinned to install+12h. A
+    # StartCalendarInterval with a fully specified date is a ONE-SHOT:
+    # launchd fires it at that instant (or at the next wake if the Mac
+    # was asleep) and never again, because the date is then in the past
+    # forever.
+    #
+    # That silently broke a decision made elsewhere in this file. At the
+    # OSTLER_HYDRATE_CALENDAR_DAYS site the comment reads "The hourly
+    # fda-rerun LaunchAgent walks the 5-year window in the background",
+    # and CX-106 narrowed the install-time calendar window to 90 days ON
+    # THAT PREMISE. The agent was never hourly. So a customer whose one
+    # firing failed, or who simply has more than 90 days of calendar,
+    # never got the backfill the installer had already decided to defer.
+    #
+    # The interval is deliberately NOT tied to any other cadence in this
+    # file. It only has to be short enough that a failed run is retried
+    # without the customer noticing, and long enough not to sit on the
+    # ingest slot. launchd will not start a second copy of a job that is
+    # still running, so an overlong walk cannot pile up.
+    : "${OSTLER_FDA_RERUN_INTERVAL_S:=3600}"
+    FDA_RERUN_PLIST="${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
+    #
+    # 🔴 THE UPGRADE LIMB. A bare `[[ ! -f ]]` guard fixes fresh installs
+    # only: every box that already carries the one-shot plist keeps it
+    # forever, because the file exists and we skip. That is exactly the
+    # shape of #768, whose fix could not reach any box that already had
+    # the defect (#769). So rewrite when the file is ABSENT *or* when it
+    # still carries the legacy StartCalendarInterval shape.
+    FDA_RERUN_NEEDS_WRITE=0
+    FDA_RERUN_WAS_LEGACY=0
+    if [[ ! -f "$FDA_RERUN_PLIST" ]]; then
+        FDA_RERUN_NEEDS_WRITE=1
+    elif grep -q 'StartCalendarInterval' "$FDA_RERUN_PLIST" 2>/dev/null; then
+        FDA_RERUN_NEEDS_WRITE=1
+        FDA_RERUN_WAS_LEGACY=1
+    fi
+    if [[ "$FDA_RERUN_NEEDS_WRITE" == "1" ]]; then
         mkdir -p "${HOME}/Library/LaunchAgents"
         cat > "$FDA_RERUN_PLIST" <<FDARPEOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -6368,21 +11727,12 @@ print(json.dumps(summary, default=str))
     <string>com.ostler.fda-rerun</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${OSTLER_DIR}/bin/ostler-fda</string>
+        <string>${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant</string>
+        <string>run-source</string>
+        <string>fda-rerun</string>
     </array>
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Year</key>
-        <integer>${FDA_RERUN_YEAR}</integer>
-        <key>Month</key>
-        <integer>${FDA_RERUN_MONTH}</integer>
-        <key>Day</key>
-        <integer>${FDA_RERUN_DAY}</integer>
-        <key>Hour</key>
-        <integer>${FDA_RERUN_HOUR}</integer>
-        <key>Minute</key>
-        <integer>${FDA_RERUN_MIN}</integer>
-    </dict>
+    <key>StartInterval</key>
+    <integer>${OSTLER_FDA_RERUN_INTERVAL_S}</integer>
     <key>StandardOutPath</key>
     <string>${LOGS_DIR}/fda-rerun.log</string>
     <key>StandardErrorPath</key>
@@ -6390,9 +11740,18 @@ print(json.dumps(summary, default=str))
 </dict>
 </plist>
 FDARPEOF
+        # On the upgrade limb the OLD job is still registered with the
+        # old one-shot schedule. bootstrap is a no-op against an already
+        # loaded label, so boot it out first or the box keeps running the
+        # very plist we just replaced on disk. Absent-file installs have
+        # nothing to bootout and the failure is expected, hence || true.
+        if [[ "$FDA_RERUN_WAS_LEGACY" == "1" ]]; then
+            launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
+                launchctl unload "$FDA_RERUN_PLIST" 2>/dev/null || true
+        fi
         launchctl bootstrap "gui/$(id -u)" "$FDA_RERUN_PLIST" 2>/dev/null || \
             launchctl load "$FDA_RERUN_PLIST" 2>/dev/null || true
-        ok "$MSG_OK_FDA_RE_RUN_SCHEDULED_12_HOURS"
+        ok "$(printf "$MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING" "$(( OSTLER_FDA_RERUN_INTERVAL_S / 60 ))")"
     fi
 else
     # Reachable only when --allow-plaintext was passed AND the FDA
@@ -6408,6 +11767,47 @@ else
     # location. Idempotent.
     _ostler_promote_prelaunch_tree
 fi
+
+# ORDERING CONTRACT catch-all (see 3.7c). The no-FDA-module arm above
+# promotes the staging tree at its tail, so this is the first point at
+# which OSTLER_DIR is canonical on that path. Idempotent: returns
+# immediately when the arm above already staged the daemon. Same shape
+# as the _ostler_promote_prelaunch_tree catch-all it follows.
+_ostler_stage_assistant_daemon
+
+
+# ── 3.7b At-rest hardening (Spotlight + Time Machine exclusions) ───
+# Applied HERE, post-promotion, not in Phase 2. FIX-RT2-F3 (v1.0.10
+# red-team wave 2): the FDA block above guarantees
+# _ostler_promote_prelaunch_tree has run (idempotent catch-all on every
+# branch, including the no-FDA-module else), so OSTLER_DIR has been
+# rebound from the ephemeral /tmp staging tree to the persistent
+# ${OSTLER_FINAL_DIR} (~/.ostler). The exclusion xattr +
+# .metadata_never_index therefore land on the REAL directory node that
+# holds the plaintext secrets/service_token, secrets/zeroclaw_admin_token
+# and the .env JWT_SECRET -- not on a /tmp node that promotion then
+# deletes. tmutil addexclusion + the Spotlight marker are path-scoped to
+# the directory, so files written under these trees LATER in the install
+# (secrets, wiki, transcripts) are covered too.
+#
+# FIX-RT2-F4 (v1.0.10 red-team wave 2): ~/.colima is added to the set.
+# The embedded Qdrant + Oxigraph stores are PLAINTEXT (not SQLCipher)
+# inside the Colima VM disk image under ~/.colima/default/, and that
+# image is an ordinary host file that Spotlight indexes and Time Machine
+# copies off-box. Colima has already been started (docker bring-up
+# above) so ~/.colima exists here; the helper no-ops harmlessly if not.
+info "Applying at-rest hardening (Spotlight + Time Machine exclusions) to the Ostler data trees..."
+_ostler_harden_at_rest "$OSTLER_DIR"
+_ostler_harden_at_rest "$USER_FACING_ROOT"
+_ostler_harden_at_rest "${HOME}/.colima"
+ok "At-rest hardening applied: ${OSTLER_DIR}, ${USER_FACING_ROOT} and ${HOME}/.colima are excluded from Spotlight indexing and Time Machine backups."
+# TRADEOFF (surfaced for Andy/Archie): excluding ${USER_FACING_ROOT}
+# from Time Machine means the customer's generated wiki + Obsidian
+# vault + transcripts are NOT captured by TM. That is deliberate --
+# a plaintext life-graph on an off-site NAS is the exposure we are
+# closing -- but a customer who WANTS those backed up would need an
+# encrypted backup target instead. Revisit if product decides the
+# backup convenience outweighs the off-box plaintext risk.
 
 # ── 3.8 Docker services ───────────────────────────────────────────
 
@@ -6438,30 +11838,103 @@ fi
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
 services:
   qdrant:
-    image: qdrant/qdrant:v1.12.1
+    image: qdrant/qdrant@sha256:d774e7bb65744454984c6021637a0da89271f30df15e48601a9fafc926d26b1f  # v1.12.1
     container_name: ostler-qdrant
+    # v1.0.10 security lockdown: the REST port (6333) is NO LONGER
+    # published to the host directly -- it is fronted by store-proxy
+    # (below), a loopback nginx that validates the Host header to
+    # defeat DNS-rebind before passing through. Only the gRPC port
+    # (6334) stays on the host loopback (not browser-DNS-rebindable;
+    # covered by the v1.0.1 token-auth project). QDRANT__SERVICE__
+    # API_KEY is the staged (default-OFF) native-auth scaffolding for
+    # v1.0.1. IMPORTANT (verified on-device): Qdrant treats a PRESENT-but-
+    # empty QDRANT__SERVICE__API_KEY as auth-ENABLED (empty => 401, absent
+    # => 200) -- the original "EMPTY => no auth" assumption was WRONG and was
+    # the ERR-99-INSTALL-ABORT-L9858 box-walk failure. So when store-auth is
+    # default-OFF the installer REMOVES the API_KEY line from this block
+    # after generating the compose (see "empty-api-key quirk" below),
+    # leaving QDRANT__LOG_LEVEL as the sole entry so the block stays valid
+    # YAML and Qdrant runs keyless -- matching the pinned vendored clients
+    # that send no api key.
+    environment:
+      QDRANT__LOG_LEVEL: "INFO"
+      QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY:-}"
     ports:
-      - "127.0.0.1:6333:6333"
       - "127.0.0.1:6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
     restart: unless-stopped
 
   oxigraph:
-    image: ghcr.io/oxigraph/oxigraph:0.4.6
+    image: ghcr.io/oxigraph/oxigraph@sha256:dd52e0da758fcbbd5dc5249ce818bac26122611e8315a67200f2982d8563a2a5  # 0.4.6
     container_name: ostler-oxigraph
-    ports:
-      - "127.0.0.1:7878:7878"
+    # v1.0.10 security lockdown: Oxigraph 0.4.6 has NO native auth and
+    # every vendored client posts to /query,/update with no bearer, so
+    # full token-auth is deferred to the v1.0.1 project. For THIS cut
+    # the HTTP port (7878) is NO LONGER published to the host directly
+    # -- it is fronted by store-proxy (below), a loopback nginx that
+    # validates the Host header to defeat DNS-rebind (the remote
+    # vector) and passes through transparently. Internal compose
+    # clients still reach it directly as oxigraph:7878; host clients
+    # reach localhost:7878 via the proxy with NO client-side change.
     volumes:
       - oxigraph_data:/data
     command: serve --location /data --bind 0.0.0.0:7878
     restart: unless-stopped
 
+  # ── Store front proxy (v1.0.10 security lockdown) ────────────────
+  # Loopback nginx that fronts the two HTTP data stores (Qdrant REST
+  # :6333 and Oxigraph :7878) on the host and validates the Host
+  # header before passing through. Any request whose Host is not in
+  # the loopback / compose-service allowlist gets 403 -- this defeats
+  # DNS-rebind, where a malicious web page re-resolves its own domain
+  # to 127.0.0.1 and drives the browser to fetch localhost:6333 while
+  # still sending Host: attacker.com. Transparent passthrough
+  # otherwise: legitimate clients hit localhost:6333 / :7878 with
+  # Host localhost|127.0.0.1 and keep working with NO changes. Config
+  # is written to ${OSTLER_DIR}/ostler-store-proxy.conf by the
+  # installer just below this heredoc. Full native token-auth is the
+  # v1.0.1 project; this closes the remote (rebind) surface now.
+  #
+  # v1.0.17: the same container also hosts the WIKI TAILNET GATE on
+  # 127.0.0.1:8144 (see ostler-wiki-gate.conf). `tailscale serve`
+  # proxies the tailnet into that port; nginx checks the identity
+  # headers Tailscale injects and only then passes through to
+  # wiki-site. One nginx, two jobs -- deliberately NOT a second proxy
+  # container. 8144 is loopback-only on the host, exactly like 6333 /
+  # 7878, so nothing is reachable off-box except through Tailscale.
+  store-proxy:
+    image: nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10  # 1.27-alpine
+    container_name: ostler-store-proxy
+    depends_on:
+      - qdrant
+      - oxigraph
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:7878:7878"
+      - "127.0.0.1:8144:8144"
+    volumes:
+      - ${HOME}/.ostler/ostler-store-proxy.conf:/etc/nginx/nginx.conf:ro
+      # Written fail-closed (comments only, no listener) at install
+      # time and rewritten with the real owner login once Tailscale
+      # authenticates. MUST exist before this container is created or
+      # Docker materialises a DIRECTORY at the bind-mount path.
+      - ${HOME}/.ostler/ostler-wiki-gate.conf:/etc/nginx/ostler-wiki-gate.conf:ro
+    restart: unless-stopped
+
   redis:
     # Valkey: BSD-3-Clause LF fork of Redis (Redis 7.4+ relicensed to RSAL/SSPL).
     # Drop-in compatible with our redis-py client and protocol.
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey@sha256:94365b275456ae14621001c03556c732b1d93a0cdeacc317d1bdd52eba680885  # 8-alpine (8.1.8)
     container_name: ostler-redis
+    # v1.0.10 security lockdown: host port is 127.0.0.1-only. Native
+    # auth via --requirepass is interpolated from the compose .env as
+    # ${REDIS_AUTH_ARGS}. EMPTY => `valkey-server` with no password
+    # (the v1.0.10 default, matching the image's default CMD, since
+    # the pinned Doctor client PINGs without AUTH). Set
+    # OSTLER_STORE_AUTH_ENFORCE=1 to populate it as
+    # `--requirepass <secret>` once the client-side auth PRs land.
+    command: valkey-server ${REDIS_AUTH_ARGS:-}
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
@@ -6482,7 +11955,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/ostler-ai/ostler-wiki-site:0.1
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:635e3ee7cacdc31252b52771600e337e5c9ec649e0c0c6f982395d40a63f3670
     container_name: ostler-wiki-site
     ports:
       - "127.0.0.1:8044:8000"
@@ -6517,7 +11990,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/ostler-ai/ostler-wiki-compiler:0.1
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:c6a207fc727940edcb5263748698a5d9565e39290e1c571439b57b0096e2ad1f
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -6526,6 +11999,15 @@ services:
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/wiki/obsidian/_images:ro
       - oxigraph_data:/app/oxigraph:ro
       - qdrant_data:/app/qdrant:ro
+      # Hydration status hand-off (CM044 #624). The compiler writes a
+      # small JSON progress file here; the host-side CM041 ical-server
+      # hydration endpoint reads it cross-process to drive the live
+      # dashboard panel. It must NOT live inside the wiki-docs named
+      # volume (host-invisible), so it is bind-mounted from the host
+      # state dir. The compiler writes to /state inside the container
+      # (WIKI_HYDRATION_STATUS_FILE below); that lands at ~/.ostler/state
+      # on the host where the endpoint reads it.
+      - ${HOME}/.ostler/state:/state
     environment:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
@@ -6533,6 +12015,11 @@ services:
       # Inside-container path the Obsidian post-processor writes to.
       # Pinned to /wiki/obsidian to match the bind-mount above.
       - WIKI_OBSIDIAN_DIR=/wiki/obsidian
+      # Absolute path (inside the container) of the hydration status
+      # file. Bind-mounted to ~/.ostler/state on the host above, so the
+      # host-side CM041 ical-server hydration endpoint reads the same
+      # file the compiler writes. See compiler/hydration.py::status_path.
+      - WIKI_HYDRATION_STATUS_FILE=/state/wiki_hydration.json
       # CM044 productisation knobs (set by CM044 PR #22). Empty
       # defaults are intentional: the compiler treats "" as "no
       # operator-specific filter" and emits a generic wiki rather
@@ -6540,6 +12027,14 @@ services:
       # ~/.ostler/.env or the env block at install time.
       - PWG_USER_ID=${PWG_USER_ID:-}
       - PWG_AI_CHAT_WINGS=${PWG_AI_CHAT_WINGS:-}
+      # Operator self-identity for the wiki self/me-card exclusion (CM044
+      # PR #92). Without these the operator's OWN person node surfaces as the
+      # #1 Featured Contact / top Frequent Collaborator (meetings with self)
+      # / in Upcoming Birthdays. Sourced from the me-card identity (USER_NAME
+      # full name + USER_EMAIL) and written to the compose .env by the
+      # installer alongside USER_FIRST_NAME. Empty = no self-exclusion (safe).
+      - WIKI_OPERATOR_NAME=${WIKI_OPERATOR_NAME:-}
+      - WIKI_OPERATOR_EMAILS=${WIKI_OPERATOR_EMAILS:-}
       - OSTLER_PII_OPERATOR_HK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_HK_PHONE_DIGITS:-}
       - OSTLER_PII_OPERATOR_UK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_UK_PHONE_DIGITS:-}
       - OSTLER_PII_SCAN_MODE=${OSTLER_PII_SCAN_MODE:-fail}
@@ -6554,6 +12049,13 @@ services:
       - OXIGRAPH_URL=http://oxigraph:7878
       - QDRANT_URL=http://qdrant:6333
       - OLLAMA_URL=http://host.docker.internal:11434
+      # #259: pin the compiler's Ollama model to the SAME model the installer
+      # pulled for this box's RAM tier (AI_MODEL, set ~install.sh:4685). Without
+      # this the compiler falls back to compiler/config.py's default qwen3.5:9b,
+      # which is NOT pulled on <=23GB Macs (they get gemma4:e2b) -> every wiki
+      # narrative LLM call 404s and Person/Org/Year pages render empty. Mirrors
+      # the daemon-config expression at :7779.
+      - OLLAMA_MODEL=${AI_MODEL:-qwen3.5:9b}
     extra_hosts:
       # macOS / Colima-friendly way to surface the host gateway so the
       # OLLAMA_URL above resolves to the host's Ollama.
@@ -6587,7 +12089,7 @@ services:
   #     Vane-side config the customer can edit at the web UI
   #     (model selection, etc.). Survives container restarts.
   vane:
-    image: itzcrazykns1337/vane:v1.12.2
+    image: ghcr.io/ostler-ai/vane@sha256:61f2bbf3386ff3df08911fb3de0e1893b04702a4d49ef13fbadbda937b47ab7c  # mirrored from itzcrazykns1337/vane:v1.12.2
     container_name: ostler-vane
     ports:
       - "127.0.0.1:3000:3000"
@@ -6605,6 +12107,458 @@ volumes:
   vane_data:
 DCEOF
 
+# ── v1.0.10 install-abort fix: Qdrant empty-api-key quirk ─────────
+# Verified empirically on-device: Qdrant treats a PRESENT-but-empty
+# QDRANT__SERVICE__API_KEY env var as auth-ENABLED (empty => HTTP 401,
+# absent => 200). The compose line above interpolates ${QDRANT_API_KEY:-},
+# which is EMPTY whenever store-auth is default-OFF (the v1.0.10 shipping
+# default), so Qdrant would boot DEMANDING a credential the shipped keyless
+# client fleet never sends -> 401 on the first readback -> abort at
+# "Importing your data" (the ERR-99-INSTALL-ABORT-L9858 box-walk failure).
+# When enforce is OFF, REMOVE the key line entirely so Qdrant runs keyless.
+# (Redis uses empty ${REDIS_AUTH_ARGS:-} = no --requirepass flag = keyless,
+# and Oxigraph 0.4.6 has no native auth, so ONLY Qdrant needs this.)
+if [[ "${OSTLER_STORE_AUTH_ENFORCE:-0}" != "1" ]]; then
+    sed -i.bak '/QDRANT__SERVICE__API_KEY:/d' "${OSTLER_DIR}/docker-compose.yml" \
+        && rm -f "${OSTLER_DIR}/docker-compose.yml.bak"
+fi
+
+# ── Store front-proxy nginx config (v1.0.10 security lockdown) ────
+# Written next to the compose file and bind-mounted into the
+# store-proxy service. Transparent loopback passthrough for the two
+# HTTP stores that REJECTS any request whose Host is outside the
+# allowlist (403), defeating DNS-rebind. Quoted heredoc: nginx's own
+# $host / $request_uri / $upstream variables must land in the file
+# verbatim, NOT be expanded by the installer shell.
+cat > "${OSTLER_DIR}/ostler-store-proxy.conf" <<'NGINXEOF'
+# Ostler store front proxy -- generated by the Ostler installer.
+# Do not edit by hand; re-run the installer to regenerate.
+worker_processes 1;
+events { worker_connections 1024; }
+http {
+    # Docker embedded DNS so upstreams re-resolve if a store restarts
+    # with a new container IP (stores use restart: unless-stopped).
+    resolver 127.0.0.11 valid=30s ipv6=off;
+
+    # Host allowlist. $host is the Host header with the port stripped
+    # and lower-cased. A DNS-rebind request arrives with the
+    # attacker's own Host (e.g. evil.example) and falls through to the
+    # default 0 => 403. Loopback names + the compose service /
+    # container names that internal and host clients legitimately send
+    # map to 1 => allowed. The optional :port group is belt-and-braces
+    # for nginx builds that retain the port on $host.
+    map $host $ostler_store_host_ok {
+        default 0;
+        "~*^(localhost|127\.0\.0\.1|\[::1\]|::1|qdrant|oxigraph|ostler-qdrant|ostler-oxigraph|store-proxy|ostler-store-proxy)(:[0-9]+)?$" 1;
+    }
+
+    # Origin allowlist (FIX-RT2-F5, v1.0.10 red-team wave 2). The Host
+    # map above defeats DNS-rebind but NOT a plain cross-origin CSRF
+    # write: a page on attacker.com can POST
+    # `update=DROP ALL` (application/x-www-form-urlencoded) to
+    # http://localhost:7878/update -- that is a CORS *simple* request,
+    # so the browser sends it with NO preflight, Host stays "localhost"
+    # (allowlisted) and Oxigraph would wipe the whole RDF graph. Same
+    # class for state-changing Qdrant REST. Defence: reject any request
+    # carrying an Origin header that is NOT a local origin.
+    #   - Non-browser clients (the Python ingest, curl, the daemon) send
+    #     NO Origin header => $http_origin is empty => "" => 1 (allowed).
+    #   - A browser CSRF from attacker.com sends Origin: http://attacker.com
+    #     => default => 0 => 403.
+    #   - Legit local browser origins (the wiki on :8044, any dashboard)
+    #     are http(s)://localhost | 127.0.0.1 | [::1] on any port => 1.
+    # The stores are internal-only; no Tauri/dashboard surface talks to
+    # them cross-origin, so a strict local-origin allowlist is safe.
+    map $http_origin $ostler_store_origin_ok {
+        default 0;
+        ""      1;
+        "~*^https?://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?$" 1;
+    }
+
+    # Transparent passthrough: no body-size cap (Qdrant vector upserts
+    # and SPARQL updates can be large) and generous timeouts so the
+    # proxy never alters store behaviour for a legitimate client.
+    client_max_body_size 0;
+    proxy_http_version 1.1;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+
+    # Qdrant REST.
+    server {
+        listen 6333;
+        location / {
+            if ($ostler_store_host_ok = 0) { return 403; }
+            if ($ostler_store_origin_ok = 0) { return 403; }
+            set $ostler_qdrant_upstream "http://qdrant:6333";
+            proxy_pass $ostler_qdrant_upstream$request_uri;
+        }
+    }
+
+    # Oxigraph HTTP (SPARQL).
+    server {
+        listen 7878;
+        location / {
+            if ($ostler_store_host_ok = 0) { return 403; }
+            if ($ostler_store_origin_ok = 0) { return 403; }
+            set $ostler_oxigraph_upstream "http://oxigraph:7878";
+            proxy_pass $ostler_oxigraph_upstream$request_uri;
+        }
+    }
+
+    # Wiki tailnet gate (v1.0.17). Generated separately because it can
+    # only be written once Tailscale has authenticated and told us who
+    # owns this machine. Ships fail-closed: until then the file holds
+    # comments only, so nothing listens on 8144 and the wiki is not
+    # reachable from the tailnet at all.
+    include /etc/nginx/ostler-wiki-gate.conf;
+}
+NGINXEOF
+chmod 644 "${OSTLER_DIR}/ostler-store-proxy.conf"
+
+# ── Wiki tailnet gate, fail-closed placeholder (v1.0.17) ──────────
+#
+# Andy's locked call: "my devices" means the TAILNET, not the LAN. So
+# the wiki is never bound to 0.0.0.0 and never LAN-exposed; the only
+# off-box path is `tailscale serve` into this gate, which demands the
+# identity headers tailscaled injects.
+#
+# This placeholder MUST be written before store-proxy is created --
+# a missing bind-mount source makes Docker create a DIRECTORY at the
+# host path, and nginx then fails to start with "is a directory".
+# Comments-only is valid inside http {} and defines no listener, so
+# an install that never reaches the Tailscale phase leaves the wiki
+# strictly on-device. Rewritten by write_wiki_tailnet_gate() later.
+cat > "${OSTLER_DIR}/ostler-wiki-gate.conf" <<'NGINXWIKIEOF'
+# Ostler wiki tailnet gate -- generated by the Ostler installer.
+# Do not edit by hand; re-run the installer to regenerate.
+#
+# FAIL-CLOSED PLACEHOLDER: no tailnet owner identity has been resolved,
+# so no server listens on 8144 and the wiki is on-device only.
+NGINXWIKIEOF
+chmod 644 "${OSTLER_DIR}/ostler-wiki-gate.conf"
+
+# write_wiki_tailnet_gate <owner-login>
+#
+# Regenerates ${OSTLER_DIR}/ostler-wiki-gate.conf. With a valid owner
+# login it defines the 8144 listener that fronts wiki-site; with an
+# empty or malformed one it rewrites the fail-closed placeholder and
+# returns non-zero so the caller does NOT go on to `tailscale serve`.
+#
+# WHY AN IDENTITY GATE AND NOT A RAW PASSTHROUGH: the v1.0.10 lockdown
+# pulled the wiki off Tailscale precisely because `serve --tcp=8044`
+# hands the customer's entire personal graph to any peer on the
+# tailnet with no authentication. `tailscale serve` in HTTP-proxy mode
+# fixes that at the source: before proxying, tailscaled unconditionally
+# DELETES five specific headers and re-stamps them from the tunnel's
+# verified WireGuard identity, so Tailscale-User-Login cannot be forged
+# by a peer. Funnel traffic (public internet) gets NO identity headers
+# and is instead marked Tailscale-Funnel-Request -- we reject on both
+# limbs, so even an operator who enables Funnel by hand cannot leak
+# the wiki. We never invoke `tailscale funnel` ourselves.
+#
+# 🔴 THE DELETION IS PER-HEADER, NOT A WILDCARD. Only these five are
+# stripped (ipn/ipnlocal/serve.go, addTailscaleIdentityHeaders):
+#
+#     Tailscale-User-Login   Tailscale-User-Name   Tailscale-User-Profile-Pic
+#     Tailscale-Funnel-Request               Tailscale-Headers-Info
+#
+# Any OTHER Tailscale-* header a client invents is passed straight
+# through. This gate reads only the first and the fourth, so it is safe
+# today -- but if you ever widen what the nginx conf reads, confirm the
+# new header is on that list first. A sixth Tailscale-Something header
+# would be attacker-controlled, and it would look exactly as
+# trustworthy as the two that are not.
+# (Raised by review, 2026-08-07: the original comment said "any
+# client-supplied Tailscale-* headers", which is the kind of
+# almost-true that gets a future change wrong.)
+#
+# The gate is bound to 127.0.0.1:8144 on the host: unreachable off-box
+# except through the tunnel, and a local user on this Mac can already
+# read :8044 directly, so it adds no local surface.
+write_wiki_tailnet_gate() {
+    local _wg_owner="${1:-}"
+    local _wg_file="${OSTLER_DIR}/ostler-wiki-gate.conf"
+    local _wg_owner_lc=""
+
+    # Conf-injection guard. A login is an email-shaped identifier
+    # (alice@example.com, alice@github, alice@passkey). Anything
+    # carrying nginx syntax -- quotes, braces, semicolons, newlines --
+    # is refused outright rather than escaped, because a gate we are
+    # not certain of must not exist.
+    if [[ ! "$_wg_owner" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$ ]]; then
+        cat > "$_wg_file" <<'NGINXWIKIOFFEOF'
+# Ostler wiki tailnet gate -- generated by the Ostler installer.
+# Do not edit by hand; re-run the installer to regenerate.
+#
+# FAIL-CLOSED: no usable tailnet owner identity, so no server listens
+# on 8144 and the wiki stays on-device only.
+NGINXWIKIOFFEOF
+        chmod 644 "$_wg_file"
+        return 1
+    fi
+
+    _wg_owner_lc="$(printf '%s' "$_wg_owner" | tr '[:upper:]' '[:lower:]')"
+
+    # Quoted heredocs either side of the printf so nginx's own $http_*
+    # variables land verbatim and only the owner login interpolates.
+    {
+        cat <<'NGINXWIKIHEADEOF'
+# Ostler wiki tailnet gate -- generated by the Ostler installer.
+# Do not edit by hand; re-run the installer to regenerate.
+
+# Owner allowlist. Tailscale stamps this header from the tunnel's
+# verified identity after deleting whatever the client sent, so a
+# tailnet peer cannot forge it. Both the login as Tailscale reports it
+# and its lowercase form are listed because nginx map keys are
+# case-sensitive. Everything else -- including a shared-in peer, a
+# tagged node, and any request with no identity at all -- falls to
+# default 0 => 403.
+map $http_tailscale_user_login $ostler_wiki_user_ok {
+    default 0;
+NGINXWIKIHEADEOF
+        printf '    "%s" 1;\n' "$_wg_owner"
+        if [[ "$_wg_owner_lc" != "$_wg_owner" ]]; then
+            printf '    "%s" 1;\n' "$_wg_owner_lc"
+        fi
+        cat <<'NGINXWIKIBODYEOF'
+}
+
+# Funnel rejection. Funnel exposes a serve target to the PUBLIC
+# internet; tailscaled marks such requests Tailscale-Funnel-Request
+# and supplies no identity. The installer never enables Funnel, but
+# an operator could, so refuse the traffic here as well -- two
+# independent limbs, either of which alone keeps the graph private.
+map $http_tailscale_funnel_request $ostler_wiki_not_funnel {
+    default 0;
+    ""      1;
+}
+
+server {
+    # Loopback-only on the host (see the compose port mapping); the
+    # sole route in is `tailscale serve` from the tunnel.
+    listen 8144;
+
+    location / {
+        if ($ostler_wiki_not_funnel = 0) { return 403; }
+        if ($ostler_wiki_user_ok = 0) { return 403; }
+        # Variable upstream + the http-block resolver so nginx boots
+        # even when wiki-site is not up yet (it starts in a later
+        # install phase) and re-resolves if the container restarts.
+        set $ostler_wiki_upstream "http://wiki-site:8000";
+        proxy_pass $ostler_wiki_upstream$request_uri;
+    }
+}
+NGINXWIKIBODYEOF
+    } > "$_wg_file"
+    chmod 644 "$_wg_file"
+    return 0
+}
+
+# MOVED HERE 2026-08-18 (task #409). It used to be defined at line 18386 and
+# CALLED at 13480. Bash creates a function when its definition line EXECUTES,
+# so the call ran 4,906 lines before the definition existed and every install
+# died with `_install_enrichment_agent: command not found` at step 15 of 39.
+# Verified on Andy's 16 GB Mini: ERR-99-INSTALL-ABORT-L13549.
+#
+# Its body needs OSTLER_DIR (set line 283), USER_ID_ARG (13237) and the
+# installed CM019 tree (step 14, immediately before the caller). All present
+# at the call site, which is why moving the DEFINITION is sufficient and the
+# CALL does not move.
+_install_enrichment_agent() {
+    local label="com.ostler.enrich"
+    local plist="${HOME}/Library/LaunchAgents/${label}.plist"
+    local interval_s="${OSTLER_ENRICH_INTERVAL_S:-1800}"
+    local budget_s="${OSTLER_ENRICH_BUDGET_SECONDS:-600}"
+    local wrapper="${OSTLER_DIR}/bin/ostler-enrich-tick"
+    local cm019_dir="${OSTLER_DIR}/services/cm019"
+    local enrich_user="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
+
+    # THE ONTOLOGY IRI IS READ FROM THE WRITER, NOT TYPED HERE.
+    #
+    # The tick counts `pwg:enrichedAt` subjects to report its own delta, so
+    # its PREFIX has to match whatever enrichment actually writes. Typing the
+    # IRI in would be a second source of truth for one fact, and this file
+    # already carries the readback further up: two literals, one of which
+    # would be silently wrong the day #743 migrates the namespace.
+    #
+    # Deriving it also means this installer contributes NO ontology domain
+    # literal of its own for the #802 ratchet to count. Falls back to the
+    # value the shipped enricher uses today if the source is not readable,
+    # because a tick that cannot form its query is worse than one that
+    # guesses the status quo.
+    local enrich_ns
+    enrich_ns="$(grep -ohE 'https?://[a-z0-9./-]+/ontology#' \
+                     "${cm019_dir}/services/enrich/src/enricher.py" 2>/dev/null \
+                 | sort -u | head -1)"
+    #
+    # NO FALLBACK LITERAL. An earlier draft composed the current IRI from
+    # parts so the ratchet would not see it. That is laundering: the string
+    # would still be in the shipped installer, just spelled in a way the
+    # instrument cannot read, which is worse than the occurrence it hides.
+    # If the writer cannot be read, the tick simply cannot state a delta,
+    # and it already has a branch that says exactly that.
+
+    mkdir -p "${OSTLER_DIR}/bin" "${HOME}/Library/LaunchAgents" 2>/dev/null || true
+
+    # Single-quoted heredoc: nothing expands at install time. The wrapper
+    # resolves its paths at run time, so a re-install or a moved OSTLER_DIR
+    # does not leave a wrapper pointing at a path that no longer exists.
+    cat > "$wrapper" <<'ENRTICKEOF'
+#!/usr/bin/env bash
+# Drain the enrichment backlog in bounded slices. See #747.
+#
+# `set -uo pipefail` and NOT -e, matching ostler-scan-exports: a single
+# failing lookup must not kill the tick, because the next slice is how the
+# backlog gets drained and an agent that dies on one bad title stops
+# draining for ever.
+set -uo pipefail
+
+OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"
+LOGS_DIR="${OSTLER_DIR}/logs"
+STATE_DIR="${OSTLER_DIR}/state"
+CM019_DIR="${OSTLER_CM019_DIR:-${OSTLER_DIR}/services/cm019}"
+CM019_PY="${CM019_DIR}/.venv/bin/python3"
+ENRICH_USER="${OSTLER_ENRICH_USER:-ostler}"
+# Supplied by the plist, derived there from the shipped enricher. Empty means
+# the installer could not read the writer, and the readback below must then
+# report UNREADABLE rather than query a malformed prefix and get 0 back: a
+# zero that means "I could not ask" must never print as "nothing enriched".
+ENRICH_NS="${OSTLER_ENRICH_NS:-}"
+BUDGET_S="${OSTLER_ENRICH_BUDGET_SECONDS:-600}"
+OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}"
+LOG_FILE="${LOGS_DIR}/enrich.log"
+LOCK_DIR="${STATE_DIR}/enrich.lock"
+
+mkdir -p "$LOGS_DIR" "$STATE_DIR"
+
+log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
+
+# A slice can outlast its interval on a slow network. Overlapping passes
+# would double the outbound rate to a third party we do not own, which is
+# a courtesy issue and a rate-limit issue, so a second instance stands
+# down rather than queueing. mkdir is the atomic primitive here; a lock
+# FILE plus a test would be a race.
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    log "a previous enrichment pass is still running; standing down"
+    exit 0
+fi
+trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+
+if [[ ! -x "$CM019_PY" ]]; then
+    log "no preferences service at ${CM019_DIR}; nothing to enrich"
+    exit 0
+fi
+
+# Counts-only readback, before and after. This is what makes the log
+# EVIDENCE rather than noise: a tick that enriched nothing and a tick that
+# never ran print differently, which is the whole lesson of every silent
+# failure in this product. No item content is read or logged.
+enriched_count() {
+    [ -n "$ENRICH_NS" ] || { printf '%s' -1; return 0; }
+    curl -sf -m 5 \
+        -H 'Content-Type: application/sparql-query' \
+        -H 'Accept: application/sparql-results+json' \
+        --data-binary "PREFIX pwg: <${ENRICH_NS}>
+SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p pwg:enrichedAt ?d }" \
+        "${OXIGRAPH_URL}/query" 2>/dev/null \
+    | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    b=(d.get("results") or {}).get("bindings") or []
+    print(int((b[0].get("n") or {}).get("value") or 0) if b else 0)
+except Exception:
+    print(-1)' 2>/dev/null \
+    || printf '%s' -1
+}
+
+before="$(enriched_count)"
+log "tick start: enrichedAt=${before} budget=${BUDGET_S}s"
+
+( cd "$CM019_DIR" && QDRANT_COLLECTION="${QDRANT_COLLECTION:-preferences}" \
+    "$CM019_PY" -m services.enrich.src.cli enrich \
+        --all --budget-seconds "$BUDGET_S" -u "$ENRICH_USER" \
+) >>"$LOG_FILE" 2>&1
+rc=$?
+
+after="$(enriched_count)"
+
+# -1 means the readback itself failed, which is a DIFFERENT event from
+# "enriched nothing" and must not be reported as a delta.
+if [[ "$before" -lt 0 || "$after" -lt 0 ]]; then
+    log "tick finished rc=${rc}, but the graph readback failed; no delta can be stated"
+elif [[ "$after" -gt "$before" ]]; then
+    log "tick finished rc=${rc}: enrichedAt ${before} -> ${after} (+$((after - before)))"
+else
+    log "tick finished rc=${rc}: enrichedAt unchanged at ${after} (backlog may be drained, or every item in this slice failed)"
+fi
+exit 0
+ENRTICKEOF
+    chmod +x "$wrapper"
+
+    cat > "$plist" <<ENRPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${label}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${wrapper}</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>OSTLER_DIR</key>
+        <string>${OSTLER_DIR}</string>
+        <key>OSTLER_CM019_DIR</key>
+        <string>${cm019_dir}</string>
+        <key>OSTLER_ENRICH_USER</key>
+        <string>${enrich_user}</string>
+        <key>OSTLER_ENRICH_BUDGET_SECONDS</key>
+        <string>${budget_s}</string>
+        <key>OXIGRAPH_URL</key>
+        <string>${OXIGRAPH_URL:-http://localhost:7878}</string>
+        <key>QDRANT_COLLECTION</key>
+        <string>preferences</string>
+        <key>OSTLER_ENRICH_NS</key>
+        <string>${enrich_ns}</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>${interval_s}</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/enrich.out</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/enrich.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
+ENRPLIST
+    chmod 0644 "$plist"
+
+    launchctl bootout "gui/\$(id -u)/${label}" 2>/dev/null || true
+    if launchctl bootstrap "gui/\$(id -u)" "$plist" 2>/dev/null || \
+       launchctl load "$plist" 2>/dev/null; then
+        ok "\$MSG_OK_ENRICH_AGENT_LOADED"
+    else
+        warn "\$MSG_WARN_ENRICH_AGENT_LOAD_FAILED"
+    fi
+}
+
+# --- END write_wiki_tailnet_gate --- (tests/test_wiki_tailnet_gate.sh
+# lifts the function out between the `write_wiki_tailnet_gate() {` line
+# and this marker, and runs it for real. It cannot key on a column-0
+# `}` because the nginx heredocs contain plenty of those. Do not
+# remove or reword this marker.)
+
 cd "$OSTLER_DIR"
 # Bring up the data services only at this phase. The wiki-site
 # image is added by piece 1 of the wiki-container brief but its
@@ -6614,20 +12568,104 @@ cd "$OSTLER_DIR"
 # a missing wiki image (e.g. registry not yet wired) -- the data
 # layer comes up first; the wiki layer fails on its own phase
 # with its own error surface.
-docker compose up -d qdrant oxigraph redis
+# ── Cold-VM hardening for the graph DB bring-up ───────────────────
+# TNM 2026-06-15 (ERR-99-INSTALL-ABORT-L7105 on a fresh-wipe Studio
+# install). On a genuinely FRESH install the Colima VM has only just
+# cold-booted. The earlier "Docker running" gate proves the daemon
+# socket answers, but NOT that the guest VM's network is routable yet
+# -- and the FIRST docker operation at this phase is an image PULL of
+# qdrant / oxigraph / redis over that not-yet-warm network (these are
+# pulled from the registry, not bundled in the DMG). The bare
+# `docker compose up -d` below coupled the flaky pull to the bring-up
+# with NO retry, so a single cold-VM network blip failed under
+# `set -e` -> ERR trap -> the whole install aborted ~90% in. The
+# Qdrant readiness loop further down runs AFTER `up`, so it never
+# protected the pull.
+#
+# Fix, three guarded steps (each `if cmd; then` form so a non-zero
+# never trips errexit/the ERR trap until retries are exhausted):
+#   (1) re-confirm the daemon is reachable HERE-and-NOW (it may have
+#       been minutes since the install-docker phase),
+#   (2) PULL the three images separately with retry/backoff so a
+#       transient cold-VM network failure retries instead of aborting,
+#   (3) `up -d` (images cached now, so effectively instant) also with
+#       a short retry. Only a genuine, repeated failure is fatal, and
+#       then via fail_with_code (curated code + actionable recovery),
+#       never the synthetic ERR-99.
+#
+# Post-launch hardening (NOT done here, tracked v1.0.1): bundling the
+# 3 images into the DMG (docker save -> docker load) would remove this
+# net pull, but the install already pulls multi-GB from the net anyway
+# (the Ollama conversation model + the ~3.6 GB Vane image), so it would
+# not remove the network dependency. Making the pull resilient is the
+# proportionate v1.0.0 fix.
+
+# (1) Daemon reachable here-and-now (cold-VM socket forwarding can lag).
+_gdb_docker_ready=false
+for _ in $(seq 1 40); do
+    if docker info &>/dev/null 2>&1; then _gdb_docker_ready=true; break; fi
+    sleep 3
+done
+if [[ "$_gdb_docker_ready" != true ]]; then
+    fail_with_code "ERR-06-GRAPH-DB-DOCKER" "$MSG_FAIL_GRAPH_DB_DOCKER_NOT_READY"
+fi
+unset _gdb_docker_ready
+
+# (2) Pull the data images with retry/backoff (the flaky cold-VM step).
+info "$MSG_INFO_PULLING_GRAPH_DB_IMAGES"
+_gdb_pulled=false
+_gdb_backoff=10
+for _gdb_attempt in 1 2 3 4 5; do
+    if docker compose pull qdrant oxigraph redis store-proxy; then
+        _gdb_pulled=true; break
+    fi
+    if (( _gdb_attempt < 5 )); then
+        warn "$(printf "$MSG_WARN_GRAPH_DB_PULL_RETRY" "$_gdb_attempt" "5" "$_gdb_backoff")"
+        sleep "$_gdb_backoff"
+        _gdb_backoff=$(( _gdb_backoff * 2 ))
+    fi
+done
+if [[ "$_gdb_pulled" != true ]]; then
+    fail_with_code "ERR-06-GRAPH-DB-PULL" "$MSG_FAIL_GRAPH_DB_PULL_FAILED"
+fi
+unset _gdb_pulled _gdb_backoff _gdb_attempt
+
+# (3) Bring them up (images cached now -> fast) with a short retry.
+_gdb_up=false
+for _gdb_up_attempt in 1 2 3; do
+    if docker compose up -d qdrant oxigraph redis store-proxy; then
+        _gdb_up=true; break
+    fi
+    if (( _gdb_up_attempt < 3 )); then
+        warn "$(printf "$MSG_WARN_GRAPH_DB_UP_RETRY" "$_gdb_up_attempt" "3")"
+        sleep 5
+    fi
+done
+if [[ "$_gdb_up" != true ]]; then
+    fail_with_code "ERR-06-GRAPH-DB-UP" "$MSG_FAIL_GRAPH_DB_UP_FAILED"
+fi
+unset _gdb_up _gdb_up_attempt
 ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 
 # ── Pre-create optional Qdrant collections (#606) ────────────────
 #
 # The wiki compiler reads several Qdrant collections at compile time.
-# On a fresh install `people` is self-created by ingest_people_to_qdrant
-# (hydrate_people) and `preferences` by the CM019 ingest, but
+# On a fresh install `people` is written first by the contact hydrate
+# (hydrate_graph, contact_syncer) and then topped up by the people
+# ingest (hydrate_people), and `preferences` by the CM019 ingest, but
 # conversations / evernote_knowledge (and preferences when no prefs
 # data lands) are never created until their source data first arrives,
 # which may be never on day one. A bare read of a missing collection
 # 404s, and CM044's person_pages reader treats a conversations 404 as
 # fatal, aborting the whole compile so /people/ 404s. Pre-creating the
 # collections empty makes every read return an empty set instead.
+#
+# `people` is pre-created here as belt-and-braces (#638). The contact
+# syncer now self-creates `people` before its first upsert (so the
+# hydrate no longer 404s mid-run on a fresh box), but pre-creating it
+# as well means an early reader never 404s in the window before the
+# first contact write, and a Mac with no contacts at all still leaves
+# an empty `people` for the wiki to read instead of a missing one.
 #
 # nomic-embed-text (the embedder used across the graph ingest paths) is
 # 768-dim, Cosine, unnamed vectors -- matching the people collection
@@ -6648,7 +12686,21 @@ for _ in $(seq 1 30); do
 done
 
 if [[ "$_qdrant_ready" == true ]]; then
-    for _coll in conversations preferences evernote_knowledge; do
+    # v1.0.10 install-abort fix (regression gate): the shipped client fleet
+    # is keyless, so an AUTH-REQUIRING Qdrant endpoint MUST answer WITHOUT a
+    # credential here. The readiness loop above uses /readyz which is
+    # unauthenticated, so it cannot catch a store-auth leak; /collections
+    # can. If a leaked API key ever re-arms Qdrant auth, fail NOW with a
+    # clear named error at the database step rather than a mystery ERR-99
+    # abort at "Importing your data" ~30 min later. One retry distinguishes
+    # a persistent 401 (leak) from a one-off blip.
+    if ! curl -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
+        sleep 2
+        if ! curl -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
+            fail_with_code "ERR-06-STORE-AUTH-LEAK" "$MSG_FAIL_STORE_AUTH_LEAK"
+        fi
+    fi
+    for _coll in people conversations preferences evernote_knowledge; do
         # Already present? Leave it untouched (never clobber real data).
         if curl -sf -m 5 "${_qdrant_url}/collections/${_coll}" &>/dev/null; then
             continue
@@ -6749,6 +12801,34 @@ if [[ "$EMBED_HEALTH_CODE" != "200" ]] || \
     fail_with_code "ERR-13-EMBED-HEALTHCHECK" \
         "$(printf "$MSG_FAIL_EMBED_HEALTHCHECK" "$INSTALL_LOG")"
 fi
+
+# DIMENSION PARITY. The [memory] block above writes
+# embedding_dimensions = 768 because that is what nomic-embed-text emits.
+# That number is an ASSUMPTION until something measures it, and a wrong one
+# is silent: the daemon would size every stored vector to a width the model
+# never produces, and recall degrades without an error.
+#
+# We already have a real vector in hand from the healthcheck above, so count
+# it rather than trust the constant. If the model is ever swapped and the
+# width changes, the install fails HERE with both numbers named, instead of
+# shipping a memory system that quietly cannot match anything.
+EMBED_DIMS_ACTUAL="$(python3 -c "
+import json,sys
+try:
+    d=json.load(open('$EMBED_HEALTH_BODY'))
+    print(len(d['embeddings'][0]))
+except Exception:
+    print('')
+" 2>/dev/null || true)"
+if [[ -z "$EMBED_DIMS_ACTUAL" ]]; then
+    # Could not count. Do NOT treat an unreadable probe as agreement --
+    # that is the false green this whole block exists to prevent.
+    warn "$MSG_WARN_EMBED_DIMS_UNREADABLE"
+elif [[ "$EMBED_DIMS_ACTUAL" != "768" ]]; then
+    rm -f "$EMBED_HEALTH_BODY"
+    fail_with_code "ERR-13-EMBED-DIMS" \
+        "$(printf "$MSG_FAIL_EMBED_DIMS" "$EMBED_DIMS_ACTUAL" "768")"
+fi
 rm -f "$EMBED_HEALTH_BODY"
 ok "$MSG_OK_EMBEDDINGS_VERIFIED"
 
@@ -6804,6 +12884,13 @@ if [[ -d "${SCRIPT_DIR}/contact_syncer" ]]; then
     # raise ImportError at install time.
     [[ -d "${SCRIPT_DIR}/meeting_syncer" ]] && cp -R "${SCRIPT_DIR}/meeting_syncer" "$PIPELINE_DIR/"
     [[ -d "${SCRIPT_DIR}/identity_resolver" ]] && cp -R "${SCRIPT_DIR}/identity_resolver" "$PIPELINE_DIR/"
+    # CM041 v1.0.9 (2026-07-15): pwg_privacy.py is the canonical
+    # fail-closed L3 privacy helper at the CM041 repo root.
+    # meeting_syncer/brief.py hard-imports it (top-level, unguarded)
+    # from its parent dir (_PARENT_DIR sys.path hack = PIPELINE_DIR
+    # here), so it must land as a SIBLING of the three packages --
+    # without it the pre-meeting brief raises ImportError.
+    [[ -f "${SCRIPT_DIR}/pwg_privacy.py" ]] && cp "${SCRIPT_DIR}/pwg_privacy.py" "$PIPELINE_DIR/"
     [[ -f "${SCRIPT_DIR}/requirements.txt" ]] && cp "${SCRIPT_DIR}/requirements.txt" "$PIPELINE_DIR/"
     ok "$MSG_OK_IMPORT_PIPELINE_BUNDLED_WITH_INSTALLER"
     HAS_PIPELINE=true
@@ -6906,7 +12993,7 @@ fi
 # symlinked into /usr/local/bin/. CM048 turns raw human-to-human
 # conversation transcripts into three-tier output: conversation MD,
 # per-person relationship signals (Oxigraph), and user-coach
-# observations (SQLite). Doctor + Marvin + assistant invoke pwg-convo
+# observations (SQLite). Doctor + assistant invoke pwg-convo
 # via subprocess; CM048 has NO library coupling to other services on
 # disk (productisation Rule 0.5: each service self-contained).
 #
@@ -6997,6 +13084,28 @@ if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
 
     info "$MSG_INFO_INSTALLING_CM048_PIPELINE_INTO_VENV"
     "$CM048_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+
+    # ostler_security is a HARD dependency of CM048's pipeline -- src/
+    # ingest.py imports ostler_security.database + ostler_security.posture
+    # at module load and refuses to run without them, yet CM048's
+    # pyproject.toml does NOT declare it (the two repos are deliberately
+    # decoupled on disk -- productisation Rule 0.5). Install the vendored
+    # source the same way the Hub venv does (Phase 3 ~L3352), BEFORE the
+    # pipeline so the dep is resolvable. Without this every conversation
+    # bundle exhausts at step 07, qdrant `conversations` stays at zero,
+    # and the wiki /Conversations/ section ships permanently empty.
+    if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/pyproject.toml" ]]; then
+        info "$MSG_INFO_INSTALLING_OSTLER_SECURITY_INTO_CM048_VENV"
+        if ! _ostler_pip_install_pkg "$CM048_VENV/bin/pip" "${SCRIPT_DIR}/ostler_security" --quiet 2>/tmp/ostler-cm048-security-pip.log; then
+            warn "$MSG_WARN_OSTLER_SECURITY_INSTALL_FAILED_CM048"
+            if [[ -s /tmp/ostler-cm048-security-pip.log ]]; then
+                sed -e 's/^/    /' /tmp/ostler-cm048-security-pip.log | tail -5
+            fi
+        fi
+    else
+        warn "$MSG_WARN_OSTLER_SECURITY_SOURCE_MISSING_CM048"
+    fi
+
     if "$CM048_VENV/bin/pip" install --quiet "$CM048_DIR" 2>/tmp/ostler-cm048-pip.log; then
         info "$MSG_INFO_CM048_PIPELINE_INSTALLED_VENV"
     else
@@ -7020,14 +13129,27 @@ if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
             sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
         fi
 
-        # Health check via the symlink. pwg-convo uses argparse without
-        # a --version flag (subcommands carry the per-mode arguments),
-        # so we exercise --help which argparse adds automatically and
-        # exits 0. Confirms PATH-side wiring + venv binding.
-        if "$CM048_SYMLINK" --help >/dev/null 2>&1; then
+        # Health check. Two gates, both must pass:
+        #
+        #   1. `pwg-convo --help` exercises the argparse entrypoint and
+        #      confirms PATH-side wiring + venv binding (pwg-convo has no
+        #      --version flag; --help exits 0).
+        #
+        #   2. `import src.ingest` inside the CM048 venv actually loads
+        #      the pipeline module, which hard-imports ostler_security.
+        #      The bare --help probe PASSES even with ostler_security
+        #      missing -- argparse never touches src.ingest -- so on its
+        #      own it logged `cm048_setup status=ok` for a dead pipeline
+        #      (every conversation bundle then exhausting at step 07).
+        #      This second gate makes a missing dependency FAIL the step.
+        if "$CM048_SYMLINK" --help >/dev/null 2>&1 \
+           && "$CM048_VENV/bin/python3" -c 'import src.ingest' >/tmp/ostler-cm048-import.log 2>&1; then
             ok "$MSG_OK_CM048_PIPELINE_READY"
         else
             warn "$MSG_WARN_HEALTH_CHECK_FAILED_PWG_CONVO_HELP"
+            if [[ -s /tmp/ostler-cm048-import.log ]]; then
+                sed -e 's/^/    /' /tmp/ostler-cm048-import.log | tail -5
+            fi
         fi
     else
         warn "$(printf "$MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML" "$CM048_BIN")"
@@ -7087,7 +13209,7 @@ fi
 #      returns empty (try/except in ical-server.py swallows it).
 #      See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F4.
 #
-#   2. ~/.zeroclaw/ical-query.sh -- a shell wrapper that ical-server
+#   2. ~/.ostler/ical/ical-query.sh -- a shell wrapper that ical-server
 #      invokes for iCloud / CalDAV events. Without it the wrapper
 #      shell-out raises FileNotFoundError and the iCloud calendar
 #      returns empty events (same silent-degrade pattern as gws).
@@ -7181,11 +13303,17 @@ else
     rm -rf "$GWS_TMPDIR"
 fi
 
-# 2. ~/.zeroclaw/ical-query.sh -- shell wrapper that ical-server
-# invokes for iCloud / CalDAV calendar events. The path is a legacy
-# artefact of how the bridge was first wired on Andy's instance;
-# rather than patching every call site we materialise the wrapper
-# at the path ical-server.py defaults to.
+# 2. ~/.ostler/ical/ical-query.sh -- shell wrapper that ical-server
+# invokes for iCloud / CalDAV calendar events.
+#
+# This used to live under ~/.zeroclaw/ -- a leak of the upstream
+# runtime's codename into a customer-visible path (the dir is created
+# and the path is printed in the install log pane). Repointed to
+# ~/.ostler/ical/ so nothing customer-facing references the codename.
+# ical-server.py reads its wrapper path from the ICAL_SCRIPT env var
+# (defaulting to the old ~/.zeroclaw path), so the launchd plist below
+# sets ICAL_SCRIPT to this new location explicitly -- the server still
+# finds the wrapper after the move.
 #
 # The wrapper hands off to a Python module under the customer's
 # Ostler venv. We write a stub that exits non-zero with a clear
@@ -7194,9 +13322,17 @@ fi
 # / OSTLER_ICLOUD_APP_PASSWORD env vars when present). Once those
 # env vars are set, the wrapper shells out to the python-caldav
 # library to fetch upcoming events as raw iCal text.
-ICAL_WRAPPER_DIR="${HOME}/.zeroclaw"
+ICAL_WRAPPER_DIR="${OSTLER_DIR}/ical"
 ICAL_WRAPPER="${ICAL_WRAPPER_DIR}/ical-query.sh"
-mkdir -p "$ICAL_WRAPPER_DIR"
+# ical-server.py also defaults INGEST_DIR and SYNC_STATE_DIR under the
+# ~/.zeroclaw/ codename dir. Repointing ICAL_SCRIPT alone left those two
+# defaults intact, so a ~/.zeroclaw/ dir still grew on the customer's
+# disk. Pin both to ~/.ostler/ical/ subdirs and pre-create them; the
+# launchd plist below exports the matching env vars so the server uses
+# these paths and never touches ~/.zeroclaw/.
+ICAL_INGEST_DIR="${ICAL_WRAPPER_DIR}/ingest"
+ICAL_SYNC_STATE_DIR="${ICAL_WRAPPER_DIR}/sync-state"
+mkdir -p "$ICAL_WRAPPER_DIR" "$ICAL_INGEST_DIR" "$ICAL_SYNC_STATE_DIR"
 cat > "$ICAL_WRAPPER" <<'ICALWRAPEOF'
 #!/usr/bin/env bash
 # ostler ical-query wrapper. Generated by install.sh.
@@ -7369,9 +13505,14 @@ else
 #!/usr/bin/env bash
 # Ostler shared export importer.
 #
-# Fans one or more export directories to BOTH consumers:
+# Fans one or more export directories to THREE consumers:
 #   - the people graph   (CM041 contact_syncer.import_all)
 #   - the preference wiki (CM019 ingest-dir + enrich --all -> `preferences`)
+#   - the universal importer (ostler_fda.universal_import) -- sniffs each
+#     dir for a recognised export shape (Facebook Messenger, WhatsApp,
+#     Apple Notes, a Google Takeout / .mbox, ...) and routes it to its
+#     parser. Conversation exports (Facebook Messenger) additionally
+#     persist to the conversations store via the CM048 pwg-convo pipeline.
 #
 # It is the SINGLE ingest path. Three entry points call it:
 #   1. install.sh's install-time hydrate (Downloads + the drop-zone),
@@ -7379,16 +13520,25 @@ else
 #   3. a power-user fallback (run it by hand).
 #
 # Safe to re-run over the same dir: contact_syncer dedupes (identity
-# resolver + DedupDetector) and the CM019 preferences upsert is keyed by
-# stable id, so a second pass is a no-op rather than a duplicate.
+# resolver + DedupDetector), the CM019 preferences upsert is keyed by
+# stable id, and the CM048 conversation pipeline keys by conversation_id
+# (a re-run overwrites the same bundle), so a second pass is a no-op
+# rather than a duplicate.
 #
 # Non-fatal by design: a missing/!ready pipeline is skipped, not a hard
-# error, so one consumer being unavailable never blocks the other.
+# error, so one consumer being unavailable never blocks the others.
 set -uo pipefail
 OSTLER_DIR="${HOME}/.ostler"
 PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
 CM019_DIR="${OSTLER_DIR}/services/cm019"
 CM019_PY="${CM019_DIR}/.venv/bin/python"
+# The universal importer (ostler_fda.universal_import) runs from the
+# email-ingest venv, the one venv on the box that pip-installs ostler_fda,
+# with the staged fda-module on sys.path as a belt-and-braces fallback.
+# pwg-convo (the conversation sink it persists through) is resolved by
+# universal_import itself, honouring OSTLER_PWG_CONVO_CMD.
+UIMPORT_PY="${OSTLER_DIR}/services/email-ingest/.venv/bin/python"
+UIMPORT_FDA_DIR="${OSTLER_DIR}/fda-module"
 
 USER_NAME_ARG=""
 USER_ID_ARG=""
@@ -7402,9 +13552,11 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: ostler-import <exports-dir> [<exports-dir>...] [--user-name \"Name\"] [--user-id slug] [--verbose]"
             echo ""
-            echo "Imports GDPR / app exports into both your people graph and your"
-            echo "preferences. Ostler runs this for you automatically; you only need"
-            echo "it by hand to re-import a folder Ostler did not pick up."
+            echo "Imports GDPR / app exports into your people graph, your"
+            echo "preferences, and (for recognised exports like Facebook"
+            echo "Messenger) your conversation memory. Ostler runs this for you"
+            echo "automatically; you only need it by hand to re-import a folder"
+            echo "Ostler did not pick up."
             exit 0 ;;
         *) DIRS+=("$1"); shift ;;
     esac
@@ -7438,8 +13590,69 @@ for d in "${DIRS[@]}"; do
     if [[ -x "$CM019_PY" ]]; then
         ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
             "$CM019_PY" -m services.ingest.src.cli ingest-dir "$d" -u "$CM019_USER" ) || rc=$?
+
+        # THIS CALL IS WHY THE INSTALL STALLED FOR TEN MINUTES.
+        #
+        # It passed no --budget-seconds, so it took the option default,
+        # which reads OSTLER_ENRICH_BUDGET_SECONDS and falls back to 600.
+        # Nothing sets that variable here: the recurring agent sets it in
+        # its own plist, and this script is not the agent. Ten minutes,
+        # foreground, with a person watching a progress bar.
+        #
+        # MEASURED, and it corrects the diagnosis in the box-walk row.
+        # That row says "needs a timeout". Every client already has one
+        # (base.py:99 timeout=30.0, and settings.request_timeout for the
+        # rest). The observed nine minutes in SYN_SENT was retries with
+        # backoff against an unreachable host, not an unbounded socket,
+        # and the wall-clock budget that now bounds it landed AFTER the
+        # v1.0.33 tag: budget at 7cc2a6f (2026-08-17 19:07 +0800),
+        # v1.0.33 at a1cb850 (13:30 +0800). Adding a socket timeout would
+        # have changed nothing, because the ceiling is the budget.
+        #
+        # A SHORT ALLOWANCE IS SAFE HERE AND THAT IS NOT A CONCESSION.
+        # Enrichment skips what is already enriched, so an allowance that
+        # runs out costs nothing: the recurring agent this same installer
+        # creates (com.ostler.enrich, every 1800s) resumes exactly where
+        # this stopped. The agent's own comment already states the design
+        # rule this call was breaking: enrichment is a background drain,
+        # not an install-time pass, because a full first pass over a real
+        # corpus is hours at Wikidata's one request per second.
+        #
+        # It stays non-zero rather than being removed so a manual
+        # `ostler-import` still shows something happening.
         ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
-            "$CM019_PY" -m services.enrich.src.cli enrich --all -u "$CM019_USER" ) || rc=$?
+            "$CM019_PY" -m services.enrich.src.cli enrich --all \
+                --budget-seconds "${OSTLER_IMPORT_ENRICH_BUDGET_SECONDS:-90}" \
+                -u "$CM019_USER" ) || rc=$?
+
+        # Say what is still owed. The pass above prints PAUSED when it
+        # stops on its allowance (CM051 #821), but that word only means
+        # something if the customer is told what picks the work up.
+        echo "Enrichment ran for up to ${OSTLER_IMPORT_ENRICH_BUDGET_SECONDS:-90}s. Anything not reached is not lost: the background agent continues it."
+
+        # Start the drain now rather than up to 30 minutes from now. The
+        # agent does not exist yet during the first install (it is created
+        # later in the run), so an absent label is the NORMAL case here,
+        # not an error, and must not fail the import.
+        if launchctl print "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1; then
+            launchctl kickstart "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # ── Universal importer (ostler_fda.universal_import) ───────────
+    # Sniff the dir for a recognised export shape and route it to its
+    # parser. This is the leg that wires the previously-orphan P3 path
+    # into the real install: a dropped Facebook Messenger export now
+    # parses AND persists to the conversations store (via pwg-convo),
+    # not just stages JSON under ~/.ostler/imports/fda/. ADDITIVE: it
+    # runs AFTER P1/P2 over the same dir and shares no state with them,
+    # so it cannot regress contacts or preferences. Skip-if-absent: no
+    # email-ingest venv (so no ostler_fda) -> the leg is skipped, never
+    # an error. universal_import is itself non-crashing (an unknown drop
+    # is reported, not raised) so a stray folder cannot fail the import.
+    if [[ -x "$UIMPORT_PY" ]]; then
+        ( PYTHONPATH="${UIMPORT_FDA_DIR}:${PYTHONPATH:-}" \
+            "$UIMPORT_PY" -m ostler_fda.universal_import "$d" ) || rc=$?
     fi
 done
 exit $rc
@@ -7481,6 +13694,28 @@ if [[ -d "$_PREFS_DROPZONE" ]] \
     _IMPORT_DIRS+=("$_PREFS_DROPZONE")
 fi
 
+# ── Mailbox correspondents -> people graph (v1.0.3 mailbox-ingest leg) ──
+# Seed the universal_import P3 leg with any RAW MAILBOX the operator has,
+# so its correspondents (who they email, how often) land as Person nodes
+# in the people graph -- the biggest untapped GDPR enrichment. The leg
+# itself (already wired above) sniffs each dir and routes a Gmail .mbox or
+# an Apple Mail .emlx tree to ostler_fda.universal_import, which persists
+# people-graph facts via pwg_ingest (email BODIES are never persisted --
+# people-only, normal People privacy level). BOUNDED by design (the CX-126
+# lesson): we seed ONLY specific, already-confirmed mailbox roots, never an
+# unbounded Downloads rglob.
+#   1. The Gmail Takeout mbox the customer already confirmed in 9.4
+#      (OSTLER_TAKEOUT_PATH) -- pass its containing dir so the leg sniffs
+#      the single .mbox, not a whole tree.
+#   2. An explicit OSTLER_MAILBOX_DIR (Apple Mail .emlx export or a loose
+#      .mbox the operator points us at). No hardcoded paths; skip-if-absent.
+if [[ -n "${OSTLER_TAKEOUT_PATH:-}" && -f "${OSTLER_TAKEOUT_PATH}" ]]; then
+    _IMPORT_DIRS+=("$(dirname "${OSTLER_TAKEOUT_PATH}")")
+fi
+if [[ -n "${OSTLER_MAILBOX_DIR:-}" && -d "${OSTLER_MAILBOX_DIR}" ]]; then
+    _IMPORT_DIRS+=("${OSTLER_MAILBOX_DIR}")
+fi
+
 if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
     progress "Importing your data (building your knowledge graph)" "import_data"
     info "$MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES"
@@ -7493,6 +13728,11 @@ if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
         warn "$(printf "$MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE" "${_IMPORT_DIRS[0]}" "${USER_NAME}")"
     fi
     # Counts-only preferences readback; no item content leaves the process.
+    # v1.0.10 install-abort fix: this is a counts-only, non-fatal
+    # diagnostic, but under `set -Eeuo pipefail` a failing curl (401 /
+    # timeout / 5xx) rides pipefail through the python guard and aborts
+    # the whole install at the bare assignment. `|| printf '0'` keeps the
+    # command-substitution exit 0 so it degrades to its designed warn path.
     _PREFS_POINTS="$(
         curl -sf -m 5 "${QDRANT_URL:-http://localhost:6333}/collections/preferences" 2>/dev/null \
         | python3 -c 'import json,sys
@@ -7500,11 +13740,139 @@ try:
     d=json.loads(sys.stdin.read())
     print(int(((d.get("result") or {}).get("points_count")) or 0))
 except Exception:
-    print(0)' 2>/dev/null
+    print(0)' 2>/dev/null \
+        || printf '0'
     )"
     _PREFS_POINTS="${_PREFS_POINTS:-0}"
     if [[ "$_PREFS_POINTS" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_PREFERENCES_DONE" "$_PREFS_POINTS")"
+
+        # ── Enriched count, read from where enrichment actually writes ──
+        #
+        # The line above used to say "Imported and enriched %s" against the
+        # INGEST count. On 2026-08-17 that printed 2,963 while enrichment
+        # had succeeded exactly once. The number was never wrong; it was
+        # answering a different question from the one the sentence asked.
+        #
+        # `pwg:enrichedAt` is the predicate enricher.py writes on success
+        # and the one `enrich stats` has always counted, so this reads the
+        # same fact the product could already state about itself. Same
+        # counts-only, non-fatal shape as the readback above: a SPARQL
+        # error degrades to 0 and prints nothing rather than aborting.
+        _PREFS_ENRICHED="$(
+            curl -sf -m 5 \
+                -H 'Content-Type: application/sparql-query' \
+                -H 'Accept: application/sparql-results+json' \
+                --data-binary 'PREFIX pwg: <http://pwg.local/ontology#>
+SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p pwg:enrichedAt ?d }' \
+                "${OXIGRAPH_URL:-http://localhost:7878}/query" 2>/dev/null \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    b=(d.get("results") or {}).get("bindings") or []
+    print(int((b[0].get("n") or {}).get("value") or 0) if b else 0)
+except Exception:
+    print(0)' 2>/dev/null \
+            || printf '0'
+        )"
+        _PREFS_ENRICHED="${_PREFS_ENRICHED:-0}"
+        if [[ "$_PREFS_ENRICHED" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_PREFERENCES_ENRICHED" "$_PREFS_ENRICHED")"
+        fi
+
+        # #747. Whatever the count above says, keep enriching. Before this
+        # the number could only ever change when the customer dropped
+        # another data export into ~/Downloads, because that was the only
+        # path in the product that reached enrichment at all.
+        #
+        # OFF UNLESS EXPLICITLY ENABLED. Andy's decision, 2026-08-18.
+        #
+        # This agent runs every 30 minutes, indefinitely, and each pass sends
+        # preference subjects to third-party services (Wikidata, MusicBrainz,
+        # Open Library). That is a standing outbound behaviour, and the
+        # directive is that the customer decides whether public-data
+        # enrichment runs at all rather than discovering it later.
+        #
+        # DEFAULTING TO OFF PRESERVES SHIPPED BEHAVIOUR RATHER THAN CHANGING
+        # IT, which is the part that is easy to get backwards. The call above
+        # was unreachable in every DMG to date: the function was defined 4,906
+        # lines BELOW this line, so bash had not created it yet and the
+        # install died here. No customer Mac has ever run this agent. Enabling
+        # it by default would therefore not be restoring an existing feature,
+        # it would be switching on a new unattended network behaviour in the
+        # launch cut.
+        #
+        # The one-shot enrichment pass earlier in this step is unaffected and
+        # still runs, and the #410 provenance gate covers what it may send.
+        # The customer-facing question that turns this on lives in #397.
+        if [[ "${OSTLER_ENRICH_AGENT_ENABLED:-0}" == "1" ]]; then
+            _install_enrichment_agent
+        else
+            info "Recurring enrichment agent not installed: public-data enrichment is off until you choose it."
+        fi
+
+        # ── Category coverage guard (CX: silent-blank Food / Music) ─────
+        # Preferences landed, but the headline wiki pages (Food, Music,
+        # Professional) and every Topic page read a `category` field off the
+        # Qdrant payload. If points arrive carrying no/wrong category they
+        # reach NO page, so the wiki renders "Nothing here yet" while the
+        # service is green -- exactly the failure that hid food=0 / music=0
+        # behind a healthy install. Surface it loudly here rather than
+        # leaving the operator to discover blank pages later. Counts-only,
+        # no item content leaves the process; non-fatal (warn, never abort).
+        _cat_count() {
+            # Count points whose payload.category == $1. Empty/!ready -> 0.
+            curl -sf -m 5 -H 'Content-Type: application/json' \
+                -X POST "${QDRANT_URL:-http://localhost:6333}/collections/preferences/points/count" \
+                -d "{\"exact\":true,\"filter\":{\"must\":[{\"key\":\"category\",\"match\":{\"value\":\"$1\"}}]}}" \
+                2>/dev/null \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(((d.get("result") or {}).get("count")) or 0))
+except Exception:
+    print(0)' 2>/dev/null \
+            || printf '0'
+        }
+        _FOOD_POINTS="$(_cat_count food)";          _FOOD_POINTS="${_FOOD_POINTS:-0}"
+        _MUSIC_POINTS="$(_cat_count music)";         _MUSIC_POINTS="${_MUSIC_POINTS:-0}"
+        _PROF_POINTS="$(_cat_count professional)";   _PROF_POINTS="${_PROF_POINTS:-0}"
+
+        # Count points with no category at all (orphans that reach no Topic
+        # page). Qdrant `is_empty` matches null/absent payload keys.
+        _UNCAT_POINTS="$(
+            curl -sf -m 5 -H 'Content-Type: application/json' \
+                -X POST "${QDRANT_URL:-http://localhost:6333}/collections/preferences/points/count" \
+                -d '{"exact":true,"filter":{"must":[{"is_empty":{"key":"category"}}]}}' \
+                2>/dev/null \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(((d.get("result") or {}).get("count")) or 0))
+except Exception:
+    print(0)' 2>/dev/null \
+            || printf '0'
+        )"
+        _UNCAT_POINTS="${_UNCAT_POINTS:-0}"
+
+        # All three headline categories empty despite points landing = the
+        # category-mapping/ingest leg dropped them. Loud warning.
+        if [[ "$_FOOD_POINTS" -eq 0 && "$_MUSIC_POINTS" -eq 0 && "$_PROF_POINTS" -eq 0 ]]; then
+            warn "$(printf "$MSG_WARN_PREFS_NO_HEADLINE_CATEGORIES" "$_PREFS_POINTS")"
+            warn "$MSG_WARN_PREFS_HEADLINE_HINT"
+        fi
+
+        # >25% of points with no category at all = mapping gap; they will
+        # never surface on a Topic page. Integer maths (no bc dependency).
+        if [[ "$_UNCAT_POINTS" -gt 0 ]] \
+           && [[ $(( _UNCAT_POINTS * 100 / _PREFS_POINTS )) -gt 25 ]]; then
+            warn "$(printf "$MSG_WARN_PREFS_UNCATEGORISED" \
+                "$_UNCAT_POINTS" "$_PREFS_POINTS" \
+                "$(( _UNCAT_POINTS * 100 / _PREFS_POINTS ))")"
+        fi
+
+        unset -f _cat_count
+        unset _FOOD_POINTS _MUSIC_POINTS _PROF_POINTS _UNCAT_POINTS
     fi
     unset _PREFS_POINTS
 elif [[ -n "${EXPORTS_DIR:-}" ]]; then
@@ -7520,7 +13888,19 @@ cat > "${OSTLER_DIR}/bin/ostler-fda" <<'FDAEOF'
 set -euo pipefail
 OSTLER_DIR="${HOME}/.ostler"
 FDA_DIR="${OSTLER_DIR}/fda-module"
-OSTLER_PYTHON="${OSTLER_DIR}/.venv/bin/python3"
+# v1.0.12 FIX A: self-resolve the Python interpreter. This script is driven by
+# the com.ostler.fda-rerun LaunchAgent, whose environment does NOT inherit the
+# installer shell's OSTLER_PYTHON / OSTLER_VENV / OSTLER_DIR vars. Resolve them
+# locally so `ostler-assistant run-source fda-rerun` never dies on an empty var
+# (was exit 127 every run -> Photos/Reminders backfill never happened). Prefer
+# an explicit override, then the venv, then system python3. Mirrors the sibling
+# tick scripts (vendor/email_ingest/bin/email-ingest-tick.sh,
+# vendor/imessage_bridge/INSTALL_SNIPPET.sh). The :- default form is also what
+# keeps this safe under `set -u` above.
+OSTLER_PYTHON="${OSTLER_PYTHON:-${OSTLER_DIR}/.venv/bin/python3}"
+if [[ ! -x "$OSTLER_PYTHON" ]]; then
+    OSTLER_PYTHON="$(command -v python3 || true)"
+fi
 
 if [[ ! -d "$FDA_DIR/ostler_fda" ]]; then
     echo "Error: FDA extraction module not installed."
@@ -7542,7 +13922,11 @@ echo ""
 if [[ -f "${HOME}/.ostler/config/.env" ]]; then
     set -a; source "${HOME}/.ostler/config/.env"; set +a
 fi
-"\$OSTLER_PYTHON" -c "
+# v1.0.12 FIX A: invoke the resolved interpreter directly. A stray backslash
+# here previously made bash run a literal command named '$OSTLER_PYTHON' ->
+# "command not found" exit 127 on every fda-rerun, so the Photos/Reminders
+# backfill never ran and no reminders.done / photos.done markers appeared.
+"$OSTLER_PYTHON" -c "
 import sys
 sys.path.insert(0, '${FDA_DIR}')
 from ostler_fda.extract_all import run_all
@@ -7702,6 +14086,19 @@ for f in "$DOWNLOADS"/netflix-*.zip "$DOWNLOADS"/NetflixViewingHistory*.csv; do 
 for f in "$DOWNLOADS"/Apple_Media_Services*.zip "$DOWNLOADS"/AppleMediaServices*.zip "$DOWNLOADS"/apple*media*services*.zip; do _add "$f" "Apple"; done
 for f in "$DOWNLOADS"/amazon*.zip "$DOWNLOADS"/"Your Orders"*.zip; do _add "$f" "Amazon"; done
 
+# #657: supplement the name-glob matches above with the SAME signature-based
+# detector the install-time scan uses, so renamed / "Complete" / still-zipped
+# exports dropped here later are caught too (not just the exact 2026 names).
+# Strictly ADDITIVE with a fallback: if the detector lib is unreadable this
+# block is skipped entirely, leaving behaviour byte-identical to the name-glob
+# path above -- a missing/failed lib read can never regress a working install.
+_OSTLER_DETECT="${OSTLER_DIR}/lib/ostler-detect-exports.sh"
+if [[ -r "$_OSTLER_DETECT" ]]; then
+    while IFS=$'\t' read -r _lbl _pth; do
+        [[ -n "$_pth" ]] && _add "$_pth" "$_lbl"
+    done < <(bash "$_OSTLER_DETECT" "$DOWNLOADS" --unzip 2>/dev/null || true)
+fi
+
 [[ ${#FOUND[@]} -eq 0 ]] && exit 0
 
 # Guard: skip while anything is still downloading -- partial-download
@@ -7768,7 +14165,9 @@ cat > "$SCAN_PLIST" <<SPEOF
     <string>com.ostler.export-scan</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${OSTLER_DIR}/bin/ostler-scan-exports</string>
+        <string>${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant</string>
+        <string>run-source</string>
+        <string>export-scan</string>
     </array>
     <key>StartInterval</key>
     <integer>14400</integer>
@@ -7781,8 +14180,34 @@ cat > "$SCAN_PLIST" <<SPEOF
 </dict>
 </plist>
 SPEOF
-launchctl bootstrap "gui/$(id -u)" "$SCAN_PLIST" 2>/dev/null || \
-    launchctl load "$SCAN_PLIST" 2>/dev/null || true
+# HR015 #217: gate the initial launchd bootstrap on the daemon binary
+# being on-disk. The plist has RunAtLoad=true and its ProgramArguments[0]
+# is inside OstlerAssistant.app. Bootstrapping against a missing binary
+# makes launchd fire the RunAtLoad tick, fail to exec the binary, and
+# record last-exit-code=78 EX_CONFIG with zero-byte log files -- the
+# exact fault reported on the box. EX_CONFIG is not a retry: launchd
+# parks the job until a kickstart -k clears it.
+#
+# Since the phase-3.7c ordering fix the .app IS staged by the time this
+# line runs, so on a healthy install the guard passes and the scan
+# starts here. It stays because it is still the only thing standing
+# between a customer and a permanently parked job on an install where
+# staging was skipped (non-Apple-Silicon) or refused (signature gate).
+# The post-staging sweep at _ostler_ensure_export_scan_bootstrap picks
+# up any deferred case if a daemon lands later.
+#
+# The guard below is spelled out in full rather than through a variable
+# on purpose: tests/test_export_scan_plist_bootstrap_race_217.sh Property A
+# greps the twelve lines above the bootstrap for exactly this literal, and
+# a gate must not be loosened to accommodate a refactor.
+if [[ -x "${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant" ]]; then
+    launchctl bootstrap "gui/$(id -u)" "$SCAN_PLIST" 2>/dev/null || \
+        launchctl load "$SCAN_PLIST" 2>/dev/null || true
+else
+    # NAME THE FILE: print the exact absolute path whose absence caused
+    # the refusal, so the install log answers "looked for what?" itself.
+    warn "$(printf "$MSG_WARN_EXPORT_SCAN_DAEMON_BINARY_MISSING" "${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant")"
+fi
 ok "$MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY"
 
 # ── Pre-meeting brief sender ───────────────────────────────────────
@@ -8240,67 +14665,83 @@ fi
 echo ""
 echo "  Stopping services..."
 cd "${HOME}/.ostler" 2>/dev/null && docker compose down -v 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.ollama" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.ollama.plist" 2>/dev/null || true
+# ── LaunchAgent teardown ───────────────────────────────────────
+# ONE register, and one loop that performs BOTH halves of a teardown.
+#
+# This used to be two hand-maintained walls -- a list of `launchctl bootout`
+# lines and a list of `rm -f` lines -- that had to agree with each other and
+# with every plist install.sh writes. They drifted three times:
+#
+#   2026-08-08  ollama-logrotate + meeting-brief-sender: written, never
+#               torn down at all. Found loaded on the .208 box-walk.
+#   2026-08-15  stay-awake + aiconv-resume: booted out, plist never removed.
+#   2026-08-15  tailscaled: written at install.sh:16544, absent from both
+#               walls. Its only bootout is the install-time restart at
+#               install.sh:16575, which is not a teardown.
+#
+# THE FILE IS THE HALF THAT MATTERS. `launchctl bootout` unloads a job from
+# the current login session and does not touch the disk. launchd rescans
+# ~/Library/LaunchAgents at every login, so a plist left behind is loaded
+# again the next time the customer logs in. A bootout-only teardown is an
+# uninstall that does not survive a reboot -- com.ostler.stay-awake would go
+# on holding a `caffeinate -s` power assertion on a Mac with no Ostler on it,
+# and the agents whose ProgramArguments point into ~/.ostler (which this
+# script deletes below) would be respawned against a missing binary until
+# launchd throttles them.
+#
+# A single list cannot disagree with itself. Adding an agent to install.sh
+# now means adding one line here, and
+# tests/test_uninstall_removes_every_launchagent_plist.sh fails the PR if
+# that line is missing -- it seeds a sandboxed HOME with one plist per label
+# install.sh writes, runs this region, and looks at what is left on disk.
+#
+# Not renamed to a single label domain here: com.ostler.* and
+# com.creativemachines.ostler.* both appear because they both exist on
+# customer machines today. Collapsing them needs a launchd migration on every
+# existing install and is tracked separately; teardown must keep naming both
+# until then.
+OSTLER_LAUNCHAGENT_LABELS=(
+    com.ostler.ollama
+    com.ostler.doctor
+    com.ostler.ical-server
+    com.ostler.export-scan
+    com.ostler.fda-rerun
+    com.ostler.contact-resync
+    com.ostler.deferred-register-device
+    com.ostler.aiconv-resume
+    com.ostler.colima
+    com.ostler.meeting-brief-sender
+    com.ostler.ollama-logrotate
+    com.ostler.stay-awake
+    com.ostler.imessage-bridge
+    com.creativemachines.ostler.hub-power
+    com.creativemachines.ostler.email-ingest
+    com.creativemachines.ostler.whatsapp-bundle
+    com.creativemachines.ostler.email-bundle
+    com.creativemachines.ostler.spoken-bundle
+    com.creativemachines.ostler.imessage-bundle
+    com.creativemachines.ostler.wiki-recompile
+    com.creativemachines.ostler.wiki-recompile-catchup
+    com.creativemachines.ostler.editor-frontpage
+    com.creativemachines.ostler.dedupe-catchup
+    com.ostler.enrich
+    com.creativemachines.ostler.assistant
+    com.creativemachines.ostler.whatsapp-keepalive
+    com.creativemachines.ostler.tailscaled
+    com.creativemachines.ostler-remotecapture
+)
+
+for _label in "${OSTLER_LAUNCHAGENT_LABELS[@]}"; do
+    launchctl bootout "gui/$(id -u)/${_label}" 2>/dev/null || \
+        launchctl unload "${HOME}/Library/LaunchAgents/${_label}.plist" 2>/dev/null || true
+    rm -f "${HOME}/Library/LaunchAgents/${_label}.plist"
+done
+unset _label
+
+# Ollama's cask is Homebrew's to remove, not launchd's. Sequenced after the
+# loop so com.ostler.ollama is already unloaded and nothing is holding the
+# binary open.
 brew uninstall --cask ollama-app 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.doctor" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.ical-server" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.export-scan" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.contact-resync" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.deferred-register-device" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.colima" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.colima.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-ingest" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-bundle" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-bundle.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-bundle" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-bundle.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.spoken-bundle" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.spoken-bundle.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.imessage-bundle" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.imessage-bundle.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.imessage-bridge" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile-catchup" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile-catchup.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-keepalive" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-keepalive.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler-remotecapture" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist" 2>/dev/null || true
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-bundle.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-bundle.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.spoken-bundle.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.imessage-bundle.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile-catchup.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-keepalive.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist"
 
 # ── Ostler RemoteCapture .app + container ──────────────────────
 # Remove the menubar app from /Applications and the per-user
@@ -8508,20 +14949,108 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
         <string>8089</string>
         <key>DOCTOR_SUPPORT_EMAIL</key>
         <string>support@ostler.ai</string>
-        <!-- CX-P0A (2026-05-26): forward the 13 iOS /api/v1/* paths to
+        <!-- CX-P0A (2026-05-26): forward the iOS /api/v1/* paths to
              the loopback-bound ical-server on 127.0.0.1:8090. Without
              this list Doctor 404s every iOS Companion call beyond
              /api/v1/auth/chat-token + /api/v1/wiki/correct. The two
              path-parameter routes use FastAPI {slug}/{id} syntax so the
-             proxy's request.url.path forwarding substitutes them. -->
+             proxy's request.url.path forwarding substitutes them.
+             #680 (2026-06-19): /api/v1/health/day is the read-back for
+             the opt-in Apple Health path. The phone (and the assistant)
+             POST health_daily_summary points to /api/v1/ingest/ios
+             (already proxied) where the ical-server writes a per-day
+             pwg:HealthObservation into the graph; the GET reads that
+             day's physiology back joined to its life-context. Without
+             this entry the Doctor 404s the read-back even once the
+             CM041 health branch ships, so the write lands but nothing
+             can query it across the auth boundary. -->
         <key>DOCTOR_PROXY_PATHS</key>
-        <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people/search,/api/v1/people/context,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget</string>
+        <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/health/day,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/hydration/status,/api/v1/subscription/receipt,/api/v1/memory,/api/v1/memory/correct/{id},/api/v1/memory/assert</string>
+        <!-- P0-γ (2026-07-26): /api/v1/subscription/receipt was MISSING from the
+             proxy list. iOS SubscriptionReceiptSync POSTs it to the Doctor on
+             every purchase/restore/foreground; without the path the Doctor 404s
+             it, subscription_gate.is_active_or_grace() goes stale, and on day 31
+             email ingest / brief composition / iMessage + Reminders push all
+             silently degrade. Handler exists on the ical-server (:8090). P1: the
+             three /api/v1/memory* paths future-proof the Memory tab (hidden in
+             v1.0 via showMemoryTab, flips on in v1.0.1) so it isn't dead on
+             arrival. -->
+        <!-- v1018-D024 (2026-08-14): DO NOT add /api/v1/pause,
+             /api/v1/resume or /api/v1/governor-status to the list above.
+             They are DOCTOR-NATIVE handlers (vendor/doctor/agent/web_ui.py,
+             backed by pause_control.py) and the assistant API on :8090 that
+             DOCTOR_GATEWAY_URL points at implements none of them, so an entry
+             here would forward a working route straight into a 404. This is
+             written down because the symptom that brought anyone here was a
+             404 from the Doctor, and "the Doctor 404s it, so add it to the
+             proxy list" is the repair that looks right and is wrong -- the
+             real cause was that the held vendor pin predated the routes, so
+             the shipped payload never registered them at all.
+             Guard: tests/test_doctor_governor_routes_vendored.sh limb F. -->
         <key>DOCTOR_GATEWAY_URL</key>
         <string>http://127.0.0.1:8090</string>
+        <!-- P0-α (2026-07-26): the Doctor's paired-bearer oracle
+             (/internal/validate-bearer) lives on the GATEWAY (:8000), NOT the
+             ical-server (:8090) that DOCTOR_GATEWAY_URL points at for the
+             /api/v1/* substitution forward. Without a SEPARATE validator URL the
+             Doctor POSTs validation to :8090, the ical-server 401s it, and every
+             paired iOS client is rejected -> the "Reconnection paused" loop
+             returns (P0-α, the loop the BW2-5 fix was meant to close). Keep
+             :8000 in lockstep with the [gateway] port. -->
+        <key>DOCTOR_VALIDATOR_URL</key>
+        <string>http://127.0.0.1:8000</string>
+        <!-- #652 (THE FIX): point the Doctor's chat-token mint at the SAME
+             port the daemon's [gateway] is pinned to (8000, see CX-59 at
+             ~L5840). chat_token.py's _zeroclaw_port() defaults to zeroclaw's
+             binary default 42617; the internal mint (_internal_gateway_url)
+             then POSTs /api/pairing/initiate to 127.0.0.1:42617 where nothing
+             listens -> Connection refused -> 503 -> chat 401 on EVERY fresh
+             install. OSTLER_CHAT_GATEWAY_PORT is the only lever that retargets
+             the internal mint (the _URL override only changes the public iOS
+             URL). Setting 8000 also makes the iOS public chat_base_url use
+             :8000, which is correct since the daemon is pinned there. Keep in
+             lockstep with the \`port = 8000\` echo in the [gateway] config. -->
+        <key>OSTLER_CHAT_GATEWAY_PORT</key>
+        <string>8000</string>
+        <!-- #652 (hardening, not the root cause): pin the admin-token path to
+             the ABSOLUTE file install.sh seeded (~L5460) so read_admin_token()
+             can never resolve a divergent Path.home()/.ostler under a different
+             launchd HOME. Box-confirmed token-read works without this, but it
+             removes a latent class of failure. -->
+        <key>OSTLER_CHAT_ADMIN_TOKEN_FILE</key>
+        <string>${OSTLER_DIR}/secrets/zeroclaw_admin_token</string>
+        <!-- v1.0.10 security lockdown (#200 service token): the
+             Doctor proxies the iOS /api/v1/* paths to the loopback
+             ical-server on 127.0.0.1:8090 (DOCTOR_GATEWAY_URL). This
+             carries the per-install #200 service token so the proxy
+             can attach \`Authorization: Bearer <token>\` on the
+             forwarded request, and the ical-server (which now
+             requires it, see com.ostler.ical-server plist) accepts
+             it. Same PWG_SERVICE_TOKEN name on both sides so the two
+             halves line up with CM041's fix/v1010-ical-server-auth. -->
+        <key>PWG_SERVICE_TOKEN</key>
+        <string>${PWG_SERVICE_TOKEN}</string>
     </dict>
 </dict>
 </plist>
 DOCEOF
+
+    # v1.0.10 security lockdown: this plist now carries
+    # PWG_SERVICE_TOKEN in EnvironmentVariables. Default umask leaves
+    # it 0644 (world-readable); tighten to 0600 so the #200 service
+    # token cannot be read by another local user.
+    chmod 0600 "$DOCTOR_PLIST"
+
+    # v1.0.10 P0-α (Archie #446 nit): make the Doctor reload SELF-CONTAINED so
+    # the new DOCTOR_VALIDATOR_URL env is guaranteed to apply. The global
+    # "Stopping services" block (~L10943) already boots out the Doctor + removes
+    # its plist on the normal upgrade path, so this is belt-and-braces -- but it
+    # guarantees the label is not still loaded here on any path that reaches the
+    # reload without the global stop (e.g. a partial/--repair re-run). Without
+    # it, a bootstrap onto an already-loaded label errors and `|| true` swallows
+    # it, leaving the OLD env live until reboot. Mirrors the daemon reload
+    # (~L13611); idempotent (`|| true`).
+    launchctl bootout "gui/$(id -u)/com.ostler.doctor" 2>/dev/null || true
 
     # Use bootstrap on Sequoia+ (load is deprecated), fall back to load
     launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
@@ -8575,6 +15104,42 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
     mkdir -p "$ICAL_SERVER_DIR"
     cp -R "${SCRIPT_DIR}/assistant_api/." "$ICAL_SERVER_DIR/"
 
+    # CM041 v1.0.9 (2026-07-15): stage the two repo-root companions as
+    # SIBLINGS of the ical-server dir (the "repo root" in this layout).
+    #   - pwg_privacy.py: HARD-imported (top-level, unguarded) by
+    #     ical-server.py since CM041 #97 -- it resolves
+    #     dirname(dirname(ical-server.py)) = ${OSTLER_DIR}/services and
+    #     imports pwg_privacy from there. Missing file = the launchd
+    #     agent crash-loops at import time.
+    #   - ostler_hygiene/: the memory-hygiene engine (CM041 #98).
+    #     ical-server's _hygiene_reader() resolves it from the same
+    #     parent dir; the import is fail-open, but without it the
+    #     hygiene overlay silently degrades to raw source facts.
+    _ICAL_SERVICES_ROOT="$(dirname "$ICAL_SERVER_DIR")"
+    if [[ -f "${SCRIPT_DIR}/pwg_privacy.py" ]]; then
+        cp "${SCRIPT_DIR}/pwg_privacy.py" "${_ICAL_SERVICES_ROOT}/pwg_privacy.py"
+    else
+        warn "pwg_privacy.py not bundled with the installer - ical-server will fail to start (re-cut the DMG from a synced vendor/cm041)"  # i18n-exempt: vendor-sync build defect, not a customer flow
+    fi
+    if [[ -d "${SCRIPT_DIR}/ostler_hygiene" ]]; then
+        rm -rf "${_ICAL_SERVICES_ROOT}/ostler_hygiene"
+        cp -R "${SCRIPT_DIR}/ostler_hygiene" "${_ICAL_SERVICES_ROOT}/ostler_hygiene"
+    fi
+
+    # ical-server runtime deps. The ical-server reuses OSTLER_VENV
+    # (~/.ostler/.venv) but its identity_resolver + calendar/People
+    # paths import `phonenumbers` (E.164 normalisation) and `httpx`
+    # (async graph calls) which the security-only Phase 7 pip step
+    # does NOT provide. Without them the launchd agent crash-loops
+    # (ModuleNotFoundError) and People/Timeline stay empty. Install
+    # them here so the plist we render below boots cleanly. Best-
+    # effort: a failure downgrades to a warn rather than aborting the
+    # whole install (the ostler_security import gate below still
+    # refuses to render a plist that cannot boot at all).
+    info "$MSG_INFO_ICAL_SERVER_DEPS_INSTALLING"
+    "$OSTLER_PIP" install --quiet "phonenumbers>=8.13" "httpx>=0.24" \
+        || warn "$MSG_WARN_ICAL_SERVER_DEPS_FAILED"
+
     # Verify ostler_security is importable under OSTLER_VENV (Phase 7
     # is the install site). Refuse to render the plist if not: an
     # ical-server that hard-fails on every launchd boot wastes log
@@ -8610,12 +15175,49 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
         <string>8090</string>
         <key>OSTLER_API_BIND</key>
         <string>127.0.0.1</string>
+        <!-- ical-server.py imports identity_resolver as a top-level
+             package. It is staged as a sibling tree under the
+             import-pipeline dir (~/.ostler/import-pipeline), NOT
+             pip-installed into the venv, so launchd (which inherits no
+             login PYTHONPATH) must be told where to find it. Without
+             this the agent crash-loops with
+             ModuleNotFoundError: identity_resolver and People/Timeline
+             stay empty. Path is derived from OSTLER_DIR so it tracks a
+             non-default install home. -->
+        <key>PYTHONPATH</key>
+        <string>${OSTLER_DIR}/import-pipeline</string>
         <key>HOME</key>
         <string>${HOME}</string>
+        <key>USER_ID</key>
+        <string>${USER_ID}</string>
+        <key>ICAL_SCRIPT</key>
+        <string>${OSTLER_DIR}/ical/ical-query.sh</string>
+        <key>INGEST_DIR</key>
+        <string>${OSTLER_DIR}/ical/ingest</string>
+        <key>SYNC_STATE_DIR</key>
+        <string>${OSTLER_DIR}/ical/sync-state</string>
+        <!-- v1.0.10 security lockdown (#200 service token): the
+             ical-server binds 127.0.0.1:8090 and is fronted by the
+             Doctor proxy on :8089. This env var carries the per-
+             install #200 service token (secrets/service_token,
+             generated ~L6768) so the ical-server can require a
+             matching bearer on inbound requests. The Doctor proxy
+             carries the SAME token (see com.ostler.doctor plist)
+             and attaches it as \`Authorization: Bearer\` when
+             forwarding to :8090. Env-var name is PWG_SERVICE_TOKEN,
+             matching CM041's fix/v1010-ical-server-auth reader. -->
+        <key>PWG_SERVICE_TOKEN</key>
+        <string>${PWG_SERVICE_TOKEN}</string>
     </dict>
 </dict>
 </plist>
 ICALPLISTEOF
+
+        # v1.0.10 security lockdown: this plist now carries
+        # PWG_SERVICE_TOKEN in EnvironmentVariables. Default umask
+        # leaves it 0644 (world-readable); tighten to 0600 so the
+        # #200 service token cannot be read by another local user.
+        chmod 0600 "$ICAL_PLIST"
 
         # Use bootstrap on Sequoia+ (load is deprecated). Do NOT
         # `bootout` first -- per CLAUDE.md a bootout on a customer
@@ -8662,7 +15264,7 @@ fi
 # path always runs; only the Doctor "Import Evernote" UI surface is
 # flag-gated. Knowledge is installed regardless of features.evernote_import.
 
-progress "Setting up Knowledge service (CM024)" "knowledge_setup"
+progress "Setting up Knowledge service" "knowledge_setup"
 
 KNOWLEDGE_DIR="${OSTLER_DIR}/services/knowledge"
 KNOWLEDGE_VENV="${KNOWLEDGE_DIR}/.venv"
@@ -8962,6 +15564,13 @@ fi
 EMAIL_INGEST_VENV_DIR="${OSTLER_DIR}/services/email-ingest"
 EMAIL_INGEST_VENV="${EMAIL_INGEST_VENV_DIR}/.venv"
 EMAIL_INGEST_VENV_PYTHON="${EMAIL_INGEST_VENV}/bin/python3"
+# Absolute path to CM021's pwg-email-ingest console script inside the
+# venv. Set ONLY after the CM021 pip-install below succeeds, then passed
+# to the snippet so the LaunchAgent plist's PWG_EMAIL_INGEST env resolves
+# the binary under launchd's minimal PATH. Empty until proven installed,
+# so we never render a path to a binary that is not there (the tick's
+# LOUD guard then fails loudly rather than dropping harvested mail).
+EMAIL_INGEST_VENV_BIN=""
 OSTLER_FDA_SRC=""
 
 if [[ -d "${SCRIPT_DIR}/ostler_fda" && -f "${SCRIPT_DIR}/ostler_fda/pyproject.toml" ]]; then
@@ -8978,7 +15587,25 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
 
     info "$MSG_INFO_INSTALLING_OSTLER_FDA_INTO_VENV"
     "$EMAIL_INGEST_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
-    if "$EMAIL_INGEST_VENV/bin/pip" install --quiet "$OSTLER_FDA_SRC" 2>/tmp/ostler-fda-pip.log; then
+    # VIA THE HELPER, NOT A RAW `pip install`. This line used to be
+    # `"$EMAIL_INGEST_VENV/bin/pip" install --quiet "$OSTLER_FDA_SRC"`, and
+    # OSTLER_FDA_SRC is "${SCRIPT_DIR}/ostler_fda" on a productised install, i.e.
+    # INSIDE the notarised app bundle. `pip install <dir>` builds IN PLACE, so it
+    # wrote ostler_fda.egg-info/ into /Applications/OstlerInstaller.app and broke
+    # the code seal.
+    #
+    # MEASURED on the v1.0.36 box, 2026-08-18, after the walk:
+    #   codesign --verify --deep --strict  rc=1  "a sealed resource is missing"
+    #   spctl -a -t exec -vv               rc=1  same, so GATEKEEPER REFUSES IT
+    #   17 egg-info files + 239 .pyc = 256 unsealed, of 3239 total
+    #
+    # _ostler_pip_install_pkg exists precisely for this and its own docstring
+    # says "ostler_fda already did the right thing". THAT CLAIM WAS FALSE. What
+    # does the right thing is the cp -R at the fda-module staging site; THIS
+    # consumer, the email-ingest venv, went straight at SCRIPT_DIR and nobody
+    # noticed because the comment asserted otherwise. A docstring is not a
+    # measurement.
+    if _ostler_pip_install_pkg "$EMAIL_INGEST_VENV/bin/pip" "$OSTLER_FDA_SRC" --quiet 2>/tmp/ostler-fda-pip.log; then
         ok "$MSG_OK_OSTLER_FDA_INSTALLED_VENV"
     else
         warn "$MSG_WARN_PIP_INSTALL_FAILED_OSTLER_FDA_WILL"
@@ -9016,6 +15643,14 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
         if [[ -n "$CM021_SRC" ]]; then
             if "$EMAIL_INGEST_VENV/bin/pip" install --quiet "$CM021_SRC" 2>/tmp/ostler-cm021-pip.log; then
                 ok "$MSG_OK_PWG_EMAIL_INGEST_INSTALLED"
+                # CM021's [project.scripts] entry point lands the console
+                # script here. Record the absolute path so the snippet can
+                # render it into the LaunchAgent plist's PWG_EMAIL_INGEST
+                # env var (the launchd-PATH-independence fix). Only set on
+                # success so a failed install leaves it empty.
+                if [[ -x "$EMAIL_INGEST_VENV/bin/pwg-email-ingest" ]]; then
+                    EMAIL_INGEST_VENV_BIN="$EMAIL_INGEST_VENV/bin/pwg-email-ingest"
+                fi
             else
                 warn "$MSG_WARN_PIP_INSTALL_FAILED_PWG_EMAIL_INGEST"
                 if [[ -s /tmp/ostler-cm021-pip.log ]]; then
@@ -9040,6 +15675,7 @@ if [[ -n "$EMAIL_INGEST_SNIPPET" && -f "$EMAIL_INGEST_SNIPPET" ]]; then
        OSTLER_DIR="$OSTLER_DIR" \
        LOGS_DIR="$LOGS_DIR" \
        OSTLER_VENV_PYTHON="$EMAIL_INGEST_VENV_PYTHON" \
+       OSTLER_EMAIL_INGEST_BIN="$EMAIL_INGEST_VENV_BIN" \
        bash "$EMAIL_INGEST_SNIPPET"; then
         ok "$MSG_OK_EMAIL_INGEST_LAUNCHAGENT_LOADED_LABEL_COM"
         info "$MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST"
@@ -9222,9 +15858,19 @@ _install_conversation_feed() {
     # well before this phase, so the bundle agent never renders a blank
     # user_id (which would make CM048's fail-loud guard kill every tick).
     e_user_id="$(printf '%s' "${USER_ID:-}" | sed 's/[&/\]/\\&/g')"
+    # Ingest-reroute (v1.0.10): ProgramArguments[0] is the SHIPPED,
+    # code-signed daemon binary INSIDE the .app bundle -- never
+    # ${OSTLER_DIR}/bin/ostler-assistant (the legacy path e_bin renders).
+    # The tick now runs as `run-source <src>`, a child fork of this
+    # FDA-holding binary, so its protected read inherits Full Disk Access.
+    # Distinct token (OSTLER_ASSISTANT_BINARY, not OSTLER_BIN) because in
+    # THIS renderer OSTLER_BIN == ${OSTLER_DIR}/bin, the wrong path.
+    local e_asst
+    e_asst="$(printf '%s' "${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant" | sed 's/[&/\]/\\&/g')"
     # _VALUE/_PATH-suffixed placeholders before bare ones, so a bare token
     # is never a substring of a longer placeholder (byte-safe render).
     sed \
+        -e "s/OSTLER_ASSISTANT_BINARY/$e_asst/g" \
         -e "s/OSTLER_PYTHON_PATH/$e_py/g" \
         -e "s/PWG_CONVO_CMD_VALUE/$e_pwg/g" \
         -e "s/OSTLER_SOURCE_DIR_VALUE/$esc_base/g" \
@@ -9237,9 +15883,42 @@ _install_conversation_feed() {
     chmod 0644 "$rendered"
 
     # 6. Load via launchctl bootstrap (bootout first; not idempotent alone).
+    #
+    # GATED on the daemon binary existing, for the HR015 #217 reason. This
+    # renderer sets ProgramArguments[0] to the binary INSIDE
+    # OstlerAssistant.app (see the ingest-reroute note above), and the .app
+    # is not staged until _finalise_daemon_staging thousands of lines later.
+    # Bootstrapping now, on a fresh install, fires the RunAtLoad tick against
+    # a path that does not exist: launchd cannot exec, records
+    # last-exit-code=78 (EX_CONFIG), and writes zero-byte .log/.err because
+    # nothing ran. EX_CONFIG is not retried -- launchd parks the job -- so
+    # that 78 is permanent until a kickstart -k clears it. Exactly the fault
+    # reported as v1018-D019 against whatsapp-bundle.
+    #
+    # The deferred case is picked up by
+    # _ostler_ensure_app_binary_agents_bootstrap, which runs from
+    # _finalise_daemon_staging once a signed daemon is on disk. Upgrade
+    # installs, where the binary is already staged, still bootstrap right
+    # here so the first tick happens now rather than next login.
     local domain="gui/$(id -u)"
+    local _assistant_bin="${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
     launchctl bootout "${domain}/${label}" 2>/dev/null || true
-    if launchctl bootstrap "$domain" "$rendered"; then
+    if [[ ! -x "$_assistant_bin" ]]; then
+        # NAME THE FILE. A refusal that does not say what it looked for
+        # sends the reader hunting; this one prints the exact absolute
+        # path whose absence caused it, so the install log answers the
+        # question on its own.
+        #
+        # Since the phase-3.7c ordering fix this branch is NOT the normal
+        # fresh-install path any more -- the daemon is staged twenty-two
+        # steps before this line runs. Reaching it now means staging was
+        # skipped (non-Apple-Silicon) or refused (signature gate), so it
+        # warns rather than whispers. The post-staging sweep
+        # (_ostler_ensure_app_binary_agents_bootstrap) still completes the
+        # job if a daemon lands later; the refusal itself is unchanged.
+        warn "$(printf "$MSG_WARN_BUNDLE_DAEMON_BINARY_MISSING" "$_assistant_bin")"
+        info "$(printf "${!k_info_logs}" "$LOGS_DIR")"
+    elif launchctl bootstrap "$domain" "$rendered"; then
         ok "${!k_ok_loaded}"
         info "${!k_info_tick}"
         info "$(printf "${!k_info_logs}" "$LOGS_DIR")"
@@ -9252,6 +15931,9 @@ _install_conversation_feed() {
 # hydrate sub-phase rides (reading bodies is strictly more sensitive than
 # the metadata the hydrate reads, so never a weaker gate). Needs ostler_fda
 # (its reader reuses ostler_fda.whatsapp_history) plus pyyaml (contacts).
+# Step-count: WhatsApp body-feed is a gated (Phase 2) progress step. Subtract
+# its slot from TOTAL_STEPS when skipped, so the bar never overshoots 100%.
+[[ "$CHANNEL_WHATSAPP_ENABLED" != true || "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" != true ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" == true ]]; then
     progress "$MSG_PROGRESS_WHATSAPP_BUNDLE" "whatsapp_bundle"
     _install_conversation_feed whatsapp whatsapp_source "ostler_fda pyyaml"
@@ -9262,6 +15944,9 @@ fi
 # never source-presence alone -- reading others' bodies is predicated on
 # that acknowledgement (declined wipes ~/.ostler/imports). Needs
 # ostler_fda (reader reuses ostler_fda.apple_mail_mbox) + pyyaml.
+# Step-count: Email body-feed is a gated progress step (Apple Mail present +
+# third-party consent). Subtract its slot from TOTAL_STEPS when skipped.
+[[ ! -d "${HOME}/Library/Mail" || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 if [[ -d "${HOME}/Library/Mail" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
     progress "$MSG_PROGRESS_EMAIL_BUNDLE" "email_bundle"
     _install_conversation_feed email email_source "ostler_fda pyyaml"
@@ -9272,6 +15957,9 @@ fi
 # is source-presence (the Transcripts dir), NOT the third-party ack --
 # over-gating own-recordings would be wrong. Self-contained reader
 # (no ostler_fda); pyyaml for the optional contacts/label map.
+# Step-count: Spoken/voice body-feed is a gated progress step (Transcripts dir
+# present). Subtract its slot from TOTAL_STEPS when skipped.
+[[ ! -d "${USER_FACING_ROOT}/Transcripts" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 if [[ -d "${USER_FACING_ROOT}/Transcripts" ]]; then
     progress "$MSG_PROGRESS_SPOKEN_BUNDLE" "spoken_bundle"
     _install_conversation_feed spoken spoken_source "pyyaml"
@@ -9283,6 +15971,9 @@ fi
 # alone. Self-contained chat.db reader (no ostler_fda); pyyaml for the
 # optional contacts/label map. Module is services.imessage_source.pipeline,
 # so the package stages under services/ (stage_subpath services/imessage_source).
+# Step-count: iMessage body-feed is a gated progress step (chat.db present +
+# third-party consent). Subtract its slot from TOTAL_STEPS when skipped.
+[[ ! -f "${HOME}/Library/Messages/chat.db" || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 if [[ -f "${HOME}/Library/Messages/chat.db" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
     progress "$MSG_PROGRESS_IMESSAGE_BUNDLE" "imessage_bundle"
     _install_conversation_feed imessage services/imessage_source "pyyaml"
@@ -9347,7 +16038,15 @@ APPLE_MAIL_VERSION_DIR=""
 # classification (state 1 vs state 2 vs state 3) becomes possible.
 info "CX-100 checkpoint: pre Mail.app version dir find"
 if [[ -d "${HOME}/Library/Mail" ]]; then
+    # set -E propagates the abort-on-error ERR trap INTO the $(...)
+    # subshell, so a non-zero find/sort here would fire _ostler_on_err
+    # before the outer `||` runs, false-failing a healthy install (same
+    # class as CX-122 / #640). Suppress the trap for just this probe; the
+    # `|| _mail_probe_failure_line=...` breadcrumb is preserved.
+    _saved_err_trap=$(trap -p ERR)
+    trap - ERR
     APPLE_MAIL_VERSION_DIR=$(find "${HOME}/Library/Mail" -maxdepth 1 -type d -name 'V[0-9]*' 2>/dev/null | sort -V | tail -1) || _mail_probe_failure_line="find Mail/V* dir"
+    eval "${_saved_err_trap:-}"
 fi
 info "CX-100 checkpoint: Mail.app version dir = [${APPLE_MAIL_VERSION_DIR}]"
 
@@ -9374,6 +16073,25 @@ info "CX-35 checkpoint: setting up sidecar paths + mkdir state dir"
 PIPELINE_SIGNALS_DIR="${OSTLER_DIR}/state"
 PIPELINE_SIGNALS_FILE="${PIPELINE_SIGNALS_DIR}/pipeline_signals.json"
 mkdir -p "$PIPELINE_SIGNALS_DIR" || _mail_probe_failure_line="mkdir state dir"
+
+# ── Doctor first-run flag (B7 belt-and-braces, v1.0.0 LAST-CUT) ──
+#
+# The Doctor first-run wizard is gated on ${OSTLER_DIR}/.setup-complete
+# (doctor/agent/first_run.py::is_first_run). On the productised
+# single-machine install the services + hydrate are set up by this
+# installer, so by the time the customer opens Doctor the setup IS
+# complete -- pre-clear the flag here so they land on the real
+# dashboard, not the Docker-oriented first-run Setup Wizard. This is
+# the install-side guarantee that complements the Doctor's own
+# docker-binary detection fix. Idempotent and non-fatal (the if/else
+# keeps it set -e safe): a write failure must never abort the install.
+if [[ ! -f "${OSTLER_DIR}/.setup-complete" ]]; then
+    if printf 'completed\n' > "${OSTLER_DIR}/.setup-complete" 2>/dev/null; then
+        info "Doctor setup-complete flag written; dashboard shown on first open"
+    else
+        info "could not write ${OSTLER_DIR}/.setup-complete; Doctor may show the first-run wizard"
+    fi
+fi
 
 # Resolve the writer script with the same fallback chain as
 # progress_emitter.sh above (bundled / dev / post-install re-run).
@@ -9410,9 +16128,20 @@ if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
     # so headless tests don't block. If the customer declines OR
     # the wait times out, we fall through to the existing
     # "configured but empty" copy + Doctor follow-up.
+    #
+    # CX-130 (v1.0.1): skip this Phase-3 interactive wait if the early
+    # Phase-2 prompt already offered it. MAIL_POPULATE_PROMPT_SHOWN_EARLY
+    # is set by the questions-phase populate probe (mirrors CX-37's
+    # MAIL_PROMPT_SHOWN_EARLY for the account prompt) so the autonomous
+    # Phase-3 stretch never blocks on this dialog. The detection +
+    # sidecar write above still ran, so Doctor sees the correct state.
+    # This block remains as the fallback for installs where the early
+    # prompt did not run (FDA not yet granted at question time, GUI
+    # toggled on after Phase 2, etc.).
     if [[ "$MAIL_ACCOUNTS_FOUND" -gt 0 ]] \
        && [[ "$MAIL_HAS_FETCHED" != "true" ]] \
-       && [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+       && [[ "${OSTLER_GUI:-0}" == "1" ]] \
+       && [[ -z "${MAIL_POPULATE_PROMPT_SHOWN_EARLY:-}" ]]; then
         _open_mail_help="$(printf "$MSG_PROMPT_OPEN_MAIL_TO_POPULATE_HELP" "${MAIL_ACCOUNTS_FOUND}")"
         # CX-110 (DMG #48l, 2026-05-29): pass "Mail" not "Apple Mail" to
         # the LaunchServices `open -a` path. LaunchServices fuzzy-matches
@@ -9519,7 +16248,7 @@ info "CX-35 checkpoint: exiting Mail content probe block cleanly"
 #      starts at last_rowid = 0 and dumps the ENTIRE chat.db history
 #      (LIMIT 500 per 30s tick) into inbox.jsonl. The listener then
 #      tries to reply to every historical inbound. Mass-send of old
-#      conversation lines, observed 2026-05-28 as the "Marvin talking
+#      conversation lines, observed 2026-05-28 as the "assistant talking
 #      to itself" symptom across two threads on Andy's number (one
 #      cleanly contact-matched, one labelled with Apple's "Maybe:"
 #      contact-disambiguation prefix).
@@ -9662,6 +16391,9 @@ fi
 #
 # Defaults: every 1800s (30 min), capped at 24 tries (~12 hours),
 # both overridable via env for testing.
+# Step-count: first-day wiki catch-up LaunchAgent is a gated progress step
+# (tick script present). Subtract its slot from TOTAL_STEPS when skipped.
+[[ ! -x "${OSTLER_DIR}/bin/wiki-recompile-tick.sh" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 if [[ -x "${OSTLER_DIR}/bin/wiki-recompile-tick.sh" ]]; then
     progress "Setting up first-day wiki catch-up LaunchAgent" "wiki_recompile_catchup_agent"
 
@@ -9772,530 +16504,65 @@ else
     info "$MSG_INFO_WIKI_RECOMPILE_CATCHUP_SKIPPED_NO_TICK"
 fi
 
-# ── 3.14e Ostler assistant binary + LaunchAgent ──────────────────
+# ── 3.14d-editor  The Editor Front Page refresh LaunchAgent (CM059) ──
 #
-# Stages the customer-facing assistant binary and registers a daemon
-# LaunchAgent that runs it under the user's account. The binary is
-# the upstream zeroclaw runtime renamed at tar time by Phase B's
-# release pipeline; the LaunchAgent points it at the config.toml
-# Phase D's wizard wrote in section 3.5b.
+# Installs the hourly LaunchAgent that recompiles the interest profile
+# from the live PWG graph and re-emits ~/.ostler/editor/front_page.json --
+# the file the Hub app Dashboard's <FrontPageCards> reads via the
+# get_front_page Tauri command. Without this agent front_page.json is
+# never written and the Dashboard shows a permanent empty state.
 #
-# Pieces:
-#   1. Resolve the release URL and SHA-256 sidecar URL.
-#   2. Download both into a temp dir.
-#   3. Verify SHA-256 (abort on mismatch -- silent acceptance of
-#      a bad download would put a tampered binary on the daily
-#      driver Mac, so this is an explicit hard fail).
-#   4. Extract to ${OSTLER_DIR}/bin/ostler-assistant.
-#   5. Clear the macOS quarantine xattr so the bundled binary
-#      runs immediately. Gatekeeper still verifies the
-#      notarisation ticket online on first execution; xattr
-#      removal just skips the double-click confirmation dialog
-#      that curl-installed binaries otherwise trigger.
-#   6. Source assistant-agent/INSTALL_SNIPPET.sh to register the
-#      LaunchAgent.
+# The producer is stdlib-only (no Ollama, no Docker) and never blanks: on
+# a fresh / mid-hydration install RunAtLoad emits a graceful "still
+# settling in" card immediately, and the feed fills with interest cards as
+# preferences land in Oxigraph. Warn-not-abort throughout: a missing
+# producer or a failed load must never break the install (the wiki, chat
+# and conversation feeds are unaffected). A packaging regression is caught
+# earlier by the gui/project.yml bundle step + the vendor-freshness gate.
 #
-# Failure mode: if the download / verify / extract chain fails,
-# warn and skip the LaunchAgent install. The wizard-written
-# config.toml stays in place so a later manual binary install
-# (re-run the installer when the network recovers, or stage the
-# binary by hand) wires up cleanly.
-#
-# Productisation: OSTLER_ASSISTANT_VERSION + OSTLER_ASSISTANT_REPO
-# are env-overridable so an enterprise fork or pre-release smoke
-# can point at a different release without editing install.sh.
-# Default tracks the last-known-good upstream release. If a future
-# bump (e.g. v0.4.2 not yet published) raises 404, the inline
-# fallback below retries against ASSISTANT_FALLBACK_VERSION so the
-# install completes on the proven-good binary.
-#
-# Open question: there is no zeroclaw subcommand for "encrypt the
-# plaintext password the wizard just wrote" -- the secrets store
-# auto-migrates legacy enc: values to enc2: on read but does not
-# bootstrap from plaintext. The TOML stays mode 0600 in the
-# meantime. A `config encrypt-secrets` subcommand would close the
-# window; flagged as a follow-up Rust PR (or roll into Phase E).
+# Source resolution mirrors the doctor / hub-power / email-ingest vendored
+# pattern: productised path ${SCRIPT_DIR}/cm059_editor (staged into the
+# .app by gui/project.yml), dev path ${SCRIPT_DIR}/../vendor/cm059_editor.
 
-progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.4})" "ostler_assistant"
+progress "$MSG_PROGRESS_EDITOR_FRONTPAGE" "editor_frontpage"
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.4}"
-# Hard-coded last-known-good release. The fallback path below
-# retries against this version if the primary URL returns 404 /
-# non-200, so a missing tag never strands the customer on an
-# un-installable Hub.
-#
-# v0.4.3+ ships the daemon as OstlerAssistant.app in the release
-# tarball (instead of a bare Mach-O at the tar root) so macOS TCC
-# can read the bundle's Info.plist + Resources/icon.icns and
-# render the Ostler v4 oxblood squircle next to the Full Disk
-# Access entry. The extraction + path logic below detects which
-# shape the tarball ships and stages both correctly, so the same
-# install.sh works against a fallback v0.4.1 tarball (bare
-# binary) AND the new v0.4.3 tarball (app bundle). v0.4.2 was
-# never published per task #507 -- the version was burned on a
-# pre-release dry-run.
-ASSISTANT_FALLBACK_VERSION="0.4.1"
-# Customer-facing distribution.
-#
-# CX-88 (DMG #48g, 2026-05-29): the daemon ships from the public
-# release repo ostler-ai/ostler-releases, NOT the private source
-# repo ostler-ai/ostler-assistant (which 404s for every customer).
-# Tags are component-prefixed: the daemon release tag is `hub-vX.Y.Z`
-# (not bare `vX.Y.Z`) so a single release repo can host multiple
-# component release streams. Pre-fix the install.sh default pointed
-# at the source repo, which is private + would 404 on every clean
-# install whose bundled-daemon tarball was missing (silent-warn-skip
-# pattern caught 2026-05-29).
-#
-# The primary install path is the bundled-in-DMG tarball at
-# ${SCRIPT_DIR}/assistant-agent/OstlerAssistant.app (see CX-79b
-# below). This URL is the recovery-only fallback for customers
-# whose DMG is corrupted or whose extraction step dropped the
-# bundled payload.
-OSTLER_ASSISTANT_REPO="${OSTLER_ASSISTANT_REPO:-ostler-ai/ostler-releases}"
-OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
-OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
-# .app bundle path (v0.4.3+ shape). The bundle wrapper carries
-# CFBundleIconFile + icon.icns, so macOS TCC and Activity Monitor
-# render the Ostler v4 oxblood squircle next to the daemon.
-ASSISTANT_APP_BUNDLE="${OSTLER_DIR}/OstlerAssistant.app"
-# Inner Mach-O path: the LaunchAgent and `ostler-assistant doctor`
-# / `setup channels` / etc. invocations target this directly.
-# Whether the tarball shipped as a bare binary (legacy v0.4.1
-# shape) or as an .app bundle (v0.4.3+ shape), this variable
-# always points at an executable Mach-O after the staging logic
-# below.
-ASSISTANT_BINARY="${ASSISTANT_APP_BUNDLE}/Contents/MacOS/ostler-assistant"
-# Legacy bare-binary path. Kept here for the fallback-to-v0.4.1
-# code path further down: if the tarball does not contain an .app
-# bundle (older release), the binary lands at this path instead
-# and ASSISTANT_BINARY is rewritten to point here. Quoted symbol
-# `_LEGACY_` makes a grep for `bin/ostler-assistant` easy if a
-# future migration wants to flatten the dual-shape support.
-ASSISTANT_BINARY_LEGACY="${OSTLER_DIR}/bin/ostler-assistant"
-
-# Apple Silicon only. The Phase B release workflow does
-# not produce an x86_64 build (customer Macs are arm64 by the
-# brief). Surface this clearly rather than letting curl 404 on
-# a non-existent Intel asset.
-ARCH_DETECTED="$(uname -m 2>/dev/null || echo unknown)"
-if [[ "$ARCH_DETECTED" != "arm64" && "$ARCH_DETECTED" != "aarch64" ]]; then
-    warn "$(printf "$MSG_WARN_OSTLER_ASSISTANT_V_APPLE_SILICON_ONLY" "${OSTLER_ASSISTANT_VERSION}" "${ARCH_DETECTED}")"
-    warn "$MSG_WARN_SKIPPING_BINARY_INSTALL_WIZARD_WRITTEN_CONFIG"
-    info "$MSG_INFO_INTEL_SUPPORT_NOT_ROADMAP_RAISE_REQUEST"
-    ASSISTANT_BINARY_INSTALLED=false
-else
-
-_ostler_assistant_set_urls() {
-    OSTLER_ASSISTANT_VERSION="$1"
-    ASSISTANT_ARCHIVE_NAME="ostler-assistant-${OSTLER_ASSISTANT_TARGET}-v${OSTLER_ASSISTANT_VERSION}.tar.gz"
-    # CX-88 (2026-05-29): tag is `hub-vX.Y.Z` -- the release repo at
-    # ostler-ai/ostler-releases uses component-prefixed tags so it can
-    # host multiple release streams (hub, remote-capture, iOS, etc.)
-    # under one repository.
-    ASSISTANT_ARCHIVE_URL="https://github.com/${OSTLER_ASSISTANT_REPO}/releases/download/hub-v${OSTLER_ASSISTANT_VERSION}/${ASSISTANT_ARCHIVE_NAME}"
-    ASSISTANT_CHECKSUM_URL="${ASSISTANT_ARCHIVE_URL}.sha256"
-}
-
-_ostler_assistant_set_urls "${OSTLER_ASSISTANT_VERSION}"
-
-# ASSISTANT_TMPDIR is declared in the Phase 3 composite_cleanup
-# block; this allocator sets it. composite_cleanup will rm -rf
-# the dir if we exit before the explicit cleanups below fire.
-ASSISTANT_TMPDIR="$(mktemp -d)"
-
-ASSISTANT_BINARY_INSTALLED=false
-
-# CX-79b (DMG #46, 2026-05-25): prefer the daemon binary bundled in
-# Resources/assistant-agent/ over the GitHub release download.
-# The bundled binary is built from the same commit that defines the
-# DMG signing + notarisation posture, so version skew between the
-# customer's daemon and the rest of the install is impossible. The
-# DMG bundling also makes the install network-independent for the
-# critical-path binary (a customer with flaky DNS / GitHub outage /
-# Tailscale rerouting still gets a working daemon).
-#
-# Falls through to the curl path if no bundled artefact is present
-# (older DMGs predating this bundling, or a corrupted install
-# extraction). OSTLER_ASSISTANT_FORCE_DOWNLOAD=1 env-var override
-# forces the curl path even when bundled is present -- used in CI
-# to exercise the customer-network code path.
-#
-# v0.4.3+ shape: the DMG bundles OstlerAssistant.app at
-# assistant-agent/OstlerAssistant.app/. Legacy DMGs bundled a bare
-# binary at assistant-agent/bin/ostler-assistant. Probe for the
-# .app first (preferred), then fall back to the bare-binary path.
-# Both paths are then staged into ~/.ostler/OstlerAssistant.app/
-# downstream (the bare-binary shape gets wrapped in a minimal .app
-# locally so the TCC icon works regardless of which shape the
-# operator's DMG was cut from).
-ASSISTANT_BUNDLED_APP="${SCRIPT_DIR}/assistant-agent/OstlerAssistant.app"
-ASSISTANT_BUNDLED_BIN="${SCRIPT_DIR}/assistant-agent/bin/ostler-assistant"
-
-# Determine whether a bundled artefact (.app or bare bin) is
-# present in the DMG. The .app shape is preferred (v0.4.3+); the
-# bare-binary shape stays supported for older DMGs.
-_assistant_bundled_shape=""
-if [[ -z "${OSTLER_ASSISTANT_FORCE_DOWNLOAD:-}" ]]; then
-    if [[ -x "${ASSISTANT_BUNDLED_APP}/Contents/MacOS/ostler-assistant" ]]; then
-        _assistant_bundled_shape="app"
-    elif [[ -x "$ASSISTANT_BUNDLED_BIN" ]]; then
-        _assistant_bundled_shape="bin"
-    fi
+EDITOR_FRONTPAGE_SRC=""
+if [[ -d "${SCRIPT_DIR}/cm059_editor" && -f "${SCRIPT_DIR}/cm059_editor/INSTALL_SNIPPET.sh" ]]; then
+    EDITOR_FRONTPAGE_SRC="${SCRIPT_DIR}/cm059_editor"
+    ok "$MSG_OK_EDITOR_FRONTPAGE_BUNDLED"
+elif [[ -d "${SCRIPT_DIR}/../vendor/cm059_editor" && -f "${SCRIPT_DIR}/../vendor/cm059_editor/INSTALL_SNIPPET.sh" ]]; then
+    EDITOR_FRONTPAGE_SRC="${SCRIPT_DIR}/../vendor/cm059_editor"
 fi
 
-# Try the primary download URL, then fall back once to
-# ASSISTANT_FALLBACK_VERSION (last-known-good). The fallback only
-# activates when (a) no bundled artefact is present in the DMG
-# and (b) the primary URL returns non-200. v0.4.2 of
-# ostler-assistant was never published to ostler-ai/ostler-installer
-# (default bumped in error pre-DMG#48; caught on a clean Studio
-# install). If the primary URL 404s, the install still completes
-# on a proven-good binary rather than stranding the customer at
-# the launch step.
-_assistant_download_ok=false
-if [[ -z "$_assistant_bundled_shape" ]]; then
-    if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
-       && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
-        _assistant_download_ok=true
-    elif [[ "${OSTLER_ASSISTANT_VERSION}" != "${ASSISTANT_FALLBACK_VERSION}" ]]; then
-        warn "$(printf "$MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_ARCHIVE_URL}")"
-        warn "Retrying with last-known-good v${ASSISTANT_FALLBACK_VERSION}..."
-        _ostler_assistant_set_urls "${ASSISTANT_FALLBACK_VERSION}"
-        rm -f "$ASSISTANT_TMPDIR"/*
-        if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
-           && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
-            _assistant_download_ok=true
-        fi
-    fi
-fi
-
-if [[ "$_assistant_bundled_shape" == "app" ]]; then
-    # DMG bundled the v0.4.3+ shape: an .app bundle. Copy the
-    # whole bundle tree to ~/.ostler/OstlerAssistant.app/. ditto
-    # preserves Apple-specific filesystem metadata (extended
-    # attributes, ACLs, signature resources) that a plain cp -R
-    # can occasionally strip on edge filesystems; this matters
-    # because a signed bundle's _CodeSignature dir is part of the
-    # signature envelope.
-    info "$MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY"
-    rm -rf "$ASSISTANT_APP_BUNDLE"
-    mkdir -p "$(dirname "$ASSISTANT_APP_BUNDLE")"
-    ditto "$ASSISTANT_BUNDLED_APP" "$ASSISTANT_APP_BUNDLE"
-    chmod 0755 "$ASSISTANT_BINARY"
-    # Clear quarantine from the whole bundle tree. The DMG itself
-    # was already Gatekeeper-cleared by the customer at install
-    # time, so this is not a security downgrade. -r recurses so
-    # the inner Mach-O + the Resources/icon.icns both lose the
-    # quarantine flag.
-    xattr -rd com.apple.quarantine "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
-    ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_APP_BUNDLE}")"
-    ASSISTANT_BINARY_INSTALLED=true
-elif [[ "$_assistant_bundled_shape" == "bin" ]]; then
-    # DMG bundled the legacy bare-binary shape. Stage the binary
-    # into the .app bundle structure locally so the TCC icon
-    # surface stays consistent regardless of which DMG cut the
-    # customer is installing from. The local-wrap uses the same
-    # Info.plist + icon.icns shipped in the DMG Resources/ so the
-    # customer sees the Ostler v4 icon in System Settings even on
-    # an older daemon build.
-    info "$MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY"
-    rm -rf "$ASSISTANT_APP_BUNDLE"
-    mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/MacOS"
-    mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/Resources"
-    cp "$ASSISTANT_BUNDLED_BIN" "$ASSISTANT_BINARY"
-    chmod 0755 "$ASSISTANT_BINARY"
-    # Synthesise a minimal Info.plist for the locally-wrapped
-    # bundle. The bundle ID matches the daemon's TCC client
-    # identifier so a future v0.4.3+ upgrade preserves the FDA
-    # grant. CFBundleIconFile=icon + the icns copied below give
-    # macOS what it needs to render the Ostler v4 mark.
-    cat > "$ASSISTANT_APP_BUNDLE/Contents/Info.plist" <<INFOPLISTEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>ostler-assistant</string>
-    <key>CFBundleIdentifier</key>
-    <string>ai.ostler.assistant</string>
-    <key>CFBundleName</key>
-    <string>Ostler Assistant</string>
-    <key>CFBundleDisplayName</key>
-    <string>Ostler</string>
-    <key>CFBundleIconFile</key>
-    <string>icon</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>${OSTLER_ASSISTANT_VERSION}</string>
-    <key>CFBundleVersion</key>
-    <string>${OSTLER_ASSISTANT_VERSION}</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>12.0</string>
-    <key>LSBackgroundOnly</key>
-    <true/>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSHumanReadableCopyright</key>
-    <string>Copyright (c) 2026 Creative Machines Limited. All rights reserved.</string>
-</dict>
-</plist>
-INFOPLISTEOF
-    # Copy the v4 oxblood squircle icns into the bundle.
-    # Resolution order matches the FDA dialog icon path used
-    # downstream: prefer the DMG's Resources, then fall back to
-    # the installed-app Resources/ if the operator ran an unusual
-    # SCRIPT_DIR path. If neither is present we leave
-    # CFBundleIconFile dangling -- macOS falls back to the
-    # generic icon, which is the same outcome as not wrapping;
-    # better than failing the install over a missing icns.
-    _local_wrap_icon_src=""
-    if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
-        _local_wrap_icon_src="${SCRIPT_DIR}/AppIcon.icns"
-    elif [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
-        _local_wrap_icon_src="${SCRIPT_DIR}/DialogIcon.icns"
-    elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
-        _local_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
-    elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
-        _local_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
-    fi
-    if [[ -n "$_local_wrap_icon_src" ]]; then
-        cp "$_local_wrap_icon_src" "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
-        chmod 0644 "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
-    fi
-    unset _local_wrap_icon_src
-    # Clear quarantine from the freshly-staged bundle.
-    xattr -rd com.apple.quarantine "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
-    ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_APP_BUNDLE}")"
-    ASSISTANT_BINARY_INSTALLED=true
-elif [[ "$_assistant_download_ok" == "true" ]]; then
-
-    # Verify SHA-256. Phase B writes the sidecar as
-    # `<hex>  <filename>` (shasum default). Recompute against
-    # the local download and compare hex prefixes. A mismatch
-    # is an explicit hard fail: continuing past this point
-    # would stage a tampered or partial binary.
-    EXPECTED_SHA="$(awk '{print $1}' "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256")"
-    ACTUAL_SHA="$(shasum -a 256 "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" | awk '{print $1}')"
-    if [[ -z "$EXPECTED_SHA" || "$EXPECTED_SHA" != "$ACTUAL_SHA" ]]; then
-        err "$MSG_ERR_OSTLER_ASSISTANT_TARBALL_SHA_256_MISMATCH"
-        err "$(printf "$MSG_ERR_EXPECTED" "${EXPECTED_SHA:-<empty sidecar>}")"
-        err "$(printf "$MSG_ERR_ACTUAL" "${ACTUAL_SHA}")"
-        err "$(printf "$MSG_ERR_URL" "${ASSISTANT_ARCHIVE_URL}")"
-        err "$MSG_ERR_REFUSING_STAGE_BINARY_THAT_DOES_NOT"
-        rm -rf "$ASSISTANT_TMPDIR"
-        ASSISTANT_TMPDIR=""
-        exit 1
-    fi
-
-    # Extract the tarball into a private staging dir first so we
-    # can inspect the shape (bare binary vs .app bundle) before
-    # committing to a final layout. v0.4.3+ tarballs contain
-    # OstlerAssistant.app at the tar root; legacy v0.4.1
-    # tarballs contain a bare ostler-assistant binary. The
-    # release-pipeline rename plan is described in the
-    # companion ostler-assistant PR (Path A).
-    _assistant_extract_dir="$(mktemp -d)"
-    if tar xzf "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" -C "$_assistant_extract_dir"; then
-        if [[ -d "$_assistant_extract_dir/OstlerAssistant.app" ]]; then
-            # v0.4.3+ shape: tarball contained OstlerAssistant.app
-            # at the root. Stage it into ~/.ostler/.
-            rm -rf "$ASSISTANT_APP_BUNDLE"
-            mkdir -p "$(dirname "$ASSISTANT_APP_BUNDLE")"
-            ditto "$_assistant_extract_dir/OstlerAssistant.app" "$ASSISTANT_APP_BUNDLE"
-        elif [[ -f "$_assistant_extract_dir/ostler-assistant" ]]; then
-            # Legacy v0.4.1 shape: tarball contained a bare
-            # binary. Wrap it in a minimal .app locally so the
-            # TCC icon surface stays consistent regardless of
-            # which release the customer is installing.
-            rm -rf "$ASSISTANT_APP_BUNDLE"
-            mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/MacOS"
-            mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/Resources"
-            cp "$_assistant_extract_dir/ostler-assistant" "$ASSISTANT_BINARY"
-            cat > "$ASSISTANT_APP_BUNDLE/Contents/Info.plist" <<INFOPLISTEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>ostler-assistant</string>
-    <key>CFBundleIdentifier</key>
-    <string>ai.ostler.assistant</string>
-    <key>CFBundleName</key>
-    <string>Ostler Assistant</string>
-    <key>CFBundleDisplayName</key>
-    <string>Ostler</string>
-    <key>CFBundleIconFile</key>
-    <string>icon</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>${OSTLER_ASSISTANT_VERSION}</string>
-    <key>CFBundleVersion</key>
-    <string>${OSTLER_ASSISTANT_VERSION}</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>12.0</string>
-    <key>LSBackgroundOnly</key>
-    <true/>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSHumanReadableCopyright</key>
-    <string>Copyright (c) 2026 Creative Machines Limited. All rights reserved.</string>
-</dict>
-</plist>
-INFOPLISTEOF
-            _curl_wrap_icon_src=""
-            if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
-                _curl_wrap_icon_src="${SCRIPT_DIR}/AppIcon.icns"
-            elif [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
-                _curl_wrap_icon_src="${SCRIPT_DIR}/DialogIcon.icns"
-            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
-                _curl_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
-            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
-                _curl_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
-            fi
-            if [[ -n "$_curl_wrap_icon_src" ]]; then
-                cp "$_curl_wrap_icon_src" "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
-                chmod 0644 "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
-            fi
-            unset _curl_wrap_icon_src
-        else
-            # Tarball shape we don't understand. Leave
-            # ASSISTANT_APP_BUNDLE absent; the Mach-O check below
-            # will mark it corrupt + skip the launch agent.
-            warn "Tarball at $ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME contained neither OstlerAssistant.app nor a bare ostler-assistant binary at the root."
-            warn "Skipping LaunchAgent install. Re-download once the release pipeline is back online."
-        fi
-        rm -rf "$_assistant_extract_dir"
-        chmod 0755 "$ASSISTANT_BINARY" 2>/dev/null || true
-
-        # Three-state binary check. The SHA-256 verification
-        # earlier in this section already caught a tampered
-        # download, but a malformed extract or an upstream
-        # release-pipeline bug could still hand us a file that
-        # is not even a Mach-O. We refuse to silently degrade
-        # such a binary to the unsigned-quarantine-strip path:
-        # clearing the quarantine xattr on a corrupt binary
-        # would let it run without the right-click-and-Allow
-        # ceremony that would otherwise alert the operator.
-        # Per feedback_no_silent_security_fallback: security
-        # paths must hard-fail, not silently degrade.
-        #
-        # State distinction:
-        #   1. `file` does not report Mach-O => state "corrupt".
-        #      A random-bytes replacement, an empty file, or any
-        #      non-executable extracted in error lands here. We
-        #      can't trust codesign output below for non-Mach-O
-        #      input -- codesign reports "not signed at all" for
-        #      both legitimately-unsigned binaries AND completely
-        #      garbage data, so without this Mach-O gate the
-        #      detection silently misclassifies garbage as
-        #      "unsigned" and strips the quarantine xattr.
-        #   2. `codesign -dv` reports Authority=Developer ID
-        #      Application => state "signed". Upstream pipeline
-        #      stamped this build via release/sign-and-notarize.sh.
-        #   3. Otherwise => state "unsigned". Today's default
-        #      tarball, an ad-hoc-signed local build, or any
-        #      non-Developer-ID signature. Trust path is the
-        #      same: clear the quarantine xattr on the operator-
-        #      authorised install.
-        ASSISTANT_BINARY_SIGN_STATE="unknown"
-        binary_file_type="$(/usr/bin/file --brief "$ASSISTANT_BINARY" 2>&1 || true)"
-        codesign_dv_output="$(codesign -dv --verbose=4 "$ASSISTANT_BINARY" 2>&1 || true)"
-
-        if [[ "$binary_file_type" != *"Mach-O"* ]]; then
-            ASSISTANT_BINARY_SIGN_STATE="corrupt"
-        elif echo "$codesign_dv_output" | grep -qE "Authority=Developer ID Application"; then
-            ASSISTANT_BINARY_SIGN_STATE="signed"
-        else
-            # A valid Mach-O without a Developer ID signature
-            # (today's default unsigned, or an ad-hoc / non-
-            # Developer-ID signed build). Trust path: the
-            # operator authorised this install, FileVault
-            # protects the artefact at rest, the SHA-256
-            # verified the download. Strip the xattr.
-            ASSISTANT_BINARY_SIGN_STATE="unsigned"
-        fi
-
-        case "$ASSISTANT_BINARY_SIGN_STATE" in
-            signed)
-                # Signed + notarised binaries are Gatekeeper-
-                # trusted; the quarantine xattr resolves cleanly
-                # on first run via Apple's online ticket lookup,
-                # so we leave it in place rather than stripping.
-                ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
-                info "$MSG_INFO_APPLE_NOTARISATION_WILL_VERIFIED_GATEKEEPER_FIRST"
-                ;;
-            unsigned)
-                # Unsigned binary (today's default, or a forked
-                # build that opted out of signing). Clearing the
-                # quarantine xattr lets the LaunchAgent run
-                # without the user having to right-click + Allow
-                # in Privacy & Security on first launch.
-                # Operator-installed daemons under
-                # ~/.ostler/OstlerAssistant.app are explicitly
-                # trusted by the install they just authorised;
-                # quarantine adds friction without buying
-                # anything beyond what FileVault and the SHA
-                # verify above already cover. -r recurses so the
-                # inner Mach-O + Resources/icon.icns both lose
-                # the xattr.
-                xattr -rd com.apple.quarantine "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
-                ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_UNSIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
-                info "$MSG_INFO_QUARANTINE_XATTR_CLEARED_ONCE_DEVELOPER_ID"
-                info "$MSG_INFO_AVAILABLE_INSTALLER_WILL_SKIP_THIS_STEP"
-                ;;
-            corrupt)
-                # Refuse to install. The SHA-256 sidecar already
-                # passed (we wouldn't be here otherwise), so a
-                # corrupt binary at this point implies an
-                # upstream release-pipeline bug or a runtime
-                # filesystem fault. Either way: don't strip
-                # quarantine, don't load the LaunchAgent, leave
-                # the binary in place for the operator to
-                # inspect.
-                err "$(printf "$MSG_ERR_OSTLER_ASSISTANT_BINARY_NOT_MACH_O" "${ASSISTANT_BINARY}")"
-                err "$(printf "$MSG_ERR_FILE_BRIEF_REPORTED" "${binary_file_type}")"
-                err "$MSG_ERR_CODESIGN_DV_REPORTED"
-                err "$(printf '%s\n' "$codesign_dv_output" | sed -e 's/^/    /' | head -5)"
-                err "$MSG_ERR_REFUSING_STRIP_QUARANTINE_LOAD_LAUNCHAGENT"
-                err "$MSG_ERR_RE_RUN_INSTALLER_ONCE_UPSTREAM_TARBALL"
-                # ASSISTANT_BINARY_INSTALLED stays false (its
-                # initial value), so the LaunchAgent step
-                # downstream is skipped without further action.
-                ;;
-        esac
-
-        if [[ "$ASSISTANT_BINARY_SIGN_STATE" != "corrupt" ]]; then
-            if "$ASSISTANT_BINARY" --version >/dev/null 2>&1; then
-                ASSISTANT_BINARY_INSTALLED=true
-            else
-                warn "$MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK"
-                warn "$(printf "$MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_TRY_VERSION" "${ASSISTANT_BINARY}")"
-            fi
-        fi
+if [[ -n "$EDITOR_FRONTPAGE_SRC" ]]; then
+    if OSTLER_INSTALL_ROOT="$EDITOR_FRONTPAGE_SRC" \
+       OSTLER_DIR="$OSTLER_DIR" \
+       LOGS_DIR="$LOGS_DIR" \
+       OSTLER_EDITOR_PYTHON="$PYTHON3_BIN" \
+       bash "$EDITOR_FRONTPAGE_SRC/INSTALL_SNIPPET.sh"; then
+        ok "$MSG_OK_EDITOR_FRONTPAGE_LOADED"
+        info "$MSG_INFO_EDITOR_FRONTPAGE_FIRST_EMIT"
+        info "$(printf "$MSG_INFO_EDITOR_FRONTPAGE_LOGS" "${LOGS_DIR}")"
     else
-        warn "$MSG_WARN_COULD_NOT_EXTRACT_OSTLER_ASSISTANT_TARBALL"
+        warn "$MSG_WARN_EDITOR_FRONTPAGE_FAILED"
     fi
 else
-    warn "$(printf "$MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_ARCHIVE_URL}")"
-    if [[ -s "$ASSISTANT_TMPDIR/curl.log" ]]; then
-        warn "$MSG_WARN_CURL_SAID"
-        sed -e 's/^/    /' "$ASSISTANT_TMPDIR/curl.log" | head -5
-    fi
-    warn "$(printf "$MSG_WARN_COMMON_CAUSES_TAG_V_NOT_YET" "${OSTLER_ASSISTANT_VERSION}")"
-    warn "$MSG_WARN_OR_RUNNING_AHEAD_PHASE_B_S"
-    warn "$MSG_WARN_RELEASE_LANDS_STAGE_BINARY_MANUALLY"
-    info "$(printf "$MSG_INFO_CURL_FL_O_TMP_OSTLER_TGZ" "${ASSISTANT_ARCHIVE_URL}")"
-    info "$(printf "$MSG_INFO_TAR_XZF_TMP_OSTLER_TGZ_C" "${OSTLER_DIR}")"
-    info "$(printf "$MSG_INFO_BASH_INSTALL_SNIPPET_SH_2" "${OSTLER_ASSISTANT_DIR}")"
+    warn "$MSG_WARN_EDITOR_FRONTPAGE_VENDOR_MISSING"
 fi
 
-rm -rf "$ASSISTANT_TMPDIR"
-ASSISTANT_TMPDIR=""
+# ── 3.14e Ostler assistant LaunchAgent (binary staged at 3.7c) ───
+#
+# The daemon binary itself is staged far earlier, at phase 3.7c, so that
+# every LaunchAgent pointing at it is bootstrapped against a binary that
+# exists. This section is the launchctl half: stage the assistant-agent
+# INSTALL_SNIPPET assets, render + register the daemon's own LaunchAgent
+# (start deferred until FDA is granted), the WhatsApp keepalive, and the
+# iMessage FDA probe.
+#
+# ARCH_DETECTED and ASSISTANT_BINARY_INSTALLED are both set by
+# _ostler_stage_assistant_daemon at 3.7c.
+if [[ "${ARCH_DETECTED:-}" == "arm64" || "${ARCH_DETECTED:-}" == "aarch64" ]]; then
+
 
 # Stage the assistant-agent INSTALL_SNIPPET assets even when the
 # binary download failed. The snippet refuses to run without the
@@ -10339,6 +16606,66 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
         ASSISTANT_INSTALL_KEEPALIVE="false"
     fi
 
+    # #646 (v1.0 launch blocker): assemble the customer's OWN iMessage
+    # handles for the assistant's self-echo loop guard. The daemon's
+    # is_self_handle (crates/zeroclaw-channels/src/imessage.rs) reads
+    # OSTLER_IMESSAGE_SELF_HANDLES and drops inbound from the user's own
+    # handles, so the assistant cannot reply to its own output echoing
+    # back (shared Apple ID / cross-account routing). Empty when iMessage
+    # is off or no handle was captured: the snippet then renders an empty
+    # value and the guard stays inactive (the daemon's content-based
+    # backstop still applies).
+    #
+    # #646 part 2 (v1.0.10 box-walk regression, 2026-07-24): the PRIMARY
+    # source is the me-card identity (USER_PHONE + USER_EMAIL captured at
+    # Q3). But on the v1.0.10 install box the operator's Contacts "my card"
+    # resolved a NAME + country yet carried NO phone and NO email entry
+    # (a sparse card, or Contacts still cold when the phone/email sub-reads
+    # ran at line ~2485). Both USER_PHONE and USER_EMAIL landed empty, so
+    # the me-card-only builder produced an EMPTY value -- and the gateway
+    # logged "no self-handle (OSTLER_IMESSAGE_SELF_HANDLES empty); skipping
+    # intro", so the warm-intro iMessage never fired.
+    #
+    # FALLBACK: when the me-card yields nothing, fall back to the handle(s)
+    # the operator explicitly confirmed at the iMessage "who can message me"
+    # prompt (CHANNEL_IMESSAGE_ALLOWED). In the empty-me-card case that
+    # prompt's default (IMESSAGE_ALLOWED_DEFAULT) was ALSO empty, so the
+    # allowed list is entirely operator-entered and, for a personal
+    # assistant, is the operator's own address(es) -- the best self-handle
+    # signal available at install time and strictly better than shipping an
+    # empty guard. When the me-card DID resolve, the fallback never runs, so
+    # the "self only, never OTHER allowed contacts" invariant is preserved
+    # on the common path (an allowed list that also names other people is
+    # only ever used for self-handles when the me-card gave us literally
+    # nothing else to go on).
+    #
+    # Factored into a function so tests/test_imessage_self_handles_fallback.sh
+    # can carve + exercise it against the me-card-empty regression directly.
+    _compute_imessage_self_handles() {
+        local out="" _h
+        # Primary: me-card phone + email.
+        for _h in "${USER_PHONE:-}" "${USER_EMAIL:-}"; do
+            _h="${_h# }"; _h="${_h% }"
+            [[ -n "$_h" ]] || continue
+            if [[ -z "$out" ]]; then out="$_h"; else out="${out},${_h}"; fi
+        done
+        # Fallback: operator-confirmed allowed list when the me-card was empty.
+        if [[ -z "$out" && -n "${CHANNEL_IMESSAGE_ALLOWED:-}" ]]; then
+            local _arr=()
+            IFS=',' read -ra _arr <<< "$CHANNEL_IMESSAGE_ALLOWED"
+            for _h in "${_arr[@]}"; do
+                _h="${_h# }"; _h="${_h% }"
+                [[ -n "$_h" ]] || continue
+                if [[ -z "$out" ]]; then out="$_h"; else out="${out},${_h}"; fi
+            done
+        fi
+        printf '%s' "$out"
+    }
+    ASSISTANT_SELF_HANDLES=""
+    if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
+        ASSISTANT_SELF_HANDLES="$(_compute_imessage_self_handles)"
+    fi
+
     # CX-77 (DMG #44, 2026-05-25): wrap the snippet invocation in a
     # retry loop and tee stderr into install.log. The snippet failed
     # on auto-run during DMG #43 Studio retest but succeeded when
@@ -10361,6 +16688,9 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
             LOGS_DIR="$LOGS_DIR" \
             ASSISTANT_CONFIG_DIR="$ASSISTANT_CONFIG_DIR" \
             INSTALL_WHATSAPP_KEEPALIVE="$ASSISTANT_INSTALL_KEEPALIVE" \
+            OSTLER_IMESSAGE_SELF_HANDLES="$ASSISTANT_SELF_HANDLES" \
+            PWG_SERVICE_TOKEN="$PWG_SERVICE_TOKEN" \
+            OSTLER_ASSISTANT_DEFER_START="true" \
             bash "${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh" 2>"$_snippet_stderr"
         ); then
             _snippet_ok=true
@@ -10443,12 +16773,80 @@ _imessage_daemon_fda_granted() {
         _auth="$(
             sudo -n sqlite3 \
                 "/Library/Application Support/com.apple.TCC/TCC.db" \
-                "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY}') LIMIT 1;" \
+                "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY:-none}') LIMIT 1;" \
                 2>/dev/null || true
         )"
     fi
     if [[ "$_auth" == "2" ]]; then
         echo "granted"
+    fi
+}
+
+# ── BW5 (2026-07-26): daemon FDA "listed" (row exists) vs "granted" ──
+#
+# macOS shows an app in the Full Disk Access pane as a toggleable row
+# once ANY TCC row exists for its client id -- switched on (auth_value
+# 2) OR off (0). The BW4-A register-nudge below performs a denied FDA
+# read as ai.ostler.assistant precisely to register that row, so by the
+# time the assisted-grant flow runs the daemon is normally LISTED but
+# OFF. When it is already listed, the Finder drag-in reveal (`open -R`)
+# is redundant noise -- the customer only needs to flip the existing
+# switch -- and that lingering Finder window is one of the windows that
+# "crashed" together with the Tailscale sign-in on the .98 box-walk.
+# This helper reports "listed" when a row exists regardless of
+# auth_value, so the flow can suppress the Finder window (and the
+# "drag from Finder" modal line) when it is not needed. Empty output
+# (no row, or sudo unavailable) falls back to the existing drag flow --
+# i.e. it fails toward MORE guidance, never toward a broken grant.
+_imessage_daemon_fda_listed() {
+    local _row=""
+    if command -v sudo >/dev/null 2>&1; then
+        _row="$(
+            sudo -n sqlite3 \
+                "/Library/Application Support/com.apple.TCC/TCC.db" \
+                "SELECT 1 FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY:-none}') LIMIT 1;" \
+                2>/dev/null || true
+        )"
+    fi
+    if [[ "$_row" == "1" ]]; then
+        echo "listed"
+    fi
+}
+
+# ── BW3-1 (2026-07-23): deferred assistant-daemon start ─────────────
+#
+# INSTALL_SNIPPET.sh renders the assistant LaunchAgent plist but is now
+# invoked with OSTLER_ASSISTANT_DEFER_START=true, so it does NOT bootstrap
+# the agent. The plist sets RunAtLoad=true + KeepAlive, so a bootstrap
+# there would start the daemon PROCESS immediately -- before the daemon's
+# own Full Disk Access has been granted (the daemon FDA grant flow runs
+# below). An FDA-less daemon touches ~/Documents and macOS raises the
+# per-folder Documents TCC prompt, which stacked on the FDA grant windows
+# (System Settings + Finder + the Allow/Done modal) on the .98 box-walk.
+#
+# This helper performs the deferred start. It is called ONLY after FDA has
+# been confirmed by the detection poll (the two daemon-FDA-granted sites
+# below) or, as an unconditional catch-all, at the very end of the install
+# after every permission flow has had its turn. Idempotent: the first call
+# bootstraps the agent (RunAtLoad then starts it, now with FDA); any later
+# call kickstart -k restarts it in place to pick up a grant that landed
+# after the first start (the old end-of-install `kickstart -k` intent).
+# No-op if the assistant binary was not installed or the plist was never
+# rendered.
+_ostler_start_assistant_daemon() {
+    [[ "${ASSISTANT_BINARY_INSTALLED:-false}" == true ]] || return 0
+    local _label="com.creativemachines.ostler.assistant"
+    local _domain="gui/$(id -u)"
+    local _plist="${HOME}/Library/LaunchAgents/${_label}.plist"
+    [[ -f "$_plist" ]] || return 0
+    if [[ "${OSTLER_ASSISTANT_STARTED:-0}" == "1" ]]; then
+        launchctl kickstart -k "${_domain}/${_label}" 2>/dev/null || true
+        return 0
+    fi
+    launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
+    if launchctl bootstrap "${_domain}" "$_plist" 2>/dev/null \
+       || launchctl load "$_plist" 2>/dev/null; then
+        OSTLER_ASSISTANT_STARTED=1
     fi
 }
 
@@ -10493,7 +16891,10 @@ else
         if [[ "$(_imessage_daemon_fda_granted)" == "granted" ]]; then
             _imessage_fda_needed="false"
             info "$MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED"
-            launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
+            # BW3-1: daemon FDA already granted -> safe to start the deferred
+            # daemon now; it launches WITH FDA and never self-prompts for
+            # Documents. (Was a bare kickstart -k, a no-op post-deferral.)
+            _ostler_start_assistant_daemon
         else
             # The daemon-identity test above reported not-granted.
             # We still run install.sh's own read of chat.db as a
@@ -10529,13 +16930,129 @@ else
                 # dialog all need a windowed environment).
                 if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING"
+                    # BW5 (2026-07-26): announce this as ONE deliberate "we
+                    # need you" gate BEFORE any window opens, naming both the
+                    # Full Disk Access grant now AND the Tailscale sign-in that
+                    # follows, so the customer is not ambushed 5/6 through by an
+                    # unannounced crash of windows after being told to walk
+                    # away. This is a log line, not another modal -- it sets
+                    # expectation without adding a window.
+                    info "$MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE"
+
+                # BW4-A (2026-07-24): TCC auto-register nudge for the daemon.
+                #
+                # Box-walk (.184) finding: at this daemon-FDA step OstlerAssistant
+                # did NOT appear as a ready-to-toggle (greyed) row in System
+                # Settings -> Full Disk Access -- only OstlerInstaller (already
+                # granted) was listed -- so the customer was forced to drag the
+                # .app in from Finder. macOS lists an app in the FDA pane only
+                # once THAT app's code-signing identity has *attempted* an
+                # FDA-gated read; a denied attempt is enough to register the
+                # greyed toggle. install.sh's own chat.db probe above is
+                # attributed by TCC to OstlerInstaller (the responsible-process
+                # ancestor of the forked sqlite3 / helper), NOT to the daemon
+                # identity ai.ostler.assistant -- so the daemon never got listed.
+                # BW3-1 also (correctly, #428) defers the persistent daemon
+                # LaunchAgent until AFTER FDA is granted, so nothing else runs as
+                # ai.ostler.assistant pre-grant to trigger the listing either.
+                #
+                # Fix: BEFORE opening the FDA pane, launch OstlerAssistant.app
+                # via LaunchServices (`open`) so the app is its OWN responsible
+                # process, and hand it the one-shot `run-source imessage
+                # --self-test` FDA-continuity probe. That subcommand opens
+                # ~/Library/Messages/chat.db read-only, reads a few bytes, prints
+                # OK/DENIED and EXITS -- it early-returns before any config load,
+                # logging init or daemon/agent bootstrap, touches ONLY chat.db
+                # (never ~/Documents), and has no KeepAlive. Pre-grant it simply
+                # gets denied -- and that denied read is exactly what makes macOS
+                # register ai.ostler.assistant in the FDA pane as a toggleable
+                # row. The customer then just flips the switch; the Finder-drag
+                # (below) stays as the fallback for any macOS where the row still
+                # doesn't auto-appear.
+                #
+                # Why this does NOT reintroduce the #428 pre-FDA crash-loop: #428
+                # was the *persistent* RunAtLoad+KeepAlive daemon starting
+                # pre-FDA, touching ~/Documents and looping on the Documents TCC
+                # prompt. This is a distinct, short-lived one-shot that self-exits
+                # in milliseconds, never bootstraps the LaunchAgent, and never
+                # touches ~/Documents -- so there is no KeepAlive to loop and no
+                # Documents prompt to raise. The deferred persistent-daemon start
+                # (_ostler_start_assistant_daemon) remains gated behind
+                # FDA-confirmed exactly as BW3-1 left it -- untouched here.
+                #
+                # Flags: -n forces a FRESH instance (so -W waits only on our
+                # one-shot, never on a pre-existing long-running daemon), -g/-j
+                # launch it in the background hidden (no focus-steal, matching the
+                # BW3-2 focus posture), -W blocks until the probe exits so the row
+                # is registered before we open the pane. Best-effort throughout:
+                # any failure (older binary without the subcommand, launch error)
+                # is swallowed and the Finder-drag fallback below still runs.
+                if [[ -d "$ASSISTANT_APP_BUNDLE" ]]; then
+                    info "$MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE"
+                    # HANG GUARD (Archie): `-W` blocks until the launched app
+                    # EXITS. If the shipped daemon binary does NOT recognise the
+                    # `run-source imessage --self-test` one-shot, it falls through
+                    # to normal (persistent, KeepAlive) daemon startup and never
+                    # exits -- so a bare `open -W` would block install.sh
+                    # INDEFINITELY. `|| true` catches a non-zero exit but NOT a
+                    # hang. Wrap the probe with a hard 15s timeout: run it in the
+                    # background, arm a killer that TERMs it after 15s, then wait.
+                    # 15s is ample -- TCC registers the daemon identity on the
+                    # denied chat.db read within the first ms of launch. On a
+                    # binary that DOES self-exit the probe finishes in well under
+                    # a second and the killer is reaped immediately.
+                    ( open -gjnW -a "$ASSISTANT_APP_BUNDLE" \
+                        --args run-source imessage --self-test \
+                        >/dev/null 2>&1 ) &
+                    _fda_probe_pid=$!
+                    ( sleep 15; kill -TERM "$_fda_probe_pid" 2>/dev/null ) &
+                    _fda_probe_killer=$!
+                    wait "$_fda_probe_pid" 2>/dev/null || true
+                    kill -TERM "$_fda_probe_killer" 2>/dev/null || true
+                fi
+
+                # BW5 (2026-07-26): probe listed-state ONCE, after the nudge
+                # above has had its chance to register the daemon's FDA row.
+                # Used below to (a) skip the redundant Finder reveal and (b)
+                # drop the "drag from Finder" line from the modal when the row
+                # already exists. Assigned unconditionally here so it is always
+                # defined before use under `set -u`.
+                _fda_listed="$(_imessage_daemon_fda_listed)"
+                # BW5 nit (Archie 2026-07-26): a "not listed" result can mean the
+                # row is genuinely absent OR sudo -n could not read TCC.db. Both
+                # take the drag-in fallback, so record which one fired for
+                # post-hoc box-walk forensics. Logged here (not inside the
+                # stdout-captured helper) so it can never corrupt _fda_listed.
+                # The sudo keepalive loop keeps creds warm, so -n does not prompt.
+                if [[ "${_fda_listed:-}" != "listed" ]]; then
+                    if command -v sudo >/dev/null 2>&1 && ! sudo -n true 2>/dev/null; then
+                        gui_log info "Daemon FDA-listed probe: sudo -n unavailable, could not read TCC.db; using the drag-in fallback (not a confirmed row-absent)."
+                    else
+                        gui_log info "Daemon FDA-listed probe: OstlerAssistant not yet in the Full Disk Access list; showing the drag-in flow."
+                    fi
+                fi
+
+                # FDA_PANE_REFRESH (daemon parity for #572): force a fresh
+                # System Settings load before pointing the customer at the FDA
+                # pane. #572 added this to the INSTALLER FDA grant only; the
+                # daemon (OstlerAssistant) grant here never got it. The daemon
+                # pane usually opens with System Settings ALREADY open from the
+                # earlier installer grant, so it shows a STALE Full Disk Access
+                # list and OstlerAssistant looks "missing" for ~30-60s until the
+                # pane happens to refresh (the blank-window customers reported).
+                # killall + reopen guarantees the list is current. Best-effort;
+                # covers both the "System Settings" (macOS 13+) and legacy
+                # "System Preferences" process names.
+                killall "System Settings" >/dev/null 2>&1 || true
+                killall "System Preferences" >/dev/null 2>&1 || true
+                sleep 1
 
                 # Open System Settings to the Full Disk Access pane.
                 # The URL scheme is stable on macOS 13+; older macOS
                 # falls back to Privacy & Security top-level which
                 # is acceptable. The 2>/dev/null swallows the rare
                 # "scheme not registered" warning on stripped builds.
-                open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+                open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
 
                 # Reveal the daemon .app bundle in Finder so the
                 # customer can drag it directly into System
@@ -10546,7 +17063,19 @@ else
                 # OstlerAssistant.app/Contents/Resources/icon.icns)
                 # so the customer sees the product mark from the
                 # moment Finder opens.
-                open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+                #
+                # BW5 (2026-07-26): ONLY open Finder when the daemon is NOT
+                # already listed in the FDA pane. When it is listed (the
+                # normal case after the BW4-A nudge), the drag-in is
+                # unnecessary -- the customer just flips the switch -- so
+                # opening Finder here only adds a redundant window that
+                # stacks with the Tailscale sign-in. Keeps the drag flow as
+                # the fallback for any macOS where the row did not register.
+                if [[ "${_fda_listed:-}" != "listed" ]]; then
+                    open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+                else
+                    info "$MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED"
+                fi
 
                 # Modal that blocks install.sh until the customer
                 # dismisses it. The osascript dialog is reliable
@@ -10562,10 +17091,23 @@ else
                 # (LINE4 retired). Title swaps binary name for product
                 # name; LINE2 quotes the binary name so the customer
                 # can pattern-match it in the System Settings list.
-                _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s' \
-                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
-                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
-                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3")"
+                # BW5 (2026-07-26): when the daemon is already listed we did
+                # NOT open a Finder window, so the "Not listed? Drag from the
+                # Finder window..." LINE3 would be a lie. Use LINE1 + LINE2 +
+                # a short Done hint instead. Not-listed keeps the original
+                # three-line copy (LINE3 already ends with the Done
+                # instruction).
+                if [[ "${_fda_listed:-}" == "listed" ]]; then
+                    _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s' \
+                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
+                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
+                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT")"
+                else
+                    _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s' \
+                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
+                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
+                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3")"
+                fi
                 # Escape any embedded double-quotes for the
                 # AppleScript string literal. Then pass through
                 # osascript -e. Failures (user clicks the close
@@ -10628,18 +17170,16 @@ else
                 else
                     _imessage_fda_icon_clause="with icon note"
                 fi
-                # CX-66 z-order fix: System Settings was opened above, so
-                # without an explicit `activate` the dialog would render
-                # behind it. Wrapping the display dialog inside a
-                # `tell application "System Events"` block + activate
-                # brings the modal to the front of every other window
-                # so the customer can't miss it. We also pause briefly
-                # before display to let System Settings finish its
-                # window animation -- racing a half-rendered Settings
-                # pane was the original z-order risk.
+                # BW3-2 (2026-07-23): the CX-66 standalone `activate` was
+                # DROPPED here. System Settings + Finder were opened above to
+                # send the customer to drag the daemon into the FDA pane; the
+                # `activate` yanked focus straight back off them (the
+                # focus-steal flagged on the box-walk). `display dialog` run
+                # via System Events is already app-modal and frontmost, so the
+                # modal still surfaces. We keep the brief pause so the dialog
+                # does not race a half-rendered Settings pane.
                 sleep 1
                 osascript \
-                    -e 'tell application "System Events" to activate' \
                     -e "tell application \"System Events\" to display dialog \"${_imessage_fda_dialog_msg_esc}\" with title \"${_imessage_fda_title_esc}\" buttons {\"${_imessage_fda_button_esc}\"} default button \"${_imessage_fda_button_esc}\" ${_imessage_fda_icon_clause}" \
                     >/dev/null 2>&1 || true
                 unset _imessage_fda_dialog_msg _imessage_fda_dialog_msg_esc \
@@ -10658,18 +17198,63 @@ else
                 # second after the grant) is covered by the Doctor
                 # card's live re-probe (status_collector +
                 # check_imessage_fda) on next refresh.
-                sleep 2
-                if [[ "$(_imessage_daemon_fda_granted)" == "granted" ]]; then
+                #
+                # BW3-6 (2026-07-23): POLL the daemon's TCC posture until the
+                # protected read succeeds rather than a single post-dismiss
+                # `sleep 2` re-probe -- the customer takes several seconds to
+                # drag the daemon into the FDA pane, so a lone probe reported
+                # "still needed" while the grant was seconds away. Reuses the
+                # same _imessage_daemon_fda_granted helper as the initial test.
+                # Cap ~40s (20 x 2s); on timeout the CX-60 Doctor card's live
+                # re-probe takes over as the persistent reminder (unchanged).
+                _imessage_fda_reprobe_ok=false
+                for _imessage_fda_poll in $(seq 1 20); do
+                    if [[ "$(_imessage_daemon_fda_granted)" == "granted" ]]; then
+                        _imessage_fda_reprobe_ok=true
+                        break
+                    fi
+                    sleep 2
+                done
+                unset _imessage_fda_poll
+                if [[ "$_imessage_fda_reprobe_ok" == true ]]; then
                     _imessage_fda_needed="false"
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED"
-                    # Kick the assistant LaunchAgent to pick up the
-                    # new FDA grant. launchctl kickstart -k restarts
-                    # the agent without un/re-loading, so the new
-                    # TCC posture takes effect immediately.
-                    launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
+                    # BW3-1: the detection poll confirmed the daemon now holds
+                    # FDA. Start the deferred daemon now -- it launches WITH
+                    # FDA, so it never self-prompts for the Documents folder.
+                    # (Was a bare kickstart -k, a no-op post-deferral since the
+                    # agent is not bootstrapped until this point.)
+                    _ostler_start_assistant_daemon
                 else
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED"
                 fi
+                unset _imessage_fda_reprobe_ok
+
+                # BW5 (2026-07-26): the FDA interaction is now RESOLVED -- the
+                # customer clicked Done on the modal and the ~40s grant poll has
+                # elapsed (granted, or the Doctor card will persist the
+                # reminder). Close the System Settings FDA pane we opened so it
+                # does NOT linger on screen and stack under the Tailscale
+                # sign-in browser that opens a couple of steps later -- that
+                # overlap is the "crash of windows" the .98 box-walk hit. This
+                # serializes the two interactions: FDA fully done before
+                # anything else needs the customer. Best-effort; covers both the
+                # modern "System Settings" and legacy "System Preferences"
+                # process names.
+                killall "System Settings" >/dev/null 2>&1 || true
+                killall "System Preferences" >/dev/null 2>&1 || true
+                # BW5 nit (Archie 2026-07-26): a fixed `sleep 1` is too tight on a
+                # heavily-loaded install-time Mac -- if the FDA pane is still on
+                # screen when the Tailscale sign-in opens a couple of steps later,
+                # we recreate the exact window overlap this block exists to
+                # prevent. Poll until the pane process is actually gone, with a
+                # generous ceiling, before proceeding. Never blocks forever.
+                _ss_close_wait=0
+                while { pgrep -x "System Settings" >/dev/null 2>&1 || pgrep -x "System Preferences" >/dev/null 2>&1; } && [[ "$_ss_close_wait" -lt 10 ]]; do
+                    sleep 1
+                    _ss_close_wait=$((_ss_close_wait + 1))
+                done
+                unset _fda_listed _ss_close_wait
                 fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
             fi  # closes `if true` assist wrapper (CX-90 reorder)
         fi
@@ -10773,7 +17358,7 @@ fi  # end Apple Silicon guard
 
 progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_remotecapture"
 
-OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.1}"
+OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.3}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
 REMOTECAPTURE_APP_PATH="/Applications/Ostler RemoteCapture.app"
 REMOTECAPTURE_LAUNCHAGENT_LABEL="com.creativemachines.ostler-remotecapture"
@@ -10888,9 +17473,12 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
         # Gatekeeper policy (Developer ID + notarisation ticket).
         # A bundle that fails either is not something we will
         # silently stage onto the customer's daily driver Mac.
+        # -R pins the Creative Machines Team ID (V95N2B8X7A): a
+        # foreign notarised Developer-ID bundle steered into this
+        # path is rejected, not staged. (v1.0.10 red-team-3.)
         REMOTECAPTURE_CODESIGN_LOG="${REMOTECAPTURE_TMPDIR}/codesign.log"
         REMOTECAPTURE_SPCTL_LOG="${REMOTECAPTURE_TMPDIR}/spctl.log"
-        if codesign --verify --deep --strict "$REMOTECAPTURE_APP_PATH" 2>"$REMOTECAPTURE_CODESIGN_LOG" \
+        if codesign --verify --deep --strict -R "=${OSTLER_CODESIGN_REQ}" "$REMOTECAPTURE_APP_PATH" 2>"$REMOTECAPTURE_CODESIGN_LOG" \
            && spctl --assess --type execute "$REMOTECAPTURE_APP_PATH" 2>"$REMOTECAPTURE_SPCTL_LOG"; then
 
             # Both checks passed. Clear quarantine so launchctl
@@ -11062,9 +17650,12 @@ if [[ -n "$HUB_APP_SOURCE" ]]; then
         # the quarantine xattr: an unverified bundle bypassing
         # Gatekeeper is not something we silently stage onto the
         # customer's daily-driver Mac.
+        # -R pins the Creative Machines Team ID (V95N2B8X7A): only our
+        # own Developer-ID-signed Hub .app clears this gate, not any
+        # notarised bundle dropped into place. (v1.0.10 red-team-3.)
         HUB_APP_CODESIGN_LOG="$(mktemp -t ostler-hub-app-codesign.XXXXXX)"
         HUB_APP_SPCTL_LOG="$(mktemp -t ostler-hub-app-spctl.XXXXXX)"
-        if codesign --verify --deep --strict "$HUB_APP_DEST" 2>"$HUB_APP_CODESIGN_LOG" \
+        if codesign --verify --deep --strict -R "=${OSTLER_CODESIGN_REQ}" "$HUB_APP_DEST" 2>"$HUB_APP_CODESIGN_LOG" \
            && spctl --assess --type execute "$HUB_APP_DEST" 2>"$HUB_APP_SPCTL_LOG"; then
             xattr -dr com.apple.quarantine "$HUB_APP_DEST" 2>/dev/null || true
             if [[ "$HUB_APP_SOURCE" == "$HUB_APP_DEST" ]]; then
@@ -11191,7 +17782,17 @@ progress "Connect your iPhone and Watch" "tailscale_connect"
 
 OSTLER_TAILSCALE_IP=""
 
-TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
+# WALK-1 (Wave 2.1): the setup/skip DECISION is now collected upfront in
+# the Phase-2 questions block (search "10b-ts. Tailscale DECISION") and
+# carried here via TAILSCALE_CONFIRM + TAILSCALE_CONFIRM_SHOWN_EARLY, so
+# the autonomous middle never surfaces a surprise prompt. Only if the
+# early prompt did NOT run (e.g. Phase 2 was skipped on a reuse install,
+# or the GUI was off then on) do we fall back to asking here -- the same
+# belt-and-braces shape the Mail probes use. The actual install + browser
+# sign-in below was pre-announced in Phase 2.
+if [[ -z "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]; then
+    TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
+fi
 
 if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
     # ── Path A: Homebrew FORMULA + userspace networking (#604) ──────
@@ -11224,13 +17825,92 @@ if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
     TS_SOCK="${TS_STATE_DIR}/tailscaled.sock"
     mkdir -p "$TS_STATE_DIR"
 
+    # ── Recovery wrapper: ostler-tailscale ────────────────────────────
+    #
+    # tailscaled runs in USERSPACE mode on a PRIVATE socket
+    # (${TS_STATE_DIR}/tailscaled.sock). The stock `tailscale` CLI talks to
+    # the SYSTEM socket, so every command a customer might reasonably try --
+    # `tailscale status`, `tailscale up`, `tailscale ip -4` -- silently talks
+    # to the wrong daemon and reports nothing useful.
+    #
+    # That made the 3-minute browser sign-in window a ONE-SHOT. Miss it (walk
+    # away, get distracted, close the tab) and there was no supported way back:
+    # no CLI on PATH pointed at our socket, no menu-bar app (we install the
+    # headless formula deliberately), no helper. The v1.0.15 walk hit exactly
+    # this. Worse, the timeout message below used to advise `tailscale ip -4`,
+    # which is the stock CLI on the wrong socket -- advice that cannot work.
+    #
+    # The wrapper is written HERE, before any sign-in is attempted, so it
+    # exists on every path: success, timeout, skip, or a failed brew install.
+    # Recovery must not depend on the thing that failed.
+    mkdir -p "${OSTLER_DIR}/bin"
+    # QUOTED heredoc: nothing here is expanded by the installer. The first
+    # draft used an unquoted one with escaped dollars and shipped a wrapper
+    # whose $OSTLER_TS_SOCK and "$@" had both collapsed to a bare backslash --
+    # a recovery tool that could not run. Caught by rendering it and reading
+    # the output, which is the only way this class of bug is ever caught.
+    #
+    # The socket path is therefore NOT interpolated: the wrapper locates it
+    # relative to its own installed location (bin/../tailscale/), so it stays
+    # correct even if ~/.ostler moves, and there is no escaping to get wrong.
+    cat > "${OSTLER_DIR}/bin/ostler-tailscale" <<'OSTLER_TS_WRAPPER'
+#!/usr/bin/env bash
+# Ostler's Tailscale CLI.
+#
+# Ostler runs tailscaled in USERSPACE mode on its own private socket. The
+# stock `tailscale` command talks to the SYSTEM daemon, so it will report
+# nothing useful about this install. Use this instead:
+#
+#   ostler-tailscale status      # is it connected?
+#   ostler-tailscale up          # sign in (prints a login URL to open)
+#   ostler-tailscale ip -4       # the address the iPhone app needs
+#
+# Written by the Ostler installer. Safe to run at any time.
+set -euo pipefail
+
+# Resolve relative to this script, not to a baked-in path, so moving the
+# Ostler directory does not break recovery.
+_self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OSTLER_TS_SOCK="${_self_dir%/bin}/tailscale/tailscaled.sock"
+
+if ! command -v tailscale >/dev/null 2>&1; then
+    echo "The Tailscale command is not installed." >&2
+    echo "Install it with:  brew install tailscale" >&2
+    exit 127
+fi
+
+if [ ! -S "$OSTLER_TS_SOCK" ]; then
+    echo "Ostler's Tailscale service does not appear to be running." >&2
+    echo "Expected its socket at:" >&2
+    echo "  $OSTLER_TS_SOCK" >&2
+    echo "" >&2
+    echo "Open the Ostler app, or restart the Mac, then try again." >&2
+    exit 1
+fi
+
+exec tailscale --socket="$OSTLER_TS_SOCK" "$@"
+OSTLER_TS_WRAPPER
+    chmod 0755 "${OSTLER_DIR}/bin/ostler-tailscale"
+
     if ! command -v tailscale &>/dev/null; then
         info "$MSG_INFO_INSTALLING_TAILSCALE"
         if brew install tailscale 2>&1; then
             ok "$MSG_OK_TAILSCALE_INSTALLED"
         else
             warn "$MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL"
-            OSTLER_TAILSCALE_SKIPPED=1
+            # OSTLER_TAILSCALE_SKIPPED=1 used to be set here and was read by
+            # nothing, anywhere in the repo -- one write, zero reads. Removed
+            # rather than wired, because the state it tracked is already
+            # derivable one line later: TS_CLI comes from `command -v tailscale`
+            # and is empty on exactly this path, so the block below already
+            # branches correctly. A second, hand-maintained copy of a fact the
+            # code can compute is the same class of bug as a vendored twin --
+            # and a flag that LOOKS like it gates something is worse than no
+            # flag, because the next person assumes the state is tracked.
+            #
+            # What was genuinely missing is handled at the TS_CLI branch below:
+            # the customer was told the install failed but never told what it
+            # COSTS them.
         fi
     else
         ok "$MSG_OK_TAILSCALE_ALREADY_INSTALLED"
@@ -11295,6 +17975,17 @@ TSPLIST
         # completes OAuth.
         info "$MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN"
         TS_UP_LOG="${LOGS_DIR}/tailscale-up.log"
+        # TS_SAFARI_WARM (2026-06-09): start warming Safari HERE, before
+        # `tailscale up` and the URL-poll loop below, so the browser gets
+        # the entire 2-30s poll window to finish a cold launch instead of
+        # the fixed 2s the old code allowed at delivery time. Under heavy
+        # fresh-install load (Colima + Ollama + importer) Safari's cold
+        # start routinely outran that 2s, so the open-URL event landed on
+        # a still-bouncing Safari and was dropped (~40% on a clean Mac --
+        # the prior #644 mitigation reduced but did not close this race).
+        # Priming during the already-existing wait costs nothing.
+        # Best-effort, backgrounded (-g) so it does not steal focus.
+        open -g -a Safari >/dev/null 2>&1 || true
         # Register the Hub under a stable, predictable tailnet name so the
         # iOS app can always reach it at ostler-hub.<tailnet>.ts.net,
         # regardless of the customer's Mac hostname. Without --hostname,
@@ -11314,8 +18005,30 @@ TSPLIST
             sleep 2; TS_URL_WAIT=$((TS_URL_WAIT + 2))
         done
         if [[ -n "$TS_URL" ]]; then
+            # The URL is ALWAYS surfaced as plain text first (via info,
+            # which the GUI renders in its log pane), so the copy/paste
+            # sign-in path never depends on a browser launching at all.
             info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
-            open "$TS_URL" 2>/dev/null || true
+            # Auto-open is best-effort. A bare `open <url>` against a
+            # COLD-launching browser intermittently drops the open-URL
+            # Apple event -- or wedges Safari outright -- under the heavy
+            # CPU/IO load of a fresh install (Colima VM + Ollama + the
+            # importer all running). Observed ~1 in 4 on a clean Mac with
+            # the prior fixed-2s-sleep mitigation; still seen ~40%.
+            # Safari was already warmed above (before the URL-poll loop),
+            # so it has had the full poll window to finish launching.
+            # Deliver the URL via Safari specifically and ATOMICALLY:
+            # `open -a Safari <url>` hands LaunchServices a single
+            # launch-if-needed-THEN-open-URL request, so it cannot fire
+            # the URL at a half-launched Safari the way the old bare
+            # `open <url>` (a separate LS request racing the launch) did.
+            # Fall back to the default-handler form if Safari is somehow
+            # unavailable, then re-issue once in the background as a
+            # dropped-event safety net. The URL is also printed as plain
+            # text above, so copy/paste always works even if every
+            # auto-open is dropped.
+            open -a Safari "$TS_URL" >/dev/null 2>&1 || open "$TS_URL" >/dev/null 2>&1 || true
+            ( sleep 4; open -a Safari "$TS_URL" >/dev/null 2>&1 || true ) &
         fi
 
         # 180s window: a non-technical user reading the prompt, opening
@@ -11340,11 +18053,18 @@ TSPLIST
             # ── Expose the Hub's local ports on the tailnet ─────────
             # In userspace mode the tailnet IP does not reach local
             # listeners without an explicit proxy, so serve each Hub
-            # port: 8089 (Doctor API the iOS Companion uses) and 8044
-            # (the wiki). --bg keeps the forwarder running after the
+            # port. --bg keeps the forwarder running after the
             # installer exits. Best-effort: a serve failure is surfaced
             # but does not fail the install (on-LAN pairing still works).
-            for _ts_port in 8089 8044; do
+            #
+            # v1.0.10 security lockdown: ONLY 8089 (the Doctor API) is
+            # raw-TCP tailscale-served. 8089 has its own device-pairing
+            # bearer auth, so a tailnet peer still cannot read anything
+            # without a paired token. The wiki on :8044 is still NEVER
+            # raw-TCP served -- see the identity-gated HTTP path below,
+            # which is the "`tailscale serve https` identity headers"
+            # fix this comment used to defer.
+            for _ts_port in 8089; do
                 if "$TS_CLI" --socket="$TS_SOCK" serve --bg --tcp="$_ts_port" "tcp://localhost:${_ts_port}" >/dev/null 2>&1; then
                     info "$(printf "$MSG_INFO_TAILSCALE_SERVE_PORT" "$_ts_port")"
                 else
@@ -11352,6 +18072,198 @@ TSPLIST
                 fi
             done
             unset _ts_port
+
+            # ── Wiki on the tailnet, owner-gated (v1.0.17) ──────────
+            #
+            # Andy's locked call: "my devices" means the TAILNET, not
+            # the LAN. A student in a hall of residence must not get
+            # their whole personal graph served to the building, so
+            # :8044 stays bound to 127.0.0.1 and the ONLY off-box route
+            # is this one. Never LAN, never Funnel.
+            #
+            # Shape: tailscale serve (HTTP-proxy mode) -> nginx gate on
+            # 127.0.0.1:8144 -> wiki-site. tailscaled deletes any
+            # client-supplied Tailscale-* headers and re-stamps them
+            # from the verified WireGuard identity, so the gate's
+            # Tailscale-User-Login check cannot be forged by a peer.
+            #
+            # Fail-closed at every step: no owner login -> no gate, no
+            # serve. Gate reload fails -> no serve. Serve fails -> the
+            # wiki simply stays on-device and the install continues.
+            if [[ "${OSTLER_WIKI_TAILNET_SERVE:-1}" == "1" ]]; then
+                # Resolve the human who owns this node. Self.UserID
+                # indexes the User map; a tagged node has no human
+                # owner and must not open the gate.
+                OSTLER_TAILNET_OWNER="$("$TS_CLI" --socket="$TS_SOCK" status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+if not isinstance(d, dict):
+    raise SystemExit(0)
+self_block = d.get("Self")
+if not isinstance(self_block, dict):
+    raise SystemExit(0)
+uid = self_block.get("UserID")
+if uid is None:
+    raise SystemExit(0)
+users = d.get("User")
+if not isinstance(users, dict):
+    raise SystemExit(0)
+user = users.get(str(uid))
+if not isinstance(user, dict):
+    raise SystemExit(0)
+login = user.get("LoginName")
+if not isinstance(login, str):
+    raise SystemExit(0)
+login = login.strip()
+if login and not login.startswith("tagged-devices"):
+    print(login)
+' 2>/dev/null || true)"
+
+                if [[ -z "${OSTLER_TAILNET_OWNER:-}" ]]; then
+                    warn "$MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED"
+                elif ! write_wiki_tailnet_gate "$OSTLER_TAILNET_OWNER"; then
+                    warn "$MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED"
+                elif ! docker exec ostler-store-proxy nginx -s reload >/dev/null 2>&1; then
+                    # Roll the gate back to fail-closed so a stale
+                    # config can never be picked up by a later restart
+                    # without the operator re-running the installer.
+                    write_wiki_tailnet_gate "" || true
+                    warn "$MSG_WARN_WIKI_TAILNET_GATE_RELOAD_FAILED"
+                else
+                    # Prefer HTTPS (real cert, clean URL) but fall back
+                    # to plain HTTP-over-WireGuard, which needs no
+                    # tailnet HTTPS-certificates opt-in and is still
+                    # end-to-end encrypted by Tailscale itself. Both
+                    # modes inject the identity headers the gate reads.
+                    OSTLER_WIKI_TAILNET_URL=""
+                    if "$TS_CLI" --socket="$TS_SOCK" serve --bg --https=443 "http://127.0.0.1:8144" >/dev/null 2>&1; then
+                        OSTLER_WIKI_TAILNET_URL="https://$("$TS_CLI" --socket="$TS_SOCK" status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+if not isinstance(d, dict):
+    raise SystemExit(0)
+self_block = d.get("Self")
+if not isinstance(self_block, dict):
+    raise SystemExit(0)
+name = self_block.get("DNSName")
+if not isinstance(name, str):
+    raise SystemExit(0)
+name = name.rstrip(".")
+if name:
+    print(name)
+' 2>/dev/null || true)"
+                        # MagicDNS off => empty DNSName; the tailnet IP
+                        # still reaches the serve listener.
+                        if [[ "$OSTLER_WIKI_TAILNET_URL" == "https://" ]]; then
+                            OSTLER_WIKI_TAILNET_URL="https://${OSTLER_TAILSCALE_IP}"
+                        fi
+                    elif "$TS_CLI" --socket="$TS_SOCK" serve --bg --http=80 "http://127.0.0.1:8144" >/dev/null 2>&1; then
+                        OSTLER_WIKI_TAILNET_URL="http://${OSTLER_TAILSCALE_IP}"
+                    fi
+
+                    if [[ -n "$OSTLER_WIKI_TAILNET_URL" ]]; then
+                        ok "$(printf "$MSG_OK_WIKI_TAILNET_SERVED" "$OSTLER_WIKI_TAILNET_URL")"
+                        info "$(printf "$MSG_INFO_WIKI_TAILNET_OWNER" "$OSTLER_TAILNET_OWNER")"
+                    else
+                        write_wiki_tailnet_gate "" || true
+                        docker exec ostler-store-proxy nginx -s reload >/dev/null 2>&1 || true
+                        warn "$MSG_WARN_WIKI_TAILNET_SERVE_FAILED"
+                    fi
+
+                    # We never enable Funnel. If the operator has, say
+                    # so plainly -- the gate already refuses Funnel
+                    # traffic, but a surprised customer deserves to
+                    # know their machine has a public front door.
+                    #
+                    # v1018-D001. The old predicate was
+                    #     funnel status | grep -qi "https://"
+                    # and it fired on the SUCCESS path. `funnel status`
+                    # and `serve status` are the same upstream function:
+                    # both subcommands register `runServeStatus` in
+                    # cmd/tailscale/cli/serve_legacy.go, and there is no
+                    # funnel-only filter. A tailnet-private serve prints
+                    #     https://<host> (tailnet only)
+                    # so every install that successfully published the
+                    # wiki over HTTPS on the tailnet -- the happy path,
+                    # two lines above -- then told the customer their
+                    # machine had a public front door. Confirmed on the
+                    # shipped v1.0.18 box 2026-08-09: both commands emit
+                    # byte-identical output reading "(tailnet only)".
+                    #
+                    # `AllowFunnel` is the real predicate. `tailscale
+                    # serve` sets it false for the port it configures,
+                    # `tailscale funnel` sets it true, and the key is
+                    # absent entirely when nothing is funnelled (that is
+                    # what the v1.0.18 box reports today). Foreground
+                    # sessions carry their own nested ServeConfig, so
+                    # recurse rather than reading the top level only.
+                    #
+                    # Those two locations are the COMPLETE set, and that
+                    # is upstream's answer rather than an inference from
+                    # one sample. `ipn.ServeConfig` (ipn/serve.go) has
+                    # exactly one funnel field, `AllowFunnel`, written
+                    # only by `SetFunnel`; funnel is not supported for
+                    # `Services` at all. Upstream's own predicates say
+                    # the same: `HasAllowFunnel` and `FindFunnel` check
+                    # the top-level `AllowFunnel` and then each
+                    # `Foreground` config's `AllowFunnel`, and nothing
+                    # else. Under-reporting here would mean silence on a
+                    # genuinely public box, so it is worth being sure.
+                    #
+                    # No prompt and no mutation here. This runs deep in
+                    # Phase 3 where a blocking question stalls a
+                    # walk-away install (see the Mail history-window
+                    # note in Phase 2, hoisted for exactly that reason),
+                    # and neither Tailscale verb does what it looks
+                    # like: `funnel reset` is SetServeConfig(new(...)),
+                    # which wipes OUR serve config and kills the wiki
+                    # URL, and `funnel <port> off` removes the web
+                    # handler while carrying an upstream
+                    # "TODO: remove funnel" -- it never clears the bit.
+                    #
+                    # The BEGIN/END markers are load-bearing:
+                    # tests/test_wiki_tailnet_gate.sh extracts this exact
+                    # block and runs it against on/off fixtures.
+                    # >>> OSTLER_FUNNEL_DETECT_BEGIN
+                    OSTLER_FUNNEL_PORTS="$("$TS_CLI" --socket="$TS_SOCK" funnel status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+
+def collect(cfg, out):
+    if not isinstance(cfg, dict):
+        return
+    allow = cfg.get("AllowFunnel")
+    if isinstance(allow, dict):
+        for hostport, allowed in allow.items():
+            if allowed:
+                out.append(str(hostport))
+    fg = cfg.get("Foreground")
+    if isinstance(fg, dict):
+        for nested in fg.values():
+            collect(nested, out)
+
+ports = []
+collect(d, ports)
+if ports:
+    print(", ".join(sorted(set(ports))))
+' 2>/dev/null || true)"
+                    # <<< OSTLER_FUNNEL_DETECT_END
+                    if [[ -n "${OSTLER_FUNNEL_PORTS:-}" ]]; then
+                        warn "$(printf "$MSG_WARN_WIKI_TAILNET_FUNNEL_ON" "$OSTLER_FUNNEL_PORTS")"
+                    fi
+                fi
+            else
+                info "$MSG_INFO_WIKI_TAILNET_LOCAL_ONLY"
+            fi
             ok "$(printf "$MSG_OK_TAILSCALE_IP" "${OSTLER_TAILSCALE_IP}")"
             echo "  Use this address in the Ostler iOS companion app:"
             echo "    http://${OSTLER_TAILSCALE_IP}:8089"
@@ -11373,6 +18285,18 @@ TSPLIST
                 else
                     echo "OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"" >> "$ENV_FILE"
                 fi
+                # Wiki tailnet URL, if the owner-gated serve landed.
+                # Read back by the Doctor / completion banner so the
+                # customer is told the address once, in one place.
+                if [[ -n "${OSTLER_WIKI_TAILNET_URL:-}" ]]; then
+                    if grep -q "^OSTLER_WIKI_TAILNET_URL=" "$ENV_FILE"; then
+                        WIKI_TAILNET_TMP_ENV=$(mktemp)
+                        sed "s|^OSTLER_WIKI_TAILNET_URL=.*|OSTLER_WIKI_TAILNET_URL=\"${OSTLER_WIKI_TAILNET_URL}\"|" "$ENV_FILE" > "$WIKI_TAILNET_TMP_ENV"
+                        mv "$WIKI_TAILNET_TMP_ENV" "$ENV_FILE"
+                    else
+                        echo "OSTLER_WIKI_TAILNET_URL=\"${OSTLER_WIKI_TAILNET_URL}\"" >> "$ENV_FILE"
+                    fi
+                fi
                 # CX-81 Tailscale step verify (2026-05-26): grep the
                 # written value back so a silent persist failure (e.g.
                 # .env permission flip, partial mv) is caught rather
@@ -11389,6 +18313,17 @@ TSPLIST
         fi
     else
         warn "$MSG_WARN_COULD_NOT_FIND_TAILSCALE_CLI_YOU"
+        # SAY WHAT IT COSTS, not just what failed. This branch is where the
+        # brew-install failure lands (TS_CLI is empty), and until now the
+        # customer got two messages that both described the MECHANISM
+        # ("install failed", "could not find the CLI") and neither of which
+        # said the thing they actually care about: their iPhone and Watch will
+        # only reach this Mac on the home network.
+        #
+        # The customer who DECLINED Tailscale was told that consequence (the
+        # else below). The customer whose install FAILED was not -- the worse
+        # outcome got the weaker explanation. Same sentence, both paths.
+        info "$MSG_INFO_TAILSCALE_SKIPPED"
     fi
 else
     info "$MSG_INFO_TAILSCALE_SKIPPED"
@@ -11463,11 +18398,53 @@ progress "Hydrating your graph from iCloud" "hydrate_graph"
 _HYDRATE_SENTINEL_DIR="${OSTLER_DIR}/state/hydrate"
 mkdir -p "$_HYDRATE_SENTINEL_DIR"
 
-# Returns 0 if the sentinel for $1 is present + fresher than 7 days.
+# Returns 0 if the sentinel for $1 is present, fresher than 7 days, AND
+# records a completed run rather than a failed one.
 # Use as: if _hydrate_sentinel_fresh imessage; then continue; fi
+#
+# ── AN ERROR SENTINEL IS NOT FRESH (#711) ─────────────────────────────
+# The contract above is "success or no-data both count". An ERRORED run
+# counts as neither, and suppressing its retry for 7 days is how a
+# transient refusal becomes permanent: deny Full Disk Access once, the
+# extractor exits EX_CONFIG 78, imessage.done lands with people=0, and
+# granting FDA an hour later changes nothing because the block is
+# skipped. Measured on the box 2026-08-16.
+#
+# Reading the status here rather than refusing to write the file keeps
+# the record for Doctor and for a human reading state/hydrate/, while
+# still letting the next run try again.
+#
+# ── AND A LEGACY SENTINEL IS NOT FRESH EITHER ─────────────────────────
+# #768 tested `status=error` and that was not enough. Every sentinel
+# written BEFORE that change has no status line at all, so it matches
+# neither arm and still reads as fresh: the fix could not reach any box
+# that already had the defect it fixes.
+#
+# Measured on the launch box immediately after #768 merged:
+#
+#     ~/.ostler/state/hydrate/   8 sentinels, ALL pre-fix, NONE with a
+#                                status= line
+#     imessage.done  recorded_at=2026-08-16T12:51:08Z  payload=people=0
+#
+# That imessage.done IS the artefact of the EX_CONFIG 78 tick #711 was
+# about. Under #768 alone it would have kept suppressing the retry until
+# 2026-08-23.
+#
+# So freshness now requires a POSITIVE `status=ok`, not merely the
+# absence of `status=error`. Anything without one is legacy, and legacy
+# is stale. Cost: zero on a fresh install (no sentinels exist), and one
+# re-hydrate per source on an upgraded box, which is the behaviour that
+# box should have had all along.
+#
+# This is the difference between "not known to have failed" and "known
+# to have succeeded". Only the second is evidence.
 _hydrate_sentinel_fresh() {
     local sentinel="${_HYDRATE_SENTINEL_DIR}/$1.done"
     [[ -f "$sentinel" ]] || return 1
+    # POSITIVE evidence required. A recorded failure never suppresses a
+    # retry at any age, and neither does a sentinel that records nothing
+    # about how the run ended.
+    grep -q '^status=ok' "$sentinel" 2>/dev/null || return 1
     # macOS stat: -f%m yields unix mtime
     local mtime now age
     mtime=$(stat -f%m "$sentinel" 2>/dev/null || echo 0)
@@ -11481,6 +18458,14 @@ _hydrate_sentinel_fresh() {
 # hydrate step produced (count, status, etc). The payload is
 # customer-local; we never log its contents off-machine.
 # Use as: _hydrate_sentinel_record imessage '{"people":123,"status":"ok"}'
+#
+# SUCCESS AND NO-DATA ONLY. If the step exited non-zero, call
+# _hydrate_sentinel_record_error instead. The rule is not new: it is
+# written in prose at the ai_conversations call site and pinned by
+# tests/test_aiconv_hydrate_honesty.sh, which asserts that "a timed-out
+# (124/137) or crashed (any other non-zero rc) drain must NOT record it,
+# so the next install/re-run retries instead of skipping for a week".
+# Measured 2026-08-16: 8 of the 9 hydrate sources broke that rule.
 _hydrate_sentinel_record() {
     local source="$1"
     local payload="${2:-}"
@@ -11488,11 +18473,280 @@ _hydrate_sentinel_record() {
     {
         printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'source=%s\n' "$source"
+        printf 'status=ok\n'
         if [[ -n "$payload" ]]; then
             printf 'payload=%s\n' "$payload"
         fi
     } > "$sentinel"
 }
+
+# Records a FAILED hydrate step. Same file, so Doctor and a human
+# reading ~/.ostler/state/hydrate/ still see what happened and when,
+# but _hydrate_sentinel_fresh will not treat it as done, so the next
+# install or re-run attempts the source again.
+# Use as: _hydrate_sentinel_record_error imessage "$rc" "people=0"
+#
+# #839: this recorder is ALSO the step's status source. The marker file
+# and the STEP_END log line are now written from the SAME rc, on the
+# same surface, in the same function. They cannot disagree again.
+#
+# The disagreement they used to have was total. On a v1.0.36 install,
+# 2026-08-18, ~/.ostler/state/hydrate/people.done recorded
+# `status=error rc=124 payload=sent=0` while the log for the same step
+# recorded `STEP_END id=hydrate_people status=ok elapsed_s=90`. Both
+# lines described one 90-second timeout that ingested nothing. Only one
+# of them said so, and it was not the one anybody greps.
+_hydrate_sentinel_record_error() {
+    local source="$1"
+    local rc="${2:-1}"
+    local payload="${3:-}"
+    local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    # Fold the rc into the open step BEFORE writing the file, so an
+    # unwritable sentinel dir cannot also cost us the log line.
+    gui_step_record_rc "$rc"
+    {
+        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'source=%s\n' "$source"
+        printf 'status=error\n'
+        printf 'rc=%s\n' "$rc"
+        if [[ -n "$payload" ]]; then
+            printf 'payload=%s\n' "$payload"
+        fi
+    } > "$sentinel"
+}
+
+# Progress heartbeat for the long-running hydrate phases.
+#
+# Even with the gtimeout cap in place (coreutils installed in Phase
+# 3.1b), a single hydrate step can legitimately churn for many minutes
+# on a Mac with years of history. Without a periodic progress line the
+# GUI sidebar row sits silent and reads as a frozen install. These two
+# helpers bracket the blocking ingest command-sub with a backgrounded
+# ticker that emits one progress line every _HYDRATE_HEARTBEAT_EVERY_S
+# seconds. Host-tooling-independent (pure bash + sleep), so it works
+# whether or not gtimeout is present.
+#
+# Usage:
+#   _hydrate_heartbeat_start "$MSG_HYDRATE_IMESSAGE_HEARTBEAT"
+#   ...blocking ingest command-sub...
+#   _hydrate_heartbeat_stop
+_HYDRATE_HEARTBEAT_EVERY_S="${OSTLER_HYDRATE_HEARTBEAT_EVERY_S:-30}"
+_HYDRATE_HEARTBEAT_PID=""
+_hydrate_heartbeat_start() {
+    local msg="${1:-}"
+    [[ -n "$msg" ]] || return 0
+    # Disable job-control chatter for the backgrounded ticker.
+    (
+        local waited=0
+        while true; do
+            sleep "$_HYDRATE_HEARTBEAT_EVERY_S"
+            waited=$((waited + _HYDRATE_HEARTBEAT_EVERY_S))
+            info "$(printf "$msg" "$waited")"
+        done
+    ) &
+    _HYDRATE_HEARTBEAT_PID=$!
+}
+_hydrate_heartbeat_stop() {
+    [[ -n "$_HYDRATE_HEARTBEAT_PID" ]] || return 0
+    kill "$_HYDRATE_HEARTBEAT_PID" >/dev/null 2>&1 || true
+    wait "$_HYDRATE_HEARTBEAT_PID" 2>/dev/null || true
+    _HYDRATE_HEARTBEAT_PID=""
+}
+
+# ── Deferred whole-graph dedupe converge (v1.0.2, P0) ─────────────
+#
+# Installs a bounded, self-removing LaunchAgent that finishes the
+# identity-resolver converge pass in the BACKGROUND after install, so the
+# install critical path is never blocked for the ~25-60 min a full
+# converge can take on a large address book. Modelled byte-for-byte on
+# the wiki-recompile catch-up agent (3.14d-bis): a wrapper that runs the
+# pass to completion (via the same `--execute --converge` fixpoint the
+# install used), writes a .done marker so it can self-remove, triggers a
+# wiki recompile so late merges surface, and boots out its own agent once
+# the converge completes (or a try-cap is hit so it can never loop
+# forever). Reuses the wiki-recompile-tick.sh that already exists; adds
+# NO new merge logic. Non-fatal throughout: a failed agent just leaves
+# the daily recompile + the resolver's own incremental passes to catch up.
+#
+# Called from the install-time converge block ONLY when that block did
+# not fully complete within the install budget (no .done marker). When
+# the install pass already converged, this agent is never installed.
+_install_dedupe_catchup_agent() {
+    local label="com.creativemachines.ostler.dedupe-catchup"
+    local plist="${HOME}/Library/LaunchAgents/${label}.plist"
+    local interval_s="${OSTLER_DEDUPE_CATCHUP_INTERVAL_S:-600}"
+    local max_tries="${OSTLER_DEDUPE_CATCHUP_MAX_TRIES:-12}"
+    local wrapper="${OSTLER_DIR}/bin/ostler-dedupe-catchup"
+
+    mkdir -p "${OSTLER_DIR}/bin" "${HOME}/Library/LaunchAgents" 2>/dev/null || true
+
+    # Self-removing, bounded catch-up wrapper. Single-quoted heredoc: no
+    # install-time expansion -- it resolves OSTLER_DIR / PIPELINE_DIR at
+    # run time, exactly like ostler-wiki-recompile-catchup does. The
+    # PIPELINE_DIR location is the resolver's home; resolve it the same
+    # way the install body does (it lives under the assistant pipeline).
+    cat > "$wrapper" <<'DCUEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+OSTLER_DIR="${HOME}/.ostler"
+LOGS_DIR="${OSTLER_DIR}/logs"
+STATE_DIR="${OSTLER_DIR}/state"
+LABEL="com.creativemachines.ostler.dedupe-catchup"
+PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
+TRIES_FILE="${STATE_DIR}/dedupe-catchup.tries"
+DONE_MARKER="${STATE_DIR}/dedupe-converge.done"
+LOG_FILE="${LOGS_DIR}/dedupe-catchup.log"
+MAX_TRIES="${OSTLER_DEDUPE_CATCHUP_MAX_TRIES:-12}"
+PIPELINE_DIR="${OSTLER_PIPELINE_DIR:-${OSTLER_DIR}/import-pipeline}"
+TICK="${OSTLER_DIR}/bin/wiki-recompile-tick.sh"
+
+mkdir -p "$LOGS_DIR" "$STATE_DIR"
+
+log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
+
+remove_self() {
+    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || \
+        launchctl unload "$PLIST" 2>/dev/null || true
+    rm -f "$PLIST" "$TRIES_FILE"
+}
+
+# Already converged (install finished it, or a previous tick did): nothing
+# left to do; remove the agent.
+if [[ -f "$DONE_MARKER" ]]; then
+    log "converge already complete (.done present); removing catch-up agent"
+    remove_self
+    exit 0
+fi
+
+# Bounded run counter so a perpetually-failing converge can never loop
+# forever. The resolver's own incremental passes + the daily recompile
+# remain the long-term steady state.
+tries=0
+[[ -f "$TRIES_FILE" ]] && tries="$(cat "$TRIES_FILE" 2>/dev/null || echo 0)"
+[[ "$tries" =~ ^[0-9]+$ ]] || tries=0
+tries=$((tries + 1))
+printf '%s' "$tries" >"$TRIES_FILE"
+if [[ "$tries" -gt "$MAX_TRIES" ]]; then
+    log "dedupe catch-up gave up after ${MAX_TRIES} ticks; removing agent (daily recompile + incremental resolve continue)"
+    remove_self
+    exit 0
+fi
+
+if [[ ! -d "$PIPELINE_DIR/identity_resolver" || ! -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
+    log "resolver not found at ${PIPELINE_DIR}; removing dedupe catch-up agent"
+    remove_self
+    exit 0
+fi
+
+log "dedupe catch-up tick ${tries}/${MAX_TRIES}: finishing whole-graph converge"
+# Same fixpoint pass the install used. --converge is idempotent: if the
+# graph is already merged it does one detect round, finds nothing, and
+# exits cleanly -> we mark done and remove ourselves.
+if ( cd "$PIPELINE_DIR" && \
+     OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+     QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
+     .venv/bin/python3 -m identity_resolver.batch_resolver \
+         --execute --converge \
+         --output /tmp/ostler-dedupe-report.yaml \
+   ) >>"$LOG_FILE" 2>&1; then
+    log "converge completed cleanly; marking done + triggering wiki recompile"
+    : >"$DONE_MARKER"
+    if [[ -x "$TICK" ]]; then
+        "$TICK" >>"$LOG_FILE" 2>&1 || log "post-converge wiki recompile returned non-zero; daily agent will catch up"
+    fi
+    remove_self
+    exit 0
+else
+    log "converge tick ${tries} returned non-zero; will retry on next interval"
+    exit 0
+fi
+DCUEOF
+    chmod +x "$wrapper"
+
+    cat > "$plist" <<DCUPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${label}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${wrapper}</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>OSTLER_DEDUPE_CATCHUP_MAX_TRIES</key>
+        <string>${max_tries}</string>
+        <key>OSTLER_PIPELINE_DIR</key>
+        <string>${PIPELINE_DIR}</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>${interval_s}</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/dedupe-catchup.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/dedupe-catchup.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
+DCUPLIST
+    chmod 0644 "$plist"
+
+    launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
+    if launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || \
+       launchctl load "$plist" 2>/dev/null; then
+        ok "$MSG_OK_DEDUPE_CATCHUP_LOADED"
+    else
+        warn "$MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED"
+    fi
+}
+
+
+# ── The enrichment invoker (#747). WITHOUT THIS, ENRICHMENT NEVER RUNS. ──
+#
+# MEASURED ON A SHIPPED BOX, 2026-08-17, by dumping ProgramArguments for
+# all 23 Ostler LaunchAgents, grepping the whole ~/.ostler tree and the
+# sealed app bundle, and grepping this file end to end.
+#
+# There was exactly ONE invocation of enrichment in the entire product:
+# `enrich --all` inside bin/ostler-import, which runs only when
+# bin/ostler-scan-exports finds a NEW data-export drop in ~/Downloads.
+# Install-time hydration runs services.ingest and stops there.
+#
+# So on a Mac where the customer never drops a GDPR export, enrichment
+# had never run and never would. Not a bug in enrichment: enrichment was
+# never reachable. Every fix to it -- categories, filters, keyless film
+# and place lookups -- sat behind a door with no handle.
+#
+# WHY AN AGENT AND NOT AN INSTALL-TIME PASS.
+#
+# Wikidata is one request per second and each item costs two round trips,
+# so a full first pass over a real corpus is hours, not minutes. Doing it
+# during the install would either lengthen the install by hours or, if
+# budgeted short, enrich a token slice and stop. Neither is honest. The
+# agent drains it in bounded slices in the background, and the customer's
+# wiki fills in over the following day rather than making them wait.
+#
+# WHY THIS ONE DOES NOT SELF-REMOVE, unlike the dedupe catch-up agent
+# above. That agent finishes a fixed job. This one has permanent work:
+# every new bookmark, film or place ingested later needs enriching too. A
+# run with nothing to do costs one Qdrant scroll and exits.
+#
+# THE PRECONDITION THAT MAKES A SLICED DRAIN POSSIBLE AT ALL is CM051
+# #815: `--limit` used to bound items READ from Qdrant, and Qdrant does
+# not know what is already enriched, so every slice after the first
+# re-read the same finished head and printed COMPLETE. Bounded on work
+# attempted, successive runs walk forward. Without that fix this agent
+# would have been an expensive no-op that looked like it was working.
 
 _HYDRATE_VCF="${OSTLER_DIR}/imports/icloud-contacts.vcf"
 _HYDRATE_API="${PWG_ICAL_SERVER_URL:-http://localhost:8089}"
@@ -11534,7 +18788,9 @@ _schedule_contact_resync() {
     <string>com.ostler.contact-resync</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${OSTLER_DIR}/bin/ostler-contact-resync</string>
+        <string>${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant</string>
+        <string>run-source</string>
+        <string>contact-resync</string>
     </array>
     <key>StartInterval</key>
     <integer>${interval_s}</integer>
@@ -11552,78 +18808,54 @@ CRSPLIST
 
 # Contact hydration ------------------------------------------------
 #
-# CX-93 (DMG #48g): re-export from Contacts.app at hydrate time as
-# well as at the Phase-2 me-card capture. On a fresh Mac the
-# Phase-2 export can run BEFORE iCloud finishes the first contact
-# sync (Phase 2 is the very first thing that happens; iCloud sync
-# can take 30-90 seconds after sign-in). By the time we get to
-# hydrate (post-FDA, post-encrypt, post-Docker bring-up = several
-# minutes later), iCloud has typically caught up. Re-exporting here
-# means the customer's local AB + freshly-synced iCloud contacts
-# BOTH land in the import. If the Phase-2 vcf already has content
-# we keep it -- this is purely additive.
-if [[ ! -s "$_HYDRATE_VCF" ]]; then
-    info "$MSG_HYDRATE_CONTACTS_REEXPORT"
-    mkdir -p "$(dirname "$_HYDRATE_VCF")"
+# CX-453 (task #453, v1.0.1): read contacts through the Full-Disk-Access
+# AddressBook store (the abcddb fallback), NOT a Contacts.app osascript
+# export. The osascript re-export here used to fire the AppleEvent
+# Automation prompt (blue "wants to control Contacts"); we removed it so
+# the customer never sees that second prompt. The same applies to the
+# Phase-2 me-card site, which no longer reads Contacts at all.
+#
+# This is the moment the contacts actually reach the graph (the Phase-2
+# VCF export was dropped, so there is no pre-written vcf): by hydrate
+# (post-FDA-grant, post-encrypt, post-Docker = several minutes in) iCloud
+# has typically finished its first contact sync, so the local
+# AddressBook-v22.abcddb is populated. We force contact_syncer onto that
+# abcddb read by pointing --vcf at a path we never create -- the same
+# proven pattern bin/ostler-contact-resync uses. NO Automation prompt;
+# only the Full Disk Access the installer already pre-warmed and granted.
+mkdir -p "$(dirname "$_HYDRATE_VCF")"
 
-    # CX-101 (DMG #48j, 2026-05-29): state-2 wait + non-swallowing
-    # stderr capture. The old code piped osascript stderr to
-    # /dev/null + appended || true, so a Contacts Automation TCC
-    # denial AND a "Contacts hasn't synced yet" empty-store result
-    # were both indistinguishable from genuine "no contacts".
-    # Three improvements:
-    #   1. Pre-prompt offer to open Contacts.app if accounts are
-    #      configured but the local AB is empty (state 2).
-    #   2. Capture osascript stderr into /tmp log file so the install
-    #      log records the actual error.
-    #   3. After the osascript fails, classify the error: TCC denial
-    #      (-1743 / errAEEventNotPermitted) -> state-denied copy;
-    #      empty store -> state-pending copy.
-    _hydrate_contacts_accounts="$(_accountsdb_count_contacts)"
-    _hydrate_contacts_accounts="${_hydrate_contacts_accounts:-0}"
-    if [[ "$_hydrate_contacts_accounts" -gt 0 ]] \
-       && ! _store_populated_contacts \
-       && [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-        _open_contacts_help="$(printf "$MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_HELP" "${_hydrate_contacts_accounts}")"
-        _three_state_wait_for_populate \
-            "contacts" \
-            "Contacts" \
-            "" \
-            "$MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_TITLE" \
-            "$_open_contacts_help" || true
-        unset _open_contacts_help
-    fi
-
-    _CONTACTS_STDERR="/tmp/ostler-hydrate-contacts-osascript.stderr"
-    : > "$_CONTACTS_STDERR"
-    osascript -e "
-tell application \"Contacts\"
-    set vcfData to vcard of every person
-    set fp to POSIX file \"${_HYDRATE_VCF}\"
-    set fRef to open for access fp with write permission
-    write vcfData to fRef
-    close access fRef
-end tell" 2>"$_CONTACTS_STDERR" || true
-
-    # If osascript wrote a known TCC-denial marker into stderr, set a
-    # flag so the downstream hydrate result picks the right copy.
-    # macOS denial codes: -1743 (Not authorised), errAEEventNotPermitted.
-    _CONTACTS_TCC_DENIED=false
-    if grep -qE 'Not authori[sz]ed|-1743|errAEEventNotPermitted' \
-        "$_CONTACTS_STDERR" 2>/dev/null; then
-        _CONTACTS_TCC_DENIED=true
-    fi
+# State-2 nudge: if accounts are configured but the local AB has no rows
+# yet (iCloud still syncing), offer to open Contacts.app so the sync
+# kicks. GUI-only; never an osascript Contacts read.
+_hydrate_contacts_accounts="$(_accountsdb_count_contacts)"
+_hydrate_contacts_accounts="${_hydrate_contacts_accounts:-0}"
+if [[ "$_hydrate_contacts_accounts" -gt 0 ]] \
+   && ! _store_populated_contacts \
+   && [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    _open_contacts_help="$(printf "$MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_HELP" "${_hydrate_contacts_accounts}")"
+    _three_state_wait_for_populate \
+        "contacts" \
+        "Contacts" \
+        "" \
+        "$MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_TITLE" \
+        "$_open_contacts_help" || true
+    unset _open_contacts_help
 fi
 
-if [[ -s "$_HYDRATE_VCF" ]] && [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
+if [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
     info "$MSG_HYDRATE_CONTACTS_STARTED"
-    # contact_syncer.syncer --vcf emits a single-line JSON status on
-    # stdout when it finishes. Progress lines go to stderr so the
-    # final stdout line is parseable.
+    # Force the AddressBook-v22.abcddb fallback: point --vcf at a path we
+    # never create, so contact_syncer.syncer logs "vCard file not found"
+    # and reads the local AddressBook directly (Full Disk Access only, no
+    # Automation). It emits a single-line JSON status on stdout; progress
+    # goes to stderr so the final stdout line is parseable.
+    _HYDRATE_FORCE_ABCDDB_VCF="${OSTLER_DIR}/imports/.hydrate-force-abcddb.vcf"
+    rm -f "$_HYDRATE_FORCE_ABCDDB_VCF" 2>/dev/null || true
     _HYDRATE_CONTACTS_JSON="$(
         cd "$PIPELINE_DIR" && \
         "$_HYDRATE_PIPELINE_PY" -m contact_syncer.syncer \
-            --vcf "$_HYDRATE_VCF" \
+            --vcf "$_HYDRATE_FORCE_ABCDDB_VCF" \
             --graph-endpoint "$_HYDRATE_OXIGRAPH" 2>>/tmp/ostler-hydrate-contacts.log \
         | tail -n 1
     )" || _HYDRATE_CONTACTS_JSON=""
@@ -11637,59 +18869,105 @@ except Exception:
     print(0)' 2>/dev/null
     )"
     _HYDRATE_CONTACTS_COUNT="${_HYDRATE_CONTACTS_COUNT:-0}"
+
+    # Settling panel, `contacts` channel. Reported HERE rather than as a
+    # running tick because this is one blocking call and there is no
+    # meaningful mid-progress to show.
+    #
+    # The denominator is MEASURED from the address book, not taken from what
+    # this pass happened to import. The previous version passed the pass count
+    # as both done and total and called it "the honest statement -- this
+    # channel is settled"; that is what pinned every channel at 100% on a box
+    # that had ingested 0.6% of its history. A zero count means we ran and
+    # found nothing, so needs_source invites the customer to connect a source
+    # rather than leaving a permanent 0%.
+    if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
+        settling_report_measured contacts "$_HYDRATE_CONTACTS_COUNT" false
+    else
+        settling_report contacts 0 0 true
+    fi
+
+    # FDA is the ONLY permission this path needs. Read the conservative
+    # Phase-4 result; treat anything other than an explicit "true" that
+    # comes with a 0-count as a denial worth surfacing (default to "true"
+    # only so an unset var on some path cannot wrongly cry "denied").
     if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CONTACTS_DONE" "$_HYDRATE_CONTACTS_COUNT")"
-    elif [[ "${_CONTACTS_TCC_DENIED:-false}" == "true" ]]; then
-        # Contacts Automation TCC denied -- the customer either
-        # declined the Automation prompt or the prompt has not
-        # appeared yet. Tell them how to grant it.
+        # EMAIL-COVERAGE GUARD (post-hydrate): contacts landed, but a
+        # phone-only export looks identical to success at the count level.
+        # The card->email coverage bug (card->phone ~97%, card->email ~1%)
+        # shipped silently for exactly this reason. Compare phone vs email
+        # identifier counts in the graph and warn LOUDLY when phones are
+        # plentiful but emails are essentially absent, so the next person to
+        # read the install log sees the drop instead of an apparently clean
+        # "Imported N contacts". Best-effort: a SPARQL/curl hiccup must not
+        # fail the install, so every step is guarded and defaults to silent.
+        _guard_email_coverage() {
+            command -v curl >/dev/null 2>&1 || return 0
+            local q_phone q_email phones emails
+            q_phone='PREFIX pwg: <https://pwg.dev/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierType "phone" }'
+            q_email='PREFIX pwg: <https://pwg.dev/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierType "email" }'
+            phones="$(curl -s --max-time 15 --data-urlencode "query=${q_phone}" \
+                -H "Accept: text/csv" "${_HYDRATE_OXIGRAPH}/query" 2>/dev/null \
+                | tail -n 1 | tr -dc '0-9' || true)"
+            emails="$(curl -s --max-time 15 --data-urlencode "query=${q_email}" \
+                -H "Accept: text/csv" "${_HYDRATE_OXIGRAPH}/query" 2>/dev/null \
+                | tail -n 1 | tr -dc '0-9' || true)"
+            phones="${phones:-0}"
+            emails="${emails:-0}"
+            # Only meaningful when there is a real phone population to compare
+            # against. Threshold: >=20 phones present, but emails under 5% of
+            # the phone count -> the phone-only-export signature.
+            if [[ "$phones" -ge 20 ]] \
+               && [[ $((emails * 20)) -lt "$phones" ]]; then
+                warn "$(printf "$MSG_HYDRATE_CONTACTS_EMAIL_COVERAGE_LOW" \
+                    "$_HYDRATE_CONTACTS_COUNT" "$phones" "$emails")"
+            fi
+        }
+        _guard_email_coverage || true
+        unset -f _guard_email_coverage 2>/dev/null || true
+    elif [[ "${FDA_GRANTED:-true}" != "true" ]] || ! _has_fda; then
+        # Fail LOUD on FDA denial -- never a silent 0-contact pass. The
+        # abcddb read needs Full Disk Access; without it nothing can be
+        # read. Tell the customer exactly what to grant, and schedule the
+        # self-removing re-sync so contacts land once FDA is granted.
         warn "$MSG_HYDRATE_CONTACTS_DENIED"
+        _schedule_contact_resync
     elif _store_populated_contacts; then
-        # CX-91 (fresh-install): the local AddressBook store HAS contact
-        # rows on disk, so contacts ARE synced -- the AppleScript export
-        # simply returned nothing (Automation prompt deferred or declined).
-        # That is a permission problem, not a sync-not-finished problem,
-        # so emit the Automation-permission copy rather than "not synced".
-        warn "$MSG_HYDRATE_CONTACTS_DENIED"
-    elif [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
-        # State 2 -- accounts configured but local AB genuinely empty.
+        # SILENT-ZERO GUARD (the failure mode that has burned us): FDA is
+        # granted AND the local AddressBook store HAS contact rows on
+        # disk, yet the abcddb import returned 0. That is NOT "iCloud
+        # still syncing" -- the contacts are right there. Surface it as a
+        # distinct, loud read failure (never report success), and still
+        # schedule the re-sync so a transient read recovers.
+        warn "$MSG_HYDRATE_CONTACTS_READ_FAILED"
+        _schedule_contact_resync
+    elif [[ "$_hydrate_contacts_accounts" -gt 0 ]]; then
+        # FDA granted, accounts configured, but the local store is still
+        # empty: iCloud has not finished its first contact sync yet.
+        # Surface it and schedule the self-removing re-sync so late-syncing
+        # contacts still reach the graph.
         warn "$MSG_HYDRATE_CONTACTS_PENDING"
-        # iCloud has not finished its first contact sync yet. Schedule a
-        # self-removing re-sync agent so the contacts land in the graph
-        # once the sync completes, without the customer re-running setup.
         _schedule_contact_resync
     else
-        # State 1 -- no contacts source configured at all.
+        # No contacts source configured at all.
         warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
     fi
+    unset _HYDRATE_FORCE_ABCDDB_VCF
 else
-    # No vcf written OR pipeline venv missing. Classify between
-    # TCC denial and genuinely empty using the same probe shape.
-    if [[ "${_CONTACTS_TCC_DENIED:-false}" == "true" ]]; then
-        warn "$MSG_HYDRATE_CONTACTS_DENIED"
-    elif _store_populated_contacts; then
-        # CX-91 (fresh-install): cross-check the on-disk AddressBook store
-        # before saying "not synced". Rows present means contacts ARE
-        # synced and the empty vcf is an export/permission failure, so
-        # emit the Automation-permission copy, not the sync-pending copy.
-        warn "$MSG_HYDRATE_CONTACTS_DENIED"
-    elif [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
-        warn "$MSG_HYDRATE_CONTACTS_PENDING"
-        # Same iCloud-sync race as the populated-vcf path above: schedule
-        # the self-removing re-sync so late-syncing contacts still land.
-        _schedule_contact_resync
-    else
-        warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
-    fi
+    # Import-pipeline venv missing -- cannot read contacts at all. Loud,
+    # not silent: the venv build earlier should have hard-failed, but if
+    # we reach here, say so rather than imply zero contacts.
+    warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
 fi
-unset _CONTACTS_STDERR _CONTACTS_TCC_DENIED _hydrate_contacts_accounts
+unset _hydrate_contacts_accounts
 
 # Calendar hydration -----------------------------------------------
 #
 # CX-101 (DMG #48j, 2026-05-29): SWITCHED FROM meeting_syncer ->
 # CalDAV path TO FDA path (ostler_fda.calendar + pwg_ingest.
 # ingest_calendar). The old meeting_syncer path went via the
-# localhost ical-server which invoked ~/.zeroclaw/ical-query.sh
+# localhost ical-server which invoked ~/.ostler/ical/ical-query.sh
 # against caldav.icloud.com using OSTLER_ICLOUD_USER +
 # OSTLER_ICLOUD_APP_PASSWORD -- env vars install.sh NEVER captures.
 # Consequence: every clean install with default config hit the
@@ -11719,9 +18997,27 @@ unset _CONTACTS_STDERR _CONTACTS_TCC_DENIED _hydrate_contacts_accounts
 # with the longer window, overwriting the existing JSON.
 #
 # CX-106 (DMG #48l, 2026-05-29): for CALENDAR specifically we keep
-# the install-time window at 90 days. The hourly fda-rerun
-# LaunchAgent (scheduled +12h at Phase 3.7) walks the 5-year window
-# in the background. Studio retest of DMG #48k showed customers
+# the install-time window at 90 days, and defer the rest to the
+# recurring com.ostler.fda-rerun LaunchAgent registered at Phase 3.7.
+#
+# 🔴 THIS COMMENT USED TO CLAIM THE AGENT "walks the 5-year window".
+# It does not, and it never has. Measured 2026-08-16, both limbs:
+#
+#   limb 1  the agent was a ONE-SHOT StartCalendarInterval, so it ran
+#           at most once ever. FIXED in #714, this cut.
+#   limb 2  vendor/ostler_fda/extract_all.py:502 calls
+#           extract_events(since_days=365, future_days=30) with the 365
+#           HARDCODED and no env override, unlike every sibling source
+#           (safari/browser/imessage/whatsapp/mail all read
+#           OSTLER_*_BACKFILL_DAYS). NOT fixed here: that file is a
+#           vendored twin of HR015 ostler_fda and the fix belongs
+#           upstream then re-vendored, not edited in place.
+#
+# So after #714 the honest statement is: calendar reaches 365 days
+# within the hour instead of stopping at 90 days forever. It does not
+# reach 5 years. Do not restore the 5-year wording until limb 2 lands.
+#
+# Studio retest of DMG #48k showed customers
 # with multi-year calendar history hitting silent timeouts on the
 # install-time path because the Calendar Cache query was scanning
 # years of recurring-event expansions inside the 180s wall-clock cap.
@@ -11927,21 +19223,29 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
     # Chunk size kept at 30d so the apple_mail_mbox reader can stream
     # progress + recover from a per-chunk failure without restarting
     # the whole multi-year scan.
+    _hydrate_heartbeat_start "$MSG_HYDRATE_EMAIL_HEARTBEAT"
     if OSTLER_HOME="$HOME" $_HYDRATE_EMAIL_TIMEOUT_WRAP \
        "$_HYDRATE_EMAIL_PY" -m ostler_fda.apple_mail_mbox \
            --emit-mbox "$_HYDRATE_EMAIL_MBOX" \
            --backfill-days "$OSTLER_HYDRATE_EMAIL_DAYS" \
            --backfill-chunk-days 30 \
            >>"$_HYDRATE_EMAIL_LOG" 2>&1; then
+        _hydrate_heartbeat_stop
         :
     else
         rc=$?
+        _hydrate_heartbeat_stop
         # gtimeout returns 124 (signalled SIGTERM) or 137 (signalled
         # SIGKILL) when the cap is hit. Any other non-zero is a real
         # emit failure (e.g. FDA permission denied).
         if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
             _HYDRATE_EMAIL_TIMED_OUT=true
         fi
+        # #839: email hydration writes no .done sentinel, so this is the
+        # only place its rc exists. Fold it into the enclosing
+        # hydrate_graph step or it is discarded here and the step closes
+        # ok over a mail drain that never happened.
+        gui_step_record_rc "$rc"
     fi
 
     if [[ "$_HYDRATE_EMAIL_TIMED_OUT" == "true" ]]; then
@@ -11969,8 +19273,16 @@ except Exception:
         _HYDRATE_EMAIL_COUNT="${_HYDRATE_EMAIL_COUNT:-0}"
         if [[ "$_HYDRATE_EMAIL_COUNT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_EMAIL_DONE" "$_HYDRATE_EMAIL_COUNT")"
+            # Denominator measured from the Mail store, not from this pass.
+            # This phase reads a capped slice and the hourly agent carries on
+            # for days; reporting the slice as the whole is what made the panel
+            # claim 641 of 641 on a Mac holding 16,565 messages.
+            settling_report_measured emails "$_HYDRATE_EMAIL_COUNT" false
         else
             info "$MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT"
+            # Ran, found nothing: invite a source rather than showing a
+            # permanent 0%.
+            settling_report emails 0 0 true
         fi
         # Tidy: the install-time mbox is one-shot. The hourly
         # LaunchAgent writes to its own date-bucketed filenames so
@@ -11978,12 +19290,17 @@ except Exception:
         rm -f "$_HYDRATE_EMAIL_MBOX"
     else
         info "$MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT"
+        settling_report emails 0 0 true
     fi
 
     unset _HYDRATE_EMAIL_MBOX _HYDRATE_EMAIL_TIMED_OUT _HYDRATE_EMAIL_JSON
     unset _HYDRATE_EMAIL_COUNT _HYDRATE_EMAIL_TIMEOUT_WRAP _HYDRATE_EMAIL_LOG
 else
     info "$MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING"
+    # The channel must still APPEAR. A row absent from the panel is
+    # indistinguishable from a producer nobody wired -- the exact failure
+    # the settling coverage gate exists to end.
+    settling_report emails 0 0 true
 fi
 
 unset _HYDRATE_EMAIL_VENV _HYDRATE_EMAIL_PY _HYDRATE_EMAIL_BIN
@@ -12008,8 +19325,11 @@ unset _HYDRATE_EMAIL_MBOX_DIR _HYDRATE_OXIGRAPH_EMAIL
 # abs floor >= 20 user-sent, rel floor >= 0.02 (2%), T2 confidence 0.7,
 # T3 = complete skip. See ostler_fda/whatsapp_history.py for full docstring.
 #
-# Same 90s wall-clock cap as hydrate_email (Q6 forward-look). On
-# timeout we emit MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES and let
+# 90s wall-clock cap, enforced by the gtimeout wrapper that Phase 3.1b
+# guarantees is present (GNU coreutils is brew-installed early so the
+# wrap-picker below actually fires; if coreutils is somehow absent the
+# step runs unbounded but the heartbeat keeps the GUI from looking
+# hung). On timeout we emit MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES and let
 # any subsequent run (Doctor-triggered rescan, future hourly tick)
 # finish the job. The customer's wiki still gets contacts + calendar
 # (B1) + email (B2) plus whatever WhatsApp landed in the 90s window.
@@ -12052,6 +19372,13 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
     # under ~/.ostler/imports/fda/ for the pwg_ingest step to read.
     # T3 chats are filtered at the extractor's JSON-write boundary,
     # so a subsequent ingest cannot accidentally emit T3 triples.
+    # v1.0.10 install-abort fix: bracket the extract in the same #640-class
+    # ERR-trap / set +e guard the browsing/imessage/people hydrate siblings
+    # already use, so a non-zero exit from the extractor (a store-auth 401,
+    # an unexpected ChatStorage.sqlite schema, or any non-124 error under
+    # set -Eeuo pipefail) is captured in rc and degraded to "skipped"
+    # instead of aborting the whole install at this late hydrate step.
+    _wa_saved_err_trap="$(trap -p ERR)"; trap - ERR; set +e
     _HYDRATE_WHATSAPP_JSON="$(
         OXIGRAPH_URL="$_HYDRATE_OXIGRAPH_WA" $_HYDRATE_WHATSAPP_TIMEOUT_WRAP \
         "$_HYDRATE_WHATSAPP_PY" -m ostler_fda.whatsapp_history \
@@ -12061,6 +19388,11 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
         | tail -n 1
     )"
     rc=$?
+    # #712: mirror into a per-source variable at the point of capture. `rc` is
+    # a shared global that every hydrate block reassigns, so reading it a
+    # hundred lines later works only by accident of ordering.
+    _HYDRATE_WHATSAPP_RC="$rc"
+    set -e; eval "${_wa_saved_err_trap:-}"; unset _wa_saved_err_trap
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_WHATSAPP_TIMED_OUT=true
     fi
@@ -12099,10 +19431,22 @@ except Exception:
 
     # #48g sentinel record: dedupes re-runs within a 7-day window. The
     # payload is a counts-only snapshot; never logged off-machine.
-    _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+    #
+    # #712: rc was read ONLY for the 124/137 timeout check, so every other
+    # non-zero exit -- a store-auth 401, an unexpected ChatStorage.sqlite
+    # schema, an EX_CONFIG 78 -- fell through and wrote a SUCCESS sentinel.
+    # That suppressed the retry for seven days on the strength of a run that
+    # failed. A timeout counts as failure too: gtimeout killed the extract,
+    # nothing is continuing in the background whatever the message says.
+    if [[ "${_HYDRATE_WHATSAPP_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "whatsapp" "$_HYDRATE_WHATSAPP_RC" \
+            "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+    else
+        _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+    fi
 
     unset _HYDRATE_WHATSAPP_TIMED_OUT _HYDRATE_WHATSAPP_JSON
-    unset _HYDRATE_WHATSAPP_COUNT _HYDRATE_WHATSAPP_TIMEOUT_WRAP
+    unset _HYDRATE_WHATSAPP_COUNT _HYDRATE_WHATSAPP_TIMEOUT_WRAP _HYDRATE_WHATSAPP_RC
     unset _HYDRATE_WHATSAPP_LOG
 elif [[ ! -x "$_HYDRATE_WHATSAPP_PY" ]]; then
     info "$MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING"
@@ -12137,9 +19481,10 @@ unset _HYDRATE_CALENDAR_JSON _HYDRATE_CALENDAR_COUNT
 # (Q2 sign-off): backfilled rows land with empty topics/category;
 # the gateway's background enrichment tick chews through them.
 #
-# Same 90s wall-clock cap as hydrate_email + hydrate_whatsapp. On
-# timeout we emit MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES and
-# let the agent finish.
+# 90s wall-clock cap via the gtimeout wrapper (coreutils guaranteed by
+# Phase 3.1b; unbounded-but-heartbeated if absent), same as
+# hydrate_email + hydrate_whatsapp. On timeout we emit
+# MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES and let the agent finish.
 #
 # Privacy AC mirror B2 + CX-85: the --json output is counts only,
 # pinned by the privacy contract test in HR015 #134. No URLs, no
@@ -12175,17 +19520,41 @@ elif [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
     # (which would re-emit triples the per-source hydrate_* blocks
     # already wrote). Output is the counts-only JSON pinned by
     # HR015 #134's privacy contract test.
+    # #640-class guard -- THE .145 box-walk install-FAILURE site. This
+    # command-sub runs inline python importing ostler_fda.pwg_ingest; under
+    # the global `set -Eeuo pipefail` + errtrace (-E) the ERR trap propagates
+    # INTO the $(...) subshell, so ANY non-zero there (the undeclared httpx
+    # that aborted this install, a malformed record, the absent `timeout`
+    # returning 127) fires _ostler_on_err -> gui_done fail and kills the WHOLE
+    # install. Browser/iMessage/People hydration is best-effort enrichment and
+    # must never be fatal. Suppress the ERR trap + errexit for just this
+    # capture, preserve rc for the timeout check, then restore both (mirrors
+    # the doctor-probe guard at ~13565).
+    _saved_err_trap=$(trap -p ERR); trap - ERR; set +e
     _HYDRATE_BROWSING_JSON="$(
         $_HYDRATE_BROWSING_TIMEOUT_WRAP \
         "$_HYDRATE_BROWSING_PY" -c "
 import json
 from pathlib import Path
-from ostler_fda.pwg_ingest import ingest_browser_history
-result = ingest_browser_history(Path('${_HYDRATE_BROWSING_FDA_DIR}'))
+from ostler_fda.pwg_ingest import ingest_browser_history, ingest_bookmarks
+fda = Path('${_HYDRATE_BROWSING_FDA_DIR}')
+result = ingest_browser_history(fda)
+# Day-one Reading-page bookmark signal (clean follow-up to #524's
+# Social graft): turn the Safari safari_bookmarks.json (same FDA dir,
+# Recommended source) into category=bookmark preference points so the
+# CM044 Reading page is populated on a fresh install. Best-effort -- a
+# bookmarks failure must not lose the browsing-history ingest above, so
+# it is isolated and its status is folded into the same JSON line.
+try:
+    result['bookmarks'] = ingest_bookmarks(fda)
+except Exception as exc:
+    result['bookmarks'] = {'status': 'error', 'error': type(exc).__name__}
 print(json.dumps(result))
 " 2>>"$_HYDRATE_BROWSING_LOG" | tail -n 1
     )"
     rc=$?
+    _HYDRATE_BROWSING_RC="$rc"   # #712: see the whatsapp block for why
+    set -e; eval "${_saved_err_trap:-}"
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_BROWSING_TIMED_OUT=true
     fi
@@ -12229,11 +19598,17 @@ except Exception:
     fi
 
     # #48g sentinel record: dedupes re-runs within a 7-day window.
-    _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+    # #712: an errored or timed-out ingest must NOT suppress its own retry.
+    if [[ "${_HYDRATE_BROWSING_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "browsing" "$_HYDRATE_BROWSING_RC" \
+            "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+    else
+        _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+    fi
 
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
     unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED
-    unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG
+    unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG _HYDRATE_BROWSING_RC
 elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
     info "$MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING"
 else
@@ -12244,6 +19619,156 @@ fi
 unset _HYDRATE_BROWSING_VENV _HYDRATE_BROWSING_PY
 unset _HYDRATE_BROWSING_FDA_DIR _HYDRATE_BROWSING_SAFARI _HYDRATE_BROWSING_CHROME
 
+# Email-preferences hydration (v1.0.3) -----------------------------
+#
+# Ingests a pre-extracted ParsedPreference JSONL file (CM021 email
+# intelligence output, category brand/topic/career/person) into the
+# `preferences` Qdrant collection + Oxigraph, via the vendored CM019
+# ingest CLI. This is the operator's biggest single preference payload,
+# so on a wipe/baseline reinstall it must regenerate from the source
+# file rather than being a lost one-off manual load. It runs in the
+# hydrate region so Qdrant (6333) + Oxigraph (7878) are already up
+# (started in Phase "graph_db_start") and the CM019 venv is already
+# built (Phase 3.11b "cm019_setup").
+#
+# Source-file resolution (NO hardcoded operator path -- productisation
+# + security rule 4): two opt-in env vars, default unset.
+#   OSTLER_EMAIL_PREFERENCES_FILE  -- absolute path to the JSONL file.
+#                                     Takes precedence if set.
+#   OSTLER_SOCIAL_ARCHIVES_DIR     -- a social-media-archives root; the
+#                                     file is read from the known
+#                                     relative path
+#                                     email/preferences_v4.jsonl under it.
+# On a customer install neither is set, so the step SKIPS cleanly with
+# an informative log and never fails the install (the whole hydrate
+# region is best-effort enrichment).
+#
+# Timeout: the payload can be large (hundreds of thousands of records),
+# so the cap is generous (default 1800s, overridable via
+# OSTLER_HYDRATE_EMAIL_PREFERENCES_TIMEOUT). On timeout we emit
+# MSG_HYDRATE_EMAIL_PREFERENCES_BACKGROUND_CONTINUES and leave whatever
+# committed in place; a later manual re-run (or top-up) finishes it.
+#
+# Privacy: the customer-facing line is a count only. Subjects, bodies,
+# brand/person names never cross the install.sh process boundary -- we
+# read the ingest CLI's "Preferences created" tally from its stderr.
+
+progress "Loading your email preferences" "hydrate_email_preferences"
+
+_HYDRATE_EMAILPREFS_CM019_DIR="${OSTLER_DIR}/services/cm019"
+_HYDRATE_EMAILPREFS_PY="${_HYDRATE_EMAILPREFS_CM019_DIR}/.venv/bin/python"
+_HYDRATE_EMAILPREFS_REL="email/preferences_v4.jsonl"
+_HYDRATE_EMAILPREFS_USER="${USER_ID:-${OSTLER_USER:-ostler}}"
+_HYDRATE_EMAILPREFS_QDRANT="${QDRANT_URL:-http://localhost:6333}"
+_HYDRATE_EMAILPREFS_OXIGRAPH="${OXIGRAPH_URL:-http://localhost:7878}"
+
+# Resolve the source file from the opt-in env vars. Explicit file path
+# wins; otherwise look under the archives dir at the known relative path.
+_HYDRATE_EMAILPREFS_FILE=""
+if [[ -n "${OSTLER_EMAIL_PREFERENCES_FILE:-}" ]]; then
+    _HYDRATE_EMAILPREFS_FILE="${OSTLER_EMAIL_PREFERENCES_FILE}"
+elif [[ -n "${OSTLER_SOCIAL_ARCHIVES_DIR:-}" ]]; then
+    _HYDRATE_EMAILPREFS_FILE="${OSTLER_SOCIAL_ARCHIVES_DIR%/}/${_HYDRATE_EMAILPREFS_REL}"
+fi
+
+if _hydrate_sentinel_fresh "email_preferences"; then
+    info "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE"
+elif [[ -z "$_HYDRATE_EMAILPREFS_FILE" ]]; then
+    # The customer case: no archive configured. Skip cleanly.
+    info "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE"
+elif [[ ! -x "$_HYDRATE_EMAILPREFS_PY" ]]; then
+    info "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_PIPELINE_PENDING"
+elif [[ ! -s "$_HYDRATE_EMAILPREFS_FILE" ]]; then
+    # The env var was set but the file is missing or empty -- treat as
+    # "nothing to load" rather than an error, and tell the operator
+    # which path we looked at so they can fix the env var.
+    info "$(printf "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE_AT" "$_HYDRATE_EMAILPREFS_FILE")"
+else
+    info "$MSG_HYDRATE_EMAIL_PREFERENCES_STARTED"
+
+    # Same timeout picker as the other hydrate phases (brew coreutils
+    # gtimeout preferred; system timeout fallback; unbounded if neither).
+    _HYDRATE_EMAILPREFS_CAP="${OSTLER_HYDRATE_EMAIL_PREFERENCES_TIMEOUT:-1800}"
+    _HYDRATE_EMAILPREFS_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _HYDRATE_EMAILPREFS_TIMEOUT_WRAP="gtimeout $_HYDRATE_EMAILPREFS_CAP"
+    elif command -v timeout >/dev/null 2>&1; then
+        _HYDRATE_EMAILPREFS_TIMEOUT_WRAP="timeout $_HYDRATE_EMAILPREFS_CAP"
+    fi
+
+    _HYDRATE_EMAILPREFS_LOG=/tmp/ostler-hydrate-email-preferences.log
+    _HYDRATE_EMAILPREFS_TIMED_OUT=false
+
+    _hydrate_heartbeat_start "$MSG_HYDRATE_EMAIL_PREFERENCES_HEARTBEAT"
+
+    # Run the vendored CM019 ingest CLI against the JSONL file. The
+    # pipeline connects to Qdrant + Oxigraph (both up by now) inside
+    # pipeline.initialize(). cd into the CM019 service dir so the
+    # `services.ingest.src.cli` module path resolves, mirroring the
+    # ostler-import importer's invocation. Counts-only readback below.
+    if (
+        cd "$_HYDRATE_EMAILPREFS_CM019_DIR" \
+        && QDRANT_COLLECTION=preferences \
+           QDRANT_URL="$_HYDRATE_EMAILPREFS_QDRANT" \
+           OXIGRAPH_URL="$_HYDRATE_EMAILPREFS_OXIGRAPH" \
+           $_HYDRATE_EMAILPREFS_TIMEOUT_WRAP \
+           "$_HYDRATE_EMAILPREFS_PY" -m services.ingest.src.cli ingest-email \
+               "$_HYDRATE_EMAILPREFS_FILE" \
+               -u "$_HYDRATE_EMAILPREFS_USER" \
+           >>"$_HYDRATE_EMAILPREFS_LOG" 2>&1
+    ); then
+        _hydrate_heartbeat_stop
+        :
+    else
+        rc=$?
+        _HYDRATE_EMAILPREFS_RC="$rc"   # #712: see the whatsapp block for why
+        _hydrate_heartbeat_stop
+        if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
+            _HYDRATE_EMAILPREFS_TIMED_OUT=true
+        fi
+    fi
+
+    if [[ "$_HYDRATE_EMAILPREFS_TIMED_OUT" == "true" ]]; then
+        info "$MSG_HYDRATE_EMAIL_PREFERENCES_BACKGROUND_CONTINUES"
+    else
+        # The ingest CLI prints "Preferences created: <n>" to stderr (now
+        # in the log). Parse the count for the customer-facing line; the
+        # name/value pairs themselves never leave the process.
+        # v1.0.10 install-abort fix: grep exits 1 on no-match (a NORMAL case
+        # when no email preferences were created), which under pipefail
+        # aborts the whole install at this late hydrate step. `|| printf '0'`
+        # keeps the substitution exit 0 so the ${VAR:-0} default applies.
+        _HYDRATE_EMAILPREFS_COUNT="$(
+            grep -aE 'Preferences created:' "$_HYDRATE_EMAILPREFS_LOG" 2>/dev/null \
+            | tail -n 1 \
+            | tr -dc '0-9' \
+            || printf '0'
+        )"
+        _HYDRATE_EMAILPREFS_COUNT="${_HYDRATE_EMAILPREFS_COUNT:-0}"
+        if [[ "$_HYDRATE_EMAILPREFS_COUNT" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_EMAIL_PREFERENCES_DONE" "$_HYDRATE_EMAILPREFS_COUNT")"
+        else
+            info "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE"
+        fi
+        # Sentinel dedupes a re-run within the 7-day window.
+        # #712: an errored or timed-out ingest must NOT suppress its own retry.
+        if [[ "${_HYDRATE_EMAILPREFS_RC:-0}" -ne 0 ]]; then
+            _hydrate_sentinel_record_error "email_preferences" "$_HYDRATE_EMAILPREFS_RC" \
+                "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}"
+        else
+            _hydrate_sentinel_record "email_preferences" "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}"
+        fi
+    fi
+
+    unset _HYDRATE_EMAILPREFS_CAP _HYDRATE_EMAILPREFS_TIMEOUT_WRAP
+    unset _HYDRATE_EMAILPREFS_LOG _HYDRATE_EMAILPREFS_TIMED_OUT
+    unset _HYDRATE_EMAILPREFS_COUNT _HYDRATE_EMAILPREFS_RC
+fi
+
+unset _HYDRATE_EMAILPREFS_CM019_DIR _HYDRATE_EMAILPREFS_PY _HYDRATE_EMAILPREFS_REL
+unset _HYDRATE_EMAILPREFS_USER _HYDRATE_EMAILPREFS_QDRANT _HYDRATE_EMAILPREFS_OXIGRAPH
+unset _HYDRATE_EMAILPREFS_FILE
+
 # iMessage hydration (CX-84) ---------------------------------------
 #
 # Reads imessage_conversations.json (written by the Phase 3 FDA
@@ -12252,7 +19777,11 @@ unset _HYDRATE_BROWSING_FDA_DIR _HYDRATE_BROWSING_SAFARI _HYDRATE_BROWSING_CHROM
 # the people-count is surfaced to the customer -- no handles, phone
 # numbers, or message text leaves the local process.
 #
-# Same 90s wall-clock cap as the other hydrate_* blocks. On timeout
+# 90s wall-clock cap via the gtimeout wrapper (coreutils guaranteed by
+# Phase 3.1b; unbounded-but-heartbeated if absent), same as the other
+# hydrate_* blocks. iMessage is the worst offender for long backfills
+# (a multi-year chat.db has been observed at 27 minutes pre-cap), so
+# the cap + the progress heartbeat both matter here most. On timeout
 # we emit MSG_HYDRATE_IMESSAGE_BACKGROUND_CONTINUES and let the
 # hourly tick (or Doctor-triggered rescan) finish whatever was
 # still pending.
@@ -12301,17 +19830,35 @@ elif [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]
     # re-emit triples for whatsapp / browser_history / etc whose
     # JSON also lives in the same fda_dir. Mirrors hydrate_browsing's
     # invocation shape (CX-86 #181).
+    # #640-class guard (best-effort hydrate; see the browsing block above for
+    # the full rationale): suppress the errtrace ERR trap + errexit around the
+    # pwg_ingest command-sub so an in-subshell crash degrades to "skipped"
+    # instead of aborting the whole install. Preserve rc for the timeout check.
+    _saved_err_trap=$(trap -p ERR); trap - ERR; set +e
+    _hydrate_heartbeat_start "$MSG_HYDRATE_IMESSAGE_HEARTBEAT"
     _HYDRATE_IMESSAGE_JSON_OUT="$(
         $_HYDRATE_IMESSAGE_TIMEOUT_WRAP \
         "$_HYDRATE_IMESSAGE_PY" -c "
 import json
 from pathlib import Path
-from ostler_fda.pwg_ingest import ingest_imessage
-result = ingest_imessage(Path('${_HYDRATE_IMESSAGE_FDA_DIR}'))
+from ostler_fda.pwg_ingest import ingest_imessage, ingest_social
+fda = Path('${_HYDRATE_IMESSAGE_FDA_DIR}')
+result = ingest_imessage(fda)
+# Day-one Social wiki signal (Prefs Piece 3, #524): turn the same
+# iMessage JSON into category=social preference points so the CM044
+# Social page is populated on a fresh install. Best-effort -- a social
+# failure must not lose the people-graph ingest above, so it is
+# isolated and its status is folded into the same JSON line.
+try:
+    result['social'] = ingest_social(fda)
+except Exception as exc:
+    result['social'] = {'status': 'error', 'error': type(exc).__name__}
 print(json.dumps(result))
 " 2>>"$_HYDRATE_IMESSAGE_LOG" | tail -n 1
     )"
     rc=$?
+    _hydrate_heartbeat_stop
+    set -e; eval "${_saved_err_trap:-}"
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_IMESSAGE_TIMED_OUT=true
     fi
@@ -12346,7 +19893,24 @@ except Exception:
     fi
 
     # #48g sentinel record: dedupes re-runs within a 7-day window.
-    _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}"
+    #
+    # #711. `rc` above is read for exactly one thing: the 124/137
+    # gtimeout kill. Every OTHER non-zero was falling through to the
+    # no-data message and then recording a clean sentinel. The measured
+    # case is EX_CONFIG 78 from a Full Disk Access denial: the customer
+    # grants FDA an hour later, re-runs, and the block is skipped
+    # because imessage.done is fresh and says people=0. A refusal that
+    # lasts one run becomes a refusal that lasts a week.
+    #
+    # A timeout is NOT an error here: the background continuation
+    # message has already been shown, the work carries on, and the
+    # existing arm above owns that case.
+    if [[ "$_HYDRATE_IMESSAGE_TIMED_OUT" != "true" ]] && [[ "$rc" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "imessage" "$rc" \
+            "people=${_HYDRATE_IMESSAGE_COUNT:-0}"
+    else
+        _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}"
+    fi
 
     unset _HYDRATE_IMESSAGE_TIMED_OUT _HYDRATE_IMESSAGE_JSON_OUT
     unset _HYDRATE_IMESSAGE_COUNT _HYDRATE_IMESSAGE_TIMEOUT_WRAP
@@ -12360,6 +19924,362 @@ fi
 
 unset _HYDRATE_IMESSAGE_VENV _HYDRATE_IMESSAGE_PY
 unset _HYDRATE_IMESSAGE_FDA_DIR _HYDRATE_IMESSAGE_JSON_FILE
+
+# ── Conversation-ingest landing guard (CM044 fix) ──────────────────
+#
+# THE silent-100%-drop tripwire. The conversation pipeline has two legs
+# per channel and BOTH have failed silently in the field:
+#   1. Synchronous (here): hydrate_whatsapp / hydrate_imessage run
+#      ostler_fda.pwg_ingest, which turns the extract JSONs into
+#      people-graph FACTS (Person nodes + chat identifiers) in Oxigraph.
+#   2. Asynchronous (launchd bundle ticks): the whatsapp/imessage body
+#      feeds drive CM048 -> Qdrant `conversations` points + structured
+#      facts. Those run AFTER install on their own schedule.
+#
+# This guard asserts the SYNCHRONOUS contract loudly: if a channel's
+# extract JSON carried >0 conversations but ZERO chat-identifier facts
+# reached Oxigraph, something is structurally broken (not "no data") and
+# we must say so rather than let a customer believe their messages are in
+# the graph. It is a loud WARN (not fatal): hydrate is best-effort and
+# the async leg may still drain, but a green install must never HIDE a
+# total drop. The async Qdrant leg is verified post-install by Doctor's
+# conversation-feed probe (it cannot be asserted at install time because
+# the first bundle tick has not run yet).
+_CONV_GUARD_FDA_DIR="${OSTLER_DIR}/imports/fda"
+_CONV_GUARD_OX="${OXIGRAPH_URL:-http://localhost:7878}"
+_conv_guard_check() {
+    # $1 = channel label, $2 = extract json filename, $3 = identifierLabel
+    local _label="$1" _json="${_CONV_GUARD_FDA_DIR}/$2" _idlabel="$3"
+    [[ -s "$_json" ]] || return 0
+    # How many conversations did extraction emit?
+    local _n
+    _n="$(python3 -c "
+import json,sys
+try:
+    d=json.load(open('$_json'))
+    print(len(d) if isinstance(d,list) else int(d.get('conversations',d.get('count',0)) or 0))
+except Exception:
+    print(0)" 2>/dev/null || true)"
+    _n="${_n:-0}"
+    [[ "$_n" -gt 0 ]] || return 0
+    # How many chat-identifier facts landed in Oxigraph for this channel?
+    local _q _landed
+    _q="PREFIX pwg: <https://pwg.dev/ontology#> SELECT (COUNT(?id) AS ?c) WHERE { ?id a pwg:PersonIdentifier ; pwg:identifierLabel \"${_idlabel}\" . }"
+    _landed="$(curl -s --get "${_CONV_GUARD_OX}/query" \
+        --data-urlencode "query=${_q}" \
+        -H 'Accept: application/sparql-results+json' 2>/dev/null \
+        | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(d['results']['bindings'][0]['c']['value'])
+except Exception:
+    print(0)" 2>/dev/null || true)"
+    _landed="${_landed:-0}"
+    if [[ "$_landed" -eq 0 ]]; then
+        warn "Conversation-ingest guard: ${_label} extraction emitted ${_n} conversation(s) but ZERO ${_label} chat-identity facts reached the graph. The ${_label} leg landed nothing -- this is a structural break, not 'no data'. See /tmp/ostler-hydrate-${_label}.log."
+    else
+        info "Conversation-ingest guard: ${_label} ${_landed} chat-identity fact(s) in the graph (extract had ${_n})."
+    fi
+}
+# Only meaningful when Oxigraph is reachable; a down graph is reported
+# elsewhere and must not double-fire here.
+if curl -s -o /dev/null --max-time 5 "${_CONV_GUARD_OX}/" 2>/dev/null; then
+    _conv_guard_check whatsapp whatsapp_conversations.json WHATSAPP
+    _conv_guard_check imessage imessage_conversations.json IMESSAGE
+fi
+unset _CONV_GUARD_FDA_DIR _CONV_GUARD_OX
+
+# Whole-graph dedupe consolidation (#4) ----------------------------
+#
+# All person-populating sources (iCloud contacts/calendar + iMessage
+# Person nodes) are now in Oxigraph. The resolver's whole-graph converge
+# pass merges same-person duplicates that never shared an incremental
+# batch. --converge loops detect -> execute to a fixpoint so transitive
+# 3+ node clusters collapse fully. This is pure orchestration over the
+# existing resolver: it changes no merge rule, threshold, or flag -- the
+# hard-conflict veto (two-Stuart-Baileys guard) and duplicates.yaml
+# decisions still apply every round. Oxigraph is the source of truth and
+# the people-search sweep below rebuilds the Qdrant `people` collection
+# from the merged graph, so a best-effort Qdrant merge here is enough.
+# Non-fatal: a dedupe hiccup must never block the install.
+#
+# v1.0.2 INSTALL-TIME BUDGET CAP + DEFER-TO-BACKGROUND (P0):
+# On the .153/.155 cold-wipe walks the FULL converge pass sat silent for
+# ~25-60 minutes on a large address book and dominated the install
+# critical path (one ~1h50 install was almost entirely this step). The
+# converge is a fixpoint loop that gets *more* expensive the more
+# duplicates exist, so it is precisely the wrong thing to make the
+# customer wait for synchronously.
+#
+# The fix mirrors the wiki AI-summaries split (baseline now, enrichment
+# in the background): we run a HARD-TIME-CAPPED best-effort converge on
+# the critical path -- enough to land the obvious merges so the first
+# wiki/search build is not littered with duplicates -- then hand the
+# *completion* of the converge to a self-removing post-install LaunchAgent
+# (ostler-dedupe-catchup, modelled on the wiki-recompile catch-up agent
+# above). The agent finishes the fixpoint loop in the background at low
+# priority and triggers a wiki recompile so late merges surface without
+# the customer waiting. Install critical path for this step is capped at
+# OSTLER_DEDUPE_INSTALL_BUDGET_S (default 300s / 5 min).
+if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
+    info "Merging duplicate contacts across your sources"
+    _DEDUPE_LOG=/tmp/ostler-hydrate-dedupe.log
+    _DEDUPE_BUDGET_S="${OSTLER_DEDUPE_INSTALL_BUDGET_S:-300}"
+    _DEDUPE_DONE_MARKER="${OSTLER_DIR}/state/dedupe-converge.done"
+    mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
+    rm -f "$_DEDUPE_DONE_MARKER" 2>/dev/null || true
+
+    # Run the converge pass in the BACKGROUND so we can (a) emit a liveness
+    # heartbeat while it works and (b) enforce a hard time cap. The pass
+    # writes all stdout to $_DEDUPE_LOG, so without a heartbeat the GUI
+    # shows one line and then nothing for the whole run. On the .153
+    # cold-wipe walk this step sat silent and read as a frozen install.
+    # Heartbeat-only + cap: it does NOT change any merge rule, threshold,
+    # or the non-fatal posture; the cap just bounds how long the customer
+    # waits before the rest is finished in the background.
+    (
+        cd "$PIPELINE_DIR" && \
+        OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+        QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
+        .venv/bin/python3 -m identity_resolver.batch_resolver \
+            --execute --converge \
+            --output /tmp/ostler-dedupe-report.yaml \
+        && touch "$_DEDUPE_DONE_MARKER"
+    ) >>"$_DEDUPE_LOG" 2>&1 &
+    _DEDUPE_PID=$!
+    _DEDUPE_WAITED=0
+    _DEDUPE_TIMED_OUT=false
+    while kill -0 "$_DEDUPE_PID" 2>/dev/null; do
+        sleep 30
+        _DEDUPE_WAITED=$(( _DEDUPE_WAITED + 30 ))
+        # Hard cap: once we exceed the install-time budget, stop waiting
+        # synchronously. Kill the in-flight pass (a single converge round
+        # is itself idempotent + non-destructive: it only merges nodes the
+        # rules already approve, so terminating mid-loop just leaves the
+        # remaining rounds for the background catch-up agent). The
+        # batch_resolver --execute commits each merge as it goes, so no
+        # work done so far is lost.
+        if [[ "$_DEDUPE_WAITED" -ge "$_DEDUPE_BUDGET_S" ]] && kill -0 "$_DEDUPE_PID" 2>/dev/null; then
+            _DEDUPE_TIMED_OUT=true
+            kill "$_DEDUPE_PID" 2>/dev/null || true
+            # Give it a moment to unwind, then hard-kill if still alive.
+            sleep 2
+            kill -9 "$_DEDUPE_PID" 2>/dev/null || true
+            break
+        fi
+        # Guard with `if` (not `&&`) so a process that finished during the
+        # sleep emits no stray line, and so a false result cannot trip the
+        # script's `set -e` / ERR trap.
+        if kill -0 "$_DEDUPE_PID" 2>/dev/null; then
+            info "$(printf "$MSG_INFO_DEDUPE_STILL_MERGING" "${_DEDUPE_WAITED}")"
+        fi
+    done
+    # The child has exited (or was capped); reap it for its real status.
+    # `wait` in an `if` condition is errexit-exempt, so a non-zero exit
+    # stays non-fatal.
+    if [[ "$_DEDUPE_TIMED_OUT" == "true" ]]; then
+        wait "$_DEDUPE_PID" 2>/dev/null || true
+        info "$MSG_INFO_DEDUPE_DEFERRED_BACKGROUND"
+    elif wait "$_DEDUPE_PID"; then
+        info "$MSG_INFO_DEDUPE_MERGED"
+    else
+        warn "$(printf "$MSG_WARN_DEDUPE_INCOMPLETE" "$_DEDUPE_LOG")"
+    fi
+
+    # Defer-to-background: if the converge did NOT fully complete within
+    # the install budget, install a bounded, self-removing LaunchAgent to
+    # finish it post-install and trigger a wiki recompile. If it DID
+    # complete (the .done marker exists), skip the agent entirely -- there
+    # is nothing left to do.
+    if [[ ! -f "$_DEDUPE_DONE_MARKER" ]]; then
+        _install_dedupe_catchup_agent
+    else
+        info "$MSG_INFO_DEDUPE_COMPLETE_NO_CATCHUP"
+    fi
+
+    unset _DEDUPE_LOG _DEDUPE_PID _DEDUPE_WAITED _DEDUPE_BUDGET_S
+    unset _DEDUPE_TIMED_OUT _DEDUPE_DONE_MARKER
+fi
+
+# Apple Notes knowledge hydration (CM024 §7 / apple_notes adapter) ---
+#
+# Reads apple_notes.json (written by the Phase 3 fda_extract step when
+# "apple_notes" is in OSTLER_FDA_SOURCES) and runs it through the bundled
+# ostler-knowledge binary using the SAME two-phase convert+embed path the
+# Doctor knowledge runner (doctor.agent.import_evernote) drives for every
+# other knowledge source (Evernote / Notion / Obsidian):
+#   1. convert --source apple_notes <apple_notes.json> --output <staging>
+#      -> CM024's AppleNotesAdapter parses the note-list JSON into
+#         privacy-tagged markdown in ~/.ostler/data/knowledge-staging.
+#   2. embed <staging> --collection apple_notes_knowledge ...
+#      -> indexes the compartment-level<=2 markdown into Qdrant so the wiki
+#         Knowledge section + MCP can read it. embed runs ONLY if convert
+#         exits 0 (mirror of import_evernote.py). The embedder self-creates
+#         the apple_notes_knowledge collection at 768 dims on first use, so
+#         it is intentionally NOT in the graph_db_start pre-create list --
+#         nothing is created until there are notes to embed.
+#
+# SHIP-DARK / silent-on-empty: the whole block is a no-op unless
+# apple_notes.json exists AND is non-empty (the `-s` gate below). This is
+# the guardrail for the adapter's discover(), which RAISES ValueError when
+# pointed at a missing file -- we never invoke it without the file. On a
+# build whose vendored CM024 predates the apple_notes adapter,
+# `convert --source apple_notes` exits non-zero (unknown --source choice),
+# the block degrades to a clean "skipped", embed is never reached, and the
+# install continues. Correct note identity requires a CM024 SHA that
+# INCLUDES PR #17 (the evernote_guid vs note_id id-contract fix).
+#
+# Deferred toggle (Andy's call, NOT decided here): an explicit feature flag
+# could gate this leg instead of the silent-on-empty default. The
+# OSTLER_APPLE_NOTES_KNOWLEDGE env below is the one-line hook where such a
+# flag would land; today it defaults ON so the only gate is data presence.
+progress "Reading your Apple Notes" "hydrate_apple_notes"
+
+_HYDRATE_APPLENOTES_FDA_DIR="${OSTLER_DIR}/imports/fda"
+_HYDRATE_APPLENOTES_JSON_FILE="${_HYDRATE_APPLENOTES_FDA_DIR}/apple_notes.json"
+_HYDRATE_APPLENOTES_BIN="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+_HYDRATE_APPLENOTES_STAGING="${OSTLER_DIR}/data/knowledge-staging"
+_HYDRATE_APPLENOTES_DBPATH="${OSTLER_DIR}/data/knowledge-metadata.db"
+_HYDRATE_APPLENOTES_COLLECTION="apple_notes_knowledge"
+_HYDRATE_APPLENOTES_EMBED_MODEL="${OSTLER_KNOWLEDGE_EMBED_MODEL:-nomic-embed-text}"
+_HYDRATE_APPLENOTES_MAXLEVEL="${OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL:-2}"
+_HYDRATE_APPLENOTES_QDRANT="${QDRANT_URL:-http://localhost:6333}"
+_HYDRATE_APPLENOTES_OLLAMA="${EMBED_OLLAMA_URL:-http://localhost:11434}"
+
+# Resolve the ostler-knowledge binary (absolute symlink or PATH name).
+_HYDRATE_APPLENOTES_BIN_OK=false
+if [[ -x "$_HYDRATE_APPLENOTES_BIN" ]] || command -v "$_HYDRATE_APPLENOTES_BIN" >/dev/null 2>&1; then
+    _HYDRATE_APPLENOTES_BIN_OK=true
+fi
+
+if _hydrate_sentinel_fresh "apple_notes"; then
+    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
+elif [[ "${OSTLER_APPLE_NOTES_KNOWLEDGE:-1}" == "0" ]]; then
+    # Deferred explicit-flag hook: operator opted this leg out.
+    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
+elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_APPLENOTES_JSON_FILE" ]]; then
+    info "$MSG_HYDRATE_APPLE_NOTES_STARTED"
+
+    # Same timeout picker as the other hydrate phases (brew coreutils
+    # gtimeout preferred; system timeout fallback; unbounded if neither).
+    _HYDRATE_APPLENOTES_CAP="${OSTLER_HYDRATE_APPLE_NOTES_TIMEOUT:-1800}"
+    _HYDRATE_APPLENOTES_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _HYDRATE_APPLENOTES_TIMEOUT_WRAP="gtimeout $_HYDRATE_APPLENOTES_CAP"
+    elif command -v timeout >/dev/null 2>&1; then
+        _HYDRATE_APPLENOTES_TIMEOUT_WRAP="timeout $_HYDRATE_APPLENOTES_CAP"
+    fi
+
+    _HYDRATE_APPLENOTES_LOG=/tmp/ostler-hydrate-apple-notes.log
+    _HYDRATE_APPLENOTES_TIMED_OUT=false
+    mkdir -p "$_HYDRATE_APPLENOTES_STAGING" "$(dirname "$_HYDRATE_APPLENOTES_DBPATH")"
+
+    # Best-effort hydrate (#640-class guard, mirror of hydrate_imessage):
+    # suppress the errtrace ERR trap + errexit around the convert+embed run
+    # so an in-subprocess failure degrades to "skipped" instead of aborting
+    # the whole install. Preserve rc for the timeout check.
+    _saved_err_trap=$(trap -p ERR); trap - ERR; set +e
+    _hydrate_heartbeat_start "$MSG_HYDRATE_APPLE_NOTES_HEARTBEAT"
+
+    # Phase 1: convert the note-list JSON to privacy-tagged markdown.
+    OSTLER_QDRANT_URL="$_HYDRATE_APPLENOTES_QDRANT" \
+    OSTLER_OLLAMA_URL="$_HYDRATE_APPLENOTES_OLLAMA" \
+    $_HYDRATE_APPLENOTES_TIMEOUT_WRAP \
+        "$_HYDRATE_APPLENOTES_BIN" convert \
+            --source apple_notes \
+            "$_HYDRATE_APPLENOTES_JSON_FILE" \
+            --output "$_HYDRATE_APPLENOTES_STAGING" \
+        >>"$_HYDRATE_APPLENOTES_LOG" 2>&1
+    _HYDRATE_APPLENOTES_CONVERT_RC=$?
+
+    # Phase 2: embed the staged markdown into the searchable collection --
+    # ONLY if convert exited 0 (mirror of import_evernote.py). L3 ("private")
+    # notes are kept out of search by the max-compartment-level cap.
+    if [[ "$_HYDRATE_APPLENOTES_CONVERT_RC" -eq 0 ]]; then
+        OSTLER_QDRANT_URL="$_HYDRATE_APPLENOTES_QDRANT" \
+        OSTLER_OLLAMA_URL="$_HYDRATE_APPLENOTES_OLLAMA" \
+        $_HYDRATE_APPLENOTES_TIMEOUT_WRAP \
+            "$_HYDRATE_APPLENOTES_BIN" embed \
+                "$_HYDRATE_APPLENOTES_STAGING" \
+                --collection "$_HYDRATE_APPLENOTES_COLLECTION" \
+                --embedding-model "$_HYDRATE_APPLENOTES_EMBED_MODEL" \
+                --max-compartment-level "$_HYDRATE_APPLENOTES_MAXLEVEL" \
+                --db-path "$_HYDRATE_APPLENOTES_DBPATH" \
+            >>"$_HYDRATE_APPLENOTES_LOG" 2>&1
+        _HYDRATE_APPLENOTES_EMBED_RC=$?
+    else
+        _HYDRATE_APPLENOTES_EMBED_RC=1
+    fi
+
+    rc=$_HYDRATE_APPLENOTES_CONVERT_RC
+    _hydrate_heartbeat_stop
+    set -e; eval "${_saved_err_trap:-}"
+    if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
+        _HYDRATE_APPLENOTES_TIMED_OUT=true
+    fi
+
+    if [[ "$_HYDRATE_APPLENOTES_TIMED_OUT" == "true" ]]; then
+        info "$MSG_HYDRATE_APPLE_NOTES_BACKGROUND_CONTINUES"
+    elif [[ "$_HYDRATE_APPLENOTES_CONVERT_RC" -eq 0 ]]; then
+        # convert prints "Files written: <n>" to stderr (now in the log).
+        # grep exits 1 on no match (a NORMAL case when 0 notes converted),
+        # which under pipefail would abort this late step -- `|| printf '0'`
+        # keeps the substitution exit 0 so the ${VAR:-0} default applies.
+        _HYDRATE_APPLENOTES_COUNT="$(
+            grep -aE 'Files written:' "$_HYDRATE_APPLENOTES_LOG" 2>/dev/null \
+            | tail -n 1 \
+            | tr -dc '0-9' \
+            || printf '0'
+        )"
+        _HYDRATE_APPLENOTES_COUNT="${_HYDRATE_APPLENOTES_COUNT:-0}"
+        if [[ "$_HYDRATE_APPLENOTES_COUNT" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_APPLE_NOTES_DONE" "$_HYDRATE_APPLENOTES_COUNT")"
+        else
+            info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
+        fi
+    else
+        # convert failed -- almost always an older vendored CM024 without
+        # the apple_notes adapter (unknown --source). Honest skip, no crash.
+        info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_PIPELINE_PENDING"
+    fi
+
+    # Sentinel dedupes a re-run within the 7-day window.
+    #
+    # #712: this source has TWO stages and the sentinel ignored both. convert
+    # failing is the common case (an older vendored CM024 without the
+    # apple_notes adapter -> unknown --source), and embed is skipped with
+    # EMBED_RC=1 whenever convert failed. Either stage non-zero means the notes
+    # are not searchable, so the retry must not be suppressed for a week.
+    # Report the convert rc when that is what broke, otherwise the embed rc,
+    # so the sentinel names the stage that actually failed.
+    if [[ "${_HYDRATE_APPLENOTES_CONVERT_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_CONVERT_RC" \
+            "stage=convert,notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+    elif [[ "${_HYDRATE_APPLENOTES_EMBED_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_EMBED_RC" \
+            "stage=embed,notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+    else
+        _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+    fi
+
+    unset _HYDRATE_APPLENOTES_CAP _HYDRATE_APPLENOTES_TIMEOUT_WRAP
+    unset _HYDRATE_APPLENOTES_LOG _HYDRATE_APPLENOTES_TIMED_OUT
+    unset _HYDRATE_APPLENOTES_COUNT _HYDRATE_APPLENOTES_CONVERT_RC
+    unset _HYDRATE_APPLENOTES_EMBED_RC
+elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" != "true" ]]; then
+    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_PIPELINE_PENDING"
+else
+    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
+    _hydrate_sentinel_record "apple_notes" "status=no_data"
+fi
+
+unset _HYDRATE_APPLENOTES_FDA_DIR _HYDRATE_APPLENOTES_JSON_FILE
+unset _HYDRATE_APPLENOTES_BIN _HYDRATE_APPLENOTES_BIN_OK
+unset _HYDRATE_APPLENOTES_STAGING _HYDRATE_APPLENOTES_DBPATH
+unset _HYDRATE_APPLENOTES_COLLECTION _HYDRATE_APPLENOTES_EMBED_MODEL
+unset _HYDRATE_APPLENOTES_MAXLEVEL _HYDRATE_APPLENOTES_QDRANT
+unset _HYDRATE_APPLENOTES_OLLAMA
 
 # People search index (#600) ---------------------------------------
 #
@@ -12396,6 +20316,11 @@ elif [[ -x "$_HYDRATE_PEOPLE_PY" ]]; then
     # Inline python so we call ingest_people_to_qdrant directly: it reads
     # pwg:Person from Oxigraph, embeds + upserts to Qdrant `people`, and
     # self-creates the collection. Output is the counts-only JSON.
+    # #640-class guard (best-effort hydrate; see the browsing block above for
+    # the full rationale): suppress the errtrace ERR trap + errexit around the
+    # pwg_ingest command-sub so an in-subshell crash degrades to "skipped"
+    # instead of aborting the whole install. Preserve rc for the timeout check.
+    _saved_err_trap=$(trap -p ERR); trap - ERR; set +e
     _HYDRATE_PEOPLE_JSON="$(
         $_HYDRATE_PEOPLE_TIMEOUT_WRAP \
         "$_HYDRATE_PEOPLE_PY" -c "
@@ -12406,6 +20331,8 @@ print(json.dumps(result))
 " 2>>"$_HYDRATE_PEOPLE_LOG" | tail -n 1
     )"
     rc=$?
+    _HYDRATE_PEOPLE_RC="$rc"   # #712: see the whatsapp block for why
+    set -e; eval "${_saved_err_trap:-}"
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_PEOPLE_TIMED_OUT=true
     fi
@@ -12434,10 +20361,16 @@ except Exception:
     fi
 
     # #48g sentinel record: dedupes re-runs within a 7-day window.
-    _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}"
+    # #712: an errored or timed-out ingest must NOT suppress its own retry.
+    if [[ "${_HYDRATE_PEOPLE_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "people" "$_HYDRATE_PEOPLE_RC" \
+            "sent=${_HYDRATE_PEOPLE_SENT:-0}"
+    else
+        _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}"
+    fi
 
     unset _HYDRATE_PEOPLE_TIMED_OUT _HYDRATE_PEOPLE_JSON
-    unset _HYDRATE_PEOPLE_SENT _HYDRATE_PEOPLE_TIMEOUT_WRAP _HYDRATE_PEOPLE_LOG
+    unset _HYDRATE_PEOPLE_RC _HYDRATE_PEOPLE_SENT _HYDRATE_PEOPLE_TIMEOUT_WRAP _HYDRATE_PEOPLE_LOG
 else
     info "$MSG_HYDRATE_PEOPLE_SKIPPED_FDA_PENDING"
 fi
@@ -12533,6 +20466,7 @@ if [[ "$_INITIAL_HYDRATE_COLLECTIONS_BEFORE" -eq 0 ]] \
     elif command -v timeout >/dev/null 2>&1; then
         _INITIAL_HYDRATE_TIMEOUT_WRAP="timeout 90"
     fi
+    _INITIAL_HYDRATE_RETRY_RC=0
 
     $_INITIAL_HYDRATE_TIMEOUT_WRAP \
     "$_INITIAL_HYDRATE_PY" -c "
@@ -12544,7 +20478,13 @@ try:
     print(json.dumps(result))
 except Exception as exc:
     print(json.dumps({'status': 'error', 'error': type(exc).__name__}))
-" >>"$_INITIAL_HYDRATE_LOG" 2>&1 || true
+" >>"$_INITIAL_HYDRATE_LOG" 2>&1 || _INITIAL_HYDRATE_RETRY_RC=$?
+
+    # #839: the `|| true` that used to sit here kept errexit off the
+    # retry AND threw the rc away in the same stroke. Capturing it into
+    # a variable does the first without the second, so a retry killed by
+    # its 90 s cap is visible on the step's STEP_END instead of vanishing.
+    gui_step_record_rc "${_INITIAL_HYDRATE_RETRY_RC:-0}"
 
     # Poll Qdrant for up to 30s while the gateway writes through. The
     # first POST creates the collection lazily, so the count flips from
@@ -12558,6 +20498,7 @@ except Exception as exc:
         _INITIAL_HYDRATE_POLL_ELAPSED=$((_INITIAL_HYDRATE_POLL_ELAPSED + 2))
     done
     unset _INITIAL_HYDRATE_POLL_ELAPSED _INITIAL_HYDRATE_TIMEOUT_WRAP
+    unset _INITIAL_HYDRATE_RETRY_RC
 fi
 
 _INITIAL_HYDRATE_COLLECTIONS_AFTER="$(_initial_hydrate_qdrant_count)"
@@ -12573,9 +20514,183 @@ else
     info "$MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED"
 fi
 
+# DEDUPE_MERGE (#661, RULE 1, 2026-06-09): after every person-creating
+# writer above (hydrate_graph contacts/calendar, the per-source FDA
+# ingest, contact_syncer, and initial_hydrate) and BEFORE wiki_compile
+# below, fold any Person nodes that share an EXACT identifier value (same
+# email or phone string) into one -- regardless of source or display
+# name. This is the only place the cross-source case gets merged: the
+# iMessage / WhatsApp ingest (pwg_ingest) mints its own uuid5 Person URIs
+# and never consults the identity resolver, so its people stay split from
+# the Contacts people until this graph-level sweep folds them. Running it
+# here means the wiki, the iOS People view and the Doctor API all render
+# merged people. Best-effort + idempotent (a re-run finds nothing): a
+# failure is logged and install continues. The fuzzy no-shared-identifier
+# case (BW-2) is deliberately NOT touched. Output goes to the install log,
+# not a user-facing string -- internal plumbing.
+if [[ -x "$_INITIAL_HYDRATE_PY" ]]; then
+    "$_INITIAL_HYDRATE_PY" -c "
+from ostler_fda.dedupe_merge import run
+import json
+try:
+    print('dedupe_merge:', json.dumps(run()))
+except Exception as exc:
+    print('dedupe_merge failed:', type(exc).__name__, exc)
+" >>"$_INITIAL_HYDRATE_LOG" 2>&1 || true
+fi
+
 unset _INITIAL_HYDRATE_QDRANT _INITIAL_HYDRATE_FDA_DIR
 unset _INITIAL_HYDRATE_VENV _INITIAL_HYDRATE_PY _INITIAL_HYDRATE_LOG
 unset _INITIAL_HYDRATE_COLLECTIONS_BEFORE _INITIAL_HYDRATE_COLLECTIONS_AFTER
+
+# PLACES INGEST (CM044 Places section, 2026-06-19). The wiki Places page
+# (CM044 compiler/pages/place_pages.py) reads ONLY the Qdrant `preferences`
+# collection filtered to category=place. Nothing ever wrote those points, so
+# the page always rendered its empty state even though the graph holds real
+# location signals: every meeting carries a pwg:meetingLocation literal (96
+# meetings / dozens of distinct strings on Andy's box) and nothing ever
+# promoted those into a browsable Place. This step closes that leg with NO
+# CM044 change: it reads pwg:meetingLocation (+ pwg:photoPlace if present)
+# back out of Oxigraph, de-dupes by normalised string, and upserts one
+# area_preference point per distinct place into preferences/category=place
+# with the exact payload shape place_pages.py reads.
+#
+# Ordering: runs AFTER every Oxigraph writer above (hydrate_graph
+# contacts/calendar -> meeting locations land here) and the dedupe_merge
+# sweep, and BEFORE wiki_compile, so the first wiki compile already sees a
+# populated Places section. The contact_syncer.places_ingest module ships in
+# the import-pipeline venv (${PIPELINE_DIR}/.venv) alongside contact_syncer.syncer
+# -- same venv that carries httpx + qdrant-client. Best-effort + idempotent
+# (deterministic uuid5 point IDs): a failure is logged and install continues;
+# a re-run upserts the same points rather than duplicating them.
+#
+# Guard on the venv python derived from $PIPELINE_DIR (the in-scope var the
+# body's `cd "$PIPELINE_DIR" && .venv/bin/python` already uses), NOT a bare
+# $PIPELINE_PY: that name is only ever assigned inside the generated
+# ostler-contact-resync heredoc, never in this script's own scope, so under
+# `set -u` the test aborted the whole install (ERR-99 initial_hydrate). The
+# ${PIPELINE_DIR:-} default keeps the test set -u-safe even if unset.
+if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
+    info "$MSG_HYDRATE_PLACES_STARTED"
+    _PLACES_EMBED_URL="${EMBED_OLLAMA_URL:-http://localhost:11434}"
+    _PLACES_EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
+    _PLACES_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _PLACES_TIMEOUT_WRAP="gtimeout 120"
+    elif command -v timeout >/dev/null 2>&1; then
+        _PLACES_TIMEOUT_WRAP="timeout 120"
+    fi
+    # Capture the exit code explicitly (do NOT collapse to `&& ok || info`):
+    # the module exits 0 for BOTH success AND the benign no-signals case, and
+    # exits non-zero ONLY on a real failure -- its own loud guard
+    # (status=error_empty_result: signals present but 0 Place points), a
+    # config error, or an unexpected crash. Mapping every non-zero to the
+    # benign "no signals yet" message silenced exactly the silent-failure
+    # class the guard exists for. So: branch on the exit code, and on failure
+    # grep the log for the guard signature to choose a precise, VISIBLE warn.
+    # `|| _places_rc=$?` keeps `set -e` from aborting the install on a
+    # non-zero places exit (this step is best-effort + non-fatal); _places_rc
+    # defaults to 0 and is overwritten only on failure.
+    _places_rc=0
+    (
+        cd "$PIPELINE_DIR" \
+        && OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+           QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
+           EMBED_OLLAMA_URL="$_PLACES_EMBED_URL" \
+           EMBED_MODEL="$_PLACES_EMBED_MODEL" \
+           $_PLACES_TIMEOUT_WRAP \
+           .venv/bin/python -m contact_syncer.places_ingest --verbose
+    ) >>/tmp/ostler-places-ingest.log 2>&1 || _places_rc=$?
+    # The log is appended across runs (>>); only this run's tail is relevant,
+    # so scope the signature greps to the tail rather than the whole file.
+    _places_log_tail="$(tail -n 40 /tmp/ostler-places-ingest.log 2>/dev/null)"
+    if [[ "$_places_rc" -eq 0 ]]; then
+        # Success. Distinguish "built some Places" from the genuinely benign
+        # "no location signals yet" case (module prints "0 meeting locations
+        # + 0 photo places") so the no-signals message stays honest.
+        if printf '%s' "$_places_log_tail" \
+                | grep -q "from 0 meeting locations + 0 photo places"; then
+            info "$MSG_HYDRATE_PLACES_SKIPPED"
+        else
+            ok "$MSG_HYDRATE_PLACES_DONE"
+        fi
+    elif printf '%s' "$_places_log_tail" | grep -q "PLACES INGEST GUARD"; then
+        # The module's own loud guard fired: signals exist but no Places were
+        # produced/written. Surface it loudly (non-fatal: a re-run is safe).
+        warn "$MSG_HYDRATE_PLACES_GUARD_WARN"
+    else
+        # Non-zero exit with no guard line = config error / unexpected crash.
+        # Still non-fatal, but visible -- not mislabelled as "no signals yet".
+        warn "$MSG_HYDRATE_PLACES_ERROR_WARN"
+    fi
+    # #711. The branches above already distinguish a crash ("Non-zero
+    # exit with no guard line = config error / unexpected crash") and
+    # warn the customer about it. The sentinel was then written OUTSIDE
+    # every branch, so this leg knew it had crashed, said so, and
+    # suppressed its own retry for 7 days. The module's own PLACES
+    # INGEST GUARD arm is deliberately NOT an error: it means the run
+    # completed and found nothing to write, which is the no-data case
+    # the sentinel exists for.
+    if [[ "$_places_rc" -ne 0 ]] \
+       && ! printf '%s' "$_places_log_tail" | grep -q "PLACES INGEST GUARD"; then
+        _hydrate_sentinel_record_error "places" "$_places_rc" "status=run"
+    else
+        _hydrate_sentinel_record "places" "status=run rc=$_places_rc"
+    fi
+    unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP \
+          _places_rc _places_log_tail
+fi
+
+# ── Privacy-level backfill (CM041 #97 fail-closed gate) ───────────────
+#
+# The person-fact readers (ical-server /people/*, meeting brief) fail
+# CLOSED on unknown privacy: a fact/signal node with no pwg:privacyLevel
+# is treated as L3 and HIDDEN. On a freshly hydrated graph ~85% of the
+# historical fact/signal nodes land untagged, so serving before they are
+# tagged would silently hide most facts (near-empty People card / brief).
+#
+# This one-off backfill stamps every untagged PersonFact / RelationshipSignal
+# with its provenance-derived visible level (contact_syncer.privacy_model:
+# private/unknown -> L1, public/social -> L2, health/finance -> L0 -- NEVER
+# L3), so the fail-closed reader hides only genuinely-private content, not
+# the coverage gap.
+#
+# Ordering: runs AFTER every Oxigraph writer above (hydrate_graph
+# contacts/calendar + per-source FDA ingests + places) and BEFORE the first
+# wiki_compile / before ical-server serves, so both surfaces see a fully
+# tagged graph. Idempotent (the SELECT only matches untagged nodes, so a
+# re-run of install.sh writes nothing) and best-effort + non-fatal (a
+# failure is logged and install continues; the reader stays fail-closed, so
+# a failed backfill hides facts, it never leaks them). The reader-side
+# gate in ical-server also runs this on every boot as belt-and-braces.
+# Same import-pipeline venv as contact_syncer.syncer (carries httpx).
+if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
+    info "Tagging privacy levels on your graph"  # i18n-exempt
+    _privacy_rc=0
+    (
+        cd "$PIPELINE_DIR" \
+        && OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+           DEFAULT_PRIVACY_LEVEL="${DEFAULT_PRIVACY_LEVEL:-L2}" \
+           .venv/bin/python -m contact_syncer.backfill_privacy --apply
+    ) >>/tmp/ostler-privacy-backfill.log 2>&1 || _privacy_rc=$?
+    if [[ "$_privacy_rc" -eq 0 ]]; then
+        ok "Privacy levels tagged"  # i18n-exempt
+    else
+        # Non-fatal: readers stay fail-closed (safe), and the ical-server
+        # startup hook retries on the next boot. Surface it, do not abort.
+        warn "Privacy backfill did not complete (rc=$_privacy_rc); readers stay fail-closed. See /tmp/ostler-privacy-backfill.log"  # i18n-exempt
+    fi
+    # #712: the rc was already captured AND already printed in the warn above,
+    # and then thrown away at the sentinel -- the failure was visible to the
+    # customer on screen while the sentinel recorded success and suppressed
+    # the retry for seven days. Route it.
+    if [[ "$_privacy_rc" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "privacy_backfill" "$_privacy_rc" "status=run"
+    else
+        _hydrate_sentinel_record "privacy_backfill" "status=run rc=$_privacy_rc"
+    fi
+    unset _privacy_rc
+fi
 
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 
@@ -12620,7 +20735,73 @@ docker compose --profile compile run --rm -T \
     -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null 2>&1 | tail -10
 WIKI_BASELINE_RC=${PIPESTATUS[0]:-0}
 set -e
+
+# ── THE COMPILE'S EXIT CODE IS NOT AN ORACLE. COUNT THE PAGES. ───────────
+#
+# MEASURED 2026-08-17: install.sh had NO page count anywhere, so rc=0 above
+# was the only success signal for the entire wiki. That signal cannot fail:
+#
+#   CM044 compile.py:1438   returns results
+#   CM044 compile.py:1577   main() DISCARDS the return value
+#   CM044 __main__.py:4     calls main() with no sys.exit
+#
+# The container entrypoint is `python -m compiler`, so the process exits 0
+# whether it wrote eighteen thousand pages or none, and `.compile-complete`
+# is written either way (compile.py:1413-1417). That is exactly how "wiki
+# compiled zero pages" walked past a green install on Andy's box: every
+# directory present, every directory empty, 39 steps ok, err=0.
+#
+# A COUNT IS THE ONLY HONEST ORACLE HERE, because the thing we care about is
+# not "did the compiler run" but "is there a wiki". Counting the artefact
+# the customer opens needs no cooperation from CM044 and cannot be defeated
+# by a swallowed exception upstream.
+#
+# NON-FATAL BY DESIGN, and that is a deliberate limit rather than an
+# oversight. Making an empty wiki the first HARD failure (an aborted install)
+# would change install semantics far beyond the wiki. What it does instead:
+# state the number, mark the run unhealthy, and refuse to say the wiki is
+# ready when it is empty. A zero that is PRINTED is worth more than a zero
+# that fails silently.
+#
+# #839 (2026-08-18) UPDATE. The paragraph above used to read "install.sh has
+# no path that ends a step in failure (every gui_step_end call site passes
+# `ok`)". That was true, and it was the defect: the status field on all 39
+# STEP_END lines was a literal, so no measurement could reach it. There IS
+# now a path -- gui_step_record_rc -- and non-fatal no longer has to mean
+# unrecorded. An empty wiki is still non-fatal to the install and still shows
+# the customer the same screen; it now also closes its step honestly.
+WIKI_DOCS_DIR="${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}"
+WIKI_PAGE_COUNT=0
+if [ -d "$WIKI_DOCS_DIR" ]; then
+    # -type f, not -name '*', so a tree of empty DIRECTORIES counts zero.
+    # That is the exact shape the box walk found: directories present,
+    # contents absent.
+    WIKI_PAGE_COUNT="$(find "$WIKI_DOCS_DIR" -type f \( -name '*.md' -o -name '*.html' \) 2>/dev/null | wc -l | tr -d ' ')"
+fi
+info "Wiki pages on disk after the baseline compile: ${WIKI_PAGE_COUNT} (${WIKI_DOCS_DIR})"
+if [ "${WIKI_PAGE_COUNT:-0}" -eq 0 ]; then
+    # NAME THE ARTEFACT MEASURED, not the symptom. A reader must be able to
+    # go and look at the same thing this line looked at.
+    warn "The wiki compile exited ${WIKI_BASELINE_RC} but produced ZERO pages under ${WIKI_DOCS_DIR}. The compiler's exit code is not evidence: CM044 discards its own result, so a total failure also exits 0. Treat the wiki as NOT built."
+    HEALTHY=false
+    WIKI_BASELINE_RC=1
+fi
+
+# #839: carry the compile's verdict onto the step's STEP_END. The count
+# above is the honest oracle; this is what stops that verdict dying in
+# the log body while the step line says ok.
+gui_step_record_rc "${WIKI_BASELINE_RC:-0}"
+
 if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
+    # Publish the baseline. The wiki-site container now runs a static server
+    # (CM044 docker/wiki-site-serve.py) that builds the HTML off the serving
+    # path and picks up a finished compile by polling the compiler's
+    # .compile-complete marker -- so a plain `up -d` suffices and NO
+    # --force-recreate is needed. The old force-recreate existed only because
+    # `mkdocs serve` could not see cross-container volume writes via inotify and
+    # had to be restarted (#598); that restart WAS the recompile-window 000 the
+    # static server removes. Identical publish primitive to
+    # wiki-recompile-tick.sh.
     if docker compose up -d wiki-site 2>&1 | tail -3; then
         WIKI_FIRST_COMPILE_OK=true
         ok "$MSG_OK_WIKI_RUNNING_HTTP_LOCALHOST_8044"
@@ -12628,8 +20809,56 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
         # nohup + </dev/null + disown so it survives install.sh exit and
         # its exit code can never gate install completion.
         WIKI_BG_LOG="${LOGS_DIR}/wiki-background-compile.log"
-        nohup docker compose --profile compile run --rm -T wiki-compiler \
-            </dev/null >"$WIKI_BG_LOG" 2>&1 &
+        # --- Shared background-LLM slot lock (v1.0.0 chat-saturation fix) --
+        # This first-run full-summary compile is the single biggest Ollama
+        # producer on the box. It MUST share the one background-LLM slot lock
+        # with the conversation feeds (*-bundle-tick.sh). Without it, the
+        # backfill + one conversation feed run at once, fill both
+        # OLLAMA_NUM_PARALLEL=2 slots, and live chat (app AND iMessage /
+        # WhatsApp / email replies -- all go through the daemon's /api/chat)
+        # starves: measured 277s + truncated under load vs 1.5s idle on the
+        # .149 box. Holding the lock for the whole compile keeps background
+        # Ollama concurrency at 1.
+        #
+        # WHAT THAT DOES AND DOES NOT GUARANTEE. The lock bounds BACKGROUND
+        # concurrency to one decode. Whether that leaves a slot free for a
+        # live reply depends on the tier: OLLAMA_NUM_PARALLEL is 2 on LOW and
+        # HIGH, so there the second slot is genuinely reserved. On the FLOOR
+        # tier it is 1, so there is no second slot and a live reply queues
+        # behind the one background decode in flight. The lock still helps
+        # there -- it bounds the wait to a single decode instead of a queue of
+        # them -- but it cannot make chat concurrent on a one-slot machine.
+        #
+        # This comment used to claim the second slot was "always free". It was
+        # not, and until the tier fix in this change it was false on the modal
+        # customer machine: a 16GB base M4 was scored FLOOR on P-core count, so
+        # OLLAMA_NUM_PARALLEL was 1 and the sentence described hardware nobody
+        # had. Stating a guarantee the code cannot deliver is worse than
+        # stating none, because the next reader stops looking.
+        #
+        # Blocking acquire with PID-LIVENESS reclaim (NOT a time-based steal):
+        # a real summary compile legitimately runs for hours, so any time
+        # threshold would let a conversation tick wrongly steal the lock mid
+        # compile. We reclaim only when the recorded holder PID is dead.
+        # ${OSTLER_INGEST_LOCK} is the identical path the tick wrappers use.
+        _wiki_slot="${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}"
+        nohup bash -c '
+            set -u
+            _slot="$1"; _wd="$2"
+            cd "$_wd" || exit 1
+            mkdir -p "$(dirname "$_slot")" 2>/dev/null || true
+            while ! mkdir "$_slot" 2>/dev/null; do
+                _h="$(cat "$_slot/pid" 2>/dev/null || true)"
+                if [ -n "${_h:-}" ] && kill -0 "$_h" 2>/dev/null; then
+                    sleep 10
+                else
+                    rm -rf "$_slot" 2>/dev/null || true
+                fi
+            done
+            printf "%s\n" "$$" > "$_slot/pid"
+            trap "rm -rf \"$_slot\" 2>/dev/null || true" EXIT
+            docker compose --profile compile run --rm -T wiki-compiler </dev/null
+        ' _ "$_wiki_slot" "$OSTLER_DIR" >"$WIKI_BG_LOG" 2>&1 &
         disown 2>/dev/null || true
         info "$MSG_INFO_WIKI_BACKGROUND_SUMMARIES_STARTED"
     else
@@ -12666,7 +20895,7 @@ step "$MSG_STEP_RUNNING_HEALTH_CHECK" "health_check"
 # then jumped straight to "Done" -- confusing because the customer
 # sees the row never visibly complete.
 if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
-    gui_step_end ok
+    gui_step_end
 fi
 __OSTLER_STEP_ID="health_check"
 gui_step_begin "health_check" "$MSG_STEP_RUNNING_HEALTH_CHECK" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
@@ -12698,6 +20927,80 @@ if curl -sf http://localhost:11434/api/tags &>/dev/null; then
     ok "$MSG_OK_OLLAMA_HEALTHY"
 else
     warn "$MSG_WARN_OLLAMA_NOT_RESPONDING"
+    HEALTHY=false
+fi
+
+# ── v1.0.10 P1: loopback control-plane liveness ─────────────────
+#
+# The pairing + data-tab experience depends on three loopback services
+# the probes above do NOT cover, and a box that looks "installed" but
+# has any of them down silently fails chat / pairing / the data tab --
+# exactly the box-walk class this recut closes (P0-α validate-bearer,
+# P0-β pairing preservation). Surface each one here:
+#   - Pairing service (127.0.0.1:8000) -- mints + validates the paired
+#       bearers; the oracle the Doctor consults (DOCTOR_VALIDATOR_URL).
+#   - Doctor          (127.0.0.1:8089) -- the proxy the iOS app + browser
+#       talk to; validates the client bearer, substitutes the service
+#       token, forwards /api/v1/* to the Assistant API.
+#   - Assistant API   (127.0.0.1:8090) -- People / Meetings / Timeline.
+# All three are launchd services loaded far earlier in this run (Doctor
+# ~L11297, Assistant API ~L11468, pairing service ~L13611) and the
+# hydrate phase already exercised :8089 -> :8090, so by now they should
+# be up; a few-second retry only absorbs a still-settling daemon. A
+# LIVENESS probe (ANY HTTP response, including 401/404) is the right test
+# -- we are asking "is it listening", not "does it authorise us" -- so we
+# deliberately do NOT use curl -f. No bearer is sent.
+_probe_http_live() {
+    # $1 url  $2 attempts (default 5). Returns 0 if the port answers HTTP.
+    local _url="$1" _attempts="${2:-5}" _code _i=0
+    while [[ $_i -lt $_attempts ]]; do
+        # curl -w prints "000" (and exits non-zero) on connection refused /
+        # timeout, so only a genuine HTTP status (1xx-5xx, includes 401/404)
+        # counts as "listening". Do NOT `|| echo 000` here -- curl already
+        # emits 000, and appending a second would read as a live 6-digit code.
+        # BUT the `|| true` IS required: curl's non-zero exit on a down port
+        # would otherwise trip the ERR trap and abort the whole install at the
+        # first not-yet-listening service. A health probe must never abort.
+        _code=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "$_url" 2>/dev/null || true)
+        [[ "$_code" =~ ^[1-5][0-9][0-9]$ ]] && return 0
+        _i=$((_i + 1))
+        [[ $_i -lt $_attempts ]] && sleep 1
+    done
+    return 1
+}
+
+# BW5-reorder (2026-07-26): the deferred assistant daemon binds the :8000
+# gateway, but it previously started UNCONDITIONALLY only at the very end of
+# install -- AFTER this health-check. So on every fresh install :8000 was
+# guaranteed unbound here (false MSG_WARN_GATEWAY_NOT_RESPONDING + HEALTHY=false
+# at the finish line), and iOS pairing (Doctor /internal/validate-bearer ->
+# :8000) raced the late bind. Worse: before #449's abort fix the health-check
+# aborted here, so the end-of-install start (below) was never reached and the
+# daemon never came up at all. Start it NOW -- idempotent and self-guarded
+# (needs ASSISTANT_BINARY_INSTALLED + plist, both satisfied by this point;
+# kickstart -k if a daemon-FDA start already fired, else first bootstrap) --
+# and give it a GENEROUS window (up to ~30s, returns early on bind) before we
+# probe. The end-of-install _ostler_start_assistant_daemon call stays as the
+# final TCC-refresh kickstart.
+_ostler_start_assistant_daemon
+if _probe_http_live "http://127.0.0.1:8000/" 30; then
+    ok "$MSG_OK_GATEWAY_HEALTHY"
+else
+    warn "$MSG_WARN_GATEWAY_NOT_RESPONDING"
+    HEALTHY=false
+fi
+
+if _probe_http_live "http://127.0.0.1:8089/" 5; then
+    ok "$MSG_OK_DOCTOR_HEALTHY"
+else
+    warn "$MSG_WARN_DOCTOR_NOT_RESPONDING"
+    HEALTHY=false
+fi
+
+if _probe_http_live "http://127.0.0.1:8090/" 5; then
+    ok "$MSG_OK_ICAL_SERVER_HEALTHY"
+else
+    warn "$MSG_WARN_ICAL_SERVER_NOT_RESPONDING"
     HEALTHY=false
 fi
 
@@ -12792,6 +21095,19 @@ fi
 # point probing a permission the customer has not consented to.
 
 if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
+    # .152 walk (2026-06-16): the assistant's outbound-iMessage bridge
+    # drives the MAIN Messages.app via AppleScript. When Messages.app is
+    # not running, the send AppleEvent waits for it to cold-launch and
+    # times out with "AppleEvent timed out (-1712)" -- the welcome
+    # iMessage (and every later brief) silently never leaves the box.
+    # Warm Messages.app now so it is already up for the Automation probe
+    # below (a cold Messages can also -1712 the probe's `count of
+    # accounts`) and for the post-install welcome message. `-g` keeps it
+    # in the background (no focus steal mid-install) and `-a Messages`
+    # launches the main app via LaunchServices. Best-effort + non-fatal:
+    # a failure here must never abort the install.
+    open -ga Messages 2>/dev/null || true
+
     # CX-55 (DMG #30, 2026-05-24): pre-warn the customer that the
     # next step will trigger macOS's "OstlerInstaller wants to control
     # Messages" Automation permission dialog. Without warning, the
@@ -12805,7 +21121,14 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
     # customer flat-staring at two stacked modals. Add a short
     # cooldown + status line so the transition reads as deliberate
     # rather than as a second dialog ambushing the user.
-    if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    #
+    # v1.0.2 (P1): when the Automation prompt was already FRONT-LOADED in
+    # Phase 2 (IMESSAGE_AUTOMATION_PRIMED_EARLY), skip the pre-warn modal
+    # here -- the grant is already given, so the read-only probe below
+    # fires NO new prompt. This block then only RE-records the
+    # authoritative posture snapshot; it never ambushes the customer with
+    # a second "wants to control Messages" dialog after the success banner.
+    if [[ "${OSTLER_GUI:-0}" == "1" && "${IMESSAGE_AUTOMATION_PRIMED_EARLY:-false}" != "true" ]]; then
         info "$MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION"
         sleep 3
         _="$(gui_read \
@@ -12908,7 +21231,7 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
             # stop short of an extra modal so we don't risk regressing
             # the install completion flow this close to launch.
             if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-                open "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation" \
+                open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Automation" \
                     >/dev/null 2>&1 || true
                 gui_emit IMESSAGE_TCC_DENIED "status=denied" "remediation=automation_pane"
                 info "$MSG_INFO_IMESSAGE_TCC_REMEDIATION_OPENED"
@@ -12934,6 +21257,46 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
             ;;
     esac
 
+    # ── chat.db READ probe (Full Disk Access) ────────────────────
+    #
+    # The Automation probe above only tells us whether the installer can
+    # DRIVE Messages.app (outbound sends). The daemon's iMessage channel
+    # additionally needs to READ ~/Library/Messages/chat.db (inbound
+    # history), which is gated by Full Disk Access on the SIGNED DAEMON
+    # bundle -- a different grant from Automation. A box can pass the
+    # Automation probe yet have no chat.db FDA, in which case the
+    # iMessage feed's `run-source imessage` tick exits EX_CONFIG(78)
+    # every interval. Probe the actual read here with the same honest
+    # `head -c 1` open() the installer's own FDA probe uses -- a plain
+    # `[[ -r ]]` passes on the parent directory entry without FDA and
+    # lies. This is a SNAPSHOT: the daemon FDA grant is requested near
+    # the end of install and may land after this point, so a failure is
+    # a warn, never a hard stop.
+    _IMESSAGE_CHAT_DB="${HOME}/Library/Messages/chat.db"
+    IMESSAGE_FDA_READ_STATUS="not-present"
+    if [[ -e "$_IMESSAGE_CHAT_DB" ]]; then
+        if head -c 1 "$_IMESSAGE_CHAT_DB" >/dev/null 2>&1; then
+            IMESSAGE_FDA_READ_STATUS="readable"
+        else
+            IMESSAGE_FDA_READ_STATUS="fda-denied"
+        fi
+    fi
+    {
+        echo "## chat.db read (Full Disk Access)"
+        echo ""
+        echo "chat.db read status: ${IMESSAGE_FDA_READ_STATUS}"
+        echo "Probe: head -c 1 ${_IMESSAGE_CHAT_DB} (honest open(); FDA-gated)"
+        echo ""
+        echo "Note: this is the INBOUND path (reading iMessage history),"
+        echo "gated by Full Disk Access on the Ostler daemon -- separate"
+        echo "from the Automation permission above (OUTBOUND sends). Both"
+        echo "must be granted for the iMessage channel to fully work."
+        echo ""
+    } >> "$IMESSAGE_POSTURE_FILE"
+    if [[ "$IMESSAGE_FDA_READ_STATUS" == "fda-denied" ]]; then
+        warn "$MSG_WARN_IMESSAGE_CHAT_DB_FDA_DENIED"
+    fi
+
     chmod 600 "$IMESSAGE_POSTURE_FILE"
 fi
 
@@ -12950,8 +21313,44 @@ fi
 # See piece D / task #278 of the cron diagnosis brief.
 
 if [[ -x "${ASSISTANT_BINARY:-}" ]]; then
-    DOCTOR_OUTPUT=$(timeout 10 "${ASSISTANT_BINARY}" doctor 2>&1) || \
+    # Pick a timeout wrapper, mirroring the hydrate_* steps. brew
+    # coreutils ships gtimeout; some toolchains ship plain timeout. Stock
+    # macOS ships NEITHER -- the old bare `timeout 10` was always a
+    # command-not-found there, so this probe never actually ran doctor.
+    # Empty wrapper -> call the daemon directly (its own startup is fast).
+    _DOCTOR_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _DOCTOR_TIMEOUT_WRAP="gtimeout 10"
+    elif command -v timeout >/dev/null 2>&1; then
+        _DOCTOR_TIMEOUT_WRAP="timeout 10"
+    fi
+    # The daemon may still be booting, so a non-zero `doctor` here is
+    # expected and deferred (the `||` fallback handles it). The load-
+    # bearing bit: `set -E` (errtrace) propagates the abort-on-error ERR
+    # trap INTO the $(...) command-substitution subshell, so ANY non-zero
+    # inside it (a warming daemon, or -- on stock macOS -- the absent
+    # `timeout` returning 127) fires _ostler_on_err -> gui_done fail FROM
+    # the subshell, false-failing an otherwise-successful install
+    # (CX-122 / #640; reproduced + verified on Studio bash 3.2.57, no
+    # timeout, via the ERR-trap ledger). The outer `||` only guards the
+    # parent assignment, not the inherited in-subshell trap. Suppress the
+    # ERR trap for exactly this probe, then restore the abort handler.
+    _saved_err_trap=$(trap -p ERR)
+    trap - ERR
+    _DOCTOR_PROBE_RC=0
+    DOCTOR_OUTPUT=$($_DOCTOR_TIMEOUT_WRAP "${ASSISTANT_BINARY}" doctor 2>&1) || {
+        _DOCTOR_PROBE_RC=$?
         DOCTOR_OUTPUT="__DOCTOR_INVOCATION_FAILED__"
+    }
+    eval "${_saved_err_trap:-}"
+    # #839: a warming daemon is an EXPECTED non-zero here and the step
+    # must not be marked bad for it, so only the 10 s cap is folded in.
+    # A probe that hit its cap means the daemon never answered, which is
+    # a fact about this install, not about the probe.
+    if [[ "$_DOCTOR_PROBE_RC" -eq 124 ]] || [[ "$_DOCTOR_PROBE_RC" -eq 137 ]]; then
+        gui_step_record_rc "$_DOCTOR_PROBE_RC"
+    fi
+    unset _DOCTOR_PROBE_RC
 
     if [[ "$DOCTOR_OUTPUT" == "__DOCTOR_INVOCATION_FAILED__" ]]; then
         info "$MSG_INFO_OSTLER_ASSISTANT_DOCTOR_DEFERRED_DAEMON_MAY"
@@ -12962,7 +21361,20 @@ if [[ -x "${ASSISTANT_BINARY:-}" ]]; then
         # doctor module emits ❌ for Severity::Error and prefixes
         # the category. We do not fail the install here -- we just
         # surface the count so the operator knows to re-run.
-        DOCTOR_ERRORS=$(printf '%s\n' "$DOCTOR_OUTPUT" | grep -c '❌' 2>/dev/null || echo 0)
+        # `grep -c` PRINTS "0" and EXITS 1 when there are no matches, so a
+        # `|| echo 0` fallback fires ON TOP of grep's own output and yields
+        # the two-line string "0\n0" -- which the `-gt 0` test below cannot
+        # parse, printing a raw
+        #     [[: 0\n0: syntax error in expression (error token is "0")
+        # into the customer-visible log. That is the HAPPY path: zero doctor
+        # errors is the good case, so every clean install showed it (v1.0.15
+        # box-walk, 2026-08-06). `|| true` keeps the non-zero exit from
+        # tripping errexit without adding a second value; the ${..:-0} then
+        # covers only the genuine empty case (grep missing entirely).
+        # The same trap is documented at line ~3911 for a different call
+        # site; see also the TOTAL_STEPS assignment fixed alongside this.
+        DOCTOR_ERRORS=$(printf '%s\n' "$DOCTOR_OUTPUT" | grep -c '❌' 2>/dev/null || true)
+        DOCTOR_ERRORS="${DOCTOR_ERRORS:-0}"
         if [[ "$DOCTOR_ERRORS" -gt 0 ]]; then
             warn "$(printf "$MSG_WARN_OSTLER_ASSISTANT_DOCTOR_REPORTED_ERROR_S" "${DOCTOR_ERRORS}")"
             warn "$(printf "$MSG_WARN_RUN_DOCTOR_AFTER_FIRST_LAUNCH" "${ASSISTANT_BINARY}")"
@@ -13144,7 +21556,19 @@ else
                 mv "/Applications/SafariHistoryExt.app" "$SAFARI_APP_INSTALL_PATH" 2>/dev/null || true
             fi
             ok "$(printf "$MSG_OK_SAFARI_EXTENSION_INSTALLED" "${SAFARI_APP_INSTALL_PATH}")"
-            echo "     Enable it in Safari Settings → Extensions → Ostler"
+            # First-launch registration: Safari only surfaces a Web Extension
+            # after its containing app has been launched at least once
+            # (LaunchServices registration). Launch it headlessly (-gj: in the
+            # background, hidden) so the extension appears in Safari Settings ->
+            # Extensions without the user hunting for it. Fire and forget;
+            # macOS will not let an installer programmatically enable the
+            # extension -- the user must tick the box themselves (see below).
+            if [[ -d "$SAFARI_APP_INSTALL_PATH" ]]; then
+                open -gj -a "$SAFARI_APP_INSTALL_PATH" 2>/dev/null || true
+            fi
+            # The enable step is a macOS-mandated MANUAL action and cannot be
+            # automated; point the user straight at the toggle.
+            echo "     $MSG_INFO_SAFARI_EXTENSION_ENABLE_GUIDANCE"
         else
             warn "$MSG_WARN_SAFARI_EXTENSION_COPY_FAILED_YOU_CAN"
             warn "$(printf "$MSG_WARN_BUNDLE" "${EXTENSIONS_BUNDLE}")"
@@ -13210,7 +21634,311 @@ else
     warn "$MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL"
 fi
 
+# ── AI Conversations hydration (#553 / #613) ───────────────────────
+#
+# Drains the customer's external-LLM chat history (ChatGPT exports,
+# Claude Code sessions, ZeroClaw sessions, channel JSONL) through the
+# vendored CM052 producer (pwg-ai-convo) into
+# ~/Documents/Ostler/AI Conversations/<YYYY-MM-DD>/<id>.md -- the same
+# path CM044's ai_conversation_pages.py reads for the AI Chats wing.
+#
+# ON for v1.0.10: OSTLER_AI_CONVERSATIONS_ENABLED defaults to true so
+# the leg (venv + pip install + producer run) runs at install and the
+# AI Chats section renders live (Andy's call, task #553/#613). Earlier
+# v1.0.x cuts shipped this dark (default false). Export the env var to
+# "false" to opt a given install back out; the vendored package is
+# bundled in the .app either way (gui/project.yml), so toggling the
+# flag needs no rebuild.
+#
+# ORDERING CONSTRAINT (do not hoist this block above G2): CM052's
+# wire.post() subscription gate PAUSES with no episodic write when
+# ~/.ostler/state/subscription_state.json is absent (CM052 CLAUDE.md
+# install-time gotcha 1). The first-month-free activation directly
+# above writes that state, so the drain only runs once the gate is
+# open. The hydrate_* helpers (sentinel + heartbeat, defined ~L14420)
+# are still in scope here -- they are never unset.
+#
+# Privacy (mirror of B2 AC6 / CX-85): the producer's --json output is
+# a counts-only summary {discovered, ingested, written, l3_skipped,
+# failed} (v1.0.3 contract, BUG-025). No transcript text, titles or
+# model names cross the install.sh process boundary. Per-artefact
+# privacy defaults to L2/L2 (Option A); a per-conversation
+# privacy_level: L3 override still writes the file but short-circuits
+# the CM048 POST.
+OSTLER_AI_CONVERSATIONS_ENABLED="${OSTLER_AI_CONVERSATIONS_ENABLED:-true}"
+
+if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
+    _AICONV_DIR="${OSTLER_DIR}/services/cm052"
+    _AICONV_VENV="${_AICONV_DIR}/.venv"
+    _AICONV_BIN="${_AICONV_VENV}/bin/pwg-ai-convo"
+    _AICONV_LOG=/tmp/ostler-hydrate-aiconv.log
+
+    # Discover the vendored package: .app bundle layout first
+    # (SCRIPT_DIR is Contents/Resources), then the dev-tree layout.
+    _AICONV_SRC=""
+    for _aiconv_p in "${SCRIPT_DIR}/cm052_ai_conversations" \
+                     "${SCRIPT_DIR}/vendor/cm052_ai_conversations"; do
+        if [[ -f "${_aiconv_p}/pyproject.toml" ]]; then
+            _AICONV_SRC="$_aiconv_p"
+            break
+        fi
+    done
+    unset _aiconv_p
+
+    if _hydrate_sentinel_fresh "ai_conversations"; then
+        info "$MSG_HYDRATE_AICONV_SKIPPED_NO_DATA"
+    elif [[ -z "$_AICONV_SRC" ]]; then
+        info "$MSG_HYDRATE_AICONV_SKIPPED_NOT_READY"
+    else
+        info "$MSG_HYDRATE_AICONV_STARTED"
+
+        # Idempotent venv + NON-editable pip install. Editable installs
+        # do not expose the `src` package on every setuptools version
+        # (CM052 CLAUDE.md install-time gotcha 2), so plain
+        # `pip install <dir>` it is. Failures degrade to the
+        # "not ready" skip below -- never a hard fail.
+        if [[ ! -x "$_AICONV_BIN" ]]; then
+            mkdir -p "$_AICONV_DIR"
+            "$PYTHON3_BIN" -m venv "$_AICONV_VENV" >>"$_AICONV_LOG" 2>&1 || true
+            "$_AICONV_VENV/bin/pip" install --quiet --upgrade pip >>"$_AICONV_LOG" 2>&1 || true
+            "$_AICONV_VENV/bin/pip" install --quiet "$_AICONV_SRC" >>"$_AICONV_LOG" 2>&1 || true
+        fi
+
+        if [[ ! -x "$_AICONV_BIN" ]]; then
+            info "$MSG_HYDRATE_AICONV_SKIPPED_NOT_READY"
+        else
+            # Same timeout picker as hydrate_email / hydrate_whatsapp
+            # (brew coreutils gtimeout preferred; system timeout
+            # fallback; unbounded-but-heartbeated if neither).
+            _AICONV_TIMEOUT_WRAP=""
+            if command -v gtimeout >/dev/null 2>&1; then
+                _AICONV_TIMEOUT_WRAP="gtimeout 180"
+            elif command -v timeout >/dev/null 2>&1; then
+                _AICONV_TIMEOUT_WRAP="timeout 180"
+            fi
+
+            _AICONV_TIMED_OUT=false
+            _AICONV_OUT="$(mktemp -t ostler-aiconv.XXXXXX)" || _AICONV_OUT=/tmp/ostler-aiconv-summary.json
+
+            # Producer invocation per the v1.0.3 contract (CM052
+            # docs/VENDOR_CM051.md). CM052_USER_EMAIL is the me-card
+            # identity captured at Q3; the final stdout line is the
+            # counts-only JSON summary.
+            _hydrate_heartbeat_start "$MSG_HYDRATE_AICONV_HEARTBEAT"
+            _aiconv_rc=0
+            CM052_USER_EMAIL="${USER_EMAIL:-}" \
+            OSTLER_AI_CONVERSATIONS_DIR="${HOME}/Documents/Ostler/AI Conversations" \
+            OSTLER_AI_CONV_TRANSCRIPT_PRIVACY="${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L2}" \
+            OSTLER_AI_CONV_GIST_PRIVACY="${OSTLER_AI_CONV_GIST_PRIVACY:-L2}" \
+            $_AICONV_TIMEOUT_WRAP "$_AICONV_BIN" \
+                --source all --since-days 365 --json \
+                >"$_AICONV_OUT" 2>>"$_AICONV_LOG" || _aiconv_rc=$?
+            _hydrate_heartbeat_stop
+            # gtimeout returns 124 (SIGTERM) / 137 (SIGKILL) on cap.
+            if [[ "$_aiconv_rc" -eq 124 ]] || [[ "$_aiconv_rc" -eq 137 ]]; then
+                _AICONV_TIMED_OUT=true
+            fi
+            # #839: the AI-Conversations drain deliberately writes NO
+            # sentinel on the timeout / crash arms (so the next run
+            # retries), which means its rc never reached the shared
+            # recorder. Fold it in explicitly.
+            gui_step_record_rc "$_aiconv_rc"
+
+            _AICONV_JSON="$(tail -n 1 "$_AICONV_OUT" 2>/dev/null)" || _AICONV_JSON=""
+            rm -f "$_AICONV_OUT"
+            _AICONV_COUNT="$(
+                printf '%s' "$_AICONV_JSON" \
+                | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("written", 0)))
+except Exception:
+    print(0)' 2>/dev/null
+            )"
+            _AICONV_COUNT="${_AICONV_COUNT:-0}"
+
+            # ── Steady-state recurring feed: register UNCONDITIONALLY ──
+            # v1.0.10 (Fix 2): the aiconv reroute turned
+            # com.ostler.aiconv-resume into a proper recurring steady feed
+            # (ProgramArguments = run-source aiconv, RunAtLoad + hourly
+            # StartInterval), exactly like the email-ingest LaunchAgent. It
+            # MUST register on EVERY install path. Previously the plist
+            # creation + launchctl bootstrap were nested inside the
+            # "$_AICONV_TIMED_OUT" branch, so a happy-path install whose
+            # install-time drain finished within the 180s cap NEVER got a
+            # recurring agent -- there was NO steady feed and AI conversations
+            # silently went stale. The install-time drain above is preserved
+            # verbatim; only this recurring-agent registration is now
+            # unconditional. (The old self-removing ostler-aiconv-resume
+            # wrapper bin the plist used to invoke is gone -- the reroute
+            # runs the CM052 producer via the FDA daemon directly, so the
+            # wrapper was dead code.) On the happy path RunAtLoad harmlessly
+            # re-runs the idempotent producer once shortly after the drain.
+            _AICONV_AGENT_OK=false
+            _AICONV_RESUME_PLIST="${HOME}/Library/LaunchAgents/com.ostler.aiconv-resume.plist"
+            mkdir -p "$LOGS_DIR" "${HOME}/Library/LaunchAgents"
+
+            cat > "$_AICONV_RESUME_PLIST" <<AICONVPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.aiconv-resume</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant</string>
+        <string>run-source</string>
+        <string>aiconv</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>3600</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- Steady-state AI-conversation feed (v1.0.10): the reroute replaces the
+         old self-removing catch-up wrapper, so this agent now runs the CM052
+         producer via the FDA daemon (run-source aiconv) every hour and on
+         login, keeping AI conversations as fresh as the other ingest sources.
+         The tick reads these vars from the daemon's inherited environment. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CM052_USER_EMAIL</key>
+        <string>${USER_EMAIL:-}</string>
+        <key>OSTLER_AI_CONVERSATIONS_DIR</key>
+        <string>${HOME}/Documents/Ostler/AI Conversations</string>
+        <key>OSTLER_AI_CONV_TRANSCRIPT_PRIVACY</key>
+        <string>${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L2}</string>
+        <key>OSTLER_AI_CONV_GIST_PRIVACY</key>
+        <string>${OSTLER_AI_CONV_GIST_PRIVACY:-L2}</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/aiconv-resume.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/aiconv-resume.err</string>
+</dict>
+</plist>
+AICONVPLIST
+            launchctl bootout "gui/$(id -u)/com.ostler.aiconv-resume" 2>/dev/null || true
+            if launchctl bootstrap "gui/$(id -u)" "$_AICONV_RESUME_PLIST" 2>/dev/null \
+               || launchctl load "$_AICONV_RESUME_PLIST" 2>/dev/null; then
+                _AICONV_AGENT_OK=true
+            fi
+
+            # ── Drain outcome: user-facing message + hydrate sentinel ──
+            # The recurring steady feed is registered above regardless; this
+            # only decides the install-time message + whether to stamp the
+            # 7-day hydrate sentinel (success arms only).
+            if [[ "$_AICONV_TIMED_OUT" == "true" ]]; then
+                # 180s cap hit mid-drain: do NOT record the sentinel here --
+                # an incomplete drain must retry, not skip for a week
+                # (w7-aiconv-honesty defect 1). The recurring agent registered
+                # above (RunAtLoad + hourly run-source aiconv) resumes the
+                # drain in the background, so the "continues in the background"
+                # copy is truthful whenever the agent loaded.
+                if [[ "$_AICONV_AGENT_OK" == "true" ]]; then
+                    info "$MSG_HYDRATE_AICONV_BACKGROUND_CONTINUES"
+                else
+                    # Agent failed to load: do not promise background
+                    # continuation we cannot keep. No sentinel either,
+                    # so the next run retries.
+                    info "$MSG_HYDRATE_AICONV_SKIPPED_NOT_READY"
+                fi
+            elif [[ "$_aiconv_rc" -ne 0 ]]; then
+                # Producer failed outright (non-timeout). No sentinel:
+                # the next install/re-run must retry, not skip 7 days.
+                info "$MSG_HYDRATE_AICONV_SKIPPED_NOT_READY"
+            elif [[ "$_AICONV_COUNT" -gt 0 ]]; then
+                ok "$(printf "$MSG_HYDRATE_AICONV_DONE" "$_AICONV_COUNT")"
+                # Counts-only sentinel payload; never logged
+                # off-machine. Success arm ONLY -- a timed-out or
+                # failed drain must not suppress the retry for 7 days.
+                _hydrate_sentinel_record "ai_conversations" "written=${_AICONV_COUNT}"
+            else
+                info "$MSG_HYDRATE_AICONV_SKIPPED_NO_DATA"
+                # A clean zero-count run is still a completed drain.
+                _hydrate_sentinel_record "ai_conversations" "written=0"
+            fi
+
+            unset _AICONV_AGENT_OK _AICONV_RESUME_PLIST
+            unset _AICONV_TIMED_OUT _AICONV_JSON _AICONV_COUNT
+            unset _AICONV_TIMEOUT_WRAP _AICONV_OUT _aiconv_rc
+        fi
+    fi
+
+    unset _AICONV_DIR _AICONV_VENV _AICONV_BIN _AICONV_LOG _AICONV_SRC
+fi
+# (disabled path: deliberately silent -- the section ships dark on
+# v1.0.x and the customer never hears about a feature that is off.)
+
+# ── Final assistant-daemon restart (FDA inheritance) ───────────────
+#
+# .152 walk (2026-06-16): iMessage was DEAD on a fresh install until
+# the assistant daemon was manually restarted. macOS evaluates Full
+# Disk Access at PROCESS LAUNCH. The assistant LaunchAgent is loaded
+# during the assistant-setup phase (~L11146), which runs BEFORE the
+# customer has dragged OstlerAssistant.app into the FDA pane during
+# the in-context FDA assist (~L11321). So the long-lived daemon spawns
+# WITHOUT FDA and keeps failing to open chat.db ("unable to open
+# database file: chat.db; restarting") for the rest of its life.
+#
+# The in-context assist DOES kickstart the daemon (~L11475), but only
+# when its post-grant re-probe reports "granted". TCC.db can lag a
+# second or two behind the customer's drag-grant, so on a slow fresh
+# Mac that re-probe routinely reports "still pending", the conditional
+# kickstart is skipped, and the daemon never inherits the access the
+# customer just granted. The Doctor card then re-probes live and reads
+# "granted", but nothing has restarted the daemon process itself.
+#
+# Fix: one unconditional, idempotent kickstart at the very end of the
+# install -- after every permission flow (installer FDA, daemon FDA,
+# iMessage Automation, the Phase 4 health-check) has had its turn.
+# `launchctl kickstart -k` restarts the agent in place so the freshly
+# granted TCC posture takes effect; it is a no-op if the agent is not
+# loaded. Gated on the iMessage channel being enabled (the only channel
+# that needs daemon-level FDA on chat.db) and best-effort / non-fatal so
+# it can never abort a successful install.
+if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == true ]]; then
+    info "$MSG_INFO_ASSISTANT_FINAL_RESTART_FDA"
+fi
+# BW3-1 (2026-07-23): the daemon's RunAtLoad start was DEFERRED at
+# INSTALL_SNIPPET time (OSTLER_ASSISTANT_DEFER_START) so the FDA-less
+# daemon could not self-prompt for the Documents folder during the FDA
+# grant flow. Start it now -- after every permission flow (installer FDA,
+# daemon FDA, iMessage Automation, the Phase 4 health-check) has had its
+# turn. UNCONDITIONAL: non-iMessage installs previously relied on the
+# INSTALL_SNIPPET RunAtLoad start, so they must get a running daemon here
+# too. Idempotent: if a daemon-FDA-confirmed start already fired above,
+# this is a kickstart -k restart in place (the old end-of-install intent);
+# otherwise it bootstraps the agent for the first time. If the customer
+# declined / the FDA poll timed out, the daemon starts here without FDA and
+# may raise the Documents prompt once -- but ALONE, after the FDA windows
+# are gone, never stacked on them.
+_ostler_start_assistant_daemon
+
+# BW5-reorder (2026-07-26): the kickstart -k above restarts the daemon in place
+# to pick up the freshly granted TCC posture, which briefly drops and rebinds
+# the :8000 gateway. Give it a generous settle so :8000 is confirmed back up
+# BEFORE the "done" screen -- otherwise a customer who pairs iOS the instant
+# install completes can race the rebind. After a long install a few extra
+# seconds is cheap insurance. Best-effort; returns early on bind, never aborts.
+_probe_http_live "http://127.0.0.1:8000/" 30 || true
+
 # ── Summary ────────────────────────────────────────────────────────
+
+# CX-123 (#643): everything from here to `gui_done ok` below is the
+# DISPLAY-ONLY success recap. An unset OPTIONAL variable in here must NEVER
+# be able to abort the install before the DONE marker is emitted: a
+# `set -u` abort exits the script with no `gui_done ok`, so the GUI infers
+# a failure on a fully-successful install. This has false-failed cut after
+# cut on a different unguarded var each path (CONTACT_COUNT at L13455,
+# EXPORTS_DIR, FV_ENABLED, the channel flags, ...). Disabling nounset for
+# the whole recap neutralises ALL of them at once, including any bare echo
+# var. errexit (-e) and the ERR trap stay ACTIVE, so a genuine command
+# failure still aborts correctly; only the unbound-variable abort is
+# suppressed. nounset is restored immediately after gui_done ok.
+_cx123_nounset_was_on=0
+case "$-" in *u*) _cx123_nounset_was_on=1 ;; esac
+set +u
 
 INSTALL_END=$(date +%s)
 INSTALL_DURATION=$(( INSTALL_END - INSTALL_START ))
@@ -13283,6 +22011,13 @@ echo ""
 # are five raw API surfaces". Resolves install UX BLOCKING #1.
 if [[ "$WIKI_FIRST_COMPILE_OK" == true ]]; then
     echo -e "  ${BOLD}Your wiki:${NC} http://localhost:8044"
+    # Second line only when the owner-gated tailnet route actually
+    # landed. Deliberately says "your own devices" -- it is reachable
+    # from your phone and iPad over Tailscale, and from nothing else:
+    # not the LAN, not the internet, not other people on your tailnet.
+    if [[ -n "${OSTLER_WIKI_TAILNET_URL:-}" ]]; then
+        echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_TAILNET_BANNER" "$OSTLER_WIKI_TAILNET_URL")"
+    fi
 else
     echo "  Your wiki:  not yet available (first compile failed -- see warnings above)"
 fi
@@ -13381,9 +22116,23 @@ fi
 
 echo -e "  ${BOLD}Hub deployment:${NC}"
 if [[ "$HAS_BATTERY" == true ]]; then
-    echo "     MacBook Hub. Docker + Ollama will pause automatically when"
-    echo "     you unplug, and resume when you plug back in. Battery life"
-    echo "     stays roughly as it was before Ostler."
+    # The laptop arm used to say only that Docker and Ollama pause on
+    # battery and that battery life is unchanged. Both true, and together
+    # they read as "nothing to think about" -- while omitting the thing
+    # the customer most needs to know, that a slept laptop Hub receives
+    # no messages at all and says nothing about it. See the Phase 1
+    # comment at the power-source check for the two measurements.
+    #
+    # Order is deliberate: the condition, then what breaks it, then the
+    # cost, then the way to keep the lid shut, then the battery note that
+    # used to be the whole message.
+    echo "     $MSG_INFO_HUB_RECAP_LAPTOP_AWAKE"
+    echo "     $MSG_INFO_HUB_RECAP_LAPTOP_SLEEPS"
+    echo "     $MSG_INFO_HUB_RECAP_LAPTOP_RECEIVES_NOTHING"
+    echo "     $MSG_INFO_HUB_RECAP_LAPTOP_MESSAGES_MISSED"
+    echo "     $MSG_INFO_HUB_RECAP_LAPTOP_CLOSED_DISPLAY"
+    echo "     $MSG_INFO_HUB_RECAP_LAPTOP_CLOSED_DISPLAY_NEEDS"
+    echo "     $MSG_INFO_HUB_RECAP_LAPTOP_PAUSES"
 else
     echo "     Mac Mini / Studio Hub. Always-on AC: nothing is paused."
     echo "     hub-power sees tier 'ac' every tick and takes no action."
@@ -13391,6 +22140,21 @@ fi
 if [[ -f "${HOME}/.ostler/power.conf" ]]; then
     echo "     Policy override: edit ~/.ostler/power.conf"
     echo "                      (POWER_POLICY=normal | aggressive | eco)"
+fi
+# The other way a Hub is up but not listening, and it is not laptop-only.
+# Every Ostler service runs from a LaunchAgent, and a LaunchAgent needs an
+# Aqua login session. FileVault holds the boot at the pre-login unlock
+# screen, so between a restart and someone signing in there is no session
+# and nothing runs. Worth one sentence, because a Hub that reboots
+# overnight looks identical to one that is working.
+#
+# Gated on FV_ENABLED so a customer without FileVault is not told about a
+# screen they will never see.
+if [[ "${FV_ENABLED:-false}" == true ]]; then
+    echo ""
+    echo -e "  ${BOLD}After a restart:${NC}"
+    echo "     $MSG_INFO_HUB_RECAP_FILEVAULT_LOGIN"
+    echo "     $MSG_INFO_HUB_RECAP_FILEVAULT_STARTS"
 fi
 echo ""
 echo "  $MSG_INFO_NEED_HELP_EMAIL_SUPPORT_OSTLER_AI"
@@ -13403,9 +22167,15 @@ echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━�
 # its sidebar to the success state and offer a "Reveal in Finder"
 # affordance for ~/Documents/Ostler.
 if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
-    gui_step_end ok
+    gui_step_end
 fi
 gui_done ok
+
+# CX-123 (#643): restore nounset now the display-only recap + the DONE
+# marker are emitted. The remaining post-success steps (icon cache-bust,
+# Dock restart, browser open) are loop-local / ${VAR:-} guarded, so they
+# run safely under set -u again.
+[[ "${_cx123_nounset_was_on:-0}" == 1 ]] && set -u
 
 # ── App-icon cache-bust ────────────────────────────────────────────
 # The .app bundles are placed by the DMG drag-install, so macOS can

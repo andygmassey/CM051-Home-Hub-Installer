@@ -15,15 +15,58 @@ on:
   pull_request:
     paths:
       - 'vendor/**'
+      # context-refresh/ holds a grafted (divergent) vendored copy of
+      # ostler-assistant's generate_pwg_context.py. It lives outside vendor/
+      # so the filter above missed it -- a patch to that file could drift
+      # from its VENDOR.md byte-identity claim undetected (same failure
+      # class as the ostler_fda incident cited above). Watch it explicitly.
+      - 'context-refresh/**'
+      - 'scripts/verify_vendor_fresh.sh'
+      - 'scripts/sync_vendor.sh'
+      - 'scripts/_vendor_lib.sh'
       - 'tests/test_no_divergent_vendor_twin.sh'
+      - 'tests/test_context_refresh_vendor_sha.sh'
+      - 'tests/test_vendor_fresh_gate.sh'
+      - 'tests/test_conversation_process_metadata_conversation_id.sh'
       - 'tests/test_vendor_import_resolution.py'
+      - 'tests/test_vendor_entrypoint_resolution.py'
+      - 'tests/test_vendor_manifest_is_valid_toml.py'
+      # The D024 harness. A path entry alone would only make the workflow
+      # TRIGGER; the run step above is what makes it CHECK. Both are needed,
+      # and the pair is the point: the gate must fire on changes to itself.
+      - 'tests/test_vendor_only_survives_sync.sh'
+      - 'tests/test_vendor_symbol_resolution.py'
+      - 'tests/test_doctor_web_ui_strings_complete.py'
+      # v1018-D024, customer-visible half. Listed here AND run below, for the
+      # reason recorded above: a path entry only makes the workflow trigger.
+      # The gate also reads lib/ostler-resource-tier.sh and install.sh, so both
+      # are watched -- a change to the shell pause reader can break the
+      # Python/shell contract without touching vendor/ at all.
+      - 'tests/test_doctor_governor_routes_vendored.sh'
+      - 'lib/ostler-resource-tier.sh'
       - 'tests/vendor_import_resolution_baseline.txt'
+      # The __main__-guard reachability gate. It scans vendor/, scripts/ and
+      # lib/, so all three of its roots are watched -- vendor/** is already
+      # above, and the two .py globs below are the other two. Without them a
+      # change to a shipped script could introduce the defect and this workflow
+      # would not even trigger, which is the "wired but never fires" shape the
+      # step's own comment describes. The gate file itself is listed so it fires
+      # on changes to ITSELF, the same pairing as the D024 harness above.
+      - 'scripts/**.py'
+      - 'lib/**.py'
       - '.github/workflows/vendor-integrity.yml'
   push:
     branches: [main]
 
 permissions:
   contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   vendor-integrity:
@@ -37,14 +80,180 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Divergent non-shipping twin guard
+      # The manifest is read everywhere by scripts/_vendor_lib.sh, which is a
+      # line-based reader and does not care whether the file is valid TOML.
+      # #563 landed a hold_ack_reason with an unescaped quote and every check
+      # stayed green, so the format claim in the filename was asserted nowhere.
+      - name: VENDOR_MANIFEST.toml is valid TOML
+        run: python3 tests/test_vendor_manifest_is_valid_toml.py
+
+      - name: Divergent non-shipping twin guard (legacy, intra-repo only)
+        if: always()
         run: bash tests/test_no_divergent_vendor_twin.sh
 
+      # context-refresh/ holds a grafted vendored copy outside vendor/, so the
+      # freshness gate below never sees it. This pins it to the SHA recorded
+      # in its VENDOR.md so a patch that rots the provenance record fails CI.
+      - name: context-refresh vendored-file SHA guard
+        if: always()
+        run: bash tests/test_context_refresh_vendor_sha.sh
+
+      # Cross-repo vendor-freshness gate. The old twin guard above is BLIND to
+      # the real failure mode -- it compares vendor/<pkg> against a top-level
+      # ./<pkg> that does NOT exist inside CM051, so it trivially passes while
+      # a fix that landed in the SOURCE repo (CM041/CM048/ostler_fda/...) never
+      # reaches the customer. verify_vendor_fresh.sh closes that gap by diffing
+      # each vendored tree against its pinned source commit (+ a recorded
+      # divergence patch).
+      #
+      # On a CI runner the upstream source repos are not checked out, so the
+      # cross-repo trees degrade to WARN (never a silent pass). What CI DOES
+      # enforce here: the self-test proves the gate still catches drift (clean
+      # -> GREEN; a rotted vendored file -> RED; source-ahead-of-pin -> RED),
+      # and the manifest/patches stay internally consistent.
+      #
+      # The REAL cross-repo gate (all source repos present, VENDOR_FRESH_STRICT=1)
+      # runs as a blocking step in the HR015 cut -- see WORKSTREAM A follow-up.
+      - name: Vendor-freshness gate self-test
+        if: always()
+        run: bash tests/test_vendor_fresh_gate.sh
+
+      # VENDOR_FRESH_STRICT=0 IS SET HERE ON PURPOSE, AND IT IS THE ONLY PLACE.
+      #
+      # The gate is fail-closed by default since 2026-08-15: an unverifiable
+      # tree is RED, because "not verified" and "verified fresh" are different
+      # findings and only one of them is a pass. A GitHub runner genuinely
+      # cannot verify the cross-repo trees -- the sibling source repos are not
+      # checked out -- so this job opts out explicitly rather than inheriting a
+      # lenient default that the cut would inherit too.
+      #
+      # That is exactly what went wrong before. The default was 0, the cut
+      # never overrode it, and the comment eight lines above promised a strict
+      # run that no invocation performed. A mention is not an invocation.
+      #
+      # This step now reports GATE: DEGRADED, never GREEN, and names how many
+      # trees were not checked at all.
+      - name: Vendor-freshness gate (DEGRADED -- source repos absent on CI, opted out explicitly)
+        env:
+          VENDOR_FRESH_STRICT: "0"
+        run: bash scripts/verify_vendor_fresh.sh
+
+      # Pipeline-contract guard: the vendored /api/v1/conversation/process
+      # handler must inject the derived conversation_id into the metadata it
+      # writes to 00_metadata.json, else CM048's CLI rejects every POSTed
+      # transcript (the iOS Watch ingest path) with exit 2 and the
+      # conversation is silently dropped. Catches a re-vendor that loses the
+      # graft even if source and vendor regress together.
+      - name: Conversation-process metadata conversation_id guard
+        if: always()
+        run: bash tests/test_conversation_process_metadata_conversation_id.sh
+
       - name: Vendor import-resolution guard
+        if: always()
         run: python3 tests/test_vendor_import_resolution.py
 
+      - name: Vendor entrypoint-resolution guard
+        if: always()
+        run: python3 tests/test_vendor_entrypoint_resolution.py
+
+      # Symbol-level guard: web_ui.py imports a batch of CONFIG_* string
+      # constants `from web_ui_copy` -- the import-resolution guard above
+      # checks the MODULE resolves but NOT the NAMES, so a stale string
+      # catalogue (web_ui.py bumped, web_ui_copy.py left behind) sailed
+      # through and crash-looped Doctor on the .154 walk -> Hub
+      # People/Timeline LOAD FAILED. This closes that gap.
+      - name: Doctor web_ui string-catalogue completeness guard
+        if: always()
+        run: python3 -m unittest tests.test_doctor_web_ui_strings_complete -v
+
+      # v1018-D024. This ran ONLY in cut.yml, which means a change to vendor/
+      # -- or to the harness itself -- got no pre-merge signal, and a break was
+      # discoverable only at cut time. It was in fact broken on main for a
+      # while and nobody saw it until the cut needed it (CM051 #565).
+      - name: Vendor-only files survive a re-vendor (D024)
+        if: always()
+        run: bash tests/test_vendor_only_survives_sync.sh
+
+      # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
+      #
+      # WHY THIS STEP EXISTS SEPARATELY FROM THE ONE ABOVE. A module-level check
+      # asks "does web_ui_copy exist?" and waves through `from web_ui_copy
+      # import WHATSAPP_PAIR_TITLE` when the module is there and the symbol is
+      # not. That is exactly the shape of a half-applied graft, and it is what
+      # the v1.0.24 WhatsApp panel nearly shipped: web_ui.py importing 15
+      # WHATSAPP_PAIR_* constants that were not in the vendored web_ui_copy.py.
+      #
+      # THE CHECK WAS CORRECT AND NOTHING RAN IT. It landed in #602 with no
+      # caller anywhere -- verified with a control, since a confident absence is
+      # usually a broken predicate: `test_vendor_only_survives_sync` was
+      # referenced in this file AND in cut.yml, `test_vendor_symbol_resolution`
+      # in neither. A guard that never fires protects nothing while reading as
+      # protection, which is the class it was written to catch.
+      #
+      # Run with `python3` and NOT under pytest: it is a script with a __main__
+      # guard, and pytest correctly collects nothing from it. Invoking it wrong
+      # reports "no tests ran", which is indistinguishable from a pass.
+      - name: Imported symbols resolve, not just modules (D024)
+        if: always()
+        run: python3 tests/test_vendor_symbol_resolution.py
+
+      # v1018-D024, the customer-visible half. The two D024 steps above ask
+      # whether the vendored tree is INTERNALLY coherent. Neither can ask
+      # whether it still serves the surface the Hub actually calls, and that is
+      # what broke: the Governor page's Pause button called three routes the
+      # held pin predates, so every install 404'd. This step asserts the four
+      # handlers are registered in the SHIPPED payload, that their backend
+      # works, that the Python writer and the shell tick reader agree on
+      # governor.env, and that both grafts have a durable home in doctor.patch
+      # so the next re-vendor cannot quietly drop them again.
+      - name: Governor control surface reaches the shipped Doctor (D024)
+        if: always()
+        run: bash tests/test_doctor_governor_routes_vendored.sh
+
+      # Tests IMPORT, production EXECUTES, and nothing checked the difference.
+      #
+      # vendor/cm059_editor/compiler/emit_frontpage.py called _read_feed() from
+      # emit() and defined _read_feed BELOW the `if __name__ == "__main__":`
+      # guard. Imported, the whole file runs and the name binds, so every
+      # upstream test passed. Run as a SCRIPT, which is how the LaunchAgent runs
+      # it, Python reaches the guard and calls main() before executing that def:
+      # NameError on every Front Page tick, for the life of the release. It
+      # presented as "the Front Page never updates" rather than as a crash,
+      # because the degraded-feed guard preserved the last good feed.
+      #
+      # THE CHECK WAS CORRECT AND NOTHING RAN IT, which is the same finding as
+      # the symbol-resolution step above. Measured before this step was added:
+      # zero references to scripts/verify_no_defs_after_main_guard.py across
+      # tests/TEST_WIRING.tsv, scripts/run_all_cut_gates.sh and every file in
+      # .github/workflows/. Control for that absence: the same sweep for
+      # test_vendor_only_survives_sync.sh returns hits in this file and in
+      # cut.yml, so the predicate can see a wired gate when there is one.
+      #
+      # DEMONSTRATED RED before wiring, not assumed: a temporary scripts/*.py
+      # with a def below its guard and a call above it raises a real NameError
+      # under python3, and took this gate 335-files-GREEN -> RED naming the
+      # file, the definition line and the guard line. Removing the file returned
+      # it to GREEN. A gate wired without a demonstrated red is worse than none.
+      #
+      # Run with python3 and NOT under pytest, for the reason the step above
+      # gives: it is a script with a __main__ guard, and "no tests ran" reads
+      # identically to a pass.
+      - name: No definitions after a __main__ guard in shipped Python
+        if: always()
+        run: python3 scripts/verify_no_defs_after_main_guard.py
+
       - name: Browser-history vendor regression
+        if: always()
         run: bash vendor/ostler_fda/test_vendor_browser_history.sh
 
-      - name: Doctor pairing-panel vendor regression
-        run: bash vendor/doctor/test_vendor_pairing.sh
+      # Doctor pairing-panel vendor regression step removed 2026-07-30:
+      # the referenced test script vendor/doctor/test_vendor_pairing.sh
+      # was deleted in commit f08e056 (v1.0.9 recut cut-base) as part
+      # of the "doctor: exclude test_*.py (test files carried
+      # dev-machine paths)" cleanup, but this workflow reference was
+      # left dangling. Every vendor-integrity run has been failing at
+      # this step ever since. If the pairing regression check is
+      # genuinely wanted back, restore an updated test in
+      # vendor/doctor/ under a new name (the original had dev-machine
+      # paths hard-coded, which is why it was pulled) and re-add the
+      # step here.

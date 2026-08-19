@@ -209,6 +209,11 @@ DASHBOARD_BTN_EMAIL_TITLE = (
     "Open your email client with the diagnostic report ready to send "
     "to support"
 )
+DASHBOARD_BTN_SETTINGS = "&#9881; Settings"
+DASHBOARD_BTN_SETTINGS_TITLE = (
+    "Pause or ease off background work, and adjust channels, model and "
+    "schedule"
+)
 
 DASHBOARD_LAST_CHECKED_JUST_NOW = "Last checked: just now"
 DASHBOARD_LAST_CHECKED_PREFIX = "Last checked: "
@@ -262,10 +267,61 @@ DASHBOARD_PAIR_IOS_LINK = (
     ' &ndash; <a href="/pair-ios">Pair iOS device</a>'
 )
 
+DASHBOARD_CONFIG_LINK = (
+    ' &ndash; <a href="/config">Configuration</a>'
+)
+
+# The daemon generates a WhatsApp pair code on EVERY install where
+# `session_path` is set, and install.sh does set it. The code is written to
+# ~/.ostler/state/whatsapp_pair.json and /whatsapp-pair renders it. That page
+# has existed, routed and tested, while NOTHING linked to it, so the customer
+# had to already know the URL. Measured 2026-08-15: this row already carried
+# /pair-ios and /config, and /whatsapp-pair was the one pairing surface missing
+# from it. See HR015 task #322, where the original row blamed a config gap that
+# had already been fixed.
+DASHBOARD_WHATSAPP_PAIR_LINK = (
+    ' &ndash; <a href="/whatsapp-pair">Link WhatsApp</a>'
+)
+
 DASHBOARD_ALERT_REPORT_FAIL = (
     "Could not prepare report. Please try again."
 )
 DASHBOARD_ALERT_REPORT_ERROR_FMT = "Could not prepare report: "
+
+
+# ── Get support / diagnostics panel ──────────────────────────────────
+# One-click diagnostic grab. Three actions, all local-only:
+#   (a) Copy raw      -- the full diagnostic report to the clipboard
+#   (b) Copy redacted -- the same report with identifying bits scrubbed
+#   (c) Send by Email -- mailto: the support address, report pre-filled
+
+SUPPORT_SECTION_TITLE = "Get support"
+SUPPORT_SECTION_INTRO = (
+    "Everything here is gathered on this Mac and never leaves it unless "
+    "you choose to share it. Grab your diagnostics below to paste into a "
+    "support request, an AI assistant, or anywhere else."
+)
+
+DASHBOARD_BTN_COPY_RAW = "&#128203; Copy diagnostics"
+DASHBOARD_BTN_COPY_RAW_TITLE = (
+    "Copy the full diagnostic report to your clipboard"
+)
+DASHBOARD_BTN_COPY_REDACTED = "&#128274; Copy redacted"
+DASHBOARD_BTN_COPY_REDACTED_TITLE = (
+    "Copy the diagnostic report with identifying details "
+    "(usernames, file paths, email and IP addresses) removed"
+)
+DASHBOARD_BTN_COPIED = "&#10003; Copied"
+DASHBOARD_ALERT_COPY_FAIL = "Could not copy to clipboard. Please try again."
+
+# Banner prepended to the redacted report so the recipient knows it was
+# scrubbed on-device before it was shared.
+REPORT_REDACTED_BANNER = (
+    "[This report was redacted on-device: usernames, home-folder paths, "
+    "email addresses and IP addresses have been removed.]"
+)
+# Placeholder swapped in for each redacted token.
+REPORT_REDACTED_PLACEHOLDER = "[redacted]"
 
 
 # ── render_history (/doctor/history page) ────────────────────────────
@@ -435,6 +491,38 @@ PAIR_IOS_META_FOOTER_HTML = (
 )
 
 
+# ── Configuration panel (backlog #261) ──────────────────────────────
+#
+# Copy for the /config surface. Reads + edits the customer-safe settings
+# file at ~/.ostler/config/config.yaml. Secrets are never rendered.
+
+
+CONFIG_TITLE_TAG = "Ostler Doctor &ndash; Configuration"
+CONFIG_HEADING = "Configuration"
+CONFIG_SUBTITLE = (
+    'Ostler Doctor &ndash; <a href="/doctor">back to dashboard</a>'
+)
+CONFIG_SECTION_READONLY = "Other settings"
+CONFIG_READONLY_INTRO = (
+    "These settings are shown for reference and are not editable here. "
+    "Anything sensitive is shown only as set or not set, never as its "
+    "value."
+)
+CONFIG_BTN_SAVE = "Save changes"
+CONFIG_BTN_SAVING = "Saving..."
+CONFIG_OPT_UNSET = "Not set"
+CONFIG_SECRET_SET = "Set"
+CONFIG_SECRET_UNSET = "Not set"
+CONFIG_SAVED = "Saved. Some changes take effect the next time the assistant restarts."
+CONFIG_ERR_LOAD_PREFIX = "Could not load configuration: "
+CONFIG_ERR_SAVE_PREFIX = "Could not save configuration: "
+CONFIG_ERR_SAVE_GENERIC = "Could not save configuration. Please try again."
+CONFIG_META_FOOTER = (
+    "Settings are stored locally in your config file. Nothing is sent "
+    "anywhere. Secrets are never shown on this page."
+)
+
+
 # ── Console banner (printed at __main__) ─────────────────────────────
 
 
@@ -501,3 +589,189 @@ IMESSAGE_TCC_SOURCE_PREFIX_FMT = "Source: {source}"
 IMESSAGE_TCC_STDERR_LABEL = "Probe stderr fragment"
 IMESSAGE_TCC_FULL_MARKER_LABEL = "Full posture marker"
 
+
+# ── Reminders (EventKit) permission posture tile (task #279) ───────
+# Reads ``~/.ostler/reminders-posture/state.md`` written by the
+# install-time EventKit probe. Customer-visible because a missing
+# macOS Reminders permission silently blocks commitment -> Reminders
+# writes -- Ostler says it will remember something, then the reminder
+# never appears, with no other way for the customer to tell.
+
+REMINDERS_SECTION_TITLE = "Reminders access"
+
+REMINDERS_STATUS_GRANTED = "Working"
+REMINDERS_STATUS_DENIED = "Reminders access denied"
+REMINDERS_STATUS_RESTRICTED = "Reminders access restricted"
+REMINDERS_STATUS_NOT_DETERMINED = "Reminders access not yet granted"
+REMINDERS_STATUS_CHECK_FAILED = "Reminders probe could not confirm permission"
+REMINDERS_STATUS_UNKNOWN = "Reminders posture unknown"
+
+REMINDERS_DETAIL_GRANTED = (
+    "Reminders (EventKit) access is granted. Commitments captured from "
+    "your conversations can be written to the macOS Reminders app."
+)
+REMINDERS_DETAIL_DENIED = (
+    "macOS has refused Ostler's request for Reminders access. Commitments "
+    "Ostler tries to turn into reminders will silently fail to appear until "
+    "you grant it."
+)
+REMINDERS_DETAIL_RESTRICTED = (
+    "Reminders access is blocked by a system policy (for example a managed "
+    "device profile or parental controls). Commitment reminders will not be "
+    "written, and you may not be able to grant access yourself."
+)
+REMINDERS_DETAIL_NOT_DETERMINED = (
+    "macOS has not yet asked for Reminders access. The first commitment "
+    "Ostler tries to save, or a re-run of setup, will trigger the system "
+    "prompt. Until then, no reminders are written."
+)
+REMINDERS_DETAIL_CHECK_FAILED = (
+    "The install-time probe ran but the result did not match a recognised "
+    "shape. Reminders writes may or may not be working. Re-run "
+    "install.sh --repair to refresh this snapshot."
+)
+REMINDERS_DETAIL_UNKNOWN = (
+    "The posture marker exists but its status field was not recognised. "
+    "Re-run install.sh --repair to refresh."
+)
+
+REMINDERS_HOW_TO_FIX_LABEL = "How to fix"
+
+REMINDERS_REMEDIATION_DENIED = (
+    "Open System Settings, then Privacy and Security, then Reminders, and "
+    "enable the tick for Ostler. Re-run install.sh --repair to refresh this "
+    "marker."
+)
+REMINDERS_REMEDIATION_RESTRICTED = (
+    "Reminders access is restricted by a device policy. If this is a managed "
+    "Mac, ask whoever administers it to allow Reminders access for Ostler. "
+    "Re-run install.sh --repair to refresh this marker once changed."
+)
+REMINDERS_REMEDIATION_NOT_DETERMINED = (
+    "Re-run install.sh --repair, or let Ostler save its first commitment, to "
+    "trigger the macOS Reminders permission prompt, then allow it."
+)
+REMINDERS_REMEDIATION_CHECK_FAILED = (
+    "Re-run install.sh --repair to retry the probe, or run "
+    "ostler-assistant doctor to see runtime status once the daemon is up."
+)
+
+REMINDERS_CAPTURED_AT_PREFIX_FMT = "Captured {relative}"
+REMINDERS_SOURCE_PREFIX_FMT = "Source: {source}"
+REMINDERS_STDERR_LABEL = "Probe stderr fragment"
+REMINDERS_FULL_MARKER_LABEL = "Full posture marker"
+
+
+# ── Reminders runtime push outcome (task #279, runtime half) ───────
+#
+# The install-time tile above predicts whether an EventKit write would
+# be allowed. These strings drive the *runtime* tile, which reports what
+# actually happened when the assistant pushed extracted commitments to
+# the Reminders app -- read from CM048's ``reminders_map`` SQLite table.
+# It catches the case the install-time marker cannot: access granted at
+# install but later revoked, so todos now silently fail.
+
+REMINDERS_RUNTIME_SECTION_TITLE = "Reminders sync"
+
+REMINDERS_RUNTIME_STATUS_OK = "Reminders are syncing"
+REMINDERS_RUNTIME_STATUS_DENIED = "Reminders access denied"
+REMINDERS_RUNTIME_STATUS_NO_DATA = "No reminders synced yet"
+
+REMINDERS_RUNTIME_DETAIL_OK = (
+    "Commitments Ostler captured from your conversations are reaching the "
+    "macOS Reminders app. The most recent pushes were not blocked by a "
+    "permission problem."
+)
+REMINDERS_RUNTIME_DETAIL_DENIED = (
+    "Ostler tried to push extracted todos to the macOS Reminders app and was "
+    "refused because Reminders access is denied or has been revoked. Those "
+    "reminders are not appearing until you grant access again."
+)
+REMINDERS_RUNTIME_DETAIL_NO_DATA = (
+    "Ostler has not yet pushed any commitments to the macOS Reminders app, so "
+    "there is nothing to report here. This is normal on a fresh install or "
+    "before any commitments have been captured."
+)
+
+# Formats: ``denied`` carries the count of blocked todos; ``since`` the
+# relative time of the most recent block; ``example`` a representative
+# todo title.
+REMINDERS_RUNTIME_DENIED_COUNT_FMT = (
+    "{count} extracted reminder(s) could not be saved."
+)
+REMINDERS_RUNTIME_DENIED_SINCE_FMT = "Most recently blocked {relative}."
+REMINDERS_RUNTIME_DENIED_EXAMPLE_FMT = "For example: {example}"
+
+REMINDERS_RUNTIME_HOW_TO_FIX_LABEL = "How to fix"
+REMINDERS_RUNTIME_REMEDIATION_DENIED = (
+    "Open System Settings, then Privacy and Security, then Reminders, and "
+    "enable the tick for Ostler (or for the assistant process). Once granted, "
+    "Ostler retries the blocked commitments on its next run and they appear "
+    "in the Reminders app."
+)
+
+
+
+
+# ── WhatsApp pairing panel ───────────────────────────────────────────
+#
+# The last gap between a customer and a linked WhatsApp account. The
+# daemon publishes a pair code to a declared contract; until this panel
+# existed the code's only exit from the process was daemon stderr, which
+# on a headless Hub is not a surface a human can use.
+#
+# The three failure states are deliberately THREE, with three different
+# next actions. "not requested" means turn it on or wait; "expired"
+# means one is coming; "unreadable" is a fault to report. Collapsing
+# them into one "no code available" tells a stuck customer nothing and
+# tells support less.
+
+WHATSAPP_PAIR_TITLE_TAG = "Ostler Doctor &ndash; Link WhatsApp"
+WHATSAPP_PAIR_HEADING = "Link WhatsApp"
+WHATSAPP_PAIR_LEDE = (
+    "Ostler links to WhatsApp the same way WhatsApp Web does, using a "
+    "code you type into your phone. The code is shown here for a short "
+    "time only."
+)
+
+WHATSAPP_PAIR_LOADING = "Checking for a pairing code."
+
+# Deliberately names the exact phone-side path. "Pair your device" sends
+# a customer hunting through Settings; this is the literal sequence.
+WHATSAPP_PAIR_READY_INSTRUCTION = (
+    "On your phone, open WhatsApp and go to Settings, then Linked "
+    "Devices, then Link a device. Choose Link with phone number instead, "
+    "and type this code."
+)
+WHATSAPP_PAIR_COUNTDOWN_PREFIX = "This code expires in"
+WHATSAPP_PAIR_READY_HELP = (
+    "Codes are short-lived on purpose. If it runs out, Ostler asks "
+    "WhatsApp for another one."
+)
+
+WHATSAPP_PAIR_NOT_REQUESTED_TITLE = "No pairing code yet."
+WHATSAPP_PAIR_NOT_REQUESTED_HELP = (
+    "Ostler asks WhatsApp for a code when the WhatsApp connector starts. "
+    "If you turned WhatsApp on during setup, give it a minute. If you "
+    "did not, WhatsApp is switched off and there is nothing to link."
+)
+
+WHATSAPP_PAIR_EXPIRED_TITLE = "That code has expired."
+WHATSAPP_PAIR_EXPIRED_HELP = (
+    "Pairing codes last about three minutes. Ostler requests a fresh one "
+    "automatically, so wait a moment and this page will show it."
+)
+
+WHATSAPP_PAIR_UNREADABLE_TITLE = "Something is wrong with the pairing file."
+WHATSAPP_PAIR_UNREADABLE_HELP = (
+    "Ostler could not read the pairing code it wrote. This is a fault "
+    "rather than something you did. Use Copy diagnostics on the Doctor "
+    "dashboard and send it to support."
+)
+
+WHATSAPP_PAIR_BACK_LINK = "Back to Doctor"
+
+# Poll interval. Short enough that a code appearing feels immediate,
+# long enough that a customer leaving the page open is not hammering
+# the endpoint for the life of the session.
+WHATSAPP_PAIR_POLL_MS = 5000

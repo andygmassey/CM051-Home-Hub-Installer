@@ -1,0 +1,260 @@
+--- a/bin/email-ingest-tick.sh
++++ b/bin/email-ingest-tick.sh
+@@ -28,7 +28,7 @@
+ #   OSTLER_DIR         (default ~/.ostler) -- artefact root
+ #   OSTLER_HOME        (default $HOME)     -- ostler-fda needs this
+ #   OSTLER_PYTHON      (default python3)   -- python interpreter
+-#   OSTLER_BACKFILL_DAYS (default 365)     -- first-tick clamp
++#   OSTLER_BACKFILL_DAYS (default 1825)    -- first-tick clamp
+ #   OSTLER_BACKFILL_CHUNK_DAYS (default 30) -- backward-sweep chunk
+ #
+ # British English throughout.
+@@ -37,14 +37,18 @@
+ 
+ # Resolve config with sensible defaults so a manual run (e.g. "what
+ # would the LaunchAgent do?") works without env-var ceremony.
+-# 365 + 30 ship the two-checkpoint progressive-backfill model from
+-# Andy's #48 review (2026-05-01): tick 1 covers the last year;
+-# subsequent ticks crawl 30 more days back per tick until the whole
+-# mailbox is covered, then forward-only forever.
++# CX-94 (DMG #48g, 2026-05-29): default backfill bumped from 365
++# (1 year) to 1825 (5 years) so a fresh customer install lands on
++# a wiki populated with their full multi-year correspondence.
++# The 30-day chunk size is unchanged -- the apple_mail_mbox reader
++# stream-processes per chunk + the LaunchAgent's checkpoint state
++# survives across ticks so a slow first-run progressively catches
++# up over a handful of hourly ticks rather than blocking the
++# install on the full multi-year scan.
+ OSTLER_DIR="${OSTLER_DIR:-$HOME/.ostler}"
+ OSTLER_HOME="${OSTLER_HOME:-$HOME}"
+ OSTLER_PYTHON="${OSTLER_PYTHON:-python3}"
+-OSTLER_BACKFILL_DAYS="${OSTLER_BACKFILL_DAYS:-365}"
++OSTLER_BACKFILL_DAYS="${OSTLER_BACKFILL_DAYS:-1825}"
+ OSTLER_BACKFILL_CHUNK_DAYS="${OSTLER_BACKFILL_CHUNK_DAYS:-30}"
+ 
+ # Where to drop the hourly mbox. One file per hour means a re-run
+@@ -89,18 +93,53 @@
+ # 2. Hand the mbox to CM046's email adapter -> CM048
+ # ---------------------------------------------------------------------------
+ 
+-# pwg-email-ingest is CM046's CLI entry point. It threads + cleans
+-# the mbox and writes per-conversation state directories that CM048
+-# then promotes into Qdrant + Oxigraph + the conversation MDs.
++# pwg-email-ingest is CM021's CLI entry point (console script). It
++# threads + cleans the mbox and writes per-conversation state
++# directories that CM048 then promotes into Qdrant + Oxigraph + the
++# conversation MDs.
++#
++# PATH-INDEPENDENCE (the silent-100%-drop fix): under launchd the
++# agent inherits a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin), which
++# does NOT include the email-ingest venv's bin/. So a bare
++# `pwg-email-ingest` lookup ALWAYS missed -- the emit leg above
++# succeeded (it uses the absolute $OSTLER_PYTHON the plist passes), the
++# tick logged "Emitted N message(s)", then this lookup failed with exit
++# 127 and EVERY harvested message was dropped before reaching the
++# graph. The plist now passes the absolute venv binary via
++# PWG_EMAIL_INGEST (mirrors how it already passes OSTLER_PYTHON), so the
++# resolution below succeeds under launchd. We keep a PATH fallback so a
++# manual dev run with the venv on PATH still works.
+ PWG_EMAIL_INGEST="${PWG_EMAIL_INGEST:-pwg-email-ingest}"
+ 
+-if ! command -v "$PWG_EMAIL_INGEST" >/dev/null 2>&1; then
+-    log "ERROR: $PWG_EMAIL_INGEST is not on PATH. CM046 not installed?"
+-    log "       The mbox at $MBOX is preserved; re-run after install."
++# Resolve to a runnable binary. An absolute/relative path that exists +
++# is executable is taken as-is; otherwise we look it up on PATH.
++if [ -x "$PWG_EMAIL_INGEST" ]; then
++    PWG_EMAIL_INGEST_RESOLVED="$PWG_EMAIL_INGEST"
++elif command -v "$PWG_EMAIL_INGEST" >/dev/null 2>&1; then
++    PWG_EMAIL_INGEST_RESOLVED="$PWG_EMAIL_INGEST"
++else
++    PWG_EMAIL_INGEST_RESOLVED=""
++fi
++
++# LOUD GUARD (silent-100%-drop tripwire): the emitter just wrote a
++# NON-EMPTY mbox ($MBOX passed the `-s` check above), so messages WERE
++# harvested. If the ingest binary cannot be resolved here, those
++# messages would be silently dropped and 0 emails would reach the
++# graph -- the exact regression this guard exists to make impossible.
++# Fail LOUDLY and non-zero so launchd records it in email-ingest.err
++# and Doctor's backfill-progress diagnostic surfaces it, rather than a
++# quiet no-op. The mbox is preserved for the re-run after the fix.
++if [ -z "$PWG_EMAIL_INGEST_RESOLVED" ]; then
++    log "ERROR: messages were harvested into $MBOX but the ingest binary"
++    log "       '$PWG_EMAIL_INGEST' could not be resolved (not an executable"
++    log "       path and not on PATH). 0 emails would reach the graph."
++    log "       CM021 (pwg-email-ingest) is not installed in the email-ingest"
++    log "       venv, or the LaunchAgent did not pass PWG_EMAIL_INGEST."
++    log "       The mbox is preserved; re-run after install/repair."
+     exit 127
+ fi
+ 
+-"$PWG_EMAIL_INGEST" mbox "$MBOX" || {
++"$PWG_EMAIL_INGEST_RESOLVED" mbox "$MBOX" || {
+     rc=$?
+     log "ERROR: pwg-email-ingest failed (exit $rc); mbox preserved at $MBOX."
+     exit "$rc"
+--- a/INSTALL_SNIPPET.sh
++++ b/INSTALL_SNIPPET.sh
+@@ -94,10 +94,55 @@
+ esc_home="$(printf '%s' "$EMAIL_INGEST_HOME_RESOLVED"        | sed 's/[&/\]/\\&/g')"
+ esc_logs="$(printf '%s' "$LOGS_DIR"                          | sed 's/[&/\]/\\&/g')"
+ 
++# Ingest-reroute (v1.0.10): ProgramArguments[0] is the SHIPPED,
++# code-signed daemon binary INSIDE the .app bundle -- the FDA holder --
++# so `run-source email-ingest` forks the tick as its child and the
++# protected Apple Mail read inherits Full Disk Access. A distinct token
++# (OSTLER_ASSISTANT_BINARY) because OSTLER_BIN here == $OSTLER_DIR/bin,
++# the wrong (legacy, non-FDA) path.
++esc_assistant="$(printf '%s' "$OSTLER_DIR/OstlerAssistant.app/Contents/MacOS/ostler-assistant" | sed 's/[&/\]/\\&/g')"
++
++# OSTLER_VENV_PYTHON: absolute path to a python3 binary that has
++# `ostler_fda` installed (created by CM051 install.sh's email-ingest
++# venv setup). Falling back to the bare literal "python3" is a LAST
++# resort and is logged: launchd does not use a login PATH, so a bare
++# name may not resolve at all under it.
++# Reference: CX-17 (retest 2026-05-23) — system python lookup was
++# the launch-blocker root cause.
++OSTLER_PYTHON_PATH_VALUE="${OSTLER_VENV_PYTHON:-python3}"
++if [[ "$OSTLER_PYTHON_PATH_VALUE" != /* ]]; then
++    echo "email-ingest install: WARNING - interpreter '$OSTLER_PYTHON_PATH_VALUE'" >&2
++    echo "  is not an absolute path. launchd runs with a minimal PATH, so the" >&2
++    echo "  hourly tick's emit leg will likely fail with ModuleNotFoundError." >&2
++    echo "  Expected: the email-ingest venv python from CM051 install.sh." >&2
++fi
++esc_python="$(printf '%s' "$OSTLER_PYTHON_PATH_VALUE"        | sed 's/[&/\]/\\&/g')"
++
++# OSTLER_EMAIL_INGEST_BIN: absolute path to CM021's pwg-email-ingest
++# console script inside the email-ingest venv (created by CM051
++# install.sh's CM021 pip-install). Rendered into the plist's
++# PWG_EMAIL_INGEST env var so the tick's ingest leg resolves the binary
++# under launchd's minimal PATH. If unset/empty we fall back to the
++# literal "pwg-email-ingest" so a dev run with the venv on PATH still
++# works; the tick's LOUD guard then fails the tick if the binary is
++# genuinely absent rather than dropping harvested mail silently.
++# This is the sibling fix to OSTLER_VENV_PYTHON: that wired the emit
++# leg's interpreter, this wires the ingest leg's binary. Without it the
++# emit leg succeeded and EVERY harvested message was dropped at the
++# ingest leg with "not on PATH" / exit 127.
++OSTLER_EMAIL_INGEST_BIN_VALUE="${OSTLER_EMAIL_INGEST_BIN:-pwg-email-ingest}"
++esc_ingest="$(printf '%s' "$OSTLER_EMAIL_INGEST_BIN_VALUE"   | sed 's/[&/\]/\\&/g')"
++
++# PWG_EMAIL_INGEST_PATH is rendered before OSTLER_PYTHON_PATH purely for
++# readability; the two placeholders share no common substring so the
++# order is byte-safe either way.
+ sed \
++    -e "s/OSTLER_ASSISTANT_BINARY/$esc_assistant/g" \
+     -e "s/OSTLER_BIN/$esc_bin/g" \
+     -e "s/OSTLER_HOME/$esc_home/g" \
+     -e "s/OSTLER_LOGS/$esc_logs/g" \
++    -e "s/PWG_EMAIL_INGEST_PATH/$esc_ingest/g" \
++    -e "s/OSTLER_PYTHON_PATH/$esc_python/g" \
+     "$EMAIL_INGEST_PLIST_SRC" > "$RENDERED_PLIST"
+ 
+ chmod 0644 "$RENDERED_PLIST"
+@@ -109,11 +154,50 @@
+ LABEL="com.creativemachines.ostler.email-ingest"
+ DOMAIN="gui/$(id -u)"
+ 
++# ---------------------------------------------------------------------------
++# PRE-BOOTSTRAP GUARD: never load an agent that cannot possibly run.
++# ---------------------------------------------------------------------------
++# ProgramArguments[0] is the code-signed assistant binary inside the .app
++# (the FDA holder). launchd resolves it at BOOTSTRAP time and this plist has
++# RunAtLoad=true, so bootstrapping while that binary is absent makes launchd
++# fire the tick immediately, fail to exec, and return EX_CONFIG (78).
++#
++# EX_CONFIG is not a retry. launchd treats it as "this job is misconfigured",
++# records runs=1, and never starts the job again -- StartInterval included.
++# Both log files stay 0 bytes because nothing ever executed to write to them,
++# so it presents as total silence rather than as an error.
++#
++# That is exactly what the v1.0.15 box-walk found: email-ingest sitting at
++# runs=1 / last exit 78, no mail ingested since install, nothing in any log.
++#
++# A LaunchAgent that is absent and says so is strictly better than one that is
++# present and permanently dead, so if the binary is missing we render the
++# plist (ready to load later) and refuse to bootstrap.
++ASSISTANT_BINARY="$OSTLER_DIR/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
++if [[ ! -x "$ASSISTANT_BINARY" ]]; then
++    echo "email-ingest install: REFUSING to bootstrap the LaunchAgent." >&2
++    echo "  ProgramArguments[0] does not exist or is not executable:" >&2
++    echo "    $ASSISTANT_BINARY" >&2
++    echo "" >&2
++    echo "  Bootstrapping now would fire RunAtLoad against a missing binary," >&2
++    echo "  and launchd would answer EX_CONFIG (78) and disable the job" >&2
++    echo "  PERMANENTLY -- no retry, no logs, no mail ever ingested." >&2
++    echo "" >&2
++    echo "  The plist is rendered and ready at:" >&2
++    echo "    $RENDERED_PLIST" >&2
++    echo "  Load it once the Ostler app is in place with:" >&2
++    echo "    launchctl bootstrap $DOMAIN $RENDERED_PLIST" >&2
++    exit 1
++fi
++
+ # Bootout silently if already loaded; bootstrap is not idempotent on
+ # its own so we have to flush a stale agent first. Don't fail the
+ # install if the bootout returns non-zero (unloaded state).
+ launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+ 
++# A previous install may have left the job in the EX_CONFIG penalty box.
++# bootout above clears that state, so the bootstrap below starts clean.
++
+ if launchctl bootstrap "$DOMAIN" "$RENDERED_PLIST"; then
+     echo "email-ingest install: LaunchAgent bootstrapped ($LABEL)"
+ else
+--- a/launchd/com.creativemachines.ostler.email-ingest.plist
++++ b/launchd/com.creativemachines.ostler.email-ingest.plist
+@@ -37,8 +37,9 @@
+     -->
+     <key>ProgramArguments</key>
+     <array>
+-        <string>/bin/bash</string>
+-        <string>OSTLER_BIN/email-ingest-tick.sh</string>
++        <string>OSTLER_ASSISTANT_BINARY</string>
++        <string>run-source</string>
++        <string>email-ingest</string>
+     </array>
+ 
+     <!--
+@@ -78,6 +79,40 @@
+     <string>OSTLER_LOGS/email-ingest.err</string>
+ 
+     <!--
++        OSTLER_PYTHON tells the tick script which python interpreter
++        to use. Without this, the tick falls through to PATH-`python3`
++        which on a stock macOS is /Library/Developer/CommandLineTools
++        /usr/bin/python3 -- the system python with no installed
++        site-packages. The tick imports ostler_fda.apple_mail_mbox,
++        which only exists inside the dedicated email-ingest venv
++        created by CM051's install.sh. Failing to set this caused
++        the LAUNCH-BLOCKER ModuleNotFoundError seen in retest #N
++        (2026-05-23). The installer renders OSTLER_PYTHON_PATH ->
++        ${OSTLER_DIR}/services/email-ingest/.venv/bin/python3 at
++        install time.
++    -->
++    <!--
++        PWG_EMAIL_INGEST is the ABSOLUTE path to CM021's
++        pwg-email-ingest console script for the ingest leg. Under
++        launchd the agent inherits a minimal PATH
++        (/usr/bin:/bin:/usr/sbin:/sbin) that does NOT include the
++        email-ingest venv's bin/, so a bare `pwg-email-ingest` lookup
++        always missed and EVERY harvested message was silently dropped
++        before reaching the graph (the "Emitted N message(s)" then
++        "not on PATH" / exit-127 shape). The installer renders
++        PWG_EMAIL_INGEST_PATH ->
++        ${OSTLER_DIR}/services/email-ingest/.venv/bin/pwg-email-ingest
++        at install time, mirroring OSTLER_PYTHON_PATH above.
++    -->
++    <key>EnvironmentVariables</key>
++    <dict>
++        <key>OSTLER_PYTHON</key>
++        <string>OSTLER_PYTHON_PATH</string>
++        <key>PWG_EMAIL_INGEST</key>
++        <string>PWG_EMAIL_INGEST_PATH</string>
++    </dict>
++
++    <!--
+         Background priority. Email ingest is not latency-critical;
+         we don't want it competing with foreground work for I/O on
+         the user's daily-driver Mac.

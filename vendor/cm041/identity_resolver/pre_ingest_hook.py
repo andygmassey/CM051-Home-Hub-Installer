@@ -9,7 +9,7 @@ Usage::
 
     from identity_resolver.pre_ingest_hook import pre_ingest_check
 
-    result = pre_ingest_check("Danny Kwan", email="danny@example.com")
+    result = pre_ingest_check("Jane Doe", email="jane@example.com")
     if result["action"] == "create":
         # No existing match — safe to create a new person node.
         ...
@@ -40,7 +40,7 @@ from identity_resolver.batch_resolver import (
     _jaro_winkler,
     _normalise_name,
 )
-from identity_resolver.normalise import normalise_email, normalise_phone
+from identity_resolver.normalise import names_agree, normalise_email, normalise_phone
 
 
 def pre_ingest_check(
@@ -79,51 +79,51 @@ def pre_ingest_check(
 
     incoming_name = _normalise_name(display_name)
 
-    # Strategy 1: Email match (strongest signal, but name-aware)
-    if email:
-        norm_email = normalise_email(email)
+    # Strategies 1 and 2: SHAREABLE identifiers (email, phone).
+    #
+    # These do not identify a person on their own -- households share a
+    # landline, couples share an address-book entry, families share an iPad.
+    # So a shared value only merges when the NAMES AGREE (see
+    # normalise.names_agree; surname equality is the hard gate). Anything else
+    # goes to review rather than merge: the pair then appears on the wiki's
+    # duplicate-review page with Combine / Different-people buttons, which
+    # costs one click, where a wrong merge is unpickable.
+    #
+    # This replaces a raw Jaro-Winkler threshold (0.7 email / 0.6 phone) that
+    # merged "Sandra Andersson" into "Sandra Stewart" at 0.867 because JW
+    # rewards a shared prefix and a shared FIRST NAME is the most common thing
+    # two different people have.
+    for kind, raw_value, norm in (
+        ("email", email, lambda v: normalise_email(v)),
+        ("phone", phone, lambda v: normalise_phone(v, cfg.get("default_country_code", 852))),
+    ):
+        if not raw_value:
+            continue
+        norm_value = norm(raw_value)
+        bucket = "emails" if kind == "email" else "phones"
         for uri, p in persons.items():
-            if norm_email not in p.emails:
+            if norm_value not in getattr(p, bucket):
                 continue
-            candidate_name = _normalise_name(p.display_name)
-            name_sim = _jaro_winkler(incoming_name, candidate_name) if incoming_name and candidate_name else 0.0
-            threshold = cfg.get("email_name_similarity_threshold", 0.7)
-            if name_sim >= threshold:
+            verdict = names_agree(display_name, p.display_name)
+            if verdict == "agree":
                 return {"action": "merge", "canonical_uri": uri}
+            if verdict == "disagree":
+                reason = (
+                    f"Shared {kind} {norm_value} but different surnames "
+                    f"('{display_name}' vs '{p.display_name}') -- most likely "
+                    f"two people sharing one {kind}"
+                )
             else:
-                return {
-                    "action": "review",
-                    "canonical_uri": uri,
-                    "confidence": cfg.get("email_name_mismatch_confidence", 0.7),
-                    "reason": (
-                        f"Shared email {norm_email} but names differ "
-                        f"('{display_name}' vs '{p.display_name}', "
-                        f"similarity {name_sim:.2f})"
-                    ),
-                }
-
-    # Strategy 2: Phone match (name-aware)
-    if phone:
-        norm_phone = normalise_phone(phone, cfg.get("default_country_code", 852))
-        for uri, p in persons.items():
-            if norm_phone not in p.phones:
-                continue
-            candidate_name = _normalise_name(p.display_name)
-            name_sim = _jaro_winkler(incoming_name, candidate_name) if incoming_name and candidate_name else 0.0
-            threshold = cfg.get("phone_name_similarity_threshold", 0.6)
-            if name_sim >= threshold:
-                return {"action": "merge", "canonical_uri": uri}
-            else:
-                return {
-                    "action": "review",
-                    "canonical_uri": uri,
-                    "confidence": cfg.get("phone_name_mismatch_confidence", 0.6),
-                    "reason": (
-                        f"Shared phone {norm_phone} but names differ "
-                        f"('{display_name}' vs '{p.display_name}', "
-                        f"similarity {name_sim:.2f})"
-                    ),
-                }
+                reason = (
+                    f"Shared {kind} {norm_value} and the names may or may not "
+                    f"be the same person ('{display_name}' vs '{p.display_name}')"
+                )
+            return {
+                "action": "review",
+                "canonical_uri": uri,
+                "confidence": cfg.get(f"{kind}_name_mismatch_confidence", 0.7),
+                "reason": reason,
+            }
 
     # Strategy 3: Exact name match (only if unambiguous)
     exact_matches = [

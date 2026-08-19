@@ -36,8 +36,9 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/bash</string>
-        <string>OSTLER_BIN/imessage-bundle-tick.sh</string>
+        <string>OSTLER_ASSISTANT_BINARY</string>
+        <string>run-source</string>
+        <string>imessage</string>
     </array>
 
     <!--

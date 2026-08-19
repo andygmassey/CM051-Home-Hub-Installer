@@ -419,6 +419,14 @@ def import_friends(
                         config.USER_ID,
                         config.DEFAULT_PRIVACY_LEVEL,
                     )
+                    # CX-126 (#660): keep the resolver's in-memory fuzzy index
+                    # current so later friends in this run dedupe against this
+                    # person (parity with the old query-every-time path).
+                    resolver.register_person(
+                        person_uri,
+                        identity.display_name,
+                        org=identity.organization,
+                    )
                 counts["created"] += 1
 
             # Qdrant upsert (embed + write)

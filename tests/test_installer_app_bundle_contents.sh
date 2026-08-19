@@ -154,14 +154,47 @@ assert_grep "f5-wrapper-env-source" \
     "$INSTALL_SCRIPT"
 echo "PASS: F5 (ical-query.sh) wrapper writer present"
 
-# ── F6: Safari extension -- DEFERRED (CM020 source needs build pipeline) ──
-# Confirm install.sh still has the existing graceful-skip path (the
-# .app.zip is bundled by CM020 if its build pipeline is wired in
-# release; the audit explicitly left this as a TODO).
-assert_grep "f6-existing-skip-path" \
+# ── F6 / W8: Safari extension -- NOW STAGED (no longer deferred) ──
+# The signed .app.zip is produced by CM020's build-safari-extension.sh and
+# staged by ORM into vendor/extensions/ at cut time. The DMG path bundles it
+# via a postBuildScript; the tarball path stages it in release.sh. Both fail
+# loudly if it is missing, so this gap can no longer silently recur.
+assert_grep "f6-install-consumer-path" \
     'EXTENSIONS_BUNDLE="${SCRIPT_DIR}/extensions/OstlerSafariExtension.app.zip"' \
     "$INSTALL_SCRIPT"
-echo "PASS: F6 (Safari extension) graceful-skip path unchanged (deferred)"
+# DMG path: postBuildScript present + reads the vendored artefact + lands it
+# at Resources/extensions/.
+assert_grep "f6-postbuild-name" \
+    "Bundle Safari extension into Resources" \
+    "$PROJECT_YML"
+assert_grep "f6-postbuild-source" \
+    'VENDOR_SRC="${SRCROOT}/../vendor/extensions/OstlerSafariExtension.app.zip"' \
+    "$PROJECT_YML"
+assert_grep "f6-postbuild-dest" \
+    '/extensions/OstlerSafariExtension.app.zip' \
+    "$PROJECT_YML"
+# The postBuildScript must fail loudly when the artefact is absent.
+assert_grep "f6-postbuild-loud-fail" \
+    "is missing." \
+    "$PROJECT_YML"
+# Tarball path: release.sh stages the artefact and dies loudly if missing.
+assert_grep "f6-release-vendor-src" \
+    'SAFARI_EXTENSION_VENDOR_SRC="vendor/extensions/OstlerSafariExtension.app.zip"' \
+    "$REPO_ROOT/release.sh"
+assert_grep "f6-release-loud-fail" \
+    "Safari extension artefact missing" \
+    "$REPO_ROOT/release.sh"
+# Enable-UX: install.sh launches the app once + surfaces localised guidance.
+assert_grep "f6-install-launch-once" \
+    'open -gj -a "$SAFARI_APP_INSTALL_PATH"' \
+    "$INSTALL_SCRIPT"
+assert_grep "f6-install-enable-guidance" \
+    "MSG_INFO_SAFARI_EXTENSION_ENABLE_GUIDANCE" \
+    "$INSTALL_SCRIPT"
+assert_grep "f6-enable-guidance-string-defined" \
+    "MSG_INFO_SAFARI_EXTENSION_ENABLE_GUIDANCE=" \
+    "$STRINGS"
+echo "PASS: F6 / W8 (Safari extension) staged into both delivery paths"
 
 # ── F7 + F8: LICENSES + THIRD_PARTY_NOTICES.md vendored + postBuildScript ──
 assert_grep "f7-postbuild-name" \

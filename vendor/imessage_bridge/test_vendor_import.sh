@@ -8,7 +8,7 @@
 # single-machine customer installs. The vendor remains on disk so a
 # future split-identity deployment can re-wire it.
 #
-# The 2026-05-28 fix to a Marvin self-talk loop changed the install
+# The 2026-05-28 fix to an assistant self-talk loop changed the install
 # semantics from "actively register the LaunchAgent" to "actively
 # bootout + remove any stale LaunchAgent from a previous install".
 # This test refuses regression on both shapes:

@@ -2,13 +2,15 @@
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set
 
 import httpx
 
 from .config import settings
+from .eligibility import is_eligible
 from .clients.base import InMemoryCache
 from .clients.openlibrary import OpenLibraryClient
 from .clients.tmdb import TMDBClient
@@ -38,11 +40,32 @@ class EnrichmentStats:
     failed: int = 0
     skipped_already_enriched: int = 0
     skipped_no_client: int = 0
+    skipped_ineligible: int = 0
+
+    # True when the pass stopped because it ran out of its wall-clock
+    # allowance rather than because it ran out of work. The distinction
+    # matters to every caller: an exhausted budget means there IS more to
+    # do, and reporting it as completion would be a false absence.
+    budget_exhausted: bool = False
 
     by_source: Dict[str, int] = field(default_factory=dict)
     by_category: Dict[str, int] = field(default_factory=dict)
 
     errors: List[str] = field(default_factory=list)
+
+    def attempted(self) -> int:
+        """
+        Items that were actually DISPATCHED to a third party, successfully
+        or not.
+
+        This is the unit a `--limit` bounds, and it is deliberately not
+        `total_processed`. Processing an item that turns out to be already
+        enriched, or to have no client, or to be unsendable, costs one local
+        SPARQL ASK and no egress. Counting those against an allowance is how
+        a limited run ends up spending its whole budget re-reading work it
+        finished last time.
+        """
+        return self.successful + self.failed
 
     def summary(self) -> str:
         """Generate summary string."""
@@ -58,6 +81,8 @@ class EnrichmentStats:
             f"  Failed: {self.failed}\n"
             f"  Already enriched: {self.skipped_already_enriched}\n"
             f"  No client: {self.skipped_no_client}\n"
+            f"  Not sendable: {self.skipped_ineligible}\n"
+            f"  Budget exhausted: {self.budget_exhausted}\n"
             f"  By source: {self.by_source}\n"
             f"  By category: {self.by_category}"
         )
@@ -82,12 +107,18 @@ class EnrichmentService:
         "book": "openlibrary",
         "books": "openlibrary",
 
-        # Movies/TV - TMDB
-        "movie": "tmdb",
-        "movies": "tmdb",
-        "tv": "tmdb",
-        "tv_show": "tmdb",
-        "movie_tv": "tmdb",
+        # Films and television - Wikidata, because we ship no TMDB key.
+        #
+        # These four categories were dispatched to TMDB, which warns at
+        # construction that its key is missing and then fails every item
+        # instantly. Measured: 24 films failed in 0.2 seconds on a real
+        # install, and would have been retried on every run forever.
+        # Wikidata gives genre, director and cast with no credential.
+        "movie": "wikidata_film",
+        "movies": "wikidata_film",
+        "tv": "wikidata_film",
+        "tv_show": "wikidata_film",
+        "movie_tv": "wikidata_film",
 
         # YouTube Videos - YouTube Data API
         "video": "youtube",
@@ -117,16 +148,79 @@ class EnrichmentService:
         "search_interest": "wikidata",
         "instagram_creator": "wikidata",  # Well-known creators may have Wikidata entries
 
-        # Places/Venues - Google Places (Foursquare key not available)
-        "place": "google_places",
-        "venue": "google_places",
-        "restaurant": "google_places",
+        # Andy, 2026-08-17: education and food should be enriched;
+        # `professional` explicitly EXCLUDED. That exclusion is a product
+        # decision, not an oversight, so it is recorded here rather than
+        # left as a category that merely happens to be absent.
+        "education": "wikidata",
+        "food": "wikidata",
+
+        # Places/Venues - Wikidata, because we ship no Google Places key
+        # either. Type, country and administrative area, keyless.
+        "place": "wikidata_place",
+        "venue": "wikidata_place",
+        "restaurant": "wikidata_place",
 
         # Events - Ticketmaster
         "event": "events",
         "ticket": "events",
         "concert": "events",
     }
+
+    # Clients that cannot do anything without a credential. We ship none of
+    # these keys, so on a stock install every one of them is dead weight:
+    # the category is dispatched, the client answers instantly, and the item
+    # is recorded as a FAILURE that will be retried on every future run.
+    #
+    # Naming them here lets the caller skip those categories and SAY SO,
+    # which is the difference between "your films got nothing" and 24 rows
+    # of noise in an error list. The env var name is carried so the message
+    # can tell an operator what to set if they have their own key.
+    CLIENT_CREDENTIALS = {
+        "tmdb": "TMDB_API_KEY",
+        "google_places": "GOOGLE_PLACES_API_KEY",
+        "youtube": "YOUTUBE_API_KEY",
+        "foursquare": "FOURSQUARE_API_KEY",
+        "podcast_index": "PODCAST_INDEX_API_KEY",
+        "events": "TICKETMASTER_API_KEY",
+    }
+
+    @classmethod
+    def _credential_present(cls, client_name: str) -> bool:
+        """Is the credential this client needs actually configured?"""
+        env_name = cls.CLIENT_CREDENTIALS.get(client_name)
+        if env_name is None:
+            return True  # keyless client, nothing to check
+        # settings holds the parsed value; the env var is the operator-facing
+        # name. Check settings first so a .env file counts, then the raw env.
+        attr = env_name.lower()
+        value = getattr(settings, attr, None) or os.environ.get(env_name)
+        return bool(value)
+
+    @classmethod
+    def enrichable_categories(cls) -> List[str]:
+        """
+        Every category that has a client whose credential is present.
+
+        Derived from CATEGORY_CLIENTS rather than listed separately, so a
+        new category cannot be added to the dispatch table and then quietly
+        left out of the sweep. That is exactly the defect this replaces:
+        `--all` meant three hardcoded categories while the table held 27.
+        """
+        out = []
+        for category, client_name in cls.CATEGORY_CLIENTS.items():
+            if cls._credential_present(client_name):
+                out.append(category)
+        return out
+
+    @classmethod
+    def categories_missing_credentials(cls) -> Dict[str, str]:
+        """Category -> env var name, for every category we must skip."""
+        return {
+            category: cls.CLIENT_CREDENTIALS[client_name]
+            for category, client_name in cls.CATEGORY_CLIENTS.items()
+            if not cls._credential_present(client_name)
+        }
 
     def __init__(self):
         """Initialize the enrichment service."""
@@ -210,11 +304,34 @@ class EnrichmentService:
                 # Build filter
                 must_conditions = []
 
+                # USER_ID: MATCH IT, OR ACCEPT ITS ABSENCE.
+                #
+                # Measured on a real box, 2026-08-17, over 7,773 preferences:
+                #
+                #     user_id = "ostler"   2,963
+                #     user_id = absent     4,810
+                #
+                # and among the categories enrichment can actually handle,
+                # 4,791 of 6,240 carry NO user_id at all, including every one
+                # of the 4,714 bookmarks and 77 of 84 places. A plain equality
+                # filter silently excluded 77% of the corpus, and did it in a
+                # way that reads as "there was nothing there".
+                #
+                # Ostler is single-machine by architectural directive: the Hub
+                # Mac is THE machine and there is exactly one person. An
+                # untagged preference is therefore THIS user's, not somebody
+                # else's, and skipping it enriches nothing while looking like
+                # a completed pass.
+                #
+                # `should` is OR in Qdrant, and must+should means must AND
+                # at-least-one-should: the right category, and either the
+                # right user or no user at all.
+                should_conditions = []
                 if user_id:
-                    must_conditions.append({
-                        "key": "user_id",
-                        "match": {"value": user_id}
-                    })
+                    should_conditions = [
+                        {"key": "user_id", "match": {"value": user_id}},
+                        {"is_empty": {"key": "user_id"}},
+                    ]
 
                 if category:
                     must_conditions.append({
@@ -237,8 +354,12 @@ class EnrichmentService:
                 if offset:
                     body["offset"] = offset
 
-                if must_conditions:
-                    body["filter"] = {"must": must_conditions}
+                if must_conditions or should_conditions:
+                    body["filter"] = {}
+                    if must_conditions:
+                        body["filter"]["must"] = must_conditions
+                    if should_conditions:
+                        body["filter"]["should"] = should_conditions
 
                 # Order by strength descending for priority processing
                 if order_by_strength:
@@ -433,7 +554,7 @@ INSERT DATA {{
 
                 # Validate it looks like a show name (not a personal reminder)
                 # Skip if it looks like a name or short phrase
-                if len(show_name) > 2 and not show_name.lower() in ("andy", "me", "my", "we"):
+                if len(show_name) > 2 and not show_name.lower() in ("me", "my", "we"):
                     search_title = show_name
                     logger.debug(f"TV: Extracted show name '{show_name}' from '{subject}'")
 
@@ -552,6 +673,21 @@ INSERT DATA {{
                 return result
             return None
 
+        elif client_name == "wikidata_film":
+            # For TV, "Show Name - Episode Title" is common; the show is the
+            # thing with a genre and a cast, so search on that half.
+            search_title = subject
+            if " - " in subject:
+                head = subject.split(" - ", 1)[0].strip()
+                if len(head) > 2 and head.lower() not in ("me", "my", "we"):
+                    search_title = head
+            return await self._wikidata.enrich_film(
+                pref_id, search_title, preference.get("year")
+            )
+
+        elif client_name == "wikidata_place":
+            return await self._wikidata.enrich_place(pref_id, subject)
+
         elif client_name == "wikidata_brand":
             # Look up brand in Wikidata
             brand_result = await self._brand.lookup_brand(subject)
@@ -614,6 +750,8 @@ INSERT DATA {{
         self,
         preferences: List[dict],
         stats: EnrichmentStats,
+        deadline: Optional[datetime] = None,
+        work_allowance: Optional[int] = None,
     ) -> List[EnrichmentResult]:
         """
         Enrich a batch of preferences.
@@ -621,13 +759,32 @@ INSERT DATA {{
         Args:
             preferences: List of preference dicts
             stats: Stats object to update
+            deadline: Stop before starting any further item once passed
+            work_allowance: Stop once this many items have been ATTEMPTED
+                            (dispatched to a client). Items that were skipped
+                            cost nothing and do not count against it. None
+                            means unbounded.
 
         Returns:
             List of successful EnrichmentResults
         """
         results = []
+        work_at_entry = stats.attempted()
 
         for pref in preferences:
+            # The allowance is checked BEFORE each item, never during one:
+            # an item that has already left the machine gets to finish and
+            # be recorded, so we never spend the egress and drop the result.
+            if deadline is not None and datetime.utcnow() >= deadline:
+                stats.budget_exhausted = True
+                break
+
+            if (
+                work_allowance is not None
+                and stats.attempted() - work_at_entry >= work_allowance
+            ):
+                break
+
             pref_id = pref.get("id", "")
             category = pref.get("category", "") or ""
 
@@ -643,6 +800,35 @@ INSERT DATA {{
             client_name = self.CATEGORY_CLIENTS.get(category.lower())
             if client_name is None:
                 stats.skipped_no_client += 1
+                continue
+
+            # The classifier decided this subject is a book/film/artist. It
+            # is sometimes wrong, and when it is wrong the subject still
+            # goes out as a query. Refuse anything shaped like prose before
+            # it reaches the network. See eligibility.py for what this does
+            # and, just as importantly, what it does not.
+            # `category_inferred` is set by the ingest parser when the routing
+            # category was GUESSED from the subject rather than declared by the
+            # source, and ParsedPreference.to_payload() now states it on EVERY
+            # row it writes, True or False, so absence has exactly one meaning:
+            # this row was stored before the field existed.
+            #
+            # PASSED THROUGH RAW, NOT COERCED WITH bool(). Absent must arrive as
+            # None so eligibility can treat it as UNKNOWN provenance. Coercing
+            # it here would turn "we never recorded this" into "the source
+            # declared it", which is the false all-clear that would have left
+            # the whole pre-existing corpus egressing while the gate read green.
+            eligible, why_not = is_eligible(
+                client_name,
+                pref.get("subject", "") or "",
+                category_inferred=(pref.get("extra") or {}).get("category_inferred"),
+            )
+            if not eligible:
+                stats.skipped_ineligible += 1
+                logger.info(
+                    "Not sending %s preference %s to %s (%s)",
+                    category, pref_id, client_name, why_not
+                )
                 continue
 
             # Enrich
@@ -682,6 +868,7 @@ INSERT DATA {{
         progress_callback: Optional[callable] = None,
         min_strength: Optional[float] = None,
         priority_order: bool = False,
+        deadline: Optional[datetime] = None,
     ) -> EnrichmentStats:
         """
         Enrich all unenriched preferences.
@@ -707,12 +894,35 @@ INSERT DATA {{
             f"min_strength={min_strength}, priority_order={priority_order}"
         )
 
-        while total_fetched < limit:
+        # THE LIMIT BOUNDS WORK, NOT READS, AND THAT IS THE WHOLE POINT.
+        #
+        # MEASURED ON THE BOX, 2026-08-17. It used to bound items FETCHED
+        # from Qdrant, and Qdrant does not know which preferences are already
+        # enriched -- that lives in Oxigraph, checked per item further down.
+        # So a second `--limit 10 --category movie_tv` run read the same first
+        # ten points, found nine of them already done, enriched ZERO, and
+        # printed:
+        #
+        #     ENRICHMENT COMPLETE
+        #     Total processed: 10   Successful: 0   Already enriched: 9
+        #
+        # with 165 unenriched films still sitting behind them. A recurring
+        # invoker built on that would have spun on the same ten points for
+        # ever while reporting completion every time. That is worse than not
+        # running at all, because it looks like it is working.
+        #
+        # Bounding on ATTEMPTS makes a limited run mean "do N items of real
+        # work", so successive runs walk forward through the backlog. Skips
+        # are free: they cost one local SPARQL ASK and no egress, so they
+        # must not consume the allowance. Termination is unchanged and comes
+        # from `next_offset is None`, which is reached after a full pass of
+        # the collection.
+        while stats.attempted() < limit:
             # Fetch batch
             batch, next_offset = await self._query_qdrant_preferences(
                 user_id=user_id,
                 category=category,
-                limit=min(batch_size, limit - total_fetched),
+                limit=batch_size,
                 offset=next_offset,
                 min_strength=min_strength,
                 order_by_strength=priority_order,
@@ -723,8 +933,22 @@ INSERT DATA {{
 
             total_fetched += len(batch)
 
-            # Process batch
-            await self.enrich_batch(batch, stats)
+            # Process batch, still bounded so a batch_size of 50 cannot
+            # overshoot a --limit of 10 by forty items.
+            await self.enrich_batch(
+                batch,
+                stats,
+                deadline=deadline,
+                work_allowance=limit - stats.attempted(),
+            )
+
+            if stats.budget_exhausted:
+                logger.info(
+                    "Enrichment allowance spent after %d processed. The rest "
+                    "is still owed and the next run picks it up.",
+                    stats.total_processed
+                )
+                break
 
             # Progress callback
             if progress_callback:
@@ -755,6 +979,7 @@ INSERT DATA {{
         categories: List[str],
         user_id: Optional[str] = None,
         limit_per_category: int = 1000,
+        deadline: Optional[datetime] = None,
     ) -> EnrichmentStats:
         """
         Enrich specific categories.
@@ -763,20 +988,102 @@ INSERT DATA {{
             categories: List of categories to enrich (book, movie, music)
             user_id: Filter by user ID
             limit_per_category: Max items per category
+            deadline: Wall-clock stop for the WHOLE sweep, not per category
 
         Returns:
             Combined EnrichmentStats
         """
         combined_stats = EnrichmentStats()
 
+        # ONE UNREACHABLE SOURCE MUST NOT STARVE EVERY OTHER CATEGORY.
+        #
+        # MEASURED ON .219, 2026-08-17, on the first real run of the recurring
+        # invoker. The sweep handed the WHOLE remaining deadline to each
+        # category in turn, and `book` is first. OpenLibrary was unreachable,
+        # each lookup burned three retries with backoff, and the entire 180s
+        # allowance went on THREE books:
+        #
+        #     Total processed: 3   Successful: 0   Failed: 2
+        #     By category: {'book': 3}
+        #     Allowance spent before reaching category books
+        #
+        # Films, music, places and the other twenty categories were never
+        # reached. Not once, and not on the next tick either, because every
+        # tick would start at `book` and hit the same dead host. A permanently
+        # unreachable third party would have silently owned 100% of the
+        # enrichment budget for ever.
+        #
+        # A FAIR SHARE RECOMPUTED EACH TIME, not a fixed slice up front. A
+        # category with nothing to do returns in milliseconds and its unused
+        # time flows to the categories after it, so the common case loses
+        # nothing. A category that stalls is capped at its share of what was
+        # left when it started. That makes the worst case "one dead source
+        # costs one share per tick" instead of "one dead source costs
+        # everything, permanently".
+        remaining = list(categories)
+
         for category in categories:
-            logger.info(f"Enriching category: {category}")
+            now = datetime.utcnow()
+            if deadline is not None and now >= deadline:
+                combined_stats.budget_exhausted = True
+                logger.info(
+                    "Allowance spent before reaching category %s. Not started, "
+                    "not failed: still owed.", category
+                )
+                break
+
+            category_deadline = deadline
+            if deadline is not None and remaining:
+                share = (deadline - now).total_seconds() / len(remaining)
+                category_deadline = now + timedelta(seconds=share)
+                logger.info(
+                    "Enriching category: %s (share %.0fs of %.0fs left, "
+                    "%d categories to go)",
+                    category, share, (deadline - now).total_seconds(),
+                    len(remaining),
+                )
+            else:
+                logger.info(f"Enriching category: {category}")
 
             stats = await self.enrich_all(
                 user_id=user_id,
                 category=category,
                 limit=limit_per_category,
+                deadline=category_deadline,
             )
+
+            # A CATEGORY THAT RAN OUT OF ITS SHARE STILL OWES WORK, AND THE
+            # SWEEP MUST SAY SO.
+            #
+            # This block used to zero the flag here. The stated reason was that
+            # the merge below would otherwise "mark the whole pass exhausted
+            # after the first slow category and stop". MEASURED: nothing stops
+            # on it. `combined_stats.budget_exhausted` is local to this method
+            # and has exactly one consumer, `cli.py:685`, which uses it to
+            # choose between
+            #
+            #     ENRICHMENT PAUSED (allowance spent, more still owed)
+            #     ENRICHMENT COMPLETE
+            #
+            # The loop's own stopping condition is the `now >= deadline` check
+            # at the top, which reads the clock, not this flag. So the
+            # suppression bought no protection against starvation. What it
+            # bought was a sweep that spent its ENTIRE allowance, left backlog
+            # in every category, and printed COMPLETE, which is the same
+            # defect the rest of this file is being hardened against: an
+            # unfinished pass that reports success.
+            #
+            # The two events ARE different and the log says which. Both mean
+            # work is owed, so both propagate.
+            if stats.budget_exhausted and category_deadline is not deadline:
+                logger.info(
+                    "Category %s stopped on its own share rather than on the "
+                    "sweep allowance. Work is still owed in this category and "
+                    "the pass will be reported as PAUSED, not COMPLETE.",
+                    category,
+                )
+
+            remaining.pop(0)
 
             # Merge stats
             combined_stats.total_processed += stats.total_processed
@@ -784,6 +1091,10 @@ INSERT DATA {{
             combined_stats.failed += stats.failed
             combined_stats.skipped_already_enriched += stats.skipped_already_enriched
             combined_stats.skipped_no_client += stats.skipped_no_client
+            combined_stats.skipped_ineligible += stats.skipped_ineligible
+            combined_stats.budget_exhausted = (
+                combined_stats.budget_exhausted or stats.budget_exhausted
+            )
             combined_stats.errors.extend(stats.errors[:20])  # Limit errors
 
             for source, count in stats.by_source.items():
@@ -802,6 +1113,7 @@ INSERT DATA {{
         self,
         category_configs: List[Dict],
         user_id: Optional[str] = None,
+        deadline: Optional[datetime] = None,
     ) -> Dict[str, EnrichmentStats]:
         """
         Enrich multiple categories IN PARALLEL using different API clients.
@@ -837,12 +1149,18 @@ INSERT DATA {{
 
             logger.info(f"[PARALLEL] Starting {category} enrichment (limit={limit})")
 
+            # ONE SHARED ABSOLUTE DEADLINE, not a fair share. These categories
+            # run CONCURRENTLY under asyncio.gather, so they all spend the same
+            # wall clock at the same time. Dividing the allowance between them
+            # here, as the sequential enrich_categories has to, would cut each
+            # one to a fraction of a budget it is not in fact competing for.
             stats = await self.enrich_all(
                 user_id=user_id,
                 category=category,
                 limit=limit,
                 min_strength=min_strength,
                 priority_order=priority_order,
+                deadline=deadline,
             )
 
             logger.info(f"[PARALLEL] Completed {category}: {stats.successful} enriched")

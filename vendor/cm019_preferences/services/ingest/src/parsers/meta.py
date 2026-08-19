@@ -37,6 +37,9 @@ class MetaParser(BaseParser):
         "saved_posts",
         "your_event_responses",
         "posts_and_comments",
+        # Comment / group activity (comments_and_reactions/comments.json,
+        # groups/your_comments_in_groups.json, groups/group_posts_and_comments.json)
+        "comments",
         # Rich content preferences (actual titles/content)
         "movies_and_tv",
         "books",
@@ -45,24 +48,98 @@ class MetaParser(BaseParser):
         "check_ins",
     ]
 
+    # Directory names that ONLY a Facebook or Instagram export carries. A
+    # content pattern on its own cannot identify a Meta archive: the patterns
+    # above include "comments", which matches LinkedIn's Comments.csv, and
+    # "music", which matches Spotify's StreamingHistory_music_0.json. Both
+    # exports were claimed here and both yielded zero, because this parser has
+    # no idea what to do with either. Compared as whole path SEGMENTS.
+    META_STRUCTURE_DIRS = frozenset({
+        "your_facebook_activity",
+        "your_instagram_activity",
+        "comments_and_reactions",
+        "likes_and_reactions",
+        "apps_and_websites_off_of_facebook",
+        "facebook",
+        "instagram",
+    })
+
     def can_parse(self, file_path: Path) -> bool:
         """Check if file is a Meta data export."""
         if file_path.suffix.lower() == ".zip":
             try:
                 with zipfile.ZipFile(file_path, 'r') as zf:
                     names = zf.namelist()
-                    return any(
-                        any(pattern in n.lower() for pattern in self.SUPPORTED_PATTERNS)
-                        for n in names
-                    )
             except Exception:
                 return False
+            # Structure first, content second. Either alone is not enough: the
+            # structure says the archive IS Facebook or Instagram, the content
+            # pattern says there is something in it this parser can read.
+            if not self._has_meta_structure(names):
+                return False
+            return any(
+                any(pattern in n.lower() for pattern in self.SUPPORTED_PATTERNS)
+                for n in names
+            )
 
         if file_path.suffix.lower() == ".json":
             name = file_path.name.lower()
-            return any(pattern in name for pattern in self.SUPPORTED_PATTERNS)
+            for pattern in self.SUPPORTED_PATTERNS:
+                if pattern not in name:
+                    continue
+                # The loose "comments" pattern also matches YouTube Takeout
+                # comments.json. Only claim a comment file that is shaped like a
+                # Facebook activity export (a top-level dict keyed by "*_v2") so
+                # a YouTube export (a top-level list) still falls through to the
+                # YouTube parser. Files that also match a more specific Facebook
+                # pattern ("posts_and_comments") are claimed without a read.
+                if pattern == "comments" and "posts_and_comments" not in name:
+                    if not self._looks_like_facebook_activity_json(file_path):
+                        continue
+                return True
 
         return False
+
+    @classmethod
+    def _has_meta_structure(cls, member_names) -> bool:
+        """Return True if the archive carries a Facebook/Instagram directory.
+
+        Segment equality, not containment, and deliberately not a check on the
+        archive's FILENAME: a customer who renames facebook-export.zip still
+        has a Facebook export, and a nominal test would go quiet on them.
+        """
+        for raw in member_names:
+            for part in raw.replace("\\", "/").split("/"):
+                if part.lower() in cls.META_STRUCTURE_DIRS:
+                    return True
+        return False
+
+    @staticmethod
+    def _looks_like_facebook_activity_json(file_path: Path) -> bool:
+        """Return True if the JSON file is shaped like a Facebook activity export.
+
+        Facebook comment/group activity exports are a top-level dict with a
+        "*_v2" key (comments_v2 / group_comments_v2 / group_posts_v2 /
+        reactions_v2). YouTube Takeout comment exports are a top-level array.
+        Only the top-level shape is inspected, so a malformed or unreadable file
+        is treated as "not Facebook" and left to the normal parse path.
+        """
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return False
+
+        if not isinstance(data, dict):
+            return False
+
+        facebook_keys = (
+            "comments_v2",
+            "group_comments_v2",
+            "group_posts_v2",
+            "reactions_v2",
+        )
+        return any(key in data for key in facebook_keys)
 
     async def parse(
         self,
@@ -70,16 +147,50 @@ class MetaParser(BaseParser):
         default_compartment: Optional[int] = None,
         **kwargs
     ) -> AsyncIterator[ParsedPreference]:
-        """Parse Meta data export."""
+        """Parse Meta data export.
+
+        BW3-10 (Andy Studio-walk on v1.0.12, 2026-07-30): the earlier
+        ``str/dict data-loss'' fix added ``_iter_records`` +
+        isinstance guards inside ``_parse_comments`` and the other
+        record-level parsers, but the Studio walk still hit
+        ``AttributeError: 'str' object has no attribute 'get'`` on
+        three real-customer Facebook JSON files
+        (``comments_and_reactions/comments.json``,
+        ``groups/group_posts_and_comments.json``,
+        ``groups/your_comments_in_groups.json``), surfacing as
+        pipeline.py's ``Error parsing <file>: ...'' log at ERROR
+        level. Whatever specific path is still ungarded, the effect
+        is the same: the whole file is discarded on the floor and
+        the customer sees an ERROR that reads as fatal for that
+        file. Wrap the router at the parser boundary in a per-file
+        exception handler so any residual bug degrades to a WARNING
+        with visible context + yields whatever partial records the
+        parser already produced, instead of dropping the whole file
+        + spamming ERROR level. Belt-and-braces on top of the
+        specific isinstance guards, not a replacement for them.
+        """
         if default_compartment is None:
             default_compartment = settings.default_compartment
 
-        if file_path.suffix.lower() == ".zip":
-            async for pref in self._parse_zip(file_path, default_compartment):
-                yield pref
-        else:
-            async for pref in self._parse_json(file_path, default_compartment):
-                yield pref
+        try:
+            if file_path.suffix.lower() == ".zip":
+                async for pref in self._parse_zip(file_path, default_compartment):
+                    yield pref
+            else:
+                async for pref in self._parse_json(file_path, default_compartment):
+                    yield pref
+        except (AttributeError, TypeError, KeyError, ValueError) as e:
+            logger.warning(
+                "Meta parser hit a payload-shape edge case in %s: %s. "
+                "Partial records (if any) already yielded; remaining "
+                "records dropped for this file. Original file is not "
+                "modified; the failure is silent from the customer's "
+                "point of view and the graph is missing whatever this "
+                "file would have contributed. File a shape-guard "
+                "follow-up if this repeats across customers.",
+                file_path,
+                e,
+            )
 
     async def _parse_zip(
         self,
@@ -91,9 +202,17 @@ class MetaParser(BaseParser):
             with zipfile.ZipFile(zip_path, 'r') as zf:
                 zf.extractall(tmpdir)
 
-            # Find and process all relevant files
+            # Find and process all relevant files. A single file can match more
+            # than one pattern (e.g. group_posts_and_comments.json matches both
+            # "posts_and_comments" and "comments"); track processed paths so it
+            # is not parsed twice and its preferences are not duplicated.
+            seen: set = set()
             for pattern in self.SUPPORTED_PATTERNS:
                 for file in Path(tmpdir).rglob(f"*{pattern}*.json"):
+                    resolved = str(file.resolve())
+                    if resolved in seen:
+                        continue
+                    seen.add(resolved)
                     async for pref in self._parse_json(file, default_compartment):
                         yield pref
 
@@ -139,6 +258,12 @@ class MetaParser(BaseParser):
                 yield pref
         elif "your_posts" in file_name or "check_ins" in file_name:
             async for pref in self._parse_posts(data, default_compartment):
+                yield pref
+        # Comment / group activity: comments.json, your_comments_in_groups.json,
+        # group_posts_and_comments.json. Kept last so the more specific routes
+        # above (e.g. posts/reactions) win first.
+        elif "comment" in file_name:
+            async for pref in self._parse_comments(data, default_compartment):
                 yield pref
 
     async def _parse_likes(
@@ -551,8 +676,14 @@ class MetaParser(BaseParser):
             title = None
             attachments = item.get("attachments", [])
             for attachment in attachments:
+                if not isinstance(attachment, dict):
+                    continue
                 for data_item in attachment.get("data", []):
+                    if not isinstance(data_item, dict):
+                        continue
                     ext_context = data_item.get("external_context", {})
+                    if not isinstance(ext_context, dict):
+                        continue
                     title = ext_context.get("name")
                     if title:
                         break
@@ -602,8 +733,14 @@ class MetaParser(BaseParser):
             title = None
             attachments = item.get("attachments", [])
             for attachment in attachments:
+                if not isinstance(attachment, dict):
+                    continue
                 for data_item in attachment.get("data", []):
+                    if not isinstance(data_item, dict):
+                        continue
                     ext_context = data_item.get("external_context", {})
+                    if not isinstance(ext_context, dict):
+                        continue
                     title = ext_context.get("name")
                     if title:
                         break
@@ -653,8 +790,14 @@ class MetaParser(BaseParser):
             title = None
             attachments = item.get("attachments", [])
             for attachment in attachments:
+                if not isinstance(attachment, dict):
+                    continue
                 for data_item in attachment.get("data", []):
+                    if not isinstance(data_item, dict):
+                        continue
                     ext_context = data_item.get("external_context", {})
+                    if not isinstance(ext_context, dict):
+                        continue
                     title = ext_context.get("name")
                     if title:
                         break
@@ -720,8 +863,14 @@ class MetaParser(BaseParser):
 
             attachments = item.get("attachments", [])
             for attachment in attachments:
+                if not isinstance(attachment, dict):
+                    continue
                 for data_item in attachment.get("data", []):
+                    if not isinstance(data_item, dict):
+                        continue
                     ext_context = data_item.get("external_context", {})
+                    if not isinstance(ext_context, dict):
+                        continue
                     url = ext_context.get("url")
                     link_title = ext_context.get("name")
                     if url and link_title:
@@ -760,3 +909,138 @@ class MetaParser(BaseParser):
             # - Shared links (handled above)
             # - Check-ins (handled by _parse_saved or separate check-in file)
             # - Tagged pages/places (in other Meta exports)
+
+    @staticmethod
+    def _iter_records(data: Any) -> list:
+        """Normalise a parsed-JSON payload into a list of dict records.
+
+        Facebook activity exports are usually a top-level dict keyed by a
+        "*_v2" name (e.g. ``comments_v2``) whose value is the list of records,
+        but older/edge exports hand us a bare list, a single object, or a list
+        that contains stray strings. Iterating those naively calls ``.get()``
+        on a str and throws ``'str' object has no attribute 'get'``, which
+        silently loses the whole file.
+
+        This returns only the dict records that can actually be parsed and
+        drops everything else, so a single malformed node never discards the
+        well-formed ones.
+        """
+        if isinstance(data, list):
+            records = data
+        elif isinstance(data, dict):
+            # Either a single record or a wrapper whose first list value holds
+            # the records (the Facebook "*_v2" shape). Prefer an inner list that
+            # actually contains dict records.
+            inner = next(
+                (
+                    v for v in data.values()
+                    if isinstance(v, list)
+                    and any(isinstance(e, dict) for e in v)
+                ),
+                None,
+            )
+            records = inner if inner is not None else [data]
+        else:
+            records = []
+
+        return [r for r in records if isinstance(r, dict)]
+
+    async def _parse_comments(
+        self,
+        data: Any,
+        default_compartment: int
+    ) -> AsyncIterator[ParsedPreference]:
+        """Parse Facebook comment / group activity exports.
+
+        Covers ``comments_and_reactions/comments.json``,
+        ``groups/your_comments_in_groups.json`` and
+        ``groups/group_posts_and_comments.json``. These are a top-level dict
+        keyed by ``comments_v2`` / ``group_comments_v2`` / ``group_posts_v2``
+        (older exports use a bare list). Individual activity nodes are not
+        always dicts -- some exports emit a list-of-strings or a bare string
+        where a dict is expected -- so nodes are type-checked (via
+        ``_iter_records`` and the guards below) before ``.get()`` is called,
+        rather than crashing and dropping the whole file.
+        """
+        for item in self._iter_records(data):
+            try:
+                subject = None
+
+                title = item.get("title", "")
+                if isinstance(title, str) and title.strip():
+                    subject = self._extract_comment_subject(title)
+
+                # Fall back to a nested group name, which is a durable interest
+                # signal when the title is missing or non-specific.
+                if not subject:
+                    for data_item in item.get("data", []):
+                        if not isinstance(data_item, dict):
+                            continue
+                        comment = data_item.get("comment", {})
+                        if not isinstance(comment, dict):
+                            continue
+                        group = comment.get("group")
+                        if isinstance(group, str) and group.strip():
+                            subject = group.strip()
+                            break
+
+                if not subject:
+                    continue
+
+                timestamp = item.get("timestamp", 0)
+                observed_at = None
+                if isinstance(timestamp, (int, float)) and timestamp:
+                    try:
+                        observed_at = datetime.fromtimestamp(timestamp)
+                    except Exception:
+                        pass
+
+                yield ParsedPreference(
+                    subject=subject,
+                    preference_type="Like",
+                    strength=0.20,  # V2: active engagement, weaker than a save
+                    compartment_level=default_compartment,
+                    source="facebook",
+                    category="engagement",
+                    observed_at=observed_at,
+                    size=self.classify_size(subject, "social"),
+                    extra={"type": "comment"}
+                )
+
+            except Exception as e:
+                logger.warning(f"Failed to parse Facebook comment activity: {e}")
+
+    @staticmethod
+    def _extract_comment_subject(title: str) -> str:
+        """Pull the interest-bearing target out of a Facebook comment title.
+
+        Prefers the group name (``... posted in <Group>`` / ``... in <Group>``),
+        which is a durable interest signal; otherwise returns the object of the
+        engagement (``... commented on <X>``). Returns "" when nothing
+        meaningful can be extracted (e.g. "replied to a comment").
+        """
+        text = title.strip().rstrip(".")
+        lowered = text.lower()
+
+        # Group activity: "... posted in <Group>", "commented on a post in <Group>"
+        idx = lowered.rfind(" in ")
+        if idx != -1:
+            candidate = text[idx + len(" in "):].strip()
+            if candidate:
+                return candidate
+
+        # Generic engagement: "commented on <X>", "replied to <X>"
+        for verb in ("commented on ", "replied to "):
+            vidx = lowered.find(verb)
+            if vidx == -1:
+                continue
+            candidate = text[vidx + len(verb):].strip()
+            if not candidate or candidate.lower() in ("a comment", "a post"):
+                return ""
+            for suffix in ("'s post", "'s photo", "'s comment"):
+                if suffix in candidate:
+                    candidate = candidate.split(suffix)[0]
+                    break
+            return candidate.strip()
+
+        return ""

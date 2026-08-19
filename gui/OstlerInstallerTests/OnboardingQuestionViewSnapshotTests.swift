@@ -139,11 +139,71 @@ final class OnboardingQuestionViewSnapshotTests: XCTestCase {
             // Note: this bash-emitted help is deliberately IGNORED by
             // the Q12 branch; the view reads from ViewCopy.json
             // keyed by BiometricProbe.cachedModality.
-            help: "Your knowledge graph is encrypted with a key wrapped by Touch ID (if available on this Mac) or by your login password."
+            help: "Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose. A recovery key can optionally be wrapped by Touch ID (if available on this Mac) or by your login password."
         )
         let image = render(
             OnboardingQuestionView().environmentObject(coord)
         )
         XCTAssertNotNil(image, "Q12 passkey_ack render should not crash.")
+    }
+
+    // 6. consent_article_9 (EU/UK Article-9 special-category) body.
+    //
+    // Compliance regression net (2026-07-15): the install.sh
+    // `region==eu` branch emits a `consent_article_9` yesno PROMPT.
+    // Before the fix the GUI had no branch for that id, so it fell
+    // through to the default help-text render and showed only the
+    // one-line MSG_PROMPT_CONSENT_ARTICLE_9_HELP summary -- the full
+    // special-category disclosure never rendered. The Q?? branch now
+    // routes through `consentArticle9Body()`, which reads the
+    // intro_body + legal_note split from ViewCopy.json (sister to
+    // consentThirdPartyBody). The bash-emitted help below is
+    // deliberately IGNORED by that branch, mirroring passkey_ack.
+    func testRendersConsentArticle9PromptWithoutCrashing() {
+        let coord = makeCoordinator()
+        emitPrompt(
+            coord,
+            id: "consent_article_9",
+            kind: "yesno",
+            title: "Your decision (Y / N)",
+            // This bash-emitted help is deliberately IGNORED by the
+            // consent_article_9 branch; the view reads the full
+            // disclosure from ViewCopy.json (intro_body + legal_note).
+            help: "Article 9 special-category consent (UK GDPR). Required for the lawful basis of processing."
+        )
+        let image = render(
+            OnboardingQuestionView().environmentObject(coord)
+        )
+        XCTAssertNotNil(image, "consent_article_9 render should not crash.")
+    }
+
+    // 7. consent_spoken_capture (spoken-audio recording consent) body.
+    //
+    // BW3-8 regression net (box-walk-v4, 2026-07-24): the spoken-consent
+    // screen had NO dedicated branch, so the whole HELP blob (intro +
+    // "What we ask of you" bullet list + "Legal note:") fell through to
+    // the default single-Text() render -- mashed together, wrong size,
+    // legal note not styled as a distinct block. The branch now routes
+    // through `consentSpokenCaptureBody()`, which reads intro_body +
+    // ask_heading + bullet_1..3 + legal_note from ViewCopy.json and
+    // renders a real bulleted list + a subordinated italic legal block.
+    // The bash-emitted help below is deliberately IGNORED by that branch
+    // (mirroring passkey_ack / consent_article_9). This asserts the
+    // ForEach-bulleted tree renders without crashing.
+    func testRendersConsentSpokenCapturePromptWithoutCrashing() {
+        let coord = makeCoordinator()
+        emitPrompt(
+            coord,
+            id: "consent_spoken_capture",
+            kind: "yesno",
+            title: "Record spoken conversations into text?",
+            // Deliberately IGNORED by the consent_spoken_capture branch;
+            // the view reads the split copy from ViewCopy.json.
+            help: "Spoken-audio recording consent. Getting any consent the law requires is your responsibility."
+        )
+        let image = render(
+            OnboardingQuestionView().environmentObject(coord)
+        )
+        XCTAssertNotNil(image, "consent_spoken_capture render should not crash.")
     }
 }

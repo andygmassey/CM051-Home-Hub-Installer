@@ -116,7 +116,7 @@ python -m src.cli extract-email-knowledge --source gmail --privacy-level 4
 - Added Email Knowledge design (`docs/EMAIL_KNOWLEDGE_DESIGN.md`)
 - Fixed Ollama embedder API (`/api/embed` not `/api/embeddings`)
 - Fixed Qdrant client API (`query_points` not deprecated `search`)
-- Updated CLI defaults for TrueNAS Ollama (truenas.local:11434)
+- Updated CLI defaults for the Ollama host (localhost:11434, override via OSTLER_OLLAMA_URL)
 - Changed embedding model to all-minilm (384-dim, matches existing vectors)
 - Completed embedding: 117,000+ vectors
 

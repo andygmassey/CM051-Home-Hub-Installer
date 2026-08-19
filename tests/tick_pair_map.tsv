@@ -1,0 +1,49 @@
+# tick_pair_map.tsv -- which vendored tick corresponds to which executing feed.
+#
+# WHY THIS IS DECLARED AND NOT INFERRED.
+#
+# The two naming schemes do not line up, and a gate that guesses compares two
+# unrelated files and then reports "no drift" with total confidence:
+#
+#     vendored                            executing feed dir
+#     email-bundle-tick.sh        ->      email-bundle          (suffix kept)
+#     imessage-bundle-tick.sh     ->      imessage              (suffix dropped)
+#     whatsapp-bundle-tick.sh     ->      whatsapp              (suffix dropped)
+#     spoken-bundle-tick.sh       ->      spoken                (suffix dropped)
+#
+# Strip "-bundle" and email breaks. Keep it and the other three break. There is
+# no rule, so there is a table.
+#
+# ESTABLISHED EMPIRICALLY, not by reading the names. difflib line-ratio of each
+# vendored file against all ten executing feeds, 2026-08-14:
+#
+#     email-bundle-tick.sh     -> email-bundle  0.821   (runner-up spoken 0.627)
+#     spoken-bundle-tick.sh    -> spoken        0.813   (runner-up email  0.627)
+#     whatsapp-bundle-tick.sh  -> whatsapp      0.821   (runner-up spoken 0.613)
+#     imessage-bundle-tick.sh  -> imessage      0.568   (runner-up spoken 0.488)
+#
+# iMessage's ratio is the outlier and that is NOT a weak pairing -- it is the
+# drift itself showing up in the number. 222 lines sealed against 299 vendored,
+# because the vendored copy carries the FDA preflight the executing one lacks.
+# The margin over its runner-up is still the widest thing available. Re-measure
+# if that ordering ever inverts.
+#
+# UNPAIRED IS A STEADY STATE, NOT A DEFECT. Six executing feeds have no CM051
+# counterpart because CM051 vendors four sources and the daemon runs ten. The
+# gate COUNTS and PRINTS them and does not fail on them -- but it must never
+# silently drop them, because "no counterpart" and "counterpart missing" print
+# identically if you are not looking.
+#
+# COLUMNS
+#   feed_dir  vendored_basename  status  why
+feed_dir	vendored_basename	status	why
+email-bundle	email-bundle-tick.sh	paired	CM051 vendors email_source
+imessage	imessage-bundle-tick.sh	paired	CM051 vendors imessage_source; this is the pair that lost the FDA preflight
+spoken	spoken-bundle-tick.sh	paired	CM051 vendors spoken_source
+whatsapp	whatsapp-bundle-tick.sh	paired	CM051 vendors whatsapp_source
+aiconv		unpaired	daemon-only feed; CM051 vendors no counterpart
+contact-resync		unpaired	daemon-only feed; CM051 vendors no counterpart
+email-ingest		unpaired	daemon-only feed; CM051 vendors no counterpart
+export-scan		unpaired	daemon-only feed; CM051 vendors no counterpart
+fda-rerun		unpaired	daemon-only feed; CM051 vendors no counterpart
+imessage-bridge		unpaired	daemon-only feed; CM051 vendors no counterpart
