@@ -6359,6 +6359,16 @@ _ostler_slot_enrol() {
     # second waiter must not hand the holder another full MAX_HOLD. `set -C`
     # makes the create atomic, so concurrent enrolments cannot race to reset
     # it.
+    #
+    # ZERO GRACE FOR A LATE WAITER IS CHOSEN, NOT AN OVERSIGHT. Nothing clears
+    # bounded_from while the holder lives, so a waiter arriving long after an
+    # earlier waiter withdrew finds the deadline already elapsed and preempts
+    # on the next poll, where the FIRST waiter granted a full MAX_HOLD. That is
+    # deliberate: the bound exists to cap how long ONE holder may occupy the
+    # slot once anyone has wanted it, not to give the holder a fresh allowance
+    # per arrival. Clearing it on withdrawal would let a holder be renewed
+    # indefinitely by a stream of waiters that each give up -- the unbounded
+    # hold this library exists to remove, rebuilt out of grace periods.
     if [ -d "$_OSTLER_SLOT_DIR" ] && [ ! -f "$_OSTLER_SLOT_DIR/bounded_from" ]; then
         ( set -C; printf '%s\n' "$(_ostler_slot_now)" \
             > "$_OSTLER_SLOT_DIR/bounded_from" ) 2>/dev/null || true
@@ -6660,8 +6670,24 @@ _ostler_slot_watchdog() {
         _ostler_slot_waiters_present || continue
         : > "$_OSTLER_SLOT_DIR/preempted" 2>/dev/null || true
         _ostler_slot_log "reached the ${_OSTLER_SLOT_MAX_HOLD}s maximum hold with another feed waiting; stopping cleanly so the waiting feed gets a turn. Progress is watermarked; the next tick resumes."
-        _ostler_slot_kill_tree "$work_pid"
-        return 0
+        # THE WATCHDOG MUST NOT DISCARD ITS OWN VERDICT.
+        #
+        # _ostler_slot_kill_tree returns 1 when TERM and KILL both failed, and
+        # says so loudly. This used to be `kill_tree; return 0` -- computing a
+        # verdict and throwing it away, then exiting and leaving NO ENFORCER
+        # behind. That is precisely the shape this whole fix exists to close,
+        # sitting inside the fix (#861 residual, Archie).
+        #
+        # On failure we do NOT return: we fall through to the next poll and try
+        # again, so an enforcer remains for as long as the payload does. The
+        # loop's own guards terminate it -- the `kill -0` at the top returns 0
+        # once the payload is finally gone, and the slot-dir check returns 0 if
+        # the slot was released underneath us -- so retrying cannot spin
+        # forever on a dead process.
+        if _ostler_slot_kill_tree "$work_pid"; then
+            return 0
+        fi
+        _ostler_slot_log "stop attempt failed; the watchdog is STAYING UP and will retry each poll rather than exit and leave the slot unenforced."
     done
 }
 
