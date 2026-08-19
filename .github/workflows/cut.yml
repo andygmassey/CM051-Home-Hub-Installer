@@ -300,6 +300,16 @@ jobs:
 
       - name: Repo-side gates
         if: always()
+        env:
+          # test_appcast_debt_is_collected.sh asks GitHub which versions have a
+          # RELEASE, because a version nobody can download owes no appcast entry.
+          # Without a token `gh` cannot answer, and the gate's C1 apparatus
+          # control turns that into CANNOT-RUN rather than a quiet "nothing is
+          # owed". So this token is load-bearing: drop it and every cut blocks
+          # LOUDLY, which is the correct direction but still a stopped cut.
+          # GITHUB_TOKEN is enough -- the job holds `contents: read`, releases
+          # are read through contents, and the lookups are same-repo only.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           # v1018-D027: local cutting must be impossible. Asserted here too, so
@@ -314,7 +324,10 @@ jobs:
           # update, and every surface looks healthy. Task #370 exactly.
           #
           # It exempts the version being cut (its appcast is published after)
-          # and refuses on any EARLIER shipped version with no record.
+          # and refuses on any EARLIER RELEASED version with no record. It asks
+          # GitHub which versions have a release, so it needs GH_TOKEN above;
+          # three controls turn an unanswerable probe into CANNOT-RUN rather
+          # than a quiet "nothing is owed".
           CUT_VERSION="${GITHUB_REF_NAME:-}" ./tests/test_appcast_debt_is_collected.sh
           # task #359: a workflow_dispatch of THIS file must be incapable of
           # producing or publishing an artefact. The dry run exists so a broken
@@ -751,7 +764,10 @@ jobs:
           # fix is WHERE it runs, not WHETHER it is enforced" -- and this is
           # that fix. The enforcement did not soften; it moved to
           # tests/test_appcast_debt_is_collected.sh, which REFUSES the next cut
-          # while a shipped version still has no appcast entry. Without that
+          # while a RELEASED version still has no appcast entry (released, not
+          # merely cut: a build nobody can download owes no feed entry, and
+          # keying on cuts would have refused the launch cut over eight
+          # versions that were never released). Without that
           # pairing this line would be a silent deferral wearing a green tick,
           # which is task #370 restored.
           rc=0
