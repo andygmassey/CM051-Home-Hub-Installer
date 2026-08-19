@@ -878,10 +878,21 @@ MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, 
 
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Allow Ostler to read your Messages"
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"Ostler\" in the list and switch it on."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Not listed? Drag \"Ostler\" from the Finder window into the list and turn it on. Click Done any time to continue."
+# Both branches rewrote these three lines and they made DIFFERENT claims
+# about what happens after Done. Resolved against the CODE, not by
+# preferring a side: after the modal is dismissed install.sh polls
+# _imessage_daemon_fda_granted 20 x 2s (~40s), breaking the instant the
+# switch is on. Both branches ship that poll. So "click Done any time to
+# continue" understates what the installer actually does, and the
+# order-does-not-matter wording is the accurate one -- it is the only
+# version that tells the customer their click order is safe, which is the
+# whole reason the poll exists.
+# Locator wording taken from the other side: "Find ... in the list" tells
+# them WHERE to look before naming WHICH switch to flip.
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"Ostler\" in the list and turn its Full Disk Access switch on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Not listed? Drag \"Ostler\" from the Finder window into the list, then turn its switch on. Order does not matter -- click Done before or after; the installer waits until the switch is actually on."
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="Done"
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT="Click Done any time to continue."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT="You can click Done before or after flipping the switch -- the installer waits until it is actually on."
 
 MSG_PROMPT_INSTALLER_FDA_ASSIST_TITLE="Allow Ostler to read your Mac data"
 MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."

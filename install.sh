@@ -16994,34 +16994,133 @@ else
                 # is registered before we open the pane. Best-effort throughout:
                 # any failure (older binary without the subcommand, launch error)
                 # is swallowed and the Finder-drag fallback below still runs.
+                # BW6 (2026-07-26, G-1/window-glut): register-nudge made
+                # bulletproof by COMPLETION DETECTION, not timing. Every prior
+                # fix here was timer-based (the `sleep 15; kill -TERM
+                # $_fda_probe_pid` below) and failed: that killer TERMed the
+                # `( open ... ) &` *waiter* subshell, NOT the launched app. If
+                # the vendored binary ever fails to self-exit from
+                # `run-source imessage --self-test` (falls through to the
+                # persistent KeepAlive daemon, or touches ~/Documents before its
+                # early-return), the FULL daemon runs pre-FDA and raises the
+                # Documents-folder TCC prompt AND -- once its iMessage channel
+                # issues its AppleEvent -- the "OstlerAssistant wants to control
+                # Messages" Automation prompt, on top of System Settings + Finder:
+                # the four-window glut Andy recorded. The old killer could never
+                # stop it because it never targeted the app. Two guarantees now
+                # make this independent of the vendored binary's behaviour:
+                #
+                #  (1) CAPABILITY GATE. Prove THIS binary honours the one-shot
+                #      and early-returns from it BEFORE launching the app-identity
+                #      nudge. We run the binary DIRECTLY first -- attributed by
+                #      TCC to the installer, so it never registers the daemon
+                #      identity and (being a plain exec, not `open -a`) can never
+                #      start the LaunchServices app. A binary that honours the
+                #      flag prints a `SELF-TEST:` marker (OK or DENIED) and exits
+                #      in ms having touched ONLY chat.db; a binary that does not
+                #      recognise it exits via a clap parse error with no marker.
+                #      No marker => SKIP the app-launch nudge entirely and fall
+                #      through to the Finder drag-in flow (which never launches
+                #      the daemon). A mystery binary therefore cannot raise the
+                #      Documents prompt from this step. Mirrors the run-source
+                #      preflight gate at ~L12996.
+                #
+                #  (2) HARD-KILL BY PROCESS IDENTITY. Even a proven-capable binary
+                #      is launched via `open` as its own responsible process (so
+                #      the denied chat.db read registers ai.ostler.assistant in
+                #      the FDA pane). After a short settle we hard-kill by the
+                #      app's own argv -- `pkill -f` anchored on the exact
+                #      `run-source imessage --self-test` command line -- so it
+                #      matches ONLY the instance we launched and NEVER a legit
+                #      process (the persistent daemon runs `... daemon`; ingest
+                #      ticks run `run-source <src>` WITHOUT `--self-test`). TCC
+                #      registers the row on the first denied read within ms, so a
+                #      ~2s settle is ample. No `open -W`, so there is no waiter to
+                #      mis-target and no indefinite hang to guard.
+                # Box-verified (andy@192.168.1.98, macOS 26.5.2): `open -gjn -a
+                # <bundle> --args run-source imessage --self-test` DOES deliver
+                # the args -- a tight-poll caught the launched process argv as
+                # `...ostler-assistant run-source imessage --self-test` on 3/3
+                # launches, and each self-exited (no lingering instance). So the
+                # argv-anchored kill below matches the launched instance, and
+                # `open -a` can NEVER produce the persistent daemon here: it does
+                # not inject the LaunchAgent's `daemon` arg, and if a future macOS
+                # ever DROPPED --args the app would launch with no subcommand and
+                # print help then exit (main.rs: args_os().len() <= 1). The
+                # persistent daemon is separately DEFERRED at INSTALL_SNIPPET time
+                # (OSTLER_ASSISTANT_DEFER_START=true; verified honoured), so it is
+                # not loaded anywhere in this assist window.
+                _fda_nudge_registered=false
+                _fda_selftest_argv="run-source imessage --self-test"
                 if [[ -d "$ASSISTANT_APP_BUNDLE" ]]; then
                     info "$MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE"
-                    # HANG GUARD (Archie): `-W` blocks until the launched app
-                    # EXITS. If the shipped daemon binary does NOT recognise the
-                    # `run-source imessage --self-test` one-shot, it falls through
-                    # to normal (persistent, KeepAlive) daemon startup and never
-                    # exits -- so a bare `open -W` would block install.sh
-                    # INDEFINITELY. `|| true` catches a non-zero exit but NOT a
-                    # hang. Wrap the probe with a hard 15s timeout: run it in the
-                    # background, arm a killer that TERMs it after 15s, then wait.
-                    # 15s is ample -- TCC registers the daemon identity on the
-                    # denied chat.db read within the first ms of launch. On a
-                    # binary that DOES self-exit the probe finishes in well under
-                    # a second and the killer is reaped immediately.
-                    ( open -gjnW -a "$ASSISTANT_APP_BUNDLE" \
-                        --args run-source imessage --self-test \
-                        >/dev/null 2>&1 ) &
-                    _fda_probe_pid=$!
-                    ( sleep 15; kill -TERM "$_fda_probe_pid" 2>/dev/null ) &
-                    _fda_probe_killer=$!
-                    # v1.0.11: disown the watchdog so that TERM-ing it below
-                    # (the common fast-path where the probe finished early)
-                    # does not print an async "Terminated: 15" job-control
-                    # notice to the user. kill-by-PID still works post-disown.
-                    disown 2>/dev/null || true
-                    wait "$_fda_probe_pid" 2>/dev/null || true
-                    kill -TERM "$_fda_probe_killer" 2>/dev/null || true
+                    # (1) capability probe: direct exec, self-exiting, no app
+                    # launch. word-split $_fda_selftest_argv into args (fixed
+                    # literal, no globs). Marker on stdout (Rust println!).
+                    # shellcheck disable=SC2086
+                    if "$ASSISTANT_BINARY" $_fda_selftest_argv 2>&1 | grep -q 'SELF-TEST:'; then
+                        # Snapshot every ostler-assistant PID BEFORE the nudge so
+                        # the by-identity sweep below can distinguish the instance
+                        # WE spawn from any pre-existing legit process, and never
+                        # touch the latter.
+                        _fda_pre_pids="$(pgrep -f 'OstlerAssistant\.app/Contents/MacOS/ostler-assistant' 2>/dev/null | sort -u)"
+                        # (2) app-identity nudge: -n fresh instance, -g/-j launch
+                        # background + hidden (no focus-steal, no visible window),
+                        # NO -W (the read+exit is sub-second; -W is what tempted
+                        # the old mis-targeted killer).
+                        #
+                        # WHY -W IS GONE, carried forward from the hang guard it
+                        # replaces: `-W` blocks until the launched app EXITS. If
+                        # the shipped binary does NOT honour the
+                        # `run-source imessage --self-test` one-shot it falls
+                        # through to normal (persistent, KeepAlive) startup and
+                        # never exits, so a bare `open -W` would block install.sh
+                        # INDEFINITELY and `|| true` would not catch it -- that
+                        # catches a non-zero exit, not a hang. The old answer was
+                        # a 15s timer that TERMed the `( open ... ) &` WAITER
+                        # rather than the app, which is precisely the bug this
+                        # block exists to kill. The answer now is structural: the
+                        # capability gate above proves the binary self-exits
+                        # BEFORE the app is ever launched, so there is nothing to
+                        # hang on and no waiter to mis-target. Do not re-add -W.
+                        # shellcheck disable=SC2086
+                        open -gjn -a "$ASSISTANT_APP_BUNDLE" --args $_fda_selftest_argv >/dev/null 2>&1 || true
+                        # Completion settle: denied read fires within ms.
+                        sleep 2
+                        # HARD-KILL, fast path: match the launched instance by its
+                        # own argv. Normally a no-op (a proven-capable binary has
+                        # already self-exited); it catches a binary that hangs
+                        # under `open` despite honouring --self-test under a direct
+                        # exec. Never matches a legit process: the persistent
+                        # daemon runs `... daemon`, ingest ticks run `run-source
+                        # <src>` WITHOUT `--self-test`.
+                        pkill -f "OstlerAssistant.app/Contents/MacOS/ostler-assistant ${_fda_selftest_argv}" 2>/dev/null || true
+                        # HARD-KILL, by-identity belt-and-braces (regardless of
+                        # args): if some macOS/binary combination ever launched the
+                        # app with a DIFFERENT argv than we passed, the argv match
+                        # above would miss it. TERM any ostler-assistant instance
+                        # that appeared AFTER our snapshot and is NOT one of the
+                        # legit long-lived roles (persistent `daemon`, or a
+                        # `run-source <src>` ingest tick that happened to fire in
+                        # the settle window). Compared against _fda_pre_pids so a
+                        # pre-existing process is never signalled.
+                        _fda_post_pids="$(pgrep -f 'OstlerAssistant\.app/Contents/MacOS/ostler-assistant' 2>/dev/null | sort -u)"
+                        while IFS= read -r _fda_np; do
+                            [[ -n "$_fda_np" ]] || continue
+                            _fda_np_cmd="$(ps -p "$_fda_np" -o command= 2>/dev/null)"
+                            case "$_fda_np_cmd" in
+                                *" run-source imessage --self-test") kill -TERM "$_fda_np" 2>/dev/null || true ;;  # our nudge instance
+                                *" daemon"|*" run-source "*) : ;;  # legit persistent daemon / ingest tick; leave it
+                                *) kill -TERM "$_fda_np" 2>/dev/null || true ;;  # unexpected instance from our nudge (mangled/dropped args)
+                            esac
+                        done < <(comm -13 <(printf '%s\n' "$_fda_pre_pids") <(printf '%s\n' "$_fda_post_pids"))
+                        unset _fda_pre_pids _fda_post_pids _fda_np _fda_np_cmd
+                        _fda_nudge_registered=true
+                    else
+                        gui_log info "Daemon FDA register-nudge: binary did not acknowledge the self-test one-shot; skipping the app-launch nudge and using the Finder drag-in flow (never launches the daemon pre-FDA)."
+                    fi
                 fi
+                unset _fda_selftest_argv
 
                 # BW5 (2026-07-26): probe listed-state ONCE, after the nudge
                 # above has had its chance to register the daemon's FDA row.
@@ -17030,12 +17129,32 @@ else
                 # already exists. Assigned unconditionally here so it is always
                 # defined before use under `set -u`.
                 _fda_listed="$(_imessage_daemon_fda_listed)"
+                # BW6 (2026-07-26): the sudo-based TCC.db probe above only works
+                # when a warm sudo cred is present. On a real fresh install
+                # `sudo -n` is NOT available (box-walk .98: "sudo: a password is
+                # required"), so _imessage_daemon_fda_listed returns empty even
+                # though the register-nudge just registered ai.ostler.assistant's
+                # FDA row via its denied chat.db read. That meant the BW5 Finder
+                # suppression (below) NEVER fired on real installs -- the
+                # redundant Finder window kept stacking. Trust the nudge's own
+                # success as an independent "listed" signal: a denied FDA read as
+                # the app identity is exactly what registers the greyed toggle, so
+                # if the nudge ran the row exists and the drag-in is unnecessary.
+                # NB `sudo -n` never shows a GUI password prompt (that is the -n
+                # contract), so it is NOT the "auth window" from the glut -- that
+                # was the daemon's own Automation prompt, now prevented by the
+                # capability-gate + hard-kill above keeping the daemon from
+                # running pre-FDA.
+                if [[ "$_fda_listed" != "listed" && "${_fda_nudge_registered:-false}" == true ]]; then
+                    _fda_listed="listed"
+                    gui_log info "Daemon FDA register-nudge succeeded; treating OstlerAssistant as listed (suppressing the redundant Finder drag-in window)."
+                fi
                 # BW5 nit (Archie 2026-07-26): a "not listed" result can mean the
-                # row is genuinely absent OR sudo -n could not read TCC.db. Both
-                # take the drag-in fallback, so record which one fired for
-                # post-hoc box-walk forensics. Logged here (not inside the
-                # stdout-captured helper) so it can never corrupt _fda_listed.
-                # The sudo keepalive loop keeps creds warm, so -n does not prompt.
+                # row is genuinely absent OR the nudge was skipped (mystery
+                # binary) OR sudo -n could not read TCC.db. All take the drag-in
+                # fallback, so record which one fired for post-hoc box-walk
+                # forensics. Logged here (not inside the stdout-captured helper)
+                # so it can never corrupt _fda_listed.
                 if [[ "${_fda_listed:-}" != "listed" ]]; then
                     if command -v sudo >/dev/null 2>&1 && ! sudo -n true 2>/dev/null; then
                         gui_log info "Daemon FDA-listed probe: sudo -n unavailable, could not read TCC.db; using the drag-in fallback (not a confirmed row-absent)."
@@ -17083,8 +17202,9 @@ else
                 # opening Finder here only adds a redundant window that
                 # stacks with the Tailscale sign-in. Keeps the drag flow as
                 # the fallback for any macOS where the row did not register.
+                _fda_finder_revealed=false
                 if [[ "${_fda_listed:-}" != "listed" ]]; then
-                    open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+                    open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null && _fda_finder_revealed=true || true
                 else
                     info "$MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED"
                 fi
@@ -17242,31 +17362,53 @@ else
                 fi
                 unset _imessage_fda_reprobe_ok
 
-                # BW5 (2026-07-26): the FDA interaction is now RESOLVED -- the
-                # customer clicked Done on the modal and the ~40s grant poll has
-                # elapsed (granted, or the Doctor card will persist the
-                # reminder). Close the System Settings FDA pane we opened so it
-                # does NOT linger on screen and stack under the Tailscale
-                # sign-in browser that opens a couple of steps later -- that
-                # overlap is the "crash of windows" the .98 box-walk hit. This
-                # serializes the two interactions: FDA fully done before
-                # anything else needs the customer. Best-effort; covers both the
-                # modern "System Settings" and legacy "System Preferences"
-                # process names.
-                killall "System Settings" >/dev/null 2>&1 || true
-                killall "System Preferences" >/dev/null 2>&1 || true
-                # BW5 nit (Archie 2026-07-26): a fixed `sleep 1` is too tight on a
-                # heavily-loaded install-time Mac -- if the FDA pane is still on
-                # screen when the Tailscale sign-in opens a couple of steps later,
-                # we recreate the exact window overlap this block exists to
-                # prevent. Poll until the pane process is actually gone, with a
-                # generous ceiling, before proceeding. Never blocks forever.
+                # BW6 (2026-07-26, window-glut): close EVERY window this assist
+                # block opened -- BULLETPROOF, under extreme load -- before we
+                # proceed, so nothing from this block can survive to STACK with
+                # the end-of-install daemon start's Documents/Automation prompt.
+                #
+                # Root cause of Andy's stacked glut (recut3 = current main, so
+                # NOT an earlier cut): his install ran at load avg ~91%. The old
+                # close fired a SINGLE `killall "System Settings"` then merely
+                # WATCHED for exit with a 10s ceiling. Under that load System
+                # Settings took >10s to come down, the watch-only poll gave up,
+                # the FDA pane LINGERED, and the end-of-install daemon start then
+                # raised its Documents + Automation prompts ON TOP of the still-
+                # open System Settings + Finder -> the four-window stack. Each
+                # piece was individually clean; load defeated the timing.
+                #
+                # Fix: FORCEFUL + REPEATED close with a GENEROUS ceiling. Re-issue
+                # killall on EVERY poll iteration (not once), and also close the
+                # Finder reveal window we opened on the drag-in fallback, until
+                # both are provably gone or ~60s has elapsed. On a fast box this
+                # returns in ~1s (breaks as soon as the pane is gone); the ceiling
+                # only ever matters on a box so loaded the pane crawls down.
+                # Best-effort throughout; never blocks forever. Covers both the
+                # modern "System Settings" and legacy "System Preferences" names.
                 _ss_close_wait=0
-                while { pgrep -x "System Settings" >/dev/null 2>&1 || pgrep -x "System Preferences" >/dev/null 2>&1; } && [[ "$_ss_close_wait" -lt 10 ]]; do
+                while :; do
+                    killall "System Settings" >/dev/null 2>&1 || true
+                    killall "System Preferences" >/dev/null 2>&1 || true
+                    # Close the Finder reveal window we opened on the drag-in
+                    # fallback. Gated on _fda_finder_revealed so we never touch
+                    # Finder on the normal (registered/listed) path where the
+                    # reveal was suppressed and no Finder window exists.
+                    if [[ "${_fda_finder_revealed:-false}" == true ]]; then
+                        osascript -e 'tell application "Finder" to close windows' >/dev/null 2>&1 || true
+                    fi
+                    # Break the instant neither pane process is alive.
+                    if ! pgrep -x "System Settings" >/dev/null 2>&1 \
+                       && ! pgrep -x "System Preferences" >/dev/null 2>&1; then
+                        break
+                    fi
+                    [[ "$_ss_close_wait" -ge 60 ]] && break
                     sleep 1
                     _ss_close_wait=$((_ss_close_wait + 1))
                 done
-                unset _fda_listed _ss_close_wait
+                if pgrep -x "System Settings" >/dev/null 2>&1 || pgrep -x "System Preferences" >/dev/null 2>&1; then
+                    gui_log info "Daemon FDA assist: System Settings still up after ${_ss_close_wait}s of forced close (very heavily loaded box); proceeding anyway to avoid blocking the install."
+                fi
+                unset _fda_listed _ss_close_wait _fda_nudge_registered _fda_finder_revealed
                 fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
             fi  # closes `if true` assist wrapper (CX-90 reorder)
         fi
@@ -21115,6 +21257,21 @@ _probe_http_live() {
 # and give it a GENEROUS window (up to ~30s, returns early on bind) before we
 # probe. The end-of-install _ostler_start_assistant_daemon call stays as the
 # final TCC-refresh kickstart.
+#
+# BW6 (2026-07-26, window-glut): this is the FIRST (bootstrap) daemon start, so
+# on a no-FDA install (customer declined / the assist poll timed out) it is the
+# call that raises the daemon's own Documents-folder + "control Messages"
+# Automation prompts. That single honest prompt is acceptable -- Andy's
+# complaint was the STACK, not one prompt -- but it must land ALONE. The assist
+# block already force-closed System Settings + Finder minutes ago, and the
+# Tailscale/Safari sign-in resolved many hydration phases earlier; this cheap
+# close is defense-in-depth so a reopened FDA pane can never be on screen when
+# the prompt fires. (The way to remove even this one prompt is to PRIME the
+# Documents + Automation grants early in the front batch -- scoped in the PR as
+# a follow-up; the daemon legitimately needs ~/Documents for the workspace/wiki,
+# so deferring that access forever is NOT the fix.)
+killall "System Settings" >/dev/null 2>&1 || true
+killall "System Preferences" >/dev/null 2>&1 || true
 _ostler_start_assistant_daemon
 if _probe_http_live "http://127.0.0.1:8000/" 30; then
     ok "$MSG_OK_GATEWAY_HEALTHY"
