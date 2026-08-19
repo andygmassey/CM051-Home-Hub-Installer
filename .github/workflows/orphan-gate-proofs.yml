@@ -30,6 +30,7 @@ on:
       - 'scripts/orphan_gate_selftest.sh'
       - 'tests/test_no_orphaned_fixes_gate.sh'
       - 'tests/test_orphan_gate_cannot_verify.sh'
+      - 'tests/test_deferral_reachability.sh'
       # A proof must re-run when the thing that INVOKES the gate changes: a
       # Makefile edit can unhook it without touching the gate itself.
       - 'gui/Makefile'
@@ -133,3 +134,17 @@ jobs:
       - name: Orphan gate cannot-verify semantics
         if: always()
         run: ./tests/test_orphan_gate_cannot_verify.sh
+
+      - name: Deferral reachability controls
+        # The four controls for deferral_reachability_report() in
+        # scripts/verify_no_orphaned_fixes.sh. Wired here rather than in a new
+        # workflow because this job already runs the other three proofs for the
+        # SAME script, on macOS to match the cut machine.
+        #
+        # This PR argued that a deferral nothing asks about holds nothing, and
+        # then added a test nothing asks about. test-wiring was RED and it was
+        # RIGHT: `grep -rn test_deferral_reachability .github/` returned nothing,
+        # so all four arms fired on the author's machine and nowhere else. The
+        # gate applied this PR's own thesis to this PR, one level up.
+        if: always()
+        run: ./tests/test_deferral_reachability.sh

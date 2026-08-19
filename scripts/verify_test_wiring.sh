@@ -402,11 +402,18 @@ if new_unwired:
     for t in new_unwired:
         print(f"    {t}", file=sys.stderr)
     print("", file=sys.stderr)
+    # The backlog size is MEASURED from the manifest, never remembered. The
+    # previous wording said "the backlog is the 128 that already existed on
+    # 2026-08-13". 128 was the WIRED count, not the backlog, so the sentence
+    # named the wrong population -- and by 2026-08-19 two readers measuring the
+    # same manifest got 128/113 and 130/111, so the literal matched NEITHER.
+    # A number in a refusal is an assertion; assert the one you just computed.
     print(
         "A test that runs nowhere asserts nothing. Wire it (name it in a\n"
         "workflow), or delete it. Adding it to the UNWIRED backlog is NOT the\n"
-        "fix -- the backlog is the 128 that already existed on 2026-08-13, and\n"
-        "the whole point of this gate is that it stops there.",
+        f"fix. The backlog is the {len(recorded_unwired)} entries already recorded in\n"
+        "tests/TEST_WIRING.tsv, and the whole point of this gate is that it\n"
+        "stops there.",
         file=sys.stderr,
     )
 
