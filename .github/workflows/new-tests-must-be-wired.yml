@@ -44,6 +44,18 @@ jobs:
       - name: The comment-stripper knows a quoted # from a comment
         run: /bin/bash scripts/tests/test_comment_strip_is_quote_aware.sh
 
+      # The SECOND half of what the shared library decides. The stripper above
+      # says what the gates may look at; this says what counts as RUNNING it.
+      # Both false greens it pins were live on main until #861: `bash -n` is a
+      # parse, and the unanchored verb matched the `sh` inside "shipping".
+      #
+      # if: always() for the same reason as the step below -- it is not first,
+      # so without it an earlier failure would SKIP it, and a skipped step reads
+      # as no objection.
+      - name: An invocation is an execution, not a parse or a near-miss word
+        if: always()
+        run: /bin/bash scripts/tests/test_invocation_predicate_rejects_non_execution.sh
+
       # if: always() because this step is no longer FIRST in the job. Adding the
       # stripper control above it made it maskable -- a failure there would skip
       # this one, and a skipped step reads as "no objection", which is the whole

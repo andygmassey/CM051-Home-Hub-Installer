@@ -72,14 +72,86 @@
 # ---------------------------------------------------------------------------
 
 # is_invoked_in_corpus <test-path> <corpus-file>
-# True when the corpus carries the test's path or basename on a line that ALSO
-# carries an execution verb before it. `[^#]*` between the two is a second
-# comment guard for any `#` the stripper deliberately left in place.
+# True when the corpus RUNS the test, not merely names it near a verb.
+#
+# ---------------------------------------------------------------------------
+# TWO FALSE GREENS THIS REPLACES. Both were mine, from #858, and both were
+# measured on the real tree before this was written.
+#
+# 1. `bash -n` IS A PARSE, NOT A RUN. .github/workflows/hydrate-sentinel.yml
+#    carries, for three of the five register entries:
+#
+#        bash -n tests/test_no_data_is_not_success.sh
+#
+#    which only checks syntax. Delete the real `run: bash tests/...` beside it
+#    and the old predicate still answered INVOKED, exit 0, "ALL CRITICAL TESTS
+#    STILL INVOKED" -- the R6 hole reopened through a different door, on a line
+#    that is already committed.
+#
+# 2. THE VERB ALTERNATION WAS UNANCHORED, so `sh` matched inside ordinary
+#    English. Measured:
+#
+#        run: echo "shipping notes about tests/test_no_data_is_not_success.sh"
+#        -> INVOKED
+#
+#    "shipping" was the verb. Same for shell, push, finish, wash.
+#
+# Both are FALSE GREENS, which by the bias argument at the top of this file is
+# the direction that must never happen: a dark test labelled live is the entire
+# defect (#688) these gates exist to remove. A false RED is merely noisy.
+#
+# ---------------------------------------------------------------------------
+# WHY THE ANCHOR HAS TO ALLOW A LEADING PATH, which a naive fix gets wrong.
+#
+# Two of the five register entries are invoked as `/bin/bash scripts/tests/...`.
+# Requiring the verb to be preceded by whitespace or start-of-line ONLY would
+# score both DARK -- a false RED on correct wiring, and the kind of noise that
+# gets a gate deleted. So `/` is an allowed prefix, and the boundary that kills
+# "shipping" is the REQUIRED WHITESPACE AFTER the verb, not the character
+# before it.
+#
+# `pytest -n` is xdist parallelism, not a parse, so the `-n` exclusion is scoped
+# to shell interpreters. Getting that wrong would have made `pytest -n 4` read
+# as non-execution.
+#
+# Every occurrence on the line is scanned, not just the first, so
+# `echo tests/x.sh && bash tests/x.sh` is correctly INVOKED.
+# ---------------------------------------------------------------------------
 is_invoked_in_corpus() {
     local t="$1" corpus="$2" base
     base="$(basename "$t")"
-    grep -E "(bash|sh|pytest|python3 -m|\./)[^#]*($(printf '%s' "$t" | sed 's/[.[\*^$/]/\\&/g')|$(printf '%s' "$base" | sed 's/[.[\*^$/]/\\&/g'))" \
-        "$corpus" >/dev/null 2>&1
+    awk -v t="$t" -v b="$base" '
+    # An execution verb, anchored so it must START a token and be FOLLOWED by
+    # whitespace. A leading path is allowed (/bin/bash, /usr/bin/env bash).
+    function has_verb(pre) {
+        if (pre ~ /(^|[[:space:];&|(]|\/)(bash|sh|zsh|ksh|dash)[[:space:]]/)   return 1
+        if (pre ~ /(^|[[:space:];&|(]|\/)pytest[[:space:]]/)                   return 1
+        if (pre ~ /(^|[[:space:];&|(]|\/)python3[[:space:]]+-m[[:space:]]/)    return 1
+        if (pre ~ /(^|[[:space:];&|(])\.\//)                                   return 1
+        return 0
+    }
+    # `sh -n` / `bash -n` parse the file and never execute it. Scoped to shells
+    # on purpose: `pytest -n 4` is parallelism and IS an execution.
+    function is_parse_only(pre) {
+        if (pre ~ /(^|[[:space:];&|(]|\/)(bash|sh|zsh|ksh|dash)[[:space:]]/ &&
+            pre ~ /[[:space:]]-n([[:space:]]|$)/) return 1
+        return 0
+    }
+    function scan(line, needle,   start, idx, abs, pre) {
+        if (needle == "") return 0
+        start = 1
+        while (1) {
+            idx = index(substr(line, start), needle)
+            if (idx == 0) return 0
+            abs = start + idx - 1
+            pre = substr(line, 1, abs - 1)
+            if (!is_parse_only(pre) && has_verb(pre)) return 1
+            start = abs + 1
+        }
+    }
+    { if (scan($0, t) || scan($0, b)) { found = 1; exit } }
+    END { exit(found ? 0 : 1) }
+    ' "$corpus"
 }
 
 # strip_comments_file <path>

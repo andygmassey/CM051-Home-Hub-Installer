@@ -67,6 +67,8 @@ tests/test_hydrate_sentinel_not_on_error.sh       a FAILED hydrate step suppress
 tests/test_aiconv_hydrate_honesty.sh              a timed-out or crashed drain recording itself as complete
 scripts/tests/test_egress_probe_attribution.sh    an unattributable socket being silently counted as the operator's own
 scripts/tests/test_new_tests_are_wired_predicate.sh  a newly added test never being invoked by anything
+scripts/tests/test_comment_strip_is_quote_aware.sh   a quoted # read as a comment, so a real invocation is deleted before this gate sees it
+scripts/tests/test_invocation_predicate_rejects_non_execution.sh  bash -n scoring as a run, and the sh inside shipping scoring as a shell
 "
 
 cannot_run() { echo "CANNOT-RUN: $*" >&2; exit 2; }
