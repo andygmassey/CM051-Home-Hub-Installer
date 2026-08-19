@@ -54,12 +54,32 @@ on:
   pull_request:
     paths:
       - 'gui/**'
+      # StringsCatalogueEmDashTest and StringsCatalogueYNSuffixTest read
+      # install.sh.strings.<lang>.sh, which does NOT live under gui/. Without
+      # this line a PR that only touches the catalogue cannot trip either test,
+      # and main goes red without any run saying so.
+      #
+      # That is not hypothetical. #453 landed two whitespace-bounded '--'
+      # em-dash surrogates in the catalogue on 2026-08-19 and every check on it
+      # was green, because it changed no file under gui/. It surfaced on the
+      # next PR that happened to touch gui/, as somebody else's red.
+      - 'install.sh.strings.*.sh'
       - 'scripts/verify_swift_tests_ran.sh'
       - '.github/workflows/swift-tests.yml'
   push:
     branches: [main]
     paths:
       - 'gui/**'
+      # StringsCatalogueEmDashTest and StringsCatalogueYNSuffixTest read
+      # install.sh.strings.<lang>.sh, which does NOT live under gui/. Without
+      # this line a PR that only touches the catalogue cannot trip either test,
+      # and main goes red without any run saying so.
+      #
+      # That is not hypothetical. #453 landed two whitespace-bounded '--'
+      # em-dash surrogates in the catalogue on 2026-08-19 and every check on it
+      # was green, because it changed no file under gui/. It surfaced on the
+      # next PR that happened to touch gui/, as somebody else's red.
+      - 'install.sh.strings.*.sh'
       - 'scripts/verify_swift_tests_ran.sh'
       - '.github/workflows/swift-tests.yml'
   schedule:

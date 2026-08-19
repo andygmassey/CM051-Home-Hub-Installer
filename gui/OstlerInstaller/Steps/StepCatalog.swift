@@ -93,6 +93,22 @@ final class StepCatalog {
         "setup_complete_wrap_up",
         "homebrew_install",
         "docker_install",
+        // reboot_selfheal (v1.0.11, PR #452): configures boot auto-login so a
+        // mid-install reboot self-heals and resumes unattended. install.sh
+        // emits `progress "$MSG_PROGRESS_REBOOT_SELFHEAL" "reboot_selfheal"`
+        // (phase 3.2c) BETWEEN docker_install and ollama_install; this entry
+        // sits at the matching position so the step-parity contract test
+        // passes.
+        //
+        // It also has a HintCopy.json entry. The original version of this
+        // comment said it deliberately had none, "same posture as
+        // initial_hydrate / the hydrate_* steps" -- that posture no longer
+        // exists on main: initial_hydrate and every hydrate_* step now carry
+        // copy, and scripts/verify_hint_coverage.sh fails any emitted step
+        // that does not. Which is right for this one regardless: it is the
+        // step that can ask for the customer's login password, so it is the
+        // last step that should render with a synthesised title and no "why".
+        "reboot_selfheal",
         "ollama_install",
         "config_save",
         "encrypt_db",

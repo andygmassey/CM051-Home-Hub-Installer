@@ -50,6 +50,16 @@
     "illustration": null,
     "needs_fda": false
   },
+  "reboot_selfheal": {
+    "id": "reboot_selfheal",
+    "title": "Restart recovery",
+    "subtitle": "Optional, and off unless you say otherwise",
+    "why": "Ostler's services start when you sign in, so after a power-cut this Mac sits at the login screen and Ostler stays dark until someone signs in. Ostler can offer to change that by storing your login password on this Mac so it signs itself in on its own. The password is stored scrambled rather than encrypted, and anyone with an administrator account here, or with the disk in their hands, can read it back, so the question defaults to no. It is only offered when FileVault is off, because FileVault stops automatic sign-in. Say no and nothing is stored and nothing changes.",
+    "duration_estimate_s": 5,
+    "long_running_threshold_s": 300,
+    "illustration": null,
+    "needs_fda": false
+  },
   "ollama_install": {
     "id": "ollama_install",
     "title": "Setting up Ollama",

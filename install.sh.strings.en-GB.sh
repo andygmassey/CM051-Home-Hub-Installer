@@ -890,9 +890,9 @@ MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Acces
 # Locator wording taken from the other side: "Find ... in the list" tells
 # them WHERE to look before naming WHICH switch to flip.
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"Ostler\" in the list and turn its Full Disk Access switch on."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Not listed? Drag \"Ostler\" from the Finder window into the list, then turn its switch on. Order does not matter -- click Done before or after; the installer waits until the switch is actually on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Not listed? Drag \"Ostler\" from the Finder window into the list, then turn its switch on. Order does not matter – click Done before or after; the installer waits until the switch is actually on."
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="Done"
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT="You can click Done before or after flipping the switch -- the installer waits until it is actually on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT="You can click Done before or after flipping the switch – the installer waits until it is actually on."
 
 MSG_PROMPT_INSTALLER_FDA_ASSIST_TITLE="Allow Ostler to read your Mac data"
 MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
@@ -1360,3 +1360,49 @@ MSG_WARN_DEFERRED_REGISTER_SCRIPT_NOT_BUNDLED_RETRY_DISABLED="scripts/deferred-r
 
 MSG_WARN_EMBED_DIMS_UNREADABLE="Could not read the embedding width from the health probe. Memory is configured for 768 dimensions; if recall behaves oddly, check the embedding model."
 MSG_FAIL_EMBED_DIMS="The embedding model returned %s-dimension vectors but Ostler is configured for %s. Memory would store vectors it can never match. Check the embedding model and re-run."
+
+# ── Reboot self-heal: automatic login on boot (v1.0.11) ─────────────
+# LOCALE PARITY (future de/fr/es/it catalogues): these keys are en-GB only.
+# Re-translate the values below when a new locale catalogue is added; do NOT
+# machine-translate the consent / FileVault copy -- it is legal-adjacent and
+# must read naturally in the operator's language.
+#
+# WHAT THIS COPY MUST NOT DO. Automatic sign-in works by storing the
+# customer's login password on their Mac at /etc/kcpassword, scrambled with a
+# fixed, publicly documented byte pattern (the cipher literal is in install.sh,
+# in _ostler_configure_reboot_autologin). That is obfuscation, not encryption,
+# and it is reversible by anyone with an administrator account or with the disk
+# in their hands. The step also runs ONLY when FileVault is off, so it writes a
+# recoverable login password exclusively onto Macs with no disk encryption.
+#
+# Every string below is therefore held to one rule: no word that implies the
+# password is protected. Banned: "keystore", "keychain", "vault", "encrypted",
+# "secure", "safe". Say what happens instead.
+#
+# The only reassurance any of these strings is allowed to carry is the one that
+# was verified end to end in the installer, and it is stated at exactly that
+# scope: the password is not echoed as it is typed, and it does not reach
+# ~/.ostler/logs/install.log. Nothing here claims anything about what macOS
+# itself does with /etc/kcpassword afterwards, because that was not measured.
+MSG_PROGRESS_REBOOT_SELFHEAL="Configuring reboot self-heal"
+MSG_INFO_AUTOLOGIN_EXPLAIN="Ostler is an always-on hub, so after a power-cut or a restart it needs to come back with nobody at the keyboard. That only works if this Mac signs itself in, and macOS can only sign itself in if %s's login password is stored on this Mac.
+
+Storing it weakens this Mac. The password is scrambled rather than encrypted, so anyone who can use an administrator account here, or who can take the disk out and read it elsewhere, can turn it back into your password. You will see exactly where it is stored before you type anything.
+
+If you say no, nothing is stored and nothing else changes. After a power-cut you sign in as usual, and Ostler's services start with your session. You can change this later in System Settings > Users & Groups > Automatic login."
+MSG_PROMPT_AUTOLOGIN_CONSENT="Store your login password on this Mac so it can sign itself in after a restart? [y/N]"
+MSG_INFO_AUTOLOGIN_PROMPT_REASON="Ostler writes this password to a file on this Mac at /etc/kcpassword. It is scrambled there with a fixed pattern that is the same on every Mac and is publicly documented, so it is not encryption and it can be undone. Anyone who can use an administrator account on this Mac, or who can take the disk out and read it elsewhere, can turn that file back into %s's login password.
+
+FileVault would stop that, because the disk cannot be read at all without the start-up password. FileVault also stops automatic sign-in, for the same reason, which is why Ostler only offers this when FileVault is off.
+
+What the installer does control: it does not show the password as you type it, and it does not write it to the install log. The scrambled file is the only copy the installer creates.
+
+Leave this blank to skip automatic sign-in."
+MSG_PROMPT_AUTOLOGIN_PASSWORD="Login password for %s"
+MSG_OK_AUTOLOGIN_CONFIGURED="Automatic sign-in is on for %s, and that login password is now on this Mac at /etc/kcpassword in scrambled form. After a restart this Mac signs itself in, and Ostler's services start with that session. To undo it, turn Automatic login off in System Settings > Users & Groups."
+MSG_INFO_AUTOLOGIN_ALREADY="Automatic sign-in is already set up for %s, so this Mac already has that login password stored at /etc/kcpassword. Leaving both as they are. To undo it, turn Automatic login off in System Settings > Users & Groups."
+MSG_INFO_AUTOLOGIN_DECLINED="Automatic sign-in was not enabled, and no password was stored. After a restart or power-cut, sign in as usual and Ostler's services start with your session."
+MSG_INFO_AUTOLOGIN_SKIPPED_NONINTERACTIVE="Skipping automatic sign-in setup: there is no way to ask for a login password here, and nothing was stored. You can turn Automatic login on later in System Settings > Users & Groups if you want this Mac to recover from a restart unattended. It stores your login password on the Mac in scrambled, reversible form, so it is worth reading up on before you do."
+MSG_WARN_AUTOLOGIN_NO_PASSWORD="No password was entered, so automatic sign-in was not enabled and nothing was stored. If you want it later, turn Automatic login on in System Settings > Users & Groups."
+MSG_WARN_AUTOLOGIN_FAILED="Could not enable automatic sign-in (%s). This is not retried. If /etc/kcpassword exists on this Mac it holds that login password in scrambled form even though the feature is off; you can remove it from Terminal with: sudo rm /etc/kcpassword. To try again, turn Automatic login on in System Settings > Users & Groups."
+MSG_WARN_AUTOLOGIN_FILEVAULT="FileVault is on, so this Mac asks for a password at the boot screen to unlock the disk before anyone can sign in. Automatic sign-in cannot answer that, so after a power-cut this Mac waits at the FileVault unlock screen until someone enters it. Automatic sign-in was not enabled and no password was stored. That is the stronger of the two arrangements: unattended restart recovery is not possible while FileVault is on, and in exchange the disk stays unreadable to anyone who does not have that password."

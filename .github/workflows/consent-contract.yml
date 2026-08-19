@@ -21,6 +21,8 @@ on:
       - 'install.sh.strings.*.sh'
       - 'tests/test_consent_a7_a8.sh'
       - 'tests/test_third_party_data_consent.sh'
+      - 'tests/test_autologin_consent_opt_in.sh'
+      - 'lib/progress_emitter.sh'
       - '.github/workflows/consent-contract.yml'
   pull_request:
     paths:
@@ -28,6 +30,8 @@ on:
       - 'install.sh.strings.*.sh'
       - 'tests/test_consent_a7_a8.sh'
       - 'tests/test_third_party_data_consent.sh'
+      - 'tests/test_autologin_consent_opt_in.sh'
+      - 'lib/progress_emitter.sh'
       - '.github/workflows/consent-contract.yml'
 
 concurrency:
@@ -52,3 +56,23 @@ jobs:
       - name: third-party data consent
         if: always()
         run: bash tests/test_third_party_data_consent.sh
+
+  # SEPARATE JOB, ON macOS, ON PURPOSE. This one does not merely grep the
+  # consent copy -- it EXTRACTS the auto-login consent gate from install.sh and
+  # EXECUTES it, so the shell it runs under has to be the shell install.sh
+  # ships under. That is /bin/bash 3.2.57 on the customer's Mac, not the
+  # bash 5.x on ubuntu-latest. A proof of a shell decision that runs under a
+  # different shell from the artefact is not a proof of the artefact.
+  # (Same reasoning as test-wiring.yml's `runs-on: macos-latest`.)
+  autologin-consent-opt-in:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash on this runner is the shipped 3.2 (control for the step below)
+        if: always()
+        run: /bin/bash --version | head -1
+
+      - name: auto-login consent is opt-in and its copy does not overclaim
+        if: always()
+        run: /bin/bash tests/test_autologin_consent_opt_in.sh
