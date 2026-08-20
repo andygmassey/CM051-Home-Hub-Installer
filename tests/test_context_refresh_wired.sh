@@ -273,4 +273,42 @@ grep -q "ical-server down or empty graph" "$WORKDIR/noauth.out" \
     && fail "the invented-cause message is back (the server was up and answering)"
 echo "functional check: an unauthenticated run fails loudly and names the measured 401"
 
+# ---------------------------------------------------------------------------
+# 6. #5 -- EVERY /api/v1 CALL MUST CARRY THE PARAMETERS THE SERVER REQUIRES
+#
+# MEASURED on a live v1.0.37 box 2026-08-20, against BASE_URL (127.0.0.1:8090),
+# with a valid service token:
+#
+#   /api/v1/coach/recent?hours=336&limit=8            -> 400
+#                        {"error": "user_id query parameter is required"}
+#   /api/v1/coach/recent?hours=336&limit=8&user_id=me -> 200
+#   /api/v1/timeline?days=7                           -> 200
+#   /api/v1/suggestions                               -> 200
+#
+# Auth was fine; exactly one call of six was malformed. It hid inside the
+# earlier 401 sweep -- while every endpoint returned 401, a call that was ALSO
+# missing a required parameter looked identical to the rest. Fixing a whole
+# class at once conceals any member that was broken twice.
+#
+# This asserts the PARAMETER IS PRESENT AT THE CALL SITE. It deliberately does
+# NOT assert a live 400/200: that needs a running Hub, and a check that
+# CANNOT-RUNs on every CI runner proves nothing.
+#
+# Non-zero = BLOCK THE CUT. The digest silently loses its preferences section
+# and the tick exits non-zero on every fire.
+# ---------------------------------------------------------------------------
+_coach_calls="$(grep -c '_get_json("/api/v1/coach/recent' "$GENERATOR" || true)"
+_coach_with_user="$(grep -c '_get_json("/api/v1/coach/recent[^"]*user_id=' "$GENERATOR" || true)"
+[ "${_coach_calls:-0}" -gt 0 ] \
+    || fail "coach/recent call site not found in $GENERATOR -- it moved, and this check is now blind"
+[ "${_coach_with_user:-0}" -eq "${_coach_calls:-0}" ] \
+    || fail "$(( _coach_calls - _coach_with_user )) of ${_coach_calls} coach/recent call site(s) omit user_id -- the server answers 400 and the preferences section is silently dropped"
+
+# ANTI-VACUITY: the predicate must be able to MISS. A pattern that matched
+# anything would report every call site compliant while measuring nothing.
+if grep -q '_get_json("/api/v1/coach/recent[^"]*user_id=' <<< '    data = _get_json("/api/v1/coach/recent?hours=336&limit=8")'; then
+    fail "ANTI-VACUITY FAILED: the user_id pattern matched a call site that has no user_id, so the check above is meaningless"
+fi
+echo "param check: all ${_coach_calls} coach/recent call site(s) send user_id, and the predicate provably misses when it is absent"
+
 echo "PASS: context-refresh wiring guard (#608)"
