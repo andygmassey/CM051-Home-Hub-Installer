@@ -111,7 +111,7 @@ def write_calendar(tmp: Path, attendees: list[str]) -> Path:
     return tmp
 
 
-MUM = "https://pwg.dev/ontology#person_0d3b1069e8e5"
+MUM = "https://schema.ostler.ai/ontology#person_0d3b1069e8e5"
 ADDR = "marlow.bexley@example.com"
 
 

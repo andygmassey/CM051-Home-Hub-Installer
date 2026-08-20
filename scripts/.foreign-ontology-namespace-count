@@ -1,37 +1,46 @@
-# DECLARED COUNT of occurrences of a pwg-branded ontology namespace.
+# DECLARED COUNT of occurrences of a pwg-branded ontology identifier.
 # See scripts/verify_no_foreign_ontology_namespace.sh for why this exists.
 #
-# THE BASIS OF THIS NUMBER CHANGED, and saying so is the whole point of this
-# comment. A ratchet number that silently changes basis is not evidence about
-# anything: comparing it to the previous number compares two different
-# questions and reads as a regression that never happened.
+# THE BASIS OF THIS NUMBER CHANGED TWICE, and saying so is the whole point of
+# this comment. A ratchet number that silently changes basis is not evidence
+# about anything: comparing it to the previous number compares two different
+# questions and reads as a regression, or a win, that never happened.
 #
-#   PREVIOUS BASIS   276, counting the unregistered domain only, and
-#                    excluding nothing.
+#   BASIS 1   276, counting the unregistered domain only, excluding nothing.
 #
-#   THIS BASIS       294, measured 2026-08-17 on 7cc2a6f, counting BOTH
-#                    pwg-branded domains and excluding the gate's own three
-#                    files:
+#   BASIS 2   294, measured 2026-08-17 on 7cc2a6f, counting BOTH pwg-branded
+#             domains and excluding the gate's own three files:
+#                 unregistered domain    278
+#                 mDNS-reserved domain    16
 #
-#                        unregistered domain    278
-#                        mDNS-reserved domain    16
-#                        --------------------------
-#                        total                  294   across 67 files
+#   BASIS 3   0, measured 2026-08-20. The regex now also matches `urn:pwg:`,
+#             and the migration ran. Both halves of that sentence matter and
+#             the order is the uncomfortable part:
 #
-# WHY 294 AND NOT 292. The 292 in the first draft of this change was measured
-# before four PRs landed on main, and with an exclusion pathspec that named
-# `tests/test_...` when the test actually lives at `scripts/tests/`. A
-# pathspec naming a file that does not exist excludes nothing and git says
-# nothing, so the gate went on counting one occurrence inside its own test.
-# Both errors are corrected here and the number was re-measured rather than
-# adjusted.
+#                 what basis 2 could see        294
+#                 what it could not see         192   (urn:pwg: in this tree)
+#                 -------------------------------------
+#                 real total before migration   486
+#                 after migration                 0
+#
+# THE NUMBER WENT UP BEFORE IT WENT TO ZERO, AND THAT IS THE HONEST STORY.
+# Basis 2 was not 294 out of 294. It was 294 out of 486, because a pattern
+# built around a dotted host cannot match a URN. Had the migration run against
+# basis 2 alone, this file would have read 0, the gate would have gone hard,
+# and 192 pwg-branded identifiers would have shipped in the customer's primary
+# keys with a green gate over them. That is the exact failure this file's
+# BASIS 2 comment was written to prevent, one regex-shape away.
+#
+# ZERO IS NOT A TARGET THAT WAS REACHED, IT IS NOW A FLOOR. The gate is HARD
+# at zero: it exits 1 on any occurrence, in any file, in any tree it is run
+# against. There is no advisory state left to fall back into. If a re-vendor
+# or a new dependency reintroduces one, the build fails, which is the point.
 #
 # THE EXCLUSIONS EXIST BECAUSE THE INSTRUMENT MUST NOT MEASURE ITSELF. The
-# gate, this file and the gate's test all NAME the domains in prose in order
-# to explain what they are for. Without the exclusions, widening the regex
-# raised the number purely because the new comment mentioned the new domain.
-#
-# THIS NUMBER MAY ONLY GO DOWN FROM HERE. Lower it in the same commit that
-# removes occurrences. It reaches 0 when the source repos are migrated and
-# re-vendored, and then it stays at 0 forever.
-294
+# gate, this file and the gate's test all NAME the identifiers in prose in
+# order to explain what they are for. Two documentation files that also named
+# them -- docs/EGRESS_INVENTORY.md and cuts/DEFECTS_ROLLFORWARD.md -- were
+# REWRITTEN rather than added to the exclusion list, deliberately: every new
+# exclusion is a place a real occurrence can hide later, and the exclusion
+# list should only ever hold files whose job is to police the thing.
+0

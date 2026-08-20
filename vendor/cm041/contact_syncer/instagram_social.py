@@ -226,11 +226,11 @@ def create_person_oxigraph(
         triples.append(f'<{person_uri}> pwg:familyName "{_escape(identity.family_name)}"')
     if user_id:
         triples.append(
-            f"<{person_uri}> pwg:belongsToUser <https://pwg.dev/ontology#user_{user_id}>"
+            f"<{person_uri}> pwg:belongsToUser <https://schema.ostler.ai/ontology#user_{user_id}>"
         )
 
     # Instagram username identifier
-    id_uri = f"https://pwg.dev/ontology#id_{person_id}_instagram"
+    id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_instagram"
     triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
     triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
     triples.append(f'<{id_uri}> pwg:identifierType "instagram_username"')
@@ -239,7 +239,7 @@ def create_person_oxigraph(
         triples.append(f'<{id_uri}> pwg:identifierURL "{_escape(profile_url)}"')
 
     sparql = (
-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
         "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
     )
@@ -258,7 +258,7 @@ def enrich_person_oxigraph(
 
     Also updates createdAt if the Instagram connection date is earlier.
     """
-    id_uri = f"https://pwg.dev/ontology#id_{person_id}_instagram"
+    id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_instagram"
     triples = [
         f"<{person_uri}> pwg:hasIdentifier <{id_uri}>",
         f"<{id_uri}> a pwg:PersonIdentifier",
@@ -269,7 +269,7 @@ def enrich_person_oxigraph(
         triples.append(f'<{id_uri}> pwg:identifierURL "{_escape(profile_url)}"')
 
     sparql = (
-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
         "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
     )
     _sparql_update(oxigraph_url, sparql)
@@ -280,7 +280,7 @@ def enrich_person_oxigraph(
             dt = datetime.fromtimestamp(connection_timestamp, tz=timezone.utc)
             ig_date = dt.isoformat()
             update_sparql = (
-                "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                 "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                 f"DELETE {{ <{person_uri}> pwg:createdAt ?old }}\n"
                 f"INSERT {{ <{person_uri}> pwg:createdAt \"{ig_date}\"^^xsd:dateTime }}\n"
@@ -580,7 +580,7 @@ def import_instagram(
             else:
                 # New person — create in PWG
                 person_id = str(uuid.uuid4()).replace("-", "")[:12]
-                person_uri = f"https://pwg.dev/ontology#person_{person_id}"
+                person_uri = f"https://schema.ostler.ai/ontology#person_{person_id}"
 
                 if verbose:
                     print(f" → NEW")

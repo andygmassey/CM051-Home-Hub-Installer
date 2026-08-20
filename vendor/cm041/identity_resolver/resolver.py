@@ -20,7 +20,7 @@ from .normalise import _jaro_winkler, normalise_email, normalise_phone
 
 logger = logging.getLogger(__name__)
 
-PWG = "https://pwg.dev/ontology#"
+PWG = "https://schema.ostler.ai/ontology#"
 
 # Store URLs proven this process to NOT be in --union-default-graph mode
 # (AUDIT_4 HIGH-1 guard). Probed on the FIRST secondary-compartment wire
@@ -978,7 +978,7 @@ def _escape(value: str) -> str:
 
 
 def _extract_short_id(person_uri: str) -> str:
-    # person_uri is like "https://pwg.dev/ontology#person_abc123def456"
+    # person_uri is like "https://schema.ostler.ai/ontology#person_abc123def456"
     prefix = f"{PWG}person_"
     if person_uri.startswith(prefix):
         return person_uri[len(prefix):]

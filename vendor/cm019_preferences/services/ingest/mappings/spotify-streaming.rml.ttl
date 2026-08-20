@@ -1,7 +1,7 @@
 @prefix rml: <http://semweb.mmlab.be/ns/rml#> .
 @prefix rr: <http://www.w3.org/ns/r2rml#> .
 @prefix ql: <http://semweb.mmlab.be/ns/ql#> .
-@prefix pwg: <https://pwg.dev/ontology#> .
+@prefix pwg: <https://schema.ostler.ai/ontology#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
@@ -16,7 +16,7 @@
     ] ;
 
     rr:subjectMap [
-        rr:template "https://pwg.dev/data/listen/{endTime}_{trackName}" ;
+        rr:template "https://schema.ostler.ai/data/listen/{endTime}_{trackName}" ;
         rr:class pwg:ListeningEvent
     ] ;
 
@@ -66,7 +66,7 @@
     rr:predicateObjectMap [
         rr:predicate pwg:hasTrack ;
         rr:objectMap [
-            rr:template "https://pwg.dev/data/track/{trackName}_{artistName}" ;
+            rr:template "https://schema.ostler.ai/data/track/{trackName}_{artistName}" ;
             rr:termType rr:IRI
         ]
     ] .
@@ -80,7 +80,7 @@
     ] ;
 
     rr:subjectMap [
-        rr:template "https://pwg.dev/data/track/{trackName}_{artistName}" ;
+        rr:template "https://schema.ostler.ai/data/track/{trackName}_{artistName}" ;
         rr:class pwg:Track
     ] ;
 
@@ -94,7 +94,7 @@
     rr:predicateObjectMap [
         rr:predicate pwg:hasArtist ;
         rr:objectMap [
-            rr:template "https://pwg.dev/data/artist/{artistName}" ;
+            rr:template "https://schema.ostler.ai/data/artist/{artistName}" ;
             rr:termType rr:IRI
         ]
     ] .
@@ -108,7 +108,7 @@
     ] ;
 
     rr:subjectMap [
-        rr:template "https://pwg.dev/data/artist/{artistName}" ;
+        rr:template "https://schema.ostler.ai/data/artist/{artistName}" ;
         rr:class pwg:Artist
     ] ;
 

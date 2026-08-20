@@ -83,7 +83,7 @@ class DedupDetector:
     def _get_all_persons(self) -> List[Dict[str, str]]:
         """Fetch all person nodes with their identifiers."""
         query = """
-        PREFIX pwg: <https://pwg.dev/ontology#>
+        PREFIX pwg: <https://schema.ostler.ai/ontology#>
         SELECT ?person ?name ?org ?idType ?idValue WHERE {
             ?person a pwg:Person ;
                     pwg:displayName ?name .

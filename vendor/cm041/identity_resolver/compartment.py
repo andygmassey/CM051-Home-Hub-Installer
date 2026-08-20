@@ -9,7 +9,7 @@ EXACTLY today's storage layout. Nothing about single-user behaviour changes:
     Surface                       PRIMARY (default, today)    Secondary user (e.g. priya)
     ============================  =========================  ==========================
     Oxigraph graph                default graph (no GRAPH)   named graph
-                                                             ``https://pwg.dev/graph/user/priya``
+                                                             ``https://schema.ostler.ai/graph/user/priya``
     SPARQL read endpoint          ``{base}/query``           ``{base}/query?default-graph-uri=...``
     SPARQL INSERT DATA payload    unchanged                  wrapped in ``GRAPH <iri> { ... }``
     Qdrant collection             base name unchanged        ``user__priya__<base>``
@@ -101,8 +101,8 @@ __all__ = [
     "assert_default_graph_isolated",
 ]
 
-PWG_NS = "https://pwg.dev/ontology#"
-USER_GRAPH_BASE = "https://pwg.dev/graph/user/"
+PWG_NS = "https://schema.ostler.ai/ontology#"
+USER_GRAPH_BASE = "https://schema.ostler.ai/graph/user/"
 
 #: Env var that gates the DEFERRED multiuser paths. The groundwork ships
 #: OFF: unless this is exactly ``"1"``, resolving any SECONDARY (named)
@@ -469,7 +469,7 @@ def guard_read(requesting: UserCompartment, resource_owner: UserCompartment) -> 
 #: Named graph the union-mode probe writes its throwaway sentinel into.
 #: Deliberately NOT under ``USER_GRAPH_BASE`` so no real user compartment
 #: can ever collide with probe traffic.
-UNION_PROBE_GRAPH_IRI = "https://pwg.dev/graph/compartment-union-probe"
+UNION_PROBE_GRAPH_IRI = "https://schema.ostler.ai/graph/compartment-union-probe"
 
 
 def assert_default_graph_isolated(
@@ -510,14 +510,14 @@ def assert_default_graph_isolated(
     probe costs two updates and one query.
     """
     nonce = uuid.uuid4().hex
-    sentinel = f"urn:pwg:union-probe:{nonce}"
-    triple = f'<{sentinel}> <urn:pwg:union-probe> "{nonce}"'
+    sentinel = f"urn:ostler:union-probe:{nonce}"
+    triple = f'<{sentinel}> <urn:ostler:union-probe> "{nonce}"'
     run_update(
         f"INSERT DATA {{ GRAPH <{UNION_PROBE_GRAPH_IRI}> {{ {triple} }} }}"
     )
     try:
         results = run_default_graph_query(
-            f"SELECT ?leak WHERE {{ <{sentinel}> <urn:pwg:union-probe> ?leak }}"
+            f"SELECT ?leak WHERE {{ <{sentinel}> <urn:ostler:union-probe> ?leak }}"
         )
         bindings = results.get("results", {}).get("bindings", [])
     finally:

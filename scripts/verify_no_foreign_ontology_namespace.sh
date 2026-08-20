@@ -111,10 +111,33 @@ COUNT_FILE="${OSTLER_NS_COUNT_FILE:-$REPO/scripts/.foreign-ontology-namespace-co
 # another: `.local` is reserved for mDNS, so it can never be resolved or
 # owned, and any tooling that dereferences it is querying the local network.
 # It is better only in that it cannot be taken by a stranger.
-FOREIGN_RE='pwg\.(dev|local)'
+#
+# THE THIRD WIDENING, 2026-08-20, AND IT IS THE SAME MISS TWICE OVER.
+# The note above records widening this regex once, from pwg.dev alone to both
+# domains, because a domain-only pattern could not see pwg.local. It stopped
+# there. Measured today, the trees also carried 365 occurrences of `urn:pwg:`
+# -- preference, person, todo, conversation, user, hygiene and named-graph
+# identifiers -- and a pattern built around a DOTTED HOST cannot match a URN,
+# because a URN has no host and no dot. So the gate read 294 while the real
+# figure across the shipping trees was 1,011, and it would have gone green on
+# a migration that left a third of the problem in place.
+#
+# A URN is the worst of the three to leave behind. The other two are wrong
+# because of who does or does not own a domain, which a purchase could in
+# principle fix. `urn:pwg:` is non-dereferenceable by construction and is
+# simply the old internal project name, permanently, in the customer's own
+# primary keys. Nothing can rescue it later; it has to not ship.
+FOREIGN_RE='pwg\.(dev|local)|urn:pwg:'
 
 # Ours, for the message. Any replacement must land on a domain we control.
-OURS='https://ostler.ai/ontology#'
+#
+# This said `https://ostler.ai/ontology#` until 2026-08-20 and that was the
+# gate author's suggestion, not the decision. Andy's ruling, recorded in
+# GROUNDING and independently in docs/EGRESS_INVENTORY.md, is
+# schema.ostler.ai with no purchase of the old domain. A gate that recommends
+# a different target from the one the migration is executing would have split
+# the namespace in two, which is strictly worse than either choice alone.
+OURS='https://schema.ostler.ai/ontology#'
 
 [ -f "$COUNT_FILE" ] || {
     echo "CANNOT-RUN: no declared count at '$COUNT_FILE'." >&2
@@ -122,8 +145,22 @@ OURS='https://ostler.ai/ontology#'
     echo "  any tree, including one that had just doubled." >&2
     exit 2
 }
-declared="$(grep -vE '^[[:space:]]*#' "$COUNT_FILE" | tr -dc '0-9')"
+# THE SIGN MATTERS AND `tr -dc '0-9'` EATS IT. Read the declaration as a
+# whole token and validate it, rather than scraping digits out of whatever is
+# there. The old form deleted every non-digit, so a declaration of -50 was
+# read as 50: a nonsense input became a plausible number and the gate then
+# reported a confident verdict about a question nobody had asked. The
+# companion test's 7b arm produced exactly that value by arithmetic and the
+# resulting failure looked like a broken gate rather than a mis-parsed input.
+declared="$(grep -vE '^[[:space:]]*#' "$COUNT_FILE" | tr -d '[:space:]')"
 [ -n "$declared" ] || { echo "CANNOT-RUN: '$COUNT_FILE' declares no number." >&2; exit 2; }
+case "$declared" in
+    ''|*[!0-9]*)
+        echo "CANNOT-RUN: '$COUNT_FILE' declares '${declared}', which is not a" >&2
+        echo "  non-negative integer. A count cannot be negative and cannot be" >&2
+        echo "  text; refusing rather than coercing it into something plausible." >&2
+        exit 2 ;;
+esac
 
 # grep -c per file then sum: `git grep -c` prints per-file counts, and a plain
 # line count would undercount two occurrences on one line.
@@ -141,10 +178,24 @@ declared="$(grep -vE '^[[:space:]]*#' "$COUNT_FILE" | tr -dc '0-9')"
 # includes the very file the line was written to remove. The first draft of
 # this list said `tests/test_...` when the test lives at `scripts/tests/`,
 # so the gate went on counting its own test and nothing said a word.
+#
+# THE FOURTH ENTRY IS THE MIGRATION TOOL, AND THIS GATE ADDED IT BY FIRING.
+# scripts/migrate_graph_namespace.py rewrites pwg-branded identifiers in a live
+# store, so it must CARRY the patterns it rewrites FROM -- 15 occurrences, in
+# its rules and in the docstring explaining why they are wrong. The gate
+# counted them and went red on the very commit that finishes the migration.
+# That is the instrument measuring itself, exactly as with the three files
+# above, and the same category: a file whose job is to police or perform the
+# thing has to be able to name it.
+#
+# It is the ONLY kind of file that earns a place here. Every exclusion is
+# somewhere a real occurrence can hide later, which is why two documentation
+# files that merely MENTIONED the namespaces were rewritten instead of listed.
 SELF=(
   ":(exclude)scripts/verify_no_foreign_ontology_namespace.sh"
   ":(exclude)scripts/.foreign-ontology-namespace-count"
   ":(exclude)scripts/tests/test_no_foreign_ontology_namespace.sh"
+  ":(exclude)scripts/migrate_graph_namespace.py"
 )
 actual="$(git grep -ohE "$FOREIGN_RE" -- . "${SELF[@]}" 2>/dev/null | grep -c . || true)"
 files="$(git grep -lE "$FOREIGN_RE" -- . "${SELF[@]}" 2>/dev/null | grep -c . || true)"

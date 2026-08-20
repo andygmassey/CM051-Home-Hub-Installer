@@ -42,7 +42,7 @@ import httpx
 from contact_syncer import config
 from contact_syncer import privacy_model as pm
 
-PWG_NS = "https://pwg.dev/ontology#"
+PWG_NS = "https://schema.ostler.ai/ontology#"
 
 #: The owner's own identity node is owner-private by default.
 OWNER_PRIVACY_LEVEL = pm.LEVEL_L0

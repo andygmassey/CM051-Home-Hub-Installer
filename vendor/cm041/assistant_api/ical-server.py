@@ -440,7 +440,7 @@ def _is_personal_admin_event(event):
 
 
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
-PWG_NS = "https://pwg.dev/ontology#"
+PWG_NS = "https://schema.ostler.ai/ontology#"
 
 # ── Security & config (added 2026-04-14) ─────────────────────────────
 MAX_POST_BYTES = int(os.environ.get("MAX_POST_BYTES", "1048576"))  # 1 MB
@@ -537,7 +537,7 @@ from identity_resolver.compartment import normalise_user_id as _normalise_user_i
 _raw_user_id = os.environ.get("USER_ID", "").strip()
 USER_ID = _normalise_user_id(_raw_user_id) if _raw_user_id else ""
 USER_URI = (
-    f"https://pwg.dev/ontology#user_{USER_ID}" if USER_ID else ""
+    f"https://schema.ostler.ai/ontology#user_{USER_ID}" if USER_ID else ""
 )
 MEMORY_LIMIT = int(os.environ.get("MEMORY_LIMIT", "50"))
 MEMORY_CORRECTIONS_DB = Path(os.environ.get(
@@ -1594,7 +1594,7 @@ _ASSERT_DISAMBIGUATION_MARGIN = float(
 def _mint_person_uri():
     """Mint a new Person URI in the same shape contact_syncer uses.
 
-    contact_syncer mints ``https://pwg.dev/ontology#person_<12-hex>`` from
+    contact_syncer mints ``https://schema.ostler.ai/ontology#person_<12-hex>`` from
     a uuid4. We keep that shape so a user-asserted Person node is
     indistinguishable from a contact-synced one downstream. Returns
     ``(person_uri, person_id)``.
@@ -2244,7 +2244,7 @@ def _memory_fact_id(uri: str) -> str:
     forms are accepted on the POST path -- we round-trip them through
     the corrections table verbatim.
     """
-    prefix = "https://pwg.dev/ontology#"
+    prefix = "https://schema.ostler.ai/ontology#"
     if uri.startswith(prefix):
         return uri[len(prefix):]
     return uri
@@ -2360,7 +2360,7 @@ def _hygiene_overlay():
 # triple (Surface B, person_context/person_enrichment) or confidence-first
 # from undated self-facts (Surface A, api_memory_list) -- neither respected
 # recency, validity, supersession, or cross-signal corroboration, and the
-# already-built Memory-Hygiene verdicts (urn:pwg:hygiene) had ZERO read
+# already-built Memory-Hygiene verdicts (urn:ostler:hygiene) had ZERO read
 # consumers.
 #
 # The fix reads the CURRENT employer deterministically from the reified,
@@ -2379,7 +2379,7 @@ def _hygiene_overlay():
 # trigger designed in EMPLOYER_IDENTITY_MERGE_PLAN.md.
 EMPLOYER_HALF_LIFE_DAYS = 365 * 3
 
-_HYGIENE_GRAPH = "urn:pwg:hygiene"
+_HYGIENE_GRAPH = "urn:ostler:hygiene"
 # Verdict statuses that must drop a fact from every read surface. Mirrors
 # ostler_hygiene.model STATUS_SUPERSEDED / STATUS_ARCHIVED / STATUS_DELETED.
 _HYGIENE_DROP_STATUSES = frozenset({"superseded", "archived", "deleted"})
@@ -2390,7 +2390,7 @@ def _hygiene_verdicts() -> dict:
 
     Returns ``{fact_uri: {"status": str, "effective_weight": float|None,
     "superseded_by": str|None}}`` read from the isolated
-    ``<urn:pwg:hygiene>`` named graph. Never raises: any failure (graph
+    ``<urn:ostler:hygiene>`` named graph. Never raises: any failure (graph
     absent, Oxigraph down, hygiene never run) yields ``{}`` so the read
     paths degrade to raw source facts exactly as before this overlay
     existed -- absence of a verdict means "active + full weight" per the
@@ -2865,7 +2865,7 @@ def api_memory_list():
         }
 
     corrections = _memory_load_corrections()
-    # Memory-Hygiene overlay (LEFT JOIN urn:pwg:hygiene). Empty {} when
+    # Memory-Hygiene overlay (LEFT JOIN urn:ostler:hygiene). Empty {} when
     # hygiene has never run -> behaviour is unchanged from pre-overlay.
     # A verdict lets the pass RETIRE a fact (superseded/archived/deleted)
     # and re-rank survivors by effectiveWeight instead of raw confidence.
@@ -3150,7 +3150,7 @@ def person_context(name):
             '}}'.format(ns=PWG_NS, uri=uri)
         )
         if facts:
-            # Memory-Hygiene overlay (LEFT JOIN <urn:pwg:hygiene>): drop any
+            # Memory-Hygiene overlay (LEFT JOIN <urn:ostler:hygiene>): drop any
             # fact the pass retired (superseded/archived/deleted) BEFORE the
             # L3 filter, via the canonical ostler_hygiene reader. build_facts_
             # query() scores facts about EVERY person, not just the operator,
@@ -3186,10 +3186,10 @@ def person_context(name):
         person_slug = _wiki_slug(pname)
         signals = _sparql_select(
             'SELECT ?warmth ?trust ?observedAt WHERE {{\n'
-            '  ?signal <urn:pwg:about> ?person .\n'
-            '  ?signal <urn:pwg:warmth> ?warmth .\n'
-            '  ?signal <urn:pwg:trust> ?trust .\n'
-            '  ?signal <urn:pwg:observedAt> ?observedAt .\n'
+            '  ?signal <urn:ostler:about> ?person .\n'
+            '  ?signal <urn:ostler:warmth> ?warmth .\n'
+            '  ?signal <urn:ostler:trust> ?trust .\n'
+            '  ?signal <urn:ostler:observedAt> ?observedAt .\n'
             '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'
             '}} ORDER BY DESC(?observedAt) LIMIT 1'.format(slug=person_slug)
         )
@@ -3500,10 +3500,10 @@ def person_enrichment(slug):
 
         signals = _sparql_select(
             'SELECT ?warmth ?trust ?observedAt WHERE {{\n'
-            '  ?signal <urn:pwg:about> ?person .\n'
-            '  ?signal <urn:pwg:warmth> ?warmth .\n'
-            '  ?signal <urn:pwg:trust> ?trust .\n'
-            '  ?signal <urn:pwg:observedAt> ?observedAt .\n'
+            '  ?signal <urn:ostler:about> ?person .\n'
+            '  ?signal <urn:ostler:warmth> ?warmth .\n'
+            '  ?signal <urn:ostler:trust> ?trust .\n'
+            '  ?signal <urn:ostler:observedAt> ?observedAt .\n'
             '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'
             '}} ORDER BY DESC(?observedAt) LIMIT 1'.format(slug=slug)
         )
@@ -3619,8 +3619,8 @@ def person_timeline(slug, limit=50, days=None):
     Sources actually queryable from the graph today:
       - meetings: ``pwg:Meeting`` nodes with ``pwg:meetingAttendee`` ->
         one dated event per meeting (summary + location).
-      - conversations: CM048 writes ``<fact> urn:pwg:about <person> ;
-        urn:pwg:fromConversation <conv>`` with an optional ``urn:pwg:date``
+      - conversations: CM048 writes ``<fact> urn:ostler:about <person> ;
+        urn:ostler:fromConversation <conv>`` with an optional ``urn:ostler:date``
         on the conversation; we collapse to one dated event per distinct
         conversation and deep-link the wiki Conversations page.
       - email / WhatsApp / iMessage: the graph holds only a single
@@ -3724,15 +3724,15 @@ def person_timeline(slug, limit=50, days=None):
         degraded_sources.append(f"meetings: {exc}")
 
     # --- Conversations (one dated event per distinct conversation) ------
-    # CM048 writes <fact> urn:pwg:about <person> ; urn:pwg:fromConversation
+    # CM048 writes <fact> urn:ostler:about <person> ; urn:ostler:fromConversation
     # <conv>. The same person can have many facts from one conversation, so
     # we collapse to one event per conversation URI, keeping its date.
     try:
         conv_rows = _sparql_select(
             'SELECT DISTINCT ?conv ?date WHERE {{\n'
-            '  ?fact <urn:pwg:about> <{uri}> ; '
-            '<urn:pwg:fromConversation> ?conv .\n'
-            '  OPTIONAL {{ ?conv <urn:pwg:date> ?date }}\n'
+            '  ?fact <urn:ostler:about> <{uri}> ; '
+            '<urn:ostler:fromConversation> ?conv .\n'
+            '  OPTIONAL {{ ?conv <urn:ostler:date> ?date }}\n'
             '}}'.format(uri=person_uri)
         )
         seen_convs = set()
@@ -3744,7 +3744,7 @@ def person_timeline(slug, limit=50, days=None):
             iso = (r.get("date") or "")[:10]
             if not iso:
                 continue
-            prefix = "urn:pwg:conversation/"
+            prefix = "urn:ostler:conversation/"
             conv_id = (conv_uri[len(prefix):]
                        if conv_uri.startswith(prefix) else conv_uri)
             events.append({
@@ -3868,7 +3868,7 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
     Read-only listing of ``pwg:Decision`` nodes (the typed "what did we
     decide about X?" promotion written by CM041
     ``meeting_syncer/decision_extractor.py``). Node shape (NS
-    ``https://pwg.dev/ontology#`` == PWG_NS):
+    ``https://schema.ostler.ai/ontology#`` == PWG_NS):
 
       <pwg:decision_<id>> a pwg:Decision ;
           pwg:decisionSummary "..." ;
@@ -4136,10 +4136,10 @@ def commitments_list(owner=None, due_before=None, status="open",
     Read-only listing of ``pwg:OutstandingTodo`` nodes -- the
     open-commitments wing CM048 writes (and ``meeting_syncer/brief.py``
     already reads for the pre-meeting brief). This reuses that query
-    shape. Note the OutstandingTodo predicates live under the ``urn:pwg:``
+    shape. Note the OutstandingTodo predicates live under the ``urn:ostler:``
     namespace (not PWG_NS, which the typed Person/Decision/Topic nodes
-    use) -- ``<urn:pwg:OutstandingTodo>``, ``<urn:pwg:todoText>``,
-    ``<urn:pwg:owner>``, ``<urn:pwg:deadline>``, ``<urn:pwg:status>``,
+    use) -- ``<urn:ostler:OutstandingTodo>``, ``<urn:ostler:todoText>``,
+    ``<urn:ostler:owner>``, ``<urn:ostler:deadline>``, ``<urn:ostler:status>``,
     matching brief._get_outstanding_todos.
 
     Filters (all optional, AND-combined):
@@ -4168,13 +4168,13 @@ def commitments_list(owner=None, due_before=None, status="open",
     try:
         rows = _sparql_select(
             'SELECT ?todo ?action ?owner ?deadline ?status ?source ?createdAt WHERE {\n'
-            '  ?todo a <urn:pwg:OutstandingTodo> ;\n'
-            '        <urn:pwg:todoText> ?action ;\n'
-            '        <urn:pwg:owner> ?owner ;\n'
-            '        <urn:pwg:status> ?status .\n'
-            '  OPTIONAL { ?todo <urn:pwg:deadline> ?deadline }\n'
-            '  OPTIONAL { ?todo <urn:pwg:sourceConversationDate> ?source }\n'
-            '  OPTIONAL { ?todo <urn:pwg:todoCreatedAt> ?createdAt }\n'
+            '  ?todo a <urn:ostler:OutstandingTodo> ;\n'
+            '        <urn:ostler:todoText> ?action ;\n'
+            '        <urn:ostler:owner> ?owner ;\n'
+            '        <urn:ostler:status> ?status .\n'
+            '  OPTIONAL { ?todo <urn:ostler:deadline> ?deadline }\n'
+            '  OPTIONAL { ?todo <urn:ostler:sourceConversationDate> ?source }\n'
+            '  OPTIONAL { ?todo <urn:ostler:todoCreatedAt> ?createdAt }\n'
             + status_filter +
             '}'
         )

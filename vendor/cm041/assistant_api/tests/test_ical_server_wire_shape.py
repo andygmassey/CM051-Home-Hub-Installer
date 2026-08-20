@@ -585,7 +585,7 @@ class PersonEnrichmentEndpointTests(unittest.TestCase):
     has no dependency on a running Oxigraph or Qdrant."""
 
     _JANE_NAME = "Jane Doe"
-    _JANE_URI = "urn:pwg:person/jane-doe"
+    _JANE_URI = "urn:ostler:person/jane-doe"
 
     @staticmethod
     def _qdrant_empty(*_args, **_kwargs):
@@ -606,7 +606,7 @@ class PersonEnrichmentEndpointTests(unittest.TestCase):
                           candidates=None):
         cand_rows = candidates if candidates is not None else [
             {"person": self._JANE_URI, "name": self._JANE_NAME},
-            {"person": "urn:pwg:person/other", "name": "Other Person"},
+            {"person": "urn:ostler:person/other", "name": "Other Person"},
         ]
 
         def fake_sparql(query):
@@ -622,7 +622,7 @@ class PersonEnrichmentEndpointTests(unittest.TestCase):
                 return []
             if "pwg:Meeting" in query:
                 return meetings or []
-            if "urn:pwg:warmth" in query:
+            if "urn:ostler:warmth" in query:
                 return []
             return []
 
@@ -660,7 +660,7 @@ class PersonEnrichmentEndpointTests(unittest.TestCase):
     def test_unknown_slug_returns_404(self):
         fake = self._make_fake_sparql(
             core_row={},
-            candidates=[{"person": "urn:pwg:person/x", "name": "Someone Else"}],
+            candidates=[{"person": "urn:ostler:person/x", "name": "Someone Else"}],
         )
         with mock.patch.object(ical_server, "_sparql_select", side_effect=fake):
             result, status = ical_server.person_enrichment("no-such-person")

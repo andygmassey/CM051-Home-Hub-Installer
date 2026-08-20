@@ -26,7 +26,7 @@ five ways -- a fact is tombstoned ``archived`` only when ALL hold:
 expired fact ("in Tokyo this week") archives regardless of weight.
 
 Nothing here mutates or deletes a source fact. An archival tombstone is
-a ``HygieneVerdict`` row in the ``<urn:pwg:hygiene>`` named graph
+a ``HygieneVerdict`` row in the ``<urn:ostler:hygiene>`` named graph
 carrying full provenance (reason, run id, timestamp, the weights that
 justified it); un-archiving is deleting that row (``graph_io.
 build_verdict_undo``), after which the untouched source fact is simply
@@ -66,14 +66,14 @@ def corroboration_count(fact: FactRecord) -> int:
 
     An explicit writer-supplied count wins. Otherwise it is derived from
     the CM048 Foundry candidate lifecycle (spec 3.4): a promoted
-    (non-candidate) ``urn:pwg:`` fact was corroborated by a second
+    (non-candidate) ``urn:ostler:`` fact was corroborated by a second
     independent source by construction, so counts 2; a still-candidate
     fact counts 1. CM041 ``pwg:PersonFact`` rows have no corroboration
     machinery, so they conservatively count 1.
     """
     if fact.corroboration_count is not None:
         return max(int(fact.corroboration_count), 0)
-    if fact.uri.startswith("urn:pwg:") and not fact.candidate:
+    if fact.uri.startswith("urn:ostler:") and not fact.candidate:
         return 2
     return 1
 

@@ -35,7 +35,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
-PWG = "https://pwg.dev/ontology#"
+PWG = "https://schema.ostler.ai/ontology#"
 
 # Identifier types treated as exact-identity keys (RULE 1). Instagram /
 # twitter / facebook handles are intentionally NOT here -- they are

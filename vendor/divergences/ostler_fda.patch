@@ -487,7 +487,7 @@
 +                triples.extend(_creation_name_triples(uri, participant))
 +
                  # Add identifier
-                 id_uri = f"https://pwg.dev/ontology#id_{person_id}_imessage"
+                 id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_imessage"
                  triples.extend([
 @@ -328,6 +541,12 @@
                      _sparql_update(sparql)
@@ -558,7 +558,7 @@
 +    )
 +    try:
 +        _sparql_update(
-+            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
++            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
 +            "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
 +            "DELETE {\n"
 +            f"  <{person_uri}> pwg:displayName ?old .\n"
@@ -619,7 +619,7 @@
 +                # #576: the helper flags the bare-number placeholder so the
 +                # resolver may overwrite it and surfaces can suppress it.
 +                triples.extend(_creation_name_triples(uri, display))
-                 id_uri = f"https://pwg.dev/ontology#id_{person_id}_whatsapp"
+                 id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_whatsapp"
                  triples.extend([
                      f"<{uri}> pwg:hasIdentifier <{id_uri}>",
 @@ -617,6 +920,12 @@
@@ -651,7 +651,7 @@
 +                    # address became the person's permanent name.
 +                    triples.extend(_creation_name_triples(uri, attendee))
                      sparql = (
-                         "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                         "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                          "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
 @@ -700,6 +1013,12 @@
                      )
@@ -711,7 +711,7 @@
 +            # was stuck with an email address as their name for good.
 +            triples.extend(_creation_name_triples(uri, email))
  
-             id_uri = f"https://pwg.dev/ontology#id_{person_id}_mail"
+             id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_mail"
              triples.extend([
 @@ -877,6 +1209,12 @@
              _sparql_update(sparql)
@@ -844,7 +844,7 @@
 +        _NAME_TIER_PLACEHOLDER,
 +    )
 +
-+NS = "https://pwg.dev/ontology#"
++NS = "https://schema.ostler.ai/ontology#"
 +SKOS = "http://www.w3.org/2004/02/skos/core#"
 +OXIGRAPH = os.environ.get("OSTLER_OXIGRAPH_URL", "http://127.0.0.1:7878")
 +

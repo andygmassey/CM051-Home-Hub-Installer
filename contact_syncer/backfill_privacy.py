@@ -51,7 +51,7 @@ import httpx
 from contact_syncer import config
 from contact_syncer import privacy_model as pm
 
-PWG_NS = "https://pwg.dev/ontology#"
+PWG_NS = "https://schema.ostler.ai/ontology#"
 
 # Node types whose untagged instances we backfill.
 TARGET_TYPES = ("PersonFact", "RelationshipSignal")

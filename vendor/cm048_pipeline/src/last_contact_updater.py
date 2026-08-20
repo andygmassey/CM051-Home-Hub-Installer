@@ -23,7 +23,7 @@ scheme, and idempotent SPARQL pattern of the existing HR015 writer
 reader consumes:
 
 - Person nodes are typed ``pwg:Person`` in the namespace
-  ``https://pwg.dev/ontology#`` (NOT CM048's ``urn:pwg:`` fact namespace).
+  ``https://schema.ostler.ai/ontology#`` (NOT CM048's ``urn:ostler:`` fact namespace).
 - The predicate is ``pwg:lastContactWhatsApp`` for the WhatsApp channel,
   one of the four per-source predicates the wiki reader queries
   (``CM044/compiler/pwg_data.py`` ``LAST_CONTACT_PREDICATES`` /
@@ -31,15 +31,15 @@ reader consumes:
   lastContactWhatsApp / lastContactEmail / lastContactIMessage).
 - The value is an ``xsd:date`` literal (``YYYY-MM-DD``); the reader trims
   to 10 chars and does a lexicographic ``max()``.
-- The person URI is ``https://pwg.dev/ontology#person_<uuid5>`` where the
-  uuid5 is over ``https://pwg.dev/person/<cleaned-identifier>`` and the
+- The person URI is ``https://schema.ostler.ai/ontology#person_<uuid5>`` where the
+  uuid5 is over ``https://schema.ostler.ai/person/<cleaned-identifier>`` and the
   identifier is the raw WhatsApp participant id (phone or JID) exactly as
   HR015's ``ingest_whatsapp`` already creates the Person node from. Using
   the identical derivation is what lets this updater hit the SAME Person
   node HR015 created, rather than minting a parallel one.
 
 This module intentionally does NOT use CM048's own ``ingest._write_oxigraph``
-helper: that writer emits into the ``urn:pwg:`` fact namespace and never
+helper: that writer emits into the ``urn:ostler:`` fact namespace and never
 creates ``pwg:Person`` nodes, so it is the wrong surface for the
 per-source last-contact predicates the wiki reads. The right reuse is the
 predicate + write mechanism of the historical per-source writer, mirrored
@@ -87,7 +87,7 @@ _CHANNEL_PREDICATE = {
     "whatsapp": "pwg:lastContactWhatsApp",
 }
 
-_PWG_NS = "https://pwg.dev/ontology#"
+_PWG_NS = "https://schema.ostler.ai/ontology#"
 
 
 def _person_id_from_identifier(identifier: str) -> str:
@@ -98,7 +98,7 @@ def _person_id_from_identifier(identifier: str) -> str:
     participant.
     """
     clean = identifier.strip().lower()
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://pwg.dev/person/{clean}"))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://schema.ostler.ai/person/{clean}"))
 
 
 def _person_uri(person_id: str) -> str:

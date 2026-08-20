@@ -51,9 +51,9 @@ fi
 #    pwg_ingest's _person_id_from_identifier.
 grep -q 'def _participant_identity_triples' "$INGEST" \
     || failure "ingest.py is missing _participant_identity_triples() -- conversations never link to Person nodes"
-grep -q 'urn:pwg:participatedIn' "$INGEST" \
+grep -q 'urn:ostler:participatedIn' "$INGEST" \
     || failure "ingest.py does not emit pwg:participatedIn edges"
-grep -q 'urn:pwg:hasParticipant' "$INGEST" \
+grep -q 'urn:ostler:hasParticipant' "$INGEST" \
     || failure "ingest.py does not emit pwg:hasParticipant edges"
 grep -q 'uuid.uuid5(uuid.NAMESPACE_URL' "$INGEST" \
     || failure "ingest.py person-id derivation does not match pwg_ingest (uuid5 over NAMESPACE_URL)"

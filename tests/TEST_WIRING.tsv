@@ -65,7 +65,7 @@ test_cut_dispatch_is_dry.sh	WIRED	.github/workflows/cut.yml
 test_cut_freshness_gate.sh	WIRED	.github/workflows/cut-freshness.yml
 test_cut_gate_wrappers.sh	WIRED	.github/workflows/cut-freshness.yml
 test_cx100_mail_accounts_detection.sh	UNWIRED	-
-test_cx101_calendar_hydrate_path.sh	UNWIRED	-
+test_cx101_calendar_hydrate_path.sh	WIRED	.github/workflows/calendar-backfill-multiyear.yml
 test_cx101_prelaunch_gate_population.sh	UNWIRED	-
 test_cx130_mail_populate_phase2.sh	UNWIRED	-
 test_cx18_q19_consent_third_party_legal_note_separation.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -73,6 +73,7 @@ test_cx18_q20_consent_install_body_shape.sh	WIRED	.github/workflows/consent-data
 test_cx18_q7_channel_choice_labels_match_install_sh.sh	UNWIRED	-
 test_cx30_33_python_library_validation_entitlement.sh	UNWIRED	-
 test_cx453_no_osascript_contacts.sh	UNWIRED	-
+test_cx92_calendar_historical_backfill.sh	WIRED	.github/workflows/calendar-backfill-multiyear.yml
 test_cx95_venv_shebang_promote.sh	UNWIRED	-
 test_cx98_channel_vars_unbound.sh	UNWIRED	-
 test_cx98_previous_install_detection.sh	UNWIRED	-
