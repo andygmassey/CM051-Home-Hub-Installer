@@ -51,15 +51,17 @@ if [[ -z "${PUBLISH_RELEASE_TOKEN:-}" ]]; then
   OSTLER_GH_TOKEN_ANDYGMASSEY was MEASURED to be refused: creating the v1.0.37
   release with that identity failed, and only the ostler-ai identity succeeded.
 
-  Needed: the CM051 Actions secret OSTLER_RELEASES_PUBLISH, passed in as
-  PUBLISH_RELEASE_TOKEN. A fine-grained token of that name ALREADY EXISTS on
-  the ostler-ai account (expires 2027-05-20) and has never been used, because
-  its value was never stored as a CM051 secret. It pairs with
-  CM051_RELEASES_READ, which is wired and working. Store the value; do not
-  mint a second token.
-
-  It needs: resource owner ostler-ai, access to ostler-ai/ostler-installer,
+  Needed: the CM051 Actions secret CM051_INSTALLER_PUBLISH, passed in as
+  PUBLISH_RELEASE_TOKEN. A fine-grained token with resource owner ostler-ai,
+  repository access limited to ostler-ai/ostler-installer, and
   Contents = Read and write (GitHub files releases under Contents).
+
+  DO NOT REUSE ostler-ai's OSTLER_RELEASES_PUBLISH. Measured 2026-08-20: it is
+  scoped to ostler-ai/ostler-releases, NOT ostler-installer, so it cannot do
+  this job; and its value is already deployed in ostler-remote-capture as the
+  secret OSTLER_RELEASES_PUBLISH_TOKEN. GitHub secrets cannot be read back, so
+  obtaining a copy would mean regenerating, which would silently invalidate
+  remote-capture's next tag cut. Separate token, least privilege.
 
   Refusing rather than skipping. A silent skip is how 37 tags produced zero
   releases without anyone noticing.
