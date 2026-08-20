@@ -19550,7 +19550,18 @@ if [[ -r "$_ns_migrate_script" ]]; then
     case "$_ns_rc" in
         0) ok "Graph identifiers are current" ;;  # i18n-exempt
         2) : ;;  # nothing to migrate on a fresh box; the log says which
-        *) warn "Identifier namespace migration did not complete (rc=$_ns_rc). Your data is intact and unchanged. See /tmp/ostler-ns-migration.log"  # i18n-exempt
+        # 🔴 DO NOT TELL THE OPERATOR THEIR DATA IS UNCHANGED HERE. This arm
+        # used to say "Your data is intact and unchanged", and the rc contract
+        # three lines above defines rc=1 as "a rule ran and left residue" --
+        # which means the store WAS written to. The same arm also catches 124
+        # and 137, i.e. the migrator was killed part-way through a rewrite
+        # that has no transactional boundary. A half-migrated store, reported
+        # as untouched, is how a customer gets talked out of the one thing
+        # that would have saved them: stopping and looking. Archie's F4.
+        124|137)
+           warn "Identifier namespace migration was KILLED part-way (rc=$_ns_rc). The store may be HALF-MIGRATED. Do not rebuild the wiki from it. Your pre-migration backup is at ${OSTLER_DIR:-$PWD}/ostler-graph-premigration.nq. See /tmp/ostler-ns-migration.log"  # i18n-exempt
+           ;;
+        *) warn "Identifier namespace migration did not complete (rc=$_ns_rc). Some identifiers may already have been rewritten, so the store may be part-migrated -- it is NOT known to be unchanged. Your pre-migration backup is at ${OSTLER_DIR:-$PWD}/ostler-graph-premigration.nq. See /tmp/ostler-ns-migration.log"  # i18n-exempt
            ;;
     esac
     unset _ns_rc

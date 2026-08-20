@@ -32,12 +32,26 @@ rewriting content is not this script's job. Those are counted and reported
 separately so the residue is explained rather than discovered later.
 """
 import argparse
+import datetime
 import json
+import os
 import re
 import subprocess
 import sys
 import urllib.error
 import urllib.request
+
+# 🔴 NEVER GO THROUGH A PROXY TO REACH THE LOCAL STORE. This machine sets
+# HTTP_PROXY=http://127.0.0.1:8118, and urllib honours it for loopback too.
+# The store is on localhost, so every request here was being answered by
+# Privoxy: the probe got "503 Forwarding failure", which is indistinguishable
+# from an absent Oxigraph, so the script returned CANNOT-RUN, install.sh
+# mapped rc=2 to silence, the store was never migrated, and the wiki rendered
+# empty at exit 0. Archie's F3, and it is live on this box today.
+#
+# An empty ProxyHandler means "no proxies", and it must be used for BOTH the
+# GET and the POST or the half that is missed reintroduces the whole failure.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 # (label, regex-for-REPLACE, literal-prefix-for-counting, replacement)
 # The regex escapes the dots; the counting prefix is a plain substring.
@@ -49,6 +63,63 @@ RULES = [
     ("urn:pwg:",  r"urn:pwg:",              "urn:pwg:",
      "urn:ostler:"),
 ]
+
+
+def _nquads_terms(line):
+    """Term kinds on one N-Quads line, or None if it does not parse.
+
+    Whitespace is not a term separator in N-Quads: a literal may contain any
+    amount of it. `<s> <p> "Hello there world" .` is a three-term DEFAULT
+    GRAPH triple that a naive split reads as four terms, and the backup guard
+    that counted tokens accepted a dump with no named graphs in it at all.
+
+    So walk the line and consume whole terms: <iri>, "literal" with its
+    optional ^^<datatype> or @lang suffix, and _:blank. Returns a list like
+    ['iri', 'iri', 'literal'] -- kinds, not values, because the guard only
+    needs the arity and the kind of the last term.
+    """
+    kinds, i, n = [], 0, len(line)
+    while i < n:
+        c = line[i]
+        if c.isspace():
+            i += 1
+        elif c == "." and not line[i + 1:].strip():
+            break                                   # statement terminator
+        elif c == "<":
+            j = line.find(">", i)
+            if j < 0:
+                return None
+            i, _ = j + 1, kinds.append("iri")
+        elif c == '"':
+            j = i + 1
+            while j < n and line[j] != '"':
+                j += 2 if line[j] == "\\" else 1     # skip escaped chars
+            if j >= n:
+                return None
+            j += 1
+            if line[j:j + 2] == "^^":               # typed literal
+                k = line.find(">", j)
+                if k < 0:
+                    return None
+                j = k + 1
+            elif line[j:j + 1] == "@":              # language tag
+                while j < n and not line[j].isspace():
+                    j += 1
+            i, _ = j, kinds.append("literal")
+        elif line[i:i + 2] == "_:":
+            j = i
+            while j < n and not line[j].isspace():
+                j += 1
+            i, _ = j, kinds.append("bnode")
+        else:
+            return None                             # comment, junk, or @base
+    return kinds
+
+
+def _nquads_is_quad(line):
+    """True only for a line that names a graph: four terms, 4th an IRI/bnode."""
+    kinds = _nquads_terms(line)
+    return bool(kinds) and len(kinds) == 4 and kinds[3] in ("iri", "bnode")
 
 
 def _get(host, url, accept, timeout):
@@ -81,14 +152,14 @@ def _get(host, url, accept, timeout):
         req = urllib.request.Request(url, method="GET",
                                      headers={"Accept": accept})
         try:
-            with urllib.request.urlopen(req, timeout=timeout - 20) as r:
+            with _OPENER.open(req, timeout=timeout - 20) as r:
                 return r.read().decode("utf-8", "replace"), "", 0
         except urllib.error.HTTPError as e:
             return "", f"HTTP {e.code}: {e.read()[:200]!r}", e.code
         except Exception as e:  # noqa: BLE001
             return "", f"{type(e).__name__}: {e}", 1
     cmd = ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", host,
-           f"curl -s --fail-with-body --max-time {timeout - 20} "
+           f"curl -s --noproxy '*' --fail-with-body --max-time {timeout - 20} "
            f"-H 'Accept: {accept}' {url}"]
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     return p.stdout, p.stderr, p.returncode
@@ -112,7 +183,7 @@ def run(host, path, body, ctype, accept="application/sparql-results+json",
             url, data=body.encode("utf-8"),
             headers={"Content-Type": ctype, "Accept": accept})
         try:
-            with urllib.request.urlopen(req, timeout=timeout - 20) as r:
+            with _OPENER.open(req, timeout=timeout - 20) as r:
                 return r.read().decode("utf-8", "replace"), "", 0
         except urllib.error.HTTPError as e:
             return "", f"HTTP {e.code}: {e.read()[:200]!r}", e.code
@@ -124,7 +195,7 @@ def run(host, path, body, ctype, accept="application/sparql-results+json",
     # disagreeing about what failure means, in the one script whose whole point
     # is that both transports run the identical thing.
     cmd = ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", host,
-           f"curl -s --fail-with-body --max-time {timeout - 20} "
+           f"curl -s --noproxy '*' --fail-with-body --max-time {timeout - 20} "
            f"-H 'Content-Type: {ctype}' "
            f"-H 'Accept: {accept}' --data-binary @- {url}"]
     p = subprocess.run(cmd, input=body, capture_output=True, text=True,
@@ -432,8 +503,21 @@ def main():
         # proof the compartment was captured. Archie's closing condition, and
         # it is the right one: a backup that cannot prove it captured the
         # compartment has the same blindness as the bug it insures against.
-        quads = sum(1 for ln in out.splitlines()
-                    if len(ln.rstrip(" .").split()) >= 4 and ln.endswith("."))
+        #
+        # 🔴 AND A WHITESPACE SPLIT IS NOT THE SHAPE EITHER. Archie built a
+        # backup with ZERO named-graph quads and it PASSED this guard: the
+        # first version counted `len(ln.rstrip(" .").split()) >= 4`, and
+        #     <s> <p> "Hello there world" .
+        # is a DEFAULT-GRAPH triple that splits into four tokens. On the real
+        # dump that scored 43,399 "quads" when only 12,367 are real, and on a
+        # named-graph-free backup it still scored 31,032 -- so the byte check
+        # was doing all the work, which is precisely what the note above says
+        # must not happen. The guard could not fail, and a guard that cannot
+        # fail is not insurance.
+        #
+        # Count with a real term parser instead: a quad is four terms whose
+        # fourth is an IRI or blank node. See _nquads_is_quad.
+        quads = sum(1 for ln in out.splitlines() if _nquads_is_quad(ln))
         if rc != 0 or len(out) < 1000 or quads < 1:
             print(f"  [FAIL] BACKUP FAILED rc={rc} bytes={len(out)} "
                   f"named-graph-lines={quads}: {(err or out)[:200]}")
@@ -442,9 +526,32 @@ def main():
             print("  Refusing to migrate without one. --no-backup overrides,"
                   " and you should be able to say why.")
             return 2
-        with open(args.backup_path, "w", encoding="utf-8") as fh:
+        # 🔴 NEVER CLOBBER AN EARLIER BACKUP. This block is unconditional and
+        # runs BEFORE the already-migrated skip, at a FIXED path, and
+        # install.sh:19546 invokes this script on every install. So on the
+        # second install over an existing volume -- the Studio, .224, the
+        # beta boxes, the box walk, precisely the population that has data
+        # worth insuring -- the pre-migration dump was overwritten by a
+        # post-migration one. The only recovery artefact survived exactly one
+        # re-run, and it destroyed itself at the moment it was needed.
+        #
+        # The FIRST dump is the valuable one, because only it predates the
+        # rewrite. Later runs write beside it and say so.
+        backup_path = args.backup_path
+        if os.path.exists(backup_path):
+            stamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
+            backup_path = f"{args.backup_path}.{stamp}"
+            n = 0
+            while os.path.exists(backup_path):        # same-second re-runs
+                n += 1
+                backup_path = f"{args.backup_path}.{stamp}.{n}"
+            print(f"  BACKUP  {args.backup_path} already exists and is NOT being"
+                  " overwritten -- it may be the only copy that predates a"
+                  " previous migration.")
+        with open(backup_path, "w", encoding="utf-8") as fh:
             fh.write(out)
-        print(f"  BACKUP  {len(out)} bytes -> {args.backup_path}")
+        print(f"  BACKUP  {len(out)} bytes, {quads} named-graph quads"
+              f" -> {backup_path}")
 
     print("\napplying, in order: pwg.local first so its longer prefix wins")
     for label, rx, needle, repl in RULES:
