@@ -13,7 +13,7 @@
         so the chat assistant has baseline awareness of the customer's
         people, meetings and preferences. Without this agent the digest
         is never produced and the assistant answers "I have no access
-        to your data" -- the v1.0.1 launch blocker.
+        to your data", the v1.0.1 launch blocker.
 
         Pattern mirrors the wiki-recompile LaunchAgent
         (com.creativemachines.ostler.wiki-recompile): a /bin/bash
@@ -90,7 +90,7 @@
         install, so the very first chat already has context. If the
         ical-server is not up yet the generator leaves any prior
         CONTEXT.md untouched and the next calendar fire (or the next
-        login) catches up -- but it exits NON-ZERO while doing so.
+        login) catches up, but it exits NON-ZERO while doing so.
 
         The exit code is not cosmetic. Until 2026-08-18 the generator
         exited 0 no matter what, and it had never once produced a

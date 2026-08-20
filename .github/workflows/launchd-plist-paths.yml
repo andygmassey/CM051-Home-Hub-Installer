@@ -28,6 +28,7 @@ on:
       - 'tests/test_laptop_hub_power_copy_fires_on_laptops_only.sh'
       - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
       - 'tests/test_launchagent_bootstrap_after_staging.py'
+      - 'tests/test_launchagent_homebrew_path.sh'
       - '**/launchd/*.plist'
       - '.github/workflows/launchd-plist-paths.yml'
   push:
@@ -149,3 +150,31 @@ jobs:
       - name: Assert no LaunchAgent is bootstrapped before the daemon is staged
         if: always()
         run: python3 tests/test_launchagent_bootstrap_after_staging.py
+
+      # THE SAME FILES, A DIFFERENT KEY, AND EVERY STEP ABOVE IS BLIND TO IT.
+      # Measured on the Mini 2026-08-20 after a real power cycle:
+      #
+      #     colima  FATA  exec "limactl": executable file not found in $PATH
+      #
+      # launchd gives its jobs /usr/bin:/bin:/usr/sbin:/sbin unless the plist
+      # sets EnvironmentVariables:PATH. The assistant owns `colima start`, its
+      # plist set six env keys, and PATH was not one of them -- so Qdrant,
+      # Oxigraph, Redis, Vane, wiki-site and store-proxy were all gone after
+      # every reboot. 6 of 24 agents on the box carried a Homebrew-aware PATH
+      # and both agents that broke that day were in the other 18: the technique
+      # was known, used, and omitted, with nothing deciding which.
+      #
+      # The steps above assert paths do not resolve under /tmp. A plist can
+      # satisfy every one of them and still be unable to find its own tooling.
+      #
+      # This is the SOURCE half. It cannot see a broken box -- a gate over
+      # install.sh goes green while the machine in front of you has no Colima.
+      # The box half is scripts/box_walk_probes/probes/
+      # launchagents_resolve_their_tools.sh, which reads the INSTALLED plists
+      # over ssh. This one stops the fix being reverted; that one stops it
+      # being believed.
+      #
+      # `if: always()` for the same reason as every step above (CM051 #656).
+      - name: Assert agents that shell out to Homebrew tooling can find it
+        if: always()
+        run: bash tests/test_launchagent_homebrew_path.sh

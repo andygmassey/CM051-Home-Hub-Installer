@@ -12363,13 +12363,26 @@ print(json.dumps(summary, default=str))
     # shape of #768, whose fix could not reach any box that already had
     # the defect (#769). So rewrite when the file is ABSENT *or* when it
     # still carries the legacy StartCalendarInterval shape.
+    #
+    # 2026-08-20: a THIRD rewrite trigger, same reasoning. This job runs the
+    # tick's python toolchain, which resolves through PATH, and launchd hands
+    # its jobs /usr/bin:/bin:/usr/sbin:/sbin unless the plist says otherwise.
+    # Every plist written before today has no EnvironmentVariables dict at
+    # all. Fixing only the heredoc below would fix fresh installs and leave
+    # every existing box broken forever -- the exact #768/#769 shape this
+    # comment already warns about, one paragraph up. So the guard reads the
+    # installed file for the Homebrew prefix and rewrites when it is missing.
     FDA_RERUN_NEEDS_WRITE=0
     FDA_RERUN_WAS_LEGACY=0
+    FDA_RERUN_WAS_PATHLESS=0
     if [[ ! -f "$FDA_RERUN_PLIST" ]]; then
         FDA_RERUN_NEEDS_WRITE=1
     elif grep -q 'StartCalendarInterval' "$FDA_RERUN_PLIST" 2>/dev/null; then
         FDA_RERUN_NEEDS_WRITE=1
         FDA_RERUN_WAS_LEGACY=1
+    elif ! grep -q '/opt/homebrew/bin' "$FDA_RERUN_PLIST" 2>/dev/null; then
+        FDA_RERUN_NEEDS_WRITE=1
+        FDA_RERUN_WAS_PATHLESS=1
     fi
     if [[ "$FDA_RERUN_NEEDS_WRITE" == "1" ]]; then
         mkdir -p "${HOME}/Library/LaunchAgents"
@@ -12386,6 +12399,11 @@ print(json.dumps(summary, default=str))
         <string>run-source</string>
         <string>fda-rerun</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
     <key>StartInterval</key>
     <integer>${OSTLER_FDA_RERUN_INTERVAL_S}</integer>
     <key>StandardOutPath</key>
@@ -12400,7 +12418,13 @@ FDARPEOF
         # loaded label, so boot it out first or the box keeps running the
         # very plist we just replaced on disk. Absent-file installs have
         # nothing to bootout and the failure is expected, hence || true.
-        if [[ "$FDA_RERUN_WAS_LEGACY" == "1" ]]; then
+        #
+        # BOTH rewrite-an-existing-file limbs need this, not just the legacy
+        # one. The PATH limb (2026-08-20) replaces a file that is equally
+        # already registered, and skipping the bootout there would leave the
+        # box running the PATH-less job we just overwrote -- a fix that is on
+        # disk and not in force, which reads on every surface as done.
+        if [[ "$FDA_RERUN_WAS_LEGACY" == "1" || "$FDA_RERUN_WAS_PATHLESS" == "1" ]]; then
             launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
                 launchctl unload "$FDA_RERUN_PLIST" 2>/dev/null || true
         fi

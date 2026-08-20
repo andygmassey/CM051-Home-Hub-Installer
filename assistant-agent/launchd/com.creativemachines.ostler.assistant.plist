@@ -66,6 +66,45 @@
     -->
     <key>EnvironmentVariables</key>
     <dict>
+        <!--
+            PATH (2026-08-20, measured on the Mini after a real power
+            cycle). launchd hands its jobs a minimal PATH, namely
+            /usr/bin:/bin:/usr/sbin:/sbin, unless the plist sets this
+            key. Homebrew is not in it.
+
+            This daemon owns `colima start` (an FDA-less standalone
+            colima LaunchAgent cannot mount ~/Documents, which is why
+            tests/test_colima_autostart_mechanism.sh asserts AGAINST
+            one). colima resolves `limactl` through PATH, so without
+            this key the reboot goes:
+
+                colima  FATA  exec "limactl": executable file not found
+                              in $PATH
+
+            and Qdrant, Oxigraph, Redis, Vane, wiki-site and
+            store-proxy are all gone until someone starts Colima by
+            hand. Recovery proved the chain is exactly one link: with
+            the Homebrew prefix on PATH, Colima came up in 75s and all
+            six containers returned by themselves.
+
+            The error message named the SHAPE, not the cause. It reads
+            as a missing package, and lima 2.2.0 was installed the
+            whole time. It was unreachable, not absent.
+
+            Same value the context-refresh, wiki-recompile and
+            editor-frontpage templates already carry. /usr/local/bin
+            first for Intel-prefix Homebrew, /opt/homebrew/bin for
+            Apple silicon.
+
+            NOTE ON STYLE: no double hyphen anywhere in this comment.
+            XML forbids it inside a comment body, `plutil -lint` accepts
+            it anyway, and the strict parser that reads the RENDERED
+            plist does not. Seven sibling templates in this repo already
+            carry the same latent fault; nothing parses them strictly
+            today, which is why it has gone unnoticed.
+        -->
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
         <key>ZEROCLAW_WORKSPACE</key>
         <string>OSTLER_ASSISTANT_CONFIG</string>
         <!--

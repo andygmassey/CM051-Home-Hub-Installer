@@ -59,7 +59,7 @@
         -> the sealed ingest tick -> the reader, which needs Full Disk
         Access on chat.db. On a FRESH install the daemon's FDA grant lands
         near the END of install, but RunAtLoad fired this tick at
-        login/post-install BEFORE that grant -- so the reader hit
+        login/post-install BEFORE that grant, so the reader hit
         "authorization denied", exited non-zero, and launchd penalty-boxed
         the job (`launchctl list` showed `last exit code 78`,
         `properties = runatload | penalty box`, 0-byte logs).
@@ -67,9 +67,9 @@
         StartInterval-only (no RunAtLoad, no KeepAlive) removes that
         login-time race: the first tick fires one interval (~15 min) after
         load, by which point the install-time FDA grant has landed, so the
-        first run is clean. Nothing is lost -- the watermark means the
+        first run is clean. Nothing is lost: the watermark means the
         deferred first window is picked up on that tick, and the read is
-        still clamped by --since-days. The sibling feeds keep RunAtLoad
+        still clamped by the since-days flag. The sibling feeds keep RunAtLoad
         because their readers yield exit 0 (not a hard non-zero) when their
         source is absent; iMessage is the one whose reader hard-fails on the
         FDA race, so it is the one that drops the login-time start.
@@ -90,7 +90,7 @@
         PWG_CONVO_CMD tells the dispatcher how to invoke CM048's CLI
         (rendered to the CM048 venv at install time). Without these
         the tick falls through to a stock system python with no
-        site-packages -- the same launch-blocker shape the email
+        site-packages, the same launch-blocker shape the email
         ingest agent guards against.
     -->
     <key>EnvironmentVariables</key>
