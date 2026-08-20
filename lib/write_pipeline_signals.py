@@ -70,12 +70,16 @@ def _parse_bool(raw: str) -> bool:
 _parse_has_fetched = _parse_bool
 
 
+VALID_ENRICHMENT_DECISIONS = ("accepted", "declined", "unknown")
+
+
 def build_payload(
     accounts: int | None,
     has_fetched: bool | None,
     install_ts: int,
     existing: dict[str, Any],
     imessage_fda_needed: bool | None = None,
+    enrichment_decision: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "install_completed_ts": install_ts,
@@ -107,6 +111,23 @@ def build_payload(
         prior_imessage = existing.get("imessage_chat_db_fda_needed")
         if isinstance(prior_imessage, bool):
             payload["imessage_chat_db_fda_needed"] = prior_imessage
+
+    # Background-enrichment consent decision (#794 / CM051 #889).
+    #
+    # ⚠️ WHY IT IS HERE AND NOT ONLY IN posture/. The authoritative consent
+    # RECORD is ~/.ostler/posture/enrichment-decision.json, alongside the other
+    # consent artefacts, and that is the right home for a support bundle.
+    # But the wiki compiler runs in a container and reaches the host through
+    # ONE bind-mount: ~/.ostler/state, the directory this sidecar lives in.
+    # It cannot see posture/ at all. So the value is mirrored here, written
+    # from the same shell variable on an adjacent line, for the CM044
+    # settling panel to read. Two files, one source, no room to drift.
+    if enrichment_decision is not None:
+        payload["enrichment_decision"] = enrichment_decision
+    else:
+        prior_enrich = existing.get("enrichment_decision")
+        if prior_enrich in VALID_ENRICHMENT_DECISIONS:
+            payload["enrichment_decision"] = prior_enrich
 
     return payload
 
@@ -154,6 +175,16 @@ def main(argv: list[str]) -> int:
             '"true" or "false" -- did the install-time probe find the '
             "ostler-assistant daemon unable to read ~/Library/Messages/"
             "chat.db (i.e. FDA not granted to the daemon binary)?"
+        ),
+    )
+    parser.add_argument(
+        "--enrichment-decision",
+        default=None,
+        choices=list(VALID_ENRICHMENT_DECISIONS),
+        help=(
+            "The customer's background-enrichment consent answer. Mirrored "
+            "here from posture/enrichment-decision.json because the wiki "
+            "compiler can only reach ~/.ostler/state. Omit to preserve."
         ),
     )
     parser.add_argument(
@@ -218,6 +249,7 @@ def main(argv: list[str]) -> int:
         install_ts,
         existing,
         imessage_fda_needed=imessage_fda_needed,
+        enrichment_decision=args.enrichment_decision,
     )
 
     try:

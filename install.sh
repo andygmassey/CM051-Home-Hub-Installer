@@ -16755,7 +16755,8 @@ fi
 if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
         --output "$PIPELINE_SIGNALS_FILE" \
         --accounts "$MAIL_ACCOUNTS_FOUND" \
-        --has-fetched "$MAIL_HAS_FETCHED"; then
+        --has-fetched "$MAIL_HAS_FETCHED" \
+        --enrichment-decision "${OSTLER_CONSENT_ENRICHMENT_DECISION:-unknown}"; then
     info "$(printf "$MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL" "${MAIL_ACCOUNTS_FOUND}")"
     # CX-100 three-state copy: accounts==0 -> state 1 (no source);
     # accounts>0 + fetched -> state 3 (synced); accounts>0 + not
