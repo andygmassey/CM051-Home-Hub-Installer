@@ -33,6 +33,7 @@ separately so the residue is explained rather than discovered later.
 """
 import argparse
 import json
+import re
 import subprocess
 import sys
 import urllib.error
@@ -72,8 +73,14 @@ def run(host, path, body, ctype, accept="application/sparql-results+json",
             return "", f"HTTP {e.code}: {e.read()[:200]!r}", e.code
         except Exception as e:  # noqa: BLE001 -- transport failure is rc!=0
             return "", f"{type(e).__name__}: {e}", 1
+    # --fail-with-body, NOT bare -s. Without it a 400 from Oxigraph comes back
+    # as rc=0 with an error page in stdout, so the ssh path reports success on
+    # a rejected UPDATE while the local path raises HTTPError -- two transports
+    # disagreeing about what failure means, in the one script whose whole point
+    # is that both transports run the identical thing.
     cmd = ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", host,
-           f"curl -s --max-time {timeout - 20} -H 'Content-Type: {ctype}' "
+           f"curl -s --fail-with-body --max-time {timeout - 20} "
+           f"-H 'Content-Type: {ctype}' "
            f"-H 'Accept: {accept}' --data-binary @- {url}"]
     p = subprocess.run(cmd, input=body, capture_output=True, text=True,
                        timeout=timeout)
@@ -96,14 +103,66 @@ def update(host, stmt):
     return rc, (out + err)[:400]
 
 
+# 🔴 EVERY COUNT BELOW SPANS BOTH SURFACES, AND THE FIRST VERSION DID NOT.
+#
+# A bare `WHERE { ?s ?p ?o }` on this store is DEFAULT-GRAPH-ONLY. The repo
+# proves it rather than leaving it to be assumed: `compartment.py:475
+# assert_default_graph_isolated()` exists to prove the default graph is not the
+# union, and raises if it is -- compartment isolation depends on that.
+#
+# So the original total() called a subset "the total", the UPDATE never touched
+# a named graph, and the residue check could not see what the UPDATE had missed.
+# BOTH SIDES OF THE GUARD WERE BLIND THE SAME WAY, so the run printed
+# `[ok] pwg.dev -> 0` over data it had never once looked at.
+#
+# Measured on the live Hub store, 2026-08-21, which is what turned this from an
+# argument into a number:
+#
+#     default graph   total 235,321   pwg-bearing 234,508
+#     NAMED graphs    total  11,238   pwg-bearing  11,238   <- 100%, all missed
+#     real total     246,559          (the script previously reported 235,321)
+#
+# The UNION arm is the fix. `{ ?s ?p ?o } UNION { GRAPH ?g { ?s ?p ?o } }`
+# spans default and named, and is what every probe here now uses.
+ANY_GRAPH = "{ ?s ?p ?o } UNION { GRAPH ?g { ?s ?p ?o } }"
+
+
 def total(host):
-    return ask(host, "SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }")
+    return ask(host, f"SELECT (COUNT(*) AS ?n) WHERE {{ {ANY_GRAPH} }}")
 
 
 def touching(host, needle):
-    return ask(host, f'''SELECT (COUNT(*) AS ?n) WHERE {{ ?s ?p ?o .
+    return ask(host, f'''SELECT (COUNT(*) AS ?n) WHERE {{ {ANY_GRAPH}
       FILTER(CONTAINS(STR(?s),"{needle}") || CONTAINS(STR(?p),"{needle}")
           || CONTAINS(STR(?o),"{needle}")) }}''')
+
+
+def graphs(host):
+    """Every named graph IRI in the store.
+
+    🔴 A GRAPH NAME IS NOT A TRIPLE, AND NO UPDATE CAN REWRITE ONE.
+
+    The live store holds exactly one named graph and it is called
+    `urn:pwg:user/Andy` -- the namespace is in the NAME. A triple-level
+    DELETE/INSERT, however well written and whether or not it is GRAPH-scoped,
+    cannot touch that: there is no ?s ?p ?o binding whose subject is the graph.
+
+    Left alone, a migration could rewrite all 246,559 triples, report zero
+    residue against a triple-only predicate, and leave `pwg` in the name of the
+    graph holding the customer's entire personal compartment.
+
+    Graphs therefore get MOVEd explicitly, by name, computed in Python -- SPARQL
+    MOVE takes literal IRIs and not expressions, so this cannot be folded into
+    the UPDATE even in principle.
+    """
+    out, err, rc = run(host, "/query",
+                       "SELECT DISTINCT ?g WHERE { GRAPH ?g { ?s ?p ?o } }",
+                       "application/sparql-query")
+    i = out.find("{")
+    if i < 0:
+        print(f"  GRAPH PROBE FAILED rc={rc} stderr={err[:200]}")
+        sys.exit(2)
+    return [b["g"]["value"] for b in json.loads(out[i:])["results"]["bindings"]]
 
 
 def in_literal_only(host, needle):
@@ -112,7 +171,7 @@ def in_literal_only(host, needle):
     These are content, not identifiers, and this script leaves them. Counting
     them separately is what turns a confusing non-zero residue into a stated,
     understood one."""
-    return ask(host, f'''SELECT (COUNT(*) AS ?n) WHERE {{ ?s ?p ?o .
+    return ask(host, f'''SELECT (COUNT(*) AS ?n) WHERE {{ {ANY_GRAPH}
       FILTER(isLiteral(?o) && CONTAINS(STR(?o),"{needle}")
              && !CONTAINS(STR(?s),"{needle}") && !CONTAINS(STR(?p),"{needle}")) }}''')
 
@@ -140,6 +199,56 @@ def rewrite_stmt(rx, needle, repl):
   BIND(IRI(REPLACE(STR(?p), "{rx}", "{repl}")) AS ?np)
   BIND(IF(isIRI(?o), IRI(REPLACE(STR(?o), "{rx}", "{repl}")), ?o) AS ?no)
 }}'''
+
+
+def rewrite_named_stmt(rx, needle, repl):
+    """The same rewrite, scoped INSIDE each named graph.
+
+    Identical predicate and identical BIND guards -- deliberately, so the two
+    arms cannot drift into treating the same triple differently depending on
+    which graph it happens to live in. The only difference is the GRAPH ?g
+    wrapper, which is the entire reason the first version missed 11,238 triples.
+
+    ?g is bound by the WHERE and reused in both DELETE and INSERT, so every
+    triple is rewritten back into the graph it came from. It does NOT rename the
+    graph; that is move_graph_stmt's job and it cannot be done here.
+    """
+    return f'''DELETE {{ GRAPH ?g {{ ?s ?p ?o }} }}
+INSERT {{ GRAPH ?g {{ ?ns ?np ?no }} }} WHERE {{
+  GRAPH ?g {{ ?s ?p ?o }}
+  FILTER(CONTAINS(STR(?s),"{needle}") || CONTAINS(STR(?p),"{needle}")
+      || (isIRI(?o) && CONTAINS(STR(?o),"{needle}")))
+  BIND(IF(isIRI(?s), IRI(REPLACE(STR(?s), "{rx}", "{repl}")), ?s) AS ?ns)
+  BIND(IRI(REPLACE(STR(?p), "{rx}", "{repl}")) AS ?np)
+  BIND(IF(isIRI(?o), IRI(REPLACE(STR(?o), "{rx}", "{repl}")), ?o) AS ?no)
+}}'''
+
+
+def new_graph_iri(old, rules):
+    """Apply the same rules to a graph NAME, in Python.
+
+    Same mapping as the triples, so a graph and its contents cannot end up in
+    different namespaces. Returns the original unchanged if no rule fires, and
+    the caller treats that as "nothing to move" rather than moving a graph onto
+    itself, which SPARQL treats as a no-op but which would read as work done.
+    """
+    out = old
+    for _label, rx, _needle, repl in rules:
+        out = re.sub(rx.replace("\\\\", "\\"), repl, out)
+    return out
+
+
+def move_graph_stmt(old, new):
+    """MOVE, not DROP+INSERT.
+
+    MOVE is atomic in the engine and carries every triple; a hand-rolled
+    ADD-then-DROP has a window in which the data exists twice, and a failure
+    between the two halves leaves the store holding both a migrated and an
+    unmigrated copy of the customer's compartment. `TO` overwrites the
+    destination, which is correct here only because new_graph_iri is injective
+    and the destination therefore cannot already hold anyone else's data.
+    """
+    return f"MOVE <{old}> TO <{new}>"
 
 
 def preview(host, rx, needle, repl, limit=6):
@@ -183,10 +292,28 @@ def preview(host, rx, needle, repl, limit=6):
                 continue
             moved = (o != n) and (needle not in n)
             good = good and moved
-            # tail only: these are opaque per-person identifiers and the
-            # interesting part is the PREFIX swap, not the customer's data
-            print(f"    {'ok ' if moved else 'BAD'}  ...{o[-46:]}")
-            print(f"          ->  ...{n[-46:]}")
+            # 🔴 TRUNCATE FROM THE RIGHT, NOT THE LEFT.
+            #
+            # This printed the last 46 characters, on the reasoning that the
+            # tail is the opaque per-person identifier and the prefix is the
+            # interesting part. Both halves of that are right and the code did
+            # the opposite of what it concluded: a PREFIX rewrite changes only
+            # the head, so tail-truncation cut off the entire diff. Run against
+            # the live store, every `urn:pwg:` pair printed as two IDENTICAL
+            # lines while the rewrite was working perfectly.
+            #
+            # An operator eyeballing that sees a migration doing nothing. The
+            # verdict line said "every sampled IRI moved" -- computed from the
+            # real values -- so the text and the evidence beside it disagreed,
+            # and the text was the one nobody could check.
+            #
+            # Head-first, and the tail elided instead. The customer identifier
+            # is what gets cut, which is also the better privacy default for a
+            # migration report someone may paste into a ticket.
+            def _show(v, w=52):
+                return v if len(v) <= w else v[:w] + "..."
+            print(f"    {'ok ' if moved else 'BAD'}  {_show(o)}")
+            print(f"          ->  {_show(n)}")
             break
     return good
 
@@ -197,6 +324,10 @@ def main():
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--preview", action="store_true",
                     help="evaluate the rewrite expressions without writing")
+    ap.add_argument("--no-backup", action="store_true",
+                    help="skip the pre-migration N-Quads dump (say why)")
+    ap.add_argument("--backup-path", default="ostler-graph-backup.nq",
+                    help="where to write the pre-migration N-Quads dump")
     args = ap.parse_args()
     h = args.host
 
@@ -212,6 +343,14 @@ def main():
         lit = in_literal_only(h, needle)
         before[label] = (n, lit)
         print(f"  {label:12s} touching={n:>7}   of which literal-only={lit}")
+
+    # Show the named graphs up front. An operator reading a migration report
+    # should not have to infer that a second surface exists.
+    gs = graphs(h)
+    print(f"  named graphs: {len(gs)}")
+    for g in gs:
+        new = new_graph_iri(g, RULES)
+        print(f"    <{g}>" + ("" if new == g else f"  ->  <{new}>"))
 
     if args.preview:
         print("\nPREVIEW -- the real rewrite expressions, evaluated, nothing written")
@@ -229,15 +368,51 @@ def main():
         print("\nDRY RUN. --preview evaluates the rewrite; --apply writes.")
         return 0
 
+    # BACKUP FIRST. This is a destructive rewrite of a live personal store and
+    # every other control in this script is POST-HOC -- they tell you it went
+    # wrong, none of them puts the data back. N-Quads, not Turtle: Turtle
+    # cannot express a named graph, so a Turtle dump of this store would
+    # silently omit the 11,238 triples that live in one, and the backup would
+    # have the same blind spot as the bug.
+    if not args.no_backup:
+        out, err, rc = run(h, "/store?graph=", "", "application/n-quads",
+                           accept="application/n-quads", timeout=600)
+        if rc != 0 or len(out) < 1000:
+            print(f"  [FAIL] BACKUP FAILED rc={rc} bytes={len(out)}: "
+                  f"{(err or out)[:200]}")
+            print("  Refusing to migrate without one. --no-backup overrides,"
+                  " and you should be able to say why.")
+            return 2
+        with open(args.backup_path, "w", encoding="utf-8") as fh:
+            fh.write(out)
+        print(f"  BACKUP  {len(out)} bytes -> {args.backup_path}")
+
     print("\napplying, in order: pwg.local first so its longer prefix wins")
     for label, rx, needle, repl in RULES:
         if before[label][0] == 0:
             print(f"  {label:12s} SKIP (already zero)")
             continue
         rc, msg = update(h, rewrite_stmt(rx, needle, repl))
+        # THE NAMED-GRAPH ARM. Same rules, same order, run immediately after
+        # the default-graph arm so a rule can never be half-applied across the
+        # two surfaces if a later rule fails.
+        rcg, msgg = update(h, rewrite_named_stmt(rx, needle, repl))
         after = touching(h, needle)
-        print(f"  {label:12s} rc={rc}  remaining={after}"
+        print(f"  {label:12s} default rc={rc}  named rc={rcg}  remaining={after}"
+              f"{'  ' + (msg or msgg) if (rc or rcg) else ''}")
+
+    # GRAPH NAMES, WHICH NO UPDATE ABOVE COULD HAVE TOUCHED.
+    moved = 0
+    for g in graphs(h):
+        new = new_graph_iri(g, RULES)
+        if new == g:
+            continue
+        rc, msg = update(h, move_graph_stmt(g, new))
+        moved += 1
+        print(f"  MOVE    <{g}>\n       -> <{new}>  rc={rc}"
               f"{'  ' + msg if rc != 0 else ''}")
+    if moved == 0:
+        print("  MOVE    no graph name carried a pwg namespace")
 
     after_total = total(h)
     print(f"\nCONTROL  total triples after: {after_total}  (before {before_total})")
@@ -260,6 +435,21 @@ def main():
         else:
             print(f"  [FAIL] {label:12s} -> {n} remain, {lit} explained as literals")
             ok = False
+
+    # THE THIRD SURFACE. A triple-only residue check reports zero over a graph
+    # still NAMED urn:pwg:user/Andy, because a graph name is not a triple. This
+    # is the arm that would have caught the original version, so it is asserted
+    # separately rather than folded into the loop above.
+    residual_graphs = [g for g in graphs(h)
+                       if any(nd in g for _l, _r, nd, _p in RULES)]
+    if residual_graphs:
+        print(f"  [FAIL] {len(residual_graphs)} GRAPH NAME(S) still carry a pwg"
+              " namespace -- the triples moved, the container did not:")
+        for g in residual_graphs:
+            print(f"           <{g}>")
+        ok = False
+    else:
+        print("  [ok]   no graph NAME carries a pwg namespace")
 
     print(f"\n  new identifiers now present:")
     for needle in ("schema.ostler.ai/enrichment/", "schema.ostler.ai/ontology#",
