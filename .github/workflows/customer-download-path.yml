@@ -27,7 +27,7 @@ on:
       # The BASELINE and the comment-stripper are inputs to the verdict, so a
       # change to either must re-run this workflow. A gate that cannot see its
       # own baseline change can be silently disarmed by editing the fixture.
-      - 'tests/fixtures/verify_customer_download_path.prefix.sh'
+      - 'tests/fixtures/verify_customer_download_path.prefix'
       - 'scripts/lib/strip_comments.sh'
       - '.github/workflows/customer-download-path.yml'
   pull_request:
@@ -37,7 +37,7 @@ on:
       # The BASELINE and the comment-stripper are inputs to the verdict, so a
       # change to either must re-run this workflow. A gate that cannot see its
       # own baseline change can be silently disarmed by editing the fixture.
-      - 'tests/fixtures/verify_customer_download_path.prefix.sh'
+      - 'tests/fixtures/verify_customer_download_path.prefix'
       - 'scripts/lib/strip_comments.sh'
       - '.github/workflows/customer-download-path.yml'
 
@@ -111,7 +111,7 @@ jobs:
         run: |
           set +e
           set -uo pipefail
-          FIX=tests/fixtures/verify_customer_download_path.prefix.sh
+          FIX=tests/fixtures/verify_customer_download_path.prefix
           if [ ! -f "$FIX" ]; then
               echo "CANNOT RUN: ${FIX} is missing. That is NOT a pass -- it is"
               echo "the baseline itself going absent."
@@ -149,7 +149,7 @@ jobs:
           set +e
           set -uo pipefail
           D="$(mktemp -d)"; mkdir -p "$D/scripts" "$D/tests"
-          cp tests/fixtures/verify_customer_download_path.prefix.sh \
+          cp tests/fixtures/verify_customer_download_path.prefix \
              "$D/scripts/verify_customer_download_path.sh"
           # The CONTROLS come from this PR -- the baseline is the ARTEFACT under
           # test, not the instrument.

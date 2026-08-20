@@ -1,3 +1,24 @@
+# DELIBERATELY BROKEN. FROZEN. NOT SHELL ANYONE RUNS FROM THIS REPO.
+#
+# This is the pre-fix `scripts/verify_customer_download_path.sh`, kept as the
+# anti-vacuity baseline for .github/workflows/customer-download-path.yml. The
+# controls must go RED against it; if they ever pass, they have stopped
+# discriminating.
+#
+# 🔴 NO `.sh` EXTENSION, ON PURPOSE. Repo-wide shell scanners select by
+# `--include='*.sh'` (see tests/test_pipefail_shortcircuit_inversion.sh:138), and
+# this file carries the very defects it exists to preserve -- line ~142 has
+# `head -c 512 ... | grep -qa ...` inside a condition under `set -uo pipefail`,
+# which is exactly what that ratchet counts. Scanned as live code it inflates the
+# ratchet by one, permanently, for a bug that is intentional and frozen.
+#
+# The alternative -- raising the baseline 70 -> 71 -- would launder an intentional
+# defect into the accepted set and lift the ceiling for everyone. This does not.
+# The workflow copies this file to a `.sh` path in a temp dir at run time, so
+# nothing downstream cares about the name.
+#
+# DO NOT "FIX" ANYTHING BELOW THIS LINE. Its brokenness is the measurement.
+# ---------------------------------------------------------------------------
 #!/usr/bin/env bash
 # ============================================================================
 # THE URL A CUSTOMER ACTUALLY CLICKS MUST SERVE THE VERSION WE JUST CUT.
