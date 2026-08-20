@@ -1,0 +1,66 @@
+name: imessage-probe-cannot-hang
+
+# #664: an AppleEvent to Messages must never be able to hang the install.
+#
+# Found on Andy's v1.0.36 box walk. `osascript -e 'tell application "Messages"
+# to count of accounts'` raises a TCC "wants to control Messages" prompt
+# whenever the Automation grant is absent -- which on a wiped box is always --
+# and then BLOCKS until a human clicks. Unattended, nobody ever does.
+#
+# The call sites already carried `|| true`, and that is precisely why this went
+# unnoticed: `|| true` swallows a FAILURE, and this call does not fail, it
+# waits. The two are indistinguishable in review and behave nothing alike.
+#
+# The gate is partly BEHAVIOURAL rather than a source grep, because the
+# interesting half cannot be grepped. It extracts the real watchdog from
+# install.sh and runs it against a payload that traps and ignores SIGTERM. A
+# watchdog that signals once and walks away -- the sibling defect #783 -- hangs
+# on that fixture instead of passing it.
+#
+# Runs on ubuntu because nothing here needs macOS: the helper is pure bash by
+# construction (gtimeout does not exist yet at the first call site, thousands of
+# lines before brew coreutils is installed), so the thing under test is
+# portable even though the thing it guards is not.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_imessage_probe_cannot_hang.sh'
+      # A gate must trigger on changes to ITSELF, or it can be quietly
+      # narrowed in the same PR that narrows it.
+      - '.github/workflows/imessage-probe-cannot-hang.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  imessage-probe-cannot-hang:
+    runs-on: ubuntu-latest
+    # The behavioural check has its own 2s deadline against a 60s payload, so
+    # the whole job is seconds. This cap exists so that a REGRESSION in the
+    # watchdog shows up as a failed job rather than a 6-hour runner.
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: the Messages AppleEvent probe cannot hang the install
+        run: /bin/bash tests/test_imessage_probe_cannot_hang.sh
+
+      # `if: always()` because this step is SKIPPED otherwise when the step
+      # above it fails -- and ci-maskless catches exactly that shape. A syntax
+      # check that only runs while the gate is already green is a check that
+      # goes dark at the moment the gate is in trouble.
+      - name: the gate itself parses
+        if: always()
+        run: /bin/bash -n tests/test_imessage_probe_cannot_hang.sh

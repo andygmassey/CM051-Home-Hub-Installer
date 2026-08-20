@@ -91,7 +91,34 @@ verify() {
         return 1
     fi
     if [ "$failures" -ne 0 ]; then
-        echo "FAIL: $failures test failure(s). See the log above." >&2
+        # NAME THEM HERE, in the same place that counted them.
+        #
+        # This used to say "See the log above" and the log above said nothing.
+        # swift-tests run 32351291319 reported `executed=288 failures=1` and
+        # never named the test, because the workflow's diagnostic grep was
+        # `^Test Case .* failed` -- ANCHORED -- while this counter's pattern is
+        # not. xcodebuild indents those lines, so the anchor matched zero while
+        # the count matched one. The suite told us a test failed and refused to
+        # say which, and I merged that PR on a re-run green having explained
+        # only one of its two reds.
+        #
+        # No `^`. And no pipe into a short-circuiting consumer: `grep -c` must
+        # read all input to count, so it cannot invert under pipefail (#895).
+        local named
+        named="$(grep -E "Test Case .* (failed|error)" "$log" | head -40)"
+        if [ -n "$named" ]; then
+            echo "FAIL: $failures test failure(s):" >&2
+            printf '%s\n' "$named" | sed 's/^/    /' >&2
+        else
+            # THE TWO PATTERNS DISAGREE, and that is its own finding. One of
+            # them is wrong about this log, and until we know which, neither
+            # number can be trusted.
+            echo "FAIL: $failures test failure(s), and NONE could be named." >&2
+            echo "  The counter matched 'Executed N tests, with M failures' and the" >&2
+            echo "  namer matched no 'Test Case ... failed' line in the same file." >&2
+            echo "  Two patterns reading one artefact disagree. Do not treat either" >&2
+            echo "  number as settled: read the uploaded swift-test-log artefact." >&2
+        fi
         return 1
     fi
     if [ "$executed" -lt "$floor" ]; then
@@ -148,6 +175,29 @@ if [ "${1:-}" = "--self-test" ]; then
     verify "$d/definitely-not-here.log" "$d/floor" >/dev/null 2>&1
     [ $? -eq 2 ] && ok "(6) missing log -> CANNOT-RUN 2" \
                  || no "(6) a missing log did not report CANNOT-RUN"
+
+    # (8) and (9) ARE THE 32351291319 DEFECT. The failing test must be NAMED,
+    # and xcodebuild INDENTS those lines -- which is exactly what defeated the
+    # workflow's `^Test Case` anchor while this file's unanchored counter saw
+    # the failure. So the fixture is indented on purpose.
+    {
+        printf "  Test Case '-[OstlerInstallerTests testLicenceDropAccepts]' started.\n"
+        printf "  Test Case '-[OstlerInstallerTests testLicenceDropAccepts]' failed (0.004 seconds).\n"
+        printf '\t Executed 288 tests, with 1 failure (0 unexpected) in 6.1 seconds\n'
+    } > "$d/named.log"
+    out="$(verify "$d/named.log" "$d/floor" 2>&1)"
+    printf '%s' "$out" | grep -q 'testLicenceDropAccepts' \
+        && ok "(8) an INDENTED failing test is NAMED, not just counted" \
+        || no "(8) the failing test was counted and not named. That is run 32351291319 exactly: 'executed=288 failures=1' with nothing to act on. Output: ${out}"
+
+    # (9) THE PATTERNS MUST BE CROSS-CHECKED. A count with no nameable line is
+    # two patterns disagreeing about one file, and that must be said out loud
+    # rather than passed off as "see the log above" when the log says nothing.
+    printf '\t Executed 288 tests, with 1 failure (0 unexpected) in 6.1 seconds\n' > "$d/counted-only.log"
+    out="$(verify "$d/counted-only.log" "$d/floor" 2>&1)"
+    printf '%s' "$out" | grep -q 'NONE could be named' \
+        && ok "(9) counted-but-unnameable is reported as the patterns disagreeing" \
+        || no "(9) a failure count with no nameable line was not flagged as a disagreement. Output: ${out}"
 
     # A run ABOVE the floor must pass: the floor must not tax adding tests.
     printf '\t Executed 400 tests, with 0 failures (0 unexpected) in 4.0 seconds\n' > "$d/grew.log"

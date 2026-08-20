@@ -1084,20 +1084,28 @@ stage-payload:
 	$(STEP) "Embedding (B-lite) upgrade payload into Ostler.app (before sparkle-embed seal)"
 	@SRC_ROOT="$(CURDIR)/.."; \
 	AGENT_SRC="$$SRC_ROOT/assistant-agent"; \
-	DAEMON_APP_BIN="$$AGENT_SRC/OstlerAssistant.app/Contents/MacOS/ostler-assistant"; \
+	DAEMON_APP="$$AGENT_SRC/OstlerAssistant.app"; \
 	DAEMON_BARE_BIN="$$AGENT_SRC/bin/ostler-assistant"; \
-	if [ -x "$$DAEMON_APP_BIN" ]; then \
-	    DAEMON_BIN="$$DAEMON_APP_BIN"; \
-	elif [ -x "$$DAEMON_BARE_BIN" ]; then \
-	    DAEMON_BIN="$$DAEMON_BARE_BIN"; \
-	else \
+	if [ ! -d "$$DAEMON_APP" ]; then \
 	    echo "" >&2; \
-	    echo "ERROR: staged daemon binary not found. Expected one of:" >&2; \
-	    echo "  $$DAEMON_APP_BIN" >&2; \
-	    echo "  $$DAEMON_BARE_BIN" >&2; \
-	    echo "  Run 'make stage-daemon' before stage-payload -- it extracts the" >&2; \
-	    echo "  v$(DAEMON_VERSION) daemon tarball into ../assistant-agent/. In the ship" >&2; \
-	    echo "  chain stage-daemon runs first, so this only bites a standalone run." >&2; \
+	    if [ -x "$$DAEMON_BARE_BIN" ]; then \
+	        echo "ERROR: stage-payload found a BARE DAEMON BINARY and no signed .app." >&2; \
+	        echo "  present: $$DAEMON_BARE_BIN" >&2; \
+	        echo "  needed:  $$DAEMON_APP" >&2; \
+	        echo "" >&2; \
+	        echo "  A bare binary CANNOT be embedded as the upgrade payload. install.sh" >&2; \
+	        echo "  upgrade-mode (_upg_stage_daemon) refuses a bare-binary payload with" >&2; \
+	        echo "  exit 20: the swap is gated on codesign --verify --deep --strict against" >&2; \
+	        echo "  the Team pin, and a loose binary carries no bundle signature to verify." >&2; \
+	        echo "  Embedding one yields a DMG whose own upgrade path refuses it at runtime," >&2; \
+	        echo "  silently, on the customer's machine. Refusing at cut time instead." >&2; \
+	    else \
+	        echo "ERROR: staged daemon .app not found. Expected:" >&2; \
+	        echo "  $$DAEMON_APP" >&2; \
+	        echo "  Run 'make stage-daemon' before stage-payload -- it extracts the" >&2; \
+	        echo "  v$(DAEMON_VERSION) daemon tarball into ../assistant-agent/. In the ship" >&2; \
+	        echo "  chain stage-daemon runs first, so this only bites a standalone run." >&2; \
+	    fi; \
 	    exit 1; \
 	fi; \
 	INSTALL_SH="$$SRC_ROOT/install.sh"; \
@@ -1126,23 +1134,45 @@ stage-payload:
 	PAYLOAD="$(OSTLER_APP_PATH)/Contents/Resources/ostler-payload"; \
 	printf '[STEP] Assembling payload at %s\n' "$$PAYLOAD"; \
 	rm -rf "$$PAYLOAD"; \
-	mkdir -p "$$PAYLOAD/assistant-agent/bin" "$$PAYLOAD/assistant-agent/launchd" "$$PAYLOAD/services"; \
+	mkdir -p "$$PAYLOAD/assistant-agent/launchd" "$$PAYLOAD/services"; \
 	printf 'hub-v%s\n' "$(DAEMON_VERSION)" > "$$PAYLOAD/VERSION"; \
 	cp "$$INSTALL_SH" "$$PAYLOAD/install.sh"; \
 	cp "$$SNIPPET" "$$PAYLOAD/assistant-agent/INSTALL_SNIPPET.sh"; \
 	cp "$$LAUNCHD_DIR"/*.plist "$$PAYLOAD/assistant-agent/launchd/"; \
-	cp "$$DAEMON_BIN" "$$PAYLOAD/assistant-agent/bin/ostler-assistant"; \
-	chmod +x "$$PAYLOAD/assistant-agent/bin/ostler-assistant"; \
+	ditto "$$DAEMON_APP" "$$PAYLOAD/assistant-agent/OstlerAssistant.app"; \
+	chmod +x "$$PAYLOAD/assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant"; \
 	cp -R "$$DOCTOR_SRC" "$$PAYLOAD/services/doctor"; \
 	cp -R "$$KNOWLEDGE_SRC" "$$PAYLOAD/services/knowledge"; \
 	cp -R "$$CM048_SRC" "$$PAYLOAD/services/cm048"; \
 	/usr/bin/xattr -cr "$$PAYLOAD" 2>/dev/null || true; \
-	for req in VERSION install.sh assistant-agent/INSTALL_SNIPPET.sh assistant-agent/bin/ostler-assistant services/doctor services/knowledge services/cm048; do \
+	for req in VERSION install.sh assistant-agent/INSTALL_SNIPPET.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048; do \
 	    if [ ! -e "$$PAYLOAD/$$req" ]; then \
 	        echo "ERROR: payload assembly incomplete -- missing $$req after copy." >&2; \
 	        exit 1; \
 	    fi; \
 	done; \
+	if [ -e "$$PAYLOAD/assistant-agent/bin/ostler-assistant" ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: payload contains the LEGACY bare-binary shape at" >&2; \
+	    echo "  $$PAYLOAD/assistant-agent/bin/ostler-assistant" >&2; \
+	    echo "  install.sh upgrade-mode resolves _UPG_PAYLOAD_APP first and refuses a" >&2; \
+	    echo "  bare binary with exit 20. Shipping both shapes invites the wrong one." >&2; \
+	    exit 1; \
+	fi; \
+	printf '[STEP] Verifying the embedded daemon against the SAME requirement upgrade-mode enforces\n'; \
+	if ! codesign --verify --deep --strict -R '=anchor apple generic and certificate leaf[subject.OU] = "V95N2B8X7A"' "$$PAYLOAD/assistant-agent/OstlerAssistant.app" 2>&1; then \
+	    echo "" >&2; \
+	    echo "ERROR: the embedded daemon at" >&2; \
+	    echo "  $$PAYLOAD/assistant-agent/OstlerAssistant.app" >&2; \
+	    echo "  FAILS codesign --verify --deep --strict against the Team pin V95N2B8X7A." >&2; \
+	    echo "  This is the exact check install.sh upgrade-mode runs before the daemon" >&2; \
+	    echo "  swap (_upg_stage_daemon, exit 21). A payload that fails here produces a" >&2; \
+	    echo "  DMG whose upgrade path refuses itself on the customer's machine. The" >&2; \
+	    echo "  cut is refused instead. Checked AFTER xattr -cr, so this is the state" >&2; \
+	    echo "  that actually ships." >&2; \
+	    exit 1; \
+	fi; \
+	printf '[OK] embedded daemon verifies against the upgrade-mode Team pin\n'; \
 	FILE_COUNT="$$(find "$$PAYLOAD" -type f | wc -l | tr -d ' ')"; \
 	PAYLOAD_MB="$$(du -sm "$$PAYLOAD" | awk '{print $$1}')"; \
 	printf '[OK] payload assembled: %s files, %s MB, VERSION=hub-v%s\n' "$$FILE_COUNT" "$$PAYLOAD_MB" "$(DAEMON_VERSION)"; \

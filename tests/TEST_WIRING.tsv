@@ -59,6 +59,7 @@ test_conversation_bundle_user_id_wired.sh	UNWIRED	-
 test_conversation_process_metadata_conversation_id.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_conversations_ingest_wiring.sh	UNWIRED	-
 test_creation_name_writes.sh	WIRED	.github/workflows/creation-name-writes.yml
+test_customer_download_path_gate.sh	WIRED	.github/workflows/customer-download-path.yml
 test_cut_deferrals_no_duplicate_keys.sh	UNWIRED	-
 test_cut_dispatch_is_dry.sh	WIRED	.github/workflows/cut.yml
 test_cut_freshness_gate.sh	WIRED	.github/workflows/cut-freshness.yml
@@ -105,10 +106,12 @@ test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist
 test_enrichment_optin_is_owed_after_v1_0_36.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_enrichment_reaches_the_corpus.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_err_trap_emits_done_fail.sh	UNWIRED	-
+test_every_default_source_is_requested.sh	WIRED	.github/workflows/default-sources-requested.yml
 test_every_fail_call_has_error_code.sh	UNWIRED	-
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_fda_assist_ordering.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_fda_deps_are_installed_not_just_copied.sh	WIRED	.github/workflows/fda-deps-installed.yml
 test_fda_module_reachable.sh	WIRED	.github/workflows/fda-reachable.yml
 test_fda_prewarm_no_early_messages_popup.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
@@ -123,14 +126,15 @@ test_graph_db_pull_retry.sh	UNWIRED	-
 test_grep_c_arith_safety.sh	UNWIRED	-
 test_gui_progress_emitter.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_hub_app_fetch_wired.sh	WIRED	.github/workflows/hub-app-fetch.yml
-test_hydrate_apple_notes_wired.sh	UNWIRED	-
-test_hydrate_email_preferences_wired.sh	UNWIRED	-
-test_hydrate_people_wired.sh	UNWIRED	-
+test_hydrate_apple_notes_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
+test_hydrate_email_preferences_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
+test_hydrate_people_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_sentinel_not_on_error.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_ical_server_vendor_wired.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_identity_resolver_fuzzy_cache.py	UNWIRED	-
 test_imessage_fda_probe.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_imessage_ladder_not_pinned.sh	WIRED	.github/workflows/imessage-ladder.yml
+test_imessage_probe_cannot_hang.sh	WIRED	.github/workflows/imessage-probe-cannot-hang.yml
 test_imessage_self_handles_fallback.sh	UNWIRED	-
 test_imessage_tcc_posture.sh	UNWIRED	-
 test_inferred_category_never_egresses.py	WIRED	.github/workflows/install-abort-and-egress.yml
@@ -141,6 +145,7 @@ test_install_first_month_free.sh	UNWIRED	-
 test_install_gui_contract.py	WIRED	.github/workflows/install-gui-contract.yml
 test_install_gui_contract_negatives.py	WIRED	.github/workflows/install-gui-contract.yml
 test_install_log_follows_promotion.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_install_log_reads_like_a_product.sh	WIRED	.github/workflows/install-log-hygiene.yml
 test_install_sh_no_call_before_definition.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_install_sh_prefers_bundled_python.sh	UNWIRED	-
 test_installer_app_bundle_contents.sh	WIRED	.github/workflows/install-gui-contract.yml
@@ -148,6 +153,7 @@ test_installer_version_consistency.sh	WIRED	.github/workflows/installer-version-
 test_knowledge_repo_wiring.sh	UNWIRED	-
 test_laptop_hub_power_copy_fires_on_laptops_only.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_launchagent_bootstrap_after_staging.py	WIRED	.github/workflows/launchd-plist-paths.yml
+test_launchagent_homebrew_path.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_launchd_plist_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
 test_linkedin_export_detect.sh	UNWIRED	-
@@ -184,7 +190,9 @@ test_pinned_wiki_image_has_design_system.sh	WIRED	.github/workflows/cut-gate-wra
 test_pinned_wiki_images_are_arm64_only.sh	WIRED	scripts/run_all_cut_gates.sh
 test_pinterest_parser.py	UNWIRED	-
 test_pip_stage_outside_bundle.sh	WIRED	.github/workflows/pip-stage.yml
+test_pipefail_shortcircuit_inversion.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_placeholder_strip.sh	UNWIRED	-
+test_pr_age_gate_declares_partial_runs.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pref_noise_source_cap.py	UNWIRED	-
 test_preferences_vendor_wired.sh	UNWIRED	-
 test_provenance_gate_cannot_run_is_not_stale.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
@@ -192,6 +200,7 @@ test_provenance_survives_the_filter_under_execution.py	WIRED	.github/workflows/i
 test_resolver_robustness.py	UNWIRED	-
 test_resource_tier_governor.sh	UNWIRED	-
 test_rollforward_registry_pin.sh	WIRED	.github/workflows/cut.yml
+test_secrets_are_documented.sh	WIRED	.github/workflows/secrets-are-documented.yml
 test_section_contract.sh	WIRED	.github/workflows/section-contract.yml
 test_settling_progress_writer.sh	UNWIRED	-
 test_ship_prereqs_are_a_superset.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
@@ -200,6 +209,7 @@ test_signing_credential_guard.sh	WIRED	.github/workflows/cut.yml
 test_skills_lockdown_config.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_slot_waiter_can_outlast_a_holder.sh	WIRED	.github/workflows/slot-fairness.yml
 test_social_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_status_ok_with_zero_payload_is_not_ok.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_stay_awake_agent_survives_installer_exit.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_stderr_tail.sh	WIRED	.github/workflows/stderr-tail.yml
 test_step_end_does_not_report_a_timed_out_step_as_ok.sh	WIRED	.github/workflows/step-end-status-honesty.yml
@@ -216,7 +226,8 @@ test_uninstall_removes_every_launchagent_plist.sh	WIRED	.github/workflows/launch
 test_uninstaller_keep_prompt.sh	UNWIRED	-
 test_universal_import_leg_wired.sh	UNWIRED	-
 test_unreachable_is_not_absence.sh	WIRED	.github/workflows/unreachable-not-absence.yml
-test_upgrade_mode_invariants.sh	UNWIRED	-
+test_upgrade_mode_invariants.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
+test_upgrade_payload_shape_contract.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_user_facing_tree.sh	UNWIRED	-
 test_usr_local_bin_symlinks_gui_safe.sh	UNWIRED	-
 test_v1010_at_rest_exclusions.sh	UNWIRED	-

@@ -82,7 +82,7 @@
         OSTLER_PYTHON tells the tick script which python interpreter
         to use. Without this, the tick falls through to PATH-`python3`
         which on a stock macOS is /Library/Developer/CommandLineTools
-        /usr/bin/python3 -- the system python with no installed
+        /usr/bin/python3, the system python with no installed
         site-packages. The tick imports ostler_fda.apple_mail_mbox,
         which only exists inside the dedicated email-ingest venv
         created by CM051's install.sh. Failing to set this caused

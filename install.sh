@@ -803,6 +803,29 @@ warn()  { gui_active || echo -e "${YELLOW}[warn]${NC}  $*"; gui_warn "$*"; }
 # itself -- caller decides whether to exit or recover.
 err()   { gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log error "$*"; }
 
+# dbg -- developer probes, silent on a customer install.
+#
+# The CX-nn probe lines around the Mail-detection blocks were added to chase a
+# specific detection bug. They were emitted with info()/gui_log, so they went
+# straight to the customer's screen: Andy's 2026-08-20 install log carried 14
+# of them, in the shape
+#     12:40:17  [INFO ] CX-37 probe: entering
+#     12:40:17  [INFO ] CX-37 probe: exiting
+# which reads as a debugger someone forgot to switch off. The install was
+# healthy; it did not look healthy.
+#
+# ⚠️ TRADE-OFF, STATED RATHER THAN HIDDEN: gui_log is the same call that feeds
+# the durable install log, so there is no way from here to keep these lines in
+# a support bundle while removing them from the customer's screen -- that
+# split lives in lib/progress_emitter.sh, which is not this change's to touch.
+# So the probes are now OFF by default and a default support bundle loses 14
+# lines. Re-run with OSTLER_INSTALL_DEBUG=1 to get them back.
+dbg() {
+    [[ "${OSTLER_INSTALL_DEBUG:-0}" == "1" ]] || return 0
+    gui_active || echo -e "${BLUE}[dbg]${NC}   $*"
+    gui_log info "$*"
+}
+
 # CX-17 (2026-05-23): stable error-code framework. Andy asked
 # during Studio retest #6 whether we could "add error codes in the
 # failure notice so we can track down when and where (and ideally
@@ -2359,6 +2382,62 @@ else
 fi
 unset _ostler_emitter_candidate
 
+# ── Hard deadline for commands that can block on a TCC prompt ─────
+#
+# WHY THIS IS NOT `timeout` OR `gtimeout`.
+# macOS ships neither. `gtimeout` arrives with brew coreutils in Phase
+# 3.1b (see the install around line 8560), and the first caller of this
+# helper runs THOUSANDS of lines earlier, during the iMessage
+# Automation pre-prime. At that point there is no timeout binary on the
+# box at all, so the only deadline available is one bash can enforce
+# itself. Every existing _*_TIMEOUT_WRAP in this file is a Phase-3.1b+
+# construct and none of them can be reused here.
+#
+# THE DEFECT THIS CLOSES (#664, found on Andy's v1.0.36 walk).
+# An AppleEvent to Messages raises a TCC "wants to control Messages"
+# prompt whenever the grant is absent, which on a wiped box is always.
+# osascript then blocks until a human clicks. Unattended, nobody ever
+# does: the install hangs forever at that step, with no timeout, no
+# progress and no way to tell it apart from slow work.
+#
+# THE WATCHDOG VERIFIES DEATH. #783 is the sibling defect on the
+# hydrate watchdog: it sent ONE SIGTERM, never confirmed the process
+# died, and exited -- so an unresponsive payload outlived its own
+# enforcer. Here TERM is followed by a re-check and a KILL, and only
+# then do we reap. A deadline that can be ignored is not a deadline.
+#
+# Returns the command's own rc, or 124 on timeout (matching coreutils
+# `timeout`, so callers can branch on the same number either way).
+# Redirections belong on the CALL, not inside: they are inherited by
+# the backgrounded command.
+#   _ostler_run_with_deadline 90 osascript -e '...' >/dev/null 2>"$f"
+_ostler_run_with_deadline() {
+    local _deadline_s="$1"; shift
+    "$@" &
+    local _cmd_pid=$!
+    local _waited=0
+    while kill -0 "$_cmd_pid" 2>/dev/null; do
+        if [[ "$_waited" -ge "$_deadline_s" ]]; then
+            kill -TERM "$_cmd_pid" 2>/dev/null || true
+            sleep 1
+            if kill -0 "$_cmd_pid" 2>/dev/null; then
+                kill -KILL "$_cmd_pid" 2>/dev/null || true
+            fi
+            wait "$_cmd_pid" 2>/dev/null || true
+            return 124
+        fi
+        sleep 1
+        _waited=$((_waited + 1))
+    done
+    wait "$_cmd_pid"
+}
+
+# Generous by design. The customer has just acknowledged a pre-warn ack
+# telling them this prompt is coming, so they are at the keyboard and
+# 90s is ample; the deadline exists for the box where nobody is there
+# at all. Overridable for harnesses and for operators on slow machines.
+OSTLER_IMESSAGE_PROBE_TIMEOUT_S="${OSTLER_IMESSAGE_PROBE_TIMEOUT_S:-90}"
+
 # ── Hardware-fit model picker helper (REUSE-4) ────────────────────
 #
 # lib/ostler-model-fit.sh holds the static model->min-RAM-for-num_ctx
@@ -3377,7 +3456,22 @@ step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 #                                      install 2026-08-17:
 #                                      kTCCServiceSystemPolicyDownloadsFolder
 #                                      -> ai.ostler.assistant at 07:22:53)
-#  10. App data -- daemon             (kTCCServiceSystemPolicyAppData, granted
+#  10. Documents folder -- daemon     (kTCCServiceSystemPolicyDocumentsFolder.
+#                                      The daemon asks AGAIN, separately from
+#                                      the installer's #6, for the same reason
+#                                      the Downloads pair exists: TCC pins a
+#                                      grant to the requesting identifier+team,
+#                                      so the installer cannot pre-warm on the
+#                                      daemon's behalf.
+#                                      ANDY HIT THIS LIVE ON 2026-08-20 and
+#                                      asked whether it had been fixed. It had
+#                                      not: the prompt was expected and
+#                                      commented in FIVE places in this file
+#                                      (~17377, ~17533, ~17551, ~17915, ~21928)
+#                                      and named in NEITHER the inventory nor
+#                                      the printed list. The count said 12 and
+#                                      the customer saw 13.)
+#  11. App data -- daemon             (kTCCServiceSystemPolicyAppData, granted
 #                                      07:23:32, 39s after the one above. macOS
 #                                      words this "wants to access data from
 #                                      other apps" -- which matched NOTHING in
@@ -3385,11 +3479,11 @@ step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 #                                      30 steps into a run that had promised a
 #                                      complete inventory. Naming it here is the
 #                                      whole point of this list.)
-#  11. iMessage Automation            (CX-55 if iMessage channel enabled)
-#  12. macOS admin password           (sudo for Homebrew, sleep-disable)
+#  12. iMessage Automation            (CX-55 if iMessage channel enabled)
+#  13. macOS admin password           (sudo for Homebrew, sleep-disable)
 # Plus, on a fresh Mac: the Xcode CLT installer dialog (not a TCC
 # permission per se, but customer-visible).
-PERMISSIONS_TOTAL=12
+PERMISSIONS_TOTAL=13
 gui_emit STEP "name=permissions_briefing" "total_permissions=${PERMISSIONS_TOTAL}"
 
 echo ""
@@ -3410,10 +3504,11 @@ echo -e "    4-6. ${BOLD}Downloads/Desktop/Documents${NC}    Find data exports"
 echo -e "    7. ${BOLD}Full Disk Access (installer)${NC}     Read Safari, Notes etc. (asked now, upfront)"
 echo -e "    8. ${BOLD}Full Disk Access (daemon)${NC}        Read iMessage history (asked near the end)"
 echo -e "    9. ${BOLD}Downloads (assistant)${NC}            The assistant asks for itself, after the installer (near the end)"
-echo -e "    10. ${BOLD}Data from other apps${NC}            macOS words it exactly that way. It is the assistant"
+echo -e "    10. ${BOLD}Documents (assistant)${NC}            The assistant asks for itself too, same as 9 (near the end)"
+echo -e "    11. ${BOLD}Data from other apps${NC}            macOS words it exactly that way. It is the assistant"
 echo -e "        ${BOLD}(assistant)${NC}                     reading the app data you already approved (near the end)"
-echo -e "    11. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
-echo -e "    12. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
+echo -e "    12. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
+echo -e "    13. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
 echo ""
 echo "  Plus, on a fresh Mac, a Command Line Tools installer dialog"
 echo "  from Apple (Xcode); these are downloaded in the background"
@@ -4340,8 +4435,15 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true && "${OSTLER_GUI:-0}" == "1" ]]; then
     # the posture here (3.18 records the authoritative snapshot); the only
     # side-effect we want now is the prompt landing in the attention
     # window. Test-shim escape hatch honoured so harnesses never osascript.
+    # #664: DEADLINED. This is fire-and-forget -- we discard the posture
+    # (3.18 takes the authoritative snapshot) and only want the prompt to
+    # land inside the attention window. But `|| true` does not save an
+    # unattended box: it swallows a FAILURE, and this call does not fail,
+    # it BLOCKS, waiting for a click that never comes. The deadline is
+    # what makes it fire-and-forget rather than fire-and-wait-forever.
     if [[ -z "${PWG_IMESSAGE_PROBE_OUTCOME:-}" ]]; then
-        osascript -e 'tell application "Messages" to count of accounts' \
+        _ostler_run_with_deadline "$OSTLER_IMESSAGE_PROBE_TIMEOUT_S" \
+            osascript -e 'tell application "Messages" to count of accounts' \
             >/dev/null 2>&1 || true
     fi
     IMESSAGE_AUTOMATION_PRIMED_EARLY=true
@@ -4388,9 +4490,18 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
     echo "  Terms of Service. The way Ostler reads your messages – by"
     echo "  reading the data WhatsApp Web has already saved into a"
     echo "  hidden folder on your Mac – is not how WhatsApp's terms"
-    echo "  say their service should be accessed. We never contact"
-    echo "  Meta, we never relay anything to them, and we never use"
-    echo "  the WhatsApp API. We just read the file they wrote locally."
+    echo "  say their service should be accessed."
+    echo ""
+    echo "  And if you also choose to CHAT with Ostler over WhatsApp,"
+    echo "  or to have your daily brief delivered there, Ostler links"
+    echo "  to your WhatsApp account as a linked device - the same way"
+    echo "  WhatsApp Web works in a browser - and keeps a connection"
+    echo "  open to WhatsApp while that is switched on. That connection"
+    echo "  carries only the messages between you and Ostler, and the"
+    echo "  briefs Ostler sends you. It does not upload your message"
+    echo "  history, and it is a connection to WhatsApp, not to us."
+    echo "  Leave chatting and briefs off and Ostler only reads the"
+    echo "  messages already on your Mac, and connects to nothing."
     echo "  But that still counts as \"unofficial\" by their definition."
     echo ""
     echo "  In practice, this kind of read access is widely used and we"
@@ -4724,7 +4835,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         # filter so the count value is always a clean integer or 0.
         # Tracer log markers bracket the block so the next retest can
         # pinpoint a regression instantly.
-        gui_log info "CX-37 probe: entering"
+        dbg "CX-37 probe: entering"
         set +e
         # CX-103 (DMG #48k, 2026-05-29): FDA may not yet be granted
         # at question phase. Without FDA, Accounts4.sqlite reads fail
@@ -4736,7 +4847,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         # probe runs AFTER FDA is granted and produces the correct
         # count for downstream pipeline_signals.json.
         if ! _has_fda; then
-            gui_log info "CX-103: skipping early Mail probe -- FDA not yet granted (Phase 4 probe will run after grant)"
+            dbg "CX-103: skipping early Mail probe -- FDA not yet granted (Phase 4 probe will run after grant)"
             MAIL_PROMPT_SHOWN_EARLY=1
             export MAIL_PROMPT_SHOWN_EARLY
         fi
@@ -4753,7 +4864,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
             # the Phase 4 Mail probe (search for "CX-100 checkpoint").
             _early_mail_accounts="$(_accountsdb_count_mail)"
             _early_mail_accounts="${_early_mail_accounts:-0}"
-            gui_log info "CX-100 probe: accountsdb mail count=[${_early_mail_accounts}]"
+            dbg "CX-100 probe: accountsdb mail count=[${_early_mail_accounts}]"
             if [[ "$_early_mail_accounts" -eq 0 ]] 2>/dev/null; then
                 _early_mail_answer="$(gui_read \
                     "$MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE" \
@@ -4778,7 +4889,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
             unset _early_mail_accounts
         fi
         set -e
-        gui_log info "CX-37 probe: exiting"
+        dbg "CX-37 probe: exiting"
 
         # CX-130 (v1.0.1): hoist the "account exists but Mail.app has
         # not fetched yet -> open Mail and wait while it syncs" prompt
@@ -4801,7 +4912,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         # (source of truth via Accounts4.sqlite), Mail.app has not pulled
         # a message yet, GUI on. FDA must be readable or the account count
         # is unreliable (CX-103) -- reuse _has_fda to skip cleanly.
-        gui_log info "CX-130 populate probe: entering"
+        dbg "CX-130 populate probe: entering"
         set +e
         if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
            && [[ "${OSTLER_GUI:-0}" == "1" ]] \
@@ -4809,7 +4920,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
            && _has_fda; then
             _early_pop_accounts="$(_accountsdb_count_mail)"
             _early_pop_accounts="${_early_pop_accounts:-0}"
-            gui_log info "CX-130 populate probe: accountsdb mail count=[${_early_pop_accounts}]"
+            dbg "CX-130 populate probe: accountsdb mail count=[${_early_pop_accounts}]"
             if [[ "$_early_pop_accounts" -gt 0 ]] 2>/dev/null \
                && ! _store_populated_mail; then
                 # State 2: accounts configured but Mail.app has not pulled
@@ -4832,7 +4943,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
                     # the sidecar here because the writer + signals path are
                     # only resolved in Phase 3; re-detection in Phase 3
                     # carries the side-effects without duplication.
-                    gui_log info "CX-130 populate probe: Mail populated during early wait"
+                    dbg "CX-130 populate probe: Mail populated during early wait"
                 fi
                 unset _early_pop_help
             fi
@@ -4844,7 +4955,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
             unset _early_pop_accounts
         fi
         set -e
-        gui_log info "CX-130 populate probe: exiting"
+        dbg "CX-130 populate probe: exiting"
     fi
 
     # Folder / label scoping. Connecting the assistant to the main
@@ -4867,7 +4978,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     # plain joiner instead of `IFS=' + ' read <<<` so a single
     # malformed entry can't poison the entire email channel summary.
     # Same belt-and-braces shape as the CX-37 probe above.
-    gui_log info "CX-57 email-summary: entering"
+    dbg "CX-57 email-summary: entering"
     _email_summary_parts=()
     if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]]; then
         _email_summary_parts+=("Apple Mail (FDA)")
@@ -4886,7 +4997,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     [[ -z "$_email_summary_joined" ]] && _email_summary_joined="Apple Mail (FDA)"
     ok "$(printf "$MSG_OK_EMAIL_CHANNEL_FOLDER" "${_email_summary_joined}" "${CHANNEL_EMAIL_IMAP_FOLDER}")"
     unset _email_summary_parts _email_summary_joined _email_part
-    gui_log info "CX-57 email-summary: exiting"
+    dbg "CX-57 email-summary: exiting"
 fi
 
 if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
@@ -5282,6 +5393,106 @@ if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
     mkdir -p "$FDA_DIR"
     cp -R "${SCRIPT_DIR}/ostler_fda" "$FDA_DIR/"
     HAS_FDA_MODULE=true
+
+    # ── #805: THE COPY WAS NEVER GIVEN ITS DEPENDENCIES ──────────────
+    #
+    # `cp -R` puts the CODE on disk. It installs nothing. So the venv the
+    # recurring tick runs under never had ostler_fda's declared dependencies,
+    # and the very first thing the tick imports needs one of them:
+    #
+    #     vendor/ostler_fda/pyproject.toml:42         "nameparser>=2.1.0,<3.0"
+    #     vendor/ostler_fda/identifier_quality.py:88  from nameparser import HumanName
+    #
+    # MEASURED on the live v1.0.37 box 2026-08-20, before this fix:
+    #
+    #     ~/.ostler/.venv/bin/python3 -c 'import ostler_fda.identifier_quality'
+    #       -> ModuleNotFoundError: No module named 'nameparser'
+    #
+    # The chain is plist -> run-source -> tick.sh -> ~/.ostler/bin/ostler-fda
+    # -> OSTLER_PYTHON=~/.ostler/.venv/bin/python3. So fda-rerun died on EVERY
+    # fire, on EVERY box, from the first install -- while the product told the
+    # customer their data was "still loading in the background".
+    #
+    # It looked fine from both ends. The declaration was correct. The code was
+    # present. Only the join was missing, and nothing was watching the join.
+    #
+    # WHY EDITABLE (-e) AND NOT A PLAIN INSTALL
+    #
+    # A plain `pip install "$FDA_DIR/ostler_fda"` also fixes the imports, but it
+    # leaves TWO copies of the code: the cp -R one that the tick puts on
+    # sys.path, and a second under site-packages. The version in pyproject.toml
+    # is static (0.1.0), so a later install refreshes the first and pip skips
+    # the second as already-satisfied. Consumers that do not insert FDA_DIR
+    # would then import silently STALE code -- the exact two-copies-one-stale
+    # shape this repo keeps getting caught by.
+    #
+    # `-e` installs the dependencies and points the venv at the cp -R directory
+    # itself, so there is ONE copy and a re-install can never leave a shadow.
+    # Verified locally 2026-08-20: after `-e`, editing a file under FDA_DIR is
+    # visible to the next interpreter run, and `import ostler_fda` resolves to
+    # FDA_DIR, not to site-packages.
+    #
+    # SAFE FOR THE CODE SEAL, and that is why it goes HERE rather than at
+    # SCRIPT_DIR. `pip install -e` writes .egg-info into its source directory.
+    # SCRIPT_DIR is inside the notarised bundle (that is CM051 #767 -- 256
+    # unsealed files and a Gatekeeper refusal). FDA_DIR is ~/.ostler/fda-module,
+    # already copied OUT of the bundle three lines above, so the writes land in
+    # the user's own directory. The assertion below states that rather than
+    # trusting it, because "the path is outside the bundle" is precisely the
+    # kind of plausible reasoning that was wrong for 32 cuts.
+    if [[ "${FDA_DIR}" == "${SCRIPT_DIR}"/* || "${FDA_DIR}" == *"/Contents/Resources"* ]]; then
+        fail_with_code "ERR-10-FDA-DEPS-UNSAFE-PATH" "$MSG_FAIL_FDA_DEPS_UNSAFE_PATH"
+    fi
+
+    # Resolve the venv locally. Do NOT reuse OSTLER_PIP from the
+    # ostler_security block above: that block is conditional, so depending on
+    # it here would make this silently skip on exactly the installs where that
+    # module is absent. Same three lines used at the other venv sites.
+    FDA_VENV="${OSTLER_DIR}/.venv"
+    if [[ ! -d "$FDA_VENV" ]]; then
+        "$PYTHON3_BIN" -m venv "$FDA_VENV"
+    fi
+    FDA_VENV_PIP="${FDA_VENV}/bin/pip"
+    FDA_VENV_PYTHON="${FDA_VENV}/bin/python3"
+
+    info "$MSG_INFO_INSTALLING_FDA_DEPENDENCIES"
+    "$FDA_VENV_PIP" install --quiet -e "${FDA_DIR}/ostler_fda" \
+        >/tmp/ostler-fda-deps.log 2>&1 || true
+
+    # ── THE CONTROL: IMPORT, DO NOT READ ─────────────────────────────
+    #
+    # The obvious check is "did pip exit 0" or "is nameparser in pyproject".
+    # Both are the wrong surface. The declaration was ALWAYS correct on the
+    # broken boxes -- a grep for it passes on exactly the machines that are
+    # broken. And pip's rc does not tell you the interpreter can load the code.
+    #
+    # So execute the import, under the SAME interpreter the tick resolves, and
+    # read the interpreter's own verdict. Bare, with no sys.path help, because
+    # the wrapper is not the only consumer and a bare import is the honest
+    # floor. This is the constraint Archie set for #805 and it is the whole
+    # point: the control's surface must be the defect's surface.
+    #
+    # This does NOT claim the tick then produces useful data. Import success is
+    # a floor, not a harvest.
+    if ! "$FDA_VENV_PYTHON" -c 'import ostler_fda.identifier_quality' >/dev/null 2>&1; then
+        FDA_IMPORT_ERR="$("$FDA_VENV_PYTHON" -c 'import ostler_fda.identifier_quality' 2>&1 | tail -1)"
+        warn "$MSG_WARN_FDA_DEPENDENCIES_NOT_IMPORTABLE"
+        warn "    ${FDA_IMPORT_ERR}"
+        if [[ -s /tmp/ostler-fda-deps.log ]]; then
+            sed -e 's/^/    /' /tmp/ostler-fda-deps.log | tail -5
+        fi
+        # Hard-fail, mirroring the missing-module branch below. A module that
+        # is present but cannot load is not better than an absent one -- it is
+        # worse, because every surface reports it as installed. Shipping past
+        # this is how #805 stayed invisible from the first install.
+        if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+            warn "$MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT"
+        else
+            fail_with_code "ERR-10-FDA-DEPS-IMPORT" "$MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN"
+        fi
+    else
+        ok "$MSG_OK_FDA_DEPENDENCIES_IMPORTABLE"
+    fi
 else
     if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
         warn "$MSG_WARN_FDA_MODULE_NOT_BUNDLED_PLAINTEXT"
@@ -7730,8 +7941,13 @@ case "${ENRICH_CHOICE:-}" in
     *)   OSTLER_ENRICH_AGENT_ENABLED=0 ;;
 esac
 export OSTLER_ENRICH_AGENT_ENABLED
-# Recorded so the Doctor and a support bundle can state what the customer
-# chose, rather than inferring it from whether a LaunchAgent happens to exist.
+# Carried to the consent-recording block (phase 3.7, search for
+# enrichment-decision.json), which is where it is actually written to disk.
+# Until 2026-08-20 this comment read "Recorded so the Doctor and a support
+# bundle can state what the customer chose" -- and the export below was the
+# whole of it. Nothing wrote it anywhere; the value died with the process.
+# The comment described an intention as though it were a mechanism, which is
+# worse than no comment, because it stopped anyone looking. (#794)
 OSTLER_CONSENT_ENRICHMENT_DECISION="$([[ "$OSTLER_ENRICH_AGENT_ENABLED" == "1" ]] && echo accepted || echo declined)"
 export OSTLER_CONSENT_ENRICHMENT_DECISION
 
@@ -9635,7 +9851,13 @@ else
         printf 'REDIS_URL=%s\n' "redis://localhost:6379" >> "${CONFIG_DIR}/.env"
     fi
     unset _sa_env
-    info "Store native token-auth is staged but DEFAULT-OFF -- deferred to the v1.0.1 project. Any previously-threaded store credentials have been scrubbed so the stores boot keyless (matching the shipped clients). Operative controls for v1.0.10: 127.0.0.1-only binds + the store-proxy Host-header gate (defeats DNS-rebind) on Qdrant/Oxigraph. Set OSTLER_STORE_AUTH_ENFORCE=1 once the client-side auth PRs land."
+    # Was an info() until 2026-08-20, so every customer read a note written for
+    # us: it named an internal project number, an unshipped set of PRs, and an
+    # env var they are meant to set "once the client-side auth PRs land".
+    # Andy saw it on his install. It is a developer note, so it goes to dbg --
+    # which also removes a hardcoded English string from the customer's screen,
+    # where the locale rule says only MSG_* keys belong.
+    dbg "Store native token-auth is staged but DEFAULT-OFF -- deferred to the v1.0.1 project. Any previously-threaded store credentials have been scrubbed so the stores boot keyless (matching the shipped clients). Operative controls: 127.0.0.1-only binds + the store-proxy Host-header gate (defeats DNS-rebind) on Qdrant/Oxigraph. Set OSTLER_STORE_AUTH_ENFORCE=1 once the client-side auth PRs land."
 fi
 
 unset _existing_jwt_secret _need_new_jwt _jwt_secret_min_length
@@ -10741,6 +10963,37 @@ PY
             "Could not persist spoken-capture decline record"
     fi
 
+    # Background-enrichment decision (#794). Until 2026-08-20 the only thing
+    # that happened to this answer was `export OSTLER_CONSENT_ENRICHMENT_DECISION`
+    # at the question site, under a comment claiming it was "Recorded so the
+    # Doctor and a support bundle can state what the customer chose". Nothing
+    # recorded it. The env var died with the installer process, so the one
+    # question about sending data to third parties was the one answer we could
+    # not afterwards produce.
+    #
+    # ⚠️ NOT ROUTED THROUGH _consent_cli_record, deliberately. That CLI rejects
+    # any tickbox absent from ostler_security's TICKBOX_REGISTRY ("unknown
+    # tickbox: ... Known ids:"), and there is no enrichment id in it. Adding
+    # one is a library-contract change in HR015, and this tree only holds a
+    # VENDORED copy that the next re-vendor would overwrite. So this writes a
+    # plain file in the same posture/ directory, and the registry half is filed
+    # separately rather than smuggled into a vendor dir.
+    #
+    # Written here, not at the question (line ~7750): _consent_cli_record is
+    # defined at ~10682 and OSTLER_DIR is only settled after the promote.
+    # Writing it early is how INSTALL_LOG ended up pointing at the staging tree.
+    _enrich_decision_file="${OSTLER_DIR}/posture/enrichment-decision.json"
+    mkdir -p "${OSTLER_DIR}/posture" 2>/dev/null || true
+    if printf '{"tickbox":"background_enrichment","decision":"%s","recorded_at":"%s"}\n' \
+            "${OSTLER_CONSENT_ENRICHMENT_DECISION:-unknown}" \
+            "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            > "${_enrich_decision_file}" 2>/dev/null; then
+        chmod 600 "${_enrich_decision_file}" 2>/dev/null || true
+    else
+        warn "$MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED"
+    fi
+    unset _enrich_decision_file
+
     ok "$MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE"
 fi
 
@@ -10844,11 +11097,39 @@ OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.58}"
 # render the Ostler v4 oxblood squircle next to the Full Disk
 # Access entry. The extraction + path logic below detects which
 # shape the tarball ships and stages both correctly, so the same
-# install.sh works against a fallback v0.4.1 tarball (bare
-# binary) AND the new v0.4.3 tarball (app bundle). v0.4.2 was
-# never published per task #507 -- the version was burned on a
-# pre-release dry-run.
-ASSISTANT_FALLBACK_VERSION="0.4.1"
+# install.sh works against a fallback tarball in the OLD bare-binary
+# shape AND the v0.4.3+ app-bundle shape. That dual-shape handling
+# below is unchanged and still correct.
+#
+# 2026-08-20: THIS VALUE WAS 0.4.1, AND 0.4.1 DOES NOT EXIST.
+# Measured against the public release repo the installer actually
+# fetches from:
+#
+#     hub-v0.4.1   404      <-- what this line used to name
+#     hub-v0.4.2   404          (never published, task #507)
+#     hub-v0.4.3   404
+#     hub-v0.4.4   200      <-- oldest release that exists
+#
+# So the branch whose entire purpose is to rescue a customer whose
+# primary download failed was itself a 404, and it had been since
+# CX-88 pointed distribution at ostler-ai/ostler-releases. Nothing
+# noticed, because the fallback only executes when the primary has
+# ALREADY failed, which is exactly when nobody is watching and
+# exactly when the customer has no other path to a Hub.
+#
+# Repointed at 0.4.57, the release immediately before the current
+# default. Verified present, both limbs, unauthenticated:
+#
+#     hub-v0.4.57 tar.gz          200
+#     hub-v0.4.57 tar.gz.sha256   200
+#
+# Chosen over 0.4.4 deliberately: a last-known-good that is 53
+# releases behind the primary is a rescue into a Hub nobody has run
+# in months. One release back is a real fallback. Note this means the
+# fallback now exercises the app-bundle shape rather than the bare
+# binary; the bare-binary path below is retained for any customer
+# resuming from an older staged tarball.
+ASSISTANT_FALLBACK_VERSION="0.4.57"
 # Customer-facing distribution.
 #
 # CX-88 (DMG #48g, 2026-05-29): the daemon ships from the public
@@ -12219,13 +12500,26 @@ print(json.dumps(summary, default=str))
     # shape of #768, whose fix could not reach any box that already had
     # the defect (#769). So rewrite when the file is ABSENT *or* when it
     # still carries the legacy StartCalendarInterval shape.
+    #
+    # 2026-08-20: a THIRD rewrite trigger, same reasoning. This job runs the
+    # tick's python toolchain, which resolves through PATH, and launchd hands
+    # its jobs /usr/bin:/bin:/usr/sbin:/sbin unless the plist says otherwise.
+    # Every plist written before today has no EnvironmentVariables dict at
+    # all. Fixing only the heredoc below would fix fresh installs and leave
+    # every existing box broken forever -- the exact #768/#769 shape this
+    # comment already warns about, one paragraph up. So the guard reads the
+    # installed file for the Homebrew prefix and rewrites when it is missing.
     FDA_RERUN_NEEDS_WRITE=0
     FDA_RERUN_WAS_LEGACY=0
+    FDA_RERUN_WAS_PATHLESS=0
     if [[ ! -f "$FDA_RERUN_PLIST" ]]; then
         FDA_RERUN_NEEDS_WRITE=1
     elif grep -q 'StartCalendarInterval' "$FDA_RERUN_PLIST" 2>/dev/null; then
         FDA_RERUN_NEEDS_WRITE=1
         FDA_RERUN_WAS_LEGACY=1
+    elif ! grep -q '/opt/homebrew/bin' "$FDA_RERUN_PLIST" 2>/dev/null; then
+        FDA_RERUN_NEEDS_WRITE=1
+        FDA_RERUN_WAS_PATHLESS=1
     fi
     if [[ "$FDA_RERUN_NEEDS_WRITE" == "1" ]]; then
         mkdir -p "${HOME}/Library/LaunchAgents"
@@ -12242,6 +12536,11 @@ print(json.dumps(summary, default=str))
         <string>run-source</string>
         <string>fda-rerun</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
     <key>StartInterval</key>
     <integer>${OSTLER_FDA_RERUN_INTERVAL_S}</integer>
     <key>StandardOutPath</key>
@@ -12256,7 +12555,13 @@ FDARPEOF
         # loaded label, so boot it out first or the box keeps running the
         # very plist we just replaced on disk. Absent-file installs have
         # nothing to bootout and the failure is expected, hence || true.
-        if [[ "$FDA_RERUN_WAS_LEGACY" == "1" ]]; then
+        #
+        # BOTH rewrite-an-existing-file limbs need this, not just the legacy
+        # one. The PATH limb (2026-08-20) replaces a file that is equally
+        # already registered, and skipping the bootout there would leave the
+        # box running the PATH-less job we just overwrote -- a fix that is on
+        # disk and not in force, which reads on every surface as done.
+        if [[ "$FDA_RERUN_WAS_LEGACY" == "1" || "$FDA_RERUN_WAS_PATHLESS" == "1" ]]; then
             launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
                 launchctl unload "$FDA_RERUN_PLIST" 2>/dev/null || true
         fi
@@ -13055,12 +13360,32 @@ ENRTICKEOF
 ENRPLIST
     chmod 0644 "$plist"
 
-    launchctl bootout "gui/\$(id -u)/${label}" 2>/dev/null || true
-    if launchctl bootstrap "gui/\$(id -u)" "$plist" 2>/dev/null || \
-       launchctl load "$plist" 2>/dev/null; then
-        ok "\$MSG_OK_ENRICH_AGENT_LOADED"
+    # The four lines below used to be written `\$(id -u)` and `\$MSG_...`.
+    # Nothing here is a heredoc -- this is ordinary install.sh code -- so the
+    # backslashes suppressed expansion and the literal text was passed on:
+    #   launchctl got the string `gui/$(id -u)`, answered "Unrecognized target
+    #   specifier" and exited 64, on EVERY install, for both bootout and
+    #   bootstrap;
+    #   the customer was shown the eleven characters `$MSG_OK_ENRICH_AGENT_LOADED`
+    #   instead of the sentence. Andy's 2026-08-20 install log, line 13:00:39.
+    launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null \
+        || launchctl load "$plist" 2>/dev/null \
+        || true
+
+    # Do NOT branch on the exit status of `launchctl load`. Measured on
+    # macOS 26.5.2: `launchctl load /path/that/does/not/exist.plist` prints
+    # "Load failed: 5: Input/output error" to stderr and exits 0. Loading an
+    # already-loaded label does the same. Because the bootstrap arm above was
+    # also failing (rc=64, see the note about `\$`), the old
+    #   if bootstrap || load; then ok; else warn; fi
+    # was true unconditionally -- the success line printed whether or not the
+    # agent existed, and the warn branch was unreachable code.
+    # Ask launchd what is actually registered instead.
+    if launchctl print "gui/$(id -u)/${label}" >/dev/null 2>&1; then
+        ok "$MSG_OK_ENRICH_AGENT_LOADED"
     else
-        warn "\$MSG_WARN_ENRICH_AGENT_LOAD_FAILED"
+        warn "$MSG_WARN_ENRICH_AGENT_LOAD_FAILED"
     fi
 }
 
@@ -16575,7 +16900,7 @@ fi
 # silently return empty and the sidecar records mail_has_fetched=false;
 # Doctor's broader FDA diagnostic surfaces the underlying cause.
 
-info "CX-35 checkpoint: entering Mail content probe block"
+dbg "CX-35 checkpoint: entering Mail content probe block"
 set +e  # CX-35: probe is best-effort; never kill the install from here
 _mail_probe_failure_line=""
 
@@ -16599,7 +16924,7 @@ APPLE_MAIL_VERSION_DIR=""
 # load-bearing "has Mail.app actually pulled anything?" signal --
 # kept as-is, but split from account count so the three-state
 # classification (state 1 vs state 2 vs state 3) becomes possible.
-info "CX-100 checkpoint: pre Mail.app version dir find"
+dbg "CX-100 checkpoint: pre Mail.app version dir find"
 if [[ -d "${HOME}/Library/Mail" ]]; then
     # set -E propagates the abort-on-error ERR trap INTO the $(...)
     # subshell, so a non-zero find/sort here would fire _ostler_on_err
@@ -16611,7 +16936,7 @@ if [[ -d "${HOME}/Library/Mail" ]]; then
     APPLE_MAIL_VERSION_DIR=$(find "${HOME}/Library/Mail" -maxdepth 1 -type d -name 'V[0-9]*' 2>/dev/null | sort -V | tail -1) || _mail_probe_failure_line="find Mail/V* dir"
     eval "${_saved_err_trap:-}"
 fi
-info "CX-100 checkpoint: Mail.app version dir = [${APPLE_MAIL_VERSION_DIR}]"
+dbg "CX-100 checkpoint: Mail.app version dir = [${APPLE_MAIL_VERSION_DIR}]"
 
 # Source-of-truth account count via Accounts4.sqlite. Falls back to
 # 0 on schema variation / missing db; the count is informational
@@ -16620,7 +16945,7 @@ info "CX-100 checkpoint: Mail.app version dir = [${APPLE_MAIL_VERSION_DIR}]"
 # has ever opened.
 MAIL_ACCOUNTS_FOUND="$(_accountsdb_count_mail)"
 MAIL_ACCOUNTS_FOUND="${MAIL_ACCOUNTS_FOUND:-0}"
-info "CX-100 checkpoint: Accounts4.sqlite mail accounts = ${MAIL_ACCOUNTS_FOUND}"
+dbg "CX-100 checkpoint: Accounts4.sqlite mail accounts = ${MAIL_ACCOUNTS_FOUND}"
 
 # Has Mail.app actually pulled a message yet? Reuse the three-state
 # helper so the same answer drives the install-time banner AND the
@@ -16632,7 +16957,7 @@ fi
 # Sidecar -- atomic write, 0600 perms. Preserves first_ingest_complete_ts
 # if a prior tick has populated it (reinstall case). The JSON-merge
 # logic lives in lib/write_pipeline_signals.py so it can be unit-tested.
-info "CX-35 checkpoint: setting up sidecar paths + mkdir state dir"
+dbg "CX-35 checkpoint: setting up sidecar paths + mkdir state dir"
 PIPELINE_SIGNALS_DIR="${OSTLER_DIR}/state"
 PIPELINE_SIGNALS_FILE="${PIPELINE_SIGNALS_DIR}/pipeline_signals.json"
 mkdir -p "$PIPELINE_SIGNALS_DIR" || _mail_probe_failure_line="mkdir state dir"
@@ -16670,7 +16995,8 @@ fi
 if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
         --output "$PIPELINE_SIGNALS_FILE" \
         --accounts "$MAIL_ACCOUNTS_FOUND" \
-        --has-fetched "$MAIL_HAS_FETCHED"; then
+        --has-fetched "$MAIL_HAS_FETCHED" \
+        --enrichment-decision "${OSTLER_CONSENT_ENRICHMENT_DECISION:-unknown}"; then
     info "$(printf "$MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL" "${MAIL_ACCOUNTS_FOUND}")"
     # CX-100 three-state copy: accounts==0 -> state 1 (no source);
     # accounts>0 + fetched -> state 3 (synced); accounts>0 + not
@@ -16787,7 +17113,7 @@ if [[ -n "$_mail_probe_failure_line" ]]; then
     warn "Doctor's empty-Mail diagnostic will fall back to safe defaults."
 fi
 unset _mail_probe_failure_line
-info "CX-35 checkpoint: exiting Mail content probe block cleanly"
+dbg "CX-35 checkpoint: exiting Mail content probe block cleanly"
 
 # ── 3.14c iMessage bridge LaunchAgent (DISABLED in single-machine v1.0) ──
 #
@@ -19313,22 +19639,100 @@ _hydrate_sentinel_fresh() {
     [[ "$age" -lt 604800 ]]
 }
 
-# Records the sentinel + a single-line JSON payload with whatever the
-# hydrate step produced (count, status, etc). The payload is
-# customer-local; we never log its contents off-machine.
-# Use as: _hydrate_sentinel_record imessage '{"people":123,"status":"ok"}'
+# The payload is customer-local; we never log its contents off-machine.
+#
+# ── STATUS=OK WITH A ZERO PAYLOAD IS NOT OK ──────────────────────
+#
+# Returns 0 when the payload carries at least one NUMERIC counter and EVERY
+# one of them is zero. That is the shape of "the step ran to completion and
+# produced nothing", which is a different fact from "the step succeeded" and
+# has to stop printing the same.
+#
+# Only `key=<digits>` pairs count. A payload like `ran=1,rc=0` has a non-zero
+# counter and is therefore NOT all-zero -- correct, because `ran=1` is real
+# evidence the step executed. A payload with no numeric counters at all
+# (`status=no_app`) returns 1: this predicate refuses to guess about a shape
+# it cannot read, rather than defaulting either way.
+#
+# Deliberately NOT a check for the literal string "0": `sent=0,skipped=500`
+# must read as ok. The customer's browsing history was examined and 500 rows
+# were already present. That is a successful no-op, not an empty one.
+_hydrate_payload_is_all_zero() {
+    local payload="${1:-}"
+    [[ -n "$payload" ]] || return 1
+    local seen=0 field value
+    local IFS=','
+    for field in $payload; do
+        value="${field#*=}"
+        # Numeric fields only; anything else is not a counter.
+        [[ "$field" == *=* && "$value" =~ ^[0-9]+$ ]] || continue
+        seen=1
+        [[ "$value" -eq 0 ]] || return 1
+    done
+    [[ "$seen" -eq 1 ]]
+}
+
+# Records the sentinel + a single-line payload with whatever the hydrate step
+# produced.
+#
+# ── THE DEFECT (#2, folded with #441) ────────────────────────────
+#
+# `_hydrate_sentinel_fresh` requires a POSITIVE `^status=ok` and then locks the
+# source out for SEVEN DAYS. So a step that ran, produced nothing, and recorded
+# `status=ok payload=people=0` was indistinguishable on disk from a step that
+# ran and delivered -- and it suppressed its own retry for a week.
+#
+# Measured on the v1.0.37 box 2026-08-20: imessage status=ok with people=0, and
+# ai_conversations status=ok with written=0. Nothing anywhere said "this
+# produced nothing"; the marker, the log line and Doctor all read as success.
+#
+# ── THE RULE, AND IT IS ONE RULE IN ONE PLACE ────────────────────
+#
+# A zero payload may NEVER be recorded as ok. It is recorded as `no_data` --
+# which the freshness gate already treats as stale, so the source retries next
+# run instead of going dark for a week -- with a `detail=` that says WHY:
+#
+#   caller passed an empty_reason   -> detail=<that reason>   (declared)
+#   caller passed none              -> detail=zero_payload_undeclared
+#
+# The second is not a failure state; it is a VISIBLE one. It means a step
+# produced nothing and no one has yet said whether that is expected. That
+# distinction is the entire point: today those two cases print identically,
+# and so does "delivered 6,719 people".
+#
+# WHY no_data AND NOT error. The step did not fail -- it completed and found
+# nothing, which for a customer with no WhatsApp is the correct outcome.
+# Recording `error` would paint a healthy install red and teach people that red
+# means nothing, which is the failure mode every gate in this repo is built to
+# avoid. `no_data` retries, stays honest, and costs a file-existence test.
+#
+# Use as: _hydrate_sentinel_record imessage "people=123"
+#         _hydrate_sentinel_record ai_conversations "written=0" "drain_completed_no_conversations"
 #
 # SUCCESS AND NO-DATA ONLY. If the step exited non-zero, call
-# _hydrate_sentinel_record_error instead. The rule is not new: it is
-# written in prose at the ai_conversations call site and pinned by
+# _hydrate_sentinel_record_error instead. The rule is not new: it is written in
+# prose at the ai_conversations call site and pinned by
 # tests/test_aiconv_hydrate_honesty.sh, which asserts that "a timed-out
-# (124/137) or crashed (any other non-zero rc) drain must NOT record it,
-# so the next install/re-run retries instead of skipping for a week".
+# (124/137) or crashed (any other non-zero rc) drain must NOT record it, so the
+# next install/re-run retries instead of skipping for a week".
 # Measured 2026-08-16: 8 of the 9 hydrate sources broke that rule.
 _hydrate_sentinel_record() {
     local source="$1"
     local payload="${2:-}"
+    local empty_reason="${3:-}"
     local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+
+    if _hydrate_payload_is_all_zero "$payload"; then
+        {
+            printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            printf 'source=%s\n' "$source"
+            printf 'status=no_data\n'
+            printf 'detail=%s\n' "${empty_reason:-zero_payload_undeclared}"
+            printf 'payload=%s\n' "$payload"
+        } > "$sentinel"
+        return 0
+    fi
+
     {
         printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'source=%s\n' "$source"
@@ -22189,9 +22593,24 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
         IMESSAGE_TCC_STDERR="(test shim: PWG_IMESSAGE_PROBE_OUTCOME)"
     else
         IMESSAGE_PROBE_STDERR=$(mktemp)
-        if osascript -e 'tell application "Messages" to count of accounts' \
-                >/dev/null 2>"$IMESSAGE_PROBE_STDERR"; then
+        # #664: DEADLINED, same reason as the pre-prime probe above --
+        # an absent Automation grant makes this BLOCK on a TCC dialog,
+        # and an unattended box never dismisses it.
+        _imessage_probe_rc=0
+        _ostler_run_with_deadline "$OSTLER_IMESSAGE_PROBE_TIMEOUT_S" \
+            osascript -e 'tell application "Messages" to count of accounts' \
+            >/dev/null 2>"$IMESSAGE_PROBE_STDERR" || _imessage_probe_rc=$?
+        if [[ "$_imessage_probe_rc" -eq 0 ]]; then
             IMESSAGE_TCC_STATUS="granted-and-working"
+        elif [[ "$_imessage_probe_rc" -eq 124 ]]; then
+            # A probe nobody answered is NOT a denial: the customer may
+            # simply have walked away, and the grant may still be given
+            # later. Recording it as tcc-denied would be an assumption
+            # dressed as an observation. check-failed is the honest
+            # state and the daemon re-probes, so this self-heals.
+            IMESSAGE_TCC_STATUS="check-failed"
+            IMESSAGE_TCC_STDERR="probe timed out after ${OSTLER_IMESSAGE_PROBE_TIMEOUT_S}s with no answer to the Automation prompt (rc=124)"
+            warn "$MSG_WARN_IMESSAGE_AUTOMATION_PROBE_TIMEOUT"
         else
             if grep -qE '\-1743|not authorized|errAEEventNotPermitted' "$IMESSAGE_PROBE_STDERR" 2>/dev/null; then
                 IMESSAGE_TCC_STATUS="tcc-denied"
@@ -22200,6 +22619,7 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
             fi
             IMESSAGE_TCC_STDERR=$(head -c 400 "$IMESSAGE_PROBE_STDERR" 2>/dev/null || true)
         fi
+        unset _imessage_probe_rc
         rm -f "$IMESSAGE_PROBE_STDERR"
     fi
 
@@ -22899,8 +23319,16 @@ AICONVPLIST
                 _hydrate_sentinel_record "ai_conversations" "written=${_AICONV_COUNT}"
             else
                 info "$MSG_HYDRATE_AICONV_SKIPPED_NO_DATA"
-                # A clean zero-count run is still a completed drain.
-                _hydrate_sentinel_record "ai_conversations" "written=0"
+                # A clean zero-count run is still a completed drain -- but it
+                # is a drain that produced NOTHING, and that now has to say so
+                # rather than record status=ok and lock the source out for a
+                # week (#2). The reason is passed EXPLICITLY: this is the
+                # declared-empty case, not an undeclared one, and the sentinel
+                # will carry detail=drain_completed_no_conversations so a human
+                # reading ~/.ostler/state/hydrate/ can tell it apart from a
+                # source that produced nothing for reasons nobody has stated.
+                _hydrate_sentinel_record "ai_conversations" "written=0" \
+                    "drain_completed_no_conversations"
             fi
 
             unset _AICONV_AGENT_OK _AICONV_RESUME_PLIST

@@ -510,3 +510,36 @@ entries:
       kind: grep_in_installer
       pattern: --repair\) REPAIR_MODE=1
       must_match: true
+
+  - id: box-walk-fda-tick-can-import
+    title: the recurring FDA tick must load its own modules under the interpreter it actually uses
+    incident: >-
+      2026-08-20, measured on a live v1.0.37 box. fda-rerun died on EVERY fire
+      on EVERY box with ModuleNotFoundError: No module named 'nameparser'.
+      vendor/ostler_fda/pyproject.toml:42 declares it,
+      vendor/ostler_fda/identifier_quality.py:88 imports it, and
+      install.sh:5385 is a bare `cp -R` with no pip, so ~/.ostler/.venv never
+      received it. Meanwhile the product told the customer "still loading in
+      the background" while the background was dead. The probe IMPORTS rather
+      than reading pyproject, because a declaration check passes on exactly
+      the boxes that are broken.
+    proof:
+      kind: box_walk_probe
+      probe: "fda_tick_can_import"
+
+  - id: box-walk-launchagents-resolve-their-tools
+    title: agents that shell out to Homebrew tooling must carry a PATH that reaches it
+    incident: >-
+      2026-08-20, measured after a real power cycle. launchd hands its jobs
+      /usr/bin:/bin:/usr/sbin:/sbin unless the plist sets
+      EnvironmentVariables:PATH. The assistant owns `colima start`, colima
+      resolves limactl through PATH, and the assistant plist set six env keys
+      of which none was PATH -- so the VM never booted and Qdrant, Oxigraph,
+      Redis, Vane, wiki-site and store-proxy were all gone until someone
+      started Colima by hand, while /health returned "ok" with ten components
+      and not one of them a container. 18 of 24 agents lacked the PATH and
+      BOTH agents that broke that day were among them. If this row goes red,
+      the product does not survive a reboot.
+    proof:
+      kind: box_walk_probe
+      probe: "launchagents_resolve_their_tools"

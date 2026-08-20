@@ -1,0 +1,33 @@
+# Two of nine FDA extractors were dark for the life of the product because no
+# install preset ever listed them, and the hydrate step's honest `no_data`
+# marker made it look like the customer simply had no Notes. See #681 and
+# tests/test_every_default_source_is_requested.sh.
+name: default-sources-requested
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'vendor/ostler_fda/extract_all.py'
+      - 'tests/test_every_default_source_is_requested.sh'
+      - '.github/workflows/default-sources-requested.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'vendor/ostler_fda/extract_all.py'
+      - 'tests/test_every_default_source_is_requested.sh'
+      - '.github/workflows/default-sources-requested.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  join:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: /bin/bash --version | head -1
+      - name: Every default FDA source must be requested by a preset
+        run: /bin/bash tests/test_every_default_source_is_requested.sh

@@ -218,6 +218,14 @@ class SystemSnapshot:
     hostname: str | None = None
     os_version: str | None = None
     docker_containers: list[DockerContainerInfo] = field(default_factory=list)
+    # Why an EMPTY docker_containers is not self-explanatory, and why this
+    # field has to exist: collect_docker_containers() returns ([], "...")
+    # when `docker ps` fails, which is indistinguishable from ([], None) on
+    # a box where the engine is up and simply has no containers. Every
+    # container rule loops the list, so both cases contribute zero findings
+    # and render identically to a healthy stack. The collector already knew
+    # the difference and the caller used to discard it.
+    docker_error: str | None = None
     ollama_models: list[OllamaModelInfo] = field(default_factory=list)
     ollama_version: str | None = None
     disk_usage: list[DiskUsageInfo] = field(default_factory=list)
@@ -687,7 +695,7 @@ def collect_full_snapshot() -> SystemSnapshot:
     only safe, non-personal diagnostic data.
     """
     hostname, os_version = collect_os_info()
-    containers, _docker_err = collect_docker_containers()
+    containers, docker_err = collect_docker_containers()
     docker_version = collect_docker_version()
     models, ollama_version, _ollama_err = collect_ollama_models()
     disk = collect_disk_usage()
@@ -702,6 +710,7 @@ def collect_full_snapshot() -> SystemSnapshot:
         hostname=hostname,
         os_version=os_version,
         docker_containers=containers,
+        docker_error=docker_err,
         ollama_models=models,
         ollama_version=ollama_version,
         disk_usage=disk,

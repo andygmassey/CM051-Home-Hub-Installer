@@ -130,12 +130,20 @@ trap 'rm -rf "$WORK"' EXIT
 # Runs the EXTRACTED guard against a given plist state and echoes
 # "<needs_write> <was_legacy>".
 run_guard() {
-    local state="$1"   # absent | legacy | modern
+    local state="$1"   # absent | legacy | modern | pathless
     local plist="${WORK}/com.ostler.fda-rerun.plist"
     rm -f "$plist"
     case "$state" in
         legacy) printf '<key>StartCalendarInterval</key>\n<dict><key>Year</key><integer>2026</integer></dict>\n' > "$plist" ;;
-        modern) printf '<key>StartInterval</key>\n<integer>3600</integer>\n' > "$plist" ;;
+        # `modern` means CORRECT, and what counts as correct widened on
+        # 2026-08-20: this job runs the tick's python toolchain, which resolves
+        # through PATH, and launchd gives it /usr/bin:/bin:/usr/sbin:/sbin. A
+        # plist with StartInterval and no Homebrew prefix is now a box that
+        # MUST be rewritten, so it moved to the `pathless` state below. Leaving
+        # it here would have been a fixture encoding the shape the old code
+        # handled, which is how control (7) reads a correct rewrite as churn.
+        modern) printf '<key>StartInterval</key>\n<integer>3600</integer>\n<key>EnvironmentVariables</key>\n<dict><key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>\n' > "$plist" ;;
+        pathless) printf '<key>StartInterval</key>\n<integer>3600</integer>\n' > "$plist" ;;
         absent) : ;;
         *) return 1 ;;
     esac
@@ -210,6 +218,19 @@ c10() {
 #      to wire the old schedule back in, and it is the thing a reader greps for.
 c11() { ! grep -qE 'FDA_RERUN_(YEAR|MONTH|DAY|HOUR|MIN)=' "$INSTALL_SH"; }
 
+# (12) THE SECOND UPGRADE LIMB, 2026-08-20. A box carrying a plist that is
+#      modern in SCHEDULE but has no Homebrew prefix on PATH must be rewritten.
+#      Every fda-rerun plist written before that date is exactly this shape, so
+#      without the limb the fix reaches fresh installs only and every existing
+#      box keeps a job that cannot resolve its own python toolchain. Same
+#      #768/#769 shape as (6), one key over.
+#
+#      Note this is NOT redundant with (7): (7) now uses a plist that carries
+#      the PATH, so the pair discriminates "correct, leave alone" from
+#      "modern schedule but unusable, rewrite". Before today they were the
+#      same fixture and only one answer was possible.
+c12() { [[ "$(run_guard pathless)" == "1 0" ]]; }
+
 run_controls() {
     PASS=0
     FAIL=0
@@ -225,6 +246,7 @@ run_controls() {
     check "(9)  migration boots out the old label first"             c9
     check "(10) success message key exists in the catalogue"         c10
     check "(11) one-shot date arithmetic is deleted"                 c11
+    check "(12) PATH-less plist on disk -> rewrite, not flagged legacy" c12
 }
 
 # ---------------------------------------------------------------------------

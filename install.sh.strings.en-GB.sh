@@ -33,7 +33,15 @@
 MSG_STEP_CHECKING_PREREQUISITES="Checking prerequisites"
 MSG_STEP_RUNNING_HEALTH_CHECK="Running health check"
 MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK="Setup (a few quick questions, then it keeps going on its own)"
-MSG_STEP_SETUP_COMPLETE_WRAP_UP="Questions done. Ostler is now installing in the background – this part takes roughly 45 minutes to a few hours and needs nothing further from you, so you can leave it running and check back later."
+# 2026-08-20: this key used to end "...and needs nothing further from you, so
+# you can leave it running and check back later." Measured against Andy's
+# install log, that was false three times over. The message printed at
+# 12:41:43; then 12:42:13-12:45:14 asked him seven times to click Install on a
+# macOS developer-tools dialog, 13:01:20 said "This part needs you for about
+# two minutes" for Full Disk Access, and 13:04:20 waited up to three minutes
+# for a Tailscale sign-in. A customer who does what this sentence says comes
+# back to a stalled install. It now names what is still wanted.
+MSG_STEP_SETUP_COMPLETE_WRAP_UP="Questions done. Ostler now installs in the background – roughly 45 minutes to a few hours. Two things will still want you: if macOS asks to install developer tools, click Install; and near the end there is a couple of minutes of setup (Full Disk Access, then signing in to Tailscale). Between those you can leave it running."
 
 # ── Info messages (progress, context) ──
 
@@ -102,6 +110,10 @@ MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS is asking permission for Downloads. Cli
 MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS is asking permission for Desktop. Click OK."
 MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS is asking permission for Documents. Click OK."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Full Disk Access granted. Preparing the next macOS prompt (Messages automation)..."
+# #664: the Automation prompt went unanswered and we stopped waiting. Says what
+# was missed, what it costs, and that it is recoverable -- the install carries on
+# and Ostler asks again later, so this is a "not yet", not a failure.
+MSG_WARN_IMESSAGE_AUTOMATION_PROBE_TIMEOUT="No answer to the Messages permission prompt, so we moved on. Your messages will not be read until it is allowed. Ostler will ask again, or you can grant it in System Settings > Privacy & Security > Automation."
 MSG_INFO_GIT_CLONE="  git clone %s %s"
 MSG_INFO_GIT_CLONE_2="  git clone %s %s"
 MSG_INFO_GIT_CLONE_TMP_DOCTOR_SRC="  git clone %s /tmp/doctor-src"
@@ -135,7 +147,12 @@ MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN="Opening Tailscale so you can sign in..."
 # WALK-1 (Wave 2.1): pre-announce the one late, optional Tailscale sign-in
 # step so the unattended middle holds no surprise prompts. TODO(i18n):
 # de/fr/es/it translations needed -- do NOT machine-translate.
-MSG_INFO_TAILSCALE_SIGNIN_LATER_PREANNOUNCE="Noted – you can walk away while Ostler installs. Near the end there is one short optional step: signing in to Tailscale so your iPhone and Watch can reach this Mac from anywhere. We will open your browser for it then."
+# 2026-08-20: called the Tailscale step "optional", but the installer then
+# waits up to three minutes for it and re-opens the browser (Andy's log,
+# 13:04:20 and 13:04:51). Optional-but-blocking is the worst of both. It also
+# named only that step, while Full Disk Access and the developer-tools dialog
+# were the two that actually surprised him.
+MSG_INFO_TAILSCALE_SIGNIN_LATER_PREANNOUNCE="Noted – Ostler mostly installs on its own from here. Near the end it will want you back for about two minutes: switching on Full Disk Access, then signing in to Tailscale so your iPhone and Watch can reach this Mac from anywhere. We will open your browser for the sign-in."
 MSG_INFO_TAILSCALE_SKIPPED="Tailscale skipped – iOS Companion will only work on your home Wi-Fi. You can set this up later from Settings."
 MSG_INFO_TAILSCALE_STILL_WAITING="Still waiting for Tailscale sign-in (%ss elapsed) – please complete sign-in in the Tailscale window."
 MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED="Full Disk Access granted; restarting the assistant to pick up the new permission."
@@ -159,6 +176,7 @@ MSG_INFO_INSTALLING_COREUTILS_GTIMEOUT="Installing GNU coreutils (for timeout ca
 MSG_INFO_INSTALLING_HOMEBREW="Installing Homebrew..."
 MSG_INFO_INSTALLING_KNOWLEDGE_SERVICE_FROM="Installing Knowledge service from %s..."
 MSG_INFO_INSTALLING_OLLAMA="Installing Ollama..."
+MSG_INFO_INSTALLING_FDA_DEPENDENCIES="  Installing the data-extraction module's dependencies..."
 MSG_INFO_INSTALLING_OSTLER_FDA_INTO_VENV="  Installing the Apple Mail reader into a dedicated venv..."
 MSG_INFO_INSTALLING_OSTLER_KNOWLEDGE_INTO_VENV="  Installing ostler-knowledge into venv..."
 MSG_INFO_INSTALLING_OSTLER_SECURITY_INTO_CM048_VENV="  Installing the encrypted-storage dependency into the conversation memory venv..."
@@ -314,6 +332,7 @@ MSG_OK_COLIMA_DOCKER_CLI_INSTALLED="Colima and Docker CLI installed"
 MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED="Removed a stale Colima start-up item left by an older version"
 MSG_OK_CONFIG_SAVED_ENV="Config saved to %s/.env"
 MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Consent records and region persisted to ~/.ostler/posture/"
+MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Could not save your background-enrichment choice to ~/.ostler/posture/. Your choice is still being applied to this install; it simply will not appear in a support report."
 MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Databases encrypted. Passphrase required at each startup."
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="Deferred device-registration retry installed (runs hourly until queue clears)"
 MSG_OK_DOCKER_RUNNING="Docker running"
@@ -428,6 +447,7 @@ MSG_OK_OSTLER_ASSISTANT_LAUNCHAGENT_LOADED_LABEL_COM="Ostler assistant LaunchAge
 MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED="ostler-assistant v%s staged at %s (signed)"
 MSG_OK_OSTLER_ASSISTANT_V_STAGED_UNSIGNED="ostler-assistant v%s staged at %s (unsigned)"
 MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089="Ostler Doctor running at http://localhost:8089/doctor"
+MSG_OK_FDA_DEPENDENCIES_IMPORTABLE="  Data-extraction module loads correctly."
 MSG_OK_OSTLER_FDA_INSTALLED_VENV="  Apple Mail reader installed."
 MSG_OK_PWG_EMAIL_INGEST_INSTALLED="  Email ingestion engine installed."
 MSG_OK_OSTLER_IMPORT_OSTLER_FDA_OSTLER_UNINSTALL="ostler-import, ostler-fda, and ostler-uninstall commands installed"
@@ -605,6 +625,8 @@ MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_1="FDA extraction module not bundled into t
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_2="Expected at: Contents/Resources/ostler_fda/ (inside the .app)."
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_3="Most likely cause: a build regression dropped the vendor copy. Re-download the .app from ostler.ai/install."
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_PLAINTEXT="FDA extraction module not bundled. Continuing because --allow-plaintext was passed – instant data extraction will be skipped."
+MSG_WARN_FDA_DEPENDENCIES_NOT_IMPORTABLE="The data-extraction module is on disk but its dependencies did not install, so it cannot be loaded:"
+MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT="Continuing because --allow-plaintext was passed – the scheduled data refresh will fail on every run."
 MSG_WARN_FILEVAULT_NOT_ENABLED="FileVault is NOT enabled."
 MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="Could not activate the first month free at this time; install will continue. Open the iOS Companion app once paired to resolve."
 MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL="Full Disk Access not granted to Terminal."
@@ -793,6 +815,8 @@ MSG_FAIL_GRAPH_DB_PULL_FAILED="Could not download the knowledge-graph database i
 MSG_FAIL_GRAPH_DB_UP_FAILED="The knowledge-graph databases were downloaded but could not be started. Re-run the installer; if it keeps happening, open Terminal and run: cd ~/.ostler && docker compose up -d qdrant oxigraph redis"
 MSG_FAIL_STORE_AUTH_LEAK="The knowledge-graph database is refusing unauthenticated connections, which means a store credential from an earlier setup was left active. Re-run the installer; it now clears any stale store credentials automatically before starting the databases."
 MSG_FAIL_FDA_MODULE_MISSING_RE_RUN="FDA extraction module is missing from the installer bundle. Re-download the .app from ostler.ai/install, or re-run with --allow-plaintext for dev/CI."
+MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN="The data-extraction module was installed but cannot be loaded, so the background refresh would fail every time it ran. Full output saved to /tmp/ostler-fda-deps.log – re-run the installer, and attach that file if you contact support (Reference: ERR-10-FDA-DEPS-IMPORT)."
+MSG_FAIL_FDA_DEPS_UNSAFE_PATH="Internal error: the data-extraction module was staged inside the application bundle, which would break its signature. This is a build fault, not a problem with your Mac. Re-download the .app from ostler.ai/install (Reference: ERR-10-FDA-DEPS-UNSAFE-PATH)."
 MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED="Doctor dependencies install failed. Full output saved to /tmp/ostler-doctor-pip.log – attach it when you email support@ostler.ai (Reference: ERR-17-DOCTOR-PIP)."
 MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED="Import pipeline dependencies install failed. Full output saved to /tmp/ostler-pipeline-pip.log – attach it when you email support@ostler.ai (Reference: ERR-14-PIPELINE-PIP)."
 MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED="Homebrew install failed. Full output saved to /tmp/ostler-brew-install.log – attach it when you email support@ostler.ai."
@@ -922,7 +946,10 @@ MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED="Full Disk Access still not granted. 
 # front-load: the daemon's Messages-history grant (its binary does not
 # exist until late Phase 3). Mirrors the Tailscale sign-in pre-announce.
 # TODO(i18n): de/fr/es/it translations needed -- do NOT machine-translate.
-MSG_INFO_INSTALLER_FDA_WALKAWAY_PREANNOUNCE="Full Disk Access for the installer is sorted. From here the long install runs on its own – you can walk away."
+# 2026-08-20: "runs on its own – you can walk away" was the earliest of the
+# three false unattended promises (Andy's log, 12:39:51). Same fix: say what
+# is still wanted rather than promising none of it.
+MSG_INFO_INSTALLER_FDA_WALKAWAY_PREANNOUNCE="Full Disk Access for the installer is sorted. The long part starts now and mostly runs on its own – but keep an eye out for a macOS dialog asking to install developer tools, and come back for a couple of minutes of setup near the end."
 MSG_INFO_DAEMON_FDA_LATER_PREANNOUNCE="One more permission (Messages history for your assistant) comes near the end, once your assistant is installed – we will point you to it then."
 # WALK-1 (Wave 2.1): the single late recovery modal. It fires ONLY for a
 # customer who saw the upfront FDA ask but did not grant it, just before

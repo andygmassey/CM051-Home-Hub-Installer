@@ -1,0 +1,206 @@
+name: fda-deps-installed
+
+# The sibling gates prove the FDA tick RECURS (fda-rerun-recurs) and that what
+# it runs is the WHOLE job (fda-rerun-ingests). This one proves the code it
+# runs can be LOADED AT ALL.
+#
+# ============================================================================
+# THE DEFECT (#805), measured on the live v1.0.37 box 2026-08-20
+# ============================================================================
+#
+#     ~/.ostler/.venv/bin/python3 -c 'import ostler_fda.identifier_quality'
+#       -> ModuleNotFoundError: No module named 'nameparser'
+#
+# install.sh staged the package with `cp -R` and never pip-installed it, so the
+# venv the tick runs under never received the dependencies the package declares.
+# identifier_quality.py imports nameparser at module scope and the tick imports
+# identifier_quality first, so fda-rerun died on every fire, on every box, from
+# the first install -- while the installer told the customer their data was
+# "still loading in the background".
+#
+# Both sibling gates stayed GREEN throughout. They ask whether the agent is
+# scheduled and whether the wrapper calls both halves. Neither asks whether the
+# interpreter can load the code.
+#
+# ============================================================================
+# WHY THE TEST IMPORTS INSTEAD OF READING
+# ============================================================================
+#
+# The obvious predicate -- "does pyproject.toml declare nameparser" -- PASSES ON
+# EXACTLY THE BROKEN BOXES. The declaration was always right; the installation
+# was missing. So the test builds a real venv, reproduces the
+# ModuleNotFoundError with the pre-fix mechanism (cp -R and nothing else), then
+# proves the shipped mechanism resolves it. Both arms, because a checker stuck
+# on "broken" would satisfy a one-sided control while measuring nothing.
+#
+# ============================================================================
+# WHY THE SELF-TEST IS ITS OWN JOB
+# ============================================================================
+#
+# A failing step skips everything after it, so a broken predicate would take
+# down the gate it guards and report one red line instead of two. Same reason
+# fda-rerun-ingests splits its self-test out.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'vendor/ostler_fda/pyproject.toml'
+      - 'vendor/ostler_fda/identifier_quality.py'
+      - 'scripts/lib/strip_comments.sh'
+      - 'tests/test_fda_deps_are_installed_not_just_copied.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/fda-deps-installed.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch/PR. NEVER cancels main or a
+  # tag: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  gate:
+    # macOS, because the mechanism under test is macOS-only shell out of the
+    # shipping installer, and because BSD mktemp/sed semantics differ. The gate
+    # runs where the code runs.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The self-test job needs origin/main's install.sh as the pre-fix
+          # baseline, so a shallow clone is not enough.
+          fetch-depth: 0
+
+      - name: Environment, so a failure is attributable
+        run: |
+          /bin/bash --version | head -1
+          python3 --version
+          sw_vers | head -2
+
+      - name: The gate
+        run: /bin/bash tests/test_fda_deps_are_installed_not_just_copied.sh
+
+  self-test:
+    # ANTI-VACUITY. A control never shown failing is not evidence.
+    #
+    # This is ASSERTED, not printed: if the pre-fix install.sh PASSES the test,
+    # the test has stopped discriminating and the green above is worthless.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The test must go RED against the pre-fix installer
+        run: |
+          # `set +e` IS LOAD-BEARING, NOT TIDINESS.
+          #
+          # GitHub runs a `run:` block as `/bin/bash -e {0}`. This job exists to
+          # observe a NON-ZERO exit from the test, so with -e still in force the
+          # step aborted on the very failure it was measuring -- before `rc=$?`
+          # was ever assigned, and before any of the messages below could print.
+          # It reported a bare "exit code 1" that looked like the test being
+          # broken rather than the test correctly going red.
+          #
+          # `set -uo pipefail` does NOT turn -e off. Only `set +e` does. Caught
+          # on the first CI run of this workflow.
+          set +e
+          set -uo pipefail
+
+          # ── THE BASELINE IS A PINNED PRE-FIX COMMIT. IT HAS TO BE. ──
+          #
+          # This job needs a tree that does NOT contain the #805 fix. Two
+          # derivations were tried and BOTH are structurally incapable of
+          # providing one:
+          #
+          #   `git merge-base HEAD origin/main`
+          #       On a pull_request event GitHub checks out refs/pull/N/merge --
+          #       the head ALREADY MERGED INTO THE BASE. HEAD therefore contains
+          #       main, and the merge-base of (main + head) with main is main
+          #       itself. MEASURED on PR #903: resolved to bbb95693, main's tip.
+          #
+          #   `github.event.pull_request.base.sha`
+          #       Correct as a merge-base, and still wrong here: the moment #901
+          #       landed on main, EVERY subsequent PR's base contains the fix.
+          #       There is no derivation from a live branch that yields a
+          #       pre-fix tree once the fix is merged.
+          #
+          # The second attempt is the instructive one. It was not a worse
+          # implementation of the same idea -- it was the right value for a
+          # question this job is not asking. This job does not want "what did
+          # this PR branch from". It wants "a tree known to contain the bug",
+          # and that is a FIXED POINT IN HISTORY, not a moving reference.
+          #
+          # scripts/verify_customer_download_path.sh's workflow (CM051 #886)
+          # already pins a blob for exactly this reason. I did it correctly
+          # there and derived it here, in the same week.
+          #
+          # PIN: 209697df is the commit immediately before #901 merged.
+          # Verified at pin time, and re-verified below on every run:
+          #     git show 209697df:install.sh | grep -c 'FDA_VENV_PIP.*install.*-e'  -> 0
+          #     git show origin/main:install.sh | grep -c ...                       -> 1
+          BASE=209697dfc73091ee49e82df863961809dc5062a1
+          git fetch --quiet origin "${BASE}" 2>/dev/null || true
+          if ! git cat-file -e "${BASE}:install.sh" 2>/dev/null; then
+              echo "CANNOT RUN: pinned pre-fix commit ${BASE} is not present in"
+              echo "this checkout. A shallow fetch or a rewritten history both"
+              echo "produce this, and neither shows the test discriminates."
+              exit 1
+          fi
+          echo "baseline: pinned pre-fix commit ${BASE}"
+
+          # AND VERIFY THE PIN IS STILL PRE-FIX, every run. A pin is a claim
+          # about history, and this asserts it rather than trusting the comment
+          # above -- which is the whole lesson of this file.
+          #
+          # If this fires, the BASELINE is wrong, not the test. Said explicitly
+          # because the failure otherwise presents as loss of discrimination
+          # and points a tired reader at the wrong file. That misdirection
+          # already cost one diagnosis.
+          if git show "${BASE}:install.sh" 2>/dev/null \
+               | grep -q 'FDA_VENV_PIP.*install.*-e'; then
+              echo "CANNOT RUN: the pinned baseline ${BASE} CONTAINS the #805 fix,"
+              echo "so it cannot serve as a pre-fix tree. This is a BASELINE"
+              echo "fault, NOT a loss of discrimination in the test."
+              echo "DO NOT 'fix' the test in response to this message."
+              exit 1
+          fi
+
+          D="$(mktemp -d)"; mkdir -p "$D/tests" "$D/vendor" "$D/scripts/lib"
+          git show "${BASE}:install.sh"                    > "$D/install.sh"
+          git show "${BASE}:install.sh.strings.en-GB.sh"   > "$D/install.sh.strings.en-GB.sh"
+          # The TEST and the STRIPPER come from this PR -- the baseline is the
+          # ARTEFACT under test, not the instrument. Swapping in the old test
+          # would measure whether the old test passed the old code, which is a
+          # different and useless question.
+          cp tests/test_fda_deps_are_installed_not_just_copied.sh "$D/tests/"
+          cp scripts/lib/strip_comments.sh "$D/scripts/lib/"
+          cp -R vendor/ostler_fda "$D/vendor/"
+
+          /bin/bash "$D/tests/test_fda_deps_are_installed_not_just_copied.sh" > "$D/out" 2>&1
+          rc=$?
+          cat "$D/out"
+
+          if [ "$rc" -eq 0 ]; then
+              echo ""
+              echo "ANTI-VACUITY FAILED: the test PASSED the pre-fix installer."
+              echo "It can no longer tell the #805 fix from the #805 bug, so the"
+              echo "green in the gate job means nothing. Investigate before"
+              echo "trusting this workflow."
+              exit 1
+          fi
+          if [ "$rc" -eq 2 ]; then
+              echo ""
+              echo "ANTI-VACUITY INCONCLUSIVE: the test returned CANNOT-RUN (2)"
+              echo "against the baseline. It did not fail for the right reason --"
+              echo "it did not run. Treat as unmeasured, not as proof."
+              exit 1
+          fi
+          echo ""
+          echo "ok: the test goes RED (rc=${rc}) against the pre-fix installer, as required"

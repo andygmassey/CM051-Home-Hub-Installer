@@ -1,0 +1,103 @@
+name: zero-payload-is-not-ok
+
+# A step that RAN AND PRODUCED NOTHING must not record status=ok (#2, #441).
+#
+# ============================================================================
+# THE DEFECT
+# ============================================================================
+#
+# `_hydrate_sentinel_fresh` requires a POSITIVE `^status=ok` and then treats the
+# source as done for SEVEN DAYS. So `status=ok payload=people=0` claimed
+# success, was indistinguishable on disk from a step that delivered, and
+# suppressed its own retry for a week.
+#
+# Measured on the live v1.0.37 box 2026-08-20: imessage status=ok with people=0,
+# ai_conversations status=ok with written=0. The marker, the STEP_END line and
+# Doctor all read as success — the same green as "6,719 people indexed".
+#
+# ============================================================================
+# WHY THE TEST DRIVES THE RECORDER RATHER THAN GREPPING CALL SITES
+# ============================================================================
+#
+# The rule lives in ONE function, so it cannot drift across the ten call sites.
+# A call-site grep would measure the callers and would need re-teaching every
+# time a source is added — which is exactly how #681's two dark sources
+# survived. The test extracts the shipped recorder into a harness and reads
+# what actually lands on disk.
+#
+# ============================================================================
+# WHY THE SELF-TEST IS ITS OWN JOB
+# ============================================================================
+#
+# A failing step skips everything after it, so a broken predicate would take
+# down the gate it guards and report one red line instead of two. Same reason
+# fda-rerun-ingests and ci-maskless split theirs out.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_status_ok_with_zero_payload_is_not_ok.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/zero-payload-is-not-ok.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch/PR. NEVER cancels main or a
+  # tag: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  gate:
+    # macOS, because the harness sources shell extracted out of the shipping
+    # installer and runs it with BSD mktemp semantics. The gate runs where the
+    # code runs.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Environment, so a failure is attributable
+        run: |
+          /bin/bash --version | head -1
+          sw_vers | head -2
+      - name: The gate
+        run: /bin/bash tests/test_status_ok_with_zero_payload_is_not_ok.sh
+
+  self-test:
+    # THE REGRESSION DIRECTION. The rule above must never red a healthy
+    # install, so the neighbouring hydrate guards are re-run here as a group:
+    # if this change made any of them disagree, that shows up as its own red
+    # line rather than as a mystery inside the gate job.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The existing hydrate guards must still hold
+        run: |
+          set +e
+          set -uo pipefail
+          rc_total=0
+          for t in tests/test_aiconv_hydrate_honesty.sh \
+                   tests/test_hydrate_sentinel_not_on_error.sh \
+                   tests/test_hydrate_people_wired.sh \
+                   tests/test_hydrate_apple_notes_wired.sh \
+                   tests/test_hydrate_email_preferences_wired.sh \
+                   tests/test_fda_rerun_ingests.sh; do
+              if [ ! -f "$t" ]; then
+                  echo "CANNOT RUN: $t is missing. That is NOT a pass -- this job"
+                  echo "exists to prove the neighbours still agree, and a neighbour"
+                  echo "that vanished is a bigger finding than one that failed."
+                  exit 1
+              fi
+              /bin/bash "$t" > "/tmp/$(basename "$t").out" 2>&1
+              rc=$?
+              printf '%-52s rc=%s\n' "$(basename "$t")" "$rc"
+              if [ "$rc" -ne 0 ]; then
+                  tail -12 "/tmp/$(basename "$t").out" | sed 's/^/      /'
+                  rc_total=1
+              fi
+          done
+          exit "$rc_total"

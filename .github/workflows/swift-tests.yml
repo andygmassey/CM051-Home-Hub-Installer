@@ -224,10 +224,44 @@ jobs:
           rc=$?
           # rc is taken DIRECTLY, never through a pipe.
           if [ "$rc" -ne 0 ]; then
-            grep -E "^Test Case .* failed|error:" "$RUNNER_TEMP/test.log" | head -40 >&2 || true
+            # NO `^`. xcodebuild INDENTS these lines. The anchor made this
+            # grep match zero on run 32351291319 while the verifier's
+            # unanchored counter matched one failure, so the job said
+            # "executed=288 failures=1" and never named the test. Two patterns
+            # reading one file must agree about its shape.
+            grep -E "Test Case .* (failed|error)|error:" "$RUNNER_TEMP/test.log" | head -40 >&2 || true
           fi
           tail -5 "$RUNNER_TEMP/test.log"
           exit "$rc"
+
+      # WHY THIS UPLOAD EXISTS. Measured 2026-08-20 on CM051 #890: the suite
+      # reported `executed=288 failures=1` and NOTHING anywhere named the
+      # failing test. The log lives in RUNNER_TEMP and died with the runner, so
+      # the only record of WHICH test failed was destroyed by the job that
+      # produced it.
+      #
+      # The step above does grep for the name on a non-zero rc, and on that run
+      # it printed nothing. I have NOT established why, and I am not guessing in
+      # a comment: uploading the whole log makes the question answerable instead
+      # of arguable, and that is worth more than a theory.
+      #
+      # Reproducing locally is not a substitute and was tried twice. Both
+      # attempts died before a single test ran, on prerequisites CI stages and a
+      # laptop does not have (python-build-standalone, then the SHA-pinned
+      # Safari extension behind CM051_RELEASES_READ). The comment above the
+      # python step already warns about this class in the other direction: a
+      # green local build can be green because of state the repo does not have.
+      #
+      # if: always() because the ONLY run whose log is worth having is a failed
+      # one, and that is exactly the run a bare `run:` would skip.
+      - name: Keep the suite log, so a failure can name the test
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-test-log
+          path: ${{ runner.temp }}/test.log
+          if-no-files-found: warn
+          retention-days: 14
 
       # The count is the point. xcodebuild's exit code alone cannot distinguish
       # "283 passed" from "12 passed after the target silently lost 24 files".

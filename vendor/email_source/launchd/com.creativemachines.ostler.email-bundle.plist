@@ -56,7 +56,7 @@
 
     <!--
         RunAtLoad fires once at login / post-install. The wrapper
-        clamps the read window via --since-days so a fresh install
+        clamps the read window via the since-days flag so a fresh install
         does not try to bundle the user's entire mailbox in one tick.
         The wrapper also exits 0 cleanly when ~/Library/Mail is
         absent (Mail never opened), so RunAtLoad never hard-fails the
@@ -79,7 +79,7 @@
         PWG_CONVO_CMD tells the dispatcher how to invoke CM048's CLI
         (rendered to the CM048 venv at install time). Without these the
         tick falls through to a stock system python with no
-        site-packages -- the same launch-blocker shape the email-ingest
+        site-packages, the same launch-blocker shape the email-ingest
         agent guards against.
     -->
     <key>EnvironmentVariables</key>
