@@ -94,9 +94,11 @@ jobs:
       # reported failure. That is not hypothetical: it turned CONTROL A red on
       # #890 while its own output named the dropped prerequisite correctly.
       - name: A pipe into a short-circuiting consumer cannot invert a verdict here
+        if: always()
         run: bash tests/test_pipefail_shortcircuit_inversion.sh
 
       - name: CONTROL A -- ship still names every prerequisite it named before
+        if: always()
         run: /bin/bash tests/test_ship_prereqs_are_a_superset.sh
 
       - name: "CONTROL B -- publish-appcast is OUT of ship, and invoked after upload"
