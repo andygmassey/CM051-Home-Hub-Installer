@@ -113,22 +113,62 @@ jobs:
           set +e
           set -uo pipefail
 
-          # The baseline is the merge-base with main, not main's tip. Using the
-          # tip makes the baseline MOVE under the PR (CM051 #787's shape), so a
-          # merge into main between two runs flips this arm for reasons that
-          # have nothing to do with the change under test.
-          git fetch --quiet origin main
-          BASE="$(git merge-base HEAD origin/main)" || BASE=""
-          if [ -z "$BASE" ]; then
-              echo "CANNOT RUN: no merge-base with origin/main in this checkout."
-              echo "That is NOT a pass. A rewritten history or a shallow fetch"
-              echo "both produce it, and neither shows the test discriminates."
+          # ── THE BASELINE IS A PINNED PRE-FIX COMMIT. IT HAS TO BE. ──
+          #
+          # This job needs a tree that does NOT contain the #805 fix. Two
+          # derivations were tried and BOTH are structurally incapable of
+          # providing one:
+          #
+          #   `git merge-base HEAD origin/main`
+          #       On a pull_request event GitHub checks out refs/pull/N/merge --
+          #       the head ALREADY MERGED INTO THE BASE. HEAD therefore contains
+          #       main, and the merge-base of (main + head) with main is main
+          #       itself. MEASURED on PR #903: resolved to bbb95693, main's tip.
+          #
+          #   `github.event.pull_request.base.sha`
+          #       Correct as a merge-base, and still wrong here: the moment #901
+          #       landed on main, EVERY subsequent PR's base contains the fix.
+          #       There is no derivation from a live branch that yields a
+          #       pre-fix tree once the fix is merged.
+          #
+          # The second attempt is the instructive one. It was not a worse
+          # implementation of the same idea -- it was the right value for a
+          # question this job is not asking. This job does not want "what did
+          # this PR branch from". It wants "a tree known to contain the bug",
+          # and that is a FIXED POINT IN HISTORY, not a moving reference.
+          #
+          # scripts/verify_customer_download_path.sh's workflow (CM051 #886)
+          # already pins a blob for exactly this reason. I did it correctly
+          # there and derived it here, in the same week.
+          #
+          # PIN: 209697df is the commit immediately before #901 merged.
+          # Verified at pin time, and re-verified below on every run:
+          #     git show 209697df:install.sh | grep -c 'FDA_VENV_PIP.*install.*-e'  -> 0
+          #     git show origin/main:install.sh | grep -c ...                       -> 1
+          BASE=209697dfc73091ee49e82df863961809dc5062a1
+          git fetch --quiet origin "${BASE}" 2>/dev/null || true
+          if ! git cat-file -e "${BASE}:install.sh" 2>/dev/null; then
+              echo "CANNOT RUN: pinned pre-fix commit ${BASE} is not present in"
+              echo "this checkout. A shallow fetch or a rewritten history both"
+              echo "produce this, and neither shows the test discriminates."
               exit 1
           fi
-          echo "baseline (merge-base with origin/main): ${BASE}"
+          echo "baseline: pinned pre-fix commit ${BASE}"
 
-          if ! git cat-file -e "${BASE}:install.sh" 2>/dev/null; then
-              echo "CANNOT RUN: install.sh absent at ${BASE}. Not a pass."
+          # AND VERIFY THE PIN IS STILL PRE-FIX, every run. A pin is a claim
+          # about history, and this asserts it rather than trusting the comment
+          # above -- which is the whole lesson of this file.
+          #
+          # If this fires, the BASELINE is wrong, not the test. Said explicitly
+          # because the failure otherwise presents as loss of discrimination
+          # and points a tired reader at the wrong file. That misdirection
+          # already cost one diagnosis.
+          if git show "${BASE}:install.sh" 2>/dev/null \
+               | grep -q 'FDA_VENV_PIP.*install.*-e'; then
+              echo "CANNOT RUN: the pinned baseline ${BASE} CONTAINS the #805 fix,"
+              echo "so it cannot serve as a pre-fix tree. This is a BASELINE"
+              echo "fault, NOT a loss of discrimination in the test."
+              echo "DO NOT 'fix' the test in response to this message."
               exit 1
           fi
 
