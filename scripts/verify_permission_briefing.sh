@@ -129,7 +129,7 @@ check_prompt "kTCCServiceSystemPolicyAllFiles"        "installer" "Full Disk Acc
 check_prompt "kTCCServiceSystemPolicyDownloadsFolder" "installer" "Downloads"        no
 check_prompt "kTCCServiceSystemPolicyDownloadsFolder" "assistant" "Downloads"        yes
 check_prompt "kTCCServiceSystemPolicyDocumentsFolder" "assistant" "Documents"        yes
-check_prompt "kTCCServiceSystemPolicyAppData"         "assistant" "other apps"       no
+check_prompt "kTCCServiceSystemPolicyAppData"         "assistant" "other apps"       yes
 
 echo
 [[ $FAIL -eq 0 ]] || { echo "REFUSING: the permission briefing does not describe what the install does."; exit 1; }
