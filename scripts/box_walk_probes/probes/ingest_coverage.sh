@@ -256,12 +256,25 @@ self_test() {
         printf 'arm 3 OK: all stores populated returns PASS\n'
     fi
 
+    # THE CONVENTION IS INVERTED HERE, and it cost this probe every box walk
+    # it has ever been part of.
+    #
+    # `--self-test` must come back FAIL (rc 1) when the negative control
+    # behaved CORRECTLY -- that is what proves the probe can go red. Every
+    # other probe in this directory ends its self_test with probe_fail. This
+    # one exited 0 on success, so run_box_walk marked it BROKEN and DISCARDED
+    # its real measurement on every run.
+    #
+    # So ingest coverage -- the one probe that would notice sources reporting
+    # ok with a zero payload -- has never been counted. Measured 2026-08-20 by
+    # running phase 1 across all probes; it was already being caught, nobody
+    # had looked at the output.
     if [ "$fails" -gt 0 ]; then
-        printf 'VERDICT: BROKEN -- %s self-test arms failed\n' "$fails"
-        exit 1
+        probe_examined "$fails" "self-test arm(s) that did NOT behave as required"
+        probe_pass "SELF-TEST BROKEN: ${fails} arm(s) failed. This probe cannot demonstrate a FAIL, so its real result must not be trusted."
     fi
-    printf 'VERDICT: PASS -- 3 of 3 self-test arms held\n'
-    exit 0
+    probe_examined 3 "synthetic store readings (negative control)"
+    probe_fail "negative control behaved correctly on all 3 arms (an empty store FAILs and is named; zero readable stores is CANNOT-RUN, not a pass; fully populated PASSes)"
 }
 
 probe_main "$@"

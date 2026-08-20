@@ -124,7 +124,30 @@ else
         b="$(basename "$p" .sh)"
         out="$(bash "$p" --self-test 2>&1)"
         rc=$?
-        if [ "$rc" -eq 1 ]; then
+        # THE EXIT CODE IS NOT THE ONLY SIGNAL, and reading it alone is how a
+        # broken probe passes phase 1.
+        #
+        # probe_fail() and the contract's own refusals BOTH exit 1. So a probe
+        # that reports a verdict without a denominator prints
+        #   VERDICT: BROKEN -- <name> reported a verdict without calling
+        #   probe_examined.
+        # and exits 1, and an rc-only test counts that as "goes red on
+        # known-bad input". The framework catches the fault, announces it, and
+        # is then overruled by its own caller.
+        #
+        # Found 2026-08-20 by tripping it while writing fda_tick_can_import:
+        # its self_test omitted probe_examined, the contract refused, and this
+        # loop was about to award it an ok. Same class as CM051 #897, where the
+        # swift namer and counter disagreed and the exit code was believed.
+        #
+        # No pipe into a short-circuiting consumer here: under pipefail that
+        # inverts a successful match (#895). grep -q on a herestring is safe.
+        if grep -q 'VERDICT: BROKEN' <<< "$out"; then
+            printf '  BROKEN   %s  (self-test exited %s but its own output says BROKEN)\n' "$b" "$rc"
+            printf '%s\n' "$out" | sed 's/^/             /'
+            BROKEN_LIST="$BROKEN_LIST $b"
+            BROKEN=$((BROKEN + 1))
+        elif [ "$rc" -eq 1 ]; then
             printf '  ok       %s  (goes red on known-bad input)\n' "$b"
         else
             printf '  BROKEN   %s  (self-test returned %s, expected 1)\n' "$b" "$rc"
