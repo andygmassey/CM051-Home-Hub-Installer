@@ -519,7 +519,7 @@ STEP          := @printf '\n[STEP] %s\n'
         download-python sign-python-bundle download-daemon download-hub-app \
         download-safari-extension stage-daemon \
         check-provenance check-freshness check-provenance-content check-manifest \
-        publish-appcast
+        publish-appcast verify-appcast
 
 # The default goal is deliberately INERT.
 #
@@ -539,8 +539,9 @@ help:
 	@echo ""
 	@echo "  make debug              build Debug and OPEN the .app"
 	@echo "  make release            build Release (runs the preflight gates)"
-	@echo "  make ship               full cut: build, sign, notarise, staple, package, publish appcast"
+	@echo "  make ship               full cut: build, sign, notarise, staple, package (NOT publish)"
 	@echo "  make publish-appcast    AU-1: sign + publish this cut's appcast entry"
+	@echo "  make verify-appcast     AU-1: prove this version is LIVE on the feed"
 	@echo "  make regen              regenerate the .xcodeproj from project.yml"
 	@echo "  make check-version      version-consistency preflight (#171)"
 	@echo "  make check-pbxproj-sync tracked .xcodeproj == xcodegen(project.yml)"
@@ -2475,12 +2476,18 @@ guard-local-cut:
 # and appends the manifest entry in KV. After that the appcast.xml the Hubs
 # poll lists this release. Governed by PUBLISH_APPCAST; see the config block.
 #
-# TWO INDEPENDENT MECHANISMS KEEP THIS LAST, and it needs both.
+# WHERE THIS RUNS, AND WHY IT IS NOT IN `ship:`.
 #
-#   ORDER. In `ship:` this is the final prerequisite, after archive. GNU make
-#   builds prerequisites left to right, so serially that IS the running order,
-#   and it is the same mechanism the rest of this pipeline already relies on
-#   (verify-dmg-contents sits after notarise for exactly this reason).
+#   IT USED TO BE the final prerequisite of `ship:`, and that is what burnt
+#   v1.0.34: a late `ship:` step failed and destroyed an already-notarised
+#   DMG. The publish now runs from .github/workflows/cut.yml, AFTER the
+#   artefact has been uploaded, so a publish failure costs a red tick and a
+#   diagnosis rather than a version number.
+#
+#   DO NOT RE-ADD IT TO `ship:`. tests/test_appcast_publish_cannot_destroy_
+#   the_dmg.sh exists to keep it out, and the comment that used to sit here
+#   claimed the opposite for three days -- which is precisely why the whole
+#   pipeline read as unwired to the next person who looked.
 #
 #   EVIDENCE. Order alone is a promise about make's scheduler, and `make -j`
 #   does not make it. So the recipe re-derives, at run time, that the artefact
@@ -2644,14 +2651,61 @@ publish-appcast:
 	        --channel "$(APPCAST_CHANNEL)" --notes-url "$(RELEASE_NOTES_BASE)/$$VER.html" \
 	        --min-os "$$MINOS"; \
 	fi; \
-	printf '[OK] Appcast entry published for Hub v%s (%s)\n' "$$VER" "$(APPCAST_CHANNEL)"
+	printf '[OK] ostler-release publish reported success for Hub v%s (%s)\n' "$$VER" "$(APPCAST_CHANNEL)"; \
+	printf '[STEP] Confirming the FEED actually changed\n'; \
+	if ! bash "$(VERIFY_APPCAST_SH)" --version "$$VER" --build "$$BUILD"; then \
+	    echo "" >&2; \
+	    echo "ERROR: publish reported success and the feed does NOT list v$$VER." >&2; \
+	    echo "  Publishing is not the same event as the feed changing, and until" >&2; \
+	    echo "  now only the first was ever checked. Do not record this version" >&2; \
+	    echo "  as published." >&2; \
+	    exit 1; \
+	fi; \
+	printf '[OK] Appcast entry published AND confirmed live for Hub v%s (%s)\n' "$$VER" "$(APPCAST_CHANNEL)"
+
+# ---------------------------------------------------------------------------
+# verify-appcast -- AU-1. Ask the FEED whether this release is actually there.
+#
+# `publish` exiting 0 is a fact about a subprocess. The customer's Hub does not
+# poll a subprocess, it polls a feed, and until this target existed nothing in
+# the estate had ever asked the feed anything.
+#
+# MEASURED 2026-08-19T16:53:19Z, production, with the last cut's version:
+#     scripts/verify_appcast_published.sh --version 1.0.36 --build 2500
+#     -> items 0, NOT PUBLISHED, rc 1
+#
+# HTTP 200, valid Sparkle RSS, zero <item>. Valid-and-empty: every installed
+# Hub is correctly told there is nothing newer and can never upgrade, and no
+# surface anywhere goes red. That held for 36 cuts.
+#
+# Runs against $(HUB_VERSION) when pinned, else the Sparkle-embedded
+# Info.plist, so it verifies the SAME version publish-appcast advertised
+# rather than a value typed twice.
+VERIFY_APPCAST_SH ?= $(CURDIR)/../scripts/verify_appcast_published.sh
+verify-appcast:
+	$(STEP) "AU-1: verify this version is live on the appcast feed"
+	@VER="$(HUB_VERSION)"; BUILD="$(HUB_BUILD)"; \
+	APP="$(OSTLER_APP_PATH)"; \
+	if [ -z "$$VER" ] && [ -d "$$APP" ]; then \
+	    VER="$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$$APP/Contents/Info.plist" 2>/dev/null || true)"; \
+	fi; \
+	if [ -z "$$BUILD" ] && [ -d "$$APP" ]; then \
+	    BUILD="$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$$APP/Contents/Info.plist" 2>/dev/null || true)"; \
+	fi; \
+	if [ -z "$$VER" ]; then \
+	    echo "verify-appcast: CANNOT RUN -- no version. Pass HUB_VERSION=X.Y.Z or build the app first." >&2; \
+	    exit 2; \
+	fi; \
+	bash "$(VERIFY_APPCAST_SH)" --version "$$VER" $${BUILD:+--build "$$BUILD"}
 
 # ---------------------------------------------------------------------------
 # THE CUT. Order is the contract: every gate sits before the step whose output
-# it is allowed to bless, and publish-appcast sits after ALL of them because it
-# is the only step whose output leaves this machine and reaches customers.
-# See the publish-appcast block above for why it also re-derives that evidence
-# at run time rather than trusting its position in this list.
+# it is allowed to bless.
+#
+# publish-appcast is deliberately NOT in this list. It is the only step whose
+# output leaves this machine and reaches customers, and when it lived here a
+# failure at the end destroyed the finished DMG (v1.0.34). It now runs from
+# cut.yml after the artefact is uploaded. See the publish-appcast block above.
 # ---------------------------------------------------------------------------
 ship: guard-local-cut check-orphans check-pr-age download-hub-app check-ostler-app download-safari-extension download-python stage-daemon stage-payload sparkle-embed notarise-hub release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
 	@echo ""
