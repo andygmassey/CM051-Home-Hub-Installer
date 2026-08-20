@@ -113,16 +113,60 @@ jobs:
           set +e
           set -uo pipefail
 
-          # The baseline is the merge-base with main, not main's tip. Using the
-          # tip makes the baseline MOVE under the PR (CM051 #787's shape), so a
-          # merge into main between two runs flips this arm for reasons that
-          # have nothing to do with the change under test.
-          git fetch --quiet origin main
-          BASE="$(git merge-base HEAD origin/main)" || BASE=""
+          # ── RESOLVING THE BASELINE, AND WHY THE OBVIOUS WAY IS WRONG ──
+          #
+          # The baseline must be the merge-base: main's TIP makes it MOVE under
+          # the PR (CM051 #787's shape), so a merge into main between two runs
+          # flips this arm for reasons unrelated to the change under test.
+          #
+          # This job originally computed it as `git merge-base HEAD origin/main`
+          # and that is WRONG ON A pull_request EVENT. GitHub checks out
+          # refs/pull/N/merge — the head ALREADY MERGED INTO THE BASE — so HEAD
+          # contains main, and the merge-base of (main + head) with main is main
+          # itself. The baseline therefore included the very fix it was supposed
+          # to predate.
+          #
+          # MEASURED the moment #901 landed on main: the job on PR #903 resolved
+          # the baseline to bbb95693 (main's tip), ran the test against a tree
+          # that already had the fix, got 11/0, and reported ANTI-VACUITY FAILED.
+          # Locally, `git merge-base` on the real branch gives 209697df, which
+          # does NOT contain the fix. Two answers for one question, and CI had
+          # the wrong one.
+          #
+          # So the comment above was right and the implementation contradicted
+          # it — a moving baseline, arrived at by the exact route the comment
+          # warned against.
+          #
+          # `github.event.pull_request.base.sha` IS the merge-base GitHub
+          # computed for the PR, so take it directly rather than deriving it
+          # from a ref whose contents are not what the name suggests. On a push
+          # to main there is no PR, and the previous commit is the honest
+          # baseline.
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -n "$BASE" ]; then
+              echo "baseline: pull_request.base.sha (the merge-base GitHub computed)"
+          else
+              git fetch --quiet --deepen=2 origin "${GITHUB_REF_NAME}" 2>/dev/null || true
+              BASE="$(git rev-parse HEAD^ 2>/dev/null)" || BASE=""
+              echo "baseline: HEAD^ (push event, no pull_request context)"
+          fi
           if [ -z "$BASE" ]; then
-              echo "CANNOT RUN: no merge-base with origin/main in this checkout."
-              echo "That is NOT a pass. A rewritten history or a shallow fetch"
+              echo "CANNOT RUN: could not resolve a baseline commit."
+              echo "That is NOT a pass. A shallow fetch or a rewritten history"
               echo "both produce it, and neither shows the test discriminates."
+              exit 1
+          fi
+
+          # AND ASSERT WHAT WE JUST RESOLVED. A baseline that already contains
+          # the fix cannot prove anything, and it fails in the confusing
+          # direction — as "the test no longer discriminates" rather than as
+          # "the baseline is wrong". Say which it is.
+          if git show "${BASE}:install.sh" 2>/dev/null \
+               | grep -q 'FDA_VENV_PIP.*install.*-e'; then
+              echo "CANNOT RUN: the resolved baseline ${BASE} ALREADY CONTAINS the"
+              echo "#805 fix, so it cannot serve as a pre-fix tree. This is a"
+              echo "BASELINE RESOLUTION fault, not a loss of discrimination in the"
+              echo "test. Do not 'fix' the test in response to this message."
               exit 1
           fi
           echo "baseline (merge-base with origin/main): ${BASE}"
