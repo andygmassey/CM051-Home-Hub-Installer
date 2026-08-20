@@ -1,0 +1,155 @@
+# cut-manifests/v1.0.37.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.37.
+#
+# WHY v1.0.37 EXISTS: TWO THINGS THAT HAD NEVER WORKED, AND A DEFERRAL EXPIRING
+# ---------------------------------------------------------------------------
+# 1. The duplicate-review controls in the wiki had never once saved a decision.
+#    Measured on the live box 2026-08-19: ONE POST to the decision route in the
+#    Doctor's entire log history, and that one was a probe. Reachability was
+#    inferred from location.hostname, which is a fact about the VIEWER.
+#
+# 2. Andy ratified ONE cut of deferral on the enrichment opt-in. v1.0.36 was
+#    that cut. This is the one where the question has to exist, and the gate
+#    that enforces it turns red by itself the moment the version moves.
+#
+# THE HEADLINE ASSERTION IS A NEGATIVE ONE.
+# The wiki re-pin is TWO lines and they have drifted apart before, so the entry
+# that matters most is the one asserting NO v0.1.20 digest survives anywhere in
+# install.sh. A re-pin that edits one of two lines leaves the other live and
+# both lines stay individually well-formed, so the failure is silent.
+#
+# NOT ASSERTED HERE, DELIBERATELY
+# ---------------------------------------------------------------------------
+# 1. That the dedupe decision now SAVES on a real box. The client fix is proved
+#    in chromium (rc=1 against the old asset, rc=0 against the new) and the
+#    Doctor route is proved to exist and to be CORS-open. Nobody has yet
+#    clicked the button on a box and read duplicates.yaml back. That is
+#    behaviour, and behaviour is what the walk is for.
+# 2. That dedupe QUALITY is acceptable. It is not. 6,583 people, 109 display
+#    names shared by 2+ records, 221 records involved. This cut fixes the
+#    control, not the candidates.
+# 3. That an install REACHES step 39. Carried forward unproven from v1.0.36.
+# 4. That the appcast published. It does not, by design: PUBLISH_APPCAST=onbox.
+version: v1.0.37
+entries:
+  # --------------------------------------------------------------------------
+  # THE ENRICHMENT OPT-IN. Andy's ratified condition, now a shipped question.
+  # --------------------------------------------------------------------------
+  - id: v1037-enrichment-opt-in-question-exists
+    title: the installer ASKS before public-data enrichment can run
+    incident: >-
+      Andy, 2026-08-18: "users must EXPLICITLY decide whether public-data enrichment
+      runs. Not a default-on setting." v1.0.36 shipped the recurring agent installed
+      only when OSTLER_ENRICH_AGENT_ENABLED=1 and nothing set it, which was safe and
+      was not the product. The question id names enrichment because a bare assignment
+      would satisfy a consent gate while giving the customer no choice at all.
+    proof:
+      kind: grep_in_installer
+      pattern: 'gui_read "\$MSG_PROMPT_CONSENT_ENRICHMENT_TITLE" yesno "n"'
+      must_match: true
+
+  - id: v1037-enrichment-defaults-to-off
+    title: the opt-in is seeded No, so the GUI does not arrive pre-ticked
+    incident: >-
+      The GUI's yesValue() treats an empty string as true, so an unseeded yesno
+      renders with the Yes toggle already checked. A pre-ticked box is not an opt-in,
+      and this is the same trap consent_third_party documents. The variable is also
+      initialised to 0 BEFORE the question, so an interrupted install cannot leave it
+      unset and inherit an ambient value.
+    proof:
+      kind: grep_in_installer
+      pattern: 'OSTLER_ENRICH_AGENT_ENABLED=0\nENRICH_CHOICE='
+      must_match: true
+
+  - id: v1037-the-summary-states-the-answer
+    title: the pre-install summary reports the choice instead of describing the feature
+    incident: >-
+      "Before we begin" asserted that Ostler looks things up in public reference
+      sources, full stop. Once the question exists that sentence is FALSE for every
+      customer who declines, and a summary contradicting a choice made ten seconds
+      earlier is worse than no summary. The decline branch names the three services it
+      will NOT contact.
+    proof:
+      kind: grep_in_installer
+      pattern: 'You said no to public look-ups, so Ostler will not contact'
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # THE WIKI RE-PIN. Two lines, and the negative limb is the one that matters.
+  # --------------------------------------------------------------------------
+  - id: v1037-wiki-compiler-is-v0121
+    title: install.sh pins the wiki-compiler image carrying the dedupe fix
+    incident: >-
+      CM044 #223 (16bc4964) is the fix for duplicate-review controls that had never
+      once saved a decision. v0.1.20 predates it by exactly one commit. Anchored on
+      the FULL 64-hex digest because a truncated match would accept a neighbouring
+      image.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-compiler@sha256:b85bdb6acae21800bbd3df8e68cd8f1ee7357aea15430016cb8df6a8202af9cc'
+      must_match: true
+
+  - id: v1037-wiki-site-is-v0121
+    title: install.sh pins the wiki-site image from the same v0.1.21 source
+    incident: >-
+      The compiler and the site are pinned on different lines and have drifted apart
+      before. Both must come from CM044 16bc4964 or the rendered wiki and the compiler
+      that produced it disagree about what the page template is.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-site@sha256:3199413b2d3bf3813b1e9bca80bd5f997bbc1a5a6b0eedecc59d6976c039050b'
+      must_match: true
+
+  - id: v1037-no-v0120-wiki-pin-survives
+    title: no v0.1.20 wiki digest is left anywhere in install.sh
+    incident: >-
+      THE LIMB THAT WOULD GO RED ON A HALF-DONE RE-PIN. Editing one of two lines
+      leaves the other live and both remain individually well-formed, so nothing
+      surfaces. Measured at 0 hits on this tree, so it discriminates rather than
+      passing vacuously.
+    proof:
+      kind: grep_in_installer
+      pattern: 'sha256:(3d39fe0944fcc635d0cdbc8d607d577725f3983301aebb054295bd76b2e9fb74|d32fae98fa431e742d0542fae979acfe1f6426c3a6d8612eee3c958db75f4bbf)'
+      must_match: false
+
+  # --------------------------------------------------------------------------
+  # CARRIED FORWARD. An unchanged claim still has to be measured.
+  # --------------------------------------------------------------------------
+  - id: v1037-payload-carries-the-0458-daemon
+    title: the shipped payload is the hub-v0.4.58 daemon, in lockstep with the Hub app
+    incident: >-
+      This cut rebuilds no daemon, so the pair is re-measured rather than assumed to
+      have stayed together. gui/Makefile, install.sh's version and install.sh's
+      tarball checksum all read d4f274cb, and the annotated tag hub-v0.4.58
+      dereferences to commit 5b7efb00a541.
+    proof:
+      kind: payload_version_matches_daemon_version
+
+  - id: v1037-hub-app-reaches-the-artefact
+    title: the shipped installer actually carries Ostler.app
+    incident: >-
+      v1018-D668: a missing Hub app was non-fatal, so a Hub-less DMG shipped with every
+      step green. Re-asserted every cut because "the DMG contains the Hub" is only ever
+      true of an artefact somebody opened.
+    proof:
+      kind: file_exists_in_artefact
+      target: daemon-app
+      path: Contents/MacOS/ostler-hub
+
+  - id: v1037-installer-version-stamp
+    title: the shipped OstlerInstaller.app declares 1.0.37
+    incident: >-
+      Task #171 records the pipeline failing to bump CFBundleShortVersionString on a
+      cut, shipping an installer that reports the previous version to the customer and
+      to support. CFBundleVersion moves WITH it, 3600 to 3700, because that is the
+      field SPARKLE COMPARES: an update whose build number is at or below the installed
+      one is skipped SILENTLY. The pbxproj was REGENERATED with xcodegen rather than
+      hand-edited, and test_installer_version_consistency.sh passes rc=0 across all
+      four sites with the build number derived.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: "1.0.37"
