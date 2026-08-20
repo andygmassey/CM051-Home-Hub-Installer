@@ -1,0 +1,196 @@
+# The gate that watches the customer download path was itself watched by nothing.
+#
+# #886 exists because no gate ever fetched the URL a buyer clicks: every check we
+# owned looked at an object only we could reach. It shipped as a script that no
+# workflow, Makefile target or other script invoked. Measured across the whole
+# tracked tree, the only references to scripts/verify_customer_download_path.sh
+# were its own body and one comment.
+#
+# It was not scored as a dark gate either, because scripts/
+# verify_declared_gates_reachable.sh enumerates on
+#
+#   BLOCK THE CUT|BLOCKS THE CUT|CUT BLOCKER|blocks? the release|MUST NOT SHIP
+#
+# and the gate's header used none of those words. So it was not UNREACHABLE, it
+# was UNENUMERABLE, which prints as nothing at all -- the exact failure mode that
+# scanner's own header documents. The gate now declares itself, so it is in that
+# population permanently, and this workflow is the invocation that makes the
+# declaration true.
+name: customer-download-path
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/verify_customer_download_path.sh'
+      - 'tests/test_customer_download_path_gate.sh'
+      # The BASELINE and the comment-stripper are inputs to the verdict, so a
+      # change to either must re-run this workflow. A gate that cannot see its
+      # own baseline change can be silently disarmed by editing the fixture.
+      - 'tests/fixtures/verify_customer_download_path.prefix'
+      - 'scripts/lib/strip_comments.sh'
+      - '.github/workflows/customer-download-path.yml'
+  pull_request:
+    paths:
+      - 'scripts/verify_customer_download_path.sh'
+      - 'tests/test_customer_download_path_gate.sh'
+      # The BASELINE and the comment-stripper are inputs to the verdict, so a
+      # change to either must re-run this workflow. A gate that cannot see its
+      # own baseline change can be silently disarmed by editing the fixture.
+      - 'tests/fixtures/verify_customer_download_path.prefix'
+      - 'scripts/lib/strip_comments.sh'
+      - '.github/workflows/customer-download-path.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  controls:
+    # macOS, because limb 1 builds a real UDZO image with hdiutil to measure
+    # where the `koly` trailer actually sits. On Linux that limb self-skips and
+    # says so, which would leave the offset assertion unproven.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Environment, so a failure is attributable
+        run: |
+          /bin/bash --version | head -1
+          sw_vers
+          curl --version | head -1
+
+      # CONTROLS FIRST. An unproven gate is not a gate, and this one shipped
+      # unproven: its DMG shape check read `koly` from the first 512 bytes of a
+      # file that stores it as a trailer, so it matched nothing on any real DMG.
+      - name: Controls -- drive the gate through every exit it can take
+        run: /bin/bash tests/test_customer_download_path_gate.sh
+
+  anti-vacuity:
+    # ITS OWN JOB, NOT A STEP AFTER THE CONTROLS.
+    #
+    # As a trailing step it was MASKABLE: a failing control skips everything
+    # after it in the same job, so a broken predicate would take down the gate
+    # it guards and report ONE red line instead of two. `ci-maskless` caught
+    # this and was right to (run 32355780992). Same reason fda-deps-installed
+    # and zero-payload-is-not-ok split theirs out -- I wrote that reasoning
+    # into both of those workflows on the same day I failed to apply it here.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── THE BASELINE IS A TRACKED FIXTURE, AND IT HAS TO BE. ──
+      #
+      # Prove the controls can still go RED against the gate as it stood
+      # before the fix. A control never shown failing is not evidence.
+      #
+      # This originally did `git show <commit>:scripts/...`. That fails twice
+      # over, and the second one is the reason a fixture is the only correct
+      # construction here:
+      #
+      #   1. actions/checkout defaults to a SHALLOW clone, so the commit was
+      #      not in the checkout at all and the job reported CANNOT RUN. That
+      #      alone would be fixed by `fetch-depth: 0`.
+      #
+      #   2. THE FIX DOES NOT SURVIVE THE MERGE. This gate is NEW in this PR --
+      #      scripts/verify_customer_download_path.sh does not exist on main --
+      #      so its only pre-fix state lives at 6ccd687d, a commit that exists
+      #      ONLY on this branch. CM051 merges by SQUASH, which orphans it. The
+      #      workflow also runs on `push: main`, where it would then be broken
+      #      forever.
+      #
+      # #904 taught the same lesson from the opposite direction: once a fix is
+      # on main, no derivation from a live branch yields a pre-fix tree. Here
+      # the branch itself is what disappears. Either way the answer is the
+      # same -- the baseline must be a fixed thing that cannot move, and when
+      # no commit can hold it, a TRACKED FILE can.
+      - name: The fixture must genuinely be the PRE-FIX gate
+        run: |
+          set +e
+          set -uo pipefail
+          FIX=tests/fixtures/verify_customer_download_path.prefix
+          if [ ! -f "$FIX" ]; then
+              echo "CANNOT RUN: ${FIX} is missing. That is NOT a pass -- it is"
+              echo "the baseline itself going absent."
+              exit 1
+          fi
+          # Measured on CODE, comments stripped, because a marker surviving in
+          # an explanatory comment is exactly how #808 scored documentation as
+          # code. `|| echo 000` was rejected as a discriminator for that reason:
+          # it still appears in the FIXED gate, inside a comment describing the
+          # bug. These two are clean on both sides.
+          . scripts/lib/strip_comments.sh
+          CODE="$(mktemp)"; strip_comments_file "$FIX" > "$CODE"
+          present=$(grep -c "trap 'rm -f" "$CODE")   # pre-fix: 2   fixed: 0
+          absent=$(grep -c 'TMP_BODY' "$CODE")       # pre-fix: 0   fixed: 3
+          echo "fixture markers (code only): trap-rm-f=${present} TMP_BODY=${absent}"
+          if [ "$present" -eq 0 ] || [ "$absent" -ne 0 ]; then
+              echo ""
+              echo "THE FIXTURE IS NOT PRE-FIX. Someone has replaced it with a"
+              echo "copy of the repaired gate, which would make the anti-vacuity"
+              echo "check below pass while measuring nothing."
+              echo "This is a FIXTURE fault, NOT a loss of discrimination in the"
+              echo "controls. DO NOT 'fix' the controls in response to this."
+              exit 1
+          fi
+          echo "ok: the fixture carries the pre-fix shape on both sides"
+
+      - name: The controls must fail the pre-fix gate
+        run: |
+          # `set +e` IS LOAD-BEARING. GitHub runs `run:` as `/bin/bash -e {0}`,
+          # and this step exists to OBSERVE a non-zero exit -- with -e in force
+          # it dies on the very failure it is measuring, before `rc=$?`.
+          # `set -uo pipefail` does NOT turn -e off. Only `set +e` does. Same
+          # defect I fixed in #904's workflow; it was latent here only because
+          # the job failed earlier at CANNOT RUN.
+          set +e
+          set -uo pipefail
+          D="$(mktemp -d)"; mkdir -p "$D/scripts" "$D/tests"
+          cp tests/fixtures/verify_customer_download_path.prefix \
+             "$D/scripts/verify_customer_download_path.sh"
+          # The CONTROLS come from this PR -- the baseline is the ARTEFACT under
+          # test, not the instrument.
+          cp tests/test_customer_download_path_gate.sh "$D/tests/"
+          /bin/bash "$D/tests/test_customer_download_path_gate.sh" > "$D/out" 2>&1
+          rc=$?
+          cat "$D/out"
+          if [ "$rc" -eq 0 ]; then
+              echo ""
+              echo "ANTI-VACUITY FAILED: the controls PASSED the pre-fix gate."
+              echo "They no longer tell the fix from the bug, so the green in the"
+              echo "controls job means nothing. Investigate before trusting this."
+              exit 1
+          fi
+          echo ""
+          echo "ok: controls go RED (rc=${rc}) against the pre-fix gate, as required"
+
+  # The gate itself, run in the posture that is true today. Pre-launch the
+  # release is a DRAFT, so the public URL 404s BY DESIGN and asserting it would
+  # red every run for an intended reason -- which is how a gate gets ignored,
+  # then disabled. So assert the strongest TRUE thing instead of skipping.
+  gate:
+    runs-on: ubuntu-latest
+    needs: controls
+    steps:
+      - uses: actions/checkout@v4
+      - name: Customer download path, prelaunch posture
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSTLER_DOWNLOAD_POSTURE: prelaunch
+        run: |
+          set -uo pipefail
+          /bin/bash scripts/verify_customer_download_path.sh "${OSTLER_EXPECTED_VERSION:-1.0.37}"
+          rc=$?
+          # Tri-state is deliberate and is NOT flattened here. rc=2 means the
+          # gate could not reach the release API (auth or network), which is a
+          # statement about this runner and not about the download path. Report
+          # it loudly and do not let it read as either a pass or a failure of
+          # the URL.
+          if [ "$rc" -eq 2 ]; then
+              echo "::warning::gate returned CANNOT-RUN (rc=2). This is NOT a verdict on the customer download path -- it means this runner could not inspect the release repo. Treat as unmeasured, not as green."
+              exit 0
+          fi
+          exit "$rc"
