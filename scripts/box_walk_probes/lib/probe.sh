@@ -15,10 +15,11 @@
 # measurement that never ran.
 #
 # Not one of those gates had a negative control. None had ever been observed to
-# produce a FAIL. Neither has the existing 735-line people_seed_and_retrieval.sh
-# that sits alongside these probes -- that one is a real implementation with
-# graded exit codes, not a stub, and this framework does not replace it. But
-# nothing proves it can go red either, and that is the whole gap.
+# produce a FAIL. The same was true of people_seed_and_retrieval.sh, which used
+# to sit one level up rather than in probes/ -- a real implementation, not a
+# stub, but with nothing proving it could go red, and one level up is a
+# directory run_box_walk.sh does not glob, so it had never run at all. It now
+# lives in probes/ with a --self-test like everything else.
 #
 #   A ZERO THAT MEANS "DID NOT LOOK" IS INDISTINGUISHABLE FROM A ZERO THAT
 #   MEANS "FOUND NOTHING".

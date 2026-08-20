@@ -29,40 +29,46 @@ whose failure mode is **invisible at install time**:
 
 Every one of those looks like a healthy box.
 
-## Two directories, and what each one means
+## One directory, and why it used to be two
 
 ```
-probes/*.sh    every probe with a --self-test negative control.
+probes/*.sh    every probe, each with a --self-test negative control.
                run_box_walk.sh globs THIS directory and nothing else,
                because phase 1 demands a --self-test from everything it finds.
-*.sh           people_seed_and_retrieval.sh, alone. A real 735-line
-               implementation with graded exit codes and no --self-test,
-               so the runner would mark it BROKEN and discard its result.
 ```
 
-The split is deliberate. What was not deliberate, and is fixed in #778, is that
-the cut gate `scripts/verify_cut_manifest.py` used to resolve `probe: <name>`
-against the flat directory ONLY. The gate and the runner therefore had **zero
-probes in common**: the gate could resolve only the probe the runner never
-executes, and the seven the runner does execute could not be named by any
-manifest, so nobody wrote the rows. Nothing failed. There was nothing to fail.
+There used to be a second population: `people_seed_and_retrieval.sh` sat alone
+in the flat directory, a real implementation with graded exit codes and no
+`--self-test`, kept out of `probes/` because the runner would have marked it
+BROKEN and discarded its result.
 
-The gate now searches `probes/` first and the flat directory second, and
+**The cost of that split was total.** `run_box_walk.sh` globs `probes/` only, so
+the one probe that asserts semantic people search actually works had never
+executed in a box walk -- not once, on any cut. The other half of the same hole
+is recorded in `verify_cut_manifest.py`: the manifest rows naming it fire only
+when `OSTLER_BOX_HOST` is set, and it was set nowhere, so those rows "have
+returned SKIP on every cut that has ever run". Two instruments, neither of them
+ever pointed at the thing.
+
+#778 fixed the resolution half: the cut gate now searches `probes/` first and
+the flat directory second, and
 `test_every_probe_on_disk_is_declared_in_permanent_manifest` fails if a probe
 lands here without a `permanent.yaml` row. Adding a probe means adding a row.
 
-Giving `people_seed_and_retrieval.sh` a `--self-test` and moving it into
-`probes/` would collapse the two directories into one, and is the right end
-state. It is not done here.
+The directories are now collapsed, which this file used to call "the right end
+state ... not done here". Collapsing them was not a `git mv`: the probe had
+to gain a `--self-test`, which meant every judgement inside it had to become a named
+function over a response file, so the control can drive the same adjudicators
+the live run uses without standing up a box. Its exit codes also became the
+contract's `0 / 1 / 78` rather than a graded `2/3/4/5` that every caller only
+ever read as "non-zero", and `OSTLER_BOX_HOST` unset now means **this machine**
+rather than "refuse to report", which is what the rest of the suite means by it.
 
 ## The rule this suite is built around
 
-`people_seed_and_retrieval.sh` is not replaced by this framework.
-
-What it does not have -- and what none of the gates that burnt four consecutive
-release tags had -- is a **negative control**. Nothing in it, or in them, ever
-demonstrated the ability to return a FAIL. That is the gap this framework
-closes, and it is the only gap it claims to close.
+None of the gates that burnt four consecutive release tags had a **negative
+control**. Nothing in them ever demonstrated the ability to return a FAIL. That
+is the gap this framework closes, and it is the only gap it claims to close.
 
 The four burns were all one shape: a gate grepping inside a container that never
 started; a test skipping on a runner with no docker and reporting SUCCESS; a
@@ -158,7 +164,7 @@ the system it models misses them. Both cost the same amount of trust.
 | `people_count_agreement` | do the graph and the API agree on the count? | #273 |
 | `daemon_is_listening` | does the gateway accept connections, and can the daemon load its config at all? | #363 |
 | `installed_bundle_seal_intact` | does the installed bundle's signature still verify? | #375 |
-| `people_seed_and_retrieval` | can a seeded person be retrieved through the tool-call path? (flat, no `--self-test`) | v1.0.12 |
+| `people_seed_and_retrieval` | can a person seeded on the box be retrieved again through the route the daemon really uses? | v1.0.12 |
 
 Each asserts **agreement or absence of a lie**, not a particular value. An
 unpaired box is fine; a box claiming to be paired over an empty table is not. A
@@ -177,6 +183,16 @@ same log is not.
 | `OSTLER_FRESHNESS_URL` | `http://127.0.0.1:8089/doctor/api/freshness` | freshness panel |
 | `OSTLER_OXIGRAPH_URL` | `http://127.0.0.1:7878/query` | SPARQL endpoint |
 | `OSTLER_PEOPLE_TOLERANCE_PCT` | `2` | allowed people-count drift |
+| `OSTLER_PROBE_API_BASE` | `http://127.0.0.1:8090` | Assistant API, `people_seed_and_retrieval` |
+| `OSTLER_PROBE_QDRANT_BASE` | `http://127.0.0.1:6333` | Qdrant, same probe |
+| `OSTLER_PROBE_EMBED_BASE` | `http://127.0.0.1:11434` | Ollama embeddings, same probe |
+| `OSTLER_SERVICE_TOKEN` | read from the box | overrides the on-box service token |
+
+`people_seed_and_retrieval` WRITES to the box: it mints a synthetic person and
+upserts a synthetic Qdrant point, then removes both and verifies the removal.
+Every identity it uses is constructed -- reserved `.example` / `.test` domains
+and Ofcom drama-range numbers -- and it sweeps before seeding so a crashed
+earlier run cannot fake a pass. It is the only probe here that is not read-only.
 
 The install log lives under `$HOME/.ostler/`, per `install.sh:962`. It is **not**
 under `$HOME/Documents/Ostler/logs/` — that path was searched twice during the

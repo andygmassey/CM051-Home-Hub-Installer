@@ -71,6 +71,13 @@ fi
 # Collect probes. nullglob so a non-matching glob yields nothing rather than a
 # literal "*.sh" -- and an explicit count check below, because an empty list
 # must be a hard failure and not a clean run.
+#
+# THIS GLOB IS THE WHOLE SUITE. A probe file that is not in PROBE_DIR does not
+# exist as far as a box walk is concerned, however good it is, and nothing
+# anywhere prints the names of files it skipped. people_seed_and_retrieval.sh
+# spent its whole life one level up on exactly that basis: 735 lines, graded
+# exit codes, the only assertion in the estate that semantic people search
+# actually works, and eleven probes reported over the top of it every time.
 shopt -s nullglob
 PROBES=""
 for f in "$PROBE_DIR"/*.sh; do

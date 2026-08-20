@@ -97,7 +97,11 @@ jobs:
         if: always()
         run: |
           set -u
-          PROBE=scripts/box_walk_probes/people_seed_and_retrieval.sh
+          # Path moved when the probe was collapsed into probes/ so that
+          # run_box_walk.sh would actually collect it. It is referenced HERE by
+          # path, so a move that forgets this line silently stubs nothing and
+          # the control goes green over a probe it never replaced.
+          PROBE=scripts/box_walk_probes/probes/people_seed_and_retrieval.sh
           cp "$PROBE" "${RUNNER_TEMP}/probe.real"
           printf '#!/usr/bin/env bash\necho "people_seed_and_retrieval: PASS -- nothing examined"\nexit 0\n' > "$PROBE"
           set +e

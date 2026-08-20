@@ -55,12 +55,20 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "${HERE}/../.." && pwd)"
-PROBE="${REPO}/scripts/box_walk_probes/people_seed_and_retrieval.sh"
+PROBE="${REPO}/scripts/box_walk_probes/probes/people_seed_and_retrieval.sh"
 
 if [ ! -f "$PROBE" ]; then
     echo "FAIL: probe not found at ${PROBE}"
     exit 1
 fi
+
+# The probe joined probes/ so run_box_walk.sh would collect it -- it had never
+# executed in a box walk while it sat one level up. Joining probes/ obliged it
+# to carry a --self-test, and the runner DISCARDS the result of any probe whose
+# negative control does not go red. The 12 scenarios below drive the real
+# measurement path; the self-test check after them drives the control, so a
+# regression in either is caught here rather than by the cut host quietly
+# marking the probe BROKEN and reporting one fewer measurement.
 
 WORK="$(mktemp -d -t peopleprobetest)"
 FAKE="${WORK}/fake_box.py"
@@ -507,12 +515,38 @@ run_case search_empty     fail "RED: fallback route returns nothing for a seeded
 run_case leak             fail "RED: cleanup accepted but the fixture is still retrievable"
 
 echo ""
+# ---------------------------------------------------------------------------
+# The probe's own negative control, checked here for the same reason the runner
+# checks it: a probe that cannot come back FAIL on known-bad input is discarded
+# as BROKEN, and a BROKEN probe measures exactly as much as an absent one.
+#
+# Deliberately NOT a run_case: it needs no fake box, and folding it into the
+# scenario count would make `scenarios=13/12` the normal reading of a clean run.
+# It contributes to FAILS, so the stubbed-probe control in cut-manifest.yml
+# still sees this as one more missed expectation rather than as a crash.
+# ---------------------------------------------------------------------------
+SELFTEST_OUT="${WORK}/selftest.out"
+SELFTEST="red"
+/bin/bash "$PROBE" --self-test > "$SELFTEST_OUT" 2>&1
+selftest_rc=$?
+# Exit code alone is not enough, and reading it alone is how a broken probe
+# passes: the contract's own refusals also exit 1 while printing BROKEN.
+if [ "$selftest_rc" -eq 1 ] && ! grep -q 'VERDICT: BROKEN' "$SELFTEST_OUT"; then
+    echo "PASS [--self-test] probe's own negative control goes red on known-bad input (exit 1)"
+    SELFTEST="ok"
+else
+    echo "FAIL [--self-test] expected exit 1 with no BROKEN verdict, got exit ${selftest_rc}"
+    echo "----- self-test output -----"; cat "$SELFTEST_OUT"; echo "----------------------------"
+    FAILS=$((FAILS + 1))
+fi
+
+echo ""
 # scenarios counts CASES ATTEMPTED, not PASSES+FAILS. Those diverge: the
 # verdict-line check can add a second FAILS for one case, which used to print
 # scenarios=13 out of 12, and a harness failure adds neither. Print the
 # denominator that was actually driven, plus every bucket, so a run that
 # examined less than it should cannot read as a clean one.
-echo "EXAMINED: scenarios=${CASES}/12 passed=${PASSES} failed=${FAILS} harness_failures=${HARNESS_FAILS}"
+echo "EXAMINED: scenarios=${CASES}/12 passed=${PASSES} failed=${FAILS} harness_failures=${HARNESS_FAILS} selftest=${SELFTEST}"
 if [ "$HARNESS_FAILS" -gt 0 ]; then
     echo "test_people_seed_and_retrieval_probe: FAIL (${HARNESS_FAILS} harness failures --"
     echo "  the fake box never became ready, so the probe was never exercised on those"
@@ -527,5 +561,5 @@ if [ "$FAILS" -gt 0 ]; then
     echo "test_people_seed_and_retrieval_probe: FAIL (${FAILS} expectations missed)"
     exit 1
 fi
-echo "test_people_seed_and_retrieval_probe: PASS (gate proven to fire on 11 distinct breaks)"
+echo "test_people_seed_and_retrieval_probe: PASS (gate proven to fire on 11 distinct breaks, and its own --self-test proven to go red)"
 exit 0

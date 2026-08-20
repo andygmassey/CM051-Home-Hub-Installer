@@ -332,6 +332,13 @@ entries:
   # controllable fake box: scripts/tests/test_people_seed_and_retrieval_probe.sh
   # asserts 1 green and 11 distinct reds, and runs on macOS so it exercises the
   # same bash 3.2 the cut host uses.
+  #
+  # THIS ROW IS NO LONGER THE ONLY THING THAT INVOKES THE PROBE. Until the
+  # probe moved into scripts/box_walk_probes/probes/ it was invoked ONLY from
+  # here, and only when OSTLER_BOX_HOST was set -- which was nowhere -- so it
+  # had never run at all: not in a cut, not in a box walk. run_box_walk.sh now
+  # collects it with the rest, and a box walk that cannot reach a Hub reports
+  # it as CANNOT-RUN in its own block rather than folding it into green.
   # ==========================================================================
   - id: box-walk-people-seed-and-retrieval
     title: a synthetic person must seed and be retrievable via people/context + people/search
