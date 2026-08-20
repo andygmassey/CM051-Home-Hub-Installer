@@ -2481,3 +2481,24 @@ deferrals:
       MERGE IT IMMEDIATELY AFTER THE v1.0.37 TAG IS PUSHED, so it is in the
       next daemon build rather than waiting for someone to rediscover it.
     until_cut: "v1.0.38"
+
+  - ref: "CM051:#881"
+    reason: >-
+      OPENED AT 03:34Z, TWENTY MINUTES INTO CLEARING THIS GATE, AND IT IS
+      CI-RED. TNM's PR-age gate honesty fix: the gate must name the repos it
+      could not check rather than reporting a bare GREEN over a partial run.
+      Real and wanted. Not merged tonight for two independent reasons, either
+      of which is sufficient. (1) It is RED: cut-gate-wrappers fails because
+      tests/test_pr_age_gate_declares_partial_runs.sh limb 5 needs
+      origin/main:scripts/verify_pr_age.sh to perform its pre-fix comparison,
+      and the CI checkout does not carry that ref, so the harness exits 2
+      CANNOT-RUN -- 7 passed, 0 failed, 1 cannot-run. That is the harness
+      failing CLOSED on a missing input, which is the correct behaviour and is
+      still a red. I do not merge red. (2) Even green it would not change this
+      cut: its own limb 6 measures "reporting-only: rc unchanged (partial=0,
+      complete=0) -- cannot red a cut". A gate that cannot change a verdict
+      cannot change THIS verdict. The fix TNM needs is to supply the baseline
+      ref the limb asks for (fetch-depth 0, or an explicit `git fetch origin
+      main`) rather than to weaken the limb -- a CANNOT-RUN that gets softened
+      into a pass is the exact shape this PR exists to abolish.
+    until_cut: "v1.0.38"
