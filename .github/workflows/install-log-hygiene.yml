@@ -1,0 +1,66 @@
+name: install-log-hygiene
+
+# The install log a CUSTOMER reads must not contain our scaffolding.
+#
+# On 2026-08-20 Andy walked the v1.0.37 DMG. The install SUCCEEDED -- exit 0,
+# 42 minutes, 8/8 health checks, 9,559 wiki pages -- and he was angry anyway,
+# because the log read like a debug session: 14 "CX-nn probe: entering/exiting"
+# lines and one `$MSG_OK_ENRICH_AGENT_LOADED` printed as the literal variable
+# name. That last line was the confirmation that background enrichment had
+# loaded, so the leak cost him the answer to the one question he asked us.
+#
+# tests/test_no_internal_codenames_in_customer_strings.sh already existed and
+# was green throughout, because it reads the string CATALOGUE and every one of
+# these lines is emitted from install.sh itself. Instrument and defect on
+# different surfaces. This gate watches install.sh's own emission sites.
+#
+# It is heredoc-aware: `\$MSG_` inside `cat <<EOF` is written into a GENERATED
+# script and resolves at that script's runtime, so it is correct there and must
+# not be flagged. It also refuses to treat a `<<NAME` appearing inside a
+# COMMENT as a heredoc opener -- install.sh has one, and a scanner that falls
+# for it reports every later line as "inside a heredoc" and finds nothing.
+#
+# Controls, all of which run every time:
+#   - anti-vacuity: a seeded fixture must be detected, and the comment and
+#     heredoc decoys in it must NOT be
+#   - the enrichment success line must be decided by `launchctl print`, because
+#     `launchctl load` exits 0 even for a plist that does not exist (measured
+#     on macOS 26.5.2), which made the old ok/warn branch unconditional
+#   - a check handed an empty window FAILS rather than passing on nothing
+#
+# Exit codes are tri-state: 0 pass, 1 real failure, 2 CANNOT RUN (install.sh or
+# python3 absent). A runner-image change cannot turn this into a silent pass.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_install_log_reads_like_a_product.sh'
+      # A gate must trigger on changes to ITSELF, or it can be quietly
+      # narrowed in a PR that never runs it.
+      - '.github/workflows/install-log-hygiene.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  install-log-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: the customer install log carries no developer scaffolding
+        run: /bin/bash tests/test_install_log_reads_like_a_product.sh
+
+      - name: the gate itself parses
+        run: /bin/bash -n tests/test_install_log_reads_like_a_product.sh
