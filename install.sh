@@ -5384,6 +5384,106 @@ if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
     mkdir -p "$FDA_DIR"
     cp -R "${SCRIPT_DIR}/ostler_fda" "$FDA_DIR/"
     HAS_FDA_MODULE=true
+
+    # ── #805: THE COPY WAS NEVER GIVEN ITS DEPENDENCIES ──────────────
+    #
+    # `cp -R` puts the CODE on disk. It installs nothing. So the venv the
+    # recurring tick runs under never had ostler_fda's declared dependencies,
+    # and the very first thing the tick imports needs one of them:
+    #
+    #     vendor/ostler_fda/pyproject.toml:42         "nameparser>=2.1.0,<3.0"
+    #     vendor/ostler_fda/identifier_quality.py:88  from nameparser import HumanName
+    #
+    # MEASURED on the live v1.0.37 box 2026-08-20, before this fix:
+    #
+    #     ~/.ostler/.venv/bin/python3 -c 'import ostler_fda.identifier_quality'
+    #       -> ModuleNotFoundError: No module named 'nameparser'
+    #
+    # The chain is plist -> run-source -> tick.sh -> ~/.ostler/bin/ostler-fda
+    # -> OSTLER_PYTHON=~/.ostler/.venv/bin/python3. So fda-rerun died on EVERY
+    # fire, on EVERY box, from the first install -- while the product told the
+    # customer their data was "still loading in the background".
+    #
+    # It looked fine from both ends. The declaration was correct. The code was
+    # present. Only the join was missing, and nothing was watching the join.
+    #
+    # WHY EDITABLE (-e) AND NOT A PLAIN INSTALL
+    #
+    # A plain `pip install "$FDA_DIR/ostler_fda"` also fixes the imports, but it
+    # leaves TWO copies of the code: the cp -R one that the tick puts on
+    # sys.path, and a second under site-packages. The version in pyproject.toml
+    # is static (0.1.0), so a later install refreshes the first and pip skips
+    # the second as already-satisfied. Consumers that do not insert FDA_DIR
+    # would then import silently STALE code -- the exact two-copies-one-stale
+    # shape this repo keeps getting caught by.
+    #
+    # `-e` installs the dependencies and points the venv at the cp -R directory
+    # itself, so there is ONE copy and a re-install can never leave a shadow.
+    # Verified locally 2026-08-20: after `-e`, editing a file under FDA_DIR is
+    # visible to the next interpreter run, and `import ostler_fda` resolves to
+    # FDA_DIR, not to site-packages.
+    #
+    # SAFE FOR THE CODE SEAL, and that is why it goes HERE rather than at
+    # SCRIPT_DIR. `pip install -e` writes .egg-info into its source directory.
+    # SCRIPT_DIR is inside the notarised bundle (that is CM051 #767 -- 256
+    # unsealed files and a Gatekeeper refusal). FDA_DIR is ~/.ostler/fda-module,
+    # already copied OUT of the bundle three lines above, so the writes land in
+    # the user's own directory. The assertion below states that rather than
+    # trusting it, because "the path is outside the bundle" is precisely the
+    # kind of plausible reasoning that was wrong for 32 cuts.
+    if [[ "${FDA_DIR}" == "${SCRIPT_DIR}"/* || "${FDA_DIR}" == *"/Contents/Resources"* ]]; then
+        fail_with_code "ERR-10-FDA-DEPS-UNSAFE-PATH" "$MSG_FAIL_FDA_DEPS_UNSAFE_PATH"
+    fi
+
+    # Resolve the venv locally. Do NOT reuse OSTLER_PIP from the
+    # ostler_security block above: that block is conditional, so depending on
+    # it here would make this silently skip on exactly the installs where that
+    # module is absent. Same three lines used at the other venv sites.
+    FDA_VENV="${OSTLER_DIR}/.venv"
+    if [[ ! -d "$FDA_VENV" ]]; then
+        "$PYTHON3_BIN" -m venv "$FDA_VENV"
+    fi
+    FDA_VENV_PIP="${FDA_VENV}/bin/pip"
+    FDA_VENV_PYTHON="${FDA_VENV}/bin/python3"
+
+    info "$MSG_INFO_INSTALLING_FDA_DEPENDENCIES"
+    "$FDA_VENV_PIP" install --quiet -e "${FDA_DIR}/ostler_fda" \
+        >/tmp/ostler-fda-deps.log 2>&1 || true
+
+    # ── THE CONTROL: IMPORT, DO NOT READ ─────────────────────────────
+    #
+    # The obvious check is "did pip exit 0" or "is nameparser in pyproject".
+    # Both are the wrong surface. The declaration was ALWAYS correct on the
+    # broken boxes -- a grep for it passes on exactly the machines that are
+    # broken. And pip's rc does not tell you the interpreter can load the code.
+    #
+    # So execute the import, under the SAME interpreter the tick resolves, and
+    # read the interpreter's own verdict. Bare, with no sys.path help, because
+    # the wrapper is not the only consumer and a bare import is the honest
+    # floor. This is the constraint Archie set for #805 and it is the whole
+    # point: the control's surface must be the defect's surface.
+    #
+    # This does NOT claim the tick then produces useful data. Import success is
+    # a floor, not a harvest.
+    if ! "$FDA_VENV_PYTHON" -c 'import ostler_fda.identifier_quality' >/dev/null 2>&1; then
+        FDA_IMPORT_ERR="$("$FDA_VENV_PYTHON" -c 'import ostler_fda.identifier_quality' 2>&1 | tail -1)"
+        warn "$MSG_WARN_FDA_DEPENDENCIES_NOT_IMPORTABLE"
+        warn "    ${FDA_IMPORT_ERR}"
+        if [[ -s /tmp/ostler-fda-deps.log ]]; then
+            sed -e 's/^/    /' /tmp/ostler-fda-deps.log | tail -5
+        fi
+        # Hard-fail, mirroring the missing-module branch below. A module that
+        # is present but cannot load is not better than an absent one -- it is
+        # worse, because every surface reports it as installed. Shipping past
+        # this is how #805 stayed invisible from the first install.
+        if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+            warn "$MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT"
+        else
+            fail_with_code "ERR-10-FDA-DEPS-IMPORT" "$MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN"
+        fi
+    else
+        ok "$MSG_OK_FDA_DEPENDENCIES_IMPORTABLE"
+    fi
 else
     if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
         warn "$MSG_WARN_FDA_MODULE_NOT_BUNDLED_PLAINTEXT"
