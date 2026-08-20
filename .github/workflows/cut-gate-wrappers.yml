@@ -29,6 +29,7 @@ on:
       - 'scripts/verify_cut_provenance.sh'
       - 'scripts/verify_no_orphaned_fixes.sh'
       - 'scripts/verify_pr_age.sh'
+      - 'tests/test_pr_age_gate_declares_partial_runs.sh'
       - 'scripts/provenance_gate.sh'
       - 'scripts/verify_stapling.sh'
       - 'scripts/verify_commit_parity.sh'
@@ -70,7 +71,26 @@ jobs:
         run: |
           /bin/bash --version | head -1
           /bin/bash -n tests/test_cut_gate_wrappers.sh
+          /bin/bash -n tests/test_pr_age_gate_declares_partial_runs.sh
           echo "OK: parses under the shell the cut actually uses"
+
+      # THE WRAPPER IS HONEST ABOUT rc; THE GATE WAS NOT HONEST ABOUT SCOPE.
+      #
+      # The steps above prove verify_pr_age.sh's WRAPPER distinguishes
+      # cannot-run from fail. That says nothing about whether the gate looked
+      # at the estate it claims to police. It did not: on a hosted runner
+      # GH_TOKEN is the repo-scoped secrets.GITHUB_TOKEN, every sibling repo's
+      # `gh pr list` fails, and one reachable repo is enough to exit 0.
+      #
+      # Measured 2026-08-20, one tree, one hour:
+      #     7 repos reachable -> 17 over 48h, rc=1
+      #     CM051 only        ->  0 over 48h, rc=0
+      #
+      # if: always() because this is not the first step -- a failure above must
+      # not skip it. A skipped check reads as no objection.
+      - name: The PR-age gate declares the repos it could NOT check
+        if: always()
+        run: /bin/bash tests/test_pr_age_gate_declares_partial_runs.sh
 
       - name: Every wrapper still HAS a cannot-run branch
         if: always()
