@@ -55,9 +55,9 @@ the flat directory second, and
 `test_every_probe_on_disk_is_declared_in_permanent_manifest` fails if a probe
 lands here without a `permanent.yaml` row. Adding a probe means adding a row.
 
-The directories are now collapsed, which that section of this file called "the
-right end state". Collapsing them was not a `git mv`: the probe had to gain a
-`--self-test`, which meant every judgement inside it had to become a named
+The directories are now collapsed, which this file used to call "the right end
+state ... not done here". Collapsing them was not a `git mv`: the probe had
+to gain a `--self-test`, which meant every judgement inside it had to become a named
 function over a response file, so the control can drive the same adjudicators
 the live run uses without standing up a box. Its exit codes also became the
 contract's `0 / 1 / 78` rather than a graded `2/3/4/5` that every caller only

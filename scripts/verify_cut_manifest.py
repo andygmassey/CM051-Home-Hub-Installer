@@ -637,7 +637,11 @@ def check_plist_env_key_present(entry: dict, ctx: dict) -> Result:
 # box; captures the class of bug that static gates cannot see (the whole point
 # of the token-gap tackling: seed-and-query round-trip proof).
 #
-# The registry maps `probe: <name>` to `scripts/box_walk_probes/<name>.sh`.
+# The registry maps `probe: <name>` to a file named `<name>.sh`, resolved by
+# _box_walk_probe_search_dirs below -- `scripts/box_walk_probes/probes/` first,
+# then the flat `scripts/box_walk_probes/`. This comment used to name only the
+# flat directory, which is where the resolver used to look and where no probe
+# lives any more.
 # Each probe is a self-contained shell script; the primitive invokes it,
 # captures exit code + stdout, and PASSes on exit 0. FAILs on any non-zero.
 # SKIPs when OSTLER_BOX_HOST env var is not set (the box isn't reachable in
