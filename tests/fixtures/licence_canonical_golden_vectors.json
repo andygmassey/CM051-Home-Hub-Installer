@@ -1,0 +1,200 @@
+{
+  "_comment": [
+    "GOLDEN VECTORS for the licence canonical-JSON contract. NOT hand-written.",
+    "Every signer_canonical_hex below was produced by RUNNING CM050's real",
+    "canonicaliseLicenseBody() -- the function the Cloudflare Worker signs with --",
+    "over the body in the same record. Regenerate with tests/fixtures/REGENERATE.md.",
+    "",
+    "WHY THIS EXISTS: four implementations canonicalise licence bodies, each",
+    "carrying a comment asserting byte-identity with the others, and until this",
+    "fixture NOTHING pinned any pair. test_licence_gate.sh's positive control",
+    "mints AND verifies with the same rule, so it passes by construction and",
+    "would keep passing if the signer drifted."
+  ],
+  "provenance": {
+    "signer_repo": "andygmassey/CM050-Home-Hub-Update-System",
+    "signer_commit": "8fab6c3a17a313a4065906bb10243ee6ca75d85d",
+    "signer_file": "appcast-server/src/license.ts",
+    "signer_file_sha256": "133626c22f802fa651b2927cbcde062231c42ababa8e32033dd145a392da5010",
+    "signer_function": "canonicaliseLicenseBody",
+    "generated_by": "esbuild --bundle of the UNMODIFIED module, then node",
+    "measured_on": "2026-08-20"
+  },
+  "contract": {
+    "rule": "json.dumps(body, sort_keys=True, separators=(',',':'), ensure_ascii=False).encode('utf-8')",
+    "declared_by": [
+      "CM050 appcast-server/src/license.ts:55 (comment)",
+      "CM050 license-generator/ostler_license/canonical.py:20 (implementation)",
+      "CM051 install.sh:1271 canonical_body (implementation)",
+      "CM051 gui/OstlerInstaller/Auth/LicenseVerifier.swift:203 canonicalJSON (implementation)"
+    ]
+  },
+  "known_divergence": {
+    "summary": "The SIGNER is the odd one out of four. license.ts:83 emits \\u00XX for EVERY codepoint below 0x20; the other three emit JSON's short forms (\\b \\f \\n \\r \\t) because that is what json.dumps does. Different bytes -> different Ed25519 payload -> rc=13 'signature did not verify', which reads to a customer as a bad licence rather than as our bug.",
+    "measured_population": "all 32 codepoints 0x00-0x1F, each run through all three reachable implementations",
+    "divergent_codepoints": [
+      "0x08",
+      "0x09",
+      "0x0a",
+      "0x0c",
+      "0x0d"
+    ],
+    "verifiers_agree_with_each_other": true,
+    "reachable_today": {
+      "codepoint": "0x08",
+      "why": "stripe-webhook.ts:41 EMAIL_SHAPE_RE is /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/. JS \\s covers 0x09/0x0a/0x0c/0x0d but NOT 0x08, so a backspace inside an email address passes validateEmail and is signed.",
+      "bound": "Requires Stripe to deliver a customer_email containing 0x08. That is Stripe-side behaviour this fixture cannot and does not measure -- the claim here is only that OUR validator admits it."
+    },
+    "fix_belongs_in": "CM050 license.ts jsonEncodeString -- add the five short forms. The three verifiers are correct; the signer is wrong."
+  },
+  "vectors": [
+    {
+      "name": "realistic-full-body",
+      "note": "every SIGNED_FIELD, in the order mintLicense builds them (NOT alphabetical)",
+      "body": {
+        "version": 1,
+        "license_id": "3f1b6c2e-7a45-4d18-9b0c-2e5a71d4c8f9",
+        "issued_to_email": "customer@example.com",
+        "purchased_at": "2026-08-20T04:00:00Z",
+        "update_window_expires_at": "2027-08-20T04:00:00Z",
+        "max_hardware_fingerprints": 2,
+        "stripe_payment_id": "pi_3QxAbCdEfGhIjKlM0nOpQrSt",
+        "signature_algorithm": "Ed25519"
+      },
+      "signer_canonical_hex": "7b226973737565645f746f5f656d61696c223a22637573746f6d6572406578616d706c652e636f6d222c226c6963656e73655f6964223a2233663162366332652d376134352d346431382d396230632d326535613731643463386639222c226d61785f68617264776172655f66696e6765727072696e7473223a322c227075726368617365645f6174223a22323032362d30382d32305430343a30303a30305a222c227369676e61747572655f616c676f726974686d223a2245643235353139222c227374726970655f7061796d656e745f6964223a2270695f3351784162436445664768496a4b6c4d306e4f7051725374222c227570646174655f77696e646f775f657870697265735f6174223a22323032372d30382d32305430343a30303a30305a222c2276657273696f6e223a317d"
+    },
+    {
+      "name": "insertion-order-reversed",
+      "note": "same content, opposite insertion order -- MUST produce identical bytes to realistic-full-body",
+      "body": {
+        "signature_algorithm": "Ed25519",
+        "stripe_payment_id": "pi_3QxAbCdEfGhIjKlM0nOpQrSt",
+        "max_hardware_fingerprints": 2,
+        "update_window_expires_at": "2027-08-20T04:00:00Z",
+        "purchased_at": "2026-08-20T04:00:00Z",
+        "issued_to_email": "customer@example.com",
+        "license_id": "3f1b6c2e-7a45-4d18-9b0c-2e5a71d4c8f9",
+        "version": 1
+      },
+      "signer_canonical_hex": "7b226973737565645f746f5f656d61696c223a22637573746f6d6572406578616d706c652e636f6d222c226c6963656e73655f6964223a2233663162366332652d376134352d346431382d396230632d326535613731643463386639222c226d61785f68617264776172655f66696e6765727072696e7473223a322c227075726368617365645f6174223a22323032362d30382d32305430343a30303a30305a222c227369676e61747572655f616c676f726974686d223a2245643235353139222c227374726970655f7061796d656e745f6964223a2270695f3351784162436445664768496a4b6c4d306e4f7051725374222c227570646174655f77696e646f775f657870697265735f6174223a22323032372d30382d32305430343a30303a30305a222c2276657273696f6e223a317d"
+    },
+    {
+      "name": "plus-tagged-email",
+      "note": "'+' and '.' are not escaped by anyone",
+      "body": {
+        "version": 1,
+        "issued_to_email": "a.b+ostler@example.co.uk"
+      },
+      "signer_canonical_hex": "7b226973737565645f746f5f656d61696c223a22612e622b6f73746c6572406578616d706c652e636f2e756b222c2276657273696f6e223a317d"
+    },
+    {
+      "name": "integer-rendering",
+      "note": "zero, and Number.MAX_SAFE_INTEGER -- no exponent, no float",
+      "body": {
+        "version": 0,
+        "max_hardware_fingerprints": 9007199254740991
+      },
+      "signer_canonical_hex": "7b226d61785f68617264776172655f66696e6765727072696e7473223a393030373139393235343734303939312c2276657273696f6e223a307d"
+    },
+    {
+      "name": "embedded-quote",
+      "note": "the one escape all four implementations agree on",
+      "body": {
+        "version": 1,
+        "stripe_payment_id": "pi_\"q\""
+      },
+      "signer_canonical_hex": "7b227374726970655f7061796d656e745f6964223a2270695f5c22715c22222c2276657273696f6e223a317d"
+    },
+    {
+      "name": "embedded-backslash",
+      "note": "second agreed escape",
+      "body": {
+        "version": 1,
+        "stripe_payment_id": "pi_\\s"
+      },
+      "signer_canonical_hex": "7b227374726970655f7061796d656e745f6964223a2270695f5c5c73222c2276657273696f6e223a317d"
+    },
+    {
+      "name": "non-ascii-latin1",
+      "note": "ensure_ascii=False -- raw UTF-8, never \\u00e9",
+      "body": {
+        "version": 1,
+        "issued_to_email": "jos\u00e9@example.com"
+      },
+      "signer_canonical_hex": "7b226973737565645f746f5f656d61696c223a226a6f73c3a9406578616d706c652e636f6d222c2276657273696f6e223a317d"
+    },
+    {
+      "name": "control-nul-0x00",
+      "note": "control char WITHOUT a JSON short form -- all four implementations emit \\u00XX",
+      "body": {
+        "version": 1,
+        "stripe_payment_id": "a\u0000b"
+      },
+      "signer_canonical_hex": "7b227374726970655f7061796d656e745f6964223a22615c753030303062222c2276657273696f6e223a317d"
+    },
+    {
+      "name": "control-unit-separator-0x1f",
+      "note": "control char WITHOUT a JSON short form -- all four implementations emit \\u00XX",
+      "body": {
+        "version": 1,
+        "stripe_payment_id": "a\u001fb"
+      },
+      "signer_canonical_hex": "7b227374726970655f7061796d656e745f6964223a22615c753030316662222c2276657273696f6e223a317d"
+    },
+    {
+      "name": "divergent-backspace-0x08",
+      "note": "KNOWN DIVERGENCE: signer emits \\u00XX, all three verifiers emit the JSON short form",
+      "body": {
+        "version": 1,
+        "stripe_payment_id": "a\bb"
+      },
+      "signer_canonical_hex": "7b227374726970655f7061796d656e745f6964223a22615c753030303862222c2276657273696f6e223a317d",
+      "known_divergent": true,
+      "reachable_via_validateEmail": true
+    },
+    {
+      "name": "divergent-tab-0x09",
+      "note": "KNOWN DIVERGENCE: signer emits \\u00XX, all three verifiers emit the JSON short form",
+      "body": {
+        "version": 1,
+        "stripe_payment_id": "a\tb"
+      },
+      "signer_canonical_hex": "7b227374726970655f7061796d656e745f6964223a22615c753030303962222c2276657273696f6e223a317d",
+      "known_divergent": true,
+      "reachable_via_validateEmail": false
+    },
+    {
+      "name": "divergent-line-feed-0x0a",
+      "note": "KNOWN DIVERGENCE: signer emits \\u00XX, all three verifiers emit the JSON short form",
+      "body": {
+        "version": 1,
+        "stripe_payment_id": "a\nb"
+      },
+      "signer_canonical_hex": "7b227374726970655f7061796d656e745f6964223a22615c753030306162222c2276657273696f6e223a317d",
+      "known_divergent": true,
+      "reachable_via_validateEmail": false
+    },
+    {
+      "name": "divergent-form-feed-0x0c",
+      "note": "KNOWN DIVERGENCE: signer emits \\u00XX, all three verifiers emit the JSON short form",
+      "body": {
+        "version": 1,
+        "stripe_payment_id": "a\fb"
+      },
+      "signer_canonical_hex": "7b227374726970655f7061796d656e745f6964223a22615c753030306362222c2276657273696f6e223a317d",
+      "known_divergent": true,
+      "reachable_via_validateEmail": false
+    },
+    {
+      "name": "divergent-carriage-return-0x0d",
+      "note": "KNOWN DIVERGENCE: signer emits \\u00XX, all three verifiers emit the JSON short form",
+      "body": {
+        "version": 1,
+        "stripe_payment_id": "a\rb"
+      },
+      "signer_canonical_hex": "7b227374726970655f7061796d656e745f6964223a22615c753030306462222c2276657273696f6e223a317d",
+      "known_divergent": true,
+      "reachable_via_validateEmail": false
+    }
+  ]
+}
