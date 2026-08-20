@@ -27,10 +27,81 @@ WANT="${1:-}"
 
 say() { printf '%s\n' "$*"; }
 
+# ---------------------------------------------------------------------------
+# POSTURE, declared by the caller. Pre-launch the release is a DRAFT: invisible
+# publicly, so the public URL still 404s BY DESIGN. Asserting the public URL in
+# that window would red every cut for a known and intended reason, and a gate
+# that reds for an intended reason is one people learn to ignore, then disable.
+# That is exactly how a URL went unwatched for 45 days.
+#
+# So assert the strongest TRUE thing for the posture instead of skipping:
+#
+#   prelaunch  the DRAFT release exists for this tag and carries an asset named
+#              EXACTLY OstlerInstaller.dmg at the expected byte count. This has
+#              real teeth today -- it catches the v0.4.1 failure mode (release
+#              present, DMG absent or under another name) while it is still
+#              cheap, rather than on launch morning.
+#   public     the unauthenticated URL check below, exactly as a buyer sees it.
+#
+# Never `continue-on-error` and never a skipped step: both switch the gate off
+# while leaving it looking on.
+# ---------------------------------------------------------------------------
+POSTURE="${OSTLER_DOWNLOAD_POSTURE:-public}"
+RELEASE_REPO="${OSTLER_RELEASE_REPO:-ostler-ai/ostler-installer}"
+WANT_BYTES="${OSTLER_EXPECTED_DMG_BYTES:-}"
+ASSET_NAME="OstlerInstaller.dmg"   # the redirect matches on FILENAME; v0.4.1
+                                   # 404s precisely because it carries only the
+                                   # daemon tarball under a different name.
+
+check_draft_release() {
+    local tag="v${1}"
+    command -v gh >/dev/null 2>&1 || { say "[CANNOT] gh absent -- cannot inspect ${RELEASE_REPO}" >&2; return 2; }
+    say "== PRE-LAUNCH posture: draft release ${tag} on ${RELEASE_REPO} =="
+    local json
+    json="$(gh api "repos/${RELEASE_REPO}/releases" --paginate 2>/dev/null)" || {
+        say "[CANNOT] could not list releases on ${RELEASE_REPO} (auth? network?)" >&2; return 2; }
+
+    printf '%s' "${json}" | python3 -c '
+import json,sys
+tag, asset, want = sys.argv[1], sys.argv[2], sys.argv[3]
+rels = json.load(sys.stdin)
+match = [r for r in rels if r.get("tag_name") == tag]
+if not match:
+    print("FAIL|no release for %s -- the cut did not publish, or published elsewhere" % tag); raise SystemExit(0)
+r = match[0]
+names = [a["name"] for a in r.get("assets", [])]
+if asset not in names:
+    print("FAIL|release %s exists but has NO asset named exactly %s. assets: %s" % (tag, asset, ", ".join(names) or "(none)"))
+    print("INFO|  this is the v0.4.1 failure mode: a release the redirect resolves to, carrying no DMG under that name.")
+    raise SystemExit(0)
+a = [x for x in r["assets"] if x["name"] == asset][0]
+if want and str(a["size"]) != want:
+    print("FAIL|%s is %s bytes, the cut produced %s -- a DIFFERENT build was attached" % (asset, a["size"], want)); raise SystemExit(0)
+print("OK|draft=%s, %s present, %s bytes%s" % (r.get("draft"), asset, a["size"], "" if want else " (size not pinned -- pass OSTLER_EXPECTED_DMG_BYTES)"))
+if not r.get("draft"):
+    print("INFO|  NOTE: this release is NOT a draft. If that is intentional (launch), switch to POSTURE=public.")
+' "${tag}" "${ASSET_NAME}" "${WANT_BYTES}" > "${WORK_OUT}" 2>&1
+
+    local verdict msg line
+    line="$(head -1 "${WORK_OUT}")"; verdict="${line%%|*}"; msg="${line#*|}"
+    sed -n '2,$p' "${WORK_OUT}" | sed 's/^INFO|/   /'
+    case "${verdict}" in
+        OK)   say "[OK] ${msg}"; return 0 ;;
+        FAIL) say "[FAIL] ${msg}"; return 1 ;;
+        *)    say "[CANNOT] ${line}"; return 2 ;;
+    esac
+}
+
 if [ -z "${WANT}" ]; then
     say "usage: $0 <expected-version>   e.g. $0 1.0.37" >&2
     exit 2
 fi
+WORK_OUT="$(mktemp)"; trap 'rm -f "${WORK_OUT}"' EXIT
+
+if [ "${POSTURE}" = "prelaunch" ]; then
+    check_draft_release "${WANT}"; exit $?
+fi
+
 command -v curl >/dev/null 2>&1 || { say "[CANNOT] curl absent" >&2; exit 2; }
 
 say "== customer download path: ${URL} =="
