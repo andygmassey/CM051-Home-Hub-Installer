@@ -2651,7 +2651,17 @@ publish-appcast:
 	        --channel "$(APPCAST_CHANNEL)" --notes-url "$(RELEASE_NOTES_BASE)/$$VER.html" \
 	        --min-os "$$MINOS"; \
 	fi; \
-	printf '[OK] Appcast entry published for Hub v%s (%s)\n' "$$VER" "$(APPCAST_CHANNEL)"
+	printf '[OK] ostler-release publish reported success for Hub v%s (%s)\n' "$$VER" "$(APPCAST_CHANNEL)"; \
+	printf '[STEP] Confirming the FEED actually changed\n'; \
+	if ! bash "$(VERIFY_APPCAST_SH)" --version "$$VER" --build "$$BUILD"; then \
+	    echo "" >&2; \
+	    echo "ERROR: publish reported success and the feed does NOT list v$$VER." >&2; \
+	    echo "  Publishing is not the same event as the feed changing, and until" >&2; \
+	    echo "  now only the first was ever checked. Do not record this version" >&2; \
+	    echo "  as published." >&2; \
+	    exit 1; \
+	fi; \
+	printf '[OK] Appcast entry published AND confirmed live for Hub v%s (%s)\n' "$$VER" "$(APPCAST_CHANNEL)"
 
 # ---------------------------------------------------------------------------
 # verify-appcast -- AU-1. Ask the FEED whether this release is actually there.

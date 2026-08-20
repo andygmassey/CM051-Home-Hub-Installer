@@ -95,6 +95,25 @@ jobs:
         if: always()
         run: /bin/bash tests/test_appcast_publish_cannot_destroy_the_dmg.sh
 
+      # CONTROL B2 -- the feed probe's own 14 controls.
+      #
+      # HERMETIC ON PURPOSE, and that is the whole reason it runs HERE rather
+      # than being pointed at production on every PR. It drives
+      # scripts/verify_appcast_published.sh against local fixtures, so it
+      # asserts the PROBE is sound; it does not assert the feed is populated.
+      #
+      # Those are different questions and conflating them would make every PR
+      # red for a reason no PR author can fix -- which is how a red gets
+      # learned-around. The live question is asked once, in the cut, after the
+      # publish, by `make -C gui verify-appcast`.
+      #
+      # Includes the exact live-production shape (valid RSS, zero <item>) as a
+      # demonstrated RED, and a positive control that breaks the parser in a
+      # copy and requires the canary to refuse rather than report "clean".
+      - name: "CONTROL B2 -- the appcast feed probe can tell published from empty"
+        if: always()
+        run: /bin/bash tests/test_verify_appcast_published.sh
+
       # The guard is what stops a publish Sparkle would silently skip. Its own
       # controls include both directions plus the cannot-run branch, because a
       # guard only ever seen passing is not known to be able to fail.
