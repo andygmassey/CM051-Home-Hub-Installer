@@ -88,7 +88,17 @@ jobs:
           fi
           python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
 
+      # RUN THIS BEFORE THE CONTROLS IT PROTECTS. Every control in this file
+      # reads a pipeline's exit status as a verdict, and under `pipefail` a pipe
+      # into a short-circuiting consumer inverts a successful match into a
+      # reported failure. That is not hypothetical: it turned CONTROL A red on
+      # #890 while its own output named the dropped prerequisite correctly.
+      - name: A pipe into a short-circuiting consumer cannot invert a verdict here
+        if: always()
+        run: bash tests/test_pipefail_shortcircuit_inversion.sh
+
       - name: CONTROL A -- ship still names every prerequisite it named before
+        if: always()
         run: /bin/bash tests/test_ship_prereqs_are_a_superset.sh
 
       - name: "CONTROL B -- publish-appcast is OUT of ship, and invoked after upload"
@@ -179,7 +189,7 @@ jobs:
           sed 's/^ship: \(.*\) verify-stapling \(.*\)$/ship: \1 \2/' gui/Makefile > "$MUT/Makefile"
           # A MUTATION THAT DID NOT APPLY PRODUCES A GREEN RUN THAT PROVES
           # NOTHING, and it looks exactly like a working proof.
-          if grep '^ship:' "$MUT/Makefile" | grep -q 'verify-stapling'; then
+          if grep -q 'verify-stapling' <<< "$(grep '^ship:' "$MUT/Makefile")"; then
             echo "MUTATION DID NOT APPLY -- verify-stapling is still in ship:." >&2
             exit 1
           fi
@@ -190,7 +200,7 @@ jobs:
             echo "EXPECTED exit 1 from the mutant, got $rc." >&2
             exit 1
           fi
-          if ! printf '%s\n' "$out" | grep -q -- '- verify-stapling'; then
+          if ! grep -q -- '- verify-stapling' <<< "$out"; then
             echo "The failure did not NAME the dropped prerequisite." >&2
             echo "'ship changed' sends a reader to diff 2400 lines; the name sends them to the line." >&2
             exit 1
@@ -210,7 +220,7 @@ jobs:
           set -uo pipefail
           MUT="$(mktemp -d)"
           sed 's/^\(ship: .*verify-commit-parity archive\)$/\1 publish-appcast/' gui/Makefile > "$MUT/Makefile"
-          if ! grep '^ship:' "$MUT/Makefile" | grep -c 'publish-appcast' | grep -qv '^0$'; then
+          if ! grep -qv '^0$' <<< "$(grep '^ship:' "$MUT/Makefile" | grep -c 'publish-appcast')"; then
             echo "MUTATION DID NOT APPLY -- ship: does not name publish-appcast." >&2
             exit 1
           fi
