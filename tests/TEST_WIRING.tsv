@@ -131,6 +131,7 @@ test_ical_server_vendor_wired.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_identity_resolver_fuzzy_cache.py	UNWIRED	-
 test_imessage_fda_probe.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_imessage_ladder_not_pinned.sh	WIRED	.github/workflows/imessage-ladder.yml
+test_imessage_probe_cannot_hang.sh	WIRED	.github/workflows/imessage-probe-cannot-hang.yml
 test_imessage_self_handles_fallback.sh	UNWIRED	-
 test_imessage_tcc_posture.sh	UNWIRED	-
 test_inferred_category_never_egresses.py	WIRED	.github/workflows/install-abort-and-egress.yml
@@ -194,6 +195,7 @@ test_provenance_survives_the_filter_under_execution.py	WIRED	.github/workflows/i
 test_resolver_robustness.py	UNWIRED	-
 test_resource_tier_governor.sh	UNWIRED	-
 test_rollforward_registry_pin.sh	WIRED	.github/workflows/cut.yml
+test_secrets_are_documented.sh	WIRED	.github/workflows/secrets-are-documented.yml
 test_section_contract.sh	WIRED	.github/workflows/section-contract.yml
 test_settling_progress_writer.sh	UNWIRED	-
 test_ship_prereqs_are_a_superset.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
