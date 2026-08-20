@@ -70,6 +70,34 @@ MSG
     exit 1
 fi
 
+# --- how long has this token got? --------------------------------------------
+# A token that expires between cuts turns this step red at exactly the moment
+# someone is trying to ship, which is the worst possible time to discover it.
+# Fine-grained PATs return their expiry in a response header, so ask.
+#
+# THE ABSENCE OF THE HEADER IS NOT REASSURANCE. Classic OAuth tokens do not
+# send it, so a missing header means "cannot tell", and this prints exactly
+# that rather than the silent nothing that would read as healthy. Never fatal:
+# a publish must not be blocked by a diagnostic about the publish.
+EXP="$(GH_TOKEN="$PUBLISH_RELEASE_TOKEN" gh api user -i 2>/dev/null \
+        | tr -d '\r' \
+        | awk 'tolower($1) ~ /^github-authentication-token-expiration:/ {print $2; exit}')"
+if [ -z "$EXP" ]; then
+    step "token expiry: UNKNOWN (no expiration header; cannot tell, not the same as fine)"
+else
+    NOW_S="$(date -u +%s)"
+    EXP_S="$(date -u -j -f '%Y-%m-%d' "$EXP" +%s 2>/dev/null || date -u -d "$EXP" +%s 2>/dev/null || echo '')"
+    if [ -z "$EXP_S" ]; then
+        step "token expiry: $EXP (could not parse to compare)"
+    else
+        DAYS=$(( (EXP_S - NOW_S) / 86400 ))
+        step "token expiry: $EXP (${DAYS} days)"
+        if [ "$DAYS" -lt 30 ]; then
+            echo "::warning::CM051_INSTALLER_PUBLISH expires in ${DAYS} days (${EXP}). Rotate it before it strands a cut."
+        fi
+    fi
+fi
+
 # --- verify what we are about to hand a customer -----------------------------
 step "verifying the artefact BEFORE publishing it"
 SHA="$(shasum -a 256 "$DMG" | awk '{print $1}')"
