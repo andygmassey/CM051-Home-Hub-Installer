@@ -7657,6 +7657,45 @@ fi
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
+# ---------------------------------------------------------------------------
+# Q_ENRICH -- the enrichment opt-in.
+#
+# Andy, 2026-08-18: "users must EXPLICITLY decide whether public-data
+# enrichment runs. Not a default-on setting." Then, on being told the agent
+# would be gated off for v1.0.36: "Make sure that this decision doesn't slip
+# through the next install - I want it operational then."
+#
+# v1.0.36 shipped the recurring agent installed ONLY when
+# OSTLER_ENRICH_AGENT_ENABLED=1, and nothing set it, so it was off for
+# everyone. That was the deferral. This is the other half.
+#
+# WHY IT SITS HERE, IMMEDIATELY BEFORE THE SUMMARY.
+# The summary below already TELLS the customer that Ostler looks things up in
+# public reference sources. Telling is not asking. Placing the question first
+# means the sentence underneath can state what was actually chosen instead of
+# describing a behaviour the customer may have just declined.
+#
+# Default seeded "n", for the same reason as consent_third_party: the GUI's
+# yesValue() treats an empty string as true, so an unseeded yesno arrives with
+# the Yes toggle pre-checked, and a pre-ticked box is not an opt-in.
+#
+# Question registered as gui_read id=consent_enrichment, the same annotation
+# form ViewCopy.json uses for consent_third_party, consent_article_9 and
+# consent_spoken_capture. It renders through the generic help-text path today;
+# a dedicated SwiftUI body is a follow-up, not a blocker, because the HELP
+# string is written to read correctly as one run.
+OSTLER_ENRICH_AGENT_ENABLED=0
+ENRICH_CHOICE="$(gui_read "$MSG_PROMPT_CONSENT_ENRICHMENT_TITLE" yesno "n" "$MSG_PROMPT_CONSENT_ENRICHMENT_HELP" "" "consent_enrichment")"
+case "${ENRICH_CHOICE:-}" in
+    y|Y) OSTLER_ENRICH_AGENT_ENABLED=1 ;;
+    *)   OSTLER_ENRICH_AGENT_ENABLED=0 ;;
+esac
+export OSTLER_ENRICH_AGENT_ENABLED
+# Recorded so the Doctor and a support bundle can state what the customer
+# chose, rather than inferring it from whether a LaunchAgent happens to exist.
+OSTLER_CONSENT_ENRICHMENT_DECISION="$([[ "$OSTLER_ENRICH_AGENT_ENABLED" == "1" ]] && echo accepted || echo declined)"
+export OSTLER_CONSENT_ENRICHMENT_DECISION
+
 echo -e "  ${BOLD}Before we begin${NC}"
 echo ""
 echo "  Ostler will now install the following on this Mac:"
@@ -7673,13 +7712,25 @@ echo "    - Import from your selected Mac sources (above)"
 echo ""
 # Same correction as the block near line 695: name the set, not one member,
 # and claim no control we do not ship. See the reasoning there.
-echo "  Your personal data stays on this machine. To label things it finds,"
-echo "  Ostler looks them up in public reference sources -- Wikidata,"
-echo "  MusicBrainz and OpenLibrary -- and follows links you have bookmarked."
-echo "  Those lookups send the thing being looked up, never your files,"
-echo "  messages or contacts. Also local web search (Vane + SearXNG,"
-echo "  bundled) and model/software updates. Full list of everything Ostler"
-echo "  contacts in the privacy policy."
+echo "  Your personal data stays on this machine."
+# STATE THE ANSWER, DO NOT DESCRIBE THE FEATURE. This block used to assert the
+# lookups happen, full stop. Once Q_ENRICH exists that sentence is false for
+# every customer who declines, and a summary that contradicts the choice made
+# ten seconds earlier is worse than no summary.
+if [[ "${OSTLER_ENRICH_AGENT_ENABLED:-0}" == "1" ]]; then
+    echo "  You said yes to public look-ups, so to label things it finds"
+    echo "  Ostler will look them up in public reference sources -- Wikidata,"
+    echo "  MusicBrainz and OpenLibrary -- and follow links you have bookmarked."
+    echo "  Those lookups send the thing being looked up, never your files,"
+    echo "  messages or contacts."
+else
+    echo "  You said no to public look-ups, so Ostler will not contact"
+    echo "  Wikidata, MusicBrainz or OpenLibrary, and the background"
+    echo "  enrichment job will not be installed."
+fi
+echo "  Also local web search (Vane + SearXNG, bundled) and model/software"
+echo "  updates. Full list of everything Ostler contacts in the privacy"
+echo "  policy."
 echo "  You can remove everything at any time with: ostler-uninstall"
 echo ""
 echo -e "  ${BOLD}By continuing, you confirm:${NC}"
