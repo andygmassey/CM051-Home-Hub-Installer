@@ -84,16 +84,40 @@ else
 fi
 
 # ── 3. THE JOIN. Every default source must appear in a preset. ────
+# THREE states, not two. A source may be requested, DECLARED dark with a
+# reason, or dark by accident. Only the third is a defect. Forcing the second
+# into the first is what made CM051 #898 harmful: it would have enabled
+# apple_notes ahead of the converter that consumes it.
+BASELINE="${HERE}/fda_dark_sources_baseline.tsv"
+[ -r "$BASELINE" ] || cannot "declared-dark baseline missing at ${BASELINE#"${HERE}/"} -- without it a deliberate deferral is indistinguishable from an oversight"
+
+declared="$(grep -vE '^[[:space:]]*(#|$)' "$BASELINE" | cut -f1)"
+n_declared="$(printf '%s\n' "$declared" | grep -c . || true)"
+printf '        declared-dark: %s source(s)\n' "$n_declared"
+
 dark=""
 while IFS= read -r src; do
     [ -n "$src" ] || continue
     if grep -qF "$src" <<< "$PRESET_TEXT"; then
         ok "requested: ${src}"
+    elif grep -qxF "$src" <<< "$declared"; then
+        reason="$(grep -P "^${src}\t" "$BASELINE" 2>/dev/null | cut -f2 | cut -c1-72)"
+        [ -n "$reason" ] || reason="$(awk -F'\t' -v s="$src" '$1==s{print substr($2,1,72)}' "$BASELINE")"
+        ok "declared dark: ${src} -- ${reason}..."
     else
-        bad "DARK: '${src}' is in the extractor's DEFAULT_SOURCES but NO preset requests it. It will never run, and the hydrate step will report no_data as if the customer had none."
+        bad "DARK BY ACCIDENT: '${src}' is in DEFAULT_SOURCES, requested by NO preset, and NOT declared in the baseline. It will never run, and the hydrate step will report no_data as if the customer had none. Either request it, or declare it with a reason and a removal condition."
         dark="${dark} ${src}"
     fi
 done <<< "$DEFAULTS"
+
+# THE BASELINE MAY ONLY SHRINK. A row for a source that IS now requested is
+# slack, and slack is where the next regression hides.
+while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    if grep -qF "$d" <<< "$PRESET_TEXT"; then
+        bad "STALE BASELINE: '${d}' is declared dark but a preset now requests it. Remove the row in the same change that enabled the source."
+    fi
+done <<< "$declared"
 
 # ── 4. ANTI-VACUITY: prove the join can still fail. ───────────────
 # A test that only ever passes is a test nobody has watched fail. Seed a

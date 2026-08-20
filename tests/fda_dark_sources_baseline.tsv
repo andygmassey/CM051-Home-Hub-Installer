@@ -1,0 +1,16 @@
+# DECLARED-DARK FDA SOURCES. A source in the extractor's DEFAULT_SOURCES that
+# NO install preset requests. Being on this list means the omission is a
+# DECISION with a reason, not an oversight.
+#
+# THE POINT OF THE FILE: without it, tests/test_every_default_source_is_requested.sh
+# leaves only two moves when a source is deliberately withheld -- enable it
+# (wrong, see below) or delete the test (worse). A third state lets the
+# deferral be declared and dated so the next reader inherits the reason
+# instead of re-deriving it, which is what cost a whole PR today.
+#
+# THIS LIST MAY ONLY SHRINK. Removing a row means the source is now requested
+# by a preset. Adding one requires a reason and a condition to remove it.
+#
+# source<TAB>reason<TAB>removal condition
+apple_notes	converter absent: vendor/cm024_knowledge ships only base.py + evernote.py adapters, so `convert --source apple_notes` exits non-zero on an unknown source. install.sh:9375 says restore it in the same change that lands the CM024 re-pin, not before. Enabling it alone converts a silent no_data into a hard failure AND asks Full Disk Access for data we discard.	CM024 re-pin lands an apple_notes adapter and `convert --source apple_notes` exits 0 on a real apple_notes.json
+apple_music	no consumer anywhere. 0 hits in install.sh, 0 hits in vendor/cm024_knowledge, and `convert --source` is never invoked for it. Extracting it would read the library and hand the data to nothing.	a consumer exists and is invoked from the hydrate path
