@@ -55,21 +55,81 @@ else
     echo "  [ok]   count matches the printed list"
 fi
 
-# service string in the tree  ->  keyword that must appear in the printed list
-check_service() {
-    local svc="$1" keyword="$2"
-    grep -rqI "$svc" "$ROOT/install.sh" "$ROOT/gui" 2>/dev/null || return 0   # not requested, nothing owed
-    if grep -qiE "^echo .*${keyword}" "$SH"; then
-        printf '  [ok]   %-42s named as "%s"\n' "$svc" "$keyword"
-    else
-        printf '  [FAIL] %-42s is requested but the list never mentions it\n' "$svc"
-        printf '         Expected a row matching: %s\n' "$keyword"
+# WHY THIS IS A REGISTRY AND NOT A TREE SCAN. THE PREVIOUS SHAPE WENT GREEN ON
+# A LIVE DEFECT, 2026-08-20.
+#
+# The old check_service opened with:
+#     grep -rqI "$svc" install.sh gui || return 0   # not requested, nothing owed
+# so its worklist was "services install.sh happens to mention". That is the
+# SAME failure this file was written for. Its own header records the 2026-08-17
+# incident and says "install.sh mentioned SystemPolicyAppData ZERO times" -- and
+# then derives its worklist from install.sh. A prompt the file never names is a
+# prompt the gate can never ask about. A search scoped to what you already know
+# cannot find what you do not.
+#
+# Measured on 2026-08-20: the tree referenced exactly three service strings
+# (AllFiles x2, DownloadsFolder, AppData) and ZERO for Documents. Andy hit the
+# assistant's Documents prompt mid-install that morning. The gate was green
+# throughout, having examined nothing on that surface.
+#
+# So the list below is now the AUTHORITY, kept by hand, and every row is owed
+# unconditionally. Adding a prompt to the product means adding it here; there is
+# no path where silence reads as compliance.
+#
+# REQUESTER is load-bearing and is the second half of today's fix. A TCC prompt
+# is a pair, (service, requesting identity), because TCC pins a grant to
+# identifier+team -- which is exactly why the assistant must ask again for
+# folders the installer already holds. Matching on keyword alone let the
+# installer's own row "4-6. Downloads/Desktop/Documents" satisfy the ASSISTANT's
+# Documents prompt: the word was present, the requester was not, and the
+# customer still met an unannounced dialog.
+#
+#   service | requester | keyword the row must contain | must the row name the assistant
+# The keyword is matched with grep -F, LITERALLY. My first version passed it to
+# grep -iE and every assistant row failed on a correct tree, because "(assistant)"
+# is ERE grouping: the engine read it as the word "assistant", not the
+# parenthesised text on the line. That is the instrument being wrong rather than
+# the artefact, which is the failure line 42 of this file already warns about,
+# and I walked into it anyway one screen further down.
+#
+# Every matching row is considered, not just the first. A keyword like
+# "Documents" legitimately appears twice -- once for the installer's own
+# pre-warm, once for the assistant -- so "first match does not qualify" is not
+# the same as "no row qualifies". Taking head -1 would fail a correct list.
+check_prompt() {
+    local svc="$1" requester="$2" keyword="$3" needs_assistant="$4"
+    local matched=0 qualified=0 row
+
+    while IFS= read -r row; do
+        [[ -n "$row" ]] || continue
+        matched=$((matched+1))
+        if [[ "$needs_assistant" == "yes" ]]; then
+            printf '%s' "$row" | grep -qi 'assistant' && qualified=1
+        else
+            qualified=1
+        fi
+    done < <(grep -E '^echo -e "    [0-9]+(-[0-9]+)?\.' "$SH" | grep -F "$keyword")
+
+    if [[ "$matched" -eq 0 ]]; then
+        printf '  [FAIL] %-42s (%s) is raised but NO row mentions "%s"\n' "$svc" "$requester" "$keyword"
         FAIL=$((FAIL+1))
+    elif [[ "$qualified" -eq 0 ]]; then
+        printf '  [FAIL] %-42s (%s): %d row(s) mention "%s", none name the assistant.\n' \
+            "$svc" "$requester" "$matched" "$keyword"
+        printf '         The installer already holds this grant. TCC pins a grant to\n'
+        printf '         identifier+team, so the assistant must ask AGAIN under its own\n'
+        printf '         identity, and the customer needs telling that it will.\n'
+        FAIL=$((FAIL+1))
+    else
+        printf '  [ok]   %-42s (%s) named, %d row(s) matched "%s"\n' \
+            "$svc" "$requester" "$matched" "$keyword"
     fi
 }
-check_service "kTCCServiceSystemPolicyAppData"          "other apps"
-check_service "kTCCServiceSystemPolicyDownloadsFolder"  "Downloads"
-check_service "kTCCServiceSystemPolicyAllFiles"         "Full Disk Access"
+check_prompt "kTCCServiceSystemPolicyAllFiles"        "installer" "Full Disk Access" no
+check_prompt "kTCCServiceSystemPolicyDownloadsFolder" "installer" "Downloads"        no
+check_prompt "kTCCServiceSystemPolicyDownloadsFolder" "assistant" "Downloads"        yes
+check_prompt "kTCCServiceSystemPolicyDocumentsFolder" "assistant" "Documents"        yes
+check_prompt "kTCCServiceSystemPolicyAppData"         "assistant" "other apps"       no
 
 echo
 [[ $FAIL -eq 0 ]] || { echo "REFUSING: the permission briefing does not describe what the install does."; exit 1; }
