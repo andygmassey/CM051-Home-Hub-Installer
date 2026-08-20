@@ -803,6 +803,29 @@ warn()  { gui_active || echo -e "${YELLOW}[warn]${NC}  $*"; gui_warn "$*"; }
 # itself -- caller decides whether to exit or recover.
 err()   { gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log error "$*"; }
 
+# dbg -- developer probes, silent on a customer install.
+#
+# The CX-nn probe lines around the Mail-detection blocks were added to chase a
+# specific detection bug. They were emitted with info()/gui_log, so they went
+# straight to the customer's screen: Andy's 2026-08-20 install log carried 14
+# of them, in the shape
+#     12:40:17  [INFO ] CX-37 probe: entering
+#     12:40:17  [INFO ] CX-37 probe: exiting
+# which reads as a debugger someone forgot to switch off. The install was
+# healthy; it did not look healthy.
+#
+# ⚠️ TRADE-OFF, STATED RATHER THAN HIDDEN: gui_log is the same call that feeds
+# the durable install log, so there is no way from here to keep these lines in
+# a support bundle while removing them from the customer's screen -- that
+# split lives in lib/progress_emitter.sh, which is not this change's to touch.
+# So the probes are now OFF by default and a default support bundle loses 14
+# lines. Re-run with OSTLER_INSTALL_DEBUG=1 to get them back.
+dbg() {
+    [[ "${OSTLER_INSTALL_DEBUG:-0}" == "1" ]] || return 0
+    gui_active || echo -e "${BLUE}[dbg]${NC}   $*"
+    gui_log info "$*"
+}
+
 # CX-17 (2026-05-23): stable error-code framework. Andy asked
 # during Studio retest #6 whether we could "add error codes in the
 # failure notice so we can track down when and where (and ideally
@@ -4724,7 +4747,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         # filter so the count value is always a clean integer or 0.
         # Tracer log markers bracket the block so the next retest can
         # pinpoint a regression instantly.
-        gui_log info "CX-37 probe: entering"
+        dbg "CX-37 probe: entering"
         set +e
         # CX-103 (DMG #48k, 2026-05-29): FDA may not yet be granted
         # at question phase. Without FDA, Accounts4.sqlite reads fail
@@ -4736,7 +4759,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         # probe runs AFTER FDA is granted and produces the correct
         # count for downstream pipeline_signals.json.
         if ! _has_fda; then
-            gui_log info "CX-103: skipping early Mail probe -- FDA not yet granted (Phase 4 probe will run after grant)"
+            dbg "CX-103: skipping early Mail probe -- FDA not yet granted (Phase 4 probe will run after grant)"
             MAIL_PROMPT_SHOWN_EARLY=1
             export MAIL_PROMPT_SHOWN_EARLY
         fi
@@ -4753,7 +4776,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
             # the Phase 4 Mail probe (search for "CX-100 checkpoint").
             _early_mail_accounts="$(_accountsdb_count_mail)"
             _early_mail_accounts="${_early_mail_accounts:-0}"
-            gui_log info "CX-100 probe: accountsdb mail count=[${_early_mail_accounts}]"
+            dbg "CX-100 probe: accountsdb mail count=[${_early_mail_accounts}]"
             if [[ "$_early_mail_accounts" -eq 0 ]] 2>/dev/null; then
                 _early_mail_answer="$(gui_read \
                     "$MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE" \
@@ -4778,7 +4801,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
             unset _early_mail_accounts
         fi
         set -e
-        gui_log info "CX-37 probe: exiting"
+        dbg "CX-37 probe: exiting"
 
         # CX-130 (v1.0.1): hoist the "account exists but Mail.app has
         # not fetched yet -> open Mail and wait while it syncs" prompt
@@ -4801,7 +4824,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         # (source of truth via Accounts4.sqlite), Mail.app has not pulled
         # a message yet, GUI on. FDA must be readable or the account count
         # is unreliable (CX-103) -- reuse _has_fda to skip cleanly.
-        gui_log info "CX-130 populate probe: entering"
+        dbg "CX-130 populate probe: entering"
         set +e
         if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
            && [[ "${OSTLER_GUI:-0}" == "1" ]] \
@@ -4809,7 +4832,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
            && _has_fda; then
             _early_pop_accounts="$(_accountsdb_count_mail)"
             _early_pop_accounts="${_early_pop_accounts:-0}"
-            gui_log info "CX-130 populate probe: accountsdb mail count=[${_early_pop_accounts}]"
+            dbg "CX-130 populate probe: accountsdb mail count=[${_early_pop_accounts}]"
             if [[ "$_early_pop_accounts" -gt 0 ]] 2>/dev/null \
                && ! _store_populated_mail; then
                 # State 2: accounts configured but Mail.app has not pulled
@@ -4832,7 +4855,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
                     # the sidecar here because the writer + signals path are
                     # only resolved in Phase 3; re-detection in Phase 3
                     # carries the side-effects without duplication.
-                    gui_log info "CX-130 populate probe: Mail populated during early wait"
+                    dbg "CX-130 populate probe: Mail populated during early wait"
                 fi
                 unset _early_pop_help
             fi
@@ -4844,7 +4867,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
             unset _early_pop_accounts
         fi
         set -e
-        gui_log info "CX-130 populate probe: exiting"
+        dbg "CX-130 populate probe: exiting"
     fi
 
     # Folder / label scoping. Connecting the assistant to the main
@@ -4867,7 +4890,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     # plain joiner instead of `IFS=' + ' read <<<` so a single
     # malformed entry can't poison the entire email channel summary.
     # Same belt-and-braces shape as the CX-37 probe above.
-    gui_log info "CX-57 email-summary: entering"
+    dbg "CX-57 email-summary: entering"
     _email_summary_parts=()
     if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]]; then
         _email_summary_parts+=("Apple Mail (FDA)")
@@ -4886,7 +4909,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     [[ -z "$_email_summary_joined" ]] && _email_summary_joined="Apple Mail (FDA)"
     ok "$(printf "$MSG_OK_EMAIL_CHANNEL_FOLDER" "${_email_summary_joined}" "${CHANNEL_EMAIL_IMAP_FOLDER}")"
     unset _email_summary_parts _email_summary_joined _email_part
-    gui_log info "CX-57 email-summary: exiting"
+    dbg "CX-57 email-summary: exiting"
 fi
 
 if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
@@ -7730,8 +7753,13 @@ case "${ENRICH_CHOICE:-}" in
     *)   OSTLER_ENRICH_AGENT_ENABLED=0 ;;
 esac
 export OSTLER_ENRICH_AGENT_ENABLED
-# Recorded so the Doctor and a support bundle can state what the customer
-# chose, rather than inferring it from whether a LaunchAgent happens to exist.
+# Carried to the consent-recording block (phase 3.7, search for
+# enrichment-decision.json), which is where it is actually written to disk.
+# Until 2026-08-20 this comment read "Recorded so the Doctor and a support
+# bundle can state what the customer chose" -- and the export below was the
+# whole of it. Nothing wrote it anywhere; the value died with the process.
+# The comment described an intention as though it were a mechanism, which is
+# worse than no comment, because it stopped anyone looking. (#794)
 OSTLER_CONSENT_ENRICHMENT_DECISION="$([[ "$OSTLER_ENRICH_AGENT_ENABLED" == "1" ]] && echo accepted || echo declined)"
 export OSTLER_CONSENT_ENRICHMENT_DECISION
 
@@ -9635,7 +9663,13 @@ else
         printf 'REDIS_URL=%s\n' "redis://localhost:6379" >> "${CONFIG_DIR}/.env"
     fi
     unset _sa_env
-    info "Store native token-auth is staged but DEFAULT-OFF -- deferred to the v1.0.1 project. Any previously-threaded store credentials have been scrubbed so the stores boot keyless (matching the shipped clients). Operative controls for v1.0.10: 127.0.0.1-only binds + the store-proxy Host-header gate (defeats DNS-rebind) on Qdrant/Oxigraph. Set OSTLER_STORE_AUTH_ENFORCE=1 once the client-side auth PRs land."
+    # Was an info() until 2026-08-20, so every customer read a note written for
+    # us: it named an internal project number, an unshipped set of PRs, and an
+    # env var they are meant to set "once the client-side auth PRs land".
+    # Andy saw it on his install. It is a developer note, so it goes to dbg --
+    # which also removes a hardcoded English string from the customer's screen,
+    # where the locale rule says only MSG_* keys belong.
+    dbg "Store native token-auth is staged but DEFAULT-OFF -- deferred to the v1.0.1 project. Any previously-threaded store credentials have been scrubbed so the stores boot keyless (matching the shipped clients). Operative controls: 127.0.0.1-only binds + the store-proxy Host-header gate (defeats DNS-rebind) on Qdrant/Oxigraph. Set OSTLER_STORE_AUTH_ENFORCE=1 once the client-side auth PRs land."
 fi
 
 unset _existing_jwt_secret _need_new_jwt _jwt_secret_min_length
@@ -10740,6 +10774,37 @@ PY
             declined \
             "Could not persist spoken-capture decline record"
     fi
+
+    # Background-enrichment decision (#794). Until 2026-08-20 the only thing
+    # that happened to this answer was `export OSTLER_CONSENT_ENRICHMENT_DECISION`
+    # at the question site, under a comment claiming it was "Recorded so the
+    # Doctor and a support bundle can state what the customer chose". Nothing
+    # recorded it. The env var died with the installer process, so the one
+    # question about sending data to third parties was the one answer we could
+    # not afterwards produce.
+    #
+    # ⚠️ NOT ROUTED THROUGH _consent_cli_record, deliberately. That CLI rejects
+    # any tickbox absent from ostler_security's TICKBOX_REGISTRY ("unknown
+    # tickbox: ... Known ids:"), and there is no enrichment id in it. Adding
+    # one is a library-contract change in HR015, and this tree only holds a
+    # VENDORED copy that the next re-vendor would overwrite. So this writes a
+    # plain file in the same posture/ directory, and the registry half is filed
+    # separately rather than smuggled into a vendor dir.
+    #
+    # Written here, not at the question (line ~7750): _consent_cli_record is
+    # defined at ~10682 and OSTLER_DIR is only settled after the promote.
+    # Writing it early is how INSTALL_LOG ended up pointing at the staging tree.
+    _enrich_decision_file="${OSTLER_DIR}/posture/enrichment-decision.json"
+    mkdir -p "${OSTLER_DIR}/posture" 2>/dev/null || true
+    if printf '{"tickbox":"background_enrichment","decision":"%s","recorded_at":"%s"}\n' \
+            "${OSTLER_CONSENT_ENRICHMENT_DECISION:-unknown}" \
+            "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            > "${_enrich_decision_file}" 2>/dev/null; then
+        chmod 600 "${_enrich_decision_file}" 2>/dev/null || true
+    else
+        warn "$MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED"
+    fi
+    unset _enrich_decision_file
 
     ok "$MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE"
 fi
@@ -13055,12 +13120,32 @@ ENRTICKEOF
 ENRPLIST
     chmod 0644 "$plist"
 
-    launchctl bootout "gui/\$(id -u)/${label}" 2>/dev/null || true
-    if launchctl bootstrap "gui/\$(id -u)" "$plist" 2>/dev/null || \
-       launchctl load "$plist" 2>/dev/null; then
-        ok "\$MSG_OK_ENRICH_AGENT_LOADED"
+    # The four lines below used to be written `\$(id -u)` and `\$MSG_...`.
+    # Nothing here is a heredoc -- this is ordinary install.sh code -- so the
+    # backslashes suppressed expansion and the literal text was passed on:
+    #   launchctl got the string `gui/$(id -u)`, answered "Unrecognized target
+    #   specifier" and exited 64, on EVERY install, for both bootout and
+    #   bootstrap;
+    #   the customer was shown the eleven characters `$MSG_OK_ENRICH_AGENT_LOADED`
+    #   instead of the sentence. Andy's 2026-08-20 install log, line 13:00:39.
+    launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null \
+        || launchctl load "$plist" 2>/dev/null \
+        || true
+
+    # Do NOT branch on the exit status of `launchctl load`. Measured on
+    # macOS 26.5.2: `launchctl load /path/that/does/not/exist.plist` prints
+    # "Load failed: 5: Input/output error" to stderr and exits 0. Loading an
+    # already-loaded label does the same. Because the bootstrap arm above was
+    # also failing (rc=64, see the note about `\$`), the old
+    #   if bootstrap || load; then ok; else warn; fi
+    # was true unconditionally -- the success line printed whether or not the
+    # agent existed, and the warn branch was unreachable code.
+    # Ask launchd what is actually registered instead.
+    if launchctl print "gui/$(id -u)/${label}" >/dev/null 2>&1; then
+        ok "$MSG_OK_ENRICH_AGENT_LOADED"
     else
-        warn "\$MSG_WARN_ENRICH_AGENT_LOAD_FAILED"
+        warn "$MSG_WARN_ENRICH_AGENT_LOAD_FAILED"
     fi
 }
 
@@ -16575,7 +16660,7 @@ fi
 # silently return empty and the sidecar records mail_has_fetched=false;
 # Doctor's broader FDA diagnostic surfaces the underlying cause.
 
-info "CX-35 checkpoint: entering Mail content probe block"
+dbg "CX-35 checkpoint: entering Mail content probe block"
 set +e  # CX-35: probe is best-effort; never kill the install from here
 _mail_probe_failure_line=""
 
@@ -16599,7 +16684,7 @@ APPLE_MAIL_VERSION_DIR=""
 # load-bearing "has Mail.app actually pulled anything?" signal --
 # kept as-is, but split from account count so the three-state
 # classification (state 1 vs state 2 vs state 3) becomes possible.
-info "CX-100 checkpoint: pre Mail.app version dir find"
+dbg "CX-100 checkpoint: pre Mail.app version dir find"
 if [[ -d "${HOME}/Library/Mail" ]]; then
     # set -E propagates the abort-on-error ERR trap INTO the $(...)
     # subshell, so a non-zero find/sort here would fire _ostler_on_err
@@ -16611,7 +16696,7 @@ if [[ -d "${HOME}/Library/Mail" ]]; then
     APPLE_MAIL_VERSION_DIR=$(find "${HOME}/Library/Mail" -maxdepth 1 -type d -name 'V[0-9]*' 2>/dev/null | sort -V | tail -1) || _mail_probe_failure_line="find Mail/V* dir"
     eval "${_saved_err_trap:-}"
 fi
-info "CX-100 checkpoint: Mail.app version dir = [${APPLE_MAIL_VERSION_DIR}]"
+dbg "CX-100 checkpoint: Mail.app version dir = [${APPLE_MAIL_VERSION_DIR}]"
 
 # Source-of-truth account count via Accounts4.sqlite. Falls back to
 # 0 on schema variation / missing db; the count is informational
@@ -16620,7 +16705,7 @@ info "CX-100 checkpoint: Mail.app version dir = [${APPLE_MAIL_VERSION_DIR}]"
 # has ever opened.
 MAIL_ACCOUNTS_FOUND="$(_accountsdb_count_mail)"
 MAIL_ACCOUNTS_FOUND="${MAIL_ACCOUNTS_FOUND:-0}"
-info "CX-100 checkpoint: Accounts4.sqlite mail accounts = ${MAIL_ACCOUNTS_FOUND}"
+dbg "CX-100 checkpoint: Accounts4.sqlite mail accounts = ${MAIL_ACCOUNTS_FOUND}"
 
 # Has Mail.app actually pulled a message yet? Reuse the three-state
 # helper so the same answer drives the install-time banner AND the
@@ -16632,7 +16717,7 @@ fi
 # Sidecar -- atomic write, 0600 perms. Preserves first_ingest_complete_ts
 # if a prior tick has populated it (reinstall case). The JSON-merge
 # logic lives in lib/write_pipeline_signals.py so it can be unit-tested.
-info "CX-35 checkpoint: setting up sidecar paths + mkdir state dir"
+dbg "CX-35 checkpoint: setting up sidecar paths + mkdir state dir"
 PIPELINE_SIGNALS_DIR="${OSTLER_DIR}/state"
 PIPELINE_SIGNALS_FILE="${PIPELINE_SIGNALS_DIR}/pipeline_signals.json"
 mkdir -p "$PIPELINE_SIGNALS_DIR" || _mail_probe_failure_line="mkdir state dir"
@@ -16670,7 +16755,8 @@ fi
 if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
         --output "$PIPELINE_SIGNALS_FILE" \
         --accounts "$MAIL_ACCOUNTS_FOUND" \
-        --has-fetched "$MAIL_HAS_FETCHED"; then
+        --has-fetched "$MAIL_HAS_FETCHED" \
+        --enrichment-decision "${OSTLER_CONSENT_ENRICHMENT_DECISION:-unknown}"; then
     info "$(printf "$MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL" "${MAIL_ACCOUNTS_FOUND}")"
     # CX-100 three-state copy: accounts==0 -> state 1 (no source);
     # accounts>0 + fetched -> state 3 (synced); accounts>0 + not
@@ -16787,7 +16873,7 @@ if [[ -n "$_mail_probe_failure_line" ]]; then
     warn "Doctor's empty-Mail diagnostic will fall back to safe defaults."
 fi
 unset _mail_probe_failure_line
-info "CX-35 checkpoint: exiting Mail content probe block cleanly"
+dbg "CX-35 checkpoint: exiting Mail content probe block cleanly"
 
 # ── 3.14c iMessage bridge LaunchAgent (DISABLED in single-machine v1.0) ──
 #

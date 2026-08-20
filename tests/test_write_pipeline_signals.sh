@@ -284,5 +284,55 @@ if ! grep -q "must be supplied together" "${WORK}/stderr14.txt"; then
 fi
 echo "PASS [case-14]: partial mail args exit 2 cleanly"
 
+# ── Case 15 (#794 / #889): --enrichment-decision lands in the sidecar ──
+#
+# The consent RECORD lives in ~/.ostler/posture/. This mirror exists because
+# the wiki compiler runs in a container whose only host bind-mount is
+# ~/.ostler/state -- it cannot see posture/ at all. Without this key the
+# CM044 settling panel has no way to know the customer's answer.
+OUT15="${WORK}/case15/out.json"
+python3 "$WRITER" --output "$OUT15" \
+    --accounts 2 --has-fetched true \
+    --enrichment-decision accepted >/dev/null
+if [[ "$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('enrichment_decision'))" "$OUT15")" != "accepted" ]]; then
+    echo "FAIL [case-15]: enrichment_decision not written" >&2
+    cat "$OUT15" >&2
+    exit 1
+fi
+echo "PASS [case-15]: --enrichment-decision is written to the sidecar"
+
+# ── Case 16 (#889): a LATER write without the flag must PRESERVE it ──
+#
+# THIS IS THE ONE THAT MATTERS. install.sh invokes this writer more than once
+# -- the mail half in phase 3, the iMessage half later. If the second call
+# dropped the key, the customer's answer would be silently erased between
+# install phases and the panel would show UNKNOWN on every real install.
+python3 "$WRITER" --output "$OUT15" --imessage-fda-needed true >/dev/null
+PRESERVED="$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(d.get('enrichment_decision'),d.get('imessage_chat_db_fda_needed'),d.get('mail_accounts_found'))" "$OUT15")"
+if [[ "$PRESERVED" != "accepted True 2" ]]; then
+    echo "FAIL [case-16]: second write did not preserve prior fields, got [$PRESERVED]" >&2
+    cat "$OUT15" >&2
+    exit 1
+fi
+echo "PASS [case-16]: a later write preserves enrichment_decision (and the mail half)"
+
+# ── Case 17 (#889): a value outside the vocabulary is REFUSED ──
+#
+# Anti-vacuity: without this, a typo'd decision would be stored verbatim and
+# the panel would render whatever string the installer happened to pass.
+set +e
+python3 "$WRITER" --output "$OUT15" --enrichment-decision maybe >/dev/null 2>"${WORK}/stderr17.txt"
+RC=$?
+set -e
+if [[ "$RC" == "0" ]]; then
+    echo "FAIL [case-17]: a bogus enrichment decision was accepted" >&2
+    exit 1
+fi
+if [[ "$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('enrichment_decision'))" "$OUT15")" != "accepted" ]]; then
+    echo "FAIL [case-17]: the rejected write still corrupted the stored value" >&2
+    exit 1
+fi
+echo "PASS [case-17]: a bogus enrichment decision exits non-zero and changes nothing"
+
 echo ""
 echo "ALL PIPELINE_SIGNALS WRITER TESTS PASSED"
