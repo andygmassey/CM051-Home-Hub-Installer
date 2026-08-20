@@ -34,7 +34,7 @@ ROWS='echo -e "    1. ${BOLD}Full Disk Access${NC}  x"
 echo -e "    2. ${BOLD}Downloads${NC}  y"
 echo -e "    3. ${BOLD}Downloads (assistant)${NC}  y"
 echo -e "    4. ${BOLD}Documents (assistant)${NC}  y"
-echo -e "    5. ${BOLD}Data from other apps${NC}  z"'
+echo -e "    5. ${BOLD}Data from other apps${NC}  z. It is the assistant"'
 
 mk "$TMP/a" "PERMISSIONS_TOTAL=5
 $ROWS"
@@ -54,7 +54,7 @@ echo -e "    1. ${BOLD}Full Disk Access${NC}  x"
 echo -e "    2-4. ${BOLD}Downloads/Desktop/Documents${NC}  y"
 echo -e "    5. ${BOLD}Downloads (assistant)${NC}  y"
 echo -e "    6. ${BOLD}Documents (assistant)${NC}  y"
-echo -e "    7. ${BOLD}Data from other apps${NC}  z"'
+echo -e "    7. ${BOLD}Data from other apps${NC}  z. It is the assistant"'
 [[ "$(rc "$TMP/c")" == 0 ]] && ok "a RANGE row counts as its span, not as 1" || no "range row miscounted (the original gate bug)"
 
 # AND THE REGISTRY LIMB NEEDS ITS OWN ARM, or the fixtures above quietly
@@ -65,7 +65,7 @@ mk "$TMP/d" 'PERMISSIONS_TOTAL=4
 echo -e "    1. ${BOLD}Full Disk Access${NC}  x"
 echo -e "    2. ${BOLD}Downloads${NC}  y"
 echo -e "    3. ${BOLD}Downloads (assistant)${NC}  y"
-echo -e "    4. ${BOLD}Data from other apps${NC}  z"'
+echo -e "    4. ${BOLD}Data from other apps${NC}  z. It is the assistant"'
 [[ "$(rc "$TMP/d")" == 1 ]] && ok "a self-consistent count does NOT excuse an unnamed prompt" || no "the registry limb did not fire on a missing assistant-Documents row"
 
 mk "$TMP/d" 'PERMISSIONS_TOTAL=1
