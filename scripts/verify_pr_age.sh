@@ -140,6 +140,7 @@ legacy=0
 exempted=0
 checked=0
 unreachable=0
+unreachable_names=""
 
 say "== PR age gate: merge or close within ${MAX_HOURS}h (rule effective ${RULE_EFFECTIVE_DATE}) =="
 say ""
@@ -150,6 +151,7 @@ while IFS= read -r repo; do
                  --json number,title,createdAt,isDraft 2>/dev/null); then
         say "  [warn] ${repo}: could not list PRs (auth/billing?) -- NOT checked"
         unreachable=$(( unreachable + 1 ))
+        unreachable_names="${unreachable_names}${repo}"$'\n'
         continue
     fi
     checked=$(( checked + 1 ))
@@ -194,7 +196,43 @@ for p in json.load(sys.stdin):
 done <<< "$REPOS"
 
 say ""
-say "== ${checked} repo(s) checked | ${violations} over ${MAX_HOURS}h | ${exempted} exempt | ${legacy} pre-rule =="
+# THE DENOMINATOR IS PART OF THE VERDICT.
+#
+# This line used to read "N repo(s) checked", which is the numerator alone. On
+# a hosted runner GH_TOKEN is the repo-scoped secrets.GITHUB_TOKEN, so every
+# sibling repo's `gh pr list` fails, each prints one [warn] line, and the run
+# ends "1 repo(s) checked | 0 over 48h" -- indistinguishable, at a glance or to
+# a scrape, from a clean sweep of the whole estate.
+#
+# Measured 2026-08-20 on the same tree in the same hour:
+#     all 7 repos reachable (operator Mac)   -> 17 over 48h, rc=1
+#     CM051 only     (what CI can resolve)   ->  0 over 48h, rc=0
+#
+# So the count of repos it COULD NOT read belongs in the headline, not in
+# scrollback above it.
+total_repos=$(( checked + unreachable ))
+say "== ${checked} of ${total_repos} repo(s) checked | ${violations} over ${MAX_HOURS}h | ${exempted} exempt | ${legacy} pre-rule =="
+
+# The verdict word, so a partial run can never be read as a complete one. Its
+# sibling verify_no_orphaned_fixes.sh has said "GREEN, PARTIAL" and "NOT
+# CHECKED IN THIS ENVIRONMENT" since #643; this gate is the same shape and was
+# silent about it. Same repo, same cut, two gates -- now the same honesty.
+if (( unreachable > 0 )); then
+    colour="GREEN"; (( violations > 0 )) && colour="RED"
+    say "== VERDICT: ${colour}, PARTIAL -- ${unreachable} of ${total_repos} repo(s) NOT CHECKED =="
+    say ""
+    say "NOT CHECKED IN THIS ENVIRONMENT:"
+    while IFS= read -r r; do [[ -n "$r" ]] && say "  - ${r}"; done <<< "$unreachable_names"
+    say ""
+    say "This run says NOTHING about those repos either way -- it did not fail to"
+    say "find overdue PRs there, it failed to look. The usual cause is a"
+    say "repo-scoped token: gh cannot list a sibling repo's PRs even under the"
+    say "same owner. Re-run where all accounts resolve (the operator's Mac)"
+    say "before treating this verdict as estate-wide."
+else
+    colour="GREEN"; (( violations > 0 )) && colour="RED"
+    say "== VERDICT: ${colour} -- all ${total_repos} repo(s) checked =="
+fi
 
 if (( legacy > 0 )); then
     say ""
