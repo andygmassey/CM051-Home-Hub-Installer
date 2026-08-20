@@ -54,6 +54,20 @@ Measured on a v1.0.36 install, 2026-08-18, before the fix:
     GET /api/v1/timeline           -> 200, 200 items (61 of kind "meeting")
     GET /api/v1/suggestions        -> 200, 5 recent_meetings + 5 birthdays
 
+ONE 401 IN THAT LIST WAS HIDING A SECOND, DIFFERENT DEFECT. Re-measured on a
+v1.0.37 box 2026-08-20, with the auth fix in place and the same token:
+
+    GET /api/v1/timeline           -> 200
+    GET /api/v1/suggestions        -> 200
+    GET /api/v1/coach/recent       -> 400  {"error": "user_id query parameter
+                                            is required"}
+
+The auth fix turned five of six 401s into 200s and left this one red for an
+unrelated reason: the call has always omitted a REQUIRED query parameter, and
+while everything returned 401 there was no way to see it. Fixing a whole class
+at once hides any member that was broken twice. The tick's
+`last exit code = 2` came from this single call; see ``_preferences_section``.
+
 Three separate things kept that invisible, and all three are fixed here:
   1. ``_get_json`` swallowed the HTTPError and returned None, which the
      callers read as "this section is unavailable". Degrading gracefully
@@ -600,7 +614,42 @@ def _preferences_section() -> list[str]:
     Best-effort: the endpoint may be absent on some Hubs. Each observation is
     summarised to a single short line.
     """
-    data = _get_json("/api/v1/coach/recent?hours=336&limit=8")
+    # `user_id` IS REQUIRED BY THE SERVER AND WAS NEVER SENT.
+    #
+    # MEASURED on the live v1.0.37 box 2026-08-20, against the port this file
+    # actually calls (BASE_URL = 127.0.0.1:8090, NOT the daemon on :8000):
+    #
+    #   curl 'http://127.0.0.1:8090/api/v1/coach/recent?hours=336&limit=8' \
+    #        -H 'Authorization: Bearer <service_token>'
+    #     -> 400 {"error": "user_id query parameter is required"}
+    #
+    #   same call + &user_id=me
+    #     -> 200 {"observations": [], "note": "Coach database not found"}
+    #
+    # and on the same box, at the same moment, with the same token:
+    #
+    #   /api/v1/timeline?days=7   -> 200
+    #   /api/v1/suggestions       -> 200
+    #
+    # So this was NOT the auth class the docstring above documents. Auth is
+    # fine; one call of six was malformed. The tick's `last exit code = 2`
+    # (launchctl print gui/<uid>/com.creativemachines.ostler.context-refresh)
+    # came from this single 400.
+    #
+    # WHY A CONSTANT, AND WHY THIS ONE. The server accepts ANY value -- me,
+    # default, owner, self and the login name all returned 200 with identical
+    # bodies -- so the parameter is a required-but-unused positional in this
+    # release. Ostler is single-machine and single-owner, so a fixed sentinel
+    # is honest; a login name would put the operator's account name into a URL
+    # for no gain, and a real identity here would be a claim the server does
+    # not actually consult.
+    #
+    # Note what this fix does NOT do: the section stays EMPTY, because the
+    # coach database does not exist on this box. The server says so in the
+    # body rather than pretending. That is a declared empty-reason, not a
+    # silent zero -- and whether the coach DB should exist at all is a
+    # separate question, filed, not answered here.
+    data = _get_json("/api/v1/coach/recent?hours=336&limit=8&user_id=me")
     if not data:
         return []
     observations = data.get("observations")

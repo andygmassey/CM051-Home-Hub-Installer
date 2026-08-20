@@ -213,15 +213,71 @@ fi
 # (7) POPULATION. Every pip install sourced from SCRIPT_DIR must route through
 #     the helper. Case-INSENSITIVE: two of the five sites use the uppercase
 #     $OSTLER_PIP, and a lowercase-only pattern found 3 where there were 5.
+#
+#     THIS LIMB SCORED COMMENTS AS CODE, and it fired on one for the first time
+#     in CM051 #901. The chain was:
+#
+#         grep -nEi ... | grep SCRIPT_DIR | grep -v helper | grep -vc '^[[:space:]]*#'
+#                ^^                                                     ^^^^^^^^^^^^^
+#         `-n` prefixes every line with `NNN:`, so `^[[:space:]]*#` can NEVER
+#         match and the comment filter was inert from the day it was written.
+#
+#     A prose line reading "# ... SCRIPT_DIR. `pip install -e` writes .egg-info
+#     into its source directory" -- a comment WARNING against the very thing
+#     this limb forbids -- was counted as a violation of it. Documenting the
+#     hazard tripped the guard against the hazard. That is #688's shape
+#     (a name in a comment scoring as the real thing) with the sign flipped.
+#
+#     Fixed by stripping comments FIRST, through the shared library, and only
+#     then matching. `-n` is dropped: the count is what is asserted, and the
+#     offending lines are printed separately for a human.
+#
+#     THE BIAS IS UNCHANGED AND THAT IS THE POINT. strip_comments_file removes
+#     comment text only; a real `pip install "$SCRIPT_DIR/pkg"` CODE line is
+#     untouched and still fires. Control (7c) below proves exactly that, so
+#     this repair cannot be mistaken for -- or quietly become -- a weakening.
 CHECKS=$((CHECKS + 1))
-unrouted=$(grep -nEi 'pip"?[[:space:]]+install\b' "$INSTALL" \
-           | grep 'SCRIPT_DIR' \
-           | grep -v '_ostler_pip_install_pkg' \
-           | grep -vc '^[[:space:]]*#' || true)
-if [[ "$unrouted" -eq 0 ]]; then
-    pass "(7) no pip install still sources directly from SCRIPT_DIR"
+_STRIPPER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../scripts/lib/strip_comments.sh"
+if [[ ! -r "$_STRIPPER" ]]; then
+    fail "(7) shared comment-stripper missing at scripts/lib/strip_comments.sh -- refusing to hand-roll a second copy (#857/#858)"
 else
-    fail "(7) $unrouted pip install site(s) still source from SCRIPT_DIR"
+    # shellcheck source=../scripts/lib/strip_comments.sh
+    . "$_STRIPPER"
+    _INSTALL_CODE="$(mktemp)"
+    strip_comments_file "$INSTALL" > "$_INSTALL_CODE"
+
+    _unrouted_lines=$(grep -Ei 'pip"?[[:space:]]+install\b' "$_INSTALL_CODE" \
+                      | grep 'SCRIPT_DIR' \
+                      | grep -v '_ostler_pip_install_pkg' || true)
+    unrouted=$(printf '%s' "$_unrouted_lines" | grep -c . || true)
+
+    if [[ "$unrouted" -eq 0 ]]; then
+        pass "(7) no pip install still sources directly from SCRIPT_DIR"
+    else
+        fail "(7) $unrouted pip install site(s) still source from SCRIPT_DIR"
+        printf '%s\n' "$_unrouted_lines" | sed 's/^/        /'
+    fi
+
+    # (7c) ANTI-WEAKENING CONTROL. The repair above must not have blinded the
+    #      limb. Feed it a synthetic CODE line of exactly the forbidden shape
+    #      and require a hit. Without this, "comments no longer count" and
+    #      "nothing counts" print identically -- and only one of them is a fix.
+    CHECKS=$((CHECKS + 1))
+    _CTRL="$(mktemp)"
+    {
+        printf '# a comment naming SCRIPT_DIR and pip install must NOT count\n'
+        printf '    "$OSTLER_PIP" install --quiet "${SCRIPT_DIR}/some_pkg"\n'
+    } > "$_CTRL"
+    _ctrl_code="$(mktemp)"
+    strip_comments_file "$_CTRL" > "$_ctrl_code"
+    _ctrl_hits=$(grep -Ei 'pip"?[[:space:]]+install\b' "$_ctrl_code" \
+                 | grep 'SCRIPT_DIR' | grep -v '_ostler_pip_install_pkg' | grep -c . || true)
+    if [[ "$_ctrl_hits" -eq 1 ]]; then
+        pass "(7c) the repaired predicate still catches a real unrouted call site, and ignores a comment naming one"
+    else
+        fail "(7c) THE REPAIR BLINDED THE LIMB: expected exactly 1 hit on a fixture with one real call site and one comment, got ${_ctrl_hits}. (7) above proves nothing."
+    fi
+    rm -f "$_INSTALL_CODE" "$_CTRL" "$_ctrl_code"
 fi
 routed=$(grep -c '_ostler_pip_install_pkg "' "$INSTALL" || true)
 CHECKS=$((CHECKS + 1))
