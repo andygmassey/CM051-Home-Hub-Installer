@@ -1023,6 +1023,29 @@ MSG_PROMPT_CONSENT_ARTICLE_9_HELP="Article 9 special-category consent (UK GDPR).
 MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on the calls you capture?"
 MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints."
 
+# Enrichment opt-in (Q_ENRICH). Andy, 2026-08-18: "users must EXPLICITLY
+# decide whether public-data enrichment runs. Not a default-on setting."
+# v1.0.36 shipped the agent gated off and this is the question that was owed
+# in the next cut, enforced by tests/test_enrichment_optin_is_owed_after_v1_0_36.sh.
+#
+# TITLE IS DELIBERATELY SHORT. Task #167: the spoken-consent sheet pushed its
+# own title and toggle off-screen because the title ran long.
+#
+# The HELP text states what LEAVES the Mac and what CANNOT be hidden, because
+# the second one is true and easy to omit: measured 2026-08-18, enrichment
+# requests carry no IP obfuscation and identify themselves as Ostler. A
+# consent question that describes only the flattering half is not consent.
+MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="Look up public facts about things you save?"
+MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler can add public reference detail to things it finds – a book, a film, an album, a place. To do that it sends the NAME of that one thing to public reference services (Wikidata, MusicBrainz, OpenLibrary) and stores the answer on this Mac.
+
+What leaves your Mac: the name of the thing being looked up. Nothing else. Not your messages, not your contacts, not your files, and not who mentioned it.
+
+What we cannot hide from you: these lookups go out over your own internet connection and identify themselves as Ostler. The service you query can therefore see that an Ostler user asked about that thing, and can see your IP address. We do not route them through anyone else, and we are not going to pretend otherwise.
+
+If you say No: no lookups are made, and the background enrichment job is not installed at all. Everything else works exactly the same. Your library simply carries what you gave it rather than what a public catalogue adds.
+
+You can say No now and change your mind later by re-running the installer."
+
 MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="One last thing: how third-party data works"
 MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.
 
