@@ -60,8 +60,25 @@ jobs:
   cut-gate-wrappers:
     runs-on: macos-latest   # the cut host is macOS; bash 3.2 quoting differs
     steps:
+      # fetch-depth: 0 is LOAD-BEARING for the PR-age partial-verdict proof.
+      #
+      # Its control 5 is a DEMONSTRATED RED: it materialises the PRE-FIX gate
+      # from `git show origin/main:scripts/verify_pr_age.sh` and requires that
+      # older script to report a 2-of-3-blind run with no partiality marker.
+      # A shallow clone has no origin/main to show, so the control reports
+      # CANNOT-RUN (rc=2) -- honest, and useless.
+      #
+      # Measured on run 32328839671: "7 passed, 0 failed, 1 cannot-run",
+      # exit 2. The suite refused to claim a pass it had not earned, which is
+      # the behaviour we want and also the reason this line has to exist.
+      # Same fix, same reason, as new-tests-must-be-wired.yml.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure origin/main is present for the pre-fix comparison
+        run: git fetch origin main --quiet || true
 
       - name: Wrapper trichotomy self-test (stubbed gate scripts)
         run: /bin/bash tests/test_cut_gate_wrappers.sh
