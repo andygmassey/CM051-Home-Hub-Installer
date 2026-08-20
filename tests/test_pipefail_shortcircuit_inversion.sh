@@ -135,10 +135,36 @@ BASELINE_FILE='tests/pipefail_shortcircuit_baseline.txt'
 # count, so it cannot short-circuit.
 population_in() {
     local root="$1" f
-    for f in $(grep -rlE "$CONSTRUCT" --include='*.sh' --include='*.yml' "$root" 2>/dev/null | grep -v '/\.git/' | sort); do
+    # `sed 's#^\./##'` IS LOAD-BEARING, AND ITS ABSENCE VOIDED THE WHOLE
+    # COMPARISON BELOW. `grep -r PATTERN .` emits './bin/x.sh'; the baseline
+    # file stores 'bin/x.sh'. The two sets therefore shared NOT ONE ROW, and
+    # the ratchet agreed only because both happened to contain 70 of them.
+    # The `comm` that names the offending files runs ONLY on the failure
+    # path, so nobody ever saw it print all 70.
+    for f in $(grep -rlE "$CONSTRUCT" --include='*.sh' --include='*.yml' "$root" 2>/dev/null | grep -v '/\.git/' | sed 's#^\./##' | sort); do
+        # FROZEN ARTEFACTS ARE NOT LIVE SHELL. tests/fixtures/ holds code kept
+        # DELIBERATELY BROKEN so a control can be proved to go red against it
+        # -- see tests/fixtures/verify_customer_download_path.prefix. Counting
+        # one would demand a "fix" that destroys the only thing it is for, and
+        # would inflate the ceiling so a real regression could hide under it.
+        #
+        # Until now the only thing keeping such a file out was that I dropped
+        # the .sh extension off that fixture by hand, so the *.sh glob missed
+        # it. A convention recorded in one comment in one other file is not a
+        # guard: the next author names their fixture *.sh and it is back.
+        case "$f" in
+            tests/fixtures/*|*/tests/fixtures/*) continue ;;
+        esac
         grep -qE 'set -o pipefail|set -[a-z]+o[a-z]* pipefail' "$f" 2>/dev/null && echo "$f"
     done
 }
+
+# Rows in the scan that the baseline does not list, and vice versa. Split out
+# as functions so limb 4 can drive them against a KNOWN answer -- an untested
+# comparison is exactly what shipped here.
+baseline_rows() { grep -vE '^[[:space:]]*(#|$)' "$1" | sort; }
+rows_added()    { comm -13 <(baseline_rows "$1") <(printf '%s\n' "$2" | grep -v '^$' | sort); }
+rows_removed()  { comm -23 <(baseline_rows "$1") <(printf '%s\n' "$2" | grep -v '^$' | sort); }
 population() { population_in .; }
 POP="$(population)"
 POP_N="$(printf '%s\n' "$POP" | grep -c . || true)"
@@ -169,7 +195,25 @@ set -uo pipefail
 if [ "$(printf 'needle\n' | grep -c needle)" -gt 0 ]; then echo found; fi
 FIXTURE
 
+# Discriminator 3: tests/fixtures/ is FROZEN, DELIBERATELY-BROKEN code, kept so
+# a control can be proved to go red against it. Counting one would demand a
+# "fix" that destroys the only thing the file is for, and would raise the
+# ceiling so a real regression could hide under it. This is seeded as a *.sh
+# ON PURPOSE -- the exclusion must hold on the extension the next author will
+# actually reach for, not on the naming dodge that happens to work today.
+mkdir -p "$CTL_DIR/tests/fixtures"
+cat > "$CTL_DIR/tests/fixtures/frozen_prefix_gate.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -uo pipefail
+if printf 'needle\n' | grep -q needle; then echo found; fi
+FIXTURE
+
 CTL_POP="$(population_in "$CTL_DIR")"
+if grep -qF 'tests/fixtures/frozen_prefix_gate.sh' <<< "$CTL_POP"; then
+    bad "DISCRIMINATOR FAILED: the scanner reported a file under tests/fixtures/. Frozen broken artefacts are not live shell -- counting one inflates the ceiling and its only possible 'fix' destroys the fixture."
+else
+    ok "DISCRIMINATOR: tests/fixtures/ is frozen artefact, not live shell, not reported"
+fi
 if grep -qF 'seeded_instance.sh' <<< "$CTL_POP"; then
     ok "POSITIVE CONTROL: the scanner finds a seeded instance it MUST find"
 else
@@ -187,33 +231,94 @@ else
 fi
 rm -rf "$CTL_DIR"; trap - EXIT
 
+# --- 4. THE COMPARISON ITSELF, DRIVEN AGAINST A KNOWN ANSWER -----------------
+# This limb exists because the comparison below shipped BROKEN and green.
+#
+# `grep -r PAT .` emits './bin/x.sh'. The baseline stores 'bin/x.sh'. The two
+# sets were therefore DISJOINT -- not one row in common -- and the ratchet
+# reported "70 instances, baseline 70, exact" because it compared only the
+# CARDINALITIES. The `comm` that names offending files runs solely on the
+# failure path, which had never executed, so the first person to add a 71st
+# instance would have been handed all 71 files as "NEW".
+#
+# The lesson generalises past this file: A COUNT IS A LOSSY SUMMARY OF A SET,
+# and every way this ratchet can rot leaves the count intact. So assert the
+# SETS match, and prove the assertion can tell a matching pair from a
+# non-matching one before trusting it.
+SD="$(mktemp -d)"
+trap 'rm -rf "$SD"' EXIT
+printf 'a/one.sh\na/two.sh\n' > "$SD/base.txt"
+
+got="$(rows_added "$SD/base.txt" "$(printf 'a/one.sh\na/two.sh\na/three.sh\n')")"
+if [ "$got" = "a/three.sh" ]; then
+    ok "COMPARISON: one added row is named, and only it"
+else
+    bad "COMPARISON: expected exactly 'a/three.sh', got: ${got//$'\n'/ }. The ratchet's failure message cannot be trusted to name the right files."
+fi
+
+got="$(rows_removed "$SD/base.txt" "$(printf 'a/one.sh\n')")"
+if [ "$got" = "a/two.sh" ]; then
+    ok "COMPARISON: one delisted row is named, and only it"
+else
+    bad "COMPARISON: expected exactly 'a/two.sh', got: ${got//$'\n'/ }"
+fi
+
+# THE PRE-FIX SHAPE, REPRODUCED DELIBERATELY. Same two files, written in the
+# other path form: every row reads as both added and removed, while the counts
+# agree perfectly. If this ever stops being 2-and-2, the strip has been removed
+# and the comparison is void again.
+n_add="$(rows_added   "$SD/base.txt" "$(printf './a/one.sh\n./a/two.sh\n')" | grep -c . || true)"
+n_rem="$(rows_removed "$SD/base.txt" "$(printf './a/one.sh\n./a/two.sh\n')" | grep -c . || true)"
+if [ "$n_add" -eq 2 ] && [ "$n_rem" -eq 2 ]; then
+    ok "PRE-FIX SHAPE: a './'-prefixed population is fully disjoint from the baseline (2 added, 2 removed) while the COUNTS agree -- exactly the green this file used to report"
+else
+    bad "PRE-FIX SHAPE: expected 2 added / 2 removed, got ${n_add}/${n_rem}. This limb can no longer demonstrate the defect it was written for, so the ok above proves less than it claims."
+fi
+rm -rf "$SD"; trap - EXIT
+
+# And the live population must be in the baseline's form, or limb 3's verdict
+# is about two sets that can never intersect. Herestring, not a pipe: this file
+# is itself in the baseline and must not add to it.
+if grep -q '^\./' <<< "$POP"; then
+    bad "population rows carry a './' prefix the baseline does not. The set comparison below is comparing disjoint sets and can only ever agree by cardinality."
+else
+    ok "population rows are repo-relative, the same form the baseline stores"
+fi
+
 if [ ! -f "$BASELINE_FILE" ]; then
     bad "${BASELINE_FILE} is missing, so there is nothing to ratchet against and 'no new instances' would be unfounded"
 else
     BASE_N="$(grep -vcE '^[[:space:]]*(#|$)' "$BASELINE_FILE" || true)"
-    if [ "$POP_N" -gt "$BASE_N" ]; then
-        bad "ratchet: ${POP_N} instances vs baseline ${BASE_N}. NEW:"
-        comm -13 <(grep -vE '^[[:space:]]*(#|$)' "$BASELINE_FILE" | sort) <(printf '%s\n' "$POP" | sort) | sed 's/^/          /'
+
+    # COMPARE THE SETS, NOT THE COUNTS. A count is a lossy summary of a set,
+    # and every way this ratchet can rot leaves the count intact: fix one
+    # instance and introduce another, delete an instance file and add one
+    # elsewhere, or -- as actually happened -- write the two sides in
+    # different path forms so they agree on 70 while sharing nothing.
+    ADDED="$(rows_added "$BASELINE_FILE" "$POP")"
+    REMOVED="$(rows_removed "$BASELINE_FILE" "$POP")"
+
+    if [ -n "$ADDED" ]; then
+        bad "ratchet: NEW instances, not listed in ${BASELINE_FILE} (${POP_N} found, baseline ${BASE_N}):"
+        sed 's/^/          /' <<< "$ADDED"
         printf '          Use a herestring: grep -q PAT <<< "$var", never printf | grep -q.\n'
-    elif [ "$POP_N" -lt "$BASE_N" ]; then
-        bad "ratchet: ${POP_N} instances, baseline still ${BASE_N}. Instances were FIXED without lowering the baseline, so the ratchet has slack and the next regression hides in it. Regenerate ${BASELINE_FILE}."
     else
-        ok "ratchet: ${POP_N} instances, baseline ${BASE_N}, exact"
+        ok "ratchet: no new instances -- every one of the ${POP_N} found is already baselined"
     fi
 
-    # A baseline row naming a file that no longer exists is slack the counts
-    # above cannot see: delete one instance file, add one elsewhere, and the
-    # total is unchanged.
-    ROTTED=""
-    while IFS= read -r row; do
-        [ -n "$row" ] || continue
-        [ -e "$row" ] || ROTTED="${ROTTED}${row}"$'\n'
-    done < <(grep -vE '^[[:space:]]*(#|$)' "$BASELINE_FILE")
-    if [ -n "$ROTTED" ]; then
-        bad "baseline rot: these rows name files that no longer exist, so the count can stay level while the set changes underneath it:"
-        printf '%s' "$ROTTED" | sed 's/^/          /'
+    if [ -n "$REMOVED" ]; then
+        # Two causes, two different remedies, so name which is which rather
+        # than handing back one undifferentiated list.
+        fixed=""; gone=""
+        while IFS= read -r row; do
+            [ -n "$row" ] || continue
+            if [ -e "$row" ]; then fixed="${fixed}${row}"$'\n'; else gone="${gone}${row}"$'\n'; fi
+        done <<< "$REMOVED"
+        bad "ratchet: ${BASELINE_FILE} lists rows the scan does NOT find. That is slack the next regression hides in. Delist them."
+        [ -n "$fixed" ] && { printf '          CONSTRUCT FIXED (or now excluded), file still present:\n'; sed 's/^/            /' <<< "${fixed%$'\n'}"; }
+        [ -n "$gone" ]  && { printf '          FILE NO LONGER EXISTS:\n'; sed 's/^/            /' <<< "${gone%$'\n'}"; }
     else
-        ok "no baseline rot: every one of the ${BASE_N} rows still names a real file"
+        ok "no baseline rot: all ${BASE_N} baselined rows were found by this scan"
     fi
 fi
 
