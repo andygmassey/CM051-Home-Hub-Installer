@@ -56,6 +56,8 @@ ASSET_NAME="OstlerInstaller.dmg"   # the redirect matches on FILENAME; v0.4.1
 check_draft_release() {
     local tag="v${1}"
     command -v gh >/dev/null 2>&1 || { say "[CANNOT] gh absent -- cannot inspect ${RELEASE_REPO}" >&2; return 2; }
+    WORK_OUT="$(mktemp)"   # created HERE: only this path uses it, and the single
+                           # EXIT trap above clears it on 0, 1 and 2 alike.
     say "== PRE-LAUNCH posture: draft release ${tag} on ${RELEASE_REPO} =="
     local json
     json="$(gh api "repos/${RELEASE_REPO}/releases" --paginate 2>/dev/null)" || {
@@ -96,7 +98,16 @@ if [ -z "${WANT}" ]; then
     say "usage: $0 <expected-version>   e.g. $0 1.0.37" >&2
     exit 2
 fi
-WORK_OUT="$(mktemp)"; trap 'rm -f "${WORK_OUT}"' EXIT
+# 🔴 ONE trap, registered ONCE. `trap ... EXIT` REPLACES the previous handler
+# rather than adding to it, so the original pair of traps leaked the first temp
+# file on every run: WORK_OUT was created here, then the second `trap` for
+# ${tmp} silently discarded its cleanup. Archie proved it by listing both paths
+# after exit. WORK_OUT is also only used by the prelaunch path, so it is now
+# created there rather than unconditionally.
+WORK_OUT=""
+TMP_BODY=""
+cleanup() { [ -n "${WORK_OUT}" ] && rm -f "${WORK_OUT}"; [ -n "${TMP_BODY}" ] && rm -f "${TMP_BODY}"; return 0; }
+trap cleanup EXIT
 
 if [ "${POSTURE}" = "prelaunch" ]; then
     check_draft_release "${WANT}"; exit $?
@@ -109,8 +120,18 @@ say "   expecting version ${WANT}"
 say ""
 
 # --- 1. the redirect, reported not assumed ---------------------------------
-code="$(curl -sS -o /dev/null -w '%{http_code}' "${URL}" 2>/dev/null || echo 000)"
-target="$(curl -sS -o /dev/null -w '%{redirect_url}' "${URL}" 2>/dev/null || true)"
+# 🔴 `|| echo 000` DOUBLED THE VALUE AND MADE THE CANNOT BRANCH UNREACHABLE.
+# With `-w '%{http_code}'` curl PRINTS `000` on a connection failure AND exits
+# non-zero, so the `||` fired as well and the substitution captured `000000`.
+# That is not equal to `000`, so the "network unreachable, NOT a verdict on the
+# URL" branch below could never be taken and an offline run fell through to
+# report the customer download path FAILED. Every machine without network would
+# have called a healthy URL broken: the cry-wolf red this file's own header
+# warns about. Found by the companion controls, not by reading the code.
+# Keep curl's OUTPUT and its STATUS separate.
+code="$(curl -sS -o /dev/null -w '%{http_code}' "${URL}" 2>/dev/null)" || true
+[ -n "${code}" ] || code=000
+target="$(curl -sS -o /dev/null -w '%{redirect_url}' "${URL}" 2>/dev/null)" || true
 say "   first hop : HTTP ${code}"
 [ -n "${target}" ] && say "   redirects : ${target}"
 
@@ -120,8 +141,9 @@ if [ "${code}" = "000" ]; then
 fi
 
 # --- 2. follow it and actually GET the bytes -------------------------------
-tmp="$(mktemp)"; trap 'rm -f "${tmp}"' EXIT
-final_code="$(curl -sSL -o "${tmp}" -w '%{http_code}' "${URL}" 2>/dev/null || echo 000)"
+TMP_BODY="$(mktemp)"; tmp="${TMP_BODY}"   # cleaned by the single EXIT trap above
+final_code="$(curl -sSL -o "${tmp}" -w '%{http_code}' "${URL}" 2>/dev/null)" || true
+[ -n "${final_code}" ] || final_code=000
 size="$(wc -c < "${tmp}" | tr -d ' ')"
 say "   final     : HTTP ${final_code}, ${size} bytes"
 say ""
@@ -139,8 +161,25 @@ fi
 # --- 3. a 200 is not enough: it must be a DMG, and the RIGHT version -------
 # A 200 serving an HTML error page, or last month's build, is the failure this
 # gate exists to catch. Assert the artefact, not the status code.
-if ! head -c 512 "${tmp}" | grep -qa 'koly\|bzip\|zlib\|encrcdsa' && [ "${size}" -lt 1000000 ]; then
-    say "[FAIL] 200 but the payload is ${size} bytes and does not look like a DMG."
+# 🔴 `koly` IS A TRAILER. The first version of this check read `head -c 512`,
+# and Archie measured that it therefore matched NOTHING on a real DMG: UDIF
+# stores its 512-byte `koly` trailer at the END of the file, and bzip/zlib/
+# encrcdsa are not in the first block either. The `!` was then always true and
+# the whole condition collapsed to `size < 1000000`. Two failures fell out of
+# that: an HTML error page OVER 1MB passed the shape check, and a genuine DMG
+# UNDER 1MB was failed as "does not look like a DMG" -- crying wolf on a
+# correct tree, which is how a gate gets switched off.
+# tests/test_customer_download_path_gate.sh pins the offset against a real
+# UDZO image so this cannot silently regress.
+#
+# `grep -c` NOT `grep -q`: a short-circuiting consumer in a pipe under
+# `set -o pipefail` reports a SUCCESSFUL match as a failure (#895). `grep -c`
+# must read all its input to count, so it cannot short-circuit.
+trailer_hits="$(tail -c 512 "${tmp}" | LC_ALL=C grep -ca 'koly' || true)"
+header_hits="$(head -c 512 "${tmp}" | LC_ALL=C grep -ca 'encrcdsa' || true)"
+if [ "${trailer_hits:-0}" -eq 0 ] && [ "${header_hits:-0}" -eq 0 ]; then
+    say "[FAIL] 200 but the payload has no UDIF trailer and is not an encrypted"
+    say "       disk image -- ${size} bytes of something that is not a DMG."
     say "       A 200 serving an error page is worse than a 404: it reads as success."
     exit 1
 fi
