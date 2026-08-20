@@ -52,8 +52,8 @@
 #
 #   1  the OLD construct really does invert (positive control on the premise)
 #   2  the herestring replacement reports the match correctly
-#   3  repo-wide: the scanner can see a KNOWN instance, and the population is
-#      not growing
+#   3  repo-wide: the scanner finds a SEEDED instance and rejects two lookalikes
+#      that cannot invert, and the population is not growing
 #
 # 1 and 2 would pass forever against a file nobody uses. Limb 3 is what binds
 # this to the tree.
@@ -105,10 +105,20 @@ fi
 # file the symptom appeared in. The pattern is a CLASS. Scoped to one workflow,
 # limb 3 would have reported CM051 clean while 70 other files carried it.
 #
-# POSITIVE CONTROL. tests/test_imessage_probe_cannot_hang.sh is a KNOWN
-# instance, merged in #891, named by TNM. A scanner that cannot see a case we
-# already know about cannot be trusted to find one we do not, so its absence
-# voids the ratchet rather than passing it.
+# POSITIVE CONTROL, AND WHY IT IS SYNTHETIC.
+#
+# This limb first named tests/test_imessage_probe_cannot_hang.sh -- a real
+# instance, merged in #891. That was wrong for the same reason #893 was wrong
+# this morning: A CONTROL WHOSE SUBJECT ANOTHER OPEN PR IS REMOVING INVERTS ON
+# MERGE. TNM's #896 fixes all four instances in that exact file. The moment it
+# lands, "the scanner did not see a known instance" would fire -- reporting the
+# scanner blind when what actually happened is that the bug was FIXED.
+#
+# So the control is seeded, in a temp dir, by this file. Nobody will ever
+# "fix" it, because it exists to be found. Two negative fixtures sit beside it
+# so a blanket matcher cannot pass: one has the construct but no pipefail (the
+# pipeline status is then grep's own, and nothing inverts), one uses `grep -c`
+# (which must consume all input to count, so it cannot short-circuit).
 #
 # RATCHET, NOT A BIG BANG. Most of the population will never fire: the
 # inversion needs the producer still writing when the consumer exits, so a
@@ -123,22 +133,59 @@ BASELINE_FILE='tests/pipefail_shortcircuit_baseline.txt'
 # is the LAST command's, which is grep's own verdict, and nothing is wrong.
 # `grep -c` is deliberately NOT in CONSTRUCT: it must consume all input to
 # count, so it cannot short-circuit.
-population() {
-    local f
-    for f in $(grep -rlE "$CONSTRUCT" --include='*.sh' --include='*.yml' . 2>/dev/null | grep -v '/\.git/' | sort); do
+population_in() {
+    local root="$1" f
+    for f in $(grep -rlE "$CONSTRUCT" --include='*.sh' --include='*.yml' "$root" 2>/dev/null | grep -v '/\.git/' | sort); do
         grep -qE 'set -o pipefail|set -[a-z]+o[a-z]* pipefail' "$f" 2>/dev/null && echo "$f"
     done
 }
+population() { population_in .; }
 POP="$(population)"
 POP_N="$(printf '%s\n' "$POP" | grep -c . || true)"
 printf '        population examined: %s files (construct in a condition AND pipefail set)\n' "$POP_N"
 
-CONTROL='./tests/test_imessage_probe_cannot_hang.sh'
-if printf '%s\n' "$POP" | grep -qxF "$CONTROL"; then
-    ok "POSITIVE CONTROL: the scanner sees ${CONTROL#./}, a known instance (TNM, merged in #891)"
+CTL_DIR="$(mktemp -d)"
+trap 'rm -rf "$CTL_DIR"' EXIT
+
+# The seeded instance the scanner MUST find.
+cat > "$CTL_DIR/seeded_instance.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -uo pipefail
+if printf 'needle\n' | grep -q needle; then echo found; fi
+FIXTURE
+
+# Discriminator 1: same construct, NO pipefail. Without it the pipeline status
+# is grep's own verdict and nothing inverts, so this must NOT be reported.
+cat > "$CTL_DIR/no_pipefail.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+if printf 'needle\n' | grep -q needle; then echo found; fi
+FIXTURE
+
+# Discriminator 2: pipefail set, but `grep -c` must read all input to count,
+# so it cannot short-circuit. Must NOT be reported.
+cat > "$CTL_DIR/grep_c_is_safe.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -uo pipefail
+if [ "$(printf 'needle\n' | grep -c needle)" -gt 0 ]; then echo found; fi
+FIXTURE
+
+CTL_POP="$(population_in "$CTL_DIR")"
+if grep -qF 'seeded_instance.sh' <<< "$CTL_POP"; then
+    ok "POSITIVE CONTROL: the scanner finds a seeded instance it MUST find"
 else
-    bad "POSITIVE CONTROL FAILED: the scanner did NOT see ${CONTROL#./}, which IS an instance. The scanner is blind and the ratchet below is void."
+    bad "POSITIVE CONTROL FAILED: the scanner did NOT find a file it was handed, carrying the construct AND pipefail. The scanner is blind and the ratchet below is void."
 fi
+if grep -qF 'no_pipefail.sh' <<< "$CTL_POP"; then
+    bad "DISCRIMINATOR FAILED: the scanner reported a file with NO pipefail. It is matching the construct alone, so the population is inflated and the baseline is meaningless."
+else
+    ok "DISCRIMINATOR: no pipefail, not reported"
+fi
+if grep -qF 'grep_c_is_safe.sh' <<< "$CTL_POP"; then
+    bad "DISCRIMINATOR FAILED: the scanner reported 'grep -c', which cannot short-circuit. CONSTRUCT is over-broad."
+else
+    ok "DISCRIMINATOR: 'grep -c' cannot short-circuit, not reported"
+fi
+rm -rf "$CTL_DIR"; trap - EXIT
 
 if [ ! -f "$BASELINE_FILE" ]; then
     bad "${BASELINE_FILE} is missing, so there is nothing to ratchet against and 'no new instances' would be unfounded"
@@ -152,6 +199,21 @@ else
         bad "ratchet: ${POP_N} instances, baseline still ${BASE_N}. Instances were FIXED without lowering the baseline, so the ratchet has slack and the next regression hides in it. Regenerate ${BASELINE_FILE}."
     else
         ok "ratchet: ${POP_N} instances, baseline ${BASE_N}, exact"
+    fi
+
+    # A baseline row naming a file that no longer exists is slack the counts
+    # above cannot see: delete one instance file, add one elsewhere, and the
+    # total is unchanged.
+    ROTTED=""
+    while IFS= read -r row; do
+        [ -n "$row" ] || continue
+        [ -e "$row" ] || ROTTED="${ROTTED}${row}"$'\n'
+    done < <(grep -vE '^[[:space:]]*(#|$)' "$BASELINE_FILE")
+    if [ -n "$ROTTED" ]; then
+        bad "baseline rot: these rows name files that no longer exist, so the count can stay level while the set changes underneath it:"
+        printf '%s' "$ROTTED" | sed 's/^/          /'
+    else
+        ok "no baseline rot: every one of the ${BASE_N} rows still names a real file"
     fi
 fi
 
