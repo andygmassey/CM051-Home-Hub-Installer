@@ -406,7 +406,7 @@ class EnrichmentService:
 
         # Query Oxigraph for enrichment metadata (check default and named graphs)
         sparql = f"""
-        PREFIX pwg: <https://schema.ostler.ai/ontology#>
+        PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
         ASK WHERE {{
             {{
                 <urn:ostler:preference:{preference_id}> pwg:enrichedAt ?date .
@@ -473,7 +473,7 @@ class EnrichmentService:
 
         # Build SPARQL UPDATE query with prefixes
         update_query = f"""
-PREFIX pwg: <https://schema.ostler.ai/ontology#>
+PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 
@@ -1227,7 +1227,7 @@ INSERT DATA {{
 
         # Query Oxigraph for all unique topics from enriched preferences
         sparql_query = """
-        PREFIX pwg: <https://schema.ostler.ai/ontology#>
+        PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
         SELECT DISTINCT ?topic ?label WHERE {
@@ -1285,7 +1285,7 @@ INSERT DATA {{
                         if norm_result.qid:
                             # Store the Q-ID back to Oxigraph
                             update_turtle = f"""
-@prefix pwg: <https://schema.ostler.ai/ontology#> .
+@prefix pwg: <https://schema.ostler.ai/enrichment/ontology#> .
 @prefix wd: <http://www.wikidata.org/entity/> .
 
 <{topic_uri}> pwg:wikidataId "{norm_result.qid}" .

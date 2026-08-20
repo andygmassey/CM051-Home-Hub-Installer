@@ -14274,7 +14274,7 @@ except Exception:
             curl -sf -m 5 \
                 -H 'Content-Type: application/sparql-query' \
                 -H 'Accept: application/sparql-results+json' \
-                --data-binary 'PREFIX pwg: <https://schema.ostler.ai/ontology#>
+                --data-binary 'PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
 SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p pwg:enrichedAt ?d }' \
                 "${OXIGRAPH_URL:-http://localhost:7878}/query" 2>/dev/null \
             | python3 -c 'import json,sys
