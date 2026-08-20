@@ -769,7 +769,15 @@ jobs:
       - name: Publish the release object, then prove the customer url serves it
         if: always()
         env:
-          PUBLISH_RELEASE_TOKEN: ${{ secrets.OSTLER_RELEASE_TOKEN_OSTLER_AI }}
+          # Pairs with CM051_RELEASES_READ, which is already wired at four
+          # sites in this file and reads FROM ostler-ai releases. A matching
+          # fine-grained token named OSTLER_RELEASES_PUBLISH exists on the
+          # ostler-ai account, minted for this exact job and, measured
+          # 2026-08-20, referenced NOWHERE in this repo and absent from its
+          # Actions secrets. The read half was connected and the publish half
+          # never was, which is the whole reason 37 cut tags produced zero
+          # release objects. This line is that missing wire.
+          PUBLISH_RELEASE_TOKEN: ${{ secrets.OSTLER_RELEASES_PUBLISH }}
         run: |
           set -uo pipefail
           DMG="$(ls dist/*.dmg 2>/dev/null | head -1)"
