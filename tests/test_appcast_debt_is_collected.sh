@@ -131,13 +131,40 @@ fi
 CURRENT="${CUT_VERSION:-}"
 
 # ── The probe, and its three controls ───────────────────────────────
-SLUG="${GITHUB_REPOSITORY:-}"
-if [[ -z "$SLUG" ]]; then
-    SLUG="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true)"
+#
+# 🔴 THE RELEASES ARE NOT ON THIS REPO, AND KEYING ON THIS REPO MADE THE GATE
+# UNABLE TO FIRE. Measured 2026-08-19, with GITHUB_REPOSITORY unset so the
+# slug resolved to andygmassey/CM051-Home-Hub-Installer:
+#
+#     cut records found        : 13
+#     cut but NOT released     : 13   <-- every one, because it asked the
+#     RELEASED, so owed a feed : 0        WRONG REPO for the release
+#     verdict                  : PASS rc=0
+#
+# ...while the live feed carried ZERO <item>. The gate whose entire purpose is
+# "a deferral cannot become permanent without somebody noticing" reported that
+# nothing was owed, on the exact day the deferral was made permanent.
+#
+# Customer artefacts ship from ostler-ai/ostler-releases. install.sh:10779 and
+# scripts/verify_cut_freshness.sh:848 both already name it, and that repo uses
+# COMPONENT-PREFIXED tags (hub-vX.Y.Z, remote-capture-vX.Y.Z, installer-vX.Y.Z)
+# rather than the bare vX.Y.Z this gate was looking up. Both halves had to be
+# wrong for the zero to look plausible: wrong repo AND wrong tag shape.
+#
+# CODE_SLUG stays this repo -- tags/refs genuinely live here. RELEASES_SLUG is
+# where a customer-obtainable release lives. They are different questions and
+# conflating them is what produced the false zero.
+CODE_SLUG="${GITHUB_REPOSITORY:-}"
+if [[ -z "$CODE_SLUG" ]]; then
+    CODE_SLUG="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true)"
 fi
-[[ -n "$SLUG" ]] || cannot_run "could not resolve the repository slug.
+[[ -n "$CODE_SLUG" ]] || cannot_run "could not resolve the repository slug.
   Set GITHUB_REPOSITORY, or run where 'gh repo view' can answer. Guessing a
   slug is how every lookup 404s and the gate reports nothing is owed."
+
+RELEASES_SLUG="${OSTLER_RELEASES_REPO:-ostler-ai/ostler-releases}"
+RELEASE_TAG_PREFIX="${OSTLER_INSTALLER_TAG_PREFIX:-installer-}"
+SLUG="$RELEASES_SLUG"
 
 command -v gh >/dev/null 2>&1 || cannot_run "gh is not on PATH, so no release can be looked up."
 
@@ -158,10 +185,50 @@ if [[ "$RELEASE_COUNT" -lt 1 ]]; then
   deliberately rather than relaxed in passing."
 fi
 
+# C1b APPARATUS, ON THE PREDICATE ITSELF. C1 proves the repo LISTS releases.
+# It does not prove that `releases/tags/<something>` -- the call the verdict is
+# actually built from -- can ever return TRUE.
+#
+# That gap is not hypothetical: it is the bug this control was added for. The
+# gate spent its whole life calling releases/tags/v1.0.36 against a repo whose
+# tags are all PREFIXED (hub-v..., installer-v...). Every call 404'd, every
+# version scored "not released", and the verdict was a confident PASS. C1 was
+# green throughout, because listing worked fine.
+#
+# So: take a tag the LIST just returned, and require the LOOKUP to find it. A
+# predicate that cannot return true cannot produce a finding, and a gate that
+# cannot produce a finding is decoration.
+NEWEST_TAG="$(gh api "repos/${RELEASES_SLUG}/releases" --jq '.[0].tag_name' 2>/dev/null || true)"
+if [[ -z "$NEWEST_TAG" ]]; then
+    cannot_run "C1b FAILED: could not read a tag_name from ${RELEASES_SLUG}'s release list."
+fi
+if ! gh api "repos/${RELEASES_SLUG}/releases/tags/${NEWEST_TAG}" --jq '.tag_name' >/dev/null 2>&1; then
+    cannot_run "C1b FAILED: the release LOOKUP could not find '${NEWEST_TAG}', a tag the
+  release LIST just returned. The lookup this gate's verdict is built on cannot
+  return true, so its 'nothing is owed' means nothing. Check RELEASES_SLUG
+  (${RELEASES_SLUG})."
+fi
+
+# C1c PREFIX COVERAGE -- THE SHAPE OF THE ZERO.
+#
+# C1b proves the lookup MECHANISM works. It does NOT prove the composed form
+# this gate builds -- "<prefix><version>" -- can ever match, because it looked
+# up a tag the list handed it rather than one the gate composed. That is the
+# same instrument/defect split the gate itself was suffering from, reproduced
+# inside its own control, and it is why C1b passed on BOTH the fixed and the
+# broken prefix.
+#
+# There is no honest way to demand that installer-vX.Y.Z resolve today: no
+# installer release has ever been made, so requiring one would be a false
+# accusation. What IS honest is to make the zero's shape impossible to misread.
+PREFIX_MATCHES="$(gh api "repos/${RELEASES_SLUG}/releases" --paginate \
+    --jq "[.[] | select(.tag_name | startswith(\"${RELEASE_TAG_PREFIX}\"))] | length" 2>/dev/null | paste -sd+ - | bc 2>/dev/null || echo 0)"
+PREFIX_MATCHES="${PREFIX_MATCHES:-0}"
+
 # C2 POSITIVE. At least one cut version's TAG must resolve.
 C2_TAG=""
 for v in "${CUT_VERSIONS[@]+"${CUT_VERSIONS[@]}"}"; do
-    if gh api "repos/${SLUG}/git/ref/tags/${v}" --jq '.object.sha' >/dev/null 2>&1; then
+    if gh api "repos/${CODE_SLUG}/git/ref/tags/${v}" --jq '.object.sha' >/dev/null 2>&1; then
         C2_TAG="$v"
         break
     fi
@@ -171,7 +238,7 @@ done
   resolves means the probe is not reaching this repo's refs."
 
 # C3 NEGATIVE. The impossible tag must NOT resolve.
-if gh api "repos/${SLUG}/git/ref/tags/${IMPOSSIBLE_TAG}" --jq '.object.sha' >/dev/null 2>&1; then
+if gh api "repos/${CODE_SLUG}/git/ref/tags/${IMPOSSIBLE_TAG}" --jq '.object.sha' >/dev/null 2>&1; then
     cannot_run "C3 FAILED: the impossible tag ${IMPOSSIBLE_TAG} RESOLVED.
   The probe is answering yes regardless of input, so C2 proves nothing and a
   'no release' answer cannot be trusted either."
@@ -184,7 +251,7 @@ for v in "${CUT_VERSIONS[@]+"${CUT_VERSIONS[@]}"}"; do
     if [[ -n "$CURRENT" && "$v" == "$CURRENT" ]]; then
         continue
     fi
-    if gh api "repos/${SLUG}/releases/tags/${v}" --jq '.tag_name' >/dev/null 2>&1; then
+    if gh api "repos/${RELEASES_SLUG}/releases/tags/${RELEASE_TAG_PREFIX}${v}" --jq '.tag_name' >/dev/null 2>&1; then
         OWED+=("$v")
     else
         RELEASED_SKIPPED+=("$v")
@@ -197,7 +264,8 @@ if [[ -f "$RECORD" ]]; then
 fi
 
 echo "DENOMINATOR"
-echo "  repository               : ${SLUG}"
+echo "  code repository          : ${CODE_SLUG}   (tags/refs)"
+echo "  releases repository      : ${RELEASES_SLUG}   (customer artefacts, tag prefix '${RELEASE_TAG_PREFIX}')"
 echo "  cut records found        : ${#CUT_VERSIONS[@]}"
 echo "  current cut (exempt)     : ${CURRENT:-<none named; CUT_VERSION unset>}"
 echo "  cut but NOT released     : ${#RELEASED_SKIPPED[@]}  (nothing for a feed to point at)"
@@ -205,6 +273,16 @@ echo "  RELEASED, so owed a feed : ${#OWED[@]}"
 echo "  published-record entries : ${published_count}  (${RECORD})"
 echo "CONTROLS"
 echo "  C1 apparatus  : PASS  (${SLUG} lists ${RELEASE_COUNT} release(s))"
+echo "  C1b lookup    : PASS  (releases/tags/${NEWEST_TAG} resolves -- the predicate CAN return true)"
+if [[ "$PREFIX_MATCHES" -eq 0 ]]; then
+    echo "  C1c prefix    : ⚠️  ZERO releases carry the prefix '${RELEASE_TAG_PREFIX}'."
+    echo "                  So every version below scores 'not released' by construction, and"
+    echo "                  a PASS here means 'no installer has EVER been released', NOT"
+    echo "                  'the appcast is up to date'. The first real installer release"
+    echo "                  is what makes this gate start doing its job."
+else
+    echo "  C1c prefix    : PASS  (${PREFIX_MATCHES} release(s) carry '${RELEASE_TAG_PREFIX}')"
+fi
 echo "  C2 positive   : PASS  (tag ${C2_TAG} resolves)"
 echo "  C3 negative   : PASS  (${IMPOSSIBLE_TAG} does not resolve)"
 echo ""
