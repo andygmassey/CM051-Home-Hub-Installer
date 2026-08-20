@@ -68,7 +68,11 @@ for ln in "${PROBE_LINES[@]}"; do
         undeadlined=$((undeadlined + 1))
         continue
     fi
-    if printf '%s' "$window" | grep -q '_ostler_run_with_deadline'; then
+    # HERESTRING, NOT A PIPE. `printf ... | grep -q` under `set -o pipefail`
+    # reports a SUCCESSFUL match as a FAILURE: grep -q exits the instant it
+    # matches, printf dies EPIPE, and pipefail takes printf's status. See
+    # tests/test_pipefail_shortcircuit_inversion.sh (#895).
+    if grep -q '_ostler_run_with_deadline' <<< "$window"; then
         ok "line $ln: deadlined"
     else
         bad "line $ln: osascript to Messages with NO deadline -- this can hang forever"
@@ -122,7 +126,13 @@ fixture="$(mktemp)"
 } > "$fixture"
 seeded_ln="$(grep -n "tell application \"Messages\"" "$fixture" | cut -d: -f1)"
 seeded_lo=$(( seeded_ln - 3 )); [[ "$seeded_lo" -lt 1 ]] && seeded_lo=1
-if sed -n "${seeded_lo},${seeded_ln}p" "$fixture" | grep -q '_ostler_run_with_deadline'; then
+# HERESTRING, NOT A PIPE -- and note the producer here is `sed`, not `printf`.
+# The class is the SHORT-CIRCUITING CONSUMER, whatever feeds it. Left as a
+# pipe this was the worst instance in the file: a missed match lands on `ok`,
+# so the one limb whose whole job is to prove the predicate CAN go red would
+# have been the limb that failed silently open.
+seeded_window="$(sed -n "${seeded_lo},${seeded_ln}p" "$fixture")"
+if grep -q '_ostler_run_with_deadline' <<< "$seeded_window"; then
     bad "anti-vacuity: predicate passed a SEEDED undeadlined probe -- it is blind"
 else
     ok "anti-vacuity: predicate goes RED on a seeded undeadlined probe"
@@ -144,9 +154,14 @@ tb="$(sed -n '/_imessage_probe_rc" -eq 124/,/^        else$/p' "$INSTALL_SH" \
       | grep -vE '^[[:space:]]*#' || true)"
 if [[ -z "$tb" ]]; then
     bad "no rc=124 branch at the authoritative probe -- a timeout is being misread"
-elif printf '%s' "$tb" | grep -q 'IMESSAGE_TCC_STATUS="tcc-denied"'; then
+# HERESTRINGS, NOT PIPES -- and this pair is the dangerous direction. As a
+# pipe, the tcc-denied arm is a FALSE PASS: if the inversion fires, the branch
+# that is supposed to CATCH a timeout being misrecorded as tcc-denied simply
+# does not fire, and the check falls through and reports the honest outcome.
+# The guard against a dishonest status would itself have been dishonest.
+elif grep -q 'IMESSAGE_TCC_STATUS="tcc-denied"' <<< "$tb"; then
     bad "a timed-out probe is recorded as tcc-denied -- that is an assumption, not an observation"
-elif printf '%s' "$tb" | grep -q 'IMESSAGE_TCC_STATUS="check-failed"'; then
+elif grep -q 'IMESSAGE_TCC_STATUS="check-failed"' <<< "$tb"; then
     ok "a timed-out probe records check-failed, so the daemon re-probes and it self-heals"
 else
     bad "rc=124 branch records neither check-failed nor tcc-denied"

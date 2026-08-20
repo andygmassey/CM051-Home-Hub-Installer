@@ -42,7 +42,6 @@ tests/test_fda_rerun_recurs.sh
 tests/test_grep_c_arith_safety.sh
 tests/test_hydrate_sentinel_not_on_error.sh
 tests/test_imessage_fda_probe.sh
-tests/test_imessage_probe_cannot_hang.sh
 tests/test_imessage_tcc_posture.sh
 tests/test_install_daily_briefs.sh
 tests/test_install_first_month_free.sh
