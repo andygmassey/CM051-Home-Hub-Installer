@@ -14,13 +14,29 @@ walk that is indistinguishable from catastrophic data loss.
           2,684 triples touching urn:pwg:
         Qdrant `people` payloads carry person_uri
 
-THE MAPPING IS INJECTIVE AND THAT IS THE LOAD-BEARING CONTROL.
-Two different source prefixes never land on one target (pwg.dev and pwg.local
-go to DIFFERENT places, deliberately -- see CM051 #888, the enrichment graph
-must stay separate from people). No `http://pwg.dev` exists in the data, so no
-scheme variant collapses either. Therefore the TOTAL TRIPLE COUNT MUST BE
-IDENTICAL either side. If it drops, triples merged or were lost, and this
-script refuses rather than reporting a clean migration.
+THE MAPPING IS NOT INJECTIVE IN GENERAL. IT IS INJECTIVE ON THIS STORE, WHICH
+IS A MEASUREMENT, NOT A PROOF.
+
+🔴 This block used to open "THE MAPPING IS INJECTIVE AND THAT IS THE
+LOAD-BEARING CONTROL". That was an assumed property stated as a proven one,
+and Archie was right to make me correct it (#888 F5): stating it that way is
+what made #909 hard to see. The rules DO collide by direct call --
+
+    https://pwg.local/x        -> https://schema.ostler.ai/enrichment/x
+    https://pwg.dev/enrichment/x -> https://schema.ostler.ai/enrichment/x
+
+-- so two distinct source IRIs CAN land on one target. What is true is
+narrower and it is measured, not assumed: no such IRI exists in this store,
+and the store holds exactly one named graph, so no collision is reachable
+here today. That is a fact about the DATA and it expires the moment the data
+changes.
+
+The actual load-bearing control is therefore the count, not the claim: the
+TOTAL TRIPLE COUNT MUST BE IDENTICAL either side. If it drops, triples merged
+or were lost -- whether or not anyone predicted the collision -- and this
+script refuses rather than reporting a clean migration. That check does not
+depend on the mapping being injective, which is exactly why it is the one to
+lean on.
 
 A rewrite that silently loses rows is the worst outcome available here -- it
 looks exactly like success from the outside, which is the failure mode this

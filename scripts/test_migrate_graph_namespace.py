@@ -27,12 +27,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from migrate_graph_namespace import _nquads_is_quad, _nquads_terms  # noqa: E402
 
 # The literal contains spaces. This is a THREE-term default-graph triple.
-TRIPLE_SPACED_LITERAL = '<https://pwg.dev/p/1> <https://pwg.dev/name> "Hello there world" .'
-TRIPLE_IRI_OBJECT = "<https://pwg.dev/p/1> <https://pwg.dev/knows> <https://pwg.dev/p/2> ."
-QUAD = ('<https://pwg.dev/p/1> <https://pwg.dev/name> "Ada" '
-        "<urn:pwg:compartment> .")
-QUAD_SPACED_LITERAL = ('<https://pwg.dev/p/1> <https://pwg.dev/note> "a b c d e" '
-                       "<urn:pwg:compartment> .")
+TRIPLE_SPACED_LITERAL = '<https://example.org/p/1> <https://example.org/name> "Hello there world" .'
+TRIPLE_IRI_OBJECT = "<https://example.org/p/1> <https://example.org/knows> <https://example.org/p/2> ."
+QUAD = ('<https://example.org/p/1> <https://example.org/name> "Ada" '
+        "<urn:example:compartment> .")
+QUAD_SPACED_LITERAL = ('<https://example.org/p/1> <https://example.org/note> "a b c d e" '
+                       "<urn:example:compartment> .")
 
 
 def _old_predicate(line):
@@ -73,9 +73,9 @@ def test_a_quad_whose_literal_has_spaces_is_still_a_quad():
 
 
 def test_typed_and_tagged_literals_do_not_shift_the_arity():
-    typed = ('<https://pwg.dev/p/1> <https://pwg.dev/when> '
+    typed = ('<https://example.org/p/1> <https://example.org/when> '
              '"2026-08-20"^^<http://www.w3.org/2001/XMLSchema#date> .')
-    tagged = '<https://pwg.dev/p/1> <https://pwg.dev/name> "Ada"@en-GB .'
+    tagged = '<https://example.org/p/1> <https://example.org/name> "Ada"@en-GB .'
     assert _nquads_is_quad(typed) is False, "^^<datatype> is part of the term"
     assert _nquads_is_quad(tagged) is False, "@lang is part of the term"
     assert _nquads_terms(typed) == ["iri", "iri", "literal"]
@@ -83,7 +83,7 @@ def test_typed_and_tagged_literals_do_not_shift_the_arity():
 
 
 def test_a_blank_node_graph_name_counts():
-    line = '_:b0 <https://pwg.dev/name> "Ada" _:g1 .'
+    line = '_:b0 <https://example.org/name> "Ada" _:g1 .'
     assert _nquads_is_quad(line) is True
     assert _nquads_terms(line) == ["bnode", "iri", "literal", "bnode"]
 
