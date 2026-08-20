@@ -750,6 +750,35 @@ jobs:
       # Left unsaid, the correct response (download the artefact, ignore the
       # red) and the catastrophic one (re-tag and spend another version) look
       # identical from the run summary.
+      # PUBLISH THE RELEASE OBJECT. Measured 2026-08-20: 37 cut tags, ZERO
+      # release objects. Every cut produced a verified artefact no customer
+      # could obtain, because ostler.ai/install.dmg resolves via
+      # /releases/latest/ and no release carried the asset. This step is the
+      # permanent fix for that; the v1.0.37 publish was done by hand and Andy's
+      # instruction was that it belongs in the scripted process, not in a
+      # human's terminal.
+      #
+      # DELIBERATELY AFTER upload-artifact, for the same reason the appcast
+      # step is: a publish failure must never sit between a verified artefact
+      # and its upload. The artefact is already safe by the time this runs.
+      #
+      # The script HARD-FAILS on a missing token rather than skipping, and
+      # after publishing it fetches the CUSTOMER url and re-hashes the bytes.
+      # An upload that succeeded proves the API took bytes; only the customer
+      # url proves a customer can get them, and that is what was broken.
+      - name: Publish the release object, then prove the customer url serves it
+        if: always()
+        env:
+          PUBLISH_RELEASE_TOKEN: ${{ secrets.OSTLER_RELEASE_TOKEN_OSTLER_AI }}
+        run: |
+          set -uo pipefail
+          DMG="$(ls dist/*.dmg 2>/dev/null | head -1)"
+          if [ -z "$DMG" ]; then
+              echo "::error::No DMG found under dist/ to publish. The build step did not leave an artefact where this step looks."
+              exit 1
+          fi
+          /bin/bash scripts/publish_release.sh "${GITHUB_REF_NAME}" "$DMG"
+
       - name: AU-1 appcast publish (post-upload, cannot destroy the artefact)
         if: always()
         env:
