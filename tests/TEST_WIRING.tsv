@@ -218,7 +218,8 @@ test_uninstall_removes_every_launchagent_plist.sh	WIRED	.github/workflows/launch
 test_uninstaller_keep_prompt.sh	UNWIRED	-
 test_universal_import_leg_wired.sh	UNWIRED	-
 test_unreachable_is_not_absence.sh	WIRED	.github/workflows/unreachable-not-absence.yml
-test_upgrade_mode_invariants.sh	UNWIRED	-
+test_upgrade_mode_invariants.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
+test_upgrade_payload_shape_contract.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_user_facing_tree.sh	UNWIRED	-
 test_usr_local_bin_symlinks_gui_safe.sh	UNWIRED	-
 test_v1010_at_rest_exclusions.sh	UNWIRED	-

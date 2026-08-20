@@ -71,3 +71,17 @@ jobs:
         run: |
           /bin/bash -n tests/test_upgrade_payload_shape_contract.sh
           /bin/bash -n tests/test_upgrade_mode_invariants.sh
+
+  # THE BEHAVIOURAL UPGRADE SUITE HAD NEVER RUN IN CI. It was UNWIRED in
+  # tests/TEST_WIRING.tsv, so 31 assertions about data-loss prevention during a
+  # customer upgrade were sitting in the repo executing nowhere. It is hermetic
+  # (mocks launchctl and codesign through PATH shims, no network, no pip) but
+  # asserts with plutil, so it needs macOS rather than ubuntu.
+  behaviour:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upgrade-mode invariants (31 assertions, incl. rollback + no-stdin-hang)
+        run: /bin/bash tests/test_upgrade_mode_invariants.sh
