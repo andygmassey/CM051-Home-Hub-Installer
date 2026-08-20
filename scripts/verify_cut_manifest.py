@@ -655,22 +655,31 @@ def _box_walk_probe_search_dirs(cm051_dir: Path) -> list:
     """Every directory a probe may be registered in, in resolution order.
 
     #778. This used to return ONE directory, `scripts/box_walk_probes`, and
-    resolve `<name>.sh` directly inside it. The repo has TWO populations:
+    resolve `<name>.sh` directly inside it. At the time the repo had TWO
+    populations:
 
-        scripts/box_walk_probes/probes/*.sh    7 probes, each with a
-                                               --self-test negative control
+        scripts/box_walk_probes/probes/*.sh    probes with a --self-test
+                                               negative control
         scripts/box_walk_probes/*.sh           1 probe, people_seed_and_retrieval,
                                                735 lines, NO negative control
 
-    The split is deliberate and documented in that directory's README: the
-    runner (`run_box_walk.sh`) globs `probes/` ONLY, because phase 1 demands a
-    `--self-test` from everything it finds and the flat probe cannot supply one.
+    That split looked deliberate and was documented as such: the runner
+    (`run_box_walk.sh`) globs `probes/` ONLY, because phase 1 demands a
+    `--self-test` from everything it finds and the flat probe could not supply
+    one.
 
     What was NOT deliberate is that this gate looked only in the flat directory
     while the runner looked only in the subdirectory. The two instruments had
     ZERO probes in common. The gate could resolve exactly one probe -- the one
-    the runner never executes -- and the seven the runner does execute were
+    the runner never executes -- and the ones the runner does execute were
     unresolvable here, so no manifest could name them.
+
+    Every probe now lives in `probes/`, people_seed_and_retrieval included: it
+    gained a `--self-test` and moved, so the runner collects it. Both
+    directories are still searched. A flat probe is no longer expected, but a
+    resolver that stops finding a file the moment somebody puts it back where
+    it used to be is a trap, and the coverage tests below assert over whatever
+    is actually on disk rather than over an assumed layout.
 
     Searching both, subdirectory first, means a probe is visible to the gate
     wherever it is registered, and the coverage test in

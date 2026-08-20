@@ -748,11 +748,15 @@ def test_box_walk_probe_resolves_in_probes_subdir(fake_cm051, fake_app, monkeypa
 
 
 def test_box_walk_probe_still_resolves_flat(fake_cm051, fake_app, monkeypatch):
-    """people_seed_and_retrieval is flat ON PURPOSE and must keep resolving.
+    """A probe registered flat must keep resolving.
 
-    It has no --self-test, so run_box_walk.sh would mark it BROKEN and discard
-    its result. Keeping it out of probes/ is the deliberate half of the split;
-    this gate must still be able to run it.
+    Nothing ships flat any more -- people_seed_and_retrieval gained a
+    --self-test and moved into probes/, because sitting one level up meant
+    run_box_walk.sh never globbed it and it had never executed in a box walk.
+    The flat arm of the resolver stays anyway: a gate that stops finding a
+    probe the moment somebody puts one back in the directory it used to live in
+    fails by not-registered, which reads as "the probe is missing" rather than
+    "the probe is in the wrong place".
     """
     monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
     _write_probe(fake_cm051, "flatprobe", "exit 0")
