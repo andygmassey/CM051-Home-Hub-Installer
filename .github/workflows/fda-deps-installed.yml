@@ -113,66 +113,62 @@ jobs:
           set +e
           set -uo pipefail
 
-          # ── RESOLVING THE BASELINE, AND WHY THE OBVIOUS WAY IS WRONG ──
+          # ── THE BASELINE IS A PINNED PRE-FIX COMMIT. IT HAS TO BE. ──
           #
-          # The baseline must be the merge-base: main's TIP makes it MOVE under
-          # the PR (CM051 #787's shape), so a merge into main between two runs
-          # flips this arm for reasons unrelated to the change under test.
+          # This job needs a tree that does NOT contain the #805 fix. Two
+          # derivations were tried and BOTH are structurally incapable of
+          # providing one:
           #
-          # This job originally computed it as `git merge-base HEAD origin/main`
-          # and that is WRONG ON A pull_request EVENT. GitHub checks out
-          # refs/pull/N/merge — the head ALREADY MERGED INTO THE BASE — so HEAD
-          # contains main, and the merge-base of (main + head) with main is main
-          # itself. The baseline therefore included the very fix it was supposed
-          # to predate.
+          #   `git merge-base HEAD origin/main`
+          #       On a pull_request event GitHub checks out refs/pull/N/merge --
+          #       the head ALREADY MERGED INTO THE BASE. HEAD therefore contains
+          #       main, and the merge-base of (main + head) with main is main
+          #       itself. MEASURED on PR #903: resolved to bbb95693, main's tip.
           #
-          # MEASURED the moment #901 landed on main: the job on PR #903 resolved
-          # the baseline to bbb95693 (main's tip), ran the test against a tree
-          # that already had the fix, got 11/0, and reported ANTI-VACUITY FAILED.
-          # Locally, `git merge-base` on the real branch gives 209697df, which
-          # does NOT contain the fix. Two answers for one question, and CI had
-          # the wrong one.
+          #   `github.event.pull_request.base.sha`
+          #       Correct as a merge-base, and still wrong here: the moment #901
+          #       landed on main, EVERY subsequent PR's base contains the fix.
+          #       There is no derivation from a live branch that yields a
+          #       pre-fix tree once the fix is merged.
           #
-          # So the comment above was right and the implementation contradicted
-          # it — a moving baseline, arrived at by the exact route the comment
-          # warned against.
+          # The second attempt is the instructive one. It was not a worse
+          # implementation of the same idea -- it was the right value for a
+          # question this job is not asking. This job does not want "what did
+          # this PR branch from". It wants "a tree known to contain the bug",
+          # and that is a FIXED POINT IN HISTORY, not a moving reference.
           #
-          # `github.event.pull_request.base.sha` IS the merge-base GitHub
-          # computed for the PR, so take it directly rather than deriving it
-          # from a ref whose contents are not what the name suggests. On a push
-          # to main there is no PR, and the previous commit is the honest
-          # baseline.
-          BASE="${{ github.event.pull_request.base.sha }}"
-          if [ -n "$BASE" ]; then
-              echo "baseline: pull_request.base.sha (the merge-base GitHub computed)"
-          else
-              git fetch --quiet --deepen=2 origin "${GITHUB_REF_NAME}" 2>/dev/null || true
-              BASE="$(git rev-parse HEAD^ 2>/dev/null)" || BASE=""
-              echo "baseline: HEAD^ (push event, no pull_request context)"
-          fi
-          if [ -z "$BASE" ]; then
-              echo "CANNOT RUN: could not resolve a baseline commit."
-              echo "That is NOT a pass. A shallow fetch or a rewritten history"
-              echo "both produce it, and neither shows the test discriminates."
+          # scripts/verify_customer_download_path.sh's workflow (CM051 #886)
+          # already pins a blob for exactly this reason. I did it correctly
+          # there and derived it here, in the same week.
+          #
+          # PIN: 209697df is the commit immediately before #901 merged.
+          # Verified at pin time, and re-verified below on every run:
+          #     git show 209697df:install.sh | grep -c 'FDA_VENV_PIP.*install.*-e'  -> 0
+          #     git show origin/main:install.sh | grep -c ...                       -> 1
+          BASE=209697dfc73091ee49e82df863961809dc5062a1
+          git fetch --quiet origin "${BASE}" 2>/dev/null || true
+          if ! git cat-file -e "${BASE}:install.sh" 2>/dev/null; then
+              echo "CANNOT RUN: pinned pre-fix commit ${BASE} is not present in"
+              echo "this checkout. A shallow fetch or a rewritten history both"
+              echo "produce this, and neither shows the test discriminates."
               exit 1
           fi
+          echo "baseline: pinned pre-fix commit ${BASE}"
 
-          # AND ASSERT WHAT WE JUST RESOLVED. A baseline that already contains
-          # the fix cannot prove anything, and it fails in the confusing
-          # direction — as "the test no longer discriminates" rather than as
-          # "the baseline is wrong". Say which it is.
+          # AND VERIFY THE PIN IS STILL PRE-FIX, every run. A pin is a claim
+          # about history, and this asserts it rather than trusting the comment
+          # above -- which is the whole lesson of this file.
+          #
+          # If this fires, the BASELINE is wrong, not the test. Said explicitly
+          # because the failure otherwise presents as loss of discrimination
+          # and points a tired reader at the wrong file. That misdirection
+          # already cost one diagnosis.
           if git show "${BASE}:install.sh" 2>/dev/null \
                | grep -q 'FDA_VENV_PIP.*install.*-e'; then
-              echo "CANNOT RUN: the resolved baseline ${BASE} ALREADY CONTAINS the"
-              echo "#805 fix, so it cannot serve as a pre-fix tree. This is a"
-              echo "BASELINE RESOLUTION fault, not a loss of discrimination in the"
-              echo "test. Do not 'fix' the test in response to this message."
-              exit 1
-          fi
-          echo "baseline (merge-base with origin/main): ${BASE}"
-
-          if ! git cat-file -e "${BASE}:install.sh" 2>/dev/null; then
-              echo "CANNOT RUN: install.sh absent at ${BASE}. Not a pass."
+              echo "CANNOT RUN: the pinned baseline ${BASE} CONTAINS the #805 fix,"
+              echo "so it cannot serve as a pre-fix tree. This is a BASELINE"
+              echo "fault, NOT a loss of discrimination in the test."
+              echo "DO NOT 'fix' the test in response to this message."
               exit 1
           fi
 
