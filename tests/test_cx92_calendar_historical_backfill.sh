@@ -75,6 +75,117 @@ if [[ ! -f "$INSTALL_SH" ]]; then
     exit 2
 fi
 
+# ── --self-test: prove each control CAN go red ───────────────────────
+#
+# A control that has never been observed failing is not evidence that it can
+# fail. This mode reinstates each half of the CX-92 defect in a COPY of
+# install.sh (and of the strings catalogue) and requires the suite to go RED
+# against it -- then requires the UNMUTATED copy to go GREEN, so that it is
+# the mutation and not the copying that moved the verdict.
+#
+# It re-invokes this same file through OSTLER_TEST_INSTALL_SH /
+# OSTLER_TEST_STRINGS_SH, so the predicate under test is the real one and not
+# a paraphrase of it that could drift.
+if [[ "${1:-}" == "--self-test" ]]; then
+    ST_FAILED=0
+    ST_DIR="$(mktemp -d)"
+    trap 'rm -rf "$ST_DIR"' EXIT
+    ST_SELF="${BASH_SOURCE[0]}"
+
+    _st_run() {  # $1 = install.sh path, $2 = strings path
+        OSTLER_TEST_INSTALL_SH="$1" OSTLER_TEST_STRINGS_SH="$2" \
+            bash "$ST_SELF" >/dev/null 2>&1
+    }
+
+    _st_expect_red() {  # $1 = label, $2 = install.sh, $3 = strings
+        if _st_run "$2" "$3"; then
+            echo "SELF-TEST FAIL: $1 -- suite PASSED against a reinstated defect" >&2
+            ST_FAILED=1
+        else
+            echo "  red as required: $1"
+        fi
+    }
+
+    _st_mutation_landed() {  # $1 = label, $2 = before, $3 = after
+        if cmp -s "$2" "$3"; then
+            echo "SELF-TEST FAIL: $1 changed nothing -- the mutation missed its target" >&2
+            ST_FAILED=1
+        fi
+    }
+
+    cp "$INSTALL_SH" "${ST_DIR}/clean.sh"
+    cp "$STRINGS_SH" "${ST_DIR}/clean.strings.sh"
+
+    # BASELINE FIRST. If the untouched copies do not pass, every "red" below
+    # is uninterpretable: it would be the copy failing, not the defect.
+    if _st_run "${ST_DIR}/clean.sh" "${ST_DIR}/clean.strings.sh"; then
+        echo "  green as required: unmutated copy"
+    else
+        echo "SELF-TEST FAIL: the UNMUTATED copy does not pass -- every red below is uninterpretable" >&2
+        ST_FAILED=1
+    fi
+
+    # M1: renarrow the backward window to the CX-92 value.
+    sed 's/OSTLER_HYDRATE_CALENDAR_DAYS:-1825/OSTLER_HYDRATE_CALENDAR_DAYS:-90/' \
+        "${ST_DIR}/clean.sh" > "${ST_DIR}/m1.sh"
+    _st_mutation_landed "M1" "${ST_DIR}/clean.sh" "${ST_DIR}/m1.sh"
+    _st_expect_red "M1 backward window back to 90d" \
+        "${ST_DIR}/m1.sh" "${ST_DIR}/clean.strings.sh"
+
+    # M2: restore the literal forward window.
+    sed 's/future_days=${OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS}/future_days=30/' \
+        "${ST_DIR}/clean.sh" > "${ST_DIR}/m2.sh"
+    _st_mutation_landed "M2" "${ST_DIR}/clean.sh" "${ST_DIR}/m2.sh"
+    _st_expect_red "M2 forward window back to a literal 30" \
+        "${ST_DIR}/m2.sh" "${ST_DIR}/clean.strings.sh"
+
+    # M3: remove the heartbeat, so a multi-year ingest reads as a hang again.
+    sed '/_hydrate_heartbeat_start "\$MSG_HYDRATE_CALENDAR_HEARTBEAT"/d' \
+        "${ST_DIR}/clean.sh" > "${ST_DIR}/m3.sh"
+    _st_mutation_landed "M3" "${ST_DIR}/clean.sh" "${ST_DIR}/m3.sh"
+    _st_expect_red "M3 heartbeat removed" \
+        "${ST_DIR}/m3.sh" "${ST_DIR}/clean.strings.sh"
+
+    # M4: put the 90-day promise back in the sentence the customer reads.
+    sed 's/^MSG_HYDRATE_CALENDAR_STARTED=.*/MSG_HYDRATE_CALENDAR_STARTED="Loading your last 90 days of calendar"/' \
+        "${ST_DIR}/clean.strings.sh" > "${ST_DIR}/m4.strings.sh"
+    _st_mutation_landed "M4" "${ST_DIR}/clean.strings.sh" "${ST_DIR}/m4.strings.sh"
+    _st_expect_red "M4 customer string promises 90 days again" \
+        "${ST_DIR}/clean.sh" "${ST_DIR}/m4.strings.sh"
+
+    # M5: THE COMMENT TRAP, and the reason this file strips comments at all.
+    # Leave the M1 defect in place and inject a COMMENT naming every variable
+    # and value the assertions look for. A guard that matched prose would go
+    # GREEN here. That is the single most likely way this file rots into
+    # decoration, and it is the exact failure the estate hit elsewhere.
+    {
+        echo '# OSTLER_HYDRATE_CALENDAR_DAYS="${OSTLER_HYDRATE_CALENDAR_DAYS:-1825}"'
+        echo '# OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS="${OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS:-365}"'
+        echo '# events = extract_events(since_days=${OSTLER_HYDRATE_CALENDAR_DAYS}, future_days=${OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS})'
+        echo '# _hydrate_heartbeat_start "$MSG_HYDRATE_CALENDAR_HEARTBEAT"'
+        echo '# _hydrate_heartbeat_stop'
+    } > "${ST_DIR}/prose.txt"
+    awk -v prose="${ST_DIR}/prose.txt" '
+        /^# Calendar hydration/ {
+            print
+            while ((getline line < prose) > 0) print line
+            close(prose)
+            next
+        }
+        { print }
+    ' "${ST_DIR}/m1.sh" > "${ST_DIR}/m5.sh"
+    _st_mutation_landed "M5" "${ST_DIR}/m1.sh" "${ST_DIR}/m5.sh"
+    _st_expect_red "M5 defect present but a comment names every token" \
+        "${ST_DIR}/m5.sh" "${ST_DIR}/clean.strings.sh"
+
+    if (( ST_FAILED == 0 )); then
+        echo "PASS: tests/test_cx92_calendar_historical_backfill.sh --self-test"
+        exit 0
+    fi
+    echo "FAILED: tests/test_cx92_calendar_historical_backfill.sh --self-test" >&2
+    exit 1
+fi
+
 # ── Carve the Calendar hydration block ───────────────────────────────
 # Bounded by STRUCTURE (its own header to the next hydration header),
 # never by a line count, so the slice cannot silently drift as the file

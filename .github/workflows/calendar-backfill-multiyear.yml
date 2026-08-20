@@ -1,0 +1,105 @@
+name: calendar-backfill-multiyear
+
+# CX-92 / board #554: the install-time calendar backfill must stay MULTI-YEAR.
+#
+# ============================================================================
+# WHY A VALUE GATE AND NOT A WIRING GATE
+# ============================================================================
+#
+# tests/test_cx101_calendar_hydrate_path.sh already guards this block, but it
+# is a WIRING test: it asserts the block "uses a documented env var for
+# since_days" and deliberately accepts either name. It passes at 90 days, at
+# 1825, and at 1. So the renarrowing that CX-106 performed -- and that #554 is
+# about -- was invisible to it, and stayed invisible for three months while the
+# installer told customers "the last 90 days" and the wiki Events page sat
+# empty.
+#
+# This gate asserts the VALUES, and the customer-facing sentence that quotes
+# them.
+#
+# ============================================================================
+# AND IT WIRES THE OLD TEST UP, BECAUSE IT WAS DARK
+# ============================================================================
+#
+# test_cx101_calendar_hydrate_path.sh was recorded UNWIRED in
+# tests/TEST_WIRING.tsv: nothing ran it, so the CX-101 contract it guards
+# (calendar hydrates via ostler_fda, never via meeting_syncer + CalDAV) has
+# been unenforced since it was written. It is one line to run it from a job
+# that is already checking out the same file, and leaving it dark while adding
+# a sibling next to it would be knowingly writing the same debt twice.
+#
+# ============================================================================
+# WHY THE SELF-TEST IS ITS OWN JOB
+# ============================================================================
+#
+# Same reason fda-rerun-recurs.yml gives: a failing step skips everything after
+# it, so a broken predicate would take the gate it guards down with it and the
+# run would report one red line instead of two. Separate jobs report
+# independently.
+#
+# ============================================================================
+# WHY macos
+# ============================================================================
+#
+# The suite carves and parses install.sh (bash -n) and the self-test mutates
+# copies of it with BSD sed. The installer only ever runs on macOS; the gate
+# runs where the code runs.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_cx92_calendar_historical_backfill.sh'
+      - 'tests/test_cx101_calendar_hydrate_path.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/calendar-backfill-multiyear.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  window-controls:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # Exit 2 is CANNOT-RUN (the Calendar hydration block could not be
+      # located) and CI treats it as failure, which is correct: a gate that
+      # cannot find what it guards has not passed.
+      - name: Install-time calendar window must be 5 years back, 1 year forward
+        run: bash tests/test_cx92_calendar_historical_backfill.sh
+
+      # Previously dark. See the header.
+      - name: Calendar must hydrate via the FDA path, not meeting_syncer/CalDAV
+        if: always()
+        run: bash tests/test_cx101_calendar_hydrate_path.sh
+
+      - name: Tests parse under bash 3.2-compatible syntax
+        if: always()
+        run: |
+          bash -n tests/test_cx92_calendar_historical_backfill.sh
+          bash -n tests/test_cx101_calendar_hydrate_path.sh
+
+  # SEPARATE JOB, deliberately. See the header.
+  predicate-self-test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reinstates each half of the defect in a copy of install.sh and requires
+      # the matching control to go RED, having first required the UNMUTATED
+      # copy to go GREEN. Includes M5, the comment trap: the defect present but
+      # a comment naming every token the assertions look for. A guard that
+      # matched prose would pass M5, and that is how this file would rot into
+      # decoration without anyone noticing.
+      - name: The controls must go red when the defect is reinstated
+        run: bash tests/test_cx92_calendar_historical_backfill.sh --self-test
