@@ -19174,6 +19174,68 @@ fi
 # (vCard file + localhost ical-server) and written locally
 # (Oxigraph at :7878, Qdrant at :6333). No telemetry of volumes.
 
+# --------------------------------------------------------------------------
+# #743 NAMESPACE MIGRATION -- the invocation, without which the script is dark.
+#
+# scripts/migrate_graph_namespace.py existed and NOTHING CALLED IT. Its own
+# commit message said it was the migration "without which merging this PR
+# breaks every existing box", and merging it still broke every existing box,
+# because a tool nobody runs is a tool that does nothing. That is the whole of
+# blocker #2 on #888 and this block is it.
+#
+# WHY HERE, BEFORE THE FIRST WRITER RATHER THAN AFTER THE LAST.
+#
+# Everything below this line writes into Oxigraph, and everything after it
+# reads. Migrating first means the rest of the install sees exactly one
+# namespace. Run it last and the readers in between -- ical-server, the
+# privacy backfill, the first wiki compile -- would each meet a store that is
+# half one scheme and half the other, which is the state with no correct
+# behaviour available to any of them.
+#
+# WHO THIS ACTUALLY AFFECTS, stated rather than implied. v1.0 has no in-place
+# upgrade channel and a fresh install regenerates every identifier, so a new
+# customer has nothing to migrate: the store is empty, the script refuses
+# below its 1000-triple floor, and this block exits having done nothing. The
+# exposure is boxes where install.sh RE-RUNS over an existing Oxigraph volume
+# -- the Studio, .224, beta boxes, the box walk. That is a small population
+# and it is exactly the population that would otherwise be broken by the
+# reader-constant changes in the same PR.
+#
+# NON-FATAL, AND THE ASYMMETRY IS DELIBERATE. A failure here leaves the store
+# in its pre-migration namespace, which is the state every currently shipping
+# box is already in and which the pre-#888 readers handle. Aborting the
+# install instead would turn a cosmetic-namespace problem into a customer who
+# has no Ostler. So: warn loudly, record it, continue. It retries on the next
+# run because the script is idempotent -- a migrated store reports zero
+# occurrences and skips every rule.
+#
+# rc CONTRACT, and 2 is NOT a failure:
+#   0  migrated, or already clean
+#   2  CANNOT-RUN (store empty/unreachable, or backup refused) -- not an error
+#   1  a rule ran and left residue, or a count changed. THAT is a real problem
+#      and it is the one that gets the loud warning.
+_ns_migrate_script="${OSTLER_DIR:-$PWD}/scripts/migrate_graph_namespace.py"
+if [[ -r "$_ns_migrate_script" ]]; then
+    info "Checking your graph's identifier namespace"  # i18n-exempt
+    _ns_rc=0
+    python3 "$_ns_migrate_script" local --apply \
+        --backup-path "${OSTLER_DIR:-$PWD}/ostler-graph-premigration.nq" \
+        >>/tmp/ostler-ns-migration.log 2>&1 || _ns_rc=$?
+    case "$_ns_rc" in
+        0) ok "Graph identifiers are current" ;;  # i18n-exempt
+        2) : ;;  # nothing to migrate on a fresh box; the log says which
+        *) warn "Identifier namespace migration did not complete (rc=$_ns_rc). Your data is intact and unchanged. See /tmp/ostler-ns-migration.log"  # i18n-exempt
+           ;;
+    esac
+    unset _ns_rc
+else
+    # Say so rather than skipping in silence: an absent migrator on a box that
+    # needs one is the same invisible-failure shape this block exists to end.
+    warn "Namespace migrator not found at ${_ns_migrate_script}; skipping"  # i18n-exempt
+fi
+unset _ns_migrate_script
+# --------------------------------------------------------------------------
+
 progress "Hydrating your graph from iCloud" "hydrate_graph"
 
 # #48g historical backfill idempotency (CX-84/85/86, 2026-05-29).
