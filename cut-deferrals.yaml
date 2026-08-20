@@ -2382,3 +2382,102 @@ deferrals:
       re-pin of a shipped ingest tree on cut night, which is the same argument
       already recorded for CM041:#117.
     until_cut: "v1.0.27"
+
+  # =========================================================================
+  # v1.0.37 CUT NIGHT (2026-08-20). Eight rows, three distinct reasons.
+  # Written after the check-orphans gate refused the cut with 12 REDs.
+  # Two of those were mine and got DELETED (pr870f, pr871 -- fetch refs whose
+  # content is verified identical to main). Three were CM051 PRs and got
+  # MERGED (#878, #875, #872), because CM051 main IS the shipping ref, so
+  # merging there puts the work IN the cut rather than around it. These eight
+  # are the remainder, and every one is held for a mechanical reason I read
+  # out of the gate body rather than assumed.
+  # =========================================================================
+
+  - ref: "CM051:archie/email-settling-progress-never-advances"
+    reason: >-
+      PART 2 OF 2, AND PART 1 IS NOT WRITTEN. This was LOCAL-ONLY when the gate
+      caught it, which is the #632 class the rule exists for -- real work on
+      exactly one disk. It is now PUSHED to origin, so it is durable and
+      visible, and this row records why it is not merged rather than letting
+      the push quietly satisfy the predicate. The defect: the email settling
+      shard's progress never advances. Part 2 (here) advances the shard from
+      the tick. Part 1 is install.sh:20059, which seeds `done` from
+      people_extracted while `total` counts MESSAGES -- two different
+      populations in one fraction, so the bar is wrong even once it moves. TNM
+      called it correctly: both halves land as ONE PR or neither does. Merging
+      part 2 alone would make the bar move to a wrong number, which is worse
+      than a bar that does not move, because a stuck bar is legibly broken and
+      a moving wrong one is not.
+    until_cut: "v1.0.38"
+
+  - ref: "CM044:#211"
+    reason: >-
+      CONFLICTING against CM044 main (mergeable=CONFLICTING, state=DIRTY), so
+      it could not be merged tonight even if the cut wanted it. It fixes the
+      release pull-verify asking for media types single-arch arm64 images do
+      not carry -- the shape that killed four releases. Not load-bearing for
+      this cut: v0.1.21 already released and its images are built, pinned and
+      digest-verified. Resolve the conflict in daylight, on top of #221's
+      release-gate fix, which touches the same workflow.
+    until_cut: "v1.0.38"
+
+  - ref: "CM044:#212"
+    reason: >-
+      Dependabot, actions/setup-python 5 -> 7. Held for the wiki-pin mechanism,
+      not for its content. verify_cut_freshness.sh check_wiki() resolves the
+      install.sh image digest through scripts/wiki_image_provenance.tsv to a
+      recorded CM044 sha and compares that against CM044 MAIN HEAD -- so ANY
+      merge to CM044 main puts the shipped wiki pin behind upstream and turns
+      the wiki freshness row RED. A stale wiki image is fail-closed with no
+      exemption path except a hold_ack. Taking a CI-runner bump would therefore
+      cost a full two-image rebuild, re-tag and re-pin on cut night. Read out
+      of the gate body at scripts/verify_cut_freshness.sh:930, not assumed.
+    until_cut: "v1.0.38"
+
+  - ref: "CM044:#213"
+    reason: >-
+      Dependabot, pytest >=8.0 -> >=9.1.1. Same wiki-pin mechanism as
+      CM044:#212, and this one additionally changes a test dependency inside
+      the tree the compiler image is built from, so it is a rebuild by content
+      as well as by pin. A major pytest bump wants a green suite observed
+      before it rides a customer image, which is a daylight task.
+    until_cut: "v1.0.38"
+
+  - ref: "CM044:#214"
+    reason: >-
+      Dependabot, requests >=2.32.0 -> >=2.34.2. Same wiki-pin mechanism as
+      CM044:#212. requests is a RUNTIME dependency of the compiler, so this is
+      squarely a rebuild-and-re-pin, not a CI-only bump.
+    until_cut: "v1.0.38"
+
+  - ref: "CM044:#215"
+    reason: >-
+      Dependabot, markdown >=3.5 -> >=3.10.3. Same wiki-pin mechanism as
+      CM044:#212, and markdown is the renderer itself -- a major bump changes
+      page OUTPUT, so it needs a compile diff on real content before it ships,
+      not a merge at 03:30 on cut night.
+    until_cut: "v1.0.38"
+
+  - ref: "CM044:#216"
+    reason: >-
+      Dependabot, pymdown-extensions <11.0 -> >=11.0.1. Same wiki-pin mechanism
+      as CM044:#212 and the same render-output argument as CM044:#215. These
+      two are the pair most likely to move rendered HTML, so they merge
+      together, with a compile diff, and then one image rebuild covers both.
+    until_cut: "v1.0.38"
+
+  - ref: "daemon:#314"
+    reason: >-
+      REAL DEFECT, REAL FIX, AND MERGING IT TONIGHT WOULD BREAK THE CUT. It
+      restores Colima autostart, which one timed-out probe silently switched
+      off -- a reboot currently takes all seven containers down, wiki included,
+      and the daemon still reports status:ok (task #417). It cannot land now
+      because ostler-ai/ostler-assistant main IS the DAEMON_COMMIT pinned by
+      cuts/v1.0.37/cut.env (5b7efb00a541), so a merge moves main off the pin
+      and flips the daemon freshness row from FRESH to RED STALE. A stale
+      daemon is fail-closed with no exemption. Same argument, same mechanism
+      and same instruction as the daemon:fix/settings-preferences-ia row above:
+      MERGE IT IMMEDIATELY AFTER THE v1.0.37 TAG IS PUSHED, so it is in the
+      next daemon build rather than waiting for someone to rediscover it.
+    until_cut: "v1.0.38"
