@@ -7,7 +7,7 @@
         The Editor - Front Page refresh LaunchAgent (CM059).
 
         Hourly, recompiles the interest profile from the live PWG graph and
-        re-emits ~/.ostler/editor/front_page.{json,html} -- the file the Hub
+        re-emits ~/.ostler/editor/front_page.{json,html}, the file the Hub
         app Dashboard's <FrontPageCards> reads via the get_front_page Tauri
         command. The producer never blanks: without graph data it writes a
         graceful "still settling in" card, and fills with interest cards as
@@ -42,7 +42,7 @@
 
     <!--
         Hourly (3600s). The emit is a single read-only SPARQL query plus
-        in-process scoring -- cheap enough to keep the Front Page fresh
+        in-process scoring, cheap enough to keep the Front Page fresh
         without load. Matches CM059's own cadence.
     -->
     <key>StartInterval</key>

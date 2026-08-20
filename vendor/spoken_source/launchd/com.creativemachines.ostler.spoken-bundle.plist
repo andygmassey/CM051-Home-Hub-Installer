@@ -63,7 +63,7 @@
 
     <!--
         RunAtLoad fires once at login / post-install. The wrapper
-        clamps the read window via --since-days so a fresh install
+        clamps the read window via the since-days flag so a fresh install
         does not try to bundle every historic recording in one tick.
         The wrapper also exits 0 cleanly when the transcripts directory
         is absent (RemoteCapture never run), so RunAtLoad never
@@ -85,7 +85,7 @@
         PWG_CONVO_CMD tells the dispatcher how to invoke CM048's CLI
         (rendered to the CM048 venv at install time). Without these the
         tick falls through to a stock system python with no
-        site-packages -- the same launch-blocker shape the email-bundle
+        site-packages, the same launch-blocker shape the email-bundle
         agent guards against.
     -->
     <key>EnvironmentVariables</key>

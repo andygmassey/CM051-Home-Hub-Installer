@@ -62,7 +62,7 @@
 
     <!--
         RunAtLoad fires once at login / post-install. The wrapper clamps
-        the read window via --since-days (365, "your last year of
+        the read window via the since-days flag (365, "your last year of
         WhatsApp") so a fresh install does not bundle the entire store in
         one tick. The wrapper also exits 0 cleanly when ChatStorage.sqlite
         is absent (WhatsApp Desktop never run), so RunAtLoad never
