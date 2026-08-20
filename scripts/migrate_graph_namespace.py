@@ -51,8 +51,51 @@ RULES = [
 ]
 
 
+def _get(host, url, accept, timeout):
+    """A real GET, because the backup is a READ and run() only ever POSTs.
+
+    🔴 THIS EXISTS BECAUSE THE BACKUP COULD NOT SUCCEED AND I WIRED IT INTO
+    install.sh ANYWAY.
+
+    run() always passes `--data-binary @-`, which makes every request a POST.
+    Sent at /store that is an ADD-NOTHING, not a dump. Measured on the live box:
+
+        POST /store?graph=   (as it was)          0 bytes      0 named-graph lines
+        GET  /store?graph=default                52 bytes      0 named-graph lines
+        GET  /store                      33,335,681 bytes  6,108 named-graph lines
+
+    Follow that through the install path: backup returns 0 bytes, the size guard
+    fires, the script exits 2, rc=2 is CANNOT-RUN and deliberately non-fatal, the
+    install continues -- AND THE STORE IS NEVER MIGRATED. The compiler then
+    queries schema.ostler.ai against a store holding only pwg.dev, the customer's
+    wiki renders blank, and nothing anywhere goes red.
+
+    The non-fatal choice was right. Combined with a backup that could not
+    succeed, it was a silent no-op on every install, and I built the silence.
+
+    `/store` with no graph parameter is the request that returns the WHOLE store
+    including named graphs -- which is exactly what the N-Quads reasoning above
+    asks for, and what `?graph=default` cannot give.
+    """
+    if host in ("local", "localhost", "-"):
+        req = urllib.request.Request(url, method="GET",
+                                     headers={"Accept": accept})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout - 20) as r:
+                return r.read().decode("utf-8", "replace"), "", 0
+        except urllib.error.HTTPError as e:
+            return "", f"HTTP {e.code}: {e.read()[:200]!r}", e.code
+        except Exception as e:  # noqa: BLE001
+            return "", f"{type(e).__name__}: {e}", 1
+    cmd = ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", host,
+           f"curl -s --fail-with-body --max-time {timeout - 20} "
+           f"-H 'Accept: {accept}' {url}"]
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    return p.stdout, p.stderr, p.returncode
+
+
 def run(host, path, body, ctype, accept="application/sparql-results+json",
-        timeout=300):
+        timeout=300, method="POST"):
     """Two transports, one caller.
 
     At INSTALL time this runs ON the Hub and talks to 127.0.0.1 directly --
@@ -62,6 +105,8 @@ def run(host, path, body, ctype, accept="application/sparql-results+json",
     another is not the thing that was rehearsed.
     """
     url = f"http://127.0.0.1:7878{path}"
+    if method == "GET":
+        return _get(host, url, accept, timeout)
     if host in ("local", "localhost", "-"):
         req = urllib.request.Request(
             url, data=body.encode("utf-8"),
@@ -375,11 +420,25 @@ def main():
     # silently omit the 11,238 triples that live in one, and the backup would
     # have the same blind spot as the bug.
     if not args.no_backup:
-        out, err, rc = run(h, "/store?graph=", "", "application/n-quads",
-                           accept="application/n-quads", timeout=600)
-        if rc != 0 or len(out) < 1000:
-            print(f"  [FAIL] BACKUP FAILED rc={rc} bytes={len(out)}: "
-                  f"{(err or out)[:200]}")
+        out, err, rc = run(h, "/store", "", "application/n-quads",
+                           accept="application/n-quads", timeout=600,
+                           method="GET")
+        # 🔴 SIZE IS NOT THE ASSERTION. A byte count cannot tell a whole-store
+        # dump from a default-graph-only one -- 52 bytes and 33MB both pass a
+        # ">1000" test if the tree is small, and the ONE thing this backup
+        # exists to protect is the named graph holding the compartment.
+        # So assert the SHAPE: N-Quads writes a fourth term ONLY for a
+        # quad in a named graph, so at least one four-term line is positive
+        # proof the compartment was captured. Archie's closing condition, and
+        # it is the right one: a backup that cannot prove it captured the
+        # compartment has the same blindness as the bug it insures against.
+        quads = sum(1 for ln in out.splitlines()
+                    if len(ln.rstrip(" .").split()) >= 4 and ln.endswith("."))
+        if rc != 0 or len(out) < 1000 or quads < 1:
+            print(f"  [FAIL] BACKUP FAILED rc={rc} bytes={len(out)} "
+                  f"named-graph-lines={quads}: {(err or out)[:200]}")
+            print("  A backup with zero four-term lines did not capture the"
+                  " named graph, so it cannot restore the compartment.")
             print("  Refusing to migrate without one. --no-backup overrides,"
                   " and you should be able to say why.")
             return 2
