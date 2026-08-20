@@ -581,7 +581,43 @@
 +    }
 --- a/agent/diagnostic_copy.py
 +++ b/agent/diagnostic_copy.py
-@@ -383,4 +383,112 @@
+@@ -98,6 +98,35 @@
+ )
+ CONTAINER_CRASHED_FIX = "Check the error message in the container logs"
+ CONTAINER_CRASHED_FIX_COMMAND_FMT = "docker logs --tail=30 {name}"
++
++# The state the three rules above cannot express: not an unhealthy
++# container, but NO container list at all. Measured on the Mini
++# 2026-08-20 after a power cycle -- Colima was down, `docker ps` failed,
++# and the collector returned an empty list. Each rule loops over that
++# list, runs its body zero times, and contributes nothing, so a box with
++# Qdrant, Oxigraph, Redis, Vane, wiki-site and store-proxy all gone
++# rendered exactly like a healthy one.
++#
++# The detail carries the collector's own error text rather than a
++# paraphrase, because the failure must name what was MEASURED. A guess
++# here ("Docker may not be running") is the same mistake as reading
++# colima's "lima not found" as a missing package when lima was installed
++# and merely unreachable.
++CONTAINER_ENGINE_UNREACHABLE_TITLE = (
++    "The container stack could not be examined at all"
++)
++CONTAINER_ENGINE_UNREACHABLE_DETAIL_FMT = (
++    "Listing containers failed: {error}. Every Ostler store runs as a "
++    "container, so while this persists the wiki, search and knowledge "
++    "graph are unavailable AND their health is unknown -- this card is "
++    "reporting that nothing could be checked, not that nothing is wrong."
++)
++CONTAINER_ENGINE_UNREACHABLE_FIX = (
++    "Start the container runtime, then confirm the stores come back"
++)
++CONTAINER_ENGINE_UNREACHABLE_FIX_COMMAND = (
++    "/opt/homebrew/bin/colima start && /opt/homebrew/bin/docker ps"
++)
+ 
+ 
+ # ── check_qdrant_health ──────────────────────────────────────────────
+@@ -383,4 +412,112 @@
      "After granting access, restart the assistant: "
      "launchctl kickstart -k gui/$(id -u)/"
      "com.creativemachines.ostler.assistant"
@@ -601,7 +637,7 @@
 +
 +IMESSAGE_CAPTURE_STALLED_TITLE = (
 +    "iMessage capture stalled: waiting for Full Disk Access"
-+)
+ )
 +IMESSAGE_CAPTURE_STALLED_DETAIL = (
 +    "Ostler's iMessage capture is retrying but cannot open your Messages "
 +    "database yet, so no messages are being read. macOS blocks access until "
@@ -641,7 +677,7 @@
 +    "The most recent update did not complete, so your previous (working) "
 +    "version of Ostler is still running. Nothing was lost. The Doctor logs "
 +    "have the details if you want to see what stopped it."
- )
++)
 +LAST_UPGRADE_FAILED_FIX = (
 +    "You can try the update again later. If it keeps stopping, the Doctor "
 +    "logs (in this window) show where."
@@ -714,7 +750,18 @@
      ALL_UNREACHABLE_DETAIL,
      ALL_UNREACHABLE_FIX,
      ALL_UNREACHABLE_FIX_COMMAND,
-@@ -79,6 +85,14 @@
+@@ -38,6 +44,10 @@
+     CONTAINER_CRASHED_DETAIL_FMT,
+     CONTAINER_CRASHED_FIX,
+     CONTAINER_CRASHED_FIX_COMMAND_FMT,
++    CONTAINER_ENGINE_UNREACHABLE_TITLE,
++    CONTAINER_ENGINE_UNREACHABLE_DETAIL_FMT,
++    CONTAINER_ENGINE_UNREACHABLE_FIX,
++    CONTAINER_ENGINE_UNREACHABLE_FIX_COMMAND,
+     CONTAINER_CRASHED_TITLE_FMT,
+     CONTAINER_NEVER_STARTED_DETAIL,
+     CONTAINER_NEVER_STARTED_FIX,
+@@ -79,6 +89,14 @@
      HIGH_MEM_CONTAINER_FIX,
      HIGH_MEM_CONTAINER_FIX_COMMAND_FMT,
      HIGH_MEM_CONTAINER_TITLE_FMT,
@@ -729,7 +776,7 @@
      IMESSAGE_FDA_DETAIL,
      IMESSAGE_FDA_FIX,
      IMESSAGE_FDA_FIX_COMMAND,
-@@ -95,6 +109,15 @@
+@@ -95,6 +113,15 @@
      IMPORT_READY_DETAIL,
      IMPORT_READY_FIX_COMMAND,
      IMPORT_READY_TITLE,
@@ -745,7 +792,7 @@
      LOW_RAM_DETAIL,
      LOW_RAM_TITLE_FMT,
      MANY_MODELS_DETAIL,
-@@ -152,7 +175,9 @@
+@@ -152,7 +179,9 @@
      is_ostler_container,
  )
  
@@ -755,7 +802,47 @@
  def check_first_install(snapshot: Any) -> list[dict]:
      """Detect common first-install problems."""
      findings = []
-@@ -942,6 +967,241 @@
+@@ -228,8 +257,38 @@
+ 
+ 
+ def check_container_health(snapshot: Any) -> list[dict]:
+-    """Detect container-level issues."""
++    """Detect container-level issues.
++
++    THE FIRST ARM IS NOT ABOUT A CONTAINER. It is about the absence of a
++    container LIST, which the three per-container arms below cannot
++    express: each loops `snapshot.docker_containers`, so an empty list
++    runs zero bodies and contributes zero findings, exactly like a
++    healthy stack.
++
++    Measured on the Mini 2026-08-20 after a power cycle: Colima was down,
++    `docker ps` failed, and the six stores were gone. Every per-container
++    arm stayed silent because there was nothing to loop over. Absence is
++    not health, and a zero denominator is not a clean result.
++    """
+     findings = []
++
++    # docker_error is set ONLY when the engine could not be queried. It is
++    # not the same as an empty list on a reachable engine, which is a
++    # legitimate state on a box whose stack has not started yet, and which
++    # deliberately does NOT fire here.
++    docker_error = getattr(snapshot, "docker_error", None)
++    if docker_error:
++        findings.append({
++            "severity": "critical",
++            "title": CONTAINER_ENGINE_UNREACHABLE_TITLE,
++            "detail": CONTAINER_ENGINE_UNREACHABLE_DETAIL_FMT.format(
++                error=docker_error
++            ),
++            "fix": CONTAINER_ENGINE_UNREACHABLE_FIX,
++            "fix_command": CONTAINER_ENGINE_UNREACHABLE_FIX_COMMAND,
++            "risk": "low",
++            "category": "runtime",
++        })
+ 
+     for c in snapshot.docker_containers:
+         # Container restarting (crash loop)
+@@ -942,6 +1001,241 @@
          "detail": detail,
          "fix": IMESSAGE_FDA_FIX,
          "fix_command": IMESSAGE_FDA_FIX_COMMAND,
@@ -997,7 +1084,7 @@
          "risk": "low",
          "category": "installation",
      })
-@@ -951,6 +1211,84 @@
+@@ -951,6 +1245,84 @@
  # ── Rule registry ────────────────────────────────────────────────────
  
  
@@ -1082,7 +1169,7 @@
  ALL_RULES = [
      check_first_install,
      check_container_health,
-@@ -969,6 +1307,9 @@
+@@ -969,6 +1341,9 @@
      check_mail_content,
      check_backfill_progress,
      check_imessage_fda,
@@ -1092,7 +1179,7 @@
  ]
  
  
-@@ -978,8 +1319,43 @@
+@@ -978,8 +1353,43 @@
      for rule in ALL_RULES:
          try:
              findings.extend(rule(snapshot))
@@ -3537,7 +3624,22 @@
  QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
  OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
  REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-@@ -218,6 +227,31 @@
+@@ -209,6 +218,14 @@
+     hostname: str | None = None
+     os_version: str | None = None
+     docker_containers: list[DockerContainerInfo] = field(default_factory=list)
++    # Why an EMPTY docker_containers is not self-explanatory, and why this
++    # field has to exist: collect_docker_containers() returns ([], "...")
++    # when `docker ps` fails, which is indistinguishable from ([], None) on
++    # a box where the engine is up and simply has no containers. Every
++    # container rule loops the list, so both cases contribute zero findings
++    # and render identically to a healthy stack. The collector already knew
++    # the difference and the caller used to discard it.
++    docker_error: str | None = None
+     ollama_models: list[OllamaModelInfo] = field(default_factory=list)
+     ollama_version: str | None = None
+     disk_usage: list[DiskUsageInfo] = field(default_factory=list)
+@@ -218,7 +235,32 @@
      docker_version: str | None = None
      pipeline_signals: PipelineSignalsInfo | None = None
      backfill_checkpoint: BackfillCheckpointInfo | None = None
@@ -3557,7 +3659,7 @@
 +    # them.
 +    ram_total_gb: float | None = None
 +    ram_available_gb: float | None = None
-+
+ 
 +    # Import recency, read by check_gdpr_export_age, which raised for the
 +    # same reason. Left unpopulated deliberately: no collector measures a
 +    # last-import date yet, so the rule's own `if snapshot.last_import_date
@@ -3566,10 +3668,20 @@
 +    # is that the rule fails VISIBLY if it ever raises again.
 +    last_import_date: datetime | None = None
 +    current_date: datetime | None = None
- 
++
  
  # ---------------------------------------------------------------------------
-@@ -661,6 +695,7 @@
+ # Collector functions – each gathers one category of safe data
+@@ -653,7 +695,7 @@
+     only safe, non-personal diagnostic data.
+     """
+     hostname, os_version = collect_os_info()
+-    containers, _docker_err = collect_docker_containers()
++    containers, docker_err = collect_docker_containers()
+     docker_version = collect_docker_version()
+     models, ollama_version, _ollama_err = collect_ollama_models()
+     disk = collect_disk_usage()
+@@ -661,12 +703,14 @@
      network = collect_network_checks()
      pipeline_signals = collect_pipeline_signals()
      backfill_checkpoint = collect_backfill_checkpoint()
@@ -3577,7 +3689,14 @@
  
      return SystemSnapshot(
          timestamp=datetime.now(timezone.utc).isoformat(),
-@@ -675,4 +710,53 @@
+         hostname=hostname,
+         os_version=os_version,
+         docker_containers=containers,
++        docker_error=docker_err,
+         ollama_models=models,
+         ollama_version=ollama_version,
+         disk_usage=disk,
+@@ -675,4 +719,53 @@
          docker_version=docker_version,
          pipeline_signals=pipeline_signals,
          backfill_checkpoint=backfill_checkpoint,
