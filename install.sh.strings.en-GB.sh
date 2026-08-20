@@ -110,6 +110,10 @@ MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS is asking permission for Downloads. Cli
 MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS is asking permission for Desktop. Click OK."
 MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS is asking permission for Documents. Click OK."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Full Disk Access granted. Preparing the next macOS prompt (Messages automation)..."
+# #664: the Automation prompt went unanswered and we stopped waiting. Says what
+# was missed, what it costs, and that it is recoverable -- the install carries on
+# and Ostler asks again later, so this is a "not yet", not a failure.
+MSG_WARN_IMESSAGE_AUTOMATION_PROBE_TIMEOUT="No answer to the Messages permission prompt, so we moved on. Your messages will not be read until it is allowed. Ostler will ask again, or you can grant it in System Settings > Privacy & Security > Automation."
 MSG_INFO_GIT_CLONE="  git clone %s %s"
 MSG_INFO_GIT_CLONE_2="  git clone %s %s"
 MSG_INFO_GIT_CLONE_TMP_DOCTOR_SRC="  git clone %s /tmp/doctor-src"

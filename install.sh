@@ -2382,6 +2382,62 @@ else
 fi
 unset _ostler_emitter_candidate
 
+# ── Hard deadline for commands that can block on a TCC prompt ─────
+#
+# WHY THIS IS NOT `timeout` OR `gtimeout`.
+# macOS ships neither. `gtimeout` arrives with brew coreutils in Phase
+# 3.1b (see the install around line 8560), and the first caller of this
+# helper runs THOUSANDS of lines earlier, during the iMessage
+# Automation pre-prime. At that point there is no timeout binary on the
+# box at all, so the only deadline available is one bash can enforce
+# itself. Every existing _*_TIMEOUT_WRAP in this file is a Phase-3.1b+
+# construct and none of them can be reused here.
+#
+# THE DEFECT THIS CLOSES (#664, found on Andy's v1.0.36 walk).
+# An AppleEvent to Messages raises a TCC "wants to control Messages"
+# prompt whenever the grant is absent, which on a wiped box is always.
+# osascript then blocks until a human clicks. Unattended, nobody ever
+# does: the install hangs forever at that step, with no timeout, no
+# progress and no way to tell it apart from slow work.
+#
+# THE WATCHDOG VERIFIES DEATH. #783 is the sibling defect on the
+# hydrate watchdog: it sent ONE SIGTERM, never confirmed the process
+# died, and exited -- so an unresponsive payload outlived its own
+# enforcer. Here TERM is followed by a re-check and a KILL, and only
+# then do we reap. A deadline that can be ignored is not a deadline.
+#
+# Returns the command's own rc, or 124 on timeout (matching coreutils
+# `timeout`, so callers can branch on the same number either way).
+# Redirections belong on the CALL, not inside: they are inherited by
+# the backgrounded command.
+#   _ostler_run_with_deadline 90 osascript -e '...' >/dev/null 2>"$f"
+_ostler_run_with_deadline() {
+    local _deadline_s="$1"; shift
+    "$@" &
+    local _cmd_pid=$!
+    local _waited=0
+    while kill -0 "$_cmd_pid" 2>/dev/null; do
+        if [[ "$_waited" -ge "$_deadline_s" ]]; then
+            kill -TERM "$_cmd_pid" 2>/dev/null || true
+            sleep 1
+            if kill -0 "$_cmd_pid" 2>/dev/null; then
+                kill -KILL "$_cmd_pid" 2>/dev/null || true
+            fi
+            wait "$_cmd_pid" 2>/dev/null || true
+            return 124
+        fi
+        sleep 1
+        _waited=$((_waited + 1))
+    done
+    wait "$_cmd_pid"
+}
+
+# Generous by design. The customer has just acknowledged a pre-warn ack
+# telling them this prompt is coming, so they are at the keyboard and
+# 90s is ample; the deadline exists for the box where nobody is there
+# at all. Overridable for harnesses and for operators on slow machines.
+OSTLER_IMESSAGE_PROBE_TIMEOUT_S="${OSTLER_IMESSAGE_PROBE_TIMEOUT_S:-90}"
+
 # ── Hardware-fit model picker helper (REUSE-4) ────────────────────
 #
 # lib/ostler-model-fit.sh holds the static model->min-RAM-for-num_ctx
@@ -4363,8 +4419,15 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true && "${OSTLER_GUI:-0}" == "1" ]]; then
     # the posture here (3.18 records the authoritative snapshot); the only
     # side-effect we want now is the prompt landing in the attention
     # window. Test-shim escape hatch honoured so harnesses never osascript.
+    # #664: DEADLINED. This is fire-and-forget -- we discard the posture
+    # (3.18 takes the authoritative snapshot) and only want the prompt to
+    # land inside the attention window. But `|| true` does not save an
+    # unattended box: it swallows a FAILURE, and this call does not fail,
+    # it BLOCKS, waiting for a click that never comes. The deadline is
+    # what makes it fire-and-forget rather than fire-and-wait-forever.
     if [[ -z "${PWG_IMESSAGE_PROBE_OUTCOME:-}" ]]; then
-        osascript -e 'tell application "Messages" to count of accounts' \
+        _ostler_run_with_deadline "$OSTLER_IMESSAGE_PROBE_TIMEOUT_S" \
+            osascript -e 'tell application "Messages" to count of accounts' \
             >/dev/null 2>&1 || true
     fi
     IMESSAGE_AUTOMATION_PRIMED_EARLY=true
@@ -22213,9 +22276,24 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
         IMESSAGE_TCC_STDERR="(test shim: PWG_IMESSAGE_PROBE_OUTCOME)"
     else
         IMESSAGE_PROBE_STDERR=$(mktemp)
-        if osascript -e 'tell application "Messages" to count of accounts' \
-                >/dev/null 2>"$IMESSAGE_PROBE_STDERR"; then
+        # #664: DEADLINED, same reason as the pre-prime probe above --
+        # an absent Automation grant makes this BLOCK on a TCC dialog,
+        # and an unattended box never dismisses it.
+        _imessage_probe_rc=0
+        _ostler_run_with_deadline "$OSTLER_IMESSAGE_PROBE_TIMEOUT_S" \
+            osascript -e 'tell application "Messages" to count of accounts' \
+            >/dev/null 2>"$IMESSAGE_PROBE_STDERR" || _imessage_probe_rc=$?
+        if [[ "$_imessage_probe_rc" -eq 0 ]]; then
             IMESSAGE_TCC_STATUS="granted-and-working"
+        elif [[ "$_imessage_probe_rc" -eq 124 ]]; then
+            # A probe nobody answered is NOT a denial: the customer may
+            # simply have walked away, and the grant may still be given
+            # later. Recording it as tcc-denied would be an assumption
+            # dressed as an observation. check-failed is the honest
+            # state and the daemon re-probes, so this self-heals.
+            IMESSAGE_TCC_STATUS="check-failed"
+            IMESSAGE_TCC_STDERR="probe timed out after ${OSTLER_IMESSAGE_PROBE_TIMEOUT_S}s with no answer to the Automation prompt (rc=124)"
+            warn "$MSG_WARN_IMESSAGE_AUTOMATION_PROBE_TIMEOUT"
         else
             if grep -qE '\-1743|not authorized|errAEEventNotPermitted' "$IMESSAGE_PROBE_STDERR" 2>/dev/null; then
                 IMESSAGE_TCC_STATUS="tcc-denied"
@@ -22224,6 +22302,7 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
             fi
             IMESSAGE_TCC_STDERR=$(head -c 400 "$IMESSAGE_PROBE_STDERR" 2>/dev/null || true)
         fi
+        unset _imessage_probe_rc
         rm -f "$IMESSAGE_PROBE_STDERR"
     fi
 
