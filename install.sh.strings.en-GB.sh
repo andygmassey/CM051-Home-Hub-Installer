@@ -1133,8 +1133,9 @@ MSG_HYDRATE_CONTACTS_STARTED="Importing your contacts to the graph"
 MSG_HYDRATE_CONTACTS_DONE="Imported %s contacts"
 # CX-92 (DMG #48g, 2026-05-29): calendar backfill window changed from 90
 # days to 5 years -- customer copy updated to match the new behaviour.
-MSG_HYDRATE_CALENDAR_STARTED="Loading your last 90 days of calendar (longer history backfills in the background)"
+MSG_HYDRATE_CALENDAR_STARTED="Loading your calendar history (five years back, a year ahead)"
 MSG_HYDRATE_CALENDAR_DONE="Imported %s events"
+MSG_HYDRATE_CALENDAR_HEARTBEAT="  Still loading your calendar (%ss so far). A Mac with years of meetings takes a moment."
 # Places ingest (2026-06-19): aggregate meeting/photo location signals into
 # browsable Places for the wiki. British English, no em-dashes.
 MSG_HYDRATE_PLACES_STARTED="Building your Places from the locations you meet at"

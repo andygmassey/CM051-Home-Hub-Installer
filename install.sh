@@ -20285,32 +20285,95 @@ unset _hydrate_contacts_accounts
 # customer's full calendar history. We re-run the extractor inline
 # with the longer window, overwriting the existing JSON.
 #
-# CX-106 (DMG #48l, 2026-05-29): for CALENDAR specifically we keep
-# the install-time window at 90 days, and defer the rest to the
-# recurring com.ostler.fda-rerun LaunchAgent registered at Phase 3.7.
+# CX-106 (DMG #48l, 2026-05-29) kept the install-time window at 90
+# days and deferred the rest to the recurring com.ostler.fda-rerun
+# LaunchAgent registered at Phase 3.7. The paragraph below is the
+# history of why that deferral never arrived, kept because the same
+# reasoning would otherwise be made again.
 #
-# 🔴 THIS COMMENT USED TO CLAIM THE AGENT "walks the 5-year window".
+# 🔴 THE COMMENT HERE ONCE CLAIMED THE AGENT "walks the 5-year window".
 # It does not, and it never has. Measured 2026-08-16, both limbs:
 #
 #   limb 1  the agent was a ONE-SHOT StartCalendarInterval, so it ran
-#           at most once ever. FIXED in #714, this cut.
-#   limb 2  vendor/ostler_fda/extract_all.py:502 calls
+#           at most once ever. FIXED in #714.
+#   limb 2  vendor/ostler_fda/extract_all.py calls
 #           extract_events(since_days=365, future_days=30) with the 365
 #           HARDCODED and no env override, unlike every sibling source
 #           (safari/browser/imessage/whatsapp/mail all read
-#           OSTLER_*_BACKFILL_DAYS). NOT fixed here: that file is a
-#           vendored twin of HR015 ostler_fda and the fix belongs
-#           upstream then re-vendored, not edited in place.
+#           OSTLER_*_BACKFILL_DAYS). Fixed UPSTREAM by HR015 #417, but
+#           the vendor pin in vendor/VENDOR_MANIFEST.toml predates it,
+#           so the SHIPPED twin still carries the literal. Still open
+#           here; it needs an ORM re-vendor, not an edit in place.
 #
-# So after #714 the honest statement is: calendar reaches 365 days
-# within the hour instead of stopping at 90 days forever. It does not
-# reach 5 years. Do not restore the 5-year wording until limb 2 lands.
+# So a deferral to that agent tops out at 365 days, and only once the
+# re-vendor lands. Every path a customer has ended below five years.
 #
-# Studio retest of DMG #48k showed customers
-# with multi-year calendar history hitting silent timeouts on the
-# install-time path because the Calendar Cache query was scanning
-# years of recurring-event expansions inside the 180s wall-clock cap.
-OSTLER_HYDRATE_CALENDAR_DAYS="${OSTLER_HYDRATE_CALENDAR_DAYS:-90}"
+# CX-92 / board #554: THE INSTALL-TIME WINDOW STOPS DEFERRING.
+#
+# The deferral was the load-bearing half of CX-106's argument and it
+# has never worked, so this stops relying on it and reads the window
+# the task asks for at install time: five years back, one year forward,
+# matching what every sibling source in this file already defaults to
+# (OSTLER_{IMESSAGE,BROWSER,SAFARI,WHATSAPP,MAIL}_BACKFILL_DAYS are all
+# 1825 at Phase 3.7). Calendar was the odd one out.
+#
+# 🔴 THE STATED REASON FOR 90 DAYS DOES NOT SURVIVE MEASUREMENT, and
+# saying so matters more than the number, because the wrong mechanism
+# would be blamed again next time. The old text read: customers with
+# multi-year calendar history hit "silent timeouts on the install-time
+# path because the Calendar Cache query was scanning years of
+# recurring-event expansions inside the 180s wall-clock cap".
+#
+#   Calendar.sqlitedb DOES NOT STORE EXPANSIONS. A recurring series is
+#   one CalendarItem master row plus any detached exceptions, so a
+#   weekly standup running five years is roughly ONE row, not 260.
+#   Measured on a real 15,926-row store: 595 rows carry
+#   has_recurrences=1. Nothing expands at query time.
+#
+#   AND THERE IS NO 180s CAP ON THIS BLOCK. The 180s wrappers in this
+#   file are on the EMAIL hydrate and on _three_state_wait_for_populate.
+#   The calendar extract and ingest below run unwrapped. So a hang here
+#   could never have been a timeout; it was an install with no output.
+#
+#   The extract itself is not the cost at any window. Same 15,926-row
+#   store, timed:
+#       90d      337 rows   0.014s
+#       365d   1,166 rows   0.012s
+#       1825d  4,062 rows   0.020s
+#       36500d 15,732 rows  0.063s
+#   The attendee join is whole-table and window-independent (0.027s).
+#
+# WHERE THE TIME ACTUALLY GOES: ingest_calendar, below. It opens a NEW
+# httpx.Client per SPARQL statement (no pooling, a fresh TCP connection
+# each time) and issues at least one INSERT per event, plus one
+# last-contact upsert per attendee link and one existence query per
+# first-seen attendee. On the same store that is >=445 round trips at
+# 90d and >=5,626 at 1825d: tens of seconds, not hours, but not
+# instant and with nothing on screen while it happens.
+#
+# SO THE FIX IS THE WINDOW *AND* A HEARTBEAT, not a smaller number.
+# Truncating history to keep the installer looking alive treats the
+# symptom and costs the customer their calendar. The heartbeat below
+# is the same one the email hydrate uses.
+#
+# WHY NOT A HARD TIMEOUT TOO. The slow half is the ingest, and a
+# truncated ingest is silently partial in a way nothing reports. It IS
+# safe to re-run (Meeting URIs are uuid5 of title+date, INSERT DATA on
+# identical triples is a no-op, last-contact is an idempotent upsert),
+# so the hourly agent repairs it -- but only after the re-vendor, and
+# an install that quietly ships a partial graph reads as complete.
+#
+# Both are overridable for a support case or a very large account:
+#   OSTLER_HYDRATE_CALENDAR_DAYS=365 ./install.sh
+OSTLER_HYDRATE_CALENDAR_DAYS="${OSTLER_HYDRATE_CALENDAR_DAYS:-1825}"
+# The FORWARD window. Until CX-92 this was the literal `future_days=30`
+# in the heredoc below: a box could be asked for five years back and
+# still see only thirty days ahead, which is why the wiki Events page
+# showed nothing upcoming. Board #554 asks for a year. It is close to
+# free -- the predicate is `start_date < now + N*86400`, so it is
+# bounded by the events that actually EXIST ahead of today, which is a
+# handful however far the edge is pushed.
+OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS="${OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS:-365}"
 # Calendar extraction + ingest import ostler_fda (ostler_fda.calendar and
 # ostler_fda.pwg_ingest). ostler_fda is pip-installed into the email-ingest
 # venv (Phase 3.14b), NOT into the contact-syncer import-pipeline venv
@@ -20345,10 +20408,18 @@ if [[ -x "$_HYDRATE_CALENDAR_PY" ]]; then
     fi
 
     # Re-extract calendar events with the full backfill window. The
-    # Phase 3.7 run wrote calendar_events.json with since_days=365;
-    # here we overwrite with the 5-year window so the hydrate
-    # consumer sees full history. The OSTLER_FDA_OUTPUT_DIR env
-    # var threads through to the writer.
+    # Phase 3.7 run wrote calendar_events.json with the vendored
+    # extractor's own window; here we overwrite it with the install-time
+    # window resolved above, so the hydrate consumer sees full history.
+    # The OSTLER_FDA_OUTPUT_DIR env var threads through to the writer.
+    #
+    # HEARTBEAT COVERS BOTH STEPS, not just this one. The extract is
+    # milliseconds at any window; the ingest below is the part that can
+    # run for tens of seconds on a multi-year calendar, and it is the
+    # part with nothing on screen. Starting the ticker here and stopping
+    # it after the ingest is what makes a wide window survivable without
+    # narrowing it back down. See the CX-92 note at the window defaults.
+    _hydrate_heartbeat_start "$MSG_HYDRATE_CALENDAR_HEARTBEAT"
     _HYDRATE_CALENDAR_EXTRACT="$(OSTLER_FDA_OUTPUT_DIR="${OSTLER_DIR}/imports/fda" \
     "$_HYDRATE_CALENDAR_PY" - <<EOF 2>>/tmp/ostler-hydrate-calendar.log
 import json, os, sys
@@ -20358,7 +20429,7 @@ out_dir.mkdir(parents=True, exist_ok=True)
 try:
     from ostler_fda.calendar import extract_events
     from dataclasses import asdict
-    events = extract_events(since_days=${OSTLER_HYDRATE_CALENDAR_DAYS}, future_days=30)
+    events = extract_events(since_days=${OSTLER_HYDRATE_CALENDAR_DAYS}, future_days=${OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS})
     (out_dir / "calendar_events.json").write_text(
         json.dumps([asdict(e) for e in events], indent=2, default=str)
     )
@@ -20391,6 +20462,11 @@ except Exception as e:
     print(json.dumps({"imported": 0, "status": "error", "error": str(e)}))
 EOF
     )" || _HYDRATE_CALENDAR_JSON=""
+    # Ticker off before ANY further output. `|| true` is not decoration:
+    # the helper kills a backgrounded subshell and waits on it, and under
+    # `set -e` a kill that races the subshell's own exit would abort the
+    # install at the last moment of a step that succeeded.
+    _hydrate_heartbeat_stop || true
     _HYDRATE_CALENDAR_COUNT="$(
         printf '%s' "$_HYDRATE_CALENDAR_JSON" \
         | python3 -c 'import json,sys
