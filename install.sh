@@ -19440,22 +19440,100 @@ _hydrate_sentinel_fresh() {
     [[ "$age" -lt 604800 ]]
 }
 
-# Records the sentinel + a single-line JSON payload with whatever the
-# hydrate step produced (count, status, etc). The payload is
-# customer-local; we never log its contents off-machine.
-# Use as: _hydrate_sentinel_record imessage '{"people":123,"status":"ok"}'
+# The payload is customer-local; we never log its contents off-machine.
+#
+# ── STATUS=OK WITH A ZERO PAYLOAD IS NOT OK ──────────────────────
+#
+# Returns 0 when the payload carries at least one NUMERIC counter and EVERY
+# one of them is zero. That is the shape of "the step ran to completion and
+# produced nothing", which is a different fact from "the step succeeded" and
+# has to stop printing the same.
+#
+# Only `key=<digits>` pairs count. A payload like `ran=1,rc=0` has a non-zero
+# counter and is therefore NOT all-zero -- correct, because `ran=1` is real
+# evidence the step executed. A payload with no numeric counters at all
+# (`status=no_app`) returns 1: this predicate refuses to guess about a shape
+# it cannot read, rather than defaulting either way.
+#
+# Deliberately NOT a check for the literal string "0": `sent=0,skipped=500`
+# must read as ok. The customer's browsing history was examined and 500 rows
+# were already present. That is a successful no-op, not an empty one.
+_hydrate_payload_is_all_zero() {
+    local payload="${1:-}"
+    [[ -n "$payload" ]] || return 1
+    local seen=0 field value
+    local IFS=','
+    for field in $payload; do
+        value="${field#*=}"
+        # Numeric fields only; anything else is not a counter.
+        [[ "$field" == *=* && "$value" =~ ^[0-9]+$ ]] || continue
+        seen=1
+        [[ "$value" -eq 0 ]] || return 1
+    done
+    [[ "$seen" -eq 1 ]]
+}
+
+# Records the sentinel + a single-line payload with whatever the hydrate step
+# produced.
+#
+# ── THE DEFECT (#2, folded with #441) ────────────────────────────
+#
+# `_hydrate_sentinel_fresh` requires a POSITIVE `^status=ok` and then locks the
+# source out for SEVEN DAYS. So a step that ran, produced nothing, and recorded
+# `status=ok payload=people=0` was indistinguishable on disk from a step that
+# ran and delivered -- and it suppressed its own retry for a week.
+#
+# Measured on the v1.0.37 box 2026-08-20: imessage status=ok with people=0, and
+# ai_conversations status=ok with written=0. Nothing anywhere said "this
+# produced nothing"; the marker, the log line and Doctor all read as success.
+#
+# ── THE RULE, AND IT IS ONE RULE IN ONE PLACE ────────────────────
+#
+# A zero payload may NEVER be recorded as ok. It is recorded as `no_data` --
+# which the freshness gate already treats as stale, so the source retries next
+# run instead of going dark for a week -- with a `detail=` that says WHY:
+#
+#   caller passed an empty_reason   -> detail=<that reason>   (declared)
+#   caller passed none              -> detail=zero_payload_undeclared
+#
+# The second is not a failure state; it is a VISIBLE one. It means a step
+# produced nothing and no one has yet said whether that is expected. That
+# distinction is the entire point: today those two cases print identically,
+# and so does "delivered 6,719 people".
+#
+# WHY no_data AND NOT error. The step did not fail -- it completed and found
+# nothing, which for a customer with no WhatsApp is the correct outcome.
+# Recording `error` would paint a healthy install red and teach people that red
+# means nothing, which is the failure mode every gate in this repo is built to
+# avoid. `no_data` retries, stays honest, and costs a file-existence test.
+#
+# Use as: _hydrate_sentinel_record imessage "people=123"
+#         _hydrate_sentinel_record ai_conversations "written=0" "drain_completed_no_conversations"
 #
 # SUCCESS AND NO-DATA ONLY. If the step exited non-zero, call
-# _hydrate_sentinel_record_error instead. The rule is not new: it is
-# written in prose at the ai_conversations call site and pinned by
+# _hydrate_sentinel_record_error instead. The rule is not new: it is written in
+# prose at the ai_conversations call site and pinned by
 # tests/test_aiconv_hydrate_honesty.sh, which asserts that "a timed-out
-# (124/137) or crashed (any other non-zero rc) drain must NOT record it,
-# so the next install/re-run retries instead of skipping for a week".
+# (124/137) or crashed (any other non-zero rc) drain must NOT record it, so the
+# next install/re-run retries instead of skipping for a week".
 # Measured 2026-08-16: 8 of the 9 hydrate sources broke that rule.
 _hydrate_sentinel_record() {
     local source="$1"
     local payload="${2:-}"
+    local empty_reason="${3:-}"
     local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+
+    if _hydrate_payload_is_all_zero "$payload"; then
+        {
+            printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            printf 'source=%s\n' "$source"
+            printf 'status=no_data\n'
+            printf 'detail=%s\n' "${empty_reason:-zero_payload_undeclared}"
+            printf 'payload=%s\n' "$payload"
+        } > "$sentinel"
+        return 0
+    fi
+
     {
         printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'source=%s\n' "$source"
@@ -23042,8 +23120,16 @@ AICONVPLIST
                 _hydrate_sentinel_record "ai_conversations" "written=${_AICONV_COUNT}"
             else
                 info "$MSG_HYDRATE_AICONV_SKIPPED_NO_DATA"
-                # A clean zero-count run is still a completed drain.
-                _hydrate_sentinel_record "ai_conversations" "written=0"
+                # A clean zero-count run is still a completed drain -- but it
+                # is a drain that produced NOTHING, and that now has to say so
+                # rather than record status=ok and lock the source out for a
+                # week (#2). The reason is passed EXPLICITLY: this is the
+                # declared-empty case, not an undeclared one, and the sentinel
+                # will carry detail=drain_completed_no_conversations so a human
+                # reading ~/.ostler/state/hydrate/ can tell it apart from a
+                # source that produced nothing for reasons nobody has stated.
+                _hydrate_sentinel_record "ai_conversations" "written=0" \
+                    "drain_completed_no_conversations"
             fi
 
             unset _AICONV_AGENT_OK _AICONV_RESUME_PLIST
