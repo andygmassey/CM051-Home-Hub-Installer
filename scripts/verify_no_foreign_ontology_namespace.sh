@@ -97,7 +97,21 @@ COUNT_FILE="${OSTLER_NS_COUNT_FILE:-$REPO/scripts/.foreign-ontology-namespace-co
 
 # The namespaces that are NOT ours. Add a row when another one is found; never
 # remove one to make a build pass.
-FOREIGN_RE='pwg\.dev'
+# BOTH pwg domains, not just the unregistered one.
+#
+# The first version of this regex was `pwg\.dev` alone. Measured 2026-08-17,
+# the shipping tree also carries `http://pwg.local/ontology#` in 5 files: the
+# CM019 enrichment service writes every enriched preference into it. That is a
+# THIRD pwg-branded namespace, and with a pwg.dev-only regex this ratchet
+# could not see it. Retiring pwg.dev while leaving pwg.local in place would
+# have looked like a completed migration and left "pwg" stamped into the
+# customer's graph forever.
+#
+# pwg.local is not unregistered, it is worse in one respect and better in
+# another: `.local` is reserved for mDNS, so it can never be resolved or
+# owned, and any tooling that dereferences it is querying the local network.
+# It is better only in that it cannot be taken by a stranger.
+FOREIGN_RE='pwg\.(dev|local)'
 
 # Ours, for the message. Any replacement must land on a domain we control.
 OURS='https://ostler.ai/ontology#'
@@ -113,8 +127,26 @@ declared="$(grep -vE '^[[:space:]]*#' "$COUNT_FILE" | tr -dc '0-9')"
 
 # grep -c per file then sum: `git grep -c` prints per-file counts, and a plain
 # line count would undercount two occurrences on one line.
-actual="$(git grep -ohE "$FOREIGN_RE" 2>/dev/null | grep -c . || true)"
-files="$(git grep -lE "$FOREIGN_RE" 2>/dev/null | grep -c . || true)"
+# THE INSTRUMENT MUST NOT COUNT ITSELF.
+#
+# This script and its count file both NAME the namespaces, in prose, in
+# order to explain what they are for. Without these exclusions the gate
+# measures its own documentation: widening the regex made the number rise
+# purely because the new comment mentioned the new domain. A guard whose
+# reading moves when you edit its comments is measuring the wrong thing.
+SELF=(
+  ":(exclude)scripts/verify_no_foreign_ontology_namespace.sh"
+  ":(exclude)scripts/.foreign-ontology-namespace-count"
+  # 🔴 THIS PATH IS LOAD-BEARING AND IT WAS WRONG. It read
+  # `tests/test_no_...` while the file lives at `scripts/tests/test_no_...`,
+  # so the fixture was never excluded and its occurrence was counted as a
+  # shipping one -- the declared number said 292 against a tree holding 291.
+  # A pathspec that matches nothing excludes nothing and reports no error.
+  # Control 9 pins the behaviour rather than the spelling.
+  ":(exclude)scripts/tests/test_no_foreign_ontology_namespace.sh"
+)
+actual="$(git grep -ohE "$FOREIGN_RE" -- . "${SELF[@]}" 2>/dev/null | grep -c . || true)"
+files="$(git grep -lE "$FOREIGN_RE" -- . "${SELF[@]}" 2>/dev/null | grep -c . || true)"
 
 echo "foreign ontology namespace: occurrences=${actual} files=${files} declared=${declared}"
 
@@ -124,7 +156,7 @@ if [ "${actual:-0}" -gt "$declared" ]; then
     echo "  Something new is stamping an unregistered domain into customer data." >&2
     echo "  Use ${OURS} instead. If this arrived via a re-vendor, the fix belongs" >&2
     echo "  in the SOURCE repo, not here, or the next re-vendor undoes it." >&2
-    git grep -nE "$FOREIGN_RE" | head -20 >&2
+    git grep -nE "$FOREIGN_RE" -- . "${SELF[@]}" | head -20 >&2
     [ "$declared" -eq 0 ] && exit 1
     echo >&2
     echo "  ADVISORY while the declared count is above zero (currently ${declared})." >&2

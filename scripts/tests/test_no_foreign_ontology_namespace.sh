@@ -102,6 +102,87 @@ rc="$(run "$REAL")"
 if [ "$rc" = 0 ]; then ok "the REAL repository is at its declared count"
 else no "the real repository does not match its declaration (rc=$rc)" "$(cat "$TMP/out")"; fi
 
+# ---------------------------------------------------------------------------
+# 8. THE SECOND DOMAIN, WITH A DEMONSTRATED RED.
+#
+# The regex started as `pwg\.dev` alone. The shipped tree also carries
+# `http://pwg.local/ontology#` -- CM019's enrichment service writes every
+# enriched preference into it. A pwg.dev-only ratchet cannot see that, so
+# retiring pwg.dev would have read as a completed migration while leaving
+# "pwg" stamped into the customer's graph forever.
+#
+# Asserting the new regex alone would prove nothing: it has to be shown that
+# the OLD one scored zero on the same tree. So this builds a repo containing
+# ONLY the second domain, runs a copy of the gate with the regex reverted, and
+# requires 0 -- then runs the shipped gate and requires the occurrences.
+# ---------------------------------------------------------------------------
+mklocal() {  # like mkrepo but writes the mDNS-reserved domain instead
+    local d="$1" n="$2" decl="$3" i
+    rm -rf "$d"; mkdir -p "$d/scripts"
+    git -C "$d" init -q 2>/dev/null
+    : > "$d/data.ttl"
+    i=0; while [ "$i" -lt "$n" ]; do printf '@prefix pwg: <http://pwg.local/ontology#> .\n' >> "$d/data.ttl"; i=$((i+1)); done
+    printf '# declared\n%s\n' "$decl" > "$d/scripts/.foreign-ontology-namespace-count"
+    git -C "$d" add -A 2>/dev/null; git -C "$d" -c user.email=t@t -c user.name=t commit -qm x 2>/dev/null
+}
+
+mklocal "$TMP/mdns" 4 4
+OLDGATE="$TMP/old_gate.sh"
+sed "s/^FOREIGN_RE='pwg\\\\.(dev|local)'/FOREIGN_RE='pwg\\\\.dev'/" "$GATE" > "$OLDGATE"
+if [ "$(grep -c "FOREIGN_RE='pwg\\\\.dev'" "$OLDGATE")" -lt 1 ]; then
+    no "could not build the pre-fix gate -- the red is UNDEMONSTRATED, so control 8 proves nothing" \
+       "$(grep -n 'FOREIGN_RE=' "$GATE")"
+else
+    bash "$OLDGATE" "$TMP/mdns" >"$TMP/oldout" 2>&1
+    old_n="$(sed -n 's/.*occurrences=\([0-9]*\).*/\1/p' "$TMP/oldout" | head -1)"
+    rc="$(run "$TMP/mdns")"
+    new_n="$(sed -n 's/.*occurrences=\([0-9]*\).*/\1/p' "$TMP/out" | head -1)"
+    if [ "${old_n:-x}" != "0" ]; then
+        no "the pre-fix regex already saw the second domain (${old_n}) -- nothing was fixed" "$(cat "$TMP/oldout")"
+    elif [ "${new_n:-0}" != "4" ]; then
+        no "the shipped regex counted ${new_n:-0} of 4 mDNS-reserved occurrences" "$(cat "$TMP/out")"
+    elif [ "$rc" != 0 ]; then
+        no "at-count on the second domain was not green (rc=$rc)" "$(cat "$TMP/out")"
+    else
+        ok "second domain: pre-fix regex 0, shipped regex 4 (DEMONSTRATED RED)"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# 9. THE INSTRUMENT MUST NOT COUNT ITSELF -- PINNED BY BEHAVIOUR, NOT SPELLING.
+#
+# This control exists because the first exclusion did not work. The pathspec
+# read `tests/test_no_...` while the file is at `scripts/tests/test_no_...`,
+# and a pathspec that matches nothing excludes nothing and reports no error.
+# The declared count carried the error: 292 against a tree holding 291.
+#
+# So do not assert the pathspec text. Plant the gate, its declaration and its
+# test at their REAL paths inside a fixture, each naming the domains in prose
+# exactly as they do in the repo, and require the reading to equal the DATA
+# occurrences only. Any future rename that breaks an exclusion turns this red.
+# ---------------------------------------------------------------------------
+mkrepo "$TMP/selfcount" 5 5
+mkdir -p "$TMP/selfcount/scripts/tests"
+cp "$GATE" "$TMP/selfcount/scripts/verify_no_foreign_ontology_namespace.sh"
+cp "$HERE/../.foreign-ontology-namespace-count" "$TMP/selfcount/scripts/.foreign-ontology-namespace-count"
+cp "${BASH_SOURCE[0]}" "$TMP/selfcount/scripts/tests/test_no_foreign_ontology_namespace.sh"
+printf '# declared\n5\n' > "$TMP/selfcount/scripts/.foreign-ontology-namespace-count.tmp"
+# keep the real prose but restore the fixture's own declared number
+{ grep -vE '^[0-9]+$' "$HERE/../.foreign-ontology-namespace-count"; echo 5; } \
+    > "$TMP/selfcount/scripts/.foreign-ontology-namespace-count"
+rm -f "$TMP/selfcount/scripts/.foreign-ontology-namespace-count.tmp"
+git -C "$TMP/selfcount" add -A 2>/dev/null
+git -C "$TMP/selfcount" -c user.email=t@t -c user.name=t commit -qm self 2>/dev/null
+rc="$(run "$TMP/selfcount")"
+self_n="$(sed -n 's/.*occurrences=\([0-9]*\).*/\1/p' "$TMP/out" | head -1)"
+if [ "${self_n:-0}" != "5" ]; then
+    no "the gate counted its own documentation: read ${self_n:-0} where only 5 are data" "$(cat "$TMP/out")"
+elif [ "$rc" != 0 ]; then
+    no "a tree at its declared count went non-green once the instrument was present (rc=$rc)" "$(cat "$TMP/out")"
+else
+    ok "gate + declaration + test present in-tree -> reading unchanged at 5 (SELF-EXCLUSION HOLDS)"
+fi
+
 echo
 echo "  $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ] || exit 1

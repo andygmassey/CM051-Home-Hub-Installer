@@ -1,11 +1,35 @@
-# DECLARED COUNT of occurrences of an ontology namespace on a domain we do NOT
-# own. See scripts/verify_no_foreign_ontology_namespace.sh for why this exists.
+# DECLARED COUNT of occurrences of a pwg-branded ontology namespace.
+# See scripts/verify_no_foreign_ontology_namespace.sh for why this exists.
 #
-# Measured 2026-08-17 on 686d246: 276 occurrences across 63 files, all of them
-# `pwg.dev`, which DNS says is UNREGISTERED (NXDOMAIN from two networks, with
-# both controls).
+# THE BASIS OF THIS NUMBER CHANGED on 2026-08-17, and saying so is the whole
+# point of this comment. It previously counted the unregistered domain only,
+# and read 276. It now counts BOTH pwg-branded domains, because the second is
+# a namespace the old regex could not see and a migration would have left
+# behind:
 #
-# THIS NUMBER MAY ONLY GO DOWN. Lower it in the same commit that removes
-# occurrences. It reaches 0 when the source repos are migrated to
-# https://ostler.ai/ontology# and re-vendored, and then it stays at 0 forever.
-276
+#     unregistered domain   276   NXDOMAIN from two networks
+#     mDNS-reserved domain   15   CM019 enrichment writes enriched preferences here
+#     ---------------------------
+#     total                 291   across 66 files
+#
+# A ratchet number that silently changes basis is not evidence about anything,
+# so the rise from 276 is a WIDER MEASUREMENT, not a regression. Comparing it
+# to the old 276 compares two different questions.
+#
+# The gate excludes its own script, this file, and its own test from the scan:
+# all three NAME the domains in prose to explain themselves, and an instrument
+# that counts its own documentation moves when you edit a comment.
+#
+# 🔴 THE FIRST VERSION OF THAT EXCLUSION DID NOT WORK, AND THE NUMBER HERE
+# CARRIED THE ERROR. The pathspec read `tests/test_no_...` while the file is at
+# `scripts/tests/test_no_...`, so the test fixture was never excluded and its
+# one occurrence was counted as a shipping occurrence: declared 292 where the
+# tree holds 291. The comment asserted an exclusion the code did not perform,
+# which is the same instrument-and-defect-on-different-surfaces shape this gate
+# exists to catch, one level in. Control 9 in the test suite now pins it: the
+# reading must not move when the instrument's own prose changes.
+#
+# THIS NUMBER MAY ONLY GO DOWN FROM HERE. Lower it in the same commit that
+# removes occurrences. It reaches 0 when the source repos are migrated and
+# re-vendored, and then it stays at 0 forever.
+291
