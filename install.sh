@@ -7253,7 +7253,16 @@ PRESET=${PRESET:-recommended}
 # and Safari history"). Pre-fix the strings file promised those sources
 # but the bash var did not include them, so install completed with the
 # wiki empty of iMessage + email-correspondent data on every install.
-RECOMMENDED="safari_history,safari_bookmarks,calendar,reminders,imessage,apple_mail"
+# apple_notes + apple_music were in ostler_fda's DEFAULT_SOURCES from the
+# start and in NEITHER preset, so no shipped caller ever requested them and
+# extract_all never wrote apple_notes.json. The hydrate step then recorded
+# `no_data / no_export_json` -- an HONEST marker for a file that was never
+# going to exist. Measured on a v1.0.37 box: NoteStore.sqlite present (315KB),
+# apple_notes.json absent, hydrate marker no_export_json. The capability
+# shipped and the request never happened (#681).
+# Both read local stores under the FDA grant we already hold, so neither
+# needs a new permission or a new prompt.
+RECOMMENDED="safari_history,safari_bookmarks,calendar,reminders,imessage,apple_mail,apple_notes,apple_music"
 
 # DMG fix 3 (#618 partial): most customers are Chrome-primary, so a
 # Recommended install must ingest Chrome history too when Chrome is

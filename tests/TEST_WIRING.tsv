@@ -105,6 +105,7 @@ test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist
 test_enrichment_optin_is_owed_after_v1_0_36.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_enrichment_reaches_the_corpus.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_err_trap_emits_done_fail.sh	UNWIRED	-
+test_every_default_source_is_requested.sh	WIRED	.github/workflows/default-sources-requested.yml
 test_every_fail_call_has_error_code.sh	UNWIRED	-
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchd-plist-paths.yml
