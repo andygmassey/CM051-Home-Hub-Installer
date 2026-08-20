@@ -140,6 +140,7 @@ test_install_daily_briefs.sh	UNWIRED	-
 test_install_first_month_free.sh	UNWIRED	-
 test_install_gui_contract.py	WIRED	.github/workflows/install-gui-contract.yml
 test_install_gui_contract_negatives.py	WIRED	.github/workflows/install-gui-contract.yml
+test_install_log_follows_promotion.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_install_sh_no_call_before_definition.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_install_sh_prefers_bundled_python.sh	UNWIRED	-
 test_installer_app_bundle_contents.sh	WIRED	.github/workflows/install-gui-contract.yml
