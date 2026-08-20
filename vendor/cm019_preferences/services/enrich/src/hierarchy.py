@@ -27,7 +27,7 @@ RDF_PREFIXES = """
 @prefix wdt: <http://www.wikidata.org/prop/direct/> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-@prefix pwg: <http://pwg.local/ontology#> .
+@prefix pwg: <https://schema.ostler.ai/ontology#> .
 
 """
 
@@ -139,7 +139,7 @@ class TopicHierarchyService:
     """
 
     # Named graph for hierarchy data
-    HIERARCHY_GRAPH = "http://pwg.local/graph/hierarchy"
+    HIERARCHY_GRAPH = "https://schema.ostler.ai/graph/hierarchy"
 
     def __init__(
         self,
@@ -421,7 +421,7 @@ class TopicHierarchyService:
         # Query for all broader concepts (transitive)
         broader_query = f"""
         PREFIX wd: <http://www.wikidata.org/entity/>
-        PREFIX pwg: <http://pwg.local/ontology#>
+        PREFIX pwg: <https://schema.ostler.ai/ontology#>
         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
         SELECT DISTINCT ?broader ?broaderLabel WHERE {{
@@ -618,7 +618,7 @@ class TopicHierarchyService:
         # This query joins the hierarchy graph with the main preferences graph
         sparql = f"""
         PREFIX wd: <http://www.wikidata.org/entity/>
-        PREFIX pwg: <http://pwg.local/ontology#>
+        PREFIX pwg: <https://schema.ostler.ai/ontology#>
         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
         SELECT DISTINCT ?pref ?name ?category ?platform ?topic ?topicLabel WHERE {{
@@ -678,7 +678,7 @@ class TopicHierarchyService:
 
         # Count topics with stored hierarchy
         count_query = f"""
-        PREFIX pwg: <http://pwg.local/ontology#>
+        PREFIX pwg: <https://schema.ostler.ai/ontology#>
 
         SELECT (COUNT(DISTINCT ?topic) as ?count) WHERE {{
             GRAPH <{self.HIERARCHY_GRAPH}> {{
@@ -695,7 +695,7 @@ class TopicHierarchyService:
 
         # Count total broader concept relationships
         rel_query = f"""
-        PREFIX pwg: <http://pwg.local/ontology#>
+        PREFIX pwg: <https://schema.ostler.ai/ontology#>
 
         SELECT (COUNT(*) as ?count) WHERE {{
             GRAPH <{self.HIERARCHY_GRAPH}> {{

@@ -1,7 +1,7 @@
 @prefix rml: <http://semweb.mmlab.be/ns/rml#> .
 @prefix rr: <http://www.w3.org/ns/r2rml#> .
 @prefix ql: <http://semweb.mmlab.be/ns/ql#> .
-@prefix pwg: <https://pwg.dev/ontology#> .
+@prefix pwg: <https://schema.ostler.ai/ontology#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
@@ -15,7 +15,7 @@
     ] ;
 
     rr:subjectMap [
-        rr:template "https://pwg.dev/data/preference/{subject}" ;
+        rr:template "https://schema.ostler.ai/data/preference/{subject}" ;
         rr:class pwg:Preference
     ] ;
 
@@ -48,7 +48,7 @@
     rr:predicateObjectMap [
         rr:predicate pwg:belongsToCompartment ;
         rr:objectMap [
-            rr:template "https://pwg.dev/ontology#L{compartment_level}" ;
+            rr:template "https://schema.ostler.ai/ontology#L{compartment_level}" ;
             rr:termType rr:IRI
         ]
     ] ;
@@ -57,7 +57,7 @@
     rr:predicateObjectMap [
         rr:predicate pwg:hasContext ;
         rr:objectMap [
-            rr:template "https://pwg.dev/ontology#context_{context}" ;
+            rr:template "https://schema.ostler.ai/ontology#context_{context}" ;
             rr:termType rr:IRI
         ]
     ] ;
@@ -78,7 +78,7 @@
     ] ;
 
     rr:subjectMap [
-        rr:template "https://pwg.dev/data/preference/{subject}"
+        rr:template "https://schema.ostler.ai/data/preference/{subject}"
     ] ;
 
     # Map type field to preference class
@@ -86,7 +86,7 @@
     rr:predicateObjectMap [
         rr:predicate rdf:type ;
         rr:objectMap [
-            rr:template "https://pwg.dev/ontology#{type}Preference" ;
+            rr:template "https://schema.ostler.ai/ontology#{type}Preference" ;
             rr:termType rr:IRI
         ]
     ] .

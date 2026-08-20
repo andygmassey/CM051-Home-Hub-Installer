@@ -17,7 +17,7 @@ Schema (per CM044 PR #26):
 
 .. code-block:: turtle
 
-    @prefix pwg: <https://pwg.dev/ontology#> .
+    @prefix pwg: <https://schema.ostler.ai/ontology#> .
     @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
     <correction:UUID> a pwg:Correction ;
@@ -46,7 +46,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import httpx
 
-PWG_PREFIX_URL = "https://pwg.dev/ontology#"
+PWG_PREFIX_URL = "https://schema.ostler.ai/ontology#"
 
 # Source enum - keep in sync with the CM044 PR #26 contract and the
 # correction_overlay.js / CM031 client.
@@ -268,7 +268,7 @@ def build_correction_insert(
 
     body = " .\n  ".join(triples) + " ."
     sparql = (
-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
         "INSERT DATA {\n"
         f"  {body}\n"

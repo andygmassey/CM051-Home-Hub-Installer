@@ -220,10 +220,10 @@ def _get_settings(
     participants-differ check, per the migration semantic.
     """
     sparql = f"""
-PREFIX pwg: <urn:pwg:>
+PREFIX pwg: <urn:ostler:>
 SELECT ?setting_a ?setting_b WHERE {{
-  OPTIONAL {{ <urn:pwg:conversation/{conv_a}> pwg:setting ?setting_a }}
-  OPTIONAL {{ <urn:pwg:conversation/{conv_b}> pwg:setting ?setting_b }}
+  OPTIONAL {{ <urn:ostler:conversation/{conv_a}> pwg:setting ?setting_a }}
+  OPTIONAL {{ <urn:ostler:conversation/{conv_b}> pwg:setting ?setting_b }}
 }}
 """
     rows = _sparql_select(sparql, settings)
@@ -241,9 +241,9 @@ def _get_participants(conv: str, settings: Settings) -> set[str]:
     conversation had no signals (solo monologue or pre-signals data).
     """
     sparql = f"""
-PREFIX pwg: <urn:pwg:>
+PREFIX pwg: <urn:ostler:>
 SELECT DISTINCT ?person WHERE {{
-  ?signal pwg:observedIn <urn:pwg:conversation/{conv}> ;
+  ?signal pwg:observedIn <urn:ostler:conversation/{conv}> ;
           pwg:about ?person .
 }}
 """
@@ -257,9 +257,9 @@ SELECT DISTINCT ?person WHERE {{
 def _sparql_select(sparql: str, settings: Settings) -> list[dict]:
     """Execute a SPARQL SELECT and return binding dicts.
 
-    Uses the user's named graph (urn:pwg:user/{user_id}).
+    Uses the user's named graph (urn:ostler:user/{user_id}).
     """
-    graph_uri = f"urn:pwg:user/{settings.user_id}"
+    graph_uri = f"urn:ostler:user/{settings.user_id}"
     try:
         with httpx.Client(timeout=30.0, transport=httpx.HTTPTransport(proxy=None)) as hc:
             resp = hc.post(
@@ -296,22 +296,22 @@ def _promote_pair(
     Uses DELETE/INSERT WHERE so the update is idempotent — running it
     again on an already-promoted fact is a no-op.
     """
-    graph_uri = f"urn:pwg:user/{settings.user_id}"
+    graph_uri = f"urn:ostler:user/{settings.user_id}"
     sparql = f"""
-PREFIX pwg: <urn:pwg:>
+PREFIX pwg: <urn:ostler:>
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 
 DELETE {{
-  <urn:pwg:fact/{fact_id_a}> pwg:candidate ?old_a .
-  <urn:pwg:fact/{fact_id_b}> pwg:candidate ?old_b .
+  <urn:ostler:fact/{fact_id_a}> pwg:candidate ?old_a .
+  <urn:ostler:fact/{fact_id_b}> pwg:candidate ?old_b .
 }}
 INSERT {{
-  <urn:pwg:fact/{fact_id_a}> pwg:candidate "false"^^xsd:boolean .
-  <urn:pwg:fact/{fact_id_b}> pwg:candidate "false"^^xsd:boolean .
+  <urn:ostler:fact/{fact_id_a}> pwg:candidate "false"^^xsd:boolean .
+  <urn:ostler:fact/{fact_id_b}> pwg:candidate "false"^^xsd:boolean .
 }}
 WHERE {{
-  OPTIONAL {{ <urn:pwg:fact/{fact_id_a}> pwg:candidate ?old_a }}
-  OPTIONAL {{ <urn:pwg:fact/{fact_id_b}> pwg:candidate ?old_b }}
+  OPTIONAL {{ <urn:ostler:fact/{fact_id_a}> pwg:candidate ?old_a }}
+  OPTIONAL {{ <urn:ostler:fact/{fact_id_b}> pwg:candidate ?old_b }}
 }}
 """
     try:
@@ -362,18 +362,18 @@ def list_candidates(
     filter_clause = ""
     if conversation_id:
         filter_clause = (
-            f"FILTER(?conv = <urn:pwg:conversation/{conversation_id}>)"
+            f"FILTER(?conv = <urn:ostler:conversation/{conversation_id}>)"
         )
     sparql = f"""
-PREFIX pwg: <urn:pwg:>
+PREFIX pwg: <urn:ostler:>
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 
 SELECT ?fact ?conv ?subject ?text WHERE {{
-  ?fact a <urn:pwg:Fact> ;
-        <urn:pwg:candidate> "true"^^xsd:boolean ;
-        <urn:pwg:fromConversation> ?conv ;
-        <urn:pwg:about> ?subject ;
-        <urn:pwg:text> ?text .
+  ?fact a <urn:ostler:Fact> ;
+        <urn:ostler:candidate> "true"^^xsd:boolean ;
+        <urn:ostler:fromConversation> ?conv ;
+        <urn:ostler:about> ?subject ;
+        <urn:ostler:text> ?text .
   {filter_clause}
 }}
 LIMIT {int(limit)}
@@ -401,10 +401,10 @@ def set_candidate(
     override. DELETE/INSERT WHERE with OPTIONAL matches the idempotent
     shape of _promote_pair — re-running is a no-op.
     """
-    graph_uri = f"urn:pwg:user/{settings.user_id}"
+    graph_uri = f"urn:ostler:user/{settings.user_id}"
     literal = "true" if value else "false"
     sparql = f"""
-PREFIX pwg: <urn:pwg:>
+PREFIX pwg: <urn:ostler:>
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 
 DELETE {{ <{fact_uri}> pwg:candidate ?old }}

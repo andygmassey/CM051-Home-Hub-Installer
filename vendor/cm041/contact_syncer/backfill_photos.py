@@ -47,7 +47,7 @@ def find_person_uri_by_icloud_uid(oxigraph_url: str, uid: str) -> Optional[str]:
     """Look up the Person URI already in Oxigraph for a given iCloud UID."""
     safe_uid = uid.replace("\\", "\\\\").replace('"', '\\"')
     sparql = (
-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
         "SELECT ?person WHERE {\n"
         "  ?person a pwg:Person ;\n"
         "          pwg:hasIdentifier ?id .\n"

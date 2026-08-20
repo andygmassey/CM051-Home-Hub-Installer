@@ -113,7 +113,7 @@ mirrors the distinction in CM031's `PersonResult` vs `PersonDetail` /
   "person": {
     "name": "Jane Doe",
     "slug": "jane-doe",
-    "person_uri": "urn:pwg:person/jane-doe",
+    "person_uri": "urn:ostler:person/jane-doe",
     "wiki_url": "http://localhost:8044/People/jane-doe/",
     "organisation": "Example Corp",
     "title": "VP Product",

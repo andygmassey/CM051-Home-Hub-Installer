@@ -618,7 +618,7 @@ class IngestPipeline:
 
         # Build RDF triples
         turtle_lines = [
-            "@prefix pwg: <https://pwg.dev/ontology#> .",
+            "@prefix pwg: <https://schema.ostler.ai/ontology#> .",
             "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .",
             "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .",
             ""

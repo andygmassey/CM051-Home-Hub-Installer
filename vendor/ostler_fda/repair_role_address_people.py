@@ -72,7 +72,7 @@ except ImportError:  # running as a plain script (repair on the box)
 
 logger = logging.getLogger(__name__)
 
-NS = "https://pwg.dev/ontology#"
+NS = "https://schema.ostler.ai/ontology#"
 OXIGRAPH = os.environ.get("OXIGRAPH_URL", "http://127.0.0.1:7878")
 
 

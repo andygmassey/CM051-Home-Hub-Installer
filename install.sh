@@ -14274,7 +14274,7 @@ except Exception:
             curl -sf -m 5 \
                 -H 'Content-Type: application/sparql-query' \
                 -H 'Accept: application/sparql-results+json' \
-                --data-binary 'PREFIX pwg: <http://pwg.local/ontology#>
+                --data-binary 'PREFIX pwg: <https://schema.ostler.ai/ontology#>
 SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p pwg:enrichedAt ?d }' \
                 "${OXIGRAPH_URL:-http://localhost:7878}/query" 2>/dev/null \
             | python3 -c 'import json,sys
@@ -19790,8 +19790,8 @@ except Exception:
         _guard_email_coverage() {
             command -v curl >/dev/null 2>&1 || return 0
             local q_phone q_email phones emails
-            q_phone='PREFIX pwg: <https://pwg.dev/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierType "phone" }'
-            q_email='PREFIX pwg: <https://pwg.dev/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierType "email" }'
+            q_phone='PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierType "phone" }'
+            q_email='PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierType "email" }'
             phones="$(curl -s --max-time 15 --data-urlencode "query=${q_phone}" \
                 -H "Accept: text/csv" "${_HYDRATE_OXIGRAPH}/query" 2>/dev/null \
                 | tail -n 1 | tr -dc '0-9' || true)"
@@ -20907,7 +20907,7 @@ except Exception:
     [[ "$_n" -gt 0 ]] || return 0
     # How many chat-identifier facts landed in Oxigraph for this channel?
     local _q _landed
-    _q="PREFIX pwg: <https://pwg.dev/ontology#> SELECT (COUNT(?id) AS ?c) WHERE { ?id a pwg:PersonIdentifier ; pwg:identifierLabel \"${_idlabel}\" . }"
+    _q="PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(?id) AS ?c) WHERE { ?id a pwg:PersonIdentifier ; pwg:identifierLabel \"${_idlabel}\" . }"
     _landed="$(curl -s --get "${_CONV_GUARD_OX}/query" \
         --data-urlencode "query=${_q}" \
         -H 'Accept: application/sparql-results+json' 2>/dev/null \

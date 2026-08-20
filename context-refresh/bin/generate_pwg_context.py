@@ -119,7 +119,7 @@ BASE_URL = os.environ.get("OSTLER_ICAL_BASE_URL", "http://127.0.0.1:8090")
 OXIGRAPH_URL = os.environ.get("OXIGRAPH_URL", "http://127.0.0.1:7878")
 
 # The PWG ontology namespace, matching the ical-server / contact_syncer.
-PWG_NS = "https://pwg.dev/ontology#"
+PWG_NS = "https://schema.ostler.ai/ontology#"
 
 # Hard cap on the digest size. CONTEXT.md is injected into every system prompt,
 # so it must stay small. BOOTSTRAP_MAX_CHARS in the daemon defaults to 20000;

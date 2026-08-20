@@ -168,14 +168,14 @@ def write_conversation_signal(
         uuid.NAMESPACE_URL,
         f"pwg://linkedin_message_signal/{person_uri}/{conv_metadata.get('conv_id', '')}"
     ))
-    signal_uri = f"https://pwg.dev/ontology#signal_{signal_id}"
+    signal_uri = f"https://schema.ostler.ai/ontology#signal_{signal_id}"
 
     total = conv_metadata["total_messages"]
     user_msgs = conv_metadata["user_message_count"]
     other_msgs = conv_metadata["other_message_count"]
 
     sparql = (
-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
         f"INSERT DATA {{\n"
         f'  <{signal_uri}> a pwg:RelationshipSignal .\n'
@@ -271,7 +271,7 @@ def import_messages(
                 else:
                     # Create new person
                     person_id = str(uuid.uuid4()).replace("-", "")[:12]
-                    person_uri = f"https://pwg.dev/ontology#person_{person_id}"
+                    person_uri = f"https://schema.ostler.ai/ontology#person_{person_id}"
 
                     if verbose:
                         print(f" → NEW")

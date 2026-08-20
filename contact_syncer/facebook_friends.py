@@ -185,11 +185,11 @@ def create_person_oxigraph(
         triples.append(f'<{person_uri}> pwg:familyName "{family}"')
     if user_id:
         triples.append(
-            f"<{person_uri}> pwg:belongsToUser <https://pwg.dev/ontology#user_{user_id}>"
+            f"<{person_uri}> pwg:belongsToUser <https://schema.ostler.ai/ontology#user_{user_id}>"
         )
 
     # Facebook friend signal (records the relationship + when it was established)
-    signal_uri = f"https://pwg.dev/ontology#signal_{person_id}_facebook_friend"
+    signal_uri = f"https://schema.ostler.ai/ontology#signal_{person_id}_facebook_friend"
     triples.append(f"<{person_uri}> pwg:hasSignal <{signal_uri}>")
     triples.append(f"<{signal_uri}> a pwg:RelationshipSignal")
     triples.append(f'<{signal_uri}> pwg:signalType "facebook_friend"')
@@ -199,7 +199,7 @@ def create_person_oxigraph(
         )
 
     sparql = (
-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
         "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
     )
@@ -217,7 +217,7 @@ def enrich_person_oxigraph(
     Adds a RelationshipSignal triple to record the Facebook friendship.
     Also updates createdAt if the Facebook friend date is earlier.
     """
-    signal_uri = f"https://pwg.dev/ontology#signal_{person_id}_facebook_friend"
+    signal_uri = f"https://schema.ostler.ai/ontology#signal_{person_id}_facebook_friend"
     triples = [
         f"<{person_uri}> pwg:hasSignal <{signal_uri}>",
         f"<{signal_uri}> a pwg:RelationshipSignal",
@@ -229,7 +229,7 @@ def enrich_person_oxigraph(
         )
 
     sparql = (
-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
         "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
     )
     _sparql_update(oxigraph_url, sparql)
@@ -239,7 +239,7 @@ def enrich_person_oxigraph(
     if friended_on:
         fb_date = f"{friended_on}T00:00:00+00:00"
         update_sparql = (
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
             f"DELETE {{ <{person_uri}> pwg:createdAt ?old }}\n"
             f"INSERT {{ <{person_uri}> pwg:createdAt \"{fb_date}\"^^xsd:dateTime }}\n"
@@ -404,7 +404,7 @@ def import_friends(
             else:
                 # New person — create in PWG
                 person_id = str(uuid.uuid4()).replace("-", "")[:12]
-                person_uri = f"https://pwg.dev/ontology#person_{person_id}"
+                person_uri = f"https://schema.ostler.ai/ontology#person_{person_id}"
 
                 if verbose:
                     print(f" → NEW")

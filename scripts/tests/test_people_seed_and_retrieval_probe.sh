@@ -120,7 +120,7 @@ LOCK = threading.Lock()
 # Synthetic decoy. Constructed, and intentionally NOT on the probe's allowlist,
 # so the wrong-person path must mask it when printing.
 DECOY_NAME = "Gwendolyn Ashcombe-Decoy"
-DECOY_URI = "https://pwg.dev/ontology#person_decoy00"
+DECOY_URI = "https://schema.ostler.ai/ontology#person_decoy00"
 
 
 def slugify(name):
@@ -147,7 +147,7 @@ def context_payload(name):
                 "message": "No person found matching '%s'." % name}
     uri = rec["uri"]
     if MODE == "wrong_uri":
-        uri = "https://pwg.dev/ontology#person_ffffffff"
+        uri = "https://schema.ostler.ai/ontology#person_ffffffff"
     return {"query": name, "found": True,
             "person": {"name": rec["name"], "slug": slugify(rec["name"]),
                        "person_uri": uri}}
@@ -279,7 +279,7 @@ class Handler(BaseHTTPRequestHandler):
             slug = slugify(subject)
             with LOCK:
                 created = slug not in OXI
-                uri = "https://pwg.dev/ontology#person_%08x" % (abs(hash(slug)) & 0xffffffff)
+                uri = "https://schema.ostler.ai/ontology#person_%08x" % (abs(hash(slug)) & 0xffffffff)
                 if created:
                     OXI[slug] = {"name": subject, "uri": uri}
                 else:

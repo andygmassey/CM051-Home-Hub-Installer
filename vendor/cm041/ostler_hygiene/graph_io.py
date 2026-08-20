@@ -5,14 +5,14 @@ thin network runner lives in ``run.py``; everything here is
 deterministic.
 
 Two namespaces are read (spec 1.1/1.2): CM041 ``pwg:PersonFact`` under
-``https://pwg.dev/ontology#`` in the default graph, and CM048
-``urn:pwg:Fact`` inside per-user named graphs (``urn:pwg:user/<id>``).
+``https://schema.ostler.ai/ontology#`` in the default graph, and CM048
+``urn:ostler:Fact`` inside per-user named graphs (``urn:ostler:user/<id>``).
 CM048 fact triples carry no timestamp and no source predicate today, so
 they parse as recency-incomparable ``conversation_memory`` facts (which
 the engine will only ever flag, never auto-supersede).
 
 WRITE SAFETY: every UPDATE this module builds touches ONLY the
-``<urn:pwg:hygiene>`` named graph, and only verdict-URI subjects. There
+``<urn:ostler:hygiene>`` named graph, and only verdict-URI subjects. There
 is no code path here that can delete or mutate a source fact triple.
 """
 from __future__ import annotations
@@ -28,8 +28,8 @@ from ostler_hygiene.model import (
     _privacy_class,
 )
 
-PWG_NS = "https://pwg.dev/ontology#"
-HYGIENE_GRAPH = "urn:pwg:hygiene"
+PWG_NS = "https://schema.ostler.ai/ontology#"
+HYGIENE_GRAPH = "urn:ostler:hygiene"
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
@@ -94,17 +94,17 @@ WHERE {{
     OPTIONAL {{ ?fact pwg:privacyLevel ?privacyLevel }}
   }} UNION {{
     GRAPH ?g {{
-      ?fact a <urn:pwg:Fact> ;
-            <urn:pwg:about> ?person ;
-            <urn:pwg:text> ?text .
-      OPTIONAL {{ ?fact <urn:pwg:domain> ?domain }}
-      OPTIONAL {{ ?fact <urn:pwg:candidate> ?candidate }}
-      OPTIONAL {{ ?fact <urn:pwg:observedAt> ?observedAt }}
-      OPTIONAL {{ ?fact <urn:pwg:privacyLevel> ?privacyLevel }}
+      ?fact a <urn:ostler:Fact> ;
+            <urn:ostler:about> ?person ;
+            <urn:ostler:text> ?text .
+      OPTIONAL {{ ?fact <urn:ostler:domain> ?domain }}
+      OPTIONAL {{ ?fact <urn:ostler:candidate> ?candidate }}
+      OPTIONAL {{ ?fact <urn:ostler:observedAt> ?observedAt }}
+      OPTIONAL {{ ?fact <urn:ostler:privacyLevel> ?privacyLevel }}
     }}
   }}
   OPTIONAL {{ ?person pwg:privacyLevel ?personPrivacy }}
-  OPTIONAL {{ GRAPH ?pg {{ ?person <urn:pwg:privacyLevel> ?personPrivacyNG }} }}
+  OPTIONAL {{ GRAPH ?pg {{ ?person <urn:ostler:privacyLevel> ?personPrivacyNG }} }}
 }}"""
     if limit:
         q += f"\nLIMIT {int(limit)}"
@@ -198,7 +198,7 @@ def parse_fact_bindings(bindings: List[Dict[str, Any]]) -> List[FactRecord]:
         text = b.get("text")
         if not uri or not person or not text:
             continue
-        is_cm048 = uri.startswith("urn:pwg:")
+        is_cm048 = uri.startswith("urn:ostler:")
         source = b.get("source") or ("conversation_memory" if is_cm048 else None)
         facts.append(FactRecord(
             uri=uri,
@@ -251,7 +251,7 @@ def build_verdict_upsert(verdict: HygieneVerdict) -> str:
     """DELETE-then-INSERT one verdict, keyed by its deterministic URI.
 
     Idempotent: re-running the pass rewrites the same verdict row. Both
-    statements are scoped to ``GRAPH <urn:pwg:hygiene>``; the source
+    statements are scoped to ``GRAPH <urn:ostler:hygiene>``; the source
     fact is referenced, never touched.
     """
     v_uri = _validate_uri(verdict.uri)

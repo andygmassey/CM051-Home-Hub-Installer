@@ -26,7 +26,7 @@ Design invariants (per OSTLER_MEMORY_AGENCY_ARCHITECTURE.md section 8):
    conversation) so nobody is nagged on a guess.
 2. Local-first: talks only to the local Oxigraph; no cloud routes.
 3. Source triples are IMMUTABLE. Every hygiene decision is a verdict in
-   the separate named graph ``<urn:pwg:hygiene>``; un-forgetting is
+   the separate named graph ``<urn:ostler:hygiene>``; un-forgetting is
    deleting a verdict row. Nothing in this package ever deletes or
    rewrites a source fact triple.
 4. Fail-safe: absence of a verdict always means active + full weight; a

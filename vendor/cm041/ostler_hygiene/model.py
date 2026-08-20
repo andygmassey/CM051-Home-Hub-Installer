@@ -2,7 +2,7 @@
 
 The load-bearing design decision: **source triples are immutable once
 written.** Every hygiene decision is a ``HygieneVerdict`` in a separate,
-recomputable, reversible overlay (the ``<urn:pwg:hygiene>`` named
+recomputable, reversible overlay (the ``<urn:ostler:hygiene>`` named
 graph). Un-retiring a fact is deleting its verdict row; a sticky undo is
 a ``user_override=True`` verdict, which the automated pass must never
 clobber. Only GDPR "delete forever" (an existing, separate path) ever
@@ -59,21 +59,21 @@ def _privacy_class(level: Optional[str]) -> str:
 # uuid5 namespace for verdict URIs: verdict identity is a pure function of
 # the fact URI, so re-running the pass addresses the same verdict row
 # (idempotent by construction, spec section 4).
-_VERDICT_NS = uuid.uuid5(uuid.NAMESPACE_URL, "urn:pwg:hygiene:verdict")
+_VERDICT_NS = uuid.uuid5(uuid.NAMESPACE_URL, "urn:ostler:hygiene:verdict")
 
 
 def verdict_uri(fact_uri: str) -> str:
     """Deterministic verdict URI for a fact URI."""
-    return f"urn:pwg:hygiene:verdict/{uuid.uuid5(_VERDICT_NS, fact_uri)}"
+    return f"urn:ostler:hygiene:verdict/{uuid.uuid5(_VERDICT_NS, fact_uri)}"
 
 
 @dataclass(frozen=True)
 class FactRecord:
     """A source fact, normalised across both namespaces.
 
-    CM041 ``pwg:PersonFact`` (https://pwg.dev/ontology#) supplies
+    CM041 ``pwg:PersonFact`` (https://schema.ostler.ai/ontology#) supplies
     factText/factSource/factDomain/authoritative/createdAt/validFrom/
-    validTo. CM048 ``urn:pwg:Fact`` supplies text/domain/candidate and
+    validTo. CM048 ``urn:ostler:Fact`` supplies text/domain/candidate and
     carries NO timestamp and NO source predicate today -- such facts are
     recency-incomparable and can only ever be flagged, never
     auto-superseded (fail-safe by construction; the write-time

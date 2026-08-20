@@ -164,17 +164,43 @@ fi
 #     declaration now produces the ADVISORY branch, which 7 deliberately
 #     accepts. It is still worth asserting, because if the gate stopped
 #     noticing drift altogether then 7's advisory pass would be vacuous.
+#
+#     THIS ARM SKEWS UPWARD, AND THE REASON IS THE MIGRATION. It used to skew
+#     to `n_real - 50` and grep for "went UP", which worked only while the
+#     real count was large. At the zero floor `n_real - 50` is -50, the gate's
+#     own `tr -dc '0-9'` strips the sign and reads it as 50, and the drift
+#     flips from UP to DOWN -- so the arm failed while the gate was working
+#     perfectly. A control whose direction depends on the size of the baseline
+#     is a control that expires. Skewing UPWARD is well-defined at every
+#     baseline including zero, so this arm now asserts the PROPERTY (drift is
+#     seen, GREEN is withheld) rather than one particular direction of it.
 REALDECL="$REAL/scripts/.foreign-ontology-namespace-count"
 if [ -r "$REALDECL" ]; then
     n_real="$(grep -vE '^[[:space:]]*#' "$REALDECL" | tr -dc '0-9')"
-    printf '# temporary, control 7b\n%s\n' "$(( n_real - 50 ))" > "$TMP/decl.skewed"
+    printf '# temporary, control 7b\n%s\n' "$(( n_real + 50 ))" > "$TMP/decl.skewed"
     rc="$(OSTLER_NS_COUNT_FILE="$TMP/decl.skewed" bash "$GATE" "$REAL" >"$TMP/out" 2>&1; echo $?)"
     if [ "$(grep -c 'GATE: GREEN' "$TMP/out")" -ge 1 ]; then
         no "a declaration 50 out still printed GREEN -- the gate has stopped seeing drift" "$(cat "$TMP/out")"
-    elif [ "$(grep -c 'went UP' "$TMP/out")" -lt 1 ]; then
+    elif [ "$(grep -c 'WARN:' "$TMP/out")" -lt 1 ]; then
         no "a declaration 50 out produced no WARN -- the gate has stopped seeing drift" "$(cat "$TMP/out")"
     else
         ok "a declaration 50 out is still SEEN: WARN, no GREEN (the ratchet notices)"
+    fi
+
+    # 7c. A NEGATIVE DECLARATION MUST NOT READ AS ITS OWN ABSOLUTE VALUE.
+    #     Found while fixing 7b: `tr -dc '0-9'` deletes the minus sign, so a
+    #     declaration of -50 was silently read as 50. Nobody would write a
+    #     negative on purpose, but arithmetic in a caller can produce one --
+    #     7b itself did -- and a gate that turns a nonsense input into a
+    #     plausible number reports a confident verdict about the wrong
+    #     question. CANNOT-RUN is the only honest answer to input it cannot
+    #     parse.
+    printf '# temporary, control 7c\n-50\n' > "$TMP/decl.negative"
+    rc="$(OSTLER_NS_COUNT_FILE="$TMP/decl.negative" bash "$GATE" "$REAL" >"$TMP/out" 2>&1; echo $?)"
+    if [ "$rc" = "2" ]; then
+        ok "a NEGATIVE declaration is CANNOT-RUN (rc=2), not silently its absolute value"
+    else
+        no "a negative declaration produced rc=$rc -- the sign was eaten and a nonsense input read as a number" "$(cat "$TMP/out")"
     fi
 else
     no "cannot read the real declaration at $REALDECL" ""
@@ -225,6 +251,50 @@ if [ "$n_old" -eq 0 ] && [ "$n_new" -eq 4 ]; then
     ok "the ORIGINAL regex scores that fixture 0 and the widened one scores 4"
 else
     no "the widening is not what makes the difference (old=$n_old new=$n_new)" ""
+fi
+
+# ---------------------------------------------------------------------------
+# 8c. THE URN AXIS, WHICH IS THE THIRD WIDENING AND WAS THE LARGEST BLIND SPOT.
+#
+#     Controls 8 and 8b prove the DOMAIN widening. They cannot prove this one,
+#     because a URN has no host and no dot: any pattern shaped around
+#     `pwg.<tld>` scores a `urn:pwg:` tree at exactly zero, forever, with no
+#     error and no warning. Measured 2026-08-20, that blind spot held 365
+#     occurrences across the shipping trees -- preference, person, todo,
+#     conversation, user and named-graph identifiers -- while the ratchet
+#     reported 294 and read as the whole problem.
+#
+#     Single-axis on purpose: the fixture contains NO dotted pwg host at all,
+#     so if the URN arm were dropped from the regex this control goes red on
+#     its own rather than being propped up by a sibling.
+# ---------------------------------------------------------------------------
+mkurnrepo() {
+    local d="$1" n="$2" decl="$3" i=0
+    rm -rf "$d"; mkdir -p "$d/scripts"
+    git -C "$d" init -q 2>/dev/null
+    : > "$d/data.ttl"
+    while [ "$i" -lt "$n" ]; do printf '<urn:pwg:preference:%s> a <urn:pwg:Preference> .\n' "$i" >> "$d/data.ttl"; i=$((i+1)); done
+    printf '# declared\n%s\n' "$decl" > "$d/scripts/.foreign-ontology-namespace-count"
+    git -C "$d" add -A 2>/dev/null; git -C "$d" -c user.email=t@t -c user.name=t commit -qm x 2>/dev/null
+}
+mkurnrepo "$TMP/urn" 4 0
+[ "$(grep -cE 'pwg\.(dev|local)' "$TMP/urn/data.ttl")" -eq 0 ] \
+    || no "URN fixture is not single-axis: it contains a dotted pwg host" ""
+rc="$(run "$TMP/urn")"
+if [ "$rc" != 1 ]; then
+    no "a urn:pwg:-only tree against declared 0 was NOT caught (rc=$rc) -- the regex is still host-shaped" "$(cat "$TMP/out")"
+else
+    ok "PROVED RED on its own axis: urn:pwg: alone, no dotted host present, is caught"
+fi
+
+# 8d. and that fixture is genuinely invisible to the DOMAIN-ONLY regex, so 8c
+#     measures the URN widening rather than restating control 8.
+n_host="$(grep -cE 'pwg\.(dev|local)' "$TMP/urn/data.ttl" || true)"
+n_full="$(grep -cE 'pwg\.(dev|local)|urn:pwg:' "$TMP/urn/data.ttl" || true)"
+if [ "$n_host" -eq 0 ] && [ "$n_full" -eq 4 ]; then
+    ok "the DOMAIN-only regex scores the URN fixture 0 and the full one scores 4"
+else
+    no "the URN widening is not what makes the difference (host=$n_host full=$n_full)" ""
 fi
 
 # ---------------------------------------------------------------------------

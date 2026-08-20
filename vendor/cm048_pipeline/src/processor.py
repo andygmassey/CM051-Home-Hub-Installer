@@ -1698,14 +1698,14 @@ def _load_candidate_people(metadata: dict, settings: Settings) -> list[dict]:
 def _query_graph_people(settings: Settings) -> list[dict]:
     """Best-effort SPARQL fetch of known people (slug + display name).
 
-    Person nodes are typed ``pwg:Person`` in the ``https://pwg.dev/
+    Person nodes are typed ``pwg:Person`` in the ``https://schema.ostler.ai/
     ontology#`` namespace (see last_contact_updater). Returns [] on any
     failure -- candidate enrichment is optional, never load-bearing.
     """
     import httpx
 
     sparql = """
-PREFIX pwg: <https://pwg.dev/ontology#>
+PREFIX pwg: <https://schema.ostler.ai/ontology#>
 SELECT DISTINCT ?slug ?display WHERE {
   ?person a pwg:Person ;
           pwg:displayName ?display .

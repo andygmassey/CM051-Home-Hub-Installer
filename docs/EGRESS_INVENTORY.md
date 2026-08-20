@@ -27,7 +27,7 @@ sufficient, and they fail in opposite directions:
 | method | what it misses | measured example |
 |---|---|---|
 | sampling | anything that opens and closes between two samples, which is most of an install | missed ghcr.io, registry.ollama.ai, huggingface.co, Homebrew, PyPI |
-| source sweep | nothing, but it over-reports badly: a string that looks like a URL is not a fetch | `pwg.dev` x193 and `www.w3.org` x92 are RDF namespaces, never dereferenced; `www.apple.com` x28 is a plist DTD |
+| source sweep | nothing, but it over-reports badly: a string that looks like a URL is not a fetch | `schema.ostler.ai` x292 and `www.w3.org` x114 are RDF namespaces, never dereferenced; `www.apple.com` x28 is a plist DTD |
 
 So every row is classified by **call site**: a host counts when it appears
 where something opens a socket, not merely where a string appears. The false
@@ -155,7 +155,8 @@ A reader running the obvious grep will hit these. They are strings, not fetches.
 
 | string | count | what it actually is |
 |---|---|---|
-| `pwg.dev` | 193 in CM051, 276 across the tree | RDF namespace URI. An identifier, never dereferenced by our code. Verified: all occurrences are prefix declarations or R2RML templates, none passed to an HTTP client. Separately a real problem, because the domain is unregistered: #743, migrating to `schema.ostler.ai` |
+| `schema.ostler.ai` | 292 in CM051 | RDF namespace URI. An identifier, never dereferenced by our code. Verified: all occurrences are prefix declarations or R2RML templates, none passed to an HTTP client. This row previously named an unregistered third-party domain; #743 moved every identifier onto a host we own, and the gate that counted them is now a hard floor at zero |
+| `urn:ostler:` | 192 in CM051 | URN identifiers for preferences, todos, conversations and named graphs. Non-dereferenceable by construction, so they cannot be a fetch under any tooling |
 | `www.w3.org` | 92 | RDF/XML and XSD namespace URIs |
 | `www.wikidata.org` | 20 | mostly namespace URIs; the enrichment client is the real fetch and has its own row |
 | `www.apple.com` | 28 | the `DOCTYPE` string in every plist |

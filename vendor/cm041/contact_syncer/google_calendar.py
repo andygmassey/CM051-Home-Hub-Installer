@@ -450,8 +450,8 @@ def write_calendar_event(
         uuid.NAMESPACE_URL,
         f"pwg://gcal/{user_id}/{event.get('uid', summary)}"
     ))
-    fact_uri = f"https://pwg.dev/ontology#fact_{fact_id}"
-    user_uri = f"https://pwg.dev/ontology#user_{user_id}"
+    fact_uri = f"https://schema.ostler.ai/ontology#fact_{fact_id}"
+    user_uri = f"https://schema.ostler.ai/ontology#user_{user_id}"
 
     # Owner + type provenance: emit each only when resolved, so an
     # ownerless/unclassified event stays valid. An ownerless event is NOT
@@ -477,7 +477,7 @@ def write_calendar_event(
     )
 
     sparql = (
-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
         f"INSERT DATA {{\n"
         f'  <{fact_uri}> a pwg:PersonFact .\n'

@@ -513,11 +513,11 @@ def _person_id_from_identifier(identifier: str) -> str:
             "it is a sender, not a person, and keying on it merges everyone "
             "who was ever mailed by it into a single node (#659)"
         )
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://pwg.dev/person/{clean}"))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://schema.ostler.ai/person/{clean}"))
 
 
 def _person_uri(person_id: str) -> str:
-    return f"https://pwg.dev/ontology#person_{person_id}"
+    return f"https://schema.ostler.ai/ontology#person_{person_id}"
 
 
 def _whatsapp_display_name(jid: str) -> str:
@@ -611,7 +611,7 @@ def ingest_imessage(fda_dir: Path) -> dict:
                 triples.extend(_creation_name_triples(uri, participant))
 
                 # Add identifier
-                id_uri = f"https://pwg.dev/ontology#id_{person_id}_imessage"
+                id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_imessage"
                 triples.extend([
                     f"<{uri}> pwg:hasIdentifier <{id_uri}>",
                     f"<{id_uri}> a pwg:PersonIdentifier",
@@ -621,7 +621,7 @@ def ingest_imessage(fda_dir: Path) -> dict:
                 ])
 
                 sparql = (
-                    "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                    "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                     "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                     "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
                 )
@@ -629,12 +629,12 @@ def ingest_imessage(fda_dir: Path) -> dict:
                 people_created += 1
             else:
                 # Enrich: add iMessage identifier if not already present
-                id_uri = f"https://pwg.dev/ontology#id_{person_id}_imessage"
+                id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_imessage"
                 if not _identifier_exists(id_uri):
                     is_phone = participant.startswith("+") or participant.replace("-", "").replace(" ", "").isdigit()
                     id_type = "phone" if is_phone else "email"
                     sparql = (
-                        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                         f"INSERT DATA {{\n"
                         f"  <{uri}> pwg:hasIdentifier <{id_uri}> .\n"
                         f"  <{id_uri}> a pwg:PersonIdentifier .\n"
@@ -671,7 +671,7 @@ def _person_exists(uri: str) -> bool:
     """Check if a person URI exists in Oxigraph."""
     try:
         result = _sparql_query(
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             f"SELECT ?t WHERE {{ <{uri}> a ?t }} LIMIT 1"
         )
         return len(result) > 0
@@ -683,7 +683,7 @@ def _identifier_exists(id_uri: str) -> bool:
     """Check if an identifier URI exists in Oxigraph."""
     try:
         result = _sparql_query(
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             f"SELECT ?t WHERE {{ <{id_uri}> a ?t }} LIMIT 1"
         )
         return len(result) > 0
@@ -756,7 +756,7 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
             return
 
         sparql = (
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
             f"DELETE {{ <{person_uri}> {predicate} ?old }}\n"
             f'INSERT {{ <{person_uri}> {predicate} "{date_str}"^^xsd:date }}\n'
@@ -829,7 +829,7 @@ def _upsert_display_name(person_uri: str, value: str) -> None:
     )
     try:
         _sparql_update(
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
             "DELETE {\n"
             f"  <{person_uri}> pwg:displayName ?old .\n"
@@ -978,7 +978,7 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                 # #576: the helper flags the bare-number placeholder so the
                 # resolver may overwrite it and surfaces can suppress it.
                 triples.extend(_creation_name_triples(uri, display))
-                id_uri = f"https://pwg.dev/ontology#id_{person_id}_whatsapp"
+                id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_whatsapp"
                 triples.extend([
                     f"<{uri}> pwg:hasIdentifier <{id_uri}>",
                     f"<{id_uri}> a pwg:PersonIdentifier",
@@ -996,7 +996,7 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                     )
 
                 sparql = (
-                    "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                    "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                     "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                     "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
                 )
@@ -1010,7 +1010,7 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                 # higher-confidence tier -- the SPARQL layer tolerates
                 # multiple contactSourceTier values, and the wiki
                 # renderer picks the highest one.
-                id_uri = f"https://pwg.dev/ontology#id_{person_id}_whatsapp"
+                id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_whatsapp"
                 if not _identifier_exists(id_uri):
                     triples = [
                         f"<{uri}> pwg:hasIdentifier <{id_uri}>",
@@ -1025,7 +1025,7 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                             f'<{id_uri}> pwg:confidence "{confidence}"^^xsd:float'
                         )
                     sparql = (
-                        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                         "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
                     )
@@ -1119,7 +1119,7 @@ def ingest_calendar(fda_dir: Path) -> dict:
                     # address became the person's permanent name.
                     triples.extend(_creation_name_triples(uri, attendee))
                     sparql = (
-                        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                         "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
                     )
@@ -1146,9 +1146,9 @@ def ingest_calendar(fda_dir: Path) -> dict:
         if title or attendee_uris:
             meeting_id = uuid.uuid5(
                 uuid.NAMESPACE_URL,
-                f"https://pwg.dev/meeting/{title}|{start_date}",
+                f"https://schema.ostler.ai/meeting/{title}|{start_date}",
             )
-            meeting_uri = f"https://pwg.dev/ontology#meeting_{meeting_id}"
+            meeting_uri = f"https://schema.ostler.ai/ontology#meeting_{meeting_id}"
             m_triples = [
                 f"<{meeting_uri}> a pwg:Meeting",
                 f'<{meeting_uri}> pwg:source "calendar_fda"',
@@ -1171,7 +1171,7 @@ def ingest_calendar(fda_dir: Path) -> dict:
                     f"<{meeting_uri}> pwg:meetingAttendee <{a_uri}>"
                 )
             m_sparql = (
-                "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                 "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                 "INSERT DATA {\n  " + " .\n  ".join(m_triples) + " .\n}"
             )
@@ -1244,7 +1244,7 @@ def ingest_photos_people(fda_dir: Path) -> dict:
             # PR-A vCard REV fix.
 
             sparql = (
-                "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                 "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                 "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
             )
@@ -1304,7 +1304,7 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
             # was stuck with an email address as their name for good.
             triples.extend(_creation_name_triples(uri, email))
 
-            id_uri = f"https://pwg.dev/ontology#id_{person_id}_mail"
+            id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_mail"
             triples.extend([
                 f"<{uri}> pwg:hasIdentifier <{id_uri}>",
                 f"<{id_uri}> a pwg:PersonIdentifier",
@@ -1314,7 +1314,7 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
             ])
 
             sparql = (
-                "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                 "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                 "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
             )
@@ -2308,7 +2308,7 @@ def _load_people_from_oxigraph() -> list[dict]:
     several numbers still produces one row.
     """
     people_rows = _sparql_query(
-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
         "SELECT ?uri ?displayName ?contactType ?org ?jobTitle "
         "?givenName ?familyName ?createdAt WHERE {\n"
         "  ?uri a pwg:Person ;\n"
@@ -2333,7 +2333,7 @@ def _load_people_from_oxigraph() -> list[dict]:
 
     # Second query: identifiers grouped per person.
     id_rows = _sparql_query(
-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
         "SELECT ?uri ?idType ?idValue WHERE {\n"
         "  ?uri a pwg:Person ;\n"
         "       pwg:hasIdentifier ?id .\n"

@@ -406,15 +406,15 @@ class EnrichmentService:
 
         # Query Oxigraph for enrichment metadata (check default and named graphs)
         sparql = f"""
-        PREFIX pwg: <http://pwg.local/ontology#>
+        PREFIX pwg: <https://schema.ostler.ai/ontology#>
         ASK WHERE {{
             {{
-                <urn:pwg:preference:{preference_id}> pwg:enrichedAt ?date .
+                <urn:ostler:preference:{preference_id}> pwg:enrichedAt ?date .
             }}
             UNION
             {{
                 GRAPH ?g {{
-                    <urn:pwg:preference:{preference_id}> pwg:enrichedAt ?date .
+                    <urn:ostler:preference:{preference_id}> pwg:enrichedAt ?date .
                 }}
             }}
         }}
@@ -456,7 +456,7 @@ class EnrichmentService:
         if not result.is_successful():
             return False
 
-        preference_uri = f"urn:pwg:preference:{result.preference_id}"
+        preference_uri = f"urn:ostler:preference:{result.preference_id}"
         triples = result.to_turtle(preference_uri)
 
         # Convert Turtle to SPARQL UPDATE INSERT DATA format
@@ -473,7 +473,7 @@ class EnrichmentService:
 
         # Build SPARQL UPDATE query with prefixes
         update_query = f"""
-PREFIX pwg: <http://pwg.local/ontology#>
+PREFIX pwg: <https://schema.ostler.ai/ontology#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 
@@ -1227,7 +1227,7 @@ INSERT DATA {{
 
         # Query Oxigraph for all unique topics from enriched preferences
         sparql_query = """
-        PREFIX pwg: <http://pwg.local/ontology#>
+        PREFIX pwg: <https://schema.ostler.ai/ontology#>
         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
         SELECT DISTINCT ?topic ?label WHERE {
@@ -1285,7 +1285,7 @@ INSERT DATA {{
                         if norm_result.qid:
                             # Store the Q-ID back to Oxigraph
                             update_turtle = f"""
-@prefix pwg: <http://pwg.local/ontology#> .
+@prefix pwg: <https://schema.ostler.ai/ontology#> .
 @prefix wd: <http://www.wikidata.org/entity/> .
 
 <{topic_uri}> pwg:wikidataId "{norm_result.qid}" .

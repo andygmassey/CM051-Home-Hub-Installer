@@ -124,7 +124,7 @@ async def check_if_enriched(preference_id: str) -> bool:
     """Check if a preference is already enriched in Oxigraph."""
     sparql = f"""
     ASK WHERE {{
-        <urn:pwg:preference:{preference_id}> <http://pwg.local/ontology#enrichedAt> ?date .
+        <urn:ostler:preference:{preference_id}> <https://schema.ostler.ai/ontology#enrichedAt> ?date .
     }}
     """
 
@@ -161,7 +161,7 @@ async def get_enrichment_stats_from_db() -> dict:
 
     # Query for total enriched count
     count_query = """
-    PREFIX pwg: <http://pwg.local/ontology#>
+    PREFIX pwg: <https://schema.ostler.ai/ontology#>
     SELECT (COUNT(DISTINCT ?pref) as ?count)
     WHERE {
         ?pref pwg:enrichedAt ?date .
@@ -170,7 +170,7 @@ async def get_enrichment_stats_from_db() -> dict:
 
     # Query for by-source breakdown
     source_query = """
-    PREFIX pwg: <http://pwg.local/ontology#>
+    PREFIX pwg: <https://schema.ostler.ai/ontology#>
     SELECT ?source (COUNT(?pref) as ?count)
     WHERE {
         ?pref pwg:enrichmentSource ?source .
@@ -180,7 +180,7 @@ async def get_enrichment_stats_from_db() -> dict:
 
     # Query for confidence distribution
     confidence_query = """
-    PREFIX pwg: <http://pwg.local/ontology#>
+    PREFIX pwg: <https://schema.ostler.ai/ontology#>
     SELECT ?confidence
     WHERE {
         ?pref pwg:enrichmentConfidence ?confidence .
@@ -189,7 +189,7 @@ async def get_enrichment_stats_from_db() -> dict:
 
     # Query for recent enrichments
     recent_query = """
-    PREFIX pwg: <http://pwg.local/ontology#>
+    PREFIX pwg: <https://schema.ostler.ai/ontology#>
     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
     SELECT ?pref ?date ?source ?confidence
     WHERE {

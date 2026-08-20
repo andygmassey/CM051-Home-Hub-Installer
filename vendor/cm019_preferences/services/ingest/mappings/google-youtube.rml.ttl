@@ -1,7 +1,7 @@
 @prefix rml: <http://semweb.mmlab.be/ns/rml#> .
 @prefix rr: <http://www.w3.org/ns/r2rml#> .
 @prefix ql: <http://semweb.mmlab.be/ns/ql#> .
-@prefix pwg: <https://pwg.dev/ontology#> .
+@prefix pwg: <https://schema.ostler.ai/ontology#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
@@ -16,7 +16,7 @@
     ] ;
 
     rr:subjectMap [
-        rr:template "https://pwg.dev/data/watch/{time}" ;
+        rr:template "https://schema.ostler.ai/data/watch/{time}" ;
         rr:class pwg:WatchEvent
     ] ;
 
@@ -78,7 +78,7 @@
     ] ;
 
     rr:subjectMap [
-        rr:template "https://pwg.dev/data/video/{titleUrl}" ;
+        rr:template "https://schema.ostler.ai/data/video/{titleUrl}" ;
         rr:class pwg:Video
     ] ;
 
@@ -105,7 +105,7 @@
     ] ;
 
     rr:subjectMap [
-        rr:template "https://pwg.dev/data/channel/{url}" ;
+        rr:template "https://schema.ostler.ai/data/channel/{url}" ;
         rr:class pwg:YouTubeChannel
     ] ;
 
