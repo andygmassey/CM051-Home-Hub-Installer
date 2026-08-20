@@ -37,6 +37,26 @@
 # never runs, and every diagnostic upstream of it reports success.
 #
 # Exit: 0 fix present and proven | 1 defect present | 2 CANNOT RUN
+#
+# ---------------------------------------------------------------------------
+# NO `PROVED-RED-BY:` HEADER, DELIBERATELY, AND HERE IS WHY.
+#
+# verify_declared_gates_reachable.sh will score this gate PROVED-RED-NONE. That
+# is accurate and it is the honest reading, so it is left alone.
+#
+# The known-failing fixture for this gate is not a checked-in file. It is the
+# PRE-FIX INSTALLER ITSELF, reconstructed from the merge-base by the self-test
+# job of .github/workflows/fda-deps-installed.yml. Measured before this landed:
+#
+#     pre-fix install.sh  -> rc=1 (5 assertions red)
+#     this install.sh     -> rc=0 (11 assertions green)
+#
+# A `PROVED-RED-BY:` pointing at that workflow was tried and REJECTED by the
+# gate, correctly: the registration does not check out, and that gate's own
+# comment says a registration that does not check out is worse than none
+# because it reads as coverage. So the discrimination is asserted in CI, and
+# the register here says truthfully that no in-repo fixture proves it.
+# ---------------------------------------------------------------------------
 # ============================================================================
 set -uo pipefail
 
