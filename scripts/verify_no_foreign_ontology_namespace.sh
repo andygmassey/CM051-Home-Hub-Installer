@@ -178,10 +178,24 @@ esac
 # includes the very file the line was written to remove. The first draft of
 # this list said `tests/test_...` when the test lives at `scripts/tests/`,
 # so the gate went on counting its own test and nothing said a word.
+#
+# THE FOURTH ENTRY IS THE MIGRATION TOOL, AND THIS GATE ADDED IT BY FIRING.
+# scripts/migrate_graph_namespace.py rewrites pwg-branded identifiers in a live
+# store, so it must CARRY the patterns it rewrites FROM -- 15 occurrences, in
+# its rules and in the docstring explaining why they are wrong. The gate
+# counted them and went red on the very commit that finishes the migration.
+# That is the instrument measuring itself, exactly as with the three files
+# above, and the same category: a file whose job is to police or perform the
+# thing has to be able to name it.
+#
+# It is the ONLY kind of file that earns a place here. Every exclusion is
+# somewhere a real occurrence can hide later, which is why two documentation
+# files that merely MENTIONED the namespaces were rewritten instead of listed.
 SELF=(
   ":(exclude)scripts/verify_no_foreign_ontology_namespace.sh"
   ":(exclude)scripts/.foreign-ontology-namespace-count"
   ":(exclude)scripts/tests/test_no_foreign_ontology_namespace.sh"
+  ":(exclude)scripts/migrate_graph_namespace.py"
 )
 actual="$(git grep -ohE "$FOREIGN_RE" -- . "${SELF[@]}" 2>/dev/null | grep -c . || true)"
 files="$(git grep -lE "$FOREIGN_RE" -- . "${SELF[@]}" 2>/dev/null | grep -c . || true)"
