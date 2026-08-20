@@ -20107,23 +20107,39 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
                 --json 2>>"$_HYDRATE_EMAIL_LOG" \
             | tail -n 1
         )" || _HYDRATE_EMAIL_JSON=""
-        _HYDRATE_EMAIL_COUNT="$(
+        # TWO numbers, in TWO different units, and they are not
+        # interchangeable. people_extracted is the customer-facing headline
+        # ("we found N people"). messages_read is the only one in the same
+        # unit as the settling DENOMINATOR, which counts .emlx files.
+        _HYDRATE_EMAIL_COUNTS="$(
             printf '%s' "$_HYDRATE_EMAIL_JSON" \
             | python3 -c 'import json,sys
 try:
     d=json.loads(sys.stdin.read())
-    print(int(d.get("people_extracted", 0)))
+    print(int(d.get("people_extracted", 0)), int(d.get("messages_read", 0)))
 except Exception:
-    print(0)' 2>/dev/null
+    print(0, 0)' 2>/dev/null
         )"
-        _HYDRATE_EMAIL_COUNT="${_HYDRATE_EMAIL_COUNT:-0}"
+        _HYDRATE_EMAIL_COUNT="${_HYDRATE_EMAIL_COUNTS%% *}"
+        _HYDRATE_EMAIL_MSGS="${_HYDRATE_EMAIL_COUNTS##* }"
+        case "${_HYDRATE_EMAIL_COUNT:-}" in ''|*[!0-9]*) _HYDRATE_EMAIL_COUNT=0 ;; esac
+        case "${_HYDRATE_EMAIL_MSGS:-}"  in ''|*[!0-9]*) _HYDRATE_EMAIL_MSGS=0 ;; esac
         if [[ "$_HYDRATE_EMAIL_COUNT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_EMAIL_DONE" "$_HYDRATE_EMAIL_COUNT")"
             # Denominator measured from the Mail store, not from this pass.
             # This phase reads a capped slice and the hourly agent carries on
             # for days; reporting the slice as the whole is what made the panel
             # claim 641 of 641 on a Mac holding 16,565 messages.
-            settling_report_measured emails "$_HYDRATE_EMAIL_COUNT" false
+            #
+            # NUMERATOR IS messages_read, NOT people_extracted. settling_source_total
+            # for `emails` counts *.emlx files under ~/Library/Mail, so it is a
+            # MESSAGE count. Feeding it a PEOPLE count put two different
+            # populations in one fraction: on a 16,844-message store yielding
+            # ~600 correspondents the bar read 3.6% and could never approach
+            # 100% however complete the ingest got. A denominator in the wrong
+            # unit is the same class of defect as no denominator, and this file
+            # already says so about the -maxdepth 8 bug in settling_progress.sh.
+            settling_report_measured emails "$_HYDRATE_EMAIL_MSGS" false
         else
             info "$MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT"
             # Ran, found nothing: invite a source rather than showing a
@@ -20141,6 +20157,7 @@ except Exception:
 
     unset _HYDRATE_EMAIL_MBOX _HYDRATE_EMAIL_TIMED_OUT _HYDRATE_EMAIL_JSON
     unset _HYDRATE_EMAIL_COUNT _HYDRATE_EMAIL_TIMEOUT_WRAP _HYDRATE_EMAIL_LOG
+    unset _HYDRATE_EMAIL_COUNTS _HYDRATE_EMAIL_MSGS
 else
     info "$MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING"
     # The channel must still APPEAR. A row absent from the panel is
