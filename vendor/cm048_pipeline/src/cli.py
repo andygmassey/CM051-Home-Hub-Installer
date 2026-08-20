@@ -650,12 +650,12 @@ def cmd_candidates(args, settings) -> int:
         # state, then flips them back to candidate=true. Intended as
         # "oops, that promote was wrong" rather than a routine operation.
         from .candidates import _sparql_select
-        graph_uri = f"urn:pwg:user/{settings.user_id}"  # noqa: F841
+        graph_uri = f"urn:ostler:user/{settings.user_id}"  # noqa: F841
         sparql = f"""
-PREFIX pwg: <urn:pwg:>
+PREFIX pwg: <urn:ostler:>
 SELECT ?fact WHERE {{
-  ?fact a <urn:pwg:Fact> ;
-        <urn:pwg:fromConversation> <urn:pwg:conversation/{args.conversation_id}> .
+  ?fact a <urn:ostler:Fact> ;
+        <urn:ostler:fromConversation> <urn:ostler:conversation/{args.conversation_id}> .
 }}
 """
         rows = _sparql_select(sparql, settings)

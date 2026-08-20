@@ -127,12 +127,12 @@ def _person_id_from_identifier(identifier: str) -> str:
     MUST match ostler_fda.pwg_ingest._person_id_from_identifier.
     """
     clean = identifier.strip().lower()
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://pwg.dev/person/{clean}"))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://schema.ostler.ai/person/{clean}"))
 
 
 def _person_graph_uri(person_id: str) -> str:
     """Person node URI. MUST match ostler_fda.pwg_ingest._person_uri."""
-    return f"https://pwg.dev/ontology#person_{person_id}"
+    return f"https://schema.ostler.ai/ontology#person_{person_id}"
 
 
 def _participant_uri_key(channel: str, raw: str) -> str:
@@ -537,7 +537,7 @@ def _write_oxigraph(
         cleaned.append("\n".join(lines))
     ttl = _turtle_prefixes() + "\n" + "\n\n".join(cleaned)
     # Use a named graph per user so multi-user queries can scope by graph
-    graph_uri = f"urn:pwg:user/{settings.user_id}"
+    graph_uri = f"urn:ostler:user/{settings.user_id}"
     try:
         with httpx.Client(timeout=60.0, transport=httpx.HTTPTransport(proxy=None)) as hc:
             resp = hc.post(
@@ -560,7 +560,7 @@ def _turtle_prefixes() -> str:
     resolve terms. The `pwg:` namespace is ours; `xsd:` is standard.
     """
     return (
-        '@prefix pwg: <urn:pwg:> .\n'
+        '@prefix pwg: <urn:ostler:> .\n'
         '@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n'
     )
 
@@ -568,7 +568,7 @@ def _turtle_prefixes() -> str:
 def _urn(path: str) -> str:
     """Wrap a path in a full IRI. Turtle doesn't allow '/' in prefixed
     names, so URIs with path segments must use angle-bracket syntax."""
-    return f"<urn:pwg:{path}>"
+    return f"<urn:ostler:{path}>"
 
 
 def _conversation_to_triples(
@@ -595,11 +595,11 @@ def _conversation_to_triples(
     safe_stakes = escape_turtle_literal(classification.stakes)
     t = [
         _turtle_prefixes(),
-        f"{conv_uri} a <urn:pwg:Conversation> ;",
-        f'  <urn:pwg:userId> "{safe_user}" ;',
-        f'  <urn:pwg:setting> "{safe_setting}" ;',
-        f'  <urn:pwg:shape> "{safe_shape}" ;',
-        f'  <urn:pwg:stakes> "{safe_stakes}" .',
+        f"{conv_uri} a <urn:ostler:Conversation> ;",
+        f'  <urn:ostler:userId> "{safe_user}" ;',
+        f'  <urn:ostler:setting> "{safe_setting}" ;',
+        f'  <urn:ostler:shape> "{safe_shape}" ;',
+        f'  <urn:ostler:stakes> "{safe_stakes}" .',
     ]
     return ["\n".join(t)]
 
@@ -664,11 +664,11 @@ def _participant_identity_triples(
         safe_ident = escape_turtle_literal(ident)
         block = "\n".join([
             _turtle_prefixes(),
-            f"<{person_uri}> <urn:pwg:participatedIn> {conv_uri} ;",
-            f'  <urn:pwg:hasChatChannel> "{safe_channel}" ;',
-            f'  <urn:pwg:chatIdentifier> "{safe_ident}" ;',
-            f'  <urn:pwg:userId> "{safe_user}" .',
-            f"{conv_uri} <urn:pwg:hasParticipant> <{person_uri}> .",
+            f"<{person_uri}> <urn:ostler:participatedIn> {conv_uri} ;",
+            f'  <urn:ostler:hasChatChannel> "{safe_channel}" ;',
+            f'  <urn:ostler:chatIdentifier> "{safe_ident}" ;',
+            f'  <urn:ostler:userId> "{safe_user}" .',
+            f"{conv_uri} <urn:ostler:hasParticipant> <{person_uri}> .",
         ])
         out.append(block)
     return out
@@ -732,16 +732,16 @@ def _signal_to_triples(conversation_id: str, sig: dict, settings: Settings) -> l
     safe_privacy = escape_turtle_literal(sig.get("privacy_level", "L1"))
     t = [
         _turtle_prefixes(),
-        f"{signal_uri} a <urn:pwg:RelationshipSignal> ;",
-        f'  <urn:pwg:observedIn> {conv_uri} ;',
-        f'  <urn:pwg:about> {person_uri} ;',
-        f'  <urn:pwg:userId> "{safe_user}" ;',
-        f'  <urn:pwg:visibility> "private" ;',
-        f'  <urn:pwg:privacyLevel> "{safe_privacy}" ;',
-        f'  <urn:pwg:warmth> "{safe_warmth}" ;',
-        f'  <urn:pwg:trust> "{safe_trust}" ;',
-        f'  <urn:pwg:overallConfidence> "{safe_confidence}"^^<http://www.w3.org/2001/XMLSchema#float> ;',
-        f'  <urn:pwg:observedAt> "{safe_observed_at}"^^<http://www.w3.org/2001/XMLSchema#dateTime> .',
+        f"{signal_uri} a <urn:ostler:RelationshipSignal> ;",
+        f'  <urn:ostler:observedIn> {conv_uri} ;',
+        f'  <urn:ostler:about> {person_uri} ;',
+        f'  <urn:ostler:userId> "{safe_user}" ;',
+        f'  <urn:ostler:visibility> "private" ;',
+        f'  <urn:ostler:privacyLevel> "{safe_privacy}" ;',
+        f'  <urn:ostler:warmth> "{safe_warmth}" ;',
+        f'  <urn:ostler:trust> "{safe_trust}" ;',
+        f'  <urn:ostler:overallConfidence> "{safe_confidence}"^^<http://www.w3.org/2001/XMLSchema#float> ;',
+        f'  <urn:ostler:observedAt> "{safe_observed_at}"^^<http://www.w3.org/2001/XMLSchema#dateTime> .',
     ]
     return ["\n".join(t)]
 
@@ -755,7 +755,7 @@ def _todo_to_triples(
 
     Schema (mirrors brief.py's SPARQL on the consumer side):
 
-    - ``<urn:pwg:todo/<todo_id>> a <urn:pwg:OutstandingTodo>``
+    - ``<urn:ostler:todo/<todo_id>> a <urn:ostler:OutstandingTodo>``
     - ``pwg:fromConversation`` → the source conversation URI
     - ``pwg:aboutPerson`` → one triple per non-user participant
       (so a 3-person meeting fans out 3 ``aboutPerson`` triples)
@@ -789,26 +789,26 @@ def _todo_to_triples(
 
     lines = [
         _turtle_prefixes(),
-        f"{todo_uri} a <urn:pwg:OutstandingTodo> ;",
-        f'  <urn:pwg:fromConversation> {conv_uri} ;',
-        f'  <urn:pwg:userId> "{safe_user}" ;',
-        f'  <urn:pwg:visibility> "private" ;',
-        f'  <urn:pwg:owner> "{safe_owner}" ;',
-        f'  <urn:pwg:ownerDisplay> "{safe_owner_display}" ;',
-        f'  <urn:pwg:todoText> {action_quoted} ;',
-        f'  <urn:pwg:status> "{safe_status}" ;',
-        f'  <urn:pwg:todoCreatedAt> "{safe_created_at}"^^<http://www.w3.org/2001/XMLSchema#dateTime> ;',
-        f'  <urn:pwg:sourceConversationDate> "{safe_source_date}" ;',
+        f"{todo_uri} a <urn:ostler:OutstandingTodo> ;",
+        f'  <urn:ostler:fromConversation> {conv_uri} ;',
+        f'  <urn:ostler:userId> "{safe_user}" ;',
+        f'  <urn:ostler:visibility> "private" ;',
+        f'  <urn:ostler:owner> "{safe_owner}" ;',
+        f'  <urn:ostler:ownerDisplay> "{safe_owner_display}" ;',
+        f'  <urn:ostler:todoText> {action_quoted} ;',
+        f'  <urn:ostler:status> "{safe_status}" ;',
+        f'  <urn:ostler:todoCreatedAt> "{safe_created_at}"^^<http://www.w3.org/2001/XMLSchema#dateTime> ;',
+        f'  <urn:ostler:sourceConversationDate> "{safe_source_date}" ;',
     ]
     if todo.deadline:
         safe_deadline = escape_turtle_literal(todo.deadline)
         lines.append(
-            f'  <urn:pwg:deadline> "{safe_deadline}"^^<http://www.w3.org/2001/XMLSchema#date> ;'
+            f'  <urn:ostler:deadline> "{safe_deadline}"^^<http://www.w3.org/2001/XMLSchema#date> ;'
         )
     if todo.priority:
         safe_priority = escape_turtle_literal(todo.priority)
         lines.append(
-            f'  <urn:pwg:priority> "{safe_priority}" ;'
+            f'  <urn:ostler:priority> "{safe_priority}" ;'
         )
     # aboutPerson fan-out: one triple per non-user participant. Each
     # subject_person_id is the conversation metadata ``id`` (e.g.
@@ -819,7 +819,7 @@ def _todo_to_triples(
     for person_id in todo.subject_person_ids:
         person_uri = _urn(person_id.replace(":", "/"))
         person_lines.append(
-            f'  <urn:pwg:aboutPerson> {person_uri} ;'
+            f'  <urn:ostler:aboutPerson> {person_uri} ;'
         )
     if not person_lines:
         # No non-user participants. Skip (brief use case doesn't apply).
@@ -946,16 +946,16 @@ def _fact_to_triples(
     safe_strength = escape_turtle_literal(fact.get("signal_strength", "medium"))
     t = [
         _turtle_prefixes(),
-        f"{fact_uri} a <urn:pwg:Fact> ;",
-        f'  <urn:pwg:fromConversation> {conv_uri} ;',
-        f'  <urn:pwg:about> {subject_uri} ;',
-        f'  <urn:pwg:userId> "{safe_user}" ;',
-        f'  <urn:pwg:visibility> "private" ;',
-        f'  <urn:pwg:type> "{safe_type}" ;',
-        f'  <urn:pwg:domain> "{safe_domain}" ;',
-        f'  <urn:pwg:privacyLevel> "{safe_privacy}" ;',
-        f'  <urn:pwg:signalStrength> "{safe_strength}" ;',
-        f'  <urn:pwg:candidate> "{candidate_literal}"^^xsd:boolean ;',
+        f"{fact_uri} a <urn:ostler:Fact> ;",
+        f'  <urn:ostler:fromConversation> {conv_uri} ;',
+        f'  <urn:ostler:about> {subject_uri} ;',
+        f'  <urn:ostler:userId> "{safe_user}" ;',
+        f'  <urn:ostler:visibility> "private" ;',
+        f'  <urn:ostler:type> "{safe_type}" ;',
+        f'  <urn:ostler:domain> "{safe_domain}" ;',
+        f'  <urn:ostler:privacyLevel> "{safe_privacy}" ;',
+        f'  <urn:ostler:signalStrength> "{safe_strength}" ;',
+        f'  <urn:ostler:candidate> "{candidate_literal}"^^xsd:boolean ;',
     ]
     # REUSE-5 provenance sentinel (consumed by CM044's wiki person-page
     # renderer via compiler.provenance). Emitted as a sibling predicate
@@ -964,9 +964,9 @@ def _fact_to_triples(
     header = _fact_provenance_header(conversation_id, fact, metadata)
     if header:
         safe_header = escape_turtle_literal(header)
-        t.append(f'  <urn:pwg:provenanceHeader> "{safe_header}" ;')
+        t.append(f'  <urn:ostler:provenanceHeader> "{safe_header}" ;')
     # The text predicate terminates the block.
-    t.append(f'  <urn:pwg:text> {text_escaped} .')
+    t.append(f'  <urn:ostler:text> {text_escaped} .')
     return ["\n".join(t)]
 
 

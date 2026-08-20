@@ -5,7 +5,7 @@ RML_PREFIXES = """
 @prefix rml: <http://semweb.mmlab.be/ns/rml#> .
 @prefix rr: <http://www.w3.org/ns/r2rml#> .
 @prefix ql: <http://semweb.mmlab.be/ns/ql#> .
-@prefix pwg: <https://pwg.dev/ontology#> .
+@prefix pwg: <https://schema.ostler.ai/ontology#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix fnml: <http://semweb.mmlab.be/ns/fnml#> .
@@ -21,7 +21,7 @@ CSV_PREFERENCE_MAPPING = RML_PREFIXES + """
         rml:referenceFormulation ql:CSV
     ] ;
     rr:subjectMap [
-        rr:template "https://pwg.dev/data/preference/{{id}}" ;
+        rr:template "https://schema.ostler.ai/data/preference/{{id}}" ;
         rr:class pwg:Preference
     ] ;
     rr:predicateObjectMap [
@@ -42,7 +42,7 @@ CSV_PREFERENCE_MAPPING = RML_PREFIXES + """
     rr:predicateObjectMap [
         rr:predicate pwg:belongsToCompartment ;
         rr:objectMap [
-            rr:template "https://pwg.dev/ontology#L{{compartment_level}}" ;
+            rr:template "https://schema.ostler.ai/ontology#L{{compartment_level}}" ;
             rr:termType rr:IRI
         ]
     ] ;
@@ -61,7 +61,7 @@ JSON_STREAMING_MAPPING = RML_PREFIXES + """
         rml:iterator "$[*]"
     ] ;
     rr:subjectMap [
-        rr:template "https://pwg.dev/data/listen/{{endTime}}_{{trackName}}" ;
+        rr:template "https://schema.ostler.ai/data/listen/{{endTime}}_{{trackName}}" ;
         rr:class pwg:ListeningEvent
     ] ;
     rr:predicateObjectMap [
@@ -101,7 +101,7 @@ YOUTUBE_HISTORY_MAPPING = RML_PREFIXES + """
         rml:iterator "$[*]"
     ] ;
     rr:subjectMap [
-        rr:template "https://pwg.dev/data/watch/{{time}}" ;
+        rr:template "https://schema.ostler.ai/data/watch/{{time}}" ;
         rr:class pwg:WatchEvent
     ] ;
     rr:predicateObjectMap [
@@ -131,7 +131,7 @@ YOUTUBE_HISTORY_MAPPING = RML_PREFIXES + """
         rml:iterator "$[*].subtitles[*]"
     ] ;
     rr:subjectMap [
-        rr:template "https://pwg.dev/data/channel/{{name}}" ;
+        rr:template "https://schema.ostler.ai/data/channel/{{name}}" ;
         rr:class pwg:YouTubeChannel
     ] ;
     rr:predicateObjectMap [
@@ -153,7 +153,7 @@ LIKED_ITEMS_MAPPING = RML_PREFIXES + """
         rml:iterator "$.{items_path}[*]"
     ] ;
     rr:subjectMap [
-        rr:template "https://pwg.dev/data/preference/{{name}}" ;
+        rr:template "https://schema.ostler.ai/data/preference/{{name}}" ;
         rr:class pwg:LikePreference
     ] ;
     rr:predicateObjectMap [

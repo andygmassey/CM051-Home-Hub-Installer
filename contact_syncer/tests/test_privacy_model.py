@@ -91,7 +91,7 @@ class TestNumericToString:
     def test_full_uri_local_name_is_stripped(self):
         assert (
             pm.numeric_compartment_to_string(
-                "https://pwg.dev/ontology#L2Trusted"
+                "https://schema.ostler.ai/ontology#L2Trusted"
             )
             == pm.LEVEL_L2
         )

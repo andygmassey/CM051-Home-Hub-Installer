@@ -78,10 +78,10 @@ _OXIGRAPH_DEFAULT = "http://localhost:7878"
 # path that creates Person nodes from iMessage, WhatsApp, and Mail).
 # Diverging here means email-ingest's Person triples never join the
 # rest of the People graph in Oxigraph -- which was exactly the
-# Z2 P0-1 bug: the old `urn:pwg:` namespace + `urn:pwg:person/<email>`
+# Z2 P0-1 bug: the old `urn:ostler:` namespace + `urn:ostler:person/<email>`
 # IRI shape produced orphaned subgraphs and a blank Email column in
 # the wiki for every customer.
-PWG_NS = "https://pwg.dev/ontology#"
+PWG_NS = "https://schema.ostler.ai/ontology#"
 
 
 def _stderr(msg: str) -> None:
@@ -110,15 +110,15 @@ def _clean_email_for_iri(email: str) -> str:
 def _safe_person_iri(email: str) -> str:
     """Return the canonical PWG Person IRI for an email address.
 
-    Shape: ``https://pwg.dev/ontology#person_<uuid5>`` where the
-    uuid5 is derived from ``https://pwg.dev/person/<clean>`` using
+    Shape: ``https://schema.ostler.ai/ontology#person_<uuid5>`` where the
+    uuid5 is derived from ``https://schema.ostler.ai/person/<clean>`` using
     ``uuid.NAMESPACE_URL`` -- identical to the FDA ingest writer in
     ``vendor/ostler_fda/pwg_ingest.py`` so emails ingested via this
     CLI join the same Person nodes the FDA path creates from
     iMessage / WhatsApp.
     """
     clean = _clean_email_for_iri(email)
-    person_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://pwg.dev/person/{clean}"))
+    person_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://schema.ostler.ai/person/{clean}"))
     return f"{PWG_NS}person_{person_id}"
 
 

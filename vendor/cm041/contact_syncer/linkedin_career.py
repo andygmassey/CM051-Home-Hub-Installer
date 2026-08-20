@@ -180,7 +180,7 @@ def import_positions(
         rows = rows[:limit]
 
     counts = {"total": len(rows), "written": 0, "skipped": 0, "errors": 0}
-    user_uri = f"https://pwg.dev/ontology#user_{config.USER_ID}"
+    user_uri = f"https://schema.ostler.ai/ontology#user_{config.USER_ID}"
     now = datetime.now(timezone.utc).isoformat()
 
     print(f"Importing {len(rows)} positions...")
@@ -218,7 +218,7 @@ def import_positions(
         try:
             # Deterministic fact URI based on company + title + start date
             fact_id = _deterministic_id(f"position:{company}:{title}:{started}")
-            fact_uri = f"https://pwg.dev/ontology#fact_{fact_id}"
+            fact_uri = f"https://schema.ostler.ai/ontology#fact_{fact_id}"
 
             triples = [
                 f"<{fact_uri}> a pwg:PersonFact",
@@ -246,7 +246,7 @@ def import_positions(
                 )
 
             sparql = (
-                "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                 "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                 "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
             )
@@ -295,19 +295,19 @@ def _create_person_from_endorser(
         triples.append(f'<{person_uri}> pwg:familyName "{_escape(family_name)}"')
     if user_id:
         triples.append(
-            f"<{person_uri}> pwg:belongsToUser <https://pwg.dev/ontology#user_{user_id}>"
+            f"<{person_uri}> pwg:belongsToUser <https://schema.ostler.ai/ontology#user_{user_id}>"
         )
 
     # LinkedIn URL identifier
     if linkedin_url:
-        id_uri = f"https://pwg.dev/ontology#id_{person_id}_linkedin"
+        id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_linkedin"
         triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
         triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
         triples.append(f'<{id_uri}> pwg:identifierType "linkedin_url"')
         triples.append(f'<{id_uri}> pwg:identifierValue "{_escape(linkedin_url)}"')
 
     sparql = (
-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
         "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
     )
@@ -339,7 +339,7 @@ def import_endorsements(
         "errors": 0,
         "endorsements_written": 0,
     }
-    user_uri = f"https://pwg.dev/ontology#user_{config.USER_ID}"
+    user_uri = f"https://schema.ostler.ai/ontology#user_{config.USER_ID}"
     now = datetime.now(timezone.utc).isoformat()
 
     # De-duplicate: group endorsements by person to avoid resolving the
@@ -402,7 +402,7 @@ def import_endorsements(
                 person_id = _deterministic_id(
                     f"endorser:{linkedin_url or display_name}"
                 )
-                person_uri = f"https://pwg.dev/ontology#person_{person_id}"
+                person_uri = f"https://schema.ostler.ai/ontology#person_{person_id}"
 
                 if verbose:
                     print(f"    NEW → {person_uri}")
@@ -434,7 +434,7 @@ def import_endorsements(
                     f"endorsement:{display_name}:{skill}"
                 )
                 endorsement_uri = (
-                    f"https://pwg.dev/ontology#endorsement_{endorsement_id}"
+                    f"https://schema.ostler.ai/ontology#endorsement_{endorsement_id}"
                 )
 
                 if dry_run:
@@ -462,7 +462,7 @@ def import_endorsements(
                     )
 
                 sparql = (
-                    "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                    "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                     "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                     "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
                 )
@@ -511,7 +511,7 @@ def import_recommendations(
         "errors": 0,
         "recommendations_written": 0,
     }
-    user_uri = f"https://pwg.dev/ontology#user_{config.USER_ID}"
+    user_uri = f"https://schema.ostler.ai/ontology#user_{config.USER_ID}"
     now = datetime.now(timezone.utc).isoformat()
 
     print(f"Importing {len(rows)} recommendations...")
@@ -562,7 +562,7 @@ def import_recommendations(
                 person_id = _deterministic_id(
                     f"recommender:{display_name}:{company}"
                 )
-                person_uri = f"https://pwg.dev/ontology#person_{person_id}"
+                person_uri = f"https://schema.ostler.ai/ontology#person_{person_id}"
 
                 if verbose:
                     print(f"    NEW → {person_uri}")
@@ -590,7 +590,7 @@ def import_recommendations(
                                 f'<{person_uri}> pwg:jobTitle "{_escape(job_title)}"'
                             )
                         sparql = (
-                            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                             "INSERT DATA {\n  "
                             + " .\n  ".join(extra_triples)
                             + " .\n}"
@@ -600,7 +600,7 @@ def import_recommendations(
 
             # Write the recommendation as a PersonFact
             rec_id = _deterministic_id(f"recommendation:{display_name}:{text[:50]}")
-            rec_uri = f"https://pwg.dev/ontology#fact_{rec_id}"
+            rec_uri = f"https://schema.ostler.ai/ontology#fact_{rec_id}"
 
             if dry_run:
                 counts["recommendations_written"] += 1
@@ -623,7 +623,7 @@ def import_recommendations(
                 )
 
             sparql = (
-                "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                 "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                 "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
             )

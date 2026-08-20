@@ -65,7 +65,7 @@ from contact_syncer import config
 
 logger = logging.getLogger(__name__)
 
-PWG = "https://pwg.dev/ontology#"
+PWG = "https://schema.ostler.ai/ontology#"
 
 # The collection + category + payload contract the CM044 reader
 # (compiler/pages/place_pages.py) expects. Do NOT change these without a

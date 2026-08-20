@@ -484,7 +484,7 @@
          # here to prevent first-name collisions (e.g. "Sandra Andersson" being
          # incorrectly merged into "Sandra Stewart" via Jaro-Winkler prefix
 @@ -676,6 +908,18 @@
-             person_uri = f"https://pwg.dev/ontology#person_{person_id}"
+             person_uri = f"https://schema.ostler.ai/ontology#person_{person_id}"
              self._persist_photo(person_uri, parsed)
              self._create_person_oxigraph(person_uri, person_id, parsed, contact_type)
 +            # Register the new person in the resolver's in-memory fuzzy index so
@@ -523,7 +523,7 @@
 @@ -763,11 +1007,19 @@
  
          for idx, phone in enumerate(parsed.get("phones", [])):
-             id_uri = f"https://pwg.dev/ontology#id_{person_id}_phone{idx}"
+             id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_phone{idx}"
 +            # Store the NORMALISED value so it matches what the resolver's
 +            # find_by_identifier queries for. Previously this wrote the raw
 +            # vCard value (e.g. "+852 9681 6605") while the resolver looked up

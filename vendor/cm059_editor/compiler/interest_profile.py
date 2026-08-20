@@ -5,7 +5,7 @@ is a pure function of (raw preference rows, now, corrections) so it is testable
 without a live graph. The I/O layer (fetch_preferences) talks read-only to
 Oxigraph; nothing here ever writes to the graph.
 
-Observed data shape on a real PWG (Oxigraph), pwg: = https://pwg.dev/ontology#
+Observed data shape on a real PWG (Oxigraph), pwg: = https://schema.ostler.ai/ontology#
   ?s a pwg:LikePreference | pwg:DislikePreference
      pwg:subject            "Web Development"
      pwg:category           "professional"
@@ -33,7 +33,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-PWG_NS = "https://pwg.dev/ontology#"
+PWG_NS = "https://schema.ostler.ai/ontology#"
 
 # ---------------------------------------------------------------------------
 # Taxonomy: how far to trust each source category, and which coarse domain it

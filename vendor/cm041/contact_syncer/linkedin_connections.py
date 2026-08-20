@@ -191,12 +191,12 @@ def create_person_oxigraph(
         triples.append(f'<{person_uri}> pwg:jobTitle "{position}"')
     if user_id:
         triples.append(
-            f"<{person_uri}> pwg:belongsToUser <https://pwg.dev/ontology#user_{user_id}>"
+            f"<{person_uri}> pwg:belongsToUser <https://schema.ostler.ai/ontology#user_{user_id}>"
         )
 
     # LinkedIn URL identifier
     if extra.get("linkedin_url"):
-        id_uri = f"https://pwg.dev/ontology#id_{person_id}_linkedin"
+        id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_linkedin"
         triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
         triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
         triples.append(f'<{id_uri}> pwg:identifierType "linkedin_url"')
@@ -204,7 +204,7 @@ def create_person_oxigraph(
 
     # Email identifier
     if extra.get("email"):
-        id_uri = f"https://pwg.dev/ontology#id_{person_id}_email_linkedin"
+        id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_email_linkedin"
         triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
         triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
         triples.append(f'<{id_uri}> pwg:identifierType "email"')
@@ -212,7 +212,7 @@ def create_person_oxigraph(
         triples.append(f'<{id_uri}> pwg:identifierLabel "LINKEDIN"')
 
     sparql = (
-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
         "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
     )
@@ -253,7 +253,7 @@ def enrich_person_oxigraph(
     if incoming_url:
         # Check if the person already has a LinkedIn URL
         check_sparql = (
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             f"SELECT ?url WHERE {{\n"
             f"  <{person_uri}> pwg:hasIdentifier ?id .\n"
             f'  ?id pwg:identifierType "linkedin_url" ;\n'
@@ -274,9 +274,9 @@ def enrich_person_oxigraph(
                 )
             else:
                 # No existing LinkedIn URL — safe to add
-                id_uri = f"https://pwg.dev/ontology#id_{person_id}_linkedin"
+                id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_linkedin"
                 sparql = (
-                    "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                    "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                     f"INSERT DATA {{\n"
                     f"  <{person_uri}> pwg:hasIdentifier <{id_uri}> .\n"
                     f"  <{id_uri}> a pwg:PersonIdentifier .\n"
@@ -294,7 +294,7 @@ def enrich_person_oxigraph(
             linkedin_date = dt.strftime("%Y-%m-%dT00:00:00+00:00")
             # Only update if earlier than current createdAt
             update_sparql = (
-                "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                 "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                 f"DELETE {{ <{person_uri}> pwg:createdAt ?old }}\n"
                 f"INSERT {{ <{person_uri}> pwg:createdAt \"{linkedin_date}\"^^xsd:dateTime }}\n"
@@ -314,7 +314,7 @@ def enrich_person_oxigraph(
     if org:
         # Insert if not exists pattern
         sparql = (
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             f"INSERT {{\n"
             f'  <{person_uri}> pwg:organization "{org}" .\n'
             f"}} WHERE {{\n"
@@ -325,7 +325,7 @@ def enrich_person_oxigraph(
 
     if position:
         sparql = (
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             f"INSERT {{\n"
             f'  <{person_uri}> pwg:jobTitle "{position}" .\n'
             f"}} WHERE {{\n"
@@ -788,7 +788,7 @@ def import_connections(
             else:
                 # New person — create in PWG (not in address book)
                 person_id = str(uuid.uuid4()).replace("-", "")[:12]
-                person_uri = f"https://pwg.dev/ontology#person_{person_id}"
+                person_uri = f"https://schema.ostler.ai/ontology#person_{person_id}"
 
                 if verbose:
                     print(f" → NEW")

@@ -79,7 +79,7 @@ def find_person_by_phone(oxigraph_url: str, phone: str) -> Optional[str]:
     normalized = digits_only
 
     sparql = (
-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
         f'SELECT ?person WHERE {{\n'
         f'  ?person pwg:hasIdentifier ?id .\n'
         f'  ?id pwg:identifierType "phone" .\n'
@@ -124,11 +124,11 @@ def write_twitter_signal(oxigraph_url: str, person_uri: str, user_id: str) -> No
         uuid.NAMESPACE_URL,
         f"pwg://twitter_contact/{person_uri}"
     ))
-    signal_uri = f"https://pwg.dev/ontology#signal_{signal_id}"
+    signal_uri = f"https://schema.ostler.ai/ontology#signal_{signal_id}"
     now = datetime.now(timezone.utc).isoformat()
 
     sparql = (
-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
         f"INSERT DATA {{\n"
         f'  <{signal_uri}> a pwg:RelationshipSignal .\n'

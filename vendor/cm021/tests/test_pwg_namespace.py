@@ -1,19 +1,19 @@
 """Z2 P0-1 regression: pwg-email-ingest Person IRI shape + RDF namespace.
 
-The CLI used to emit Person IRIs under ``urn:pwg:person/<email>`` and
-declare ``PREFIX pwg: <urn:pwg:>``. The canonical PWG People graph
+The CLI used to emit Person IRIs under ``urn:ostler:person/<email>`` and
+declare ``PREFIX pwg: <urn:ostler:>``. The canonical PWG People graph
 (written by ``vendor/ostler_fda/pwg_ingest.py`` from iMessage,
-WhatsApp, and Mail) uses ``https://pwg.dev/ontology#`` as its
-namespace and ``https://pwg.dev/ontology#person_<uuid5>`` as its
+WhatsApp, and Mail) uses ``https://schema.ostler.ai/ontology#`` as its
+namespace and ``https://schema.ostler.ai/ontology#person_<uuid5>`` as its
 Person IRI shape, where the uuid5 is derived from
-``https://pwg.dev/person/<clean>`` under ``uuid.NAMESPACE_URL``.
+``https://schema.ostler.ai/person/<clean>`` under ``uuid.NAMESPACE_URL``.
 
 Both axes were wrong before, so emails ingested by this CLI never
 joined the Person graph the FDA path was building -- the wiki Email
 column came up blank for every customer.
 
 This test pins the canonical shape so a future refactor that drifts
-back to ``urn:pwg:`` is caught before it ships.
+back to ``urn:ostler:`` is caught before it ships.
 
 Synthetic fixtures only -- never a real email address.
 """
@@ -77,25 +77,25 @@ class TestPWGNamespace(unittest.TestCase):
         cls.cli = _load_cli_module()
 
     def test_pwg_ns_constant_is_canonical(self) -> None:
-        self.assertEqual(self.cli.PWG_NS, "https://pwg.dev/ontology#")
+        self.assertEqual(self.cli.PWG_NS, "https://schema.ostler.ai/ontology#")
 
     def test_person_iri_uses_canonical_namespace(self) -> None:
         iri = self.cli._safe_person_iri("alice@example.com")
         self.assertTrue(
-            iri.startswith("https://pwg.dev/ontology#person_"),
+            iri.startswith("https://schema.ostler.ai/ontology#person_"),
             f"IRI does not use canonical PWG namespace: {iri!r}",
         )
 
     def test_person_iri_is_uuid5_derived(self) -> None:
         iri = self.cli._safe_person_iri("alice@example.com")
-        suffix = iri.removeprefix("https://pwg.dev/ontology#person_")
+        suffix = iri.removeprefix("https://schema.ostler.ai/ontology#person_")
         parsed = uuid.UUID(suffix)
         self.assertEqual(parsed.version, 5, "Person IRI must be uuid5-derived")
 
         # Independently recompute the expected uuid5 using the canonical
         # writer's recipe (mirrors pwg_ingest._person_id_from_identifier).
         expected = str(
-            uuid.uuid5(uuid.NAMESPACE_URL, "https://pwg.dev/person/alice@example.com")
+            uuid.uuid5(uuid.NAMESPACE_URL, "https://schema.ostler.ai/person/alice@example.com")
         )
         self.assertEqual(suffix, expected)
 
@@ -138,8 +138,8 @@ class TestPWGNamespace(unittest.TestCase):
             name="Alice Example",
             last_contact_iso="2026-01-01T12:00:00+00:00",
         )
-        self.assertIn("PREFIX pwg: <https://pwg.dev/ontology#>", query)
-        self.assertNotIn("urn:pwg:", query)
+        self.assertIn("PREFIX pwg: <https://schema.ostler.ai/ontology#>", query)
+        self.assertNotIn("urn:ostler:", query)
 
     def test_clean_email_helper_matches_canonical_recipe(self) -> None:
         """Mirror of pwg_ingest._person_id_from_identifier semantics."""

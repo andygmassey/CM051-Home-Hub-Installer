@@ -44,7 +44,7 @@ from identity_resolver.canonical_name import choose_canonical_display_name
 
 logger = logging.getLogger(__name__)
 
-PWG = "https://pwg.dev/ontology#"
+PWG = "https://schema.ostler.ai/ontology#"
 
 # ── Configuration ────────────────────────────────────────────────────────────
 

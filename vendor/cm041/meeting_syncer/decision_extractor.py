@@ -20,7 +20,7 @@ decision source lands later (e.g. a CM048 conversation "decisions" block),
 add a second reader that yields the same ``ExtractedDecision`` shape and
 feeds the same writer; the node shape and id rule below are the contract.
 
-Node shape (namespace ``https://pwg.dev/ontology#`` -- the same NS as
+Node shape (namespace ``https://schema.ostler.ai/ontology#`` -- the same NS as
 ``pwg:Meeting``/``pwg:Person`` so decisions are queryable alongside
 meetings)::
 
@@ -58,7 +58,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-PWG = "https://pwg.dev/ontology#"
+PWG = "https://schema.ostler.ai/ontology#"
 
 # Cue phrases that mark a sentence as a decision. Lower-cased, word-boundary
 # matched. Kept deliberately tight so the pass is high-precision (a wrong

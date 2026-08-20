@@ -17,7 +17,7 @@ A periodic, off-hot-path job. Safety posture copies CM048's discipline:
 
 Outputs:
 - verdicts (supersession / archival tombstones / active-with-weight)
-  into the ``<urn:pwg:hygiene>`` named graph;
+  into the ``<urn:ostler:hygiene>`` named graph;
 - a contradiction-flags JSON artifact (the human-review proposal that
   feeds the wiki's contradictions surface and, later, the fortnightly
   clarification queue) into ``$OSTLER_HYGIENE_DIR``

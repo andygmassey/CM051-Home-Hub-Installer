@@ -1,7 +1,7 @@
 """Read-side consumer of the memory-hygiene verdict overlay.
 
 The write side (``run.py`` / ``weight.py``) stamps ``HygieneVerdict``
-rows into the isolated ``<urn:pwg:hygiene>`` named graph. Those verdicts
+rows into the isolated ``<urn:ostler:hygiene>`` named graph. Those verdicts
 change NOTHING on their own -- a verdict only matters when a fact-listing
 surface consults it. This module is that canonical READ side: any
 surface that lists facts calls :func:`load_verdicts` once, then

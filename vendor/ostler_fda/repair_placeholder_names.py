@@ -113,7 +113,7 @@ except ImportError:  # running as a plain script, not a package member
         _NAME_TIER_PLACEHOLDER,
     )
 
-NS = "https://pwg.dev/ontology#"
+NS = "https://schema.ostler.ai/ontology#"
 SKOS = "http://www.w3.org/2004/02/skos/core#"
 OXIGRAPH = os.environ.get("OSTLER_OXIGRAPH_URL", "http://127.0.0.1:7878")
 

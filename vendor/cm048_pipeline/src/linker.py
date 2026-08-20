@@ -151,18 +151,18 @@ def write_link_triples(
         )
         return len(link_result.related_ids)
 
-    conv_uri = f"<urn:pwg:conversation/{link_result.conversation_id}>"
-    graph_uri = f"urn:pwg:user/{settings.user_id}"
+    conv_uri = f"<urn:ostler:conversation/{link_result.conversation_id}>"
+    graph_uri = f"urn:ostler:user/{settings.user_id}"
 
     triples = []
     for related_id in link_result.related_ids:
-        related_uri = f"<urn:pwg:conversation/{related_id}>"
+        related_uri = f"<urn:ostler:conversation/{related_id}>"
         score = link_result.scores.get(related_id, 0.0)
         # Bidirectional link: A relatedTo B and B relatedTo A
         triples.append(
-            f'{conv_uri} <urn:pwg:relatedTo> {related_uri} .\n'
-            f'{conv_uri} <urn:pwg:similarityScore> "{score:.4f}"^^<http://www.w3.org/2001/XMLSchema#float> .\n'
-            f'{related_uri} <urn:pwg:relatedTo> {conv_uri} .'
+            f'{conv_uri} <urn:ostler:relatedTo> {related_uri} .\n'
+            f'{conv_uri} <urn:ostler:similarityScore> "{score:.4f}"^^<http://www.w3.org/2001/XMLSchema#float> .\n'
+            f'{related_uri} <urn:ostler:relatedTo> {conv_uri} .'
         )
 
     ttl = "\n".join(triples)

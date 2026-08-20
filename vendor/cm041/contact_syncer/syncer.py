@@ -905,7 +905,7 @@ class ContactSyncer:
             self._update_person_oxigraph(person_uri, parsed, contact_type)
         else:
             person_id = str(uuid.uuid4()).replace("-", "")[:12]
-            person_uri = f"https://pwg.dev/ontology#person_{person_id}"
+            person_uri = f"https://schema.ostler.ai/ontology#person_{person_id}"
             self._persist_photo(person_uri, parsed)
             self._create_person_oxigraph(person_uri, person_id, parsed, contact_type)
             # Register the new person in the resolver's in-memory fuzzy index so
@@ -991,13 +991,13 @@ class ContactSyncer:
             triples.append(f"<{person_uri}> foaf:img <file://{photo_path}>")
         if self.cfg.USER_ID:
             triples.append(
-                f"<{person_uri}> pwg:belongsToUser <https://pwg.dev/ontology#user_{self.cfg.USER_ID}>"
+                f"<{person_uri}> pwg:belongsToUser <https://schema.ostler.ai/ontology#user_{self.cfg.USER_ID}>"
             )
 
         # Identifiers
         id_triples: List[str] = []
         if parsed.get("uid"):
-            id_uri = f"https://pwg.dev/ontology#id_{person_id}_icloud"
+            id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_icloud"
             triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
             id_triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
             id_triples.append(f'<{id_uri}> pwg:identifierType "icloud_contact_uid"')
@@ -1006,7 +1006,7 @@ class ContactSyncer:
             )
 
         for idx, phone in enumerate(parsed.get("phones", [])):
-            id_uri = f"https://pwg.dev/ontology#id_{person_id}_phone{idx}"
+            id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_phone{idx}"
             # Store the NORMALISED value so it matches what the resolver's
             # find_by_identifier queries for. Previously this wrote the raw
             # vCard value (e.g. a space-separated international form) while the resolver looked up
@@ -1038,7 +1038,7 @@ class ContactSyncer:
             if not value or value in seen_emails:
                 continue
             seen_emails.add(value)
-            id_uri = f"https://pwg.dev/ontology#id_{person_id}_email{idx}"
+            id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_email{idx}"
             triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
             id_triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
             id_triples.append(f'<{id_uri}> pwg:identifierType "email"')
@@ -1052,7 +1052,7 @@ class ContactSyncer:
 
         all_triples = triples + id_triples
         sparql = (
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             "PREFIX foaf: <http://xmlns.com/foaf/0.1/>\n"
             "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
             "INSERT DATA {\n  " + " .\n  ".join(all_triples) + " .\n}"
@@ -1083,7 +1083,7 @@ class ContactSyncer:
         ]
         for pred in delete_preds:
             sparql = (
-                "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                 "PREFIX foaf: <http://xmlns.com/foaf/0.1/>\n"
                 f"DELETE WHERE {{ <{person_uri}> {pred} ?o . }}"
             )
@@ -1101,7 +1101,7 @@ class ContactSyncer:
             triples.append(f"<{person_uri}> foaf:img <file://{photo_path}>")
 
         sparql = (
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             "PREFIX foaf: <http://xmlns.com/foaf/0.1/>\n"
             "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
             "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
@@ -1135,7 +1135,7 @@ class ContactSyncer:
             # Stable id_uri derived from person_id + type + hash of value so
             # we don't collide with existing identifier URIs.
             value_hash = uuid.uuid5(uuid.NAMESPACE_URL, f"{id_type}:{id_value}").hex[:8]
-            id_uri = f"https://pwg.dev/ontology#id_{person_id}_{id_type}_{value_hash}"
+            id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_{id_type}_{value_hash}"
             safe_val = id_value.replace("\\", "\\\\").replace('"', '\\"')
             id_triples = [
                 f"<{person_uri}> pwg:hasIdentifier <{id_uri}>",
@@ -1147,7 +1147,7 @@ class ContactSyncer:
                 safe_label = label.replace("\\", "\\\\").replace('"', '\\"')
                 id_triples.append(f'<{id_uri}> pwg:identifierLabel "{safe_label}"')
             sparql = (
-                "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                 "INSERT DATA {\n  " + " .\n  ".join(id_triples) + " .\n}"
             )
             self._sparql_update(sparql)
@@ -1163,7 +1163,7 @@ class ContactSyncer:
         """Check whether an identifier of the given type/value is already on this node."""
         safe_val = id_value.replace("\\", "\\\\").replace('"', '\\"')
         sparql = (
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             "ASK {\n"
             f"  <{person_uri}> pwg:hasIdentifier ?id .\n"
             f'  ?id pwg:identifierType "{id_type}" ;\n'
@@ -1188,7 +1188,7 @@ class ContactSyncer:
     def _write_business_oxigraph(self, parsed: Dict[str, Any]) -> None:
         """Write a BusinessContact node to Oxigraph (no Qdrant point)."""
         biz_id = str(uuid.uuid4()).replace("-", "")[:12]
-        biz_uri = f"https://pwg.dev/ontology#business_{biz_id}"
+        biz_uri = f"https://schema.ostler.ai/ontology#business_{biz_id}"
         fn = (parsed.get("fn") or "").replace('"', '\\"')
         now = datetime.now(timezone.utc).isoformat()
 
@@ -1201,7 +1201,7 @@ class ContactSyncer:
 
         # Add identifiers
         for idx, phone in enumerate(parsed.get("phones", [])):
-            id_uri = f"https://pwg.dev/ontology#id_{biz_id}_phone{idx}"
+            id_uri = f"https://schema.ostler.ai/ontology#id_{biz_id}_phone{idx}"
             triples.append(f"<{biz_uri}> pwg:hasIdentifier <{id_uri}>")
             triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
             triples.append(f'<{id_uri}> pwg:identifierType "phone"')
@@ -1213,7 +1213,7 @@ class ContactSyncer:
             if not value or value in seen_biz_emails:
                 continue
             seen_biz_emails.add(value)
-            id_uri = f"https://pwg.dev/ontology#id_{biz_id}_email{idx}"
+            id_uri = f"https://schema.ostler.ai/ontology#id_{biz_id}_email{idx}"
             triples.append(f"<{biz_uri}> pwg:hasIdentifier <{id_uri}>")
             triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
             triples.append(f'<{id_uri}> pwg:identifierType "email"')
@@ -1221,11 +1221,11 @@ class ContactSyncer:
 
         if self.cfg.USER_ID:
             triples.append(
-                f"<{biz_uri}> pwg:belongsToUser <https://pwg.dev/ontology#user_{self.cfg.USER_ID}>"
+                f"<{biz_uri}> pwg:belongsToUser <https://schema.ostler.ai/ontology#user_{self.cfg.USER_ID}>"
             )
 
         sparql = (
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
             "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
         )
@@ -1278,7 +1278,7 @@ class ContactSyncer:
             return []
         values = " ".join(f'"{u}"' for u in uids)
         sparql = (
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             "SELECT DISTINCT ?node WHERE {\n"
             "  ?node pwg:hasIdentifier ?id .\n"
             '  ?id pwg:identifierType "icloud_contact_uid" ;\n'
@@ -1302,7 +1302,7 @@ class ContactSyncer:
         # Oxigraph: delete the node + everything it hasIdentifier/hasFact on,
         # plus anything referencing it as attendee.
         sparql = f"""
-PREFIX pwg: <https://pwg.dev/ontology#>
+PREFIX pwg: <https://schema.ostler.ai/ontology#>
 DELETE {{
   <{node_uri}> ?p1 ?o1 .
   ?ident ?p2 ?o2 .

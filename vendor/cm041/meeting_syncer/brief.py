@@ -62,7 +62,7 @@ import pwg_privacy
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-PWG = "https://pwg.dev/ontology#"
+PWG = "https://schema.ostler.ai/ontology#"
 
 # Maximum number of outstanding todos surfaced per attendee. Keeps
 # WhatsApp deliveries within the ~300-char budget even when one
@@ -314,10 +314,10 @@ def _get_meeting_history(oxigraph_url, person_uri):
 def _get_last_conversation_id(oxigraph_url, person_uri):
     """Find the most recent conversation that mentioned this person.
 
-    CM048's ingest writes ``<urn:pwg:fact/...> pwg:about <person_uri>``
+    CM048's ingest writes ``<urn:ostler:fact/...> pwg:about <person_uri>``
     + ``pwg:fromConversation <conv_uri>`` triples for every extracted
     fact. We walk the conversation graph back to find the most recent
-    conversation URI, then strip the ``urn:pwg:conversation/`` prefix
+    conversation URI, then strip the ``urn:ostler:conversation/`` prefix
     to recover the conversation_id the wiki page is keyed by.
 
     Returns ``""`` when no conversation matches (the person may exist
@@ -325,11 +325,11 @@ def _get_last_conversation_id(oxigraph_url, person_uri):
     been ingested yet).
     """
     sparql = """
-    PREFIX pwg: <urn:pwg:>
+    PREFIX pwg: <urn:ostler:>
     SELECT ?conv ?date WHERE {{
-      ?fact <urn:pwg:about> <{person}> ;
-            <urn:pwg:fromConversation> ?conv .
-      OPTIONAL {{ ?conv <urn:pwg:date> ?date }}
+      ?fact <urn:ostler:about> <{person}> ;
+            <urn:ostler:fromConversation> ?conv .
+      OPTIONAL {{ ?conv <urn:ostler:date> ?date }}
     }}
     ORDER BY DESC(?date)
     LIMIT 1
@@ -343,8 +343,8 @@ def _get_last_conversation_id(oxigraph_url, person_uri):
     if not bindings:
         return ""
     conv_uri = bindings[0].get("conv", {}).get("value", "")
-    # Strip the urn:pwg:conversation/ prefix to recover the bare id.
-    prefix = "urn:pwg:conversation/"
+    # Strip the urn:ostler:conversation/ prefix to recover the bare id.
+    prefix = "urn:ostler:conversation/"
     if conv_uri.startswith(prefix):
         return conv_uri[len(prefix):]
     return ""
@@ -364,19 +364,19 @@ def _get_outstanding_todos(oxigraph_url, person_uri):
     clutter the brief once v1.0.1 wires the closure pass.
     """
     sparql = """
-    PREFIX pwg: <urn:pwg:>
+    PREFIX pwg: <urn:ostler:>
     SELECT ?todo ?text ?owner ?ownerDisplay ?deadline ?priority
            ?status ?sourceDate ?createdAt WHERE {{
-      ?todo a <urn:pwg:OutstandingTodo> ;
-            <urn:pwg:aboutPerson> <{person}> ;
-            <urn:pwg:todoText> ?text ;
-            <urn:pwg:owner> ?owner ;
-            <urn:pwg:status> ?status .
-      OPTIONAL {{ ?todo <urn:pwg:ownerDisplay> ?ownerDisplay }}
-      OPTIONAL {{ ?todo <urn:pwg:deadline> ?deadline }}
-      OPTIONAL {{ ?todo <urn:pwg:priority> ?priority }}
-      OPTIONAL {{ ?todo <urn:pwg:sourceConversationDate> ?sourceDate }}
-      OPTIONAL {{ ?todo <urn:pwg:todoCreatedAt> ?createdAt }}
+      ?todo a <urn:ostler:OutstandingTodo> ;
+            <urn:ostler:aboutPerson> <{person}> ;
+            <urn:ostler:todoText> ?text ;
+            <urn:ostler:owner> ?owner ;
+            <urn:ostler:status> ?status .
+      OPTIONAL {{ ?todo <urn:ostler:ownerDisplay> ?ownerDisplay }}
+      OPTIONAL {{ ?todo <urn:ostler:deadline> ?deadline }}
+      OPTIONAL {{ ?todo <urn:ostler:priority> ?priority }}
+      OPTIONAL {{ ?todo <urn:ostler:sourceConversationDate> ?sourceDate }}
+      OPTIONAL {{ ?todo <urn:ostler:todoCreatedAt> ?createdAt }}
       FILTER (?status = "open")
     }}
     ORDER BY DESC(?createdAt)
