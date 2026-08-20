@@ -276,5 +276,53 @@ else:
         bad("NEGATIVE CONTROL FAILED: the tile renders even when the registry is readable and empty, "
             "so the degraded-arm control above proves nothing")
 
+
+
+# =========================================================================
+# GRAFT C -- HR015 7328c33e: AN UNREACHABLE ENGINE READ AS A HEALTHY STACK
+# =========================================================================
+#
+# collect_docker_containers() returns (containers, error). The caller bound
+# the error to `_docker_err` and dropped it, so SystemSnapshot carried no
+# record that the query had failed at all. Every per-container arm of
+# check_container_health loops snapshot.docker_containers, so an empty list
+# runs zero bodies and contributes zero findings -- byte-identical to a
+# healthy stack. Reachable after ANY reboot: Colima has no autostart.
+#
+# The two controls below are deliberately opposed. The first proves the rule
+# FIRES on the defect. The second proves it does NOT fire when the engine is
+# genuinely reachable and simply has nothing running, because a rule that
+# fired unconditionally would pass the first control while meaning nothing.
+
+def _snapshot_no_containers(docker_error):
+    snap = _snapshot()
+    snap.docker_containers = []
+    snap.docker_error = docker_error
+    return snap
+
+
+if not hasattr(sc.SystemSnapshot(), "docker_error"):
+    bad("SystemSnapshot has no docker_error field, so the collector's error is "
+        "still being discarded by the caller. Graft C is not present.")
+else:
+    ok("SystemSnapshot carries docker_error (the collector's error survives the call)")
+
+    engine_down = dr.check_container_health(_snapshot_no_containers(
+        "Cannot connect to the Docker daemon at unix:///var/run/docker.sock"))
+    if engine_down:
+        ok(f"an unreachable engine with zero containers yields {len(engine_down)} finding(s), not silence")
+    else:
+        bad("`docker ps` failed and the container rule produced NOTHING. A box with every "
+            "store gone renders exactly like a healthy one -- absence read as health.")
+
+    # NEGATIVE CONTROL: reachable engine, nothing running. Must stay silent.
+    engine_idle = dr.check_container_health(_snapshot_no_containers(None))
+    if not engine_idle:
+        ok("NEGATIVE CONTROL: a REACHABLE engine with zero containers stays silent "
+           "(the arm keys on the error, not on the empty list)")
+    else:
+        bad("NEGATIVE CONTROL FAILED: the rule fires when the engine is reachable and merely "
+            "idle, so the control above proves nothing about the unreachable case.")
+
 print(f"\n=== {PASS} passed / {FAIL} failed ===")
 sys.exit(1 if FAIL else 0)

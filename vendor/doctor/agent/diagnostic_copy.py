@@ -99,6 +99,35 @@ CONTAINER_CRASHED_DETAIL_FMT = (
 CONTAINER_CRASHED_FIX = "Check the error message in the container logs"
 CONTAINER_CRASHED_FIX_COMMAND_FMT = "docker logs --tail=30 {name}"
 
+# The state the three rules above cannot express: not an unhealthy
+# container, but NO container list at all. Measured on the Mini
+# 2026-08-20 after a power cycle -- Colima was down, `docker ps` failed,
+# and the collector returned an empty list. Each rule loops over that
+# list, runs its body zero times, and contributes nothing, so a box with
+# Qdrant, Oxigraph, Redis, Vane, wiki-site and store-proxy all gone
+# rendered exactly like a healthy one.
+#
+# The detail carries the collector's own error text rather than a
+# paraphrase, because the failure must name what was MEASURED. A guess
+# here ("Docker may not be running") is the same mistake as reading
+# colima's "lima not found" as a missing package when lima was installed
+# and merely unreachable.
+CONTAINER_ENGINE_UNREACHABLE_TITLE = (
+    "The container stack could not be examined at all"
+)
+CONTAINER_ENGINE_UNREACHABLE_DETAIL_FMT = (
+    "Listing containers failed: {error}. Every Ostler store runs as a "
+    "container, so while this persists the wiki, search and knowledge "
+    "graph are unavailable AND their health is unknown -- this card is "
+    "reporting that nothing could be checked, not that nothing is wrong."
+)
+CONTAINER_ENGINE_UNREACHABLE_FIX = (
+    "Start the container runtime, then confirm the stores come back"
+)
+CONTAINER_ENGINE_UNREACHABLE_FIX_COMMAND = (
+    "/opt/homebrew/bin/colima start && /opt/homebrew/bin/docker ps"
+)
+
 
 # ── check_qdrant_health ──────────────────────────────────────────────
 

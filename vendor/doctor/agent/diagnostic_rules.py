@@ -44,6 +44,10 @@ from diagnostic_copy import (
     CONTAINER_CRASHED_DETAIL_FMT,
     CONTAINER_CRASHED_FIX,
     CONTAINER_CRASHED_FIX_COMMAND_FMT,
+    CONTAINER_ENGINE_UNREACHABLE_TITLE,
+    CONTAINER_ENGINE_UNREACHABLE_DETAIL_FMT,
+    CONTAINER_ENGINE_UNREACHABLE_FIX,
+    CONTAINER_ENGINE_UNREACHABLE_FIX_COMMAND,
     CONTAINER_CRASHED_TITLE_FMT,
     CONTAINER_NEVER_STARTED_DETAIL,
     CONTAINER_NEVER_STARTED_FIX,
@@ -253,8 +257,38 @@ def check_first_install(snapshot: Any) -> list[dict]:
 
 
 def check_container_health(snapshot: Any) -> list[dict]:
-    """Detect container-level issues."""
+    """Detect container-level issues.
+
+    THE FIRST ARM IS NOT ABOUT A CONTAINER. It is about the absence of a
+    container LIST, which the three per-container arms below cannot
+    express: each loops `snapshot.docker_containers`, so an empty list
+    runs zero bodies and contributes zero findings, exactly like a
+    healthy stack.
+
+    Measured on the Mini 2026-08-20 after a power cycle: Colima was down,
+    `docker ps` failed, and the six stores were gone. Every per-container
+    arm stayed silent because there was nothing to loop over. Absence is
+    not health, and a zero denominator is not a clean result.
+    """
     findings = []
+
+    # docker_error is set ONLY when the engine could not be queried. It is
+    # not the same as an empty list on a reachable engine, which is a
+    # legitimate state on a box whose stack has not started yet, and which
+    # deliberately does NOT fire here.
+    docker_error = getattr(snapshot, "docker_error", None)
+    if docker_error:
+        findings.append({
+            "severity": "critical",
+            "title": CONTAINER_ENGINE_UNREACHABLE_TITLE,
+            "detail": CONTAINER_ENGINE_UNREACHABLE_DETAIL_FMT.format(
+                error=docker_error
+            ),
+            "fix": CONTAINER_ENGINE_UNREACHABLE_FIX,
+            "fix_command": CONTAINER_ENGINE_UNREACHABLE_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
 
     for c in snapshot.docker_containers:
         # Container restarting (crash loop)
