@@ -33,7 +33,17 @@ it succeeds against the wrong artefact and is often in a matching state.
 
 ## MUST-FIX-NEXT (blockers for the next cut — v1.0.19 or v1.0.1)
 
-Every entry here has a gate. The cut pipeline (`pipeline/release.yml`) MUST run each gate as a pre-ship check. FAIL any = NO SHIP.
+Every entry here has a gate, and **nothing in this repo automatically runs them.**
+`pipeline/release.yml` does not exist in CM051: there is no `pipeline/` directory here at
+all, measured 2026-08-21 on `origin/main`. The file lives in OS003, and it is not wired
+there either, because it sits at `pipeline/` rather than `.github/workflows/`, so Actions
+never loads it and no file invokes it.
+
+What actually gates a cut in this repo is `.github/workflows/cut.yml`, whose shipping job
+is `if: github.event_name == 'push'` (cut.yml:386), plus the mechanical gates that
+`scripts/run_all_cut_gates.sh` invokes. **None of them read this file.** So "FAIL any = NO
+SHIP" is the discipline a human applies at cut time, not a mechanism. Check it by asking
+which job reads this register, not by finding a file with a matching name.
 
 **v1.0.19 planning (Archie 2026-08-09):** every MUST-FIX-NEXT entry below now carries its corresponding PR from the consolidated `v1.0.18/V1019_PLAN.md`. Target state = the state the entry moves to when the PR lands + the cut pipeline enforces its gate. Any entry marked `deferred` requires an explicit Andy sign-off in `V1019_PLAN.md § deferred` before v1.0.19 can be tagged.
 
@@ -127,7 +137,7 @@ For each row under `VERIFIED-STILL-IN`, the same but against the installed box d
 
 # MACHINE-READABLE GATE REGISTRY
 
-**This section is the pipeline's input.** The tables above are the human index; the fenced blocks below are what `pipeline/release.yml` executes. Authored by Archie, parsed by TNM's extractor (see channel 2026-08-09 03:38 for the agreed contract).
+**This section is the pipeline's intended input.** The tables above are the human index; the fenced blocks below are what `pipeline/release.yml` WOULD execute if it existed here and were wired. It does neither (see MUST-FIX-NEXT above), so today these blocks are run by hand. Authored by Archie, parsed by TNM's extractor (see channel 2026-08-09 03:38 for the agreed contract).
 
 ## Parser contract
 
@@ -1612,7 +1622,11 @@ own header opens "addresses v1018-D026 (Part 2)". The gate reported it missing f
 **three independent reasons, none of them the defect**:
 
     1. WRONG FILENAME. It looked for `.github/workflows/release.yml`. The pipeline is
-       `cut.yml`. No file named release.yml exists in CM051 or in OS003.
+       `cut.yml`. No file named release.yml exists in CM051, and none exists under
+       `.github/workflows/` in OS003 either. **OS003 does have `pipeline/release.yml`**,
+       cited above as the thing that gates the cut, and being outside `.github/workflows/`
+       it never runs. Checking only whether the name exists gives the wrong answer in both
+       directions.
 
     2. NO `cd "${CM051_DIR}"`. Every other runs-on=repo gate cds into the repo it
        measures. This one did not, so it grepped the OS003 checkout, which holds
