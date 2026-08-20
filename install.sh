@@ -1480,6 +1480,30 @@ _ostler_set_paths() {
     # /tmp/ostler-install-failsafe-$$.log before removing the
     # staging dir, so support has a copy even after cleanup.
     LOGS_DIR="${OSTLER_DIR}/logs"
+    # INSTALL_LOG has to be REBOUND here, not merely derived once at the
+    # tee setup (~line 1926). The comment just above is correct that the
+    # tee survives promotion: it holds an open fd, so the rename carries
+    # the stream to the canonical path with it. That is NOT true of any
+    # consumer that re-opens BY PATH, and lib/progress_emitter.sh does
+    # exactly that on every marker.
+    #
+    # Measured on a live v1.0.37 walk, 2026-08-20: the durable
+    # [gui-marker] trace stopped at line 707 of 1397 and every marker
+    # after it wrote
+    #   /tmp/ostler-prelaunch-<pid>/logs/install.log: No such file
+    # instead -- 267 of them and counting, so the whole second half of
+    # the install (ingest, wiki compile, pairing) had no trace at all.
+    # Same class as the ollama-logrotate plist that baked a staging path
+    # and died at reboot.
+    #
+    # The fallback branch at ~line 1996 deliberately points INSTALL_LOG
+    # OUTSIDE the tree, at /tmp, precisely BECAUSE LOGS_DIR was not
+    # writeable. Rebinding blindly would aim it straight back at the
+    # unwriteable directory, so that case opts out by flag.
+    if [[ "${INSTALL_LOG_FALLBACK_ACTIVE:-false}" != "true" ]]; then
+        INSTALL_LOG="${LOGS_DIR}/install.log"
+        export INSTALL_LOG
+    fi
     SECURITY_DIR="${OSTLER_DIR}/security-module"
     SECURITY_CONFIG_DIR="${OSTLER_DIR}/security"
     PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
@@ -1994,6 +2018,11 @@ else
     # have SOMETHING on disk. Mention the fallback in the
     # customer log so support sees it.
     INSTALL_LOG="/tmp/ostler-install-$(date +%s).log"
+    # Opt this run out of the _ostler_set_paths rebind. LOGS_DIR is not
+    # writeable, so re-deriving INSTALL_LOG from it at promotion would
+    # undo this fallback and send the trace back to a directory we have
+    # just proved we cannot write to.
+    INSTALL_LOG_FALLBACK_ACTIVE=true
     echo "WARN: ${LOGS_DIR} is not writeable; install.log falling back to ${INSTALL_LOG}" >&2
     exec > >(${_OSTLER_TEE_CMD} -a "${INSTALL_LOG}") 2>&1
 fi

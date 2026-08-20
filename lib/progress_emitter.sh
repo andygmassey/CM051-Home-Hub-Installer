@@ -224,8 +224,20 @@ gui_emit() {
     if [[ -n "$marker_fd" ]] && { : >&"$marker_fd"; } 2>/dev/null; then
         printf '\n#OSTLER\t%s%s\n' "$event" "$wire" >&"$marker_fd"
         if [[ -n "${INSTALL_LOG:-}" ]]; then
-            printf '[gui-marker] %s%s\n' "$event" "$trace" \
-                >> "${INSTALL_LOG}" 2>/dev/null || true
+            # The braces are load-bearing. Bash applies redirections
+            # LEFT TO RIGHT, so in the un-braced form
+            #     printf ... >> "$f" 2>/dev/null
+            # the append is attempted -- and its failure reported to the
+            # still-inherited stderr -- BEFORE 2>/dev/null takes effect.
+            # A line written specifically to fail quietly therefore
+            # SHOUTS. Measured on a live v1.0.37 walk 2026-08-20: 267
+            # copies of "No such file or directory" in the customer's
+            # own install log, from this exact statement.
+            # Wrapping in a group redirects the GROUP's stderr first, so
+            # the inner redirection failure lands in /dev/null where it
+            # was always meant to. Verified by probe, all three forms.
+            { printf '[gui-marker] %s%s\n' "$event" "$trace" \
+                >> "${INSTALL_LOG}"; } 2>/dev/null || true
         fi
     else
         # No usable dedicated channel. Behave exactly as the pre-fix
