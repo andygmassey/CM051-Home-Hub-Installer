@@ -224,7 +224,12 @@ jobs:
           rc=$?
           # rc is taken DIRECTLY, never through a pipe.
           if [ "$rc" -ne 0 ]; then
-            grep -E "^Test Case .* failed|error:" "$RUNNER_TEMP/test.log" | head -40 >&2 || true
+            # NO `^`. xcodebuild INDENTS these lines. The anchor made this
+            # grep match zero on run 32351291319 while the verifier's
+            # unanchored counter matched one failure, so the job said
+            # "executed=288 failures=1" and never named the test. Two patterns
+            # reading one file must agree about its shape.
+            grep -E "Test Case .* (failed|error)|error:" "$RUNNER_TEMP/test.log" | head -40 >&2 || true
           fi
           tail -5 "$RUNNER_TEMP/test.log"
           exit "$rc"
