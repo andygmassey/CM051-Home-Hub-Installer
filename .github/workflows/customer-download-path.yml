@@ -24,11 +24,21 @@ on:
     paths:
       - 'scripts/verify_customer_download_path.sh'
       - 'tests/test_customer_download_path_gate.sh'
+      # The BASELINE and the comment-stripper are inputs to the verdict, so a
+      # change to either must re-run this workflow. A gate that cannot see its
+      # own baseline change can be silently disarmed by editing the fixture.
+      - 'tests/fixtures/verify_customer_download_path.prefix.sh'
+      - 'scripts/lib/strip_comments.sh'
       - '.github/workflows/customer-download-path.yml'
   pull_request:
     paths:
       - 'scripts/verify_customer_download_path.sh'
       - 'tests/test_customer_download_path_gate.sh'
+      # The BASELINE and the comment-stripper are inputs to the verdict, so a
+      # change to either must re-run this workflow. A gate that cannot see its
+      # own baseline change can be silently disarmed by editing the fixture.
+      - 'tests/fixtures/verify_customer_download_path.prefix.sh'
+      - 'scripts/lib/strip_comments.sh'
       - '.github/workflows/customer-download-path.yml'
 
 concurrency:
@@ -59,24 +69,90 @@ jobs:
       - name: Controls -- drive the gate through every exit it can take
         run: /bin/bash tests/test_customer_download_path_gate.sh
 
-      # ANTI-VACUITY. Prove the controls can still go RED, against the gate as
-      # it stood before the fix. A control never shown failing is not evidence.
-      # This is asserted, not merely printed: if the old gate PASSES these
-      # controls, they have stopped discriminating and the step above is
-      # worthless.
-      - name: Anti-vacuity -- the controls must fail the pre-fix gate
+  anti-vacuity:
+    # ITS OWN JOB, NOT A STEP AFTER THE CONTROLS.
+    #
+    # As a trailing step it was MASKABLE: a failing control skips everything
+    # after it in the same job, so a broken predicate would take down the gate
+    # it guards and report ONE red line instead of two. `ci-maskless` caught
+    # this and was right to (run 32355780992). Same reason fda-deps-installed
+    # and zero-payload-is-not-ok split theirs out -- I wrote that reasoning
+    # into both of those workflows on the same day I failed to apply it here.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── THE BASELINE IS A TRACKED FIXTURE, AND IT HAS TO BE. ──
+      #
+      # Prove the controls can still go RED against the gate as it stood
+      # before the fix. A control never shown failing is not evidence.
+      #
+      # This originally did `git show <commit>:scripts/...`. That fails twice
+      # over, and the second one is the reason a fixture is the only correct
+      # construction here:
+      #
+      #   1. actions/checkout defaults to a SHALLOW clone, so the commit was
+      #      not in the checkout at all and the job reported CANNOT RUN. That
+      #      alone would be fixed by `fetch-depth: 0`.
+      #
+      #   2. THE FIX DOES NOT SURVIVE THE MERGE. This gate is NEW in this PR --
+      #      scripts/verify_customer_download_path.sh does not exist on main --
+      #      so its only pre-fix state lives at 6ccd687d, a commit that exists
+      #      ONLY on this branch. CM051 merges by SQUASH, which orphans it. The
+      #      workflow also runs on `push: main`, where it would then be broken
+      #      forever.
+      #
+      # #904 taught the same lesson from the opposite direction: once a fix is
+      # on main, no derivation from a live branch yields a pre-fix tree. Here
+      # the branch itself is what disappears. Either way the answer is the
+      # same -- the baseline must be a fixed thing that cannot move, and when
+      # no commit can hold it, a TRACKED FILE can.
+      - name: The fixture must genuinely be the PRE-FIX gate
         run: |
+          set +e
           set -uo pipefail
-          BASE=6ccd687d3bd1f5ef82ae7d44fa6f662a262ad2f0
-          if ! git cat-file -e "${BASE}:scripts/verify_customer_download_path.sh" 2>/dev/null; then
-              echo "CANNOT RUN: pre-fix blob ${BASE} not present in this checkout."
-              echo "That is not a pass. Fetch depth or a rewritten history would both"
-              echo "produce it, and neither means the controls discriminate."
+          FIX=tests/fixtures/verify_customer_download_path.prefix.sh
+          if [ ! -f "$FIX" ]; then
+              echo "CANNOT RUN: ${FIX} is missing. That is NOT a pass -- it is"
+              echo "the baseline itself going absent."
               exit 1
           fi
+          # Measured on CODE, comments stripped, because a marker surviving in
+          # an explanatory comment is exactly how #808 scored documentation as
+          # code. `|| echo 000` was rejected as a discriminator for that reason:
+          # it still appears in the FIXED gate, inside a comment describing the
+          # bug. These two are clean on both sides.
+          . scripts/lib/strip_comments.sh
+          CODE="$(mktemp)"; strip_comments_file "$FIX" > "$CODE"
+          present=$(grep -c "trap 'rm -f" "$CODE")   # pre-fix: 2   fixed: 0
+          absent=$(grep -c 'TMP_BODY' "$CODE")       # pre-fix: 0   fixed: 3
+          echo "fixture markers (code only): trap-rm-f=${present} TMP_BODY=${absent}"
+          if [ "$present" -eq 0 ] || [ "$absent" -ne 0 ]; then
+              echo ""
+              echo "THE FIXTURE IS NOT PRE-FIX. Someone has replaced it with a"
+              echo "copy of the repaired gate, which would make the anti-vacuity"
+              echo "check below pass while measuring nothing."
+              echo "This is a FIXTURE fault, NOT a loss of discrimination in the"
+              echo "controls. DO NOT 'fix' the controls in response to this."
+              exit 1
+          fi
+          echo "ok: the fixture carries the pre-fix shape on both sides"
+
+      - name: The controls must fail the pre-fix gate
+        run: |
+          # `set +e` IS LOAD-BEARING. GitHub runs `run:` as `/bin/bash -e {0}`,
+          # and this step exists to OBSERVE a non-zero exit -- with -e in force
+          # it dies on the very failure it is measuring, before `rc=$?`.
+          # `set -uo pipefail` does NOT turn -e off. Only `set +e` does. Same
+          # defect I fixed in #904's workflow; it was latent here only because
+          # the job failed earlier at CANNOT RUN.
+          set +e
+          set -uo pipefail
           D="$(mktemp -d)"; mkdir -p "$D/scripts" "$D/tests"
-          git show "${BASE}:scripts/verify_customer_download_path.sh" \
-              > "$D/scripts/verify_customer_download_path.sh"
+          cp tests/fixtures/verify_customer_download_path.prefix.sh \
+             "$D/scripts/verify_customer_download_path.sh"
+          # The CONTROLS come from this PR -- the baseline is the ARTEFACT under
+          # test, not the instrument.
           cp tests/test_customer_download_path_gate.sh "$D/tests/"
           /bin/bash "$D/tests/test_customer_download_path_gate.sh" > "$D/out" 2>&1
           rc=$?
@@ -84,8 +160,8 @@ jobs:
           if [ "$rc" -eq 0 ]; then
               echo ""
               echo "ANTI-VACUITY FAILED: the controls PASSED the pre-fix gate."
-              echo "They no longer tell the fix from the bug, so the green above"
-              echo "means nothing. Investigate before trusting this workflow."
+              echo "They no longer tell the fix from the bug, so the green in the"
+              echo "controls job means nothing. Investigate before trusting this."
               exit 1
           fi
           echo ""
