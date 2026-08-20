@@ -62,5 +62,11 @@ jobs:
       - name: the customer install log carries no developer scaffolding
         run: /bin/bash tests/test_install_log_reads_like_a_product.sh
 
+      # `if: always()` because this step is SKIPPED otherwise when the step
+      # above it fails -- and the repo has a gate (ci-maskless) that catches
+      # exactly that. It caught this one. A syntax check that only runs when
+      # the gate is already green is a check that goes dark at the precise
+      # moment the gate is in trouble.
       - name: the gate itself parses
+        if: always()
         run: /bin/bash -n tests/test_install_log_reads_like_a_product.sh
