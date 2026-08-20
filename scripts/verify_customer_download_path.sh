@@ -18,6 +18,19 @@
 # PRERELEASES from `latest`. That is precisely how a July build was skipped in
 # favour of a May one that carried no DMG at all.
 #
+# Non-zero = BLOCK THE CUT. A build a customer cannot download is not shipped,
+# whatever the notarisation log says.
+#
+# That sentence is load-bearing, not decoration. scripts/
+# verify_declared_gates_reachable.sh enumerates its population by grepping for
+# exactly these phrases, so without a declaration line this file was invisible
+# to the mechanism built to catch dark gates -- not UNREACHABLE, UNENUMERABLE,
+# which prints as nothing at all. It is now in that population permanently and
+# will go red the day nothing invokes it.
+#
+# Invoked by: .github/workflows/customer-download-path.yml
+# Controls:   tests/test_customer_download_path_gate.sh
+#
 # Exit: 0 serves the expected version | 1 wrong/missing | 2 CANNOT-RUN
 # ============================================================================
 set -uo pipefail

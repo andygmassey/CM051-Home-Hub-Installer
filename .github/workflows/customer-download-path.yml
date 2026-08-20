@@ -1,0 +1,120 @@
+# The gate that watches the customer download path was itself watched by nothing.
+#
+# #886 exists because no gate ever fetched the URL a buyer clicks: every check we
+# owned looked at an object only we could reach. It shipped as a script that no
+# workflow, Makefile target or other script invoked. Measured across the whole
+# tracked tree, the only references to scripts/verify_customer_download_path.sh
+# were its own body and one comment.
+#
+# It was not scored as a dark gate either, because scripts/
+# verify_declared_gates_reachable.sh enumerates on
+#
+#   BLOCK THE CUT|BLOCKS THE CUT|CUT BLOCKER|blocks? the release|MUST NOT SHIP
+#
+# and the gate's header used none of those words. So it was not UNREACHABLE, it
+# was UNENUMERABLE, which prints as nothing at all -- the exact failure mode that
+# scanner's own header documents. The gate now declares itself, so it is in that
+# population permanently, and this workflow is the invocation that makes the
+# declaration true.
+name: customer-download-path
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/verify_customer_download_path.sh'
+      - 'tests/test_customer_download_path_gate.sh'
+      - '.github/workflows/customer-download-path.yml'
+  pull_request:
+    paths:
+      - 'scripts/verify_customer_download_path.sh'
+      - 'tests/test_customer_download_path_gate.sh'
+      - '.github/workflows/customer-download-path.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  controls:
+    # macOS, because limb 1 builds a real UDZO image with hdiutil to measure
+    # where the `koly` trailer actually sits. On Linux that limb self-skips and
+    # says so, which would leave the offset assertion unproven.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Environment, so a failure is attributable
+        run: |
+          /bin/bash --version | head -1
+          sw_vers
+          curl --version | head -1
+
+      # CONTROLS FIRST. An unproven gate is not a gate, and this one shipped
+      # unproven: its DMG shape check read `koly` from the first 512 bytes of a
+      # file that stores it as a trailer, so it matched nothing on any real DMG.
+      - name: Controls -- drive the gate through every exit it can take
+        run: /bin/bash tests/test_customer_download_path_gate.sh
+
+      # ANTI-VACUITY. Prove the controls can still go RED, against the gate as
+      # it stood before the fix. A control never shown failing is not evidence.
+      # This is asserted, not merely printed: if the old gate PASSES these
+      # controls, they have stopped discriminating and the step above is
+      # worthless.
+      - name: Anti-vacuity -- the controls must fail the pre-fix gate
+        run: |
+          set -uo pipefail
+          BASE=6ccd687d3bd1f5ef82ae7d44fa6f662a262ad2f0
+          if ! git cat-file -e "${BASE}:scripts/verify_customer_download_path.sh" 2>/dev/null; then
+              echo "CANNOT RUN: pre-fix blob ${BASE} not present in this checkout."
+              echo "That is not a pass. Fetch depth or a rewritten history would both"
+              echo "produce it, and neither means the controls discriminate."
+              exit 1
+          fi
+          D="$(mktemp -d)"; mkdir -p "$D/scripts" "$D/tests"
+          git show "${BASE}:scripts/verify_customer_download_path.sh" \
+              > "$D/scripts/verify_customer_download_path.sh"
+          cp tests/test_customer_download_path_gate.sh "$D/tests/"
+          /bin/bash "$D/tests/test_customer_download_path_gate.sh" > "$D/out" 2>&1
+          rc=$?
+          cat "$D/out"
+          if [ "$rc" -eq 0 ]; then
+              echo ""
+              echo "ANTI-VACUITY FAILED: the controls PASSED the pre-fix gate."
+              echo "They no longer tell the fix from the bug, so the green above"
+              echo "means nothing. Investigate before trusting this workflow."
+              exit 1
+          fi
+          echo ""
+          echo "ok: controls go RED (rc=${rc}) against the pre-fix gate, as required"
+
+  # The gate itself, run in the posture that is true today. Pre-launch the
+  # release is a DRAFT, so the public URL 404s BY DESIGN and asserting it would
+  # red every run for an intended reason -- which is how a gate gets ignored,
+  # then disabled. So assert the strongest TRUE thing instead of skipping.
+  gate:
+    runs-on: ubuntu-latest
+    needs: controls
+    steps:
+      - uses: actions/checkout@v4
+      - name: Customer download path, prelaunch posture
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSTLER_DOWNLOAD_POSTURE: prelaunch
+        run: |
+          set -uo pipefail
+          /bin/bash scripts/verify_customer_download_path.sh "${OSTLER_EXPECTED_VERSION:-1.0.37}"
+          rc=$?
+          # Tri-state is deliberate and is NOT flattened here. rc=2 means the
+          # gate could not reach the release API (auth or network), which is a
+          # statement about this runner and not about the download path. Report
+          # it loudly and do not let it read as either a pass or a failure of
+          # the URL.
+          if [ "$rc" -eq 2 ]; then
+              echo "::warning::gate returned CANNOT-RUN (rc=2). This is NOT a verdict on the customer download path -- it means this runner could not inspect the release repo. Treat as unmeasured, not as green."
+              exit 0
+          fi
+          exit "$rc"
