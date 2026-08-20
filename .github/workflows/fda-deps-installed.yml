@@ -99,6 +99,18 @@ jobs:
 
       - name: The test must go RED against the pre-fix installer
         run: |
+          # `set +e` IS LOAD-BEARING, NOT TIDINESS.
+          #
+          # GitHub runs a `run:` block as `/bin/bash -e {0}`. This job exists to
+          # observe a NON-ZERO exit from the test, so with -e still in force the
+          # step aborted on the very failure it was measuring -- before `rc=$?`
+          # was ever assigned, and before any of the messages below could print.
+          # It reported a bare "exit code 1" that looked like the test being
+          # broken rather than the test correctly going red.
+          #
+          # `set -uo pipefail` does NOT turn -e off. Only `set +e` does. Caught
+          # on the first CI run of this workflow.
+          set +e
           set -uo pipefail
 
           # The baseline is the merge-base with main, not main's tip. Using the
