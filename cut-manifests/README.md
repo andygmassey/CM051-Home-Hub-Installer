@@ -247,11 +247,20 @@ reported a gate that measured nothing.
 with a positive control, because a coverage check over an empty registry
 passes every assertion it makes.
 
-The `people_seed_and_retrieval` probe seeds a Person "Sofia Testperson" into the
-graph on the box, asks the daemon via the iMessage tool-call path, and asserts
-the reply contains the name and does NOT contain the confabulation-tell "I
-don't have any information". The full body ships with the Studio matrix
-runbook; the stub in this PR exits `0` so the primitive wiring can land first.
+The `people_seed_and_retrieval` probe seeds two synthetic people on the box and
+retrieves them back through the two routes the daemon really uses:
+`GET /api/v1/people/context` (Oxigraph, the primary) and
+`GET /api/v1/people/search` (Qdrant plus Ollama, the fallback). It then removes
+both and verifies the removal. It asserts the retrieved payload carries the
+seeded name AND the minted `person_uri`, and that the reply does NOT contain
+the confabulation-tell "I don't have any information".
+
+It is no longer the stub this paragraph used to describe, and it is no longer
+invoked only from here: it lives in `scripts/box_walk_probes/probes/` and
+`run_box_walk.sh` collects it with the rest. While it sat one level up, outside
+that glob, this manifest row was the only thing that could invoke it -- and the
+row fires only when `OSTLER_BOX_HOST` is set, which it was nowhere, so the
+probe had never run at all.
 
 ### 9. `payload_version_matches_daemon_version`
 
