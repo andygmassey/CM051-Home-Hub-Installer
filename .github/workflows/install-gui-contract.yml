@@ -37,6 +37,8 @@ on:
       - 'tests/test_ai_model_env_contract.sh'
       - 'tests/test_gui_progress_emitter.sh'
       - 'tests/test_marker_payloads_never_reach_install_log.sh'
+      - 'tests/test_install_log_follows_promotion.sh'
+      - 'lib/ostler-ingest-slot.sh'
       - 'vendor/legal/**'
       - 'vendor/LICENSES/**'
       - 'vendor/THIRD_PARTY_NOTICES.md'
@@ -154,6 +156,30 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/test_marker_payloads_never_reach_install_log.sh
+
+      - name: INSTALL_LOG must follow the tree, and the append must be silent
+        if: always()
+        # Sibling of the gate above, and the mirror image of it. That one
+        # proves marker payloads never reach the durable log. This one
+        # proves the durable log still EXISTS to reach.
+        #
+        # Measured on a live v1.0.37 walk 2026-08-20: install.sh derived
+        # INSTALL_LOG once while OSTLER_DIR was still the
+        # /tmp/ostler-prelaunch-<pid> staging tree and never rebound it, so
+        # the moment the tree was promoted the emitter's append started
+        # failing. The [gui-marker] trace stopped dead at line 707 of 1397
+        # and 267 "No such file or directory" lines took its place. The
+        # whole second half of the install -- ingest, wiki compile,
+        # pairing -- had no durable trace at all.
+        #
+        # Two causes, two arms. The rebind is executed for real out of
+        # install.sh, and the redirection ordering is proved by running
+        # BOTH forms: the arm asserts the pre-fix form still leaks, so a
+        # control that stops reproducing the defect fails loudly instead
+        # of going quietly green.
+        run: |
+          set -euo pipefail
+          bash tests/test_install_log_follows_promotion.sh
 
       - name: Run app-bundle byte-by-byte regression
         if: always()

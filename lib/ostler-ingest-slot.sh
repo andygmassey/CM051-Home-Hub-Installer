@@ -182,7 +182,13 @@ _ostler_slot_state_set() {
     else
         : > "$tmp" 2>/dev/null || return 0
     fi
-    printf '%s=%s\n' "$2" "$3" >> "$tmp" 2>/dev/null || return 0
+    # Braced: bash applies redirections left to right, so an un-braced
+    # `>> "$tmp" 2>/dev/null` reports the open failure to the inherited
+    # stderr BEFORE the suppression takes effect. The grep arm above
+    # already has its 2>/dev/null in the correct position and so is
+    # silent; this line was not, and $tmp is genuinely absent whenever
+    # that grep arm failed to create it.
+    { printf '%s=%s\n' "$2" "$3" >> "$tmp"; } 2>/dev/null || return 0
     mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
 }
 
@@ -643,8 +649,12 @@ _ostler_slot_account() {
     # The counters above are the durable record; this file is the time series
     # for anyone asking "when did the share change, and why".
     mkdir -p "$_OSTLER_SLOT_STATE" 2>/dev/null || return 0
-    printf 'hold_summary feed=%s held_s=%s reason=%s\n' \
-        "$feed" "$held" "$reason" >> "$_OSTLER_SLOT_STATE/holds.log" 2>/dev/null || true
+    # Braced for the same reason as _ostler_slot_set above. The mkdir
+    # guarantees the DIRECTORY, not the file's writability -- a
+    # root-owned holds.log left by an earlier run under a different
+    # identity still fails the open, and unbraced that failure shouts.
+    { printf 'hold_summary feed=%s held_s=%s reason=%s\n' \
+        "$feed" "$held" "$reason" >> "$_OSTLER_SLOT_STATE/holds.log"; } 2>/dev/null || true
 }
 
 # --- public: release -------------------------------------------------
