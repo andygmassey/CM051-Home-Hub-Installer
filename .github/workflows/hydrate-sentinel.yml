@@ -42,6 +42,7 @@ on:
       - 'tests/test_hydrate_sentinel_not_on_error.sh'
       - 'tests/test_no_data_is_not_success.sh'
       - 'tests/test_aiconv_hydrate_honesty.sh'
+      - 'tests/test_email_settling_numerator_is_messages.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/hydrate-sentinel.yml'
   push:
@@ -83,9 +84,21 @@ jobs:
         if: always()
         run: bash tests/test_no_data_is_not_success.sh
 
-      - name: All three tests parse under bash 3.2-compatible syntax
+      # The email settling row reported a PEOPLE count against a MESSAGE
+      # denominator, so on a 16,844-message store yielding ~600 correspondents
+      # the bar read 3.6% and could never approach 100%. Same family as the
+      # two above: a hydrate phase publishing a number that cannot be right.
+      # Wired here rather than in a new workflow because 109 of the 279 rows
+      # in TEST_WIRING.tsv are UNWIRED, and a tenth dark test would be the
+      # defect this workflow's own header names.
+      - name: The email settling numerator is a MESSAGE count, not a people count
+        if: always()
+        run: bash tests/test_email_settling_numerator_is_messages.sh
+
+      - name: All four tests parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_hydrate_sentinel_not_on_error.sh
           bash -n tests/test_aiconv_hydrate_honesty.sh
+          bash -n tests/test_email_settling_numerator_is_messages.sh
           bash -n tests/test_no_data_is_not_success.sh
