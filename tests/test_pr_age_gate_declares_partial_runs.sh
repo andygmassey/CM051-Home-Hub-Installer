@@ -137,18 +137,51 @@ else
 fi
 
 # --- 5. DEMONSTRATED RED against the PRE-FIX script -------------------------
-# Not "the fixed one passes" -- the prior artefact must be shown to fail. If
-# origin/main is not fetchable this is CANNOT-RUN, never a silent skip.
-BASE="$(git -C "${REPO_ROOT}" show origin/main:scripts/verify_pr_age.sh 2>/dev/null)"
+# Not "the fixed one passes" -- the prior artefact must be shown to fail.
+#
+# THE BASELINE MUST BE AN IMMUTABLE COMMIT, NEVER A MOVING REF.
+#
+# This control originally read `origin/main`. That WAS the pre-fix state while
+# #881 was open, and became the POST-fix state the instant #881 merged. The
+# control then loaded the FIXED script, correctly observed it distinguishing
+# partial from complete, and reported "this patch fixes nothing". It went red
+# at 5eece4c -- the merge commit of the very fix it was written to defend --
+# and stayed red through 5d2e1b1 and be31bfc. Last green was 8651a54, the
+# commit before the merge.
+#
+# So this was not a flake and not a regression in verify_pr_age.sh. A control
+# whose baseline moves when the fix lands inverts ON MERGE, by construction.
+# The pin below is the whole fix.
+#
+# cac9299 is the last commit to touch scripts/verify_pr_age.sh BEFORE #881.
+# NEVER advance it. It is a historical fact about what the defect looked like,
+# not a pointer to current state. If verify_pr_age.sh is rewritten again, the
+# new anti-vacuity proof needs its OWN pinned baseline, not this one moved.
+PREFIX_REF="cac9299"
+
+# Reachability first. fetch-depth: 0 in cut-gate-wrappers.yml is load-bearing
+# for exactly this line, and its comment says so. A shallow clone cannot see
+# cac9299, and that must be CANNOT-RUN rather than a silent pass.
+BASE="$(git -C "${REPO_ROOT}" show "${PREFIX_REF}:scripts/verify_pr_age.sh" 2>/dev/null)"
 if [[ -z "${BASE}" ]]; then
-    cannot "5. origin/main:scripts/verify_pr_age.sh unavailable -- pre-fix comparison NOT performed"
+    cannot "5. ${PREFIX_REF}:scripts/verify_pr_age.sh unreachable (shallow clone?) -- pre-fix comparison NOT performed"
 else
+    # A CONTROL ON THE CONTROL. If the pinned blob is byte-identical to the
+    # current script then the pin is aimed at the wrong commit, or the fix has
+    # been reverted. Either way assertion 5 below would pass for a reason that
+    # has nothing to do with the pre-fix script failing, so refuse instead.
+    if [[ "${BASE}" == "$(cat "${GATE}")" ]]; then
+        bad "5a. pinned baseline ${PREFIX_REF} is IDENTICAL to the current gate -- the pin is wrong or the fix was reverted. Assertion 5 cannot mean anything."
+    else
+        ok "5a. pinned baseline ${PREFIX_REF} differs from the current gate, so the comparison is meaningful"
+    fi
+
     printf '%s' "${BASE}" > "${WORK}/prefix-gate.sh"
     run_gate "owner/CM051-Home-Hub-Installer" "${WORK}/prefix-gate.sh"
     if grep -q 'PARTIAL\|NOT CHECKED IN THIS ENVIRONMENT\|1 of 3' <<< "${OUT}"; then
-        bad "5. pre-fix script ALREADY distinguished partial from complete -- this patch fixes nothing"
+        bad "5. pre-fix script at ${PREFIX_REF} ALREADY distinguished partial from complete -- this patch fixes nothing"
     else
-        ok "5. DEMONSTRATED RED: pre-fix script reported a 2-of-3-blind run with no partiality marker"
+        ok "5. DEMONSTRATED RED: pre-fix script at ${PREFIX_REF} reported a 2-of-3-blind run with no partiality marker"
     fi
 fi
 
