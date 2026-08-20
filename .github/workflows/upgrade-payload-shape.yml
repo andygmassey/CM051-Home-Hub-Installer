@@ -1,0 +1,87 @@
+name: upgrade-payload-shape
+
+# THE SHAPE THE CUT WRITES MUST BE THE SHAPE THE INSTALLER READS.
+#
+# Measured on the shipped v1.0.37 DMG: stage-payload emitted a bare binary at
+# assistant-agent/bin/ostler-assistant, while install.sh upgrade-mode resolves
+# assistant-agent/OstlerAssistant.app and refuses a bare binary with exit 20.
+# Every DMG therefore carried an upgrade payload its own upgrade path rejects,
+# silently, on the customer's machine.
+#
+# It survived 37 cuts because the only upgrade test hand-builds its own payload
+# fixture in the correct shape. It proved upgrade-mode works against something
+# nobody ships. No test compared the two, so no test could fail.
+#
+# NO `paths:` FILTER, deliberately. A path filter means this skips on exactly
+# the PR that edits something it did not think to watch, and a skipped job
+# renders as a grey tick that reads like a pass. The job is seconds long.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upgrade-payload-shape-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The payload shape contract holds across cut, installer and fixture
+        run: /bin/bash tests/test_upgrade_payload_shape_contract.sh
+
+      # A gate that cannot fail is not a gate. Prove it still fires by feeding
+      # it the exact pre-fix recipe and requiring a non-zero exit. Uses a copy,
+      # never the working tree, so a failure here cannot leave the repo dirty.
+      - name: The gate still FIRES on the shape that actually shipped
+        if: always()
+        run: |
+          set -uo pipefail
+          MUT="$(mktemp -d)"
+          cp -R gui tests install.sh "$MUT/"
+          python3 - "$MUT/gui/Makefile" <<'PY'
+          import re,sys
+          p=sys.argv[1]
+          s=open(p,encoding='utf-8').read()
+          # Reinstate the legacy staging: copy the inner binary to bin/.
+          s=s.replace(
+            'ditto "$$DAEMON_APP" "$$PAYLOAD/assistant-agent/OstlerAssistant.app"; \\',
+            'cp "$$AGENT_SRC/OstlerAssistant.app/Contents/MacOS/ostler-assistant" "$$PAYLOAD/assistant-agent/bin/ostler-assistant"; \\')
+          open(p,'w',encoding='utf-8').write(s)
+          PY
+          rc=0
+          out="$(cd "$MUT" && /bin/bash tests/test_upgrade_payload_shape_contract.sh 2>&1)" || rc=$?
+          printf '%s\n' "$out"
+          if [ "$rc" = "0" ]; then
+              echo "::error::The contract test PASSED on the pre-fix bare-binary recipe. The gate is blind; fix the gate, not the code."
+              exit 1
+          fi
+          printf '[OK] gate fired on the legacy shape (rc=%s)\n' "$rc"
+
+      - name: Both scripts parse
+        if: always()
+        run: |
+          /bin/bash -n tests/test_upgrade_payload_shape_contract.sh
+          /bin/bash -n tests/test_upgrade_mode_invariants.sh
+
+  # THE BEHAVIOURAL UPGRADE SUITE HAD NEVER RUN IN CI. It was UNWIRED in
+  # tests/TEST_WIRING.tsv, so 31 assertions about data-loss prevention during a
+  # customer upgrade were sitting in the repo executing nowhere. It is hermetic
+  # (mocks launchctl and codesign through PATH shims, no network, no pip) but
+  # asserts with plutil, so it needs macOS rather than ubuntu.
+  behaviour:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upgrade-mode invariants (31 assertions, incl. rollback + no-stdin-hang)
+        run: /bin/bash tests/test_upgrade_mode_invariants.sh
