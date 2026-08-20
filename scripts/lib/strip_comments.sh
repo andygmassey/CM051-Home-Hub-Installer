@@ -127,6 +127,37 @@ is_invoked_in_corpus() {
         if (pre ~ /(^|[[:space:];&|(]|\/)(bash|sh|zsh|ksh|dash)[[:space:]]/)   return 1
         if (pre ~ /(^|[[:space:];&|(]|\/)pytest[[:space:]]/)                   return 1
         if (pre ~ /(^|[[:space:];&|(]|\/)python3[[:space:]]+-m[[:space:]]/)    return 1
+        # A BARE `python3 <file>` IS AN EXECUTION, and until this line it was
+        # not recognised. Only the `-m` form above was, so a test invoked as
+        # `python3 tests/foo.py` -- which is what cut.yml does for the doctor
+        # secret-scrub suite -- scored DARK while running on every cut.
+        #
+        # THE RULE IS DELIBERATELY THE STRICTEST ONE THAT WORKS: python3 (or
+        # python), optional leading path, then whitespace running to the END of
+        # `pre` -- i.e. the filename is the VERY NEXT token.
+        #
+        # Anchoring to end-of-pre is what makes the -c form impossible to admit.
+        # A python3 -c invocation that mentions the filename inside its inline
+        # code puts the -c and the opening quote BETWEEN the verb and the
+        # needle, so pre does not end in whitespace-after-python3 and this
+        # returns 0. A looser rule -- python3 followed by whitespace anywhere --
+        # would score that inline string as an execution, which is exactly the
+        # false WIRED that scripts/tests/
+        # test_invocation_predicate_rejects_non_execution.sh exists to prevent.
+        # A false WIRED blesses a dark test; a false DARK only nags. When the
+        # two are not symmetric, take the strict side.
+        #
+        # NB this comment lives INSIDE a single-quoted awk program, so it must
+        # contain no apostrophe. One here terminated the awk string and broke
+        # the whole library on first write.
+        #
+        # ⚠️ KNOWN BOUND, stated rather than hidden: an interpreter FLAG before
+        # the file (`python3 -u tests/foo.py`) still scores DARK, because it
+        # breaks the end-anchor too. That is a miss, not a false pass, and it is
+        # covered by a control below so the next reader learns it from the suite
+        # rather than from a surprise. Widen it only with a control that proves
+        # `-c` is still refused.
+        if (pre ~ /(^|[[:space:];&|(]|\/)python3?[[:space:]]+$/)               return 1
         if (pre ~ /(^|[[:space:];&|(])\.\//)                                   return 1
         return 0
     }

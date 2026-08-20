@@ -56,6 +56,22 @@ jobs:
         if: always()
         run: /bin/bash scripts/tests/test_invocation_predicate_rejects_non_execution.sh
 
+      # The other direction of the same predicate. The step above pins what must
+      # NOT count (a parse, a near-miss word, inline -c code); this pins what
+      # MUST -- a bare `python3 <file>`, which the predicate scored DARK until
+      # #791. Both halves belong in one job so a change to has_verb() cannot
+      # satisfy one and break the other unnoticed.
+      #
+      # Carries its own DEMONSTRATED RED: it rebuilds the pre-fix predicate from
+      # its literal source and requires the bare form to miss, so this step
+      # fails loudly if someone reverts the rule rather than passing vacuously.
+      #
+      # if: always() for the same reason as every other step here -- it is not
+      # first, and a skipped step reads as no objection.
+      - name: A bare `python3 <file>` IS an execution
+        if: always()
+        run: /bin/bash scripts/tests/test_invocation_predicate_sees_bare_python.sh
+
       # if: always() because this step is no longer FIRST in the job. Adding the
       # stripper control above it made it maskable -- a failure there would skip
       # this one, and a skipped step reads as "no objection", which is the whole
