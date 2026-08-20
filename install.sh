@@ -11097,11 +11097,39 @@ OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.58}"
 # render the Ostler v4 oxblood squircle next to the Full Disk
 # Access entry. The extraction + path logic below detects which
 # shape the tarball ships and stages both correctly, so the same
-# install.sh works against a fallback v0.4.1 tarball (bare
-# binary) AND the new v0.4.3 tarball (app bundle). v0.4.2 was
-# never published per task #507 -- the version was burned on a
-# pre-release dry-run.
-ASSISTANT_FALLBACK_VERSION="0.4.1"
+# install.sh works against a fallback tarball in the OLD bare-binary
+# shape AND the v0.4.3+ app-bundle shape. That dual-shape handling
+# below is unchanged and still correct.
+#
+# 2026-08-20: THIS VALUE WAS 0.4.1, AND 0.4.1 DOES NOT EXIST.
+# Measured against the public release repo the installer actually
+# fetches from:
+#
+#     hub-v0.4.1   404      <-- what this line used to name
+#     hub-v0.4.2   404          (never published, task #507)
+#     hub-v0.4.3   404
+#     hub-v0.4.4   200      <-- oldest release that exists
+#
+# So the branch whose entire purpose is to rescue a customer whose
+# primary download failed was itself a 404, and it had been since
+# CX-88 pointed distribution at ostler-ai/ostler-releases. Nothing
+# noticed, because the fallback only executes when the primary has
+# ALREADY failed, which is exactly when nobody is watching and
+# exactly when the customer has no other path to a Hub.
+#
+# Repointed at 0.4.57, the release immediately before the current
+# default. Verified present, both limbs, unauthenticated:
+#
+#     hub-v0.4.57 tar.gz          200
+#     hub-v0.4.57 tar.gz.sha256   200
+#
+# Chosen over 0.4.4 deliberately: a last-known-good that is 53
+# releases behind the primary is a rescue into a Hub nobody has run
+# in months. One release back is a real fallback. Note this means the
+# fallback now exercises the app-bundle shape rather than the bare
+# binary; the bare-binary path below is retained for any customer
+# resuming from an older staged tarball.
+ASSISTANT_FALLBACK_VERSION="0.4.57"
 # Customer-facing distribution.
 #
 # CX-88 (DMG #48g, 2026-05-29): the daemon ships from the public
