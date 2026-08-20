@@ -20296,26 +20296,56 @@ unset _hydrate_contacts_accounts
 #
 #   limb 1  the agent was a ONE-SHOT StartCalendarInterval, so it ran
 #           at most once ever. FIXED in #714.
-#   limb 2  vendor/ostler_fda/extract_all.py calls
-#           extract_events(since_days=365, future_days=30) with the 365
-#           HARDCODED and no env override, unlike every sibling source
-#           (safari/browser/imessage/whatsapp/mail all read
-#           OSTLER_*_BACKFILL_DAYS). Fixed UPSTREAM by HR015 #417, but
-#           the vendor pin in vendor/VENDOR_MANIFEST.toml predates it,
-#           so the SHIPPED twin still carries the literal. Still open
-#           here; it needs an ORM re-vendor, not an edit in place.
+#   limb 2  vendor/ostler_fda/extract_all.py called
+#           extract_events(since_days=365, ...) with the 365 HARDCODED
+#           and no env override, unlike every sibling source. FIXED
+#           upstream by HR015 #417 and ALREADY VENDORED: the pin on
+#           main (9cf567be) carries backfill_ladder, so the BACKWARD
+#           window now climbs 365 -> 730 -> 1825 across ticks.
 #
-# So a deferral to that agent tops out at 365 days, and only once the
-# re-vendor lands. Every path a customer has ended below five years.
+# 🔴 AND THAT SECOND SENTENCE USED TO SAY THE OPPOSITE, IN THIS FILE,
+# ON THIS BRANCH. The first draft of this comment asserted the vendored
+# twin still hardcoded 365 and needed a re-vendor. It was read off the
+# LOCAL working checkout, which sits on an older candidate branch at pin
+# a52544f1. Measured against the pin on main it is simply false. The
+# correction is left visible rather than quietly overwritten, because
+# the whole reason this block is so long is that its predecessor was a
+# confident claim nobody re-measured for three months.
 #
-# CX-92 / board #554: THE INSTALL-TIME WINDOW STOPS DEFERRING.
+# SO WHAT DOES THE DEFERRAL ACTUALLY DELIVER? Measured, not assumed:
 #
-# The deferral was the load-bearing half of CX-106's argument and it
-# has never worked, so this stops relying on it and reads the window
-# the task asks for at install time: five years back, one year forward,
-# matching what every sibling source in this file already defaults to
+#   BACKWARD  the ladder holds each rung for DEFAULT_DWELL_SECONDS
+#             (21600s = 6h) and com.ostler.fda-rerun fires hourly
+#             (OSTLER_FDA_RERUN_INTERVAL_S=3600), so 365 lands at
+#             install, 730 about 6h later and 1825 about 12h later.
+#   FORWARD   `future_days=30` is STILL a literal, in the vendored twin
+#             AND upstream. No tick, ever, reaches past 30 days ahead.
+#
+# CX-92 / board #554: THE INSTALL-TIME WINDOW STOPS DEFERRING ANYWAY.
+#
+# A backward window that arrives around install+12h is a real
+# improvement on "never", and it is not what #554 asks for: its
+# acceptance criterion is that the wiki Events page populates within
+# ~5 minutes of install completing, and its report is a customer
+# reading "the last 90 days" while their Events page sat empty. Half a
+# day later is the wrong answer to "is this thing working". And the
+# forward limb is not deferred to anything at all -- it is simply
+# absent, which is why nothing UPCOMING ever appeared.
+#
+# So this reads the window the task asks for at install time: five
+# years back, one year forward, matching what every sibling source in
+# this file already defaults to
 # (OSTLER_{IMESSAGE,BROWSER,SAFARI,WHATSAPP,MAIL}_BACKFILL_DAYS are all
 # 1825 at Phase 3.7). Calendar was the odd one out.
+#
+# AND THIS DELIBERATELY DOES NOT PIN OSTLER_CALENDAR_BACKFILL_DAYS at
+# the Phase 3.7 sibling block, which would look like the tidy symmetric
+# change. backfill_ladder documents that an explicit env value PINS the
+# window and DISABLES the ladder. Exporting 1825 there would drag the
+# full five-year extract AND its Oxigraph ingest onto the Phase 3.7
+# critical path as well as this one, and permanently remove the
+# spreading the ladder exists to provide. The hydrate below is the one
+# place that wants the whole window at once.
 #
 # 🔴 THE STATED REASON FOR 90 DAYS DOES NOT SURVIVE MEASUREMENT, and
 # saying so matters more than the number, because the wrong mechanism

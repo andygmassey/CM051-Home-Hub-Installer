@@ -13,10 +13,21 @@
 # and a wiki Events page that stayed empty on a Mac with years of
 # iCloud and Google meetings in it. CX-106 had narrowed the
 # install-time window to 90 days and deferred the rest to
-# com.ostler.fda-rerun. Both halves of that deferral were broken: the
-# agent was a one-shot (#714, fixed) and the vendored extract_all.py
-# hardcodes since_days=365 (fixed upstream by HR015 #417, not yet
-# re-vendored). So nothing a customer had ever reached five years.
+# com.ostler.fda-rerun.
+#
+# WHAT THAT DEFERRAL DELIVERS TODAY, measured against the vendor pin on
+# main (9cf567be) rather than assumed:
+#
+#   BACKWARD  reaches five years, but SLOWLY. #714 made the agent
+#             recur hourly and HR015 #417 (already vendored) gave
+#             calendar a 365 -> 730 -> 1825 ladder with a 6h dwell, so
+#             1825 lands around install + 12h.
+#   FORWARD   never moves. `future_days=30` is still a literal in the
+#             vendored twin and upstream alike.
+#
+# #554 asks for the Events page to populate within ~5 minutes of
+# install completing. Half a day later is the wrong answer to "is this
+# thing working", and it is not what the installer's own message said.
 #
 # ── WHY THIS FILE EXISTS SEPARATELY FROM test_cx101_calendar_hydrate_path.sh
 #
@@ -47,6 +58,13 @@
 
 set -euo pipefail
 
+# 🔴 NO `printf ... | grep -q` ANYWHERE IN THIS FILE. `grep -q` exits on its
+# first match and SIGPIPEs the writer, so under `set -o pipefail` the pipeline
+# can report FAILURE on a needle that IS PRESENT -- a guard that inverts its own
+# verdict. tests/test_pipefail_shortcircuit_inversion.sh ratchets on this
+# construct and caught this file on its first CI run; every condition here is a
+# herestring instead.
+#
 # 🔴 EVERY grep-BASED CAPTURE BELOW ENDS IN `|| true`, AND THAT IS LOAD-BEARING.
 # Under `set -euo pipefail` a grep that matches NOTHING fails the pipeline and
 # aborts the script on the spot. The first version of this file lacked those,
@@ -207,7 +225,7 @@ CAL_BLOCK="$(sed -n "${CAL_HEADER_LINE},${NEXT_HEADER_LINE}p" "$INSTALL_SH")"
 
 # CODE_ONLY: comment lines and blanks removed. Everything below reads
 # this, never CAL_BLOCK.
-CODE_ONLY="$(printf '%s\n' "$CAL_BLOCK" | grep -vE '^[[:space:]]*(#|$)' || true)"
+CODE_ONLY="$(grep -vE '^[[:space:]]*(#|$)' <<< "$CAL_BLOCK" || true)"
 
 # ── Control A: the comment stripper actually strips ──────────────────
 # If CODE_ONLY were ever identical to CAL_BLOCK, every "in CODE" claim
@@ -216,15 +234,15 @@ CODE_ONLY="$(printf '%s\n' "$CAL_BLOCK" | grep -vE '^[[:space:]]*(#|$)' || true)
 if [[ "$CODE_ONLY" == "$CAL_BLOCK" ]]; then
     failure "CONTROL A: comment stripping removed nothing -- assertions below would be matching comments"
 fi
-if ! printf '%s' "$CAL_BLOCK" | grep -qE '^[[:space:]]*#'; then
+if ! grep -qE '^[[:space:]]*#' <<< "$CAL_BLOCK"; then
     failure "CONTROL A: the carved block contains no comment lines at all -- the carve is wrong"
 fi
 
 # ── Control B: the carve caught the right region, both ends ──────────
-if ! printf '%s' "$CODE_ONLY" | grep -q 'extract_events('; then
+if ! grep -q 'extract_events(' <<< "$CODE_ONLY"; then
     failure "CONTROL B: carved block has no extract_events( call -- the slice missed the calendar extract"
 fi
-if printf '%s' "$CODE_ONLY" | grep -q 'pwg-email-ingest'; then
+if grep -q 'pwg-email-ingest' <<< "$CODE_ONLY"; then
     failure "CONTROL B: carved block reaches into the email hydrate -- the slice runs past its end"
 fi
 
@@ -257,22 +275,22 @@ fi
 # install time. A default that is set and then not passed is the same
 # defect wearing a variable's name. Require each var inside the
 # extract_events( ... ) call itself.
-EXTRACT_CALL="$(printf '%s\n' "$CODE_ONLY" | grep -E 'extract_events\(' | head -1 || true)"
+EXTRACT_CALL="$(grep -E 'extract_events\(' <<< "$CODE_ONLY" | head -1 || true)"
 if [[ -z "$EXTRACT_CALL" ]]; then
     failure "no extract_events( call in CODE"
 else
-    if ! printf '%s' "$EXTRACT_CALL" | grep -qE 'since_days=\$\{OSTLER_HYDRATE_CALENDAR_DAYS\}'; then
+    if ! grep -qE 'since_days=\$\{OSTLER_HYDRATE_CALENDAR_DAYS\}' <<< "$EXTRACT_CALL"; then
         failure "extract_events does not receive OSTLER_HYDRATE_CALENDAR_DAYS as since_days: ${EXTRACT_CALL}"
     fi
-    if ! printf '%s' "$EXTRACT_CALL" | grep -qE 'future_days=\$\{OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS\}'; then
+    if ! grep -qE 'future_days=\$\{OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS\}' <<< "$EXTRACT_CALL"; then
         failure "extract_events does not receive OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS as future_days: ${EXTRACT_CALL}"
     fi
     # The literal that #554 is about. Belt to Axis 2's braces: it fails
     # even if someone adds the variable and leaves the literal winning.
-    if printf '%s' "$EXTRACT_CALL" | grep -qE 'future_days=[0-9]'; then
+    if grep -qE 'future_days=[0-9]' <<< "$EXTRACT_CALL"; then
         failure "extract_events still passes a LITERAL future_days: ${EXTRACT_CALL}"
     fi
-    if printf '%s' "$EXTRACT_CALL" | grep -qE 'since_days=[0-9]'; then
+    if grep -qE 'since_days=[0-9]' <<< "$EXTRACT_CALL"; then
         failure "extract_events still passes a LITERAL since_days: ${EXTRACT_CALL}"
     fi
 fi
@@ -285,18 +303,18 @@ fi
 # narrowing the window, which cost the customer their history. The
 # heartbeat is what makes the wide window survivable, so it is part of
 # the contract, not a nicety.
-if ! printf '%s' "$CODE_ONLY" | grep -q '_hydrate_heartbeat_start'; then
+if ! grep -q '_hydrate_heartbeat_start' <<< "$CODE_ONLY"; then
     failure "Calendar hydration block starts no heartbeat -- a multi-year ingest would look like a hung installer"
 fi
-if ! printf '%s' "$CODE_ONLY" | grep -q '_hydrate_heartbeat_stop'; then
+if ! grep -q '_hydrate_heartbeat_stop' <<< "$CODE_ONLY"; then
     failure "Calendar hydration block never stops its heartbeat -- the ticker would outlive the step"
 fi
 # Ordering: start before the extract, stop after the ingest. A ticker
 # that stops before the slow half is decoration.
-HB_START_LN="$(printf '%s\n' "$CODE_ONLY" | grep -n '_hydrate_heartbeat_start' | head -1 | cut -d: -f1 || true)"
-HB_STOP_LN="$(printf '%s\n' "$CODE_ONLY" | grep -n '_hydrate_heartbeat_stop' | head -1 | cut -d: -f1 || true)"
-INGEST_LN="$(printf '%s\n' "$CODE_ONLY" | grep -n 'ingest_calendar(' | head -1 | cut -d: -f1 || true)"
-EXTRACT_LN="$(printf '%s\n' "$CODE_ONLY" | grep -n 'extract_events(' | head -1 | cut -d: -f1 || true)"
+HB_START_LN="$(grep -n '_hydrate_heartbeat_start' <<< "$CODE_ONLY" | head -1 | cut -d: -f1 || true)"
+HB_STOP_LN="$(grep -n '_hydrate_heartbeat_stop' <<< "$CODE_ONLY" | head -1 | cut -d: -f1 || true)"
+INGEST_LN="$(grep -n 'ingest_calendar(' <<< "$CODE_ONLY" | head -1 | cut -d: -f1 || true)"
+EXTRACT_LN="$(grep -n 'extract_events(' <<< "$CODE_ONLY" | head -1 | cut -d: -f1 || true)"
 if [[ -n "$HB_START_LN" && -n "$HB_STOP_LN" && -n "$INGEST_LN" && -n "$EXTRACT_LN" ]]; then
     if (( HB_START_LN > EXTRACT_LN )); then
         failure "heartbeat starts AFTER the extract (${HB_START_LN} > ${EXTRACT_LN})"
@@ -314,7 +332,7 @@ if [[ -f "$STRINGS_SH" ]]; then
     CAL_STARTED="$(grep -E '^MSG_HYDRATE_CALENDAR_STARTED=' "$STRINGS_SH" | head -1 || true)"
     if [[ -z "$CAL_STARTED" ]]; then
         failure "MSG_HYDRATE_CALENDAR_STARTED not found in ${STRINGS_SH}"
-    elif printf '%s' "$CAL_STARTED" | grep -qE '90 days|90-day'; then
+    elif grep -qE '90 days|90-day' <<< "$CAL_STARTED"; then
         failure "MSG_HYDRATE_CALENDAR_STARTED still promises 90 days: ${CAL_STARTED}"
     fi
     if ! grep -qE '^MSG_HYDRATE_CALENDAR_HEARTBEAT=' "$STRINGS_SH"; then
