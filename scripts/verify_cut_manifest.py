@@ -840,13 +840,46 @@ def check_payload_version_matches_daemon_version(entry: dict, ctx: dict) -> Resu
         if _nested:
             payload_root = _nested[0]
     version_file = payload_root / "VERSION"
-    daemon_bin = payload_root / "assistant-agent" / "bin" / "ostler-assistant"
+
+    # The payload daemon is an .app BUNDLE, not a bare binary.
+    #
+    # gui/Makefile:1142 dittos ../assistant-agent/OstlerAssistant.app into the
+    # payload, :1143 chmods its inner binary, :1148 hard-fails if that inner
+    # binary is absent, and :1163 codesign-verifies the bundle against the
+    # V95N2B8X7A team pin. Since #890 (7bff33d, 2026-08-20) :1154 ALSO hard-fails
+    # if the legacy bare-binary path exists at all -- install.sh upgrade-mode
+    # resolves _UPG_PAYLOAD_APP first and refuses a bare binary with exit 20, so
+    # shipping both shapes invites the wrong one.
+    #
+    # This predicate was left pointing at the legacy path when #890 moved the
+    # shape. v1.0.37 was cut BEFORE #890 (03:46Z; #890 merged 09:14Z) and passed
+    # honestly. v1.0.38 is the first cut after it -- and the row demanded exactly
+    # the state `make ship` now refuses to build, so it could not have passed at
+    # any point after #890 merged.
+    #
+    # Keep this path identical to the one gui/Makefile:1148 enforces. If the
+    # payload shape moves again, BOTH must move together.
+    daemon_app = payload_root / "assistant-agent" / "OstlerAssistant.app"
+    daemon_bin = daemon_app / "Contents" / "MacOS" / "ostler-assistant"
+    legacy_bin = payload_root / "assistant-agent" / "bin" / "ostler-assistant"
 
     if not version_file.is_file():
         return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
                       "FAIL", f"payload VERSION file missing at {version_file}",
                       entry.get("source_pr", ""))
     if not daemon_bin.is_file():
+        # Name the shape drift explicitly rather than reporting a bare "missing".
+        # On 2026-08-21 the undifferentiated message cost hours: it could not
+        # distinguish "the daemon is absent" from "the daemon is present under a
+        # path this predicate stopped tracking", and the two need opposite fixes.
+        if legacy_bin.is_file():
+            return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
+                          "FAIL",
+                          f"payload carries the LEGACY bare-binary daemon at {legacy_bin} "
+                          f"instead of the .app bundle at {daemon_bin} -- install.sh "
+                          f"upgrade-mode refuses the bare shape with exit 20, and "
+                          f"gui/Makefile:1154 refuses to build it",
+                          entry.get("source_pr", ""))
         return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
                       "FAIL", f"payload daemon binary missing at {daemon_bin}",
                       entry.get("source_pr", ""))

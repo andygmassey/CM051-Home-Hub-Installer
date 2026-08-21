@@ -971,12 +971,37 @@ def _make_payload(fake_app: Path, version_text: str) -> None:
 
     - Contents/Resources/ostler-payload/VERSION carries `version_text` verbatim.
     - A stub daemon binary is placed at
-      Contents/Resources/ostler-payload/assistant-agent/bin/ostler-assistant so
-      the gate's presence check passes. The gate no longer invokes `--version`
-      (the daemon binary reports the FROZEN Cargo workspace version by design --
-      see reference_ostler_assistant_version_field_frozen); it compares VERSION
+      Contents/Resources/ostler-payload/assistant-agent/OstlerAssistant.app/
+      Contents/MacOS/ostler-assistant -- THE SHAPE gui/Makefile:1142-1148
+      ACTUALLY BUILDS. The gate no longer invokes `--version` (the daemon binary
+      reports the FROZEN Cargo workspace version by design -- see
+      reference_ostler_assistant_version_field_frozen); it compares VERSION
       against the DAEMON_VERSION release pin. So the binary's contents are
-      irrelevant here -- only its presence matters.
+      irrelevant here -- only its presence, at the right path, matters.
+
+    Until 2026-08-21 this helper built the LEGACY bare-binary shape
+    (assistant-agent/bin/ostler-assistant). #890 moved the payload to the .app
+    bundle and made the bare shape a build-time hard failure, but neither the
+    production predicate nor this fixture followed. Six tests stayed green
+    against a payload `make ship` refuses to produce, so the suite could not have
+    caught the inversion that red-ed v1.0.38. A fixture that models a shape the
+    build rejects is not a test -- keep this in lockstep with gui/Makefile:1148.
+    """
+    payload = fake_app / "Contents" / "Resources" / "ostler-payload"
+    macos_dir = payload / "assistant-agent" / "OstlerAssistant.app" / "Contents" / "MacOS"
+    macos_dir.mkdir(parents=True, exist_ok=True)
+    (payload / "VERSION").write_text(version_text)
+    daemon = macos_dir / "ostler-assistant"
+    daemon.write_text("#!/usr/bin/env bash\nexit 0\n")
+    daemon.chmod(0o755)
+
+
+def _make_payload_legacy_shape(fake_app: Path, version_text: str) -> None:
+    """Build the payload with ONLY the pre-#890 bare-binary daemon.
+
+    This is the shape gui/Makefile:1154 now refuses to build and install.sh
+    upgrade-mode refuses to install (exit 20). It exists here solely so the
+    predicate can be proved to REJECT it and to say why.
     """
     payload = fake_app / "Contents" / "Resources" / "ostler-payload"
     bin_dir = payload / "assistant-agent" / "bin"
@@ -985,6 +1010,18 @@ def _make_payload(fake_app: Path, version_text: str) -> None:
     daemon = bin_dir / "ostler-assistant"
     daemon.write_text("#!/usr/bin/env bash\nexit 0\n")
     daemon.chmod(0o755)
+
+
+def _make_payload_no_daemon(fake_app: Path, version_text: str) -> None:
+    """Build a payload with a valid VERSION and NO daemon in either shape.
+
+    The anti-vacuity control. Correcting a wrong path is only worth anything if
+    the corrected predicate still detects genuine absence -- otherwise a wrong
+    assertion has been swapped for one that cannot fail.
+    """
+    payload = fake_app / "Contents" / "Resources" / "ostler-payload"
+    (payload / "assistant-agent").mkdir(parents=True, exist_ok=True)
+    (payload / "VERSION").write_text(version_text)
 
 
 def _write_daemon_pin(fake_cm051: Path, version: str) -> None:
@@ -1010,6 +1047,79 @@ def test_payload_version_matches_via_makefile_pin(fake_cm051, fake_app):
     }])
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 0, r.stdout
+
+
+# --- the three cases that pin the payload daemon SHAPE (#843) ----------------
+#
+# GREEN first, and it is load-bearing: the defect this closes was a predicate
+# INCAPABLE OF PASSING, so a red-only set of controls would have reported
+# healthy against both the broken and the fixed version.
+
+
+def test_payload_daemon_app_bundle_shape_passes(fake_cm051, fake_app):
+    """GREEN: the .app-bundle payload that gui/Makefile:1142-1148 actually
+    builds satisfies the presence check.
+
+    Before this fix the predicate looked for assistant-agent/bin/ostler-assistant
+    -- the one shape gui/Makefile:1154 hard-fails on -- so a correctly assembled
+    payload FAILED. That is what red-ed the v1.0.38 cut.
+    """
+    _make_payload(fake_app, "hub-v0.4.60")
+    _write_daemon_pin(fake_cm051, "0.4.60")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "payload-daemon-app-shape",
+        "title": "payload carries the daemon as an .app bundle",
+        "proof": {"kind": "payload_version_matches_daemon_version"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+
+
+def test_payload_daemon_legacy_bare_shape_fails_and_names_the_drift(fake_cm051, fake_app):
+    """RED: a payload carrying ONLY the pre-#890 bare binary must FAIL, and the
+    detail must say the shape drifted rather than that the daemon is missing.
+
+    install.sh upgrade-mode resolves _UPG_PAYLOAD_APP first and refuses a bare
+    binary with exit 20, so this payload would brick every upgrade. The two
+    failure modes -- absent daemon vs wrong-shaped daemon -- need opposite fixes,
+    so an undifferentiated 'missing' message is a defect in its own right.
+    """
+    _make_payload_legacy_shape(fake_app, "hub-v0.4.60")
+    _write_daemon_pin(fake_cm051, "0.4.60")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "payload-daemon-legacy-shape",
+        "title": "payload carries the legacy bare-binary daemon",
+        "proof": {"kind": "payload_version_matches_daemon_version"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "LEGACY" in r.stdout, "the detail does not name the shape drift"
+    assert "exit 20" in r.stdout, "the detail does not name the consequence"
+
+
+def test_payload_daemon_absent_entirely_still_fails(fake_cm051, fake_app):
+    """RED (anti-vacuity): with the path corrected, a payload carrying NO daemon
+    in either shape must still FAIL.
+
+    Without this control the fix is unfalsifiable -- a predicate pointed at a
+    path that always exists reports the same green as one that is genuinely
+    satisfied. This is the control that makes the corrected path worth trusting.
+    """
+    _make_payload_no_daemon(fake_app, "hub-v0.4.60")
+    _write_daemon_pin(fake_cm051, "0.4.60")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "payload-daemon-absent",
+        "title": "payload carries no daemon at all",
+        "proof": {"kind": "payload_version_matches_daemon_version"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "missing" in r.stdout
+    # Genuine absence must NOT be reported as shape drift.
+    assert "LEGACY" not in r.stdout, "absent daemon misreported as a legacy-shape payload"
 
 
 def test_payload_version_matches_via_env_pin(fake_cm051, fake_app):

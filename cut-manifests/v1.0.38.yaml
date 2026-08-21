@@ -209,16 +209,31 @@ entries:
   # --------------------------------------------------------------------------
   # CARRIED FORWARD. An unchanged claim still has to be measured.
   # --------------------------------------------------------------------------
-  - id: v1038-payload-carries-the-0458-daemon
-    title: the shipped payload is the hub-v0.4.58 daemon, in lockstep with the Hub app
+  - id: v1038-payload-carries-the-pinned-daemon
+    title: the shipped payload is the hub-v0.4.60 daemon, in lockstep with the Hub app
     incident: >-
-      This cut rebuilds no daemon, so the pair is re-measured rather than assumed to
-      have stayed together. gui/Makefile DAEMON_VERSION and install.sh's
-      OSTLER_ASSISTANT_VERSION both read 0.4.58, install.sh's
-      DEFAULT_ASSISTANT_TARBALL_SHA256 reads d4f274cb, and the annotated tag
-      hub-v0.4.58 dereferences to 5b7efb00a541. v1.0.29 shipped a version/checksum
-      pair that had come apart and every customer install would have aborted on the
-      installer's own fail-closed checksum, with no gate watching the pair.
+      The pair is re-measured rather than assumed to have stayed together.
+      gui/Makefile DAEMON_VERSION and install.sh's OSTLER_ASSISTANT_VERSION both
+      read 0.4.60, gui/Makefile DAEMON_SHA256 and install.sh's
+      DEFAULT_ASSISTANT_TARBALL_SHA256 both read d6e94c89, and the annotated tag
+      hub-v0.4.60 dereferences to commit 8ba3e948. v1.0.29 shipped a
+      version/checksum pair that had come apart and every customer install would
+      have aborted on the installer's own fail-closed checksum, with no gate
+      watching the pair.
+
+      The row id no longer carries a daemon version. It read
+      `...-carries-the-0458-daemon` through v1.0.34-v1.0.38 while the pin moved
+      0.4.58 -> 0.4.60, so the id invited exactly the dismissal the row exists to
+      prevent: a stale-looking name on a live assertion. The version belongs in
+      the title and the incident, where it is re-derived each cut, not in an
+      identifier nothing rewrites.
+
+      This row also red-ed the v1.0.38 cut for a reason that was NOT a product
+      defect. #890 (7bff33d) moved the payload daemon from a bare binary to
+      OstlerAssistant.app and made the bare shape a build-time hard failure, but
+      the predicate kept asserting the bare path -- demanding the one state
+      `make ship` refuses to produce. v1.0.37 was cut hours before #890 and
+      passed honestly; v1.0.38 was the first cut that could expose it.
     proof:
       kind: payload_version_matches_daemon_version
 
