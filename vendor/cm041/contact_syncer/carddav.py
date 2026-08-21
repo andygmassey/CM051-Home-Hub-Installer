@@ -120,14 +120,94 @@ class CardDAVClient:
         resp = self._request("GET", url=url, headers={"Accept": "text/vcard"})
         return resp.text
 
+    # -- the snapshot that makes a PUT reversible ------------------------------
+
+    #: One directory per process run, so a single import is one restore point.
+    _snapshot_dir: Optional[str] = None
+
+    def _snapshot_before_write(self, href: str) -> None:
+        """Save the server's CURRENT vCard before we overwrite it.
+
+        🔴 THIS IS A CUSTOMER-DATA SAFETY NET AND IT MUST FAIL CLOSED.
+
+        `put_vcard` writes to the customer's real address book. A CardDAV PUT
+        propagates to every device on that account. Until this existed there
+        was NO backup anywhere in the shipping code -- searched for backup /
+        snapshot / export / preserve across the vendored tree and the
+        installer, and the only backup that existed was of OUR graph, which
+        protects our data and not theirs.
+
+        Design notes, each of which is load-bearing:
+
+        * **We re-GET rather than trusting the caller.** `put_vcard` is handed
+          the MODIFIED text; the original lives only in the caller's local. A
+          caller that forgets to pass it would leave us snapshotting the very
+          thing we are about to write. Re-fetching costs one round trip and
+          removes a whole class of caller mistake.
+
+        * **Failure raises.** A snapshot that quietly returns on error is the
+          same defect as a guard that cannot go red: the PUT proceeds, the
+          operator sees success, and the undo does not exist. If we cannot
+          save it, we do not overwrite it.
+
+        * **Never overwrite an existing snapshot file.** Two edits to the same
+          contact in one run must not collapse into one restore point -- the
+          first snapshot is the pre-Ostler state and it is the one worth
+          keeping.
+        """
+        import hashlib
+        import json
+        import os
+        from datetime import datetime, timezone
+
+        if CardDAVClient._snapshot_dir is None:
+            root = os.environ.get("OSTLER_DIR") or os.path.expanduser("~/.ostler")
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            d = os.path.join(root, "backups", "contacts", stamp)
+            os.makedirs(d, exist_ok=True)
+            CardDAVClient._snapshot_dir = d
+
+        d = CardDAVClient._snapshot_dir
+        key = hashlib.sha256(href.encode("utf-8")).hexdigest()[:32]
+        path = os.path.join(d, f"{key}.vcf")
+
+        if os.path.exists(path):
+            return  # first snapshot of this contact in this run wins
+
+        original = self.get_vcard(href)
+
+        tmp = path + ".partial"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(original)
+        os.replace(tmp, path)  # atomic: a reader never sees a half-written card
+
+        with open(os.path.join(d, "manifest.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({
+                "href": href,
+                "file": os.path.basename(path),
+                "bytes": len(original.encode("utf-8")),
+                "sha256": hashlib.sha256(original.encode("utf-8")).hexdigest(),
+                "saved_at": datetime.now(timezone.utc).isoformat(),
+            }) + "\n")
+
     def put_vcard(self, href: str, vcard_text: str, etag: str) -> None:
         """Update an existing vCard via PUT with ETag concurrency check.
+
+        🔴 SNAPSHOTS THE SERVER'S CURRENT CARD FIRST, AND REFUSES TO WRITE IF
+        THAT FAILS. See `_snapshot_before_write`. This writes to the
+        customer's real address book and syncs to all their devices; it must
+        be undoable.
 
         Args:
             href: the resource path (from get_etags)
             vcard_text: the full modified vCard text
             etag: the current ETag (from get_etags) for If-Match safety
         """
+        # Deliberately NOT wrapped in try/except. If we cannot save the
+        # original we do not overwrite it -- an unbacked-up write is the
+        # failure this whole function exists to prevent.
+        self._snapshot_before_write(href)
+
         if href.startswith("http"):
             url = href
         else:
