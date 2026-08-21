@@ -2024,14 +2024,53 @@ staple-apps: guard-local-cut check-tools
 	# then RE-SEAL the outer so it seals those new CodeResources, then notarise
 	# the outer AGAIN for its new CDHash, then staple the outer. One extra
 	# notarisation round (~5 min) buys a deterministic, valid artefact.
+	# NEVER STAPLE A BUNDLE THAT LIVES INSIDE ANOTHER BUNDLE'S RESOURCES.
+	#
+	# codesign seals the two nesting locations differently:
+	#   Contents/Frameworks/  nested CODE, sealed by the child's own CDHash.
+	#                         Stapling stores the ticket outside the signed
+	#                         area, so the parent's seal is untouched.
+	#   Contents/Resources/   RESOURCES, sealed by file hash in CodeResources.
+	#                         Stapling rewrites files there, so the parent's
+	#                         seal breaks.
+	#
+	# v1.0.38 hit this. #890 moved the payload daemon from a bare binary to
+	# OstlerAssistant.app, which put an .app under
+	#   Ostler.app/Contents/Resources/ostler-payload/assistant-agent/
+	# Stapling it broke Ostler.app's seal, and only the OUTER is re-sealed
+	# below -- so Apple rejected round 2 (submission bd57c9ec):
+	#
+	#   path:    .../Ostler.app/Contents/MacOS/ostler-hub
+	#   message: The signature of the binary is invalid.
+	#
+	# v1.0.37 is the control. Its staple list was identical MINUS that one
+	# entry, and round 2 was Accepted. Sparkle's Updater.app sits under
+	# Contents/Frameworks/ and has never caused this.
+	#
+	# Skipping the staple costs nothing that was ever had: the payload daemon
+	# was a BARE BINARY through v1.0.37 and bare binaries cannot be stapled,
+	# so no shipped version has carried a ticket there. It is still notarised
+	# -- round 1 covers every nested CDHash -- so Gatekeeper accepts it on the
+	# online check, exactly as it did for the bare binary.
+	#
+	# The predicate is about the MECHANISM, not one path: after stripping the
+	# outer prefix, any remaining '.app/Contents/Resources/' means this bundle
+	# sits in a nested bundle's resource-sealed subtree.
 	$(STEP) "Round 1: stapling nested .apps (deepest-first) now their CDHashes are final"
 	@FAIL=0; \
 	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null | awk '{print length, $$0}' | sort -rn | cut -d' ' -f2-)"; \
 	for app in $$NESTED_APPS; do \
+	    REL="$${app#$(APP_PATH)/}"; \
+	    case "$$REL" in \
+	        *.app/Contents/Resources/*) \
+	            printf '  [skip] %s\n' "$$REL"; \
+	            printf '         inside a nested bundle Resources tree -- stapling would break its seal\n'; \
+	            continue;; \
+	    esac; \
 	    if xcrun stapler staple "$$app" >/dev/null 2>&1; then \
-	        printf '  [OK] %s\n' "$${app#$(APP_PATH)/}"; \
+	        printf '  [OK] %s\n' "$$REL"; \
 	    else \
-	        printf '  [skip] %s (no ticket issued for this CDHash)\n' "$${app#$(APP_PATH)/}"; \
+	        printf '  [skip] %s (no ticket issued for this CDHash)\n' "$$REL"; \
 	    fi; \
 	done
 	$(STEP) "Round 1: re-sealing the outer .app so it seals the freshly stapled nested bundles"
@@ -2063,17 +2102,38 @@ staple-apps: guard-local-cut check-tools
 	$(STEP) "Round 2: stapling the outer .app"
 	@xcrun stapler staple "$(APP_PATH)" || { echo "ERROR: stapler failed on the outer app" >&2; exit 1; }
 	@printf '[OK] nested stapled, outer re-sealed, re-notarised and stapled\n'
+	# The exclusion below MUST be the same predicate the Round 1 staple uses.
+	# If they drift, this either fails the cut for a bundle we deliberately did
+	# not staple, or silently stops requiring a ticket on one we did. They are
+	# two halves of one rule -- change both or neither.
+	#
+	# The excluded bundles are COUNTED and NAMED, not skipped quietly: a gate
+	# that can be emptied by an exclusion list has to say how much it excluded.
 	$(STEP) "Verifying every stapled .app in $(APP_PATH)"
-	@FAIL=0; \
+	@FAIL=0; EXCLUDED=0; CHECKED=0; \
 	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null)"; \
 	for app in "$(APP_PATH)" $$NESTED_APPS; do \
+	    REL="$${app#$(APP_PATH)/}"; \
+	    case "$$REL" in \
+	        *.app/Contents/Resources/*) \
+	            printf '  [expected-unstapled] %s\n' "$$REL"; \
+	            EXCLUDED=$$((EXCLUDED+1)); \
+	            continue;; \
+	    esac; \
+	    CHECKED=$$((CHECKED+1)); \
 	    if xcrun stapler validate "$$app" >/dev/null 2>&1; then \
-	        printf '  [OK] %s\n' "$${app#$(APP_PATH)/}"; \
+	        printf '  [OK] %s\n' "$$REL"; \
 	    else \
-	        printf '  [FAIL] %s -- ticket missing after staple\n' "$${app#$(APP_PATH)/}" >&2; \
+	        printf '  [FAIL] %s -- ticket missing after staple\n' "$$REL" >&2; \
 	        FAIL=$$((FAIL+1)); \
 	    fi; \
 	done; \
+	printf '  %s bundle(s) required a ticket, %s deliberately excluded\n' "$$CHECKED" "$$EXCLUDED"; \
+	[ "$$CHECKED" -ge 3 ] || { \
+	    echo "ERROR: only $$CHECKED bundle(s) were ticket-checked -- expected at least 3" >&2; \
+	    echo "  (outer, Ostler.app, Contents/Resources/assistant-agent/OstlerAssistant.app)." >&2; \
+	    echo "  An exclusion has swallowed bundles that must carry tickets. DO NOT SHIP." >&2; \
+	    exit 1; }; \
 	[ "$$FAIL" -eq 0 ] || { echo "ERROR: post-staple validate failed on $$FAIL bundle(s)" >&2; exit 1; }
 	$(STEP) "Re-verifying outer codesign after staple (--deep --strict)"
 	@codesign --verify --deep --strict --verbose=2 "$(APP_PATH)" || { \
