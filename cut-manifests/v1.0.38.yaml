@@ -4,16 +4,23 @@
 #
 # WHY v1.0.38 EXISTS: THE COMPILER IS THE LAST OLD-NAMESPACE COMPONENT
 # ---------------------------------------------------------------------------
-# The `pwg.dev` -> `schema.ostler.ai` migration reaches a customer in THREE
-# legs, and two of them already ship on main. Measured 2026-08-21 on CM051
+# The legacy-ontology-host -> `schema.ostler.ai` migration reaches a customer
+# in THREE legs, and two of them already ship on main. The old hosts are named
+# by DESCRIPTION and not spelled out anywhere in this file: the repo keeps a
+# hard zero-occurrence ratchet on them (scripts/verify_no_foreign_ontology_-
+# namespace.sh) and only a file whose JOB is to police or perform that
+# migration earns an exclusion from it. A cut manifest is not in that class --
+# it asserts things about an installer -- so it gets written this way instead.
+# Do not helpfully restore the literals. Measured 2026-08-21 on CM051
 # origin/main fe6fe16, each with a positive control:
 #
 #   store   install.sh:19543-19546 runs migrate_graph_namespace.py --apply
 #           unconditionally, on every install, BEFORE the first writer.  IN
-#   writer  vendor/ostler_fda: schema.ostler.ai 26, pwg.dev 0, pwg.local 0
-#           (control: `def ` 318).                                        IN
+#   writer  vendor/ostler_fda: schema.ostler.ai 26, legacy ontology host 0,
+#           legacy enrichment host 0 (control: `def ` 318).               IN
 #   reader  the pinned wiki-compiler image, built from CM044 16bc4964:
-#           pwg.dev 22, schema.ostler.ai 0 (control: `def ` 3465).       OUT
+#           legacy ontology host 22, schema.ostler.ai 0
+#           (control: `def ` 3465).                                      OUT
 #
 # So v1.0.38 as it stood would migrate the customer's store and then hand it a
 # compiler querying the namespace it had just migrated AWAY from. Every
@@ -56,8 +63,9 @@
 # 2. That the store is fully migrated. It is not. Measured read-only on the
 #    live store 2026-08-21 05:14Z: Person 6,938 / Meeting 3,845 /
 #    PersonIdentifier 11,261 on schema.ostler.ai, against a residue of 618
-#    enrichment nodes still on pwg.local (Entity 347, Topic 226, Genre 45) and
-#    13 nodes on pwg.dev. The surfaces this compiler renders are all on the new
+#    enrichment nodes still on the legacy enrichment host (Entity 347, Topic
+#    226, Genre 45) and 13 nodes on the legacy ontology host. The surfaces this
+#    compiler renders are all on the new
 #    namespace, so the residue does not gate the rebuild -- but it is real, it
 #    is tracked post-cut, and it is not asserted clean here.
 # 3. That the daemon moved. It did not; this cut rebuilds no daemon.
