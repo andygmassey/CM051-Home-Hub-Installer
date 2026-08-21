@@ -66,6 +66,8 @@ pass "both wiki images are pinned by digest, not tag"
 CM044_WORKFLOW=""
 for cand in \
     "${CM044_DIR:-}/.github/workflows/release-images.yml" \
+    "$HOME/Developer/CM044-PWG-Personal-Wiki/.github/workflows/release-images.yml" \
+    "$REPO_ROOT/../CM044-PWG-Personal-Wiki/.github/workflows/release-images.yml" \
     "$HOME/Developer/cm044-wiki-remaining/.github/workflows/release-images.yml" \
     "$REPO_ROOT/../cm044-wiki-remaining/.github/workflows/release-images.yml"
 do
@@ -73,10 +75,32 @@ do
 done
 
 if [[ -z "$CM044_WORKFLOW" ]]; then
-    echo "SKIP: no CM044 checkout found, so the namespace CI pushes to could not be read." >&2
-    echo "      Set CM044_DIR=/path/to/CM044 to enable the comparison." >&2
-    echo "      (Skipping is NOT a pass -- this is the check that catches silent drift.)" >&2
-    exit 0
+    # EXIT 2, NOT 0. The comment four lines up has always said "skip LOUDLY
+    # rather than passing quietly" and the code then exited 0, which is
+    # passing quietly. Measured 2026-08-21: with no CM044_DIR this returned
+    # rc=0, and with CM044_DIR set and the namespaces genuinely matching it
+    # ALSO returned rc=0. "I could not look" and "I looked and it is fine"
+    # were byte-identical to every caller.
+    #
+    # That mattered more than it sounds, because BOTH pre-existing fallback
+    # paths named `cm044-wiki-remaining`, a checkout that does not exist --
+    # the CM044 clone is `CM044-PWG-Personal-Wiki`. So the fallbacks never
+    # resolved, and this gate has effectively never run its own comparison
+    # except when someone set CM044_DIR by hand. Both real names are now in
+    # the candidate list above, most-likely first.
+    #
+    # This is the check that catches the namespace drift that shipped stale
+    # images for three months with NO symptom (see the header). A check that
+    # cannot distinguish "did not run" from "passed" cannot catch it either.
+    echo "CANNOT RUN: no CM044 checkout found, so the namespace CI pushes to could not be read." >&2
+    echo "      Set CM044_DIR=/path/to/CM044 and re-run." >&2
+    echo "      Tried:" >&2
+    echo "        \${CM044_DIR}/.github/workflows/release-images.yml" >&2
+    echo "        \$HOME/Developer/CM044-PWG-Personal-Wiki/.github/workflows/release-images.yml" >&2
+    echo "        \$REPO_ROOT/../CM044-PWG-Personal-Wiki/.github/workflows/release-images.yml" >&2
+    echo "      This is the check that catches silent drift. Exit 2 = CANNOT-RUN," >&2
+    echo "      deliberately distinct from 0 (compared, matched) and 1 (drifted)." >&2
+    exit 2
 fi
 
 CI_NS="$(grep -oE 'ghcr\.io/[a-z0-9-]+/ostler-wiki' "$CM044_WORKFLOW" | head -1 | sed 's#/ostler-wiki##')"

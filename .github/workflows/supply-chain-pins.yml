@@ -65,6 +65,7 @@ on:
       - 'tests/test_v1010_redteam3_supply_chain_pins.sh'
       - 'tests/test_daemon_pins_agree.sh'
       - 'tests/test_pinned_images_are_pullable.sh'
+      - 'tests/test_wiki_image_namespace_matches_ci.sh'
       - '.github/workflows/supply-chain-pins.yml'
   pull_request:
     paths:
@@ -76,6 +77,7 @@ on:
       - 'tests/test_v1010_redteam3_supply_chain_pins.sh'
       - 'tests/test_daemon_pins_agree.sh'
       - 'tests/test_pinned_images_are_pullable.sh'
+      - 'tests/test_wiki_image_namespace_matches_ci.sh'
       - '.github/workflows/supply-chain-pins.yml'
 
 concurrency:
@@ -105,6 +107,47 @@ jobs:
       - name: daemon pins agree with each other
         if: always()
         run: bash tests/test_daemon_pins_agree.sh
+
+      # THE NAMESPACE GUARD, WIRED FOR THE FIRST TIME.
+      #
+      # tests/test_wiki_image_namespace_matches_ci.sh has existed since the
+      # 2026-08-07 drift incident -- CI publishing to creativemachines-ai while
+      # install.sh pinned ostler-ai, for ~3 months, with NO symptom. Measured
+      # 2026-08-21: the gate appeared in ZERO workflow files (grep across
+      # .github/workflows returned nothing for it, with this very job's
+      # test_pinned_images_are_pullable as the positive control proving the
+      # search worked). It was written, fixed, and never invoked.
+      #
+      # It needs ONE operand: CM044's release-images.yml, to read the namespace
+      # CI actually pushes to. We do not check the repo out -- we fetch the one
+      # file with the token cut.yml already uses for cross-repo CM044 reads
+      # (scripts/provenance_gate.sh, cut.yml:298), and lay it out at the path
+      # the gate already looks for. The gate itself is unchanged.
+      #
+      # If the fetch fails the gate exits 2 = CANNOT-RUN, which is a distinct,
+      # loud outcome and NOT a pass. That distinction is the whole point: until
+      # today this script returned 0 when it could not look, so "did not run"
+      # and "namespaces match" were byte-identical to every caller.
+      - name: wiki image namespace matches CI (fetch CM044 operand)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+        run: |
+          set -uo pipefail
+          mkdir -p "$RUNNER_TEMP/cm044/.github/workflows"
+          if gh api \
+              repos/andygmassey/CM044-PWG-Personal-Wiki/contents/.github/workflows/release-images.yml \
+              --jq '.content' 2>/dev/null | base64 -d \
+              > "$RUNNER_TEMP/cm044/.github/workflows/release-images.yml"; then
+            # Anti-vacuity: an empty or truncated file would make the gate read
+            # no namespace and fail for the wrong reason. Prove it arrived.
+            bytes=$(wc -c < "$RUNNER_TEMP/cm044/.github/workflows/release-images.yml")
+            echo "fetched CM044 release-images.yml: ${bytes} bytes"
+            [ "$bytes" -gt 200 ] || { echo "FETCH TOO SMALL -- refusing to run on a stub"; exit 2; }
+          else
+            echo "could not fetch CM044 release-images.yml; gate will report CANNOT-RUN"
+          fi
+          CM044_DIR="$RUNNER_TEMP/cm044" bash tests/test_wiki_image_namespace_matches_ci.sh
 
       - name: pinned images are pullable
         if: always()
