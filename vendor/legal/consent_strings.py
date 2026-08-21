@@ -119,9 +119,11 @@ WHATSAPP_UNOFFICIAL_RISK_CONSENT = ConsentString(
 
 Ostler can read the content of your recent WhatsApp messages locally on this Mac - not just who you messaged and when, but what was said - so you can search and reference them like any other part of your life. It reads recent WhatsApp conversations your Mac has synced - typically several months up to about a year. The messages stay on your Mac. Nothing is sent to us.
 
+If you also choose to chat with Ostler over WhatsApp, or to have your daily brief delivered there, Ostler links to your WhatsApp account as a linked device – the same way WhatsApp Web works in a browser – and keeps a connection open to WhatsApp’s servers while that is switched on. That connection carries only the messages between you and Ostler, and the briefs Ostler sends you. It does not upload your message history, and it is a connection to WhatsApp, not to us. If you leave chatting and briefs turned off, Ostler only reads the messages already on your Mac and makes no connection at all.
+
 There is a risk you should understand before turning this on.
 
-WhatsApp's own Terms of Service say their service can only be accessed using "official" WhatsApp software. Strictly speaking, the way Ostler reads your messages – by reading WhatsApp Web's storage on your Mac – is not what WhatsApp considers "official."
+WhatsApp's own Terms of Service say their service can only be accessed using "official" WhatsApp software. Strictly speaking, neither of the things Ostler does here is what WhatsApp considers “official”: reading WhatsApp Web’s storage on your Mac, and – if you turn on chatting or briefs – connecting as a linked device.
 
 In practice, this kind of read access is widely used and we are not aware of any documented case of WhatsApp banning a user for it. But we cannot rule out the possibility that WhatsApp could:
 
@@ -143,7 +145,7 @@ If you don't want to accept this risk, just leave this turned off – Ostler sti
 [ ] I understand the risk and I want to enable the WhatsApp connector.
 [ ] No thanks, leave WhatsApp disabled. (default selection)
 
-Legal note: Your relationship with WhatsApp (Meta Platforms Ireland Ltd) is contractual under their Terms of Service, to which you are the party. Creative Machines provides software that reads WhatsApp Web's storage on your Mac; we are not a party to your WhatsApp ToS and have no rights or duties under it. Compliance with WhatsApp's terms is your responsibility.
+Legal note: Your relationship with WhatsApp (Meta Platforms Ireland Ltd) is contractual under their Terms of Service, to which you are the party. Creative Machines provides software that reads WhatsApp Web’s storage on your Mac and, if you enable chatting or briefs, connects to WhatsApp as a linked device on your behalf; we are not a party to your WhatsApp ToS and have no rights or duties under it. Compliance with WhatsApp's terms is your responsibility.
 """,
 )
 

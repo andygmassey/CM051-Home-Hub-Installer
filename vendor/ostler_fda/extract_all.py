@@ -79,6 +79,30 @@ def _resolve_enabled_sources(
     return DEFAULT_SOURCES
 
 
+def _env_days(name: str, default: int) -> int:
+    """A day-count from the environment, or `default`.
+
+    TOLERANT ON PURPOSE, and deliberately unlike the siblings. The
+    safari/whatsapp/mail arms in this file each do
+    `int(os.environ.get(NAME, "365"))`, which raises ValueError on any
+    non-integer and takes the WHOLE extract down with it -- a typo in one
+    launchd plist would cost a customer every source, not one. Here a bad
+    value is logged and the default is used, matching what
+    backfill_ladder.resolve_backfill_days already does for the same class of
+    input. A blank value is not a value: install.sh writes some of these vars
+    unconditionally, and "" must mean "unset", never 0 (a 0-day window is an
+    empty calendar that looks like a working one).
+    """
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("[fda] %s=%r is not an integer; using %sd", name, raw, default)
+        return default
+
+
 def run_all(
     output_dir: Optional[Path] = None,
     enabled_sources: Optional[Iterable[str]] = None,
@@ -540,7 +564,34 @@ def run_all(
                 "OSTLER_CALENDAR_BACKFILL_DAYS",
                 ladder=[365, 730, 1825],
             )
-            events = extract_events(since_days=calendar_days, future_days=30)
+            # THE FORWARD LIMB WAS STILL A LITERAL, and #417 is why that is
+            # easy to miss: it made `since_days` resolvable and left
+            # `future_days=30` exactly as it found it. So a box could reach
+            # five years BACK through the ladder and still see only thirty
+            # days AHEAD, which is not a window anybody chose -- it is the
+            # half of the pair nobody looked at.
+            #
+            # CX-92 (board #554) asks for a year forward. The forward window
+            # is close to free and does not scale like the backward one: the
+            # query is `start_date < now + future_days*86400`, so it is
+            # bounded by the events that actually EXIST ahead of today, and
+            # a calendar only ever holds a handful of those however far you
+            # look. Measured on a real 15,926-row Calendar.sqlitedb, moving
+            # the forward edge from 30d to 365d is inside the query's own
+            # noise; the cost of a wide window lives entirely in the
+            # BACKWARD limb, and even there the extract is milliseconds --
+            # see the note in install.sh's calendar hydrate block for where
+            # the real per-event cost sits (the Oxigraph ingest, not here).
+            #
+            # THE DEFAULT DOES NOT MOVE. Thirty days is what every installed
+            # box does today, and a library default that changes underneath
+            # a shipped install is a migration, not a fix. install.sh
+            # supplies the product value; this makes it possible to.
+            calendar_future_days = _env_days("OSTLER_CALENDAR_FUTURE_DAYS", 30)
+            events = extract_events(
+                since_days=calendar_days,
+                future_days=calendar_future_days,
+            )
             contacts = meeting_contacts(events)
 
             (output_dir / "calendar_events.json").write_text(
