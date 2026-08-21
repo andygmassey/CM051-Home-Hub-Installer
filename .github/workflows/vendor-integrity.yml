@@ -36,6 +36,7 @@ on:
       # and the pair is the point: the gate must fire on changes to itself.
       - 'tests/test_vendor_only_survives_sync.sh'
       - 'tests/test_canonical_keys_must_not_merge.py'
+      - 'tests/test_frontpage_tick_emits_interest_profile.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
       # v1018-D024, customer-visible half. Listed here AND run below, for the
@@ -209,6 +210,22 @@ jobs:
           # "RULE 2 is broken" rather than as a missing dependency.
           python3 -m pip install --quiet pytest rapidfuzz
           python3 -m pytest -q tests/test_canonical_keys_must_not_merge.py
+      # The Front Page tick must invoke the interest-profile emitter.
+      #
+      # Measured on a fresh v1.0.38 box: the tick ran hourly, exited 0 and
+      # logged "12 cards" every time while /api/v1/preferences served
+      # count:0 over a Qdrant collection holding 9,879 points. Writer and
+      # reader disagreed on a path and BOTH reported success, so nothing
+      # anywhere went red. compiler/emit_artefact.py was vendored faithfully,
+      # matched the reader's path precedence exactly, and was invoked by
+      # nothing.
+      #
+      # This test is DEMONSTRATED RED against the pre-fix tick: 3 failures,
+      # 7/7 after. It carries its own negative control, so it cannot pass by
+      # failing to look.
+      - name: the Front Page tick emits the interest-profile artefact
+        if: always()
+        run: bash tests/test_frontpage_tick_emits_interest_profile.sh
 
       # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
       #
