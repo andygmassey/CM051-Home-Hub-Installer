@@ -206,22 +206,21 @@ private struct SidebarRow: View {
     @ViewBuilder
     private var statusIcon: some View {
         if let s = status {
-            switch s {
-            case .ok:
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.ostlerForest)
-            // #839: a step killed by its cap, or one whose child exited
-            // non-zero, gets the SAME amber warning glyph as an in-line
-            // warn. Deliberately not the red xmark, which stays reserved
-            // for a fatal install failure: these steps are best-effort
-            // and the install genuinely completed. What changes is only
-            // that they no longer draw the green tick of a step that did
-            // its job, which is what a 90-second timeout that ingested
-            // nothing was drawing before.
-            case .warn, .timeout, .error:
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.ostlerOxbloodWarm)
-            case .fail:
-                Image(systemName: "xmark.circle.fill").foregroundStyle(Color.ostlerOxblood)
-            }
+            // #952: the status -> glyph mapping lives in
+            // StepStatusGlyph so it is one pure value that a unit test
+            // can assert. This switch used to read
+            // `case .warn, .timeout, .error:` and drew ONE oxblood
+            // alert triangle for all three -- so `timeout`, which the
+            // protocol defines as "we gave up waiting, NOT it failed"
+            // and which InstallerCoordinator already treats as a
+            // SUCCESS, rendered as a red alert on the customer's
+            // sidebar. See StepStatusGlyph.swift for the measurement.
+            let glyph = StepStatusGlyph.forStatus(s)
+            Image(systemName: glyph.symbolName)
+                .foregroundStyle(glyph.tint)
+                .accessibilityLabel(
+                    Text(ViewCopy.shared.string(for: glyph.accessibilityCopyKey))
+                )
         } else if isActive {
             // When the install has failed, the active step never
             // received a completedSteps entry, so it would otherwise

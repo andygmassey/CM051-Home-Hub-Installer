@@ -229,8 +229,13 @@
   },
 
   "sidebar": {
+    "_meta": "status_* are the VoiceOver labels for the per-step glyphs in the left rail, resolved via StepStatusGlyph.accessibilityCopyKey. status_background is the `timeout` wire state (#839): a best-effort step killed by its wall-clock cap. It is NOT a failure -- InstallerCoordinator.failureState maps it to .success -- and it must not be worded as one.",
     "subtitle": "Installer",
-    "step_counter": "Step {current} of {total}"
+    "step_counter": "Step {current} of {total}",
+    "status_ok": "Completed",
+    "status_background": "Took longer than expected; finished in the background",
+    "status_attention": "Needs attention",
+    "status_failed": "Failed"
   },
 
   "hint_panel": {

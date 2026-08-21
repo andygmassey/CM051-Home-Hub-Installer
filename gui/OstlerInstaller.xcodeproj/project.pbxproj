@@ -25,6 +25,7 @@
 		32EE05F704A2FC1663C79FBB /* AdminAuthorizationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40241AAA50AAB3FC5CE4B5A8 /* AdminAuthorizationGateTests.swift */; };
 		35F58AE80A7E5EDE1D91C87A /* Outfit-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 61C44A9C151DC4ED7850E818 /* Outfit-SemiBold.ttf */; };
 		3F2BBCBFC481F5B4DD84D30E /* ErrorCodeBannerTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 206E78E1FD55698261A6A774 /* ErrorCodeBannerTest.swift */; };
+		3F2D87F797014DECDE6E74CA /* StepStatusGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D722F8B887182BE26B4B847 /* StepStatusGlyph.swift */; };
 		4053CDA189BD519216F95530 /* Outfit-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 0A8FE4423B311BB14298C94D /* Outfit-Regular.ttf */; };
 		41521CE6B6E9C954EB5B352E /* DeviceRegistrationClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B3A82C28A40E6D64666C5A3 /* DeviceRegistrationClientTests.swift */; };
 		42B4B7E6BB21F1B46D49D459 /* PassphraseMismatchUXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C18346C952C441C63AC38B8 /* PassphraseMismatchUXTests.swift */; };
@@ -63,6 +64,7 @@
 		A3E91202774BD111B0AB1AEA /* HardwareFingerprintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE7A7D5DC9570D6ADC808110 /* HardwareFingerprintTests.swift */; };
 		A437D3E3326FAE2B1C3BA371 /* StatementHeaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E815D5DF452D90B0BC613D81 /* StatementHeaderTests.swift */; };
 		A4DFFC3D202122DC0660BDB5 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF64A6B46A3BD66D6097C846 /* App.swift */; };
+		A68572FB804065C8C2307303 /* SidebarStatusGlyphTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D69CC5DCDD142BF9D6A82E9 /* SidebarStatusGlyphTests.swift */; };
 		ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */; };
 		B47EF10939303FF3037C1E98 /* RecoveryKeyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F621D4A35F7B3084D218EE9D /* RecoveryKeyView.swift */; };
 		B4DD67735BC1AF4ACBEB58CF /* PermissionsPrewarmInfoPlistTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70FFB02505CDDA3CBD106CBE /* PermissionsPrewarmInfoPlistTest.swift */; };
@@ -136,6 +138,7 @@
 		59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintStateTests.swift; sourceTree = "<group>"; };
 		597E42EDE0E55239E92BBFF0 /* PermissionsPrewarmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsPrewarmer.swift; sourceTree = "<group>"; };
 		5BD159481AED14E0F2873891 /* OstlerInstaller.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OstlerInstaller.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5D722F8B887182BE26B4B847 /* StepStatusGlyph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepStatusGlyph.swift; sourceTree = "<group>"; };
 		5D8C12F6029BAB9DEDF5EAD8 /* OstlerInstaller.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OstlerInstaller.entitlements; sourceTree = "<group>"; };
 		61C44A9C151DC4ED7850E818 /* Outfit-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-SemiBold.ttf"; sourceTree = "<group>"; };
 		63A13898725BE34B1AC2D3AD /* BiometricProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricProbe.swift; sourceTree = "<group>"; };
@@ -149,6 +152,7 @@
 		7232516E5CE0725DC792EAF0 /* TypedInstallGateTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypedInstallGateTest.swift; sourceTree = "<group>"; };
 		7872CDF57A4C636DE0B8BAB0 /* Outfit-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-Bold.ttf"; sourceTree = "<group>"; };
 		7BE0CF828CCF9ED9B1E1129C /* HardwareFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardwareFingerprint.swift; sourceTree = "<group>"; };
+		7D69CC5DCDD142BF9D6A82E9 /* SidebarStatusGlyphTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarStatusGlyphTests.swift; sourceTree = "<group>"; };
 		7EC2E5CA6E396F6D43EF3FED /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		83899BF5EEEC0C2F975B0421 /* ReuseSettingsExplanationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReuseSettingsExplanationTests.swift; sourceTree = "<group>"; };
 		87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensePersistenceTests.swift; sourceTree = "<group>"; };
@@ -230,6 +234,7 @@
 				8B1D6C35562EADC4DD07B5B0 /* PermissionsIntroView.swift */,
 				F621D4A35F7B3084D218EE9D /* RecoveryKeyView.swift */,
 				D93788700DA6F1729EFEB460 /* SidebarView.swift */,
+				5D722F8B887182BE26B4B847 /* StepStatusGlyph.swift */,
 				88E69616403717DA4E9247AC /* TailscaleConnectView.swift */,
 			);
 			path = Views;
@@ -295,6 +300,7 @@
 				83899BF5EEEC0C2F975B0421 /* ReuseSettingsExplanationTests.swift */,
 				0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */,
 				58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */,
+				7D69CC5DCDD142BF9D6A82E9 /* SidebarStatusGlyphTests.swift */,
 				E815D5DF452D90B0BC613D81 /* StatementHeaderTests.swift */,
 				E72FA18E774D1E8714779AC2 /* StringsCatalogueEmDashTest.swift */,
 				DCE2A31F120A9538AB52609C /* StringsCatalogueYNSuffixTest.swift */,
@@ -1135,6 +1141,7 @@
 				FD38E03D6747678A211F1814 /* SelfRelocator.swift in Sources */,
 				8E811455DED8C1926109DA01 /* SidebarView.swift in Sources */,
 				2311C16E1DE97B3ADB33ED9E /* StepCatalog.swift in Sources */,
+				3F2D87F797014DECDE6E74CA /* StepStatusGlyph.swift in Sources */,
 				FF3C80CAFC5353E7C36C2631 /* TailscaleConnectView.swift in Sources */,
 				9D4F4FAFE6D88FFBBBABAD08 /* ViewCopy.swift in Sources */,
 			);
@@ -1175,6 +1182,7 @@
 				07E7852B3C38DC22171FE85C /* ReuseSettingsExplanationTests.swift in Sources */,
 				78403E2589F62D463406FC79 /* SelfRelocatorTests.swift in Sources */,
 				ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */,
+				A68572FB804065C8C2307303 /* SidebarStatusGlyphTests.swift in Sources */,
 				A437D3E3326FAE2B1C3BA371 /* StatementHeaderTests.swift in Sources */,
 				6294421D4362E4D2BB657559 /* StringsCatalogueEmDashTest.swift in Sources */,
 				0DC239B7F1A049A5293EEF7D /* StringsCatalogueYNSuffixTest.swift in Sources */,
