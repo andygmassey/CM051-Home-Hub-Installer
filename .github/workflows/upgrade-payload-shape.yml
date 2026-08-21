@@ -98,4 +98,5 @@ jobs:
       # for PEP 660 editables and reports CANNOT-RUN (exit 2) rather than
       # passing if it cannot find one.
       - name: the upgrade repairs the fda venv (HR015 #595)
+        if: always()
         run: /bin/bash tests/test_upgrade_repairs_the_fda_venv.sh

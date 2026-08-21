@@ -53,7 +53,7 @@ if [ -z "$BLOCK_END" ]; then
 fi
 BLOCK="$(sed -n "122,${BLOCK_END}p" "$INSTALL_SH")"
 
-if printf '%s' "$BLOCK" | grep -qE '^\s+_upg_repair_fda_venv\s*$'; then
+if grep -qE '^\s+_upg_repair_fda_venv\s*$' <<< "$BLOCK"; then
     ok "the repair is CALLED inside the upgrade block (lines 122-${BLOCK_END})"
 else
     bad "the repair is never called inside the upgrade block -- this is exactly #595"
@@ -61,7 +61,7 @@ fi
 
 # CONTROL: the same search for something that is NOT there must fail, or the
 # check above proves nothing about the predicate.
-if printf '%s' "$BLOCK" | grep -qE '^\s+_upg_repair_a_thing_that_does_not_exist\s*$'; then
+if grep -qE '^\s+_upg_repair_a_thing_that_does_not_exist\s*$' <<< "$BLOCK"; then
     bad "control: the search matched a function that does not exist"
 else
     ok "control: the same search correctly finds nothing for an absent name"
@@ -189,7 +189,7 @@ if [ "$(verdict "$OUT" IMPORT)" = "present" ]; then
 else
     bad "the repair did NOT make ostler_fda importable -- output: ${OUT}"
 fi
-if printf '%s' "$OUT" | grep -q 'does NOT import'; then
+if grep -q 'does NOT import' <<< "$OUT"; then
     ok "and it says so in the upgrade log rather than repairing silently"
 else
     bad "no log line naming the condition it repaired: ${OUT}"
@@ -197,7 +197,7 @@ fi
 
 # --- 3. idempotent ----------------------------------------------------------
 OUT="$(run_case already)"
-if printf '%s' "$OUT" | grep -q 'already imports; nothing to do'; then
+if grep -q 'already imports; nothing to do' <<< "$OUT"; then
     ok "a venv that can already import it is left alone (idempotent)"
 else
     bad "expected a no-op on an already-working venv, got: ${OUT}"
