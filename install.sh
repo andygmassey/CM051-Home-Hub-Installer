@@ -11084,7 +11084,7 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.58}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.60}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -11117,11 +11117,26 @@ OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.58}"
 # ALREADY failed, which is exactly when nobody is watching and
 # exactly when the customer has no other path to a Hub.
 #
-# Repointed at 0.4.57, the release immediately before the current
-# default. Verified present, both limbs, unauthenticated:
+# Repointed at 0.4.58, the release immediately before the current
+# default (there is no 0.4.59). Verified present, both limbs,
+# unauthenticated, 2026-08-21, with hub-v9.9.9 as the negative
+# control returning 404 so a uniform 200 could not be an artefact
+# of the probe:
 #
-#     hub-v0.4.57 tar.gz          200
-#     hub-v0.4.57 tar.gz.sha256   200
+#     hub-v0.4.58 tar.gz          200
+#     hub-v0.4.58 tar.gz.sha256   200
+#     hub-v9.9.9  tar.gz          404   <- control
+#
+# 🔴 AND IT STILL CANNOT COMPLETE, for a reason that is NOT about
+# whether the artefact is there. The retry re-points the URLs via
+# _ostler_assistant_set_urls but nothing re-points
+# ASSISTANT_TARBALL_SHA256, so the fallback tarball is checked at
+# :11691 against the PRIMARY's digest, mismatches, and the install
+# aborts telling the customer their download failed an integrity
+# pin. Tracked as HR015 #583 with the fix shape (a second baked
+# pin, re-pointed in the same commit as the first). Recorded here
+# because this block is where someone will come looking, and the
+# 200s above would otherwise read as proof the path works.
 #
 # Chosen over 0.4.4 deliberately: a last-known-good that is 53
 # releases behind the primary is a rescue into a Hub nobody has run
@@ -11129,7 +11144,7 @@ OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.58}"
 # fallback now exercises the app-bundle shape rather than the bare
 # binary; the bare-binary path below is retained for any customer
 # resuming from an older staged tarball.
-ASSISTANT_FALLBACK_VERSION="0.4.57"
+ASSISTANT_FALLBACK_VERSION="0.4.58"
 # Customer-facing distribution.
 #
 # CX-88 (DMG #48g, 2026-05-29): the daemon ships from the public
@@ -11182,7 +11197,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="d4f274cbc32d7029fe24c3cebde9cd199dab8135cc6e165e2fedf0ae9c2cc6bf"
+DEFAULT_ASSISTANT_TARBALL_SHA256="d6e94c89d91f9e1ea4025ef1d6b6a9ce84a9c2149fc34810d27a621fec8f4bba"
 ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
 
 # ── Creative Machines Developer-ID pin (v1.0.10 red-team-3) ──────
