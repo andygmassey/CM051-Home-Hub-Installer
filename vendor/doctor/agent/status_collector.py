@@ -213,6 +213,37 @@ class BackfillCheckpointInfo:
 
 
 @dataclass
+class HydrateMarkerInfo:
+    """One ``~/.ostler/state/hydrate/<source>.done`` marker.
+
+    install.sh writes one of these per ingest source at the end of the
+    hydration phase (``_HYDRATE_SENTINEL_DIR="${OSTLER_DIR}/state/hydrate"``).
+    Format is flat ``key=value`` lines::
+
+        recorded_at=2026-08-18T12:08:14Z
+        source=people
+        status=error
+        rc=124
+        payload=sent=0
+
+    Note ``payload`` legitimately contains further ``=`` signs, so it is split
+    on the FIRST ``=`` only.
+
+    VENDOR PLACEMENT NOTE: upstream declares this immediately after
+    ``class VaultStateInfo``. That class is the Pro vault surface and is
+    DELIBERATELY NOT VENDORED here, so the upstream patch cannot apply and
+    this declaration sits before ``SystemSnapshot`` instead. The anchor was
+    incidental -- hydrate markers have no dependency on the vault.
+    """
+
+    source: str = ""
+    status: str = ""
+    rc: int | None = None
+    payload: str = ""
+    recorded_at: str = ""
+
+
+@dataclass
 class SystemSnapshot:
     timestamp: str = ""
     hostname: str | None = None
@@ -235,6 +266,13 @@ class SystemSnapshot:
     docker_version: str | None = None
     pipeline_signals: PipelineSignalsInfo | None = None
     backfill_checkpoint: BackfillCheckpointInfo | None = None
+
+    # Per-source ingest outcomes. EMPTY before this graft because nothing read
+    # them: `grep -rl hydrate` over the vendored doctor/agent returned 0 files,
+    # against controls qdrant=15 and pipeline_signals=6. install.sh has been
+    # writing these markers all along; the Doctor simply never opened them, so
+    # a source killed by the 90s watchdog produced no finding anywhere.
+    hydrate_markers: list[HydrateMarkerInfo] = field(default_factory=list)
 
     # RAM. These exist because diagnostic rules already read them and every
     # one of those rules has been raising AttributeError on every install
@@ -704,6 +742,7 @@ def collect_full_snapshot() -> SystemSnapshot:
     pipeline_signals = collect_pipeline_signals()
     backfill_checkpoint = collect_backfill_checkpoint()
     ram_total_gb, ram_available_gb = collect_memory()
+    hydrate_markers = collect_hydrate_markers()
 
     return SystemSnapshot(
         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -719,6 +758,7 @@ def collect_full_snapshot() -> SystemSnapshot:
         docker_version=docker_version,
         pipeline_signals=pipeline_signals,
         backfill_checkpoint=backfill_checkpoint,
+        hydrate_markers=hydrate_markers,
         ram_total_gb=ram_total_gb,
         ram_available_gb=ram_available_gb,
     )
@@ -769,3 +809,66 @@ def collect_memory() -> tuple[float | None, float | None]:
     if total is None or used is None:
         return (None, None)
     return (total, round(max(total - used, 0.0), 1))
+
+
+def _hydrate_dir() -> Path:
+    """Where install.sh writes per-source ingest markers.
+
+    Mirrors ``_HYDRATE_SENTINEL_DIR="${OSTLER_DIR}/state/hydrate"``.
+    Overridable via ``OSTLER_STATE_DIR`` for tests.
+    """
+    base = os.environ.get("OSTLER_STATE_DIR")
+    if base:
+        return Path(base) / "hydrate"
+    return Path.home() / ".ostler" / "state" / "hydrate"
+
+
+def collect_hydrate_markers() -> list[HydrateMarkerInfo]:
+    """Read every ``<source>.done`` marker the installer left behind.
+
+    Returns [] when the directory does not exist, which is the honest answer
+    on a machine that has not run hydration yet. A parse failure on ONE file
+    does not discard the others: a single corrupt marker must not hide seven
+    good ones, which is the failure mode this whole change exists to remove.
+
+    VENDOR NOTE: upstream logs through a module global named ``log``; this
+    module binds ``logger``. Applying the upstream hunk verbatim would have
+    raised NameError on the very error paths it exists to report -- the two
+    warning calls below are the adaptation.
+    """
+    d = _hydrate_dir()
+    try:
+        if not d.is_dir():
+            return []
+        files = sorted(d.glob("*.done"))
+    except OSError as exc:
+        logger.warning("collect_hydrate_markers: cannot list %s: %s", d, exc)
+        return []
+
+    out: list[HydrateMarkerInfo] = []
+    for f in files:
+        try:
+            fields: dict[str, str] = {}
+            for line in f.read_text(errors="replace").splitlines():
+                if "=" not in line:
+                    continue
+                k, v = line.split("=", 1)   # payload contains further '='
+                fields[k.strip()] = v.strip()
+        except OSError as exc:
+            logger.warning("collect_hydrate_markers: cannot read %s: %s", f.name, exc)
+            continue
+
+        rc_raw = fields.get("rc", "")
+        try:
+            rc = int(rc_raw) if rc_raw != "" else None
+        except ValueError:
+            rc = None
+
+        out.append(HydrateMarkerInfo(
+            source=fields.get("source") or f.stem,
+            status=fields.get("status", ""),
+            rc=rc,
+            payload=fields.get("payload", ""),
+            recorded_at=fields.get("recorded_at", ""),
+        ))
+    return out

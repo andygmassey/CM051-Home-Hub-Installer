@@ -521,3 +521,31 @@ RULE_CRASHED_DETAIL_FMT = (
 )
 RULE_CRASHED_FIX = "Send this report so we can fix the check"
 RULE_CRASHED_FIX_COMMAND = "open ~/.ostler/logs/doctor.err"
+
+
+# ── Ingest sources that were killed, or that ran and brought nothing in ─────
+#
+# install.sh writes ~/.ostler/state/hydrate/<source>.done per source. Nothing
+# read them until v1.0.37, so a source killed by the 90s watchdog produced no
+# customer-visible signal at all: the Doctor said "Everything looks healthy"
+# while people search and browsing had ingested literally nothing.
+INGEST_KILLED_TITLE_FMT = "{source} did not finish importing"
+INGEST_KILLED_DETAIL_FMT = (
+    "The {source} import stopped before it completed{timeout_clause}, so those "
+    "items are not searchable and will not appear in your wiki or answers. "
+    "Nothing else was affected, and nothing has been lost from the original "
+    "app: re-running the import picks it up again."
+)
+INGEST_KILLED_FIX = "Re-run the import for this source"
+INGEST_KILLED_FIX_COMMAND = "open ~/.ostler/logs/install.log"
+
+INGEST_EMPTY_TITLE_FMT = "{source} finished but brought nothing in"
+INGEST_EMPTY_DETAIL_FMT = (
+    "The {source} import reported success and then recorded zero items "
+    "({payload}). That is not necessarily wrong, since you may simply have "
+    "nothing there yet, but it is worth knowing: a source that imports nothing "
+    "looks identical to a source that worked, and Ostler will have no {source} "
+    "material to draw on."
+)
+INGEST_EMPTY_FIX = "Check whether this source has data to import"
+INGEST_EMPTY_FIX_COMMAND = "open ~/.ostler/logs/install.log"
