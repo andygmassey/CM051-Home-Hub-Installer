@@ -196,6 +196,19 @@ SELF=(
   ":(exclude)scripts/.foreign-ontology-namespace-count"
   ":(exclude)scripts/tests/test_no_foreign_ontology_namespace.sh"
   ":(exclude)scripts/migrate_graph_namespace.py"
+  # ...and the migrator's own test, added 2026-08-21. Same category, and the
+  # distinction from an earlier case is worth keeping. On #888 a sibling test
+  # was NEUTRALISED rather than listed, correctly: those fixtures exercised
+  # N-Quads ARITY and `_nquads_is_quad` never inspects a domain, so the
+  # namespace was incidental and neutralising cost nothing.
+  #
+  # This file is the other kind. It drives the migrator against its REAL RULES:
+  # `preview_graph_names({"urn:pwg:user/Andy": 20, ...}, M.RULES)` only means
+  # anything because that graph name is one the rules actually map. Swap in a
+  # neutral name and `new_graph_iri` returns nothing, the collision check has
+  # no collision to find, and the test asserts an empty truth while staying
+  # green. A test that cannot name the thing it polices is not a test.
+  ":(exclude)scripts/test_migrate_graph_namespace.py"
 )
 actual="$(git grep -ohE "$FOREIGN_RE" -- . "${SELF[@]}" 2>/dev/null | grep -c . || true)"
 files="$(git grep -lE "$FOREIGN_RE" -- . "${SELF[@]}" 2>/dev/null | grep -c . || true)"
