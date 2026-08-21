@@ -2502,3 +2502,231 @@ deferrals:
       main`) rather than to weaken the limb -- a CANNOT-RUN that gets softened
       into a pass is the exact shape this PR exists to abolish.
     until_cut: "v1.0.38"
+
+  # ---------------------------------------------------------------------------
+  # v1.0.38 (2026-08-21, ORM). SEVEN rows. Dispositioned with TNM; the scope
+  # calls on the last three are TNM's and are recorded in his words, not in a
+  # paraphrase of them.
+  #
+  # NOT IN THIS BLOCK: four rows that check-orphans reported which are GHOSTS --
+  # the content is already on main and the PR was CLOSED unmerged, so
+  # branch_landed() cannot see it. Those get their branches deleted, not a
+  # deferral row, because a deferral asserts work is being deferred and there is
+  # none: CM051:fix/dry-run-plan-drops-publish-appcast (superseded by #831),
+  # CM051:fix/namespace-gate-skip-is-not-a-pass (superseded by #926),
+  # CM044:fix/pwg-namespace-migration-743 (content verified present in 9af6eca,
+  # the exact commit the shipped images were built from: 0 legacy stems in
+  # executing compiler code, control 15 files carrying schema.ostler.ai),
+  # daemon:tnm/roundtrip-onto-322 (superseded by main 8ba3e948, which IS the
+  # DAEMON_COMMIT this cut pins).
+  # ---------------------------------------------------------------------------
+
+  - ref: "CM051:fix/licence-canonical-golden-vector"
+    reason: >-
+      Real orphaned work -- no PR was ever opened for it -- but it ships no
+      behaviour. Five new files, ~600 insertions, a golden-vector fixture
+      pinning CM051's two licence verifiers to CM050's real signer bytes. The
+      author's own commit message states the scope: "Reporting/coverage only --
+      no shipping behaviour changes." It did find a real 5-of-32 control-char
+      divergence in CM050's signer, which is worth a row of its own; that
+      finding is not made truer or falser by this DMG. Open the PR and land it
+      in v1.0.39.
+    until_cut: "v1.0.39"
+
+  - ref: "CM041:#125"
+    reason: >-
+      person_facts extraction (18 files) for the ~6,799 people who have no
+      PersonFacts, from pwg:organization / pwg:jobTitle. CANNOT be load-bearing
+      for this artefact, on the author's own statement: it is DRY-RUN VERIFIED
+      ONLY and nothing is written yet. Separately, the vendored cm041 trees in
+      CM051 were converged by ecf340e onto CM041 #124 -- the NAMESPACE commit,
+      which is the half this cut needs -- and not onto #125. So the migration
+      leg ships and the extraction does not, which is the correct split.
+    until_cut: "v1.0.39"
+
+  - ref: "CM031:#166"
+    reason: >-
+      Out of scope by construction, not by judgement. CM031 is the iOS
+      companion and ships via App Store / TestFlight; it is not inside the
+      macOS DMG, so no version of this cut could carry it. The defect is real
+      (Hub self-signed cert honoured in 1 of 27 call sites, iOS -1202, and
+      lastObservedSPKIHash captured but persisted by nothing, so TOFU forever)
+      and it belongs on the CM031 lane. NOTE for whoever picks it up: that
+      checkout emits "pack ... is far too short to be a packfile", which is the
+      iCloud-EVICTION signature, not corruption. Do not delete packs.
+    until_cut: "n/a -- different delivery channel, not a CM051 cut item"
+
+  - ref: "daemon:archive/wt-oa-credentials-vault-wt"
+    reason: >-
+      Abandoned five weeks (last commit 2026-07-15) and roughly 40,000 lines
+      behind main, so it is nowhere near shippable and nothing in this cut wants
+      it. DEFERRED RATHER THAN DELETED, DELIBERATELY, AND DO NOT TIDY IT AWAY:
+      it is local-only with NO REMOTE REF, and it holds 2,855 lines of unique
+      CM061 Pro work (the whole crates/ostler-credentials-vault crate, 13 files)
+      that exists on ONE DISK. That is a data-loss shape, the same as board #823
+      (cm057), not a hygiene item. Its sibling ostler-action-broker did land on
+      main (d63eddb6); this half did not. Push it somewhere with a remote before
+      anyone runs a branch cleanup.
+    until_cut: "n/a -- preserve, do not delete"
+
+  - ref: "CM044:#232"
+    reason: >-
+      compiler/namespace_precondition.py: refuse to compile when the configured
+      namespace is empty AND a legacy one is populated, distinguishing a fresh
+      install from a migration that did not run. It is the RUNTIME BACKSTOP for
+      exactly the failure cuts/v1.0.38/cut.env describes. DEFERRED, and the
+      reason is a measurement rather than a preference: THE MIGRATION HAS
+      ALREADY RUN AND BEEN COUNTED -- 2026-08-21 02:43Z, 265,127 triples, count
+      identical either side, the legacy ontology host, the legacy URN stem and
+      the legacy local domain all driven to 0, backup at
+      the operator's pre-migration .nq snapshot. All three legs also ship in
+      this DMG (install.sh migrates every install before the first writer; the
+      pinned compiler at CM044 9af6eca binds schema.ostler.ai; the vendored
+      writer is converged). So #232 guards a migration that has already
+      completed -- defence-in-depth twice over, not a pending hazard. Taking it
+      would re-open the wiki image lane for a rebuild, a v0.1.24 re-pin and a
+      fresh CM051 install.sh pin. It rides v1.0.39. TNM's call, 2026-08-21.
+    until_cut: "v1.0.39"
+
+  - ref: "CM044:#227"
+    reason: >-
+      Settling panel per-source freshness table, keeping never / unknown / error
+      distinct. Its PR body says "Both ride v1.0.38". THAT LINE IS WITHDRAWN BY
+      ITS OWN AUTHOR: TNM wrote it and overruled it explicitly on 2026-08-21,
+      recorded here loudly rather than silently because an intent stated in a PR
+      body should not be reversed without a trace. It is a UI improvement, not a
+      correctness fix, and taking it re-opens the wiki image lane -- the same
+      lane that already cost hours today on the superseded v0.1.22 images.
+      Re-opening a closed lane on launch day for a settling-panel refinement is
+      a bad trade. Its base #226 is merged; only this sits.
+    until_cut: "v1.0.39"
+
+  - ref: "daemon:#315"
+    reason: >-
+      Rewrites the Preferences "Coming soon" block, which ships
+      BACKEND_FOLLOW_UPS -- literal strings naming an internal env var, an
+      internal config filename and an unbuilt internal API as customer copy.
+      STRUCTURALLY CANNOT MERGE INTO THIS CUT: DAEMON_COMMIT=8ba3e948edf9 IS
+      ostler-assistant origin/main HEAD exactly, so merging moves main off the
+      pin and flips the daemon freshness row FRESH -> RED STALE:+1, demanding a
+      fresh signed+notarised 0.4.61 or a false hold_ack. Same mechanism as the
+      recorded daemon:#312 / #313 holds. It also regresses nothing: it already
+      ships in v1.0.37. CHECKED BEFORE DEFERRING, because the wrong answer here
+      would have been an exposure and not a cosmetic: the token appears as the
+      VARIABLE NAME inside a descriptive sentence, NOT as its values. Zero
+      interpolation across every line of the block -- no ${...}, no env., no
+      .value -- so no phone number or email address is rendered on that surface.
+      Read from the PR's removed lines, because strings(1) on the served binary
+      is BLIND to Tauri's compressed web assets (control "coming soon" = 0).
+      Copy defect, not a leak. Merge immediately after the v1.0.38 tag.
+    until_cut: "v1.0.39"
+
+  - ref: "daemon:tnm/roundtrip-onto-322"
+    reason: >-
+      NOT A GHOST, AND I FIRST CALLED IT ONE. Recording the error because the
+      reasoning that produced it is a trap others will hit: main DOES carry the
+      same fix under different SHAs (42edf866 + 8ba3e948) and main IS the better
+      implementation, delegating tag parsing to release/tag_to_version.sh where
+      this branch keeps an inline case extractor. Both true, and the conclusion
+      drawn from them -- "superseded, therefore a ghost" -- was still wrong,
+      because a branch is not superseded by carrying a worse implementation of
+      one half. It carries something main does not have at all:
+      release/test_tag_version_extraction.sh, 185 lines, ABSENT from main
+      (present on main: tag_to_version.sh and
+      test_tag_parser_covers_every_trigger_shape.sh -- the control that makes
+      the absence meaningful rather than a mis-spelled path). The unmerged
+      commit states the gap in its own subject: "add the round trip, because
+      'non-empty and different' is not the contract". Main asserts the parser
+      handles every trigger SHAPE and never asserts that a tag round-trips to
+      the RIGHT VERSION, and "non-empty and different" passes for a wrong
+      answer. THE FIX LANDED AND THE TEST THAT PROVES THE CONTRACT DID NOT --
+      the same family as the version-consistency gate this cut found, which
+      asserted the version sites agreed with each other and never with the
+      version being cut. Board #821 reopened on this basis. CANNOT ride v1.0.38
+      for the daemon:#315 reason: DAEMON_COMMIT 8ba3e948 IS ostler-assistant
+      origin/main HEAD, so merging flips the daemon freshness row RED and
+      demands a fresh signed+notarised 0.4.61. Defer with #315 and #663 to the
+      next daemon cut. DO NOT DELETE origin/archie/tag-version-extract -- it is
+      the only ref holding these commits, and the branch is checked out in a
+      live worktree at oa-archie-322.
+    until_cut: "v1.0.39"
+
+  # --- The three content-ghosts. TNM deleted the REMOTE refs; the LOCAL
+  # branches survive on this Mac with no remote, and the gate matches a
+  # local-only branch by BRANCH NAME, so they re-appear as RED from the other
+  # limb. Rows rather than local deletions because one of them is checked out
+  # in a live worktree and a cut must not yank a branch out from under one.
+  #
+  # THE LEGACY NAMESPACES ARE NAMED BY DESCRIPTION, NEVER SPELLED OUT.
+  # scripts/verify_no_foreign_ontology_namespace.sh holds a HARD zero-occurrence
+  # ratchet on them, and only a file whose JOB is to police or perform that
+  # migration earns an exclusion. A deferrals record does neither. This gate
+  # caught this file at 5 occurrences on the first push of this PR -- working
+  # exactly as intended. Do not helpfully restore the literals.
+  #
+  # NOTE ON THE EVIDENCE, because it disagrees with itself and the weaker
+  # signal is the one that looks authoritative: `git cherry origin/main <b>`
+  # reports every commit below as UNAPPLIED (+). That is patch-id, and patch-id
+  # says nothing here, because main carries the same SUBSTANCE via different
+  # commits with a DIFFERENT and BETTER implementation. Content beats patch-id.
+  # Each is verified on main below with a control.
+
+  - ref: "CM051:fix/dry-run-plan-drops-publish-appcast"
+    reason: >-
+      CONTENT ALREADY ON MAIN. Superseded by #831 (ab53fef, an ancestor of
+      main); PR #832 was closed unmerged, which is why branch_landed() cannot
+      see it. Main's scripts/dry_run_cut_checks.sh carries the publish-appcast
+      handling explicitly ("publish-appcast IS DELIBERATELY ABSENT"), verified
+      with a control (the file is 474 lines, so the grep was capable of
+      matching). Commits preserved at refs/pull/832/head. Remote ref deleted
+      2026-08-21; delete the local branch when convenient. No work is deferred.
+    until_cut: "n/a -- already on main"
+
+  - ref: "CM051:fix/namespace-gate-skip-is-not-a-pass"
+    reason: >-
+      CONTENT ALREADY ON MAIN, and this one was checked hardest because a wrong
+      answer would leave a namespace guard unwired on the very cut whose subject
+      is the namespace migration. Superseded by #926 (e2b209e, an ancestor of
+      main); PR #922 closed unmerged 5s later. BOTH commits' substance verified
+      on main independently: (1) the guard EXITS 2 on CANNOT-RUN --
+      tests/test_wiki_image_namespace_matches_ci.sh:95 carries "CANNOT RUN: no
+      CM044 checkout found"; (2) the guard is actually INVOKED, which is the
+      half that matters, since a guard nothing runs is a label -- 5 invocations
+      on main including .github/workflows/supply-chain-pins.yml:150 and
+      scripts/run_all_cut_gates.sh:136, with tests/TEST_WIRING.tsv marking it
+      WIRED, against a control of 6 for a different test in the same files so
+      the probe is not blind. Negative control from TNM: the pre-fix parent
+      scores 0. 🔴 DO NOT DELETE THE LOCAL BRANCH, AND DO NOT READ
+      "already on main" AS "safe to remove". The refs/pull/922/head backup
+      preserves 0008394, which is NOT what the local branch points at: local is
+      f78d4d6, two commits further on (f78d4d6 + 5a7ba98), and those two are
+      reachable from ZERO remote refs. They exist on ONE DISK. The WORK is
+      superseded -- #926 wired the guard and made CANNOT-RUN exit 2, built the
+      other way and better -- but the REFS are unique, and superseded work is
+      not a reason to destroy the only copy. Same shape as board #823 (cm057,
+      66 commits, single copy, no remote). It is also CHECKED OUT in a live
+      worktree (CM051-worktrees/nsgate-cannotrun). If this row is ever to be
+      cleared by deletion, push the commits to an archival ref FIRST so they
+      stop being single-copy, then delete. Deferring is the truthful state:
+      nothing to merge, but something that exists in only one place.
+    until_cut: "n/a -- superseded on main; refs are single-copy, preserve"
+
+  - ref: "CM044:fix/pwg-namespace-migration-743"
+    reason: >-
+      CONTENT ALREADY ON MAIN at 9af6eca -- the exact commit the SHIPPED wiki
+      images were built from -- via the #228/#229 line; PR #225 closed unmerged.
+      Verified in the tree this cut ships: 0 legacy stems in executing compiler
+      code, against a control of 15 files carrying schema.ostler.ai under the
+      same exclusion, and the compiler binds "PREFIX pwg:
+      <https://schema.ostler.ai/ontology#>" plus the separate
+      ".../enrichment/ontology#" for enrichment. AND MAIN IS THE BETTER VERSION,
+      which is the part that nearly got this wrong in both directions: main
+      still shows 14 legacy-ontology-host hits, which READS like an incomplete
+      migration and
+      is not -- they are a legacy-namespace DETECTOR list in
+      known_facts_probe.py plus test fixtures named FOREIGN_NS, one of which
+      records the 246,559-triple measurement. This branch has zero such hits,
+      so its blanket rename would have deleted the very detection that PROVES
+      the migration worked. Commits preserved at refs/pull/225/head. Remote ref
+      deleted 2026-08-21; local branch may be deleted, it is in no worktree.
+    until_cut: "n/a -- already on main, and main is the better version"
