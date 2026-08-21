@@ -97,6 +97,52 @@ entries:
       pattern: 'ostler-wiki-site@sha256:[0-9a-f]{64}'
       must_match: true
 
+  - id: v1038-wiki-compiler-is-v0123
+    title: install.sh pins the exact wiki-compiler digest built from CM044 9af6ecaf
+    incident: >-
+      The shape limb above proves a digest is pinned; this proves it is THE digest.
+      Anchored on the full 64-hex value because a truncated match would accept a
+      neighbouring image -- and there IS a neighbouring image, see the v0.1.22 limb
+      below. Resolved anonymously from GHCR before being written here:
+      ai.ostler.wiki.source_revision = 9af6ecaf33c85e5150dd8b896c8b841b1092d4fe,
+      org.opencontainers.image.version = 0.1.23. That read is independent of
+      scripts/wiki_image_provenance.tsv, so it proves the binding rather than
+      repeating the record.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-compiler@sha256:3846eb3b2cfa556a4a810716bffee8315eef60f59fd5a6a32b9def546573e93d'
+      must_match: true
+
+  - id: v1038-wiki-site-is-v0123
+    title: install.sh pins the wiki-site digest from the SAME CM044 commit
+    incident: >-
+      Compiler and site are pinned on different lines and have drifted apart before.
+      Both resolve to 9af6ecaf33c85e5150dd8b896c8b841b1092d4fe, verified by reading
+      the image labels back from the registry.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-site@sha256:7d353848b6289796710f4b74dd2340742b275b20a35267c935e135c06066ab40'
+      must_match: true
+
+  - id: v1038-no-superseded-v0122-wiki-pin-survives
+    title: no v0.1.22 wiki digest is pinned anywhere in install.sh
+    incident: >-
+      🔴 THIS IS NOW THE ONLY LOCK ON THAT DOOR, AND IT WAS NOT WHEN IT WAS DRAFTED.
+      v0.1.22 was tagged and BUILT at CM044 17e7b3dd while that tree was RED on
+      pr-gates. Its images are live in GHCR -- compiler 48a61b04, site 6f404d4b --
+      and #921 GAVE THEM PROVENANCE ROWS in scripts/wiki_image_provenance.tsv
+      (lines 129-130). Recording them is defensible: the register is a history and
+      it should say why they exist. But it has a consequence nobody wrote down --
+      verify_cut_freshness.sh reds a pinned digest that has NO provenance row, so
+      before those rows a stray pin to v0.1.22 failed closed, and after them it
+      RESOLVES CLEANLY. The fail-closed guard was spent to buy the history. This
+      limb is what puts a guard back. Measured at 0 hits on this tree, so it
+      discriminates rather than passing vacuously.
+    proof:
+      kind: grep_in_installer
+      pattern: 'sha256:(48a61b04|6f404d4b)'
+      must_match: false
+
   - id: v1038-no-v0121-wiki-pin-survives
     title: no v0.1.21 wiki digest is left anywhere in install.sh
     incident: >-
@@ -105,7 +151,8 @@ entries:
       built from CM044 16bc4964 -- the OLD-namespace compiler. Editing one of the two
       install.sh lines leaves the other live and both remain individually well-formed,
       so nothing else surfaces it. Measured at 2 hits on the pre-re-pin tree, so it
-      discriminates rather than passing vacuously, and it must read 0 after the re-pin.
+      discriminates rather than passing vacuously; it reads 0 on this tree, which is
+      the re-pin having actually landed on BOTH lines.
     proof:
       kind: grep_in_installer
       pattern: 'sha256:(b85bdb6acae21800bbd3df8e68cd8f1ee7357aea15430016cb8df6a8202af9cc|3199413b2d3bf3813b1e9bca80bd5f997bbc1a5a6b0eedecc59d6976c039050b)'
