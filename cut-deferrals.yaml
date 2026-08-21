@@ -2730,3 +2730,31 @@ deferrals:
       the migration worked. Commits preserved at refs/pull/225/head. Remote ref
       deleted 2026-08-21; local branch may be deleted, it is in no worktree.
     until_cut: "n/a -- already on main, and main is the better version"
+
+  - ref: "daemon:fix/preferences-copy-no-internals"
+    reason: >-
+      THE SAME ROW AS daemon:#315, IN THE SPELLING THE GATE ACTUALLY CONSULTS.
+      I wrote the PR-number spelling, the gate enumerates daemon refs by BRANCH
+      NAME, and a deferral nothing asks about holds nothing. The row directly
+      above mine in this file warns about exactly this in its own first
+      sentence, I read it in the preflight output, and I still wrote
+      daemon:#315. Both spellings are now present deliberately: the branch one
+      is what fires, the PR one survives a future rename and costs nothing.
+      WORTH MORE THAN THE FIX: this passed check-orphans LOCALLY (RC=0) and went
+      RED in CI, on the same commit. A gate that is green on the operator's box
+      and red on the runner is worse than one that is simply red, because the
+      local green is what you act on. The local ostler-assistant checkout has
+      this branch CHECKED OUT as its current branch, which is the likeliest
+      cause and is NOT confirmed -- recorded as unmeasured rather than guessed.
+      Filed for its own row; do not let it be closed by this deferral landing.
+      SUBSTANCE, unchanged from daemon:#315: Preferences ships BACKEND_FOLLOW_UPS,
+      literal strings naming an internal env var, an internal config filename
+      and an unbuilt internal API as customer copy. Cannot merge into this cut --
+      DAEMON_COMMIT=8ba3e948edf9 IS ostler-assistant origin/main HEAD, so merging
+      flips the daemon freshness row FRESH -> RED STALE:+1 and demands a fresh
+      signed+notarised 0.4.61. It regresses nothing: it already ships in v1.0.37.
+      And it is a COPY defect, not an exposure -- the token appears as the
+      VARIABLE NAME in a descriptive sentence, zero interpolation across the
+      whole block, so no phone number or email is rendered. Merge right after
+      the v1.0.38 tag.
+    until_cut: "v1.0.39"
