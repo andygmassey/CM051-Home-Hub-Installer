@@ -24,7 +24,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from migrate_graph_namespace import _nquads_is_quad, _nquads_terms  # noqa: E402
+import migrate_graph_namespace as mig  # noqa: E402
+from migrate_graph_namespace import (  # noqa: E402
+    _nquads_is_quad,
+    _nquads_terms,
+    graph_size,
+    graph_transfer_stmts,
+)
 
 # The literal contains spaces. This is a THREE-term default-graph triple.
 TRIPLE_SPACED_LITERAL = '<https://example.org/p/1> <https://example.org/name> "Hello there world" .'
@@ -113,6 +119,167 @@ def test_archies_control_a_backup_with_no_named_graphs_scores_zero():
 def test_a_mixed_dump_counts_only_the_real_quads():
     dump = "\n".join([TRIPLE_SPACED_LITERAL] * 90 + [QUAD] * 10)
     assert sum(1 for ln in dump.splitlines() if _nquads_is_quad(ln)) == 10
+
+
+# ===========================================================================
+# THE GRAPH TRANSFER. A DIFFERENT DEFECT, THE SAME SHAPE.
+#
+# The backup guard above could not go red. This one could not go red EITHER,
+# and it was worse: `MOVE <old> TO <new>` is defined by SPARQL as *drop the
+# destination*, insert the source, drop the source. Measured on the operator's
+# box on 2026-08-21, AFTER the migration had already succeeded:
+#
+#     urn:ostler:user/Andy   16577   <- the migrated compartment
+#     urn:pwg:user/Andy         20   <- rewritten since, by a live writer
+#
+# install.sh runs this script on EVERY install, including re-runs over an
+# existing volume. The next one deletes 16,577 triples to make room for 20 --
+# and every residue check afterwards reports CLEAN, because they only ask
+# whether OLD-namespace triples remain. They would not. The data is gone.
+#
+# The guard shipped in fb4c096 with NO TESTS AT ALL, which is the exact thing
+# the docstring at the top of this file exists to complain about.
+# ===========================================================================
+
+REAL_OLD = "urn:pwg:user/Andy"
+REAL_NEW = "urn:ostler:user/Andy"
+#: The two counts measured on the box. Not illustrative -- these are the
+#: numbers that would have been destroyed.
+MIGRATED_COMPARTMENT = 16577
+REWRITTEN_SINCE = 20
+
+
+def _old_transfer(old, new):
+    """`move_graph_stmt` exactly as it shipped. Kept as the control.
+
+    Without it these tests prove only that the new code agrees with itself --
+    the same reason `_old_predicate` is still here.
+    """
+    return f"MOVE <{old}> TO <{new}>"
+
+
+def test_the_control_the_shipped_code_really_did_issue_a_bare_MOVE():
+    """THE CONTROL. If this ever stops reproducing, the bug was not this."""
+    assert _old_transfer(REAL_OLD, REAL_NEW) == (
+        "MOVE <urn:pwg:user/Andy> TO <urn:ostler:user/Andy>"
+    ), "the control no longer reproduces the shipped statement"
+
+
+def test_a_populated_destination_is_never_MOVEd_into():
+    """THE DEFECT, asserted on the whole statement list rather than on one
+    element, so an extra statement cannot smuggle a MOVE back in."""
+    stmts = graph_transfer_stmts(REAL_OLD, REAL_NEW, MIGRATED_COMPARTMENT)
+    for s in stmts:
+        assert not s.startswith("MOVE"), (
+            f"{s!r} would DROP <{REAL_NEW}> and its "
+            f"{MIGRATED_COMPARTMENT} triples"
+        )
+
+
+def test_a_populated_destination_uses_ADD_then_DROP_IN_THAT_ORDER():
+    """Order is load-bearing and it is the direction that loses data.
+
+    DROP-then-ADD would delete the source before anything had copied it out,
+    which is the same total loss by a different route.
+    """
+    stmts = graph_transfer_stmts(REAL_OLD, REAL_NEW, MIGRATED_COMPARTMENT)
+    assert stmts == [
+        f"ADD <{REAL_OLD}> TO <{REAL_NEW}>",
+        f"DROP GRAPH <{REAL_OLD}>",
+    ], stmts
+
+
+def test_an_empty_destination_still_uses_MOVE():
+    """THE CONTROL AGAINST OVERCORRECTING.
+
+    MOVE is atomic and ADD+DROP is not, so the fix must not spend that
+    atomicity on the ordinary rename -- a fresh install, where the
+    destination does not exist. The trade is only worth making when the
+    alternative is silent deletion.
+    """
+    assert graph_transfer_stmts(REAL_OLD, REAL_NEW, 0) == [
+        f"MOVE <{REAL_OLD}> TO <{REAL_NEW}>"
+    ]
+
+
+def test_one_triple_in_the_destination_is_already_enough_to_switch():
+    """The threshold is >0, not some tolerance. One triple is someone's fact."""
+    assert graph_transfer_stmts(REAL_OLD, REAL_NEW, 1)[0].startswith("ADD ")
+
+
+def test_the_measured_box_case_end_to_end():
+    """THE CLOSING CONDITION: the exact numbers from the box, old vs new."""
+    old = _old_transfer(REAL_OLD, REAL_NEW)
+    new = graph_transfer_stmts(REAL_OLD, REAL_NEW, MIGRATED_COMPARTMENT)
+    assert old.startswith("MOVE"), "control broken"
+    assert new[0].startswith("ADD"), (
+        f"the fix does not hold for the {MIGRATED_COMPARTMENT}-vs-"
+        f"{REWRITTEN_SINCE} case that prompted it"
+    )
+
+
+# ----------------------------------------------------------- sizing the dest
+
+class _StubRun:
+    """Replaces `run` for the duration of one test. Records what was asked."""
+
+    def __init__(self, out, err="", rc=0):
+        self.out, self.err, self.rc, self.body = out, err, rc, None
+
+    def __call__(self, host, path, body, ctype, *a, **k):
+        self.body = body
+        return self.out, self.err, self.rc
+
+
+def _with_stub_run(stub, fn):
+    real = mig.run
+    mig.run = stub
+    try:
+        return fn()
+    finally:
+        mig.run = real
+
+
+def _count_json(n):
+    return ('{"results":{"bindings":[{"n":{"value":"%d"}}]}}' % n)
+
+
+def test_graph_size_reads_a_real_count():
+    stub = _StubRun(_count_json(MIGRATED_COMPARTMENT))
+    n = _with_stub_run(stub, lambda: graph_size("local", REAL_NEW))
+    assert n == MIGRATED_COMPARTMENT
+    assert REAL_NEW in stub.body, "the query did not name the graph it sized"
+
+
+def test_graph_size_reports_zero_for_a_graph_that_does_not_exist():
+    """The fresh-install path. Oxigraph answers 0, not an error."""
+    stub = _StubRun(_count_json(0))
+    assert _with_stub_run(stub, lambda: graph_size("local", REAL_NEW)) == 0
+
+
+def test_an_UNREADABLE_count_RAISES_rather_than_reading_as_empty():
+    """🔴 THE ONE THAT MATTERS MOST, AND THE EASIEST TO GET WRONG.
+
+    A `except: return 0` here would route an unreachable store, a 400, or a
+    truncated body straight back into the MOVE arm -- reintroducing the exact
+    deletion this whole change exists to prevent, while looking defensive.
+    A count that cannot be read is not a count of zero.
+    """
+    for out, err, rc in (
+        ("", "HTTP 400: b'parse error'", 400),   # rejected query
+        ("", "URLError: refused", 1),            # store unreachable
+        ('{"results":{"bindings":[]}}', "", 0),  # well-formed, no rows
+        ("<html>proxy</html>", "", 0),           # something answered FOR it
+    ):
+        stub = _StubRun(out, err, rc)
+        try:
+            n = _with_stub_run(stub, lambda: graph_size("local", REAL_NEW))
+        except RuntimeError:
+            continue
+        raise AssertionError(
+            f"graph_size returned {n!r} for rc={rc} out={out[:40]!r}; a "
+            "guessed 0 sends the caller back to MOVE and deletes the graph"
+        )
 
 
 if __name__ == "__main__":
