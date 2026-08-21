@@ -35,6 +35,7 @@ on:
       # TRIGGER; the run step above is what makes it CHECK. Both are needed,
       # and the pair is the point: the gate must fire on changes to itself.
       - 'tests/test_vendor_only_survives_sync.sh'
+      - 'tests/test_canonical_keys_must_not_merge.py'
       - 'tests/test_frontpage_tick_emits_interest_profile.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
@@ -184,6 +185,42 @@ jobs:
         if: always()
         run: bash tests/test_vendor_only_survives_sync.sh
 
+      # RULE 2 in the vendored CM041 resolver: two records carrying DIFFERENT
+      # canonical keys must never merge.
+      #
+      # Lives here rather than upstream because the vendored resolver is 204
+      # lines AHEAD of CM041 main and `_identifier_match_trustworthy` does not
+      # exist in source at all. A clean re-vendor would DELETE this rule, so
+      # the test guards a divergence that only exists in this repo.
+      - name: different canonical keys must not merge (RULE 2)
+        if: always()
+        run: |
+          # rapidfuzz: the vendored resolver imports it transitively via
+          # identity_resolver.normalise. No workflow in this repo installed it,
+          # so without this line the test ERRORS on collection and the job goes
+          # red for a missing dependency rather than for a real merge defect --
+          # which reads as "RULE 2 is broken" to anyone skimming.
+          # THE WHOLE DEPENDENCY CLOSURE, DERIVED STATICALLY, NOT DISCOVERED
+          # ONE CI ROUND-TRIP AT A TIME.
+          #
+          #   pytest        the test uses the `monkeypatch` fixture, so unlike
+          #                 every other python test in this workflow it cannot
+          #                 run as a plain script. No job here had pytest.
+          #   rapidfuzz     imported by identity_resolver.normalise
+          #   httpx         imported by identity_resolver.resolver at line 9
+          #   phonenumbers  imported elsewhere in the same package
+          #
+          # The first three were each found by pushing and watching the job
+          # fail, which is a four-minute round trip to learn one name. The set
+          # was then derived in one pass by listing every top-level import
+          # across the package and the test and subtracting
+          # sys.stdlib_module_names -- which is how phonenumbers was caught
+          # BEFORE it cost a fourth round.
+          #
+          # A missing dep here fails on a collection error that reads as
+          # "RULE 2 is broken" to anyone skimming, not as a missing module.
+          python3 -m pip install --quiet pytest rapidfuzz httpx phonenumbers
+          python3 -m pytest -q tests/test_canonical_keys_must_not_merge.py
       # The Front Page tick must invoke the interest-profile emitter.
       #
       # Measured on a fresh v1.0.38 box: the tick ran hourly, exited 0 and

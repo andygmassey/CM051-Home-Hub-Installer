@@ -378,6 +378,18 @@ entries:
       kind: box_walk_probe
       probe: "daemon_is_listening"
 
+  - id: box-walk-no-person-holds-two-contact-cards
+    title: no person record may hold two contact cards with different canonical keys
+    incident: >-
+      v1.0.38 box walk; the dedupe resolver merged two records whose canonical
+      keys DIFFERED, so one person ended up holding another person's contact
+      card and the People tab showed a merge nobody could undo. RULE 2 in the
+      vendored CM041 resolver is the fix; this probe is the box-side check that
+      it held on a real graph rather than only in a unit test
+    proof:
+      kind: box_walk_probe
+      probe: "no_person_holds_two_contact_cards"
+
   - id: box-walk-freshness-panel-has-dates
     title: every freshness-panel source must report a real date rather than 'unknown'
     incident: >-

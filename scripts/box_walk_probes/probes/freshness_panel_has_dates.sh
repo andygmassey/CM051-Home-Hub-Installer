@@ -27,13 +27,43 @@ PROBE_QUESTION="does every freshness-panel source report a real date rather than
 
 FRESHNESS_URL="${OSTLER_FRESHNESS_URL:-http://127.0.0.1:8089/doctor/api/freshness}"
 
-fetch_freshness() {
+# ── THE HTTP STATUS IS PART OF THE ANSWER, AND THIS PROBE IGNORED IT ─────
+#
+# MEASURED on the v1.0.38 box, 2026-08-21:
+#
+#   http://127.0.0.1:8089/doctor/api/freshness  ->  404  {"detail":"Not Found"}
+#
+# The old fetch discarded the status line entirely and handed the BODY to the
+# adjudicator. `doc.get("sources", doc)` then fell back to the error object
+# itself, saw one key -- `detail` -- whose value "Not Found" is not in the
+# unknown-set, and concluded *1 source, 0 unknown* -> **PASS**.
+#
+# So the probe reported "every freshness source reports a real date" about an
+# endpoint that does not exist. Reproduced by feeding the live body to the
+# shipping adjudicator: `total=1 unknown=0`.
+#
+# It survived its own negative control because the self-test only ever fed it
+# well-formed {"sources": ...} fixtures and never an error body. The
+# adjudicator was fine. Nothing ever asked whether a response had arrived.
+#
+# CANNOT-RUN (2) IS THE CORRECT VERDICT FOR A 404, NOT FAIL (1). The panel is
+# not reporting stale dates; it is unreachable, which is a different fact and
+# has a different owner. Collapsing them is how "nothing looked" gets filed as
+# "nothing found".
+#
+# `-w '\n%{http_code}'` puts the code on its own final line so the body stays
+# byte-exact for the adjudicator.
+fetch_freshness_with_code() {
     if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
-        printf '%s' "${FAKE_FRESHNESS:-}"
+        printf '%s\n%s' "${FAKE_FRESHNESS:-}" "${FAKE_FRESHNESS_CODE:-200}"
         return
     fi
-    box_run "curl -sS -m 8 '$FRESHNESS_URL' 2>/dev/null"
+    box_run "curl -sS -m 8 -w '\\n%{http_code}' '$FRESHNESS_URL' 2>/dev/null"
 }
+
+# Split the combined output: last line is the status, everything before is body.
+freshness_code() { printf '%s' "$1" | tail -n 1; }
+freshness_body() { printf '%s' "$1" | sed '$d'; }
 
 # Counts, over a freshness payload:
 #   $1 = total source entries seen
@@ -75,8 +105,22 @@ run_probe() {
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; freshness panel not read"
     fi
 
-    local body
-    body="$(fetch_freshness)"
+    local raw code body
+    raw="$(fetch_freshness_with_code)"
+    code="$(freshness_code "$raw")"
+    body="$(freshness_body "$raw")"
+
+    # STATUS FIRST. Before any question about what the payload SAYS, settle
+    # whether a payload arrived at all. A 404 body is not a freshness panel
+    # with one healthy source in it -- that is what this probe used to report.
+    case "$code" in
+        200|"")
+            ;;
+        *)
+            probe_examined 0 "freshness sources"
+            probe_cannot_run "$FRESHNESS_URL returned HTTP ${code}, not 200. The panel was never read, so this probe has NO opinion on whether its sources carry real dates. Body: $(printf '%s' "$body" | head -c 120)"
+            ;;
+    esac
 
     if [ -z "$body" ]; then
         probe_examined 0 "freshness sources"
@@ -141,7 +185,23 @@ self_test() {
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: nested payload shape parsed as total=$t unknown=$u, expected 2 and 1. The probe is blind to one of the two live shapes."
     fi
 
-    probe_fail "negative control behaved correctly (caught unknowns in both payload shapes, passed a healthy panel)"
+    # 4. THE FALSE GREEN THAT SHIPPED. This is the limb that was missing, and
+    #    its absence is why the probe reported PASS off a 404 on the v1.0.38
+    #    box. Every earlier fixture was well-formed, so nothing ever asked
+    #    what the adjudicator does with an ERROR body.
+    #
+    #    Assert the adjudicator STILL mis-reads it -- deliberately. The fix is
+    #    not in analyse_freshness (which is only ever handed a body) but in
+    #    run_probe checking the HTTP status first. If this limb ever stops
+    #    reporting 1/0, the status guard has quietly stopped being the thing
+    #    keeping the probe honest, and whoever changed it needs to know.
+    local errbody='{"detail":"Not Found"}'
+    c="$(analyse_freshness "$errbody")"; t="${c%% *}"; u="${c##* }"
+    if [ "$t" != "1" ] || [ "$u" != "0" ]; then
+        probe_pass "CONTROL PREMISE MOVED: a 404 error body now adjudicates as total=$t unknown=$u, not 1/0. The status-code guard in run_probe may no longer be the only thing preventing the false green -- re-derive before trusting this probe."
+    fi
+
+    probe_fail "negative control behaved correctly (caught unknowns in both payload shapes, passed a healthy panel, and confirmed an error body still needs the HTTP-status guard to be caught)"
 }
 
 probe_main "$@"

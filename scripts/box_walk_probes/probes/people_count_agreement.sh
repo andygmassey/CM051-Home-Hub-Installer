@@ -33,7 +33,26 @@ TOLERANCE_PCT="${OSTLER_PEOPLE_TOLERANCE_PCT:-2}"
 count_oxigraph() {
     if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_OXI:-UNAVAILABLE}"; return; fi
     local q out
-    q='SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p a <http://xmlns.com/foaf/0.1/Person> }'
+    # ── THE TYPE IRI, AND WHY IT IS NOT foaf ANY MORE ────────────────────
+    #
+    # This asked for foaf:Person. The namespace migration ran 2026-08-21 at
+    # 02:43Z and moved every Person node to the Ostler ontology, so on a
+    # current box:
+    #
+    #   ?p a <http://xmlns.com/foaf/0.1/Person>          ->      0
+    #   ?p a <https://schema.ostler.ai/ontology#Person>  ->  6,847
+    #
+    # A zero from a dead type IRI is INDISTINGUISHABLE from an empty graph.
+    # Worse than useless here: had the Doctor side been readable, this probe
+    # would have compared 0 against ~6,847 and thrown a confident RED at a
+    # perfectly healthy box. Textbook "gates keyed to NAMES rot".
+    #
+    # UNION over both IRIs rather than a straight swap. The old one costs
+    # nothing when it matches nothing, and a box that has NOT yet migrated is
+    # a real state we still need a true count for -- swapping would just move
+    # the false zero to the other population. COUNT(DISTINCT ?p) makes a node
+    # carrying both types count once.
+    q='SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { { ?p a <https://schema.ostler.ai/ontology#Person> } UNION { ?p a <http://xmlns.com/foaf/0.1/Person> } }'
     out="$(box_run "curl -sS -m 10 -G '$OXIGRAPH_URL' --data-urlencode 'query=$q' -H 'Accept: application/sparql-results+json' 2>/dev/null")"
     printf '%s' "$out" | python3 -c '
 import json,sys
