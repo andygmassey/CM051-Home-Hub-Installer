@@ -308,6 +308,101 @@ def in_literal_only(host, needle):
              && !CONTAINS(STR(?s),"{needle}") && !CONTAINS(STR(?p),"{needle}")) }}''')
 
 
+def match_filter(needle):
+    """THE ONE PREDICATE. Everything that claims to describe the migration
+    is built from this string, so nothing can quietly describe a different one.
+
+    🔴 THIS EXISTS BECAUSE --preview ANSWERED A DIFFERENT QUESTION THAN THE
+    ONE THE OPERATOR WAS ASKING, CONFIDENTLY.
+
+    --preview is the last screen a human reads before authorising a
+    destructive whole-store rewrite. It shipped with its own hand-written
+    predicate, and that predicate was NOT the one the UPDATE uses: it had no
+    `?o` arm. So the two disagreed about which rows are even candidates.
+
+    Measured on the live Hub store, 2026-08-21, READ ONLY. The preview's
+    predicate against the UPDATE's predicate, same store, same moment:
+
+        rule        preview saw    UPDATE touches    blind    unseen
+        pwg.local         4,394             5,302      908     17.1%
+        pwg.dev         242,322           242,830      508      0.2%
+        urn:pwg:          3,762            20,299   16,537     81.5%
+
+    A preview that under-reports is worse than no preview at all, because it
+    manufactures the confidence the operator acts on. `VERDICT: every sampled
+    IRI moved` reads as a statement about the migration. It was a statement
+    about 19% of the rule that owns the customer's entire compartment.
+
+    Two independent causes, and the decomposition separates them cleanly --
+    each defect has its own witness rule, which is why both are named here
+    rather than treated as one bug:
+
+        pwg.local   blind 908 of 908 in the DEFAULT graph -- rows whose only
+                    carrier is the object IRI. Purely the missing `?o` arm.
+        urn:pwg:    blind 16,537 of 16,537 inside the NAMED graph. Purely the
+                    missing UNION arm.
+
+    Written once, called by the default-graph UPDATE, the named-graph UPDATE,
+    the candidate count and the preview. A test asserts all four carry the
+    identical string, because "we kept them in sync" is the claim that was
+    already false.
+
+    ON isIRI(?o), AND WHY THE PREVIEW COPIES IT RATHER THAN BROADENING IT.
+    A literal object containing the string is CONTENT -- a stored query, a
+    note -- and the module docstring above commits to not rewriting it. The
+    preview must predict what --apply DOES, not what a reader might wish it
+    did, so it inherits the guard verbatim. The literal-only rows are not
+    silently dropped either: they are counted and printed beside the
+    candidates as a stated exclusion, which is what turns a surprising
+    residue afterwards into an expected one beforehand. Measured on the live
+    store there are currently ZERO literal objects carrying any of the three
+    needles, so this choice moves no rows today -- it is made for the day the
+    data changes, and the printed count is what will show that day arriving.
+    """
+    return (f'CONTAINS(STR(?s),"{needle}") || CONTAINS(STR(?p),"{needle}")\n'
+            f'      || (isIRI(?o) && CONTAINS(STR(?o),"{needle}"))')
+
+
+def rewrite_binds(rx, repl):
+    """The three BIND expressions, shared for the same reason as the FILTER.
+
+    The preview's whole value is that it evaluates the REAL expressions
+    against the REAL engine. A preview built from a re-typed copy proves the
+    copy works.
+    """
+    return (f'BIND(IF(isIRI(?s), IRI(REPLACE(STR(?s), "{rx}", "{repl}")), ?s) AS ?ns)\n'
+            f'  BIND(IRI(REPLACE(STR(?p), "{rx}", "{repl}")) AS ?np)\n'
+            f'  BIND(IF(isIRI(?o), IRI(REPLACE(STR(?o), "{rx}", "{repl}")), ?o) AS ?no)')
+
+
+# The two surfaces, named. ANY_GRAPH above unions them for a COUNT; the
+# preview has to walk them SEPARATELY and this is why.
+#
+# 🔴 A `LIMIT 6` OVER A UNION IS NOT A SAMPLE OF THE UNION. The engine is
+# free to satisfy the limit entirely from the first arm, and on this store it
+# does: the default graph holds 248,550 of 265,087 triples, so six rows of a
+# unioned sample are six DEFAULT-graph rows. For urn:pwg:, 81.5% of the
+# candidates live in the named graph -- the surface a unioned sample would
+# never once show. Fixing the COUNT and leaving the sample unioned would have
+# produced an honest denominator over rows the operator still never sees.
+SURFACES = (("default graph", "?s ?p ?o ."),
+            ("named graphs", "GRAPH ?g { ?s ?p ?o }"))
+
+
+def candidates(host, needle):
+    """Rows the UPDATE would touch, counted per surface, using ITS predicate.
+
+    This is the denominator. `touching()` above answers "how many triples
+    mention this string at all", which includes literal content the migration
+    deliberately leaves; this answers "how many rows will --apply rewrite",
+    which is the only number a preview's coverage claim can honestly be a
+    fraction of.
+    """
+    return [(label, ask(host, f"SELECT (COUNT(*) AS ?n) WHERE "
+                              f"{{ {pattern} FILTER({match_filter(needle)}) }}"))
+            for label, pattern in SURFACES]
+
+
 def rewrite_stmt(rx, needle, repl):
     """FILTER uses CONTAINS (literal substring), BIND uses REPLACE (regex).
 
@@ -325,11 +420,8 @@ def rewrite_stmt(rx, needle, repl):
     """
     return f'''DELETE {{ ?s ?p ?o }} INSERT {{ ?ns ?np ?no }} WHERE {{
   ?s ?p ?o .
-  FILTER(CONTAINS(STR(?s),"{needle}") || CONTAINS(STR(?p),"{needle}")
-      || (isIRI(?o) && CONTAINS(STR(?o),"{needle}")))
-  BIND(IF(isIRI(?s), IRI(REPLACE(STR(?s), "{rx}", "{repl}")), ?s) AS ?ns)
-  BIND(IRI(REPLACE(STR(?p), "{rx}", "{repl}")) AS ?np)
-  BIND(IF(isIRI(?o), IRI(REPLACE(STR(?o), "{rx}", "{repl}")), ?o) AS ?no)
+  FILTER({match_filter(needle)})
+  {rewrite_binds(rx, repl)}
 }}'''
 
 
@@ -348,11 +440,8 @@ def rewrite_named_stmt(rx, needle, repl):
     return f'''DELETE {{ GRAPH ?g {{ ?s ?p ?o }} }}
 INSERT {{ GRAPH ?g {{ ?ns ?np ?no }} }} WHERE {{
   GRAPH ?g {{ ?s ?p ?o }}
-  FILTER(CONTAINS(STR(?s),"{needle}") || CONTAINS(STR(?p),"{needle}")
-      || (isIRI(?o) && CONTAINS(STR(?o),"{needle}")))
-  BIND(IF(isIRI(?s), IRI(REPLACE(STR(?s), "{rx}", "{repl}")), ?s) AS ?ns)
-  BIND(IRI(REPLACE(STR(?p), "{rx}", "{repl}")) AS ?np)
-  BIND(IF(isIRI(?o), IRI(REPLACE(STR(?o), "{rx}", "{repl}")), ?o) AS ?no)
+  FILTER({match_filter(needle)})
+  {rewrite_binds(rx, repl)}
 }}'''
 
 
@@ -418,7 +507,147 @@ def graph_size(host, iri):
         raise RuntimeError(f"could not size graph <{iri}>; refusing to guess")
 
 
-def preview(host, rx, needle, repl, limit=6):
+def preview_query(pattern, rx, needle, repl, limit):
+    """The preview SELECT for ONE surface, built from the UPDATE's own parts.
+
+    Same FILTER string, same BIND strings, one graph pattern swapped. That is
+    the entire difference between what this shows and what --apply does, and
+    it is the property the tests assert rather than assume.
+
+    ?o and ?no are selected as well as ?s/?p, because the FILTER now matches
+    on the object: a row whose ONLY carrier is the object IRI -- 908 of them
+    in the default graph for pwg.local -- would otherwise be counted as
+    examined and printed as nothing at all.
+    """
+    return f'''SELECT ?s ?ns ?p ?np ?o ?no WHERE {{
+  {pattern}
+  FILTER({match_filter(needle)})
+  {rewrite_binds(rx, repl)}
+}} LIMIT {limit}'''
+
+
+def _show(v, w=52):
+    # 🔴 TRUNCATE FROM THE RIGHT, NOT THE LEFT.
+    #
+    # This printed the last 46 characters, on the reasoning that the tail is
+    # the opaque per-person identifier and the prefix is the interesting part.
+    # Both halves of that are right and the code did the opposite of what it
+    # concluded: a PREFIX rewrite changes only the head, so tail-truncation
+    # cut off the entire diff. Run against the live store, every `urn:pwg:`
+    # pair printed as two IDENTICAL lines while the rewrite was working
+    # perfectly.
+    #
+    # An operator eyeballing that sees a migration doing nothing. The verdict
+    # line said "every sampled IRI moved" -- computed from the real values --
+    # so the text and the evidence beside it disagreed, and the text was the
+    # one nobody could check.
+    #
+    # Head-first, and the tail elided instead. The customer identifier is what
+    # gets cut, which is also the better privacy default for a migration
+    # report someone may paste into a ticket.
+    return v if len(v) <= w else v[:w] + "..."
+
+
+def graph_sizes(host):
+    """Named graphs WITH their triple counts.
+
+    graphs() returns names only, and names alone cannot answer the one
+    question the MOVE preview has to ask: what is standing where this graph
+    is about to land, and how much of it is there.
+    """
+    out, err, rc = run(host, "/query",
+                       "SELECT ?g (COUNT(*) AS ?n) WHERE"
+                       " { GRAPH ?g { ?s ?p ?o } } GROUP BY ?g",
+                       "application/sparql-query")
+    i = out.find("{")
+    if i < 0:
+        print(f"  GRAPH SIZE PROBE FAILED rc={rc} stderr={err[:200]}")
+        sys.exit(2)
+    return {b["g"]["value"]: int(b["n"]["value"])
+            for b in json.loads(out[i:])["results"]["bindings"]}
+
+
+def preview_graph_names(sizes, rules):
+    """The graph-NAME surface, previewed and folded into the verdict.
+
+    🔴 A GRAPH NAME IS NOT A TRIPLE. No SELECT over ?s ?p ?o can see one, so
+    a preview built entirely out of triple patterns reports a surface it has
+    not looked at -- and it is the surface holding the customer's whole
+    compartment. The live store's one named graph is called
+    `urn:pwg:user/Andy`: a migration could rewrite all 265,087 triples,
+    preview clean, verify clean against a triple-only residue check, and
+    leave `pwg` in the NAME of the container.
+
+    These move by SPARQL MOVE, computed in Python, so the preview is computed
+    in Python too -- by calling new_graph_iri, the same function --apply
+    calls. Counted with a denominator like everything else: N of M graphs
+    carry a rule.
+
+    🔴 AND IT CHECKS WHAT IS STANDING ON THE DESTINATION. `MOVE <a> TO <b>`
+    DROPS <b> FIRST. That is SPARQL 1.1, not an Oxigraph quirk.
+
+    move_graph_stmt's own docstring says overwriting is "correct here only
+    because new_graph_iri is injective and the destination therefore cannot
+    already hold anyone else's data". Injectivity was the wrong property to
+    lean on. It rules out ANOTHER graph landing on the same target; it says
+    nothing about the target ALREADY EXISTING, which is what happens the
+    moment a migration is run twice with a live writer in between.
+
+    Measured on the live Hub store, 2026-08-21 02:46Z, READ ONLY, and this is
+    not hypothetical -- it is the state of the box right now:
+
+        <urn:ostler:user/Andy>   16,577 triples   (migrated, an hour earlier)
+        <urn:pwg:user/Andy>          20 triples   (re-created since, by a
+                                                   writer still on old code)
+
+    A second --apply computes `MOVE <urn:pwg:user/Andy> TO
+    <urn:ostler:user/Andy>`, which DROPS the destination. 16,577 triples --
+    the customer's entire compartment -- are destroyed to make room for 20,
+    and every check downstream then passes: the residue is zero, no graph
+    name carries pwg, and the run reports clean. The before/after total guard
+    WOULD see the drop, but only after the fact, and by then the pre-migration
+    backup has been superseded.
+
+    So the preview refuses it. This is the last screen before the destructive
+    step; a collision found here costs nothing, and found afterwards costs the
+    compartment.
+    """
+    gs = list(sizes)
+    print(f"  GRAPH NAMES -- {len(gs)} named graph(s) exist; no UPDATE can"
+          " rewrite one")
+    if not gs:
+        print("    none. Nothing on this surface to move.")
+        return True
+    carrying = [g for g in gs if any(nd in g for _l, _r, nd, _p in rules)]
+    print(f"    {len(carrying)} of {len(gs)} carry a pwg namespace"
+          f" -- these are MOVEd by name, not rewritten")
+    good = True
+    for g in gs:
+        new = new_graph_iri(g, rules)
+        if new == g:
+            print(f"    --   <{_show(g)}>  ({sizes[g]} triples; no rule fires,"
+                  " left alone)")
+            continue
+        moved = not any(nd in new for _l, _r, nd, _p in rules)
+        collides = new in sizes
+        ok = moved and not collides
+        good = good and ok
+        print(f"    {'ok ' if ok else 'BAD'}  <{_show(g)}>  ({sizes[g]} triples)")
+        print(f"      ->  <{_show(new)}>")
+        if not moved:
+            print("      [FAIL] the new name STILL carries a pwg namespace")
+        if collides:
+            print(f"      [FAIL] DESTINATION ALREADY EXISTS and holds"
+                  f" {sizes[new]} triples. MOVE ... TO DROPS IT FIRST, so"
+                  " --apply would")
+            print(f"             destroy those {sizes[new]} triples to make"
+                  f" room for {sizes[g]}. Merge them by hand, or DROP the"
+                  " source if it is")
+            print("             junk. Do NOT --apply.")
+    return good
+
+
+def preview(host, rx, needle, repl, touching_n, literal_n, limit=6):
     """Run the REWRITE EXPRESSIONS as a SELECT and show old -> new pairs.
 
     WHY THIS AND NOT JUST --apply. This script cannot be rehearsed on the
@@ -433,56 +662,84 @@ def preview(host, rx, needle, repl, limit=6):
     real store and the real SPARQL engine, and returns what WOULD be written
     without writing it. The pairs are eyeballable: if a path moved or a
     fragment vanished it is visible here, before anything is destroyed.
+
+    🔴 AND IT SAYS HOW MUCH OF THE SURFACE IT LOOKED AT. A VERDICT WITH NO
+    DENOMINATOR IS THE FAILURE MODE THIS CODEBASE KEEPS HITTING.
+
+    Six eyeballed rows out of 20,299 candidates is a fine thing to show and a
+    terrible thing to summarise as "every sampled IRI moved" with the sample
+    size left off the screen. The reader supplies the denominator they expect,
+    and the one they expect is "all of it". So both numbers are printed, every
+    time, on the same line: sampled N of POPULATION.
+
+    Returns (good, sampled, population) so the caller can carry the fraction
+    into the verdict instead of re-deriving or, as before, omitting it.
     """
-    q = f'''SELECT ?s ?ns ?p ?np WHERE {{
-  ?s ?p ?o .
-  FILTER(CONTAINS(STR(?s),"{needle}") || CONTAINS(STR(?p),"{needle}"))
-  BIND(IF(isIRI(?s), IRI(REPLACE(STR(?s), "{rx}", "{repl}")), ?s) AS ?ns)
-  BIND(IRI(REPLACE(STR(?p), "{rx}", "{repl}")) AS ?np)
-}} LIMIT {limit}'''
-    out, err, rc = run(host, "/query", q, "application/sparql-query")
-    i = out.find("{")
-    if i < 0:
-        print(f"    PREVIEW FAILED rc={rc}: {(err or out)[:200]}")
-        return False
-    rows = json.loads(out[i:])["results"]["bindings"]
-    if not rows:
-        print("    no rows matched -- the FILTER selected nothing, so an"
-              " --apply here would be a SILENT NO-OP")
-        return False
-    good = True
-    for r in rows[:limit]:
-        for old_k, new_k in (("s", "ns"), ("p", "np")):
-            o = r.get(old_k, {}).get("value", "")
-            n = r.get(new_k, {}).get("value", "")
-            if needle not in o:
-                continue
-            moved = (o != n) and (needle not in n)
-            good = good and moved
-            # 🔴 TRUNCATE FROM THE RIGHT, NOT THE LEFT.
-            #
-            # This printed the last 46 characters, on the reasoning that the
-            # tail is the opaque per-person identifier and the prefix is the
-            # interesting part. Both halves of that are right and the code did
-            # the opposite of what it concluded: a PREFIX rewrite changes only
-            # the head, so tail-truncation cut off the entire diff. Run against
-            # the live store, every `urn:pwg:` pair printed as two IDENTICAL
-            # lines while the rewrite was working perfectly.
-            #
-            # An operator eyeballing that sees a migration doing nothing. The
-            # verdict line said "every sampled IRI moved" -- computed from the
-            # real values -- so the text and the evidence beside it disagreed,
-            # and the text was the one nobody could check.
-            #
-            # Head-first, and the tail elided instead. The customer identifier
-            # is what gets cut, which is also the better privacy default for a
-            # migration report someone may paste into a ticket.
-            def _show(v, w=52):
-                return v if len(v) <= w else v[:w] + "..."
-            print(f"    {'ok ' if moved else 'BAD'}  {_show(o)}")
-            print(f"          ->  {_show(n)}")
-            break
-    return good
+    per_surface = candidates(host, needle)
+    population = sum(n for _label, n in per_surface)
+    breakdown = ", ".join(f"{label} {n}" for label, n in per_surface)
+    print(f"    COVERAGE  {touching_n} triple(s) mention {needle!r} anywhere")
+    print(f"              {population} match the rewrite predicate ({breakdown})")
+    if literal_n:
+        print(f"              {literal_n} carry it ONLY in a literal object"
+              " -- content, left by design, and expected as residue")
+    if touching_n != population + literal_n:
+        print(f"              [warn] {touching_n} - {population} - {literal_n}"
+              f" = {touching_n - population - literal_n} unaccounted; the"
+              " numbers above do not close")
+
+    good, sampled = True, 0
+    for (label, pattern), (_l, n_here) in zip(SURFACES, per_surface):
+        if n_here == 0:
+            print(f"    {label}: 0 candidates, nothing to sample")
+            continue
+        q = preview_query(pattern, rx, needle, repl, limit)
+        out, err, rc = run(host, "/query", q, "application/sparql-query")
+        i = out.find("{")
+        if i < 0:
+            print(f"    PREVIEW FAILED on {label} rc={rc}: {(err or out)[:200]}")
+            good = False
+            continue
+        rows = json.loads(out[i:])["results"]["bindings"]
+        if not rows:
+            # The COUNT said there are candidates and the SELECT returned
+            # none. Same predicate, same surface, same engine, same second --
+            # so this is not "nothing to do", it is the two halves of this
+            # function disagreeing, and it must not read as success.
+            print(f"    [FAIL] {label}: COUNT says {n_here} candidates but the"
+                  " SELECT returned none. Do not --apply on this.")
+            good = False
+            continue
+        print(f"    {label}: sampled {len(rows)} of {n_here}"
+              f" ({100.0 * len(rows) / n_here:.2f}%)")
+        sampled += len(rows)
+        for r in rows[:limit]:
+            shown = False
+            for old_k, new_k in (("s", "ns"), ("p", "np"), ("o", "no")):
+                o = r.get(old_k, {}).get("value", "")
+                n = r.get(new_k, {}).get("value", "")
+                if needle not in o:
+                    continue
+                # A literal object is passed through by design, so it is not
+                # evidence for or against the rewrite firing. Skip it here
+                # rather than scoring it BAD; it is already counted above.
+                if old_k == "o" and r.get("o", {}).get("type") != "uri":
+                    continue
+                moved = (o != n) and (needle not in n)
+                good, shown = good and moved, True
+                print(f"    {'  ok ' if moved else '  BAD'} {old_k}  {_show(o)}")
+                print(f"           ->  {_show(n)}")
+                break
+            if not shown:
+                # The FILTER matched, so SOME term carries the needle, and the
+                # loop above found none of s/p/o carrying it. That is not a
+                # boring row to skip quietly -- it means the printer and the
+                # predicate disagree about what matched, which is exactly the
+                # class of bug that produced a confident empty preview before.
+                print("    [FAIL] a row matched the FILTER but no term shown"
+                      " carries the needle; the preview cannot explain it")
+                good = False
+    return good, sampled, population
 
 
 def main():
@@ -521,14 +778,52 @@ def main():
 
     if args.preview:
         print("\nPREVIEW -- the real rewrite expressions, evaluated, nothing written")
-        allgood = True
+        allgood, tot_sampled, tot_pop = True, 0, 0
         for label, rx, needle, repl in RULES:
-            if before[label][0] == 0:
+            n, lit = before[label]
+            if n == 0:
+                print(f"  {label} -> {repl}\n    COVERAGE  0 triple(s) mention"
+                      f" {needle!r} anywhere; nothing to preview")
                 continue
             print(f"  {label} -> {repl}")
-            allgood = preview(h, rx, needle, repl) and allgood
-        print("  VERDICT:", "every sampled IRI moved" if allgood
-              else "SOMETHING DID NOT MOVE -- do not --apply")
+            ok, sampled, pop = preview(h, rx, needle, repl, n, lit)
+            allgood = ok and allgood
+            tot_sampled += sampled
+            tot_pop += pop
+        # The graph-name surface participates in the verdict. It used to be
+        # printed above the preview and then left out of the conclusion, so a
+        # clean VERDICT was compatible with a compartment still named urn:pwg:.
+        sizes = graph_sizes(h)
+        graphs_moving = sum(1 for g in sizes if new_graph_iri(g, RULES) != g)
+        allgood = preview_graph_names(sizes, RULES) and allgood
+
+        # 🔴 THE DENOMINATOR IS PART OF THE VERDICT, NOT A FOOTNOTE.
+        pct = f"{100.0 * tot_sampled / tot_pop:.2f}%" if tot_pop else "n/a"
+        print()
+        if tot_pop == 0 and graphs_moving == 0:
+            # 🔴 "every sampled IRI moved" OVER ZERO IRIs IS THE SAME
+            # OVER-CLAIM IN ITS PUREST FORM: a success sentence about work
+            # that does not exist. Seen for real -- this store was migrated by
+            # another actor mid-review and the fixed preview promptly printed
+            # `VERDICT: every sampled IRI moved / SAMPLED 0 of 0`. Nothing
+            # about that is false, and an operator would read it as
+            # confirmation the migration is good to run.
+            print("  VERDICT: NOTHING TO MIGRATE. No triple and no graph name"
+                  " carries a pwg namespace.")
+            print("           This is not a statement that the rewrite works."
+                  " It was not exercised.")
+            return 0
+        print(f"  VERDICT: {'every sampled IRI moved' if allgood else 'SOMETHING DID NOT MOVE -- do not --apply'}")
+        print(f"           SAMPLED {tot_sampled} of {tot_pop} candidate"
+              f" triple(s) ({pct}); graph names checked IN FULL"
+              f" ({graphs_moving} of {len(sizes)} move).")
+        if allgood:
+            print("           This is a SAMPLE of the triples. It proves the"
+                  " expressions fire on both")
+            print("           surfaces; it does NOT prove every row moves."
+                  " The control that covers")
+            print("           every row is the before/after total, and it runs"
+                  " during --apply.")
         return 0 if allgood else 1
 
     if not args.apply:
