@@ -370,17 +370,52 @@ def new_graph_iri(old, rules):
     return out
 
 
-def move_graph_stmt(old, new):
-    """MOVE, not DROP+INSERT.
+def graph_transfer_stmts(old, new, dest_count):
+    """Statements that move `old` into `new` WITHOUT destroying `new`.
 
-    MOVE is atomic in the engine and carries every triple; a hand-rolled
-    ADD-then-DROP has a window in which the data exists twice, and a failure
-    between the two halves leaves the store holding both a migrated and an
-    unmigrated copy of the customer's compartment. `TO` overwrites the
-    destination, which is correct here only because new_graph_iri is injective
-    and the destination therefore cannot already hold anyone else's data.
+    🔴 THIS FUNCTION USED TO RETURN A BARE `MOVE <old> TO <new>` AND THAT
+    WOULD HAVE DELETED THE OPERATOR'S ENTIRE COMPARTMENT.
+
+    SPARQL MOVE is defined as: DROP the destination, insert the source into
+    it, drop the source. The old docstring justified that with "new_graph_iri
+    is injective and the destination therefore cannot already hold ANYONE
+    ELSE'S data". Injectivity was never the issue. The destination holds the
+    SAME user's data -- already migrated -- and the sentence reasoned about
+    the wrong owner.
+
+    Measured on this box on 2026-08-21, after the migration had succeeded:
+
+        urn:ostler:user/Andy   16577   <- the migrated compartment
+        urn:pwg:user/Andy         20   <- rewritten since, by a live writer
+
+    install.sh runs this script on EVERY install, including re-runs over an
+    existing volume. The next one would have issued
+    `MOVE <urn:pwg:user/Andy> TO <urn:ostler:user/Andy>`, dropping 16,577
+    triples to make room for 20 -- and every check afterwards would have
+    reported CLEAN, because the residue checks only ask whether OLD-namespace
+    triples remain. They would not. The data would simply be gone.
+
+    So: MOVE only into an empty or absent destination. When the destination is
+    populated this is not a rename, it is a MERGE, and the lossless form is
+    ADD (which does not touch the destination) followed by DROP of the source.
+    That gives up MOVE's atomicity, and that trade is correct: the failure
+    mode of ADD+DROP is a duplicate the next run cleans up, while the failure
+    mode of MOVE is silent, permanent deletion of the customer's graph.
     """
-    return f"MOVE <{old}> TO <{new}>"
+    if dest_count > 0:
+        return [f"ADD <{old}> TO <{new}>", f"DROP GRAPH <{old}>"]
+    return [f"MOVE <{old}> TO <{new}>"]
+
+
+def graph_size(host, iri):
+    """Triples in one named graph. 0 for a graph that does not exist."""
+    rows = run(host, "/query",
+               f"SELECT (COUNT(*) AS ?n) WHERE {{ GRAPH <{iri}> {{ ?s ?p ?o }} }}",
+               "application/sparql-query")[0]
+    try:
+        return int(json.loads(rows)["results"]["bindings"][0]["n"]["value"])
+    except Exception:  # noqa: BLE001 -- unreadable count must not read as empty
+        raise RuntimeError(f"could not size graph <{iri}>; refusing to guess")
 
 
 def preview(host, rx, needle, repl, limit=6):
@@ -589,9 +624,24 @@ def main():
         new = new_graph_iri(g, RULES)
         if new == g:
             continue
-        rc, msg = update(h, move_graph_stmt(g, new))
+        # SIZE THE DESTINATION FIRST. A populated destination means this is a
+        # merge, not a rename, and MOVE would delete it. See
+        # graph_transfer_stmts -- this is the 16,577-triple case.
+        dest_n = graph_size(h, new)
+        stmts = graph_transfer_stmts(g, new, dest_n)
+        verb = "MOVE" if dest_n == 0 else "MERGE"
+        if dest_n:
+            print(f"  MERGE   <{new}> already holds {dest_n} triples, so this is"
+                  " a MERGE, not a rename. Using ADD+DROP; MOVE would have"
+                  " destroyed them.")
+        rc = 0
+        for s in stmts:
+            rc, msg = update(h, s)
+            if rc != 0:
+                print(f"  [FAIL] {s[:60]} rc={rc} {msg}")
+                break
         moved += 1
-        print(f"  MOVE    <{g}>\n       -> <{new}>  rc={rc}"
+        print(f"  {verb:6s}  <{g}>\n       -> <{new}>  rc={rc}"
               f"{'  ' + msg if rc != 0 else ''}")
     if moved == 0:
         print("  MOVE    no graph name carried a pwg namespace")
