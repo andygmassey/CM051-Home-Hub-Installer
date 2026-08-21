@@ -1,8 +1,9 @@
 #!/bin/bash
 # Which hosts does the SHIPPED code actually FETCH?
 #
-# The raw URL sweep is useless on its own: it returns 193 hits for pwg.dev and
-# 92 for w3.org, and neither is ever fetched. Those are RDF namespace URIs --
+# The raw URL sweep is useless on its own: it returns 193 hits for the legacy
+# ontology host and 92 for w3.org, and neither is ever fetched. Those are RDF
+# namespace URIs --
 # identifiers, not addresses. Counting strings that LOOK like URLs is the
 # over-reporting half of the source/sampling problem.
 #
