@@ -1,0 +1,203 @@
+# cut-manifests/v1.0.38.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.38.
+#
+# WHY v1.0.38 EXISTS: THE COMPILER IS THE LAST OLD-NAMESPACE COMPONENT
+# ---------------------------------------------------------------------------
+# The legacy-ontology-host -> `schema.ostler.ai` migration reaches a customer
+# in THREE legs, and two of them already ship on main. The old hosts are named
+# by DESCRIPTION and not spelled out anywhere in this file: the repo keeps a
+# hard zero-occurrence ratchet on them (scripts/verify_no_foreign_ontology_-
+# namespace.sh) and only a file whose JOB is to police or perform that
+# migration earns an exclusion from it. A cut manifest is not in that class --
+# it asserts things about an installer -- so it gets written this way instead.
+# Do not helpfully restore the literals. Measured 2026-08-21 on CM051
+# origin/main fe6fe16, each with a positive control:
+#
+#   store   install.sh:19543-19546 runs migrate_graph_namespace.py --apply
+#           unconditionally, on every install, BEFORE the first writer.  IN
+#   writer  vendor/ostler_fda: schema.ostler.ai 26, legacy ontology host 0,
+#           legacy enrichment host 0 (control: `def ` 318).               IN
+#   reader  the pinned wiki-compiler image, built from CM044 16bc4964:
+#           legacy ontology host 22, schema.ostler.ai 0
+#           (control: `def ` 3465).                                      OUT
+#
+# So v1.0.38 as it stood would migrate the customer's store and then hand it a
+# compiler querying the namespace it had just migrated AWAY from. Every
+# pwg-sourced section -- People, Meetings, Organisations, Conversations,
+# timeline, Related people -- renders EMPTY, and nothing goes red, because a
+# query that matches nothing is indistinguishable from a customer with no data.
+#
+# THE REBUILD REPAIRS A DEFECT; IT DOES NOT CREATE A RISK. That is the whole
+# reason the wiki re-pin is the headline of this cut, and it is the opposite of
+# how launch/GROUNDING.md's HARD PRECONDITION reads if you stop at its title.
+# That precondition was written BEFORE #888 wired the migrator into install.sh,
+# when the store migration was a manual per-box act. It is still correct about
+# the order (migrate, then rebuild); what changed is that the INSTALLER now
+# performs the migration itself, so the two legs ship together or not at all.
+#
+# THE HEADLINE ASSERTION IS A NEGATIVE ONE.
+# The re-pin touches FOUR artefacts, not two: install.sh (x2 lines),
+# scripts/wiki_image_provenance.tsv (x2 appended rows), this manifest, and the
+# cut record. Editing one of two install.sh lines leaves the other live and both
+# stay individually well-formed, so a half-done re-pin is SILENT. The entry that
+# matters most is therefore `v1038-no-v0121-wiki-pin-survives`.
+#
+# EVERY PATTERN BELOW WAS MEASURED ON THE PRE-RE-PIN TREE (fe6fe16) BEFORE
+# BEING WRITTEN, so none of them passes vacuously:
+#
+#   ostler-wiki-compiler@sha256:[0-9a-f]{64}            1 hit
+#   ostler-wiki-site@sha256:[0-9a-f]{64}                1 hit
+#   sha256:(b85bdb6a...|3199413b...)                    2 hits  -> must become 0
+#   ghcr.io/creativemachines-ai/ostler-wiki-...@sha256: 2 hits
+#   migrate_graph_namespace.py                          2 hits
+#   a pin followed by an orphan MediaType:/Digest: tail 0 hits
+#
+# NOT ASSERTED HERE, DELIBERATELY
+# ---------------------------------------------------------------------------
+# 1. That the rebuilt wiki renders non-empty sections on a real box. That is
+#    behaviour, and behaviour is what the box walk is for. GROUNDING is right
+#    that this is "not a routine re-pin": the CM044 delta is THIRTEEN commits
+#    (16bc4964..17e7b3d), not one, so if the image misbehaves there are
+#    thirteen candidate causes. Walk it.
+# 2. That the store is fully migrated. It is not. Measured read-only on the
+#    live store 2026-08-21 05:14Z: Person 6,938 / Meeting 3,845 /
+#    PersonIdentifier 11,261 on schema.ostler.ai, against a residue of 618
+#    enrichment nodes still on the legacy enrichment host (Entity 347, Topic
+#    226, Genre 45) and 13 nodes on the legacy ontology host. The surfaces this
+#    compiler renders are all on the new
+#    namespace, so the residue does not gate the rebuild -- but it is real, it
+#    is tracked post-cut, and it is not asserted clean here.
+# 3. That the daemon moved. It did not; this cut rebuilds no daemon.
+version: v1.0.38
+entries:
+  # --------------------------------------------------------------------------
+  # THE WIKI RE-PIN. Three limbs: shape, namespace, and the negative one.
+  # --------------------------------------------------------------------------
+  - id: v1038-wiki-compiler-pinned-by-a-digest
+    title: install.sh pins the wiki-compiler by an immutable 64-hex digest
+    incident: >-
+      A tag pin (`:0.1.21`) is mutable and resolves to whatever was pushed last, so
+      the same DMG can install two different compilers a week apart. Anchored on the
+      full 64-hex shape rather than on a literal digest so this limb needs no edit at
+      re-pin time and cannot go stale against the cut it is guarding.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-compiler@sha256:[0-9a-f]{64}'
+      must_match: true
+
+  - id: v1038-wiki-site-pinned-by-a-digest
+    title: install.sh pins the wiki-site by an immutable 64-hex digest
+    incident: >-
+      The compiler and the site are pinned on different lines and have drifted apart
+      before. Both must be digest-pinned, and both must come from the same CM044
+      commit or the rendered page template and the compiler that produced it disagree.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-site@sha256:[0-9a-f]{64}'
+      must_match: true
+
+  - id: v1038-no-v0121-wiki-pin-survives
+    title: no v0.1.21 wiki digest is left anywhere in install.sh
+    incident: >-
+      THE LIMB THAT GOES RED ON A HALF-DONE RE-PIN, and the reason this manifest
+      exists at all. b85bdb6a (compiler) and 3199413b (site) are the v0.1.21 pins
+      built from CM044 16bc4964 -- the OLD-namespace compiler. Editing one of the two
+      install.sh lines leaves the other live and both remain individually well-formed,
+      so nothing else surfaces it. Measured at 2 hits on the pre-re-pin tree, so it
+      discriminates rather than passing vacuously, and it must read 0 after the re-pin.
+    proof:
+      kind: grep_in_installer
+      pattern: 'sha256:(b85bdb6acae21800bbd3df8e68cd8f1ee7357aea15430016cb8df6a8202af9cc|3199413b2d3bf3813b1e9bca80bd5f997bbc1a5a6b0eedecc59d6976c039050b)'
+      must_match: false
+
+  - id: v1038-wiki-images-come-from-the-namespace-ci-pushes-to
+    title: both wiki images are pulled from ghcr.io/creativemachines-ai
+    incident: >-
+      Fault 3 in CM044's release_wiki_images.sh header, and it is the quiet one -- CI
+      published to creativemachines-ai while install.sh pinned ostler-ai, so every
+      image built for months went to a namespace the installer never read and NOTHING
+      WENT RED. The stale launch/rebuild_wiki_images.sh in the older HR015 checkout
+      still hard-codes NS=ghcr.io/ostler-ai and still claims in its own comments that
+      the shipping pins are ostler-ai. They are not. Running it would rewrite the
+      digest hex while leaving the namespace, pinning a digest that does not exist
+      where the installer looks, and the customer meets ERR-06-GRAPH-DB-PULL.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ghcr\.io/creativemachines-ai/ostler-wiki-(site|compiler)@sha256:'
+      must_match: true
+
+  - id: v1038-no-orphan-blob-tail-after-a-wiki-pin
+    title: neither wiki pin is followed by an orphan MediaType/Digest tail
+    incident: >-
+      G1/G4. `docker buildx imagetools inspect` output pasted into the compose heredoc
+      leaves `MediaType:` / `Digest:` lines after the `image:` key. The result is
+      invalid YAML, graph_db_start dies on the customer box with
+      ERR-06-GRAPH-DB-PULL, and the pin itself still reads perfectly well-formed to
+      every digest-shaped check. Measured at 0 hits on this tree.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-(compiler|site)@sha256:[0-9a-f]{64}\s*\n\s*(MediaType|Digest):'
+      must_match: false
+
+  # --------------------------------------------------------------------------
+  # THE OTHER TWO LEGS OF THE NAMESPACE COUPLING. Asserted because the wiki
+  # re-pin is only correct while BOTH of these remain true.
+  # --------------------------------------------------------------------------
+  - id: v1038-installer-migrates-the-graph-namespace
+    title: install.sh actually INVOKES the namespace migrator
+    incident: >-
+      CM051 #743 shipped scripts/migrate_graph_namespace.py and NOTHING CALLED IT --
+      a tool nobody runs is a tool that does nothing, and its own commit message said
+      merging it without the call site "breaks every existing box". #888 added the
+      invocation. This asserts the CALL SITE, not the file: a vendored script with no
+      caller is exactly the ships-dark shape, and if this leg regresses the rebuilt
+      new-namespace compiler becomes the WRONG half of the pair rather than the right
+      one. Two hits: the resolved path and the python3 invocation.
+    proof:
+      kind: grep_in_installer
+      pattern: 'migrate_graph_namespace\.py'
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # CARRIED FORWARD. An unchanged claim still has to be measured.
+  # --------------------------------------------------------------------------
+  - id: v1038-payload-carries-the-0458-daemon
+    title: the shipped payload is the hub-v0.4.58 daemon, in lockstep with the Hub app
+    incident: >-
+      This cut rebuilds no daemon, so the pair is re-measured rather than assumed to
+      have stayed together. gui/Makefile DAEMON_VERSION and install.sh's
+      OSTLER_ASSISTANT_VERSION both read 0.4.58, install.sh's
+      DEFAULT_ASSISTANT_TARBALL_SHA256 reads d4f274cb, and the annotated tag
+      hub-v0.4.58 dereferences to 5b7efb00a541. v1.0.29 shipped a version/checksum
+      pair that had come apart and every customer install would have aborted on the
+      installer's own fail-closed checksum, with no gate watching the pair.
+    proof:
+      kind: payload_version_matches_daemon_version
+
+  - id: v1038-hub-app-reaches-the-artefact
+    title: the shipped installer actually carries Ostler.app
+    incident: >-
+      v1018-D668: a missing Hub app was non-fatal, so a Hub-less DMG shipped with
+      every step green. Re-asserted every cut because "the DMG contains the Hub" is
+      only ever true of an artefact somebody opened.
+    proof:
+      kind: file_exists_in_artefact
+      target: daemon-app
+      path: Contents/MacOS/ostler-hub
+
+  - id: v1038-installer-version-stamp
+    title: the shipped OstlerInstaller.app declares 1.0.38
+    incident: >-
+      Task #171 records the pipeline failing to bump CFBundleShortVersionString on a
+      cut, shipping an installer that reports the previous version to the customer and
+      to support. CFBundleVersion moves WITH it, 3700 to 3800, because that is the
+      field SPARKLE COMPARES: an update whose build number is at or below the
+      installed one is skipped SILENTLY. Measured 1.0.37 on the pre-bump tree, so this
+      limb is RED until the version bump lands, which is correct.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: "1.0.38"
