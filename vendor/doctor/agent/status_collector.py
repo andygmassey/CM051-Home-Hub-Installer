@@ -241,6 +241,14 @@ class HydrateMarkerInfo:
     rc: int | None = None
     payload: str = ""
     recorded_at: str = ""
+    # WHY the source had no input, when status=no_data. install.sh writes
+    # `detail=no_app` / `detail=no_export_json` / `detail=zero_payload_
+    # undeclared`, and this field was PARSED and then discarded (HR015 #580):
+    # the loop above reads every key=value pair, and the constructor below
+    # forwarded five of them. So the Doctor had the reason in hand and threw
+    # it away, which is part of why the rule could not tell a customer who
+    # does not use WhatsApp from an import that died.
+    detail: str = ""
 
 
 @dataclass
@@ -870,5 +878,6 @@ def collect_hydrate_markers() -> list[HydrateMarkerInfo]:
             rc=rc,
             payload=fields.get("payload", ""),
             recorded_at=fields.get("recorded_at", ""),
+            detail=fields.get("detail", ""),
         ))
     return out

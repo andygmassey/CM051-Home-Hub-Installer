@@ -29,6 +29,12 @@ from diagnostic_copy import (
     INGEST_EMPTY_DETAIL_FMT,
     INGEST_EMPTY_FIX,
     INGEST_EMPTY_FIX_COMMAND,
+    INGEST_NO_INPUT_TITLE_FMT,
+    INGEST_NO_INPUT_DETAIL_FMT,
+    INGEST_NO_INPUT_DETAIL_NO_APP_FMT,
+    INGEST_NO_INPUT_DETAIL_NO_EXPORT_FMT,
+    INGEST_NO_INPUT_FIX,
+    INGEST_NO_INPUT_FIX_COMMAND,
     INGEST_EMPTY_TITLE_FMT,
     INGEST_KILLED_DETAIL_FMT,
     INGEST_KILLED_FIX,
@@ -1355,6 +1361,27 @@ def _payload_is_all_zero(payload: str) -> bool:
     return bool(counts) and all(v == "0" for v in counts)
 
 
+# The hydrate marker vocabulary, MEASURED on CM051 origin/main install.sh
+# rather than assumed (HR015 #580). Exactly three statuses reach a
+# ~/.ostler/state/hydrate/<source>.done file:
+#
+#   ok        _hydrate_sentinel_record, non-zero payload
+#   no_data   _hydrate_sentinel_record_no_data, and _hydrate_sentinel_record
+#             when the payload is all zeros
+#   error     _hydrate_sentinel_record_error, carries an rc
+#
+# Three other status strings appear in install.sh (no_app, denied,
+# error_empty_result) and NONE of them is written to a hydrate marker: two
+# are inside comments describing the old call shape, one is a gui_emit. That
+# was checked rather than eyeballed, because a first pass counting
+# `status=[a-z_]+` across the file found all six and would have had this
+# rule handling statuses it can never see.
+#
+# no_app and no_export_json are REASONS, carried in `detail`, not statuses.
+HYDRATE_STATUS_NO_INPUT = "no_data"
+HYDRATE_STATUSES_HEALTHY = frozenset({"ok", HYDRATE_STATUS_NO_INPUT})
+
+
 def check_hydrate_ingest(snapshot: Any) -> list[dict]:
     """Surface ingest sources that were killed, or that imported nothing.
 
@@ -1370,18 +1397,60 @@ def check_hydrate_ingest(snapshot: Any) -> list[dict]:
     and the panel said "Everything looks healthy. Nice one." People search and
     browsing had ingested nothing and no surface anywhere said so.
 
-    TWO ARMS, deliberately different severities.
+    THREE ARMS, deliberately different severities.
 
-    1. status != ok. The source was killed. warning.
-    2. status == ok but the payload is all zeros. INFO, not warning, because
-       an empty source is often legitimate (no WhatsApp export, no notes). The
-       point is only that "succeeded" and "did nothing" must not render
-       identically -- the zero-denominator problem.
+    1. status is a FAILURE status. The source was killed. warning.
+    2. status == no_data. The source RAN and found no input. INFO.
+    3. status == ok but the payload is all zeros. INFO, because an empty
+       source is often legitimate. The point is only that "succeeded" and
+       "did nothing" must not render identically -- the zero-denominator
+       problem.
+
+    ARM 1 TESTS FOR FAILURE, NOT FOR NOT-SUCCESS (HR015 #580). It used to
+    read `m.status != "ok"`, which is not the same predicate and was wrong
+    on a healthy box. install.sh writes exactly three hydrate statuses,
+    measured on CM051 origin/main rather than assumed:
+
+        ok        the source imported something
+        no_data   the source RAN and THE INPUT WAS NOT THERE
+        error     the source failed, with an rc
+
+    `no_data` is written by _hydrate_sentinel_record_no_data, whose own
+    comment calls the condition transient and explicitly not a failure, and
+    by _hydrate_sentinel_record when a payload is all zeros. Treating it as
+    a kill produced four warnings on a clean box -- no WhatsApp installed,
+    an FDA export not yet landed -- each claiming an import "stopped before
+    it completed" when it had run fine. Four confident false statements is
+    worse than the silence this rule replaced, because silence does not
+    send anyone looking for a fault that is not there.
+
+    WHY A SET AND NOT `== "error"`. A status this rule has never seen must
+    not be silently absorbed into the healthy path: that is how the original
+    defect would recur in the other direction. Anything not recognised as a
+    success or a no-input outcome is treated as a failure, so a new status
+    added upstream surfaces loudly rather than vanishing.
     """
     findings = []
     for m in getattr(snapshot, "hydrate_markers", None) or []:
         source = (m.source or "").replace("_", " ") or "An import"
-        if m.status and m.status != "ok":
+        if m.status == HYDRATE_STATUS_NO_INPUT:
+            reason = (m.detail or "").strip()
+            if reason == "no_app":
+                detail = INGEST_NO_INPUT_DETAIL_NO_APP_FMT.format(source=source)
+            elif reason == "no_export_json":
+                detail = INGEST_NO_INPUT_DETAIL_NO_EXPORT_FMT.format(source=source)
+            else:
+                detail = INGEST_NO_INPUT_DETAIL_FMT.format(source=source)
+            findings.append({
+                "severity": "info",
+                "title": INGEST_NO_INPUT_TITLE_FMT.format(source=source),
+                "detail": detail,
+                "fix": INGEST_NO_INPUT_FIX,
+                "fix_command": INGEST_NO_INPUT_FIX_COMMAND,
+                "risk": "low",
+                "category": "ingest",
+            })
+        elif m.status and m.status not in HYDRATE_STATUSES_HEALTHY:
             timed_out = m.rc in (124, 137)
             findings.append({
                 "severity": "warning",
