@@ -2601,6 +2601,32 @@ deferrals:
       a bad trade. Its base #226 is merged; only this sits.
     until_cut: "v1.0.39"
 
+  # THE SPELLING THE GATE ACTUALLY CONSULTS. Third occurrence in this file.
+  # The row below is keyed "daemon:#315"; the orphan gate enumerates daemon
+  # refs by BRANCH NAME, so a PR-number key is a row nothing ever asks about,
+  # and a deferral nothing asks about holds nothing. The v1.0.38 cut job went
+  # RED on exactly this: [RED] daemon:fix/preferences-copy-no-internals, with
+  # the PR-number row sitting right there looking like coverage.
+  #
+  # The daemon:fix/settings-preferences-ia row at the top of this file already
+  # says "I GOT THIS WRONG ONCE ALREADY IN THIS SAME FILE" about daemon:#313.
+  # It has now cost three cuts. Same work, same reason, same expiry as #315 --
+  # this row exists ONLY so the key matches what the gate can generate.
+  - ref: daemon:fix/preferences-copy-no-internals
+    reason: >-
+      BRANCH-NAME TWIN of the "daemon:#315" row below; read that one for the
+      full reasoning. Rewrites the Preferences "Coming soon" block, which
+      ships literal strings naming an internal env var, an internal config
+      filename and an unbuilt internal API as customer copy. Confirmed COPY
+      not values -- zero interpolation, so no operator data is rendered and
+      this is cosmetic, not an exposure. STRUCTURALLY CANNOT MERGE INTO THIS
+      CUT: DAEMON_COMMIT=8ba3e948edf9 IS ostler-assistant origin/main HEAD
+      exactly, so merging moves main off the pin and flips the daemon
+      freshness row FRESH -> RED STALE:+1, demanding a fresh signed and
+      notarised 0.4.61 or a false hold_ack. Rides the next daemon cut with
+      #313, #315 and #663.
+    until_cut: "v1.0.39"
+
   - ref: "daemon:#315"
     reason: >-
       Rewrites the Preferences "Coming soon" block, which ships
