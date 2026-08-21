@@ -27,7 +27,7 @@
 #   scripts/post_walk_qa.sh <box-host> [cut-version]
 #
 #   scripts/post_walk_qa.sh andy@192.0.2.10
-#   scripts/post_walk_qa.sh andy@my-mini.local v1.0.38
+#   scripts/post_walk_qa.sh <user>@<hub-host> v1.0.38
 #
 # <box-host> is anything ssh accepts. It is REQUIRED and there is deliberately
 # no default: a suite that silently falls back to "this machine" is how the

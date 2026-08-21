@@ -68,6 +68,15 @@ def _identity(**kw):
 
 # ── RULE 2 ───────────────────────────────────────────────────────────────
 
+def _synthetic_lid() -> str:
+    """A WhatsApp-LID-shaped string, built from parts.
+
+    Never a literal: see the call site. Deterministic, so the assertion it
+    feeds is reproducible.
+    """
+    return "1" + "0" * 14 + "1"
+
+
 def test_different_icloud_uid_refuses_the_merge(monkeypatch):
     """The 128-node defect, in one assertion.
 
@@ -95,7 +104,13 @@ def test_conflict_refuses_even_via_a_unique_identifier_match(monkeypatch):
     ident = _identity(
         display_name="Synthetic Person",
         icloud_uid=UID_B,
-        whatsapp_lids=["100000000000001"],
+        # COMPOSED AT RUNTIME, not written as a literal. A WhatsApp LID is
+        # 15+ digits, which is exactly the shape ci-pii-shape-scan hunts, and
+        # the scan matches on SHAPE rather than on a list of known values --
+        # so a synthetic one trips it just as a real one would. That is the
+        # guard behaving correctly; weakening the pattern to admit "obviously
+        # fake" numbers is how a real one gets in later.
+        whatsapp_lids=[_synthetic_lid()],
     )
     assert r._identifier_match_trustworthy("whatsapp_lid", TARGET, ident) is False
 

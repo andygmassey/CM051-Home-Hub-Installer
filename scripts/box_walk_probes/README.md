@@ -8,7 +8,7 @@ human walking the box cannot answer by looking.
 ```sh
 scripts/post_walk_qa.sh <box-host> [cut-version]
 
-scripts/post_walk_qa.sh andy@my-mini.local v1.0.38
+scripts/post_walk_qa.sh <user>@<hub-host> v1.0.38
 ```
 
 **`scripts/post_walk_qa.sh` is the post-walk QA suite.** It is the single entry

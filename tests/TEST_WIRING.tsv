@@ -43,6 +43,7 @@ test_browsing_ingest_ensures_collection.py	UNWIRED	-
 test_bundle_phase_declares_every_copy.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_calendar_attendee_resolve_before_create.py	UNWIRED	-
 test_calendar_hydrate_venv.sh	UNWIRED	-
+test_canonical_keys_must_not_merge.py	WIRED	.github/workflows/vendor-integrity.yml
 test_cm048_prompts_packaged.sh	UNWIRED	-
 test_cm048_settings_models_wired.sh	UNWIRED	-
 test_colima_autostart_mechanism.sh	WIRED	.github/workflows/colima-autostart.yml
@@ -182,6 +183,7 @@ test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.
 test_ollama_install_path_contract.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_ollama_user_active.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_orphan_gate_cannot_verify.sh	WIRED	.github/workflows/cut.yml
+test_osascript_dialogs_activate_system_events.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_ostler_gui_sudo_gates.sh	UNWIRED	-
 test_parser_claims_do_not_cross_services.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
