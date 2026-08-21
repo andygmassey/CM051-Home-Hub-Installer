@@ -1942,7 +1942,11 @@ notarise-hub: guard-local-cut check-tools
 	        echo "ERROR: Hub notarisation status is '$$STATUS' (not Accepted)." >&2; \
 	        echo "  notarytool EXITS 0 even when the verdict is Invalid, so the status" >&2; \
 	        echo "  must be read explicitly -- an exit-code check alone passes a rejection." >&2; \
-	        echo "  Log:  xcrun notarytool log $$SUBID --keychain-profile $(NOTARY_PROFILE)" >&2; \
+	        echo "" >&2; \
+	        echo "--- Apple's rejection log for $$SUBID ---" >&2; \
+	        xcrun notarytool log "$$SUBID" --keychain-profile "$(NOTARY_PROFILE)" >&2 2>&1 \
+	          || echo "  (could not fetch the log -- credentials or network)" >&2; \
+	        echo "--- end rejection log ---" >&2; \
 	        exit 1; \
 	    fi; \
 	    printf '[STEP] Stapling the ticket into Ostler.app\n'; \
@@ -2049,7 +2053,11 @@ staple-apps: guard-local-cut check-tools
 	if [ "$$STATUS" != "Accepted" ]; then \
 	    echo "ERROR: round-2 notarisation status '$$STATUS' (not Accepted)." >&2; \
 	    echo "  notarytool EXITS 0 on a rejection -- the status must be read." >&2; \
-	    echo "  Log:  xcrun notarytool log $$SUBID --keychain-profile $(NOTARY_PROFILE)" >&2; \
+	    echo "" >&2; \
+	    echo "--- Apple's rejection log for $$SUBID ---" >&2; \
+	    xcrun notarytool log "$$SUBID" --keychain-profile "$(NOTARY_PROFILE)" >&2 2>&1 \
+	      || echo "  (could not fetch the log -- credentials or network)" >&2; \
+	    echo "--- end rejection log ---" >&2; \
 	    exit 1; \
 	fi
 	$(STEP) "Round 2: stapling the outer .app"
