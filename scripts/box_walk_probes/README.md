@@ -3,6 +3,48 @@
 Automated checks that run against a freshly installed Hub and answer questions a
 human walking the box cannot answer by looking.
 
+## ▶ AFTER A DMG WALK, RUN THIS ONE COMMAND
+
+```sh
+scripts/post_walk_qa.sh <box-host> [cut-version]
+
+scripts/post_walk_qa.sh andy@my-mini.local v1.0.38
+```
+
+**`scripts/post_walk_qa.sh` is the post-walk QA suite.** It is the single entry
+point that joins the two halves that existed separately and were never invoked
+together:
+
+| half | what it checks |
+|---|---|
+| `run_box_walk.sh` | the 13 probes below, each with a negative control first |
+| `verify_cut_manifest.py --require-runtime-proofs` | the cut's manifest rows, re-driven against the real box |
+
+Exit codes, and the middle one is the point:
+
+| rc | meaning |
+|---|---|
+| 0 | clean walk — everything ran, everything passed |
+| 1 | at least one real FAIL |
+| **2** | **PARTIAL — nothing failed, but not everything ran. Coverage was LOST. Not a pass.** |
+| 3 | usage error, or the box was unreachable (nothing was measured) |
+
+`<box-host>` is required and there is no default. A suite that silently falls
+back to "this machine" is how `installed_bundle_seal_intact` once ran its
+self-test on the wrong computer, found no Ostler bundles, and reported BROKEN
+instead of a verdict.
+
+**Why this file had to be written.** #719: nothing invoked `run_box_walk.sh` at
+all. #713: every `box_walk_probe` manifest row had ALWAYS returned SKIP, and
+SKIP does not fail a cut. The suite was not missing — it was **built and dark**,
+which is why a human kept finding things by hand instead.
+
+⚠️ The suite **writes**: `people_seed_and_retrieval` seeds a synthetic person
+into the live store and cleans up on the happy path only (#829). Do not run it
+against a box mid-demo.
+
+---
+
 ```sh
 # on the box
 ./run_box_walk.sh
