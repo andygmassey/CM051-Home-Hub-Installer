@@ -496,6 +496,66 @@ def graph_transfer_stmts(old, new, dest_count):
     return [f"MOVE <{old}> TO <{new}>"]
 
 
+def transfer_graphs(h):
+    """The graph-name arm. EXTRACTED SO ITS WIRING CAN BE TESTED.
+
+    🔴 THIS FUNCTION EXISTS BECAUSE THE TESTS ON #916 COULD NOT SEE THE BUG
+    THEY WERE WRITTEN TO PREVENT.
+
+    #916 fixed `graph_transfer_stmts` (never MOVE into a populated
+    destination) and `graph_size` (raise rather than guess 0), and shipped ten
+    tests, five of which went red against the old behaviour. Archie's
+    adversarial reviewer then left BOTH of those functions byte-identical and
+    changed exactly one line of the wiring in `main()`:
+
+        -   dest_n = graph_size(h, new)
+        +   dest_n = 0
+
+    **The full data-destroying behaviour came back and the suite reported
+    33 passed.** Reproduced here before this was written, not taken on report.
+
+    The tests asserted on the PARTS. Nothing asserted that the parts were
+    connected, because the connection lived in a 900-line `main()` that no
+    test could drive. A guard that is wired in by inspection only is the same
+    defect class the guard itself was written to remove.
+
+    So the loop moves out here, where a test can stub `graphs`, `graph_size`
+    and `update` and assert on the statements actually emitted. Behaviour is
+    unchanged -- this is an extraction, not a rewrite.
+
+    Returns (moved, stmts) so callers and tests read the same values the
+    operator is shown.
+    """
+    moved, emitted = 0, []
+    for g in graphs(h):
+        new = new_graph_iri(g, RULES)
+        if new == g:
+            continue
+        # SIZE THE DESTINATION FIRST. A populated destination means this is a
+        # merge, not a rename, and MOVE would delete it. See
+        # graph_transfer_stmts -- this is the 16,577-triple case.
+        dest_n = graph_size(h, new)
+        stmts = graph_transfer_stmts(g, new, dest_n)
+        verb = "MOVE" if dest_n == 0 else "MERGE"
+        if dest_n:
+            print(f"  MERGE   <{new}> already holds {dest_n} triples, so this is"
+                  " a MERGE, not a rename. Using ADD+DROP; MOVE would have"
+                  " destroyed them.")
+        rc, msg = 0, ""
+        for s in stmts:
+            emitted.append(s)
+            rc, msg = update(h, s)
+            if rc != 0:
+                print(f"  [FAIL] {s[:60]} rc={rc} {msg}")
+                break
+        moved += 1
+        print(f"  {verb:6s}  <{g}>\n       -> <{new}>  rc={rc}"
+              f"{'  ' + msg if rc != 0 else ''}")
+    if moved == 0:
+        print("  MOVE    no graph name carried a pwg namespace")
+    return moved, emitted
+
+
 def graph_size(host, iri):
     """Triples in one named graph. 0 for a graph that does not exist."""
     rows = run(host, "/query",
@@ -914,32 +974,7 @@ def main():
               f"{'  ' + (msg or msgg) if (rc or rcg) else ''}")
 
     # GRAPH NAMES, WHICH NO UPDATE ABOVE COULD HAVE TOUCHED.
-    moved = 0
-    for g in graphs(h):
-        new = new_graph_iri(g, RULES)
-        if new == g:
-            continue
-        # SIZE THE DESTINATION FIRST. A populated destination means this is a
-        # merge, not a rename, and MOVE would delete it. See
-        # graph_transfer_stmts -- this is the 16,577-triple case.
-        dest_n = graph_size(h, new)
-        stmts = graph_transfer_stmts(g, new, dest_n)
-        verb = "MOVE" if dest_n == 0 else "MERGE"
-        if dest_n:
-            print(f"  MERGE   <{new}> already holds {dest_n} triples, so this is"
-                  " a MERGE, not a rename. Using ADD+DROP; MOVE would have"
-                  " destroyed them.")
-        rc = 0
-        for s in stmts:
-            rc, msg = update(h, s)
-            if rc != 0:
-                print(f"  [FAIL] {s[:60]} rc={rc} {msg}")
-                break
-        moved += 1
-        print(f"  {verb:6s}  <{g}>\n       -> <{new}>  rc={rc}"
-              f"{'  ' + msg if rc != 0 else ''}")
-    if moved == 0:
-        print("  MOVE    no graph name carried a pwg namespace")
+    transfer_graphs(h)
 
     after_total = total(h)
     print(f"\nCONTROL  total triples after: {after_total}  (before {before_total})")

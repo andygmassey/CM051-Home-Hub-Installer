@@ -534,6 +534,87 @@ def test_candidates_uses_the_update_predicate_on_each_surface():
     assert "GRAPH ?g" in seen[1] and "GRAPH" not in seen[0]
 
 
+# ===========================================================================
+# THE WIRING. BOTH OF THESE EXIST BECAUSE MY OWN #916 TESTS COULD NOT SEE THE
+# BUG THEY WERE WRITTEN TO PREVENT.
+#
+# Archie's adversarial reviewer left `graph_transfer_stmts` and `graph_size`
+# BYTE-IDENTICAL and changed one line of wiring:
+#
+#     -   dest_n = graph_size(h, new)
+#     +   dest_n = 0
+#
+# The full data-destroying behaviour returned and the suite printed 33 passed.
+# Reproduced by me before writing these, against the merged code, not taken on
+# report.
+#
+# I tested the PARTS and asserted nothing about their CONNECTION, because the
+# connection lived inside a 900-line main() no test could drive. That is the
+# same defect class as the guard the tests were guarding: a control that
+# cannot fire. `transfer_graphs` was extracted so these two can exist.
+# ===========================================================================
+
+def _drive_transfer(dest_count, capture):
+    """Run the real transfer loop with the store stubbed out.
+
+    Only `graphs`, `graph_size` and `update` are replaced. `new_graph_iri`,
+    `graph_transfer_stmts` and the branch logic are the REAL ones -- the point
+    is to exercise the wiring, so stubbing any of those would defeat it.
+    """
+    real = (M.graphs, M.graph_size, M.update)
+    M.graphs = lambda h: [REAL_OLD]
+    M.graph_size = lambda h, iri: dest_count
+    M.update = lambda h, s: (capture.append(s) or (0, ""))
+    try:
+        return M.transfer_graphs("local")
+    finally:
+        M.graphs, M.graph_size, M.update = real
+
+
+def test_THE_CALL_SITE_ACTUALLY_SIZES_THE_DESTINATION():
+    """🔴 THE ONE THE ADVERSARY FOUND. Ten passing tests missed this.
+
+    With `dest_n = 0` hardcoded at the call site, the `graph_size` stub below
+    is never consulted, the MOVE arm fires, and the operator's compartment is
+    destroyed -- while every other test in this file stays green.
+    """
+    seen = []
+    _drive_transfer(MIGRATED_COMPARTMENT, seen)
+    assert seen == [
+        f"ADD <{REAL_OLD}> TO <{REAL_NEW}>",
+        f"DROP GRAPH <{REAL_OLD}>",
+    ], (
+        f"the transfer loop emitted {seen!r}. If that is a bare MOVE, the call "
+        "site is not consulting graph_size and the guard is decorative."
+    )
+    assert not any(s.startswith("MOVE") for s in seen)
+
+
+def test_the_call_site_still_MOVEs_when_the_destination_is_empty():
+    """The control. Proves the test above fails for the RIGHT reason -- it is
+    detecting a missing size call, not simply banning MOVE everywhere."""
+    seen = []
+    _drive_transfer(0, seen)
+    assert seen == [f"MOVE <{REAL_OLD}> TO <{REAL_NEW}>"], seen
+
+
+def test_the_count_query_is_GRAPH_SCOPED_not_merely_graph_MENTIONING():
+    """🔴 THE SECOND GAP. My original assertion was `REAL_NEW in stub.body`.
+
+    A query that NAMES the graph but is not scoped to it -- e.g. a bare
+    `?s ?p ?o` with the IRI only in a FILTER -- satisfies that and returns 0
+    for a populated named graph on this store. Zero routes straight to MOVE.
+    So assert the SCOPING construct, not the presence of the string.
+    """
+    stub = _StubRun(_count_json(MIGRATED_COMPARTMENT))
+    _with_stub_run(stub, lambda: graph_size("local", REAL_NEW))
+    assert f"GRAPH <{REAL_NEW}>" in stub.body, (
+        f"count query is not scoped to the graph:\n{stub.body}\n"
+        "A default-graph count returns 0 for a populated named graph, and 0 "
+        "is the exact input that reaches the MOVE arm."
+    )
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):
