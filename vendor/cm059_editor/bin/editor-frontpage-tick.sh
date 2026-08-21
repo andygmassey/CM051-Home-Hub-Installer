@@ -6,10 +6,32 @@
 # com.creativemachines.ostler.editor-frontpage.plist (hourly by default,
 # RunAtLoad fires one emit at install so the Dashboard is never blank).
 #
-# What it does (single, cheap, read-only step):
-#   1. Re-compile the interest profile from the live PWG graph (one
+# What it does (two cheap, read-only steps):
+#   1. Emit the stable interest-profile artefact to
+#      ~/.ostler/preferences/interest_profile.json. This is what the Hub
+#      serves at /api/v1/preferences and therefore what the assistant's
+#      `pwg_preferences` tool reads -- the "what do I like?" question.
+#   2. Re-compile the interest profile from the live PWG graph (one
 #      read-only SPARQL SELECT against Oxigraph on 127.0.0.1:7878) and
 #      re-emit ~/.ostler/editor/front_page.{json,html} atomically.
+#
+# WHY STEP 1 EXISTS, measured on a fresh v1.0.38 box 2026-08-21:
+#   This tick ran hourly, exited 0, and logged "12 cards (phase=steady)"
+#   every time -- while /api/v1/preferences returned {"interests":[],
+#   "count":0} over a Qdrant `preferences` collection holding 9,879 points.
+#   Writer and reader disagreed on the path and BOTH reported success:
+#     writer (step 2)  -> ~/.ostler/editor/front_page.json          EXISTS
+#     reader (the Hub) -> ~/.ostler/preferences/interest_profile.json  ABSENT
+#   ical-server.py resolves OSTLER_INTEREST_PROFILE > OSTLER_PREFERENCES_DIR/
+#   interest_profile.json > the default, and its comment says that mirrors
+#   "the CM059 emitter exactly" -- which was true of compiler/emit_artefact.py.
+#   Nothing invoked it. The emitter was correct, vendored faithfully, and dark.
+#   Running it by hand on that box turned count:0 into count:495 with no other
+#   change, which is the whole proof this step is the fix.
+#
+#   An absent artefact and an empty profile are the SAME branch in the reader
+#   (both yield count:0), so this could never surface as an error -- only as an
+#   assistant that says "I do not have personal knowledge about you".
 #
 # The Hub/app Dashboard's <FrontPageCards> reads front_page.json via the
 # get_front_page Tauri command; this tick is the producer that keeps that
@@ -115,5 +137,33 @@ export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost}"
 
 log "Editor front-page tick start (recompiling interest profile -> front_page.json)"
 cd "$SOURCE_DIR"
+
+# --- Step 1: the interest-profile artefact the Hub actually serves -----
+# DELIBERATELY NON-FATAL, and the ordering matters. This step is new; the
+# front-page emit below has worked on every box since it shipped. Under
+# `set -e` a hard failure here would take the working surface down with the
+# new one, so a failure is logged and stepped over. The reverse ordering
+# (front page first) was rejected: the artefact is the one the ASSISTANT
+# reads, so it gets first call on the tick's budget, and the front page is
+# unaffected either way because the two writes touch different files.
+#
+# Guarded on the file existing so a tick running against an older staged
+# tree degrades to previous behaviour instead of erroring every hour.
+if [ -f "$SOURCE_DIR/compiler/emit_artefact.py" ]; then
+    # rc captured explicitly: `$?` read inside an if/else branch reports the
+    # branch's own last command, not the condition's, and that misreports the
+    # failure in the log line -- the exact class of wrong-surface reporting
+    # this fix exists to remove.
+    _artefact_rc=0
+    PYTHONPATH="$SOURCE_DIR" "$PYTHON_BIN" -m compiler.emit_artefact \
+        --oxigraph "$OSTLER_OXIGRAPH_URL" || _artefact_rc=$?
+    if [ "$_artefact_rc" -ne 0 ]; then
+        log "interest-profile artefact emit failed (rc=${_artefact_rc}); /api/v1/preferences will keep serving the previous artefact, or count:0 if this is a first run. Front page emit continues."
+    fi
+else
+    log "compiler/emit_artefact.py not in the staged tree; skipping the interest-profile artefact (staged tree predates it)."
+fi
+
+# --- Step 2: the Dashboard front page (unchanged) ----------------------
 PYTHONPATH="$SOURCE_DIR" "$PYTHON_BIN" -m compiler.emit_frontpage --oxigraph "$OSTLER_OXIGRAPH_URL"
 log "Editor front-page tick complete"
