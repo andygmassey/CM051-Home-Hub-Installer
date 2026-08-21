@@ -443,6 +443,56 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         return 0
     }
 
+    # ── the fda venv, which the upgrade path never repaired (HR015 #595) ──
+    #
+    # CM051 #939 fixed a missing `ostler_fda` in the promoted venv. That repair
+    # lives in _ostler_repair_venv_after_promote, called from
+    # _ostler_promote_prelaunch_tree at ~line 3495 -- and THIS block always
+    # exits before reaching it. So #939 fixed new installs and nothing else,
+    # and every machine already on a bad version kept a frozen graph
+    # permanently, updates included.
+    #
+    # Measured on origin/main before this change: inside this block
+    # `ostler_fda` appeared 0 times, against a whole-file control of 101.
+    #
+    # It CANNOT call the promote-side function: that is defined ~1300 lines
+    # below, and bash needs a definition executed before the call. Hence a
+    # self-contained limb rather than a shared helper.
+    #
+    # IDEMPOTENT AND NON-FATAL, both deliberately. An upgrade is not the place
+    # to hard-fail on a Python environment: the daemon swap has already
+    # succeeded by the time this runs, and taking the whole upgrade down to fix
+    # an ingest module would trade a frozen graph for a rolled-back Hub.
+    _upg_repair_fda_venv() {
+        local _venv="${_UPG_OSTLER_DIR}/.venv"
+        local _py="${_venv}/bin/python3"
+        local _pkg="${_UPG_OSTLER_DIR}/fda-module/ostler_fda"
+
+        [[ -x "$_py" ]] || { _upg_log "fda venv repair: no interpreter at ${_py}; skipping"; return 0; }
+        [[ -d "$_pkg" ]] || { _upg_log "fda venv repair: no package at ${_pkg}; skipping"; return 0; }
+
+        # ASK THE INTERPRETER THE TICK ACTUALLY USES. Not "is there a
+        # site-packages entry", not "did pip exit 0" -- the question that
+        # matters is whether com.ostler.fda-rerun's own python can import the
+        # module, because that is the thing that was failing hourly.
+        if "$_py" -c 'import ostler_fda.identifier_quality' >/dev/null 2>&1; then
+            _upg_log "fda venv repair: ostler_fda already imports; nothing to do"
+            return 0
+        fi
+
+        _upg_log "fda venv repair: ostler_fda does NOT import under ${_py}; installing"
+        "${_venv}/bin/pip" install --quiet -e "$_pkg" \
+            >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || true
+
+        # RE-ASK, rather than trusting pip's exit code. Same reason as above.
+        if "$_py" -c 'import ostler_fda.identifier_quality' >/dev/null 2>&1; then
+            _upg_log "fda venv repair: OK, ostler_fda now imports"
+        else
+            _upg_log "WARN: fda venv repair FAILED; com.ostler.fda-rerun will keep failing and the graph will not grow. See HR015 #595."
+        fi
+        return 0
+    }
+
     _upg_do_upgrade() {
         _upg_log "=== OSTLER_UPGRADE_MODE start ==="
         [[ -n "$_UPG_PAYLOAD" ]] || _upg_die 10 "OSTLER_UPGRADE_PAYLOAD_DIR not set"
@@ -504,6 +554,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         _upg_refresh_doctor
         _upg_refresh_knowledge
         _upg_refresh_cm048
+        _upg_repair_fda_venv
         launchctl kickstart -k "${_UPG_DOMAIN}/com.ostler.doctor" 2>/dev/null || true
 
         # (7) Write VERSION last, as the success marker the Hub reads.

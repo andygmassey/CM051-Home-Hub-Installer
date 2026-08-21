@@ -85,3 +85,18 @@ jobs:
 
       - name: Upgrade-mode invariants (31 assertions, incl. rollback + no-stdin-hang)
         run: /bin/bash tests/test_upgrade_mode_invariants.sh
+
+      # The upgrade path must REPAIR the fda venv, not just swap the daemon.
+      #
+      # CM051 #939 fixed a missing ostler_fda in the PROMOTED venv. The upgrade
+      # block exits ~3000 lines before the promote, so #939 reached new
+      # installs only and every already-installed box kept a frozen graph
+      # permanently, updates included (HR015 #595).
+      #
+      # Behavioural: extracts the real function and runs it against a real venv
+      # and a package laid out the way the shipped one is. Needs python3.11+
+      # for PEP 660 editables and reports CANNOT-RUN (exit 2) rather than
+      # passing if it cannot find one.
+      - name: the upgrade repairs the fda venv (HR015 #595)
+        if: always()
+        run: /bin/bash tests/test_upgrade_repairs_the_fda_venv.sh
