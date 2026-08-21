@@ -199,7 +199,15 @@ jobs:
           # so without this line the test ERRORS on collection and the job goes
           # red for a missing dependency rather than for a real merge defect --
           # which reads as "RULE 2 is broken" to anyone skimming.
-          python3 -m pip install --quiet rapidfuzz
+          # pytest AND rapidfuzz, and neither is optional here.
+          #   pytest    this test uses the `monkeypatch` fixture, so it is not
+          #             runnable as a plain script the way every other python
+          #             test in this workflow is. No job here had pytest.
+          #   rapidfuzz the vendored resolver imports it transitively via
+          #             identity_resolver.normalise.
+          # Without either, the job fails on a collection error that reads as
+          # "RULE 2 is broken" rather than as a missing dependency.
+          python3 -m pip install --quiet pytest rapidfuzz
           python3 -m pytest -q tests/test_canonical_keys_must_not_merge.py
 
       # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
