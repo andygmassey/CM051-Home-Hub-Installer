@@ -200,15 +200,26 @@ jobs:
           # so without this line the test ERRORS on collection and the job goes
           # red for a missing dependency rather than for a real merge defect --
           # which reads as "RULE 2 is broken" to anyone skimming.
-          # pytest AND rapidfuzz, and neither is optional here.
-          #   pytest    this test uses the `monkeypatch` fixture, so it is not
-          #             runnable as a plain script the way every other python
-          #             test in this workflow is. No job here had pytest.
-          #   rapidfuzz the vendored resolver imports it transitively via
-          #             identity_resolver.normalise.
-          # Without either, the job fails on a collection error that reads as
-          # "RULE 2 is broken" rather than as a missing dependency.
-          python3 -m pip install --quiet pytest rapidfuzz
+          # THE WHOLE DEPENDENCY CLOSURE, DERIVED STATICALLY, NOT DISCOVERED
+          # ONE CI ROUND-TRIP AT A TIME.
+          #
+          #   pytest        the test uses the `monkeypatch` fixture, so unlike
+          #                 every other python test in this workflow it cannot
+          #                 run as a plain script. No job here had pytest.
+          #   rapidfuzz     imported by identity_resolver.normalise
+          #   httpx         imported by identity_resolver.resolver at line 9
+          #   phonenumbers  imported elsewhere in the same package
+          #
+          # The first three were each found by pushing and watching the job
+          # fail, which is a four-minute round trip to learn one name. The set
+          # was then derived in one pass by listing every top-level import
+          # across the package and the test and subtracting
+          # sys.stdlib_module_names -- which is how phonenumbers was caught
+          # BEFORE it cost a fourth round.
+          #
+          # A missing dep here fails on a collection error that reads as
+          # "RULE 2 is broken" to anyone skimming, not as a missing module.
+          python3 -m pip install --quiet pytest rapidfuzz httpx phonenumbers
           python3 -m pytest -q tests/test_canonical_keys_must_not_merge.py
       # The Front Page tick must invoke the interest-profile emitter.
       #
