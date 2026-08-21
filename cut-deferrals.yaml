@@ -2577,7 +2577,8 @@ deferrals:
       exactly the failure cuts/v1.0.38/cut.env describes. DEFERRED, and the
       reason is a measurement rather than a preference: THE MIGRATION HAS
       ALREADY RUN AND BEEN COUNTED -- 2026-08-21 02:43Z, 265,127 triples, count
-      identical either side, pwg.dev / urn:pwg: / pwg.local all to 0, backup at
+      identical either side, the legacy ontology host, the legacy URN stem and
+      the legacy local domain all driven to 0, backup at
       the operator's pre-migration .nq snapshot. All three legs also ship in
       this DMG (install.sh migrates every install before the first writer; the
       pinned compiler at CM044 9af6eca binds schema.ostler.ai; the vendored
@@ -2656,6 +2657,13 @@ deferrals:
   # limb. Rows rather than local deletions because one of them is checked out
   # in a live worktree and a cut must not yank a branch out from under one.
   #
+  # THE LEGACY NAMESPACES ARE NAMED BY DESCRIPTION, NEVER SPELLED OUT.
+  # scripts/verify_no_foreign_ontology_namespace.sh holds a HARD zero-occurrence
+  # ratchet on them, and only a file whose JOB is to police or perform that
+  # migration earns an exclusion. A deferrals record does neither. This gate
+  # caught this file at 5 occurrences on the first push of this PR -- working
+  # exactly as intended. Do not helpfully restore the literals.
+  #
   # NOTE ON THE EVIDENCE, because it disagrees with itself and the weaker
   # signal is the one that looks authoritative: `git cherry origin/main <b>`
   # reports every commit below as UNAPPLIED (+). That is patch-id, and patch-id
@@ -2713,10 +2721,11 @@ deferrals:
       <https://schema.ostler.ai/ontology#>" plus the separate
       ".../enrichment/ontology#" for enrichment. AND MAIN IS THE BETTER VERSION,
       which is the part that nearly got this wrong in both directions: main
-      still shows 14 pwg.dev hits, which READS like an incomplete migration and
+      still shows 14 legacy-ontology-host hits, which READS like an incomplete
+      migration and
       is not -- they are a legacy-namespace DETECTOR list in
       known_facts_probe.py plus test fixtures named FOREIGN_NS, one of which
-      records the 246,559-triple measurement. This branch has zero pwg.dev hits,
+      records the 246,559-triple measurement. This branch has zero such hits,
       so its blanket rename would have deleted the very detection that PROVES
       the migration worked. Commits preserved at refs/pull/225/head. Remote ref
       deleted 2026-08-21; local branch may be deleted, it is in no worktree.
