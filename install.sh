@@ -11344,6 +11344,21 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
 DEFAULT_ASSISTANT_TARBALL_SHA256="d6e94c89d91f9e1ea4025ef1d6b6a9ce84a9c2149fc34810d27a621fec8f4bba"
+# The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
+# the retry re-pointed the URLs without re-pointing it, so the fallback tarball
+# was checked against the PRIMARY's digest, mismatched, and the install aborted
+# telling the customer their download had failed an integrity pin.
+#
+# That is the branch taken by someone whose primary download has ALREADY
+# failed, so the message they got was "your download looks tampered with" at
+# the worst possible moment, for a reason that was ours.
+#
+# RE-POINT BOTH IN THE SAME COMMIT, always. A version and its checksum coming
+# apart is the defect class this pin exists to catch; it should not be the
+# defect class the pin itself ships with. Read from the published .sha256
+# sidecar of hub-v${ASSISTANT_FALLBACK_VERSION}, never typed by hand.
+DEFAULT_ASSISTANT_FALLBACK_TARBALL_SHA256="d4f274cbc32d7029fe24c3cebde9cd199dab8135cc6e165e2fedf0ae9c2cc6bf"
+ASSISTANT_FALLBACK_TARBALL_SHA256="${OSTLER_ASSISTANT_FALLBACK_TARBALL_SHA256:-${DEFAULT_ASSISTANT_FALLBACK_TARBALL_SHA256}}"
 ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
 
 # ── Creative Machines Developer-ID pin (v1.0.10 red-team-3) ──────
@@ -11396,6 +11411,17 @@ _ostler_assistant_set_urls() {
     # under one repository.
     ASSISTANT_ARCHIVE_URL="https://github.com/${OSTLER_ASSISTANT_REPO}/releases/download/hub-v${OSTLER_ASSISTANT_VERSION}/${ASSISTANT_ARCHIVE_NAME}"
     ASSISTANT_CHECKSUM_URL="${ASSISTANT_ARCHIVE_URL}.sha256"
+    # AND THE CROSS-ORIGIN PIN, which used to be left behind (HR015 #583).
+    #
+    # This function is the ONE place the daemon version moves, so it is the one
+    # place the pin can be kept in step. Doing it in the retry block instead
+    # would leave the next caller to remember, which is exactly how the two
+    # came apart the first time.
+    if [[ "$1" == "${ASSISTANT_FALLBACK_VERSION:-}" ]]; then
+        ASSISTANT_TARBALL_SHA256="${ASSISTANT_FALLBACK_TARBALL_SHA256:-}"
+    else
+        ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
+    fi
 }
 
 # ── Daemon signature gate (v1.0.10 security lockdown) ─────────────
