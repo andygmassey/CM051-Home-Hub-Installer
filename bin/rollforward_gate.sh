@@ -128,41 +128,254 @@ dim()   { printf '\033[2m%s\033[0m\n' "$1"; }
 # to, which is precisely how a PASS came to be read as a statement about a cut.
 # ---------------------------------------------------------------------------
 if [ -n "$CUT" ]; then
-	cut_env="$HERE/cuts/$CUT/cut.env"
-	if [ ! -f "$cut_env" ]; then
-		red "PARSE ERROR: --cut '$CUT' names no cut -- $cut_env does not exist."
+	# -----------------------------------------------------------------------
+	# WHICH cut.env. THIS RUNNER RUNS IN TWO REPOS AND ONLY ONE OF THEM HOLDS
+	# THE PINS, so `$HERE/cuts/$CUT/cut.env` resolves a DIFFERENT DOCUMENT
+	# depending on where it was invoked.
+	#
+	# This file is authored in OS003 and VENDORED into CM051 by CM051
+	# scripts/sync_rollforward_registry.sh, which is where .github/workflows/
+	# cut.yml invokes it before signing. So `$HERE` is the CM051 checkout for
+	# the CI half and the OS003 checkout for the operator half.
+	#
+	# THE PINS DID NOT GO MISSING FROM v1.0.24. THEY MOVED, DELIBERATELY, ON
+	# 2026-08-13, and this reader was not told. CM051's copy says so itself:
+	#
+	#     "the file the gate reads belongs in the repo the gate runs in,
+	#      holding only the declared keys, beside the cut-manifest it is
+	#      paired with. OS003's cuts/v1.0.24/cut.env stays as the operator's
+	#      fuller record; this is the machine-readable half."
+	#          -- CM051 cuts/v1.0.24/cut.env
+	#
+	# The same header records the alternative, tried and REVERTED: vendoring
+	# OS003's cut.env files into CM051 worked and dragged 464 lines of operator
+	# working-record across with them, four private box IPs and five
+	# notarisation submission IDs included. The two copies are deliberately
+	# different documents that happen to share a name, and OS003's carries local
+	# paths (CM051_DIR, OSTLER_APP_PATH) that bin/cut.sh needs and this runner
+	# must never adopt.
+	#
+	# So the count below is not "cuts that stopped pinning". Measured
+	# 2026-08-21, both repos, which is the half a single-repo count cannot see:
+	#
+	#     cut            OS003 copy        CM051 copy
+	#     v1.0.14.1      DAEMON_COMMIT     --            pre-split
+	#     v1.0.15        DAEMON_COMMIT     --            pre-split
+	#     v1.0.17        both              --            pre-split
+	#     v1.0.18        both              --            pre-split
+	#     v1.0.19        both              --            pre-split  <- worked example
+	#     v1.0.24        NEITHER           both          split
+	#     v1.0.25..37    no directory      both          split      <- 13 cuts
+	#
+	# Of the 14 cuts whose pins live in CM051, OS003 bound the correct pins for
+	# ZERO. Thirteen it could not name at all -- `--cut v1.0.30` reported "names
+	# no cut" about a cut that exists and has pins. The fourteenth it named and
+	# bound nothing from.
+	#
+	# So the sources are ORDERED, and every bound key PRINTS THE FILE IT CAME
+	# FROM. Authoritative first, local second: inside CM051 the two resolve to
+	# the same file, and where they differ a stale operator record must never
+	# outrank the pin the cut is actually made of.
+	# -----------------------------------------------------------------------
+	pin_sources=""   # newline-terminated, precedence order, files that EXIST
+	pin_searched=""  # newline-terminated, every candidate considered
+	_consider_pin_source() {
+		local cand="${1:-}"
+		[ -n "$cand" ] || return 0
+		# De-dup: inside CM051, $CM051_DIR and $HERE name the same file, and
+		# printing it twice would read as two independent confirmations.
+		case "
+$pin_searched" in
+			*"
+$cand
+"*) return 0 ;;
+		esac
+		pin_searched="$pin_searched$cand
+"
+		if [ -f "$cand" ]; then
+			pin_sources="$pin_sources$cand
+"
+		fi
+		return 0
+	}
+	# An explicit override, for tests and for measuring a named pin file on
+	# purpose.
+	_consider_pin_source "${OSTLER_CUT_ENV:-}"
+	# The authoritative half. CM051_DIR is NOT guessed: this repo's history is
+	# full of gates that read a tree nobody named, and a wrong guess here binds
+	# a real-looking pin from the wrong cut, which is worse than binding none.
+	if [ -n "${CM051_DIR:-}" ]; then
+		_consider_pin_source "$CM051_DIR/cuts/$CUT/cut.env"
+	fi
+	# The local copy. Authoritative when this runner IS the vendored copy in
+	# CM051; the operator's record, and the only pin file that exists, for the
+	# pre-split cuts (v1.0.14.1 .. v1.0.19) that predate CM051's series.
+	_consider_pin_source "$HERE/cuts/$CUT/cut.env"
+
+	# A version that names no cut is a usage error, not a label -- see the
+	# banner above. It now takes ALL the candidate locations to earn that, so
+	# `--cut v1.0.30` no longer reports "names no cut" about a cut that exists
+	# and has pins, purely because they are in the other repo.
+	if [ -z "$pin_sources" ]; then
+		red "PARSE ERROR: --cut '$CUT' names no cut -- no cut.env for it in any known location."
 		dim "A version label that binds no pins is how a repo gate ends up asserting main."
-		dim "Cuts with a cut.env:"
+		dim "Searched, in precedence order:"
+		while IFS= read -r _c; do
+			[ -n "$_c" ] && dim "  $_c"
+		done <<EOF
+$pin_searched
+EOF
+		if [ -z "${CM051_DIR:-}" ]; then
+			dim ""
+			dim "CM051_DIR is UNSET, so the AUTHORITATIVE pin file was never looked for."
+			dim "Cuts from v1.0.24 onward keep their machine-readable pins in CM051"
+			dim "cuts/<tag>/cut.env, not here. Set CM051_DIR=/path/to/CM051 checkout."
+		fi
+		dim "Cuts with a cut.env in this checkout:"
 		for d in "$HERE"/cuts/v*/cut.env; do
 			[ -f "$d" ] || continue
 			d="${d%/cut.env}"; dim "  ${d##*/}"
 		done
+		if [ -n "${CM051_DIR:-}" ]; then
+			dim "Cuts with a cut.env in \$CM051_DIR:"
+			for d in "$CM051_DIR"/cuts/v*/cut.env; do
+				[ -f "$d" ] || continue
+				d="${d%/cut.env}"; dim "  ${d##*/}"
+			done
+		fi
 		exit 2
 	fi
+
+	# A file that exists and cannot be OPENED must not be read as a file that
+	# declares nothing. Those are different facts with the same empty value.
+	while IFS= read -r _c; do
+		[ -n "$_c" ] || continue
+		[ -r "$_c" ] || {
+			red "PARSE ERROR: cut.env exists but is not readable: $_c"
+			dim "An unreadable pin file binds empty, which is indistinguishable from a cut that pins nothing."
+			exit 2
+		}
+	done <<EOF
+$pin_sources
+EOF
+
 	# Read in a SUBSHELL, one key at a time.
 	#
 	# cut.env legitimately sets CM051_DIR, OSTLER_APP_PATH, GATE_BOX and others.
 	# Sourcing it into THIS shell would silently redefine the runner's own
 	# environment -- including the very *_DIR variables the freshness check
 	# reads -- so a cut.env could quietly re-point the gates at other trees.
+	# That is sharper now than when it was written: CM051_DIR is what LOCATES
+	# the authoritative pin file, so a sourced cut.env could redirect the very
+	# lookup that read it.
 	#
 	# Sourcing rather than grepping is deliberate: several pins carry a trailing
 	# `# comment` on the assignment line (`CM051=af6d05b  # main tip ...`), which
 	# the shell discards correctly and a cut -d= would hand back as part of the
 	# value. `set +u` because cut.env is written for a permissive environment.
-	_cut_pin() { ( set +u; . "$cut_env" >/dev/null 2>&1; eval "printf '%s' \"\${$1:-}\"" ); }
+	#
+	# Sets PIN_VALUE and PIN_SOURCE. rc 0 = bound; rc 1 = every source was read
+	# and none declares this key, which is a real measurement and not the same
+	# thing as not having looked.
+	_cut_pin() {
+		local key="$1" f v
+		PIN_VALUE=""; PIN_SOURCE=""
+		while IFS= read -r f; do
+			[ -n "$f" ] || continue
+			v="$( set +u; . "$f" >/dev/null 2>&1; eval "printf '%s' \"\${$key:-}\"" )"
+			if [ -n "$v" ]; then
+				PIN_VALUE="$v"; PIN_SOURCE="$f"; return 0
+			fi
+		done <<EOF
+$pin_sources
+EOF
+		return 1
+	}
 
 	# The mapping is DECLARED, not inferred from variable names. cut.env speaks
 	# in artefacts (DAEMON_COMMIT); gate bodies speak in refs (OA_REF). Anything
 	# not listed here is not a pin and must not be treated as one.
-	OSTLER_PIN_OA="$(_cut_pin DAEMON_COMMIT)"
-	OSTLER_PIN_CM051="$(_cut_pin CM051)"
+	OSTLER_PIN_OA=""; pin_src_oa=""
+	if _cut_pin DAEMON_COMMIT; then OSTLER_PIN_OA="$PIN_VALUE"; pin_src_oa="$PIN_SOURCE"; fi
+	OSTLER_PIN_CM051=""; pin_src_cm051=""
+	if _cut_pin CM051; then OSTLER_PIN_CM051="$PIN_VALUE"; pin_src_cm051="$PIN_SOURCE"; fi
 	export OSTLER_PIN_OA OSTLER_PIN_CM051
 
-	# Print what actually bound. An empty pin is a real outcome -- it sends the
-	# gates that need it to CANNOT-RUN -- and it must be visible rather than
-	# inferred from a colour further down.
-	echo "cut $CUT pins: DAEMON_COMMIT=${OSTLER_PIN_OA:-<unset>} CM051=${OSTLER_PIN_CM051:-<unset>}"
+	# Print what actually bound, and WHERE FROM. "Which sha did this measure"
+	# and "which file said so" are the two questions a cut record has to answer,
+	# and this runner reads two files that share a name.
+	echo "cut $CUT pins: DAEMON_COMMIT=${OSTLER_PIN_OA:-<absent>} CM051=${OSTLER_PIN_CM051:-<absent>}"
+	[ -z "$pin_src_oa" ]    || dim "  DAEMON_COMMIT <- $pin_src_oa"
+	[ -z "$pin_src_cm051" ] || dim "  CM051         <- $pin_src_cm051"
+
+	# -------------------------------------------------------------------------
+	# 🔴 A cut.env THAT BINDS NOTHING IS THE SAME DEFECT AS NO cut.env AT ALL.
+	#
+	# The check above catches a --cut naming no cut.env anywhere. It does not
+	# catch a --cut that resolved one and got nothing out of it, and that is not
+	# hypothetical: it is what `--cut v1.0.24` did from OS003 every time. Two
+	# empty strings, printed as `<unset>`, and the run carried on against
+	# whatever the working trees happened to be -- reporting the result as a
+	# statement about that cut.
+	#
+	# `<unset>` IS THE PART THAT MATTERS. It reads as a measurement -- this cut
+	# pins nothing -- and D017 and D038 then tell an operator who passed
+	# `--cut v1.0.24` to "Run with --cut <version>". Line 134 already said "A
+	# version label that binds no pins is how a repo gate ends up asserting
+	# main", as a dim note under a condition this case never reached. Same
+	# sentence, now load-bearing.
+	#
+	# AND THE REMEDY IS NOT "ADD THE KEYS HERE". Across the 20 cut.env files
+	# that exist for this runner -- 6 in OS003, 14 in CM051 -- exactly ONE
+	# declares neither pin, and it is OS003's v1.0.24: the operator's record for
+	# the one cut whose machine-readable half moved. Pasting DAEMON_COMMIT and
+	# CM051 into it would make this message go away and create a SECOND copy of
+	# the pins, free to drift from the one the DMG is actually cut from. That is
+	# the divergence CM051's header calls the fix that was not the fix.
+	#
+	# exit 2 = CANNOT-RUN, not 1: nothing has been found wrong with the cut. We
+	# failed to look at it. Reporting that as a defect would send someone
+	# hunting a problem that may not exist.
+	if [ -z "$OSTLER_PIN_OA" ] && [ -z "$OSTLER_PIN_CM051" ]; then
+		red "CANNOT RUN: --cut '$CUT' bound NO pins. Nothing was measured; this is neither RED nor GREEN."
+		dim "A cut.env that declares neither DAEMON_COMMIT nor CM051 is not a cut"
+		dim "that pins nothing -- it is the wrong copy. OS003's cuts/<tag>/cut.env"
+		dim "is the operator's working record; the machine-readable pins live in"
+		dim "CM051's cuts/<tag>/cut.env, beside the cut-manifest they pair with."
+		dim "Running on would assert whatever the working trees happen to be and"
+		dim "report it as a statement about $CUT."
+		dim ""
+		while IFS= read -r _c; do
+			[ -n "$_c" ] || continue
+			dim "Keys $_c DOES define:"
+			( set +u; grep -oE '^[A-Za-z_][A-Za-z0-9_]*=' "$_c" 2>/dev/null | tr -d '=' | sed 's/^/    /' )
+		done <<EOF
+$pin_sources
+EOF
+		dim ""
+		if [ -z "${CM051_DIR:-}" ]; then
+			dim "CM051_DIR is UNSET, so the authoritative file was never opened."
+			dim "Set CM051_DIR=/path/to/CM051 checkout and re-run. Do NOT paste the"
+			dim "keys into the file above: that is a second copy of the pins, free to"
+			dim "drift from the one the DMG is cut from."
+		else
+			dim "Neither the authoritative copy nor the local one declares a pin for"
+			dim "$CUT. Write them into CM051 cuts/$CUT/cut.env, where the cut reads"
+			dim "them, or drop --cut and accept that the run says nothing about any"
+			dim "particular cut."
+		fi
+		exit 2
+	fi
+
+	# ONE pin absent is a real outcome and a DIFFERENT one: the key is declared
+	# nowhere for this cut. v1.0.14.1 and v1.0.15 are honestly like this. Say so
+	# here rather than leave the reader to infer it from a CANNOT-RUN twenty
+	# lines down whose advice the operator has already followed.
+	if [ -z "$OSTLER_PIN_OA" ] || [ -z "$OSTLER_PIN_CM051" ]; then
+		dim "  one pin is ABSENT -- declared in no cut.env read for $CUT. The gates"
+		dim "  that need it will declare CANNOT-RUN: coverage you do not have,"
+		dim "  not a finding about the product."
+	fi
 fi
 
 # The outbound redactor is what stands between a customer's graph and this
