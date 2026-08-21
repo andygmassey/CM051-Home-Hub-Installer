@@ -19,12 +19,27 @@ Rules are organised by category:
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
 from banner_copy import EMPTY_MAIL_NUDGE, backfill_progress
 
 from diagnostic_copy import (
+    INGEST_EMPTY_DETAIL_FMT,
+    INGEST_EMPTY_FIX,
+    INGEST_EMPTY_FIX_COMMAND,
+    INGEST_NO_INPUT_TITLE_FMT,
+    INGEST_NO_INPUT_DETAIL_FMT,
+    INGEST_NO_INPUT_DETAIL_NO_APP_FMT,
+    INGEST_NO_INPUT_DETAIL_NO_EXPORT_FMT,
+    INGEST_NO_INPUT_FIX,
+    INGEST_NO_INPUT_FIX_COMMAND,
+    INGEST_EMPTY_TITLE_FMT,
+    INGEST_KILLED_DETAIL_FMT,
+    INGEST_KILLED_FIX,
+    INGEST_KILLED_FIX_COMMAND,
+    INGEST_KILLED_TITLE_FMT,
     RULE_CRASHED_TITLE_FMT,
     RULE_CRASHED_DETAIL_FMT,
     RULE_CRASHED_FIX,
@@ -1323,7 +1338,151 @@ def check_conversation_dispatch_failures(snapshot: Any) -> list[dict]:
     return findings
 
 
+
+_NON_COUNT_KEYS = frozenset({"rc", "exit", "status", "code"})
+
+
+def _payload_is_all_zero(payload: str) -> bool:
+    """True when every numeric field in a marker payload is zero.
+
+    Payloads look like ``sent=0``, ``people_added=353``, ``written=0`` or
+    ``status=no_data``. A marker with NO numeric field at all returns False:
+    absence of a number is not evidence of zero, and guessing would
+    manufacture findings on sources that simply do not report counts.
+    """
+    if "no_data" in payload:
+        return True
+    # (key, value) pairs, so the KEY can be excluded. `rc=0` is a RETURN CODE
+    # meaning success, not a count of zero items. Scanning values blindly
+    # flagged `status=run rc=0` as an empty import and would have
+    # manufactured a finding on every healthy source that reports its rc.
+    pairs = re.findall(r"(\w+)\s*=\s*(\d+)", payload)
+    counts = [v for k, v in pairs if k.lower() not in _NON_COUNT_KEYS]
+    return bool(counts) and all(v == "0" for v in counts)
+
+
+# The hydrate marker vocabulary, MEASURED on CM051 origin/main install.sh
+# rather than assumed (HR015 #580). Exactly three statuses reach a
+# ~/.ostler/state/hydrate/<source>.done file:
+#
+#   ok        _hydrate_sentinel_record, non-zero payload
+#   no_data   _hydrate_sentinel_record_no_data, and _hydrate_sentinel_record
+#             when the payload is all zeros
+#   error     _hydrate_sentinel_record_error, carries an rc
+#
+# Three other status strings appear in install.sh (no_app, denied,
+# error_empty_result) and NONE of them is written to a hydrate marker: two
+# are inside comments describing the old call shape, one is a gui_emit. That
+# was checked rather than eyeballed, because a first pass counting
+# `status=[a-z_]+` across the file found all six and would have had this
+# rule handling statuses it can never see.
+#
+# no_app and no_export_json are REASONS, carried in `detail`, not statuses.
+HYDRATE_STATUS_NO_INPUT = "no_data"
+HYDRATE_STATUSES_HEALTHY = frozenset({"ok", HYDRATE_STATUS_NO_INPUT})
+
+
+def check_hydrate_ingest(snapshot: Any) -> list[dict]:
+    """Surface ingest sources that were killed, or that imported nothing.
+
+    THE DEFECT THIS EXISTS FOR. install.sh writes one marker per source under
+    ~/.ostler/state/hydrate/. Nothing in the vendored Doctor read them:
+    `grep -rl hydrate` over vendor/doctor/agent returned 0 files, against
+    controls qdrant=15 and pipeline_signals=6. On the v1.0.36 box two sources
+    had been killed by the 90s watchdog:
+
+        browsing   status=error  rc=124  sent=0,skipped=0
+        people     status=error  rc=124  sent=0
+
+    and the panel said "Everything looks healthy. Nice one." People search and
+    browsing had ingested nothing and no surface anywhere said so.
+
+    THREE ARMS, deliberately different severities.
+
+    1. status is a FAILURE status. The source was killed. warning.
+    2. status == no_data. The source RAN and found no input. INFO.
+    3. status == ok but the payload is all zeros. INFO, because an empty
+       source is often legitimate. The point is only that "succeeded" and
+       "did nothing" must not render identically -- the zero-denominator
+       problem.
+
+    ARM 1 TESTS FOR FAILURE, NOT FOR NOT-SUCCESS (HR015 #580). It used to
+    read `m.status != "ok"`, which is not the same predicate and was wrong
+    on a healthy box. install.sh writes exactly three hydrate statuses,
+    measured on CM051 origin/main rather than assumed:
+
+        ok        the source imported something
+        no_data   the source RAN and THE INPUT WAS NOT THERE
+        error     the source failed, with an rc
+
+    `no_data` is written by _hydrate_sentinel_record_no_data, whose own
+    comment calls the condition transient and explicitly not a failure, and
+    by _hydrate_sentinel_record when a payload is all zeros. Treating it as
+    a kill produced four warnings on a clean box -- no WhatsApp installed,
+    an FDA export not yet landed -- each claiming an import "stopped before
+    it completed" when it had run fine. Four confident false statements is
+    worse than the silence this rule replaced, because silence does not
+    send anyone looking for a fault that is not there.
+
+    WHY A SET AND NOT `== "error"`. A status this rule has never seen must
+    not be silently absorbed into the healthy path: that is how the original
+    defect would recur in the other direction. Anything not recognised as a
+    success or a no-input outcome is treated as a failure, so a new status
+    added upstream surfaces loudly rather than vanishing.
+    """
+    findings = []
+    for m in getattr(snapshot, "hydrate_markers", None) or []:
+        source = (m.source or "").replace("_", " ") or "An import"
+        if m.status == HYDRATE_STATUS_NO_INPUT:
+            reason = (m.detail or "").strip()
+            if reason == "no_app":
+                detail = INGEST_NO_INPUT_DETAIL_NO_APP_FMT.format(source=source)
+            elif reason == "no_export_json":
+                detail = INGEST_NO_INPUT_DETAIL_NO_EXPORT_FMT.format(source=source)
+            else:
+                detail = INGEST_NO_INPUT_DETAIL_FMT.format(source=source)
+            findings.append({
+                "severity": "info",
+                "title": INGEST_NO_INPUT_TITLE_FMT.format(source=source),
+                "detail": detail,
+                "fix": INGEST_NO_INPUT_FIX,
+                "fix_command": INGEST_NO_INPUT_FIX_COMMAND,
+                "risk": "low",
+                "category": "ingest",
+            })
+        elif m.status and m.status not in HYDRATE_STATUSES_HEALTHY:
+            timed_out = m.rc in (124, 137)
+            findings.append({
+                "severity": "warning",
+                "title": INGEST_KILLED_TITLE_FMT.format(source=source),
+                "detail": INGEST_KILLED_DETAIL_FMT.format(
+                    source=source,
+                    timeout_clause=(
+                        " because it ran out of time" if timed_out else ""
+                    ),
+                ),
+                "fix": INGEST_KILLED_FIX,
+                "fix_command": INGEST_KILLED_FIX_COMMAND,
+                "risk": "low",
+                "category": "ingest",
+            })
+        elif m.status == "ok" and _payload_is_all_zero(m.payload):
+            findings.append({
+                "severity": "info",
+                "title": INGEST_EMPTY_TITLE_FMT.format(source=source),
+                "detail": INGEST_EMPTY_DETAIL_FMT.format(
+                    source=source, payload=m.payload or "no counts recorded",
+                ),
+                "fix": INGEST_EMPTY_FIX,
+                "fix_command": INGEST_EMPTY_FIX_COMMAND,
+                "risk": "low",
+                "category": "ingest",
+            })
+    return findings
+
+
 ALL_RULES = [
+    check_hydrate_ingest,
     check_first_install,
     check_container_health,
     check_qdrant_health,

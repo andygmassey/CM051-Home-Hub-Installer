@@ -521,3 +521,62 @@ RULE_CRASHED_DETAIL_FMT = (
 )
 RULE_CRASHED_FIX = "Send this report so we can fix the check"
 RULE_CRASHED_FIX_COMMAND = "open ~/.ostler/logs/doctor.err"
+
+
+# ── Ingest sources that were killed, or that ran and brought nothing in ─────
+#
+# install.sh writes ~/.ostler/state/hydrate/<source>.done per source. Nothing
+# read them until v1.0.37, so a source killed by the 90s watchdog produced no
+# customer-visible signal at all: the Doctor said "Everything looks healthy"
+# while people search and browsing had ingested literally nothing.
+INGEST_KILLED_TITLE_FMT = "{source} did not finish importing"
+INGEST_KILLED_DETAIL_FMT = (
+    "The {source} import stopped before it completed{timeout_clause}, so those "
+    "items are not searchable and will not appear in your wiki or answers. "
+    "Nothing else was affected, and nothing has been lost from the original "
+    "app: re-running the import picks it up again."
+)
+INGEST_KILLED_FIX = "Re-run the import for this source"
+INGEST_KILLED_FIX_COMMAND = "open ~/.ostler/logs/install.log"
+
+INGEST_EMPTY_TITLE_FMT = "{source} finished but brought nothing in"
+INGEST_EMPTY_DETAIL_FMT = (
+    "The {source} import reported success and then recorded zero items "
+    "({payload}). That is not necessarily wrong, since you may simply have "
+    "nothing there yet, but it is worth knowing: a source that imports nothing "
+    "looks identical to a source that worked, and Ostler will have no {source} "
+    "material to draw on."
+)
+INGEST_EMPTY_FIX = "Check whether this source has data to import"
+INGEST_EMPTY_FIX_COMMAND = "open ~/.ostler/logs/install.log"
+
+# A source that RAN and found no input. This is a healthy outcome and it had
+# no copy at all until HR015 #580, which is why it was being rendered with
+# INGEST_KILLED_*: four warnings on a clean box telling the customer imports
+# had "stopped before completing" when they had run fine and found nothing.
+#
+# install.sh distinguishes these itself. _hydrate_sentinel_record_no_data
+# writes status=no_data with the reason in detail, and its own comment calls
+# the condition transient and explicitly not a failure. The Doctor now says
+# the same thing the installer already believed.
+INGEST_NO_INPUT_TITLE_FMT = "{source} had nothing to import yet"
+INGEST_NO_INPUT_DETAIL_NO_APP_FMT = (
+    "Ostler looked for {source} and did not find it installed, so there was "
+    "nothing to bring in. This is not a problem and nothing failed. If you do "
+    "use {source}, install it and run the import again and Ostler will pick "
+    "it up."
+)
+INGEST_NO_INPUT_DETAIL_NO_EXPORT_FMT = (
+    "Ostler looked for your {source} export and it was not there yet, so "
+    "there was nothing to bring in. This is not a problem and nothing "
+    "failed. Exports can take a while to arrive; once yours lands, run the "
+    "import again."
+)
+INGEST_NO_INPUT_DETAIL_FMT = (
+    "The {source} import ran and found nothing to bring in. This is not a "
+    "problem and nothing failed. It is worth knowing only because Ostler "
+    "will have no {source} material to draw on until there is something "
+    "there."
+)
+INGEST_NO_INPUT_FIX = "Nothing to do unless you expected data here"
+INGEST_NO_INPUT_FIX_COMMAND = "open ~/.ostler/logs/install.log"
