@@ -708,10 +708,14 @@ jobs:
       # that packaged a stale install.sh would pass every one of those gates and
       # reach a customer looking perfect.
       #
-      # Raised by TNM against v1.0.39. On re-measurement that artefact was
-      # correct -- both copies of install.sh in the DMG hash to the v1.0.39 blob
-      # -- but the GAP was real either way, and a gate written only once a
-      # defect is confirmed arrives one incident late.
+      # That gap is the whole justification and it stands alone: it was true
+      # before anyone looked and would be true if no one ever had.
+      # History, told straight: TNM raised v1.0.39 as a mis-built artefact and
+      # WITHDREW that in full the same hour (a stale v1.0.38 volume was already
+      # mounted on the test box and every command measured it). Nothing here
+      # rests on that finding. What it does rest on: this gate is
+      # demonstrated-red against the REAL published v1.0.39 artefact, whose
+      # bundle reports 1.0.38 while the cut is 1.0.39.
       #
       # Mounts the staged DMG and hashes EVERY install.sh in it against the
       # tag's blob, with the nearest other v1.0.* tag as a control so the
