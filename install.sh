@@ -555,6 +555,24 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         _upg_refresh_knowledge
         _upg_refresh_cm048
         _upg_repair_fda_venv
+
+        # THE INVARIANT, UPGRADE PATH. (#595 layer 1)
+        # Same function, same moment in the lifecycle: the runtime has just
+        # become final. #942 repaired the ONE module we knew about; this asks
+        # the interpreter whether EVERY derived dependency resolves, so the
+        # next missing one cannot ride the same 3,000-line gap into a silent
+        # permanently-frozen graph. Non-fatal by design -- the daemon swap has
+        # already succeeded and a rollback here would be worse than a loud
+        # log line the Hub health-check and support bundle both carry.
+        _upg_rr_out="$(_ostler_verify_runtime_ready \
+            "${HOME}/.ostler/.venv/bin/python3" \
+            "${HOME}/.ostler/fda-module/ostler_fda" 2>&1)"
+        case $? in
+            0) _upg_log "runtime-ready OK (upgrade path): ${_upg_rr_out}" ;;
+            2) _upg_log "runtime-ready CANNOT-RUN (upgrade path): ${_upg_rr_out}" ;;
+            *) _upg_log "ERROR: runtime-ready FAILED (upgrade path) -- com.ostler.fda-rerun will keep dying and the graph will NOT grow. See #595/#942. ${_upg_rr_out}" ;;
+        esac
+
         launchctl kickstart -k "${_UPG_DOMAIN}/com.ostler.doctor" 2>/dev/null || true
 
         # (7) Write VERSION last, as the success marker the Hub reads.
@@ -1749,6 +1767,20 @@ _ostler_promote_prelaunch_tree() {
     # cryptography itself via the idempotent `[[ ! -d ]]` check at
     # line ~4906, so we don't need to handle those here.
     _ostler_repair_venv_after_promote
+
+    # THE INVARIANT, INSTALL PATH. (#595 layer 1)
+    # Runs after the repair, on the venv that survives promote. Loud, and
+    # distinguishes not-ready from could-not-look.
+    local _rr_out _rr_rc
+    _rr_out="$(_ostler_verify_runtime_ready \
+        "${OSTLER_DIR}/.venv/bin/python3" \
+        "${OSTLER_FINAL_DIR}/fda-module/ostler_fda" 2>&1)"
+    _rr_rc=$?
+    case "$_rr_rc" in
+        0) _ostler_promote_venv_note "runtime-ready OK (install path): ${_rr_out}" ;;
+        2) _ostler_promote_venv_note "runtime-ready CANNOT-RUN (install path): ${_rr_out}" ;;
+        *) _ostler_promote_venv_note "runtime-ready FAILED (install path) -- scheduled agents will die on every tick: ${_rr_out}" ;;
+    esac
 }
 
 # CX-95 (DMG #48g+, 2026-05-29): repair venv shebangs after promote.
@@ -2048,6 +2080,101 @@ _ostler_repair_venv_after_promote() {
             _ostler_promote_venv_note "WARN: ${venv_dir}/bin/python3 CANNOT import ostler_fda.identifier_quality -- com.ostler.fda-rerun will die on every tick (#805): $("${venv_dir}/bin/python3" -c 'import ostler_fda.identifier_quality' 2>&1 | tail -1)"
         fi
     fi
+}
+
+# ---------------------------------------------------------------------------
+# _ostler_verify_runtime_ready -- THE INVARIANT. (#595 layer 1)
+#
+# WHY THIS EXISTS AND WHY IT IS NOT ANOTHER HARDCODED IMPORT CHECK.
+#
+# #805 was one missing module (ostler_fda). #939 fixed it on the install path.
+# #595 then established that the UPGRADE path exits at ~line 553, ~3,000 lines
+# before the repair, so #939 fixed new installs only and every existing box
+# stayed frozen permanently. #942 added the repair to the upgrade path.
+#
+# All three are point fixes for ONE module. The class is wider: the upgrade
+# block (122-553) is a parallel, hand-maintained implementation of the install
+# path, so ANY future dependency the install path installs and the upgrade path
+# does not will diverge again, silently, and present as "the graph stopped
+# growing" with nothing surfaced. The check above is also pinned to a single
+# hardcoded module name and would not notice a second one going missing.
+#
+# So: DERIVE the requirement, do not enumerate it. Top-level imports across the
+# shipped ostler_fda package, minus sys.stdlib_module_names, tried under the
+# interpreter the scheduled agents actually resolve. A dependency added to the
+# package upstream is covered here on the next cut without anyone remembering
+# to update a list. Archie derived exactly this set by hand last night after
+# discovering deps one CI failure at a time -- an error message names the FIRST
+# thing that stopped the program, never the set of things that are wrong.
+#
+# Called from BOTH paths. That is the whole point: it does not care which path
+# ran, which is precisely the property the three point fixes lack.
+#
+# Prints missing module names. Returns 0 ready / 1 not-ready / 2 CANNOT-RUN.
+# CANNOT-RUN is distinct on purpose: "we could not look" must never be
+# reported as "we looked and it was fine" (#765).
+_ostler_verify_runtime_ready() {
+    local venv_python="$1" fda_pkg="$2"
+
+    [[ -x "$venv_python" ]] || { printf 'CANNOT-RUN no interpreter at %s\n' "$venv_python"; return 2; }
+    [[ -d "$fda_pkg"    ]] || { printf 'CANNOT-RUN no package at %s\n'     "$fda_pkg";     return 2; }
+
+    # Quoted heredoc: NO shell expansion inside. Paths arrive as argv.
+    # (#636 shipped inert because an unquoted-vs-quoted heredoc was assumed
+    # rather than checked; here the quoting is deliberate and the values are
+    # passed, not interpolated.)
+    "$venv_python" - "$fda_pkg" <<'OSTLER_RUNTIME_READY_PY'
+import ast, os, sys, importlib.util
+
+pkg = sys.argv[1]
+stdlib = getattr(sys, "stdlib_module_names", frozenset())
+
+wanted = set()
+scanned = 0
+for root, _dirs, files in os.walk(pkg):
+    for fn in files:
+        if not fn.endswith(".py"):
+            continue
+        path = os.path.join(root, fn)
+        try:
+            tree = ast.parse(open(path, "rb").read(), filename=path)
+        except Exception:
+            continue          # unparseable file is not a dependency signal
+        scanned += 1
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for a in node.names:
+                    wanted.add(a.name.split(".")[0])
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:            # relative import -- intra-package
+                    continue
+                if node.module:
+                    wanted.add(node.module.split(".")[0])
+
+# ANTI-VACUITY. A walk that found no files would derive an empty set and
+# report a perfectly ready runtime. That is the #851 shape: "nothing found"
+# and "nothing looked at" print identically.
+if scanned == 0:
+    print("CANNOT-RUN parsed 0 python files under %s" % pkg)
+    sys.exit(2)
+
+wanted -= set(stdlib)
+wanted -= {"ostler_fda"}      # the package itself is checked by import below
+wanted = {m for m in wanted if m and not m.startswith("_")}
+
+missing = sorted(m for m in wanted if importlib.util.find_spec(m) is None)
+
+# The package itself must import, not merely resolve.
+try:
+    __import__("ostler_fda.identifier_quality")
+except Exception as exc:
+    missing.append("ostler_fda.identifier_quality (%s: %s)" % (type(exc).__name__, exc))
+
+print("scanned=%d third_party=%d missing=%d" % (scanned, len(wanted), len(missing)))
+for m in missing:
+    print("MISSING %s" % m)
+sys.exit(1 if missing else 0)
+OSTLER_RUNTIME_READY_PY
 }
 
 # Two-zone layout: ~/Documents/Ostler/ holds the customer's
