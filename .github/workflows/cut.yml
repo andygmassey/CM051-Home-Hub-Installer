@@ -726,11 +726,26 @@ jobs:
       #
       # `if: always()` so a red run still reports it, and last in the job so it
       # cannot silence a neighbour.
+      #
+      # CUT_VERSION comes from THIS step's env and not from the preflight job.
+      # The first run of this gate died on `CUT_VERSION: unbound variable`:
+      # preflight writes CUT_VERSION to $GITHUB_ENV, and GITHUB_ENV DOES NOT
+      # CROSS JOBS. `cut` only ever runs on a tag push, so github.ref_name IS
+      # the tag and is the honest source here.
       - name: The artefact's content IS the tag being cut
         id: artefact_content
         if: always()
+        env:
+          CUT_VERSION: ${{ github.ref_name }}
         run: |
           set -uo pipefail
+          # Never let this gate die on a shell error. An absent version is
+          # CANNOT-RUN with a sentence saying so, not `unbound variable`.
+          CUT_VERSION="${CUT_VERSION:-}"
+          if [ -z "$CUT_VERSION" ]; then
+              echo "::error title=No cut version::The artefact-content gate has no version to compare against, so it has NOT verified the content -- it failed to look. DO NOT SHIP."
+              exit 2
+          fi
           DMG="$(ls dist/*.dmg 2>/dev/null | head -1)"
           if [ -z "$DMG" ]; then
               echo "::error title=No DMG to inspect::The artefact-content gate found no dist/*.dmg. It has NOT verified the content -- it failed to look. DO NOT SHIP."
