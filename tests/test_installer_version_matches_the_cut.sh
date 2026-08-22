@@ -15,14 +15,28 @@
 # the cut and v1.0.39 was the first break.
 #
 # WHY NOTHING CAUGHT IT, WHICH IS THE REAL LESSON.
-# A gate for exactly this ALREADY EXISTS: OS003 12d8e1a, "assert the stamped
-# version IS the version being cut". It runs in OS003 `bin/cut.sh` preflight.
+# A gate for exactly this was WRITTEN: OS003 #122, "assert the stamped version
+# IS the version being cut".
 #
-# The v1.0.39 DMG was not cut that way. It was cut by pushing a tag, which
-# fires CM051 .github/workflows/cut.yml, and that path never consults OS003.
-# THE GATE AND THE DEFECT WERE ON DIFFERENT SURFACES, so the gate was green
-# forever while the defect shipped. Adding a second gate in OS003 would have
-# changed nothing. This one lives HERE, on the surface that actually cuts.
+# The first draft of this comment said that gate ALREADY EXISTS and runs in
+# OS003 `bin/cut.sh` preflight. THAT WAS WRONG, and the wrong version is the
+# dangerous one because it implies the estate is one wiring change away from
+# safe. Measured: OS003 #122 is an OPEN PR, merged=never. It has never run
+# anywhere, on any surface. It was read off a commit sitting on a checked-out
+# feature branch and mistaken for shipped practice.
+#
+# So TWO independent things had to be true for this to ship, and fixing either
+# alone would have left the other:
+#
+#   1. the OS003 gate is unmerged, so it runs nowhere
+#   2. even merged, it runs in OS003 `bin/cut.sh` preflight -- and the v1.0.39
+#      DMG was cut by pushing a tag, which fires CM051 cut.yml, a path that
+#      never consults OS003
+#
+# This one lives HERE, on the surface that actually cuts, so it holds
+# regardless of what happens to OS003 #122. That PR is still worth merging: it
+# guards the OS003 cut path, which is a different route to a DMG. It is not a
+# substitute and never was.
 #
 # WHAT IS ASSERTED
 #   1. the plist parses and yields a version    (premise, fails loudly)
