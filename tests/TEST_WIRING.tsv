@@ -28,6 +28,7 @@ test_appcast_publish_cannot_destroy_the_dmg.sh	WIRED	.github/workflows/appcast-s
 test_appcast_publish_is_fail_closed.sh	WIRED	.github/workflows/appcast-fail-closed.yml
 test_apple_is_registered_before_appletv.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_appletv_parser.py	UNWIRED	-
+test_artefact_content_matches_the_tag.sh	WIRED	.github/workflows/cut.yml
 test_assistant_config_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_assistant_config_reasoning_disabled.sh	UNWIRED	-
 test_assistant_config_required_fields.sh	WIRED	.github/workflows/assistant-config-required-fields.yml

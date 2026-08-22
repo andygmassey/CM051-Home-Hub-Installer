@@ -702,6 +702,47 @@ jobs:
         if: always()
         run: bash scripts/stage_and_verify_dmg.sh --job-status "${{ job.status }}"
 
+      # #856 / #844. Everything upstream of here proves the DMG is INTERNALLY
+      # consistent -- it matches its own SHA256SUMS, it is signed, notarised and
+      # stapled. NOTHING compared its CONTENT to the tag being cut, so a build
+      # that packaged a stale install.sh would pass every one of those gates and
+      # reach a customer looking perfect.
+      #
+      # Raised by TNM against v1.0.39. On re-measurement that artefact was
+      # correct -- both copies of install.sh in the DMG hash to the v1.0.39 blob
+      # -- but the GAP was real either way, and a gate written only once a
+      # defect is confirmed arrives one incident late.
+      #
+      # Mounts the staged DMG and hashes EVERY install.sh in it against the
+      # tag's blob, with the nearest other v1.0.* tag as a control so the
+      # comparison is provably discriminating rather than collapsing to one
+      # value. Also asserts the shipped bundle's version IS the cut version --
+      # #955 makes that assertion about the SOURCE tree, and a source check
+      # cannot see a build that packaged something else.
+      #
+      # `if: always()` so a red run still reports it, and last in the job so it
+      # cannot silence a neighbour.
+      - name: The artefact's content IS the tag being cut
+        id: artefact_content
+        if: always()
+        run: |
+          set -uo pipefail
+          DMG="$(ls dist/*.dmg 2>/dev/null | head -1)"
+          if [ -z "$DMG" ]; then
+              echo "::error title=No DMG to inspect::The artefact-content gate found no dist/*.dmg. It has NOT verified the content -- it failed to look. DO NOT SHIP."
+              exit 2
+          fi
+          MNT="$(mktemp -d)/mnt"
+          mkdir -p "$MNT"
+          if ! hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MNT" -quiet; then
+              echo "::error title=Could not mount the DMG::The artefact-content gate could not inspect the payload. CANNOT-RUN is not a pass. DO NOT SHIP."
+              exit 2
+          fi
+          rc=0
+          bash tests/test_artefact_content_matches_the_tag.sh "$MNT" "${CUT_VERSION}" || rc=$?
+          hdiutil detach "$MNT" -quiet 2>/dev/null || true
+          exit "$rc"
+
       # Paired with the condition on the staging step above -- both, or neither
       # works. Staging happens inside that step, so guarding only the upload
       # would upload an empty dist, and guarding only the staging would stage a
@@ -809,8 +850,17 @@ jobs:
       # after publishing it fetches the CUSTOMER url and re-hashes the bytes.
       # An upload that succeeded proves the API took bytes; only the customer
       # url proves a customer can get them, and that is what was broken.
+      #
+      # AND IT IS GATED ON THE CONTENT CHECK ABOVE. `always()` here was about
+      # ORDERING -- a publish failure must not sit between a verified artefact
+      # and its upload -- and it was never a licence to publish an artefact
+      # whose content was not checked. Without this condition the new
+      # content gate is decorative: it would go red and this step would push
+      # the bad DMG to the customer url anyway, which is the exact harm.
+      # A build that never produced a DMG makes the gate exit 2, so this
+      # correctly skips rather than repeating the failure as "No DMG found".
       - name: Publish the release object, then prove the customer url serves it
-        if: always()
+        if: always() && steps.artefact_content.outcome == 'success'
         env:
           # Pairs with CM051_RELEASES_READ, which is already wired at four
           # sites in this file and reads FROM ostler-ai releases. A matching
