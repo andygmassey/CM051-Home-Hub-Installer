@@ -34,6 +34,52 @@
 # Comment lines (# or blank) are ignored. Multi-line values NOT supported;
 # keep the reason to a single line (semicolons for structure).
 # ============================================================================
+# ============================================================================
+# 🔴 v1.0.41: DO NOT WRITE AN ACK FOR THIS DELTA. THE WIKI MUST BE REBUILT.
+# ============================================================================
+# Adjudicated 2026-08-22 (Archie). Recorded HERE, in the file a person opens
+# when they want to write an ack, because that is where the wrong decision
+# gets made.
+#
+# Pin 9af6ecaf -> CM044 main 3e8887b2 is FOUR commits and 28 files:
+#
+#   736b7a25  fix(vault): the Pro licence was never mounted into the compiler
+#             container (#849 / CM044 #241)
+#   e10bd88e  fix(wiki): gate EVERY preference section on provenance, not just
+#             Music (#242)
+#   af2621af  fix(wiki): every LLM summary was thrown away, and a quarter of
+#             Places rendered as raw markdown (#243)
+#   3e8887b2  fix(wiki): the nav was hidden by the THEME on scroll (#244)
+#
+# EVERY PREVIOUS ACK IN THIS FILE RESTED ON THE DELTA BEING DOCS-ONLY,
+# CI-ONLY OR TEST-ONLY. This one is not, and that is the whole difference.
+#
+#   non-test files in the delta        21 of 28
+#   non-test files IN the compiler image   16   (COPY compiler/ wholesale)
+#   non-test files IN the site image        2   (mkdocs.yml + overrides/...css)
+#   CONTROL a path matching NEITHER image   scripts/ci_pr_gates.sh -> 0 and 0
+#
+# The site image's 2 files ARE the nav fix. It is not incidental spillover;
+# it is a customer-visible defect sitting inside that image's COPY set.
+#
+# So shipping_bugfixes_grafted=true WOULD BE FALSE for either row. The field
+# is an explicit human assertion, and asserting it here to clear a gate is
+# precisely the "convenient rather than honest" ack that the cm041 rows above
+# go to such lengths to avoid.
+#
+# NOTE THE ASYMMETRY, because it is the opposite of last cut's. At v1.0.39 the
+# split was wiki-site 0 of 3 and wiki-compiler 3 of 3. Here it is 2 and 16.
+# The per-image number MUST BE MEASURED against each Dockerfile's COPY set
+# every time; it does not carry over, and neither does the conclusion.
+#
+# WHO CAUSED THIS AND WHY IT WAS STILL RIGHT: I merged CM044 #241-#244 on
+# 2026-08-22. They are four real fixes and merging them was correct. The cost
+# is that the wiki images now genuinely lag, and the honest way to pay it is a
+# rebuild, not a sentence in this file.
+#
+# ORM owns the rebuild + re-pin. This note exists so nobody reaches for the
+# cheaper option first.
+# ============================================================================
 wiki-compiler	648f7491	fa953f1a af160de3 d0eea981 cd79c502	true	v1.0.13.2 hotfix from tag hub-v0.4.45 (2026-08-01 ORM). Wiki images intentionally NOT rebuilt this cut per HR015 task #249 (R4 SETTING-UP typography deferred to v1.0.13.3 dedicated wiki cut, unresolved CM044 namespace mystery). Delta: fa953f1a vault-writer is a daemon-side feature not baked in wiki images; af160de3 wiki 127.0.0.1 + growth query is a customer-visible tweak (accept regression for hotfix); d0eea981 hide mkdocs chrome when iframed is SUPERSEDED by the R3 daemon-side SPA CSS crop in c638a6d7 (same customer-visible fix, different layer); cd79c502 wiki rollback anchor + rotation + skip-first-compile is operational hardening not launch-blocking. All rebuilt properly in v1.0.13.3.
 wiki-site	648f7491	fa953f1a af160de3 d0eea981 cd79c502	true	v1.0.13.2 hotfix from tag hub-v0.4.45 (2026-08-01 ORM). See wiki-compiler row above -- same delta + same rationale (site image is rebuilt in the same pass as compiler). d0eea981 chrome-hide fix is architecturally superseded by daemon-side R3 SPA CSS crop; other three delta commits carried forward to v1.0.13.3.
 # v1.0.17 (2026-08-07 ORM). Pin c4448cc (= CM044 tag v0.1.5, the #165 design-system merge) sits 2 commits behind CM044 main f949872. Both delta commits are PROVABLY outside both Docker build contexts, so a rebuild would produce byte-identical image content -- this ack is discharged by a mechanical argument, not by a promise. It also cannot fossilise: the moment CM044 main gains a commit touching compiler/ or mkdocs/, that new sha is not in hold_ack_shas and this gate goes RED again.
