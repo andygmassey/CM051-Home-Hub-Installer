@@ -303,6 +303,7 @@ gui/OstlerInstallerTests/ProgressDecoderTests.swift	WIRED	.github/workflows/swif
 gui/OstlerInstallerTests/ReuseSettingsExplanationTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/SelfRelocatorTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/SidebarPhaseAdvanceTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/SidebarStatusGlyphTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/StatementHeaderTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/StringsCatalogueEmDashTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/StringsCatalogueYNSuffixTest.swift	WIRED	.github/workflows/swift-tests.yml
