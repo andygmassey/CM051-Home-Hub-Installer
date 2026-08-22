@@ -204,6 +204,7 @@ test_pref_noise_source_cap.py	UNWIRED	-
 test_preferences_vendor_wired.sh	UNWIRED	-
 test_provenance_gate_cannot_run_is_not_stale.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_provenance_survives_the_filter_under_execution.py	WIRED	.github/workflows/install-abort-and-egress.yml
+test_repair_overmerged_contact_cards.py	WIRED	.github/workflows/contact-card-repair.yml
 test_resolver_robustness.py	UNWIRED	-
 test_resource_tier_governor.sh	UNWIRED	-
 test_rollforward_registry_pin.sh	WIRED	.github/workflows/cut.yml
