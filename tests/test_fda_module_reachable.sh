@@ -263,10 +263,18 @@ if grep -q "repair_placeholder_names" <<< "$out"; then
 else
     bad "repair_placeholder_names is not named -- the finding has gone quiet"
 fi
-if grep -qE "^DORMANT \(acknowledged, unwired\)   2" <<< "$out"; then
-    ok "this repo reports 2 dormant modules, visible as two"
+# THE LITERAL COUNT IS THE POINT. It is not a maintenance burden to be
+# engineered away by deriving it from the register: deriving it would make
+# this assertion agree with whatever the register says, and the whole reason
+# the row exists is to force a HUMAN to look each time a module goes dark.
+# Bumped 2 -> 3 for repair_overmerged_contact_cards (task #659), which is
+# dormant deliberately -- it repairs 30 of 128 over-merged nodes and leaves
+# 98 by design, so auto-running it on every customer graph is a product call
+# nobody has made yet.
+if grep -qE "^DORMANT \(acknowledged, unwired\)   3" <<< "$out"; then
+    ok "this repo reports 3 dormant modules, visible as three"
 else
-    bad "the two dormant modules were absorbed into another count"
+    bad "the three dormant modules were absorbed into another count"
 fi
 # The whole point of the row is that the next person to ship the household
 # split finds it. If that string ever drops out, the handoff is gone.

@@ -1,0 +1,60 @@
+# Task #659 repair. identity_resolver RULE 2 stops NEW over-merges; this
+# repairs the graph already written, un-merging Person nodes that carry 2+
+# distinct icloud_contact_uid.
+#
+# THE LOAD-BEARING PROPERTIES ARE NEGATIVE ONES, which is why this runs at
+# all rather than being trusted because it passed once on a box:
+#   * no Person node is ever DELETED -- these nodes carry real identifiers,
+#     attributes and inbound edges, unlike the role-address robots
+#   * --undo restores the graph EXACTLY, proven both directions on a live box
+#     (128 nodes/263 cards -> 99/204 -> back to 128/263, total triples
+#     248082 -> 248065 -> 248082, with a 2259-identifier control that never
+#     moved, so no card was destroyed)
+#   * it REFUSES to run at all when the icloud_contact_uid control is zero,
+#     so an empty or wrong graph cannot be silently "repaired"
+#
+# The module is DORMANT by design (scripts/fda_unwired_modules.tsv): it
+# repairs the 30 of 128 it can PROVE and leaves 98 by design, and firing a
+# partial repair at every customer graph is a product call nobody has made.
+# Dormant is not untested. This workflow is what keeps it honest while it
+# waits.
+name: contact-card-repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/ostler_fda/repair_overmerged_contact_cards.py'
+      - 'vendor/ostler_fda/identity_resolver.py'
+      - 'tests/test_repair_overmerged_contact_cards.py'
+      - '.github/workflows/contact-card-repair.yml'
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/repair_overmerged_contact_cards.py'
+      - 'vendor/ostler_fda/identity_resolver.py'
+      - 'tests/test_repair_overmerged_contact_cards.py'
+      - '.github/workflows/contact-card-repair.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  contact-card-repair:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+      - name: The repair never deletes a person, and undo restores exactly
+        run: python -m pytest tests/test_repair_overmerged_contact_cards.py -v
