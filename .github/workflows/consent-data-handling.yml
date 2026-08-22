@@ -81,6 +81,13 @@ jobs:
         if: always()
         run: bash tests/test_fda_assist_ordering.sh
 
+      # #595 layer 1. Lives here because its subject is the fda venv that
+      # com.ostler.fda-rerun resolves -- the same surface as the two FDA
+      # tests above.
+      - name: The runtime requirement is derived and checked on BOTH paths
+        if: always()
+        run: bash tests/test_runtime_ready_invariant.sh
+
       # Every osascript dialog must `activate` System Events first.
       #
       # ba94a24 stripped `activate` from FOUR FDA modals, so they opened
