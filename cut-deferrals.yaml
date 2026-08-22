@@ -3052,3 +3052,67 @@ deferrals:
       NEXT daemon build carry them, rather than renewing a third time -- the
       honest cost of renewing is what put the vault-state fix two cuts late.
     until_cut: "v1.0.41"
+
+  # ==========================================================================
+  # THE SPELLING THE GATE ACTUALLY CONSULTS. I DEFERRED THESE FIVE BY PR NUMBER
+  # ABOVE AND THE v1.0.41 CUT FAILED ON THEM ANYWAY.
+  #
+  # check-orphans in CI enumerates daemon refs by BRANCH NAME. `daemon:#327` is
+  # a row nothing asks about, and a deferral nothing asks about holds nothing.
+  # The gate said so in its own output -- 218 UNCONSULTED rows, mine among them.
+  #
+  # THIS FILE ALREADY WARNED ME, VERBATIM, in the row for
+  # daemon:fix/settings-preferences-ia: "I added daemon:#313 above, reasoned at
+  # length about ref-spelling twins while doing it, and then still deferred only
+  # the PR-number spelling." I read that row tonight and made the same mistake.
+  # Both spellings now, deliberately, because the PR-number rows are what a
+  # human searching for "#327" will find and the branch rows are what the gate
+  # asks for.
+  #
+  # ALSO WHY MY LOCAL RUN WAS GREEN AND CI WAS NOT: locally the gate resolved a
+  # daemon checkout and enumerated PR numbers; in CI, with CM044/CM041/CM059/
+  # CM031 in OSTLER_ORPHAN_GATE_SKIP, it enumerated branch names. The local run
+  # was not wrong, it was ASKING A DIFFERENT QUESTION, and I treated a local
+  # green as the same claim as a CI green.
+  # ==========================================================================
+  - ref: daemon:fix/observable-turn-latency
+    reason: >-
+      Branch-name spelling of daemon #327, 'feat(observability): a turn now says
+      how long it took'. TNM tagged it DO NOT MERGE. 8 files, +1017/-10 of new
+      observability surface, which has no business in a cut whose purpose is a
+      credential leak and a version string. Held additionally on the pin: oa
+      main HEAD is 9be3224c799af68fcedbdcddaa0409670604e504 and
+      cuts/v1.0.41/cut.env pins DAEMON_COMMIT=9be3224c799a, a PREFIX of that
+      same commit, so merging moves HEAD off the pin and flips the daemon
+      freshness row RED the instant it lands.
+    until_cut: "v1.0.41"
+
+  - ref: daemon:fix/pwg-moat-recall-shapes
+    reason: >-
+      Branch-name spelling of daemon #328. Title begins DO NOT MERGE -- the
+      author's own marker -- '#853 is refuted for 3 of 4 moat tools'. Held on
+      the pin mechanism above regardless of the marker.
+    until_cut: "v1.0.41"
+
+  - ref: daemon:fix/gateway-moat-routes
+    reason: >-
+      Branch-name spelling of daemon #329. Title begins DO NOT MERGE: the daemon
+      answered 3 Hub API routes with the SPA. Held on the pin mechanism above.
+    until_cut: "v1.0.41"
+
+  - ref: daemon:fix/imessage-automation-loud
+    reason: >-
+      Branch-name spelling of daemon #330, 'fix(imessage): make the
+      Messages-Automation failure loud', title carries DO NOT MERGE. Held on the
+      pin mechanism above.
+    until_cut: "v1.0.41"
+
+  - ref: daemon:fix/cron-delivery-status-honesty
+    reason: >-
+      Branch-name spelling of daemon #331, 'fix(cron): a suppressed, empty brief
+      must not report delivery=SUCCESS'. A real fix and NOT self-marked
+      do-not-merge, so it is deferred on the pin mechanism alone rather than on
+      the author's say-so. Brief delivery is tracked post-launch at HR015 #382
+      and is not launch-blocking. Merge with the rest immediately after the
+      v1.0.41 tag is pushed, so the NEXT daemon build carries them.
+    until_cut: "v1.0.41"
