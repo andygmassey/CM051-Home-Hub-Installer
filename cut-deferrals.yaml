@@ -2756,3 +2756,84 @@ deferrals:
       the migration worked. Commits preserved at refs/pull/225/head. Remote ref
       deleted 2026-08-21; local branch may be deleted, it is in no worktree.
     until_cut: "n/a -- already on main, and main is the better version"
+
+  # ------------------------------------------------------------------------
+  # THE THREE REDs THAT HELD v1.0.39 (recorded 2026-08-22, run 32555070125)
+  #
+  # All three are REAL work, all three are ONE MECHANICAL STEP from green, and
+  # none of them is launch-blocking. They are deferred together rather than
+  # rushed in on a cut night, and the specific remaining step is named on each
+  # row so the next reader does not have to re-derive it from a CI log.
+  #
+  # The common failure is NOT a broken gate. CONTROLLED: `test-wiring` is
+  # SUCCESS on main at 06e9d02e and FAILURE on all three heads, so the gate
+  # discriminates and the three PRs genuinely trip it.
+  # ------------------------------------------------------------------------
+
+  - ref: "CM051:#945"
+    reason: >-
+      'fix(install): derive the runtime requirement and check it on BOTH paths
+      (#595 layer 1)'. NOT FOR v1.0.39 BY EXPLICIT AGREEMENT -- TNM's 13:00 HKT
+      brief names #945 and an inbound layer-2 PR as out of this cut and says
+      they must not hold it. Independently it could not have merged as-is:
+      MEASURED on head cba925a4, `new-tests-wired` FAILS because
+      tests/test_runtime_ready_invariant.sh is scored DARK -- the change adds
+      the file and nothing invokes it, against a denominator of 887 runner
+      files searched. The #595 repair that this cut DOES carry is the separate
+      `_upg_repair_fda_venv` lift, already on main and asserted by
+      cut-manifests/v1.0.39.yaml. Layer 1 hardens the same area; it does not
+      gate it. TO LAND: wire the test into a workflow that CI executes, then
+      merge with the layer-2 PR behind it.
+    until_cut: "v1.0.40"
+
+  - ref: "CM051:#941"
+    reason: >-
+      'feat(probes): assert the assistant answers from the customer's own
+      data'. Test/probe infrastructure -- it does not ship in the DMG payload,
+      so deferring it changes nothing a customer receives. MEASURED on head
+      5a0a9191, TWO independent failures: `new-tests-wired` scores
+      tests/test_frontpage_tick_emits_interest_profile.sh DARK (added, nothing
+      invokes it), and `manifest-tests` exits 1 on the pytest suite for
+      verify_cut_manifest.py. The second one matters more than its size
+      suggests: this cut's own manifest gate is that same verifier, so merging
+      a change that reddens its test suite ON a cut night would put the
+      instrument and the artefact in the same commit. TO LAND: wire the probe,
+      fix the verifier suite, and land it before the v1.0.39 box walk so the
+      probe is available to assert on real hardware rather than in a harness.
+    until_cut: "v1.0.40"
+
+  - ref: "CM051:#938"
+    reason: >-
+      'fix(gui): a timed-out step is not an alert -- give `timeout` its own
+      sidebar glyph'. The closest of the three to mergeable, and the reason is
+      worth stating precisely because the CI red here is MISLEADING: the new
+      gui/OstlerInstallerTests/SidebarStatusGlyphTests.swift IS wired, into
+      .github/workflows/swift-tests.yml, and `swift-tests` PASSES on head
+      b2d481df. The only failure is `test-wiring`, and it is committed-manifest
+      DRIFT -- the file has no row in the manifest (WIRED 190 / UNWIRED 102
+      against a recorded backlog of 102). So this is a bookkeeping gap on
+      otherwise-green work, NOT a broken fix. It is still deferred, and the
+      honest reason is scope discipline rather than merit: regenerating the
+      wiring manifest on a cut night can sweep up unrelated drift from the
+      other 102 rows, which widens the blast radius of a tag that has already
+      failed twice. The user-visible cost of waiting is that a timed-out step
+      keeps rendering with the alert glyph for one more version, which is
+      cosmetic and non-destructive. TO LAND: regenerate the manifest, confirm
+      the diff touches ONLY the SidebarStatusGlyphTests row, merge.
+    until_cut: "v1.0.40"
+
+  - ref: "CM051:#948"
+    reason: >-
+      'NOT FOR v1.0.39 -- make a dying scheduled agent loud (#595 layer 2)'.
+      This is the inbound layer-2 PR TNM's 13:00 HKT brief named alongside
+      #945, and its own TITLE declares it out of this cut, so deferring it is
+      recording an author's stated intent rather than overriding one. It pairs
+      with #945 and should land with it.
+      WORTH RECORDING FOR THE NEXT READER: this PR did NOT appear in the
+      check-orphans failure of run 32555070125. It was opened after that run
+      started, so CI listed three REDs and there were four. It was caught only
+      because the gate was re-run locally against live PR state before
+      re-tagging, which is now the habit: CI's orphan list is a snapshot at run
+      start, and open-PR state moves underneath a cut. Re-run the gate locally
+      immediately before every tag push.
+    until_cut: "v1.0.40"
