@@ -11,6 +11,18 @@ name: rule-09-strings-check
 # Same script, same exit codes, same bypass mechanism (`i18n-exempt`
 # substring on the same line as the literal) as the pre-commit hook
 # at .githooks/check-rule-09-strings.sh.
+#
+# This workflow also owns the OTHER half of Rule 0.9: the lint above proves
+# customer strings are IN the catalogue, and the locale overlay/fallback gate
+# below proves the catalogue LOADER still resolves them. Extracting strings you
+# then fail to render is the same failure with a longer fuse.
+#
+# DELIBERATELY NOT paths-FILTERED, and that is why nothing is added to a
+# `paths:` list for the new gate. This workflow already runs on every pull
+# request. A filter would mean it skips on exactly the PR that changes a
+# surface the list forgot -- and a skipped job renders as a grey tick that
+# reads like a pass. Same reasoning as install-duration-honesty.yml. CM051 is
+# public, so the runner is free.
 
 on:
   pull_request:
@@ -61,3 +73,17 @@ jobs:
               exit 1
           fi
           "$SCRIPT" ci "${{ steps.base.outputs.sha }}"
+
+      # The catalogue LOADER, not the catalogue lint. Pins three guarantees of
+      # the base+overlay loader in install.sh: en-GB is byte-identical through
+      # it, a selected locale overlays per-key, and an untranslated key or a
+      # wholly-absent catalogue falls back to English without blanking or
+      # aborting. Plus %s placeholder parity, because a translation that drops
+      # a placeholder is a printf crash in the customer's language.
+      #
+      # `if: always()` because this is not the first gate in the job. GitHub
+      # stops a job at its first failing step, and a skipped gate reports
+      # identically to one that ran and passed.
+      - name: Locale overlay + English fallback hold (catalogue loader)
+        if: always()
+        run: bash tests/test_locale_overlay_fallback.sh
