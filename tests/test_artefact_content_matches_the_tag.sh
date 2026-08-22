@@ -79,20 +79,34 @@ ok "tag ${CUT} install.sh -> ${WANT:0:16}..."
 # Nearest other v1.0.* tag. Deliberately not hardcoded: a pinned control tag
 # rots the moment it is deleted, and a rotted control silently stops
 # discriminating while every other limb still says PASS.
+# SEARCH BACKWARDS FOR A TAG THAT ACTUALLY DIFFERS, rather than taking the
+# adjacent one and giving up. TWO CONSECUTIVE CUTS CAN LEGITIMATELY SHIP THE
+# SAME install.sh: v1.0.40 changed only the GUI version plist and two gates, so
+# its install.sh is byte-identical to v1.0.39's, and the CM051 pin was carried
+# over for exactly that reason. The first version of this block took the
+# nearest other tag, found it identical, and refused -- correct about the
+# vacuity, wrong about there being no usable control.
 CONTROL=""
+CONTROL_SHA=""
+SKIPPED_IDENTICAL=0
 while read -r t; do
+    [ -n "$t" ] || continue
     [ "$t" = "$CUT" ] && continue
     git -C "$REPO_ROOT" rev-parse --verify --quiet "${t}^{commit}" >/dev/null 2>&1 || continue
-    CONTROL="$t"; break
+    csha="$(git -C "$REPO_ROOT" show "${t}:install.sh" 2>/dev/null | shasum -a 256 | awk '{print $1}')"
+    [ -n "$csha" ] || continue
+    if [ "$csha" = "$WANT" ]; then
+        SKIPPED_IDENTICAL=$((SKIPPED_IDENTICAL+1))
+        continue
+    fi
+    CONTROL="$t"; CONTROL_SHA="$csha"; break
 done <<< "$(git -C "$REPO_ROOT" tag -l 'v1.0.*' --sort=-v:refname 2>/dev/null)"
-[ -n "$CONTROL" ] || cannot "no second v1.0.* tag to use as a control; a one-sided comparison proves nothing"
-CONTROL_SHA="$(git -C "$REPO_ROOT" show "${CONTROL}:install.sh" 2>/dev/null | shasum -a 256 | awk '{print $1}')"
-if [ -z "$CONTROL_SHA" ]; then
-    cannot "control tag ${CONTROL} has no readable install.sh"
+
+if [ -z "$CONTROL" ]; then
+    cannot "no v1.0.* tag has an install.sh DIFFERENT from ${CUT}'s (${SKIPPED_IDENTICAL} checked and identical); with nothing to discriminate against, a match here would prove nothing"
 fi
-if [ "$CONTROL_SHA" = "$WANT" ]; then
-    bad "control tag ${CONTROL} has an IDENTICAL install.sh to ${CUT}, so this comparison cannot discriminate between them"
-    exit 1
+if [ "$SKIPPED_IDENTICAL" -gt 0 ]; then
+    ok "control: skipped ${SKIPPED_IDENTICAL} tag(s) shipping the SAME install.sh as ${CUT} (legitimate: a cut need not change it)"
 fi
 ok "control: ${CONTROL} install.sh differs (${CONTROL_SHA:0:16}...), so a match against ${CUT} is meaningful"
 
