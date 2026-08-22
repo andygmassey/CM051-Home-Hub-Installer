@@ -35,7 +35,25 @@
 # keep the reason to a single line (semicolons for structure).
 # ============================================================================
 # ============================================================================
-# 🔴 v1.0.41: DO NOT WRITE AN ACK FOR THIS DELTA. THE WIKI MUST BE REBUILT.
+# ✅ v1.0.41: DISCHARGED 2026-08-22 -- THE WIKI WAS REBUILT. NO ACK WAS WRITTEN.
+# ============================================================================
+# Resolution, recorded so the refusal below reads as HISTORY and not as a live
+# instruction. CM044 v0.1.24 tagged at 946a624, images built and pushed, and
+# CM051 re-pinned:
+#
+#   wiki-site      sha256:0df14b72...   -> CM044 946a624
+#   wiki-compiler  sha256:ab53c66a...   -> CM044 946a624
+#
+# verify_cut_freshness.sh, after the re-pin: BOTH wiki rows FRESH, 946a624f on
+# both sides. fresh went 15 -> 17 and stale/RED 3 -> 1, the remaining one being
+# the daemon, which is cut step 2.
+#
+# THE ARGUMENT BELOW IS KEPT VERBATIM because it is the reasoning that produced
+# a rebuild instead of a sentence in a TSV, and deleting a discharged reason
+# teaches the next reader that reasons here are quietly rewritten.
+# ============================================================================
+#
+# 🔴 (HISTORICAL) v1.0.41: DO NOT WRITE AN ACK FOR THIS DELTA. THE WIKI MUST BE REBUILT.
 # ============================================================================
 # Adjudicated 2026-08-22 (Archie). Recorded HERE, in the file a person opens
 # when they want to write an ack, because that is where the wrong decision
