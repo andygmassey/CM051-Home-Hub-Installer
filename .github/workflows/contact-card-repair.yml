@@ -54,7 +54,36 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Install pytest
-        run: python -m pip install --quiet pytest
+      # rdflib is a TEST dependency, not a runtime one. It is deliberately
+      # absent from vendor/ostler_fda/pyproject.toml, whose only deps are
+      # httpx and nameparser, because the shipped module talks to Oxigraph
+      # over HTTP and never imports rdflib. The test uses it to stand up an
+      # in-memory graph.
+      #
+      # INSTALLING IT IS LOAD-BEARING, NOT HOUSEKEEPING. The test opens with
+      # `pytest.importorskip("rdflib")`, so WITHOUT this line the entire
+      # module skips: measured on the first run of this workflow, all three
+      # interpreters reported "collected 0 items / 1 skipped". Twenty-seven
+      # assertions, an anti-vacuity fixture check and ten killed mutants,
+      # all silently not run.
+      - name: Install pytest and the graph the fixtures need
+        run: python -m pip install --quiet pytest rdflib
+      # ANTI-VACUITY, BEFORE THE RUN THAT MATTERS. pytest exits 5 on "no tests
+      # collected" and `bash -e` does fail on it, so the skip above WAS caught
+      # by default. This step is here so that safety is EXPLICIT and survives
+      # someone later adding `|| true`, changing the runner, or reaching for a
+      # flag that softens the exit code. A gate whose fail-closed behaviour is
+      # an accident of another tool's exit convention is one edit from silent.
+      - name: The suite must actually collect, or it proves nothing
+        run: |
+          n="$(python -m pytest tests/test_repair_overmerged_contact_cards.py \
+                 --collect-only -q 2>/dev/null | grep -cE '::test_' || true)"
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 20 ]; then
+            echo "REFUSING: expected at least 20 collected tests, got ${n:-0}." >&2
+            echo "A skipped module reports success in any runner that reads" >&2
+            echo "'no failures' as 'passed'. Check rdflib installed." >&2
+            exit 1
+          fi
       - name: The repair never deletes a person, and undo restores exactly
         run: python -m pytest tests/test_repair_overmerged_contact_cards.py -v
