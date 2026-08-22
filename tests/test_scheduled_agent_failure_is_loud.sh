@@ -296,14 +296,18 @@ fi
 
 echo "== 11. THE RULE IS REGISTERED -- an unwired rule is a dark rule =="
 reg="$(run registered)"
-if printf '%s' "$reg" | grep -q 'check_scheduled_agents'; then
+# Herestring, NOT `printf | grep -q`. Under `set -o pipefail` a short-
+# circuiting consumer can SIGPIPE the producer and invert the verdict, so a
+# rule that IS registered could report as missing. The repo ratchets against
+# this construct and caught these two lines on the first CI run.
+if grep -q 'check_scheduled_agents' <<< "$reg"; then
     ok "check_scheduled_agents is in ALL_RULES"
 else
     bad "rule exists but is NOT in ALL_RULES -- it would never run"
 fi
 # Control: the pattern must be able to find a rule that IS there, so a zero
 # above cannot be a broken grep.
-if printf '%s' "$reg" | grep -q 'check_hydrate_ingest'; then
+if grep -q 'check_hydrate_ingest' <<< "$reg"; then
     ok "control: the same predicate finds a pre-existing rule"
 else
     bad "control failed -- could not find check_hydrate_ingest either"
