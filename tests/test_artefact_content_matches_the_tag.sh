@@ -8,10 +8,21 @@
 # and proves NOTHING about which tree produced them. A build that packaged a
 # stale install.sh would sail through every existing gate and reach a customer.
 #
-# Raised by TNM against v1.0.39 on 2026-08-22. On re-measurement that artefact
-# turned out to be correct -- both copies of install.sh in the DMG hash to the
-# v1.0.39 blob -- but THE GAP WAS REAL EITHER WAY, and a gate that only gets
-# written when a defect is confirmed is a gate that arrives one incident late.
+# THAT GAP IS THE WHOLE JUSTIFICATION AND IT STANDS ON ITS OWN. It was true
+# before anyone looked for it and would be true if no one ever had.
+#
+# THE HISTORY, because a half-told one is worse than none. TNM raised v1.0.39
+# on 2026-08-22 as a mis-built artefact shipping v1.0.38's install.sh. That
+# headline was WITHDRAWN IN FULL by TNM the same hour, with the mechanism: a
+# leftover v1.0.38 image was already mounted on the test box, the v1.0.39
+# attach landed as "Install Ostler 1", and every subsequent command measured
+# the stale volume. Re-measured on the published DMG, both copies of install.sh
+# ARE the v1.0.39 blob. Nothing in this file rests on that finding, and TNM
+# asked that it not be cited as the motivating incident. It is not.
+#
+# WHAT THIS GATE DOES REST ON: it is demonstrated-red against the REAL
+# published v1.0.39 artefact, whose bundle reports 1.0.38 while the cut is
+# 1.0.39. That defect is in a customer artefact as this is written.
 #
 # WHY install.sh IS THE RIGHT FILE TO HASH. It is version-bearing (it carries
 # OSTLER_ASSISTANT_VERSION, the fallback version and both integrity pins), it
