@@ -19,6 +19,7 @@ Rules are organised by category:
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 from typing import Any
@@ -44,6 +45,21 @@ from diagnostic_copy import (
     RULE_CRASHED_DETAIL_FMT,
     RULE_CRASHED_FIX,
     RULE_CRASHED_FIX_COMMAND,
+    SCHEDULED_AGENT_FAILING_TITLE_FMT,
+    SCHEDULED_AGENT_FAILING_DETAIL_FMT,
+    SCHEDULED_AGENT_FAILING_FIX,
+    SCHEDULED_AGENT_FAILING_FIX_COMMAND_FMT,
+    SCHEDULED_AGENT_NEVER_RAN_TITLE_FMT,
+    SCHEDULED_AGENT_NEVER_RAN_DETAIL_FMT,
+    SCHEDULED_AGENT_NEVER_RAN_FIX,
+    SCHEDULED_AGENT_NOT_LOADED_TITLE_FMT,
+    SCHEDULED_AGENT_NOT_LOADED_DETAIL_FMT,
+    SCHEDULED_AGENT_NOT_LOADED_FIX,
+    SCHEDULED_AGENT_NOT_LOADED_FIX_COMMAND_FMT,
+    SCHEDULED_AGENT_UNKNOWN_TITLE_FMT,
+    SCHEDULED_AGENT_UNKNOWN_DETAIL_FMT,
+    SCHEDULED_AGENT_UNKNOWN_FIX,
+    SCHEDULED_AGENT_UNKNOWN_FIX_COMMAND_FMT,
     ALL_UNREACHABLE_DETAIL,
     ALL_UNREACHABLE_FIX,
     ALL_UNREACHABLE_FIX_COMMAND,
@@ -1481,7 +1497,377 @@ def check_hydrate_ingest(snapshot: Any) -> list[dict]:
     return findings
 
 
+# ===========================================================================
+# check_scheduled_agents -- MAKE A DYING AGENT LOUD. (#595 layer 2)
+#
+# WHAT WENT WRONG, MEASURED, ON .228 / v1.0.38.
+#
+# com.ostler.fda-rerun is the ONLY recurring ingest for six sources
+# (contacts, calendar, iMessage, WhatsApp, browsing, notes). It exited 1 on
+# every hourly tick for days. The graph froze completely. Nothing surfaced
+# it, while the product went on saying "still loading in the background".
+#
+# The missing module was the proximate cause and is fixed (#939/#942/#945).
+# THE REAL DEFECT IS THE SILENCE, and this rule is the fix for that.
+#
+# WHY THERE IS NO TICK WRAPPER TO INSTRUMENT, AND WHY THAT IS FINE.
+#
+# Measured, not assumed: fda-rerun is a "daemon-only feed"
+# (tests/tick_pair_map.tsv) whose plist runs the Rust binary directly --
+#   ProgramArguments = OstlerAssistant.app/.../ostler-assistant run-source
+# -- with no shell wrapper anywhere in CM051, and CM051 cannot rebuild that
+# binary. So there is nothing of ours to add exit-status recording to.
+#
+# There does not need to be. LAUNCHD ALREADY RECORDS IT. `launchctl print`
+# reports `runs = N` and `last exit code = ...` for every job it manages.
+# Before this rule, NOTHING in the shipping product read either field:
+#
+#     $ grep -rIn -i "lastexit" . --exclude-dir=.git   ->  0 hits
+#     $ grep -rIn "launchctl" . --exclude-dir=.git     ->  348 hits (control)
+#
+# The one place in the repo that reads a last exit status is a box-walk QA
+# probe that never reaches a customer. The knowledge existed; the wiring did
+# not. This rule is that wiring, and it costs install.sh nothing -- the
+# Doctor already runs every rule in ALL_RULES on every status poll.
+#
+# THE THREE STATES, AND WHY THEY ARE SEPARATE BRANCHES.
+#
+# "Never ran" and "ran and succeeded" MUST NOT print the same. That exact
+# conflation is #810, and the gate that inherited it wrote `${ec:-0}` --
+# defaulting an unloaded label's empty string to a clean exit 0 -- and went
+# GREEN on a box where the bundle was not installed at all. So:
+#
+#   healthy      last exit code = 0            -> NO finding (silence is
+#                                                 correct only here)
+#   failing      last exit code = N, N != 0    -> critical, with the streak
+#   never_ran    runs = 0 past its window      -> warning, its own copy
+#   not_loaded   launchctl has no such job     -> critical
+#   in_flight    runs > 0, "(never exited)"    -> no finding; it is running
+#   unknown      we could not parse an answer  -> warning, CANNOT-RUN
+#
+# There is no `or 0` and no `.get(..., 0)` anywhere in the parse. A field we
+# could not read becomes `unknown`, never `healthy`.
+#
+# COUNTING CONSECUTIVE FAILURES. launchd reports the LAST exit code, not a
+# streak, so the streak is accumulated here against `runs`. Any observation
+# of exit 0 resets it. The Doctor dashboard polls /doctor/api/status every
+# 10s against hourly ticks, so in practice every tick's outcome is seen.
+# ===========================================================================
+
+# label -> (feeds, log basename, expected interval seconds)
+# The recurring agents whose death freezes ingest. fda-rerun is first
+# because it is the one that actually died and it carries six sources.
+_SCHEDULED_AGENTS = (
+    (
+        "com.ostler.fda-rerun",
+        "contacts, calendar, iMessage, WhatsApp, browsing and notes",
+        "fda-rerun",
+        3600,
+    ),
+    ("com.ostler.contact-resync", "your contacts", "contact-resync", 1800),
+    ("com.ostler.enrich", "people and organisation detail", "enrich", 1800),
+    ("com.ostler.export-scan", "exports you have dropped in", "export-scan", 14400),
+    ("com.ostler.aiconv-resume", "AI chat transcripts", "aiconv-resume", 3600),
+)
+
+# How many consecutive failed ticks before the card goes critical. One bad
+# tick can be a transient (a locked DB, a sleeping Mac). Two consecutive is a
+# pattern, and on the .228 box it was hundreds.
+_SCHEDULED_AGENT_CRITICAL_AFTER = 2
+
+# Multiplier on the expected interval before "runs = 0" is worth reporting.
+# A job legitimately shows runs = 0 in the minutes after install; it does not
+# legitimately show runs = 0 two full windows later. Matches the 2x posture
+# used by dashboard_components.STALE_INTERVAL_MULTIPLIER.
+_SCHEDULED_AGENT_NEVER_RAN_AFTER = 2
+
+_LAUNCHD_RUNS_RE = re.compile(r"^\s*runs\s*=\s*(\d+)\s*$", re.MULTILINE)
+_LAUNCHD_EXIT_RE = re.compile(r"^\s*last exit code\s*=\s*(.+?)\s*$", re.MULTILINE)
+
+
+def _scheduled_agent_state_dir():
+    """Where the per-label streak state lives.
+
+    Findings themselves are computed per HTTP request and never persisted,
+    so the streak has to be. Honours OSTLER_STATE_DIR for tests.
+    """
+    from pathlib import Path
+    base = os.environ.get("OSTLER_STATE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".ostler", "state",
+    )
+    return Path(base) / "launchd_tick_posture"
+
+
+def _launchctl_print(label: str) -> "tuple[int, str]":
+    """Ask launchd about one job. Returns (rc, combined output).
+
+    rc 127 is reserved for "there is no launchctl here", which is a
+    CANNOT-RUN and not a verdict about the job.
+    """
+    import subprocess
+    try:
+        proc = subprocess.run(
+            ["launchctl", "print", f"gui/{os.getuid()}/{label}"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except FileNotFoundError:
+        return 127, "launchctl not found"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return 127, f"{type(exc).__name__}: {exc}"
+    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+
+
+def _parse_launchd_job(rc: int, out: str) -> dict:
+    """Turn `launchctl print` output into a state, with no lossy defaults.
+
+    Deliberately returns `unknown` rather than assuming success whenever a
+    field is absent or unparseable. See the #810 note above.
+    """
+    if rc == 127:
+        return {"state": "unknown", "why": out.strip()[:200] or "launchctl unavailable"}
+    if rc != 0:
+        # launchctl exits non-zero when the label is not registered at all.
+        return {"state": "not_loaded", "why": f"launchctl print exited {rc}"}
+
+    runs_m = _LAUNCHD_RUNS_RE.search(out)
+    exit_m = _LAUNCHD_EXIT_RE.search(out)
+    if runs_m is None:
+        return {"state": "unknown", "why": "launchd reported no run count"}
+    if exit_m is None:
+        # MEASURED, not hypothetical: a job the OS killed reports
+        # `last exit reason = JETSAM_REASON_...` and NO `last exit code` at
+        # all (com.apple.progressd on the dev Mac, 2026-08-22). We genuinely
+        # do not know whether that was a fault, so the state stays unknown --
+        # but the reason is carried through rather than thrown away, because
+        # "could not tell" with a reason is actionable and "could not tell"
+        # on its own is just a shrug.
+        reason_m = re.search(
+            r"^\s*last exit reason\s*=\s*(.+?)\s*$", out, re.MULTILINE,
+        )
+        if reason_m:
+            return {
+                "state": "unknown",
+                "why": f"launchd reported no exit code, only "
+                       f"'{reason_m.group(1)}' (the job was terminated, not "
+                       f"exited)",
+            }
+        return {"state": "unknown", "why": "launchd reported no last exit code"}
+
+    runs = int(runs_m.group(1))
+    exit_raw = exit_m.group(1).strip()
+
+    if runs == 0:
+        return {"state": "never_ran", "runs": 0, "why": exit_raw}
+    if not exit_raw.lstrip("-").isdigit():
+        # "(never exited)" with runs > 0 means the first run is still going.
+        return {"state": "in_flight", "runs": runs, "why": exit_raw}
+
+    code = int(exit_raw)
+    state = "healthy" if code == 0 else "failing"
+    return {"state": state, "runs": runs, "last_exit": code}
+
+
+def _scheduled_agent_observe(label: str, now=None, obs=None) -> dict:
+    """Observe one label and fold it into its persisted streak.
+
+    `obs` is injectable so the tests can drive every branch without a real
+    launchd. Never raises: the Doctor must keep rendering.
+    """
+    import json
+    from datetime import datetime, timezone
+
+    now = now or datetime.now(tz=timezone.utc)
+    now_iso = now.isoformat()
+
+    if obs is None:
+        obs = _parse_launchd_job(*_launchctl_print(label))
+    obs = dict(obs)
+    obs["label"] = label
+
+    path = _scheduled_agent_state_dir() / f"{label}.json"
+    prev = {}
+    try:
+        if path.is_file():
+            prev = json.loads(path.read_text()) or {}
+    except (OSError, ValueError):
+        prev = {}
+
+    obs["first_observed_at"] = prev.get("first_observed_at") or now_iso
+    obs["observed_at"] = now_iso
+
+    if obs["state"] == "failing":
+        if prev.get("state") == "failing" and prev.get("failing_since"):
+            obs["failing_since"] = prev["failing_since"]
+            start = prev.get("runs_at_failing_start")
+            obs["runs_at_failing_start"] = (
+                start if isinstance(start, int) else obs.get("runs")
+            )
+        else:
+            obs["failing_since"] = now_iso
+            obs["runs_at_failing_start"] = obs.get("runs")
+        start = obs.get("runs_at_failing_start")
+        runs = obs.get("runs")
+        if isinstance(start, int) and isinstance(runs, int):
+            obs["failed_ticks"] = max(1, runs - start + 1)
+        else:
+            obs["failed_ticks"] = 1
+    else:
+        obs["failing_since"] = None
+        obs["runs_at_failing_start"] = None
+        obs["failed_ticks"] = 0
+
+    # Write only when something changed. The dashboard polls every 10s; the
+    # timestamps alone would otherwise rewrite five files 8,640 times a day.
+    changed = any(
+        prev.get(k) != obs.get(k)
+        for k in ("state", "runs", "last_exit", "failing_since")
+    ) or not prev
+    if changed:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(obs, indent=2, sort_keys=True) + "\n")
+            tmp.replace(path)
+        except OSError as exc:
+            log.warning("could not persist tick posture for %s: %s", label, exc)
+    else:
+        obs["failing_since"] = prev.get("failing_since")
+        obs["first_observed_at"] = prev.get("first_observed_at") or obs["first_observed_at"]
+
+    return obs
+
+
+def _age_seconds(iso_ts, now) -> "float | None":
+    from datetime import datetime, timezone
+    if not iso_ts:
+        return None
+    try:
+        ts = datetime.fromisoformat(iso_ts)
+    except (TypeError, ValueError):
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return (now - ts).total_seconds()
+
+
+def _humanise_every(seconds: int) -> str:
+    if seconds % 3600 == 0 and seconds >= 3600:
+        h = seconds // 3600
+        return "hourly" if h == 1 else f"every {h} hours"
+    return f"every {max(1, seconds // 60)} minutes"
+
+
+def check_scheduled_agents(snapshot: Any) -> list[dict]:
+    """Surface recurring agents that are failing, have never run, or are gone.
+
+    Emits NOTHING when a job is healthy -- a card per healthy agent would be
+    noise, and the whole point is that the abnormal states stop being silent.
+    Every finding carries machine-readable `agent_state` / `agent_label` so a
+    test can assert the verdict rather than the prose (copy is reworded
+    freely in diagnostic_copy.py; a test pinned to a sentence goes
+    green-while-blind the day someone improves it).
+    """
+    from datetime import datetime, timezone
+
+    findings: list[dict] = []
+    now = datetime.now(tz=timezone.utc)
+
+    for label, feeds, logname, interval_s in _SCHEDULED_AGENTS:
+        obs = _scheduled_agent_observe(label, now=now)
+        state = obs.get("state")
+
+        if state in ("healthy", "in_flight"):
+            continue
+
+        if state == "failing":
+            ticks = obs.get("failed_ticks") or 1
+            severity = (
+                "critical" if ticks >= _SCHEDULED_AGENT_CRITICAL_AFTER
+                else "warning"
+            )
+            since = _format_upgrade_applied(obs.get("failing_since")) or "recently"
+            findings.append({
+                "severity": severity,
+                "title": SCHEDULED_AGENT_FAILING_TITLE_FMT.format(feeds=feeds),
+                "detail": SCHEDULED_AGENT_FAILING_DETAIL_FMT.format(
+                    label=label, feeds=feeds, since=since, ticks=ticks,
+                    code=obs.get("last_exit"),
+                ),
+                "fix": SCHEDULED_AGENT_FAILING_FIX,
+                "fix_command": SCHEDULED_AGENT_FAILING_FIX_COMMAND_FMT.format(
+                    logname=logname, label=label,
+                ),
+                "risk": "low",
+                "category": "ingest",
+                "agent_state": "failing",
+                "agent_label": label,
+                "agent_failed_ticks": ticks,
+            })
+
+        elif state == "never_ran":
+            # Only once it is genuinely overdue. A fresh install legitimately
+            # shows runs = 0, and crying wolf in the first hour would train
+            # the customer to ignore the one card that matters.
+            age = _age_seconds(obs.get("first_observed_at"), now)
+            if age is None or age < interval_s * _SCHEDULED_AGENT_NEVER_RAN_AFTER:
+                continue
+            since = _format_upgrade_applied(obs.get("first_observed_at")) or "install"
+            findings.append({
+                "severity": "warning",
+                "title": SCHEDULED_AGENT_NEVER_RAN_TITLE_FMT.format(feeds=feeds),
+                "detail": SCHEDULED_AGENT_NEVER_RAN_DETAIL_FMT.format(
+                    label=label, feeds=feeds, since=since,
+                    every=_humanise_every(interval_s),
+                ),
+                "fix": SCHEDULED_AGENT_NEVER_RAN_FIX,
+                "fix_command": SCHEDULED_AGENT_FAILING_FIX_COMMAND_FMT.format(
+                    logname=logname, label=label,
+                ),
+                "risk": "low",
+                "category": "ingest",
+                "agent_state": "never_ran",
+                "agent_label": label,
+            })
+
+        elif state == "not_loaded":
+            findings.append({
+                "severity": "critical",
+                "title": SCHEDULED_AGENT_NOT_LOADED_TITLE_FMT.format(feeds=feeds),
+                "detail": SCHEDULED_AGENT_NOT_LOADED_DETAIL_FMT.format(
+                    label=label, feeds=feeds,
+                ),
+                "fix": SCHEDULED_AGENT_NOT_LOADED_FIX,
+                "fix_command": SCHEDULED_AGENT_NOT_LOADED_FIX_COMMAND_FMT.format(
+                    label=label,
+                ),
+                "risk": "low",
+                "category": "ingest",
+                "agent_state": "not_loaded",
+                "agent_label": label,
+            })
+
+        else:
+            findings.append({
+                "severity": "warning",
+                "title": SCHEDULED_AGENT_UNKNOWN_TITLE_FMT.format(feeds=feeds),
+                "detail": SCHEDULED_AGENT_UNKNOWN_DETAIL_FMT.format(
+                    label=label, why=obs.get("why") or "no reason given",
+                ),
+                "fix": SCHEDULED_AGENT_UNKNOWN_FIX,
+                "fix_command": SCHEDULED_AGENT_UNKNOWN_FIX_COMMAND_FMT.format(
+                    label=label,
+                ),
+                "risk": "low",
+                "category": "ingest",
+                "agent_state": "unknown",
+                "agent_label": label,
+            })
+
+    return findings
+
+
 ALL_RULES = [
+    check_scheduled_agents,
     check_hydrate_ingest,
     check_first_install,
     check_container_health,

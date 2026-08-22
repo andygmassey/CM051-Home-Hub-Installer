@@ -580,3 +580,105 @@ INGEST_NO_INPUT_DETAIL_FMT = (
 )
 INGEST_NO_INPUT_FIX = "Nothing to do unless you expected data here"
 INGEST_NO_INPUT_FIX_COMMAND = "open ~/.ostler/logs/install.log"
+
+
+# ---------------------------------------------------------------------------
+# Scheduled-agent health (#595 layer 2, 2026-08-22)
+#
+# THE DEFECT THIS COPY EXISTS FOR.
+#
+# On .228 (published v1.0.38) com.ostler.fda-rerun -- the ONLY recurring
+# ingest for contacts, calendar, iMessage, WhatsApp, browsing and notes --
+# exited 1 on every hourly tick for days. The graph froze completely. No log
+# reader, no Doctor card and no human ever said so, while the product went on
+# telling the customer it was "still loading in the background".
+#
+# The missing module was the proximate cause and is fixed. The DEFECT is the
+# silence: a scheduled agent could die on every tick forever and no surface
+# named it. This copy is that surface.
+#
+# THREE STATES, NEVER CONFLATED. "Never ran" and "ran and succeeded" must not
+# read the same -- that exact conflation is #810, and the box-walk gate that
+# inherited it wrote `${ec:-0}`, turning an unloaded label's empty string into
+# a clean exit 0 and going GREEN on a box where the bundle was not installed
+# at all. So each state below gets its own title, and healthy emits nothing.
+
+SCHEDULED_AGENT_FAILING_TITLE_FMT = (
+    "Background updates for {feeds} have been failing"
+)
+SCHEDULED_AGENT_FAILING_DETAIL_FMT = (
+    "{label} is the scheduled job that refreshes {feeds}. It has failed "
+    "every time the Doctor has looked since {since} -- {ticks} runs, the "
+    "most recent exiting with code {code}. While it keeps failing nothing "
+    "new is being added from those sources, so anything that looks like it "
+    "is 'still loading' has in fact stopped."
+)
+SCHEDULED_AGENT_FAILING_FIX = (
+    "The job's own error log says why it is exiting. Open it, then restart "
+    "the job. If it fails again straight away the error log will name the "
+    "cause -- send it with the support report from this window."
+)
+SCHEDULED_AGENT_FAILING_FIX_COMMAND_FMT = (
+    "tail -50 ~/.ostler/logs/{logname}.err; "
+    "launchctl kickstart -k gui/$(id -u)/{label}"
+)
+
+# NEVER-RAN. Deliberately a different title, different severity and a
+# different fix from FAILING, because it is a different fault: the job is
+# registered and launchd has simply never started it. Reporting this as
+# healthy is the #810 conflation; reporting it as failing would be a lie in
+# the other direction, since nothing has failed yet.
+SCHEDULED_AGENT_NEVER_RAN_TITLE_FMT = (
+    "A background job for {feeds} has never run"
+)
+SCHEDULED_AGENT_NEVER_RAN_DETAIL_FMT = (
+    "{label} refreshes {feeds}. launchd reports it has run zero times, and "
+    "the Doctor has been watching it since {since} -- well past the {every} "
+    "it is scheduled for. This is not the same as running successfully with "
+    "nothing to do: it has not started at all, so those sources have never "
+    "been refreshed since Ostler was installed."
+)
+SCHEDULED_AGENT_NEVER_RAN_FIX = (
+    "Start the job once by hand. If it then runs on its own schedule the "
+    "problem was the initial trigger; if it never appears again, its plist "
+    "is not being honoured."
+)
+
+# NOT LOADED. "An unloaded agent is not a healthy one" -- the header of the
+# box-walk gate that learned this the hard way.
+SCHEDULED_AGENT_NOT_LOADED_TITLE_FMT = (
+    "The background job for {feeds} is not registered"
+)
+SCHEDULED_AGENT_NOT_LOADED_DETAIL_FMT = (
+    "launchd has no record of {label} at all, so nothing is scheduled to "
+    "refresh {feeds}. An agent that is not loaded is not a healthy one -- it "
+    "will never run, and no amount of waiting will change that."
+)
+SCHEDULED_AGENT_NOT_LOADED_FIX = (
+    "Re-register the job from its plist. If the plist is missing, the "
+    "installer did not finish this step and re-running the installer will "
+    "restore it."
+)
+SCHEDULED_AGENT_NOT_LOADED_FIX_COMMAND_FMT = (
+    "launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/{label}.plist"
+)
+
+# CANNOT-RUN. We could not look. This must never be reported as "we looked
+# and it was fine" -- the same discipline the runtime-ready check applies at
+# install time, and the same reason run_all_rules turns a crashed rule into a
+# finding rather than swallowing it.
+SCHEDULED_AGENT_UNKNOWN_TITLE_FMT = (
+    "Could not check the background job for {feeds}"
+)
+SCHEDULED_AGENT_UNKNOWN_DETAIL_FMT = (
+    "The Doctor asked launchd about {label} and could not get a usable "
+    "answer ({why}). This is not a report that the job is healthy -- it is a "
+    "report that its health is unknown."
+)
+SCHEDULED_AGENT_UNKNOWN_FIX = (
+    "Re-open this page. If it keeps saying this, include the support report "
+    "from this window when you get in touch."
+)
+SCHEDULED_AGENT_UNKNOWN_FIX_COMMAND_FMT = (
+    "launchctl print gui/$(id -u)/{label}"
+)
