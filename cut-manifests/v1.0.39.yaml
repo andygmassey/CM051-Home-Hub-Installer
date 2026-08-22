@@ -1,0 +1,141 @@
+# cut-manifests/v1.0.39.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.39.
+#
+# WHY v1.0.39 EXISTS: v1.0.38 SHIPPED A PRODUCT THAT DOES NOT WORK
+# ---------------------------------------------------------------------------
+# The v1.0.38 DMG verified, installed, and passed every gate in the cut. The
+# product on it stops growing about an hour after install and cannot answer a
+# question about the customer. That distinction -- a green cut is not a working
+# product -- is the whole content of this cut.
+#
+# Measured on the walked v1.0.38 box, not inferred:
+#
+#   com.ostler.fda-rerun exits 1 hourly, ModuleNotFoundError: nameparser.
+#   The tick's own interpreter cannot import the module at all:
+#   ~/.ostler/.venv/bin/python3 -c 'import ostler_fda' -> ModuleNotFoundError.
+#   site-packages holds ostler_legal + ostler_security and NO ostler_fda.
+#   fda-rerun is the ONLY recurring ingest for contacts, calendar, iMessage,
+#   WhatsApp, browsing and notes, so the graph freezes at install-time
+#   contents. email-ingest was the only scheduled writer still working.
+#
+# ROOT CAUSE: install runs in /tmp/ostler-prelaunch-<pid>. The #805 fix
+# pip-installed ostler_fda into THAT venv and proved the import THERE. The
+# control was correct and it passed; it measured a venv that promote then
+# rm -rf's and rebuilds from a hand-written list ostler_fda was never on.
+#
+# WHAT ELSE RIDES ALONG
+#   #940  /api/v1/preferences served count:0 over a Qdrant collection holding
+#         9,879 points. Writer and reader disagreed on a path and BOTH
+#         reported success; the emitter was vendored correctly and invoked by
+#         nothing.
+#   #942  the upgrade path never repaired that venv, so #939 reached NEW
+#         INSTALLS ONLY and an already-installed box stayed frozen through
+#         every future update (HR015 #595).
+#   #943  the daemon fallback could never complete: one baked integrity pin,
+#         not re-pointed on retry, so the rescue path checked the fallback
+#         tarball against the PRIMARY's digest and aborted telling the
+#         customer their download looked tampered with (HR015 #583).
+#   daemon hub-v0.4.61 (ostler-assistant #325): pwg_preferences had NEVER
+#         decoded a real reply -- its untagged enum knew `preferences` and the
+#         endpoint sends `interests` -- the domain filter returned nothing for
+#         EVERY domain because the endpoint is case-sensitive and the tool
+#         lower-cased the value, a phrase handed to a person tool fuzzy-matched
+#         to a component supplier, and pwg_overview is new.
+#
+# WHAT THIS CUT DOES NOT PROVE, STATED SO NOBODY INFERS IT
+# ---------------------------------------------------------------------------
+# #942 fixes "the upgrade does not repair the venv". That fix has only ever run
+# in a harness. It has NEVER run on real hardware with a prior install, which
+# is the single scenario it exists for (HR015 #845). No limb below can prove
+# it: they read the installer, and the thing in question is what the installer
+# DOES on a box that already has v1.0.38. That walk is the closing condition
+# and it is not this manifest's to claim.
+# ============================================================================
+
+version: v1.0.39
+entries:
+  # --------------------------------------------------------------------------
+  # THE DAEMON. hub-v0.4.61 carries the tools that can actually answer.
+  # --------------------------------------------------------------------------
+  - id: v1039-daemon-pinned-at-0461
+    title: install.sh defaults the daemon to 0.4.61
+    incident: >-
+      hub-v0.4.61 was built, signed, notarised, stapled and promoted on 2026-08-21
+      and then pinned NOWHERE for a day. A promoted artefact nothing points at
+      reaches no one, which is the dangling-artefact shape #786 already cost us.
+    proof:
+      kind: grep_in_installer
+      pattern: 'OSTLER_ASSISTANT_VERSION:-0\.4\.61'
+      must_match: true
+
+  - id: v1039-daemon-digest-is-the-0461-digest
+    title: the baked cross-origin pin is the published hub-v0.4.61 digest
+    incident: >-
+      A version and its checksum came apart on v1.0.29 with no gate watching. The
+      full 64-hex value is anchored here rather than a prefix because a truncated
+      match would accept a neighbouring release, and there are neighbouring
+      releases -- 0.4.60 is the fallback in this very cut. Read from the published
+      .sha256 sidecar, never typed.
+    proof:
+      kind: grep_in_installer
+      pattern: 'DEFAULT_ASSISTANT_TARBALL_SHA256="ff7b0b634345a2da10dce1aa0d17a3cc6b8b9b380687c8024072e53bfc4ced24"'
+      must_match: true
+
+  - id: v1039-the-old-primary-default-is-gone
+    title: 0.4.60 is no longer the PRIMARY default
+    incident: >-
+      The negative limb, and it is deliberately anchored on the primary ASSIGNMENT
+      shape rather than on the bare string "0.4.60" -- because 0.4.60 legitimately
+      remains in this file as the FALLBACK version. A naive absence check on the
+      version alone would fail against a correct installer, which is worse than no
+      check: it teaches the next reader to weaken the pattern.
+    proof:
+      kind: grep_in_installer
+      pattern: 'OSTLER_ASSISTANT_VERSION:-0\.4\.60'
+      must_match: false
+
+  # --------------------------------------------------------------------------
+  # HR015 #583 -- the rescue path could never rescue anyone.
+  # --------------------------------------------------------------------------
+  - id: v1039-fallback-has-its-own-digest
+    title: the fallback carries its OWN baked integrity pin
+    incident: >-
+      There was only ever ONE baked pin. The retry re-pointed the URLs and left it,
+      so the fallback tarball was checked against the PRIMARY's digest, mismatched,
+      and the install aborted telling the customer their download had failed an
+      integrity pin -- told to the one person whose primary download had already
+      failed.
+    proof:
+      kind: grep_in_installer
+      pattern: 'DEFAULT_ASSISTANT_FALLBACK_TARBALL_SHA256="d6e94c89d91f9e1ea4025ef1d6b6a9ce84a9c2149fc34810d27a621fec8f4bba"'
+      must_match: true
+
+  - id: v1039-the-pin-moves-with-the-version
+    title: the version-setting function re-points the pin, not the retry block
+    incident: >-
+      Proving the constant EXISTS is not proving it is APPLIED, and a declared-but-
+      unused constant is precisely the shape of the original defect. This anchors on
+      the selection living inside _ostler_assistant_set_urls, the single place the
+      version moves, so a future caller cannot forget it the way the retry block did.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ASSISTANT_TARBALL_SHA256="\$\{ASSISTANT_FALLBACK_TARBALL_SHA256'
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # HR015 #595 -- a shipped box never self-healed.
+  # --------------------------------------------------------------------------
+  - id: v1039-upgrade-repairs-the-fda-venv
+    title: the UPGRADE path repairs the fda venv, not only a fresh install
+    incident: >-
+      #939 repaired the venv during PROMOTE, and the upgrade block exits at
+      install.sh:553, roughly 3,000 lines before the promote at :3495. So #939 fixed
+      new installs and nothing else, and every already-installed v1.0.38 machine kept
+      a frozen graph permanently, updates included. Measured before the fix: inside
+      the upgrade block ostler_fda appeared 0 times against a whole-file control of
+      101, and the repair function was called 0 times against a control of 4.
+    proof:
+      kind: grep_in_installer
+      pattern: '_upg_repair_fda_venv'
+      must_match: true
