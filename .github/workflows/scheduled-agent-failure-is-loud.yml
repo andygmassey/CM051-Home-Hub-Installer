@@ -1,0 +1,86 @@
+name: scheduled-agent-failure-is-loud
+
+# #595 layer 2. A SCHEDULED AGENT THAT DIES MUST SAY SO.
+#
+# ============================================================================
+# WHAT THIS GUARDS
+# ============================================================================
+#
+# On .228 (published v1.0.38) com.ostler.fda-rerun -- the only recurring
+# ingest for contacts, calendar, iMessage, WhatsApp, browsing and notes --
+# exited 1 on every hourly tick for days. The graph froze completely and
+# NOTHING surfaced it, while the product went on saying "still loading in the
+# background".
+#
+# Layer 1 (#945) keeps the runtime from going missing in the first place.
+# This layer asserts the product NOTICES when a scheduled agent dies anyway,
+# for any reason -- including reasons nobody has thought of yet.
+#
+# ============================================================================
+# WHY macos, NOT ubuntu
+# ============================================================================
+#
+# Most limbs drive the state machine with injected observations and would run
+# anywhere. Limb 10 does not: it parses the output of the REAL launchctl on
+# the runner and requires real jobs to land in more than one state. A parser
+# proved only against a fixture the author wrote is a parser proved against
+# the author's beliefs. There is no launchd on ubuntu, so the gate runs where
+# the code runs.
+#
+# ============================================================================
+# WHY THE SELF-TEST IS ITS OWN JOB
+# ============================================================================
+#
+# A failing step skips everything after it, so a broken predicate would take
+# the gate it guards down with it and the run would report one red line
+# instead of two. Separate jobs report independently. Same reason
+# fda-rerun-recurs splits its predicate self-test out, and it has already
+# caught this repo once.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/doctor/agent/diagnostic_rules.py'
+      - 'vendor/doctor/agent/diagnostic_copy.py'
+      - 'tests/test_scheduled_agent_failure_is_loud.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/scheduled-agent-failure-is-loud.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  dying-agent-is-loud:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # 19 controls. Exit 2 is CANNOT-RUN, and CI treats it as failure, which
+      # is correct: a gate that cannot find what it guards has not passed.
+      - name: A failing, never-run or unloaded agent must reach a human
+        run: bash tests/test_scheduled_agent_failure_is_loud.sh
+
+      - name: Test parses under bash 3.2-compatible syntax
+        if: always()
+        run: bash -n tests/test_scheduled_agent_failure_is_loud.sh
+
+  # SEPARATE JOB, deliberately. See the header.
+  predicate-self-test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reinstates the defect in a COPY of the module -- MUTANT A restores the
+      # #810 never-ran/healthy conflation, MUTANT B restores the silence --
+      # and requires the shipped module to resist both. A control that has
+      # never been observed failing is not evidence that it can fail.
+      - name: The controls must go red when the defect is reinstated
+        run: bash tests/test_scheduled_agent_failure_is_loud.sh --self-test
