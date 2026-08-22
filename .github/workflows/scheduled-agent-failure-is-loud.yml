@@ -63,6 +63,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # httpx AND NOTHING ELSE, measured rather than guessed: from an empty
+      # venv, `import diagnostic_rules` fails on exactly one package and then
+      # succeeds. It is pulled in transitively -- diagnostic_rules imports
+      # status_collector, which imports httpx at module scope -- and a runner
+      # has no doctor venv. The first run of this gate failed on precisely
+      # this, and the test now reports it as CANNOT-RUN rather than as a wall
+      # of defect-shaped failures.
+      - name: Install the rule module's one import-time dependency
+        run: |
+          python3 -m pip install --quiet --break-system-packages httpx \
+            || python3 -m pip install --quiet httpx
+
       # 19 controls. Exit 2 is CANNOT-RUN, and CI treats it as failure, which
       # is correct: a gate that cannot find what it guards has not passed.
       - name: A failing, never-run or unloaded agent must reach a human
@@ -77,6 +89,14 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+
+      # Same one dependency; see the sibling job. Repeated rather than shared
+      # because these are deliberately independent jobs -- a shared setup step
+      # would reintroduce the coupling the split exists to avoid.
+      - name: Install the rule module's one import-time dependency
+        run: |
+          python3 -m pip install --quiet --break-system-packages httpx \
+            || python3 -m pip install --quiet httpx
 
       # Reinstates the defect in a COPY of the module -- MUTANT A restores the
       # #810 never-ran/healthy conflation, MUTANT B restores the silence --
