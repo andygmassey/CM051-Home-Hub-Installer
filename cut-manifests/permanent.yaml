@@ -562,3 +562,18 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "launchagents_resolve_their_tools"
+  - id: box-walk-assistant-answers-grounded
+    title: a customer's opening question must reach the graph, not merely get a reply
+    incident: >-
+      v1.0.38. Every layer was individually green and stayed green while the
+      product was broken: artefact 10 of 10, daemon up, 25 of 26 LaunchAgents
+      clean, wiki serving 18k+ populated pages, Oxigraph holding 6,848 Person
+      nodes, Qdrant holding 9,879 preferences over 377 conversations. All four
+      of a new customer's opening questions returned some form of "I don't
+      know". Three independent defects stacked, each alone sufficient (#853
+      #854 #855), and every one of them lived in a JOIN between layers rather
+      than inside one. No other probe in this suite spans a join, so no other
+      probe could have failed. This is the only end-to-end row.
+    proof:
+      kind: box_walk_probe
+      probe: "assistant_answers_grounded"
