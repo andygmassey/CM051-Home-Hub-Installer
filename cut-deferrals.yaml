@@ -72,17 +72,17 @@ pr_exemptions:
   # Queue: land them on the FIRST daemon rebuild after v1.0.26, #286 first
   # because it is a published advisory fix.
   - ref: "ostler-assistant#287"
-    reason: "RED on Lint; cannot reach a DMG built from the pinned 0.4.55 tarball. Land on the next daemon rebuild."
-    review_by: "2026-08-20"
+    reason: "Dependabot: react-router and react-router-dom in /web, 2 files +9/-9. Same replacement and same hold as #283: old reason cited the 0.4.55 pin, now 0.4.61. Held by the cut pin being live oa main HEAD. Clears when v1.0.39 publishes."
+    review_by: "2026-08-24"
   - ref: "ostler-assistant#286"
-    reason: "RED on Lint; nanoid advisory fix, FIRST in the queue for the next daemon rebuild. Cannot reach this DMG."
-    review_by: "2026-08-20"
+    reason: "Dependabot: nanoid 3.3.11 -> 3.3.18 in /web, 1 file +3/-3. A PUBLISHED ADVISORY FIX, so it is the one of these four with a real clock on it and it goes FIRST once the window opens. Old reason cited the 0.4.55 pin, now 0.4.61. Held by the cut pin being live oa main HEAD, and by nothing else."
+    review_by: "2026-08-24"
   - ref: "ostler-assistant#284"
-    reason: "RED on Lint; cannot reach a DMG built from the pinned 0.4.55 tarball. Land on the next daemon rebuild."
-    review_by: "2026-08-20"
+    reason: "Dependabot: postcss 8.5.6 -> 8.5.26 in /web, 1 file +7/-7. Same replacement and same hold as #283: the old reason cited the 0.4.55 pin, which has moved to 0.4.61. Held by the cut pin being live oa main HEAD. Clears when v1.0.39 publishes."
+    review_by: "2026-08-24"
   - ref: "ostler-assistant#283"
-    reason: "RED on Lint; cannot reach a DMG built from the pinned 0.4.55 tarball. Land on the next daemon rebuild."
-    review_by: "2026-08-20"
+    reason: "Dependabot: undici 7.28.0 -> 7.29.0 in /web, 1 file +3/-3. REASON REPLACED 2026-08-22, not renewed: the old one said 'cannot reach a DMG built from the pinned 0.4.55 tarball' and the pin has since moved to 0.4.61, so it was describing a cut that no longer exists. The real and current hold is the cut pin: DAEMON_COMMIT=bda4d7d837a0 IS live oa main HEAD, so merging this 3-line bump moves HEAD off the pin and flips the daemon freshness row to RED STALE exactly as a large refactor would. Clears the moment v1.0.39 publishes an artefact."
+    review_by: "2026-08-24"
 
   # ==========================================================================
   # ADDED 2026-08-15 by the check-pr-age sweep for the v1.0.26 cut.
@@ -145,11 +145,11 @@ pr_exemptions:
   # moved since 2026-08-12. The two CLEAN CM031 PRs (#165, #164) are NOT
   # exempted here; they are merge decisions.
   - ref: "CM031-PWG-Companion#158"
-    reason: "Conflicts with CM031 main. 1191/-133 across 23 files, and it overlaps #159 on 8 of them, so the two cannot both be rebased blind. Touches the paywall and QR pairing. Cannot reach the DMG (no vendor/cm031). Needs a real device test run, not a conflict resolution."
-    review_by: "2026-08-20"
+    reason: "Conflicts with CM031 main. 1191/-133 across 23 files, and it overlaps #159 on 8 of them, so the two cannot both be rebased blind. Touches the paywall and QR pairing. Cannot reach the DMG (no vendor/cm031). Needs a real device test run, not a conflict resolution. RE-READ 2026-08-22, NOT RUBBER-STAMPED: re-measured as still OPEN, still +1191/-133 across 23 files, still overlapping #159. The blockers named above are unchanged, so this is renewed rather than cleared. FIRST renewal, and the thing that ends it is a deliberate rebase plus a real-device test run, not another date. If it needs a second renewal, that is the signal to split it: the paywall fix and the QR pairing fix are separable and only one of them is launch-shaped."
+    review_by: "2026-08-26"
   - ref: "CM031-PWG-Companion#159"
-    reason: "Conflicts with CM031 main. Rewrites SyncKeyVault (keychain, 40-byte wrapped DEK) and HubTrust (certificate pinning) across 30 files, and overlaps #158. A security surface that must be rebased deliberately and device-tested. Cannot reach the DMG (no vendor/cm031)."
-    review_by: "2026-08-20"
+    reason: "Conflicts with CM031 main. Rewrites SyncKeyVault (keychain, 40-byte wrapped DEK) and HubTrust (certificate pinning) across 30 files, and overlaps #158. A security surface that must be rebased deliberately and device-tested. Cannot reach the DMG (no vendor/cm031). RE-READ 2026-08-22, NOT RUBBER-STAMPED: re-measured as still OPEN, still +861/-44 across 30 files, still overlapping #158. A keychain and certificate-pinning surface must not be conflict-resolved blind, so the hold stands on merit. FIRST renewal. Ends with a deliberate rebase and a device test, in that order, after #158 so the 8 shared files move once."
+    review_by: "2026-08-26"
   # CM031-PWG-Companion#161 exemption REMOVED 2026-08-15: the PR is merged
   # (squash d23c356), so an exemption for it can only mislead the next reader.
   # The ordering question it named was answered rather than deferred: main
@@ -159,6 +159,59 @@ pr_exemptions:
   # transcript recovery after them. Verified on main after the merge:
   # resumeParkedMarkers still present in WatchAudioReceiver and called from
   # CM031App, and #164's merge commit is an ancestor.
+
+  # ==========================================================================
+  # THE ostler-assistant PRs HELD BY THE CUT PIN (recorded 2026-08-22)
+  #
+  # SEVEN PRs, ONE MECHANISM, and the mechanism is measured rather than
+  # recalled:
+  #
+  #     cuts/v1.0.39/cut.env   DAEMON_COMMIT=bda4d7d837a0
+  #     live oa main HEAD      bda4d7d837a086dc5008decfb1a7b5aeac616d68
+  #
+  # The pin IS live HEAD. verify_cut_freshness.sh compares every shippable
+  # input to the LIVE upstream HEAD on GitHub, so ANY merge to ostler-assistant
+  # main moves HEAD off the pin and flips the daemon row FRESH -> RED STALE:+1.
+  #
+  # A REPO WHOSE HEAD IS A CUT PIN HAS NO SMALL MERGES. Four of the seven below
+  # are Dependabot bumps of one or two files, +3/-3 to +9/-9. The standing rule
+  # is to merge clean PRs rather than defer them, and applying it here would
+  # have killed a cut that was running at the time. Size is not the variable;
+  # the only variable is whether HEAD moves.
+  #
+  # WHY THESE ROWS EXIST WHEN THREE OF THEM ARE ALREADY DEFERRED BELOW.
+  # #312, #313 and #315 already have rows in `deferrals:`, keyed by BRANCH
+  # NAME, because that is the spelling the ORPHAN gate enumerates. The PR-AGE
+  # gate keys on PR NUMBER, so it never saw them and reported all three RED.
+  # Same work, two gates, two spellings, one of them silently ineffective.
+  # This file already documents that exact trap at length on the
+  # daemon:fix/settings-preferences-ia row, which was itself the second attempt
+  # at the same mistake. It has now happened a third time, in the other
+  # direction. THE LESSON IS NOT "REMEMBER THE SPELLING": it is that a
+  # deferral must be confirmed against the gate that will consult it, by
+  # running that gate, before it is believed to hold anything.
+  #
+  # ALL SEVEN CLEAR THE SAME WAY: the moment v1.0.39 publishes an artefact, the
+  # pin is historical, oa main is free to move, and these merge in order. The
+  # review_by below is deliberately tight for that reason. If it expires with
+  # the DMG shipped, that is a real prompt and not bookkeeping.
+  # ==========================================================================
+
+  - ref: "ostler-assistant#312"
+    reason: "vault-state reported status '' not 'none' on every failure path. Ahead 2 / behind 0, merges clean, has a test. HELD ONLY by the cut pin: DAEMON_COMMIT=bda4d7d837a0 IS live oa main HEAD, so merging flips the daemon freshness row to RED STALE. Has now missed three cuts on this same mechanism, which is the honest cost. Merge FIRST once v1.0.39 publishes."
+    review_by: "2026-08-24"
+
+  - ref: "ostler-assistant#313"
+    reason: "A raw config.toml editor sat in the customer sidebar under the friendliest name in the app. Customer-facing surface, not cosmetic. Held by the same cut-pin mechanism as #312. Merge with #312 and #315 as one group."
+    review_by: "2026-08-24"
+
+  - ref: "ostler-assistant#315"
+    reason: "The settings screen shipped our TODO list as customer copy: literal strings naming an internal env var, an internal config filename and an unbuilt internal API. Confirmed COPY not values, zero interpolation, so no operator data is rendered and this is cosmetic rather than an exposure. Held by the same cut-pin mechanism. Merge with #312 and #313."
+    review_by: "2026-08-24"
+
+
+
+
 
 deferrals:
   - ref: daemon:fix/vault-state-default-status-none
@@ -2836,4 +2889,40 @@ deferrals:
       re-tagging, which is now the habit: CI's orphan list is a snapshot at run
       start, and open-PR state moves underneath a cut. Re-run the gate locally
       immediately before every tag push.
+    until_cut: "v1.0.40"
+
+  - ref: "CM051:#951"
+    reason: >-
+      'fix(#659): repair the over-merged Contacts cards, reversibly'. Opened
+      2026-08-22T06:16:02Z, in flight, and NOT mergeable as it stands:
+      MEASURED five CI failures on the head -- new-tests-wired, test-wiring,
+      and fda-reachable on all three of 3.11, 3.12 and 3.13. A repair that
+      writes to a customer's Contacts is the last thing to merge on a
+      five-red head at the end of a cut night.
+      THE FIFTH PR THIS PRE-TAG RE-RUN HAS CAUGHT, and the reason that habit
+      now exists: CI's orphan list is a snapshot taken at run start, and this
+      PR did not exist when run 32555998094 began. Re-running the gate locally
+      against live PR state immediately before a tag push is the only thing
+      that sees these.
+      It does NOT touch install.sh, so the CM051 blob pin in
+      cuts/v1.0.39/cut.env stays current either way; this deferral is about
+      the orphan gate alone.
+    until_cut: "v1.0.40"
+
+  - ref: "CM051:fix/scheduled-writer-tick-probe"
+    reason: >-
+      'test(box-walk): assert the recurring graph writer completes a tick
+      (#851)'. One commit, 39e965c, adding exactly one file:
+      scripts/box_walk_probes/probes/scheduled_writer_completes_a_tick.sh.
+      TNM'S IN-FLIGHT WORK, committed 2026-08-22T06:27:55Z, roughly five
+      minutes before the pre-tag gate run that found it. It is a box-walk
+      PROBE, so it does not ship in the DMG payload and deferring it changes
+      nothing a customer receives. It is also the probe most directly aimed at
+      the #845 walk, which is the acceptance test for this very cut, so it
+      wants to land with that work rather than be swept into the tag.
+      THE GATE FOUND IT AS A LOCAL-ONLY BRANCH -- "no remote ref and no merged
+      PR, one rm -rf from gone". I PUSHED IT BEFORE DEFERRING IT, because a
+      deferral records a decision and does nothing at all to protect the
+      commit it defers. The standing rule is push or delete every orphan
+      branch; a row in this file is not a substitute for either.
     until_cut: "v1.0.40"

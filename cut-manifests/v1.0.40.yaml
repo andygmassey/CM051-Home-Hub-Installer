@@ -1,0 +1,177 @@
+# cut-manifests/v1.0.40.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.40.
+#
+# WHY v1.0.40 EXISTS: v1.0.39's PAYLOAD IS RIGHT AND ITS VERSION STRING IS NOT
+# ---------------------------------------------------------------------------
+# v1.0.39 is published, signed, notarised, stapled and served at ostler.ai.
+# MEASURED ON THE PUBLISHED DMG, mounted, not read off a build log:
+#
+#   both copies of install.sh in the artefact   a868054de321... = the v1.0.39 blob
+#     (there are TWO: Contents/Resources/ and the nested ostler-payload/)
+#   OSTLER_ASSISTANT_VERSION default            0.4.61
+#   ASSISTANT_FALLBACK_VERSION                  0.4.60, correct by design
+#   Ostler.app + OstlerAssistant binaries       bda4d7d8 present, 8ba3e948 ZERO
+#
+# The single defect: OstlerInstaller.app reports CFBundleShortVersionString
+# 1.0.38 / CFBundleVersion 3800.
+#
+# THE MECHANISM. gui/Makefile:120 DERIVES the app version by READING
+# gui/OstlerInstaller/Info.plist, and that plist was never bumped in the
+# v1.0.39 tree. The build faithfully stamped what the tagged tree asked for.
+# Controlled: v1.0.36/37/38 each carried their own version, so v1.0.39 is the
+# first break in four cuts.
+#
+# A CLAIM THIS MANIFEST DELIBERATELY DOES NOT MAKE. v1.0.39 was reported as a
+# MIS-BUILT artefact carrying v1.0.38's install.sh byte for byte. It is not:
+# re-measured on the same DMG (sha 5c6231b2...), both install.sh copies are the
+# v1.0.39 blob, and ostler.ai serves those same bytes. The reported reading
+# came from somewhere other than that DMG. Recorded here because the next
+# reader will find the alarm in the channel and should find the measurement
+# beside it.
+#
+# WHAT IS NEW BESIDES THE VERSION
+#   #955  the installer's own version must BE the version being cut, in
+#         cut.yml preflight, against CUT_VERSION rather than another tracked
+#         file. Two gates already existed and neither could catch this:
+#         installer-version-consistency.yml compares the three version files TO
+#         EACH OTHER (all three said 1.0.38, so they agreed and it was green),
+#         and OS003 #122 asserts the right thing but is an OPEN PR,
+#         merged=never, so it has never run anywhere.
+#   #957  the ARTEFACT's content must BE the tag being cut. Hashes EVERY
+#         install.sh in the mounted DMG against the tag's blob, with the
+#         nearest other v1.0.* tag as a runtime-resolved control. Publish is
+#         now gated on it -- it carried `if: always()`, which would have let a
+#         red gate report while the bad DMG published anyway.
+#
+# THE DAEMON DOES NOT CHANGE: hub-v0.4.61 = bda4d7d8, already signed,
+# notarised, stapled and published, with its hub app tarball beside it. So the
+# six payload assertions below are v1.0.39's, carried over deliberately rather
+# than dropped: the payload they guard is the same payload, and a cut that
+# stops asserting something it still ships is how a regression gets through.
+#
+# WHAT THIS CUT CANNOT PROVE, stated so its absence is not read as coverage:
+# the #845 upgrade walk. It has never run on hardware carrying a prior install,
+# which is the one scenario #942 exists for. That is TNM's on .228 and this
+# manifest does not stand in for it.
+# ============================================================================
+
+version: v1.0.40
+entries:
+  # --------------------------------------------------------------------------
+  # THE REASON THIS CUT EXISTS. Asserted against the BUILT APP, not the tracked
+  # plist -- a source check cannot see a build that packaged something else,
+  # which is precisely the failure mode #957 was raised about.
+  # --------------------------------------------------------------------------
+  - id: v1040-installer-reports-its-own-version
+    title: the shipped installer bundle reports 1.0.40
+    incident: >-
+      v1.0.39 shipped an OstlerInstaller.app stamped 1.0.38, because
+      gui/Makefile derives the version by reading a tracked plist that was
+      never bumped. Every signing and notarisation chain went green. A
+      customer, and anyone diagnosing a customer, could not tell which
+      installer they had.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: "1.0.40"
+
+  - id: v1040-installer-build-number-moves-with-it
+    title: the shipped installer bundle carries build 4000
+    incident: >-
+      The short version and the build number are two fields and drifted apart
+      before. 3600/3700/3800 track 1.0.36/37/38, so the scheme is the patch
+      number times 100 and 1.0.40 must read 4000.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleVersion
+      value: "4000"
+
+  # --------------------------------------------------------------------------
+  # THE DAEMON. hub-v0.4.61 carries the tools that can actually answer.
+  # --------------------------------------------------------------------------
+  - id: v1040-daemon-pinned-at-0461
+    title: install.sh defaults the daemon to 0.4.61
+    incident: >-
+      hub-v0.4.61 was built, signed, notarised, stapled and promoted on 2026-08-21
+      and then pinned NOWHERE for a day. A promoted artefact nothing points at
+      reaches no one, which is the dangling-artefact shape #786 already cost us.
+    proof:
+      kind: grep_in_installer
+      pattern: 'OSTLER_ASSISTANT_VERSION:-0\.4\.61'
+      must_match: true
+
+  - id: v1040-daemon-digest-is-the-0461-digest
+    title: the baked cross-origin pin is the published hub-v0.4.61 digest
+    incident: >-
+      A version and its checksum came apart on v1.0.29 with no gate watching. The
+      full 64-hex value is anchored here rather than a prefix because a truncated
+      match would accept a neighbouring release, and there are neighbouring
+      releases -- 0.4.60 is the fallback in this very cut. Read from the published
+      .sha256 sidecar, never typed.
+    proof:
+      kind: grep_in_installer
+      pattern: 'DEFAULT_ASSISTANT_TARBALL_SHA256="ff7b0b634345a2da10dce1aa0d17a3cc6b8b9b380687c8024072e53bfc4ced24"'
+      must_match: true
+
+  - id: v1040-the-old-primary-default-is-gone
+    title: 0.4.60 is no longer the PRIMARY default
+    incident: >-
+      The negative limb, and it is deliberately anchored on the primary ASSIGNMENT
+      shape rather than on the bare string "0.4.60" -- because 0.4.60 legitimately
+      remains in this file as the FALLBACK version. A naive absence check on the
+      version alone would fail against a correct installer, which is worse than no
+      check: it teaches the next reader to weaken the pattern.
+    proof:
+      kind: grep_in_installer
+      pattern: 'OSTLER_ASSISTANT_VERSION:-0\.4\.60'
+      must_match: false
+
+  # --------------------------------------------------------------------------
+  # HR015 #583 -- the rescue path could never rescue anyone.
+  # --------------------------------------------------------------------------
+  - id: v1040-fallback-has-its-own-digest
+    title: the fallback carries its OWN baked integrity pin
+    incident: >-
+      There was only ever ONE baked pin. The retry re-pointed the URLs and left it,
+      so the fallback tarball was checked against the PRIMARY's digest, mismatched,
+      and the install aborted telling the customer their download had failed an
+      integrity pin -- told to the one person whose primary download had already
+      failed.
+    proof:
+      kind: grep_in_installer
+      pattern: 'DEFAULT_ASSISTANT_FALLBACK_TARBALL_SHA256="d6e94c89d91f9e1ea4025ef1d6b6a9ce84a9c2149fc34810d27a621fec8f4bba"'
+      must_match: true
+
+  - id: v1040-the-pin-moves-with-the-version
+    title: the version-setting function re-points the pin, not the retry block
+    incident: >-
+      Proving the constant EXISTS is not proving it is APPLIED, and a declared-but-
+      unused constant is precisely the shape of the original defect. This anchors on
+      the selection living inside _ostler_assistant_set_urls, the single place the
+      version moves, so a future caller cannot forget it the way the retry block did.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ASSISTANT_TARBALL_SHA256="\$\{ASSISTANT_FALLBACK_TARBALL_SHA256'
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # HR015 #595 -- a shipped box never self-healed.
+  # --------------------------------------------------------------------------
+  - id: v1040-upgrade-repairs-the-fda-venv
+    title: the UPGRADE path repairs the fda venv, not only a fresh install
+    incident: >-
+      #939 repaired the venv during PROMOTE, and the upgrade block exits at
+      install.sh:553, roughly 3,000 lines before the promote at :3495. So #939 fixed
+      new installs and nothing else, and every already-installed v1.0.38 machine kept
+      a frozen graph permanently, updates included. Measured before the fix: inside
+      the upgrade block ostler_fda appeared 0 times against a whole-file control of
+      101, and the repair function was called 0 times against a control of 4.
+    proof:
+      kind: grep_in_installer
+      pattern: '_upg_repair_fda_venv'
+      must_match: true
