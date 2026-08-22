@@ -180,17 +180,22 @@ fi
 # (2d) A cannot_run record carries NO rc. Inventing one would be the same
 #      fabrication #852 removes from the counters: nothing ran, so there is no
 #      exit code to report.
-if in_harness '_hydrate_sentinel_record_cannot_run s6 "fda_not_granted"
-               cat "$_HYDRATE_SENTINEL_DIR/s6.done"' 2>/dev/null | grep -q '^rc='; then
+# Herestrings throughout, not `... | grep -q`. Under `pipefail` a
+# short-circuiting consumer can invert the verdict of the whole pipeline --
+# the defect tests/pipefail_shortcircuit_baseline.txt exists to keep out, and
+# a gate that flips a control's answer is worse than no control.
+CR_S6="$(in_harness '_hydrate_sentinel_record_cannot_run s6 "fda_not_granted"
+                     cat "$_HYDRATE_SENTINEL_DIR/s6.done"' 2>/dev/null)"
+if grep -q '^rc=' <<< "$CR_S6"; then
     failure "(2d) the cannot_run record invented an rc for a run that never happened"
 else
     pass "(2d) the cannot_run record carries no rc, because nothing ran to produce one"
 fi
 
 # (2e) ...and it carries the REASON, or it is a state with no content.
-if in_harness '_hydrate_sentinel_record_cannot_run s7 "email_ingest_venv_missing"
-               cat "$_HYDRATE_SENTINEL_DIR/s7.done"' 2>/dev/null \
-   | grep -q '^detail=email_ingest_venv_missing'; then
+CR_S7="$(in_harness '_hydrate_sentinel_record_cannot_run s7 "email_ingest_venv_missing"
+                     cat "$_HYDRATE_SENTINEL_DIR/s7.done"' 2>/dev/null)"
+if grep -q '^detail=email_ingest_venv_missing' <<< "$CR_S7"; then
     pass "(2e) the cannot_run record names WHY it could not run"
 else
     failure "(2e) the cannot_run record lost its detail= reason"
@@ -244,8 +249,8 @@ print("contacts=%s" % by_source.get("contacts", "NO_FINDING"))
 print("people=%s" % by_source.get("people", "NO_FINDING"))
 print("browsing=%s" % by_source.get("browsing", "NO_FINDING"))
 ' 2>&1)"
-    if printf '%s' "$READER_OUT" | grep -q '^contacts=warning' \
-       && printf '%s' "$READER_OUT" | grep -q '^cannot_run_absorbed_as_healthy=False'; then
+    if grep -q '^contacts=warning' <<< "$READER_OUT" \
+       && grep -q '^cannot_run_absorbed_as_healthy=False' <<< "$READER_OUT"; then
         pass "(4) the shipped Doctor rule surfaces cannot_run as a warning rather than absorbing it into the healthy path"
     else
         failure "(4) the Doctor reader mishandles cannot_run: $(printf '%s' "$READER_OUT" | tr '\n' ' ')"
@@ -255,8 +260,8 @@ print("browsing=%s" % by_source.get("browsing", "NO_FINDING"))
     #      and a payload of `sent=unknown` must not be scored as "brought
     #      nothing in". Without this, (4) could be passing because the rule
     #      warns about everything.
-    if printf '%s' "$READER_OUT" | grep -q '^people=NO_FINDING' \
-       && printf '%s' "$READER_OUT" | grep -q '^browsing=warning'; then
+    if grep -q '^people=NO_FINDING' <<< "$READER_OUT" \
+       && grep -q '^browsing=warning' <<< "$READER_OUT"; then
         pass "(4b) CONTROL: a healthy source produces no finding, and 'sent=unknown' is not read as an empty import"
     else
         failure "(4b) the reader's other arms are wrong, so (4) says nothing: $(printf '%s' "$READER_OUT" | tr '\n' ' ')"

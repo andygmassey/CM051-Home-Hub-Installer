@@ -107,6 +107,19 @@ jobs:
         if: always()
         run: bash tests/test_a_failed_hydrate_may_not_fabricate_a_count.sh
 
+      # The reader half of the test below imports the SHIPPED Doctor rule, and
+      # vendor/doctor/agent/status_collector.py imports httpx at module scope.
+      # Without it the reader control fails with ModuleNotFoundError, which is
+      # a broken probe wearing a finding's clothes. Installed rather than
+      # stubbed: a stub would make the control pass over a Doctor that cannot
+      # import on a real box. Same line vendor-integrity.yml uses for the same
+      # tree. NOT `|| true` -- if this cannot install, the control that
+      # depends on it must go red rather than run blind.
+      - name: Dependency for the shipped-Doctor reader control
+        if: always()
+        run: python3 -m pip install --quiet --break-system-packages httpx
+             || python3 -m pip install --quiet httpx
+
       # #848, the same family pointing the other way: 4 of 13 hydrate steps
       # wrote no sentinel at all, so CANNOT-RUN, FAIL and PASS shared one
       # appearance -- an absent file. Also asserts the shipped Doctor rule

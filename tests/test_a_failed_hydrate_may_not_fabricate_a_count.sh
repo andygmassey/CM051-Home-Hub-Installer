@@ -237,9 +237,12 @@ in_harness() { bash -c "source '$HARNESS/helpers.sh'; $1"; }
 # ---------------------------------------------------------------------------
 OUT="$(in_harness '_hydrate_sentinel_record_error browsing 124 "sent=unknown,skipped=unknown,collection_points=8761"
                    cat "$_HYDRATE_SENTINEL_DIR/browsing.done"' 2>/dev/null)"
-if printf '%s' "$OUT" | grep -q '^status=timeout' \
-   && printf '%s' "$OUT" | grep -q '^rc=124' \
-   && printf '%s' "$OUT" | grep -q 'sent=unknown'; then
+# Herestrings, not `printf | grep -q`. Under `pipefail` a short-circuiting
+# consumer can invert the verdict of the whole pipeline, which is the defect
+# tests/pipefail_shortcircuit_baseline.txt exists to keep out.
+if grep -q '^status=timeout' <<< "$OUT" \
+   && grep -q '^rc=124' <<< "$OUT" \
+   && grep -q 'sent=unknown' <<< "$OUT"; then
     pass "(3) a killed step records status=timeout, rc=124 and sent=unknown -- the failure is kept, the invented number is not"
 else
     failure "(3) the unknown-counter record lost its status, rc or payload: $(printf '%s' "$OUT" | tr '\n' ' ')"
