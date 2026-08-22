@@ -60,7 +60,12 @@ bad() { printf '  FAIL %s\n' "$*" >&2; FAIL=$((FAIL+1)); }
 
 printf 'test_installer_version_matches_the_cut\n'
 
-[ -f "$PLIST" ] || { bad "premise: no Info.plist at ${PLIST}"; exit 1; }
+if [ ! -f "$PLIST" ]; then
+    printf '  CANNOT-RUN: no Info.plist at %s\n' "$PLIST" >&2
+    printf '              The subject was never presented, which is NOT the same\n' >&2
+    printf '              as the version being wrong. This is NOT a pass.\n' >&2
+    exit 2
+fi
 
 # --- resolve the version being cut ------------------------------------------
 CUT="${1:-${GITHUB_REF_NAME:-}}"
@@ -80,9 +85,34 @@ esac
 ok "cut version resolved: ${CUT_VER} (from '${CUT}')"
 
 # --- read the plist ---------------------------------------------------------
-# PlistBuddy rather than grep: the plist is XML and a grep for <string> after a
-# key is exactly the kind of positional read that breaks when a key moves.
-read_key() { /usr/libexec/PlistBuddy -c "Print :$1" "$PLIST" 2>/dev/null; }
+# A REAL PLIST PARSER rather than grep: the plist is XML and a grep for
+# <string> after a key is exactly the kind of positional read that breaks when
+# a key moves.
+#
+# python3 -m plistlib, NOT PlistBuddy, and that is the whole point of this
+# block. The first version of this gate used /usr/libexec/PlistBuddy and it
+# BLOCKED THE v1.0.40 CUT: this step runs in the `preflight` job, which is
+# `runs-on: ubuntu-latest`, where PlistBuddy does not exist. It read two empty
+# strings and failed the premise check.
+#
+# It FAILED CLOSED, which is the one good thing about that incident -- it
+# refused rather than reporting a vacuous pass on a version it never read. But
+# a gate that only runs on one of the two runners in its own workflow is a gate
+# with a hole in it, and pinning the job to macOS to suit the tool is the wrong
+# way round. plistlib is stdlib, reads XML and binary plists, and works on both
+# runners.
+read_key() {
+    python3 - "$PLIST" "$1" <<'PYEOF' 2>/dev/null
+import plistlib, sys
+try:
+    with open(sys.argv[1], 'rb') as f:
+        v = plistlib.load(f).get(sys.argv[2])
+except Exception:
+    sys.exit(1)
+if v is not None:
+    print(v)
+PYEOF
+}
 SHORT="$(read_key CFBundleShortVersionString)"
 BUILD="$(read_key CFBundleVersion)"
 
