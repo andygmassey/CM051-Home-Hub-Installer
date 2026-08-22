@@ -175,6 +175,26 @@ jobs:
       - name: The cut record's CM051 pin is the tree being cut
         run: bash scripts/verify_cut_pin_is_current.sh --cut "${CUT_VERSION}" --ref HEAD
 
+      # v1.0.39 SHIPPED REPORTING ITSELF AS 1.0.38. The DMG was signed,
+      # notarised, published and downloaded, and the OstlerInstaller.app inside
+      # it carried CFBundleShortVersionString=1.0.38. The bump was missed.
+      #
+      # A gate for this class already existed and could not catch it.
+      # installer-version-consistency.yml compares Info.plist, project.yml and
+      # project.pbxproj TO EACH OTHER. All three said 1.0.38, so they agreed,
+      # so it was green -- internal consistency is not agreement with the tag.
+      #
+      # A second gate existed too, in OS003 (12d8e1a, "assert the stamped
+      # version IS the version being cut"), and it runs in OS003 bin/cut.sh
+      # preflight. THIS cut is a tag push firing this workflow, which never
+      # consults OS003. Gate and defect on different surfaces, green forever.
+      #
+      # So it goes HERE, on the surface that actually cuts, and it takes the
+      # version from CUT_VERSION rather than from any tracked file, because
+      # every tracked file is exactly what was wrong.
+      - name: The installer's own version IS the version being cut
+        run: bash tests/test_installer_version_matches_the_cut.sh "${CUT_VERSION}"
+
       # The vendored gate must match the OS003 commit it claims to come from.
       # #540 vendored the runner with nothing holding it to its source and it
       # drifted 239 diff lines behind, missing the redactor, the claim-coverage
