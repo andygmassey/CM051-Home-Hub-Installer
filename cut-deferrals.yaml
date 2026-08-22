@@ -2908,3 +2908,21 @@ deferrals:
       cuts/v1.0.39/cut.env stays current either way; this deferral is about
       the orphan gate alone.
     until_cut: "v1.0.40"
+
+  - ref: "CM051:fix/scheduled-writer-tick-probe"
+    reason: >-
+      'test(box-walk): assert the recurring graph writer completes a tick
+      (#851)'. One commit, 39e965c, adding exactly one file:
+      scripts/box_walk_probes/probes/scheduled_writer_completes_a_tick.sh.
+      TNM'S IN-FLIGHT WORK, committed 2026-08-22T06:27:55Z, roughly five
+      minutes before the pre-tag gate run that found it. It is a box-walk
+      PROBE, so it does not ship in the DMG payload and deferring it changes
+      nothing a customer receives. It is also the probe most directly aimed at
+      the #845 walk, which is the acceptance test for this very cut, so it
+      wants to land with that work rather than be swept into the tag.
+      THE GATE FOUND IT AS A LOCAL-ONLY BRANCH -- "no remote ref and no merged
+      PR, one rm -rf from gone". I PUSHED IT BEFORE DEFERRING IT, because a
+      deferral records a decision and does nothing at all to protect the
+      commit it defers. The standing rule is push or delete every orphan
+      branch; a row in this file is not a substitute for either.
+    until_cut: "v1.0.40"
