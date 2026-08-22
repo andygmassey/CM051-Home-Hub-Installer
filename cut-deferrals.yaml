@@ -2926,3 +2926,129 @@ deferrals:
       commit it defers. The standing rule is push or delete every orphan
       branch; a row in this file is not a substitute for either.
     until_cut: "v1.0.40"
+
+  # ==========================================================================
+  # v1.0.41. Fourteen REDs, every one classified. NONE is work that belongs in
+  # this cut and is missing from it.
+  # ==========================================================================
+  - ref: CM044:fix/compile-refuses-on-namespace-mismatch
+    reason: >-
+      NOT ORPHANED WORK. The gate is right that this BRANCH is unmerged and
+      wrong that the work is missing. The branch was closed and its content
+      re-opened as CM044 #249, which MERGED 2026-08-22T16:32:37Z. Verified by
+      CONTENT, not by ancestry: compiler/namespace_precondition.py is PRESENT
+      on CM044 origin/main, with a control (a file that cannot exist) correctly
+      reporting ABSENT. This is the rebase/close-and-reopen blindness --
+      reachability cannot see a squash, so the original commits are unreachable
+      while their content ships. Deferred rather than merged because merging
+      the stale branch would re-apply landed work onto a moved main.
+    until_cut: "v1.0.41"
+
+  - ref: CM044:fix/places-meeting-passcode-leak
+    reason: >-
+      NOT ORPHANED WORK, same mechanism. Closed and re-opened as CM044 #247,
+      MERGED 2026-08-22T16:27:00Z. compiler/tests/test_place_credential_leak.py
+      is PRESENT on origin/main. This is the passcode fix that forced the wiki
+      rebuild for this very cut, so it is emphatically IN v1.0.41 -- the images
+      were rebuilt from 946a624 specifically to carry it.
+    until_cut: "v1.0.41"
+
+  - ref: CM044:fix/pull-verify-needs-a-positive-control
+    reason: >-
+      NOT ORPHANED WORK, same mechanism. Closed as superseded; the one
+      surviving improvement was extracted to CM044 #246, MERGED
+      2026-08-22T16:24:00Z. .github/workflows/release-images.yml is PRESENT on
+      origin/main carrying it. Its media-type fix and positive control were
+      already on main by other routes.
+    until_cut: "v1.0.41"
+
+  - ref: CM044:#248
+    reason: >-
+      'fix(decisions): the wiki stated a joke as a captured decision'. OPEN and
+      merge-verified green against main 946a624 by TNM, who explicitly cleared
+      it NOT to hold the rebuild. Deferring it changes nothing a customer
+      receives in v1.0.41: the wiki images for this cut are already built and
+      digest-pinned, so taking it would mean re-tagging CM044 and rebuilding
+      both images. Goes into the next wiki rebuild.
+    until_cut: "v1.0.41"
+
+  - ref: CM051:#964
+    reason: >-
+      'hydrate sentinels: four unsentinelled steps plus a cannot_run third
+      state'. 67/67 CI green and DELIBERATELY HELD by TNM's instruction: it
+      must not merge until v1.0.41 is PUBLISHED. It is a CM051 PR landing
+      mid-cut, and CM051's cut pin is a BLOB pin on install.sh -- #964 does not
+      touch install.sh, but the hold is TNM's call and this cut honours it.
+      Merge immediately after v1.0.41 publishes.
+    until_cut: "v1.0.41"
+
+  - ref: daemon:#327
+    reason: >-
+      'feat(observability): a turn now says how long it took'. 8 files,
+      +1017/-10, and TNM tagged it DO NOT MERGE themselves. A new observability
+      surface has no business in a cut whose purpose is a credential leak and a
+      version string. Held additionally on the pin mechanism below.
+    until_cut: "v1.0.41"
+
+  - ref: daemon:#328
+    reason: >-
+      Title begins 'DO NOT MERGE': #853 refuted for 3 of 4 moat tools. The
+      author's own marker. Held on the pin mechanism below regardless.
+    until_cut: "v1.0.41"
+
+  - ref: daemon:#329
+    reason: >-
+      Title begins 'DO NOT MERGE': the daemon answered 3 Hub API routes with
+      the SPA. The author's own marker. Held on the pin mechanism below.
+    until_cut: "v1.0.41"
+
+  - ref: daemon:#330
+    reason: >-
+      'fix(imessage): make the Messages-Automation failure loud', title carries
+      DO NOT MERGE. Held on the pin mechanism below.
+    until_cut: "v1.0.41"
+
+  - ref: daemon:#331
+    reason: >-
+      'fix(cron): a suppressed, empty brief must not report delivery=SUCCESS'.
+      A real fix and NOT self-marked do-not-merge, so it is deferred on the pin
+      mechanism alone rather than on the author's say-so. Brief delivery is
+      tracked post-launch at HR015 #382 and is not launch-blocking. Merge with
+      the rest immediately after the v1.0.41 tag is pushed.
+    until_cut: "v1.0.41"
+
+  - ref: daemon:#332
+    reason: >-
+      dependabot, @babel/core 7.29.0 -> 7.29.7 in /web. Held on the pin
+      mechanism below. SIZE IS NOT THE VARIABLE: a three-line bump moves oa
+      main HEAD exactly as effectively as a refactor.
+    until_cut: "v1.0.41"
+
+  - ref: daemon:#333
+    reason: >-
+      dependabot, opentelemetry_sdk 0.31.0 -> 0.32.1. Held on the pin mechanism
+      below.
+    until_cut: "v1.0.41"
+
+  - ref: daemon:#334
+    reason: >-
+      dependabot, serde_with 3.18.0 -> 3.22.0. Held on the pin mechanism below.
+    until_cut: "v1.0.41"
+
+  - ref: daemon:#335
+    reason: >-
+      dependabot, quinn-proto 0.11.14 -> 0.11.15. Held on the pin mechanism
+      below. THE PIN MECHANISM, stated once for all nine daemon rows and
+      RE-MEASURED rather than recalled: ostler-assistant origin/main HEAD is
+      9be3224c799af68fcedbdcddaa0409670604e504, and cuts/v1.0.41/cut.env pins
+      DAEMON_COMMIT=9be3224c799a, which is that HEAD abbreviated to 12
+      characters -- a PREFIX of the same commit, not a second value that
+      happens to agree. verify_cut_freshness.sh compares the pinned daemon
+      against LIVE upstream HEAD, so merging ANY of these moves HEAD off the
+      pin and flips the daemon row from FRESH to RED STALE the instant it
+      lands. Clearing that would then demand a freshly signed and notarised
+      daemon release, or a hold_ack asserting a graft that does not exist.
+      Merge all nine immediately after the v1.0.41 tag is pushed and let the
+      NEXT daemon build carry them, rather than renewing a third time -- the
+      honest cost of renewing is what put the vault-state fix two cuts late.
+    until_cut: "v1.0.41"
