@@ -11357,7 +11357,7 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.61}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.62}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -11417,7 +11417,7 @@ OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.61}"
 # fallback now exercises the app-bundle shape rather than the bare
 # binary; the bare-binary path below is retained for any customer
 # resuming from an older staged tarball.
-ASSISTANT_FALLBACK_VERSION="0.4.60"
+ASSISTANT_FALLBACK_VERSION="0.4.61"
 # Customer-facing distribution.
 #
 # CX-88 (DMG #48g, 2026-05-29): the daemon ships from the public
@@ -11470,7 +11470,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="ff7b0b634345a2da10dce1aa0d17a3cc6b8b9b380687c8024072e53bfc4ced24"
+DEFAULT_ASSISTANT_TARBALL_SHA256="ee1b01610d90a8c530430a1102626c736540f21c7be7b887e348104f1f0786cd"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -11484,7 +11484,7 @@ DEFAULT_ASSISTANT_TARBALL_SHA256="ff7b0b634345a2da10dce1aa0d17a3cc6b8b9b380687c8
 # apart is the defect class this pin exists to catch; it should not be the
 # defect class the pin itself ships with. Read from the published .sha256
 # sidecar of hub-v${ASSISTANT_FALLBACK_VERSION}, never typed by hand.
-DEFAULT_ASSISTANT_FALLBACK_TARBALL_SHA256="d6e94c89d91f9e1ea4025ef1d6b6a9ce84a9c2149fc34810d27a621fec8f4bba"
+DEFAULT_ASSISTANT_FALLBACK_TARBALL_SHA256="ff7b0b634345a2da10dce1aa0d17a3cc6b8b9b380687c8024072e53bfc4ced24"
 ASSISTANT_FALLBACK_TARBALL_SHA256="${OSTLER_ASSISTANT_FALLBACK_TARBALL_SHA256:-${DEFAULT_ASSISTANT_FALLBACK_TARBALL_SHA256}}"
 ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
 
