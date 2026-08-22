@@ -68,16 +68,32 @@ jobs:
       # all silently not run.
       - name: Install pytest and the graph the fixtures need
         run: python -m pip install --quiet pytest rdflib
-      # ANTI-VACUITY, BEFORE THE RUN THAT MATTERS. pytest exits 5 on "no tests
-      # collected" and `bash -e` does fail on it, so the skip above WAS caught
-      # by default. This step is here so that safety is EXPLICIT and survives
-      # someone later adding `|| true`, changing the runner, or reaching for a
-      # flag that softens the exit code. A gate whose fail-closed behaviour is
-      # an accident of another tool's exit convention is one edit from silent.
-      - name: The suite must actually collect, or it proves nothing
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE.
+      #
+      # They were two steps and ci-maskless was right to refuse it: a failing
+      # floor would SKIP the step below, so the real test result would be
+      # hidden behind an earlier red. `if: always()` would satisfy the gate,
+      # but folding them into one step is better -- there is then no second
+      # step to mask, the floor provably runs first, and one step cannot hide
+      # another that does not exist.
+      #
+      # pytest exits 5 on "no tests collected" and `bash -e` honours it, so
+      # the skip WAS already caught. The floor is here so that property is
+      # STATED rather than inherited from another tool's exit convention. A
+      # gate whose fail-closed behaviour is an accident is one edit from
+      # silent.
+      - name: The repair never deletes a person, and undo restores exactly
         run: |
+          # `|| n=0` on the ASSIGNMENT, not inside the pipe. grep -c prints
+          # its count AND exits 1 when that count is zero, so under `bash -e`
+          # the step would die at this line and the message below would never
+          # print -- fail-closed, but silently, which is half the value. And
+          # `|| echo 0` INSIDE the substitution is wrong: grep already emitted
+          # "0", so n would become "0\n0" and the numeric test would error.
+          # No `2>/dev/null` either: a pytest usage error must not be laundered
+          # into a clean zero.
           n="$(python -m pytest tests/test_repair_overmerged_contact_cards.py \
-                 --collect-only -q 2>/dev/null | grep -cE '::test_' || true)"
+                 --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 20 ]; then
             echo "REFUSING: expected at least 20 collected tests, got ${n:-0}." >&2
@@ -85,5 +101,4 @@ jobs:
             echo "'no failures' as 'passed'. Check rdflib installed." >&2
             exit 1
           fi
-      - name: The repair never deletes a person, and undo restores exactly
-        run: python -m pytest tests/test_repair_overmerged_contact_cards.py -v
+          python -m pytest tests/test_repair_overmerged_contact_cards.py -v
