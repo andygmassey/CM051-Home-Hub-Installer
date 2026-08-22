@@ -2890,3 +2890,21 @@ deferrals:
       start, and open-PR state moves underneath a cut. Re-run the gate locally
       immediately before every tag push.
     until_cut: "v1.0.40"
+
+  - ref: "CM051:#951"
+    reason: >-
+      'fix(#659): repair the over-merged Contacts cards, reversibly'. Opened
+      2026-08-22T06:16:02Z, in flight, and NOT mergeable as it stands:
+      MEASURED five CI failures on the head -- new-tests-wired, test-wiring,
+      and fda-reachable on all three of 3.11, 3.12 and 3.13. A repair that
+      writes to a customer's Contacts is the last thing to merge on a
+      five-red head at the end of a cut night.
+      THE FIFTH PR THIS PRE-TAG RE-RUN HAS CAUGHT, and the reason that habit
+      now exists: CI's orphan list is a snapshot taken at run start, and this
+      PR did not exist when run 32555998094 began. Re-running the gate locally
+      against live PR state immediately before a tag push is the only thing
+      that sees these.
+      It does NOT touch install.sh, so the CM051 blob pin in
+      cuts/v1.0.39/cut.env stays current either way; this deferral is about
+      the orphan gate alone.
+    until_cut: "v1.0.40"
