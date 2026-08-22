@@ -41,41 +41,53 @@
 # when they want to write an ack, because that is where the wrong decision
 # gets made.
 #
-# Pin 9af6ecaf -> CM044 main 3e8887b2 is FOUR commits and 28 files:
+# THE DURABLE PART, WHICH DOES NOT MOVE:
 #
-#   736b7a25  fix(vault): the Pro licence was never mounted into the compiler
-#             container (#849 / CM044 #241)
-#   e10bd88e  fix(wiki): gate EVERY preference section on provenance, not just
-#             Music (#242)
-#   af2621af  fix(wiki): every LLM summary was thrown away, and a quarter of
-#             Places rendered as raw markdown (#243)
-#   3e8887b2  fix(wiki): the nav was hidden by the THEME on scroll (#244)
+#   Every ack in this file rests on its delta being docs-only, CI-only or
+#   test-only. THE DELTA FROM PIN 9af6ecaf IS NONE OF THOSE. It carries
+#   fix() commits against customer-visible wiki behaviour, including the Pro
+#   licence never being mounted into the compiler container, EVERY LLM
+#   SUMMARY BEING THROWN AWAY with a quarter of Places rendered as raw
+#   markdown, preference sections ungated on provenance, and the nav hidden
+#   by the theme on scroll. The two site-image files ARE the nav fix, so it
+#   is not incidental spillover but a customer-visible defect inside that
+#   image's own COPY set.
 #
-# EVERY PREVIOUS ACK IN THIS FILE RESTED ON THE DELTA BEING DOCS-ONLY,
-# CI-ONLY OR TEST-ONLY. This one is not, and that is the whole difference.
+#   So shipping_bugfixes_grafted=true would be FALSE for either row. That
+#   field is an explicit human assertion, and asserting it to clear a gate is
+#   the "convenient rather than honest" ack the cm041 rows above go to such
+#   lengths to avoid. NO ACK IS AVAILABLE UNTIL THE IMAGES ARE REBUILT.
 #
-#   non-test files in the delta        21 of 28
-#   non-test files IN the compiler image   16   (COPY compiler/ wholesale)
-#   non-test files IN the site image        2   (mkdocs.yml + overrides/...css)
-#   CONTROL a path matching NEITHER image   scripts/ci_pr_gates.sh -> 0 and 0
+# THE MEASUREMENT, WHICH MOVES, AND ONLY EVER UPWARDS:
 #
-# The site image's 2 files ARE the nav fix. It is not incidental spillover;
-# it is a customer-visible defect sitting inside that image's COPY set.
+#   Measured 2026-08-22T16:31Z, pin 9af6ecaf -> CM044 main 946a624:
+#     commits in delta                       11
+#     files in delta                         34
+#     non-test files                         25
+#     files IN the compiler image            27   COPY compiler/ wholesale
+#     files IN the site image                 2   mkdocs.yml + overrides/...css
+#     CONTROL a path matching NEITHER image   0
 #
-# So shipping_bugfixes_grafted=true WOULD BE FALSE for either row. The field
-# is an explicit human assertion, and asserting it here to clear a gate is
-# precisely the "convenient rather than honest" ack that the cm041 rows above
-# go to such lengths to avoid.
+#   An earlier version of this block said "FOUR commits and 28 files", which
+#   was true at 15:5xZ and was stale within the hour because more CM044 PRs
+#   merged. DO NOT QUOTE THE NUMBERS ABOVE. Re-measure:
+#
+#     cd <CM044>; git fetch origin
+#     git rev-list --count 9af6ecaf..origin/main
+#     git diff --name-only 9af6ecaf..origin/main
+#
+#   The count can only grow while the pin stands still, so a stale number
+#   understates the case and never overstates it. The verdict is unaffected.
 #
 # NOTE THE ASYMMETRY, because it is the opposite of last cut's. At v1.0.39 the
-# split was wiki-site 0 of 3 and wiki-compiler 3 of 3. Here it is 2 and 16.
-# The per-image number MUST BE MEASURED against each Dockerfile's COPY set
-# every time; it does not carry over, and neither does the conclusion.
+# split was wiki-site 0 of 3 and wiki-compiler 3 of 3. THE PER-IMAGE NUMBER
+# MUST BE MEASURED AGAINST EACH DOCKERFILE'S COPY SET EVERY TIME. It does not
+# carry over, and neither does the conclusion.
 #
-# WHO CAUSED THIS AND WHY IT WAS STILL RIGHT: I merged CM044 #241-#244 on
-# 2026-08-22. They are four real fixes and merging them was correct. The cost
-# is that the wiki images now genuinely lag, and the honest way to pay it is a
-# rebuild, not a sentence in this file.
+# WHO CAUSED THIS AND WHY IT WAS STILL RIGHT: I merged the CM044 PRs behind
+# this delta on 2026-08-22. They are real fixes and merging them was correct.
+# The cost is that the wiki images now genuinely lag, and the honest way to
+# pay it is a rebuild, not a sentence in this file.
 #
 # ORM owns the rebuild + re-pin. This note exists so nobody reaches for the
 # cheaper option first.
