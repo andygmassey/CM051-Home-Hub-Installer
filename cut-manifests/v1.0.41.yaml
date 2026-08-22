@@ -1,0 +1,194 @@
+# cut-manifests/v1.0.41.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.41.
+#
+# WHY v1.0.41 EXISTS: THE SHIPPED WIKI IMAGES CARRIED A LIVE MEETING PASSCODE
+# ---------------------------------------------------------------------------
+# CM044 #247: 17 of 928 Places pages carried a live meeting passcode IN THE
+# PAGE TITLE, because a calendar's location field for a remote meeting IS the
+# join URL. v1.0.40 pins wiki images built from CM044 9af6ecaf, which predates
+# that fix, so the shipped wiki renders the credential.
+#
+# NO hold_ack WAS AVAILABLE, and that is why this is a rebuild. Every prior ack
+# in scripts/wiki_hold_ack.tsv rests on its delta being docs-only, CI-only or
+# test-only. Measured on this one: 21 of 28 files non-test, 16 inside the
+# compiler image's COPY set and 2 inside the site image's -- and the site
+# image's two ARE the nav fix. shipping_bugfixes_grafted=true would have been
+# false, and that field is an explicit human assertion, not a formality.
+#
+# THE DAEMON MOVES TOO: 0.4.61 -> 0.4.62, and it was NOT tag-pushed. A daemon
+# tag push produces an UNSIGNED draft, because release/sign-and-notarize.sh
+# treats an empty signing identity as "skip" and exits 0. Fifteen green steps
+# are exactly what a skipped signing step looks like. Built locally with the
+# keychain, then verified on the EXTRACTED artefact and again on the PUBLISHED
+# bytes fetched anonymously with no token.
+#
+# BOTH DAEMON ARTEFACTS EXIST. That is what v1.0.38 was blocked on, after the
+# daemon lane was declared done without the wrapper:
+#   ostler-ai/ostler-releases   hub-v0.4.62  3 assets  Developer ID + notarised
+#   ostler-ai/ostler-assistant  hub-v0.4.62  5 assets  wrapper, ADHOC BY DESIGN
+# Frontend parity read from INSIDE the Mach-O, both equal to 9be3224c, and the
+# real gate run BOTH DIRECTIONS -- the v0.4.61 wrapper against the v0.4.62
+# daemon exits 1 and names both shas. Without that negative the green is worth
+# nothing.
+#
+# THE INSTALLER VERSION WAS STILL 1.0.40 WHEN THIS MANIFEST WAS BEING WRITTEN.
+# gui/Makefile DERIVES the app version by reading gui/OstlerInstaller/Info.plist,
+# which had never been bumped -- the identical mechanism that made v1.0.39 ship
+# an installer stamped 1.0.38. #955's gate would have refused the tag, so it was
+# never going to reach a customer; it would have burned a version. Bumped across
+# all three tracked sources, because a HALF bump is the documented failure mode.
+#
+# WHAT THIS CUT DOES NOT PROVE, stated so its absence is not read as coverage:
+# the #859/#858 topic writer is NOT in this cut. /api/v1/topics still returns
+# count:0. CM048 #72 is open and, separately, reaching a customer needs the
+# cm048_pipeline vendor pin advanced AND re-vendored, which nothing enforces.
+# ============================================================================
+
+version: v1.0.41
+entries:
+  # --------------------------------------------------------------------------
+  # THE REASON THIS CUT EXISTS. Asserted against the ARTEFACT, because a source
+  # check cannot see a build that packaged something else.
+  # --------------------------------------------------------------------------
+  - id: v1041-wiki-site-image-is-the-rebuilt-one
+    title: the shipped compose file pins the v0.1.24 wiki-site image
+    incident: >-
+      v1.0.40 pinned wiki-site sha256:7d353848, built from CM044 9af6ecaf,
+      which predates #247. That image renders 17 Places pages whose titles
+      contain a live meeting passcode. The full 64-hex digest is anchored
+      rather than a prefix, because a truncated match would accept a
+      neighbouring build and there are neighbouring builds.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-site@sha256:0df14b724a80895896803442692584d01a6b099b3d76e5cb9deccdbb2be68d9e'
+      must_match: true
+
+  - id: v1041-wiki-compiler-image-is-the-rebuilt-one
+    title: the shipped compose file pins the v0.1.24 wiki-compiler image
+    incident: >-
+      The compiler image is the half that GENERATES the pages, so a stale
+      compiler reproduces the defect on every recompile even behind a fresh
+      site image. Both images are pinned by digest and both must move.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-compiler@sha256:ab53c66a51cba53040009791cf9bb838a7913721b0b85130fb4fdb51f9f168b6'
+      must_match: true
+
+  - id: v1041-the-passcode-bearing-wiki-images-are-gone
+    title: neither v1.0.40 wiki digest survives in the shipped installer
+    incident: >-
+      The negative limb. A re-pin that adds the new digest while leaving the
+      old one somewhere else in the file ships both, and compose would resolve
+      whichever it read first. Anchored on the two exact outgoing digests.
+    proof:
+      kind: grep_in_installer
+      pattern: 'sha256:(7d353848b6289796710f4b74dd2340742b275b20a35267c935e135c06066ab40|3846eb3b2cfa556a4a810716bffee8315eef60f59fd5a6a32b9def546573e93d)'
+      must_match: false
+
+  # --------------------------------------------------------------------------
+  # THE INSTALLER MUST BE ABLE TO NAME ITSELF.
+  # --------------------------------------------------------------------------
+  - id: v1041-installer-reports-its-own-version
+    title: the shipped installer bundle reports 1.0.41
+    incident: >-
+      v1.0.39 shipped an OstlerInstaller.app stamped 1.0.38 because gui/Makefile
+      derives the version by reading a tracked plist that was never bumped. The
+      same plist still read 1.0.40 while this cut was being prepared. Asserted
+      against the BUILT APP, not the tracked plist.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: "1.0.41"
+
+  - id: v1041-installer-build-number-moves-with-it
+    title: the shipped installer bundle carries build 4100
+    incident: >-
+      The short version and the build number are two fields and have drifted
+      apart before. 3600/3700/3800/4000 track 1.0.36 through 1.0.40, so the
+      scheme is the patch number times 100 and 1.0.41 must read 4100.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleVersion
+      value: "4100"
+
+  # --------------------------------------------------------------------------
+  # THE DAEMON. hub-v0.4.62, built locally and signed.
+  # --------------------------------------------------------------------------
+  - id: v1041-daemon-pinned-at-0462
+    title: install.sh defaults the daemon to 0.4.62
+    incident: >-
+      A promoted artefact nothing points at reaches no one, which is the
+      dangling-artefact shape #786 already cost us. hub-v0.4.62 carries the
+      vault-state fix that stopped reporting status "" instead of "none" on
+      every failure path.
+    proof:
+      kind: grep_in_installer
+      pattern: 'OSTLER_ASSISTANT_VERSION:-0\.4\.62'
+      must_match: true
+
+  - id: v1041-daemon-digest-is-the-0462-digest
+    title: the baked cross-origin pin is the published hub-v0.4.62 digest
+    incident: >-
+      A version and its checksum came apart on v1.0.29 with no gate watching.
+      Read from the published .sha256 sidecar fetched anonymously, never typed
+      and never taken from a build log. Full 64-hex, because a truncated match
+      would accept a neighbouring release and 0.4.61 is the fallback in this
+      very cut.
+    proof:
+      kind: grep_in_installer
+      pattern: 'DEFAULT_ASSISTANT_TARBALL_SHA256="ee1b01610d90a8c530430a1102626c736540f21c7be7b887e348104f1f0786cd"'
+      must_match: true
+
+  - id: v1041-the-old-primary-default-is-gone
+    title: 0.4.61 is no longer the PRIMARY default
+    incident: >-
+      The negative limb, anchored on the primary ASSIGNMENT shape rather than
+      on the bare string "0.4.61" -- because 0.4.61 legitimately remains in this
+      file as the FALLBACK version. A naive absence check on the version alone
+      would fail against a correct installer, which is worse than no check: it
+      teaches the next reader to weaken the pattern.
+    proof:
+      kind: grep_in_installer
+      pattern: 'OSTLER_ASSISTANT_VERSION:-0\.4\.61'
+      must_match: false
+
+  - id: v1041-fallback-has-its-own-digest
+    title: the fallback carries the published hub-v0.4.61 digest, not the primary's
+    incident: >-
+      HR015 #583. The retry re-pointed the URLs and left the primary's digest in
+      place, so the rescue path checked the fallback tarball against the wrong
+      pin and told a customer whose download had already failed that it looked
+      tampered with. Read from hub-v0.4.61's published sidecar, not inferred
+      from the outgoing primary pin even though the two happen to be equal.
+    proof:
+      kind: grep_in_installer
+      pattern: 'DEFAULT_ASSISTANT_FALLBACK_TARBALL_SHA256="ff7b0b634345a2da10dce1aa0d17a3cc6b8b9b380687c8024072e53bfc4ced24"'
+      must_match: true
+
+  - id: v1041-the-pin-moves-with-the-version
+    title: the selector actually switches digest with version
+    incident: >-
+      Carried from v1.0.40 deliberately. Two constants existing proves nothing
+      if the function never selects between them, which is the exact shape of
+      the original #583 bug: a value that exists and is not applied.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ASSISTANT_TARBALL_SHA256="\$\{ASSISTANT_FALLBACK_TARBALL_SHA256'
+      must_match: true
+
+  - id: v1041-upgrade-repairs-the-fda-venv
+    title: the upgrade path repairs the fda venv
+    incident: >-
+      Carried from v1.0.40. CM051 #939 fixed new installs only; the upgrade
+      block exits before reaching the repair, so a box already on a bad version
+      kept a frozen graph through every future update. A cut that stops
+      asserting something it still ships is how a regression gets back through.
+    proof:
+      kind: grep_in_installer
+      pattern: '_upg_repair_fda_venv'
+      must_match: true
