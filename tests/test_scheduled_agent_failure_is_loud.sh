@@ -44,6 +44,19 @@ cannot_run() { printf '\nCANNOT-RUN: %s\n' "$1" >&2; exit 2; }
 [[ -f "$RULES" ]] || cannot_run "no diagnostic_rules.py at ${RULES}"
 command -v python3 >/dev/null 2>&1 || cannot_run "no python3"
 
+# PREFLIGHT: if the module will not import, NOTHING can be measured, and that
+# is CANNOT-RUN -- not a wall of failures that read exactly like real defects.
+#
+# This is not hypothetical. The first CI run of this gate was on a runner
+# without httpx (status_collector imports it at module scope, and there is no
+# doctor venv on a runner). Every limb printed `FAIL ... state=<> raw=<>`,
+# sixteen of them, which is indistinguishable at a glance from the rule being
+# genuinely broken. A test whose "could not look" and "looked and it is
+# broken" print the same is the very defect this gate exists to attack, so it
+# does not get to commit it itself.
+_import_err="$(python3 -c "import sys; sys.path.insert(0,'${AGENT_DIR}'); import diagnostic_rules" 2>&1)" \
+    || cannot_run "diagnostic_rules could not be imported, so nothing was measured: ${_import_err}"
+
 SELF_TEST=0
 [[ "${1:-}" == "--self-test" ]] && SELF_TEST=1
 
