@@ -175,6 +175,7 @@ jobs:
       - name: The cut record's CM051 pin is the tree being cut
         run: bash scripts/verify_cut_pin_is_current.sh --cut "${CUT_VERSION}" --ref HEAD
 
+
       # The vendored gate must match the OS003 commit it claims to come from.
       # #540 vendored the runner with nothing holding it to its source and it
       # drifted 239 diff lines behind, missing the redactor, the claim-coverage
@@ -381,6 +382,48 @@ jobs:
   #    `push`. The only push this workflow answers to is a v1.0.* tag push,
   #    so "the cut job ran" and "a tag was written down" are the same fact.
   # ---------------------------------------------------------------------
+
+      # v1.0.39 SHIPPED REPORTING ITSELF AS 1.0.38. The DMG was signed,
+      # notarised, published and downloaded, and the OstlerInstaller.app inside
+      # it carried CFBundleShortVersionString=1.0.38. The bump was missed.
+      #
+      # A gate for this class already existed and could not catch it.
+      # installer-version-consistency.yml compares Info.plist, project.yml and
+      # project.pbxproj TO EACH OTHER. All three said 1.0.38, so they agreed,
+      # so it was green -- internal consistency is not agreement with the tag.
+      #
+      # A second gate was WRITTEN for exactly this, in OS003 -- and the first
+      # version of this comment said it "exists" and "runs in OS003 bin/cut.sh
+      # preflight". THAT WAS WRONG AND THE CORRECTION MATTERS. Measured:
+      # OS003 #122 is an OPEN PR, merged=never, so it has never run anywhere,
+      # on any surface. It was read off a commit sitting on a checked-out
+      # feature branch and mistaken for shipped practice.
+      # So there were TWO independent reasons nothing caught this, and fixing
+      # either alone would have left the other:
+      #   1. that gate is unmerged, so it runs nowhere
+      #   2. even merged it runs in OS003 bin/cut.sh preflight, and a tag push
+      #      firing THIS workflow never consults OS003
+      # Gate and defect on different surfaces, and no gate to begin with.
+      #
+      # So it goes HERE, on the surface that actually cuts, and it takes the
+      # version from CUT_VERSION rather than from any tracked file, because
+      # every tracked file is exactly what was wrong.
+      #
+      # `if: always()` because verify_ci_steps_are_maskless.py is right: a test
+      # step that is skipped when an EARLIER test in the same job fails cannot
+      # report, and a gate that does not report is indistinguishable from a
+      # gate that passed. The first push of this change was MASKABLE and that
+      # gate caught it, which is the #683 shape it exists for.
+      #
+      # LAST IN THE JOB, and that is deliberate rather than incidental. Placed
+      # mid-job it made the step AFTER it maskable, because a test step can
+      # skip everything downstream of itself. Adding one gate quietly weakened
+      # a neighbour, which is the same class of defect this file is here to
+      # stop. At the end it guards itself and shadows nothing.
+      - name: The installer's own version IS the version being cut
+        if: always()
+        run: bash tests/test_installer_version_matches_the_cut.sh "${CUT_VERSION}"
+
   cut:
     needs: preflight
     if: github.event_name == 'push'
@@ -659,6 +702,66 @@ jobs:
         if: always()
         run: bash scripts/stage_and_verify_dmg.sh --job-status "${{ job.status }}"
 
+      # #856 / #844. Everything upstream of here proves the DMG is INTERNALLY
+      # consistent -- it matches its own SHA256SUMS, it is signed, notarised and
+      # stapled. NOTHING compared its CONTENT to the tag being cut, so a build
+      # that packaged a stale install.sh would pass every one of those gates and
+      # reach a customer looking perfect.
+      #
+      # That gap is the whole justification and it stands alone: it was true
+      # before anyone looked and would be true if no one ever had.
+      # History, told straight: TNM raised v1.0.39 as a mis-built artefact and
+      # WITHDREW that in full the same hour (a stale v1.0.38 volume was already
+      # mounted on the test box and every command measured it). Nothing here
+      # rests on that finding. What it does rest on: this gate is
+      # demonstrated-red against the REAL published v1.0.39 artefact, whose
+      # bundle reports 1.0.38 while the cut is 1.0.39.
+      #
+      # Mounts the staged DMG and hashes EVERY install.sh in it against the
+      # tag's blob, with the nearest other v1.0.* tag as a control so the
+      # comparison is provably discriminating rather than collapsing to one
+      # value. Also asserts the shipped bundle's version IS the cut version --
+      # #955 makes that assertion about the SOURCE tree, and a source check
+      # cannot see a build that packaged something else.
+      #
+      # `if: always()` so a red run still reports it, and last in the job so it
+      # cannot silence a neighbour.
+      #
+      # CUT_VERSION comes from THIS step's env and not from the preflight job.
+      # The first run of this gate died on `CUT_VERSION: unbound variable`:
+      # preflight writes CUT_VERSION to $GITHUB_ENV, and GITHUB_ENV DOES NOT
+      # CROSS JOBS. `cut` only ever runs on a tag push, so github.ref_name IS
+      # the tag and is the honest source here.
+      - name: The artefact's content IS the tag being cut
+        id: artefact_content
+        if: always()
+        env:
+          CUT_VERSION: ${{ github.ref_name }}
+        run: |
+          set -uo pipefail
+          # Never let this gate die on a shell error. An absent version is
+          # CANNOT-RUN with a sentence saying so, not `unbound variable`.
+          CUT_VERSION="${CUT_VERSION:-}"
+          if [ -z "$CUT_VERSION" ]; then
+              echo "::error title=No cut version::The artefact-content gate has no version to compare against, so it has NOT verified the content -- it failed to look. DO NOT SHIP."
+              exit 2
+          fi
+          DMG="$(ls dist/*.dmg 2>/dev/null | head -1)"
+          if [ -z "$DMG" ]; then
+              echo "::error title=No DMG to inspect::The artefact-content gate found no dist/*.dmg. It has NOT verified the content -- it failed to look. DO NOT SHIP."
+              exit 2
+          fi
+          MNT="$(mktemp -d)/mnt"
+          mkdir -p "$MNT"
+          if ! hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MNT" -quiet; then
+              echo "::error title=Could not mount the DMG::The artefact-content gate could not inspect the payload. CANNOT-RUN is not a pass. DO NOT SHIP."
+              exit 2
+          fi
+          rc=0
+          bash tests/test_artefact_content_matches_the_tag.sh "$MNT" "${CUT_VERSION}" || rc=$?
+          hdiutil detach "$MNT" -quiet 2>/dev/null || true
+          exit "$rc"
+
       # Paired with the condition on the staging step above -- both, or neither
       # works. Staging happens inside that step, so guarding only the upload
       # would upload an empty dist, and guarding only the staging would stage a
@@ -766,8 +869,17 @@ jobs:
       # after publishing it fetches the CUSTOMER url and re-hashes the bytes.
       # An upload that succeeded proves the API took bytes; only the customer
       # url proves a customer can get them, and that is what was broken.
+      #
+      # AND IT IS GATED ON THE CONTENT CHECK ABOVE. `always()` here was about
+      # ORDERING -- a publish failure must not sit between a verified artefact
+      # and its upload -- and it was never a licence to publish an artefact
+      # whose content was not checked. Without this condition the new
+      # content gate is decorative: it would go red and this step would push
+      # the bad DMG to the customer url anyway, which is the exact harm.
+      # A build that never produced a DMG makes the gate exit 2, so this
+      # correctly skips rather than repeating the failure as "No DMG found".
       - name: Publish the release object, then prove the customer url serves it
-        if: always()
+        if: always() && steps.artefact_content.outcome == 'success'
         env:
           # Pairs with CM051_RELEASES_READ, which is already wired at four
           # sites in this file and reads FROM ostler-ai releases. A matching

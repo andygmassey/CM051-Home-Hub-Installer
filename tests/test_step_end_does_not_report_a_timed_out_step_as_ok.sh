@@ -306,11 +306,28 @@ if [ ! -f "$PEOPLE_DONE" ]; then
 else
     MARKER_RC="$(grep '^rc=' "$PEOPLE_DONE" | head -n 1 | cut -d= -f2)"
     MARKER_STATUS="$(grep '^status=' "$PEOPLE_DONE" | head -n 1 | cut -d= -f2)"
-    if [ "$MARKER_STATUS" = "error" ] && [ "$MARKER_RC" = "124" ] \
-       && printf '%s' "$A_LINE" | grep -q 'rc=124'; then
-        pass "A2: people.done (status=${MARKER_STATUS} rc=${MARKER_RC}) and the STEP_END agree on the same rc"
+    # COMPARE THE TWO SURFACES TO EACH OTHER, NOT EACH TO A LITERAL.
+    #
+    # This block used to demand MARKER_STATUS = "error". That was the old
+    # contract, and this very change replaces it: a step killed by the timeout
+    # now closes status=timeout, which is the whole point of the fix and what
+    # assertion A three lines up already checks. So the suite asserted
+    # "timeout" and "error" for the same marker and had to fail one of them.
+    #
+    # The name of this assertion is "the log line and the .done marker must
+    # AGREE". Agreement is a relation between the two, so it is now written
+    # as one: pull the status out of the STEP_END line and compare it to the
+    # marker's. A future rename of the status moves both sides together and
+    # this keeps passing, which is correct -- it is not this assertion's job
+    # to pin the vocabulary, only to catch the two surfaces drifting apart.
+    LOG_STATUS="$(printf '%s' "$A_LINE" | tr '\t' '\n' | grep '^status=' | head -n 1 | cut -d= -f2)"
+    LOG_RC="$(printf '%s' "$A_LINE" | tr '\t' '\n' | grep '^rc=' | head -n 1 | cut -d= -f2)"
+    if [ -z "$LOG_STATUS" ] || [ -z "$LOG_RC" ]; then
+        fail "A2: could not parse status/rc out of the STEP_END line, so the two surfaces were never compared: ${A_LINE}"
+    elif [ "$MARKER_STATUS" = "$LOG_STATUS" ] && [ "$MARKER_RC" = "$LOG_RC" ] && [ "$MARKER_RC" = "124" ]; then
+        pass "A2: people.done and the STEP_END agree (status=${MARKER_STATUS} rc=${MARKER_RC}), both read from the artefacts"
     else
-        fail "A2: people.done says status=${MARKER_STATUS} rc=${MARKER_RC} while the log says: ${A_LINE}"
+        fail "A2: the two surfaces DISAGREE -- people.done says status=${MARKER_STATUS} rc=${MARKER_RC}, the log says status=${LOG_STATUS} rc=${LOG_RC}"
     fi
 fi
 

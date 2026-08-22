@@ -81,6 +81,16 @@ jobs:
         if: always()
         run: bash tests/test_fda_assist_ordering.sh
 
+      # Every osascript dialog must `activate` System Events first.
+      #
+      # ba94a24 stripped `activate` from FOUR FDA modals, so they opened
+      # BEHIND System Settings: the installer looked hung while a dialog it
+      # was blocking on sat invisible behind another window. Measured on this
+      # branch: main has 4 of 6 unactivated, the branch has 0.
+      - name: osascript dialogs activate System Events
+        if: always()
+        run: bash tests/test_osascript_dialogs_activate_system_events.sh
+
       - name: early prewarm does not pop a messages prompt out of context
         if: always()
         run: bash tests/test_fda_prewarm_no_early_messages_popup.sh

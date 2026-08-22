@@ -584,6 +584,80 @@ class IdentityResolver:
     # threshold is the BW-2 design follow-up.
     _SHAREABLE_ID_TYPES = {"email", "phone"}
 
+    # ── RULE 2: DIFFERENT CANONICAL KEYS MUST NOT MERGE ──────────────────
+    #
+    # The three types above are described as "unique-by-construction ... always
+    # trusted", and that is right about MATCHING: if two records share an
+    # icloud_contact_uid they are the same Contacts card, so merge.
+    #
+    # It says nothing about the INVERSE, and the inverse is the whole of RULE 2
+    # of the ratified dedupe ruleset (Andy + TNM, 2026-06-09):
+    #
+    #     MUST NOT MERGE: different canonical keys, even if identical display
+    #     name. A shared name alone is never a merge signal.
+    #
+    # Until this block, RULE 2 had NO implementation anywhere in the resolver.
+    # Only the BW-1 name heuristic existed, and a name heuristic cannot express
+    # "these are provably two different Contacts cards".
+    #
+    # MEASURED on the v1.0.38 fresh box, 2026-08-21 -- the cost of the omission:
+    #
+    #     over-merged person nodes        128
+    #     Contacts cards swallowed        263   (135 people with no own node)
+    #     worst single node                 5   distinct cards in one person
+    #     CONTROL: icloud_contact_uid identifiers  2259
+    #
+    # Two distinct icloud_contact_uid on one node is not a judgement call, a
+    # near-miss, or a fuzzy score. It is the ruleset's own stated violation, and
+    # it was happening 128 times on one machine.
+    #
+    # HOW THIS COMBINES WITH BW-1 RATHER THAN REPLACING IT. Both guards run, in
+    # this order, and they answer different questions:
+    #
+    #   RULE 2 (here)  "is the target PROVABLY a different person?"   -> refuse
+    #   BW-1  (below)  "is the target PROVABLY the same person?"      -> require
+    #
+    # RULE 2 is checked FIRST and for EVERY id_type, including the unique ones,
+    # because the merge that produced the 128 arrives via one identifier while
+    # the conflict sits on another. BW-1's name check then still gates
+    # email/phone exactly as before -- nothing it used to catch stops being
+    # caught.
+    _CANONICAL_ID_TYPES = frozenset(
+        {"icloud_contact_uid", "linkedin_url", "whatsapp_lid"}
+    )
+
+    def _person_identifier_values(self, person_uri: str, id_type: str) -> set[str]:
+        """Every value of one identifier type already on a person node."""
+        sparql = (
+            f"SELECT ?v WHERE {{ "
+            f"  <{person_uri}> <{PWG}hasIdentifier> ?id . "
+            f'  ?id <{PWG}identifierType> "{id_type}" ; '
+            f"      <{PWG}identifierValue> ?v . "
+            f"}}"
+        )
+        results = self._sparql_query(sparql)
+        bindings = results.get("results", {}).get("bindings", [])
+        return {b["v"]["value"] for b in bindings if "v" in b}
+
+    def _canonical_key_conflict(
+        self, matched_uri: str, identity: PersonIdentity
+    ) -> Optional[tuple[str, str, str]]:
+        """(id_type, incoming_value, existing_value) if the target node already
+        holds a DIFFERENT value of a canonical key the incoming record also
+        carries. None when there is no conflict.
+
+        Absence of the key on the target is NOT a conflict -- that is the
+        ordinary case of enriching a node that has no Contacts card yet. Only a
+        different, present value refuses.
+        """
+        for id_type, id_value in self._iter_identifiers(identity):
+            if id_type not in self._CANONICAL_ID_TYPES:
+                continue
+            existing = self._person_identifier_values(matched_uri, id_type)
+            if existing and id_value not in existing:
+                return (id_type, id_value, sorted(existing)[0])
+        return None
+
     @staticmethod
     def _normalise_name(name: Optional[str]) -> str:
         return " ".join((name or "").strip().lower().split())
@@ -610,7 +684,27 @@ class IdentityResolver:
         prove same-person, so we decline the match and let the caller create a
         new node (a recoverable duplicate that Tidy Contacts can merge) rather
         than risk an irreversible wrong merge.
+
+        RULE 2 is applied first and to every id_type -- see _CANONICAL_ID_TYPES
+        above. An over-merge is irreversible in practice (two people's facts
+        interleaved on one node); a duplicate is recoverable. When the two
+        guards disagree the safe direction is always "do not merge".
         """
+        conflict = self._canonical_key_conflict(matched_uri, identity)
+        if conflict:
+            conflict_type, incoming_value, existing_value = conflict
+            # Log the TYPE and the node, never the values: canonical keys are
+            # per-person identifiers and this line lands in install logs and
+            # support bundles.
+            logger.info(
+                "declining merge into %s: incoming record carries a different "
+                "%s (RULE 2, canonical keys must not merge)",
+                matched_uri,
+                conflict_type,
+            )
+            del incoming_value, existing_value  # returned for tests, not logged
+            return False
+
         if id_type not in self._SHAREABLE_ID_TYPES:
             return True
         incoming = self._normalise_name(identity.display_name)

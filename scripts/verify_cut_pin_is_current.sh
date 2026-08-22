@@ -121,7 +121,7 @@ done
 # EXIT: 0 green, 1 pin is stale (BLOCK), 2 CANNOT-RUN (never a pass).
 # ---------------------------------------------------------------------------
 run_gate() {
-    local repo="$1" cut="$2" ref="$3"
+    local repo="$1" cut="$2" ref="$3" ref_was_default="${4:-0}"
 
     cd "$repo" 2>/dev/null || { echo "CANNOT-RUN: cannot enter '$repo'" >&2; return 2; }
     git rev-parse --git-dir >/dev/null 2>&1 || { echo "CANNOT-RUN: not a git repository" >&2; return 2; }
@@ -136,6 +136,32 @@ run_gate() {
 
     local env_file="cuts/${cut}/cut.env"
     [ -f "$env_file" ] || { echo "CANNOT-RUN: no ${env_file}" >&2; return 2; }
+
+    # A SHIPPED CUT IS COMPARED AGAINST WHAT SHIPPED, NOT AGAINST HEAD (#600).
+    #
+    # This gate exists to stop a cut being TAGGED on a pin chosen early -- it
+    # is what caught v1.0.31. While a cut is being prepared, HEAD is exactly
+    # the right ref. But the moment the tag exists, the tree being cut is
+    # frozen AT the tag and main is supposed to move past it: v1.0.38's record
+    # went red the instant #939 touched install.sh, and it would stay red for
+    # ever, widening.
+    #
+    # That is not a harmless nag. The remediation this gate printed was
+    # "re-point CM051= to the ref being cut", and following it post-ship makes
+    # the v1.0.38 record claim it cut code that shipped AFTER v1.0.38. The
+    # register would be confidently wrong about the one thing it exists to
+    # record. The two outcomes on offer were: falsify the record, or learn to
+    # ignore a red gate -- and the second is worse, because it is the same
+    # gate that guards the NEXT cut.
+    #
+    # Only applies when the caller DEFAULTED the ref. An explicit --ref is a
+    # deliberate question and is always honoured.
+    if [ "$ref_was_default" = "1" ] && git rev-parse --verify --quiet "refs/tags/${cut}" >/dev/null 2>&1; then
+        ref="${cut}^{}"
+        echo "  note: ${cut} is TAGGED, so this compares the record against what"
+        echo "        SHIPPED, not against HEAD. main moving on after a tag is"
+        echo "        correct and is not staleness. See HR015 #600."
+    fi
 
     # Read the key without sourcing. cut.env is written for a permissive shell
     # and may legitimately set variables this gate has no business inheriting.
@@ -264,6 +290,33 @@ if [ "$SELF_TEST" -eq 1 ]; then
         || no "(6) the predicate is comparing commits, not install.sh content"
 
     # CANNOT-RUN limbs. Each must be 2, never 0.
+    # ── #600: A SHIPPED CUT IS JUDGED AGAINST WHAT SHIPPED ──────────────
+    #
+    # Tag the tree the pin names, then move main PAST it -- which is what
+    # main is for after a cut. Before this behaviour existed the record went
+    # red here and stayed red, and the gate's own advice was to re-point the
+    # pin, which would make the record claim it cut code that shipped later.
+    (
+      cd "$HOME_REPO"
+      git tag v1.0.31 HEAD
+      printf 'echo "[memory]"\necho "backend = sqlite"\necho "later change"\n' > install.sh
+      git add -A && git -c user.email=t@t -c user.name=t commit -qm "a post-cut fix, as main is supposed to receive"
+    ) >/dev/null 2>&1
+
+    ( run_gate "$HOME_REPO" "v1.0.31" "HEAD" "1" ) > "$d/tagged.out" 2>&1; rct=$?
+    [ "$rct" -eq 0 ] && ok "(10) a TAGGED cut with a correct record is GREEN even though main moved" \
+                     || no "(10) a shipped cut read stale (exit ${rct}) -- #600 is back"
+    grep -qi 'is TAGGED' "$d/tagged.out" \
+        && ok "(11) and it SAYS why it compared against the tag" \
+        || no "(11) redirected silently; a reader cannot tell which ref was used"
+
+    # ANTI-OVERREACH: an EXPLICIT ref is a deliberate question and must not be
+    # redirected. Without this, the fix above would make it impossible to ask
+    # "has main drifted from what shipped?" -- which is a real question.
+    ( run_gate "$HOME_REPO" "v1.0.31" "HEAD" "0" ) > "$d/explicit.out" 2>&1; rce=$?
+    [ "$rce" -eq 1 ] && ok "(12) an EXPLICIT ref is still honoured and still reports the drift" \
+                     || no "(12) explicit ref was redirected too (exit ${rce}) -- the fix overreached"
+
     ( run_gate "$HOME_REPO" "v9.9.9" "HEAD" ) >/dev/null 2>&1
     [ $? -eq 2 ] && ok "(7) CANNOT-RUN on a missing cut record (exit 2, not a pass)" \
                  || no "(7) a missing cut record did not produce CANNOT-RUN"
@@ -286,6 +339,9 @@ fi
 # ===========================================================================
 REPO="${REPO_ARG:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 REF="${REF_ARG:-${OSTLER_CUT_REF:-HEAD}}"
+# Did the CALLER choose this ref, or did it fall through to the default?
+# Only a defaulted ref may be redirected to a cut tag (see #600).
+if [ -n "${REF_ARG:-}" ] || [ -n "${OSTLER_CUT_REF:-}" ]; then REF_WAS_DEFAULT=0; else REF_WAS_DEFAULT=1; fi
 CUT="${CUT_ARG:-${OSTLER_CUT_VERSION:-${GITHUB_REF_NAME:-}}}"
 # A branch name is not a cut tag. Only take GITHUB_REF_NAME when it looks like one.
 case "$CUT" in
@@ -293,5 +349,5 @@ case "$CUT" in
     *) CUT="" ;;
 esac
 
-run_gate "$REPO" "$CUT" "$REF"
+run_gate "$REPO" "$CUT" "$REF" "$REF_WAS_DEFAULT"
 exit $?

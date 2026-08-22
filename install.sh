@@ -443,6 +443,56 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         return 0
     }
 
+    # ── the fda venv, which the upgrade path never repaired (HR015 #595) ──
+    #
+    # CM051 #939 fixed a missing `ostler_fda` in the promoted venv. That repair
+    # lives in _ostler_repair_venv_after_promote, called from
+    # _ostler_promote_prelaunch_tree at ~line 3495 -- and THIS block always
+    # exits before reaching it. So #939 fixed new installs and nothing else,
+    # and every machine already on a bad version kept a frozen graph
+    # permanently, updates included.
+    #
+    # Measured on origin/main before this change: inside this block
+    # `ostler_fda` appeared 0 times, against a whole-file control of 101.
+    #
+    # It CANNOT call the promote-side function: that is defined ~1300 lines
+    # below, and bash needs a definition executed before the call. Hence a
+    # self-contained limb rather than a shared helper.
+    #
+    # IDEMPOTENT AND NON-FATAL, both deliberately. An upgrade is not the place
+    # to hard-fail on a Python environment: the daemon swap has already
+    # succeeded by the time this runs, and taking the whole upgrade down to fix
+    # an ingest module would trade a frozen graph for a rolled-back Hub.
+    _upg_repair_fda_venv() {
+        local _venv="${_UPG_OSTLER_DIR}/.venv"
+        local _py="${_venv}/bin/python3"
+        local _pkg="${_UPG_OSTLER_DIR}/fda-module/ostler_fda"
+
+        [[ -x "$_py" ]] || { _upg_log "fda venv repair: no interpreter at ${_py}; skipping"; return 0; }
+        [[ -d "$_pkg" ]] || { _upg_log "fda venv repair: no package at ${_pkg}; skipping"; return 0; }
+
+        # ASK THE INTERPRETER THE TICK ACTUALLY USES. Not "is there a
+        # site-packages entry", not "did pip exit 0" -- the question that
+        # matters is whether com.ostler.fda-rerun's own python can import the
+        # module, because that is the thing that was failing hourly.
+        if "$_py" -c 'import ostler_fda.identifier_quality' >/dev/null 2>&1; then
+            _upg_log "fda venv repair: ostler_fda already imports; nothing to do"
+            return 0
+        fi
+
+        _upg_log "fda venv repair: ostler_fda does NOT import under ${_py}; installing"
+        "${_venv}/bin/pip" install --quiet -e "$_pkg" \
+            >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || true
+
+        # RE-ASK, rather than trusting pip's exit code. Same reason as above.
+        if "$_py" -c 'import ostler_fda.identifier_quality' >/dev/null 2>&1; then
+            _upg_log "fda venv repair: OK, ostler_fda now imports"
+        else
+            _upg_log "WARN: fda venv repair FAILED; com.ostler.fda-rerun will keep failing and the graph will not grow. See HR015 #595."
+        fi
+        return 0
+    }
+
     _upg_do_upgrade() {
         _upg_log "=== OSTLER_UPGRADE_MODE start ==="
         [[ -n "$_UPG_PAYLOAD" ]] || _upg_die 10 "OSTLER_UPGRADE_PAYLOAD_DIR not set"
@@ -504,6 +554,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         _upg_refresh_doctor
         _upg_refresh_knowledge
         _upg_refresh_cm048
+        _upg_repair_fda_venv
         launchctl kickstart -k "${_UPG_DOMAIN}/com.ostler.doctor" 2>/dev/null || true
 
         # (7) Write VERSION last, as the success marker the Hub reads.
@@ -1828,6 +1879,20 @@ _ostler_pip_install_pkg() {
     return $rc
 }
 
+# Durable record for the post-promote venv rebuild.
+#
+# NOT _upg_log: that helper is defined INSIDE the upgrade-mode block (~L160), so
+# on a fresh install it does not exist and calling it here would be a diagnostic
+# that reports nothing on the exact path where #805 bit. Same class of mistake as
+# the defect below. A file write survives any caller's stderr redirect.
+_OSTLER_PROMOTE_VENV_LOG="${_OSTLER_PROMOTE_VENV_LOG:-/tmp/ostler-promote-venv.log}"
+
+_ostler_promote_venv_note() {
+    printf '%s repair_venv_after_promote: %s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$_OSTLER_PROMOTE_VENV_LOG" 2>/dev/null || true
+    echo "repair_venv_after_promote: $*" >&2
+}
+
 _ostler_repair_venv_after_promote() {
     local venv_dir="${OSTLER_FINAL_DIR}/.venv"
     local pip_path="${venv_dir}/bin/pip"
@@ -1929,6 +1994,60 @@ _ostler_repair_venv_after_promote() {
         _ostler_pip_install_pkg "${venv_dir}/bin/pip" "${SCRIPT_DIR}/legal" --quiet 2>/dev/null || true
     fi
     "${venv_dir}/bin/pip" install --quiet "sqlcipher3>=0.6.0,<0.7.0" 2>/dev/null || true
+
+    # ── #805 REOPENED: THIS FUNCTION IS WHERE nameparser DIED ────────────
+    #
+    # The #805 fix (line ~5459) pip-installs ostler_fda into "${OSTLER_DIR}/.venv"
+    # and then EXECUTES `import ostler_fda.identifier_quality` as its control.
+    # That control is correct and it passed. It just measured a venv that this
+    # function deletes forty lines from now.
+    #
+    # MEASURED on the v1.0.38 fresh-box install, 2026-08-21:
+    #
+    #   /tmp/ostler-fda-deps.log names the pip that ran:
+    #     /tmp/ostler-prelaunch-4507/.venv/bin/python3.11 -m pip ...
+    #   ~/.ostler/.venv/lib/python3.11/site-packages/ afterwards contains:
+    #     ostler_legal-0.1.0.dist-info  ostler_security  ostler_security-0.1.0.dist-info
+    #   and nothing else. That is EXACTLY the three-package list above -- the
+    #   fingerprint of this function -- with ostler_fda absent.
+    #   ~/.ostler/.venv/bin/python3 -c 'import nameparser'
+    #     -> ModuleNotFoundError: No module named 'nameparser'
+    #
+    # So install runs in /tmp/ostler-prelaunch-<pid>, the #805 block installs
+    # into the STAGING venv and proves the import there, the tree is promoted to
+    # ~/.ostler, `python -m venv` has baked the staging path into the venv, and
+    # this repair rm -rf's it and rebuilds from a HAND-ENUMERATED list that
+    # ostler_fda was never added to. Every hourly com.ostler.fda-rerun tick has
+    # died since, on every box, while the product said "still loading in the
+    # background".
+    #
+    # `-e` and the promoted FDA_DIR, for the same reason #805 gave: one copy of
+    # the code, so a re-install can never leave a stale shadow under
+    # site-packages that consumers not inserting FDA_DIR would import instead.
+    local fda_pkg="${OSTLER_FINAL_DIR}/fda-module/ostler_fda"
+    if [[ -d "$fda_pkg" && -f "${fda_pkg}/pyproject.toml" ]]; then
+        "${venv_dir}/bin/pip" install --quiet -e "$fda_pkg" \
+            >>"$_OSTLER_PROMOTE_VENV_LOG" 2>&1 || true
+    fi
+
+    # THE CONTROL, ON THE VENV THAT SURVIVES.
+    #
+    # Not "did pip exit 0" and not a re-run of the pre-promote check: both were
+    # already true on the broken box. Execute the import under the interpreter
+    # the fda-rerun tick actually resolves (${OSTLER_DIR}/.venv/bin/python3,
+    # which post-promote IS this venv), and record the interpreter's verdict.
+    #
+    # Deliberately a WARN, not a hard-fail: this runs during promote, long
+    # before the #805 block's own hard-fail gate, and a box that reaches here
+    # with a broken venv is recoverable by re-running. What must not happen
+    # again is that it is SILENT.
+    if [[ -x "${venv_dir}/bin/python3" ]]; then
+        if "${venv_dir}/bin/python3" -c 'import ostler_fda.identifier_quality' >/dev/null 2>&1; then
+            _ostler_promote_venv_note "ok: ostler_fda.identifier_quality imports under ${venv_dir}/bin/python3"
+        else
+            _ostler_promote_venv_note "WARN: ${venv_dir}/bin/python3 CANNOT import ostler_fda.identifier_quality -- com.ostler.fda-rerun will die on every tick (#805): $("${venv_dir}/bin/python3" -c 'import ostler_fda.identifier_quality' 2>&1 | tail -1)"
+        fi
+    fi
 }
 
 # Two-zone layout: ~/Documents/Ostler/ holds the customer's
@@ -3759,13 +3878,40 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         fi
 
         # Pause briefly to let System Settings finish its window animation
-        # before raising the modal, then display it. BW3-2 (2026-07-23):
-        # the standalone `activate` was DROPPED here -- `display dialog` is
-        # already app-modal and frontmost, and the extra activate only
-        # yanked focus back off System Settings, where we just sent the
-        # customer to toggle FDA (the focus-steal flagged on the box-walk).
+        # before raising the modal, then display it.
+        #
+        # ── `activate` RESTORED. THE 2026-07-23 REASONING WAS WRONG. ──────
+        #
+        # BW3-2 (commit ba94a24, "drop focus-steal") deleted the standalone
+        # `activate` from this site and three others, on the stated grounds
+        # that "`display dialog` is already app-modal and frontmost".
+        #
+        # It is app-modal to System Events. System Events is a BACKGROUND
+        # agent (LSBackgroundOnly), so "frontmost within System Events" and
+        # "frontmost on screen" are different claims, and only the first one
+        # is true. Two lines above this we `open` the System Settings pane.
+        # System Settings therefore owns the front window, and the dialog
+        # renders BEHIND it, where the customer never sees it.
+        #
+        # MEASURED, twice, by Andy on consecutive DMG walks (v1.0.37 and
+        # v1.0.38, 2026-08-20 and 2026-08-21): "no FDA auth request for
+        # Ostler Assistant yet again", and the toggle sitting OFF in System
+        # Settings afterwards. The two dialogs that still appear are exactly
+        # the two that fire BEFORE Settings is opened -- and those two are
+        # the two ba94a24 left their `activate` on. The correlation is
+        # perfect and it is the whole diagnosis.
+        #
+        # ⚠️ THE ORIGINAL COMPLAINT WAS REAL, and this does not dismiss it:
+        # raising the modal does take focus off the pane the customer is
+        # meant to be clicking. That is a genuine cost. But a dialog behind
+        # a window is not a gentler prompt, it is no prompt -- and the step
+        # it gates is Full Disk Access, which has no API and CANNOT be
+        # requested any other way. An unseen modal spends the whole
+        # permission on nothing. Focus-steal is the lesser defect and it is
+        # chosen deliberately, not overlooked.
         sleep 1
         osascript \
+            -e 'tell application "System Events" to activate' \
             -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
             >/dev/null 2>&1 || true
         unset _installer_fda_msg _installer_fda_msg_esc \
@@ -11084,7 +11230,7 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.60}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.61}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -11144,7 +11290,7 @@ OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.60}"
 # fallback now exercises the app-bundle shape rather than the bare
 # binary; the bare-binary path below is retained for any customer
 # resuming from an older staged tarball.
-ASSISTANT_FALLBACK_VERSION="0.4.58"
+ASSISTANT_FALLBACK_VERSION="0.4.60"
 # Customer-facing distribution.
 #
 # CX-88 (DMG #48g, 2026-05-29): the daemon ships from the public
@@ -11197,7 +11343,22 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="d6e94c89d91f9e1ea4025ef1d6b6a9ce84a9c2149fc34810d27a621fec8f4bba"
+DEFAULT_ASSISTANT_TARBALL_SHA256="ff7b0b634345a2da10dce1aa0d17a3cc6b8b9b380687c8024072e53bfc4ced24"
+# The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
+# the retry re-pointed the URLs without re-pointing it, so the fallback tarball
+# was checked against the PRIMARY's digest, mismatched, and the install aborted
+# telling the customer their download had failed an integrity pin.
+#
+# That is the branch taken by someone whose primary download has ALREADY
+# failed, so the message they got was "your download looks tampered with" at
+# the worst possible moment, for a reason that was ours.
+#
+# RE-POINT BOTH IN THE SAME COMMIT, always. A version and its checksum coming
+# apart is the defect class this pin exists to catch; it should not be the
+# defect class the pin itself ships with. Read from the published .sha256
+# sidecar of hub-v${ASSISTANT_FALLBACK_VERSION}, never typed by hand.
+DEFAULT_ASSISTANT_FALLBACK_TARBALL_SHA256="d6e94c89d91f9e1ea4025ef1d6b6a9ce84a9c2149fc34810d27a621fec8f4bba"
+ASSISTANT_FALLBACK_TARBALL_SHA256="${OSTLER_ASSISTANT_FALLBACK_TARBALL_SHA256:-${DEFAULT_ASSISTANT_FALLBACK_TARBALL_SHA256}}"
 ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
 
 # ── Creative Machines Developer-ID pin (v1.0.10 red-team-3) ──────
@@ -11250,6 +11411,17 @@ _ostler_assistant_set_urls() {
     # under one repository.
     ASSISTANT_ARCHIVE_URL="https://github.com/${OSTLER_ASSISTANT_REPO}/releases/download/hub-v${OSTLER_ASSISTANT_VERSION}/${ASSISTANT_ARCHIVE_NAME}"
     ASSISTANT_CHECKSUM_URL="${ASSISTANT_ARCHIVE_URL}.sha256"
+    # AND THE CROSS-ORIGIN PIN, which used to be left behind (HR015 #583).
+    #
+    # This function is the ONE place the daemon version moves, so it is the one
+    # place the pin can be kept in step. Doing it in the retry block instead
+    # would leave the next caller to remember, which is exactly how the two
+    # came apart the first time.
+    if [[ "$1" == "${ASSISTANT_FALLBACK_VERSION:-}" ]]; then
+        ASSISTANT_TARBALL_SHA256="${ASSISTANT_FALLBACK_TARBALL_SHA256:-}"
+    else
+        ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
+    fi
 }
 
 # ── Daemon signature gate (v1.0.10 security lockdown) ─────────────
@@ -12102,13 +12274,15 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             fi
 
             # Pause briefly to let System Settings finish its window
-            # animation before raising the modal, then display it. BW3-2
-            # (2026-07-23): the standalone `activate` was DROPPED --
-            # `display dialog` is already app-modal and frontmost, and the
-            # extra activate only stole focus back off System Settings
-            # where we just sent the customer to grant FDA.
+            # animation before raising the modal, then display it.
+            # `activate` RESTORED -- see the full rationale at the sibling
+            # installer-FDA dialog earlier in this file. Short version:
+            # System Events is a background agent, so a `display dialog`
+            # without `activate` opens BEHIND the System Settings window we
+            # just opened, and the customer sees no prompt at all.
             sleep 1
             osascript \
+                -e 'tell application "System Events" to activate' \
                 -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
                 >/dev/null 2>&1 || true
             unset _installer_fda_msg _installer_fda_msg_esc \
@@ -12231,12 +12405,15 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             else
                 _fda_recover_icon_clause="with icon note"
             fi
-            # BW3-2 (2026-07-23): standalone `activate` DROPPED -- `display
-            # dialog` is already app-modal and frontmost; the extra activate
-            # only stole focus back off System Settings where the customer
-            # was just sent to grant FDA.
+            # `activate` RESTORED -- see the full rationale at the
+            # installer-FDA dialog earlier in this file. System Events is a
+            # background agent; without `activate` this opens behind the
+            # System Settings window and is never seen. This is the RECOVERY
+            # dialog, so an unseen one strands a customer who has already
+            # hit the problem once.
             sleep 1
             osascript \
+                -e 'tell application "System Events" to activate' \
                 -e "tell application \"System Events\" to display dialog \"${_fda_recover_msg_esc}\" with title \"${_fda_recover_title_esc}\" buttons {\"${_fda_recover_button_esc}\"} default button \"${_fda_recover_button_esc}\" ${_fda_recover_icon_clause}" \
                 >/dev/null 2>&1 || true
             unset _fda_recover_msg _fda_recover_msg_esc _fda_recover_title_esc \
@@ -16544,7 +16721,19 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
         fi
 
         if [[ -n "$CM021_SRC" ]]; then
-            if "$EMAIL_INGEST_VENV/bin/pip" install --quiet "$CM021_SRC" 2>/tmp/ostler-cm021-pip.log; then
+            # VIA THE HELPER (#767 class). CM021_SRC is "${SCRIPT_DIR}/cm021" on
+            # a productised install -- INSIDE the notarised bundle -- and
+            # `pip install <dir>` builds IN PLACE. This line was a raw pip and
+            # it broke the seal on every install, exactly as the ostler_fda
+            # line above used to before it was fixed.
+            #
+            # MEASURED on the v1.0.38 box, 2026-08-21, from
+            # `codesign --verify --verbose=4 /Applications/OstlerInstaller.app`:
+            #     6  cm021/build
+            #     6  cm021/pwg_email_intelligence.egg-info
+            # and the same DMG mounted from ostler.ai verifies CLEAN, so those
+            # files are written at install time, not shipped.
+            if _ostler_pip_install_pkg "$EMAIL_INGEST_VENV/bin/pip" "$CM021_SRC" --quiet 2>/tmp/ostler-cm021-pip.log; then
                 ok "$MSG_OK_PWG_EMAIL_INGEST_INSTALLED"
                 # CM021's [project.scripts] entry point lands the console
                 # script here. Record the absolute path so the snippet can
@@ -16691,13 +16880,38 @@ _install_conversation_feed() {
     elif [[ -d "${SCRIPT_DIR}/../vendor/ostler_fda" && -f "${SCRIPT_DIR}/../vendor/ostler_fda/pyproject.toml" ]]; then
         fda_src="${SCRIPT_DIR}/../vendor/ostler_fda"
     fi
+    # ── ostler_fda IS SPLIT OUT OF pip_args, AND THAT IS THE POINT ───────
+    #
+    # This loop used to push "$fda_src" straight into pip_args, and pip_args is
+    # handed to a raw `pip install`. On a productised install fda_src is
+    # "${SCRIPT_DIR}/ostler_fda" -- inside the notarised app bundle -- and
+    # `pip install <dir>` builds IN PLACE, writing ostler_fda.egg-info/ and
+    # build/lib/ into the signed Resources tree and breaking the code seal.
+    #
+    # That is #767 again, at the ONE call site the #767 fix did not reach. The
+    # sibling email-ingest install two hundred lines up carries a long comment
+    # explaining this exact hazard and routing through the staging helper; this
+    # helper -- newer, and the reason the defect survived -- went straight at
+    # SCRIPT_DIR.
+    #
+    # MEASURED on the v1.0.38 box, 2026-08-21:
+    #     codesign --verify --deep --strict /Applications/OstlerInstaller.app
+    #       -> a sealed resource is missing or invalid
+    #     28  ostler_fda/build          5  ostler_fda/ostler_fda.egg-info
+    # The published DMG, mounted from ostler.ai, verifies CLEAN and contains
+    # zero egg-info -- so this is written at install time by us. The other
+    # three installed bundles all verify; only the installer breaks itself.
+    # Consequence for a customer: keep the installer, re-run it later, and
+    # Gatekeeper can refuse it.
+    #
+    # So: plain pip names go through pip in one shot as before; the bundled
+    # source package goes through _ostler_pip_install_pkg, which copies it to a
+    # throwaway stage OUTSIDE the bundle (and refuses, loudly, if the stage
+    # ever resolves inside one) so pip's build metadata lands in the copy.
     local pip_args=() dep needs_fda=0
     for dep in $venv_deps; do
         if [[ "$dep" == "ostler_fda" ]]; then
             needs_fda=1
-            if [[ -n "$fda_src" ]]; then
-                pip_args+=("$fda_src")
-            fi
         else
             pip_args+=("$dep")
         fi
@@ -16705,13 +16919,20 @@ _install_conversation_feed() {
     if [[ "$needs_fda" -eq 1 && -z "$fda_src" ]]; then
         warn "${!k_warn_fda}"
         venv_python=""
-    elif [[ "${#pip_args[@]}" -gt 0 ]]; then
+    elif [[ "$needs_fda" -eq 1 || "${#pip_args[@]}" -gt 0 ]]; then
         info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$venv")"
         mkdir -p "$base"
         "$PYTHON3_BIN" -m venv "$venv"
         "$venv/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
         local pip_log="/tmp/ostler-${feed_key}-source-pip.log"
-        if "$venv/bin/pip" install --quiet "${pip_args[@]}" 2>"$pip_log"; then
+        local pip_ok=1
+        if [[ "${#pip_args[@]}" -gt 0 ]]; then
+            "$venv/bin/pip" install --quiet "${pip_args[@]}" 2>"$pip_log" || pip_ok=0
+        fi
+        if [[ "$pip_ok" -eq 1 && "$needs_fda" -eq 1 ]]; then
+            _ostler_pip_install_pkg "$venv/bin/pip" "$fda_src" --quiet 2>>"$pip_log" || pip_ok=0
+        fi
+        if [[ "$pip_ok" -eq 1 ]]; then
             ok "${!k_ok_src}"
         else
             warn "${!k_warn_src}"
@@ -18200,16 +18421,39 @@ else
                 else
                     _imessage_fda_icon_clause="with icon note"
                 fi
-                # BW3-2 (2026-07-23): the CX-66 standalone `activate` was
-                # DROPPED here. System Settings + Finder were opened above to
-                # send the customer to drag the daemon into the FDA pane; the
-                # `activate` yanked focus straight back off them (the
-                # focus-steal flagged on the box-walk). `display dialog` run
-                # via System Events is already app-modal and frontmost, so the
-                # modal still surfaces. We keep the brief pause so the dialog
-                # does not race a half-rendered Settings pane.
+                # ── THE DAEMON FDA MODAL. `activate` RESTORED. ───────────
+                #
+                # BW3-2 (commit ba94a24, 2026-07-23) dropped the CX-66
+                # standalone `activate` here and signed off with:
+                #
+                #   "`display dialog` run via System Events is already
+                #    app-modal and frontmost, so the modal still surfaces."
+                #
+                # THAT SENTENCE IS FALSE, and it is the reason this prompt
+                # has been invisible for two cuts. System Events is a
+                # background-only agent. Its dialog is modal WITHIN System
+                # Events; it is not raised above another app's window. Above
+                # this line we open System Settings AND Finder precisely so
+                # the customer can drag the daemon into the FDA pane -- so
+                # by the time we get here there are two foreground windows
+                # in front of us and the dialog opens behind both.
+                #
+                # Andy, on two consecutive DMG walks: "no FDA auth request
+                # for Ostler Assistant yet again", then found the toggle
+                # sitting OFF in System Settings. The prompt was not
+                # declined. It was never on screen.
+                #
+                # This is the one permission macOS gives us NO API for -- it
+                # cannot be requested programmatically and it cannot be
+                # front-loaded. A deep link plus a modal is the entire
+                # mechanism available, so if the modal is unseen the feature
+                # is simply dead, silently, on every install.
+                #
+                # The pause stays: it stops the dialog racing a half-rendered
+                # Settings pane. Only the missing `activate` comes back.
                 sleep 1
                 osascript \
+                    -e 'tell application "System Events" to activate' \
                     -e "tell application \"System Events\" to display dialog \"${_imessage_fda_dialog_msg_esc}\" with title \"${_imessage_fda_title_esc}\" buttons {\"${_imessage_fda_button_esc}\"} default button \"${_imessage_fda_button_esc}\" ${_imessage_fda_icon_clause}" \
                     >/dev/null 2>&1 || true
                 unset _imessage_fda_dialog_msg _imessage_fda_dialog_msg_esc \
@@ -19785,18 +20029,47 @@ _hydrate_sentinel_record() {
 # recorded `STEP_END id=hydrate_people status=ok elapsed_s=90`. Both
 # lines described one 90-second timeout that ingested nothing. Only one
 # of them said so, and it was not the one anybody greps.
+#
+# A TIMEOUT IS NOT AN ERROR, AND THE WIRE ALREADY KNOWS THAT.
+#
+# lib/progress_emitter.sh:305 carries THREE states -- ok / timeout / error --
+# and gui_step_record_rc maps rc 124 and 137 to `timeout`. This recorder then
+# hardcoded `status=error` for every non-zero rc, so on the same install, from
+# the same rc, in the same function:
+#
+#   log      #OSTLER  STEP_END  id=hydrate_people  status=timeout
+#   sentinel status=error  rc=124  payload=sent=0        <- v1.0.38 box, 12:17:35Z
+#
+# That is the #839 disagreement re-opened one field over. #839 made the marker
+# and the STEP_END come from one rc; it did not make them say the same WORD.
+# Three states on the wire, two in the file, and the file is the one Doctor and
+# a human reading ~/.ostler/state/hydrate/ actually see.
+#
+# `rc=` is still written unchanged, so any reader keying on the number is
+# unaffected. The freshness predicate is `^status=ok` (grep, positive
+# evidence), so a `timeout` record reads as stale exactly like an `error` one
+# and the source still retries -- verified against _hydrate_sentinel_fresh
+# rather than assumed.
 _hydrate_sentinel_record_error() {
     local source="$1"
     local rc="${2:-1}"
     local payload="${3:-}"
     local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    local status="error"
+    # Same rc set gui_step_record_rc treats as a timeout. Kept as a literal
+    # pair rather than a call into the emitter: the emitter is stubbed out
+    # (install.sh:776) when the GUI is not driving, so asking it would make
+    # this classification silently depend on how the installer was launched.
+    if [[ "$rc" == "124" || "$rc" == "137" ]]; then
+        status="timeout"
+    fi
     # Fold the rc into the open step BEFORE writing the file, so an
     # unwritable sentinel dir cannot also cost us the log line.
     gui_step_record_rc "$rc"
     {
         printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'source=%s\n' "$source"
-        printf 'status=error\n'
+        printf 'status=%s\n' "$status"
         printf 'rc=%s\n' "$rc"
         if [[ -n "$payload" ]]; then
             printf 'payload=%s\n' "$payload"
@@ -21851,12 +22124,33 @@ if _hydrate_sentinel_fresh "people"; then
 elif [[ -x "$_HYDRATE_PEOPLE_PY" ]]; then
     info "$MSG_HYDRATE_PEOPLE_STARTED"
 
+    # ── NO WALL-CLOCK CAP. Andy's call, 2026-08-21, and it is the right one ──
+    #
+    # This step embeds EVERY pwg:Person display name with local Ollama and
+    # upserts them into Qdrant. On the v1.0.38 fresh-box install the graph held
+    # 6,847 Person nodes; the box measured 7,160 points in the `people`
+    # collection after the background tick caught up. Seven thousand sequential
+    # local embeddings cannot complete in ninety seconds on any Mac.
+    #
+    # So the cap was not a safety net, it was a guaranteed failure:
+    #
+    #   ~/.ostler/state/hydrate/people.done  (v1.0.38 box, 2026-08-21T12:17:35Z)
+    #     status=error  rc=124  payload=sent=0
+    #
+    # rc=124 is `timeout`'s. sent=0. It fired, ingested NOTHING, and did so on
+    # every install, forever -- while the sidebar carried an alert glyph for it.
+    # Raising the number would only move where the guaranteed failure lands, so
+    # the cap goes rather than grows.
+    #
+    # ⚠️ TRADE-OFF, STATED NOT HIDDEN: this step is now unbounded. If
+    # ingest_people_to_qdrant ever wedges (Ollama not answering, Qdrant
+    # unreachable) the install waits on it instead of degrading to amber. That is
+    # the cost of the decision and it is deliberate -- the step is on the
+    # critical path for the People tab, semantic search and the Hub People card,
+    # so a fast wrong answer is worse than a slow right one. The rc plumbing
+    # below is kept intact: 137 (SIGKILL) and any non-zero still record an error
+    # sentinel and still refuse to suppress the retry.
     _HYDRATE_PEOPLE_TIMEOUT_WRAP=""
-    if command -v gtimeout >/dev/null 2>&1; then
-        _HYDRATE_PEOPLE_TIMEOUT_WRAP="gtimeout 90"
-    elif command -v timeout >/dev/null 2>&1; then
-        _HYDRATE_PEOPLE_TIMEOUT_WRAP="timeout 90"
-    fi
 
     _HYDRATE_PEOPLE_LOG=/tmp/ostler-hydrate-people.log
     _HYDRATE_PEOPLE_TIMED_OUT=false
