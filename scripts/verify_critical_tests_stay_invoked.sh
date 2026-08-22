@@ -65,6 +65,8 @@ CRITICAL_TESTS="
 tests/test_no_data_is_not_success.sh              a source that found no input claiming success, and --repair doing nothing
 tests/test_hydrate_sentinel_not_on_error.sh       a FAILED hydrate step suppressing its own retry for 7 days
 tests/test_aiconv_hydrate_honesty.sh              a timed-out or crashed drain recording itself as complete
+tests/test_a_failed_hydrate_may_not_fabricate_a_count.sh  a killed step writing sent=0 over a store holding 8,761 rows
+tests/test_cannot_run_is_a_third_state.sh         a hydrate step running with no sentinel, so cannot-run and success look identical
 scripts/tests/test_egress_probe_attribution.sh    an unattributable socket being silently counted as the operator's own
 scripts/tests/test_new_tests_are_wired_predicate.sh  a newly added test never being invoked by anything
 scripts/tests/test_comment_strip_is_quote_aware.sh   a quoted # read as a comment, so a real invocation is deleted before this gate sees it
