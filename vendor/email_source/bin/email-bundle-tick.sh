@@ -128,11 +128,60 @@ fi
 #   OSTLER_INGEST_OFFPEAK_ONLY=0      -> disable the gate (full window
 #                                       every tick).
 #   OSTLER_INGEST_DAYTIME_SINCE_DAYS  -> daytime read window (default 2).
+# 🗿 ANDY 2026-08-23 (#789): the quiet window was 01:00-06:00 -- five
+# hours in twenty-four, and measurably the binding constraint on the
+# email backfill (~6 conversations/hour, ~30 days to clear). His call:
+# "during quiet overnight hours the throttle should open up as much as
+# possible until just before wake time." Default is now 23:00-07:00 and
+# BOTH bounds are configurable.
+#
+# ⚠️ THE DEFAULT NOW WRAPS MIDNIGHT AND THE OLD PREDICATE COULD NOT SAY
+# THAT. `hour -lt 1 || hour -ge 6` is a NON-wrapping test; reused with
+# start=23 end=7 it is true at EVERY hour, so the daytime clamp would
+# have applied around the clock and the window would have got SMALLER,
+# not larger -- silently, with no error and no failing test. Both arms
+# are asserted in tests/test_ingest_offpeak_throttle.sh.
+#
+# Widening is safe because the clock is not the only protection: the
+# single-flight lock still serialises the four feeds onto one model
+# slot, OLLAMA_NUM_PARALLEL still reserves a chat slot, and the loadavg
+# ceiling still defers a tick on a busy machine. All three are
+# independent of the hour, so a customer awake at 02:00 stays protected.
+#
+#   OSTLER_INGEST_QUIET_START  -> quiet window opens (default 23).
+#   OSTLER_INGEST_QUIET_END    -> closes, EXCLUSIVE (default 7). Set it
+#                                 a little BEFORE the wake hour so the
+#                                 machine is idle again by then.
 if [ "${OSTLER_INGEST_OFFPEAK_ONLY:-1}" = "1" ]; then
     # 10# forces base-10 so a leading-zero hour ("08","09") is not read
     # as an invalid octal literal.
     _ostler_hour=$((10#$(date +%H)))
-    if [ "$_ostler_hour" -lt 1 ] || [ "$_ostler_hour" -ge 6 ]; then
+    _ostler_q_start="${OSTLER_INGEST_QUIET_START:-23}"
+    _ostler_q_end="${OSTLER_INGEST_QUIET_END:-7}"
+    # A malformed bound falls back to the default rather than wedging the
+    # clamp ON (starves ingest forever) or OFF (runs hot all day).
+    case "$_ostler_q_start" in ''|*[!0-9]*) _ostler_q_start=23 ;; esac
+    case "$_ostler_q_end"   in ''|*[!0-9]*) _ostler_q_end=7    ;; esac
+    [ "$_ostler_q_start" -le 23 ] || _ostler_q_start=23
+    [ "$_ostler_q_end"   -le 23 ] || _ostler_q_end=7
+
+    _ostler_in_quiet=0
+    if [ "$_ostler_q_start" -lt "$_ostler_q_end" ]; then
+        # Same-day window, e.g. 01-06.
+        if [ "$_ostler_hour" -ge "$_ostler_q_start" ] && [ "$_ostler_hour" -lt "$_ostler_q_end" ]; then
+            _ostler_in_quiet=1
+        fi
+    elif [ "$_ostler_q_start" -gt "$_ostler_q_end" ]; then
+        # Wraps midnight, e.g. 23-07: late evening OR early morning.
+        if [ "$_ostler_hour" -ge "$_ostler_q_start" ] || [ "$_ostler_hour" -lt "$_ostler_q_end" ]; then
+            _ostler_in_quiet=1
+        fi
+    fi
+    # start == end is a ZERO-length window, not an always-open one: it
+    # leaves _ostler_in_quiet at 0 and the clamp applies. An operator who
+    # wants no clamp sets OSTLER_INGEST_OFFPEAK_ONLY=0, which says so.
+
+    if [ "$_ostler_in_quiet" -eq 0 ]; then
         _ostler_daytime_days="${OSTLER_INGEST_DAYTIME_SINCE_DAYS:-2}"
         if [ "$SINCE_DAYS" -gt "$_ostler_daytime_days" ]; then
             SINCE_DAYS="$_ostler_daytime_days"
