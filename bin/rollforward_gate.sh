@@ -202,6 +202,40 @@ if [ "$REQUIRE_WALK_CLOSURE" -eq 1 ]; then
 		exit 2
 	}
 
+	# ---------------------------------------------------------------------
+	# THE STATUS COLUMN IS DERIVED FROM AN ARTEFACT, NOT TAKEN ON TRUST.
+	#
+	# CM051 #978 introduced walks/<version>.tsv, written by
+	# scripts/post_walk_qa.sh after it has driven the box-walk probes against a
+	# real installed box. That file is the only RUNTIME evidence in the release
+	# pipeline: everything else measures the artefact, and all of it passes on a
+	# DMG that installs to a broken machine.
+	#
+	# Until now this mode read `status` as typed. TWO REGISTERS OF ONE FACT is
+	# this estate's signature failure, and the one an artefact writes must win.
+	# So a record, where one exists, decides which statuses are LEGAL:
+	#
+	#   record verdict CLEAN   -> the row must say `closed`. It was walked and
+	#                             it was clean; `not_walked` is now a false
+	#                             statement contradicted by an artefact.
+	#   FAILED or PARTIAL      -> `closed` or `deferred`. Not `not_walked`.
+	#   no record for that cut -> `closed` is REFUSED. A walk claimed closed
+	#                             with nothing written by the walker is exactly
+	#                             the silence this mode exists to refuse.
+	#
+	# The row still carries the approver and the findings, because a record
+	# cannot know either. What it can no longer do is CLAIM a walk that left no
+	# trace, or deny one that did.
+	#
+	# WHERE THERE IS NO walks/ DIRECTORY AT ALL, the derivation is UNAVAILABLE
+	# and every row says so, on every run. That is the honest state for the
+	# OS003 operator half, which has no walks/; CM051 -- where the shipping cut
+	# actually runs this gate -- has one. A reader must be able to tell a status
+	# that was DERIVED from one that was taken on trust, so the verdict line
+	# says which.
+	# ---------------------------------------------------------------------
+	wc_walks_dir="${OSTLER_WALKS_DIR:-$HERE/walks}"
+
 	wc_versions="$(ls -1 "$wc_cuts_dir" 2>/dev/null | grep -E '^v[0-9]+(\.[0-9]+)+$' || true)"
 	[ -n "$wc_versions" ] || {
 		red "CANNOT-RUN: $wc_cuts_dir holds no version directories"
@@ -309,6 +343,47 @@ if [ "$REQUIRE_WALK_CLOSURE" -eq 1 ]; then
 				continue ;;
 		esac
 
+		# --- derive against the walk record ---------------------------
+		wc_rec="$wc_walks_dir/$wc_cut.tsv"
+		wc_derived="UNVERIFIED"
+		if [ ! -d "$wc_walks_dir" ]; then
+			wc_derived="UNAVAILABLE(no $wc_walks_dir)"
+		elif [ -f "$wc_rec" ]; then
+			wc_rec_verdict="$(awk -F'\t' '$1=="verdict"{print $2; exit}' "$wc_rec" 2>/dev/null)"
+			wc_rec_version="$(awk -F'\t' '$1=="version"{print $2; exit}' "$wc_rec" 2>/dev/null)"
+			if [ "$wc_rec_version" != "$wc_cut" ]; then
+				red "  $wc_cut  walk record names version '$wc_rec_version', not $wc_cut. A record's FILENAME is not evidence, its contents are."
+				wc_bad=$((wc_bad + 1))
+				continue
+			fi
+			case "$wc_rec_verdict" in
+				CLEAN)
+					if [ "$wc_status" != "closed" ]; then
+						red "  $wc_cut  row says '$wc_status' but the walk record says CLEAN. It WAS walked; an artefact contradicts the row."
+						wc_bad=$((wc_bad + 1))
+						continue
+					fi ;;
+				FAILED|PARTIAL)
+					if [ "$wc_status" = "not_walked" ]; then
+						red "  $wc_cut  row says not_walked but a walk record exists with verdict $wc_rec_verdict."
+						wc_bad=$((wc_bad + 1))
+						continue
+					fi ;;
+				*)
+					red "  $wc_cut  walk record carries verdict '$wc_rec_verdict', which is not CLEAN, FAILED or PARTIAL. Unknown is never a pass."
+					wc_bad=$((wc_bad + 1))
+					continue ;;
+			esac
+			wc_derived="DERIVED(record=$wc_rec_verdict)"
+		else
+			if [ "$wc_status" = "closed" ]; then
+				red "  $wc_cut  row says closed and there is NO walk record at $wc_rec. A walk claimed closed with nothing written by the walker is the silence this mode refuses."
+				wc_bad=$((wc_bad + 1))
+				continue
+			fi
+			wc_derived="DERIVED(no record)"
+		fi
+
 		wc_sections="$(grep -E '^### ' "$REGISTRY" | grep -v '~~' | grep -oE "${wc_id}-D[0-9]+" | sort -u || true)"
 		if [ "$wc_findings" = "none" ]; then
 			wc_claimed=""
@@ -328,7 +403,7 @@ if [ "$REQUIRE_WALK_CLOSURE" -eq 1 ]; then
 			continue
 		fi
 
-		green "  $wc_cut  $wc_status${wc_approver:+ (approver: $wc_approver)}, $(printf '%s\n' "$wc_sections" | grep -c . || true) finding(s), all listed"
+		green "  $wc_cut  $wc_status${wc_approver:+ (approver: $wc_approver)}, $(printf '%s\n' "$wc_sections" | grep -c . || true) finding(s), all listed  [$wc_derived]"
 	done <<WC_SCOPE_EOF
 $wc_scope
 WC_SCOPE_EOF
