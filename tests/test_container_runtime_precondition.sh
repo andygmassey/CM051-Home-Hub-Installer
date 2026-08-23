@@ -71,11 +71,38 @@ CODE="${WORK}/install.code.sh"
 sed 's/#.*//' "$INSTALL_SH" > "$CODE"
 
 # ── extract the §3.2a post-condition block ──────────────────────────
+#
+# 🔴 THE TERMINATOR USED TO BE A NAME, AND A NAME IS NOT A BOUNDARY.
+#
+# It read `/^# ── 3\.2b Remove any stale/{f=0}`. When §3.2a-sup (the engine
+# supervisor) was inserted BETWEEN 3.2a and 3.2b, the window silently grew to
+# swallow it, the harness ran a block referencing $OSTLER_DIR that the harness
+# never sets, and the CONTROL failed:
+#
+#     [FAIL] CONTROL BROKEN: the post-condition FAILED even with a working
+#            engine. Every failure below would be meaningless.
+#     runner-engine-ok.sh: line 86: OSTLER_DIR: unbound variable
+#
+# The control did its job -- it refused to let 24 passes be read as a
+# measurement. But the defect it caught was in the test, not the product, and
+# a name-pinned terminator will do this again to whoever inserts the next
+# section. So the boundary is now STRUCTURAL: a section ends where the next
+# section begins, whatever that section is called.
 BLOCK="${WORK}/block.sh"
-awk '/^# ── 3\.2a POST-CONDITION/{f=1} /^# ── 3\.2b Remove any stale/{f=0} f' \
+awk '/^# ── 3\.2a POST-CONDITION/{f=1; print; next} /^# ── /{f=0} f' \
     "$INSTALL_SH" > "$BLOCK"
 [[ -s "$BLOCK" ]] || cannot_run "could not extract the 3.2a post-condition block from install.sh -- either it was removed or its anchors changed"
 grep -q 'docker info' "$BLOCK" || cannot_run "the extracted 3.2a block contains no 'docker info' probe; extraction is wrong or the block is not the one under test"
+
+# And ASSERT the bound rather than trusting it. Exactly one section header --
+# its own -- may appear in the extracted block. This is the assertion that
+# would have caught the widening at the moment it happened instead of via a
+# downstream unbound-variable error, and it is spelled without naming any
+# neighbouring section, so it cannot rot the same way.
+BLOCK_HEADERS="$(grep -c '^# ── ' "$BLOCK" || true)"
+if [[ "${BLOCK_HEADERS:-0}" -ne 1 ]]; then
+    cannot_run "the extracted block spans ${BLOCK_HEADERS} section headers, not 1 -- the extraction window has widened past §3.2a and nothing below would be measuring the post-condition alone"
+fi
 
 # ── harness: run the real block against stub binaries ────────────────
 # Returns the block's exit status and writes its output to $WORK/out.
