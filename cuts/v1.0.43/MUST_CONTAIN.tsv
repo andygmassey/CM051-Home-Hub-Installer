@@ -1,0 +1,42 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.43.
+#
+# ===========================================================================
+# provenance=live. THIS ONE IS WRITTEN AS THE WORK IS BUILT.
+# ===========================================================================
+# v1.0.41's BOM is stamped provenance=reconstructed: it was assembled after
+# the fact from cut.env, the cut manifest, the shipped install.sh and the
+# HR015 ledger. Its own header says the first authoritative, cut-emitted BOM
+# is the NEXT cut's. This is that file.
+#
+# So the rule here is stricter than a habit. A row is appended the moment the
+# change is built, not at cut time from memory:
+#
+#     bin/bom_add.sh v1.0.43 <what> <repo> <ref> <capability_id> <ticket>
+#
+# landed=no until the change is IN THE ARTEFACT and its verify has been RUN.
+# Not "merged". Not "green". CM051 vendors from OS003 and CM048 and executes
+# the COPY, so a merge upstream reaches no artefact until a re-vendor -- which
+# is a mistake made three times in one night on 2026-08-23.
+#
+# capability_id=none means the row is UNGUARDED and can silently regress.
+# Every row below carries one.
+#
+# Every `verify` is a command a stranger can run against the customer bytes,
+# not a description of what was intended.
+#
+# ===========================================================================
+# v1.0.43 IS THE FIRST CUT SINCE v1.0.38 THAT ANYONE WILL ACTUALLY INSTALL.
+#
+# v1.0.39, .40, .41 and .42 were cut and none was walked; v1.0.42 was never
+# installed on any machine at all. The four defects this cut fixes were
+# produced by a v1.0.38 box and have shipped in every cut since. See the WALKS
+# table and v1042-D001..D004 in DEFECTS_ROLLFORWARD.md.
+#
+# So the verify column matters more here than usual: for four cuts running,
+# nothing has been proven against customer bytes on a real machine.
+# ===========================================================================
+what	repo	ref	landed	capability_id	verify	ticket
+The installer accumulated one byte per byte of carriage-return output and held 4.27 GB after a SUCCESSFUL install, which drove macOS into jetsam and killed the container engine. stdoutBuffer is now an OutputLineBuffer type: a 1 MiB ceiling, a per-line cap, a droppedBytes counter the coordinator logs, and CR treated as a real terminator so docker-pull progress is PARSED rather than merely bounded. It also fixes a second, older path: Swift treats CRLF as ONE Character, so firstIndex(of:) never saw it and 4,000 CRLF lines yielded zero lines and 42,890 retained bytes.	CM051	#993, af8728b7e9b7	no	stdout_accumulator_is_bounded	mount the published DMG to a mountpoint YOU name (never /Volumes/<Name>, a stale image already there makes the new attach <Name> 1). Extract the shipped install payload and confirm the Installer binary carries the type: `strings -a OstlerInstaller.app/Contents/MacOS/OstlerInstaller | grep -c OutputLineBuffer` MUST be >0, with `grep -c ThisSymbolDoesNotExist` = 0 as the control that strings is reading the binary at all. THEN THE BEHAVIOURAL HALF, which is the one that matters: on the repo at the tag run tests/test_installer_output_buffer_is_bounded.sh -- it drives the real type with a \\r-only producer and REQUIRES a mutant with the ceiling removed to blow up in the same run. A pass with no mutant blow-up is vacuous.	HR015 v1042-D002
+The runtime guard asked whether the docker CLIENT was on PATH and concluded an ENGINE was installed. On macOS they are different programs, so any box that ever had Homebrew's docker formula skipped the Colima install and walked on with no engine while reporting success. The guard now enumerates colima, orbstack and podman plus the Docker Desktop bundle behind ENGINE_PRESENT, and the install decision reads that variable and nothing else.	CM051	#1001, 59ce7ca2486a	no	runtime_guard_tests_the_engine	extract install.sh from the DMG payload (it is under the NESTED Ostler.app, at OstlerInstaller.app/Contents/Resources/Ostler.app/Contents/Resources/ostler-payload/) and run tests/test_container_runtime_guard_tests_the_engine_not_the_client.sh against THAT copy: it MUST report PASS=16 FAIL=0. Controls, all measured 2026-08-23 and all required to still fail: the same test against origin/main before this cut gives 10/3; against a tree with `-x /opt/homebrew/bin/"docker"` added, 15/1; with a client check laundered through a variable, 15/1; with the whitelisted HAS_DOCKER set from a client-only arm, 15/1.	HR015 v1042-D001
+The install exited green having never established that a single container could run. Phase 0 now computes HAS_CONTAINER_ENGINE from docker info -- whether an engine ANSWERS, not whether a binary exists -- keeps HAS_DOCKER_CLIENT purely for the diagnostic, and a post-condition refuses to report success with no runtime.	CM051	#994, af20160b4316	no	install_refuses_success_without_runtime	in the SHIPPED install.sh: `grep -c 'HAS_CONTAINER_ENGINE'` MUST be >0 and the line computing it MUST contain `docker info`, not `command -v docker` alone. Then run tests/test_container_runtime_precondition.sh against the shipped copy: it MUST pass, and its own control -- an answering engine still passing -- MUST be in the output, so a failure means the predicate works rather than that the harness is broken.	HR015 v1042-D003
+An engine killed while the daemon stayed up had no recovery road: ensure_colima_running() ran ONCE at daemon startup, so a jetsam kill left the wiki and store dark until a human noticed, which on 2026-08-23 was about a day. A launchd supervisor now checks every 300s and, crucially, does NOT run colima start itself -- it asks launchd to restart the signed daemon, which holds Full Disk Access, so the VM comes up able to mount ~/Documents instead of coming up EMPTY. A dead wiki also announces itself in the Doctor panel instead of rendering identically to a healthy one.	CM051	#995, 9d447a7946f8	no	container_engine_is_supervised	ON AN INSTALLED BOX, not in the repo. `test -x ~/.ostler/bin/ostler-engine-supervisor.sh` MUST succeed and `launchctl print gui/$(id -u)/com.ostler.engine-supervisor` MUST show StartInterval = 300. THEN THE ONLY EVIDENCE THAT COUNTS: with the engine deliberately stopped (`colima stop`), :8044 and :7878 MUST return to 200 within ~10 minutes WITHOUT ANY HUMAN ACTION, and ~/.ostler/logs/engine-supervisor.log MUST name the recovery. A mechanism nobody has watched fire is not a fix, and the walk box is already sitting in exactly that failure state.	HR015 v1042-D004
