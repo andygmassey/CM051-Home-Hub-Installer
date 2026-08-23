@@ -295,6 +295,8 @@ targets:
           - $(SRCROOT)/../lib/write_pipeline_signals.py
           - $(SRCROOT)/../lib/ostler-model-fit.sh
           - $(SRCROOT)/../lib/settling_progress.sh
+          - $(SRCROOT)/../lib/ostler-container-engine.sh
+          - $(SRCROOT)/../bin/ostler-engine-supervisor.sh
           - $(SRCROOT)/../install.sh.strings.en-GB.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
@@ -302,6 +304,8 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-container-engine.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/ostler-engine-supervisor.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
       - name: Compile + bundle ostler-mecard helper into Resources
         # BW2-1 (box-walk recut #2, 2026-07-25): a signed native helper that

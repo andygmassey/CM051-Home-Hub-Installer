@@ -42,6 +42,47 @@
 #    StartInterval = 86400. Once a DAY. A daily tick is exactly a day of
 #    latency, which is exactly how long the wiki was dark.
 #
+# ══════════════════════════════════════════════════════════════════════
+# THIS SITS BESIDE tests/test_colima_autostart_mechanism.sh. IT DOES NOT
+# REPLACE IT, AND THE SPLIT IS THE POINT.
+# ══════════════════════════════════════════════════════════════════════
+#
+# That guard (v1.0.36 install, 2026-08-18) covers the LOGIN-TIME half: does
+# an FDA-carrying autostart exist, is its plist well-formed, and is nobody
+# creating a bare com.ostler.colima agent. It says in its own output that it
+# does NOT prove a reboot starts Colima.
+#
+# THE WALK BOX WAS NEVER REBOOTED. Uptime 2 days 5:43, last boot 21 Aug
+# 17:31, and Colima died mid-life on 23 Aug under jetsam. A reboot-shaped
+# guard could not have caught this one, and did not. This file covers the
+# MID-LIFE half: the daemon is up, has never exited, and the engine died
+# underneath it.
+#
+# THE CONSTRAINT BOTH FILES SHARE, and it rules out the obvious repair:
+# a bare LaunchAgent has NO Full Disk Access, so a LaunchAgent-spawned
+# Colima cannot mount ~/Documents, and install.sh bind-mounts
+# ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki} into wiki-site and
+# wiki-compiler (v1.0.10 Group C, 6723acc). Writing an agent that runs
+# `colima start` would APPEAR to work and would bring the wiki up EMPTY
+# rather than DOWN -- a worse failure, because it is harder to notice. The
+# supervisor under test therefore never starts the engine itself; it asks
+# the FDA-holding daemon to, and there is an assertion below that pins that.
+#
+# ══════════════════════════════════════════════════════════════════════
+# WHAT THIS GATE CAN AND CANNOT SAY
+# ══════════════════════════════════════════════════════════════════════
+#
+# It asserts the MECHANISM: that all four runtime states are told apart,
+# that the recovery path fires on the one that bit us and NOT on a healthy
+# box, that recovery goes through the FDA holder, and that the supervisor is
+# scheduled at a cadence shorter than the 86400 that failed us.
+#
+# It does NOT assert that a real jetsam kill is recovered on real hardware.
+# That needs a machine driven out of memory and is owed separately. The
+# epilogue says so in this gate's own output rather than letting a green
+# tick imply it. A gate that overclaims is how the login-time half survived
+# three green lights.
+#
 # EXIT CODES   0 all controls pass   1 a control failed   2 CANNOT-RUN
 
 set -uo pipefail
@@ -281,6 +322,27 @@ else
     failure "anti-vacuity: the FDA-less-start predicate cannot match even a file containing 'colima start'"
 fi
 
+# ── 6. the FDA constraint the prior art established ─────────────────
+# tests/test_colima_autostart_mechanism.sh pins "install.sh creates no bare
+# com.ostler.colima LaunchAgent". Assert the same thing about the agent THIS
+# change adds, so the two guards cannot drift apart.
+if grep -q 'com.ostler.engine-supervisor' "$CODE" \
+   && ! awk '/engine-supervisor/,/\/plist>/' "$CODE" | grep -q 'colima'; then
+    pass "the supervisor's own plist runs no colima command, so it cannot become the FDA-less agent the prior art forbids"
+else
+    failure "the engine-supervisor plist references colima; a LaunchAgent-spawned Colima has no FDA and would bring the wiki up EMPTY rather than down"
+fi
+
 echo
 echo "=== ${PASS} passed / ${FAIL} failed ==="
+echo
+echo "NOTE: this guard proves the MECHANISM -- four states told apart, recovery"
+echo "      fires on installed_stopped and not on a healthy box, recovery goes"
+echo "      through the FDA-holding daemon, cadence is 300s not 86400s."
+echo "      It does NOT prove that a real jetsam kill is recovered on real"
+echo "      hardware. That needs a machine driven out of memory and is owed"
+echo "      separately. It is not claimed here."
+echo "      The LOGIN-TIME half is tests/test_colima_autostart_mechanism.sh."
+echo "      Neither guard covers the other's half; the walk box was never"
+echo "      rebooted, so the login-time guard could not have caught it."
 [[ "$FAIL" -eq 0 ]]
