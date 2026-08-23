@@ -229,7 +229,7 @@ ostler_engine_provenance_after  "$d" >/dev/null 2>&1   # colima appeared
 unstub colima; restore
 ob="$(field "${d}/container-engine.json" owner)"
 lb="$(list  "${d}/container-engine.json" installed_by_ostler)"
-if [[ "$ob" == "ostler" ]] && printf '%s' "$lb" | grep -q colima; then
+if [[ "$ob" == "ostler" ]] && grep -q colima <<< "$lb"; then
     ok "engine appeared during install -> owner=ostler AND colima named in installed_by_ostler"
 else
     bad "contradiction: owner=${ob} installed_by_ostler=${lb}" \
@@ -263,7 +263,7 @@ unstub colima; unstub podman; restore
 oc="$(field "${d}/container-engine.json" owner)"
 lc="$(list  "${d}/container-engine.json" installed_by_ostler)"
 ov="$(sed -n 's/.*"installed_over_existing": *\([a-z]*\).*/\1/p' "${d}/container-engine.json")"
-if [[ "$oc" == "ostler" ]] && printf '%s' "$lc" | grep -q colima; then
+if [[ "$oc" == "ostler" ]] && grep -q colima <<< "$lc"; then
     ok "engine present AND one added -> owner=ostler, consistent with installed_by_ostler=${lc}"
 else
     bad "CONTRADICTION: owner=${oc} but installed_by_ostler=${lc}" \
