@@ -221,16 +221,58 @@ else
 fi
 
 # ── 2b. THE ONE ALLOWED VARIABLE MUST STAY HONEST ─────────────────────────
-# HAS_DOCKER is permitted in a condition above ONLY because it consults
-# `docker info`. If someone reduces it to a bare `command -v docker`, the
-# allowance silently becomes the very laundering it was meant to exclude.
-HD="$(grep -A2 -E '^HAS_DOCKER=false' <<< "$CODE" | head -3)"
-if [[ -z "$HD" ]]; then
-    bad "CANNOT-RUN: no HAS_DOCKER=false initialiser found" "assertion 2b measured nothing"
-elif grep -q 'docker info' <<< "$HD"; then
-    ok "HAS_DOCKER still consults 'docker info' (an engine probe), so allowing it is safe"
+# HAS_DOCKER is permitted in a condition above ONLY because its value comes
+# from an engine probe. If someone reduces it to a bare `command -v docker`,
+# the allowance silently becomes the very laundering it was meant to exclude.
+#
+# 🔴 THIS ASSERTION WAS PINNED TO A SPELLING AND #994 CHANGED IT. It read
+# `grep -A2 '^HAS_DOCKER=false'` and scored CANNOT-RUN the moment Phase 0
+# landed, because Phase 0 does not initialise HAS_DOCKER at all. It writes:
+#
+#     HAS_DOCKER_CLIENT=false
+#     HAS_CONTAINER_ENGINE=false
+#     command -v docker &>/dev/null && HAS_DOCKER_CLIENT=true
+#     if [[ "$HAS_DOCKER_CLIENT" == true ]] && docker info &>/dev/null 2>&1; then
+#         HAS_CONTAINER_ENGINE=true
+#     ...
+#     HAS_DOCKER="$HAS_CONTAINER_ENGINE"
+#
+# That is STRICTLY BETTER than what the assertion was written against -- the
+# client and the engine now have separate names, and HAS_DOCKER is an alias
+# for the engine answer. The assertion went CANNOT-RUN on an improvement.
+#
+# So follow the VALUE, not the spelling: walk HAS_DOCKER's assignments, and
+# if one assigns from another variable, follow that variable once more. The
+# probe must be reached within that chain. Bounded at one hop deliberately --
+# deeper than that and "derives from an engine probe" stops being something a
+# reader can check by eye, which is the property this assertion exists to keep.
+probe_chain() {
+    local var="$1" depth="${2:-0}" line src
+    (( depth > 1 )) && return 1
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        # -B4 as well as -A2: a guarded assignment sits INSIDE the `if` whose
+        # condition holds the probe, so the probe is ABOVE it, not below.
+        # Looking only forward is why this assertion first reported a break
+        # on a tree where the probe was two lines up. The window is anchored
+        # on the ASSIGNMENT, which travels with the code -- unlike a distance
+        # measured from some consumer elsewhere in the file.
+        src="$(grep -B4 -A2 -E "^[[:space:]]*${line}" <<< "$CODE")"
+        grep -q 'docker info' <<< "$src" && return 0
+        # assigned from another variable? follow it exactly once.
+        while IFS= read -r v; do
+            [[ -z "$v" || "$v" == "$var" ]] && continue
+            probe_chain "$v" $(( depth + 1 )) && return 0
+        done < <(grep -oE '\$\{?[A-Za-z_][A-Za-z0-9_]*' <<< "$line" | tr -d '${' | sort -u)
+    done < <(grep -oE "^[[:space:]]*${var}=[^;&|]*" <<< "$CODE" | sed 's/^[[:space:]]*//')
+    return 1
+}
+if ! grep -qE "^[[:space:]]*HAS_DOCKER=" <<< "$CODE"; then
+    bad "CANNOT-RUN: HAS_DOCKER is never assigned" "assertion 2b measured nothing"
+elif probe_chain HAS_DOCKER; then
+    ok "HAS_DOCKER's value still derives from 'docker info' (an engine probe), so allowing it is safe"
 else
-    bad "HAS_DOCKER no longer consults 'docker info'" \
+    bad "HAS_DOCKER's value no longer derives from 'docker info'" \
         "it is permitted in engine conditions ONLY because it probes the engine; it now launders the client"
 fi
 

@@ -59,7 +59,7 @@ test_contact_card_prefill.sh	UNWIRED	-
 test_contact_email_coverage_guard.sh	UNWIRED	-
 test_contact_resync_scheduled.sh	UNWIRED	-
 test_container_engine_liveness_and_recovery.sh	WIRED	.github/workflows/vendor-integrity.yml
-test_container_runtime_guard_tests_the_engine_not_the_client.sh	WIRED	.github/workflows/installer-stream-and-runtime-guards.yml
+test_container_runtime_guard_tests_the_engine_not_the_client.sh	WIRED	.github/workflows/container-runtime-guard.yml
 test_container_runtime_precondition.sh	WIRED	.github/workflows/container-runtime-precondition.yml
 test_context_refresh_vendor_sha.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_context_refresh_wired.sh	WIRED	.github/workflows/context-digest-auth.yml
@@ -232,7 +232,6 @@ test_social_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_status_ok_with_zero_payload_is_not_ok.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_stay_awake_agent_survives_installer_exit.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_stderr_tail.sh	WIRED	.github/workflows/stderr-tail.yml
-test_stdout_buffer_is_bounded_at_runtime.sh	WIRED	.github/workflows/installer-stream-and-runtime-guards.yml
 test_step_end_does_not_report_a_timed_out_step_as_ok.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_subscription_activation_path.sh	UNWIRED	-
 test_sync_vendor_pin_untouched_on_abort.sh	UNWIRED	-

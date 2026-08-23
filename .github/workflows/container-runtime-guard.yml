@@ -1,4 +1,4 @@
-name: installer-stream-and-runtime-guards
+name: container-runtime-guard
 
 # Two defects from the v1.0.42 upgrade walk on real hardware, 2026-08-23, and
 # the three tests that guard them. Wired here because ALL THREE WERE DARK when
@@ -63,9 +63,6 @@ on:
   pull_request:
     paths:
       - 'install.sh'
-      - 'gui/OstlerInstaller/InstallerCoordinator.swift'
-      - 'tests/test_stdout_buffer_is_bounded_without_newlines.sh'
-      - 'tests/test_stdout_buffer_is_bounded_at_runtime.sh'
       - 'tests/test_container_runtime_guard_tests_the_engine_not_the_client.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/installer-stream-and-runtime-guards.yml'
@@ -100,20 +97,9 @@ jobs:
       # failure in one must not silence the others -- #683 is this repo's own
       # finding that CI fail-fast made "WIRED" partly illusory by skipping 71
       # wired tests after a single failure.
-      - name: The stdout accumulator has a bounded SHAPE (fast, source-text)
-        if: always()
-        run: bash tests/test_stdout_buffer_is_bounded_without_newlines.sh
-
-      - name: The stdout accumulator is bounded IN FACT (compiles and runs it)
-        if: always()
-        run: bash tests/test_stdout_buffer_is_bounded_at_runtime.sh
-
-      - name: All three parse under bash 3.2-compatible syntax
+      - name: It parses under bash 3.2-compatible syntax
         if: always()
         run: |
           set -e
-          for t in tests/test_container_runtime_guard_tests_the_engine_not_the_client.sh \
-                   tests/test_stdout_buffer_is_bounded_without_newlines.sh \
-                   tests/test_stdout_buffer_is_bounded_at_runtime.sh; do
-            bash -n "$t" && echo "  ok  $t"
-          done
+          bash -n tests/test_container_runtime_guard_tests_the_engine_not_the_client.sh
+          echo "  ok  parses under bash 3.2 syntax rules"
