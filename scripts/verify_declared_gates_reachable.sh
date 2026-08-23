@@ -18,20 +18,84 @@
 #
 #   * CM051 tests/verify_hub_chat.sh   "Exit 0 = chat works. Non-zero = BLOCK
 #                                       THE CUT." Zero callers, zero mentions.
-#                                       DISPOSITIONED 2026-08-16: deleted. The
-#                                       live equivalent is OS003
-#                                       gates/behavioural_chat_probe.py, and it
-#                                       IS reached --
-#                                       pipeline/release.yml:169 runs
-#                                       gates/verify_behavioural_acceptance.sh
-#                                       --seed, which invokes the probe. Two
-#                                       copies of one gate where only one is
-#                                       reachable is worse than one copy: the
-#                                       dark one absorbs the attention the live
-#                                       one needs.
+#                                       DISPOSITIONED 2026-08-16 by deletion,
+#                                       naming a survivor. RIGHT CALL, WRONG
+#                                       EVIDENCE. Corrected 2026-08-23; see
+#                                       "THE DISPOSITION THAT CITED A DARK
+#                                       CALLER" below.
 #   * HR015 bin/ci-pii-shape-scan.sh   declared blocking, reachable only via a
 #                                       workflow nothing required.
 #   * D011 repair pass                  same shape.
+#
+# ============================================================================
+# THE DISPOSITION THAT CITED A DARK CALLER
+# ============================================================================
+#
+# This header used to record that verify_hub_chat.sh was safe to delete because
+# "the live equivalent is OS003 gates/behavioural_chat_probe.py, and it IS
+# reached -- pipeline/release.yml:169 runs gates/verify_behavioural_acceptance.sh
+# --seed, which invokes the probe."
+#
+# MEASURED 2026-08-23 against OS003 main 35753583df45. Every clause of that is
+# wrong except the conclusion:
+#
+#   * the line is 204, not 169
+#   * pipeline/release.yml is NOT under .github/workflows/, and OS003 has
+#     exactly one workflow (gates.yml, self-tests). GitHub never reads it.
+#   * so NOTHING invokes it, and OS003's own registers already said so:
+#     cuts/DEFECTS_ROLLFORWARD.md:39 -- "no file in the repo invokes
+#     pipeline/release.yml" -- and bin/cut.sh:358-363, which refuses to
+#     register a gate there because it would be "a gate that looks required
+#     and runs never".
+#   * bin/cut.sh, the operator road, does not mention behavioural at all.
+#     Control: verify_must_contain appears in it at line 368.
+#
+# So a gate was retired against evidence that was itself the defect this gate
+# exists to catch. It is worth saying plainly, because the failure is not
+# carelessness -- the search was reasonable and the conclusion was correct:
+#
+#   A FILENAME SEARCH CANNOT FIND A GLOB-DRIVEN RUNNER'S CALLEES.
+#
+# The real survivor was in CM051 the whole time, and no search for "hub_chat"
+# or "chat_probe" could have surfaced it:
+#
+#   scripts/post_walk_qa.sh:112
+#     -> scripts/box_walk_probes/run_box_walk.sh
+#     -> for f in "$PROBE_DIR"/*.sh                (run_box_walk.sh:83)
+#     -> probes/assistant_answers_grounded.sh
+#
+# and #978's walk-record gate makes that walk a precondition of promoting a
+# build to customers. The chat behaviour IS proven before a customer sees it.
+# Through the human box walk, not through CI.
+#
+# Two copies of one gate where only one is reachable is still worse than one
+# copy: the dark one absorbs the attention the live one needs. That part stood.
+#
+# ============================================================================
+# THIS GATE TAKES --repo, AND HAD ONLY EVER BEEN POINTED AT CM051
+# ============================================================================
+#
+# 2026-08-23. One command, no runner, no network:
+#
+#   OSTLER_CUT_ENTRYPOINTS='bin/cut.sh' \
+#     bash scripts/verify_declared_gates_reachable.sh --repo <OS003>
+#   -> 3 of 8 reachable, rc=1
+#
+# Without the entry-point declaration it reports 2 of 8 and scores bin/cut.sh
+# itself an orphan -- a FALSE orphan, because a human starts it by hand and
+# this gate's built-in entry points are .github/workflows/* and Makefile.
+# Declaring the operator road is what OSTLER_CUT_ENTRYPOINTS is for.
+#
+# The five real orphans share one root cause -- reachable only from
+# pipeline/release.yml -- and one of them matters more than the rest:
+#
+#   gates/reconcile_gates.sh reads release.toml [gates].required, THE DECLARED
+#   LIST OF GATES THAT BLOCK A RELEASE, and reconciles it against computed
+#   verdicts. Its only call site is pipeline/release.yml:238.
+#
+# Not every OS003 orphan is a hole. vendor/verify_vendor_fresh.sh is dark THERE
+# and live HERE (.github/workflows/vendor-integrity.yml:150, every PR). Two
+# copies, one reachable: check which one before wiring anything.
 #
 # None was caught by the test-wiring register, because that register enumerates
 # `test_*` and these are named otherwise: they were not scored UNWIRED, they
