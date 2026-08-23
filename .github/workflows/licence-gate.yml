@@ -28,6 +28,7 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_licence_gate.sh'
+      - 'tests/test_shipped_compose_licence_mount.sh'
       - 'gui/OstlerInstaller/Auth/LicenseVerifier.swift'
       - 'gui/OstlerInstaller/Auth/LicensePersistence.swift'
       # A gate must trigger on changes to ITSELF, or it can be quietly
@@ -57,3 +58,15 @@ jobs:
       # image change cannot turn this gate into a silent pass.
       - name: install.sh refuses to install without a valid licence
         run: bash tests/test_licence_gate.sh
+
+      # The other half of the licence surface. The gate above proves the
+      # installer REFUSES an invalid licence; this one proves the shipped
+      # stack can READ a valid one. #849: the wiki compiler resolved
+      # /root/.ostler/licence/state.json, ~/.ostler was never mounted into
+      # that container, and the reader fail-closes to pro_none -- so every
+      # Pro customer silently got no Obsidian vault. CM044 fixed its own dev
+      # compose and guarded it with a test that reads CM044's dev compose.
+      # The customer runs the compose THIS repo generates. Instrument and
+      # defect on different surfaces; hence an assertion on install.sh.
+      - name: the shipped compose can READ the licence it just verified
+        run: bash tests/test_shipped_compose_licence_mount.sh

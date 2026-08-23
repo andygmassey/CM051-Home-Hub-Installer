@@ -58,8 +58,14 @@ fi
 # ── 2. It is READ-ONLY. ──────────────────────────────────────────────
 # Asserted separately from (1) so a future edit that drops :ro fails
 # with a message about privilege, not about absence.
+# HERESTRING, not `printf | grep -q`. This file sets pipefail, and grep -q
+# exits the instant it matches -- the producer then dies on SIGPIPE (141)
+# and pipefail promotes that to the pipeline's status. Which side wins is
+# decided by process scheduling, so the verdict is a coin flip that
+# usually lands green. tests/test_pipefail_shortcircuit_inversion.sh
+# ratchets against this construct estate-wide and caught this very line.
 lic_mounts="$(grep -E '^\s*-\s*\$\{HOME\}/\.ostler/licence:' "$INSTALL_SH" || true)"
-if [ -n "$lic_mounts" ] && ! printf '%s\n' "$lic_mounts" | grep -qv ':ro'; then
+if [ -n "$lic_mounts" ] && ! grep -qv ':ro' <<< "$lic_mounts"; then
     pass "the licence mount is read-only (compiler consumes, never writes)"
 else
     failure "a \${HOME}/.ostler/licence mount is not :ro. The wiki compiler \
