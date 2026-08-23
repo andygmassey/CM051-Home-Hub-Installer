@@ -31,6 +31,59 @@ it succeeds against the wrong artefact and is often in a matching state.
 
 ---
 
+## WALKS
+
+**What this is.** The register of what happened to each cut after it shipped.
+`bin/rollforward_gate.sh --require-walk-closure --cut <tag>` REFUSES a cut
+unless every cut directory from `walk_horizon` up to that tag has a row here.
+Wired in CM051 `.github/workflows/cut.yml` (the shipping path, via the vendored
+copy) and in OS003 `bin/cut.sh preflight` (the operator path). HR015 task 867,
+limb 3, OS003 #128.
+
+**Why it exists.** Until 2026-08-23 this file carried no row for any cut after
+v1.0.18, and the claim check reported `rc=0, 0 unproven fixed-claims across 28
+gate(s)` while we were cutting v1.0.41. That green was not a statement that walk
+closure held. It was a statement that there was nothing left to check. A ZERO
+DENOMINATOR READS AS SUCCESS, and it read that way in the one register whose job
+is stopping a defect riding forward.
+
+**Statuses.** `closed` (walked, and every finding listed below has a `###`
+section in this file), `deferred` (findings exist and are deliberately not
+blocking), `not_walked` (nobody walked it). The last two REQUIRE a named
+approver, the same rule `gates/reconcile_gates.sh` already applies to gate
+waivers: an anonymous waiver is one nobody signed.
+
+**findings** is a space-separated list of the section ids for that walk, or the
+literal `none`. The gate requires it to EQUAL the set of `### vNNNN-Dxxx`
+sections in this file for that cut, so a finding the row forgot fails and a
+finding with no section fails. That is what stops closure being a word someone
+types. Retracted sections (`### ~~vNNNN-Dxxx~~`) are excluded: a retraction is a
+finding withdrawn.
+
+**walk_horizon** is the first cut this table accounts for. Below it, nothing is
+claimed. From it upward, nothing may be silent. It is set to v1.0.41 because
+that is the first cut for which a human statement exists; writing rows for
+v1.0.24 through v1.0.40 would be fabricating history nobody measured, which is
+worse than admitting the gap. **Raising the horizon to make the gate pass is
+forbidden and the gate refuses a horizon that sits above every cut**, because
+otherwise the way to green this register is to edit one line.
+
+walk_horizon: v1.0.41
+
+| cut | walked_on | status | approver | findings |
+|---|---|---|---|---|
+| v1.0.41 |  | not_walked | Andy | none |
+
+**On the v1.0.41 row.** Andy signed this off unwalked on 2026-08-23, asked
+directly, because the alternative was inference. `SHIPPING_LEDGER.yaml` cannot
+answer the question: its `dmg_cuts` section ends at v1.0.37, and v1.0.38, .39,
+.40 and .41 appear 28, 45, 31 and 24 times across that file without a single cut
+row between them. The last cut recorded as `box_walked: true` is v1.0.36. So the
+launch cut ships without a walk of its predecessor, and this row is that fact
+written down rather than left to be discovered.
+
+---
+
 ## MUST-FIX-NEXT (blockers for the next cut — v1.0.19 or v1.0.1)
 
 Every entry here has a gate, and **nothing automatically runs them.** `pipeline/release.yml`

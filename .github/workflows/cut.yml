@@ -286,6 +286,42 @@ jobs:
           # is actually about.
           "$RUNNER" --verify-claims --cut "${CUT_VERSION}"
 
+      # THE WALK BEFORE THIS CUT MUST BE ACCOUNTED FOR. HR015 task 867, limb 3,
+      # vendored from OS003 #128.
+      #
+      # The step above proves no row CLAIMS a fix without a gate. It cannot see
+      # the row that was never written, and on 2026-08-23 that was the whole
+      # registry: with the id matcher already unpinned by limb 1,
+      #
+      #     --verify-claims   rc=0, "0 unproven fixed-claims across 28 gate(s)"
+      #     rows for any cut after v1.0.18:   0     (cutting v1.0.41)
+      #
+      # Green over an empty denominator, in the gate whose job is stopping a
+      # defect riding forward into the next cut.
+      #
+      # --require-walk-closure refuses that. Every cut directory from a declared
+      # walk_horizon up to this one must have a WALKS row; each row is closed,
+      # or deferred/not_walked over a NAME; and each row's findings must EQUAL
+      # the registry sections for that walk, so closure stops being a word
+      # someone types. A horizon above every cut is itself RED, or the way to
+      # green this gate would be to edit one line.
+      #
+      # NO SELF-TEST STEP HERE, DELIBERATELY, AND THIS IS NOT THE USUAL EXCUSE.
+      # The 17-case suite and its three mutations live in OS003 and run in
+      # OS003 CI. What binds them to the copy THIS job executes is the pin
+      # step above: test_rollforward_registry_pin.sh proves the vendored file is
+      # byte-identical to the OS003 commit whose CI proved the cases. Copying
+      # the suite here would give a second thing to keep in sync and prove
+      # nothing the pin does not.
+      #
+      # rc=2 is CANNOT-RUN and still blocks: no cuts/ directory means nothing
+      # was measured, which is not a pass.
+      - name: Walk closure -- the walks before this cut are accounted for
+        if: always()
+        run: |
+          set -euo pipefail
+          bin/rollforward_gate.sh --require-walk-closure --cut "${CUT_VERSION}"
+
       # THE WIKI-IMAGE CHECKS RUN HERE, NOT IN THE CUT JOB.
       #
       # wiki_image_grep / wiki_image_absent pull the pinned digest and grep
