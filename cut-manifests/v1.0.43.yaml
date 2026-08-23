@@ -1,0 +1,118 @@
+# cut-manifests/v1.0.43.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.43.
+#
+# WHY v1.0.43 EXISTS: FOUR DEFECTS THAT SHIPPED IN v1.0.38 AND NEVER LEFT
+# ---------------------------------------------------------------------------
+# v1.0.39, .40, .41 and .42 were cut and NONE was walked. v1.0.42 was never
+# installed on any machine at all: the DMG on the walk box is 57,818,336 bytes,
+# byte-for-byte the published v1.0.38, downloaded three minutes after v1.0.38
+# was published and two days before v1.0.42 existed. So the four findings
+# registered as v1042-D001..D004 were produced by a v1.0.38 box and have
+# shipped in every cut since. The label is wrong and says so; see the WALKS
+# table in DEFECTS_ROLLFORWARD.md.
+#
+# THE CHAIN, because these four are not four independent bugs:
+#
+#   D002  the Installer drained stdout only on newline. `docker pull` writes
+#         layer progress with carriage returns, so it retained every byte and
+#         held 4.27 GB AFTER a successful install.
+#     ->  D004  that drove macOS into jetsam, jetsam killed the 4 GB Colima VM,
+#         and ensure_colima_running() only ever ran at daemon startup -- so
+#         nothing re-checked and the wiki stayed dark for about a day.
+#   D001  independently, the runtime guard asked whether the docker CLIENT was
+#         on PATH and concluded an ENGINE was installed.
+#   D003  and the install reported success having never established that a
+#         single container could run.
+#
+# ⚠️ CONSEQUENCE, STATED NOT HIDDEN: there is no walks/v1.0.43.tsv, so THIS CUT
+# BUILDS AND PUBLISHES BUT DOES NOT PROMOTE. ostler.ai/install.dmg keeps
+# serving v1.0.41. That is the gate working. Do not bypass it with
+# PUBLISH_RELEASE_ALLOW_UNWALKED to make the number go up.
+#
+# THE FIRST v1.0.43 TAG WAS REFUSED BY PREFLIGHT AND BOTH REFUSALS WERE RIGHT:
+# the Info.plist still read 1.0.42, and verify_tagged_commit_is_green.sh exited
+# 2 CANNOT-RUN because the preflight job's `permissions:` block omitted
+# `checks: read`. That gate was wired in #991 and #991 never ran ON the cut
+# path, because v1.0.42 was tagged 24 minutes before it merged.
+# ============================================================================
+version: v1.0.43
+entries:
+  - id: v1043-runtime-guard-tests-the-engine
+    title: the shipped install.sh decides on ENGINE_PRESENT, never on the docker client
+    incident: >-
+      The guard read `if ! command -v docker`. On macOS `docker` is a CLIENT;
+      the engine is Colima, Docker Desktop, OrbStack or Podman. Any box that
+      had ever installed the Homebrew docker formula skipped the Colima
+      install and walked on with no engine while reporting success. Asserted
+      on the variable the decision reads, not on the comment above it.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ENGINE_PRESENT'
+      must_match: true
+  - id: v1043-the-install-decision-reads-the-computation
+    title: the brew-install-colima branch is guarded by ENGINE_PRESENT and nothing else
+    incident: >-
+      THE NEGATIVE LIMB WAS WRITTEN FIRST AND REFUSED, and the refusal is
+      worth more than the entry would have been. It asserted that
+      `if ! command -v docker &>/dev/null; then` appears NOWHERE in the
+      shipped installer. Measured before committing: it appears TWICE, and
+      both are correct -- install.sh:9179 verifies the CLI actually deployed
+      after `brew install` (the DMG#48 silent-bail hardening) and
+      install.sh:9335 is the docker_verify step, where the client is
+      genuinely required to talk to the engine. Neither DECIDES whether to
+      install an engine. That pattern would have manufactured a permanent
+      false red on correct code, which is the failure this whole cut is
+      about. The defect was never the string; it was which condition GOVERNS
+      the install. So the assertion is positive and anchored on the decision
+      line itself, which occurs exactly once.
+    proof:
+      kind: grep_in_installer
+      pattern: 'if \[\[ "\$ENGINE_PRESENT" == false \]\]; then'
+      must_match: true
+  - id: v1043-install-refuses-success-without-a-runtime
+    title: the shipped install.sh computes HAS_CONTAINER_ENGINE from an engine probe
+    incident: >-
+      The install exited green having never established that a single
+      container could run. On the walk box the two Docker-hosted ports were
+      dark while the two native launchd ports answered -- a RAGGED zero
+      falling on an architectural line. Phase 0 now asks `docker info`,
+      whether an engine ANSWERS, rather than whether a binary exists.
+    proof:
+      kind: grep_in_installer
+      pattern: 'HAS_CONTAINER_ENGINE'
+      must_match: true
+  - id: v1043-the-container-engine-is-supervised
+    title: the shipped installer installs a periodic engine supervisor
+    incident: >-
+      ensure_colima_running() ran ONCE at daemon startup, so an engine killed
+      while the daemon stayed up had no recovery road at all. The supervisor
+      does NOT run `colima start` itself -- a bare LaunchAgent has no Full
+      Disk Access, so a LaunchAgent-spawned Colima cannot mount ~/Documents
+      and would bring the wiki up EMPTY instead of DOWN. It asks launchd to
+      restart the SIGNED DAEMON, which holds FDA.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-engine-supervisor.sh'
+      must_match: true
+  - id: v1043-installer-version-is-1043
+    title: the Installer says which installer it is
+    incident: >-
+      v1.0.39 shipped a DMG whose plist read 1.0.38. The first v1.0.43 tag was
+      refused for the same defect, plist 1.0.42, which is the gate that exists
+      because of v1.0.39 doing its job on the version it was written for.
+    proof:
+      kind: plist_key_equals
+      key: CFBundleShortVersionString
+      value: '1.0.43'
+  - id: v1043-installer-build-number-is-4300
+    title: short version and build number have not drifted apart
+    incident: >-
+      A build number that lags the short version is how two different DMGs
+      claim to be the same install. Derivation checked against what v1.0.36,
+      .37 and .38 actually shipped, with 0.0.0 as the control that the
+      comparison discriminates.
+    proof:
+      kind: plist_key_equals
+      key: CFBundleVersion
+      value: '4300'
