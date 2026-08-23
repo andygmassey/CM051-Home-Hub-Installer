@@ -43,6 +43,9 @@ on:
       - 'tests/test_no_data_is_not_success.sh'
       - 'tests/test_aiconv_hydrate_honesty.sh'
       - 'tests/test_email_settling_numerator_is_messages.sh'
+      - 'tests/test_a_failed_hydrate_may_not_fabricate_a_count.sh'
+      - 'tests/test_cannot_run_is_a_third_state.sh'
+      - 'vendor/doctor/agent/diagnostic_rules.py'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/hydrate-sentinel.yml'
   push:
@@ -95,10 +98,43 @@ jobs:
         if: always()
         run: bash tests/test_email_settling_numerator_is_messages.sh
 
-      - name: All four tests parse under bash 3.2-compatible syntax
+      # #852. Two sentinels recorded `rc=124 sent=0` over collections holding
+      # 8,761 and 7,154 points. The zero was never measured: the parse that
+      # assigns the counter lives inside the arm the kill path never enters,
+      # so `${..._SENT:-0}` was a shell default standing in for a number
+      # nobody had. 7 of 9 error-recorder call sites did this.
+      - name: A failed hydrate step may not write a count it never measured
+        if: always()
+        run: bash tests/test_a_failed_hydrate_may_not_fabricate_a_count.sh
+
+      # The reader half of the test below imports the SHIPPED Doctor rule, and
+      # vendor/doctor/agent/status_collector.py imports httpx at module scope.
+      # Without it the reader control fails with ModuleNotFoundError, which is
+      # a broken probe wearing a finding's clothes. Installed rather than
+      # stubbed: a stub would make the control pass over a Doctor that cannot
+      # import on a real box. Same line vendor-integrity.yml uses for the same
+      # tree. NOT `|| true` -- if this cannot install, the control that
+      # depends on it must go red rather than run blind.
+      - name: Dependency for the shipped-Doctor reader control
+        if: always()
+        run: python3 -m pip install --quiet --break-system-packages httpx
+             || python3 -m pip install --quiet httpx
+
+      # #848, the same family pointing the other way: 4 of 13 hydrate steps
+      # wrote no sentinel at all, so CANNOT-RUN, FAIL and PASS shared one
+      # appearance -- an absent file. Also asserts the shipped Doctor rule
+      # does something sensible with the new status, because a writer nobody
+      # reads is how #853 shipped.
+      - name: CANNOT-RUN, FAIL and PASS must be three distinct states
+        if: always()
+        run: bash tests/test_cannot_run_is_a_third_state.sh
+
+      - name: All six tests parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_hydrate_sentinel_not_on_error.sh
           bash -n tests/test_aiconv_hydrate_honesty.sh
           bash -n tests/test_email_settling_numerator_is_messages.sh
           bash -n tests/test_no_data_is_not_success.sh
+          bash -n tests/test_a_failed_hydrate_may_not_fabricate_a_count.sh
+          bash -n tests/test_cannot_run_is_a_third_state.sh

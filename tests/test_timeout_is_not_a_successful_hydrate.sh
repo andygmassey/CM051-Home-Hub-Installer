@@ -61,11 +61,36 @@ failure() { printf '  [FAIL] %s\n' "$1"; FAIL=$((FAIL + 1)); }
 [[ -f "$INSTALL_SH" ]] || cannot_run "install.sh not found at $INSTALL_SH"
 
 # Every guard line that decides whether a source records an ERROR. Found by
-# looking one line ABOVE each recorder call, because that is where the decision
+# looking ABOVE each recorder call, because that is where the decision
 # lives -- the call itself is identical in the broken and fixed versions, which
 # is why "does it call the recorder" could never have caught this.
-GUARDS="$(grep -n -B1 '^\s*_hydrate_sentinel_record_error ' "$INSTALL_SH" \
-          | grep -E '^\s*[0-9]+-.*if \[\[' || true)"
+#
+# ── THE PREDICATE MUST NOT BE PINNED TO THE RENDERING (#848) ────────────
+#
+# This was `grep -n -B1`, i.e. EXACTLY one line above. #848 added a comment
+# line between four guards and their recorder calls -- explaining, at the call
+# site, why the payload may not default to zero -- and the count fell from 8 to
+# 4, below the floor. The gate went RED over a change that fixed a defect and
+# altered nothing this file asserts, purely because a comment moved a line.
+#
+# MEASURED, not assumed: on pristine origin/main both the old predicate and
+# this one find 8. The old one was not blind there. The fault is that it is
+# pinned to a RENDERING, so it is red-while-fixed today and would be
+# green-while-blind the first time anyone reformatted the other way -- and a
+# gate nobody can add a comment near is a gate that trains people to delete
+# the comment. So it now walks back over COMMENT AND BLANK LINES to the
+# nearest line of actual code, which is what "the guard" always meant.
+# Original line numbers are preserved so failure output still points at the
+# real file.
+GUARDS="$(awk '
+    /^[[:space:]]*_hydrate_sentinel_record_error / {
+        if (prev_n) print prev_n "-" prev
+        next
+    }
+    /^[[:space:]]*#/ { next }        # comment: not the guard, keep looking back
+    /^[[:space:]]*$/ { next }        # blank: likewise
+    { prev = $0; prev_n = NR }
+' "$INSTALL_SH" | grep -E '^[0-9]+-.*if \[\[' || true)"
 
 [[ -n "$GUARDS" ]] || cannot_run \
     "found no 'if [[ ... ]]' guard directly above any _hydrate_sentinel_record_error call. Either the recorder was renamed or the shape changed; refusing rather than reporting clean."

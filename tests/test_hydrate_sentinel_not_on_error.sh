@@ -57,15 +57,23 @@ extract_fn() {
     ' "$INSTALL"
 }
 
+# _hydrate_payload_is_all_zero and gui_step_record_rc are CALLEES of the three
+# recorders, and they were missing from this harness. Every run printed
+# `command not found` to stderr and carried on, which meant control (1) was
+# passing over a recorder whose zero-payload branch could not execute -- the
+# apparatus was half dark while the assertions read green. #848.
 {
     printf '_HYDRATE_SENTINEL_DIR="%s/state"\n' "$HARNESS"
     printf 'mkdir -p "$_HYDRATE_SENTINEL_DIR"\n'
+    printf 'gui_step_record_rc() { :; }\n'
     extract_fn _hydrate_sentinel_fresh
+    extract_fn _hydrate_payload_is_all_zero
     extract_fn _hydrate_sentinel_record
     extract_fn _hydrate_sentinel_record_error
 } > "$HARNESS/helpers.sh"
 
-for fn in _hydrate_sentinel_fresh _hydrate_sentinel_record _hydrate_sentinel_record_error; do
+for fn in _hydrate_sentinel_fresh _hydrate_payload_is_all_zero \
+          _hydrate_sentinel_record _hydrate_sentinel_record_error; do
     if ! grep -q "^${fn}() {" "$HARNESS/helpers.sh"; then
         echo "CANNOT-RUN: could not extract $fn from install.sh." >&2
         echo "  This test drives the REAL helpers; it refuses to run against a copy." >&2
@@ -151,7 +159,11 @@ check "(6) an absent sentinel is not fresh" "$rc" "1"
 echo
 echo "  -- sentinel guard coverage --"
 GUARDED=0
-ALL_SOURCES="imessage places whatsapp browsing email_preferences apple_notes people privacy_backfill ai_conversations"
+# #848 widened this population from 9 to 13. contacts, calendar, email and
+# dedupe are hydrate steps that ran with NO sentinel at all, so they could not
+# break this rule -- there was no record to be wrong. They are inside the
+# machinery now, which means they are inside this ratchet too.
+ALL_SOURCES="imessage places whatsapp browsing email_preferences apple_notes people privacy_backfill ai_conversations contacts calendar email dedupe"
 for src in $ALL_SOURCES; do
     if grep -q "_hydrate_sentinel_record_error \"$src\"" "$INSTALL"; then
         echo "     guarded    $src   (records the error variant)"
@@ -168,15 +180,23 @@ for src in $ALL_SOURCES; do
         echo "     guarded    $src   (error arm records NO sentinel, so the retry stands)"
         GUARDED=$((GUARDED + 1))
     else
-        echo "     UNGUARDED  $src   <- still writes .done on the error path (#711/#712)"
+        # Two different faults share this arm and the message must not claim
+        # the wrong one: a source with NO recorder at all (#848) is not
+        # "writing .done on the error path", it is writing nothing anywhere.
+        if grep -q "_hydrate_sentinel_record[a-z_]* \"$src\"" "$INSTALL"; then
+            echo "     UNGUARDED  $src   <- still writes .done on the error path (#711/#712)"
+        else
+            echo "     UNGUARDED  $src   <- no sentinel recorder of any kind (#848)"
+        fi
     fi
 done
 echo
-# FLOOR, not equality. 9 of 9 as of #712; it can only go up.
-SENTINEL_GUARD_FLOOR=9
+# FLOOR, not equality. 9 of 9 as of #712, 13 of 13 as of #848; it can only
+# go up.
+SENTINEL_GUARD_FLOOR=13
 CHECKS=$((CHECKS + 1))
 if [[ "$GUARDED" -ge "$SENTINEL_GUARD_FLOOR" ]]; then
-    pass "(7) every hydrate source is guarded (guarded=$GUARDED, floor=$SENTINEL_GUARD_FLOOR of 9)"
+    pass "(7) every hydrate source is guarded (guarded=$GUARDED, floor=$SENTINEL_GUARD_FLOOR of 13)"
 else
     fail "(7) coverage went BACKWARDS: guarded=$GUARDED, floor is $SENTINEL_GUARD_FLOOR"
 fi

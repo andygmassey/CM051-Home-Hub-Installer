@@ -20256,6 +20256,118 @@ _hydrate_sentinel_record_no_data() {
     } > "$sentinel"
 }
 
+# Records a hydrate step that COULD NOT RUN AT ALL. The fourth sibling, and
+# the reason it exists is that three states were sharing two appearances.
+#
+# ── CANNOT-RUN, FAIL AND PASS ARE THREE THINGS (#848) ─────────────────
+#
+# Every hydrate block in this file opens with a precondition -- `[[ -x
+# "$_HYDRATE_PEOPLE_PY" ]]`, `[[ -x "$_HYDRATE_EMAIL_BIN" ]]`, `[[ -x
+# "${PIPELINE_DIR:-}/.venv/bin/python" ]]`. When that precondition is false
+# the block prints an info line and writes NO sentinel, so on disk the state
+# is an ABSENT FILE -- which is byte-identical to "install.sh never got this
+# far" and to "this source does not exist in this version".
+#
+# That is not a hypothetical. #851 was a missing python module killing the
+# one recurring ingest for six sources, and #595 was a venv deleted by the
+# promote step. Both produce exactly this shape: the interpreter is not
+# there, the block is skipped, and the only artefact is a file that is not
+# on disk. An absent file cannot be read as evidence of anything.
+#
+# WHY NOT status=error. An error means a run was attempted and failed, and it
+# carries an rc from that attempt. Nothing ran here; there is no rc to
+# report, and inventing one (`rc=1`) would be the same fabrication this
+# change removes from the counters below. WHY NOT status=no_data: no_data
+# means "we LOOKED and the input was not there", which is a healthy outcome
+# with a transient cause. "The interpreter that does the looking is missing"
+# is an INSTALL defect, not a customer-data state, and the two must not
+# print the same.
+#
+# WHAT THE EXISTING READER DOES WITH IT, checked rather than assumed
+# (vendor/doctor/agent/diagnostic_rules.py, check_hydrate_ingest):
+#
+#     HYDRATE_STATUSES_HEALTHY = frozenset({"ok", "no_data"})
+#     elif m.status and m.status not in HYDRATE_STATUSES_HEALTHY:  -> warning
+#
+# The rule's own docstring states the contract this relies on: "A status this
+# rule has never seen must not be silently absorbed into the healthy path ...
+# so a new status added upstream surfaces loudly rather than vanishing."
+# `cannot_run` therefore degrades to a WARNING, which is the fail-safe
+# direction. Pinned by tests/test_cannot_run_is_a_third_state.sh against the
+# real vendored rule, so this is asserted and not merely believed. Copy that
+# says "could not start" rather than "stopped before it completed" is a
+# follow-up in the doctor tree, which is a pinned vendor tree and not
+# something to edit from here.
+#
+# Not fresh: _hydrate_sentinel_fresh requires a positive `^status=ok`, so the
+# source retries on the next run -- which is what should happen once the
+# missing venv is repaired.
+#
+# Use as: _hydrate_sentinel_record_cannot_run contacts "pipeline_venv_missing"
+_hydrate_sentinel_record_cannot_run() {
+    local source="$1"
+    local reason="${2:-}"
+    local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    {
+        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'source=%s\n' "$source"
+        printf 'status=cannot_run\n'
+        printf 'detail=%s\n' "${reason:-precondition_unmet}"
+    } > "$sentinel"
+}
+
+# Post-condition probe for a killed Qdrant-backed hydrate step (#852).
+#
+# ── WHY A FAILED STEP NEEDS A MEASUREMENT AND NOT A DEFAULT ───────────
+#
+# When gtimeout kills the wrapper, the work it was doing does not roll back.
+# ingest_browser_history embeds the whole queue and then upserts it in
+# chunks with `params={"wait": "true"}` (vendor/ostler_fda/pwg_ingest.py,
+# _qdrant_upsert_points), incrementing its counter only on a chunk the
+# server ACKED. So a SIGTERM part-way through that loop leaves every acked
+# chunk permanently in Qdrant -- the wrapper died, the rows did not.
+#
+# The step then recorded `sent=0`, and that zero was never measured: the
+# parse that assigns _HYDRATE_BROWSING_SENT lives inside the "we got JSON
+# back" arm, which the kill path does not enter, so `${..._SENT:-0}` was a
+# shell DEFAULT standing in for a number nobody had. All six error
+# recorders in this file did the same thing.
+#
+# This probe reports what the store actually holds, under its own key, so
+# the two facts stay separable:
+#
+#     sent=unknown            this run's delivery was never measured
+#     collection_points=8761  the collection holds this many now
+#
+# `collection_points` is deliberately NOT called `sent`. It counts the whole
+# collection, including rows from earlier runs and from the background
+# agent, so equating it with this run's output would put two populations in
+# one number -- the same class of mistake as the settling-panel numerator.
+#
+# Prints a decimal count, or the literal `unknown` if Qdrant cannot be
+# reached or the answer is not a number. Never fails, never blocks: this
+# runs on an already-failing path and must not become a second failure.
+_hydrate_qdrant_points() {
+    local collection="$1"
+    local raw count
+    raw="$(curl -sf --noproxy '*' --max-time 5 \
+        "${QDRANT_URL:-http://localhost:6333}/collections/${collection}" \
+        2>/dev/null || true)"
+    if [[ -z "$raw" ]]; then
+        printf 'unknown'
+        return 0
+    fi
+    count="$(printf '%s' "$raw" | python3 -c 'import json,sys
+try:
+    print(int((json.loads(sys.stdin.read()).get("result") or {}).get("points_count")))
+except Exception:
+    print("unknown")' 2>/dev/null || true)"
+    case "${count:-}" in
+        ''|*[!0-9]*) printf 'unknown' ;;
+        *)           printf '%s' "$count" ;;
+    esac
+}
+
 # Progress heartbeat for the long-running hydrate phases.
 #
 # Even with the gtimeout cap in place (coreutils installed in Phase
@@ -20668,8 +20780,22 @@ except Exception:
     # Phase-4 result; treat anything other than an explicit "true" that
     # comes with a 0-count as a denial worth surfacing (default to "true"
     # only so an unset var on some path cannot wrongly cry "denied").
+    # #848: contacts is one of the four hydrate steps that ran with NO
+    # sentinel at all, so nothing on disk recorded whether 2,410 cards had
+    # landed, failed, or never been attempted. Same four recorders the other
+    # nine sources use -- no second mechanism.
+    #
+    # DELIBERATELY NOT ADDED: a `_hydrate_sentinel_fresh contacts` skip at the
+    # top of this block. The record and the 7-day suppression are separable,
+    # and only the record is unambiguously an improvement. Contacts is the
+    # step whose RE-RUN is what rescues a customer who granted Full Disk
+    # Access late or whose iCloud sync finished after install -- the exact
+    # transient this file's own #711 notes describe. Suppressing that retry
+    # for a week is a product decision, not a bug fix, and it is not made
+    # here.
     if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CONTACTS_DONE" "$_HYDRATE_CONTACTS_COUNT")"
+        _hydrate_sentinel_record "contacts" "imported=${_HYDRATE_CONTACTS_COUNT}"
         # EMAIL-COVERAGE GUARD (post-hydrate): contacts landed, but a
         # phone-only export looks identical to success at the count level.
         # The card->email coverage bug (card->phone ~97%, card->email ~1%)
@@ -20709,6 +20835,9 @@ except Exception:
         # read. Tell the customer exactly what to grant, and schedule the
         # self-removing re-sync so contacts land once FDA is granted.
         warn "$MSG_HYDRATE_CONTACTS_DENIED"
+        # CANNOT-RUN, not FAIL: the reader was never allowed to open the
+        # address book, so there is no attempt to report an rc for.
+        _hydrate_sentinel_record_cannot_run "contacts" "fda_not_granted"
         _schedule_contact_resync
     elif _store_populated_contacts; then
         # SILENT-ZERO GUARD (the failure mode that has burned us): FDA is
@@ -20718,6 +20847,11 @@ except Exception:
         # distinct, loud read failure (never report success), and still
         # schedule the re-sync so a transient read recovers.
         warn "$MSG_HYDRATE_CONTACTS_READ_FAILED"
+        # A genuine FAILURE: FDA is granted, the abcddb HAS rows, and the
+        # import still returned nothing. rc=1 because the syncer's own exit
+        # code is not captured on this path -- the number is the classifier,
+        # and the payload says plainly that nothing was imported.
+        _hydrate_sentinel_record_error "contacts" 1 "imported=0"
         _schedule_contact_resync
     elif [[ "$_hydrate_contacts_accounts" -gt 0 ]]; then
         # FDA granted, accounts configured, but the local store is still
@@ -20725,10 +20859,12 @@ except Exception:
         # Surface it and schedule the self-removing re-sync so late-syncing
         # contacts still reach the graph.
         warn "$MSG_HYDRATE_CONTACTS_PENDING"
+        _hydrate_sentinel_record_no_data "contacts" "icloud_sync_pending"
         _schedule_contact_resync
     else
         # No contacts source configured at all.
         warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
+        _hydrate_sentinel_record_no_data "contacts" "no_contacts_source"
     fi
     unset _HYDRATE_FORCE_ABCDDB_VCF
 else
@@ -20736,6 +20872,10 @@ else
     # not silent: the venv build earlier should have hard-failed, but if
     # we reach here, say so rather than imply zero contacts.
     warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
+    # #848 + #595: THIS is the arm a deleted venv takes. It used to leave
+    # nothing on disk, so a box whose import pipeline had been wiped looked
+    # exactly like a box where contacts had never been reached.
+    _hydrate_sentinel_record_cannot_run "contacts" "pipeline_venv_missing"
 fi
 unset _hydrate_contacts_accounts
 
@@ -21011,26 +21151,45 @@ except Exception:
     _HYDRATE_CALENDAR_EXTRACT_STATUS="$(_hydrate_cal_status_of "${_HYDRATE_CALENDAR_EXTRACT:-}")"
     _HYDRATE_CALENDAR_INGEST_STATUS="$(_hydrate_cal_status_of "${_HYDRATE_CALENDAR_JSON:-}")"
     unset -f _hydrate_cal_status_of
+    # #848: calendar is the second of the four steps that wrote no sentinel.
+    # The four states this block already distinguishes in PROSE now reach
+    # disk as well, using the same four recorders as the other nine sources.
+    # As with contacts, the record is added and the 7-day freshness SKIP is
+    # deliberately not: a calendar that has not finished syncing at install
+    # time is precisely the case that needs the next run to look again.
     if [[ "$_HYDRATE_CALENDAR_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CALENDAR_DONE" "$_HYDRATE_CALENDAR_COUNT")"
+        _hydrate_sentinel_record "calendar" "events=${_HYDRATE_CALENDAR_COUNT}"
     elif [[ "$_HYDRATE_CALENDAR_EXTRACT_STATUS" == "error" \
             || "$_HYDRATE_CALENDAR_INGEST_STATUS" == "error" ]]; then
         # The extractor or ingest raised -- this is NOT an empty calendar.
         # Surface it as a failure (with the log path) instead of the
         # "not synced" state so the two are never conflated.
         warn "$MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED"
+        # FAIL. `events=0` here is MEASURED, not defaulted: the count was
+        # parsed above and this arm is only reached when it is zero. The
+        # stage that raised is named so the two python legs stay separable.
+        _hydrate_sentinel_record_error "calendar" 1 \
+            "events=0,extract=${_HYDRATE_CALENDAR_EXTRACT_STATUS:-none},ingest=${_HYDRATE_CALENDAR_INGEST_STATUS:-none}"
     elif [[ "$_hydrate_cal_accounts" -gt 0 ]]; then
         # State 2 -- accounts configured but cache empty (wait-for-
         # populate either declined or timed out).
         info "$MSG_HYDRATE_CALENDAR_PENDING"
+        _hydrate_sentinel_record_no_data "calendar" "calendar_not_synced_yet"
     else
         # State 1 -- no calendar accounts configured at all.
         info "$MSG_HYDRATE_SKIPPED_NO_EVENTS"
+        _hydrate_sentinel_record_no_data "calendar" "no_calendar_accounts"
     fi
     unset _hydrate_cal_accounts _HYDRATE_CALENDAR_EXTRACT \
           _HYDRATE_CALENDAR_EXTRACT_STATUS _HYDRATE_CALENDAR_INGEST_STATUS
 else
     info "$MSG_HYDRATE_SKIPPED_NO_EVENTS"
+    # #848: the venv-missing arm. The 2026-06-03 Studio install failed
+    # EXACTLY here -- ostler_fda was not importable, calendar silently never
+    # landed, and it was mislabelled "Calendar app has not synced yet". The
+    # message above still under-states it; the sentinel no longer does.
+    _hydrate_sentinel_record_cannot_run "calendar" "email_ingest_venv_missing"
 fi
 
 # Email hydration --------------------------------------------------
@@ -21099,6 +21258,12 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
     _HYDRATE_EMAIL_MBOX="${_HYDRATE_EMAIL_MBOX_DIR}/install-time-$(date +%Y%m%dT%H%M%S).mbox.txt"
     _HYDRATE_EMAIL_TIMED_OUT=false
     _HYDRATE_EMAIL_LOG=/tmp/ostler-hydrate-email.log
+    # #848. The drain's rc and the arm this block finishes in, kept in named
+    # variables so the sentinel at the bottom is written from what HAPPENED
+    # rather than from what the last `info` line said. `0` and `unset` are the
+    # honest starting values: nothing has run yet.
+    _HYDRATE_EMAIL_RC=0
+    _HYDRATE_EMAIL_OUTCOME=""
 
     # Step 1: drain Apple Mail into a fresh mbox. ostler_fda is
     # pip-installed in the email-ingest venv by Phase 3.X above.
@@ -21117,6 +21282,7 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
         :
     else
         rc=$?
+        _HYDRATE_EMAIL_RC="$rc"
         _hydrate_heartbeat_stop
         # gtimeout returns 124 (signalled SIGTERM) or 137 (signalled
         # SIGKILL) when the cap is hit. Any other non-zero is a real
@@ -21124,15 +21290,17 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
         if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
             _HYDRATE_EMAIL_TIMED_OUT=true
         fi
-        # #839: email hydration writes no .done sentinel, so this is the
-        # only place its rc exists. Fold it into the enclosing
-        # hydrate_graph step or it is discarded here and the step closes
-        # ok over a mail drain that never happened.
+        # #839: this was the ONLY place the email rc existed, because the
+        # step wrote no .done sentinel at all. #848 gives it one, and the rc
+        # captured here is what that sentinel is written from. Fold it into
+        # the enclosing hydrate_graph step too, or the step closes ok over a
+        # mail drain that never happened.
         gui_step_record_rc "$rc"
     fi
 
     if [[ "$_HYDRATE_EMAIL_TIMED_OUT" == "true" ]]; then
         info "$MSG_HYDRATE_EMAIL_BACKGROUND_CONTINUES"
+        _HYDRATE_EMAIL_OUTCOME="drain_timeout"
     elif [[ -s "$_HYDRATE_EMAIL_MBOX" ]]; then
         # Step 2: ingest the mbox into Oxigraph. The CLI's --json
         # output is counts only; install.sh parses people_extracted
@@ -21177,11 +21345,13 @@ except Exception:
             # unit is the same class of defect as no denominator, and this file
             # already says so about the -maxdepth 8 bug in settling_progress.sh.
             settling_report_measured emails "$_HYDRATE_EMAIL_MSGS" false
+            _HYDRATE_EMAIL_OUTCOME="imported"
         else
             info "$MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT"
             # Ran, found nothing: invite a source rather than showing a
             # permanent 0%.
             settling_report emails 0 0 true
+            _HYDRATE_EMAIL_OUTCOME="no_correspondents_in_window"
         fi
         # Tidy: the install-time mbox is one-shot. The hourly
         # LaunchAgent writes to its own date-bucketed filenames so
@@ -21190,17 +21360,48 @@ except Exception:
     else
         info "$MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT"
         settling_report emails 0 0 true
+        _HYDRATE_EMAIL_OUTCOME="no_mail_drained"
+    fi
+
+    # #848 SENTINEL. Email hydrates 7,276 messages on a real box and until
+    # now recorded NOTHING on disk -- not success, not the 180s kill, not an
+    # FDA denial. It was the largest of the four blind steps.
+    #
+    # Written from _HYDRATE_EMAIL_RC and _HYDRATE_EMAIL_OUTCOME, both set by
+    # the arms above, so the file and the log line come from the same facts.
+    #
+    # THE ORDER OF THESE TESTS IS THE POINT. A non-zero drain rc wins over a
+    # zero count, because "the drain was killed and we then ingested whatever
+    # partial mbox it had written" is a FAILURE with a partial result, not a
+    # customer with no mail. Conflating those is #852's shape in a different
+    # step: the counts below are MEASURED where they exist and `unknown`
+    # where the arm never measured them -- never a defaulted 0.
+    if [[ "${_HYDRATE_EMAIL_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "email" "$_HYDRATE_EMAIL_RC" \
+            "people=${_HYDRATE_EMAIL_COUNT:-unknown},messages=${_HYDRATE_EMAIL_MSGS:-unknown},outcome=${_HYDRATE_EMAIL_OUTCOME:-unknown}"
+    elif [[ "$_HYDRATE_EMAIL_OUTCOME" == "imported" ]]; then
+        _hydrate_sentinel_record "email" \
+            "people=${_HYDRATE_EMAIL_COUNT:-0},messages=${_HYDRATE_EMAIL_MSGS:-0}"
+    else
+        _hydrate_sentinel_record_no_data "email" "${_HYDRATE_EMAIL_OUTCOME:-unknown}"
     fi
 
     unset _HYDRATE_EMAIL_MBOX _HYDRATE_EMAIL_TIMED_OUT _HYDRATE_EMAIL_JSON
     unset _HYDRATE_EMAIL_COUNT _HYDRATE_EMAIL_TIMEOUT_WRAP _HYDRATE_EMAIL_LOG
     unset _HYDRATE_EMAIL_COUNTS _HYDRATE_EMAIL_MSGS
+    unset _HYDRATE_EMAIL_RC _HYDRATE_EMAIL_OUTCOME
 else
     info "$MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING"
     # The channel must still APPEAR. A row absent from the panel is
     # indistinguishable from a producer nobody wired -- the exact failure
     # the settling coverage gate exists to end.
     settling_report emails 0 0 true
+    # #848 + #595: the email-ingest venv or its CLI is not there. That is the
+    # SAME venv #595 found deleted by the promote step, and the same one
+    # calendar, browsing, imessage, people and initial_hydrate all run under.
+    # It is an install defect, not a customer with no mail, and the sentinel
+    # now says which.
+    _hydrate_sentinel_record_cannot_run "email" "email_ingest_venv_or_cli_missing"
 fi
 
 unset _HYDRATE_EMAIL_VENV _HYDRATE_EMAIL_PY _HYDRATE_EMAIL_BIN
@@ -21339,8 +21540,11 @@ except Exception:
     # failed. A timeout counts as failure too: gtimeout killed the extract,
     # nothing is continuing in the background whatever the message says.
     if [[ "${_HYDRATE_WHATSAPP_RC:-0}" -ne 0 ]]; then
+        # #852: `:-unknown`, NOT `:-0`. _HYDRATE_WHATSAPP_COUNT is assigned
+        # only inside the arm that parsed a JSON reply; on the kill path it
+        # is unset, and a `:-0` there writes a count nobody measured.
         _hydrate_sentinel_record_error "whatsapp" "$_HYDRATE_WHATSAPP_RC" \
-            "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+            "people_added=${_HYDRATE_WHATSAPP_COUNT:-unknown}"
     else
         _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
     fi
@@ -21508,8 +21712,18 @@ except Exception:
     # #48g sentinel record: dedupes re-runs within a 7-day window.
     # #712: an errored or timed-out ingest must NOT suppress its own retry.
     if [[ "${_HYDRATE_BROWSING_RC:-0}" -ne 0 ]]; then
+        # #852. THIS IS THE CALL SITE THAT SHIPPED `sent=0` OVER A COLLECTION
+        # HOLDING 8,761 ROWS. _HYDRATE_BROWSING_SENT is assigned at line ~21476,
+        # inside `elif [[ -n "$_HYDRATE_BROWSING_JSON" ]]` -- an arm the timeout
+        # path never enters, because the python was killed before it printed.
+        # So `:-0` was not a fallback, it was the ONLY value this branch could
+        # ever produce, and it read as a measurement.
+        #
+        # `unknown` says what is true: this run's delivery was not measured.
+        # collection_points says what CAN be measured after the kill, under a
+        # key that cannot be mistaken for this run's output.
         _hydrate_sentinel_record_error "browsing" "$_HYDRATE_BROWSING_RC" \
-            "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+            "sent=${_HYDRATE_BROWSING_SENT:-unknown},skipped=${_HYDRATE_BROWSING_SKIPPED:-unknown},collection_points=$(_hydrate_qdrant_points safari_history)"
     else
         _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
     fi
@@ -21665,8 +21879,9 @@ else
         # Sentinel dedupes a re-run within the 7-day window.
         # #712: an errored or timed-out ingest must NOT suppress its own retry.
         if [[ "${_HYDRATE_EMAILPREFS_RC:-0}" -ne 0 ]]; then
+            # #852: `:-unknown`, NOT `:-0`. See the whatsapp block.
             _hydrate_sentinel_record_error "email_preferences" "$_HYDRATE_EMAILPREFS_RC" \
-                "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}"
+                "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-unknown}"
         else
             _hydrate_sentinel_record "email_preferences" "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}"
         fi
@@ -21845,8 +22060,9 @@ except Exception:
     # printed by the arm above and stays. A log line tells a human, an rc
     # tells the system, and only one of them suppresses next week's retry.
     if [[ "$rc" -ne 0 ]]; then
+        # #852: `:-unknown`, NOT `:-0`. See the whatsapp block.
         _hydrate_sentinel_record_error "imessage" "$rc" \
-            "people=${_HYDRATE_IMESSAGE_COUNT:-0}"
+            "people=${_HYDRATE_IMESSAGE_COUNT:-unknown}"
     else
         _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}"
     fi
@@ -22201,11 +22417,12 @@ elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_APPLENOTE
     # Report the convert rc when that is what broke, otherwise the embed rc,
     # so the sentinel names the stage that actually failed.
     if [[ "${_HYDRATE_APPLENOTES_CONVERT_RC:-0}" -ne 0 ]]; then
+        # #852: `:-unknown`, NOT `:-0`. See the whatsapp block.
         _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_CONVERT_RC" \
-            "stage=convert,notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+            "stage=convert,notes=${_HYDRATE_APPLENOTES_COUNT:-unknown}"
     elif [[ "${_HYDRATE_APPLENOTES_EMBED_RC:-0}" -ne 0 ]]; then
         _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_EMBED_RC" \
-            "stage=embed,notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+            "stage=embed,notes=${_HYDRATE_APPLENOTES_COUNT:-unknown}"
     else
         _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
     fi
@@ -22332,8 +22549,13 @@ except Exception:
     # #48g sentinel record: dedupes re-runs within a 7-day window.
     # #712: an errored or timed-out ingest must NOT suppress its own retry.
     if [[ "${_HYDRATE_PEOPLE_RC:-0}" -ne 0 ]]; then
+        # #852: the second sentinel that shipped `sent=0` over a full store
+        # (7,154 points in `people`). The cap is gone from this step now, but
+        # rc=137 and any crash still land here, and the fabricated zero was
+        # never about the cap -- it was about a default standing in for a
+        # measurement. See the browsing call site for the full account.
         _hydrate_sentinel_record_error "people" "$_HYDRATE_PEOPLE_RC" \
-            "sent=${_HYDRATE_PEOPLE_SENT:-0}"
+            "sent=${_HYDRATE_PEOPLE_SENT:-unknown},collection_points=$(_hydrate_qdrant_points people)"
     else
         _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}"
     fi
@@ -22497,15 +22719,49 @@ fi
 # failure is logged and install continues. The fuzzy no-shared-identifier
 # case (BW-2) is deliberately NOT touched. Output goes to the install log,
 # not a user-facing string -- internal plumbing.
+#
+# #848 SENTINEL. This is the fourth blind step, and it was the blindest: the
+# `|| true` below swallowed the exit code, and the inline python swallows the
+# exception ABOVE that, printing "dedupe_merge failed:" into a log nobody
+# reads and then exiting 0. So the one sweep that folds cross-source people
+# together could fail on every install and leave no trace anywhere.
+#
+# `|| true` is replaced by `|| _dedupe_rc=$?`, which does the same job for
+# `set -e` without discarding the number -- the same fix #839 applied to the
+# initial-hydrate retry twenty lines above.
+#
+# THE PYTHON-LEVEL SWALLOW IS ALSO CLOSED, because an rc alone cannot see it:
+# the `except` prints and falls off the end, so a crashed merge exits 0. The
+# handler now re-raises via a non-zero exit so the shell's rc is a true
+# statement about whether the merge ran. Behaviour on the happy path is
+# unchanged, and the step stays non-fatal -- the rc lands in a sentinel, not
+# in an abort.
 if [[ -x "$_INITIAL_HYDRATE_PY" ]]; then
+    _dedupe_rc=0
     "$_INITIAL_HYDRATE_PY" -c "
 from ostler_fda.dedupe_merge import run
-import json
+import json, sys
 try:
     print('dedupe_merge:', json.dumps(run()))
 except Exception as exc:
     print('dedupe_merge failed:', type(exc).__name__, exc)
-" >>"$_INITIAL_HYDRATE_LOG" 2>&1 || true
+    sys.exit(1)
+" >>"$_INITIAL_HYDRATE_LOG" 2>&1 || _dedupe_rc=$?
+    if [[ "$_dedupe_rc" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "dedupe" "$_dedupe_rc" "ran=1"
+    else
+        # Mirrors the `places` recorder exactly: `ran=1` is the evidence the
+        # sweep executed, and `rc=` is excluded from the all-zero payload
+        # scan on both sides of the wire, so a healthy rc=0 is never read as
+        # "imported nothing". That trap is documented at
+        # _hydrate_payload_is_all_zero and in the Doctor's _NON_COUNT_KEYS.
+        _hydrate_sentinel_record "dedupe" "ran=1,rc=$_dedupe_rc"
+    fi
+    unset _dedupe_rc
+else
+    # No email-ingest venv -> the merge cannot even be attempted. Same
+    # CANNOT-RUN state as its four siblings above.
+    _hydrate_sentinel_record_cannot_run "dedupe" "email_ingest_venv_missing"
 fi
 
 unset _INITIAL_HYDRATE_QDRANT _INITIAL_HYDRATE_FDA_DIR
