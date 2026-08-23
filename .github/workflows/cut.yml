@@ -184,6 +184,27 @@ jobs:
       - name: Vendored rollforward gate matches its OS003 pin
         run: ./tests/test_rollforward_registry_pin.sh
 
+      # THE VENDORED BOM MUST BE THE BOM FOR THIS CUT.
+      #
+      # cuts/<version>/MUST_CONTAIN.tsv is vendored out of OS003 (PRIVATE --
+      # this runner's token cannot read it), and stage 2 embeds it into the DMG
+      # payload. That makes the BOM a VENDOR PIN, and vendor pins in this repo
+      # are exactly what went stale unnoticed: cm048_pipeline sat behind source
+      # with verify="skip" + unverifiable_ack=true and nothing on any box could
+      # see it (#860).
+      #
+      # A stale vendored BOM is WORSE than no BOM. An absent BOM fails loudly;
+      # a wrong one AGREES WITH YOU -- the runtime reconciler would check a box
+      # against the wrong cut and return a confident green. So this runs before
+      # anything is built, and its self-test runs first, because a gate of
+      # unknown vintage cannot be evidence about anything (same reasoning as
+      # the pin check above).
+      - name: Cut BOM freshness gate self-test
+        run: ./tests/test_cut_bom_is_fresh.sh --self-test
+
+      - name: Vendored BOM is the BOM for this cut
+        run: ./tests/test_cut_bom_is_fresh.sh "${GITHUB_REF_NAME}"
+
       # The orphan gate is the reason the v1.0.15 box-walk findings cannot
       # recur: it fails the cut when a fix EXISTS but is not in it. It runs
       # from gui/Makefile:989 inside `make ship`, so it IS enforced.

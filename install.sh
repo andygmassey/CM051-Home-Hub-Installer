@@ -575,6 +575,41 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
 
         launchctl kickstart -k "${_UPG_DOMAIN}/com.ostler.doctor" 2>/dev/null || true
 
+        # (6b) DELIVER THE CUT RECORD TO THE BOX.
+        #
+        # The BOM says what this cut is made of, and vendor-manifest.toml says
+        # which vendored trees and pins it carries. Until now NEITHER reached a
+        # machine: gates/verify_installed_matches_bom.sh can reconcile a running
+        # box against a declared cut, and there was nothing on the box to
+        # reconcile against.
+        #
+        # MEASURED on the live box 2026-08-23, which is why the manifest ships
+        # too and not just the BOM:
+        #   find ~/.ostler -maxdepth 3 -iname 'VENDOR_MANIFEST*'  -> 0
+        #   CONTROL: find ~/.ostler -maxdepth 3 -type f           -> 96
+        # 96 is not 0, so the pathspec resolves and the absence is REAL. That
+        # absence is exactly why #860 -- cm048_pipeline pinned behind source
+        # with verify="skip" -- is UNOBSERVABLE on a customer machine. Shipping
+        # the BOM alone would leave every vendored row UNCHECKABLE and the
+        # reconciler decorative for the one component class known to be stale.
+        #
+        # NOT FATAL HERE, DELIBERATELY. A missing record file must not abort an
+        # otherwise-good upgrade. Absence is caught where it means something --
+        # the reconciler treats a missing ~/.ostler/cut-bom.tsv as RED, not as
+        # a skip. The installer's job is to deliver it and say loudly if it
+        # could not; the gate's job is to refuse.
+        for _rec in cut-bom.tsv vendor-manifest.toml; do
+            if [[ -f "${_UPG_PAYLOAD}/${_rec}" ]]; then
+                if cp "${_UPG_PAYLOAD}/${_rec}" "${_UPG_OSTLER_DIR}/${_rec}" 2>/dev/null; then
+                    _upg_log "wrote ${_UPG_OSTLER_DIR}/${_rec} ($(wc -l < "${_UPG_OSTLER_DIR}/${_rec}" | tr -d ' ') lines)"
+                else
+                    _upg_log "ERROR: could not write ${_UPG_OSTLER_DIR}/${_rec} -- this box cannot be reconciled against its cut"
+                fi
+            else
+                _upg_log "ERROR: payload carries no ${_rec} -- this box cannot be reconciled against its cut"
+            fi
+        done
+
         # (7) Write VERSION last, as the success marker the Hub reads.
         if ! printf '%s\n' "$_new_version" > "$_UPG_VERSION_FILE" 2>/dev/null; then
             _upg_die 40 "failed to write ${_UPG_VERSION_FILE}"
