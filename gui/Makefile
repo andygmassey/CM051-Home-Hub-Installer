@@ -199,7 +199,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.62
+DAEMON_VERSION       ?= 0.4.63
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -230,7 +230,7 @@ DAEMON_VERSION       ?= 0.4.62
 # Commit parity re-derived rather than inherited: BOTH build-info.json files
 # report commit 723c682fd7b44b87e3769adfd2db2fdf59f5dadd, so the daemon and the
 # Hub app are the same line, which is what verify-commit-parity asserts.
-DAEMON_SHA256        ?= ee1b01610d90a8c530430a1102626c736540f21c7be7b887e348104f1f0786cd
+DAEMON_SHA256        ?= db1537da79c3a4eff4fffec9872c557bc15c6a2dd01ca42ba9bd8d38469af911
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
