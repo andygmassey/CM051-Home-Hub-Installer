@@ -86,7 +86,7 @@ from pathlib import Path
 
 import httpx
 
-from .turtle_escape import escape_turtle_literal
+from .turtle_escape import escape_turtle_iri_path, escape_turtle_literal
 from . import outstanding_todos as _outstanding_todos
 from .schemas import (
     Classification,
@@ -546,6 +546,25 @@ def _write_oxigraph(
                 headers={"Content-Type": "text/turtle"},
                 params={"graph": graph_uri},
             )
+            if resp.status_code >= 400:
+                # raise_for_status() renders the STATUS and the URL and
+                # throws the BODY away. For a 400 from a Turtle parser
+                # the body is the entire diagnosis -- Oxigraph names the
+                # line, the column and the offending codepoint. Without
+                # it every malformed payload logs as an indistinguishable
+                # "Client error '400 Bad Request'", which is how 219
+                # consecutive failures on a live box produced no usable
+                # signal and the root cause had to be recovered by
+                # monkeypatching httpx in a REPL.
+                #
+                # Truncated because the body can echo payload content,
+                # and this log is not a place for conversation text.
+                detail = (resp.text or "")[:500].replace("\n", " ")
+                logger.error(
+                    "Oxigraph rejected the payload: HTTP %s -- %s",
+                    resp.status_code,
+                    detail or "(empty response body)",
+                )
             resp.raise_for_status()
     except Exception as exc:
         logger.error("Oxigraph write failed: %s", exc)
@@ -567,8 +586,17 @@ def _turtle_prefixes() -> str:
 
 def _urn(path: str) -> str:
     """Wrap a path in a full IRI. Turtle doesn't allow '/' in prefixed
-    names, so URIs with path segments must use angle-bracket syntax."""
-    return f"<urn:ostler:{path}>"
+    names, so URIs with path segments must use angle-bracket syntax.
+
+    The escape is applied HERE rather than at the call sites because
+    this is the single choke point every CM048 URI passes through, and
+    two of the thirteen call sites take unvalidated input:
+    ``_urn(subject.replace(":", "/"))`` takes an LLM-generated fact
+    subject, and ``_urn(f"user/{settings.user_id}")`` takes an operator
+    display name. Escaping at the choke point means a future call site
+    is safe by construction instead of by remembering.
+    """
+    return f"<urn:ostler:{escape_turtle_iri_path(path)}>"
 
 
 def _conversation_to_triples(
