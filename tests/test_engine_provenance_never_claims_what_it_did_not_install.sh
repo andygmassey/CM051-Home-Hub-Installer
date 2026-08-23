@@ -162,6 +162,120 @@ for rt in colima orbstack podman; do
     fi
 done
 
+# ── 6. A TRUNCATED SNAPSHOT MUST NOT BECOME A CLAIM ───────────────────────
+#
+# 🔴 THE `before_seen` GUARD ASKED THE WRONG QUESTION, AND ORM FOUND IT.
+# It tested `[[ -r .engine-before ]]`, which is TRUE for a ZERO-BYTE FILE.
+# `> file` truncates before it writes, so an installer killed in that window
+# -- jetsam did exactly this on 2026-08-23 -- leaves an empty snapshot. The
+# reader then believed it had a `before` state, read no engines from it, and
+# concluded every engine on the box was one we installed.
+#
+# That is the SAME false claim the guard was added to prevent, entering
+# through a different door. `-r` proves READABLE, never COMPLETE.
+for shape in empty truncated; do
+    d="${WORK}/snap-${shape}"; mkdir -p "$d"
+    if [[ "$shape" == empty ]]; then
+        : > "${d}/.engine-before"
+    else
+        # exactly what a killed writer leaves: a real prefix, no terminator
+        printf 'schema=1\nphase=before\n' > "${d}/.engine-before"
+    fi
+    isolate; stub colima
+    ostler_engine_provenance_after "$d" >/dev/null 2>&1
+    unstub colima; restore
+
+    got_owner="$(field "${d}/container-engine.json" owner)"
+    got_added="$(list  "${d}/container-engine.json" installed_by_ostler)"
+    if [[ "$got_owner" == "unknown" && -z "$(printf '%s' "$got_added" | tr -d ' ')" ]]; then
+        ok "${shape} snapshot -> owner=unknown and claims nothing"
+    else
+        bad "${shape} snapshot produced a CLAIM: owner=${got_owner} installed_by_ostler=[${got_added}]" \
+            "a snapshot that did not finish is no evidence; claiming a customer's engine is the worst output this module has"
+    fi
+done
+
+# ── 7. OWNER AND installed_by_ostler MUST NEVER CONTRADICT ────────────────
+#
+# ORM's second finding: the record could say owner="customer" on one line and
+# installed_by_ostler=["colima"] on the next, because owner branched on
+# `before_engines` while the list came from the diff. Two statements about one
+# fact, disagreeing, in a file whose only job is to be believed.
+#
+# The invariant, now true by construction and asserted here:
+#     owner == "ostler"  <=>  installed_by_ostler is non-empty
+#
+# Case A: engine already present, none added -> customer, empty list.
+# Case B: nothing before, colima after       -> ostler, colima in the list.
+d="${WORK}/own-customer"; mkdir -p "$d"
+isolate; stub colima
+ostler_engine_provenance_before "$d" >/dev/null 2>&1
+ostler_engine_provenance_after  "$d" >/dev/null 2>&1
+unstub colima; restore
+oa="$(field "${d}/container-engine.json" owner)"
+la="$(list  "${d}/container-engine.json" installed_by_ostler | tr -d ' ')"
+if [[ "$oa" == "customer" && -z "$la" ]]; then
+    ok "engine present throughout -> owner=customer AND installed_by_ostler is empty"
+else
+    bad "contradiction: owner=${oa} installed_by_ostler=[${la}]" \
+        "we did not install it; saying otherwise claims a customer's software as ours"
+fi
+
+d="${WORK}/own-ostler"; mkdir -p "$d"
+isolate
+ostler_engine_provenance_before "$d" >/dev/null 2>&1   # no engine yet
+stub colima
+ostler_engine_provenance_after  "$d" >/dev/null 2>&1   # colima appeared
+unstub colima; restore
+ob="$(field "${d}/container-engine.json" owner)"
+lb="$(list  "${d}/container-engine.json" installed_by_ostler)"
+if [[ "$ob" == "ostler" ]] && printf '%s' "$lb" | grep -q colima; then
+    ok "engine appeared during install -> owner=ostler AND colima named in installed_by_ostler"
+else
+    bad "contradiction: owner=${ob} installed_by_ostler=${lb}" \
+        "we installed it; the record must say so or the supervisor has no mandate"
+fi
+
+# ── 7c. THE CASE THAT ACTUALLY CONTRADICTS, AND MY FIRST TWO DID NOT ──────
+#
+# 🔴 I WROTE 7a AND 7b, THEY WENT 2/0, AND THEY PROVED NOTHING. Restoring the
+# pre-fix owner logic scored 17/0 -- both cases return the SAME answer under
+# old and new code:
+#
+#   7a  before=colima, added=none   old: before_engines non-empty -> customer
+#                                   new: added empty -> customer          SAME
+#   7b  before=none,   added=colima old: before_engines empty -> ostler
+#                                   new: added non-empty -> ostler        SAME
+#
+# The contradiction needs BOTH to be non-empty at once: an engine already
+# there AND one we added. Old logic takes the `before_engines` branch and says
+# owner="customer" while installed_by_ostler=["colima"] -- ORM's finding,
+# verbatim. New logic derives owner from `added` and says "ostler".
+#
+# A control that cannot separate the two implementations is not a control, and
+# a passing assertion built on one is the vacuity this file exists to prevent.
+d="${WORK}/own-both"; mkdir -p "$d"
+isolate; stub podman
+ostler_engine_provenance_before "$d" >/dev/null 2>&1   # podman already here
+stub colima
+ostler_engine_provenance_after  "$d" >/dev/null 2>&1   # colima added by us
+unstub colima; unstub podman; restore
+oc="$(field "${d}/container-engine.json" owner)"
+lc="$(list  "${d}/container-engine.json" installed_by_ostler)"
+ov="$(sed -n 's/.*"installed_over_existing": *\([a-z]*\).*/\1/p' "${d}/container-engine.json")"
+if [[ "$oc" == "ostler" ]] && printf '%s' "$lc" | grep -q colima; then
+    ok "engine present AND one added -> owner=ostler, consistent with installed_by_ostler=${lc}"
+else
+    bad "CONTRADICTION: owner=${oc} but installed_by_ostler=${lc}" \
+        "owner must be derived from the diff; branching on before_engines makes these two lines disagree"
+fi
+if [[ "$ov" == "true" ]]; then
+    ok "installed_over_existing=true -- the anomaly is recorded, not hidden"
+else
+    bad "installed_over_existing=${ov:-missing} when we installed over an existing engine" \
+        "\u00a73.2's guard should make this impossible; if it happens it must be visible, not smoothed away"
+fi
+
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 [[ "$FAIL" -eq 0 ]] || exit 1

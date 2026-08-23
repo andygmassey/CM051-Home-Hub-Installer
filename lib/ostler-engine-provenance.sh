@@ -83,6 +83,22 @@ ostler_engines_present() {
 ostler_engine_provenance_before() {
     local dir="${1:?provenance dir required}"
     mkdir -p "$dir" 2>/dev/null || return 0
+
+    # 🔴 WRITTEN TO A TEMP PATH AND MOVED, AND IT ENDS WITH A TERMINATOR.
+    #
+    # `> "${dir}/.engine-before"` TRUNCATES BEFORE IT WRITES. Kill the installer
+    # in that window -- jetsam did exactly this on 2026-08-23 -- and a ZERO-BYTE
+    # .engine-before is left behind. `[[ -r ... ]]` is TRUE for that file, so the
+    # reader believed it had a snapshot, read no engines from it, and concluded
+    # every engine on the box was one we installed. The `before_seen` guard did
+    # not help: the file existed. It was the wrong question. `-r` proves a file
+    # is READABLE, never that it is COMPLETE.
+    #
+    # So the snapshot now attests to its own completeness with a final line, and
+    # is moved into place in one step so a partial file never appears at the real
+    # path at all. Belt and braces, because the failure mode is that we tell a
+    # customer their own Docker Desktop belongs to us.
+    local tmp="${dir}/.engine-before.$$"
     {
         printf 'schema=1\n'
         printf 'phase=before\n'
@@ -90,7 +106,9 @@ ostler_engine_provenance_before() {
         printf 'engines=%s\n' "$(ostler_engines_present)"
         printf 'client_docker=%s\n' \
             "$(command -v docker >/dev/null 2>&1 && echo present || echo absent)"
-    } > "${dir}/.engine-before" 2>/dev/null || return 0
+        printf 'complete=1\n'
+    } > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+    mv -f "$tmp" "${dir}/.engine-before" 2>/dev/null || rm -f "$tmp" 2>/dev/null
 }
 
 # Write the durable record. Diffs against the `before` snapshot to derive --
@@ -108,8 +126,11 @@ ostler_engine_provenance_after() {
     local out="${dir}/container-engine.json"
     mkdir -p "$dir" 2>/dev/null || return 0
 
+    # A snapshot counts only if it says it finished. An empty or truncated file
+    # is treated exactly like a missing one -- no evidence, therefore no claim.
     local before_engines="" before_seen=false
-    if [[ -r "${dir}/.engine-before" ]]; then
+    if [[ -r "${dir}/.engine-before" ]] \
+       && grep -q '^complete=1$' "${dir}/.engine-before" 2>/dev/null; then
         before_seen=true
         before_engines="$(sed -n 's/^engines=//p' "${dir}/.engine-before")"
     fi
@@ -134,15 +155,35 @@ ostler_engine_provenance_after() {
     fi
     added="${added% }"
 
+    # 🔴 OWNER IS DERIVED FROM `added`, NOT FROM `before_engines`.
+    #
+    # It used to read `elif [[ -n "$before_engines" ]]; then owner="customer"`,
+    # which fires even when we ALSO installed something -- so the record could
+    # say owner="customer" on one line and installed_by_ostler=["colima"] on the
+    # next. Two statements about the same fact, disagreeing, in one file whose
+    # only job is to be believed.
+    #
+    # Now the invariant holds BY CONSTRUCTION and is asserted in the test:
+    #
+    #     owner == "ostler"  <=>  installed_by_ostler is non-empty
+    #
+    # The case that produced the contradiction -- an engine already present AND
+    # one added by us -- is not papered over. It should be impossible, because
+    # §3.2's guard only installs when no engine answers, so if it happens the
+    # guard has regressed. It gets its own field and stays visible.
+    local installed_over_existing=false
+    [[ -n "$added" && -n "$before_engines" ]] && installed_over_existing=true
+
     local owner
     if [[ "$before_seen" == false ]]; then
-        # No snapshot. Do not guess -- an unknown owner is honest and a wrong
-        # one gets quoted back at us by a customer holding a broken wiki.
+        # No snapshot, or an incomplete one. Do not guess -- an unknown owner is
+        # honest and a wrong one gets quoted back at us by a customer holding a
+        # broken wiki.
         owner="unknown"
-    elif [[ -n "$before_engines" ]]; then
-        owner="customer"
-    elif [[ -n "$now_engines" ]]; then
+    elif [[ -n "$added" ]]; then
         owner="ostler"
+    elif [[ -n "$now_engines" ]]; then
+        owner="customer"
     else
         owner="none"
     fi
@@ -165,6 +206,7 @@ ostler_engine_provenance_after() {
         printf '  "engines_before": %s,\n'  "$(_ospv_json_list "$before_engines")"
         printf '  "engines_after": %s,\n'   "$(_ospv_json_list "$now_engines")"
         printf '  "installed_by_ostler": %s,\n' "$(_ospv_json_list "$added")"
+        printf '  "installed_over_existing": %s,\n' "$installed_over_existing"
         printf '  "client_docker": "%s",\n' \
             "$(command -v docker >/dev/null 2>&1 && echo present || echo absent)"
         printf '  "note": "PRESENCE only. Whether an engine is RUNNING is a separate question and a separate probe."\n'
