@@ -50,6 +50,16 @@
     "illustration": null,
     "needs_fda": false
   },
+  "docker_verify": {
+    "id": "docker_verify",
+    "title": "Verifying container runtime",
+    "subtitle": "Checking the engine actually answers",
+    "why": "On a Mac, the docker command is only a client – it needs an engine such as Colima running behind it before anything can start. This step asks that engine directly rather than assuming it is there, and stops here if it does not answer. Without it an install can finish, report success, and leave you with a Mac where your wiki and knowledge graph were never able to start and nothing said so.",
+    "duration_estimate_s": 3,
+    "long_running_threshold_s": 30,
+    "illustration": null,
+    "needs_fda": false
+  },
   "reboot_selfheal": {
     "id": "reboot_selfheal",
     "title": "Restart recovery",

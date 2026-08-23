@@ -1,0 +1,68 @@
+name: container-runtime-precondition
+
+# THE INSTALL REPORTED SUCCESS ON A MAC WITH NO CONTAINER RUNTIME.
+#
+# v1.0.42 upgrade walk, Mac mini, 2026-08-23. Measured after a GREEN install:
+#
+#     /opt/homebrew/bin/docker   EXISTS     <-- the CLI. A client only.
+#     colima                     ABSENT
+#     /Applications/Docker.app   ABSENT
+#     :8044 wiki                 000
+#     :7878 Oxigraph             000
+#     CONTROL  :8000 daemon 200 / :8089 ical 302   <-- native launchd, alive
+#
+# Ragged zero, control fired: the dead ports are exactly the Docker-hosted
+# services and the live ones exactly the native launchd services.
+#
+# ROOT CAUSE: install.sh gated the Colima install on `command -v docker`. On
+# macOS `docker` is a CLIENT and the engine is a separate program, so any box
+# that already had Homebrew's docker formula skipped the engine install and
+# fell through every remaining arm. `ostler-wiki-site` and
+# `ostler-wiki-compiler` are pinned BY DIGEST and cannot start without one.
+#
+# The gate EXTRACTS the real post-condition block from install.sh and RUNS it
+# against stub binaries, so it cannot pass against a copy of the logic. It
+# carries a positive control (an answering engine must still PASS) so it
+# cannot pass by refusing everything.
+#
+# WHY macos: /bin/bash is 3.2 on the cut host, and the block under test is
+# executed rather than linted.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_container_runtime_precondition.sh'
+      - '.github/workflows/container-runtime-precondition.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # NEVER cancels main or a tag: a cancelled run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  container-runtime:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: An install may not report success with no container runtime
+        run: /bin/bash tests/test_container_runtime_precondition.sh
+
+      # if: always() so a failure above cannot silence this one.
+      - name: install.sh and its catalogue parse under bash 3.2
+        if: always()
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n install.sh
+          /bin/bash -n install.sh.strings.en-GB.sh
+
+      - name: Every MSG_* reference still resolves
+        if: always()
+        run: /bin/bash tests/test_no_undefined_msg_refs_in_install_sh.sh
