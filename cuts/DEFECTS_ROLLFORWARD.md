@@ -53,6 +53,24 @@ blocking), `not_walked` (nobody walked it). The last two REQUIRE a named
 approver, the same rule `gates/reconcile_gates.sh` already applies to gate
 waivers: an anonymous waiver is one nobody signed.
 
+**And the status is DERIVED, not taken on trust.** CM051 #978 writes
+`walks/<version>.tsv` after driving the box-walk probes against a real installed
+box, which is the only RUNTIME evidence in the release pipeline: everything else
+measures the artefact, and all of it passes on a DMG that installs to a broken
+machine. Two registers of one fact is this estate's signature failure, so where
+a record exists it decides which statuses are LEGAL:
+
+| walk record | statuses this table may carry |
+|---|---|
+| verdict `CLEAN` | `closed` only. It was walked and it was clean; `not_walked` is a false statement contradicted by an artefact. |
+| verdict `FAILED` or `PARTIAL` | `closed` or `deferred`. Not `not_walked`. |
+| no record for that cut | `deferred` or `not_walked`. **`closed` is REFUSED** -- a walk claimed closed with nothing written by the walker is the silence this mechanism exists to refuse. |
+| no `walks/` directory at all | any, and every row is labelled `UNAVAILABLE` on the verdict line. OS003 has no `walks/`; CM051, where the shipping cut runs this gate, does. A reader must be able to tell a DERIVED status from one taken on trust, so the output says which. |
+
+The row still carries the approver and the findings, because a record cannot
+know either. What it can no longer do is CLAIM a walk that left no trace, or
+deny one that did.
+
 **findings** is a space-separated list of the section ids for that walk, or the
 literal `none`. The gate requires it to EQUAL the set of `### vNNNN-Dxxx`
 sections in this file for that cut, so a finding the row forgot fails and a
@@ -2821,6 +2839,170 @@ is design work, and much smaller than three days.
 demonstrates the customer-visible behaviour, only the mechanism that produces it.
 I did not run the two-channel probe, because it would send real iMessages from
 Andy's account.
+
+### v1042-D001 -- the runtime guard asked for a CLIENT and inferred an ENGINE
+
+Found on the v1.0.42 upgrade walk, 2026-08-23. `install.sh` decided whether to
+install a container runtime with `if ! command -v docker`. **On macOS `docker`
+is a CLIENT.** Any box that had ever installed the Homebrew `docker` formula --
+including one this installer had run on before -- skipped the Colima install and
+walked on with no engine, while `ostler-wiki-site` and `ostler-wiki-compiler`
+are pinned by digest as containers and have no native path.
+
+CM051 #992 commit 1 replaces the client test with a loop over the runtimes that
+can actually run a container (`colima orbstack podman`) plus the Docker Desktop
+app bundle, behind an `ENGINE_PRESENT` variable the install decision reads.
+CM051 #994 independently computes `HAS_CONTAINER_ENGINE` from `docker info` --
+whether an engine ANSWERS, which is stronger -- and keeps `HAS_DOCKER_CLIENT`
+deliberately, to make the diagnostic honest while deciding nothing.
+
+**The two implementations collide and neither wins whole.** #994's Phase 0
+detection is better; #994's Phase 3.2 guard is NARROWER than #992's (colima and
+Docker.app only, 0 mentions of orbstack or podman in its guard block), so a box
+running OrbStack gets `brew install colima` poured over a live engine.
+
+**THE WALK EVIDENCE ORIGINALLY ATTACHED TO THIS FINDING IS WITHDRAWN, and the
+withdrawal matters more than the finding.** The Mini was reported as having no
+engine. It had one throughout: colima, docker, docker-compose and limactl were
+all present and correctly symlinked, dated 21 Aug 19:43. The reading came from
+a shell with no Homebrew on PATH. **A uniform zero across four different
+runtimes is not four facts, it is one broken predicate**, and it was visible in
+the same paste that reported `PATH homebrew count 0`. The error was then
+repeated twice more over SSH before anyone caught it.
+
+So the guard is a real defect and the mutants below prove the class, but **on
+that box the fixed guard would have found colima, skipped the brew install, and
+correctly changed nothing. It would not have restored the wiki.** The thing that
+took the wiki down is v1042-D004.
+
+**Three test defeats are recorded because they are the finding's real lesson.**
+The first test asserted `grep -qE 'command -v docker'` over a 40-line window:
+defeated by `-x /opt/homebrew/bin/docker` (no literal match) and by
+`command -v "docker"` (two quote characters), both scoring 10/0. The window was
+also 14 lines of code rather than 40, because `sed 's/#.*//'` BLANKS a comment
+line and leaves it. The rebuilt test asserts a property of the ASSIGNMENTS and
+was defeated twice more, both at 14/0: by `-x /opt/homebrew/bin/"docker"`,
+because the client predicate was made quote-tolerant on its `command -v` limb
+and left literal on its `bin/docker` limb; and by laundering the client check
+through a variable set more than eight lines away, because **a window is a
+distance and a distance can be padded with statements.**
+
+### v1042-D002 -- the installer retained one byte per byte of carriage-return output
+
+The Installer held **4.27 GB after a SUCCESSFUL install**. `stdoutBuffer` drained
+only on `"\n"`; `docker pull` writes layer progress with `"\r"` and no newline,
+so for the length of a multi-gigabyte pull the drain loop never executed once.
+The trailing partial line was never drained at all, so the bytes survived the
+install.
+
+Driven, not read. The accumulator extracted from the shipped file and compiled:
+
+    origin/main   fed 25,770,400   peak 25,770,400   final 25,770,400
+    CM051 #993    fed 26,185,600   peak          0   lines emitted 534,400
+
+**#993 does not merely bound it, it parses it**, because it treats `\r` as a
+terminator rather than as something to discard. CM051 #992 commit 2 caps the
+buffer at 64 KiB instead and emits nothing; #993 supersedes it and the two
+conflict on the same function.
+
+**A SECOND, OLDER PATH WAS FOUND WHILE PROBING.** Swift treats `"\r\n"` as ONE
+Character -- a single grapheme cluster equal to neither `"\r"` nor `"\n"` -- so
+`firstIndex(of: "\n")` is FALSE on it. Measured: 4,000 CRLF lines yielded **0
+lines emitted and 42,890 bytes retained**, with plain LF as the control
+returning TRUE. The `if line.hasSuffix("\r")` strip, whose comment says "a
+handful of tool outputs put CRLF even into pipes", **could not be reached by the
+input it names.** #993 fixes this explicitly; #992's cap bounds it without ever
+parsing it.
+
+**AND THE FIX STILL LOSES THE LINE THAT MATTERS.** Driven against #993: 1.3 MB
+with no terminator followed by `"ERROR: no space left on device\n"` emits one
+line of 65,669 bytes that does **not** contain the error text. Both notices
+attached to it are honest -- bytes truncated, bytes dropped -- and the
+diagnostic is gone anyway, because `finish()` keeps `prefix(maxLineBytes)` and
+the error arrived at the end. **This is `v1018-D032` in a new file: captured
+output keeps the head when a hang needs the tail.**
+
+**A SOURCE-TEXT PREDICATE CANNOT HOLD THIS LINE.** The first test asserted that
+a cap is declared, consulted, and that the buffer is reassigned. A decoy
+satisfying all three -- guarded by `stdoutBuffer.isEmpty`, which cannot hold
+above a cap -- scored **6 PASS / 0 FAIL while leaking 11,844,000 bytes and
+climbing.** The property is "the number stops going up", and that is a fact
+about execution.
+
+### v1042-D003 -- install reported success with no container runtime
+
+The install exits green having never established that a container can run. On
+the walk box the two Docker-hosted ports were dark (`:8044` wiki, `:7878`
+Oxigraph) while the two native launchd ports answered (`:8000` daemon,
+`:8089` ical). **The zero was RAGGED and it fell on an architectural line**,
+which is what made it trustworthy: the dead ports were exactly the containerised
+services.
+
+CM051 #994 adds the postcondition. It is additive -- nothing else in the walk
+set covers it -- and it is the half of #994 that is not in dispute.
+
+**It also collides with #995**, three files deep: `install.sh`,
+`install.sh.strings.en-GB.sh` and `tests/TEST_WIRING.tsv`. That pair needs a
+sequencing decision of its own and it is not the same decision as the #992
+overlap.
+
+### v1042-D004 -- an engine killed while the daemon stays up has no recovery road
+
+**This is the finding that took the wiki down, and it is the one v1.0.43 holds
+on.** Chain, measured on the box:
+
+    the D002 buffer leak
+      -> five JetsamEvent reports on 2026-08-23, 16:13:35 to 17:33:51
+      -> jetsam killed the 4 GB Colima VM (install.sh --memory 4;
+         pgrep 'limactl|qemu' returns 0)
+      -> docker.sock gone; :8044 and :7878 dark, :8000 and :8089 alive
+      -> ensure_colima_running() is called ONCE at daemon startup
+         (ostler-assistant src/main.rs:1159, called at :1923)
+      -> the daemon never exited, so recovery never fired
+      -> no reboot: uptime 2d, last boot 21 Aug 17:31
+
+Fixing D002 makes the TRIGGER rarer and gives the system no recovery road.
+Jetsam is one way that VM dies; `colima stop`, a VM crash, a full disk and an OS
+update are others, and every one of them lands in the same state: daemon up,
+`ensure_colima_running()` already spent, wiki dark until a human notices.
+
+**A one-shot at startup is not a recovery mechanism, it is an initialisation
+step wearing one. Anything the daemon starts once at boot has this hole**, and
+that is the finding -- Colima is the symptom.
+
+`install.sh` deliberately creates no LaunchAgent here, and the reason rules out
+the obvious fix: **a bare LaunchAgent has no Full Disk Access**, so a
+LaunchAgent-spawned Colima cannot mount `~/Documents`, which `install.sh` binds
+into `wiki-site` and `wiki-compiler`. That would bring the wiki up EMPTY instead
+of DOWN, which is the harder failure to notice and therefore the worse one. The
+smaller change is a periodic trigger on the daemon, which already holds FDA.
+
+CM051 #995 is the candidate fix (`bin/ostler-engine-supervisor.sh`,
+`lib/ostler-container-engine.sh`, plus a Doctor rule so a dead wiki announces
+itself rather than rendering byte-identically to a healthy one).
+
+**THE HOLD CLEARS** when #995 lands AND is demonstrated against the box in its
+current failure state -- engine installed, engine stopped, `:8044`/`:7878` at
+000, `:8000`/`:8089` alive. That fixture is perishable and repairing the box
+destroys it.
+
+**AND #995's OWN GATES ARE NOT WIRED TO FIRE.** `vendor-integrity.yml` gained
+both run steps and none of the five path entries they need. Parsed, 27 entries,
+with two must-be-present controls:
+
+    tests/test_a_dead_wiki_announces_itself.py            NOT WATCHED
+    wiki-recompile/bin/wiki-recompile-tick.sh             NOT WATCHED
+    tests/test_container_engine_liveness_and_recovery.sh  NOT WATCHED
+    bin/ostler-engine-supervisor.sh                       NOT WATCHED
+    lib/ostler-container-engine.sh                        NOT WATCHED
+    install.sh                                            install.sh   (control)
+    vendor/doctor/agent/diagnostic_rules.py               vendor/**    (control)
+
+That file states the rule in its own comment: "A path entry alone would only
+make the workflow TRIGGER; the run step above is what makes it CHECK. Both are
+needed." The dead-wiki gate is PARTIALLY covered, because `vendor/**` catches
+the change it most needs to catch. **The engine-liveness gate is covered by
+nothing**, and passes today only because its PR happens to touch `install.sh`.
 
 ## Gates deferred pending fix design
 
