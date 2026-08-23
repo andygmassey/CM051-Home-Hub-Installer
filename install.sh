@@ -9222,6 +9222,94 @@ else
     # immediately after this block; see the section below the `fi`.
 fi
 
+# ── 3.2a-sup Container-engine supervisor (PERIODIC, not startup-only) ──
+#
+# 🔴 THE ENGINE DIED MID-LIFE AND NOTHING CHECKED AGAIN FOR A DAY.
+#
+# Measured on Andrews-Mac-mini, 2026-08-23, from the box's own logs:
+#
+#   ~/.ostler/logs/ostler-assistant.err carries SIX colima lines -- three
+#   start/success pairs -- the last at 2026-08-22T09:57:58Z, two seconds
+#   after the daemon booted. The daemon (pid 19647) has
+#   `last exit code = (never exited)`, because ensure_colima_running() runs
+#   ONCE, at startup (ostler-assistant src/main.rs:1159, called at :1923).
+#
+#   Jetsam killed the Colima VM ~31 hours later, between 16:10 and 17:33 on
+#   2026-08-23 -- eight JetsamEvent reports in
+#   /Library/Logs/DiagnosticReports/ -- after the installer's unbounded
+#   output buffer took the machine to 4.27 GB. No reboot: uptime 2 days.
+#
+#   The only periodic job that touches the runtime is wiki-recompile, and
+#   its plist on that box reads StartInterval = 86400. ONCE A DAY. Its last
+#   tick waited 120 s, logged "not ready ... Exiting 0", and did nothing.
+#   A daily tick is exactly a day of latency.
+#
+# A supervisor that runs once at process launch cannot recover a mid-life
+# death. That is the defect in one sentence. The primitive is fine -- it
+# recovered Colima three times in under half a second each. Its TRIGGER is
+# the bug, so this agent supplies a trigger.
+#
+# IT DOES NOT RUN `colima start` ITSELF, and that is the point of the whole
+# design. See §3.2b directly below: a bare LaunchAgent has NO Full Disk
+# Access, Colima then cannot mount ~/Documents, and the wiki's bind-mount
+# fails -- that agent was DELETED to fix exactly that. The signed daemon
+# holds FDA and its children inherit it, which is why the recovery lives
+# there. This supervisor asks launchd to restart the FDA holder, which
+# re-runs the proven primitive with the right privileges.
+mkdir -p "${OSTLER_DIR}/bin" "${OSTLER_DIR}/lib"
+if [[ -f "${SCRIPT_DIR}/lib/ostler-container-engine.sh" ]]; then
+    cp "${SCRIPT_DIR}/lib/ostler-container-engine.sh" "${OSTLER_DIR}/lib/"
+    chmod +x "${OSTLER_DIR}/lib/ostler-container-engine.sh"
+fi
+if [[ -f "${SCRIPT_DIR}/bin/ostler-engine-supervisor.sh" ]]; then
+    cp "${SCRIPT_DIR}/bin/ostler-engine-supervisor.sh" "${OSTLER_DIR}/bin/"
+    chmod +x "${OSTLER_DIR}/bin/ostler-engine-supervisor.sh"
+fi
+
+# Walk the post-condition: a supervisor that was never staged would leave
+# launchd firing at a missing path and recording EX_CONFIG for the life of
+# the install, which reads as "an agent exists" while nothing supervises.
+if [[ -x "${OSTLER_DIR}/bin/ostler-engine-supervisor.sh" \
+   && -f "${OSTLER_DIR}/lib/ostler-container-engine.sh" ]]; then
+    ENGINE_SUP_PLIST="${HOME}/Library/LaunchAgents/com.ostler.engine-supervisor.plist"
+    cat > "$ENGINE_SUP_PLIST" <<ESPEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.engine-supervisor</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>${OSTLER_DIR}/bin/ostler-engine-supervisor.sh</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/engine-supervisor.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/engine-supervisor.err</string>
+</dict>
+</plist>
+ESPEOF
+    launchctl bootout "gui/$(id -u)/com.ostler.engine-supervisor" 2>/dev/null || true
+    if launchctl bootstrap "gui/$(id -u)" "$ENGINE_SUP_PLIST" 2>/dev/null \
+       || launchctl load "$ENGINE_SUP_PLIST" 2>/dev/null; then
+        ok "$MSG_OK_ENGINE_SUPERVISOR_INSTALLED"
+    else
+        # Non-fatal: the install still works, the box just loses automatic
+        # recovery. Say so rather than let it pass as installed.
+        warn "$MSG_WARN_ENGINE_SUPERVISOR_NOT_LOADED"
+    fi
+else
+    warn "$MSG_WARN_ENGINE_SUPERVISOR_NOT_STAGED"
+fi
+
 # ── 3.2b Remove any stale FDA-less Colima LaunchAgent ──────────────
 #
 # An install upgrading from before v1.0.10 still has

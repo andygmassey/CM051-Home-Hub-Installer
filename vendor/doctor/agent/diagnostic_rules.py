@@ -211,6 +211,22 @@ from diagnostic_copy import (
     WIKI_ENGINE_DOWN_FIX,
     WIKI_ENGINE_DOWN_FIX_COMMAND,
     WIKI_ENGINE_DOWN_TITLE,
+    ENGINE_ABSENT_DETAIL_FMT,
+    ENGINE_ABSENT_FIX,
+    ENGINE_ABSENT_FIX_COMMAND,
+    ENGINE_ABSENT_TITLE,
+    ENGINE_RECOVERY_EXHAUSTED_DETAIL_FMT,
+    ENGINE_RECOVERY_EXHAUSTED_FIX,
+    ENGINE_RECOVERY_EXHAUSTED_FIX_COMMAND,
+    ENGINE_RECOVERY_EXHAUSTED_TITLE,
+    ENGINE_STOPPED_DETAIL_FMT,
+    ENGINE_STOPPED_FIX,
+    ENGINE_STOPPED_FIX_COMMAND,
+    ENGINE_STOPPED_TITLE,
+    ENGINE_SUPERVISOR_MISSING_DETAIL,
+    ENGINE_SUPERVISOR_MISSING_FIX,
+    ENGINE_SUPERVISOR_MISSING_FIX_COMMAND,
+    ENGINE_SUPERVISOR_MISSING_TITLE,
     WIKI_REFRESH_STALLED_DETAIL_FMT,
     WIKI_REFRESH_STALLED_FIX,
     WIKI_REFRESH_STALLED_FIX_COMMAND,
@@ -466,7 +482,19 @@ def check_wiki_health(snapshot: Any) -> list[dict]:
     """
     findings = []
 
-    # The refresh tick's own streak, read FIRST and independently of the
+    # THE ENGINE SUPERVISOR'S REPORT, read FIRST.
+    #
+    # 🔴 Measured on the walk box 2026-08-23: the engine was INSTALLED and
+    # STOPPED -- killed by macOS after the installer exhausted application
+    # memory -- on a machine that never rebooted. `is a runtime installed`
+    # returns HEALTHY on that box while the wiki is dark, which is why this
+    # reads the supervisor's OBSERVED state rather than probing for
+    # binaries. It also carries what the supervisor TRIED, because a card
+    # that reports an outage and cannot act on it is a nicer version of the
+    # same outage.
+    findings.extend(_engine_supervisor_findings())
+
+    # The refresh tick's own streak, read next and independently of the
     # port probe: a wiki that still serves yesterday's pages is a different
     # fault from one that does not answer, and both can be true at once.
     stall = _wiki_recompile_stall()
@@ -556,6 +584,144 @@ def check_wiki_health(snapshot: Any) -> list[dict]:
         "category": "runtime",
     })
     return findings
+
+
+def check_engine_supervisor_present(snapshot: Any) -> list[dict]:
+    """Is anything actually WATCHING the runtime?
+
+    The walk box had a healthy-looking estate and no periodic engine check
+    at all: ensure_colima_running() ran once at daemon startup and the only
+    other job that touched the runtime had StartInterval = 86400. So the
+    absence of a supervisor is itself a finding, raised while things are
+    still working rather than after they stop.
+
+    A WARNING, not a critical: nothing is broken yet. That is the whole
+    point of raising it now.
+    """
+    findings = []
+    scheduled = _engine_supervisor_is_scheduled()
+    if scheduled is False:
+        findings.append({
+            "severity": "warning",
+            "title": ENGINE_SUPERVISOR_MISSING_TITLE,
+            "detail": ENGINE_SUPERVISOR_MISSING_DETAIL,
+            "fix": ENGINE_SUPERVISOR_MISSING_FIX,
+            "fix_command": ENGINE_SUPERVISOR_MISSING_FIX_COMMAND,
+            "risk": "low",
+            "category": "installation",
+        })
+    # scheduled is None -> launchctl could not be asked. Silent by design:
+    # "could not check" must not render as "not installed".
+    return findings
+
+
+_ENGINE_RECOVERY_MAX_ATTEMPTS = 5   # must match ostler-engine-supervisor.sh
+
+
+def _engine_state_path():
+    from pathlib import Path
+    base = os.environ.get("OSTLER_STATE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".ostler", "state",
+    )
+    return Path(base) / "engine-supervisor" / "state.json"
+
+
+def _engine_supervisor_findings() -> list[dict]:
+    """Report what the supervisor SAW and what it TRIED.
+
+    Four states, three of which look identical to a naive probe:
+
+        absent             nothing installed. Needs an INSTALL.
+        installed_stopped  installed, nothing answering. Needs a START.
+                           <-- the measured state on the walk box
+        running_no_wiki    engine up, container down. Handled by the wiki
+                           arms below, not here.
+        up                 the supervisor deletes its state file, so
+                           absence of the file IS the healthy signal.
+
+    Absence of the file is deliberately NOT reported as an alarm: a box
+    where the supervisor has never had anything to say looks the same as a
+    box where it is not installed. The separate supervisor-missing finding
+    below is keyed on the LaunchAgent, not on this file, for exactly that
+    reason.
+
+    Never raises. An unreadable file means we do not know, and "we do not
+    know" must not render as "all is well" OR as an outage.
+    """
+    import json
+    findings: list[dict] = []
+    path = _engine_state_path()
+    try:
+        if not path.exists():
+            return findings
+        data = json.loads(path.read_text())
+    except Exception:
+        log.debug("engine supervisor state unreadable", exc_info=True)
+        return findings
+
+    state = data.get("state")
+    detail = str(data.get("detail", ""))[:300]
+    attempts = int(data.get("consecutive_failures", 0) or 0)
+    action = str(data.get("last_action", "none"))
+    first_seen = str(data.get("first_seen", "an unknown time"))
+
+    if state == "absent":
+        findings.append({
+            "severity": "critical",
+            "title": ENGINE_ABSENT_TITLE,
+            "detail": ENGINE_ABSENT_DETAIL_FMT.format(detail=detail),
+            "fix": ENGINE_ABSENT_FIX,
+            "fix_command": ENGINE_ABSENT_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+    elif state == "installed_stopped":
+        if attempts >= _ENGINE_RECOVERY_MAX_ATTEMPTS:
+            findings.append({
+                "severity": "critical",
+                "title": ENGINE_RECOVERY_EXHAUSTED_TITLE,
+                "detail": ENGINE_RECOVERY_EXHAUSTED_DETAIL_FMT.format(
+                    first_seen=first_seen, attempts=attempts, detail=detail
+                ),
+                "fix": ENGINE_RECOVERY_EXHAUSTED_FIX,
+                "fix_command": ENGINE_RECOVERY_EXHAUSTED_FIX_COMMAND,
+                "risk": "low",
+                "category": "runtime",
+            })
+        else:
+            findings.append({
+                "severity": "critical",
+                "title": ENGINE_STOPPED_TITLE,
+                "detail": ENGINE_STOPPED_DETAIL_FMT.format(
+                    detail=detail, attempts=attempts, action=action
+                ),
+                "fix": ENGINE_STOPPED_FIX,
+                "fix_command": ENGINE_STOPPED_FIX_COMMAND,
+                "risk": "low",
+                "category": "runtime",
+            })
+    return findings
+
+
+def _engine_supervisor_is_scheduled() -> bool | None:
+    """True/False if launchctl answered, None if it could not be asked.
+
+    None is NOT False. A gate that cannot ask must not report the answer it
+    would have liked.
+    """
+    import subprocess
+    label = "com.ostler.engine-supervisor"
+    try:
+        uid = os.getuid()
+        r = subprocess.run(
+            ["launchctl", "print", f"gui/{uid}/{label}"],
+            capture_output=True, timeout=10,
+        )
+        if r.returncode == 127:
+            return None
+        return r.returncode == 0
+    except Exception:
+        return None
 
 
 _WIKI_STALL_MIN_TICKS = 3   # 10-minute StartInterval, so ~30 minutes
@@ -2091,6 +2257,7 @@ ALL_RULES = [
     check_qdrant_health,
     check_oxigraph_health,
     check_wiki_health,
+    check_engine_supervisor_present,
     check_redis_health,
     check_gateway_health,
     check_import_readiness,

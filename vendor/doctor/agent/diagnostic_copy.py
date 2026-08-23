@@ -226,6 +226,63 @@ WIKI_REFRESH_STALLED_FIX_COMMAND = (
     "/opt/homebrew/bin/colima start && /opt/homebrew/bin/docker ps"
 )
 
+# ── the container-engine supervisor's own report ─────────────────────
+#
+# Measured 2026-08-23 on the walk box: the engine was INSTALLED and STOPPED,
+# killed by macOS while the machine stayed up. Every naive "is a runtime
+# installed" probe reports healthy on that box while the wiki is dark, so
+# these strings are written around what the supervisor OBSERVED and what it
+# TRIED, not around what is on disk.
+
+ENGINE_STOPPED_TITLE = "The container runtime has stopped"
+ENGINE_STOPPED_DETAIL_FMT = (
+    "The runtime that hosts your wiki and knowledge graph is installed but "
+    "not running ({detail}). Ostler has been trying to restart it: "
+    "{attempts} attempt(s) so far, most recently {action}. Nothing has been "
+    "lost, but until it comes back those services cannot answer."
+)
+ENGINE_STOPPED_FIX = "Start the container runtime by hand if this persists"
+ENGINE_STOPPED_FIX_COMMAND = (
+    "/opt/homebrew/bin/colima start && /opt/homebrew/bin/docker ps"
+)
+
+ENGINE_RECOVERY_EXHAUSTED_TITLE = (
+    "Ostler could not restart the container runtime"
+)
+ENGINE_RECOVERY_EXHAUSTED_DETAIL_FMT = (
+    "The runtime has been down since {first_seen} and {attempts} automatic "
+    "restarts have not brought it back ({detail}). Ostler has stopped "
+    "retrying so it does not restart the assistant over and over. This one "
+    "needs a hand."
+)
+ENGINE_RECOVERY_EXHAUSTED_FIX = "Start the runtime, then check the containers"
+ENGINE_RECOVERY_EXHAUSTED_FIX_COMMAND = (
+    "/opt/homebrew/bin/colima start && /opt/homebrew/bin/docker ps"
+)
+
+ENGINE_ABSENT_TITLE = "No container runtime is installed"
+ENGINE_ABSENT_DETAIL_FMT = (
+    "Ostler needs a container runtime for your wiki, knowledge graph and "
+    "search index, and none is installed ({detail}). Automatic recovery "
+    "cannot help here because there is nothing to restart."
+)
+ENGINE_ABSENT_FIX = "Re-run the Ostler installer, which installs one for you"
+ENGINE_ABSENT_FIX_COMMAND = "brew install colima docker docker-compose"
+
+ENGINE_SUPERVISOR_MISSING_TITLE = (
+    "Nothing is watching the container runtime"
+)
+ENGINE_SUPERVISOR_MISSING_DETAIL = (
+    "The job that checks the container runtime every few minutes, and "
+    "restarts it when it stops, is not scheduled on this Mac. Your wiki is "
+    "working now. If the runtime stops later, nothing will bring it back on "
+    "its own."
+)
+ENGINE_SUPERVISOR_MISSING_FIX = "Re-run the installer to schedule it"
+ENGINE_SUPERVISOR_MISSING_FIX_COMMAND = (
+    "launchctl print gui/$(id -u)/com.ostler.engine-supervisor"
+)
+
 
 # ── check_import_readiness ───────────────────────────────────────────
 

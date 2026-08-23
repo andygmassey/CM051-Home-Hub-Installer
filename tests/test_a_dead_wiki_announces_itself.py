@@ -376,6 +376,140 @@ def test_generic_unreachable_row_is_not_duplicated_for_the_wiki():
 
 # ── 9. Rule 0.9: every string is in the catalogue ────────────────────
 
+def _write_engine_state(tmp: str, **fields) -> None:
+    d = Path(tmp) / "engine-supervisor"
+    d.mkdir(parents=True, exist_ok=True)
+    base = {
+        "state": "installed_stopped",
+        "detail": "failed to connect to the docker API",
+        "last_action": "restarted the daemon; engine still down after 60s",
+        "consecutive_failures": 1,
+        "last_attempt_epoch": 0,
+        "first_seen": "2026-08-23T08:10:00Z",
+        "last_seen": "2026-08-23T15:30:00Z",
+    }
+    base.update(fields)
+    (d / "state.json").write_text(json.dumps(base))
+
+
+def test_engine_stopped_is_reported_with_what_was_tried():
+    """THE MEASURED STATE. Engine installed, engine stopped.
+
+    A naive "is a runtime installed" probe reports HEALTHY on this box.
+    And a card that reports the outage without saying what was ATTEMPTED
+    is a nicer version of the same outage.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["OSTLER_STATE_DIR"] = tmp
+        _write_engine_state(tmp, consecutive_failures=2)
+        found = dr.check_wiki_health(healthy_snapshot())
+    hits = [f for f in found if f["title"] == dc.ENGINE_STOPPED_TITLE]
+    if not hits:
+        bad("engine installed-but-stopped produced no finding: "
+            f"{titles(found)}. That is the exact walk-box state.")
+        return
+    f = hits[0]
+    if f["severity"] == "critical":
+        ok(f"installed-but-stopped is CRITICAL: {f['title']!r}")
+    else:
+        bad(f"installed-but-stopped is only {f['severity']!r}")
+    if "2" in f["detail"] and "restarted" in f["detail"]:
+        ok("the finding says how many recoveries were attempted and what the last one was")
+    else:
+        bad(f"the finding does not report the recovery attempts: {f['detail']!r}")
+
+
+def test_engine_recovery_exhausted_is_a_distinct_finding():
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["OSTLER_STATE_DIR"] = tmp
+        _write_engine_state(tmp, consecutive_failures=9)
+        found = dr.check_wiki_health(healthy_snapshot())
+    if any(f["title"] == dc.ENGINE_RECOVERY_EXHAUSTED_TITLE for f in found):
+        ok("after the attempt budget is spent the finding CHANGES -- 'we tried "
+           "and could not' is not the same message as 'we are trying'")
+    else:
+        bad(f"exhausted recovery did not change the finding: {titles(found)}")
+
+
+def test_engine_absent_is_a_distinct_finding():
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["OSTLER_STATE_DIR"] = tmp
+        _write_engine_state(tmp, state="absent", detail="nothing installed")
+        found = dr.check_wiki_health(healthy_snapshot())
+    hits = [f for f in found if f["title"] == dc.ENGINE_ABSENT_TITLE]
+    if not hits:
+        bad(f"engine absent produced no finding: {titles(found)}")
+        return
+    ok("engine ABSENT is its own finding, separate from engine STOPPED")
+    if "restart" not in hits[0]["fix"].lower():
+        ok("the absent fix does not offer a restart -- there is nothing to restart")
+    else:
+        bad(f"the absent fix offers a restart: {hits[0]['fix']!r}")
+
+
+def test_engine_supervisor_negative_controls():
+    # No state file at all -> the supervisor has nothing to report. Silence.
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["OSTLER_STATE_DIR"] = tmp
+        found = dr._engine_supervisor_findings()
+    if found:
+        bad(f"no supervisor state file still produced findings: {titles(found)}")
+    else:
+        ok("negative control: no supervisor state file means no engine finding")
+
+    # A corrupt file must not raise and must not fabricate a verdict.
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["OSTLER_STATE_DIR"] = tmp
+        d = Path(tmp) / "engine-supervisor"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "state.json").write_text("{ not json")
+        try:
+            found = dr._engine_supervisor_findings()
+            if found:
+                bad(f"a corrupt supervisor state file fabricated {titles(found)}")
+            else:
+                ok("negative control: a corrupt supervisor state file is silent, "
+                   "not an alarm and not a claim of health")
+        except Exception as exc:  # noqa: BLE001
+            bad(f"a corrupt supervisor state file raised {type(exc).__name__}: {exc}")
+
+
+def test_supervisor_presence_check_treats_unknown_as_unknown():
+    """launchctl unavailable must NOT read as 'not installed'.
+
+    None is not False. A check that cannot ask must not report the answer
+    it would have liked.
+    """
+    if "check_engine_supervisor_present" not in [f.__name__ for f in dr.ALL_RULES]:
+        bad("check_engine_supervisor_present is not registered, so nothing "
+            "notices when the supervisor itself is missing")
+        return
+    ok("check_engine_supervisor_present is registered in ALL_RULES")
+
+    real = dr._engine_supervisor_is_scheduled
+    try:
+        dr._engine_supervisor_is_scheduled = lambda: None
+        if dr.check_engine_supervisor_present(healthy_snapshot()):
+            bad("an UNKNOWN launchctl answer produced a finding; 'could not "
+                "check' must not render as 'not installed'")
+        else:
+            ok("negative control: an unknown launchctl answer stays silent")
+        dr._engine_supervisor_is_scheduled = lambda: False
+        if any(f["title"] == dc.ENGINE_SUPERVISOR_MISSING_TITLE
+               for f in dr.check_engine_supervisor_present(healthy_snapshot())):
+            ok("a genuinely absent supervisor IS reported -- raised while things "
+               "still work, which is the only useful time to raise it")
+        else:
+            bad("an absent supervisor produced no finding")
+        dr._engine_supervisor_is_scheduled = lambda: True
+        if dr.check_engine_supervisor_present(healthy_snapshot()):
+            bad("a PRESENT supervisor was still reported missing")
+        else:
+            ok("negative control: a present supervisor is silent")
+    finally:
+        dr._engine_supervisor_is_scheduled = real
+
+
 def test_copy_constants_exist():
     required = [
         "WIKI_UNREACHABLE_TITLE", "WIKI_UNREACHABLE_DETAIL_FMT",
@@ -388,6 +522,14 @@ def test_copy_constants_exist():
         "WIKI_UNHEALTHY_FIX", "WIKI_UNHEALTHY_FIX_COMMAND_FMT",
         "WIKI_REFRESH_STALLED_TITLE", "WIKI_REFRESH_STALLED_DETAIL_FMT",
         "WIKI_REFRESH_STALLED_FIX", "WIKI_REFRESH_STALLED_FIX_COMMAND",
+        "ENGINE_STOPPED_TITLE", "ENGINE_STOPPED_DETAIL_FMT",
+        "ENGINE_STOPPED_FIX", "ENGINE_STOPPED_FIX_COMMAND",
+        "ENGINE_RECOVERY_EXHAUSTED_TITLE", "ENGINE_RECOVERY_EXHAUSTED_DETAIL_FMT",
+        "ENGINE_RECOVERY_EXHAUSTED_FIX", "ENGINE_RECOVERY_EXHAUSTED_FIX_COMMAND",
+        "ENGINE_ABSENT_TITLE", "ENGINE_ABSENT_DETAIL_FMT",
+        "ENGINE_ABSENT_FIX", "ENGINE_ABSENT_FIX_COMMAND",
+        "ENGINE_SUPERVISOR_MISSING_TITLE", "ENGINE_SUPERVISOR_MISSING_DETAIL",
+        "ENGINE_SUPERVISOR_MISSING_FIX", "ENGINE_SUPERVISOR_MISSING_FIX_COMMAND",
     ]
     missing = [n for n in required if not hasattr(dc, n)]
     if missing:
