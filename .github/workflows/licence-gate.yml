@@ -68,5 +68,12 @@ jobs:
       # compose and guarded it with a test that reads CM044's dev compose.
       # The customer runs the compose THIS repo generates. Instrument and
       # defect on different surfaces; hence an assertion on install.sh.
+      #
+      # `if: always()` because the two halves are INDEPENDENT. Without it this
+      # step is skipped whenever the refusal test above fails -- and then a run
+      # that goes red on the refusal half silently reports NOTHING about the
+      # mount half, which is how a second defect hides behind a first. Caught
+      # by scripts/verify_ci_steps_are_maskless.py.
       - name: the shipped compose can READ the licence it just verified
+        if: always()
         run: bash tests/test_shipped_compose_licence_mount.sh
