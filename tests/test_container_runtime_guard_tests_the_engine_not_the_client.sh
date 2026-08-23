@@ -224,14 +224,73 @@ fi
 # HAS_DOCKER is permitted in a condition above ONLY because it consults
 # `docker info`. If someone reduces it to a bare `command -v docker`, the
 # allowance silently becomes the very laundering it was meant to exclude.
-HD="$(grep -A2 -E '^HAS_DOCKER=false' <<< "$CODE" | head -3)"
-if [[ -z "$HD" ]]; then
-    bad "CANNOT-RUN: no HAS_DOCKER=false initialiser found" "assertion 2b measured nothing"
-elif grep -q 'docker info' <<< "$HD"; then
-    ok "HAS_DOCKER still consults 'docker info' (an engine probe), so allowing it is safe"
+# 🔴 REWRITTEN 2026-08-23 AFTER TWO SEPARATE FAILURES OF THE OLD ONE, and both
+# are worth keeping because they point the same way.
+#
+# The old predicate was `grep -A2 '^HAS_DOCKER=false' | head -3` -- the FIRST
+# initialiser and two lines after it.
+#
+# (1) IT MISSED A LAUNDERING. ORM's attack H3 left that initialiser untouched,
+#     so the check passed, and added ONE line to an elif that already existed:
+#
+#         elif command -v docker &>/dev/null; then
+#             warn "..."
+#             HAS_DOCKER=true          # <- five thousand lines above the guard
+#
+#     Whitelisted variable, client-only provenance, PASS=16 FAIL=0. The
+#     allowance did not have to CHANGE to become the laundering. Something
+#     merely had to be ADDED beside it. `grep -A2 ... | head -3` is a window,
+#     and a window is a distance.
+#
+# (2) IT WENT CANNOT-RUN ON THE INTEGRATED TREE. #994 replaced the initialiser
+#     with HAS_DOCKER_CLIENT / HAS_CONTAINER_ENGINE and made HAS_DOCKER a
+#     DERIVED value. `^HAS_DOCKER=false` matched nothing, and the assertion
+#     correctly refused to certify a variable it could no longer inspect.
+#
+# So it now checks EVERY assignment to HAS_DOCKER and requires each to be
+# grounded, following one level of derivation. Enumerable precisely because the
+# variable is whitelisted: the whitelist is what makes the check tractable, so
+# the check should use it.
+HD_LINES="$(grep -nE '^[[:space:]]*HAS_DOCKER=' <<< "$CODE" || true)"
+if [[ -z "$HD_LINES" ]]; then
+    bad "CANNOT-RUN: no assignment to HAS_DOCKER found at all" "assertion 2b measured nothing"
 else
-    bad "HAS_DOCKER no longer consults 'docker info'" \
-        "it is permitted in engine conditions ONLY because it probes the engine; it now launders the client"
+    HD_BAD=0; HD_SEEN=0
+    while IFS= read -r hd; do
+        [[ -n "$hd" ]] || continue
+        HD_SEEN=$((HD_SEEN+1))
+        hdn="${hd%%:*}"; hdv="${hd#*=}"
+        case "$hdv" in
+            false|'"false"') ;;                       # the initialiser, always fine
+            *'$'*)
+                # DERIVED: HAS_DOCKER="$OTHER". Follow one level and require the
+                # source variable's own computation to consult docker info.
+                src="$(printf '%s' "$hdv" | tr -d '"${}' | tr -d ' ')"
+                if grep -E "^[[:space:]]*${src}=" -A1 <<< "$CODE" | grep -q 'docker info' \
+                   || grep -B3 -E "^[[:space:]]*${src}=true" <<< "$CODE" | grep -q 'docker info'; then
+                    :
+                else
+                    HD_BAD=$((HD_BAD+1))
+                    printf '        line %s: HAS_DOCKER derived from $%s, which never consults docker info\n' "$hdn" "$src"
+                fi ;;
+            *)
+                # LITERAL true (or anything else): the condition that governs it
+                # must itself be an engine probe.
+                lo=$(( hdn > 4 ? hdn - 4 : 1 ))
+                if awk -v a="$lo" -v b="$hdn" 'NR>=a && NR<=b' <<< "$CODE" | grep -q 'docker info'; then
+                    :
+                else
+                    HD_BAD=$((HD_BAD+1))
+                    printf '        line %s: HAS_DOCKER=%s is not governed by a docker-info probe\n' "$hdn" "$hdv"
+                fi ;;
+        esac
+    done <<< "$HD_LINES"
+    if [[ "$HD_BAD" -eq 0 ]]; then
+        ok "all ${HD_SEEN} HAS_DOCKER assignment(s) are grounded in an engine probe"
+    else
+        bad "${HD_BAD} of ${HD_SEEN} HAS_DOCKER assignment(s) are not grounded in an engine probe" \
+            "HAS_DOCKER is permitted in engine conditions ONLY because it probes the engine; an ungrounded assignment launders the client (ORM attack H3)"
+    fi
 fi
 
 # ── 3. THE DECISION MUST CONSULT THE COMPUTATION, NOT THE CLIENT ──────────
