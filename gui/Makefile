@@ -297,7 +297,7 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # signed and deliberately NOT notarised: the cut re-signs it via embed-sparkle.sh
 # codesign --force --deep with the Developer ID, which would discard any earlier
 # ticket. Read from the release's own .sha256 sidecar, not from a build log.
-HUB_APP_SHA256       ?= 6b73408823f52eb1b0fc8b4af9fc353143ff890519de8a1c333bc7bbb6ee62ae
+HUB_APP_SHA256       ?= 099067e763b177eca1bf686f91fd9945ef02f155f1e75d18ed19ab6d65dabd99
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
