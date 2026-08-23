@@ -91,6 +91,45 @@ walk_horizon: v1.0.41
 | cut | walked_on | status | approver | findings |
 |---|---|---|---|---|
 | v1.0.41 |  | not_walked | Andy | none |
+| v1.0.42 |  | not_walked | Andy (relayed 2026-08-23, see below) | v1042-D001 v1042-D002 v1042-D003 v1042-D004 |
+
+**On the v1.0.42 row, and it corrects something this file said hours earlier.**
+**v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
+`v1042-D001..D004` ran on **v1.0.38**. Measured three independent ways on
+2026-08-23:
+
+| | |
+|---|---|
+| DMG on the walk box | 57,818,336 bytes, dated 21 Aug 19:32 HKT |
+| published v1.0.38 | **57,818,336 bytes**, published 2026-08-21T11:29:32Z |
+| published v1.0.42 | 57,970,010 bytes, published 2026-08-23T10:55:39Z |
+| `install.sh` run headers on that box, all time | exactly ONE, 2026-08-21T11:36:44Z |
+
+The byte count matches v1.0.38 exactly, 19:32 HKT **is** 11:32Z -- three minutes
+after v1.0.38 was published -- and v1.0.42 did not exist for another two days.
+Three facts agreeing, none of them inferred from a version label.
+
+So the row is `not_walked` and it always was going to be: **there was no
+v1.0.42 install to walk.** The approver is recorded as relayed rather than
+direct, because what was given was a directive and not a row sign-off: *"Andy's
+directive is a NEW cut, v1.0.43, carrying everything surfaced since v1.0.38,
+walkable when he wakes. Do not wait on a v1.0.42 walk."* That is an explicit
+decision not to walk v1.0.42, and it is cited here so a reader can weigh the
+provenance instead of taking a name on trust.
+
+**A `not_walked` row that still lists findings is not a contradiction, and it is
+the most accurate thing this table can say.** The status answers "did anyone
+walk this cut", and nobody did. The findings column answers "what do we know
+this cut carries", and the answer is four defects that shipped in v1.0.38 and
+were never fixed, so **v1.0.39, .40, .41 and .42 all carry them**. Listing them
+here asserts that v1.0.42 HAS these defects, which is true, and asserts nothing
+about how they were discovered.
+
+The sections keep their `v1042-` ids -- see the correction banner on the block
+-- because the ids are already cited in `SHIPPING_LEDGER.yaml`, in
+`launch/GROUNDING.md` and across five PRs. **Renaming a label that other
+documents point at trades one wrong fact for a set of dangling references**, and
+a wrong label that says it is wrong is the safer half of that trade.
 
 **On the v1.0.41 row.** Andy signed this off unwalked on 2026-08-23, asked
 directly, because the alternative was inference. `SHIPPING_LEDGER.yaml` cannot
@@ -2839,6 +2878,21 @@ is design work, and much smaller than three days.
 demonstrates the customer-visible behaviour, only the mechanism that produces it.
 I did not run the two-channel probe, because it would send real iMessages from
 Andy's account.
+
+### 🔴 v1042-D001..D004 ARE v1.0.38's DEFECTS. THE ID IS A LABEL, NOT A CLAIM.
+
+Written 2026-08-23 as findings of a v1.0.42 upgrade walk. **They are not.**
+v1.0.42 was never installed on any machine; the walk ran on v1.0.38. The
+evidence is in the v1.0.42 row above.
+
+Nothing about the four findings changes -- every measurement in them was taken
+on a real box and stands. What changes is which cut produced the box, and
+therefore which cut a reader should hold. **They were shipped by v1.0.38 and
+have been in every cut since**, so v1.0.39, .40, .41 and .42 all carry them and
+none was walked either.
+
+The ids are kept because they are cited elsewhere. **A label that is wrong and
+says so is safer than a rename that leaves five documents pointing at nothing.**
 
 ### v1042-D001 -- the runtime guard asked for a CLIENT and inferred an ENGINE
 
