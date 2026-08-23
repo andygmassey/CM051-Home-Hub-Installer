@@ -46,6 +46,7 @@ CUT=""
 ONLY=""
 LIST_ONLY=0
 VERIFY_CLAIMS=0
+REQUIRE_WALK_CLOSURE=0
 
 # A value-taking option whose value is MISSING must be a usage error, never a
 # spin.
@@ -85,6 +86,7 @@ while [ $# -gt 0 ]; do
 		--only)     need_val --only "$#";     ONLY="$2"; shift 2 ;;
 		--list)     LIST_ONLY=1; shift ;;
 		--verify-claims) VERIFY_CLAIMS=1; shift ;;
+		--require-walk-closure) REQUIRE_WALK_CLOSURE=1; shift ;;
 		--registry) need_val --registry "$#"; REGISTRY="$2"; shift 2 ;;
 		-h|--help)
 			sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -97,6 +99,257 @@ green() { printf '\033[0;32m%s\033[0m\n' "$1"; }
 dim()   { printf '\033[2m%s\033[0m\n' "$1"; }
 
 [ -f "$REGISTRY" ] || { red "PARSE ERROR: registry not found: $REGISTRY"; exit 2; }
+
+# ---------------------------------------------------------------------------
+# --require-walk-closure -- #867 limb 3. THE ANTI-VACUITY LIMB.
+#
+# Andy's rule, 2026-08-23: THE NEXT DMG HE WALKS CONTAINS EVERY FIX FROM THE
+# WALK BEFORE IT. The rest of this script already enforces the half that has
+# teeth once a row EXISTS: a row claiming fixed must carry a gate, a gate must
+# resolve, an unknown id is a parse error. What it could not see was the row
+# that was never written.
+#
+# 🔴 MEASURED 2026-08-23, WITH THE MATCHER ALREADY UNPINNED BY LIMB 1:
+#
+#     bash bin/rollforward_gate.sh --verify-claims
+#       rc=0   "0 unproven fixed-claims across 28 gate(s)"
+#     versions the registry carries:     v1018 and nothing else
+#     rows for any cut after v1.0.18:    0        (we are cutting v1.0.41)
+#
+# Green over an empty denominator, in the one gate whose whole job is stopping
+# a defect riding forward into the next cut. Limb 1 made a later row VISIBLE;
+# it could not make an ABSENT one fail.
+#
+# 🔴 AND "THE WALK BEFORE IT" IS NOT "THE CUT BEFORE IT". The first version of
+# this mode derived the preceding walk from the newest directory in cuts/, i.e.
+# the last cut MADE. The shipping ledger says the last cut actually WALKED was
+# v1.0.36, four cuts back. A gate that assumes every cut was walked would have
+# demanded closure of a walk that never happened, and -- worse -- would have
+# said nothing at all about the three cuts in between. SILENTLY SKIPPING IS THE
+# DEFECT; it cannot be part of the fix.
+#
+# So the table accounts for EVERY cut in scope, and a cut that was not walked
+# says so over a name:
+#
+#   ## WALKS
+#
+#   walk_horizon: v1.0.41
+#
+#   | cut | walked_on | status | approver | findings |
+#   |---|---|---|---|---|
+#   | v1.0.41 | 2026-08-22 | closed |  | v1041-D001 v1041-D002 |
+#
+# WHY A HORIZON. Requiring a row for every cut ever made would mean writing 18
+# rows of history nobody measured, which is fabrication wearing the format of a
+# record. The horizon declares the first cut the table accounts for. Below it,
+# nothing is claimed. From it upward, NOTHING MAY BE SILENT. The horizon is
+# itself required: a missing one is RED, because "no horizon" and "horizon
+# above everything" are the same vacuous pass.
+#
+# WHAT BLOCKS:
+#   1. no ## WALKS table, no rows, or no walk_horizon   -> RED. Absence is not closure.
+#   2. any cut in [horizon, CUT) with no row            -> RED, and names them.
+#   3. status not closed / deferred / not_walked        -> RED. Unknown is never a pass.
+#   4. deferred or not_walked with no named approver    -> RED. No anonymous waivers,
+#                                                          the rule reconcile_gates.sh
+#                                                          already applies to gates.
+#   5. a row whose findings do not EQUAL the registry
+#      sections for that walk                           -> RED, printing both sides.
+#
+# (5) is the limb that stops the other four being satisfied by typing the word
+# closed. Row and sections verify each other: a section the row forgot is
+# caught, and a finding with no section is caught. Retracted sections
+# (### ~~vNNNN-Dxxx~~) are excluded deliberately -- the real registry carries
+# one, v1018-D034, retracted 2026-08-09 when both dedupe fixes turned out to
+# have shipped. A retraction is a finding WITHDRAWN, and counting it would
+# force an operator to list a defect that does not exist.
+#
+# WHICH cuts/ DIRECTORY. Same trap the --cut binder documents above: this file
+# runs in TWO repos and $HERE resolves differently in each. OS003's cuts/ is
+# the operator record and is sparse (11 version dirs); CM051's is the pin
+# record and is contiguous (18, v1.0.24 to v1.0.41). So the run PRINTS the
+# directory it read, the horizon, and every cut in scope. A verdict whose
+# denominator is invisible is the failure this mode exists to refuse, and it
+# would be absurd to commit it here.
+#
+# EXIT: 0 every cut in scope is accounted for. 1 one or more is not, which is a
+# cut blocker. 2 CANNOT-RUN: no cuts/ directory, no version directories. Nothing
+# has been found wrong with the cut in the rc=2 case and it must not be reported
+# as a defect -- but it still blocks, because a blind spot is not a pass.
+# ---------------------------------------------------------------------------
+if [ "$REQUIRE_WALK_CLOSURE" -eq 1 ]; then
+	[ -n "$CUT" ] || {
+		red "CANNOT-RUN: --require-walk-closure needs --cut <tag> to know which cuts are in scope"
+		exit 2
+	}
+
+	_wc_compact() {  # v1.0.41 -> v1041, matching the vNNNN-Dxxx id convention
+		printf 'v%s\n' "$(printf '%s' "${1#v}" | tr -d '.')"
+	}
+
+	# ROLLFORWARD_CUTS_DIR exists so the test can hand this mode a controlled
+	# set of version directories, exactly as ROLLFORWARD_REGISTRY already does
+	# for the registry. It is resolved HERE, per invocation, NOT at script load:
+	# the CM051 BOM freshness gate shipped with its pin resolved at load, which
+	# made every env override in its own self-test inert and all six cases pass
+	# against the real files. A green that cannot be moved by its own fixture is
+	# measuring nothing. The resolved path is printed on every run, so a
+	# redirected scope is visible in the log rather than inferable from it.
+	wc_cuts_dir="${ROLLFORWARD_CUTS_DIR:-$HERE/cuts}"
+	[ -d "$wc_cuts_dir" ] || {
+		red "CANNOT-RUN: no cuts/ directory at $wc_cuts_dir"
+		dim "This mode derives the cuts in scope from the version directories there."
+		exit 2
+	}
+
+	wc_versions="$(ls -1 "$wc_cuts_dir" 2>/dev/null | grep -E '^v[0-9]+(\.[0-9]+)+$' || true)"
+	[ -n "$wc_versions" ] || {
+		red "CANNOT-RUN: $wc_cuts_dir holds no version directories"
+		dim "Nothing to scope against. Refusing rather than assuming the scope is empty."
+		exit 2
+	}
+
+	# grep -c, NOT `printf '%s' ... | wc -l`. printf without a trailing newline
+	# leaves the last line unterminated and wc -l counts TERMINATORS, so the
+	# first version of this line said 10 against 11 real directories. A count
+	# that is quietly one short is worse than no count: it is the number the
+	# reader trusts to decide whether the gate looked in the right place.
+	dim "walk-closure: registry   $REGISTRY"
+	dim "walk-closure: cuts dir   $wc_cuts_dir ($(printf '%s\n' "$wc_versions" | grep -c . || true) version dirs)"
+	dim "walk-closure: starting   $CUT"
+
+	# --- the WALKS table ---------------------------------------------------
+	wc_horizon="$(awk '
+		/^##[[:space:]]+WALKS[[:space:]]*$/ { inw = 1; next }
+		/^##[[:space:]]/                    { inw = 0 }
+		inw && /^walk_horizon:/ { v = $0; sub(/^walk_horizon:[[:space:]]*/, "", v); gsub(/[[:space:]]/, "", v); print v; exit }
+	' "$REGISTRY" || true)"
+
+	wc_rows="$(awk '
+		/^##[[:space:]]+WALKS[[:space:]]*$/ { inw = 1; next }
+		/^##[[:space:]]/                    { inw = 0 }
+		inw && /^\|/                        { print }
+	' "$REGISTRY" | grep -vE '^\|[[:space:]]*-{2,}' | tail -n +2 || true)"
+
+	if [ -z "$wc_rows" ] || [ -z "$wc_horizon" ]; then
+		red "WALK CLOSURE RED -- the registry has no usable ## WALKS table."
+		[ -n "$wc_horizon" ] || dim "  missing: walk_horizon"
+		[ -n "$wc_rows" ]    || dim "  missing: any row"
+		dim "An absent table is the vacuous pass this mode exists to refuse. Every"
+		dim "cut from the horizon upward gets a row, including a cut nobody walked"
+		dim "(status=not_walked over a name) and a walk that found nothing"
+		dim "(findings=none). Add to $REGISTRY:"
+		dim ""
+		dim "  ## WALKS"
+		dim ""
+		dim "  walk_horizon: $CUT"
+		dim ""
+		dim "  | cut | walked_on | status | approver | findings |"
+		dim "  |---|---|---|---|---|"
+		exit 1
+	fi
+
+	dim "walk-closure: horizon    $wc_horizon"
+
+	# Cuts in scope: horizon <= v < CUT. sort -V puts the ordering beyond doubt
+	# for 1.0.9 against 1.0.10, which a lexical sort gets backwards.
+	wc_scope="$(printf '%s\n' "$wc_versions" | sed 's/^v//' | sort -V | while IFS= read -r v; do
+			# Ordering by sort -V, decided pairwise, because awk cannot compare
+			# dotted versions and a numeric coercion turns 1.0.9 into 1.
+			lo="$(printf '%s\n%s\n' "${wc_horizon#v}" "$v" | sort -V | head -1)"
+			hi="$(printf '%s\n%s\n' "$v" "${CUT#v}" | sort -V | head -1)"
+			[ "$lo" = "${wc_horizon#v}" ] || continue
+			[ "$hi" = "$v" ] && [ "$v" != "${CUT#v}" ] || continue
+			printf 'v%s\n' "$v"
+		done)"
+
+	if [ -z "$wc_scope" ]; then
+		red "WALK CLOSURE RED -- no cut directory falls in [$wc_horizon, $CUT)."
+		dim "Either the horizon is above every cut that exists, which makes this"
+		dim "mode vacuous, or $CUT is not ahead of the horizon. Both are refusals:"
+		dim "a scope of zero is the shape of the defect, not a clean bill."
+		dim "Version dirs seen: $(printf '%s' "$wc_versions" | tr '\n' ' ')"
+		exit 1
+	fi
+
+	dim "walk-closure: in scope   $(printf '%s\n' "$wc_scope" | grep -c . || true) cut(s): $(printf '%s' "$wc_scope" | tr '\n' ' ')"
+
+	wc_field() {  # wc_field <row> <1-based cell index>
+		printf '%s\n' "$1" | awk -F'|' -v n="$(( $2 + 1 ))" '{ v = $n; gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); print v }'
+	}
+
+	wc_bad=0
+	while IFS= read -r wc_cut; do
+		[ -n "$wc_cut" ] || continue
+		wc_id="$(_wc_compact "$wc_cut")"
+		wc_row="$(printf '%s\n' "$wc_rows" | awk -F'|' -v want="$wc_cut" '
+			{ c = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); if (c == want) { print; found = 1; exit } }
+			END { exit !found }
+		')" || {
+			red "  $wc_cut  NO ROW. A cut with no row is indistinguishable from a cut nobody looked at."
+			wc_bad=$((wc_bad + 1))
+			continue
+		}
+
+		wc_status="$(wc_field "$wc_row" 3)"
+		wc_approver="$(wc_field "$wc_row" 4)"
+		wc_findings="$(wc_field "$wc_row" 5)"
+
+		case "$wc_status" in
+			closed) ;;
+			deferred|not_walked)
+				if [ -z "$wc_approver" ]; then
+					red "  $wc_cut  status '$wc_status' with NO named approver. An anonymous waiver is one nobody signed."
+					wc_bad=$((wc_bad + 1))
+					continue
+				fi ;;
+			*)
+				red "  $wc_cut  status '$wc_status' is neither closed, deferred nor not_walked. Unknown is never a pass."
+				wc_bad=$((wc_bad + 1))
+				continue ;;
+		esac
+
+		wc_sections="$(grep -E '^### ' "$REGISTRY" | grep -v '~~' | grep -oE "${wc_id}-D[0-9]+" | sort -u || true)"
+		if [ "$wc_findings" = "none" ]; then
+			wc_claimed=""
+		else
+			wc_claimed="$(printf '%s' "$wc_findings" | tr ', ' '\n\n' | grep -E "^${wc_id}-D[0-9]+$" | sort -u || true)"
+		fi
+
+		if [ "$wc_claimed" != "$wc_sections" ]; then
+			red "  $wc_cut  the row and the registry sections disagree."
+			dim "      row claims  : ${wc_claimed:-<none>}"
+			dim "      registry has: ${wc_sections:-<none>}"
+			dim "      only in the registry (a finding the row forgot):"
+			comm -13 <(printf '%s\n' "$wc_claimed") <(printf '%s\n' "$wc_sections") | sed 's/^/        /'
+			dim "      only in the row (a finding with no section):"
+			comm -23 <(printf '%s\n' "$wc_claimed") <(printf '%s\n' "$wc_sections") | sed 's/^/        /'
+			wc_bad=$((wc_bad + 1))
+			continue
+		fi
+
+		green "  $wc_cut  $wc_status${wc_approver:+ (approver: $wc_approver)}, $(printf '%s\n' "$wc_sections" | grep -c . || true) finding(s), all listed"
+	done <<WC_SCOPE_EOF
+$wc_scope
+WC_SCOPE_EOF
+
+	if [ "$wc_bad" -gt 0 ]; then
+		red "WALK CLOSURE RED -- $wc_bad cut(s) in [$wc_horizon, $CUT) are not accounted for."
+		dim "Write the rows and the finding sections, then re-run. Do not raise the"
+		dim "horizon to make this pass: the horizon exists so history nobody measured"
+		dim "is not fabricated, not so a cut that WAS made can be stepped over."
+		exit 1
+	fi
+
+	green "WALK CLOSURE GREEN -- every cut in [$wc_horizon, $CUT) is accounted for."
+	dim "PROVEN HERE:     every cut directory from the horizon up to $CUT has a WALKS"
+	dim "                 row; each row is closed, or deferred/not_walked over a NAME;"
+	dim "                 and each row's findings EQUAL the registry sections for it."
+	dim "NOT PROVEN HERE: that those findings are FIXED. That is --verify-claims"
+	dim "                 (every fixed-claim carries a gate) and --cut (run the gates)."
+	dim "                 Nor that anything BELOW $wc_horizon was ever walked."
+	exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # --cut BINDS THE RUN TO THAT VERSION'S PINS. Until 2026-08-11 it bound nothing.
