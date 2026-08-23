@@ -304,6 +304,39 @@ jobs:
         # matches it rather than widening a shared predicate at cut time.
         run: python3 ./tests/test_doctor_silent_failure_grafts.py
 
+      # v1.0.38 walk, 2026-08-23: the wiki was dead for about a day
+      # and NOTHING said so. No alert, no card, no banner -- it was found only
+      # because someone was asked to open the URL. Before the fix, the entire
+      # vendor/doctor tree's only mention of port 8044 was a comment.
+      #
+      # This runs beside the graft test for the same reason that one exists:
+      # diagnostic_rules.py, diagnostic_copy.py and web_ui.py are "graft, do
+      # not copy" files (vendor/doctor/README.md), so a future
+      # `sync_vendor.sh doctor` would silently drop this rule. The test is
+      # what makes that drop loud. Every assertion in it has a NEGATIVE
+      # control beside it -- the same rule on a healthy snapshot must stay
+      # silent -- so it cannot pass by firing on everything.
+      - name: A dead wiki announces itself
+        if: always()
+        run: python3 ./tests/test_a_dead_wiki_announces_itself.py
+
+      # THE ENGINE DIED MID-LIFE AND NOTHING CHECKED AGAIN FOR A DAY.
+      #
+      # Measured on Andrews-Mac-mini 2026-08-23, left unrepaired so it could
+      # be read: colima, docker and limactl all INSTALLED; `docker info` rc=1;
+      # `pgrep -f 'limactl|qemu'` 0; :8044 and :7878 -> 000 while :8000 -> 200
+      # and :8089 -> 302. The engine was installed and STOPPED, killed by
+      # macOS after the installer exhausted application memory, on a box that
+      # never rebooted.
+      #
+      # Any check that asks "is a runtime installed" reports HEALTHY on that
+      # box while the wiki is dark. This gate drives all FOUR states -- three
+      # of which look identical to a naive probe -- and asserts the recovery
+      # path fires on the one that bit us and does NOT fire on a healthy box.
+      - name: The container engine is supervised, and recovery actually fires
+        if: always()
+        run: bash tests/test_container_engine_liveness_and_recovery.sh
+
       # Tests IMPORT, production EXECUTES, and nothing checked the difference.
       #
       # vendor/cm059_editor/compiler/emit_frontpage.py called _read_feed() from

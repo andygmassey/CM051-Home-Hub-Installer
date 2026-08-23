@@ -329,7 +329,14 @@ MSG_OK_BACKED_UP_CONTACTS="Backed up %s contacts to %s"
 MSG_OK_CM042_INSTALLED="Ostler RemoteCapture v%s installed at %s"
 MSG_OK_CM042_LAUNCHAGENT_LOADED="Ostler RemoteCapture LaunchAgent loaded (label %s)"
 MSG_OK_COLIMA_DOCKER_CLI_INSTALLED="Colima and Docker CLI installed"
-# v1.0.42 walk (2026-08-23): a green install finished on a Mac with the
+# v1.0.38 walk (2026-08-23): the container engine was killed by macOS
+# mid-life and nothing checked again for a day, because the only thing that
+# could restart it ran once at daemon startup. These cover the agent that
+# supplies the missing cadence.
+MSG_OK_ENGINE_SUPERVISOR_INSTALLED="Container-runtime supervisor installed (checks every 5 minutes and restarts the runtime if it stops)"
+MSG_WARN_ENGINE_SUPERVISOR_NOT_LOADED="The container-runtime supervisor could not be scheduled. Ostler will still install, but if the runtime stops later nothing will bring it back on its own - your wiki would stay down until you re-run the installer."
+MSG_WARN_ENGINE_SUPERVISOR_NOT_STAGED="The container-runtime supervisor files are missing from this installer, so it was not scheduled. Ostler will still install, but automatic recovery of the runtime is not active."
+# v1.0.38 walk (2026-08-23): a green install finished on a Mac with the
 # Docker CLI present and no engine behind it. On macOS `docker` is a client;
 # these strings keep the two apart in everything the customer reads.
 MSG_OK_CONTAINER_ENGINE_ANSWERED="Container runtime responding"

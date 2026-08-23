@@ -3475,7 +3475,7 @@ fi
 
 # ── Container runtime: the CLIENT is not the ENGINE ────────────────
 #
-# MEASURED on Andy's Mac mini after a GREEN v1.0.42 install, 2026-08-23:
+# MEASURED on Andy's Mac mini after a GREEN v1.0.38 install, 2026-08-23:
 #
 #     /opt/homebrew/bin/docker      EXISTS      <-- the CLI, a client only
 #     colima                        ABSENT
@@ -9282,7 +9282,7 @@ fi
 
 # ── 3.2a POST-CONDITION: an engine must ANSWER, on every path ──────
 #
-# 🔴 THE INSTALL REPORTED SUCCESS WITH NO CONTAINER RUNTIME (v1.0.42 walk).
+# 🔴 THE INSTALL REPORTED SUCCESS WITH NO CONTAINER RUNTIME (v1.0.38 walk).
 #
 # Everything above is a LADDER of conditional arms -- HAS_DOCKER true,
 # Colima present, Docker Desktop present, brew install, retry loop. Every
@@ -9323,6 +9323,93 @@ if ! docker info &>/dev/null 2>&1; then
         "$(printf "$MSG_FAIL_CONTAINER_ENGINE_ABSENT" "$INSTALL_LOG")"
 fi
 ok "$MSG_OK_CONTAINER_ENGINE_ANSWERED"
+# ── 3.2a-sup Container-engine supervisor (PERIODIC, not startup-only) ──
+#
+# 🔴 THE ENGINE DIED MID-LIFE AND NOTHING CHECKED AGAIN FOR A DAY.
+#
+# Measured on Andrews-Mac-mini, 2026-08-23, from the box's own logs:
+#
+#   ~/.ostler/logs/ostler-assistant.err carries SIX colima lines -- three
+#   start/success pairs -- the last at 2026-08-22T09:57:58Z, two seconds
+#   after the daemon booted. The daemon (pid 19647) has
+#   `last exit code = (never exited)`, because ensure_colima_running() runs
+#   ONCE, at startup (ostler-assistant src/main.rs:1159, called at :1923).
+#
+#   Jetsam killed the Colima VM ~31 hours later, between 16:10 and 17:33 on
+#   2026-08-23 -- eight JetsamEvent reports in
+#   /Library/Logs/DiagnosticReports/ -- after the installer's unbounded
+#   output buffer took the machine to 4.27 GB. No reboot: uptime 2 days.
+#
+#   The only periodic job that touches the runtime is wiki-recompile, and
+#   its plist on that box reads StartInterval = 86400. ONCE A DAY. Its last
+#   tick waited 120 s, logged "not ready ... Exiting 0", and did nothing.
+#   A daily tick is exactly a day of latency.
+#
+# A supervisor that runs once at process launch cannot recover a mid-life
+# death. That is the defect in one sentence. The primitive is fine -- it
+# recovered Colima three times in under half a second each. Its TRIGGER is
+# the bug, so this agent supplies a trigger.
+#
+# IT DOES NOT RUN `colima start` ITSELF, and that is the point of the whole
+# design. See §3.2b directly below: a bare LaunchAgent has NO Full Disk
+# Access, Colima then cannot mount ~/Documents, and the wiki's bind-mount
+# fails -- that agent was DELETED to fix exactly that. The signed daemon
+# holds FDA and its children inherit it, which is why the recovery lives
+# there. This supervisor asks launchd to restart the FDA holder, which
+# re-runs the proven primitive with the right privileges.
+mkdir -p "${OSTLER_DIR}/bin" "${OSTLER_DIR}/lib"
+if [[ -f "${SCRIPT_DIR}/lib/ostler-container-engine.sh" ]]; then
+    cp "${SCRIPT_DIR}/lib/ostler-container-engine.sh" "${OSTLER_DIR}/lib/"
+    chmod +x "${OSTLER_DIR}/lib/ostler-container-engine.sh"
+fi
+if [[ -f "${SCRIPT_DIR}/bin/ostler-engine-supervisor.sh" ]]; then
+    cp "${SCRIPT_DIR}/bin/ostler-engine-supervisor.sh" "${OSTLER_DIR}/bin/"
+    chmod +x "${OSTLER_DIR}/bin/ostler-engine-supervisor.sh"
+fi
+
+# Walk the post-condition: a supervisor that was never staged would leave
+# launchd firing at a missing path and recording EX_CONFIG for the life of
+# the install, which reads as "an agent exists" while nothing supervises.
+if [[ -x "${OSTLER_DIR}/bin/ostler-engine-supervisor.sh" \
+   && -f "${OSTLER_DIR}/lib/ostler-container-engine.sh" ]]; then
+    ENGINE_SUP_PLIST="${HOME}/Library/LaunchAgents/com.ostler.engine-supervisor.plist"
+    cat > "$ENGINE_SUP_PLIST" <<ESPEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.engine-supervisor</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>${OSTLER_DIR}/bin/ostler-engine-supervisor.sh</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/engine-supervisor.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/engine-supervisor.err</string>
+</dict>
+</plist>
+ESPEOF
+    launchctl bootout "gui/$(id -u)/com.ostler.engine-supervisor" 2>/dev/null || true
+    if launchctl bootstrap "gui/$(id -u)" "$ENGINE_SUP_PLIST" 2>/dev/null \
+       || launchctl load "$ENGINE_SUP_PLIST" 2>/dev/null; then
+        ok "$MSG_OK_ENGINE_SUPERVISOR_INSTALLED"
+    else
+        # Non-fatal: the install still works, the box just loses automatic
+        # recovery. Say so rather than let it pass as installed.
+        warn "$MSG_WARN_ENGINE_SUPERVISOR_NOT_LOADED"
+    fi
+else
+    warn "$MSG_WARN_ENGINE_SUPERVISOR_NOT_STAGED"
+fi
 
 # ── 3.2b Remove any stale FDA-less Colima LaunchAgent ──────────────
 #
@@ -16091,6 +16178,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.ostler.deferred-register-device
     com.ostler.aiconv-resume
     com.ostler.colima
+    com.ostler.engine-supervisor
     com.ostler.meeting-brief-sender
     com.ostler.ollama-logrotate
     com.ostler.stay-awake
@@ -23205,7 +23293,7 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
     # exit code of `docker compose up -d`, with NO probe of :8044 and no
     # re-read of the container state. `up -d` returning 0 means compose
     # asked for a container, not that anything answers on the port. On the
-    # v1.0.42 walk the wiki was dead for about a day and this line was the
+    # v1.0.38 walk the wiki was dead for about a day and this line was the
     # last thing that had claimed otherwise.
     #
     # INSTRUMENT AND DEFECT MUST SHARE A SURFACE: the claim is about a URL,
@@ -23454,7 +23542,7 @@ else
     HEALTHY=false
 fi
 
-# 🔴 THE WIKI WAS NOT IN THE HEALTH CHECK AT ALL (v1.0.42 walk).
+# 🔴 THE WIKI WAS NOT IN THE HEALTH CHECK AT ALL (v1.0.38 walk).
 #
 # Phase 4 probed Qdrant, Oxigraph, Redis, Ollama, the gateway, Doctor,
 # ical-server and Vane. It did not probe :8044, and there was no `curl` or

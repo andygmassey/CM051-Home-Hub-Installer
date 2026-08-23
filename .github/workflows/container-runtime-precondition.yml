@@ -2,7 +2,7 @@ name: container-runtime-precondition
 
 # THE INSTALL REPORTED SUCCESS ON A MAC WITH NO CONTAINER RUNTIME.
 #
-# v1.0.42 upgrade walk, Mac mini, 2026-08-23. Measured after a GREEN install:
+# v1.0.38 walk, Mac mini, 2026-08-23. Measured after a GREEN install:
 #
 #     /opt/homebrew/bin/docker   EXISTS     <-- the CLI. A client only.
 #     colima                     ABSENT

@@ -139,6 +139,18 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # (commit d030468), so the gate false-flagged an asset that ships. Assert
     # the bundling reference so a future removal of the cp line goes red.
     "lib/ostler-model-fit.sh": ["lib/ostler-model-fit.sh"],
+    # v1.0.42 walk (2026-08-23): the container-engine liveness classifier and
+    # its recovery supervisor. install.sh probes ${SCRIPT_DIR}/lib/
+    # ostler-container-engine.sh and ${SCRIPT_DIR}/bin/ before staging both
+    # into ~/.ostler and scheduling com.ostler.engine-supervisor from them.
+    # If they are not in the .app the probe fails, install.sh takes its warn
+    # branch, and every customer gets an install with NO automatic recovery of
+    # the container runtime -- the exact state that left the walk box's wiki
+    # dark for a day while every gate stayed green. That is ships-dark by
+    # construction, which is why this gate refused the change until the
+    # postBuildScript existed. Both needles assert the cp lines.
+    "lib/ostler-container-engine.sh": ["lib/ostler-container-engine.sh"],
+    "bin": ["bin/ostler-engine-supervisor.sh"],
     # settling_progress.sh: install.sh sources
     # ${SCRIPT_DIR}/lib/settling_progress.sh so CM041 contact_syncer and CM021
     # pwg-email-ingest can report the `contacts` and `emails` channels on the
