@@ -18,4 +18,18 @@
 # pin that a STEP_END carrying status=timeout or status=error does not decode
 # to .ok. Leaving the floor at 283 would have let those five be deleted with
 # the gate still green, which is the same shape of defect the PR fixes.
-288
+#
+# Raised to 318 on 2026-08-23 (v1.0.42 walk, finding 1). MEASURED, not
+# estimated: the swift-tests run on PR #993 printed, on two different commits
+# of that branch,
+#     swift-tests: executed=318 failures=0 declared-floor=288
+# The 21 new cases are AutoQuitAndKeepInstallerTests -- the auto-quit window,
+# the offer-to-trash defaulting to KEEP (CX-52 trashed the app silently and
+# unconditionally), the memory ceiling driven to RED at the 4.27 GB actually
+# read off the box, and the bounded output buffer at the type level.
+#
+# The gap between 288 and 318 is wider than the 21 added here: the floor had
+# not been raised since #839 and other tests landed in between. Stated rather
+# than smoothed over -- 318 is the number the workflow printed, and it is the
+# only number I can defend.
+318

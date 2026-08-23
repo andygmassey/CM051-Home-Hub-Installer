@@ -17,6 +17,8 @@
 
 import SwiftUI
 import Foundation
+// NSApp.terminate + FileManager.trashItem on the single quit sink.
+import AppKit
 
 @MainActor
 final class InstallerCoordinator: ObservableObject {
@@ -45,6 +47,56 @@ final class InstallerCoordinator: ObservableObject {
     /// failure banner. ContentView checks this BEFORE the gated/finished
     /// branches.
     @Published var cancelled: Bool = false
+
+    // ── Post-success auto-quit (v1.0.42 walk, finding 1a) ─────────
+    //
+    // The installer used to sit open indefinitely after a successful
+    // install. On the v1.0.42 walk it sat there holding 4.27 GB until
+    // macOS ran the whole box out of application memory. The leak itself
+    // is fixed in OutputLineBuffer; this bounds every FUTURE retention
+    // path we have not found yet, by making "left open forever after
+    // success" impossible.
+    //
+    // Unconditional and unpromptable BY DECISION: an installer that has
+    // finished its job has no reason to hold a process. The countdown is
+    // visible so it is never a surprise, and every CTA on the completion
+    // screen (Open Ostler, Open your Wiki, the pairing QR, Copy log)
+    // stays live for the whole window.
+
+    /// Seconds granted on the completion screen before the app quits.
+    /// Long enough to scan the pairing QR, short enough that an idle
+    /// installer cannot outlive the session.
+    static let autoQuitSeconds = 300
+
+    /// Seconds left before the automatic quit; nil when not armed.
+    @Published var autoQuitRemaining: Int? = nil
+
+    /// Set when the memory ceiling has been breached. Surfaced in the GUI
+    /// so a customer watching a slow install has an explanation before
+    /// macOS gives them one.
+    @Published var memoryCeilingBreached: Bool = false
+
+    /// Offer-to-trash, DEFAULTED TO KEEP. Pre-fix the "Done" button trashed
+    /// OstlerInstaller.app unconditionally and silently (CX-52). The upgrade
+    /// re-run is a legitimate repair route -- we exercised it on the v1.0.42
+    /// walk -- and CM031 #637 is the standing example of what "your only
+    /// escape is delete and reinstall" costs. So the installer is KEPT unless
+    /// the customer asks for it to go.
+    @Published var trashInstallerOnQuit: Bool = false
+
+    private var autoQuitTask: Task<Void, Never>? = nil
+
+    /// The terminate sink, injectable. Two reasons, both load-bearing:
+    /// a test must be able to drive `finishAndQuit()` without killing its own
+    /// host process, and the trash decision must be assertable separately
+    /// from the termination it precedes.
+    var quitAction: () -> Void = { NSApp.terminate(nil) }
+
+    /// Records whether the bundle was actually moved to the Trash on the way
+    /// out, so the keep/trash decision is observable rather than inferred
+    /// from a side effect on the filesystem.
+    private(set) var didTrashInstaller = false
+
     @Published var devModeRawLog: Bool = false
     @Published var error: String? = nil
     /// CX-17 (2026-05-23): stable error code carried on the DONE
@@ -326,8 +378,16 @@ final class InstallerCoordinator: ObservableObject {
     /// the two. Lives under $TMPDIR for the duration of the process.
     private var promptFifoPath: String? = nil
     private var promptPipeWriteHandle: FileHandle? = nil
-    private var stdoutBuffer = ""
+    /// Bounded line accumulator. Was a bare `String` that grew by one
+    /// retained byte per byte received whenever the producer emitted no
+    /// "\n" -- 20 MiB of `\r`-delimited progress measured 20,984,000 chars
+    /// retained and 0 lines parsed, permanently. See OutputLineBuffer.swift
+    /// for the measurement and its control.
+    private var stdoutBuffer = OutputLineBuffer()
     private var startedAt: Date? = nil
+    /// One-shot latch so the "output was dropped" notice is logged once per
+    /// install rather than on every subsequent chunk.
+    private var droppedOutputReported: Bool = false
 
     // ── No-output watchdog ───────────────────────────────────────
     //
@@ -1374,6 +1434,11 @@ final class InstallerCoordinator: ObservableObject {
     }
 
     private func tickWatchdog() {
+        // Memory ceiling first: it must fire whether or not the subprocess is
+        // producing output. Unbounded growth with output still flowing is the
+        // exact case the silence watchdog cannot see.
+        tickMemoryCeiling()
+
         guard let last = lastSubprocessOutputAt else { return }
         let elapsed = Date().timeIntervalSince(last)
 
@@ -1418,6 +1483,49 @@ final class InstallerCoordinator: ObservableObject {
             )
             OstlerLog.subprocess.error("watchdog: heartbeat elapsed=\(Int(elapsed), privacy: .public)s pid=\(self.process?.processIdentifier ?? -1, privacy: .public)")
             watchdogStage += 1
+        }
+    }
+
+    // MARK: - Memory ceiling
+    //
+    // Runs on the same 5s cadence as the silence watchdog. See
+    // MemoryCeiling.swift for why this is not a kill switch.
+
+    /// Highest severity already announced, so the log drawer gets one line
+    /// per escalation rather than one every five seconds.
+    private var memoryCeilingStage: Int = 0
+
+    private func tickMemoryCeiling() {
+        // nil means the kernel refused the query. That is NOT zero, and it
+        // must not be classified as healthy -- skip the tick instead.
+        guard let footprint = MemoryCeiling.currentFootprint() else { return }
+        switch MemoryCeiling.verdict(footprint: footprint) {
+        case .ok:
+            return
+        case .warn(let bytes):
+            guard memoryCeilingStage < 1 else { return }
+            memoryCeilingStage = 1
+            appendLog(
+                level: "warn",
+                msg: "Installer memory footprint is \(MemoryCeiling.megabytes(bytes)) MB "
+                    + "(warning threshold \(MemoryCeiling.megabytes(MemoryCeiling.warnBytes)) MB). "
+                    + "This is not normal for an install; the log below is the record."
+            )
+            OstlerLog.lifecycle.warning("memory ceiling WARN footprint=\(bytes, privacy: .public)B")
+        case .critical(let bytes):
+            guard memoryCeilingStage < 2 else { return }
+            memoryCeilingStage = 2
+            let mb = MemoryCeiling.megabytes(bytes)
+            appendLog(
+                level: "error",
+                msg: "Installer memory footprint is \(mb) MB, past the "
+                    + "\(MemoryCeiling.megabytes(MemoryCeiling.criticalBytes)) MB ceiling. "
+                    + "The install is still running. If macOS warns that the system has run out "
+                    + "of application memory, quit the installer and run it again -- re-running is "
+                    + "safe and picks up where this left off."
+            )
+            OstlerLog.lifecycle.error("memory ceiling CRITICAL footprint=\(bytes, privacy: .public)B")
+            memoryCeilingBreached = true
         }
     }
 
@@ -1480,19 +1588,26 @@ final class InstallerCoordinator: ObservableObject {
                     + "(\(fromStderr ? "stderr" : "stdout"), \(data.count)B): \(preview)"
             )
         }
-        stdoutBuffer.append(chunk)
-
-        while let nlIdx = stdoutBuffer.firstIndex(of: "\n") {
-            var line = String(stdoutBuffer[..<nlIdx])
-            stdoutBuffer.removeSubrange(...nlIdx)
-            // Strip stray CR (a handful of tool outputs put CRLF
-            // even into pipes; harmless to be defensive).
-            if line.hasSuffix("\r") {
-                line.removeLast()
-            }
+        // Bounded, terminator-agnostic. "\r" ends a line as well as "\n", so
+        // progress redraws are PARSED instead of accumulated, and retention
+        // is capped regardless of what the producer emits.
+        for line in stdoutBuffer.ingest(chunk) {
             if line.isEmpty { continue }
             let event = ProgressDecoder.decode(line: line)
             apply(event: event, fromStderr: fromStderr)
+        }
+
+        // A drop is a real event, not a normal steady state. Say so once, so
+        // a truncated log is never mistaken for a complete one.
+        if stdoutBuffer.droppedBytes > 0 && !droppedOutputReported {
+            droppedOutputReported = true
+            appendLog(
+                level: "warn",
+                msg: "Subprocess emitted more than \(OutputLineBuffer.defaultMaxBufferBytes / 1024) KiB "
+                    + "with no line terminator; that run was discarded to bound memory. "
+                    + "The full text is in the install log on disk."
+            )
+            OstlerLog.subprocess.warning("output line buffer hit its ceiling; dropped=\(self.stdoutBuffer.droppedBytes, privacy: .public)B")
         }
     }
 
@@ -1800,9 +1915,16 @@ final class InstallerCoordinator: ObservableObject {
             exitCode: exitCode
         )
         switch outcome {
-        case .confirmedSuccess, .confirmedFailure, .cancelled:
+        case .confirmedSuccess:
+            // The marker and the exit code agree. Arm the auto-quit: this is
+            // the only place in the app where success is CONFIRMED, so it is
+            // the only honest place to start the clock.
+            armAutoQuit()
+        case .confirmedFailure, .cancelled:
             // The marker and exit code agree (or the user cancelled);
-            // the terminal state set during marker handling stands.
+            // the terminal state set during marker handling stands. NOT
+            // auto-quit: a failed install is exactly when the customer needs
+            // the log drawer and the Copy log button.
             break
         case .failure(let message):
             // The two completion signals disagree, or no DONE marker
@@ -1834,11 +1956,84 @@ final class InstallerCoordinator: ObservableObject {
         stdoutPipe?.fileHandleForReading.readabilityHandler = nil
         stderrPipe?.fileHandleForReading.readabilityHandler = nil
 
+        // Release the line accumulator. Pre-fix it was never cleared at all,
+        // so whatever it had swallowed stayed resident for as long as the app
+        // was open -- which is why the 4.27 GB was still there AFTER a
+        // successful install rather than only during one.
+        stdoutBuffer.reset()
+
         // Release the caffeinate power assertion. Idempotent; safe to
         // call even when start() failed earlier. Single sink so a
         // success / failure / cancel / quit path all release the
         // assertion identically.
         CaffeinateManager.shared.stop()
+    }
+
+    // ── Post-success auto-quit ───────────────────────────────────
+
+    /// m:ss for the countdown label. Pure + static so the format is asserted
+    /// directly rather than through a rendered view.
+    static func mmss(_ seconds: Int) -> String {
+        let s = max(0, seconds)
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    /// Start the visible countdown to termination. Idempotent: a second
+    /// DONE marker (or a re-entrant terminationHandler) must not stack two
+    /// timers and halve the customer's window.
+    func armAutoQuit() {
+        guard autoQuitTask == nil else { return }
+        autoQuitRemaining = Self.autoQuitSeconds
+        appendLog(
+            level: "info",
+            msg: "Install complete. This installer will close automatically in "
+                + "\(Self.autoQuitSeconds / 60) minutes so it does not keep holding memory."
+        )
+        OstlerLog.lifecycle.info("auto-quit armed seconds=\(Self.autoQuitSeconds, privacy: .public)")
+        autoQuitTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard let self else { return }
+                guard let left = self.autoQuitRemaining else { return }
+                if left <= 1 {
+                    self.autoQuitRemaining = 0
+                    self.finishAndQuit()
+                    return
+                }
+                self.autoQuitRemaining = left - 1
+            }
+        }
+    }
+
+    /// The single exit sink for a successful install: honours the
+    /// offer-to-trash choice, then terminates. Used by the Done button AND
+    /// by the auto-quit, so the two can never disagree about what happens
+    /// to the installer bundle.
+    func finishAndQuit() {
+        autoQuitTask?.cancel()
+        autoQuitTask = nil
+        if trashInstallerOnQuit {
+            // Best-effort: a failure here (path missing, permissions, running
+            // from a read-only DMG) must not stop the quit.
+            let bundleURL = Bundle.main.bundleURL
+            if bundleURL.path.hasPrefix("/Applications/") {
+                var trashedURL: NSURL?
+                try? FileManager.default.trashItem(at: bundleURL, resultingItemURL: &trashedURL)
+                didTrashInstaller = true
+                OstlerLog.lifecycle.info("installer bundle moved to Trash at customer request")
+            }
+        } else {
+            OstlerLog.lifecycle.info("installer bundle KEPT (offer-to-trash default)")
+        }
+        quitAction()
+    }
+
+    /// Stop the countdown without quitting. Only used to tear a coordinator
+    /// down cleanly; there is no customer-facing cancel, by decision.
+    func cancelAutoQuit() {
+        autoQuitTask?.cancel()
+        autoQuitTask = nil
+        autoQuitRemaining = nil
     }
 
     // ── Logging ──────────────────────────────────────────────────
