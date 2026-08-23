@@ -123,6 +123,53 @@ if [[ "$VERDICT" == "CLEAN" && ( "$N_FAIL" -ne 0 || "$N_CANNOT" -ne 0 || "$N_BRO
     exit 1
 fi
 
+# --- the QA exit status is EVIDENCE, and it was being written and never read --
+#
+# ORM's review of this PR, 2026-08-23 09:16Z. He drove this script through seven
+# hand-built records and the seventh was `qa_exit=1 with clean counts` -> rc=0,
+# ACCEPTED. He was right, and the measurement was unambiguous:
+#
+#     grep -c qa_exit scripts/verify_walk_record.sh   0
+#     written at scripts/post_walk_qa.sh:223 from "$overall"
+#     CONTROL, fields this script DOES read:
+#       pass 7 · fail 12 · cannot_run 6 · broken 6 · VERDICT 4 · version 8
+#
+# A field documented in walks/README.md as part of the format, produced on every
+# run, and consumed by nothing. That is this repo's signature defect and I
+# shipped a fresh instance of it in the gate built to outlaw it.
+#
+# WHY IT MATTERS BEYOND TIDINESS, which is ORM's sharper point. post_walk_qa.sh
+# folds limbs into `overall` that do NOT move the four probe counts -- the
+# CUT-MANIFEST limb is one. So qa_exit is the ONLY field that can carry those
+# failures. Today the script is accidentally safe because VERDICT is derived
+# from the same `overall` variable, which means **one variable feeds two fields
+# and the protection is a coincidence of implementation, not a property of the
+# format**. The moment those two derivations diverge, a QA failure is accepted
+# as a clean walk. Assert the field itself, not the variable behind it.
+#
+# Absent qa_exit is CANNOT-RUN (2), not FAIL: an old record predating the field
+# is not evidence of badness, it is absence of evidence, and the exit codes of
+# this script keep those apart.
+QA_EXIT="$(field qa_exit)"
+if [[ -z "$QA_EXIT" ]]; then
+    echo "[walk-gate] REFUSED: ${RECORD} carries no qa_exit field." >&2
+    echo "            post_walk_qa.sh has written it since #978. A record without it" >&2
+    echo "            predates the format or was hand-made; either way the QA limbs" >&2
+    echo "            that do not move the probe counts are unverifiable here." >&2
+    exit 2
+fi
+if ! [[ "$QA_EXIT" =~ ^[0-9]+$ ]]; then
+    echo "[walk-gate] REFUSED: ${RECORD} field 'qa_exit' is '${QA_EXIT}', not a number." >&2
+    exit 2
+fi
+if [[ "$VERDICT" == "CLEAN" && "$QA_EXIT" -ne 0 ]]; then
+    echo "[walk-gate] REFUSED: ${RECORD} claims CLEAN but the post-walk QA exited ${QA_EXIT}." >&2
+    echo "            The probe counts and the QA verdict are DIFFERENT evidence." >&2
+    echo "            QA limbs such as CUT-MANIFEST never move pass/fail/cannot_run/broken," >&2
+    echo "            so a clean count set cannot vouch for them. Trust the failure." >&2
+    exit 1
+fi
+
 # --- a walk that measured nothing is not a clean walk ------------------------
 if [[ "$N_PASS" -eq 0 ]]; then
     echo "[walk-gate] REFUSED: ${RECORD} records zero passing probes." >&2

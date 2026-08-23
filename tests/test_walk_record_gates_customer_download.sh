@@ -167,6 +167,53 @@ else
     bad "post_walk_qa.sh appears to record the box host without hashing it"
 fi
 
+# ── 13. qa_exit IS EVIDENCE AND MUST BE READ ─────────────────────────
+# ORM's review, 2026-08-23 09:16Z: he drove the gate through seven hand-built
+# records and the seventh -- qa_exit=1 with CLEAN counts -- was ACCEPTED (rc=0).
+# The field was written by post_walk_qa.sh, documented in walks/README.md, and
+# `grep -c qa_exit scripts/verify_walk_record.sh` was 0.
+#
+# His sharper point, which is what these three assertions actually pin: the gate
+# was accidentally safe because VERDICT derives from the same `overall` variable
+# that produces qa_exit. One variable feeding two fields is a coincidence of
+# implementation, not a property of the format. QA limbs like CUT-MANIFEST never
+# move pass/fail/cannot_run/broken, so qa_exit is the ONLY field that can carry
+# them. Assert the field.
+write_record_qa() {
+    # write_record_qa <verdict> <qa_exit|omit>
+    { printf 'version\tv1.0.42\n'
+      printf 'walked_at\t2026-08-23T09:00:00Z\n'
+      printf 'box_fp\t3f8a1c9d2e4b6071\n'
+      printf 'pass\t14\nfail\t0\ncannot_run\t0\nbroken\t0\n'
+      printf 'verdict\t%s\n' "$1"
+      [[ "$2" != "omit" ]] && printf 'qa_exit\t%s\n' "$2"
+    } > "${TMP}/v1.0.42.tsv"
+}
+
+write_record_qa CLEAN 1
+rc="$(run_gate v1.0.42)"
+[[ "$rc" == "1" ]] \
+    && ok "qa_exit=1 with CLEAN counts is REFUSED (rc=1) -- ORM's probe 7" \
+    || bad "qa_exit=1 with CLEAN counts returned rc=${rc}, expected 1 (the hole is open)"
+
+# POSITIVE CONTROL for the two assertions around it. Identical record, one
+# field flipped. Without it, a gate that refused everything would score both
+# refusals above and below as passes.
+write_record_qa CLEAN 0
+rc="$(run_gate v1.0.42)"
+[[ "$rc" == "0" ]] \
+    && ok "CONTROL: the same record with qa_exit=0 is ACCEPTED (rc=0)" \
+    || bad "the qa_exit positive control was refused (rc=${rc}) -- the assertions around it prove nothing"
+
+# ABSENCE is CANNOT-RUN, not FAIL. A record written before the field existed is
+# not evidence of a bad walk; the exit codes must keep those apart, which is the
+# whole reason this script has three of them.
+write_record_qa CLEAN omit
+rc="$(run_gate v1.0.42)"
+[[ "$rc" == "2" ]] \
+    && ok "a record with NO qa_exit is CANNOT-RUN (rc=2), not a pass and not a failure" \
+    || bad "absent qa_exit returned rc=${rc}, expected 2"
+
 echo
 echo "${PASS} passed, ${FAIL} failed"
 [[ "$FAIL" -eq 0 ]] || exit 1
