@@ -1,0 +1,31 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.42.
+#
+# ===========================================================================
+# provenance=live. THIS ONE IS WRITTEN AS THE WORK IS BUILT.
+# ===========================================================================
+# v1.0.41's BOM is stamped provenance=reconstructed: it was assembled after
+# the fact from cut.env, the cut manifest, the shipped install.sh and the
+# HR015 ledger. Its own header says the first authoritative, cut-emitted BOM
+# is the NEXT cut's. This is that file.
+#
+# So the rule here is stricter than a habit. A row is appended the moment the
+# change is built, not at cut time from memory:
+#
+#     bin/bom_add.sh v1.0.42 <what> <repo> <ref> <capability_id> <ticket>
+#
+# landed=no until the change is IN THE ARTEFACT and its verify has been RUN.
+# Not "merged". Not "green". CM051 vendors from OS003 and CM048 and executes
+# the COPY, so a merge upstream reaches no artefact until a re-vendor -- which
+# is a mistake made three times in one night on 2026-08-23.
+#
+# capability_id=none means the row is UNGUARDED and can silently regress.
+# Every row below carries one.
+#
+# Every `verify` is a command a stranger can run against the customer bytes,
+# not a description of what was intended.
+# ===========================================================================
+what	repo	ref	landed	capability_id	verify	ticket
+The cut's own bill of materials now reaches the customer's machine. Stage 2 embeds cuts/v<version>/MUST_CONTAIN.tsv and vendor/VENDOR_MANIFEST.toml into the DMG payload and REFUSES the build if either input is missing; stage 3 writes both to ~/.ostler at install as step (6b), placed before the VERSION write so VERSION stays the success marker. Before this, the BOM existed only in OS003 and nothing on a box could say what the cut it was running had been made of.	CM051	#974, c33db24c98d1	no	cut_bom_reaches_the_box	mount the published DMG to a mountpoint you control, then read Contents/Resources/ostler-payload/: cut-bom.tsv and vendor-manifest.toml MUST both be present. Then on an installed box, ~/.ostler/cut-bom.tsv and ~/.ostler/vendor-manifest.toml MUST both exist and cut-bom.tsv MUST name v1.0.42.	HR015 task 631
+A walk nobody wrote down can no longer start a cut. bin/rollforward_gate.sh --require-walk-closure refuses unless every cut directory from a declared walk_horizon up to the one being started has a WALKS row that is closed, or deferred/not_walked over a NAMED approver, and whose findings EQUAL the registry sections for that walk. Before this the claim check reported rc=0 and "0 unproven fixed-claims across 28 gates" while the registry had carried no row since v1.0.18 and we were cutting v1.0.41: green over an empty denominator.	OS003	#128 + #129, vendored by CM051 #979 (2e573bd4c276)	no	walk_closure_refuses_a_silent_walk	in the SHIPPED CM051 tree run: bin/rollforward_gate.sh --require-walk-closure --cut v1.0.42 -- it MUST exit 0 and name v1.0.41 in scope. Then, as the anti-vacuity control, run it with a cuts/ tree that also holds v1.0.42 and --cut v1.0.43: it MUST exit 1 with "1 cut(s) ... not accounted for". One row must not make the next cut free.	HR015 task 867
+The wiki images shipped by v1.0.41 predate CM044 #248 and #250, so a customer's wiki still stated a joke as a captured decision and carried the pre-fix commitment pages. Rebuilt as CM044 v0.1.25 from 7bfcc58c876c1ef939cc90215488fbf7e6cdd5e4 and re-pinned.	CM044	v0.1.25, CM051 #980 (5faaf73f47b1)	no	wiki_images_carry_248_and_250	grep the SHIPPED install.sh for sha256:0d3b46d5 (wiki-site) and sha256:fae48439 (wiki-compiler): both MUST be present, and sha256:0df14b72 and sha256:ab53c66a MUST be absent. Then extract compiler/pages/decision_pages.py and compiler/pages/commitment_pages.py from the pinned compiler image and hash them against CM044 7bfcc58: both MUST match, and both MUST DIFFER from the same files at 946a624 as the control.	HR015 walk
+A provenance sha can no longer be typed. scripts/repin_wiki_images.sh resolves the CM044 commit from a checkout and writes install.sh and wiki_image_provenance.tsv itself. On 2026-08-23 a row was written as 7bfcc58c876c7c9d5f80e17b0f2f9a5a4fa72c1e, made by taking a real 12-character short sha and inventing the other 28; it resolves to nothing, and its first twelve characters match the real commit, so the hold_ack contract's 8+ character prefix match would have accepted it.	CM051	#981	no	repin_refuses_a_fabricated_sha	in the SHIPPED CM051 tree run: bash tests/test_repin_wiki_images_refuses_a_typed_sha.sh -- it MUST exit 0, and its output MUST contain both "THE FABRICATED SHA IS REFUSED" and the positive-control line, because a script that refused everything would satisfy the first and be worthless.	HR015 walk
