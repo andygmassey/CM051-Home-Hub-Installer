@@ -94,13 +94,43 @@ ok "CANNOT-RUN check: install.sh is readable"
 # Comments are not code, and a blanked comment is not an absent line.
 CODE="$(sed 's/#.*//' "$INSTALL_SH" | grep -v '^[[:space:]]*$')"
 
-# Evidence that proves only a CLIENT. Quote-tolerant on purpose: `command -v
-# "docker"` and `command -v docker` are the same claim and Attack C is exactly
-# the difference between them. The character class stops at a shell separator
-# so `command -v "$_rt" && ...` cannot be dragged into a match by a later word.
-CLIENT_RE='command -v [^;&|]*docker|which [^;&|]*docker|bin/docker'
+# Evidence that proves only a CLIENT.
+#
+# 🔴 QUOTE-TOLERANT ON *EVERY* LIMB. ORM's MUTANT E was
+# `-x /opt/homebrew/bin/"docker"` and it passed 14/0, because I had made the
+# `command -v` limb tolerant and left `bin/docker` literal. A predicate that
+# is careful in one place and lazy in another is a predicate with a documented
+# entrance.
+CLIENT_RE='command -v ["'"'"']*docker|which ["'"'"']*docker|bin/["'"'"']*docker'
 # Evidence that proves an ENGINE.
 ENGINE_RE='colima|orbstack|podman|Docker\.app'
+
+# ── WHY THE NEXT ASSERTION IS A WHITELIST AND NOT A BLACKLIST ─────────────
+#
+# ORM's MUTANT D assigned a client check to a variable and consulted that
+# variable NINE STATEMENTS LATER. It passed 14/0. His diagnosis is exact:
+#
+#     "a window is a distance, and a distance can be padded with statements"
+#
+# No blacklist survives laundering, because the launderer's job is to remove
+# the blacklisted token from the place you are looking. So the condition
+# governing an ENGINE_PRESENT=true must be positively CONSTRAINED instead:
+# it may reference the loop variable, the flag itself, and literal engine
+# names -- and nothing else. A laundered `$HAS_CLIENT` is not on that list,
+# so it fails by not being permitted rather than by being recognised.
+#
+# The cost is real and worth stating: a future author who legitimately needs
+# a new variable in that condition must add it here. That is the intended
+# friction. This condition is three lines long and decides whether we install
+# a second container engine over a working one.
+# HAS_DOCKER is on this list DELIBERATELY and it is the interesting entry.
+# It is install.sh:3477-3479 -- `command -v docker && docker info` -- and the
+# `docker info` limb is a genuine ENGINE probe: it fails when no daemon is
+# reachable, which is the actual question. It gates the whole block from
+# outside, so it appears in every window. Adjudicated, not waved through: if
+# HAS_DOCKER ever stops consulting `docker info`, assertion 2b below catches
+# that separately and this entry becomes wrong. Both must hold.
+ALLOWED_VARS='_rt|rt|ENGINE_PRESENT|HAS_DOCKER'
 
 # ── CONTROL, RUN FIRST AND MUST BE NON-ZERO ───────────────────────────────
 CTRL="$(grep -c 'docker' <<< "$CODE")"
@@ -143,7 +173,7 @@ fi
 # take the code lines that govern it and require that they name an engine and
 # do NOT name a client. Eight lines is enough to reach the enclosing `for` in
 # the loop case; because blanks are stripped it cannot be padded by prose.
-VIOLATIONS=0; UNGROUNDED=0
+VIOLATIONS=0; UNGROUNDED=0; LAUNDERED=0
 while IFS= read -r n; do
     [[ -n "$n" ]] || continue
     lo=$(( n > 8 ? n - 8 : 1 ))
@@ -153,6 +183,20 @@ while IFS= read -r n; do
         printf '        line %s: governed by client-only evidence\n' "$n"
     fi
     grep -qE "$ENGINE_RE" <<< "$WIN" || UNGROUNDED=$((UNGROUNDED+1))
+
+    # THE ANTI-LAUNDERING LIMB. Take the conditions in the window and pull out
+    # every variable they consult. Anything outside ALLOWED_VARS is a value
+    # computed somewhere this predicate cannot see -- which is precisely what
+    # MUTANT D was. We do not have to recognise the laundering; we only have to
+    # refuse to accept evidence whose provenance we cannot read.
+    CONDS="$(grep -E '(^|[[:space:]])(if|elif|while)[[:space:]]' <<< "$WIN")"
+    while IFS= read -r v; do
+        [[ -n "$v" ]] || continue
+        grep -qE "^(${ALLOWED_VARS})$" <<< "$v" || {
+            LAUNDERED=$((LAUNDERED+1))
+            printf '        line %s: condition consults unapproved variable $%s\n' "$n" "$v"
+        }
+    done < <(grep -oE '\$\{?[A-Za-z_][A-Za-z0-9_]*' <<< "$CONDS" | tr -d '${' | sort -u)
 done < <(grep -nE '^[[:space:]]*ENGINE_PRESENT=true' <<< "$CODE" | cut -d: -f1)
 
 if [[ "$VIOLATIONS" -eq 0 ]]; then
@@ -167,6 +211,27 @@ if [[ "$UNGROUNDED" -eq 0 ]]; then
 else
     bad "${UNGROUNDED} ENGINE_PRESENT=true assignment(s) name no engine" \
         "absence of the wrong predicate is not presence of the right one"
+fi
+
+if [[ "$LAUNDERED" -eq 0 ]]; then
+    ok "no condition consults a variable computed out of this predicate's sight"
+else
+    bad "${LAUNDERED} condition(s) consult unapproved variables" \
+        "a client check assigned to a variable and read later is MUTANT D; if the new variable is legitimate, add it to ALLOWED_VARS deliberately"
+fi
+
+# ── 2b. THE ONE ALLOWED VARIABLE MUST STAY HONEST ─────────────────────────
+# HAS_DOCKER is permitted in a condition above ONLY because it consults
+# `docker info`. If someone reduces it to a bare `command -v docker`, the
+# allowance silently becomes the very laundering it was meant to exclude.
+HD="$(grep -A2 -E '^HAS_DOCKER=false' <<< "$CODE" | head -3)"
+if [[ -z "$HD" ]]; then
+    bad "CANNOT-RUN: no HAS_DOCKER=false initialiser found" "assertion 2b measured nothing"
+elif grep -q 'docker info' <<< "$HD"; then
+    ok "HAS_DOCKER still consults 'docker info' (an engine probe), so allowing it is safe"
+else
+    bad "HAS_DOCKER no longer consults 'docker info'" \
+        "it is permitted in engine conditions ONLY because it probes the engine; it now launders the client"
 fi
 
 # ── 3. THE DECISION MUST CONSULT THE COMPUTATION, NOT THE CLIENT ──────────
