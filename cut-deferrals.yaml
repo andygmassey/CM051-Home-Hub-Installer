@@ -32,9 +32,6 @@
 # ============================================================================
 
 pr_exemptions:
-  - ref: "CM051-Home-Hub-Installer#997"
-    reason: "Engine provenance and install-time disclosure. DEFERRED TO v1.0.44 BECAUSE IT IS NOT A FIX. The four defects v1.0.43 exists for are all merged; #997 adds a record of WHOSE container engine it is, so a support answer can say 'was already here, not managed by us' rather than an unfalsifiable 'unsupported configuration'. Valuable, and nothing in the cut waits on it. It is also RED on two counts, both located and both four lines: install.sh.strings.en-GB.sh:1488 char 235 uses a spaced double hyphen where the em-dash rule requires a spaced en-dash, and tests/test_engine_provenance_never_claims_what_it_did_not_install.sh:232 and :266 pipe into grep -q under pipefail, which the SIGPIPE ratchet correctly refuses. AND IT CARRIES TWO SUBSTANTIVE REVIEW FINDINGS THAT SHOULD NOT BE FIXED AT SPEED: the before_seen guard checks a snapshot EXISTENCE and not its VALIDITY, so a zero-byte or truncated .engine-before makes the module claim it installed EVERY engine on the box, reachable because the redirect truncates before it writes, which is exactly what a jetsam-killed installer produces and is what happened on 2026-08-23; and owner=customer is emitted alongside installed_by_ostler=[colima] whenever both hold, so the two fields contradict each other. Shipping the module with either open would put a wrong provenance claim in front of a customer, which is worse than shipping no claim."
-    review_by: "2026-08-26"
 
   # CM041-People-Graph#119 -- CANNOT MERGE, and that is the point of exempting it.
   #
@@ -217,6 +214,9 @@ pr_exemptions:
 
 
 deferrals:
+  - ref: "CM051:#997"
+    reason: "Engine provenance and install-time disclosure. DEFERRED BECAUSE IT IS NOT A FIX: the four defects v1.0.43 exists for are all merged and nothing in the cut waits on it. It is RED on two counts, both located and both four lines -- install.sh.strings.en-GB.sh:1488 char 235 uses a spaced double hyphen where the em-dash rule requires a spaced en-dash, and tests/test_engine_provenance_never_claims_what_it_did_not_install.sh:232 and :266 pipe into grep -q under pipefail, which the SIGPIPE ratchet correctly refuses. AND IT CARRIES TWO SUBSTANTIVE REVIEW FINDINGS THAT SHOULD NOT BE FIXED AT SPEED. First, the before_seen guard checks a snapshot EXISTENCE and not its VALIDITY, so a zero-byte or truncated .engine-before makes the module claim it installed EVERY engine on the box; reachable because the redirect truncates before it writes, which is exactly what a jetsam-killed installer produces, and that is what happened on 2026-08-23. Second, owner=customer is emitted alongside installed_by_ostler=[colima] whenever both hold, so the two fields contradict each other. Shipping the module with either open would put a wrong provenance claim in front of a customer, which is worse than shipping no claim."
+    until_cut: v1.0.44
   # ------------------------------------------------------------------------
   # v1.0.42 (2026-08-23 ORM). BOTH SPELLINGS FOR EACH, DELIBERATELY.
   #
