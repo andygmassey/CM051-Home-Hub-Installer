@@ -72,6 +72,11 @@ _ostler_engine_which() {
     for p in "${OSTLER_ENGINE_BREW_PREFIX}/bin/${name}" "${OSTLER_ENGINE_ALT_PREFIX}/bin/${name}"; do
         [ -x "$p" ] && { printf '%s' "$p"; return 0; }
     done
+    # Last resort. Suppressible, and the tests suppress it: a CI runner with
+    # a real /usr/bin/docker on PATH would otherwise make the "absent" case
+    # of the four-state matrix impossible to construct, and the matrix would
+    # lose a state silently. Production leaves it on.
+    [ "${OSTLER_ENGINE_ALLOW_PATH_LOOKUP:-1}" = "1" ] || return 0
     command -v "$name" 2>/dev/null || true
 }
 

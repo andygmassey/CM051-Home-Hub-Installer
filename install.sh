@@ -16077,6 +16077,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.ostler.deferred-register-device
     com.ostler.aiconv-resume
     com.ostler.colima
+    com.ostler.engine-supervisor
     com.ostler.meeting-brief-sender
     com.ostler.ollama-logrotate
     com.ostler.stay-awake

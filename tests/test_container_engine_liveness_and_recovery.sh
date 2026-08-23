@@ -112,6 +112,7 @@ classify() {
     local out rc
     out="$(OSTLER_ENGINE_BREW_PREFIX="$1" OSTLER_ENGINE_ALT_PREFIX="$1" \
            OSTLER_ENGINE_DESKTOP_PATH="${WORK}/no-such-Docker.app" \
+           OSTLER_ENGINE_ALLOW_PATH_LOOKUP=0 \
            PATH="/usr/bin:/bin" /bin/bash "$LIB" 2>/dev/null)"; rc=$?
     printf '%s|%s' "$(sed -n 's/^state=//p' <<<"$out")" "$rc"
 }
@@ -173,6 +174,7 @@ fi
 # "nothing found", inside the very test written to catch a PATH defect.
 out="$(OSTLER_ENGINE_BREW_PREFIX="$p_stopped" OSTLER_ENGINE_ALT_PREFIX="$p_stopped" \
        OSTLER_ENGINE_DESKTOP_PATH="${WORK}/no-such-Docker.app" \
+       OSTLER_ENGINE_ALLOW_PATH_LOOKUP=0 \
        PATH="" /bin/bash "$LIB" 2>/dev/null)"
 if grep -q 'state=installed_stopped' <<<"$out"; then
     pass "with an EMPTY PATH the classifier still reports installed_stopped, not absent"
@@ -187,6 +189,8 @@ run_sup() {
     # run_sup <prefix> <kickstart_cmd> -> rc; output in $WORK/sup.out
     OSTLER_ENGINE_BREW_PREFIX="$1" \
     OSTLER_ENGINE_ALT_PREFIX="$1" \
+    OSTLER_ENGINE_ALLOW_PATH_LOOKUP=0 \
+    OSTLER_ENGINE_DESKTOP_PATH="${WORK}/no-such-Docker.app" \
     OSTLER_STATE_DIR="${WORK}/state" \
     OSTLER_LOGS_DIR="${WORK}/logs" \
     OSTLER_DIR="${WORK}/ostler" \
