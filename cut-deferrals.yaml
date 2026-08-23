@@ -214,6 +214,69 @@ pr_exemptions:
 
 
 deferrals:
+  # ------------------------------------------------------------------------
+  # v1.0.42 (2026-08-23 ORM). BOTH SPELLINGS FOR EACH, DELIBERATELY.
+  #
+  # check-orphans enumerates a repo's work by BRANCH NAME in some arms and by
+  # PR NUMBER in others, and a deferral nothing asks about holds nothing. The
+  # row for daemon:fix/settings-preferences-ia in this file already records
+  # that mistake being made twice. So each of these gets the PR-number
+  # spelling the gate printed AND the branch spelling a human searching will
+  # reach for.
+  # ------------------------------------------------------------------------
+  - ref: "CM051:#982"
+    reason: >-
+      Fixes a real defect I filed: tests/test_pinned_wiki_image_has_design_system.sh
+      printed "Skipping is NOT a pass" and then exited 0 without CM044_DIR, so a
+      green run measured nothing. TNM's fix works, verified by execution: rc=2
+      CANNOT-RUN where it was rc=0, rc=0 with the checkout, --presence-only
+      states what it does NOT assert, and run_all_cut_gates.sh:139 still invokes
+      the FULL gate so the byte half is not dark. DEFERRED because the PR is RED
+      twice on its own CI and neither failure is cosmetic. (1) the presence step
+      sits in a job that is runs-on macos-latest, which has no docker, so the
+      gate correctly reports CANNOT-RUN and fails the job -- the wiring chose a
+      runner that cannot satisfy it. (2) its own new test file trips the
+      pipefail-shortcircuit ratchet, 71 against a baseline of 70, with a
+      printf-into-grep-q under pipefail. Shipping a wiki-content gate whose CI
+      cannot go green is worse than shipping v1.0.42 with the gate as it stands,
+      which is what v1.0.41 shipped with. No customer behaviour is withheld.
+    until_cut: "v1.0.43"
+  - ref: "CM051:fix/false-wired-design-system-gate"
+    reason: >-
+      Branch spelling of CM051:#982. Same deferral, recorded twice on purpose:
+      the gate asks by branch in some arms and by PR number in others.
+      I first wrote this ref as fix/wiki-content-gate-invoked, which I INVENTED
+      from the PR title. The real branch is fix/false-wired-design-system-gate,
+      read from gh pr view --json headRefName. A deferral whose ref names no
+      branch holds nothing, and it would have looked exactly like a correct one.
+      Second fabricated identifier of the day; the other was a 40-hex sha.
+      RESOLVE EVERY IDENTIFIER. NEVER TYPE ONE.
+    until_cut: "v1.0.43"
+  - ref: "CM051:#975"
+    reason: >-
+      Widens the ingest quiet window from 01:00-06:00 to 23:00-07:00 per Andy's
+      #789 call. The change itself is correct and the wrap-midnight trap is
+      handled: the old predicate reused with 23/7 would be true at every hour and
+      the window would have got SMALLER, and both arms are asserted. DEFERRED for
+      a reason the PR's own CI cannot see. It edits four VENDORED trees
+      (email/imessage/whatsapp/spoken_source) and touches no divergence patch,
+      and all four patches ADD the old predicate verbatim -- e.g.
+      vendor/divergences/email_source.patch:90 carries
+      `if [ "$_ostler_hour" -lt 1 ] || [ "$_ostler_hour" -ge 6 ]`. Those trees are
+      verify=full, so after this merges `source@pin + patch` no longer
+      reconstructs the vendored tree, and the freshness gate's own exemption
+      reason -- "Its CONTENT is verified: verify=full reconstructs the vendored
+      tree from source@X + patch" -- becomes false. Invisible on this box:
+      verify_vendor_fresh.sh reports "could not verify ... source repo not found"
+      for all four, so they land in the WARN bucket, and a warn bucket is not a
+      safe bucket. Retire this deferral by regenerating the four divergence
+      patches in the same PR. Customer impact of deferring: the quiet window
+      stays as v1.0.41 shipped it, which is the status quo, not a regression.
+    until_cut: "v1.0.43"
+  - ref: "CM051:feat/ingest-quiet-window-789"
+    reason: >-
+      Branch spelling of CM051:#975. Same deferral, recorded twice on purpose.
+    until_cut: "v1.0.43"
   - ref: daemon:fix/vault-state-default-status-none
     reason: >-
       The ONLY RED in check-orphans for v1.0.33. It is a real fix with a real test (1da772e5
