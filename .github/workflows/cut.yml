@@ -209,6 +209,36 @@ jobs:
         if: always()
         run: ./tests/test_cut_bom_is_fresh.sh --self-test
 
+      # A CUT MUST NOT START ON A COMMIT WHOSE OWN CHECKS ARE RED.
+      #
+      # 2026-08-23, and this one is not a gate that could not see:
+      #   10:32:44Z  installer-version-consistency  push 42648d92  FAILURE
+      #   10:33:14Z  a tag was pushed at 42648d9, thirty seconds later
+      #   10:35:55Z  the cut refused at `make check-version` -- SAME DEFECT
+      # Between the first two lines sat a completed, red, thirty-second ubuntu
+      # job naming the exact drift. What the cut spent instead: a full macOS
+      # build, a Developer ID signing, an Apple notarisation round trip and a
+      # staple. The information existed, on time, in the obvious place, and the
+      # operator did not look. "The operator should have looked" is not a
+      # mechanism; this is.
+      #
+      # Self-test FIRST: an instrument that cannot demonstrate a NO has a YES
+      # worth nothing, and this one is new. 11 hermetic cases, no network.
+      - name: The commit-checks gate can still fail
+        if: always()
+        run: ./tests/test_tagged_commit_is_green.sh
+
+      # Then the live check on the commit this tag names. It EXCLUDES the cut's
+      # own jobs by name -- the cut cannot gate on itself, and the first version
+      # refused the commit that actually shipped because a duplicate cut run had
+      # been cancelled on it. The count excluded is printed.
+      #
+      # rc=2 is CANNOT-RUN and still blocks: zero check-runs is a statement
+      # about the query, not about the commit.
+      - name: The tagged commit's own checks are not red
+        if: always()
+        run: ./scripts/verify_tagged_commit_is_green.sh "${GITHUB_SHA}" "${GITHUB_REPOSITORY}"
+
       - name: Vendored BOM is the BOM for this cut
         if: always()
         run: ./tests/test_cut_bom_is_fresh.sh "${GITHUB_REF_NAME}"
