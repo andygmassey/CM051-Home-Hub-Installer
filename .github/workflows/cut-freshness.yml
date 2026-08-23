@@ -49,6 +49,27 @@ jobs:
       - name: Cut-freshness gate self-test (hermetic, mocked gh)
         run: bash tests/test_cut_freshness_gate.sh
 
+      # A TYPED SHA CAN BE INVENTED; A RESOLVED ONE CANNOT.
+      #
+      # scripts/wiki_image_provenance.tsv names the CM044 commit each pinned
+      # image was built from, and until 2026-08-23 that value was TYPED: CM044's
+      # release script prints the digests and not the commit. On that day the row
+      # was written as 7bfcc58c876c7c9d5f80e17b0f2f9a5a4fa72c1e, made by taking
+      # the real 12-character short sha and inventing the other 28. It is 40 hex
+      # characters, it resolves to nothing, and its first twelve characters match
+      # the real commit -- so the hold_ack contract, which matches on an 8+
+      # character PREFIX, would have accepted it.
+      #
+      # repin_wiki_images.sh resolves the commit from a checkout and asserts the
+      # object is a commit (rev-parse alone echoes any well-formed hex back), then
+      # writes both files itself. Its self-test replays that exact fabrication and
+      # requires a REFUSAL, alongside a positive control that a real ref still
+      # re-pins -- because a script that refused everything would pass the first
+      # case and be useless.
+      - name: A fabricated provenance sha cannot be re-pinned
+        if: always()
+        run: bash tests/test_repin_wiki_images_refuses_a_typed_sha.sh
+
       - name: Gate is wired fail-closed into both cut paths
         if: always()
         run: |
