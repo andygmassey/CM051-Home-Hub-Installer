@@ -27,6 +27,29 @@ name: colima-autostart
 #      it into the uninstaller and never RUNS it. An upgraded box kept the
 #      FDA-less agent, racing the daemon.
 #
+#      🔴 READ THAT PARAGRAPH IN THE PAST TENSE. IT SAYS "It does not" AND IT
+#      WAS ALREADY FIXED WHEN IT WAS WRITTEN. Both the allegation and its
+#      repair landed in the SAME COMMIT, 378a93f (#842, 2026-08-18) -- the
+#      commit that created this workflow. `git log --diff-filter=A` on this
+#      file and `git log -1 378a93f` return the same sha.
+#
+#      MEASURED 2026-08-23 on origin/main. install.sh section 3.2b, "Remove
+#      any stale FDA-less Colima LaunchAgent", runs at INSTALL time and is
+#      nowhere near the uninstaller heredoc. It does `launchctl bootout`, then
+#      `rm -f`, then RE-CHECKS the file and warns if it survived.
+#      tests/test_colima_autostart_mechanism.sh asserts that placement
+#      directly, at the line that requires a removal OUTSIDE the heredoc.
+#
+#      AND install.sh:8347 IS NOW `fi  # end of SKIP_PHASE2 check`. The line
+#      number drifted. A LINE NUMBER IN A COMMENT IS A CLAIM WITH AN EXPIRY
+#      DATE, and this one expired into an unrelated `fi`.
+#
+#      THE COST WAS REAL AND IT WAS PAID ON 2026-08-23. This paragraph was
+#      relayed to the release manager as a live finding, on this file's word
+#      rather than a measurement, and cost a round trip to refute. That is why
+#      it is corrected here rather than deleted: the wrong text and the reason
+#      it was wrong are worth more together than a clean file.
+#
 #   2. Nothing asserted the mechanism at all. There was no test in this repo
 #      that Colima had an autostart, that the agent owning it was well-formed,
 #      or that a bare colima agent was not being created.

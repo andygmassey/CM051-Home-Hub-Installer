@@ -84,9 +84,29 @@ jobs:
       #   the survivor is OS003 gates/behavioural_chat_probe.py, and it is
       #   REACHED: pipeline/release.yml:169 runs
       #   gates/verify_behavioural_acceptance.sh --seed, which invokes it.
-      #   Checked by behaviour (ws/chat) rather than by filename, because a
-      #   filename search for "hub_chat" in OS003 returns nothing and would
-      #   have concluded there was no survivor at all.
+      #
+      # 🔴 THAT SECOND PARAGRAPH WAS WRONG, AND IT IS LEFT ABOVE ON PURPOSE
+      # so the correction is legible rather than invisible. Measured
+      # 2026-08-23 against OS003 main 35753583df45: the line is 204 not 169,
+      # pipeline/release.yml is not under .github/workflows/, OS003 has one
+      # workflow (gates.yml, self-tests), and NOTHING invokes that file --
+      # which OS003 already recorded at cuts/DEFECTS_ROLLFORWARD.md:39 and
+      # bin/cut.sh:358-363.
+      #
+      # THE DELETION WAS STILL CORRECT. The survivor is in CM051, not OS003:
+      #
+      #   scripts/post_walk_qa.sh:112
+      #     -> scripts/box_walk_probes/run_box_walk.sh
+      #     -> for f in "$PROBE_DIR"/*.sh                (run_box_walk.sh:83)
+      #     -> probes/assistant_answers_grounded.sh
+      #
+      # gated on promotion by the #978 walk record. The original note says it
+      # checked "by behaviour rather than by filename, because a filename
+      # search for hub_chat in OS003 returns nothing". Both halves of that
+      # were true and it still landed on the wrong chain, because the live
+      # caller is a GLOB and a glob carries no filename to find. When a
+      # search comes back empty, widen the SHAPE of the search, not just its
+      # terms.
       #
       # The remaining three are ONE knot, not three problems: verify_must_
       # contain.sh (the BOM gate) has real call sites, but only inside
@@ -146,6 +166,76 @@ jobs:
             echo "::error::the proved-red axis did not report at all" >&2
             exit 1
           fi
+
+      # AXIS ONE IS NOW BLOCKING, because its own standing instruction came due.
+      #
+      # The comment above says "FLIP THIS TO BLOCKING the moment the three are
+      # dispositioned", and "A report-only gate that stays report-only is the
+      # next thing on this list." Measured 2026-08-23 on c9d2f5b:
+      #
+      #   18 of 18 EXECUTABLE files declaring themselves cut-blocking are
+      #   reachable from the cut (80 entry points, fixpoint in 7 rounds)
+      #   no orphans.   exit 0
+      #
+      # #699 closed the knot -- cut_hygiene_gate.sh, run_all_cut_gates.sh and
+      # verify_must_contain.sh are all reachable now. So the backlog that
+      # justified report-only is gone, and leaving it advisory would make this
+      # gate the thing it measures.
+      #
+      # A GATE THAT IS ALWAYS RED AND A GATE THAT IS ALWAYS GREEN FAIL THE SAME
+      # WAY: BOTH STOP BEING READ. This pair of steps is built so it can be
+      # neither. The first asserts exit 0 AND that the sweep printed "no
+      # orphans." -- a script that dies early must not read as clean. The
+      # second proves, on a real git fixture, that the same assertion goes RED
+      # on one orphan and GREEN again the moment that orphan is wired.
+      - name: No declared cut-blocker is orphaned (BLOCKING)
+        run: |
+          set +e
+          out="$(bash scripts/verify_declared_gates_reachable.sh 2>&1)"; rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if ! printf '%s' "$out" | grep -q 'EXECUTABLE files declaring themselves'; then
+            echo "::error::the sweep printed no ratio -- treat as CANNOT-RUN, not clean" >&2
+            exit 1
+          fi
+          if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -q 'no orphans\.'; then
+            echo "::error::a declared cut-blocker is unreachable from the cut" >&2
+            exit 1
+          fi
+
+      # THE CONTROL FOR THE STEP ABOVE, not for the script. The script's own
+      # self-test already proves it can spot an orphan; what is unproven until
+      # here is that THIS WORKFLOW STEP's assertion fires when it does.
+      - name: ...and that assertion fires on one orphan, then clears when wired
+        run: |
+          set -e
+          fix="$(mktemp -d)"
+          git init -q "$fix"
+          mkdir -p "$fix/.github/workflows" "$fix/gates"
+          # An entry point that runs nothing, and a gate declaring itself blocking.
+          printf 'name: x\non: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n' \
+            > "$fix/.github/workflows/x.yml"
+          printf '#!/bin/sh\n# Non-zero = BLOCK THE CUT.\nexit 0\n' > "$fix/gates/dark_gate.sh"
+          git -C "$fix" add -A
+          git -C "$fix" -c user.email=ci@local -c user.name=ci commit -qm fixture
+          set +e
+          out="$(bash scripts/verify_declared_gates_reachable.sh --repo "$fix" 2>&1)"; rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -eq 0 ] || printf '%s' "$out" | grep -q 'no orphans\.'; then
+            echo "the blocking assertion did not fire on a repo with one orphaned gate" >&2
+            exit 1
+          fi
+          printf '%s' "$out" | grep -q 'dark_gate.sh' || {
+            echo "the orphan was not named in the report" >&2; exit 1; }
+          # GREEN CONTROL. Wire the same gate into the same entry point and the
+          # same command must now pass. Without this, the red above could be red
+          # for any reason at all -- a missing git, a bad --repo, a typo.
+          printf 'name: x\non: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bash gates/dark_gate.sh\n' \
+            > "$fix/.github/workflows/x.yml"
+          git -C "$fix" add -A
+          git -C "$fix" -c user.email=ci@local -c user.name=ci commit -qm wired
+          bash scripts/verify_declared_gates_reachable.sh --repo "$fix"
 
       # The ratchet, proved able to fire. Without this the floor above is a
       # number nobody has ever seen enforced.
