@@ -59,7 +59,12 @@ jobs:
       # still say yes on the real script, from the real repo root, with no
       # fixture directory override -- a gate that only ever refuses would pass
       # a suite made entirely of refusals, and would also block every release.
+      # `if: always()` -- a control is most informative on a RED run. If the
+      # suite above fails and this is skipped, you cannot tell "the gate is
+      # correctly refusing" from "the gate refuses everything", which is the
+      # exact ambiguity the control exists to remove.
       - name: POSITIVE CONTROL -- the gate accepts a genuine clean record
+        if: always()
         run: |
           set -euo pipefail
           mkdir -p walks
