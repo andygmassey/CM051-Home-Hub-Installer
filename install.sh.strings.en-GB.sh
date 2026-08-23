@@ -1520,3 +1520,14 @@ MSG_WARN_AUTOLOGIN_FILEVAULT="FileVault is on, so this Mac asks for a password a
 # up. It ESTABLISHES the state instead of asserting it, and it does not
 # pretend the installer did something it did not do.
 MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="Ostler could not open System Settings for you. Please open System Settings yourself and go to Privacy & Security > Full Disk Access."
+# ── Container-engine ownership disclosure ─────────────────────────────────
+# DISCLOSURE, NOT DISCLAIMER. Andy asked (2026-08-24) whether we could write
+# something to absolve us if a customer disrupts what we install. A clause
+# does not do that job -- to a customer it is our product that stopped
+# working. What does the job is saying plainly, up front, what we install and
+# what depends on it, and then DETECTING and SAYING SO when it breaks.
+# Deliberately says "will tell you and try to restart it" because both halves
+# are now true (periodic liveness + a real restart path); do not weaken either
+# sentence without removing the corresponding capability.
+MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE="Ostler runs your wiki and search in containers, so it installs and manages a container engine (Colima) on this Mac. If that engine is removed or reconfigured, your wiki and search will stop working — Ostler will tell you and try to restart it."
+MSG_INFO_ENGINE_ALREADY_PRESENT="A container engine is already installed on this Mac. Ostler will use it rather than installing its own, and will not manage or modify it."

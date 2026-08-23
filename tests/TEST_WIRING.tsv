@@ -111,6 +111,7 @@ test_email_ingest_bootstrap_guard.sh	UNWIRED	-
 test_email_ingest_loud_guard.sh	UNWIRED	-
 test_email_ingest_venv_wired.sh	UNWIRED	-
 test_email_settling_numerator_is_messages.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_engine_provenance_never_claims_what_it_did_not_install.sh	WIRED	.github/workflows/engine-provenance.yml
 test_enrich_budget.sh	WIRED	.github/workflows/enrich-budget.yml
 test_enrichment_has_a_recurring_invoker.sh	WIRED	.github/workflows/enrichment-invoker.yml
 test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist-paths.yml
