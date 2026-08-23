@@ -2063,6 +2063,34 @@ def _step_bundle(
         )
         write_json(bundle_json_path, extraction.to_dict())
 
+    # ── Sub-step A2: topic bridge (graph) ──────────────────────────
+    # The extraction's topics become pwg:ConversationTopic /
+    # pwg:TopicMention nodes so the assistant's pwg_topics tool
+    # (CM041 ical-server GET /api/v1/topics) has something to read.
+    # Nothing wrote that class before, so the endpoint answered
+    # {"topics": [], "count": 0} on every install.
+    #
+    # This runs HERE, not in step 07's _write_oxigraph, for two
+    # reasons the writer's docstring covers in full: step 07 runs
+    # BEFORE step 09, so 09_bundle.json does not exist yet at sink
+    # time; and the reader queries the DEFAULT graph while
+    # _write_oxigraph POSTs into the named graph urn:ostler:user/<id>.
+    #
+    # Placed ahead of sub-step B deliberately: a channel whose bundle
+    # adapter has not landed yet still gets its topics into the graph.
+    # Imported lazily, matching the last_contact_updater call below.
+    if ingest_sinks:
+        from . import topic_writer as _topic_writer
+
+        _topic_writer.write_topics(
+            conversation_id=str(metadata.get("conversation_id") or ""),
+            topics=extraction.topics,
+            settings=settings,
+            privacy_level=privacy_level,
+            metadata=metadata,
+            dry_run=dry_run,
+        )
+
     # ── Sub-step B: bundle assembly + atomic write ─────────────────
     if not ingest_sinks:
         logger.info(
