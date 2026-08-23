@@ -172,6 +172,35 @@ jobs:
         if: always()
         run: bash tests/test_no_gate_execs_a_pinned_image.sh
 
+      # THE ONLY CHECK IN THE ESTATE THAT OPENS A WIKI IMAGE AND LOOKS INSIDE,
+      # and until 2026-08-23 no workflow ran it. Its name appeared in the
+      # `paths:` filter above -- a TRIGGER, not an invocation -- and
+      # tests/TEST_WIRING.tsv scored that as WIRED. Measured on origin/main
+      # 5faaf73: 201 WIRED rows naming a workflow, 160 genuinely invoked after
+      # `jobs:`, and of the 41 that were not, 36 are Swift files swept up by
+      # xcodebuild's whole-target run and 4 are invoked by dotted module path
+      # (python3 -m unittest tests.x). This was the ONE real false label.
+      #
+      # --presence-only deliberately: the byte-identity half compares the image
+      # against a CM044 working tree, and CM044 main legitimately moves ahead of
+      # the pinned image between a merge and the next re-pin, so running that
+      # half here would go red on a correct image. The presence assertions are
+      # absolute. The byte half stays in run_all_cut_gates.sh at cut time.
+      #
+      # if: always() so a earlier failure cannot silently drop the one gate that
+      # reads the shipped artefact.
+      - name: pinned wiki images carry the design system (presence)
+        if: always()
+        run: bash tests/test_pinned_wiki_image_has_design_system.sh --presence-only
+
+      # Guards the step above, and the exit-code contract of the gate it runs.
+      # Needs no docker and no network -- it asserts WIRING and CANNOT-RUN
+      # behaviour, which is why it can block every PR while the gate it guards
+      # cannot. Carries its own DEMONSTRATED RED against origin/main.
+      - name: the wiki content gate is invoked, and cannot-run is not a pass
+        if: always()
+        run: bash tests/test_wiki_content_gate_is_invoked_and_cannot_run_is_not_pass.sh
+
       # NOTE: the wiki-provenance extraction test is NOT here. This job is
       # macos-latest, which has no docker, so the test skipped and the step went
       # green having examined nothing -- see the wiki-provenance-extract job
