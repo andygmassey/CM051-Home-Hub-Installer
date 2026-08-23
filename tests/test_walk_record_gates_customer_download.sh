@@ -35,7 +35,7 @@ write_record() {
     # write_record <file> <version> <verdict> <pass> <fail> <cannot> <broken>
     { printf 'version\t%s\n'    "$2"
       printf 'walked_at\t%s\n'  "2026-08-23T09:00:00Z"
-      printf 'box_fp\t%s\n'     "0000111122223333"
+      printf 'box_fp\t%s\n'     "3f8a1c9d2e4b6071"
       printf 'pass\t%s\n'       "$4"
       printf 'fail\t%s\n'       "$5"
       printf 'cannot_run\t%s\n' "$6"
