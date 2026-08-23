@@ -9122,20 +9122,46 @@ else
     # Prefer Colima over Docker Desktop. Colima is headless (no EULA, no
     # account signup, no system extension dialogs) and works perfectly for
     # running containers on macOS. Docker Desktop is a fallback.
-    # 🔴 THE GUARD THAT LET A GREEN INSTALL SHIP WITH NO ENGINE.
     #
-    # This used to read `if ! command -v docker`. That tests for the CLIENT
-    # to decide whether to install the ENGINE, and on macOS the two are
-    # different programs. Any box that already had Homebrew's `docker`
-    # formula -- installed by this installer on an earlier run, by another
-    # tool, or by hand -- skipped the Colima install entirely, then fell
-    # through the `command -v colima` arm (absent) and the Docker Desktop
-    # arm (absent). That is the exact state measured on the Mini.
+    # 🔴 THE GUARD BELOW ASKS FOR AN ENGINE, NOT A CLIENT. Found on the
+    # v1.0.42 upgrade walk, 2026-08-23, on a real box:
     #
-    # The condition is now COLIMA's absence, because Colima is what this
-    # branch installs. A separate `command -v docker` check still follows
-    # the brew install, because the client is genuinely required too.
-    if ! command -v colima &>/dev/null && [[ ! -d "/Applications/Docker.app" ]]; then
+    #     /Applications/Docker.app          ABSENT
+    #     colima / orbstack / podman        ABSENT
+    #     /opt/homebrew/bin/docker          EXISTS
+    #     8044 wiki 000 · 7878 store 000    (8000 -> 200, 8089 -> 302)
+    #
+    # The old guard was `if ! command -v docker`. On macOS the `docker`
+    # binary is only a CLIENT; the engine comes from Colima, Docker Desktop,
+    # OrbStack or Podman. A box that once had Docker Desktop and lost it
+    # keeps the client behind. The installer saw the client, concluded the
+    # runtime was handled, SKIPPED installing Colima entirely, and walked on
+    # with no engine at all -- while reporting a successful install.
+    #
+    # That is this repo's signature defect: THE VERDICT WAS INVARIANT TO THE
+    # DEFECT. `command -v docker` returns the same answer whether or not a
+    # single container can run.
+    #
+    # ENGINE_PRESENT is true only if something that can actually run a
+    # container is installed. `docker info` is deliberately NOT the test
+    # here -- an engine can be installed but not yet started, which is a
+    # different state handled further down. This asks "is a runtime on the
+    # box at all", which is the question the brew install answers.
+    ENGINE_PRESENT=false
+    for _rt in colima orbstack podman; do
+        if command -v "$_rt" &>/dev/null; then
+            ENGINE_PRESENT=true
+            info "container runtime present: ${_rt}"
+            break
+        fi
+    done
+    # Docker Desktop is an app bundle, not a binary on PATH.
+    if [[ "$ENGINE_PRESENT" == false && -d /Applications/Docker.app ]]; then
+        ENGINE_PRESENT=true
+        info "container runtime present: Docker Desktop"
+    fi
+
+    if [[ "$ENGINE_PRESENT" == false ]]; then
         info "$MSG_INFO_INSTALLING_COLIMA_DOCKER_CLI"
         brew install colima docker docker-compose
         # Re-eval Homebrew PATH so newly installed commands are found
