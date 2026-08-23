@@ -438,7 +438,27 @@ $(awk -F'|' '
     # bold markers and severity emoji, and an anchored full match silently
     # skipped three of the eight rows this check exists to catch -- the
     # same over-strict-pattern class as D001 and D014c.
-    if (!match($2, /v1018-D[0-9]+/)) next
+    # THE VERSION IS A WILDCARD, DELIBERATELY. This read /v1018-D[0-9]+/
+    # until 2026-08-23, which pinned the whole claim check to ONE cut. A row
+    # from any later walk -- v1019-, v1041- -- was stepped over by next
+    # before its status was ever read, so the registry could be fed rows for
+    # every cut since and this check would still report zero claim errors.
+    # Same over-strict-pattern class the comment above names: the predicate
+    # was widened for bold markers and emoji and left pinned on the VERSION,
+    # one layer up. A check that can only see one cut of rows cannot enforce
+    # that the next DMG carries the previous walk fixes. HR015 task 867.
+    #
+    # ONLY the version part is widened. The id shape after it is byte-for-
+    # byte what it was, so every existing row extracts exactly as before:
+    # v1018-D012b still yields v1018-D012, because no gate block declares a
+    # lettered id -- measured, 28 gate ids, 0 lettered.
+    #
+    # NOTE FOR THE NEXT EDITOR: this awk program is inside a single-quoted
+    # $(...) block. An apostrophe here CLOSES that quote, the substitution
+    # dies, and the loop reads ZERO rows -- which prints as 0 claim errors
+    # and PASSES. Adding one cost exactly that on 2026-08-23. No apostrophes,
+    # no double quotes, in this comment block.
+    if (!match($2, /v[0-9]+-D[0-9]+/)) next
     id = substr($2, RSTART, RLENGTH)
     st = $NF; gsub(/^[ \t]+|[ \t]+$/, "", st)
     if (st == "") { st = $(NF-1); gsub(/^[ \t]+|[ \t]+$/, "", st) }
