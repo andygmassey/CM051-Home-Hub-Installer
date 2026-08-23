@@ -141,6 +141,20 @@ struct InstallCompleteView: View {
             // headline.
             hubStatusSection
 
+            // v1.0.42 walk, finding 1b: the offer-to-trash, DEFAULTED TO
+            // KEEP. Pre-fix the Done button trashed the installer silently
+            // and unconditionally; the customer was never asked and never
+            // told. Re-running the installer is the repair route.
+            keepInstallerSection
+
+            // v1.0.42 walk, finding 1d: if the memory ceiling was breached
+            // during this install, say so HERE rather than only in the log
+            // drawer. The customer's next experience of it is macOS telling
+            // them the system is out of application memory.
+            if coordinator.memoryCeilingBreached {
+                memoryCeilingSection
+            }
+
             Spacer(minLength: .ostlerSpace2)
         }
         .padding(CGFloat.ostlerSpace4)
@@ -311,6 +325,51 @@ struct InstallCompleteView: View {
                 .foregroundStyle(Color.ostlerInkMuted)
         }
         .tint(Color.ostlerInkMuted)
+    }
+
+    // ── v1.0.42 walk: keep-or-trash, defaulted to KEEP ────────────
+
+    @ViewBuilder
+    private var keepInstallerSection: some View {
+        VStack(alignment: .leading, spacing: .ostlerSpace1) {
+            // Toggle is bound to the INVERSE of the coordinator flag, so the
+            // customer-facing default reads "Keep this installer" = on. The
+            // stored flag stays `trashInstallerOnQuit == false` by default,
+            // which is what finishAndQuit() honours.
+            Toggle(isOn: Binding(
+                get: { !coordinator.trashInstallerOnQuit },
+                set: { coordinator.trashInstallerOnQuit = !$0 }
+            )) {
+                Text(ViewCopy.shared.string(for: "install_complete.keep_installer_label"))
+                    .font(.ostlerBody)
+                    .foregroundStyle(Color.ostlerInk)
+            }
+            .toggleStyle(.checkbox)
+
+            Text(ViewCopy.shared.string(for: "install_complete.keep_installer_help"))
+                .font(.ostlerCaption)
+                .foregroundStyle(Color.ostlerInkSubdued)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(ViewCopy.shared.string(for: "install_complete.auto_quit_note"))
+                .font(.ostlerCaption)
+                .foregroundStyle(Color.ostlerInkSubdued)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private var memoryCeilingSection: some View {
+        VStack(alignment: .leading, spacing: .ostlerSpace1) {
+            Text(ViewCopy.shared.string(for: "install_complete.memory_ceiling_label"))
+                .font(.ostlerStrap)
+                .tracking(1.2)
+                .foregroundStyle(Color.ostlerInkMuted)
+            Text(ViewCopy.shared.string(for: "install_complete.memory_ceiling_body"))
+                .font(.ostlerBody)
+                .foregroundStyle(Color.ostlerInk)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     // ── CX-56 pairing QR ──────────────────────────────────────────
