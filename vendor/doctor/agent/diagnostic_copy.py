@@ -155,6 +155,78 @@ OXIGRAPH_INTERNAL_ERROR_FIX = "Check Oxigraph logs"
 OXIGRAPH_INTERNAL_ERROR_FIX_COMMAND_FMT = "docker logs --tail=30 {prefix}oxigraph"
 
 
+# ── check_wiki_health ────────────────────────────────────────────────
+#
+# v1.0.42 upgrade walk, 2026-08-23. The wiki was dead for about a day and
+# no surface anywhere said so. Not an alert, not a card, not a banner. It
+# was found only because someone was asked to open the URL.
+#
+# The generic SERVICE_UNREACHABLE copy would have said "restart the wiki
+# service", which is the wrong instruction: the wiki is a container behind
+# a Linux VM, so the usual reason it is unreachable is that the VM is not
+# running, and restarting a container inside a stopped VM does nothing.
+# These strings name the layer that is actually broken.
+
+
+WIKI_UNREACHABLE_TITLE = "Your wiki is not responding"
+WIKI_UNREACHABLE_DETAIL_FMT = (
+    "Nothing answered on {url}. Your wiki runs in a container, so the "
+    "usual cause is that the container runtime stopped -- after a reboot, "
+    "a disk-space squeeze, or a manual quit. Your data is not affected: "
+    "the pages are files on this Mac and they are still there."
+)
+WIKI_UNREACHABLE_FIX = (
+    "Start the container runtime, then bring the wiki back up"
+)
+WIKI_UNREACHABLE_FIX_COMMAND = (
+    "/opt/homebrew/bin/colima start && "
+    "/opt/homebrew/bin/docker start ostler-wiki-site"
+)
+
+WIKI_ENGINE_DOWN_TITLE = "Your wiki is down because the container runtime is not running"
+WIKI_ENGINE_DOWN_DETAIL = (
+    "The wiki did not answer AND the container runtime could not be "
+    "reached. Starting the wiki on its own will not work while the "
+    "runtime is stopped, so fix the runtime first."
+)
+WIKI_ENGINE_DOWN_FIX = "Start the container runtime"
+WIKI_ENGINE_DOWN_FIX_COMMAND = (
+    "/opt/homebrew/bin/colima start && /opt/homebrew/bin/docker ps"
+)
+
+WIKI_CONTAINER_STOPPED_TITLE = "The wiki container is not running"
+WIKI_CONTAINER_STOPPED_DETAIL_FMT = (
+    "The container runtime is up, but {name} is {state}. A container "
+    "that exited cleanly leaves no error behind, so nothing else on this "
+    "page would have mentioned it."
+)
+WIKI_CONTAINER_STOPPED_FIX = "Start the wiki container"
+WIKI_CONTAINER_STOPPED_FIX_COMMAND_FMT = "/opt/homebrew/bin/docker start {name}"
+
+WIKI_UNHEALTHY_TITLE_FMT = "Your wiki returned an error ({status_code})"
+WIKI_UNHEALTHY_DETAIL_FMT = (
+    "The wiki answered on {url} but returned {status_code}. The server "
+    "is running; the pages it is trying to serve may be missing or "
+    "part-written."
+)
+WIKI_UNHEALTHY_FIX = "Check the wiki container's log"
+WIKI_UNHEALTHY_FIX_COMMAND_FMT = "/opt/homebrew/bin/docker logs --tail=50 {name}"
+
+WIKI_REFRESH_STALLED_TITLE = "Your wiki has stopped being updated"
+WIKI_REFRESH_STALLED_DETAIL_FMT = (
+    "The job that refreshes your wiki has done nothing for {ticks} runs "
+    "in a row, over about {hours} hours, because the container runtime "
+    "was not available each time. Your wiki may still open, but what it "
+    "shows is as old as the last successful refresh."
+)
+WIKI_REFRESH_STALLED_FIX = (
+    "Start the container runtime; the next refresh picks up on its own"
+)
+WIKI_REFRESH_STALLED_FIX_COMMAND = (
+    "/opt/homebrew/bin/colima start && /opt/homebrew/bin/docker ps"
+)
+
+
 # ── check_import_readiness ───────────────────────────────────────────
 
 

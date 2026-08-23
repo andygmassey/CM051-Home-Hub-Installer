@@ -46,6 +46,13 @@ OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8000")
+# v1.0.42 upgrade walk, 2026-08-23: the wiki was dead for about a day and
+# NOTHING said so. No alert, no Doctor card, no banner. It was found only
+# because someone was asked to open the URL. Nothing in this package
+# probed :8044 -- the single mention of the port anywhere in the doctor
+# tree was a comment. The wiki is the product's headline surface and it was
+# the one service with no instrument on it.
+WIKI_URL = os.getenv("WIKI_URL", "http://localhost:8044")
 
 HTTP_TIMEOUT = 5.0  # seconds
 
@@ -490,6 +497,13 @@ def collect_service_health() -> list[ServiceHealthInfo]:
         ("redis", None, None),  # special case: TCP check
         ("ollama", OLLAMA_URL, "/"),
         ("gateway", GATEWAY_URL, "/health"),
+        # The wiki. Added after the v1.0.42 walk found it dead for a day
+        # with no surface reporting it. This row alone makes an unreachable
+        # wiki a CRITICAL finding via the existing loop in
+        # web_ui.run_local_diagnostics; check_wiki_health in
+        # diagnostic_rules.py then replaces the generic fix command with one
+        # that is actually correct for a container behind a VM.
+        ("wiki", WIKI_URL, "/"),
     ]
 
     results = []
