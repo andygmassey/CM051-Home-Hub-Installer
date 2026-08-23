@@ -257,11 +257,37 @@ jobs:
       # about the query, not about the commit.
       - name: The tagged commit's own checks are not red
         if: always()
+        # 🔴 GH_TOKEN, and the permissions block above, are BOTH required.
+        #
+        # `checks: read` grants the scope to the job's GITHUB_TOKEN. It does
+        # not put that token anywhere `gh` looks. Without this env the CLI runs
+        # unauthenticated and the gate exits 2 CANNOT-RUN on every cut:
+        #
+        #   CANNOT-RUN: could not read check-runs for <sha>
+        #
+        # Measured twice on 2026-08-23 -- once on the v1.0.43 tag with neither,
+        # and once on a dispatch with the permission and not the token. A
+        # permission the consumer never receives is not a permission.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/verify_tagged_commit_is_green.sh "${GITHUB_SHA}" "${GITHUB_REPOSITORY}"
 
       - name: Vendored BOM is the BOM for this cut
         if: always()
-        run: ./tests/test_cut_bom_is_fresh.sh "${GITHUB_REF_NAME}"
+        # $CUT_VERSION, NOT $GITHUB_REF_NAME. The step above resolves the cut
+        # version for both events and exports it; on a dispatch the ref name is
+        # the BRANCH, so this read "vmain" and failed:
+        #
+        #   FAIL  no vendored BOM for vmain at cuts/vmain/MUST_CONTAIN.tsv
+        #
+        # 🔴 AND NOTE WHICH PATH THE BUG WAS ON. On a tag push the two are the
+        # same string, so this gate was correct on the road that ships and
+        # broken on the road you would use to TEST the road that ships. A dry
+        # run that cannot validate the real run is worse than no dry run,
+        # because its red teaches you to stop dispatching. The same note
+        # already exists at the appcast step below; it was written once and not
+        # carried here.
+        run: ./tests/test_cut_bom_is_fresh.sh "${CUT_VERSION}"
 
       # The orphan gate is the reason the v1.0.15 box-walk findings cannot
       # recur: it fails the cut when a fix EXISTS but is not in it. It runs
@@ -444,7 +470,9 @@ jobs:
           # GitHub which versions have a release, so it needs GH_TOKEN above;
           # three controls turn an unanswerable probe into CANNOT-RUN rather
           # than a quiet "nothing is owed".
-          CUT_VERSION="${GITHUB_REF_NAME:-}" ./tests/test_appcast_debt_is_collected.sh
+          # CUT_VERSION is already exported by preflight for BOTH events; the
+          # ref name is the branch on a dispatch. Same defect as the BOM step.
+          CUT_VERSION="${CUT_VERSION:-${GITHUB_REF_NAME:-}}" ./tests/test_appcast_debt_is_collected.sh
           # task #359: a workflow_dispatch of THIS file must be incapable of
           # producing or publishing an artefact. The dry run exists so a broken
           # cut-path check stops costing a version number; the moment a
