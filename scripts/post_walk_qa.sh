@@ -102,14 +102,46 @@ echo "──── 1. BOX-WALK PROBES ──────────────
 echo "     (phase 1 runs each probe's negative control BEFORE trusting"
 echo "      any phase 2 measurement -- a probe that cannot fail is BROKEN)"
 echo
-OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh"
-probe_rc=$?
-case "$probe_rc" in
-    0) echo "  probes: clean" ;;
-    1) echo "  probes: REAL FAILURES"; overall=1 ;;
-    *) echo "  probes: coverage lost (cannot-run / broken)"
-       [[ "$overall" -eq 0 ]] && overall=2 ;;
-esac
+# Output is CAPTURED, not just streamed, because the counts are needed twice:
+# once for the verdict here and once for the walk record at the end. The suite
+# is NOT run a second time to get them -- people_seed_and_retrieval writes a
+# synthetic person into the LIVE store (#829), so a second run is a second
+# write, and a second chance to leave the seed behind.
+PROBE_LOG="$(mktemp)"
+trap 'rm -f "$PROBE_LOG"' EXIT
+OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" 2>&1 | tee "$PROBE_LOG"
+probe_rc="${PIPESTATUS[0]}"
+
+# THE COUNTS, NOT THE RETURN CODE. run_box_walk.sh exits 0 whenever
+# FAIL == 0 && BROKEN == 0 -- so a walk where five probes never ran returns
+# the same 0 as a walk where fourteen passed. This file's own header promises
+# that a partial walk "exits non-zero", and until the counts were read that
+# promise could not be kept: the verdict was invariant to coverage loss, the
+# one distinction the box walk exists to make.
+count_of() { awk -v k="$1" '$1 == k { print $2; exit }' "$PROBE_LOG"; }
+n_pass="$(count_of PASS)";       n_fail="$(count_of FAIL)"
+n_cannot="$(count_of CANNOT-RUN)"; n_broken="$(count_of BROKEN)"
+for v in n_pass n_fail n_cannot n_broken; do
+    [[ "${!v}" =~ ^[0-9]+$ ]] || printf -v "$v" '%s' ""
+done
+
+if [[ -z "$n_pass$n_fail$n_cannot$n_broken" ]]; then
+    # The summary block could not be parsed at all. That is CANNOT-RUN for
+    # this script, not a pass for the box: fall back to the rc and say so.
+    echo "  probes: could not parse the summary block -- falling back to rc=${probe_rc}"
+    echo "  ⚠️ COUNTED AS COVERAGE LOST. A verdict nobody could read is not a clean one."
+    [[ "$probe_rc" -ne 0 ]] && overall=1 || overall=2
+elif [[ "${n_fail:-0}" -gt 0 || "${n_broken:-0}" -gt 0 ]]; then
+    echo "  probes: REAL FAILURES (fail=${n_fail:-0} broken=${n_broken:-0})"
+    overall=1
+elif [[ "${n_cannot:-0}" -gt 0 ]]; then
+    echo "  probes: coverage lost (cannot-run=${n_cannot})"
+    echo "  ⚠️ run_box_walk.sh returned ${probe_rc} for this, which is why the"
+    echo "     counts are read rather than the exit code."
+    [[ "$overall" -eq 0 ]] && overall=2
+else
+    echo "  probes: clean (pass=${n_pass})"
+fi
 
 if [[ -n "$CUT_VERSION" ]]; then
     echo
@@ -142,11 +174,65 @@ fi
 echo
 echo "════════════════════════════════════════════════════════════"
 case "$overall" in
-    0) echo " RESULT: CLEAN WALK — everything ran and everything passed." ;;
-    1) echo " RESULT: FAILED — at least one real defect on the box." ;;
-    2) echo " RESULT: PARTIAL — nothing failed, but not everything ran."
+    0) VERDICT=CLEAN;   echo " RESULT: CLEAN WALK — everything ran and everything passed." ;;
+    1) VERDICT=FAILED;  echo " RESULT: FAILED — at least one real defect on the box." ;;
+    2) VERDICT=PARTIAL; echo " RESULT: PARTIAL — nothing failed, but not everything ran."
        echo "         Coverage was LOST. Do not report this as a clean walk." ;;
 esac
 echo "   finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "════════════════════════════════════════════════════════════"
+
+# ── WRITE THE WALK RECORD (#844) ─────────────────────────────────────────
+#
+# Running this suite proved nothing about the release until the result could
+# be CONSULTED. #844: nothing between "gates green" and "customer download"
+# was a runtime proof, because the only runtime proof there is lived in a
+# terminal that got closed. scripts/verify_walk_record.sh reads this file and
+# scripts/publish_release.sh refuses to repoint ostler.ai/install.dmg without
+# a CLEAN one for the exact version being published.
+#
+# Only written when a cut version was named: a probes-only run is a useful
+# spot-check but it is not evidence about a release, and writing a record for
+# "" would create a file that clears a gate for nothing.
+if [[ -n "$CUT_VERSION" ]]; then
+    WALK_DIR="${OSTLER_WALK_RECORD_DIR:-${REPO_ROOT}/walks}"
+    mkdir -p "$WALK_DIR"
+    RECORD="${WALK_DIR}/${CUT_VERSION}.tsv"
+
+    # THE HOST IS HASHED, NEVER RECORDED. This repo is PUBLIC and $BOX is an
+    # ssh target -- routinely user@address. Writing it raw would commit an
+    # operator's account name and their machine's address on every walk. The
+    # hash still distinguishes "walked twice on the same box" from "walked on
+    # two boxes", which is the only thing the field is for.
+    BOX_FP="$(printf '%s' "$BOX" | shasum -a 256 | cut -c1-16)"
+
+    # Counts are the ones already parsed from the single probe run above --
+    # the suite is deliberately not re-invoked. See the note at that call.
+    {
+        printf '# Ostler walk record -- written by scripts/post_walk_qa.sh\n'
+        printf '# Read by scripts/verify_walk_record.sh, which gates the customer download.\n'
+        printf '# The box is recorded as a hash: this repo is public.\n'
+        printf 'version\t%s\n'     "$CUT_VERSION"
+        printf 'walked_at\t%s\n'   "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'box_fp\t%s\n'      "$BOX_FP"
+        printf 'pass\t%s\n'        "${n_pass:-0}"
+        printf 'fail\t%s\n'        "${n_fail:-0}"
+        printf 'cannot_run\t%s\n'  "${n_cannot:-0}"
+        printf 'broken\t%s\n'      "${n_broken:-0}"
+        printf 'verdict\t%s\n'     "$VERDICT"
+        printf 'qa_exit\t%s\n'     "$overall"
+    } > "$RECORD"
+
+    echo
+    echo "  walk record written: ${RECORD}"
+    if [[ "$overall" -eq 0 ]]; then
+        echo "  ⚠️  COMMIT IT. The customer download for ${CUT_VERSION} stays pointed at"
+        echo "      the PREVIOUS release until this file is on main:"
+        echo "          git add ${RECORD#"${REPO_ROOT}/"} && git commit"
+    else
+        echo "  This record is NOT clean, so it will not release ${CUT_VERSION} to customers."
+        echo "  Fix the box, re-walk, and let it overwrite this file."
+    fi
+fi
+
 exit "$overall"

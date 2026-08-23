@@ -1,0 +1,81 @@
+name: walk-record-gate
+
+# #844 -- NOTHING BETWEEN "GATES GREEN" AND "CUSTOMER DOWNLOAD" IS A RUNTIME
+# PROOF.
+#
+# Every other gate in this repo measures the ARTEFACT: it hashes, it staples,
+# it checks signatures. All of that can pass on a DMG that installs to a broken
+# machine, because none of it has ever been installed. The only runtime proof
+# in the estate is the box walk -- 14 probes with negative controls -- and
+# measured on origin/main 2026-08-23 NOTHING INVOKED IT:
+#
+#   OS003 bin/ pipeline/ gates/ .github/   post_walk_qa   0 hits
+#                                          run_box_walk   0 hits
+#     CONTROL, same dirs, same grep        verify_must_contain  bin/cut.sh:368
+#
+#   CM051, every reference to post_walk_qa.sh: its own usage string, and the
+#   README. Nothing executable.
+#
+# The probes cannot run on a runner -- they need an installed, walked box, and
+# a box only exists after a DMG is published. So the fix is not a call, it is
+# a record-and-gate: the walk writes evidence, and publish_release.sh refuses
+# to repoint ostler.ai/install.dmg without it. This workflow guards the gate.
+#
+# It runs on ubuntu-latest. macos-latest bills at 10x and nothing here needs
+# macOS: the test drives shell scripts over fixture files.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_walk_record.sh'
+      - 'scripts/publish_release.sh'
+      - 'scripts/post_walk_qa.sh'
+      - 'scripts/box_walk_probes/**'
+      - 'tests/test_walk_record_gates_customer_download.sh'
+      # A gate must trigger on changes to ITSELF, or it can be quietly
+      # narrowed in the very PR that narrows it.
+      - '.github/workflows/walk-record-gate.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  walk-record-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: The customer download cannot be repointed to an unwalked build
+        run: bash tests/test_walk_record_gates_customer_download.sh
+
+      # The suite above proves the gate REFUSES correctly. This proves it can
+      # still say yes on the real script, from the real repo root, with no
+      # fixture directory override -- a gate that only ever refuses would pass
+      # a suite made entirely of refusals, and would also block every release.
+      # `if: always()` -- a control is most informative on a RED run. If the
+      # suite above fails and this is skipped, you cannot tell "the gate is
+      # correctly refusing" from "the gate refuses everything", which is the
+      # exact ambiguity the control exists to remove.
+      - name: POSITIVE CONTROL -- the gate accepts a genuine clean record
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p walks
+          printf 'version\tv0.0.0-citest\n'      >  walks/v0.0.0-citest.tsv
+          printf 'walked_at\t2026-01-01T00:00:00Z\n' >> walks/v0.0.0-citest.tsv
+          printf 'box_fp\tcitestcitest0000\n'    >> walks/v0.0.0-citest.tsv
+          printf 'pass\t14\n'                    >> walks/v0.0.0-citest.tsv
+          printf 'fail\t0\n'                     >> walks/v0.0.0-citest.tsv
+          printf 'cannot_run\t0\n'               >> walks/v0.0.0-citest.tsv
+          printf 'broken\t0\n'                   >> walks/v0.0.0-citest.tsv
+          printf 'verdict\tCLEAN\n'              >> walks/v0.0.0-citest.tsv
+          printf 'qa_exit\t0\n'                  >> walks/v0.0.0-citest.tsv
+          bash scripts/verify_walk_record.sh v0.0.0-citest
+          rm -f walks/v0.0.0-citest.tsv

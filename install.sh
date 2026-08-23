@@ -13178,6 +13178,32 @@ services:
       # (WIKI_HYDRATION_STATUS_FILE below); that lands at ~/.ostler/state
       # on the host where the endpoint reads it.
       - ${HOME}/.ostler/state:/state
+      # 🔴 #849 -- THE PRO OBSIDIAN VAULT WRITER COULD NOT RUN ON ANY
+      # INSTALL. compiler/vault_licence.py gates it on the Pro licence
+      # state. Before this line, NOTHING under ${HOME}/.ostler except
+      # state/ was mounted here, so the reader resolved
+      # ~/.ostler/licence/state.json to /root/.ostler/licence/state.json
+      # INSIDE the container -- a path that has never existed on any
+      # install -- and fail-closed to pro_none on every compile pass.
+      # Every Pro customer silently got no vault, forever.
+      #
+      # ⚠️ IT WAS ALREADY FIXED IN CM044's docker/docker-compose.yml AND
+      # TESTED THERE, AND THAT TEST WAS GREEN WHILE THIS FILE WAS BROKEN.
+      # CM044's test_licence_dir_is_bind_mounted reads CM044's OWN dev
+      # compose. The customer runs THIS compose, generated here. Measured
+      # 2026-08-23, control on both sides:
+      #     CM044 docker/docker-compose.yml   .ostler/licence -> 5
+      #     CM051 install.sh                  .ostler/licence -> 0
+      #     control: wiki-compiler present in both (5 and 15), so neither
+      #     count is a false zero from reading the wrong file.
+      # A guard on the dev compose says nothing about the artefact.
+      #
+      # READ-ONLY: the compiler CONSUMES licence state, nothing in CM044
+      # writes it, and a writable mount onto the licence tree is a foothold
+      # the wiki compiler has no reason to hold. Scoped to licence/ alone,
+      # not all of ~/.ostler, which also holds daemon config and store
+      # credentials.
+      - ${HOME}/.ostler/licence:/licence:ro
     environment:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
@@ -13190,6 +13216,17 @@ services:
       # host-side CM041 ical-server hydration endpoint reads the same
       # file the compiler writes. See compiler/hydration.py::status_path.
       - WIKI_HYDRATION_STATUS_FILE=/state/wiki_hydration.json
+      # #849, second half. Absolute in-container path of the Pro licence
+      # state file, matching the ${HOME}/.ostler/licence:/licence:ro mount
+      # above. Set EXPLICITLY rather than letting the mount land at the
+      # container's ~/.ostler/licence: the image declares no USER and no
+      # ENV HOME, so "~" is /root ONLY by inheritance from the base image.
+      # The day anyone adds a USER line, a HOME-relative resolution would
+      # silently stop matching and the Pro vault writer would go quiet
+      # again in exactly the #849 way -- with no error, because the reader
+      # fail-closes to pro_none. An explicit env var is also the thing a
+      # test can assert lands inside a declared mount target.
+      - OSTLER_LICENCE_STATE_FILE=/licence/state.json
       # CM044 productisation knobs (set by CM044 PR #22). Empty
       # defaults are intentional: the compiler treats "" as "no
       # operator-specific filter" and emits a generic wiki rather
