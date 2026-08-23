@@ -23,6 +23,7 @@ import httpx
 
 from .ollama_client import OllamaClient
 from .settings import Settings
+from .turtle_escape import escape_turtle_iri_path
 
 logger = logging.getLogger(__name__)
 
@@ -151,12 +152,12 @@ def write_link_triples(
         )
         return len(link_result.related_ids)
 
-    conv_uri = f"<urn:ostler:conversation/{link_result.conversation_id}>"
+    conv_uri = f"<urn:ostler:conversation/{escape_turtle_iri_path(link_result.conversation_id)}>"
     graph_uri = f"urn:ostler:user/{settings.user_id}"
 
     triples = []
     for related_id in link_result.related_ids:
-        related_uri = f"<urn:ostler:conversation/{related_id}>"
+        related_uri = f"<urn:ostler:conversation/{escape_turtle_iri_path(related_id)}>"
         score = link_result.scores.get(related_id, 0.0)
         # Bidirectional link: A relatedTo B and B relatedTo A
         triples.append(
