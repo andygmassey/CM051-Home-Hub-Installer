@@ -3475,7 +3475,7 @@ fi
 
 # ── Container runtime: the CLIENT is not the ENGINE ────────────────
 #
-# MEASURED on Andy's Mac mini after a GREEN v1.0.42 install, 2026-08-23:
+# MEASURED on Andy's Mac mini after a GREEN v1.0.38 install, 2026-08-23:
 #
 #     /opt/homebrew/bin/docker      EXISTS      <-- the CLI, a client only
 #     colima                        ABSENT
@@ -9282,7 +9282,7 @@ fi
 
 # ── 3.2a POST-CONDITION: an engine must ANSWER, on every path ──────
 #
-# 🔴 THE INSTALL REPORTED SUCCESS WITH NO CONTAINER RUNTIME (v1.0.42 walk).
+# 🔴 THE INSTALL REPORTED SUCCESS WITH NO CONTAINER RUNTIME (v1.0.38 walk).
 #
 # Everything above is a LADDER of conditional arms -- HAS_DOCKER true,
 # Colima present, Docker Desktop present, brew install, retry loop. Every
@@ -23293,7 +23293,7 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
     # exit code of `docker compose up -d`, with NO probe of :8044 and no
     # re-read of the container state. `up -d` returning 0 means compose
     # asked for a container, not that anything answers on the port. On the
-    # v1.0.42 walk the wiki was dead for about a day and this line was the
+    # v1.0.38 walk the wiki was dead for about a day and this line was the
     # last thing that had claimed otherwise.
     #
     # INSTRUMENT AND DEFECT MUST SHARE A SURFACE: the claim is about a URL,
@@ -23542,7 +23542,7 @@ else
     HEALTHY=false
 fi
 
-# 🔴 THE WIKI WAS NOT IN THE HEALTH CHECK AT ALL (v1.0.42 walk).
+# 🔴 THE WIKI WAS NOT IN THE HEALTH CHECK AT ALL (v1.0.38 walk).
 #
 # Phase 4 probed Qdrant, Oxigraph, Redis, Ollama, the gateway, Doctor,
 # ical-server and Vane. It did not probe :8044, and there was no `curl` or

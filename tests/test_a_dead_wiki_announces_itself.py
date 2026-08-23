@@ -3,7 +3,7 @@
 
 THE DEFECT, MEASURED 2026-08-23
 -------------------------------
-v1.0.42 upgrade walk, Mac mini. The wiki was down for about a day. No alert,
+v1.0.38 walk, Mac mini. The wiki was down for about a day. No alert,
 no Doctor card, no banner, no log line anywhere claiming otherwise. It was
 found only because someone was asked to open the URL.
 
@@ -183,7 +183,7 @@ def test_unreachable_wiki_is_critical():
         found = dr.check_wiki_health(snap)
     if not found:
         bad("THE DEFECT IS BACK: the wiki is unreachable and the rule said "
-            "nothing. That is the v1.0.42 state exactly.")
+            "nothing. That is the 2026-08-23 state exactly.")
         return
     f = found[0]
     if f["severity"] == "critical":

@@ -4,7 +4,7 @@
 #
 # THE DEFECT THIS PINS, MEASURED 2026-08-23 ON REAL HARDWARE
 # ---------------------------------------------------------
-# v1.0.42 upgrade walk, Mac mini. The install reported SUCCESS on a machine
+# v1.0.38 walk, Mac mini. The install reported SUCCESS on a machine
 # with no container runtime at all:
 #
 #     /opt/homebrew/bin/docker    EXISTS     <-- the CLI. A client only.
@@ -171,7 +171,7 @@ else
     GUARD_FROM=$(( INSTALL_LINE > 6 ? INSTALL_LINE - 6 : 1 ))
     GUARD="$(sed -n "${GUARD_FROM},${INSTALL_LINE}p" "$CODE")"
     if grep -q 'command -v docker' <<<"$GUARD"; then
-        failure "the brew-install-colima branch is still guarded by 'command -v docker' -- that tests for the CLIENT to decide about the ENGINE, which is the root cause of the v1.0.42 finding"
+        failure "the brew-install-colima branch is still guarded by 'command -v docker' -- that tests for the CLIENT to decide about the ENGINE, which is the root cause of the 2026-08-23 finding"
     else
         pass "the brew-install-colima branch is not guarded by the presence of the docker CLIENT"
     fi
