@@ -3473,18 +3473,63 @@ else
     ok "$MSG_OK_POWER_SOURCE_AC_DESKTOP_MAC_NO"
 fi
 
-# Check Docker availability (don't install yet -- just check)
-HAS_DOCKER=false
-if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
-    HAS_DOCKER=true
-    ok "$MSG_OK_DOCKER_RUNNING"
+# ── Container runtime: the CLIENT is not the ENGINE ────────────────
+#
+# MEASURED on Andy's Mac mini after a GREEN v1.0.42 install, 2026-08-23:
+#
+#     /opt/homebrew/bin/docker      EXISTS      <-- the CLI, a client only
+#     colima                        ABSENT
+#     /Applications/Docker.app      ABSENT
+#     podman / OrbStack             ABSENT
+#     :8044 wiki                    000
+#     :7878 Oxigraph                000
+#     CONTROL  :8000 daemon 200, :8089 ical 302   <-- native launchd, alive
+#
+# The zero is RAGGED and it falls on an architectural line: the two dead
+# ports are exactly the Docker-hosted services and the two live ones are
+# exactly the native launchd services. That is what makes it trustworthy.
+#
+# On macOS `docker` is a CLIENT. There is no engine in the box. So a
+# machine can have `command -v docker` succeed and still be unable to run
+# a single container -- which is precisely the state that install found,
+# and reported success from.
+#
+# HAS_CONTAINER_ENGINE is therefore the ONLY variable Phase 3.2 may branch
+# on. HAS_DOCKER_CLIENT exists to make the diagnostic honest, never to
+# decide anything.
+HAS_DOCKER_CLIENT=false
+HAS_CONTAINER_ENGINE=false
+CONTAINER_ENGINE_KIND="none"
+command -v docker &>/dev/null && HAS_DOCKER_CLIENT=true
+if [[ "$HAS_DOCKER_CLIENT" == true ]] && docker info &>/dev/null 2>&1; then
+    HAS_CONTAINER_ENGINE=true
+    CONTAINER_ENGINE_KIND="running"
 elif command -v colima &>/dev/null; then
-    info "$MSG_INFO_COLIMA_INSTALLED_BUT_NOT_RUNNING_WILL"
-elif command -v docker &>/dev/null; then
-    warn "$MSG_WARN_DOCKER_INSTALLED_BUT_NOT_RUNNING_WILL"
-else
-    info "$MSG_INFO_DOCKER_NOT_INSTALLED_WILL_INSTALL_COLIMA"
+    CONTAINER_ENGINE_KIND="colima-stopped"
+elif [[ -d "/Applications/Docker.app" ]]; then
+    CONTAINER_ENGINE_KIND="desktop-stopped"
 fi
+
+# HAS_DOCKER is kept as the name Phase 3.2 already reads. It now means
+# "an engine answered", never "the CLI is on PATH".
+HAS_DOCKER="$HAS_CONTAINER_ENGINE"
+
+case "$CONTAINER_ENGINE_KIND" in
+    running)
+        ok "$MSG_OK_DOCKER_RUNNING" ;;
+    colima-stopped)
+        info "$MSG_INFO_COLIMA_INSTALLED_BUT_NOT_RUNNING_WILL" ;;
+    desktop-stopped)
+        warn "$MSG_WARN_DOCKER_INSTALLED_BUT_NOT_RUNNING_WILL" ;;
+    none)
+        # NAME what is missing, and say it EARLY -- before the customer
+        # walks away. A bare "Docker not installed" was wrong on the Mini:
+        # the Docker CLI WAS installed. What was missing was an engine.
+        if [[ "$HAS_DOCKER_CLIENT" == true ]]; then
+            warn "$MSG_WARN_DOCKER_CLIENT_WITHOUT_ENGINE"
+        fi
+        info "$MSG_INFO_DOCKER_NOT_INSTALLED_WILL_INSTALL_COLIMA" ;;
+esac
 gui_emit PCT "step=prereq_check" "pct=100"
 
 # Minimum-dwell pad for the prereq_check phase. On a fast Mac with
@@ -9077,7 +9122,20 @@ else
     # Prefer Colima over Docker Desktop. Colima is headless (no EULA, no
     # account signup, no system extension dialogs) and works perfectly for
     # running containers on macOS. Docker Desktop is a fallback.
-    if ! command -v docker &>/dev/null; then
+    # 🔴 THE GUARD THAT LET A GREEN INSTALL SHIP WITH NO ENGINE.
+    #
+    # This used to read `if ! command -v docker`. That tests for the CLIENT
+    # to decide whether to install the ENGINE, and on macOS the two are
+    # different programs. Any box that already had Homebrew's `docker`
+    # formula -- installed by this installer on an earlier run, by another
+    # tool, or by hand -- skipped the Colima install entirely, then fell
+    # through the `command -v colima` arm (absent) and the Docker Desktop
+    # arm (absent). That is the exact state measured on the Mini.
+    #
+    # The condition is now COLIMA's absence, because Colima is what this
+    # branch installs. A separate `command -v docker` check still follows
+    # the brew install, because the client is genuinely required too.
+    if ! command -v colima &>/dev/null && [[ ! -d "/Applications/Docker.app" ]]; then
         info "$MSG_INFO_INSTALLING_COLIMA_DOCKER_CLI"
         brew install colima docker docker-compose
         # Re-eval Homebrew PATH so newly installed commands are found
@@ -9221,6 +9279,50 @@ else
     # therefore left the FDA-less agent in place. The real removal now happens
     # immediately after this block; see the section below the `fi`.
 fi
+
+# ── 3.2a POST-CONDITION: an engine must ANSWER, on every path ──────
+#
+# 🔴 THE INSTALL REPORTED SUCCESS WITH NO CONTAINER RUNTIME (v1.0.42 walk).
+#
+# Everything above is a LADDER of conditional arms -- HAS_DOCKER true,
+# Colima present, Docker Desktop present, brew install, retry loop. Every
+# arm is individually reasonable and every arm can be skipped. A ladder
+# whose rungs are all optional has no floor.
+#
+# This is the floor, and it is deliberately OUTSIDE the `if
+# [[ "$HAS_DOCKER" == true ]] ... else ... fi` above so it runs on the
+# already-had-an-engine path too: an engine that answered in Phase 1 and
+# died before Phase 3 is the same customer outcome as one that never
+# existed.
+#
+# Walked byte-by-byte per [[feedback-silent-bail-regression-test-shape]]:
+# ask the engine, do not infer it from the presence of a binary. `docker
+# info` is the only question whose answer distinguishes a client from a
+# runtime.
+#
+# THIS IS A HARD FAIL. `ostler-wiki-site` and `ostler-wiki-compiler` are
+# pinned BY DIGEST in the compose file below and cannot start without an
+# engine, so continuing produces an install that is missing the wiki, the
+# triple store and the vector store while reporting success. That is worse
+# than stopping, because the customer walks away believing it worked.
+progress "Verifying container runtime" "docker_verify"
+if ! command -v docker &>/dev/null; then
+    fail_with_code "ERR-06-CONTAINER-CLIENT-MISSING" \
+        "$(printf "$MSG_FAIL_CONTAINER_CLIENT_MISSING" "$INSTALL_LOG")"
+fi
+DOCKER_INFO_ERR="$(docker info 2>&1 >/dev/null)" || DOCKER_INFO_ERR="${DOCKER_INFO_ERR:-docker info failed}"
+if ! docker info &>/dev/null 2>&1; then
+    # Name WHAT is missing and HOW to fix it. A customer reading this must
+    # be able to act on it without a support round-trip.
+    warn "$(printf "$MSG_WARN_CONTAINER_ENGINE_DIAGNOSTIC" \
+        "$(command -v docker)" \
+        "$(command -v colima || echo 'not installed')" \
+        "$( [[ -d /Applications/Docker.app ]] && echo present || echo absent )")"
+    warn "${DOCKER_INFO_ERR}"
+    fail_with_code "ERR-06-CONTAINER-ENGINE-ABSENT" \
+        "$(printf "$MSG_FAIL_CONTAINER_ENGINE_ABSENT" "$INSTALL_LOG")"
+fi
+ok "$MSG_OK_CONTAINER_ENGINE_ANSWERED"
 
 # ── 3.2b Remove any stale FDA-less Colima LaunchAgent ──────────────
 #
@@ -23099,9 +23201,34 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
     # had to be restarted (#598); that restart WAS the recompile-window 000 the
     # static server removes. Identical publish primitive to
     # wiki-recompile-tick.sh.
+    # 🔴 "Wiki running at http://localhost:8044" used to be printed on the
+    # exit code of `docker compose up -d`, with NO probe of :8044 and no
+    # re-read of the container state. `up -d` returning 0 means compose
+    # asked for a container, not that anything answers on the port. On the
+    # v1.0.42 walk the wiki was dead for about a day and this line was the
+    # last thing that had claimed otherwise.
+    #
+    # INSTRUMENT AND DEFECT MUST SHARE A SURFACE: the claim is about a URL,
+    # so the evidence has to be that URL.
     if docker compose up -d wiki-site 2>&1 | tail -3; then
         WIKI_FIRST_COMPILE_OK=true
-        ok "$MSG_OK_WIKI_RUNNING_HTTP_LOCALHOST_8044"
+        # Poll rather than probe once: the static server binds a second or
+        # two after `up -d` returns. Bounded, and its failure is loud.
+        WIKI_PORT_UP=false
+        for _wiki_wait in $(seq 1 30); do
+            if curl -sf -o /dev/null -m 3 "http://127.0.0.1:8044/" 2>/dev/null; then
+                WIKI_PORT_UP=true
+                break
+            fi
+            sleep 2
+        done
+        if [[ "$WIKI_PORT_UP" == true ]]; then
+            ok "$MSG_OK_WIKI_RUNNING_HTTP_LOCALHOST_8044"
+        else
+            WIKI_FIRST_COMPILE_OK=false
+            HEALTHY=false
+            warn "$MSG_WARN_WIKI_PORT_NOT_ANSWERING"
+        fi
         # Detached full summary compile (summaries ON -- no skip flag).
         # nohup + </dev/null + disown so it survives install.sh exit and
         # its exit code can never gate install completion.
@@ -23197,7 +23324,18 @@ fi
 __OSTLER_STEP_ID="health_check"
 gui_step_begin "health_check" "$MSG_STEP_RUNNING_HEALTH_CHECK" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
 
-HEALTHY=true
+# 🔴 THIS LINE USED TO READ `HEALTHY=true`, AND IT ERASED TWO VERDICTS.
+#
+# #839 added `HEALTHY=false` at the zero-pages check (~23185) so that "the
+# wiki compiled zero pages" would mark the run unhealthy. This branch adds
+# a second one for ":8044 never answered". BOTH sit ~140 lines ABOVE this
+# point, and a bare `HEALTHY=true` here overwrote them, unconditionally,
+# every time. The instrument reported into a variable that was then reset
+# before anyone read it -- a gate that is green by construction.
+#
+# `:=` initialises only when unset, so the earlier verdicts survive and the
+# Phase 4 probes below can still only ever make things worse, never better.
+: "${HEALTHY:=true}"
 
 if curl -sf http://localhost:6333/healthz &>/dev/null; then
     ok "$MSG_OK_QDRANT_HEALTHY"
@@ -23313,6 +23451,25 @@ if _probe_http_live "http://127.0.0.1:8090/" 5; then
     ok "$MSG_OK_ICAL_SERVER_HEALTHY"
 else
     warn "$MSG_WARN_ICAL_SERVER_NOT_RESPONDING"
+    HEALTHY=false
+fi
+
+# 🔴 THE WIKI WAS NOT IN THE HEALTH CHECK AT ALL (v1.0.42 walk).
+#
+# Phase 4 probed Qdrant, Oxigraph, Redis, Ollama, the gateway, Doctor,
+# ical-server and Vane. It did not probe :8044, and there was no `curl` or
+# `nc` against 8044 anywhere in install.sh or scripts/ -- the only mentions
+# were an `echo` of the URL and an `open` of it. So the ONE surface the
+# customer is told to visit at the end ("Your wiki: http://localhost:8044")
+# was the one surface nothing checked.
+#
+# On the walk it was 000 for about a day and nothing said so. This is the
+# install-time half of that fix; the running-system half is the Doctor
+# service probe.
+if _probe_http_live "http://127.0.0.1:8044/" 10; then
+    ok "$MSG_OK_WIKI_HEALTHY"
+else
+    warn "$MSG_WARN_WIKI_NOT_RESPONDING"
     HEALTHY=false
 fi
 
