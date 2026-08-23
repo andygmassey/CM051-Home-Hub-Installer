@@ -191,21 +191,71 @@ fi
 # stay. It is wrong only where its body INSTALLS the engine, because there
 # it asks about the client to decide about the engine. So the predicate is
 # scoped to the guard that actually reaches `brew install colima`.
+#
+# 🔴 THE WINDOW USED TO BE SIX LINES, AND SIX LINES IS AN ASSUMPTION ABOUT
+# SOMEBODY ELSE'S CODE. It held only while the guard was a one-line
+# `command -v` test. When the engine probe became a loop --
+#
+#     ENGINE_PRESENT=false
+#     for _rt in colima orbstack podman; do ...
+#     if [[ "$ENGINE_PRESENT" == false ]]; then
+#         brew install colima ...
+#
+# -- the word `colima` moved fourteen lines up, outside the window, and this
+# check reported "the guard on brew install colima no longer mentions colima"
+# about a guard that enumerates colima FIRST and also covers OrbStack and
+# Podman, which the old one-liner did not. A red on a strictly better guard.
+#
+# So the guard is now located STRUCTURALLY -- the nearest enclosing `if`/`elif`
+# above the install -- and the colima-shaped requirement is satisfied EITHER
+# directly OR by derivation: a variable the condition consults, whose own
+# assignment sits in a probe that names colima. One indirection, followed
+# deliberately, not a window widened until it stopped complaining.
 INSTALL_LINE="$(grep -n 'brew install colima' "$CODE" | head -1 | cut -d: -f1)"
 if [[ -z "${INSTALL_LINE:-}" ]]; then
     failure "no 'brew install colima' in install.sh -- the engine is never installed at all"
 else
-    GUARD_FROM=$(( INSTALL_LINE > 6 ? INSTALL_LINE - 6 : 1 ))
+    GUARD_FROM="$(awk -v n="$INSTALL_LINE" \
+        'NR<=n && /^[[:space:]]*(if|elif)[[:space:]]/ {l=NR} END {print (l ? l : 1)}' "$CODE")"
     GUARD="$(sed -n "${GUARD_FROM},${INSTALL_LINE}p" "$CODE")"
+
+    # 🔴 THE CONDITION, NOT THE BODY. The window ends ON the `brew install
+    # colima` line, so any predicate that greps the whole window for "colima"
+    # matches the install command itself and passes no matter what the guard
+    # says. My first version of this did exactly that and control D below --
+    # delete colima from the engine probe -- still scored 25/0. Vacuous.
+    CONDITION="$(sed -n "${GUARD_FROM},$(( INSTALL_LINE - 1 ))p" "$CODE")"
+
+    # Does the CONDITION reach colima? Directly, or through a variable it
+    # consults whose assignment sits in a probe that names colima. One
+    # indirection, followed on purpose. `command -v colima` and not a bare
+    # mention, because the question is whether something PROBED for colima.
+    guard_is_colima_shaped() {
+        grep -qE 'command -v ["'"'"']*colima' <<<"$CONDITION" && return 0
+        local v a probe
+        while IFS= read -r v; do
+            [[ -z "$v" ]] && continue
+            while IFS= read -r a; do
+                [[ -z "$a" ]] && continue
+                # the assignment site plus the 6 lines above it: the probe that
+                # decides the value. Anchored on the ASSIGNMENT, so it travels
+                # with the code instead of with a distance from the consumer.
+                probe="$(sed -n "$(( a > 6 ? a - 6 : 1 )),${a}p" "$CODE")"
+                grep -q 'colima' <<<"$probe" && return 0
+            done < <(grep -n "^[[:space:]]*${v}=" "$CODE" | cut -d: -f1)
+        done < <(grep -oE '\$\{?[A-Za-z_][A-Za-z0-9_]*' <<<"$CONDITION" | tr -d '${' | sort -u)
+        return 1
+    }
+
     if grep -q 'command -v docker' <<<"$GUARD"; then
         failure "the brew-install-colima branch is still guarded by 'command -v docker' -- that tests for the CLIENT to decide about the ENGINE, which is the root cause of the 2026-08-23 finding"
     else
         pass "the brew-install-colima branch is not guarded by the presence of the docker CLIENT"
     fi
-    if grep -q 'command -v colima' <<<"$GUARD"; then
-        pass "the Colima install is reached from a Colima-shaped condition"
+    if guard_is_colima_shaped; then
+        pass "the Colima install is reached from a Colima-shaped condition (directly, or via a variable assigned by a probe that names colima)"
     else
-        failure "the guard on brew install colima no longer mentions colima: ${GUARD}"
+        failure "the guard on brew install colima reaches colima neither directly nor through any variable it consults: ${GUARD}"
     fi
 fi
 # The two legitimate client post-conditions must SURVIVE. Removing them to
