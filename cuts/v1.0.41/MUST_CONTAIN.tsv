@@ -1,0 +1,29 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.41.
+#
+# ===========================================================================
+# provenance=reconstructed. THIS IS NOT CUT-EMITTED EVIDENCE.
+# ===========================================================================
+# v1.0.41 was PUBLISHED 2026-08-22T19:32:11Z and this file was written on
+# 2026-08-23, AFTER the fact, from cuts/v1.0.41/cut.env, cut-manifests/
+# v1.0.41.yaml, the shipped install.sh at the tag, and the HR015 shipping
+# ledger. It is assembled from what we can MEASURE about a cut that already
+# happened -- not emitted by the cut that made it.
+#
+# Why the distinction is load-bearing: if a reconciler checks a running box
+# against this file and agrees, the agreement proves the box matches THIS
+# RECORD. It does not independently confirm the artefact. Do not cite it as
+# cut-emitted truth and do not treat agreement with it as corroboration.
+#
+# THE FIRST AUTHORITATIVE, CUT-EMITTED BOM IS THE NEXT CUT'S. That is the
+# whole point of stamping this one.
+#
+# Every `verify` below was RUN against the v1.0.41 customer bytes, not
+# recalled. Same discipline as cuts/v1.0.38/MUST_CONTAIN.tsv, which carries
+# provenance=completed-after-ship for the same reason.
+#
+# Add a row with:  bin/bom_add.sh v1.0.41 <what> <repo> <ref> <capability_id> <ticket>
+# ===========================================================================
+what	repo	ref	landed	capability_id	verify	ticket
+17 of 928 Places wiki pages carried a live meeting passcode IN THE PAGE TITLE, because a calendar's location for a remote meeting is the join URL verbatim and every distinct location string was promoted to a place. The wiki images were rebuilt from a sanitised CM044 and re-pinned, so the passcode-bearing images are no longer in the artefact a customer downloads.	CM044	#245 + wiki image rebuild	yes	wiki_images_carry_no_passcode	grep the SHIPPED install.sh for the rebuilt digests sha256:0df14b72 (wiki-site) and sha256:ab53c66a (wiki-compiler): both MUST be present. Then grep for sha256:7d353848 and sha256:3846eb3b, the passcode-bearing pair: both MUST be absent. Measured on the v1.0.41 customer bytes: present/present, gone/gone.	HR015 walk
+The daemon this DMG installs is hub-v0.4.62, built locally with the keychain rather than by a tag push, because a daemon tag push produces an UNSIGNED draft: release/sign-and-notarize.sh treats an empty OSTLER_SIGNING_IDENTITY as skip-signing and exits 0.	ostler-assistant	9be3224c799a (DAEMON_COMMIT pin)	yes	daemon_pinned_at_0462	read the SHIPPED install.sh: OSTLER_ASSISTANT_VERSION must default to 0.4.62 and ASSISTANT_FALLBACK_VERSION must be 0.4.61. Measured at tag v1.0.41: install.sh:11360 and :11420.	HR015 ledger daemon_builds
+OstlerInstaller.app reported the WRONG version in v1.0.39 because gui/Makefile DERIVES the app version by reading a tracked plist. v1.0.41 bumped all three stamp sites together, so the installer names itself.	CM051	v1.0.41 tag	yes	installer_version_is_the_cut	mount the published DMG to a mountpoint you control and read OstlerInstaller.app/Contents/Info.plist. Measured on the v1.0.41 customer bytes: CFBundleShortVersionString 1.0.41, CFBundleVersion 4100. Now also gated pre-build by gates/verify_version_stamp_matches_cut.sh, wired at bin/cut.sh:392 and :403.	HR015 #856

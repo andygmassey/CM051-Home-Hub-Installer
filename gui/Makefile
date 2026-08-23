@@ -1114,6 +1114,17 @@ stage-payload:
 	DOCTOR_SRC="$$SRC_ROOT/vendor/doctor/agent"; \
 	KNOWLEDGE_SRC="$$SRC_ROOT/vendor/cm024_knowledge"; \
 	CM048_SRC="$$SRC_ROOT/vendor/cm048_pipeline"; \
+	: ; \
+	: "$(VERSION) is the plist-derived marketing version (Makefile:120). It is" ; \
+	: "the right key here ONLY because gates/verify_version_stamp_matches_cut.sh" ; \
+	: "now asserts, in cut preflight, that every stamp site EQUALS the version" ; \
+	: "cut.env declares -- OS003 #122, wired at bin/cut.sh:392 and :403. Without" ; \
+	: "that interlock this would embed the BOM for whatever the plist happened" ; \
+	: "to say, which is the v1.0.40 defect one layer along. NOTE CUT_VERSION is" ; \
+	: "NOT defined in this Makefile; using it here silently yielded cuts/v/ and" ; \
+	: "would have refused every cut." ; \
+	CUT_BOM_SRC="$$SRC_ROOT/cuts/v$(VERSION)/MUST_CONTAIN.tsv"; \
+	VENDOR_MANIFEST_SRC="$$SRC_ROOT/vendor/VENDOR_MANIFEST.toml"; \
 	PLISTS="$$(ls "$$LAUNCHD_DIR"/*.plist 2>/dev/null || true)"; \
 	MISSING=""; \
 	[ -f "$$INSTALL_SH" ] || MISSING="$$MISSING install.sh"; \
@@ -1123,6 +1134,8 @@ stage-payload:
 	[ -d "$$DOCTOR_SRC" ] || MISSING="$$MISSING vendor/doctor/agent"; \
 	[ -d "$$KNOWLEDGE_SRC" ] || MISSING="$$MISSING vendor/cm024_knowledge"; \
 	[ -d "$$CM048_SRC" ] || MISSING="$$MISSING vendor/cm048_pipeline"; \
+	[ -f "$$CUT_BOM_SRC" ] || MISSING="$$MISSING cuts/v$(VERSION)/MUST_CONTAIN.tsv"; \
+	[ -f "$$VENDOR_MANIFEST_SRC" ] || MISSING="$$MISSING vendor/VENDOR_MANIFEST.toml"; \
 	if [ -n "$$MISSING" ]; then \
 	    echo "" >&2; \
 	    echo "ERROR: stage-payload source input(s) missing:$$MISSING" >&2; \
@@ -1144,8 +1157,10 @@ stage-payload:
 	cp -R "$$DOCTOR_SRC" "$$PAYLOAD/services/doctor"; \
 	cp -R "$$KNOWLEDGE_SRC" "$$PAYLOAD/services/knowledge"; \
 	cp -R "$$CM048_SRC" "$$PAYLOAD/services/cm048"; \
+	cp "$$CUT_BOM_SRC" "$$PAYLOAD/cut-bom.tsv"; \
+	cp "$$VENDOR_MANIFEST_SRC" "$$PAYLOAD/vendor-manifest.toml"; \
 	/usr/bin/xattr -cr "$$PAYLOAD" 2>/dev/null || true; \
-	for req in VERSION install.sh assistant-agent/INSTALL_SNIPPET.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048; do \
+	for req in VERSION install.sh cut-bom.tsv vendor-manifest.toml assistant-agent/INSTALL_SNIPPET.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048; do \
 	    if [ ! -e "$$PAYLOAD/$$req" ]; then \
 	        echo "ERROR: payload assembly incomplete -- missing $$req after copy." >&2; \
 	        exit 1; \

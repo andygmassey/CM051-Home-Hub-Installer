@@ -106,13 +106,48 @@ calls=$(grep -c '_ostler_verify_runtime_ready \\$' "$INSTALL_SH")
 
 # And specifically INSIDE the upgrade block, which is the gap #595 exposed.
 upg_start=$(grep -n 'OSTLER_UPGRADE_MODE' "$INSTALL_SH" | head -1 | cut -d: -f1)
-upg_end=$(awk 'NR>1 && /^        exit 0$/ {print NR; exit}' "$INSTALL_SH")
+# ANCHORED TO upg_start. This was `NR>1`, which finds the first eight-space
+# `exit 0` in the WHOLE FILE rather than the first one AFTER the block starts.
+# The end of the range was computed independently of its start, so it was
+# correct only because that line happens to fall inside the intended block
+# today. Any edit introducing an earlier eight-space `exit 0` moves upg_end
+# BACKWARDS, the range silently becomes a different range, and "the call is
+# inside it" quietly begins asserting something else. The predicate has to be
+# anchored to the thing it claims to measure. (TNM, 2026-08-23.)
+upg_end=$(awk -v a="$upg_start" 'NR>a && /^        exit 0$/ {print NR; exit}' "$INSTALL_SH")
+# ONE awk, NO PIPE. This was `awk ... | grep -q ...` under `set -o pipefail`
+# (line 12), which is a FALSE NEGATIVE that depends on process timing:
+#
+#   grep -q exits on the FIRST match -- line 567, near the START of the
+#   89-619 range -- and closes the pipe. awk still has ~50 lines to write,
+#   takes SIGPIPE, and the PIPELINE status becomes 141. pipefail propagates
+#   it, the `if` takes the else branch, and the gate reports the call is NOT
+#   in the upgrade block when it demonstrably is.
+#
+# Measured 2026-08-23: identical bytes PASS on macOS and FAIL on ubuntu.
+# upg_start=89 upg_end=619 call_lines=[567 ...] on BOTH -- the range was
+# right and the call was inside it in both arms. macOS awk simply finished
+# writing before grep closed the pipe; GNU awk 5.2.1 did not.
+#
+# The class is `producer | grep -q` under pipefail whenever the producer
+# outlives the first match. Doing it in a single process removes the pipe
+# and the race with it.
 if [[ -n "$upg_start" && -n "$upg_end" ]] && \
-   awk -v a="$upg_start" -v b="$upg_end" 'NR>=a && NR<=b' "$INSTALL_SH" \
-   | grep -q '_ostler_verify_runtime_ready'; then
+   awk -v a="$upg_start" -v b="$upg_end" \
+       'NR>=a && NR<=b && /_ostler_verify_runtime_ready/ {found=1}
+        END {exit !found}' "$INSTALL_SH"; then
     ok "invoked INSIDE the upgrade block (lines ${upg_start}-${upg_end})"
 else
+    # SAY WHAT WAS MEASURED. This printed nothing but a verdict, so a failure
+    # that reproduces on one platform and not another gives the reader no way
+    # to tell WHICH of the three numbers moved. A gate that refuses without
+    # reporting its inputs cannot be diagnosed, only guessed at.
     bad "NOT invoked inside the upgrade block -- this is exactly the #595 gap"
+    printf '       upg_start=%s upg_end=%s call_lines=[%s] total_lines=%s\n' \
+        "${upg_start:-<empty>}" "${upg_end:-<empty>}" \
+        "$(grep -n '_ostler_verify_runtime_ready' "$INSTALL_SH" | cut -d: -f1 | tr '\n' ' ')" \
+        "$(wc -l < "$INSTALL_SH" | tr -d ' ')" >&2
+    printf '       awk=%s\n' "$(awk --version 2>&1 | head -1)" >&2
 fi
 
 echo "== 8. install.sh still parses =="
