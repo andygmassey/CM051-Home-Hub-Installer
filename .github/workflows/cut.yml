@@ -199,10 +199,18 @@ jobs:
       # anything is built, and its self-test runs first, because a gate of
       # unknown vintage cannot be evidence about anything (same reasoning as
       # the pin check above).
+      # `if: always()` because verify_ci_steps_are_maskless.py is right: a test
+      # step skipped when an EARLIER test in the same job fails cannot report
+      # what it was added to report. A skipped step reads as not-failed, so the
+      # BOM freshness verdict would be INVARIANT to the defect whenever
+      # anything above it went red -- which is the decoration pattern this gate
+      # and I have both spent the day finding elsewhere.
       - name: Cut BOM freshness gate self-test
+        if: always()
         run: ./tests/test_cut_bom_is_fresh.sh --self-test
 
       - name: Vendored BOM is the BOM for this cut
+        if: always()
         run: ./tests/test_cut_bom_is_fresh.sh "${GITHUB_REF_NAME}"
 
       # The orphan gate is the reason the v1.0.15 box-walk findings cannot
