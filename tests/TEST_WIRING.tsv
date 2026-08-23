@@ -59,6 +59,7 @@ test_contact_card_prefill.sh	UNWIRED	-
 test_contact_email_coverage_guard.sh	UNWIRED	-
 test_contact_resync_scheduled.sh	UNWIRED	-
 test_container_engine_liveness_and_recovery.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_container_runtime_guard_tests_the_engine_not_the_client.sh	WIRED	.github/workflows/container-runtime-guard.yml
 test_container_runtime_precondition.sh	WIRED	.github/workflows/container-runtime-precondition.yml
 test_context_refresh_vendor_sha.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_context_refresh_wired.sh	WIRED	.github/workflows/context-digest-auth.yml
