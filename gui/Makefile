@@ -866,12 +866,42 @@ download-hub-app:
 	            --clobber || { \
 	        echo "" >&2; \
 	        echo "ERROR: could not read $(HUB_APP_REPO) $(DAEMON_RELEASE_TAG) with OSTLER_RELEASES_TOKEN." >&2; \
-	        echo "  The token IS set, so this is a scope problem, not a missing credential." >&2; \
-	        echo "  $(HUB_APP_REPO) is a DIFFERENT repository from the daemon's" >&2; \
-	        echo "  $(DAEMON_REPO), and a fine-grained token scoped to one cannot read" >&2; \
-	        echo "  the other. Add $(HUB_APP_REPO) to the token's repository list with" >&2; \
-	        echo "  Contents: Read, or publish the hub app tarball alongside the daemon" >&2; \
-	        echo "  and set HUB_APP_REPO=$(DAEMON_REPO)." >&2; \
+	        PROBE="$$(GH_TOKEN="$$OSTLER_RELEASES_TOKEN" gh api \
+	            "repos/$(HUB_APP_REPO)/releases/tags/$(DAEMON_RELEASE_TAG)" 2>&1 >/dev/null)"; \
+	        PROBE_RC=$$?; \
+	        if [ "$$PROBE_RC" -eq 0 ]; then \
+	            echo "  MEASURED: the release EXISTS and this token CAN read it." >&2; \
+	            echo "  So the release object is fine and the ASSET is what is absent." >&2; \
+	            echo "  Assets actually published at $(DAEMON_RELEASE_TAG):" >&2; \
+	            GH_TOKEN="$$OSTLER_RELEASES_TOKEN" gh release view "$(DAEMON_RELEASE_TAG)" \
+	                --repo "$(HUB_APP_REPO)" --json assets --jq '.assets[].name' \
+	                2>/dev/null | sed 's/^/    /' >&2 || true; \
+	            echo "  Expected: $(HUB_APP_TARBALL_NAME)" >&2; \
+	            echo "  The hub app is a LOCAL build uploaded by hand -- NO CI workflow" >&2; \
+	            echo "  produces it. If it is absent it was never built for this version." >&2; \
+	            echo "  Build and upload it. Do NOT re-pin to an older hub app: that" >&2; \
+	            echo "  silently drops whatever change the version bump exists for." >&2; \
+	        elif printf '%s' "$$PROBE" | grep -q 'HTTP 403'; then \
+	            echo "  MEASURED: HTTP 403 -- the token is recognised but FORBIDDEN." >&2; \
+	            echo "  This one really is a scope problem. $(HUB_APP_REPO) is a" >&2; \
+	            echo "  DIFFERENT repository from the daemon's $(DAEMON_REPO), and a" >&2; \
+	            echo "  fine-grained token scoped to one cannot read the other. Add" >&2; \
+	            echo "  $(HUB_APP_REPO) to the token's repository list, Contents: Read." >&2; \
+	        elif printf '%s' "$$PROBE" | grep -q 'HTTP 404'; then \
+	            echo "  MEASURED: HTTP 404 on releases/tags/$(DAEMON_RELEASE_TAG)." >&2; \
+	            echo "  GitHub returns 404 BOTH when the release does not exist AND when" >&2; \
+	            echo "  the token cannot see the repo -- it hides existence from a token" >&2; \
+	            echo "  without access. Those two are NOT distinguishable from here, so" >&2; \
+	            echo "  this message will not guess between them. Check both, in order:" >&2; \
+	            echo "    1. Is $(DAEMON_RELEASE_TAG) published (and out of draft) at" >&2; \
+	            echo "       https://github.com/$(HUB_APP_REPO)/releases/tag/$(DAEMON_RELEASE_TAG) ?" >&2; \
+	            echo "    2. Does the token grant Contents: Read on $(HUB_APP_REPO)?" >&2; \
+	        else \
+	            echo "  MEASURED: probe failed rc=$$PROBE_RC with no HTTP status line." >&2; \
+	            echo "  That shape is transport (proxy/DNS/TLS), not permissions." >&2; \
+	            echo "  Raw probe output:" >&2; \
+	            printf '%s\n' "$$PROBE" | sed 's/^/    /' >&2; \
+	        fi; \
 	        echo "  NOT falling back to GITHUB_TOKEN: it cannot read another org either," >&2; \
 	        echo "  so the fallback would fail later and blame the wrong component." >&2; \
 	        exit 1; \
