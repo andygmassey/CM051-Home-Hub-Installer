@@ -57,7 +57,7 @@
 #   A FILENAME SEARCH CANNOT FIND A GLOB-DRIVEN RUNNER'S CALLEES.
 #
 # The real survivor was in CM051 the whole time, and no search for "hub_chat"
-# or "chat_probe" could have surfaced it:
+# or "chat_probe" could have surfaced it -- NOR CAN THIS GATE, see control (19):
 #
 #   scripts/post_walk_qa.sh:112
 #     -> scripts/box_walk_probes/run_box_walk.sh
@@ -468,6 +468,7 @@ check:
 	bash scripts/consumed_gate.sh
 	bash scripts/consumer.sh
 	bash scripts/prose_gate.sh
+	bash scripts/glob_runner.sh
 	bash scripts/darkly_proven_gate.sh
 	bash scripts/falsely_registered_gate.sh
 	@rc=0; bash "$(GATE_SH)" || rc=$$?; exit $$rc
@@ -482,6 +483,17 @@ MK
                 > "$r/scripts/dark_runner.sh"
             # Prose mention. Must not rescue orphan_gate.
             printf 'The orphan_gate.sh check is important and must be kept.\n' > "$r/docs/notes.md"
+
+            # A GLOB-DRIVEN RUNNER and the probe it really does execute. The
+            # runner is reachable; the probe is named literally NOWHERE.
+            mkdir -p "$r/scripts/probes"
+            {
+              printf '#!/bin/sh\n'
+              printf '# Non-zero = BLOCK THE CUT.\n'
+              printf 'for f in "$(dirname "$0")"/probes/*.sh; do bash "$f"; done\n'
+            } > "$r/scripts/glob_runner.sh"
+            printf '#!/bin/sh\n# Non-zero = BLOCK THE CUT.\nexit 0\n' \
+                > "$r/scripts/probes/glob_probe_gate.sh"
             # A DATA yaml that declares a blocking rule. Belongs in the second
             # population, never in the orphan list.
             printf 'version: v1.0.11\nnote: this manifest MUST NOT SHIP unverified\n' \
@@ -571,6 +583,35 @@ MK
     else
         no "(8) the data-yaml declarer vanished entirely -- it must still be COUNTED"
     fi
+    # (19) A GLOB CALL SITE IS NOT RESOLVED, AND THAT IS THE DELIBERATE ANSWER.
+    #
+    # scripts/glob_runner.sh IS reachable and genuinely executes
+    # scripts/probes/glob_probe_gate.sh, whose name appears nowhere. The gate
+    # reports the probe as an ORPHAN.
+    #
+    # PINNED, NOT FIXED, and the reason is this file's own error-direction
+    # rule: "an over-tight predicate reports an extra orphan, which is noise a
+    # human resolves in a minute. An over-loose one blesses a dark gate, which
+    # is invisible forever." Expanding globs to decide reachability is the
+    # over-loose direction, so the miss is the safe one.
+    #
+    # 🔴 IT IS NOT FREE, and axis one is BLOCKING now. The day a box-walk probe
+    # writes "BLOCK THE CUT" in its header, this gate reports a FALSE ORPHAN and
+    # stops main. Measured 2026-08-23: 0 of the box_walk probes declare
+    # themselves blocking, against 23 declarers tree-wide, so the risk is latent
+    # rather than live. If it goes live, add the runner's directory to an
+    # explicit allowance -- do NOT widen the predicate to expand globs.
+    #
+    # This control exists so the limit is a DECISION with a fixture, not an
+    # accident somebody later "fixes" into a false green.
+    orphan_block | grep -qF 'scripts/probes/glob_probe_gate.sh' \
+        && ok "(19) LIMIT PINNED: a glob-reached gate reads as an orphan (safe direction)" \
+        || no "(19) a glob call site is now resolved -- CHECK IT CANNOT BLESS A DARK GATE"
+
+    listed_orphan glob_runner \
+        && no "(20) the glob RUNNER was called an orphan -- (19) proves nothing then" \
+        || ok "(20) CONTROL: the glob runner itself IS reachable, so (19) is about the glob"
+
     [ "$rc_red" -eq 1 ] && ok "(9) exits 1 when orphans exist" \
                         || no "(9) orphans present but exit code was ${rc_red}"
 
