@@ -110,6 +110,26 @@ jobs:
     # publish. Every gate in this job only reads.
     permissions:
       contents: read
+      # 🔴 ADDED AFTER THE FIRST v1.0.43 TAG WAS REFUSED BY ITS OWN GATE.
+      #
+      # verify_tagged_commit_is_green.sh reads
+      # `gh api repos/<r>/commits/<sha>/check-runs`. A workflow that declares an
+      # explicit `permissions:` block sets every UNLISTED scope to none, so the
+      # job token could not read checks at all and the gate exited 2:
+      #
+      #   CANNOT-RUN: could not read check-runs for 44aab3ca25d1
+      #   Nothing was measured. A cut must not proceed on an unread commit.
+      #
+      # It failed CLOSED, which is right, and it would have failed closed on
+      # EVERY cut forever -- a gate that is always red stops being read. The
+      # gate was wired into cut.yml in #991 and #991 never ran ON the cut path,
+      # because v1.0.42 was tagged 24 minutes before it merged. Read the
+      # `permissions:` of the job you wire a gate into, the same way you read
+      # its `runs-on:`.
+      #
+      # STILL READ-ONLY. This does not widen the blast radius the note above
+      # protects: `checks: read` cannot create a release.
+      checks: read
     steps:
       - uses: actions/checkout@v4
         with:
