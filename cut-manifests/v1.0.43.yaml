@@ -103,6 +103,8 @@ entries:
       because of v1.0.39 doing its job on the version it was written for.
     proof:
       kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
       key: CFBundleShortVersionString
       value: '1.0.43'
   - id: v1043-installer-build-number-is-4300
@@ -114,5 +116,7 @@ entries:
       comparison discriminates.
     proof:
       kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
       key: CFBundleVersion
       value: '4300'
