@@ -265,9 +265,15 @@ else
             *'$'*)
                 # DERIVED: HAS_DOCKER="$OTHER". Follow one level and require the
                 # source variable's own computation to consult docker info.
-                src="$(printf '%s' "$hdv" | tr -d '"${}' | tr -d ' ')"
-                if grep -E "^[[:space:]]*${src}=" -A1 <<< "$CODE" | grep -q 'docker info' \
-                   || grep -B3 -E "^[[:space:]]*${src}=true" <<< "$CODE" | grep -q 'docker info'; then
+                src="$(tr -d '"${} ' <<< "$hdv")"
+                # NO `... | grep -q` HERE. Under `set -o pipefail` a short-
+                # circuiting consumer can SIGPIPE the producer and invert the
+                # verdict; tests/pipefail_shortcircuit_baseline.txt ratchets
+                # against it and caught this line on its first CI run.
+                # Materialise, then match with a herestring.
+                src_ctx="$( { grep -A1 -E "^[[:space:]]*${src}=" <<< "$CODE"; \
+                              grep -B3 -E "^[[:space:]]*${src}=true" <<< "$CODE"; } || true )"
+                if grep -q 'docker info' <<< "$src_ctx"; then
                     :
                 else
                     HD_BAD=$((HD_BAD+1))
@@ -277,7 +283,8 @@ else
                 # LITERAL true (or anything else): the condition that governs it
                 # must itself be an engine probe.
                 lo=$(( hdn > 4 ? hdn - 4 : 1 ))
-                if awk -v a="$lo" -v b="$hdn" 'NR>=a && NR<=b' <<< "$CODE" | grep -q 'docker info'; then
+                hd_win="$(awk -v a="$lo" -v b="$hdn" 'NR>=a && NR<=b' <<< "$CODE")"
+                if grep -q 'docker info' <<< "$hd_win"; then
                     :
                 else
                     HD_BAD=$((HD_BAD+1))
