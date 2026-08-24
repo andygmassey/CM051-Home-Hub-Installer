@@ -93,6 +93,7 @@ walk_horizon: v1.0.41
 | v1.0.41 |  | not_walked | Andy | none |
 | v1.0.42 |  | not_walked | Andy (relayed 2026-08-23, see below) | v1042-D001 v1042-D002 v1042-D003 v1042-D004 |
 | v1.0.43 | 2026-08-24 | deferred | TNM (2026-08-24, under Andy's standing instruction to drive to the cut) | v1043-D001 v1043-D002 v1043-D003 |
+| v1.0.44 |  | not_walked |  | none |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -132,9 +133,30 @@ The sections keep their `v1042-` ids -- see the correction banner on the block
 documents point at trades one wrong fact for a set of dangling references**, and
 a wrong label that says it is wrong is the safer half of that trade.
 
+**On the v1.0.44 row, and it is deliberately RED.** v1.0.44 was cut. Run
+32706147520 succeeded at 2026-08-24T08:24Z, all thirteen cut steps green, and a
+signed, notarised, stapled DMG was published to `ostler-ai/ostler-installer` as a
+prerelease at 08:33Z, sha256 `d13da1d9b729f277d8ac3480723ddb88bd4ef77211f5a6c5418bf00507c4126a`.
+The earlier run at 07:46Z failed on the expiry ratchet and the tag was moved to
+`3ee69f16` before the successful one, so a reader who stops at the first run
+concludes the opposite.
+
+Nobody has walked it and nobody has waived it, so the approver column is EMPTY on
+purpose. The gate reads `not_walked` with no named approver as RED, and that is
+the correct verdict: this row exists to turn "no row at all", which is
+indistinguishable from a cut nobody looked at, into a named decision that somebody
+has to make. Filling that column requires a person, and inventing one to make the
+gate green would be exactly the fabrication the horizon rule exists to prevent.
+
+Two ways to close it. Walk v1.0.44 on a box and commit the record
+`scripts/post_walk_qa.sh` writes, which also promotes it out of prerelease. Or
+waive it by name, the way v1.0.41 and v1.0.42 were waived, and say why.
+
 **On the v1.0.41 row.** Andy signed this off unwalked on 2026-08-23, asked
 directly, because the alternative was inference. `SHIPPING_LEDGER.yaml` cannot
-answer the question: its `dmg_cuts` section ends at v1.0.37, and v1.0.38, .39,
+answer the question: its `dmg_cuts` section had no row for any of them (it now
+holds v1.0.42, v1.0.43 and v1.0.44, filed 2026-08-24, but still none for the four
+named here), and v1.0.38, .39,
 .40 and .41 appear 28, 45, 31 and 24 times across that file without a single cut
 row between them. The last cut recorded as `box_walked: true` is v1.0.36. So the
 launch cut ships without a walk of its predecessor, and this row is that fact
