@@ -1666,6 +1666,115 @@ _ostler_set_paths() {
 
 _ostler_set_paths "$OSTLER_PRELAUNCH_DIR"
 
+# ═══════════════════════════════════════════════════════════════════
+# WALK-874 (2026-08-24, v1.0.44 upgrade walk, step 26/37)
+#
+# The Full Disk Access modal told the customer two things that were not
+# true. These three helpers exist so it cannot tell them again.
+#
+# (a) "System Settings is open at Full Disk Access." It was not. The
+#     pane open was `open <url> 2>/dev/null || true` -- stderr binned,
+#     exit status discarded -- and the sentence was printed regardless.
+#     Same shape as #876: an action whose failure is swallowed, then an
+#     unconditional success message. The fix is not a nicer sentence;
+#     it is to make the sentence a RESULT of the open rather than a
+#     statement placed next to it.
+#
+# (b) 'Find "Ostler" in the list'. The row macOS shows is
+#     OstlerAssistant. A customer scanning for "Ostler" concludes it is
+#     absent and goes hunting in Finder -- which the very next helper
+#     line tells them not to do.
+# ═══════════════════════════════════════════════════════════════════
+
+# Name the Full Disk Access row after the bundle it actually belongs
+# to, so a rename of the bundle carries the copy with it.
+#
+# DERIVED FROM THE BUNDLE FILE NAME, deliberately not from the bundle's
+# Info.plist. Measured on the shipped 0.4.51 bundle
+# (release-artefacts/staging-0.4.51/OstlerAssistant.app):
+# CFBundleDisplayName is "Ostler" and CFBundleName is "Ostler
+# Assistant" -- yet the pane Andy was looking at read "OstlerAssistant",
+# which is the bundle's file name. The file name is the string that
+# matched reality on the walk, so the file name is what we quote.
+# (Plausible mechanism: the daemon bundle is LSBackgroundOnly +
+# LSUIElement, so LaunchServices has no foreground display name to give
+# the Privacy pane and it falls back to the file name. NOT verified on
+# hardware -- recorded here as a hypothesis, not a finding.)
+_ostler_fda_entry_name() {
+    local _bundle="${1:-${ASSISTANT_APP_BUNDLE:-}}"
+    local _name=""
+    if [[ -n "$_bundle" ]]; then
+        _name="${_bundle##*/}"
+        _name="${_name%.app}"
+    fi
+    if [[ -z "$_name" ]]; then
+        # No bundle path to derive from is a wiring fault. Say so and
+        # return non-zero; a caller must NOT render Find "" in the list.
+        gui_log warn "FDA row name: no assistant bundle path to derive it from (ASSISTANT_APP_BUNDLE='${ASSISTANT_APP_BUNDLE:-}'). The modal will use the unnamed locator."
+        return 1
+    fi
+    printf '%s' "$_name"
+}
+
+# Open System Settings at the Full Disk Access pane and report whether
+# it is ACTUALLY up. Returns 0 only when both are true:
+#
+#   1. `open` exited 0. Its stderr is captured and logged, never binned.
+#   2. A System Settings (or legacy System Preferences) process was
+#      observed afterwards. `open` exiting 0 only means LaunchServices
+#      accepted the URL -- it is not proof a window exists, and the
+#      whole of #874(a) is the gap between those two things.
+#
+# Predicate verified on macOS 26.4.1: System Settings.app's
+# CFBundleExecutable is exactly "System Settings", and `pgrep -x` does
+# match a process name containing a space (control: `pgrep -x "Claude
+# Helper"` -> rc=0). Not a proof the FDA *pane* is the one showing --
+# no public API reports that -- but it is a real observation of the app
+# rather than a hope.
+_ostler_open_fda_pane() {
+    local _url="$1"
+    local _attempts=2
+    local _settle=5
+    local _attempt=0 _rc=0 _err="" _waited=0
+
+    while (( _attempt < _attempts )); do
+        _attempt=$(( _attempt + 1 ))
+        _rc=0
+        _err="$(open "$_url" 2>&1)" || _rc=$?
+        if (( _rc != 0 )); then
+            gui_log warn "FDA pane: 'open ${_url}' exited ${_rc} on attempt ${_attempt}: ${_err}"
+        else
+            _waited=0
+            while (( _waited < _settle )); do
+                if pgrep -x "System Settings" >/dev/null \
+                   || pgrep -x "System Preferences" >/dev/null; then
+                    return 0
+                fi
+                sleep 1
+                _waited=$(( _waited + 1 ))
+            done
+            gui_log warn "FDA pane: 'open' exited 0 on attempt ${_attempt} but no System Settings process appeared within ${_settle}s. Exit 0 from 'open' is not proof the pane is up."
+        fi
+    done
+    gui_log warn "FDA pane: could not bring up Full Disk Access after ${_attempts} attempt(s). The modal will ask the customer to open it themselves rather than claim it is already open."
+    return 1
+}
+
+# The line the modal opens with. It is PRODUCED BY the act of opening
+# the pane, so no call site can print the claim without having tried --
+# and verified -- the open first. That ordering is structural here, not
+# a convention a future edit can quietly reverse.
+#
+#   $1  the Full Disk Access deep link
+#   $2  the catalogue line that CLAIMS the pane is open
+_ostler_fda_pane_line1() {
+    if _ostler_open_fda_pane "$1"; then
+        printf '%s' "$2"
+    else
+        printf '%s' "$MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1"
+    fi
+}
+
 # Pre-create the staging tree so the first writes downstream
 # (LOGS_DIR mkdir at ~line 396) land in a writable location.
 mkdir -p "$OSTLER_PRELAUNCH_DIR"
@@ -4148,10 +4257,15 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         killall "System Settings" >/dev/null 2>&1 || true
         killall "System Preferences" >/dev/null 2>&1 || true
         sleep 1
-        open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
+        # WALK-874(a): open the pane, VERIFY it, and only then say so.
+        # The opening line is the RESULT of the open, not a sentence
+        # sitting next to a fire-and-forget `|| true`.
+        _installer_fda_line1="$(_ostler_fda_pane_line1 \
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" \
+            "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1")"
 
         _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
-            "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1" \
+            "$_installer_fda_line1" \
             "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE2" \
             "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE3")"
         _installer_fda_msg_esc="${_installer_fda_msg//\"/\\\"}"
@@ -4213,6 +4327,7 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
             -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
             >/dev/null 2>&1 || true
         unset _installer_fda_msg _installer_fda_msg_esc \
+              _installer_fda_line1 \
               _installer_fda_title_esc _installer_fda_button_esc \
               _installer_fda_icon_path _installer_fda_icon_path_esc \
               _installer_fda_icon_clause
@@ -12713,10 +12828,14 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             killall "System Settings" >/dev/null 2>&1 || true
             killall "System Preferences" >/dev/null 2>&1 || true
             sleep 1
-            open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
+            # WALK-874(a): open the pane, VERIFY it, and only then say
+            # so. Sibling of the early installer grant above.
+            _installer_fda_line1="$(_ostler_fda_pane_line1 \
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" \
+                "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1")"
 
             _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
-                "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1" \
+                "$_installer_fda_line1" \
                 "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE2" \
                 "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE3")"
             _installer_fda_msg_esc="${_installer_fda_msg//\"/\\\"}"
@@ -12754,6 +12873,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
                 -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
                 >/dev/null 2>&1 || true
             unset _installer_fda_msg _installer_fda_msg_esc \
+                  _installer_fda_line1 \
                   _installer_fda_title_esc _installer_fda_button_esc \
                   _installer_fda_icon_path _installer_fda_icon_path_esc \
                   _installer_fda_icon_clause
@@ -12849,9 +12969,16 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             killall "System Settings" >/dev/null 2>&1 || true
             killall "System Preferences" >/dev/null 2>&1 || true
             sleep 1
-            open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
+            # WALK-874(a): this modal used to carry the pane claim
+            # mid-sentence -- "in System Settings (now open at Full Disk
+            # Access)" -- next to the same fire-and-forget open. The
+            # claim is now the verified opening line instead.
+            _fda_recover_line1="$(_ostler_fda_pane_line1 \
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" \
+                "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1")"
 
-            _fda_recover_msg="$(printf '%s\n\n%s' \
+            _fda_recover_msg="$(printf '%s\n\n%s\n\n%s' \
+                "$_fda_recover_line1" \
                 "$MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE1" \
                 "$MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE2")"
             _fda_recover_msg_esc="${_fda_recover_msg//\"/\\\"}"
@@ -12885,6 +13012,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
                 -e "tell application \"System Events\" to display dialog \"${_fda_recover_msg_esc}\" with title \"${_fda_recover_title_esc}\" buttons {\"${_fda_recover_button_esc}\"} default button \"${_fda_recover_button_esc}\" ${_fda_recover_icon_clause}" \
                 >/dev/null 2>&1 || true
             unset _fda_recover_msg _fda_recover_msg_esc _fda_recover_title_esc \
+                  _fda_recover_line1 \
                   _fda_recover_button_esc _fda_recover_icon_path \
                   _fda_recover_icon_path_esc _fda_recover_icon_clause
 
@@ -18806,9 +18934,38 @@ else
                 # Open System Settings to the Full Disk Access pane.
                 # The URL scheme is stable on macOS 13+; older macOS
                 # falls back to Privacy & Security top-level which
-                # is acceptable. The 2>/dev/null swallows the rare
-                # "scheme not registered" warning on stripped builds.
-                open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
+                # is acceptable.
+                #
+                # WALK-874(a): this used to be
+                # `open ... 2>/dev/null || true` -- stderr binned, exit
+                # status discarded -- immediately followed by a modal
+                # whose first line said "System Settings is open at Full
+                # Disk Access." On Andy's 2026-08-24 walk it was not
+                # open and he opened it himself. The opening line is now
+                # the RESULT of the open: _ostler_fda_pane_line1 runs
+                # it, waits for the process to actually appear, logs
+                # whatever went wrong, and returns copy that matches.
+                _fda_pane_line1="$(_ostler_fda_pane_line1 \
+                    "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" \
+                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1")"
+
+                # WALK-874(b): the row the customer is hunting for is
+                # named after the bundle, not after the product. Derive
+                # it once here and use it in every line that names it.
+                # If it cannot be derived (no bundle path -- a wiring
+                # fault) the modal drops to a locator that names no row
+                # at all rather than printing Find "" in the list.
+                _fda_entry_name="$(_ostler_fda_entry_name)" || _fda_entry_name=""
+                if [[ -z "$_fda_entry_name" ]]; then
+                    # Unreachable on any real install: _ostler_set_paths
+                    # always sets ASSISTANT_APP_BUNDLE, and the register
+                    # nudge above already required the bundle to exist
+                    # on disk. That invariant is locked by
+                    # tests/test_fda_dialog_tells_the_truth.sh case-6.
+                    # If it ever does break, drop the naming lines
+                    # rather than print Find "" in the list.
+                    gui_log warn "FDA dialog: could not derive the Full Disk Access row name; showing the modal without the row locator."
+                fi
 
                 # Reveal the daemon .app bundle in Finder so the
                 # customer can drag it directly into System
@@ -18830,8 +18987,12 @@ else
                 _fda_finder_revealed=false
                 if [[ "${_fda_listed:-}" != "listed" ]]; then
                     open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null && _fda_finder_revealed=true || true
-                else
-                    info "$MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED"
+                elif [[ -n "$_fda_entry_name" ]]; then
+                    # WALK-874(b): this line used to read "Ostler is
+                    # already listed" while the row said OstlerAssistant,
+                    # which is what sent Andy to Finder looking for a row
+                    # this very sentence says is already there.
+                    info "$(printf "$MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED" "$_fda_entry_name")"
                 fi
 
                 # Modal that blocks install.sh until the customer
@@ -18854,16 +19015,23 @@ else
                 # a short Done hint instead. Not-listed keeps the original
                 # three-line copy (LINE3 already ends with the Done
                 # instruction).
-                if [[ "${_fda_listed:-}" == "listed" ]]; then
+                # WALK-874: LINE1 is now $_fda_pane_line1 -- the verified
+                # result of opening the pane, not an assertion printed
+                # beside it. LINE2/LINE3 carry the derived row name.
+                if [[ -z "$_fda_entry_name" ]]; then
+                    _imessage_fda_dialog_msg="$(printf '%s\n\n%s' \
+                        "$_fda_pane_line1" \
+                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT")"
+                elif [[ "${_fda_listed:-}" == "listed" ]]; then
                     _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s' \
-                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
-                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
+                        "$_fda_pane_line1" \
+                        "$(printf "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" "$_fda_entry_name")" \
                         "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT")"
                 else
                     _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s' \
-                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
-                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
-                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3")"
+                        "$_fda_pane_line1" \
+                        "$(printf "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" "$_fda_entry_name")" \
+                        "$(printf "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3" "$_fda_entry_name")")"
                 fi
                 # Escape any embedded double-quotes for the
                 # AppleScript string literal. Then pass through
