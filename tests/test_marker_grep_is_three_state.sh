@@ -59,10 +59,25 @@ expect "(2) an absent pattern is NOT FOUND"    1 'pwg-hydration-bar' "$TMP"
 # a macOS cut runner uses. Any ONE of them reaching the `absent` arm as rc=1
 # would print GREEN about an unsearched image.
 echo "== a pattern that cannot COMPILE is cannot-run, never 'absent' =="
+# CHOSEN TO ERROR UNDER *BOTH* BRE AND ERE, deliberately.
+#
+# The first version of this file used 'a\{2' and '\(' -- which error under BRE
+# and are LITERALS under ERE. They passed, and then the very next commit turned
+# marker_grep to -E and two of them went green: a fixture that had encoded the
+# flag the code happened to use rather than the property under test. Measured
+# on /usr/bin/grep, these three error either way, so this file keeps its meaning
+# whichever flag marker_grep carries.
 expect "(3) unterminated bracket"              2 '['            "$TMP"
-expect "(4) bad interval"                      2 'a\{2'         "$TMP"
-expect "(5) unterminated group"                2 '\('           "$TMP"
-expect "(6) bogus character class"             2 '[[:bogus:]]'  "$TMP"
+expect "(4) bogus character class"             2 '[[:bogus:]]'  "$TMP"
+expect "(5) doubled quantifier"                2 'a**'          "$TMP"
+
+# THE FLAG ITSELF, pinned by behaviour rather than by reading the source.
+# cut_markers.manifest's header has always documented `grep -rE`, and these arms
+# ran BRE until the commit above. An alternation is the cheapest thing that
+# tells the two apart: under BRE it does not match, under ERE it does. If
+# someone quietly drops the -E, THIS is the check that goes red -- and it goes
+# red loudly rather than turning an absent-row green.
+expect "(6) marker_grep runs EXTENDED regex, as the manifest header promises" 0 'pwg-(settling|hydration)-bar' "$TMP"
 
 echo "== a directory that cannot be READ is cannot-run =="
 mkdir -p "$TMP/locked"; printf 'x\n' > "$TMP/locked/a.txt"; chmod 000 "$TMP/locked" 2>/dev/null

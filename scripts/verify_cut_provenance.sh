@@ -85,7 +85,17 @@ cannot(){ printf '  \033[33mCANNOT\033[0m %s\n' "$1"; CANNOT=$((CANNOT+1)); }
 MARKER_GREP_ERR=""
 marker_grep() {
     local pattern="$1" dir="$2" rc
-    MARKER_GREP_ERR="$(grep -rq -- "${pattern}" "${dir}" 2>&1)"; rc=$?
+    # -E, matching what cut_markers.manifest's own header has always
+    # documented ("pattern=<regex> ... grep -rE"). These two arms ran BRE while
+    # the header promised ERE, so any alternation or +/? a row author wrote in
+    # good faith would silently not match -- and for an absent row a non-match
+    # is GREEN. Measured before the change: 11 wiki rows, 0 behaved differently
+    # under -E on /usr/bin/grep, so the debt was latent and no row moves here.
+    #
+    # SAFE ONLY BECAUSE rc=2 IS ALREADY CANNOT-RUN (previous commit). An ERE
+    # that will not compile now stops the check honestly instead of reporting
+    # the component absent.
+    MARKER_GREP_ERR="$(grep -rqE -- "${pattern}" "${dir}" 2>&1)"; rc=$?
     if [[ "$rc" -ge 2 ]]; then return 2; fi
     return "$rc"
 }
