@@ -907,6 +907,78 @@ warn()  { gui_active || echo -e "${YELLOW}[warn]${NC}  $*"; gui_warn "$*"; }
 # itself -- caller decides whether to exit or recover.
 err()   { gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log error "$*"; }
 
+# ── LaunchAgent load, VERIFIED (#876, and the #800 class behind it) ──
+#
+# Every LaunchAgent site in this file used to end:
+#     launchctl bootstrap … 2>/dev/null || launchctl load … 2>/dev/null || true
+#     ok "$MSG_OK_<AGENT>_RUNNING"
+# and the success line printed whether or not anything had loaded.
+# TWO independent reasons, both measured, and the shape survives neither:
+#
+#   1. `|| true` terminates the chain, so the `ok` is UNCONDITIONAL.
+#      There is no path through those three lines that does not print it.
+#   2. Even without the `|| true`, branching on the exit status does not
+#      work: `launchctl load /path/that/does/not/exist.plist` prints
+#      "Load failed: 5: Input/output error" to stderr and EXITS 0
+#      (measured on macOS 26.5.2 -- see the same note at the enrich
+#      agent, ~L14070). So `if bootstrap || load; then ok; else warn; fi`
+#      is ALSO true unconditionally whenever `load` is the fallback arm,
+#      and its `else` is unreachable code.
+#
+# What that cost: on Andy's 2026-08-24 v1.0.44 walk the installer printed
+# "Ostler Doctor running at http://localhost:8089/doctor" while
+# com.ostler.doctor was NOT LOADED and :8089 answered 000. Six
+# customer-facing surfaces -- Preferences toggles, Governor, Doctor >
+# Channels, People, Timeline, and every "Status unavailable" header --
+# were dark behind that one reassuring line.
+#
+# The only sound question is the one launchd itself answers: is the label
+# actually registered in the domain? Ask it, and let nothing else decide.
+#
+# Takes the PLIST PATH ONLY and derives the label from its basename, so a
+# caller cannot pass a label that disagrees with the file it loaded --
+# every LaunchAgent this installer writes is
+# ~/Library/LaunchAgents/<label>.plist. Returns 0 iff launchd reports the
+# label registered afterwards.
+#
+# Guarded by tests/test_launchagent_success_requires_verification.sh,
+# which fails the build if any new site announces success without it.
+# $2 is the bootout policy: "bootout" (default) or "no-bootout". Exactly one
+# caller passes no-bootout -- the ical-server at ~L16895, whose comment claims
+# a bootout can kick a customer back to the login screen. That hazard is real
+# for the DOMAIN form (`launchctl bootout gui/<uid>`, no label), which tears
+# down the whole GUI session; it is not the LABEL form used here, which ten
+# sibling sites in this file have shipped for months. The knob exists so that
+# closing #876 does not also change that site's load behaviour on the strength
+# of my reading -- the bootout question is filed separately, not settled here.
+_ostler_launchagent_load_verified() {
+    local _plist="$1"
+    local _bootout_policy="${2:-bootout}"
+    local _label _domain
+    _label="$(basename "$_plist" .plist)"
+    _domain="gui/$(id -u)"
+
+    # A plist that was never written cannot be loaded. Say no here rather
+    # than let launchctl's exit-0-on-failure decide it for us.
+    [[ -f "$_plist" ]] || return 1
+
+    # bootout first: bootstrap onto an already-loaded label errors, and a
+    # stale registration would otherwise keep the OLD plist's environment
+    # live until the next login. bootout of a non-loaded label is a no-op.
+    if [[ "$_bootout_policy" != "no-bootout" ]]; then
+        launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
+    fi
+
+    # bootstrap on Sequoia+ (load is deprecated), fall back to load. BOTH
+    # are allowed to fail: their exit status is not the evidence, and the
+    # ERR trap must not abort the install on an expected failure here.
+    launchctl bootstrap "$_domain" "$_plist" 2>/dev/null || \
+        launchctl load "$_plist" 2>/dev/null || true
+
+    # THE EVIDENCE. Nothing above this line is permitted to decide.
+    launchctl print "${_domain}/${_label}" >/dev/null 2>&1
+}
+
 # dbg -- developer probes, silent on a customer install.
 #
 # The CX-nn probe lines around the Mail-detection blocks were added to chase a
@@ -8947,9 +9019,11 @@ cat > "$STAY_AWAKE_PLIST" <<'STAYAWAKEEOF'
 </dict>
 </plist>
 STAYAWAKEEOF
-launchctl bootstrap "gui/$(id -u)" "$STAY_AWAKE_PLIST" 2>/dev/null || \
-    launchctl load "$STAY_AWAKE_PLIST" 2>/dev/null || true
-ok "$MSG_OK_STAY_AWAKE_AGENT_INSTALLED"
+if _ostler_launchagent_load_verified "$STAY_AWAKE_PLIST"; then
+    ok "$MSG_OK_STAY_AWAKE_AGENT_INSTALLED"
+else
+    warn "$MSG_WARN_STAY_AWAKE_AGENT_NOT_LOADED"
+fi
 
 # ── 3.0a Phase 3 battery watcher ───────────────────────────────────
 # The hub-power LaunchAgent that pauses Docker / Ollama on battery is
@@ -9515,9 +9589,7 @@ if [[ -x "${OSTLER_DIR}/bin/ostler-engine-supervisor.sh" \
 </dict>
 </plist>
 ESPEOF
-    launchctl bootout "gui/$(id -u)/com.ostler.engine-supervisor" 2>/dev/null || true
-    if launchctl bootstrap "gui/$(id -u)" "$ENGINE_SUP_PLIST" 2>/dev/null \
-       || launchctl load "$ENGINE_SUP_PLIST" 2>/dev/null; then
+    if _ostler_launchagent_load_verified "$ENGINE_SUP_PLIST"; then
         ok "$MSG_OK_ENGINE_SUPERVISOR_INSTALLED"
     else
         # Non-fatal: the install still works, the box just loses automatic
@@ -13225,9 +13297,11 @@ FDARPEOF
             launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
                 launchctl unload "$FDA_RERUN_PLIST" 2>/dev/null || true
         fi
-        launchctl bootstrap "gui/$(id -u)" "$FDA_RERUN_PLIST" 2>/dev/null || \
-            launchctl load "$FDA_RERUN_PLIST" 2>/dev/null || true
-        ok "$(printf "$MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING" "$(( OSTLER_FDA_RERUN_INTERVAL_S / 60 ))")"
+        if _ostler_launchagent_load_verified "$FDA_RERUN_PLIST"; then
+            ok "$(printf "$MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING" "$(( OSTLER_FDA_RERUN_INTERVAL_S / 60 ))")"
+        else
+            warn "$MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED"
+        fi
     fi
 else
     # Reachable only when --allow-plaintext was passed AND the FDA
@@ -16018,9 +16092,11 @@ cat > "$BRIEF_PLIST" <<MBSPLIST
 </dict>
 </plist>
 MBSPLIST
-launchctl bootstrap "gui/$(id -u)" "$BRIEF_PLIST" 2>/dev/null || \
-    launchctl load "$BRIEF_PLIST" 2>/dev/null || true
-ok "$MSG_OK_MEETING_BRIEF_SENDER_INSTALLED"
+if _ostler_launchagent_load_verified "$BRIEF_PLIST"; then
+    ok "$MSG_OK_MEETING_BRIEF_SENDER_INSTALLED"
+else
+    warn "$MSG_WARN_MEETING_BRIEF_SENDER_NOT_LOADED"
+fi
 else
     info "$MSG_INFO_MEETING_BRIEF_AGENT_SKIPPED"
 fi
@@ -16064,9 +16140,11 @@ if [[ -f "${SCRIPT_DIR}/scripts/deferred-register-device.sh" ]]; then
 </dict>
 </plist>
 DRDPEOF
-    launchctl bootstrap "gui/$(id -u)" "$REGISTER_PLIST" 2>/dev/null || \
-        launchctl load "$REGISTER_PLIST" 2>/dev/null || true
-    ok "$MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS"
+    if _ostler_launchagent_load_verified "$REGISTER_PLIST"; then
+        ok "$MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS"
+    else
+        warn "$MSG_WARN_DEFERRED_DEVICE_REGISTRATION_NOT_LOADED"
+    fi
 else
     # Surface a missing-bundle warning. The deferred-register agent
     # is a belt-and-braces retry path; the primary registration runs
@@ -16635,13 +16713,29 @@ DOCEOF
     # reload without the global stop (e.g. a partial/--repair re-run). Without
     # it, a bootstrap onto an already-loaded label errors and `|| true` swallows
     # it, leaving the OLD env live until reboot. Mirrors the daemon reload
-    # (~L13611); idempotent (`|| true`).
-    launchctl bootout "gui/$(id -u)/com.ostler.doctor" 2>/dev/null || true
-
-    # Use bootstrap on Sequoia+ (load is deprecated), fall back to load
-    launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
-        launchctl load "$DOCTOR_PLIST" 2>/dev/null || true
-    ok "$MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089"
+    # (~L13611). The bootout now lives INSIDE
+    # _ostler_launchagent_load_verified, which performs it for EVERY agent
+    # for exactly this reason, so the reload stays self-contained.
+    #
+    # 🔴 #876 (2026-08-24). These four lines used to be
+    #     launchctl bootout … || true
+    #     launchctl bootstrap … || launchctl load … || true
+    #     ok "$MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089"
+    # and on Andy's v1.0.44 walk the installer printed "Ostler Doctor
+    # running at http://localhost:8089/doctor" while com.ostler.doctor was
+    # NOT LOADED and :8089 answered 000. Preferences, Governor, Doctor >
+    # Channels, People, Timeline and every status header were dark behind
+    # that one line, and the install log said everything was fine.
+    #
+    # HEALTHY=false is safe here: the Phase 4 health block initialises with
+    # `: "${HEALTHY:=true}"` (see the #839 note at ~L23599), so a verdict
+    # recorded this early survives to the finish line.
+    if _ostler_launchagent_load_verified "$DOCTOR_PLIST"; then
+        ok "$MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089"
+    else
+        warn "$MSG_WARN_OSTLER_DOCTOR_NOT_LOADED"
+        HEALTHY=false
+    fi
 fi
 
 # ── 3.13a Assistant API (ical-server.py) ────────────────────────
@@ -16810,10 +16904,18 @@ ICALPLISTEOF
         # GUI session can kick them back to the login screen. The
         # bootstrap call is idempotent enough for the first-install
         # path; re-install relies on the uninstaller bootout below.
-        launchctl bootstrap "gui/$(id -u)" "$ICAL_PLIST" 2>/dev/null || \
-            launchctl load "$ICAL_PLIST" 2>/dev/null || \
+        # 🔴 #876. This block used to print the WARN and then the OK, in that
+        # order, on the same failure: the `|| warn` terminated the chain
+        # successfully, so the unconditional `ok` on the next line fired too.
+        # A customer whose ical-server did not load was told it failed and
+        # then told it was installed, one line apart. Ask launchd instead.
+        # no-bootout preserves this site's documented behaviour verbatim --
+        # see the note on _ostler_launchagent_load_verified.
+        if _ostler_launchagent_load_verified "$ICAL_PLIST" no-bootout; then
+            ok "$MSG_OK_ICAL_SERVER_INSTALLED"
+        else
             warn "$MSG_WARN_ICAL_SERVER_FAILED"
-        ok "$MSG_OK_ICAL_SERVER_INSTALLED"
+        fi
     else
         warn "$MSG_WARN_ICAL_SERVER_FAILED"
     fi
@@ -17530,9 +17632,7 @@ _install_conversation_feed() {
     # _finalise_daemon_staging once a signed daemon is on disk. Upgrade
     # installs, where the binary is already staged, still bootstrap right
     # here so the first tick happens now rather than next login.
-    local domain="gui/$(id -u)"
     local _assistant_bin="${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
-    launchctl bootout "${domain}/${label}" 2>/dev/null || true
     if [[ ! -x "$_assistant_bin" ]]; then
         # NAME THE FILE. A refusal that does not say what it looked for
         # sends the reader hunting; this one prints the exact absolute
@@ -17548,7 +17648,7 @@ _install_conversation_feed() {
         # job if a daemon lands later; the refusal itself is unchanged.
         warn "$(printf "$MSG_WARN_BUNDLE_DAEMON_BINARY_MISSING" "$_assistant_bin")"
         info "$(printf "${!k_info_logs}" "$LOGS_DIR")"
-    elif launchctl bootstrap "$domain" "$rendered"; then
+    elif _ostler_launchagent_load_verified "$rendered"; then
         ok "${!k_ok_loaded}"
         info "${!k_info_tick}"
         info "$(printf "${!k_info_logs}" "$LOGS_DIR")"
@@ -18125,9 +18225,7 @@ WCUEOF
 WCUPLIST
     chmod 0644 "$WIKI_CATCHUP_PLIST"
 
-    launchctl bootout "gui/$(id -u)/${WIKI_CATCHUP_LABEL}" 2>/dev/null || true
-    if launchctl bootstrap "gui/$(id -u)" "$WIKI_CATCHUP_PLIST" 2>/dev/null || \
-       launchctl load "$WIKI_CATCHUP_PLIST" 2>/dev/null; then
+    if _ostler_launchagent_load_verified "$WIKI_CATCHUP_PLIST"; then
         ok "$MSG_OK_WIKI_RECOMPILE_CATCHUP_LOADED"
     else
         warn "$MSG_WARN_WIKI_RECOMPILE_CATCHUP_LOAD_FAILED"
@@ -19358,9 +19456,7 @@ RCAPEOF
 
     # bootout-then-bootstrap so re-runs of the installer reload
     # the plist cleanly. bootout of a non-loaded label is a no-op.
-    launchctl bootout "gui/$(id -u)/${REMOTECAPTURE_LAUNCHAGENT_LABEL}" 2>/dev/null || true
-    if launchctl bootstrap "gui/$(id -u)" "$REMOTECAPTURE_LAUNCHAGENT_PLIST" 2>/dev/null \
-       || launchctl load "$REMOTECAPTURE_LAUNCHAGENT_PLIST" 2>/dev/null; then
+    if _ostler_launchagent_load_verified "$REMOTECAPTURE_LAUNCHAGENT_PLIST"; then
         ok "$(printf "$MSG_OK_CM042_LAUNCHAGENT_LOADED" "${REMOTECAPTURE_LAUNCHAGENT_LABEL}")"
         info "$(printf "$MSG_INFO_CM042_LOGS_AT" "${LOGS_DIR}")"
     else
@@ -19790,8 +19886,7 @@ OSTLER_TS_WRAPPER
 </plist>
 TSPLIST
         chmod 0644 "$TS_LAUNCH_AGENT"
-        launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.tailscaled" 2>/dev/null || true
-        if launchctl bootstrap "gui/$(id -u)" "$TS_LAUNCH_AGENT" 2>/dev/null; then
+        if _ostler_launchagent_load_verified "$TS_LAUNCH_AGENT"; then
             ok "$MSG_OK_TAILSCALED_USERSPACE_STARTED"
         # #644: on a relaunch the label may already be registered (the
         # first run's RunAtLoad + KeepAlive), so bootstrap reports failure
@@ -20969,9 +21064,7 @@ DCUEOF
 DCUPLIST
     chmod 0644 "$plist"
 
-    launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
-    if launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || \
-       launchctl load "$plist" 2>/dev/null; then
+    if _ostler_launchagent_load_verified "$plist"; then
         ok "$MSG_OK_DEDUPE_CATCHUP_LOADED"
     else
         warn "$MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED"

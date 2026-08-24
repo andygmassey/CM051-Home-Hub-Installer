@@ -336,6 +336,19 @@ MSG_OK_COLIMA_DOCKER_CLI_INSTALLED="Colima and Docker CLI installed"
 MSG_OK_ENGINE_SUPERVISOR_INSTALLED="Container-runtime supervisor installed (checks every 5 minutes and restarts the runtime if it stops)"
 MSG_WARN_ENGINE_SUPERVISOR_NOT_LOADED="The container-runtime supervisor could not be scheduled. Ostler will still install, but if the runtime stops later nothing will bring it back on its own - your wiki would stay down until you re-run the installer."
 MSG_WARN_ENGINE_SUPERVISOR_NOT_STAGED="The container-runtime supervisor files are missing from this installer, so it was not scheduled. Ostler will still install, but automatic recovery of the runtime is not active."
+# v1.0.44 walk (2026-08-24), #876 and the #800 class behind it. Five
+# background helpers used to announce themselves as running with no way for
+# the code to be wrong: `launchctl … || true` and then an unconditional `ok`.
+# On Andy's walk the Doctor line printed while com.ostler.doctor was not
+# loaded at all. These are the sentences the installer now says when launchd
+# does NOT report the agent registered. Each names what the customer loses,
+# not what failed internally, and none of them claims the install is ruined:
+# these are helpers, and the machine still works without them.
+MSG_WARN_OSTLER_DOCTOR_NOT_LOADED="The Ostler Doctor dashboard could not be started, so http://localhost:8089 will not answer. The app's own pages that read from it - People, Timeline, Governor, channel status - will show as unavailable until it is running. Re-run the installer to try again."
+MSG_WARN_STAY_AWAKE_AGENT_NOT_LOADED="The keep-awake helper could not be scheduled. Ostler still works, but this Mac may sleep during long background jobs and they will resume when it wakes rather than finishing overnight."
+MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED="The background top-up helper could not be scheduled, so new messages, mail and calendar entries will not be picked up on their own. Re-run the installer to restore it."
+MSG_WARN_MEETING_BRIEF_SENDER_NOT_LOADED="The daily brief could not be scheduled, so you will not receive the morning summary. Everything else works; re-run the installer to restore it."
+MSG_WARN_DEFERRED_DEVICE_REGISTRATION_NOT_LOADED="The retry helper for device registration could not be scheduled. If your iPhone registered during setup this changes nothing; if it did not, you will need to pair again from the app rather than it completing on its own."
 # v1.0.38 walk (2026-08-23): a green install finished on a Mac with the
 # Docker CLI present and no engine behind it. On macOS `docker` is a client;
 # these strings keep the two apart in everything the customer reads.
