@@ -19755,6 +19755,9 @@ else
     if [[ "${_TS_CONFIGURED_VERDICT:-}" == "cannot_run" ]]; then
         warn "$MSG_WARN_TAILSCALE_STATE_UNREADABLE"
     fi
+    # Reached only when TAILSCALE_CONFIRM_SHOWN_EARLY is unset AND no tailnet
+    # state was found: nothing is set up and nobody has been asked yet. The
+    # walk-away middle never lands here.
     TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
     TAILSCALE_CONFIRM_SHOWN_EARLY=1
     export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
