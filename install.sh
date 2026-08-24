@@ -971,7 +971,37 @@ _ostler_launchagent_load_verified() {
         launchctl load "$_plist" 2>/dev/null || true
 
     # THE EVIDENCE. Nothing above this line is permitted to decide.
-    launchctl print "${_domain}/${_label}" >/dev/null 2>&1
+    #
+    # `launchctl print` returns rc=0 for a job that is merely REGISTERED --
+    # MEASURED on macOS 26.5.2 against a plist naming a binary that does not
+    # exist. Registration is not runnability, so the exit code alone still
+    # lets a parked job announce success.
+    #
+    # The discriminator was already in the output this line used to discard:
+    #
+    #   broken   state = spawn scheduled   last exit code = 78: EX_CONFIG
+    #   working  state = running           last exit code = (never exited)
+    #
+    # Same call, same instant. So capture stdout instead of throwing it away.
+    # No port probe and no second invocation are needed.
+    #
+    # REFUSE ON 78 SPECIFICALLY, NOT ON ANY NON-ZERO. Several agents here are
+    # periodic (StartInterval) and have legitimately run and exited with a
+    # non-zero status by the time this runs; a bare "last exit code != 0"
+    # test would report those as broken. 78 is EX_CONFIG, which launchd does
+    # NOT retry -- it parks the job until a `kickstart -k` clears it. That is
+    # the state a customer would otherwise be told was fine.
+    local _print
+    _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null)" || return 1
+
+    case "$_print" in
+        *"last exit code = 78:"*|*"last exit code = 78"[!0-9]*)
+            # Parked on EX_CONFIG. Registered, never going to run.
+            return 1
+            ;;
+    esac
+
+    return 0
 }
 
 # dbg -- developer probes, silent on a customer install.
@@ -15857,12 +15887,35 @@ SPEOF
 if [[ -x "${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant" ]]; then
     launchctl bootstrap "gui/$(id -u)" "$SCAN_PLIST" 2>/dev/null || \
         launchctl load "$SCAN_PLIST" 2>/dev/null || true
+
+    # THE ANNOUNCEMENT LIVES INSIDE THIS BRANCH NOW (#876).
+    #
+    # It used to sit after `fi`, so it fired on BOTH paths -- including the
+    # one that had just warned the daemon binary was missing. The install log
+    # read:
+    #     [WARN] ... daemon binary missing: .../MacOS/ostler-assistant
+    #     [ ok ] Export watcher installed, scans Downloads every ...
+    # A customer was told it failed and then told it was installed. This is a
+    # live instance of the class the helper above exists to close, and it was
+    # found by Archie2's review rather than by the class gate -- the scanner
+    # stopped walking at `fi` and never reached the announcement.
+    #
+    # The bootstrap/load pair above stays SPELLED OUT rather than routed
+    # through _ostler_launchagent_load_verified, because
+    # tests/test_export_scan_plist_bootstrap_race_217.sh Property A greps the
+    # twelve lines above it for exactly that literal. A gate must not be
+    # loosened to accommodate a refactor, so the verification is added inline
+    # instead -- same treatment as the ical-server site, same reason.
+    if launchctl print "gui/$(id -u)/com.ostler.export-scan" >/dev/null 2>&1; then
+        ok "$MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY"
+    else
+        warn "$MSG_WARN_EXPORT_SCAN_NOT_LOADED"
+    fi
 else
     # NAME THE FILE: print the exact absolute path whose absence caused
     # the refusal, so the install log answers "looked for what?" itself.
     warn "$(printf "$MSG_WARN_EXPORT_SCAN_DAEMON_BINARY_MISSING" "${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant")"
 fi
-ok "$MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY"
 
 # ── Pre-meeting brief sender ───────────────────────────────────────
 #

@@ -348,6 +348,7 @@ MSG_WARN_OSTLER_DOCTOR_NOT_LOADED="The Ostler Doctor dashboard could not be star
 MSG_WARN_STAY_AWAKE_AGENT_NOT_LOADED="The keep-awake helper could not be scheduled. Ostler still works, but this Mac may sleep during long background jobs and they will resume when it wakes rather than finishing overnight."
 MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED="The background top-up helper could not be scheduled, so new messages, mail and calendar entries will not be picked up on their own. Re-run the installer to restore it."
 MSG_WARN_MEETING_BRIEF_SENDER_NOT_LOADED="The daily brief could not be scheduled, so you will not receive the morning summary. Everything else works; re-run the installer to restore it."
+MSG_WARN_EXPORT_SCAN_NOT_LOADED="The Downloads watcher could not be started, so files you drop into Downloads will not be picked up automatically. Everything already imported is unaffected, and you can still add files from inside the app. Re-run the installer to restore it."
 MSG_WARN_DEFERRED_DEVICE_REGISTRATION_NOT_LOADED="The retry helper for device registration could not be scheduled. If your iPhone registered during setup this changes nothing; if it did not, you will need to pair again from the app rather than it completing on its own."
 # v1.0.38 walk (2026-08-23): a green install finished on a Mac with the
 # Docker CLI present and no engine behind it. On macOS `docker` is a client;

@@ -84,9 +84,28 @@ _scan() {
 import re, sys
 path, helper = sys.argv[1], sys.argv[2]
 src = open(path).read().split('\n')
-LC      = re.compile(r'launchctl\s+(bootstrap|load)\s')
-ANNOUNCE= re.compile(r'^\s*(ok|progress)\s')
-STOP    = re.compile(r'launchctl\s+print|' + re.escape(helper) + r'|^\s*(if|elif|else|fi|\})\b')
+# A LOAD ATTEMPT. Tolerates a line continuation and an indirected binary
+# (`"$LCTL" bootstrap`), both of which previously slipped the pattern AND
+# zeroed the denominator -- so the anti-vacuity floor could not notice either.
+LC      = re.compile(r'(?:launchctl|\$\{?\w+\}?|"\$\{?\w+\}?")\s*\\?\s*'
+                     r'(?:\n\s*)?(bootstrap|load)\s')
+
+# `progress` was noise: it is a narration verb, not a success claim. Dropped.
+# A WRAPPER counts: `ok_loaded "$MSG"` announces just as hard as `ok "$MSG"`.
+ANNOUNCE= re.compile(r'^\s*(ok|ok_\w+)\s')
+
+# WHAT ENDS THE WALK.
+#
+# 🔴 `if|elif|else|fi|}` USED TO BE IN HERE AND THAT WAS THE BUG. The walk
+# halted at `fi`, so an `ok` sitting AFTER a closed block was never reached --
+# and an announcement after `fi` is precisely the shape that fires on the
+# branch that just warned. install.sh:15858 was a LIVE instance of #876 that
+# this gate scored 0 on, by construction. Archie2 found it by reading, not by
+# running the gate, which is the whole lesson: the instrument and the defect
+# did not share a surface.
+#
+# Only real EVIDENCE stops the walk now: a verification call, or the helper.
+STOP    = re.compile(r'launchctl\s+print|' + re.escape(helper))
 SKIP    = re.compile(r'^\s*#|^\s*$')
 sites = 0
 # ONE FINDING PER FALSE ANNOUNCEMENT, not per matching launchctl line. The
@@ -202,12 +221,41 @@ else
     else
         bad "${HELPER} does not call launchctl print -- its verdict is not evidence"
     fi
-    # The print must be the LAST command, i.e. the function's return value.
+    # 🔴 THIS ASSERTION USED TO PIN A RENDERING AND IT WENT RED-WHILE-FIXED.
+    #
+    # It required `launchctl print` to be the LAST command, on the reasoning
+    # that the last command is the return value. That was true of the first
+    # version of the helper and stopped being true the moment the helper had
+    # to do something MORE than pass the exit code along -- namely capture
+    # print's stdout and refuse on `last exit code = 78: EX_CONFIG`, because
+    # print returns rc=0 for a merely-REGISTERED job (measured, macOS 26.5.2).
+    #
+    # The stronger helper ends `return 0`, and the old assertion called that a
+    # failure. A predicate pinned to a rendering goes RED WHILE THE BEHAVIOUR
+    # IS CORRECT -- the twin of green-while-blind, and the same root cause.
+    #
+    # So assert the PROPERTY: the helper's verdict must be DERIVED FROM the
+    # print, and nothing may re-open the door afterwards. This is strictly
+    # stronger than the old form, which would have passed a helper whose last
+    # line was `launchctl print` but which ignored EX_CONFIG entirely -- i.e.
+    # it would have passed the version Archie2 rejected.
+    _derives=0
+    # (a) the print's own failure must refuse, not fall through
+    grep -qE 'launchctl print[^|]*\|\|[[:space:]]*return 1|_print="\$\(launchctl print.*\)"[[:space:]]*\|\|[[:space:]]*return 1' \
+        <<< "$_body" && _derives=1
+    # (b) ...or the print IS the final command, the original shape. Still fine.
     _last="$(grep -v '^\s*#' <<< "$_body" | grep -v '^\s*$' | tail -2 | head -1)"
-    if grep -q 'launchctl print' <<< "$_last"; then
-        pass "${HELPER} RETURNS the launchctl print verdict (it is the last command)"
+    grep -q 'launchctl print' <<< "$_last" && _derives=1
+
+    # (c) REGARDLESS of shape, the function must never end by swallowing.
+    if grep -qE '\|\|[[:space:]]*true[[:space:]]*$' <<< "$(tail -3 <<< "$_body")"; then
+        _derives=0
+    fi
+
+    if [[ "$_derives" == "1" ]]; then
+        pass "${HELPER}'s verdict is DERIVED from launchctl print (property, not line position)"
     else
-        bad "${HELPER}'s last command is not launchctl print, so its return value is something else: ${_last}"
+        bad "${HELPER}'s return value is not derived from launchctl print: ${_last}"
     fi
 fi
 
