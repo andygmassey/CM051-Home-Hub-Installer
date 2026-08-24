@@ -219,6 +219,7 @@ test_repin_wiki_images_refuses_a_typed_sha.sh	WIRED	.github/workflows/cut-freshn
 test_resolver_robustness.py	UNWIRED	-
 test_resource_tier_governor.sh	UNWIRED	-
 test_rollforward_registry_pin.sh	WIRED	.github/workflows/cut.yml
+test_runtime_ready_does_not_require_optional_imports.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_runtime_ready_invariant.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_scheduled_agent_failure_is_loud.sh	WIRED	.github/workflows/scheduled-agent-failure-is-loud.yml
 test_secrets_are_documented.sh	WIRED	.github/workflows/secrets-are-documented.yml

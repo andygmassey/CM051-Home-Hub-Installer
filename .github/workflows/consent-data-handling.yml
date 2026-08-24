@@ -88,6 +88,16 @@ jobs:
         if: always()
         run: bash tests/test_runtime_ready_invariant.sh
 
+      # ...and DERIVING it must not over-collect. v1.0.43 aborted every install
+      # at 19% because the derivation counted `except ImportError:` fallback
+      # arms as hard requirements. Its sibling above asserts the requirement is
+      # derived and consulted; it does not assert the derived SET is right, and
+      # a set that is too large fails exactly as loudly as one that is too
+      # small while being wrong in the opposite direction.
+      - name: A derived requirement excludes optional and intra-package imports
+        if: always()
+        run: bash tests/test_runtime_ready_does_not_require_optional_imports.sh
+
       # Every osascript dialog must `activate` System Events first.
       #
       # ba94a24 stripped `activate` from FOUR FDA modals, so they opened
