@@ -247,6 +247,7 @@ test_sync_vendor_pin_untouched_on_abort.sh	UNWIRED	-
 test_tagged_commit_is_green.sh	WIRED	.github/workflows/cut.yml
 test_tailnet_owner_resolution.py	UNWIRED	-
 test_tailscale_daemon_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
+test_tailscale_prompt_is_conditional_on_tailnet_state.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_recovery_wrapper.sh	UNWIRED	-
 test_takeout_split_zip_no_abort.sh	UNWIRED	-
 test_third_party_data_consent.sh	WIRED	.github/workflows/consent-contract.yml

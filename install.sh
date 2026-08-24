@@ -2893,6 +2893,125 @@ _has_fda() {
     return 0
 }
 
+# ── Has this Mac already joined the customer's tailnet? ─────── (#875)
+#
+# #875 (Andy's v1.0.44 UPGRADE walk, 2026-08-24): the installer re-asked
+# "Connect your iPhone and Watch -- set up or skip?" on a box where
+# Tailscale was already set up. Both prompt sites (the Phase-2 hoist and
+# the Phase-3 "3.15 Tailscale" step) asked unconditionally, and the only
+# Tailscale-shaped test near either of them is
+#
+#     if ! command -v tailscale &>/dev/null; then ... brew install ...
+#
+# which answers a DIFFERENT question. "Is the tailscale binary on PATH"
+# decides whether a package needs installing. The prompt is asking "has
+# this customer already joined this Mac to their tailnet", and a binary
+# cannot answer that: brew can have run and the sign-in never completed,
+# and a tailnet can exist while the binary is mid-reinstall.
+#
+# The evidence for the question actually being asked is the TAILNET STATE
+# that tailscaled writes, so that is what this reads.
+#
+# THREE OUTCOMES, THREE RETURN CODES -- deliberately not two:
+#
+#   0  CONFIGURED      the store proves a completed sign-in -> do not ask
+#   1  NOT CONFIGURED  no store, or a store that only proves the daemon
+#                      once started -> ask
+#   2  CANNOT-RUN      a store is there and we could not read or parse it.
+#                      NOT a pass and NOT a clean absence. The caller says
+#                      so out loud and then asks. An unreadable file must
+#                      never read as "configured": that silently skips
+#                      setup and the customer's iPhone never reaches this
+#                      Mac, with nothing on screen to explain why.
+#
+# WHY EXISTENCE AND SIZE ARE BOTH WRONG DISCRIMINATORS. tailscaled writes
+# its state store as soon as the daemon starts, BEFORE any login, so the
+# file can exist -- well-formed and non-empty -- on a box that has never
+# signed in. The separating property is structural: a store carrying only
+# the pre-login machine key is not a configured tailnet. A completed
+# sign-in leaves at least one FURTHER key with real material in it.
+#
+# WHICH DIRECTORY. Deliberately OSTLER_FINAL_DIR, not OSTLER_DIR. Before
+# the FDA re-probe, _ostler_set_paths has OSTLER_DIR pointing at the
+# per-PID /tmp staging tree (see OSTLER_PRELAUNCH_DIR above), which never
+# holds tailnet state. Reading OSTLER_DIR here would make the Phase-2 site
+# answer "not configured" on every single install and quietly do nothing.
+_TS_CONFIGURED_VERDICT=""
+_ts_already_configured() {
+    local state_file="${1:-${OSTLER_FINAL_DIR:-${HOME}/.ostler}/tailscale/tailscaled.state}"
+
+    _TS_CONFIGURED_VERDICT="not_configured"
+
+    # Real absence: this Mac has never run our tailscaled. Ask.
+    [[ -e "$state_file" || -L "$state_file" ]] || return 1
+
+    # Something is there that we cannot open as a file -- a directory in
+    # the way, a dangling symlink, or a mode we are not allowed to read.
+    # We cannot tell whether a tailnet identity exists, which is a
+    # different fact from "there is no tailnet".
+    if [[ ! -f "$state_file" || ! -r "$state_file" ]]; then
+        _TS_CONFIGURED_VERDICT="cannot_run"
+        return 2
+    fi
+
+    # Telling a truncated store from a good one needs a real parse, not a
+    # pattern match. Reuse the interpreter resolver the licence check
+    # already established rather than growing a second copy of it -- a
+    # hand-maintained twin of a fact the code can compute is the defect
+    # the Tailscale block's own comments call out further down.
+    local py
+    py="$(_ostler_licence_python)" || {
+        _TS_CONFIGURED_VERDICT="cannot_run"
+        return 2
+    }
+
+    local rc=0
+    "$py" - "$state_file" <<'TS_STATE_PY' || rc=$?
+import json, sys
+
+# 0 = configured, 1 = not configured, 2 = cannot determine.
+try:
+    with open(sys.argv[1], "rb") as fh:
+        raw = fh.read()
+except OSError:
+    raise SystemExit(2)
+
+# Present and carrying nothing. A store that was created and never
+# written, or truncated to zero. That is a half-made file, not an
+# absent one, and not a configured tailnet either.
+if not raw.strip():
+    raise SystemExit(2)
+
+try:
+    store = json.loads(raw.decode("utf-8"))
+except Exception:
+    raise SystemExit(2)
+
+if not isinstance(store, dict):
+    raise SystemExit(2)
+
+# "_machinekey" lands when the daemon first starts, before anyone signs
+# in, so it proves the daemon ran and nothing more. Require at least one
+# other key carrying real material -- the profile / node material a
+# completed sign-in leaves behind.
+for key, value in store.items():
+    if key == "_machinekey":
+        continue
+    if isinstance(value, str) and value.strip():
+        raise SystemExit(0)
+    if isinstance(value, (dict, list)) and value:
+        raise SystemExit(0)
+
+raise SystemExit(1)
+TS_STATE_PY
+
+    case "$rc" in
+        0) _TS_CONFIGURED_VERDICT="configured"     ; return 0 ;;
+        1) _TS_CONFIGURED_VERDICT="not_configured" ; return 1 ;;
+        *) _TS_CONFIGURED_VERDICT="cannot_run"     ; return 2 ;;
+    esac
+}
+
 # Returns the number of mail-capable accounts the customer has
 # configured in System Settings -> Internet Accounts. Counts only
 # top-level account rows (ZAUTHENTICATIONTYPE != 'parent') for the
@@ -8334,7 +8453,32 @@ done
 # gets the gui_read fallback; the SHOWN_EARLY guard is set unconditionally
 # once we have asked (or decided not to ask), so the Phase-3 site is fully
 # driven by the upfront answer.
-if [[ -z "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]; then
+#
+# #875: and do not ask at all if the answer is already on disk. See
+# _ts_already_configured (search "Has this Mac already joined") for why the
+# tailnet state, and not `command -v tailscale`, is the evidence.
+if [[ -n "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]; then
+    # Already answered in this process. A human answer outranks anything on
+    # disk -- a customer who says "skip" this time must not be overridden by
+    # a tailnet a previous install left behind.
+    :
+elif _ts_already_configured; then
+    # Already set up. Phase 3 is idempotent on this path: `up` mints no URL
+    # for an authenticated node, the IP poll returns on its first tick, and
+    # `serve` is re-applied. So there is nothing to ask and nothing to wait
+    # for -- just say that it is done.
+    TAILSCALE_CONFIRM="setup"
+    TAILSCALE_CONFIRM_SHOWN_EARLY=1
+    export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
+    info "$MSG_INFO_TAILSCALE_ALREADY_CONFIGURED"
+else
+    # CANNOT-RUN gets its own appearance. Falling through to the question is
+    # right -- the customer decides -- but they are told first that there is
+    # existing setup here we could not read, so an unreadable file is never
+    # silently indistinguishable from a box that has never been set up.
+    if [[ "${_TS_CONFIGURED_VERDICT:-}" == "cannot_run" ]]; then
+        warn "$MSG_WARN_TAILSCALE_STATE_UNREADABLE"
+    fi
     TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
     TAILSCALE_CONFIRM_SHOWN_EARLY=1
     export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
@@ -19644,8 +19788,31 @@ OSTLER_TAILSCALE_IP=""
 # or the GUI was off then on) do we fall back to asking here -- the same
 # belt-and-braces shape the Mail probes use. The actual install + browser
 # sign-in below was pre-announced in Phase 2.
-if [[ -z "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]; then
+#
+# #875 (v1.0.44 upgrade walk, 2026-08-24): THIS is the site that re-asked.
+# A re-run over an existing install sets SKIP_PHASE2=true, so the whole
+# Phase-2 block -- including the early prompt above -- is jumped,
+# TAILSCALE_CONFIRM_SHOWN_EARLY is never set, and the fallback below asked
+# from scratch on a box whose tailnet was already joined. The fallback is
+# still right when nothing is set up; it just has to look first.
+if [[ -n "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]; then
+    # Answered upfront in this run. Honour it; ask nothing.
+    :
+elif _ts_already_configured; then
+    TAILSCALE_CONFIRM="setup"
+    TAILSCALE_CONFIRM_SHOWN_EARLY=1
+    export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
+    info "$MSG_INFO_TAILSCALE_ALREADY_CONFIGURED"
+else
+    if [[ "${_TS_CONFIGURED_VERDICT:-}" == "cannot_run" ]]; then
+        warn "$MSG_WARN_TAILSCALE_STATE_UNREADABLE"
+    fi
+    # Reached only when TAILSCALE_CONFIRM_SHOWN_EARLY is unset AND no tailnet
+    # state was found: nothing is set up and nobody has been asked yet. The
+    # walk-away middle never lands here.
     TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
+    TAILSCALE_CONFIRM_SHOWN_EARLY=1
+    export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
 fi
 
 if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then

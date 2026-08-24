@@ -69,3 +69,20 @@ jobs:
       - name: Sign-in wait is never entered with tailscaled down (#644)
         if: always()
         run: bash tests/test_tailscale_daemon_gate.sh
+
+      # #875. The step above asks whether the sign-in WAIT is entered when it
+      # cannot succeed. This asks whether the sign-in QUESTION is put to a
+      # customer who has already answered it -- measured on Andy's v1.0.44
+      # upgrade walk, where a re-run over an existing install jumped Phase 2
+      # and the Phase-3 fallback asked from scratch on an already-joined box.
+      #
+      # Same technique as its two neighbours: it EXTRACTS the predicate and
+      # both real prompt blocks from install.sh and RUNS them against
+      # synthetic tailnet-state fixtures, so it cannot pass on a grep and
+      # cannot drift from what ships.
+      #
+      # `if: always()` because it is not the first gate in the job, and a
+      # skipped gate reports identically to one that ran and passed.
+      - name: Tailscale prompt is conditional on tailnet state (#875)
+        if: always()
+        run: bash tests/test_tailscale_prompt_is_conditional_on_tailnet_state.sh
