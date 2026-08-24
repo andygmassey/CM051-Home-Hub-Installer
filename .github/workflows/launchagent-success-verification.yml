@@ -1,0 +1,133 @@
+name: launchagent-success-verification
+
+# A LAUNCHAGENT SUCCESS LINE MUST BE BACKED BY launchd (#876, class #800).
+#
+# ============================================================================
+# THE DEFECT
+# ============================================================================
+#
+# On the 2026-08-24 v1.0.44 walk the installer printed
+#
+#     [ok]    Ostler Doctor running at http://localhost:8089/doctor
+#
+# while com.ostler.doctor was NOT LOADED and :8089 answered 000. Six
+# customer-facing surfaces went dark behind that one line -- Preferences
+# toggles, Governor, Doctor > Channels, People, Timeline, and every status
+# header -- and the install log recorded a clean run. The wiki in the same
+# app was serving 6,932 people, so the data was never the problem.
+#
+# Twelve sites shipped the same shape. Two independent reasons it cannot be
+# trusted: `|| true` makes the `ok` unconditional, and `launchctl load` on a
+# missing plist EXITS 0 (measured, macOS 26.5.2), so branching on the status
+# does not help either.
+#
+# ============================================================================
+# WHY A CLASS GATE RATHER THAN TWELVE FIXES
+# ============================================================================
+#
+# The hand inventory found eleven. The predicate found TWELVE -- ical-server,
+# which printed the WARN and the OK on the same failure, one line apart, was
+# missed by the eye. Twelve fixes leave the thirteenth site free to be
+# written next week. The gate does not.
+#
+# ============================================================================
+# WHY THE SELF-TEST IS ITS OWN JOB
+# ============================================================================
+#
+# A failing gate skips everything after it, so a broken predicate would take
+# down the job it guards and report one red line instead of two. Same reason
+# zero-payload-is-not-ok, fda-rerun-ingests and ci-maskless split theirs out.
+# The self-test reinstates the exact pre-fix Doctor block from pin 2fb63f73
+# and requires the scanner to go RED on it, with a control that the count
+# moves by exactly one so the RED is attributable to that block and nothing
+# else.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_launchagent_success_requires_verification.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/launchagent-success-verification.yml'
+      # Watched because the regression job below RUNS them. A run: without a
+      # matching path entry means editing one of these does not trigger the
+      # workflow that checks it.
+      - 'tests/test_every_launchagent_is_torn_down.sh'
+      - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
+      - 'tests/test_export_scan_plist_bootstrap_race_217.sh'
+      - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
+      - 'tests/test_doctor_proxy_paths_predicate.sh'
+      - 'tests/test_v1010_ical_doctor_service_auth.sh'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch/PR. NEVER cancels main or a
+  # tag: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  gate:
+    # macOS, because the shape being guarded is a macOS launchctl idiom and
+    # the gate runs where the code runs. The scan itself is portable, but a
+    # gate that only ever runs on Linux has no way to notice a BSD/GNU split
+    # in its own tooling -- see the mktemp -t note in the estate memory.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Environment, so a failure is attributable
+        run: |
+          /bin/bash --version | head -1
+          python3 --version
+          sw_vers | head -2
+      - name: The gate
+        run: /bin/bash tests/test_launchagent_success_requires_verification.sh
+
+  self-test:
+    # PROVE IT CAN GO RED. Green on the fix alone is not evidence -- a scanner
+    # with a broken regex is green on everything.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The scanner must catch the reinstated v1.0.44 Doctor block
+        run: /bin/bash tests/test_launchagent_success_requires_verification.sh --self-test
+
+  neighbours:
+    # THE REGRESSION DIRECTION. Twelve LaunchAgent call sites were rewritten
+    # to route through one helper. The existing agent guards must still agree,
+    # and a neighbour that VANISHED is a bigger finding than one that failed --
+    # so a missing file is a hard stop, never a silent skip.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The existing LaunchAgent guards must still hold
+        run: |
+          set +e
+          set -uo pipefail
+          rc_total=0
+          for t in tests/test_every_launchagent_is_torn_down.sh \
+                   tests/test_uninstall_removes_every_launchagent_plist.sh \
+                   tests/test_export_scan_plist_bootstrap_race_217.sh \
+                   tests/test_stay_awake_agent_survives_installer_exit.sh \
+                   tests/test_doctor_proxy_paths_predicate.sh \
+                   tests/test_v1010_ical_doctor_service_auth.sh; do
+              if [ ! -f "$t" ]; then
+                  echo "CANNOT RUN: $t is missing. That is NOT a pass -- this job"
+                  echo "exists to prove the neighbours still agree, and a neighbour"
+                  echo "that vanished is a bigger finding than one that failed."
+                  exit 1
+              fi
+              /bin/bash "$t" > "/tmp/$(basename "$t").out" 2>&1
+              rc=$?
+              printf '%-56s rc=%s\n' "$(basename "$t")" "$rc"
+              if [ "$rc" -ne 0 ]; then
+                  tail -12 "/tmp/$(basename "$t").out" | sed 's/^/      /'
+                  rc_total=1
+              fi
+          done
+          exit "$rc_total"
