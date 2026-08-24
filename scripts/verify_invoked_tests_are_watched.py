@@ -35,6 +35,22 @@ alone would only make the workflow TRIGGER; the run step is what makes it
 CHECK" state the rule from the other side. A rule written three times in prose
 in one file is a rule waiting to be a gate.
 
+THREE AXES, one idea: a workflow must fire on the change that could break it.
+
+  1. A file a paths-filtered workflow RUNS must be a path it WATCHES.
+  2. A paths-filtered workflow must watch ITSELF, or it can be narrowed to
+     nothing in a pull request that never runs it.
+  3. A paths entry naming .github/workflows/<name> must name a workflow that
+     EXISTS. A rename that leaves the old name behind produces an entry that
+     matches no file, which is a self-watch that silently stopped working.
+
+Axes 2 and 3 were measured on 2c583597 after axis 1 landed: of 61 filtered
+workflows, TWO did not watch themselves, and one of those two was
+container-runtime-guard.yml naming
+'.github/workflows/installer-stream-and-runtime-guards.yml' -- its own name
+before a rename, and a file that has not existed since. It had a self-watch, the
+self-watch pointed at nothing, and nothing said so.
+
 SCOPE, stated so a later reader does not over-trust it.
 
   * Only `on.pull_request.paths` is modelled. `paths-ignore` is NOT modelled,
@@ -132,6 +148,10 @@ def main(argv):
     homes = {}
     parsed = 0
     pr_workflows = 0
+    filtered_workflows = 0
+    self_blind = []
+    ghost_entries = []
+    workflow_names = set(names)
 
     for name in names:
         path = os.path.join(workflow_dir, name)
@@ -172,6 +192,18 @@ def main(argv):
         regexes = ([glob_to_regex(str(p)) for p in patterns]
                    if patterns else None)
 
+        if regexes is not None:
+            filtered_workflows += 1
+            own = ".github/workflows/" + name
+            if not any(r.match(own) for r in regexes):
+                self_blind.append(name)
+            for pattern in patterns:
+                pattern = str(pattern)
+                if (pattern.startswith(".github/workflows/")
+                        and "*" not in pattern and "?" not in pattern):
+                    if os.path.basename(pattern) not in workflow_names:
+                        ghost_entries.append((name, pattern))
+
         bodies = []
         collect_runs(doc.get("jobs", {}), bodies)
         invoked = set()
@@ -200,27 +232,52 @@ def main(argv):
         return EXIT_CANNOT_RUN
 
     dark = sorted(f for f, ok in covered.items() if not ok)
+    self_blind.sort()
+    ghost_entries.sort()
 
-    print("EXAMINED: %d workflow(s), %d taking pull_request, invoking %d "
-          "script/test file(s) that exist on disk."
-          % (parsed, pr_workflows, len(covered)))
+    print("EXAMINED: %d workflow(s), %d taking pull_request, %d of those with a "
+          "paths filter, invoking %d script/test file(s) that exist on disk."
+          % (parsed, pr_workflows, filtered_workflows, len(covered)))
 
-    if not dark:
-        print("OK: every invoked file is watched by at least one workflow that "
-              "runs it, so editing it triggers the gate that guards it.")
+    if not (dark or self_blind or ghost_entries):
+        print("OK: every invoked file is watched by a workflow that runs it, "
+              "every filtered workflow watches itself, and every workflow named "
+              "in a paths list exists.")
         return EXIT_OK
 
-    print()
-    print("%d file(s) are DARK ON SELF-EDIT -- every workflow that runs them is "
-          "blind to a change to them:" % len(dark), file=sys.stderr)
-    for target in dark:
-        print("  %s" % target, file=sys.stderr)
-        for workflow, state in homes[target]:
-            print("       %-10s %s" % (state, workflow), file=sys.stderr)
-    print(file=sys.stderr)
-    print("Add the file to that workflow's on.pull_request.paths list. A `run:` "
-          "step without a matching path entry is a gate you have read, not a "
-          "gate you have run.", file=sys.stderr)
+    if dark:
+        print()
+        print("%d file(s) are DARK ON SELF-EDIT -- every workflow that runs them "
+              "is blind to a change to them:" % len(dark), file=sys.stderr)
+        for target in dark:
+            print("  %s" % target, file=sys.stderr)
+            for workflow, state in homes[target]:
+                print("       %-10s %s" % (state, workflow), file=sys.stderr)
+        print(file=sys.stderr)
+        print("Add the file to that workflow's on.pull_request.paths list. A "
+              "`run:` step without a matching path entry is a gate you have "
+              "read, not a gate you have run.", file=sys.stderr)
+
+    if self_blind:
+        print()
+        print("%d workflow(s) DO NOT WATCH THEMSELVES -- each can be narrowed, "
+              "gutted or disabled in a pull request that never runs it:"
+              % len(self_blind), file=sys.stderr)
+        for name in self_blind:
+            print("  %s" % name, file=sys.stderr)
+        print(file=sys.stderr)
+        print("Add '.github/workflows/<name>' to its own paths list.",
+              file=sys.stderr)
+
+    if ghost_entries:
+        print()
+        print("%d paths entr(y/ies) name a workflow that DOES NOT EXIST -- "
+              "almost always a rename that left the old name behind, so the "
+              "self-watch matches nothing:" % len(ghost_entries),
+              file=sys.stderr)
+        for name, pattern in ghost_entries:
+            print("  %-42s -> %s" % (name, pattern), file=sys.stderr)
+
     return EXIT_VIOLATION
 
 
