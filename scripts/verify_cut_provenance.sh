@@ -59,6 +59,37 @@ red()   { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAIL=$((FAIL+1)); }
 # DAEMON SOURCE. Same shape as the OSTLER_APP_PATH default that blocked eight
 # cuts.
 cannot(){ printf '  \033[33mCANNOT\033[0m %s\n' "$1"; CANNOT=$((CANNOT+1)); }
+
+# marker_grep -- run a marker pattern and return a THREE-state answer.
+#
+# 🔴 rc=2 IS NOT "NOT FOUND". Both wiki arms used to be
+#
+#     if grep -rq -- "$pattern" "$EXTRACT_DIR" 2>/dev/null; then ... else ... fi
+#
+# which is a two-state predicate over a three-state command. grep exits 0 on a
+# match, 1 on no match, and >=2 on an ERROR -- a malformed pattern, an
+# unreadable directory, a broken locale. `2>/dev/null` threw the error text
+# away and the `else` branch absorbed rc=2 alongside rc=1.
+#
+# FOR wiki_image_grep THAT WAS FAIL-CLOSED BY ACCIDENT: an error landed in the
+# else and printed RED, which is the safe direction and is why nobody noticed.
+#
+# FOR wiki_image_absent IT FAILED OPEN. rc=2 printed
+# "pattern is absent -- green" about a pattern that never ran, on the #84 LOCK
+# rows Andy asked for by name: "I don't EVER want to see it again". A gate that
+# reports a deliberately-removed component absent because its own regex would
+# not compile is worse than no gate, because it is quoted as evidence.
+#
+# Returns 0 found / 1 not found / 2 could not look, and puts grep's own stderr
+# in MARKER_GREP_ERR so the caller can name what went wrong instead of guessing.
+MARKER_GREP_ERR=""
+marker_grep() {
+    local pattern="$1" dir="$2" rc
+    MARKER_GREP_ERR="$(grep -rq -- "${pattern}" "${dir}" 2>&1)"; rc=$?
+    if [[ "$rc" -ge 2 ]]; then return 2; fi
+    return "$rc"
+}
+
 info()  { printf '        %s\n' "$1"; }
 
 echo "=== Cut-provenance preflight (CM051) ==="
@@ -295,7 +326,15 @@ while IFS='|' read -r kind target pattern desc; do
         info "this says NOTHING about the image content: no file was read, so the pattern was neither found nor missing"
         continue
       fi
-      if grep -rq -- "${pattern}" "${EXTRACT_DIR}" 2>/dev/null; then
+      marker_grep "${pattern}" "${EXTRACT_DIR}"; _mrc=$?
+      if [[ "${_mrc}" -eq 2 ]]; then
+        cannot "wiki_image_grep ${img_key} :${img_path} -- the pattern could not be RUN, so the image was not searched (${desc})"
+        printf '%s\n' "${MARKER_GREP_ERR}" | sed 's/^/        grep: /'
+        info "this is not a stale image and not a missing fix: nothing was measured"
+        rm -rf "${EXTRACT_DIR}"; EXTRACT_DIR=""
+        continue
+      fi
+      if [[ "${_mrc}" -eq 0 ]]; then
         green "wiki_image_grep ${img_key}@${ref##*@} :${img_path} ~ /${pattern}/ [${EXTRACT_N} files extracted] (${desc})"
       else
         red "wiki_image_grep ${img_key} :${img_path} ~ /${pattern}/ NOT FOUND in ${EXTRACT_N} extracted file(s) -- STALE WIKI IMAGE (${desc})"
@@ -349,7 +388,15 @@ while IFS='|' read -r kind target pattern desc; do
         info "this check examined nothing; it did NOT establish that the pattern is absent"
         continue
       fi
-      if grep -rq -- "${pattern}" "${EXTRACT_DIR}" 2>/dev/null; then
+      marker_grep "${pattern}" "${EXTRACT_DIR}"; _mrc=$?
+      if [[ "${_mrc}" -eq 2 ]]; then
+        cannot "wiki_image_absent ${img_key} :${img_path} -- the pattern could not be RUN, so ABSENCE WAS NEVER ESTABLISHED (${desc})"
+        printf '%s\n' "${MARKER_GREP_ERR}" | sed 's/^/        grep: /'
+        info "a LOCK row that cannot run its own pattern must never report the component absent"
+        rm -rf "${EXTRACT_DIR}"; EXTRACT_DIR=""
+        continue
+      fi
+      if [[ "${_mrc}" -eq 0 ]]; then
         red "wiki_image_absent ${img_key} :${img_path} ~ /${pattern}/ IS PRESENT in ${EXTRACT_N} extracted file(s) -- a deliberately removed component came back (${desc})"
         info "this pattern was deleted on purpose; find what reintroduced it before cutting"
       else
