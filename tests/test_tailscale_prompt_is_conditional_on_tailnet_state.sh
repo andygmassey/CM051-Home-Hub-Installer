@@ -243,7 +243,14 @@ fi
 # ============================================================================
 PREDICATE_PRESENT=0
 HELPER="$(awk '/^_ts_already_configured\(\) \{/{f=1} f{print} f&&/^\}$/{exit}' "$INSTALL_SH")"
-if [[ -n "$HELPER" ]] && printf '%s\n' "$HELPER" | grep -q 'tailscaled.state'; then
+# HERESTRING, not `printf | grep -q`. This file runs under `set -o pipefail`,
+# and grep -q short-circuits: it exits on the first match, SIGPIPEs the
+# printf, and pipefail then reports the whole pipeline as FAILED on a needle
+# that IS present. That inverts the verdict below -- the arm would report "no
+# predicate in install.sh" precisely when the predicate is there. Caught by
+# tests/test_pipefail_shortcircuit_inversion.sh on the first CI run of this
+# file, which is the guard doing exactly its job.
+if [[ -n "$HELPER" ]] && grep -q 'tailscaled.state' <<< "$HELPER"; then
     PREDICATE_PRESENT=1
     ok "extracted the real _ts_already_configured from install.sh"
 else
@@ -252,9 +259,11 @@ fi
 
 # The predicate must be defined BEFORE the first site that asks, or it is
 # unbound at the call and the installer dies under set -u.
-FIRST_PROMPT_LN="$(grep -n 'tailscale_confirm")' "$INSTALL_SH" | head -1 | cut -d: -f1)"
-PRED_LN="$(grep -n '^_ts_already_configured() {' "$INSTALL_SH" | head -1 | cut -d: -f1)"
-PYRES_LN="$(grep -n '^_ostler_licence_python() {' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+# awk with its own `exit`, not `grep | head`: same short-circuit-under-pipefail
+# class as above, and here there is no pipe left to get it wrong.
+FIRST_PROMPT_LN="$(awk '/tailscale_confirm"\)/{print NR; exit}' "$INSTALL_SH")"
+PRED_LN="$(awk '/^_ts_already_configured\(\) \{/{print NR; exit}' "$INSTALL_SH")"
+PYRES_LN="$(awk '/^_ostler_licence_python\(\) \{/{print NR; exit}' "$INSTALL_SH")"
 if [[ -n "$PRED_LN" && -n "$FIRST_PROMPT_LN" && "$PRED_LN" -lt "$FIRST_PROMPT_LN" ]]; then
     ok "predicate is defined (line ${PRED_LN}) before the first prompt site (line ${FIRST_PROMPT_LN})"
 else
