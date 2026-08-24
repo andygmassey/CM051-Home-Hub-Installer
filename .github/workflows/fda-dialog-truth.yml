@@ -1,0 +1,49 @@
+# The Full Disk Access modal may not state anything it has not established.
+#
+# Walk finding #874, measured live on the v1.0.44 upgrade walk 2026-08-24 at
+# step 26/37. The modal opened with "System Settings is open at Full Disk
+# Access" -- it was not, and Andy opened it himself -- and told him to find
+# "Ostler" in a list whose row reads OstlerAssistant.
+#
+# Both defects are the same shape as #876: an action whose failure is
+# swallowed (`open ... 2>/dev/null || true`), followed by copy that asserts
+# the outcome anyway. The test drives the real helpers with a stubbed `open`
+# and a stubbed `pgrep` and requires the copy to follow reality, including
+# the arm where `open` exits 0 and no window ever appears.
+#
+# RUNS ON macOS ON PURPOSE. The code under test is macOS-only (`open`,
+# `pgrep -x`, System Settings) and install.sh runs under /bin/bash 3.2 on a
+# customer Mac. On ubuntu /bin/bash is bash 5, so the 3.2 syntax arm would be
+# vacuous -- a bash-4 construct would sail through a green gate and onto the
+# launch path.
+name: fda-dialog-truth
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_fda_dialog_tells_the_truth.sh'
+      - '.github/workflows/fda-dialog-truth.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_fda_dialog_tells_the_truth.sh'
+      - '.github/workflows/fda-dialog-truth.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  fda-dialog-truth:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: A dialog may not claim a state it did not establish
+        run: bash tests/test_fda_dialog_tells_the_truth.sh

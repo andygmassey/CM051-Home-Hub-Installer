@@ -161,7 +161,11 @@ MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE="Registering the Ostler assistant with macO
 MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED="Full Disk Access is still pending. The Doctor dashboard will keep the card visible until access is granted."
 MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED="ostler-assistant already has Full Disk Access; no further action needed."
 MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE="This part needs you for about two minutes: switch on Full Disk Access for the assistant now, then sign in to Tailscale on the next step. After that, you can leave Ostler to finish on its own."
-MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED="Ostler is already listed in Full Disk Access, so you can just switch it on. No need to drag anything from Finder."
+# WALK-874(b): %s is the Full Disk Access row name, DERIVED from the
+# assistant .app bundle (install.sh: _ostler_fda_entry_name). It read
+# "Ostler is already listed" while the row said OstlerAssistant, so the
+# customer went hunting in Finder for a row this line says is there.
+MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED="\"%s\" is already listed in Full Disk Access, so you can just switch it on. No need to drag anything from Finder."
 MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN="Checking whether the Ostler assistant can read your Messages history..."
 MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED="Assistant can read Messages history; iMessage channel will work."
 MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT="Assistant cannot read Messages history yet. The Doctor dashboard will show a card guiding you through System Settings."
@@ -947,8 +951,16 @@ MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Acces
 # whole reason the poll exists.
 # Locator wording taken from the other side: "Find ... in the list" tells
 # them WHERE to look before naming WHICH switch to flip.
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"Ostler\" in the list and turn its Full Disk Access switch on."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Not listed? Drag \"Ostler\" from the Finder window into the list, then turn its switch on. Order does not matter – click Done before or after; the installer waits until the switch is actually on."
+# WALK-874(b), measured on the v1.0.44 walk 2026-08-24 step 26/37: these
+# two lines named the row "Ostler". The row macOS shows is the assistant
+# bundle's file name -- OstlerAssistant. A customer scanning for "Ostler"
+# concludes it is absent and goes to Finder, which LINE3 tells them not
+# to do. %s is now DERIVED from the bundle at run time
+# (install.sh: _ostler_fda_entry_name), so a bundle rename moves the copy
+# with it. Do NOT reintroduce a literal product name here -- it is
+# mutation-tested by tests/test_fda_dialog_tells_the_truth.sh case-4.
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"%s\" in the list and turn its Full Disk Access switch on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Not listed? Drag \"%s\" from the Finder window into the list, then turn its switch on. Order does not matter – click Done before or after; the installer waits until the switch is actually on."
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="Done"
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT="You can click Done before or after flipping the switch – the installer waits until it is actually on."
 
@@ -990,7 +1002,12 @@ MSG_INFO_DAEMON_FDA_LATER_PREANNOUNCE="One more permission (Messages history for
 # extraction. Granting now, or continuing with less data, both let the
 # install complete. TODO(i18n): de/fr/es/it needed -- do NOT machine-translate.
 MSG_PROMPT_INSTALLER_FDA_RECOVER_TITLE="Full Disk Access still needed"
-MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE1="Ostler is about to read your Mac data, but Full Disk Access for OstlerInstaller is still off. Find \"OstlerInstaller\" in System Settings (now open at Full Disk Access) and turn it on."
+# WALK-874(a): the parenthetical "(now open at Full Disk Access)" was
+# the same untrue assertion as the two ASSIST_LINE1 keys, buried
+# mid-sentence in a third one. The pane state is now stated by the
+# verified line the modal opens with, so this line only has to name the
+# row and the switch.
+MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE1="Ostler is about to read your Mac data, but Full Disk Access for OstlerInstaller is still off. Find \"OstlerInstaller\" in the list and turn it on."
 MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE2="Or just click Continue to finish the install with less data – you can grant it and re-run the extractor later."
 MSG_PROMPT_INSTALLER_FDA_RECOVER_BUTTON="Continue"
 
@@ -1491,3 +1508,15 @@ MSG_INFO_AUTOLOGIN_SKIPPED_NONINTERACTIVE="Skipping automatic sign-in setup: the
 MSG_WARN_AUTOLOGIN_NO_PASSWORD="No password was entered, so automatic sign-in was not enabled and nothing was stored. If you want it later, turn Automatic login on in System Settings > Users & Groups."
 MSG_WARN_AUTOLOGIN_FAILED="Could not enable automatic sign-in (%s). This is not retried. If /etc/kcpassword exists on this Mac it holds that login password in scrambled form even though the feature is off; you can remove it from Terminal with: sudo rm /etc/kcpassword. To try again, turn Automatic login on in System Settings > Users & Groups."
 MSG_WARN_AUTOLOGIN_FILEVAULT="FileVault is on, so this Mac asks for a password at the boot screen to unlock the disk before anyone can sign in. Automatic sign-in cannot answer that, so after a power-cut this Mac waits at the FileVault unlock screen until someone enters it. Automatic sign-in was not enabled and no password was stored. That is the stronger of the two arrangements: unattended restart recovery is not possible while FileVault is on, and in exchange the disk stays unreadable to anyone who does not have that password."
+
+# ── WALK-874 (2026-08-24, v1.0.44 upgrade walk, step 26/37) ──────────
+# The Full Disk Access modal opened with "System Settings is open at
+# Full Disk Access." It was NOT open -- Andy opened it himself. The pane
+# open was fire-and-forget (`open ... 2>/dev/null || true`) and the
+# sentence was printed regardless: the same shape as #876's
+# `launchctl ... || true` followed by an unconditional success line.
+#
+# This is the line the modal shows when the pane could NOT be brought
+# up. It ESTABLISHES the state instead of asserting it, and it does not
+# pretend the installer did something it did not do.
+MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="Ostler could not open System Settings for you. Please open System Settings yourself and go to Privacy & Security > Full Disk Access."
