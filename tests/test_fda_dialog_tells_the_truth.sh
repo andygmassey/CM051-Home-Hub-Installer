@@ -106,7 +106,7 @@ if [[ -z "${MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1:-}" ]]; then
 fi
 # It must ESTABLISH, not ASSERT: it may not tell the customer the pane
 # is already open, because on this branch it is not.
-if printf '%s' "$MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1" | grep -qi 'is open'; then
+if grep -qi 'is open' <<< "$MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1"; then
     fail case-1 "the pane-did-not-open line still claims the pane is open:
   ${MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1}"
 fi
@@ -281,7 +281,7 @@ fi
 UNGUARDED=""
 while IFS= read -r ref; do
     [[ -n "$ref" ]] || continue
-    if ! printf '%s' "$ref" | grep -q '_ostler_fda_pane_line1'; then
+    if ! grep -q '_ostler_fda_pane_line1' <<< "$ref"; then
         UNGUARDED="${UNGUARDED}    ${ref}
 "
     fi
@@ -373,7 +373,7 @@ MUTANT_BUNDLE="${WORK}/fake-ostler-dir/ZzMutantAssistant.app"
 mkdir -p "$MUTANT_BUNDLE"
 MUTANT_RENDER="$(render_naming "$MUTANT_BUNDLE")" \
     || cannot_run "could not render the naming strings against the mutated bundle"
-if printf '%s' "$MUTANT_RENDER" | grep -q 'MISSING-KEY:'; then
+if grep -q 'MISSING-KEY:' <<< "$MUTANT_RENDER"; then
     fail case-4 "catalogue is missing a naming key:
 $(printf '%s' "$MUTANT_RENDER" | grep 'MISSING-KEY:')"
 fi
@@ -383,14 +383,14 @@ if [[ "${MUTANT_LINES:-0}" -lt 3 ]]; then
 fi
 while IFS= read -r line; do
     [[ -n "$line" ]] || continue
-    if ! printf '%s' "$line" | grep -q 'ZzMutantAssistant'; then
+    if ! grep -q 'ZzMutantAssistant' <<< "$line"; then
         fail case-4 "the bundle was renamed to ZzMutantAssistant.app and this
   customer-facing line did not follow it:
     ${line}
   The name must be derived from the bundle, not typed into the catalogue.
   A hardcoded string that happens to match today is not a fix."
     fi
-    if printf '%s' "$line" | grep -q 'Ostler'; then
+    if grep -q 'Ostler' <<< "$line"; then
         fail case-4 "the bundle was renamed to ZzMutantAssistant.app but this
   line still names an Ostler bundle:
     ${line}"
@@ -414,7 +414,7 @@ REAL_RENDER="$(render_naming "$REAL_BUNDLE")" \
     || cannot_run "could not render the naming strings against the shipped bundle name"
 while IFS= read -r line; do
     [[ -n "$line" ]] || continue
-    if ! printf '%s' "$line" | grep -q 'OstlerAssistant'; then
+    if ! grep -q 'OstlerAssistant' <<< "$line"; then
         fail case-5 "with the shipped bundle (OstlerAssistant.app) this line
   does not name the row the customer is looking at:
     ${line}
