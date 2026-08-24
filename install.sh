@@ -2164,6 +2164,67 @@ import ast, os, sys, importlib.util
 pkg = sys.argv[1]
 stdlib = getattr(sys, "stdlib_module_names", frozenset())
 
+# AN IMPORT INSIDE AN ImportError HANDLER IS OPTIONAL BY CONSTRUCTION.
+#
+# v1.0.43 ABORTED EVERY INSTALL AT 19% ON THIS. Several shipped files carry
+# the script-mode fallback pattern:
+#
+#     try:
+#         from .role_addresses import is_role_identifier
+#     except ImportError:      # running as a plain script (repair on the box)
+#         from role_addresses import is_role_identifier   # type: ignore
+#
+# The relative arm was already skipped by `node.level`. The FALLBACK arm was
+# not -- and ast.walk() visits every node regardless of control flow, so a
+# branch that never executes when the relative import succeeds was collected
+# as a HARD requirement. find_spec() cannot see a bare sibling from the venv,
+# so four optional-by-construction imports scored missing=4, the function
+# returned 1, and install.sh aborted at step fda_extract.
+#
+# Measured on the walk box 2026-08-24: scanned=30 third_party=7 missing=4 --
+# given_name_variants, pwg_ingest, relationship_labels, role_addresses, all
+# four of them files INSIDE the package, with `ostler_fda.identifier_quality`
+# importing cleanly the whole time. Nothing was missing. The check was wrong.
+#
+# Skipping is per-NODE, not per-name: a module that is guarded in one file and
+# hard-imported in another stays required, which is the property a per-name
+# exclusion list would lose.
+def _guarded_import_nodes(tree):
+    out = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try):
+            continue
+        catches = False
+        for h in node.handlers:
+            exc = h.type
+            names = []
+            if isinstance(exc, ast.Name):
+                names = [exc.id]
+            elif isinstance(exc, ast.Tuple):
+                names = [e.id for e in exc.elts if isinstance(e, ast.Name)]
+            if any(n in ("ImportError", "ModuleNotFoundError") for n in names):
+                catches = True
+        if not catches:
+            continue
+        for sub in list(node.body) + [s for h in node.handlers for s in h.body]:
+            for n2 in ast.walk(sub):
+                if isinstance(n2, (ast.Import, ast.ImportFrom)):
+                    out.add(id(n2))
+    return out
+
+# The package's OWN modules are not third-party either. Second layer on
+# purpose: layer one only covers imports someone remembered to guard. An
+# UNGUARDED bare sibling import would sail through it.
+own = set()
+for root, dirs, files in os.walk(pkg):
+    for fn in files:
+        if fn.endswith(".py") and fn != "__init__.py":
+            own.add(fn[:-3])
+    for d in dirs:
+        if os.path.exists(os.path.join(root, d, "__init__.py")):
+            own.add(d)
+own.add(os.path.basename(pkg.rstrip(os.sep)))
+
 wanted = set()
 scanned = 0
 for root, _dirs, files in os.walk(pkg):
@@ -2176,7 +2237,10 @@ for root, _dirs, files in os.walk(pkg):
         except Exception:
             continue          # unparseable file is not a dependency signal
         scanned += 1
+        optional = _guarded_import_nodes(tree)
         for node in ast.walk(tree):
+            if id(node) in optional:
+                continue      # inside an ImportError handler -- not required
             if isinstance(node, ast.Import):
                 for a in node.names:
                     wanted.add(a.name.split(".")[0])
@@ -2194,7 +2258,7 @@ if scanned == 0:
     sys.exit(2)
 
 wanted -= set(stdlib)
-wanted -= {"ostler_fda"}      # the package itself is checked by import below
+wanted -= own                 # package + its own submodules; checked by import below
 wanted = {m for m in wanted if m and not m.startswith("_")}
 
 missing = sorted(m for m in wanted if importlib.util.find_spec(m) is None)
