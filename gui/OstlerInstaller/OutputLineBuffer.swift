@@ -65,12 +65,24 @@
 //    rather than accumulated. CRLF yields one line, not two.
 // 3. A single line longer than `maxLineBytes` is truncated with a visible
 //    marker before the caller ever sees it, so a pathological producer
-//    cannot put a gigabyte-long String into the log array either.
+//    cannot put a gigabyte-long String into the log array either. The
+//    truncation keeps BOTH ENDS -- three quarters head, one quarter tail --
+//    because a failing producer names its failure LAST. See `finish`.
 // 4. Dropping is NEVER silent: `droppedBytes` accumulates and the next
 //    emitted line carries a marker saying how much went. A bound that hides
 //    what it discarded is a second silent failure, not a fix.
 // 5. `reset()` releases the storage; the coordinator calls it on subprocess
 //    termination so the bytes do not outlive the install that made them.
+// 6. `flush()` surfaces the retained partial line first. A subprocess that
+//    hangs or is killed has, by definition, not written its terminator, so
+//    the bytes most likely to name the failure are the bytes `reset()` alone
+//    deleted unread. The coordinator flushes BEFORE it resets.
+//
+// The three bounds above are stated in BYTES and enforced in bytes.
+// `String.prefix(_:)` counts CHARACTERS, and the version of `finish` that
+// used it returned 4,128 bytes against a claimed 1,024 on emoji input. Use
+// `clampedPrefix` / `clampedSuffix`, not `prefix` / `suffix`, anywhere a
+// limit here is spelled "bytes".
 //
 // Scanning is O(chunk), not O(buffer). The pre-fix loop re-scanned the whole
 // accumulated buffer on every chunk, which is why it took 200 s of CPU to
@@ -160,6 +172,26 @@ struct OutputLineBuffer {
         return lines
     }
 
+    /// Emit whatever partial line is still retained, annotated, and clear it.
+    ///
+    /// WHY THIS EXISTS. The retained partial used to be thrown away by
+    /// `reset()` at teardown without ever reaching the log, and that is exactly
+    /// the hang case: a producer that stalls has BY DEFINITION not written its
+    /// terminator, so the last thing it said lives here and nowhere else.
+    /// Measured on 19bd9a09: `InstallerCoordinator.handleTermination` called
+    /// `stdoutBuffer.reset()` and nothing called anything else, so the bytes
+    /// most likely to name the failure were the bytes guaranteed to be deleted
+    /// unread.
+    ///
+    /// Returns nil when there is nothing retained and no outstanding drop
+    /// notice, so a normal install that ended on a terminator logs nothing.
+    mutating func flush() -> String? {
+        if buffer.isEmpty && pendingDropNotice == 0 { return nil }
+        let out = finish(buffer)
+        buffer = ""
+        return out
+    }
+
     /// Release the retained storage. Called on subprocess termination.
     mutating func reset() {
         buffer = ""
@@ -170,30 +202,87 @@ struct OutputLineBuffer {
     // ── internals ────────────────────────────────────────────────────
 
     /// THE BOUND. Reached only when a producer emitted no terminator at all
-    /// for `maxBufferBytes`. Discard rather than keep a tail: a fragment of a
-    /// line that reads like a whole one is worse than an explicit gap, and
-    /// clearing is O(1) so the bound cannot itself become the slow path.
+    /// for `maxBufferBytes`.
+    ///
+    /// KEEPS THE TAIL. This used to discard the whole buffer, reasoning that a
+    /// fragment of a line reading like a whole one is worse than an explicit
+    /// gap. The gap is explicit either way -- `pendingDropNotice` is attached
+    /// to the next emitted line and says exactly how many bytes went -- so the
+    /// only thing discarding bought was the loss of the bytes a stalled
+    /// producer wrote LAST, which are the ones that name the failure. Bounded
+    /// at a quarter of the ceiling so the retained tail cannot itself become
+    /// the leak, and the post-condition is TIGHTER than before, not looser:
+    /// after this returns the buffer holds at most `maxBufferBytes / 4`.
     private mutating func enforceBound() {
         let held = buffer.utf8.count
         guard held > maxBufferBytes else { return }
-        droppedBytes += held
-        pendingDropNotice += held
-        buffer = ""
+        let tail = OutputLineBuffer.clampedSuffix(buffer, bytes: maxBufferBytes / 4)
+        let lost = held - tail.utf8.count
+        droppedBytes += lost
+        pendingDropNotice += lost
+        buffer = tail
     }
 
-    /// Truncate an over-long line and attach any outstanding drop notice, so
-    /// no byte disappears without the log saying so.
+    /// Truncate an over-long line KEEPING BOTH ENDS, and attach any outstanding
+    /// drop notice, so no byte disappears without the log saying so.
+    ///
+    /// v1042-D002 RESIDUAL, measured on the shipped file 2026-08-24. 1.3 MB of
+    /// unterminated output ending in "ERROR: no space left on device" emitted
+    /// ONE line of 65,571 bytes, correctly annotated with the byte count it had
+    /// dropped, that did not contain the error:
+    ///
+    ///     lines=1  line_bytes=65571  contains_error=false
+    ///     head=xxxxxxxxxxxxxxxxxxxxxxxx
+    ///     tail=xxxxxxxx [... 1234494 more bytes truncated]
+    ///
+    /// `prefix(maxLineBytes)` keeps the HEAD, and a failing producer names its
+    /// failure LAST. That is `v1018-D032` in a new file: captured output keeps
+    /// the head when a hang needs the tail. The notice was honest and the
+    /// diagnostic was gone anyway, which is the whole shape of the defect --
+    /// an accurate report of a loss is not a substitute for not losing it.
+    ///
+    /// Three quarters head, one quarter tail. The head carries the context that
+    /// says which producer is talking; the tail carries the failure.
     private mutating func finish(_ line: String) -> String {
         var out = line
         let n = out.utf8.count
         if n > maxLineBytes {
-            out = String(out.prefix(maxLineBytes))
-                + " [... \(n - maxLineBytes) more bytes truncated]"
+            let head = OutputLineBuffer.clampedPrefix(out, bytes: (maxLineBytes / 4) * 3)
+            let tail = OutputLineBuffer.clampedSuffix(out, bytes: maxLineBytes / 4)
+            let lost = n - head.utf8.count - tail.utf8.count
+            out = head
+                + " [... \(lost) more bytes truncated, tail follows ...] "
+                + tail
         }
         if pendingDropNotice > 0 {
             out += " [... \(pendingDropNotice) bytes of unterminated output dropped before this line]"
             pendingDropNotice = 0
         }
         return out
+    }
+    /// Longest prefix of `s` that is at most `bytes` UTF-8 bytes and does not
+    /// split a scalar.
+    ///
+    /// `String.prefix(_:)` counts CHARACTERS, not bytes. The line it replaced
+    /// therefore did not bound what it claimed to bound: on output carrying
+    /// any multi-byte scalar, `String(out.prefix(maxLineBytes))` can be several
+    /// times `maxLineBytes` bytes long. ASCII progress output hid it.
+    private static func clampedPrefix(_ s: String, bytes: Int) -> String {
+        if s.utf8.count <= bytes { return s }
+        let u = Array(s.utf8)
+        var end = min(bytes, u.count)
+        while end > 0 && (u[end] & 0xC0) == 0x80 { end -= 1 }
+        return String(decoding: u[0..<end], as: UTF8.self)
+    }
+
+    /// Longest suffix of `s` that is at most `bytes` UTF-8 bytes and does not
+    /// split a scalar. Slicing forward off a continuation byte rather than
+    /// backward keeps the result inside the bound.
+    private static func clampedSuffix(_ s: String, bytes: Int) -> String {
+        if s.utf8.count <= bytes { return s }
+        let u = Array(s.utf8)
+        var start = u.count - bytes
+        while start < u.count && (u[start] & 0xC0) == 0x80 { start += 1 }
+        return String(decoding: u[start...], as: UTF8.self)
     }
 }
