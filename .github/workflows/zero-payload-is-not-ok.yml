@@ -40,6 +40,12 @@ on:
       - 'tests/test_status_ok_with_zero_payload_is_not_ok.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/zero-payload-is-not-ok.yml'
+      # Watched because the step below RUNS it. A run: without a
+      # matching path entry means editing this file does not trigger
+      # the only workflow that checks it.
+      - 'tests/test_hydrate_apple_notes_wired.sh'
+      - 'tests/test_hydrate_email_preferences_wired.sh'
+      - 'tests/test_hydrate_people_wired.sh'
   push:
     branches: [main]
 
