@@ -107,6 +107,43 @@ ANNOUNCE= re.compile(r'^\s*(ok|ok_\w+)\s')
 # Only real EVIDENCE stops the walk now: a verification call, or the helper.
 STOP    = re.compile(r'launchctl\s+print|' + re.escape(helper))
 SKIP    = re.compile(r'^\s*#|^\s*$')
+
+# A NEW BLOCK OPENING ALSO ENDS THE WALK, AND THIS IS THE NARROW HALF OF THE
+# `fi` LESSON ABOVE -- NOT A REVERSAL OF IT.
+#
+# The distinction that matters is WHOSE decision the announcement belongs to:
+#
+#   the site's own flow            a DIFFERENT decision
+#   ------------------------       ---------------------------
+#   launchctl bootstrap …          launchctl bootstrap … || true
+#   …                              if [[ -n "$PYTHON3_BIN" ]]; then
+#   fi          <- site's block         ok "Python $VER"   <- not about launchd
+#   ok "…installed"  <- SCORES     fi
+#
+# `elif|else|fi|done|esac|}` are the site's OWN enclosing block unwinding, so
+# the walk MUST pass through them -- that was the export-scan defect, where the
+# `ok` sat after `fi` and fired on the branch that had just warned. They stay
+# out of the stop set. But `if|while|until|for|case|select` OPEN a decision the
+# site is not part of, and anything inside one is announcing that decision's
+# outcome, not the load's.
+#
+# MEASURED -- the two false positives this closes, both adjudicated by reading
+# the source, not by tuning a number until the count looked right:
+#   L10146 ollama-rot `bootstrap … || true`, a bare statement, walking into
+#          `── 3.4 Python check ──` and scoring `ok "$MSG_OK_PYTHON"` at L10158.
+#   L24686 `if launchctl bootstrap … || load …; then`, whose own `fi` closes at
+#          L24688, walking into the drain-outcome `if` at L24694 and scoring
+#          the `elif` arm's `ok "$MSG_HYDRATE_AICONV_DONE"` at L24714.
+#
+# 🔴 THE BLIND SPOT THIS BUYS, STATED RATHER THAN DISCOVERED LATER: an `ok`
+# nested inside a conditional that IS about the agent --
+#     launchctl load … || true
+#     if [[ "$AGENT_OK" == true ]]; then ok "…" ; fi
+# -- is now missed. No such site exists in install.sh today (checked: every
+# announcement inside a post-load conditional resolves to a different subject),
+# and the mutation test below pins that this narrowing did not also blind the
+# after-`fi` shape, which is the one that actually shipped.
+BLOCK_OPEN = re.compile(r'^\s*(if|while|until|for|case|select)\b')
 sites = 0
 # ONE FINDING PER FALSE ANNOUNCEMENT, not per matching launchctl line. The
 # shipped shape spans two lines --
@@ -147,6 +184,8 @@ for n, line in enumerate(src):
             continue                       # comments and blanks are free
         if STOP.search(nxt):
             break
+        if BLOCK_OPEN.match(nxt):
+            break                          # a decision the site is not part of
         if LC.search(nxt) and j > n + 1:
             break                          # a new site owns its own announcement
         budget -= 1
@@ -387,6 +426,69 @@ It is green on the fix and green on the defect, which means it measures nothing.
     else
         bad "count moved ${UNVERIFIED} -> ${_st_unverified}; expected exactly one more. \
 The self-test edit is not isolated to the Doctor block."
+    fi
+
+    # ── ARM 2: THE AFTER-`fi` SHAPE ────────────────────────────────────────
+    #
+    # 🔴 ARM 1 ABOVE CANNOT PROVE THIS, AND THAT IS THE WHOLE REASON ARM 2
+    # EXISTS. The Doctor block it reverts puts `ok` DIRECTLY after the
+    # bootstrap, with nothing in between. A walk that stopped at the very
+    # first control-flow keyword would still catch it -- so arm 1 stays green
+    # no matter how narrow the walk gets, and it is satisfied by a sibling
+    # property rather than by the one under test.
+    #
+    # The shape that actually SHIPPED is different: the announcement sat after
+    # the enclosing block had CLOSED, so it fired on the branch that had just
+    # warned the daemon binary was missing --
+    #     [WARN] ... daemon binary missing: .../MacOS/ostler-assistant
+    #     [ ok ] Export watcher installed, scans Downloads every ...
+    # Reaching that `ok` means walking THROUGH `else`, the warn, and `fi`.
+    # Adding BLOCK_OPEN to the stop set could have re-blinded exactly this,
+    # which is why the narrowing gets its own mutation rather than trusting
+    # arm 1's green.
+    _tmp2="$(mktemp -t launchagent_selftest2)" || cannot_run "mktemp failed"
+    trap 'rm -f "$_tmp" "$_tmp2"' EXIT
+
+    python3 - "$INSTALL_SH" "$_tmp2" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src).read()
+# The guarded form as it ships today.
+fixed = '''    if launchctl print "gui/$(id -u)/com.ostler.export-scan" >/dev/null 2>&1; then
+        ok "$MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY"
+    else
+        warn "$MSG_WARN_EXPORT_SCAN_NOT_LOADED"
+    fi
+else'''
+# The defect: no launchd question, and the ok hoisted OUT past the `fi` so it
+# fires on both arms. This is the text v1.0.44 actually shipped.
+broken = '''else'''
+if fixed not in text:
+    sys.exit("SELF-TEST SETUP FAILED: the guarded export-scan block is not in "
+             "install.sh in the form this test knows how to revert. The test is "
+             "stale, not the code.")
+text = text.replace(fixed, broken, 1)
+# Hoist the announcement past the block's own `fi`.
+anchor = '''    warn "$(printf "$MSG_WARN_EXPORT_SCAN_DAEMON_BINARY_MISSING" "${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant")"
+fi'''
+if anchor not in text:
+    sys.exit("SELF-TEST SETUP FAILED: the export-scan else-arm anchor moved.")
+text = text.replace(
+    anchor,
+    anchor + '\nok "$MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY"', 1)
+open(dst, 'w').write(text)
+PY
+    _rc2=$?
+    [[ $_rc2 -eq 0 ]] || cannot_run "arm 2 could not construct the after-fi tree (rc=${_rc2})"
+
+    _st2="$(_run_controls "$_tmp2" "SELF-TEST 2 -- export-scan ok hoisted past fi")"
+    [[ "$_st2" == "SCANNER_FAILED" ]] && cannot_run \
+        "the scanner failed on the arm-2 tree. Arm 2 did not run."
+    if [[ "$_st2" -ge 1 ]]; then
+        pass "the scanner walks THROUGH else/warn/fi and catches the after-fi announcement (${_st2} finding(s))"
+    else
+        bad "the scanner did NOT catch an ok hoisted past its own fi. \
+BLOCK_OPEN has over-narrowed the walk and re-blinded the shape that shipped."
     fi
 fi
 
