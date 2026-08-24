@@ -909,10 +909,14 @@ err()   { gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log
 
 # ── LaunchAgent load, VERIFIED (#876, and the #800 class behind it) ──
 #
-# Every LaunchAgent site in this file used to end:
-#     launchctl bootstrap … 2>/dev/null || launchctl load … 2>/dev/null || true
-#     ok "$MSG_OK_<AGENT>_RUNNING"
-# and the success line printed whether or not anything had loaded.
+# Every LaunchAgent site in this file used to end with a bootstrap, a load
+# fallback, a trailing `|| true`, and then a bare `ok` naming that agent's
+# success string -- and the success line printed whether or not anything had
+# loaded. (Written in prose rather than pasted verbatim: a literal MSG_OK_
+# token in a comment is scored as a live reference by
+# tests/test_no_undefined_msg_refs_in_install_sh.sh, and a placeholder one
+# reads as an undefined key. That gate scores comments as code -- #808's
+# family -- but the cheap correct move is to not put a phantom key here.)
 # TWO independent reasons, both measured, and the shape survives neither:
 #
 #   1. `|| true` terminates the chain, so the `ok` is UNCONDITIONAL.
@@ -943,17 +947,8 @@ err()   { gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log
 #
 # Guarded by tests/test_launchagent_success_requires_verification.sh,
 # which fails the build if any new site announces success without it.
-# $2 is the bootout policy: "bootout" (default) or "no-bootout". Exactly one
-# caller passes no-bootout -- the ical-server at ~L16895, whose comment claims
-# a bootout can kick a customer back to the login screen. That hazard is real
-# for the DOMAIN form (`launchctl bootout gui/<uid>`, no label), which tears
-# down the whole GUI session; it is not the LABEL form used here, which ten
-# sibling sites in this file have shipped for months. The knob exists so that
-# closing #876 does not also change that site's load behaviour on the strength
-# of my reading -- the bootout question is filed separately, not settled here.
 _ostler_launchagent_load_verified() {
     local _plist="$1"
-    local _bootout_policy="${2:-bootout}"
     local _label _domain
     _label="$(basename "$_plist" .plist)"
     _domain="gui/$(id -u)"
@@ -965,9 +960,9 @@ _ostler_launchagent_load_verified() {
     # bootout first: bootstrap onto an already-loaded label errors, and a
     # stale registration would otherwise keep the OLD plist's environment
     # live until the next login. bootout of a non-loaded label is a no-op.
-    if [[ "$_bootout_policy" != "no-bootout" ]]; then
-        launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
-    fi
+    # This is the LABEL form. The DOMAIN form (`bootout gui/<uid>`, no label)
+    # tears down the customer's whole GUI session and must never appear here.
+    launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
 
     # bootstrap on Sequoia+ (load is deprecated), fall back to load. BOTH
     # are allowed to fail: their exit status is not the evidence, and the
@@ -16904,14 +16899,29 @@ ICALPLISTEOF
         # GUI session can kick them back to the login screen. The
         # bootstrap call is idempotent enough for the first-install
         # path; re-install relies on the uninstaller bootout below.
-        # 🔴 #876. This block used to print the WARN and then the OK, in that
-        # order, on the same failure: the `|| warn` terminated the chain
-        # successfully, so the unconditional `ok` on the next line fired too.
-        # A customer whose ical-server did not load was told it failed and
-        # then told it was installed, one line apart. Ask launchd instead.
-        # no-bootout preserves this site's documented behaviour verbatim --
-        # see the note on _ostler_launchagent_load_verified.
-        if _ostler_launchagent_load_verified "$ICAL_PLIST" no-bootout; then
+        # 🔴 #876. This block used to read
+        #     launchctl bootstrap … || launchctl load … || warn "…FAILED"
+        #     ok "…INSTALLED"
+        # and on a failure it printed BOTH, one line apart: the `|| warn`
+        # terminated the chain successfully, so the unconditional `ok` on the
+        # next line fired too. A customer whose ical-server did not load was
+        # told it failed and then told it was installed.
+        #
+        # This site does NOT go through _ostler_launchagent_load_verified,
+        # deliberately, and for two reasons worth writing down:
+        #   1. The comment above says not to bootout here. That hazard is
+        #      real for the DOMAIN form (`bootout gui/<uid>`, no label) rather
+        #      than the LABEL form, but closing #876 is not the place to
+        #      overrule a documented decision on the customer's login session.
+        #   2. vendor/cm041/assistant_api/test_vendor_import.sh pins this exact
+        #      bootstrap line by text. Routing it through the helper turned that
+        #      gate RED while the behaviour was strictly better -- red-while-
+        #      fixed, the twin of green-while-blind. Keeping the literal keeps
+        #      the vendored gate honest without a divergence patch.
+        # The evidence question is the same one the helper asks, asked inline.
+        launchctl bootstrap "gui/$(id -u)" "$ICAL_PLIST" 2>/dev/null || \
+            launchctl load "$ICAL_PLIST" 2>/dev/null || true
+        if launchctl print "gui/$(id -u)/com.ostler.ical-server" >/dev/null 2>&1; then
             ok "$MSG_OK_ICAL_SERVER_INSTALLED"
         else
             warn "$MSG_WARN_ICAL_SERVER_FAILED"

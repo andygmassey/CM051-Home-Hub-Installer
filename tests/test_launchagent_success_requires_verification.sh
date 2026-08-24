@@ -167,15 +167,20 @@ fi
 if ! grep -q "^${HELPER}() {" "$INSTALL_SH"; then
     bad "${HELPER} is not defined in install.sh"
 else
+    # HERESTRINGS, NOT PIPES. `printf | grep -q` under `set -o pipefail`
+    # inverts its own verdict: grep -q exits the moment it matches, printf
+    # gets SIGPIPE, and pipefail reports the pipeline as FAILED on a needle
+    # that IS present. Guarded estate-wide by the pipefail-short-circuit
+    # ratchet, which caught this file on its first CI run.
     _body="$(awk "/^${HELPER}\\(\\) \\{/,/^\\}/" "$INSTALL_SH")"
-    if printf '%s' "$_body" | grep -q 'launchctl print'; then
+    if grep -q 'launchctl print' <<< "$_body"; then
         pass "${HELPER} asks launchd via launchctl print"
     else
         bad "${HELPER} does not call launchctl print -- its verdict is not evidence"
     fi
     # The print must be the LAST command, i.e. the function's return value.
-    _last="$(printf '%s\n' "$_body" | grep -v '^\s*#' | grep -v '^\s*$' | tail -2 | head -1)"
-    if printf '%s' "$_last" | grep -q 'launchctl print'; then
+    _last="$(grep -v '^\s*#' <<< "$_body" | grep -v '^\s*$' | tail -2 | head -1)"
+    if grep -q 'launchctl print' <<< "$_last"; then
         pass "${HELPER} RETURNS the launchctl print verdict (it is the last command)"
     else
         bad "${HELPER}'s last command is not launchctl print, so its return value is something else: ${_last}"
