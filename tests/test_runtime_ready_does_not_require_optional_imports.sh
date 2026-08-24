@@ -168,6 +168,52 @@ else
     echo "PASS=$PASS FAIL=$FAIL"; exit 1
 fi
 
+# ── 3b. 🔴 AND THE ARM THAT DEFEATED CASE 3 ───────────────────────────────
+# Case 3 plants an absent unguarded dependency. This plants the SAME one and
+# adds a single empty file elsewhere in the package with the same basename.
+#
+# Against the first version of layer two -- one flat set of every .py basename
+# anywhere under the package, subtracted globally -- that one file moved the
+# verdict from "third_party=1 missing=1 rc=1, named" to "third_party=0
+# missing=0 rc=0", with the dependency still genuinely absent. Case 3 stayed
+# green throughout, because case 3 never plants a collision.
+#
+# A per-name exclusion list is precisely what layer one was written to avoid,
+# and layer two had quietly reintroduced it one layer down.
+P3B="$WORK/case3b"; mkdir -p "$P3B"; PKG3B="$(make_pkg "$P3B")"
+cat > "$PKG3B/needs_absent_third_party.py" <<'EOF'
+import ostler_definitely_not_installed_xyzzy
+EOF
+mkdir -p "$PKG3B/vendored"
+: > "$PKG3B/vendored/__init__.py"
+# The whole attack: one empty file, in a DIFFERENT directory from the importer.
+: > "$PKG3B/vendored/ostler_definitely_not_installed_xyzzy.py"
+OUT3B="$(run_guard "$PKG3B")"; RC3B=$?
+if [[ "$RC3B" -eq 1 ]] && grep -q 'MISSING ostler_definitely_not_installed_xyzzy' <<<"$OUT3B"; then
+    ok "a same-named file in ANOTHER directory does not excuse an absent dependency"
+else
+    bad "a colliding filename silenced a genuinely absent dependency (rc=${RC3B})" \
+        "layer two is subtracting by NAME again -- scope it to the importer's own directory"
+    echo "PASS=$PASS FAIL=$FAIL"; exit 1
+fi
+
+# ── 3c. CONTROL FOR 3b: the SAME-directory sibling must still be excused ───
+# Without this, 3b could be satisfied by deleting layer two altogether, which
+# would put the v1.0.43 install abort straight back.
+P3C="$WORK/case3c"; mkdir -p "$P3C"; PKG3C="$(make_pkg "$P3C")"
+cat > "$PKG3C/uses_sibling.py" <<'EOF'
+import ostler_sibling_module_xyzzy
+EOF
+: > "$PKG3C/ostler_sibling_module_xyzzy.py"
+OUT3C="$(run_guard "$PKG3C")"; RC3C=$?
+if [[ "$RC3C" -eq 0 ]]; then
+    ok "CONTROL: a bare sibling NEXT TO its importer is still intra-package (rc=0)"
+else
+    bad "the same-directory sibling is being required again (rc=${RC3C})" \
+        "this is the v1.0.43 abort -- layer two has been scoped too tightly: ${OUT3C}"
+    echo "PASS=$PASS FAIL=$FAIL"; exit 1
+fi
+
 # ── 4. ANTI-VACUITY FLOOR STILL INTACT ────────────────────────────────────
 P4="$WORK/case4/ostler_fda"; mkdir -p "$P4"
 OUT4="$(run_guard "$P4")"; RC4=$?

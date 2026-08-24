@@ -2215,15 +2215,37 @@ def _guarded_import_nodes(tree):
 # The package's OWN modules are not third-party either. Second layer on
 # purpose: layer one only covers imports someone remembered to guard. An
 # UNGUARDED bare sibling import would sail through it.
-own = set()
+#
+# SCOPED PER DIRECTORY, NOT PER NAME, AND THAT DISTINCTION IS THE WHOLE POINT.
+# The first version of this layer built ONE flat set of every .py basename
+# anywhere under the package and subtracted it globally -- which is exactly the
+# per-name exclusion list layer one was deliberately written to avoid. Demonstrated
+# against the merged guard 2026-08-24: adding ONE empty file
+# ostler_fda/vendor/zzz_not_installed.py to a package that carries an unguarded
+# `import zzz_not_installed` moved the verdict from
+#
+#     scanned=3 third_party=1 missing=1  MISSING zzz_not_installed   rc=1
+# to
+#     scanned=4 third_party=0 missing=0                              rc=0
+#
+# with the dependency still genuinely absent (find_spec -> None) and the two
+# trees differing by that one empty file. A loud false positive replaced by a
+# silent false negative, which is the trade the case-3 control exists to refuse.
+#
+# A bare `import X` is the script-mode sibling pattern only when X sits NEXT TO
+# the importing file. A file buried in a vendored subtree says nothing about
+# whether a top-level dependency of the same name is installed.
+siblings = {}
 for root, dirs, files in os.walk(pkg):
+    here = set()
     for fn in files:
         if fn.endswith(".py") and fn != "__init__.py":
-            own.add(fn[:-3])
+            here.add(fn[:-3])
     for d in dirs:
         if os.path.exists(os.path.join(root, d, "__init__.py")):
-            own.add(d)
-own.add(os.path.basename(pkg.rstrip(os.sep)))
+            here.add(d)
+    siblings[root] = here
+pkg_name = os.path.basename(pkg.rstrip(os.sep))
 
 wanted = set()
 scanned = 0
@@ -2243,12 +2265,18 @@ for root, _dirs, files in os.walk(pkg):
                 continue      # inside an ImportError handler -- not required
             if isinstance(node, ast.Import):
                 for a in node.names:
-                    wanted.add(a.name.split(".")[0])
+                    top = a.name.split(".")[0]
+                    if top == pkg_name or top in siblings.get(root, ()):
+                        continue      # sibling of THIS file -- intra-package
+                    wanted.add(top)
             elif isinstance(node, ast.ImportFrom):
                 if node.level:            # relative import -- intra-package
                     continue
                 if node.module:
-                    wanted.add(node.module.split(".")[0])
+                    top = node.module.split(".")[0]
+                    if top == pkg_name or top in siblings.get(root, ()):
+                        continue      # sibling of THIS file -- intra-package
+                    wanted.add(top)
 
 # ANTI-VACUITY. A walk that found no files would derive an empty set and
 # report a perfectly ready runtime. That is the #851 shape: "nothing found"
@@ -2258,7 +2286,6 @@ if scanned == 0:
     sys.exit(2)
 
 wanted -= set(stdlib)
-wanted -= own                 # package + its own submodules; checked by import below
 wanted = {m for m in wanted if m and not m.startswith("_")}
 
 missing = sorted(m for m in wanted if importlib.util.find_spec(m) is None)
