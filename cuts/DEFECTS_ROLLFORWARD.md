@@ -92,6 +92,7 @@ walk_horizon: v1.0.41
 |---|---|---|---|---|
 | v1.0.41 |  | not_walked | Andy | none |
 | v1.0.42 |  | not_walked | Andy (relayed 2026-08-23, see below) | v1042-D001 v1042-D002 v1042-D003 v1042-D004 |
+| v1.0.43 | 2026-08-24 | deferred | TNM (2026-08-24, under Andy's standing instruction to drive to the cut) | v1043-D001 v1043-D002 v1043-D003 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -3057,6 +3058,128 @@ make the workflow TRIGGER; the run step above is what makes it CHECK. Both are
 needed." The dead-wiki gate is PARTIALLY covered, because `vendor/**` catches
 the change it most needs to catch. **The engine-liveness gate is covered by
 nothing**, and passes today only because its PR happens to touch `install.sh`.
+
+### 🔴 v1.0.43 WAS WALKED, ON HARDWARE, AND IT COULD NOT INSTALL
+
+Andy walked the published v1.0.43 DMG on the Mac mini on 2026-08-24. It aborted
+at **19%**, step `fda_extract`, `ERR-99-INSTALL-ABORT-L2151 -> L1722`.
+Deterministic: twice, same point, same error.
+
+**The artefact was perfect and it did not matter.** 58,075,821 bytes; SHA256
+`b753f152...39a0` matching the published SHA256SUMS; `spctl` Notarized Developer
+ID (V95N2B8X7A); staple valid; `CFBundleShortVersionString 1.0.43` /
+`CFBundleVersion 4300`. Every gate green, every signature good, dead installer.
+Nothing between "gates green" and a human double-clicking would have caught it,
+which is board #844 stated as an event rather than a risk.
+
+**Why the status is `deferred` and not `closed`.** There is no
+`walks/v1.0.43.tsv`: the install aborted long before `post_walk_qa.sh` could be
+driven, so the walker left no artefact. This table's own rule refuses `closed`
+with no record, and it is right to -- a walk claimed closed with nothing written
+is the silence the mechanism exists to refuse. `not_walked` would be a plain
+falsehood: it WAS walked, by a human, on hardware. `deferred` over a named
+approver is the only honest status available, and D001/D002 below are deferred
+because they are FIXED and ride v1.0.44, not because they were waved through.
+
+**What the walk banked, and it is not nothing.** The stdout-buffer fix (#993)
+was proven on hardware for the first time: peak installer RSS **0.14 GB**,
+flat, against v1.0.38's 4.27 GB, with swap never moving off 2160 MB. That is
+v1042-D002 demonstrated on a real box rather than in a driven harness.
+
+### v1043-D001 -- a guarded ImportError fallback was counted as a hard dependency
+
+`_ostler_verify_runtime_ready` derives the runtime's dependency set by walking
+the AST of every file in the shipped `ostler_fda` package. Several files carry
+the script-mode fallback pattern:
+
+    try:
+        from .role_addresses import is_role_identifier
+    except ImportError:      # running as a plain script (repair on the box)
+        from role_addresses import is_role_identifier   # type: ignore
+
+`node.level` already skipped the relative arm. **Nothing skipped the fallback**,
+and `ast.walk()` does not care about control flow, so a branch that never
+executes when the relative import succeeds was collected as a hard requirement.
+`importlib.util.find_spec("role_addresses")` returns None from the venv, because
+a bare sibling only resolves with the package directory on `sys.path`. Four
+optional-by-construction imports -> `missing=4` -> `return 1` -> abort at 19%.
+
+Measured on the walk box before the fix:
+
+    scanned=30 third_party=7 missing=4
+    MISSING given_name_variants / pwg_ingest / relationship_labels / role_addresses
+
+All four are files INSIDE the package, and `import ostler_fda.identifier_quality`
+succeeded throughout. **Nothing was missing. The check was wrong.**
+
+**This check is NEW since v1.0.38** -- `git grep -c` scores 0 at v1.0.38 and 4 at
+v1.0.42/43. So **v1.0.42 would have failed identically**, and nobody found out
+because v1.0.42 was never installed on any machine. The defect had two cuts to
+be discovered in and was discovered in neither.
+
+FIXED: CM051 #1013, squashed to main `d39bca0a`. Two layers -- skip imports
+inside an `ImportError` handler (per-NODE, so a module guarded in one file and
+hard-imported in another stays required), and subtract the package's own module
+names. Proven on the specimen that failed, not on a fixture: same interpreter,
+same package, on the walk box, the OLD guard returns rc=1 missing=4 and the NEW
+one rc=0 missing=0, with `scanned=30` on BOTH arms -- so the fix narrowed the
+classification, not the scan. The six dropped names were enumerated rather than
+trusted; the only external one, `ostler_security`, soft-degrades by construction
+and its hard gate lives at the CM046 LaunchAgent's boot. Masking risk measured
+at zero: no derived own-name shadows an installed distribution.
+
+Guarded by `tests/test_runtime_ready_does_not_require_optional_imports.sh`,
+which carries a demonstrated red (pre-fix 5/2, reproducing `MISSING
+role_addresses`; post-fix 7/0) and a discriminating arm that plants an absent
+UNGUARDED dependency and requires rc=1 -- green in BOTH columns, so the fix did
+not buy green by going blind.
+
+### v1043-D002 -- the walk record recorded the version it was told
+
+`scripts/post_walk_qa.sh` took `CUT_VERSION` from `argv` and wrote it verbatim
+into `walks/<version>.tsv`. That file gates the customer download. The result is
+already on disk and already wrong: `walks/v1.0.42.tsv` files four real,
+correctly-measured defects against a version that has never been installed on
+any machine.
+
+Surfaced by this walk rather than caused by it, and it belongs to v1.0.43
+because this is the walk that made it consequential: with the install dead,
+the only thing that could have spoken about v1.0.43 was a record, and the record
+could not have been trusted to name its own subject.
+
+FIXED: CM051 #1014, squashed to main `cd666901`. The version is now MEASURED --
+`CFBundleShortVersionString` read from `/Applications/OstlerInstaller.app` on
+the box -- with four arms (no app -> `asserted-unverifiable`; no argument ->
+derive; match; mismatch -> print both and `exit 3`) and a `version_source` field
+recording how it knew.
+
+**Near-miss worth recording, caught only by driving it at the live box:** the
+first draft read `/Applications/Ostler.app`, which is the hub app at 0.7.1, and
+would have REFUSED every legitimate walk record while looking rigorous. Three
+version surfaces exist on a walked box -- `OstlerInstaller.app` (the cut),
+`Ostler.app` (0.7.1, the hub app) and `~/.ostler/VERSION` (`hub-v0.4.61`, the
+daemon, stale) -- and only the first is the thing being walked.
+
+### v1043-D003 -- COVERAGE LOST: the abort meant most of the install was never exercised
+
+CARRIED FORWARD, NOT FIXED. This one has no PR and must not be allowed to look
+like it does.
+
+Dying at 19% means everything after `fda_extract` went unmeasured on hardware:
+the container-engine precondition, the wiki image pull, and -- the one that
+matters for this register -- **#995's periodic engine liveness and recovery
+path, which v1042-D004 exists to close**. `engine-supervisor.log` exists on the
+box and is **0 bytes**.
+
+So v1042-D004's demonstration limb is still open. ORM's adjudication on it
+stands: "a one-shot at startup is not a recovery mechanism, it is an
+initialisation step wearing one", and it clears only when #995 lands AND is
+demonstrated on a live box. #995 has landed. It has still never run.
+
+CLOSING CONDITION: a v1.0.44 walk that reaches past `fda_extract`, plus a
+non-empty `engine-supervisor.log` and a demonstrated engine restart on the box.
+Anything less leaves this row open, and a v1.0.44 walk that aborts for a
+different reason does NOT close it.
 
 ## Gates deferred pending fix design
 

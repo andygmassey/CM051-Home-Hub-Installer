@@ -1,0 +1,114 @@
+# cut-manifests/v1.0.44.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.44.
+#
+# WHY v1.0.44 EXISTS: v1.0.43 COULD NOT INSTALL. ANY OF IT.
+# ---------------------------------------------------------------------------
+# Andy walked the published v1.0.43 DMG on hardware 2026-08-24. Every attempt
+# aborted at 19%, step fda_extract, ERR-99-INSTALL-ABORT-L2151 -> L1722, on an
+# artefact that verified clean for signature, staple, hash and embedded
+# version. Green gates, dead installer. See cuts/DEFECTS_ROLLFORWARD.md WALKS
+# row v1.0.43 and findings v1043-D001..D003.
+#
+# THE DEFECT: _ostler_verify_runtime_ready derives the runtime dependency set
+# by walking the AST of the shipped ostler_fda package. ast.walk() ignores
+# control flow, so the fallback arm of
+#
+#     try:     from .role_addresses import is_role_identifier
+#     except ImportError:  from role_addresses import is_role_identifier
+#
+# was collected as a HARD requirement. find_spec() cannot see a bare sibling
+# from the venv -> missing=4 -> return 1 -> abort. All four names were files
+# INSIDE the package. Nothing was missing.
+#
+# TWO PRs, AND THE SECOND IS NOT OPTIONAL:
+#   #1013  skip imports inside an ImportError handler, per NODE.
+#   #1015  scope the sibling rule per DIRECTORY, not per NAME.
+#
+# #1015 exists because #1013's second layer built one flat set of every .py
+# basename anywhere under the package and subtracted it globally -- the exact
+# per-name exclusion list layer one was written to avoid. Reproduced on the
+# walk box 2026-08-24 against both guards, same interpreter, trees differing by
+# ONE EMPTY FILE ostler_fda/vendor/zzz_not_installed_xyzzy.py:
+#
+#     control  #1013 rc=1 missing=1   #1015 rc=1 missing=1
+#     attack   #1013 rc=0 missing=0   #1015 rc=1 missing=1
+#
+# #1013 alone would have replaced a loud false positive with a SILENT FALSE
+# NEGATIVE, which is strictly the worse of the two. It is not enough to ship
+# the fix that unblocks the install; the cut must carry the one that stops the
+# unblocking from going blind.
+#
+# ⚠️ NOT ASSERTED HERE, DELIBERATELY: CM051 #1014 (the walk record measures its
+# version instead of accepting it). It is real, it is merged, and it is in the
+# BOM -- but scripts/post_walk_qa.sh is a repo script and is NOT bundled into
+# the DMG, so an artefact proof for it would be asserting something the
+# artefact cannot contain. It is verified by the walk, not by the cut.
+#
+# ⚠️ NOT CLOSED BY THIS CUT: v1043-D003. Dying at 19% meant the container-engine
+# precondition, the image pull and #995's recovery were never exercised on
+# hardware; engine-supervisor.log on the box is 0 bytes. That closes on a
+# v1.0.44 WALK, not on this manifest.
+# ============================================================================
+version: v1.0.44
+entries:
+  - id: v1044-guarded-imports-are-not-requirements
+    title: the shipped install.sh excludes imports inside an ImportError handler
+    incident: >-
+      This is the v1.0.43 install blocker. Asserted on the helper that
+      implements the exclusion, which exists only in the fixed form -- v1.0.43's
+      installer has no such function, so the predicate tells the two artefacts
+      apart rather than merely being satisfiable.
+    proof:
+      kind: grep_in_installer
+      pattern: '_guarded_import_nodes'
+      must_match: true
+  - id: v1044-the-sibling-rule-is-scoped-per-directory
+    title: the shipped install.sh subtracts siblings by DIRECTORY, not by name
+    incident: >-
+      #1013's second layer subtracted a flat set of every .py basename anywhere
+      under the package. One empty file in a vendored subtree then excused a
+      genuinely absent top-level dependency -- measured rc=1 -> rc=0 on the walk
+      box with the dependency still absent. The scoped form consults the
+      importing file's OWN directory, so a file buried in a subtree says nothing
+      about a top-level dependency of the same name.
+    proof:
+      kind: grep_in_installer
+      pattern: 'siblings\.get\(root, \(\)\)'
+      must_match: true
+  - id: v1044-the-per-name-exclusion-list-is-gone
+    title: the defeated global name-subtraction is not in the shipped installer
+    incident: >-
+      NEGATIVE LIMB, and its scope is stated rather than implied. `wanted -= own`
+      was never in any published cut -- it existed on main only between d39bca0a
+      and 2fb63f73. So this does NOT discriminate v1.0.43 from v1.0.44; it is a
+      ratchet that stops the per-name form being reintroduced by a later edit,
+      which is the shape that made case 3 of the #1013 test go green while the
+      guard went blind.
+    proof:
+      kind: grep_in_installer
+      pattern: 'wanted -= own'
+      must_match: false
+  - id: v1044-installer-version-is-1044
+    title: the Installer says which installer it is
+    incident: >-
+      v1.0.39 shipped a DMG whose plist read 1.0.38, and the first v1.0.43 tag
+      was refused for the same defect with plist 1.0.42. The gate works; it is
+      cheaper to assert the version than to re-tag.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: '1.0.44'
+  - id: v1044-installer-build-number-is-4400
+    title: short version and build number have not drifted apart
+    incident: >-
+      A build number that lags the short version is how two different DMGs claim
+      to be the same install.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleVersion
+      value: '4400'
