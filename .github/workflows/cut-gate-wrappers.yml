@@ -36,6 +36,15 @@ on:
       - 'gui/scripts/sign-python-bundle.sh'
       - 'tests/test_sign_python_bundle_reports_why.sh'
       - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
+      # The marker arms are three-state (0 found / 1 not found / 2 could not
+      # look). The test is watched as well as run: a run: without a matching
+      # path entry is a gate you have read, not a gate you have run.
+      - 'tests/test_marker_grep_is_three_state.sh'
+      # The manifest itself is a trigger. It was not one before, so a PR could
+      # add a row, or edit a #84 LOCK pattern, and no marker test would run on
+      # it: the defect surface and the instrument have to share a trigger.
+      - 'scripts/cut_markers.manifest'
+      - 'tests/test_every_marker_pattern_compiles.sh'
       - 'tests/test_no_gate_execs_a_pinned_image.sh'
       - 'scripts/lib_image_extract.sh'
       - 'scripts/provenance_gate.sh'
@@ -160,6 +169,21 @@ jobs:
       - name: provenance gate -- cannot-run is never reported as stale
         if: always()
         run: bash tests/test_provenance_gate_cannot_run_is_not_stale.sh
+
+      # A marker pattern that cannot RUN must never report the component absent.
+      # The wiki_image_absent rows are the #84 LOCK rows; rc=2 used to print green.
+      - name: A marker pattern that cannot run is CANNOT-RUN, not 'absent'
+        if: always()
+        run: /bin/bash tests/test_marker_grep_is_three_state.sh
+
+      # Now that the arms run -E, a pattern that does not COMPILE reports
+      # CANNOT-RUN, which is safe and silent: the row has stopped measuring and
+      # nothing says so. -E also makes alternation natural to write, and this
+      # pipe-delimited manifest cannot carry it -- `foo|bar` parses as pattern
+      # `foo`. Both limbs print their denominator and carry a must-fail control.
+      - name: every marker pattern compiles, and none is a truncated alternation
+        if: always()
+        run: /bin/bash tests/test_every_marker_pattern_compiles.sh
 
       # REPO-WIDE, and static, so it runs anywhere and needs no docker.
       # Two tags burned because the same exec-a-pinned-image bug lived in more

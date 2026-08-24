@@ -119,8 +119,10 @@ test_err_trap_emits_done_fail.sh	UNWIRED	-
 test_every_default_source_is_requested.sh	WIRED	.github/workflows/default-sources-requested.yml
 test_every_fail_call_has_error_code.sh	UNWIRED	-
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_every_marker_pattern_compiles.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_expired_deferral_ratchet.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
-test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchagent-success-verification.yml
+test_expiry_needs_a_cut_version.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
+test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_fallback_pin_moves_with_the_version.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_fda_assist_ordering.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_fda_deps_are_installed_not_just_copied.sh	WIRED	.github/workflows/fda-deps-installed.yml
@@ -179,6 +181,7 @@ test_mail_content_probe.sh	UNWIRED	-
 test_mail_onboarding_259_260.sh	UNWIRED	-
 test_mailbox_ingest_leg_wired.sh	UNWIRED	-
 test_makefile_app_path_default.sh	WIRED	.github/workflows/hub-app-fetch.yml
+test_marker_grep_is_three_state.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_marker_payloads_never_reach_install_log.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_meeting_brief_sender.sh	UNWIRED	-
 test_memory_embeddings_wired.sh	WIRED	.github/workflows/memory-embeddings.yml

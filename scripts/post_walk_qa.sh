@@ -282,10 +282,21 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf '# The box is recorded as a hash: this repo is public.\n'
         printf '# version_source says how the version was obtained. Anything other than\n'
         printf '# measured(...) means the version is an assertion, not an observation.\n'
+        printf '#\n'
+        printf '# counts_scope says WHICH population pass/fail/cannot_run/broken describe.\n'
+        printf '# They are phase 1 ONLY -- parsed from run_box_walk.sh. Phase 2 (the cut\n'
+        printf '# manifest runtime proofs) contributes to verdict and qa_exit but emits no\n'
+        printf '# counts, so it is deliberately absent from these four numbers.\n'
+        printf '# READ verdict AND qa_exit FOR THE WHOLE-SUITE RESULT. The four counts are\n'
+        printf '# a subset and summing them will not reconcile against the console tally --\n'
+        printf '# 2026-08-24 that mismatch (13 here vs 33 on console) was carried for hours\n'
+        printf '# as an unexplained discrepancy in a v1.0.44 verdict that was correct all\n'
+        printf '# along, because these keys were unqualified.\n'
         printf 'version\t%s\n'        "$RECORDED_VERSION"
         printf 'version_source\t%s\n' "$VERSION_SOURCE"
         printf 'walked_at\t%s\n'   "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'box_fp\t%s\n'      "$BOX_FP"
+        printf 'counts_scope\tbox_walk_probes_only(phase1); verdict+qa_exit cover all phases\n'
         printf 'pass\t%s\n'        "${n_pass:-0}"
         printf 'fail\t%s\n'        "${n_fail:-0}"
         printf 'cannot_run\t%s\n'  "${n_cannot:-0}"
