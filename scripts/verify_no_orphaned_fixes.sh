@@ -78,11 +78,49 @@ esac
 
 # The refs whose until_cut has already passed, this run. Compared against a
 # committed baseline at the end so the debt can shrink and cannot grow.
-EXPIRED_BASELINE="${REPO_ROOT}/tests/expired_deferrals_baseline.txt"
-EXPIRED_REFS="$(mktemp -t ostler-expired-refs)"
+#
+# OVERRIDABLE so a SELF-TEST can point the ratchet at its own scratch file.
+# Without this the self-test's synthetic fixture -- `CM044:fix/later`, written
+# `until_cut: v1.0.17` -- is expired against any real cut version, lands in the
+# expired set, is absent from the PRODUCTION baseline, and fires the ratchet.
+# That is not a hypothesis: it is what stopped the v1.0.44 cut at step 7 on
+# 2026-08-24, after `Build, sign, notarise, staple` had been skipped.
+# A gate whose self-test writes into the artefact the gate is judging is an
+# instrument measuring itself.
+EXPIRED_BASELINE="${OSTLER_EXPIRED_BASELINE:-${REPO_ROOT}/tests/expired_deferrals_baseline.txt}"
+
+# 🔴 `mktemp -t <template>` WITHOUT X's IS BSD-ONLY. GNU refuses it outright:
+# "mktemp: too few X's in template". This gate ran `mktemp -t ostler-expired-refs`,
+# so on every GNU host -- which is ubuntu-latest, where preflight runs on every
+# PR -- the command failed, EXPIRED_REFS was EMPTY, and the ratchet compared an
+# empty set against a 430-ref baseline and said nothing.
+#
+# MEASURED 2026-08-24, stubbing exactly that failure into PATH and changing
+# nothing else, same shell, same GITHUB_REF_NAME=v1.0.44:
+#
+#     real mktemp        4 passed, 1 failed   <- ratchet FIRES
+#     mktemp -t fails    5 passed, 0 failed   <- ratchet SILENT
+#
+# So the expiry half of the gate has never measured anything on the surface it
+# runs on most, and fired only on the macOS cut job. Green on one surface, red
+# on the other, identical input.
+#
+# Portable form, and a HARD CANNOT-RUN if the file cannot be made: an expired
+# set that could not be written must never be read as "nothing expired".
+_orphan_gate_tmpfile() {   # _orphan_gate_tmpfile <name> -> prints path, rc 1 on failure
+    mktemp "${TMPDIR:-/tmp}/$1.XXXXXX" 2>/dev/null
+}
+EXPIRED_REFS="$(_orphan_gate_tmpfile ostler-expired-refs)" || {
+    printf 'CANNOT-RUN: could not create the expired-refs scratch file under %s.\n' "${TMPDIR:-/tmp}" >&2
+    printf '  The expiry ratchet has NOT run. That is not a pass -- it is a gate that could not look.\n' >&2
+    exit 2
+}
 # Every ref is_deferred() is asked about, so the end of this run can subtract
 # them from what the file DECLARES and name the deferrals that did nothing.
-CONSULTED_REFS="$(mktemp -t ostler-consulted-refs)"
+CONSULTED_REFS="$(_orphan_gate_tmpfile ostler-consulted-refs)" || {
+    printf 'CANNOT-RUN: could not create the consulted-refs scratch file under %s.\n' "${TMPDIR:-/tmp}" >&2
+    exit 2
+}
 trap 'rm -f "$CONSULTED_REFS" "$EXPIRED_REFS"' EXIT
 
 red=0

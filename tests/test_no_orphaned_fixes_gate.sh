@@ -48,7 +48,26 @@ run_gate() {  # $1 = checkout, $2 = deferrals file ("" for none)
     # (The first draft did not do this and hung for 10 minutes doing live
     # `git fetch` + `gh pr list` against every real repo. A test that needs
     # the network is a test nobody runs.)
+    # 🔴 AND THE EXPIRY BASELINE IS ISOLATED, PER CALL.
+    #
+    # Every fixture here declares `until_cut: v1.0.17`. The gate derives the
+    # version being cut from GITHUB_REF_NAME, which on a tag push IS THE TAG --
+    # so from v1.0.18 onward these synthetic deferrals are EXPIRED, land in the
+    # expired set, are absent from the PRODUCTION baseline, and fire the ratchet.
+    #
+    # That is not theory. It stopped the v1.0.44 cut dead at step 7 on
+    # 2026-08-24, after which `Build, sign, notarise, staple` was SKIPPED and no
+    # DMG existed. Measured on origin/main 98c46018:
+    #
+    #     GITHUB_REF_NAME unset / v1.0.17   5 passed, 0 failed
+    #     GITHUB_REF_NAME v1.0.43 / v1.0.44 4 passed, 1 failed
+    #
+    # A self-test whose fixtures write into the production ledger it is judging
+    # is an instrument measuring itself. Each call gets its own baseline file.
+    local baseline="${TMP}/baseline.$$.$RANDOM"
+    : > "$baseline"
     OSTLER_CUT_DEFERRALS="${2:-/nonexistent}" \
+    OSTLER_EXPIRED_BASELINE="${3:-$baseline}" \
     OSTLER_ORPHAN_GATE_SKIP_PR=1 \
     OSTLER_ORPHAN_GATE_REPOS="CM044|$1|origin/main|" \
         bash "$GATE" 2>&1
@@ -101,7 +120,14 @@ deferrals:
     reason: "lands in v1.0.17, needs a design pass first"
     until_cut: "v1.0.17"
 YAML
-out="$(run_gate "$R" "$DEF")"; rc=$?
+# The baseline this case is judged against DECLARES this ref already-expired.
+# That is the ratchet's actual contract -- the expired set may SHRINK and may
+# not GROW -- so a debt already on the books must not fire it. Supplying an
+# empty baseline here instead would make the case fail for a reason that has
+# nothing to do with whether a deferral is accepted, which is what it tests.
+DEF_BASE="$TMP/deferral-baseline.txt"
+printf '%s\n' "CM044:fix/later" > "$DEF_BASE"
+out="$(run_gate "$R" "$DEF" "$DEF_BASE")"; rc=$?
 if [[ $rc -eq 0 ]] && printf '%s' "$out" | grep -q "DEFERRED"; then
     ok "recorded deferral passes AND is still printed"
 else
@@ -115,6 +141,86 @@ if [[ $rc -eq 0 ]]; then
     ok "clean repo passes (no false positive)"
 else
     bad "clean repo wrongly went red (rc=$rc)"
+fi
+
+# ---------------------------------------------------------------------------
+# (f) 🔴 THE EXPIRY RATCHET MUST STILL FIRE. This is the arm that stops (d)'s
+#     isolation from turning the ratchet off entirely.
+#
+#     Isolating the baseline in run_gate is what unblocks the cut. Done alone it
+#     would be indistinguishable from deleting the ratchet: every synthetic
+#     deferral would land in an empty per-call baseline and nothing would ever
+#     be "new". So this case supplies an EMPTY baseline and a deferral that IS
+#     expired against the cut being made, and requires RED.
+#
+#     Without this, (d) passing proves only that the gate can be made quiet.
+# ---------------------------------------------------------------------------
+R="$(make_repo ratchet)"
+git -C "$R" checkout -q -b fix/expired-thing && echo e > "$R/e.txt"
+git -C "$R" add -A && git -C "$R" commit -qm "fix: expired deferral"
+git -C "$R" push -q -u origin fix/expired-thing && git -C "$R" checkout -q main
+DEF_EXP="$TMP/deferrals-expired.yaml"
+cat > "$DEF_EXP" <<'YAML'
+deferrals:
+  - ref: "CM044:fix/expired-thing"
+    reason: "said it would land in v1.0.17 and did not"
+    until_cut: "v1.0.17"
+YAML
+EMPTY_BASE="$TMP/empty-baseline.txt"; : > "$EMPTY_BASE"
+out="$(GITHUB_REF_NAME=v1.0.99 run_gate "$R" "$DEF_EXP" "$EMPTY_BASE")"; rc=$?
+if [[ $rc -ne 0 ]]; then
+    ok "CONTROL: a NEWLY-expired deferral absent from the baseline still goes RED (rc=$rc)"
+else
+    bad "CONTROL FAILED: expired deferral did not fire the ratchet -- isolation has silenced it"
+fi
+
+# ---------------------------------------------------------------------------
+# (g) 🔴 AN UNWRITEABLE EXPIRED-SET IS CANNOT-RUN, NEVER A PASS.
+#
+#     The gate created its scratch file with `mktemp -t ostler-expired-refs`.
+#     That form -- a template with no X's -- is BSD-only; GNU refuses it with
+#     "too few X's in template". On every GNU host, which is ubuntu-latest where
+#     preflight runs on EVERY PR, the command failed, EXPIRED_REFS was empty,
+#     and `sort ... || : > "$EXPIRED_REFS.sorted"` swallowed it into an empty
+#     file. The ratchet then compared nothing to a 430-ref baseline and said
+#     nothing.
+#
+#     MEASURED 2026-08-24 by stubbing exactly that failure into PATH and
+#     changing nothing else, same shell, same GITHUB_REF_NAME=v1.0.44:
+#
+#         real mktemp        4 passed, 1 failed   <- ratchet FIRES
+#         mktemp -t fails    5 passed, 0 failed   <- ratchet SILENT
+#
+#     So the expiry half was inert on the surface it runs on most, and fired
+#     only on the macOS cut job. This case pins the distinction the fix makes:
+#     a gate that cannot create its own working file must EXIT 2, not exit 0.
+# ---------------------------------------------------------------------------
+STUBDIR="$TMP/stub-mktemp"; mkdir -p "$STUBDIR"
+cat > "$STUBDIR/mktemp" <<'STUB'
+#!/usr/bin/env bash
+# Refuse ONLY the expired-refs template, the way GNU mktemp refuses a template
+# with no X's while every other call in the script succeeds.
+#
+# 🔴 THE FIRST VERSION OF THIS STUB REFUSED EVERYTHING, AND THAT MADE THIS CASE
+# WORTHLESS. Reverting the EXPIRED_REFS guard still exited 2, because the
+# CONSULTED_REFS guard one line below caught it -- so the case passed while the
+# thing it names was broken. Measured: two mutations that should have killed it
+# both scored 7/0. Narrowing the stub to the one template makes the case pin
+# the one guard it claims to.
+for a in "$@"; do
+    case "$a" in
+        *expired-refs*) echo "mktemp: too few X's in template (test stub)" >&2; exit 1 ;;
+    esac
+done
+exec /usr/bin/mktemp "$@"
+STUB
+chmod +x "$STUBDIR/mktemp"
+R="$(make_repo cannotrun)"
+out="$(PATH="$STUBDIR:$PATH" run_gate "$R")"; rc=$?
+if [[ $rc -eq 2 ]] && printf '%s' "$out" | grep -q "CANNOT-RUN"; then
+    ok "unwriteable expired-set is CANNOT-RUN (exit 2), not a silent pass"
+else
+    bad "an unwriteable expired-set returned rc=$rc -- the ratchet can still go inert and report green"
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
