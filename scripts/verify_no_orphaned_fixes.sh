@@ -310,6 +310,54 @@ deferral_until() {
 CUT_VERSION="${OSTLER_CUT_VERSION:-${GITHUB_REF_NAME:-}}"
 expired_deferrals=0
 
+# 🔴 WITHOUT A CUT VERSION, NOTHING CAN EXPIRE, AND THAT IS NOT THE SAME AS
+# NOTHING HAVING EXPIRED.
+#
+# Every expiry comparison is `until_cut < CUT_VERSION`. With CUT_VERSION empty
+# the numeric extraction yields nothing and no row can ever be expired, so the
+# expired set is EMPTY BY CONSTRUCTION. The block that reports the ratchet then
+# read that empty set as a measurement and printed
+#
+#     expiry ratchet: 0 expired now, 426 baselined, 6 repo(s) checked
+#     426 baselined ref(s) no longer expire. Re-run with
+#     --regenerate-expired-baseline and commit, so they cannot come back:
+#
+# on a run whose header said `6 repo(s) checked, 0 NOT CHECKED`, which is the
+# most authoritative-looking run this script can produce. Taking that advice
+# would have written a baseline containing nothing, deleted all 426 refs, and
+# retired the ratchet completely -- and the existing regeneration guard would
+# not have stopped it, because it only refuses when a repo went UNCHECKED.
+#
+# MEASURED 2026-08-24, driving the comparison in deferred_note directly with six
+# real until_cut values and changing nothing but this variable:
+#
+#     CUT_VERSION=<empty>   expired 0 of 6
+#     CUT_VERSION=v1.0.45   expired 4 of 6
+#
+# v1.0.27, v1.0.34, v1.0.41 and v1.0.20 expire against v1.0.45; v1.0.45 itself
+# and v1.0.50 do not. So the zero is caused by the missing version and by nothing
+# else, and the denominator is stated so the zero can be read.
+#
+# So: not evaluated is a THIRD state, and it is printed as one.
+#
+# A FUNCTION so it can be exercised without the four-minute six-repo scan, the
+# same reason expiry_ratchet_sets is one. See
+# tests/test_expiry_needs_a_cut_version.sh.
+# expiry_is_evaluable <cut-version-string> -> rc 0 evaluable / 1 not.
+# The brace-on-the-same-line, nothing-after-it shape is load-bearing: the test
+# lifts this function out with a sed range anchored on `^expiry_is_evaluable() {$`.
+expiry_is_evaluable() {
+    local _v
+    _v="$(printf '%s' "${1:-}" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    [[ -n "$_v" ]]
+}
+
+if expiry_is_evaluable "${CUT_VERSION:-}"; then
+    EXPIRY_EVALUABLE=1
+else
+    EXPIRY_EVALUABLE=0
+fi
+
 deferred_note() {
     local ref="$1" why="$2" until_v suffix=""
     until_v="$(deferral_until "$ref")"
@@ -839,6 +887,18 @@ expiry_ratchet_sets() {
 sort -u "$EXPIRED_REFS" 2>/dev/null > "${EXPIRED_REFS}.sorted" || : > "${EXPIRED_REFS}.sorted"
 
 if [[ "$REGEN_EXPIRED" -eq 1 ]]; then
+    if [[ "$EXPIRY_EVALUABLE" -eq 0 ]]; then
+        say ""
+        say "REFUSING TO REGENERATE: this run has no cut version, so NOTHING could" >&2
+        say "expire and the expired set is empty BY CONSTRUCTION, not by measurement." >&2
+        say "Writing it as the baseline would delete every ref in it and retire the" >&2
+        say "ratchet, on the run that looks most authoritative because every repo" >&2
+        say "resolved." >&2
+        say "" >&2
+        say "Re-run with the version you are cutting:" >&2
+        say "    OSTLER_CUT_VERSION=v1.0.NN scripts/verify_no_orphaned_fixes.sh --regenerate-expired-baseline" >&2
+        exit 2
+    fi
     if [[ "$unchecked" -gt 0 ]]; then
         say ""
         say "REFUSING TO REGENERATE: ${unchecked} repo(s) were NOT CHECKED in this" >&2
@@ -860,7 +920,14 @@ if [[ "$REGEN_EXPIRED" -eq 1 ]]; then
     say "wrote $(wc -l < "${EXPIRED_REFS}.sorted" | tr -d ' ') expired ref(s) to ${EXPIRED_BASELINE}"
 fi
 
-if [[ -f "$EXPIRED_BASELINE" ]]; then
+if [[ "$EXPIRY_EVALUABLE" -eq 0 ]]; then
+    say ""
+    say "   expiry ratchet: NOT EVALUATED. No cut version was given, so no deferral"
+    say "   can be past its until_cut and the expired set is empty by construction."
+    say "   This run says NOTHING about expiry, in either direction, and in"
+    say "   particular it is not evidence that any baselined ref has stopped"
+    say "   expiring. Set OSTLER_CUT_VERSION=v1.0.NN to evaluate it."
+elif [[ -f "$EXPIRED_BASELINE" ]]; then
     expiry_ratchet_sets "${EXPIRED_REFS}.sorted" "$EXPIRED_BASELINE" \
                         "${EXPIRED_REFS}.new" "${EXPIRED_REFS}.gone"
     new_expired="$(cat "${EXPIRED_REFS}.new")"

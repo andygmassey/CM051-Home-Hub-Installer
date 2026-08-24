@@ -36,6 +36,7 @@ on:
       # Both are watched, because a change to either can retire the ratchet --
       # a doctored baseline is as good as a deleted check.
       - 'tests/test_expired_deferral_ratchet.sh'
+      - 'tests/test_expiry_needs_a_cut_version.sh'
       - 'tests/expired_deferrals_baseline.txt'
       # The gate READS this file, so a change to its shape (a reason moving to
       # a block scalar, say) can silently change what the gate can report.
@@ -95,6 +96,15 @@ jobs:
       - name: The deferral-expiry ratchet compares sets, not counts
         if: always()
         run: /bin/bash tests/test_expired_deferral_ratchet.sh
+
+      # The ratchet compares sets correctly and could still be handed a set that
+      # is empty BY CONSTRUCTION. Without a cut version nothing can expire, and
+      # the gate used to print that as "0 expired now" and then advise
+      # regenerating the baseline, which would have deleted all 426 refs and
+      # retired the ratchet, on the run whose header says every repo resolved.
+      - name: Expiry needs a cut version, and says so instead of counting zero
+        if: always()
+        run: /bin/bash tests/test_expiry_needs_a_cut_version.sh
 
       - name: Gate is still INVOKED by the build
         # The proofs show the gate works. This shows something still calls it.
