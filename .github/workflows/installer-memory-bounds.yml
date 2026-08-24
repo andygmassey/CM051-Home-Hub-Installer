@@ -34,6 +34,9 @@ on:
       - 'gui/OstlerInstaller/InstallerCoordinator.swift'
       - 'tests/test_installer_output_buffer_is_bounded.sh'
       - 'tests/helpers/output_buffer_driver.swift'
+      # v1042-D002 residual: the bound held and the diagnostic was lost anyway.
+      - 'tests/test_installer_output_keeps_the_tail.sh'
+      - 'tests/helpers/output_buffer_tail_driver.swift'
       - '.github/workflows/installer-memory-bounds.yml'
   push:
     branches: [main]
@@ -59,6 +62,15 @@ jobs:
       # exists for.
       - name: The output accumulator is bounded for every input shape
         run: /bin/bash tests/test_installer_output_buffer_is_bounded.sh
+
+      # The other half of the same defect. #993 bounded the accumulator; this
+      # asserts the bytes it KEEPS are the ones that name the failure. Both
+      # arms of the driver are compiled and every check is run against the
+      # pre-fix truncation as well, which must LOSE the error text -- if the
+      # control ever keeps it the run is a cannot-run, not a pass.
+      - name: An over-long or unterminated line keeps its tail
+        if: always()
+        run: /bin/bash tests/test_installer_output_keeps_the_tail.sh
 
       - name: MemoryCeiling compiles standalone
         if: always()

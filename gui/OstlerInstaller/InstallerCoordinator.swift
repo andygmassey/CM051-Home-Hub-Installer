@@ -1956,6 +1956,18 @@ final class InstallerCoordinator: ObservableObject {
         stdoutPipe?.fileHandleForReading.readabilityHandler = nil
         stderrPipe?.fileHandleForReading.readabilityHandler = nil
 
+        // Emit whatever the producer never terminated, BEFORE releasing the
+        // accumulator. A stalled or killed subprocess has by definition not
+        // written its terminator, so its last words are held here and nowhere
+        // else, and reset() alone deleted them unread. Silent on a normal
+        // install: flush() returns nil when nothing is retained.
+        if let tail = stdoutBuffer.flush(), !tail.isEmpty {
+            appendLog(
+                level: "warn",
+                msg: "Subprocess ended mid-line. Last unterminated output: \(tail)"
+            )
+        }
+
         // Release the line accumulator. Pre-fix it was never cleared at all,
         // so whatever it had swallowed stayed resident for as long as the app
         // was open -- which is why the 4.27 GB was still there AFTER a
