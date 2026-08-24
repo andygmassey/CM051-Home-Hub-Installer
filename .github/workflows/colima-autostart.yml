@@ -83,6 +83,10 @@ on:
       - 'tests/test_colima_autostart_mechanism.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/colima-autostart.yml'
+      # Watched because the step below RUNS it. A run: without a
+      # matching path entry means editing this file does not trigger
+      # the only workflow that checks it.
+      - 'tests/test_colima_start_retry.sh'
   push:
     branches: [main]
 

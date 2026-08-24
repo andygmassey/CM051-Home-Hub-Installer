@@ -24,6 +24,11 @@ on:
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_enrichment_reaches_the_corpus.sh'
       - '.github/workflows/enrichment-reaches-corpus.yml'
+      # Watched because the step below RUNS it. A run: without a
+      # matching path entry means editing this file does not trigger
+      # the only workflow that checks it.
+      - 'tests/test_a_truncated_category_is_not_reported_complete.py'
+      - 'tests/test_no_unbounded_enrich_invocation.sh'
   push:
     branches: [main]
 

@@ -26,6 +26,10 @@ on:
       - 'gui/Makefile'
       - 'release.sh'
       - '.github/workflows/cut-freshness.yml'
+      # Watched because the step below RUNS it. A run: without a
+      # matching path entry means editing this file does not trigger
+      # the only workflow that checks it.
+      - 'tests/test_repin_wiki_images_refuses_a_typed_sha.sh'
   push:
     branches: [main]
 

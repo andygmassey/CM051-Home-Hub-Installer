@@ -66,6 +66,12 @@ on:
       - 'tests/test_doctor_proxy_paths_predicate.sh'
       - 'tests/test_ical_server_vendor_wired.sh'
       - '.github/workflows/vendor-integrity.yml'
+      # Watched because the step below RUNS it. A run: without a
+      # matching path entry means editing this file does not trigger
+      # the only workflow that checks it.
+      - 'tests/test_a_dead_wiki_announces_itself.py'
+      - 'tests/test_container_engine_liveness_and_recovery.sh'
+      - 'tests/test_doctor_silent_failure_grafts.py'
   push:
     branches: [main]
 

@@ -35,6 +35,10 @@ on:
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_container_runtime_precondition.sh'
       - '.github/workflows/container-runtime-precondition.yml'
+      # Watched because the step below RUNS it. A run: without a
+      # matching path entry means editing this file does not trigger
+      # the only workflow that checks it.
+      - 'tests/test_no_undefined_msg_refs_in_install_sh.sh'
   push:
     branches: [main]
 

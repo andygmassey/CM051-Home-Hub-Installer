@@ -164,6 +164,7 @@ test_installer_app_bundle_contents.sh	WIRED	.github/workflows/install-gui-contra
 test_installer_output_buffer_is_bounded.sh	WIRED	.github/workflows/installer-memory-bounds.yml
 test_installer_version_consistency.sh	WIRED	.github/workflows/installer-version-consistency.yml
 test_installer_version_matches_the_cut.sh	WIRED	.github/workflows/cut.yml
+test_invoked_tests_are_watched_gate.sh	WIRED	.github/workflows/invoked-tests-are-watched.yml
 test_knowledge_repo_wiring.sh	UNWIRED	-
 test_laptop_hub_power_copy_fires_on_laptops_only.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_launchagent_bootstrap_after_staging.py	WIRED	.github/workflows/launchd-plist-paths.yml
