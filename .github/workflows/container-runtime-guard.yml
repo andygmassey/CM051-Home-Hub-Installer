@@ -65,7 +65,13 @@ on:
       - 'install.sh'
       - 'tests/test_container_runtime_guard_tests_the_engine_not_the_client.sh'
       - 'tests/TEST_WIRING.tsv'
-      - '.github/workflows/installer-stream-and-runtime-guards.yml'
+      # A gate must trigger on changes to ITSELF, or it can be quietly narrowed
+      # in a pull request that never runs it. This entry named
+      # 'installer-stream-and-runtime-guards.yml' until 2026-08-24: this
+      # workflow's own name before a rename, and a file that has not existed
+      # since. It had a self-watch, the self-watch pointed at nothing, and
+      # nothing said so.
+      - '.github/workflows/container-runtime-guard.yml'
   push:
     branches: [main]
 

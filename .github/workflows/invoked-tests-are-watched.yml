@@ -1,6 +1,6 @@
 name: invoked-tests-are-watched
 
-# A test a workflow RUNS must be a path that workflow WATCHES.
+# A workflow must fire on the change that could break it.
 #
 # WHY THIS EXISTS. Measured on origin/main 19bd9a09 on 2026-08-24: of 204
 # script/test files invoked by a pull_request-triggered workflow, TWELVE were
@@ -22,6 +22,20 @@ name: invoked-tests-are-watched
 # entry alone would only make the workflow TRIGGER; the run step above is what
 # makes it CHECK". A rule written three times by hand in one file is a rule
 # waiting to be a gate.
+#
+# THREE AXES, added in two passes.
+#
+#   1. A file a paths-filtered workflow RUNS must be a path it WATCHES.
+#      Twelve violations on 19bd9a09, fixed in #1009.
+#   2. A paths-filtered workflow must watch ITSELF.
+#   3. A paths entry naming .github/workflows/<name> must name a workflow that
+#      EXISTS.
+#
+# Axes 2 and 3 were measured on 2c583597, after axis 1 landed: of 61 filtered
+# workflows TWO did not watch themselves, and container-runtime-guard.yml
+# listed '.github/workflows/installer-stream-and-runtime-guards.yml' -- its own
+# name before a rename, and a file that had not existed since. It HAD a
+# self-watch. The self-watch pointed at nothing. Nothing said so.
 #
 # NO PATHS FILTER, deliberately, and for this workflow the reason is not
 # rhetorical: a workflow that only ran when its own files changed would be an
@@ -55,15 +69,20 @@ jobs:
       - name: Install PyYAML
         run: python3 -m pip install --quiet pyyaml
 
-      # Controls first. Eight of the sixteen assert the gate stays QUIET,
+      # Controls first. Eleven of the twenty-three assert the gate stays QUIET,
       # because a checker that flags the innocent is switched off inside a week
       # and that is the same outcome as never having written it. Five assert
       # CANNOT-RUN rather than a silent pass.
-      - name: The gate fires, stays quiet, and refuses to guess (16 controls)
+      #
+      # Every FIRE fixture is clean on the axes it is not testing. When axis 2
+      # was added, four fixtures started violating two axes at once: the suite
+      # still read 23/0 and two mutants of the gate survived, because rc was 1
+      # for the wrong reason.
+      - name: The gate fires, stays quiet, and refuses to guess (23 controls)
         run: /bin/bash tests/test_invoked_tests_are_watched_gate.sh
 
       # if: always() so a failure above cannot silence this one -- the rule
       # ci-maskless enforces, applied here.
-      - name: No invoked test is dark on self-edit
+      - name: No gate is blind to the change that would break it
         if: always()
         run: python3 scripts/verify_invoked_tests_are_watched.py .

@@ -62,6 +62,10 @@ expect() {
     fi
 }
 
+# Every fixture below is CLEAN on the axes it is not testing. A fixture that
+# violates two axes cannot tell you which one fired, and the gate returns the
+# same rc either way. Measured: when axis 2 was added, controls 1, 2, 3 and 21
+# kept reading PASS while two mutants of the gate survived untouched.
 echo "== the gate must FIRE =="
 
 # (1) The defect itself: the workflow runs the test and does not watch it.
@@ -72,6 +76,7 @@ on:
   pull_request:
     paths:
       - 'install.sh'
+      - '.github/workflows/w.yml'
 jobs:
   j:
     runs-on: ubuntu-latest
@@ -90,6 +95,7 @@ on:
   pull_request:
     paths:
       - 'install.sh'
+      - '.github/workflows/w.yml'
 jobs:
   j:
     runs-on: ubuntu-latest
@@ -106,6 +112,7 @@ on:
   pull_request:
     paths:
       - '*.sh'
+      - '.github/workflows/w.yml'
 jobs:
   j:
     runs-on: ubuntu-latest
@@ -114,6 +121,10 @@ jobs:
 YML
 expect "(3) a single-star glob does not match across a directory" 1 "$d"
 
+# Every fixture below that carries a paths filter also lists its own workflow
+# file. Without that, axis 2 fires on the fixture and the control measures the
+# wrong axis -- which is exactly what happened when axis 2 was added: five of
+# these went red at once, all of them correctly.
 echo "== the gate must stay QUIET =="
 
 # (4) The fix for (1): add the path entry.
@@ -125,6 +136,7 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_subject.sh'
+      - '.github/workflows/w.yml'
 jobs:
   j:
     runs-on: ubuntu-latest
@@ -157,6 +169,7 @@ on:
   pull_request:
     paths:
       - 'install.sh'
+      - '.github/workflows/a.yml'
 jobs:
   j:
     runs-on: ubuntu-latest
@@ -169,6 +182,7 @@ on:
   pull_request:
     paths:
       - 'tests/test_subject.sh'
+      - '.github/workflows/b.yml'
 jobs:
   j:
     runs-on: ubuntu-latest
@@ -185,6 +199,7 @@ on:
   pull_request:
     paths:
       - 'tests/**'
+      - '.github/workflows/w.yml'
 jobs:
   j:
     runs-on: ubuntu-latest
@@ -204,6 +219,7 @@ on:
     paths:
       - 'vendor/**'
       - 'tests/test_subject.sh'
+      - '.github/workflows/w.yml'
 jobs:
   j:
     runs-on: ubuntu-latest
@@ -250,6 +266,7 @@ on:
   pull_request:
     paths:
       - 'tests/test_subject.sh'
+      - '.github/workflows/w.yml'
 jobs:
   j:
     runs-on: ubuntu-latest
@@ -315,6 +332,148 @@ jobs:
       - run: echo nothing to see
 YML
 expect "(15) zero files examined is not zero violations" 2 "$d"
+
+echo "== axis 2: a filtered workflow must watch ITSELF =="
+
+# (17) The defect: a paths filter that does not name its own file.
+d="$(fixture selfblind)"
+cat > "$d/.github/workflows/w.yml" <<'YML'
+name: w
+on:
+  pull_request:
+    paths:
+      - 'tests/test_subject.sh'
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash tests/test_subject.sh
+YML
+expect "(17) a filtered workflow that does not list itself is a violation" 1 "$d"
+
+# (18) The fix for (17).
+d="$(fixture selfwatched)"
+cat > "$d/.github/workflows/w.yml" <<'YML'
+name: w
+on:
+  pull_request:
+    paths:
+      - 'tests/test_subject.sh'
+      - '.github/workflows/w.yml'
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash tests/test_subject.sh
+YML
+expect "(18) listing its own file clears it" 0 "$d"
+
+# (19) A glob covers it too. The rule is "does it FIRE on a change to itself",
+#      not "is its literal name present".
+d="$(fixture selfglob)"
+cat > "$d/.github/workflows/w.yml" <<'YML'
+name: w
+on:
+  pull_request:
+    paths:
+      - 'tests/test_subject.sh'
+      - '.github/workflows/**'
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash tests/test_subject.sh
+YML
+expect "(19) a glob over .github/workflows covers the self-watch" 0 "$d"
+
+# (20) An UNFILTERED workflow fires on everything, so axis 2 does not apply.
+d="$(fixture selfunfiltered)"
+cat > "$d/.github/workflows/w.yml" <<'YML'
+name: w
+on:
+  pull_request:
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash tests/test_subject.sh
+YML
+expect "(20) an unfiltered workflow is not judged on axis 2" 0 "$d"
+
+echo "== axis 3: a named workflow must EXIST =="
+
+# (21) The measured shape: a rename that left the old name in the paths list.
+#      The fixture is deliberately CLEAN on axes 1 and 2 -- the test is watched
+#      and the workflow watches itself -- so the only thing that can make this
+#      rc=1 is the missing workflow. The first version of this control was
+#      self-blind as well, which meant axis 2 fired and the axis-3 mutant
+#      survived: the control read PASS while proving nothing about the check it
+#      was named for.
+#      NOT named "ghost": control (10) already owns that fixture directory, and
+#      two controls writing one directory is a control testing the other's file.
+d="$(fixture renamedaway)"
+cat > "$d/.github/workflows/w.yml" <<'YML'
+name: w
+on:
+  pull_request:
+    paths:
+      - 'tests/test_subject.sh'
+      - '.github/workflows/w.yml'
+      - '.github/workflows/renamed-away.yml'
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash tests/test_subject.sh
+YML
+expect "(21) a paths entry naming a workflow that does not exist is a violation" 1 "$d"
+
+# (22) CONTROL: naming a DIFFERENT workflow that DOES exist is legitimate and
+#      common -- a gate that flags it would be flagging correct cross-watching.
+d="$(fixture cross)"
+cat > "$d/.github/workflows/w.yml" <<'YML'
+name: w
+on:
+  pull_request:
+    paths:
+      - 'tests/test_subject.sh'
+      - '.github/workflows/w.yml'
+      - '.github/workflows/other.yml'
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash tests/test_subject.sh
+YML
+cat > "$d/.github/workflows/other.yml" <<'YML'
+name: other
+on:
+  pull_request:
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash tests/test_other.sh
+YML
+expect "(22) naming another workflow that DOES exist is not a violation" 0 "$d"
+
+# (23) A glob entry under .github/workflows is not resolvable to one file and
+#      must not be read as a ghost.
+d="$(fixture globentry)"
+cat > "$d/.github/workflows/w.yml" <<'YML'
+name: w
+on:
+  pull_request:
+    paths:
+      - 'tests/test_subject.sh'
+      - '.github/workflows/*.yml'
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash tests/test_subject.sh
+YML
+expect "(23) a glob path entry is not mistaken for a missing workflow" 0 "$d"
 
 echo
 echo "== the gate on this repo =="
