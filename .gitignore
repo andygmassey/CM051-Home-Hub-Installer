@@ -131,3 +131,15 @@ vendor/ostler_security/build/
 
 # scratch dir for tests/test_pinned_wiki_image_has_design_system.sh
 .wikicheck.*/
+
+# Scratch files the orphan gate writes when its expired-refs tempfile could not
+# be created. With EXPIRED_REFS empty, "${EXPIRED_REFS}.sorted" resolves to a
+# BARE ".sorted" IN THE CURRENT WORKING DIRECTORY -- so a gate run on a GNU host
+# littered the repo root with .sorted/.new/.new.base/.gone, and one of my own
+# mutation runs committed 852 lines of them by accident. The tempfile is now
+# portable and hard-fails, so these should never appear again; ignored so that
+# if they ever do, they cannot ride into a commit unnoticed.
+.sorted
+.new
+.new.base
+.gone
