@@ -24,6 +24,7 @@ test_ai_conversations_leg_wired.sh	UNWIRED	-
 test_ai_model_env_contract.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_aiconv_hydrate_honesty.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_amazon_extracted_dir_parse.py	UNWIRED	-
+test_an_abort_inside_a_step_is_counted.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_app_binary_agents_bootstrap.sh	UNWIRED	-
 test_appcast_debt_is_collected.sh	WIRED	.github/workflows/cut.yml
 test_appcast_publish_cannot_destroy_the_dmg.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
@@ -115,7 +116,7 @@ test_enrichment_has_a_recurring_invoker.sh	WIRED	.github/workflows/enrichment-in
 test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_enrichment_optin_is_owed_after_v1_0_36.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_enrichment_reaches_the_corpus.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
-test_err_trap_emits_done_fail.sh	UNWIRED	-
+test_err_trap_emits_done_fail.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_every_default_source_is_requested.sh	WIRED	.github/workflows/default-sources-requested.yml
 test_every_fail_call_has_error_code.sh	UNWIRED	-
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -194,6 +195,7 @@ test_no_divergent_vendor_twin.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_no_gate_execs_a_pinned_image.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_no_internal_codenames_in_customer_strings.sh	UNWIRED	-
 test_no_literal_backslash_n_in_strings.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_no_live_command_substitution_in_heredocs.sh	WIRED	.github/workflows/install-heredoc-honesty.yml
 test_no_local_cuts.sh	WIRED	.github/workflows/cut.yml
 test_no_orphaned_fixes_gate.sh	WIRED	.github/workflows/cut.yml
 test_no_unbounded_enrich_invocation.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
@@ -246,6 +248,7 @@ test_sync_vendor_pin_untouched_on_abort.sh	UNWIRED	-
 test_tagged_commit_is_green.sh	WIRED	.github/workflows/cut.yml
 test_tailnet_owner_resolution.py	UNWIRED	-
 test_tailscale_daemon_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
+test_tailscale_prompt_is_conditional_on_tailnet_state.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_recovery_wrapper.sh	UNWIRED	-
 test_takeout_split_zip_no_abort.sh	UNWIRED	-
 test_third_party_data_consent.sh	WIRED	.github/workflows/consent-contract.yml

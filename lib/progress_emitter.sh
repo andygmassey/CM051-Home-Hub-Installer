@@ -401,8 +401,21 @@ gui_step_end() {
         # Count it even when OSTLER_GUI is unset: the counter is
         # bookkeeping, gui_emit is the wire, and only the wire is gated.
         __OSTLER_FAILED_STEPS=$(( __OSTLER_FAILED_STEPS + 1 ))
+        # #873: a non-ok status with rc=0 says "it failed with exit code
+        # success", which is the DONE line's own defect one level down.
+        # It arises when the status was ESCALATED by an argument rather
+        # than measured from a child -- the abort close in gui_done below
+        # is the case that matters, and on bash 3.2 a `set -u` death can
+        # mask the process exit code to 0, so there genuinely is no code
+        # to report. 1 here is the CONVENTION for "non-zero, the actual
+        # code was not recoverable", NOT a measurement. Every path that
+        # knows the real code calls gui_step_record_rc first and that
+        # value is what prints.
+        local rc="${__OSTLER_STEP_RC:-0}"
+        [[ "$rc" =~ ^[0-9]+$ ]] || rc=1
+        [[ "$rc" -eq 0 ]] && rc=1
         gui_emit STEP_END "id=$id" "status=$status" "elapsed_s=$elapsed" \
-                          "rc=${__OSTLER_STEP_RC:-1}"
+                          "rc=${rc}"
     fi
 
     __OSTLER_STEP_ID=""
@@ -603,6 +616,48 @@ gui_done() {
     # apart from a build too old to report one, so the clean install
     # prints failed_steps=0 and thereby proves the counter ran.
     local status="${1:-ok}"
+
+    # ── #873: the run that died INSIDE a step ──────────────────────
+    #
+    # #839 made the counter honest for every step that is CLOSED, because
+    # gui_step_end is the only thing that increments it. An abort never
+    # closes its step. All three abort paths in install.sh --
+    #
+    #     fail()            gui_done fail
+    #     _ostler_on_err()  gui_done fail
+    #     EXIT backstop     gui_done fail
+    #
+    # -- reached this function with __OSTLER_STEP_ID still set and the
+    # counter still at whatever the closed steps had left it, which on an
+    # early abort is zero. A v1.0.43 run therefore terminated with
+    #
+    #     #OSTLER DONE status=fail failed_steps=0
+    #
+    # -- a line that says the run failed and that nothing in it failed.
+    #
+    # The close happens HERE rather than at the three call sites for the
+    # reason #839 gives for the redaction allowlist: the guarantee has to
+    # be a property of the emitter, not a rule each future abort path has
+    # to remember. A fourth abort path added next year gets this for free.
+    #
+    # THE ATTRIBUTION IS STATED, NOT SMUGGLED. The open step is the last
+    # step that began and did not end, so a failure between step N's work
+    # finishing and step N+1 opening is attributed to N. That is exactly
+    # the attribution install.sh's EXIT backstop already makes when it
+    # builds ERR-99-INSTALL-ABORT-<step>; this puts the same claim on the
+    # step wire instead of only in an error code, so the reader can see
+    # which step it was rather than parsing it out of a code string.
+    #
+    # `error`, not a new status, because it is a value the Swift decoder
+    # already recognises (StepStatus.error). An unrecognised status
+    # decodes to .warn there, which would quietly demote a hard abort.
+    #
+    # A cancel does not come through here (gui_cancelled has its own
+    # path), so a deliberate user cancel still counts nothing.
+    if [[ "$status" != "ok" && -n "${__OSTLER_STEP_ID:-}" ]]; then
+        gui_step_end error
+    fi
+
     # CX-454: record that a terminal DONE marker has gone out, so the
     # install.sh ERR trap + EXIT backstop never double-report or
     # overwrite this with a synthetic mid-script-death failure.
