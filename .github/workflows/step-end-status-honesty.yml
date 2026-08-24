@@ -39,6 +39,8 @@ on:
       - 'install.sh'
       - 'lib/progress_emitter.sh'
       - 'tests/test_step_end_does_not_report_a_timed_out_step_as_ok.sh'
+      - 'tests/test_an_abort_inside_a_step_is_counted.sh'
+      - 'tests/test_err_trap_emits_done_fail.sh'
       - 'tests/test_gui_progress_emitter.sh'
       - '.github/workflows/step-end-status-honesty.yml'
   push:
@@ -67,6 +69,34 @@ jobs:
       - name: A step killed by its timeout must not report status=ok (#839)
         run: /bin/bash tests/test_step_end_does_not_report_a_timed_out_step_as_ok.sh
 
+      # #873 -- THE OTHER HALF OF THE SAME LINE.
+      #
+      # The gate above proves every CLOSED step reports honestly. It cannot
+      # see the step a run dies inside, because nothing closes that one, and
+      # gui_step_end is the only thing that increments the counter the DONE
+      # line reads. A v1.0.43 run therefore terminated
+      #
+      #     #OSTLER DONE status=fail failed_steps=0
+      #
+      # -- the run failed and nothing in it failed. The two guards that
+      # should have met here sat on different surfaces: the test above never
+      # aborts, and tests/test_err_trap_emits_done_fail.sh drives all three
+      # abort paths but STUBS gui_done, so the real counter is not present in
+      # that harness at all. This test is the intersection: real abort paths,
+      # real emitter.
+      #
+      # if: always() -- see the note on the step below. Same reason, and it
+      # matters more here: this is the assertion a failing run most needs.
+      - name: A run that aborts inside a step must count that step (#873)
+        if: always()
+        run: /bin/bash tests/test_an_abort_inside_a_step_is_counted.sh
+
+      # Kept beside its intersection partner so a change that breaks the
+      # stub set in one is caught with the other, in the same run.
+      - name: A mid-script death still emits exactly one DONE-fail (CX-454)
+        if: always()
+        run: /bin/bash tests/test_err_trap_emits_done_fail.sh
+
       # if: always() so a failure above cannot silence this one. A skipped
       # test reads as "no objection", which is the class of defect this
       # workflow exists to remove.
@@ -79,6 +109,28 @@ jobs:
         run: |
           /bin/bash --version | head -1
           /bin/bash -n tests/test_step_end_does_not_report_a_timed_out_step_as_ok.sh
+          /bin/bash -n tests/test_an_abort_inside_a_step_is_counted.sh
           /bin/bash -n lib/progress_emitter.sh
           /bin/bash -n install.sh
           echo "OK: parses under the shell the cut actually uses"
+
+      # #873: the abort test must also PASS under 3.2, not merely parse. The
+      # emitter's abort close uses `local` + `[[ =~ ]]` inside gui_step_end,
+      # and the EXIT backstop's `local rc=$?` capture depends on `$?`
+      # surviving the comment block above it. Both are 3.2 behaviours, and
+      # macos-14's PATH bash is 5.x -- running it only under the default
+      # `bash` would measure the wrong shell. The shim puts 3.2 on PATH so
+      # the harness's own inner shells are 3.2 too.
+      - name: The abort tally holds under /bin/bash 3.2, not just parses
+        if: always()
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/b32shim
+          ln -sf /bin/bash /tmp/b32shim/bash
+          export PATH="/tmp/b32shim:${PATH}"
+          echo "PATH bash is: $(bash -c 'echo $BASH_VERSION')"
+          case "$(bash -c 'echo $BASH_VERSION')" in
+            3.2*) : ;;
+            *) echo "CANNOT-RUN: the shim did not put bash 3.2 on PATH; this step measured the wrong shell." >&2; exit 1 ;;
+          esac
+          /bin/bash tests/test_an_abort_inside_a_step_is_counted.sh
