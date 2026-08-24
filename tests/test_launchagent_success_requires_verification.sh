@@ -119,7 +119,28 @@ PY
 _run_controls() {
     local target="$1" label="$2"
     local out
-    out="$(_scan "$target")" || cannot_run "the scanner itself failed on ${target}"
+    # 🔴 A REFUSAL THAT HAPPENS IN A SUBSHELL CANNOT REFUSE.
+    #
+    # This line used to read `… || cannot_run "the scanner itself failed"`.
+    # _run_controls is invoked as `X="$(_run_controls …)"`, so that exit 2
+    # killed the COMMAND SUBSTITUTION and not the script. It is the same trap
+    # that left OS003's capability_matrix.sh printing "unknown repo" seven
+    # times and exiting 0 -- and the same family as #876 itself: an error is
+    # emitted, the process reports success.
+    #
+    # MEASURED, and it partly acquits this file: stubbing _scan to `return 1`
+    # exits 2 anyway, because the anti-vacuity floor below runs in the MAIN
+    # shell and catches a zero denominator first. But that is a SIBLING guard
+    # catching it, not this one -- and a control satisfied by a sibling is not
+    # a control. The residual was real: on the SELF-TEST path the floor has
+    # already passed, so a scanner that failed only on the temp tree returned
+    # empty, `[[ "" -ge 1 ]]` was false, and CANNOT-RUN was reported as FAIL.
+    #
+    # So: emit a sentinel on stdout and let the MAIN SHELL refuse.
+    if ! out="$(_scan "$target")"; then
+        printf 'SCANNER_FAILED'
+        return 0
+    fi
 
     local denom
     denom="$(printf '%s\n' "$out" | awk -F'\t' '$1=="DENOMINATOR"{print $2}')"
@@ -154,6 +175,9 @@ fi
 
 # --- CONTROL 1: no unverified announcements on the real file. --------------
 UNVERIFIED="$(_run_controls "$INSTALL_SH" "REAL CHECK -- install.sh as it ships")"
+# THE REFUSAL HAPPENS HERE, IN THE MAIN SHELL, WHERE EXIT 2 MEANS SOMETHING.
+[[ "$UNVERIFIED" == "SCANNER_FAILED" ]] && cannot_run \
+    "the scanner failed on ${INSTALL_SH}. Nothing was measured, which is not a pass."
 if [[ "$UNVERIFIED" -eq 0 ]]; then
     pass "every LaunchAgent success line is gated on launchd (${DENOM} sites scanned)"
 else
@@ -271,6 +295,11 @@ PY
     [[ $_rc -eq 0 ]] || cannot_run "self-test could not construct the pre-fix tree (rc=${_rc})"
 
     _st_unverified="$(_run_controls "$_tmp" "SELF-TEST -- Doctor block reverted to v1.0.44")"
+    # Same again: on this path the anti-vacuity floor has ALREADY passed, so
+    # nothing else would catch a scanner that failed only on the temp tree.
+    # Without this line a CANNOT-RUN was reported as a FAIL (#765's family).
+    [[ "$_st_unverified" == "SCANNER_FAILED" ]] && cannot_run \
+        "the scanner failed on the self-test tree. The self-test did not run."
     if [[ "$_st_unverified" -ge 1 ]]; then
         pass "the scanner CAUGHT the reinstated defect (${_st_unverified} finding(s))"
     else
