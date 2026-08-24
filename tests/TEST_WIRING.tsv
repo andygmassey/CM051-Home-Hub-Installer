@@ -122,7 +122,7 @@ test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-hand
 test_every_marker_pattern_compiles.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_expired_deferral_ratchet.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_expiry_needs_a_cut_version.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
-test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_fallback_pin_moves_with_the_version.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_fda_assist_ordering.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_fda_deps_are_installed_not_just_copied.sh	WIRED	.github/workflows/fda-deps-installed.yml
