@@ -429,7 +429,7 @@ echo "PASS [case-5]: the shipped bundle derives the name Andy actually saw (Ostl
 # Case 6 -- the derivation has an input. _ostler_set_paths must assign
 #           ASSISTANT_APP_BUNDLE, or the name has nothing to come from.
 # ═══════════════════════════════════════════════════════════════════
-if ! extract_fn '_ostler_set_paths' | grep -q '^[[:space:]]*ASSISTANT_APP_BUNDLE='; then
+if ! grep -q '^[[:space:]]*ASSISTANT_APP_BUNDLE=' <<< "$(extract_fn '_ostler_set_paths')"; then
     fail case-6 "_ostler_set_paths no longer assigns ASSISTANT_APP_BUNDLE;
   the Full Disk Access row name is derived from it and would be empty."
 fi
