@@ -120,12 +120,36 @@ for n, line in enumerate(src):
     if not LC.search(line):
         continue
     sites += 1
-    for j in range(n + 1, min(n + 9, len(src))):
+    # 🔴 THE WINDOW IS OVER SIGNIFICANT LINES, NOT RAW ONES, AND THAT WAS THE
+    # SECOND HALF OF THE EXPORT-SCAN MISS.
+    #
+    # It used to be `range(n+1, n+9)` -- eight RAW lines -- so COMMENTS
+    # consumed budget. install.sh:15858 carries six lines of comment between
+    # the bootstrap and its `ok`, which exhausted the window before the walk
+    # could reach the announcement.
+    #
+    # Widening STOP alone did NOT fix it. I widened STOP, re-ran the RED
+    # proof by restoring the defect, and the gate came back GREEN -- 0
+    # unbacked announcements on a file that had the bug back in it. That
+    # failed proof is the only reason this second cause was found; without
+    # it I would have reported a widened scanner that still could not see
+    # the site it was widened for.
+    #
+    # A comment cannot announce anything, so it must not cost budget. The cap
+    # is over lines that could actually BE the announcement, and it is stated
+    # rather than tuned: 12 significant lines.
+    budget = 12
+    j = n
+    while j + 1 < len(src) and budget > 0:
+        j += 1
         nxt = src[j]
         if SKIP.match(nxt):
-            continue
+            continue                       # comments and blanks are free
         if STOP.search(nxt):
             break
+        if LC.search(nxt) and j > n + 1:
+            break                          # a new site owns its own announcement
+        budget -= 1
         if ANNOUNCE.match(nxt):
             if j not in seen_announcements:
                 seen_announcements.add(j)
