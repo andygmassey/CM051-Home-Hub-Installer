@@ -206,13 +206,84 @@ if [[ -n "$CUT_VERSION" ]]; then
     # two boxes", which is the only thing the field is for.
     BOX_FP="$(printf '%s' "$BOX" | shasum -a 256 | cut -c1-16)"
 
+    # ── 🔴 THE VERSION MUST BE MEASURED, NOT ACCEPTED ─────────────────────
+    #
+    # This file gates the customer download. Until 2026-08-24 it recorded the
+    # version it was TOLD -- `CUT_VERSION="${2:-}"`, written straight through --
+    # and verified nothing. So a walk record could attribute real measurements
+    # taken on a real box to a version that box had never run.
+    #
+    # It did. walks/v1.0.42.tsv says `version v1.0.42, walked_at
+    # 2026-08-23T16:35:28Z, fail 4`. v1.0.42 was never installed anywhere by
+    # anyone. The box held v1.0.38 -- its ~/Downloads DMG is 57,818,336 bytes,
+    # the published v1.0.38 count, and the box carried exactly one install.sh
+    # run header, from 21 Aug. I passed the wrong argument and the register
+    # wrote it down without comment.
+    #
+    # A control proves your predicate, never your specimen. So: read the cut
+    # version off the box and refuse to write a record that disagrees with it.
+    # version_source records HOW the value was obtained, so a reader can tell a
+    # measured version from an unverifiable one.
+    #
+    # 🔴 READ THE RIGHT BUNDLE. Three surfaces on a walked box carry a version
+    # and only ONE of them is the cut. Measured on the Mini 2026-08-24:
+    #
+    #   /Applications/OstlerInstaller.app   1.0.43        <- THE CUT. Use this.
+    #   /Applications/Ostler.app            0.7.1         hub app's own version
+    #   ~/.ostler/VERSION                   hub-v0.4.61   the daemon, and stale
+    #
+    # The first draft of this block read Ostler.app and would have compared
+    # "1.0.43" against "0.7.1" -- refusing every legitimate walk record while
+    # looking like a rigorous check. A guard watching the wrong object is not a
+    # weaker guard, it is a differently-wrong one.
+    #
+    # OstlerInstaller.app records which installer RAN, not whether it
+    # succeeded. That is correct for this field: `version` says what was
+    # walked; `verdict` and `fail` say how it went.
+    INSTALLED_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
+        '/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" \
+             /Applications/OstlerInstaller.app/Contents/Info.plist 2>/dev/null' 2>/dev/null \
+        | tr -d '[:space:]')"
+
+    if [[ -z "$INSTALLED_VERSION" ]]; then
+        VERSION_SOURCE="asserted-unverifiable(no Ostler.app on box)"
+        RECORDED_VERSION="$CUT_VERSION"
+        echo "  ⚠️  could not read an installed version off ${BOX}."
+        echo "      Recording version_source=${VERSION_SOURCE} -- a reader must NOT"
+        echo "      treat this record's version as measured."
+    elif [[ -z "$CUT_VERSION" ]]; then
+        VERSION_SOURCE="measured(CFBundleShortVersionString)"
+        RECORDED_VERSION="v${INSTALLED_VERSION#v}"
+        echo "  version derived from the box: ${RECORDED_VERSION}"
+    elif [[ "${CUT_VERSION#v}" == "${INSTALLED_VERSION#v}" ]]; then
+        VERSION_SOURCE="measured(CFBundleShortVersionString, matches argument)"
+        RECORDED_VERSION="$CUT_VERSION"
+    else
+        echo >&2
+        echo "🔴 REFUSING TO WRITE THE WALK RECORD -- VERSION MISMATCH." >&2
+        echo "   argument says : ${CUT_VERSION}" >&2
+        echo "   the box says  : v${INSTALLED_VERSION#v}  (CFBundleShortVersionString)" >&2
+        echo >&2
+        echo "   This is the walks/v1.0.42.tsv mistake. Real measurements would be" >&2
+        echo "   filed against a version this box has never run, in the file that" >&2
+        echo "   gates the customer download." >&2
+        echo >&2
+        echo "   Re-run with the version the box actually holds, or with no version" >&2
+        echo "   argument at all and let it be measured. NOT a failure of the walk --" >&2
+        echo "   nothing was measured wrongly, only labelled wrongly. Exit 3." >&2
+        exit 3
+    fi
+
     # Counts are the ones already parsed from the single probe run above --
     # the suite is deliberately not re-invoked. See the note at that call.
     {
         printf '# Ostler walk record -- written by scripts/post_walk_qa.sh\n'
         printf '# Read by scripts/verify_walk_record.sh, which gates the customer download.\n'
         printf '# The box is recorded as a hash: this repo is public.\n'
-        printf 'version\t%s\n'     "$CUT_VERSION"
+        printf '# version_source says how the version was obtained. Anything other than\n'
+        printf '# measured(...) means the version is an assertion, not an observation.\n'
+        printf 'version\t%s\n'        "$RECORDED_VERSION"
+        printf 'version_source\t%s\n' "$VERSION_SOURCE"
         printf 'walked_at\t%s\n'   "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'box_fp\t%s\n'      "$BOX_FP"
         printf 'pass\t%s\n'        "${n_pass:-0}"
