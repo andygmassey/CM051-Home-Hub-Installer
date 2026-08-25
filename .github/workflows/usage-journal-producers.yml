@@ -1,0 +1,307 @@
+name: usage-journal-producers
+
+# EVERY DECLARED PRODUCER, OR A RED. And a gate nobody has watched run is
+# indistinguishable from one that cannot.
+#
+# ============================================================================
+# WHAT IS GUARDED
+# ============================================================================
+#
+# The local usage figure shown to a paying customer is compiled from
+# <workspace_dir>/state/costs.jsonl, appended to by four repos and the daemon.
+# A producer that stops writing is INVISIBLE in that panel: the number just
+# gets smaller, which reads as a quiet month rather than a broken pipeline, and
+# it is wrong in the flattering direction next to a price comparison.
+#
+# The contract (HR015 launch/USAGE_JOURNAL_CONTRACT.md) asks in its own gate
+# paragraph for "at least one `enriching` record and at least one `ingesting`
+# record". THREE repos owe `enriching`. So one of them writing satisfies that
+# forever while the other two are dark. A ">= 1 of each kind" predicate is a
+# GOLDEN CASE and cannot give a denominator.
+#
+# ============================================================================
+# WHY THIS WORKFLOW EXISTS AND NOT JUST THE BOX-WALK ROW -- #713 / #719
+# ============================================================================
+#
+# The natural home for "after a full compile on a real box" is a box_walk
+# probe, and there is one: scripts/box_walk_probes/probes/usage_journal_producers.sh
+# with a permanent.yaml row beside it.
+#
+# But #713 measured that EVERY box_walk_probe manifest row had returned SKIP
+# for its entire life, and #719 that nothing invoked run_box_walk.sh at all.
+# Two instruments, neither ever pointed at the thing, and both looked healthy
+# from the outside for months. A probe that only runs on a box only runs when
+# somebody walks a box.
+#
+# So the same adjudicator -- scripts/verify_usage_journal_producers.py -- is
+# ALSO driven here, on every PR, over fixture journals, by a harness that
+# mutates the input and requires a specific exit code back. The box path proves
+# it on a box. This path proves it can still go red in between, and proves it
+# on the day someone edits it.
+#
+# The negative control at the bottom is the other half of that promise: it
+# replaces the gate with a stub that always exits 0 and REQUIRES the harness to
+# go red. A harness that cannot fail is not evidence.
+#
+# ============================================================================
+# WHY TWO RUNNERS
+# ============================================================================
+#
+# ubuntu-latest is where the cheap majority of the work happens. macos-14 is
+# where the probe ACTUALLY RUNS: a box walk targets a Mac, and macOS ships bash
+# 3.2.57 and BSD userland. A gate can be live on one OS and inert on the other
+# -- BSD vs GNU `mktemp -t`, `grep -c`, `sed` -- and testing only on the runner
+# that never sees the code is not testing. Vary the OS, not just the shell.
+
+on:
+  pull_request:
+    paths:
+      # Everything this workflow RUNS is a path it WATCHES. A run: step that
+      # is not matched by a paths: entry is a check that is blind to a change
+      # to the very thing it checks.
+      - 'scripts/verify_usage_journal_producers.py'
+      - 'scripts/usage_journal_producers.tsv'
+      - 'scripts/usage_journal_producer_floor.tsv'
+      - 'scripts/box_walk_probes/probes/usage_journal_producers.sh'
+      - 'scripts/box_walk_probes/lib/probe.sh'
+      # The macOS job asserts the runner COLLECTS this probe. run_box_walk.sh
+      # globs probes/ and a change to that glob can silently drop it, so the
+      # runner itself is watched: a run: step without a matching path entry is
+      # a gate you have read, not a gate you have run.
+      - 'scripts/box_walk_probes/run_box_walk.sh'
+      - 'tests/test_usage_journal_producer_gate.sh'
+      - 'tests/fixtures/usage_journal/costs_full.jsonl'
+      - 'cut-manifests/permanent.yaml'
+      # A gate must trigger on changes to ITSELF, or it can be quietly
+      # narrowed in the very PR that narrows it.
+      - '.github/workflows/usage-journal-producers.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, which is the failure mode this whole workflow is about.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  # ==========================================================================
+  producer-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # THE MUTATION HARNESS. Fifteen arms: a complete journal PASSes; two
+      # different producers deleted by two different matchers each FAIL and are
+      # NAMED; a journal that satisfies the contract's own weaker ">= 1 of each
+      # kind" wording is REFUSED; an absent, an empty and an unparseable
+      # journal are each CANNOT-RUN rather than PASS or FAIL; a roster shrunk
+      # below its pinned floor is refused over a COMPLETE journal; both path
+      # resolvers are pinned against the contract and against each other.
+      - name: Every declared producer, or a red -- 15 mutation arms
+        run: /bin/bash tests/test_usage_journal_producer_gate.sh
+
+      # The three exit codes, asserted at the top level rather than only inside
+      # the harness. CANNOT-RUN collapsing into PASS or FAIL is the exact
+      # defect this gate exists to stop, so the distinction is proved here in
+      # plain sight where a reader of the CI log can see all three codes.
+      #
+      # if: always() -- a failure above must not SKIP this. A skipped step
+      # reads as "no objection", which is the family of defect this whole
+      # workflow is about.
+      - name: Three outcomes, three exit codes, printed
+        if: always()
+        run: |
+          set -u
+          G=scripts/verify_usage_journal_producers.py
+          F=tests/fixtures/usage_journal/costs_full.jsonl
+
+          echo "--- complete journal: expect 0 (PASS) ---"
+          set +e; python3 "$G" --journal "$F" >/dev/null 2>&1; rc_pass=$?; set -e
+          echo "exit=${rc_pass}"
+
+          echo "--- one producer's records deleted: expect 1 (FAIL) ---"
+          grep -v 'cm048-extract' "$F" > "${RUNNER_TEMP}/no_cm048.jsonl"
+          before=$(grep -c . "$F"); after=$(grep -c . "${RUNNER_TEMP}/no_cm048.jsonl")
+          echo "mutation applied: ${before} -> ${after} lines"
+          if [ "$after" -ge "$before" ]; then
+            echo "THE MUTATION REMOVED NOTHING. This step would be measuring a"
+            echo "complete journal and calling its PASS a failure of the gate."
+            exit 1
+          fi
+          set +e; python3 "$G" --journal "${RUNNER_TEMP}/no_cm048.jsonl" >/dev/null 2>&1; rc_fail=$?; set -e
+          echo "exit=${rc_fail}"
+
+          echo "--- no journal at all: expect 2 (CANNOT-RUN) ---"
+          set +e; python3 "$G" --journal "${RUNNER_TEMP}/there-is-no-journal.jsonl" >/dev/null 2>&1; rc_cr=$?; set -e
+          echo "exit=${rc_cr}"
+
+          if [ "${rc_pass}" -ne 0 ] || [ "${rc_fail}" -ne 1 ] || [ "${rc_cr}" -ne 2 ]; then
+            echo "THREE OUTCOMES DID NOT PRODUCE THREE CODES:"
+            echo "  complete journal   -> ${rc_pass} (want 0)"
+            echo "  producer deleted   -> ${rc_fail} (want 1)"
+            echo "  journal absent     -> ${rc_cr} (want 2)"
+            echo "Any two of these sharing a code will eventually be acted on as"
+            echo "the wrong one."
+            exit 1
+          fi
+          echo "0 / 1 / 2 -- three outcomes, three codes."
+
+      # THE NEGATIVE CONTROL. A harness that has never been observed to fail is
+      # not evidence. Replace the gate with a stub that always exits 0 -- the
+      # classic false-pass shape -- and REQUIRE the harness to go red.
+      #
+      # The stub is dropped into a scratch repo root rather than over the
+      # tracked file, so a failure here cannot leave a doctored gate behind in
+      # the workspace for a later step to measure.
+      - name: Negative control -- the harness must go RED on a stub gate
+        if: always()
+        run: |
+          set -u
+          FAKE="${RUNNER_TEMP}/fakeroot"
+          mkdir -p "${FAKE}/scripts/box_walk_probes/probes" \
+                   "${FAKE}/scripts/box_walk_probes/lib" \
+                   "${FAKE}/tests/fixtures/usage_journal"
+          cp scripts/usage_journal_producers.tsv \
+             scripts/usage_journal_producer_floor.tsv "${FAKE}/scripts/"
+          cp tests/fixtures/usage_journal/costs_full.jsonl \
+             "${FAKE}/tests/fixtures/usage_journal/"
+          cp scripts/box_walk_probes/lib/probe.sh "${FAKE}/scripts/box_walk_probes/lib/"
+          cp scripts/box_walk_probes/probes/usage_journal_producers.sh \
+             "${FAKE}/scripts/box_walk_probes/probes/"
+          printf '#!/usr/bin/env python3\nimport sys\nprint("VERDICT: PASS -- nothing examined")\nsys.exit(0)\n' \
+             > "${FAKE}/scripts/verify_usage_journal_producers.py"
+          chmod +x "${FAKE}/scripts/verify_usage_journal_producers.py"
+
+          set +e
+          /bin/bash tests/test_usage_journal_producer_gate.sh "${FAKE}" > "${RUNNER_TEMP}/stub.out" 2>&1
+          rc=$?
+          set -e
+          echo "harness against a stub gate exited ${rc}"
+          tail -6 "${RUNNER_TEMP}/stub.out"
+          if [ "$rc" -ne 1 ]; then
+            echo "NEGATIVE CONTROL FAILED: expected exit 1 from the harness."
+            echo "rc=2 would mean the harness could not run, which is not a red"
+            echo "attributable to the stub -- a dead fixture satisfying the"
+            echo "control is the same false pass in a new costume."
+            cat "${RUNNER_TEMP}/stub.out"
+            exit 1
+          fi
+          if ! grep -q 'CANNOT-RUN collapsed into PASS' "${RUNNER_TEMP}/stub.out"; then
+            echo "NEGATIVE CONTROL FAILED: the harness went red, but not on the"
+            echo "arm that matters. A stub that always exits 0 must be caught"
+            echo "collapsing CANNOT-RUN into PASS, by name."
+            cat "${RUNNER_TEMP}/stub.out"
+            exit 1
+          fi
+          echo "negative control OK: stub gate -> harness exit 1, naming the collapsed state"
+
+      # The roster is the denominator and the floor is what stops it shrinking.
+      # Both are TSV read by a python gate, so a stray space instead of a tab
+      # is a silent semantic change. Parsed here explicitly.
+      - name: The roster and its pinned floor parse, and the floor is not derived
+        if: always()
+        run: |
+          set -u
+          python3 - <<'PY'
+          import sys
+          rows = []
+          for line in open("scripts/usage_journal_producers.tsv", encoding="utf-8"):
+              s = line.strip()
+              if not s or s.startswith("#"):
+                  continue
+              f = line.rstrip("\n").split("\t")
+              if len(f) != 7:
+                  sys.exit("roster row has %d tab-separated fields, expected 7: %r" % (len(f), s))
+              rows.append(f)
+          floor = {}
+          for line in open("scripts/usage_journal_producer_floor.tsv", encoding="utf-8"):
+              s = line.strip()
+              if not s or s.startswith("#"):
+                  continue
+              k, _, v = line.rstrip("\n").partition("\t")
+              floor[k.strip()] = int(v.strip())
+          declared = len(rows)
+          required = len([r for r in rows if r[5].strip() == "required"])
+          print("roster: %d declared, %d required" % (declared, required))
+          print("floor : declared>=%d required>=%d" % (floor["declared"], floor["required"]))
+          if declared < floor["declared"] or required < floor["required"]:
+              sys.exit("the roster is already below its own pinned floor")
+          # ANTI-VACUITY, at the level of the files themselves: a floor of zero
+          # constrains nothing, and a gate over nothing is not a pass.
+          if floor["required"] < 1 or floor["declared"] < 1:
+              sys.exit("a floor of zero constrains nothing")
+          PY
+
+      - name: The gate and its harness parse under bash 3.2-compatible syntax
+        if: always()
+        run: |
+          /bin/bash -n tests/test_usage_journal_producer_gate.sh
+          /bin/bash -n scripts/box_walk_probes/probes/usage_journal_producers.sh
+          python3 -m py_compile scripts/verify_usage_journal_producers.py
+
+  # ==========================================================================
+  # macOS. The probe runs on a Mac when a box is walked, and macOS ships bash
+  # 3.2.57 with BSD userland. A gate that is only ever executed on ubuntu can
+  # be inert on the machine it ships to and nothing would say so.
+  # ==========================================================================
+  producer-gate-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Same 15 arms, on bash 3.2 + BSD userland
+        run: /bin/bash tests/test_usage_journal_producer_gate.sh
+
+      # THE PROBE'S OWN NEGATIVE CONTROL, driven exactly as run_box_walk.sh
+      # phase 1 drives it: rc must be 1 AND the output must not say BROKEN.
+      # Reading the exit code alone is how a probe that reported a verdict
+      # without a denominator once passed phase 1 -- probe_fail() and the
+      # contract's own refusals both exit 1.
+      #
+      # if: always() -- not the first step in the job, so without it a failure
+      # above would skip it, and a skipped step reads as no objection.
+      - name: The box-walk probe can demonstrate a FAIL (run_box_walk phase 1)
+        if: always()
+        run: |
+          set -u
+          set +e
+          out="$(/bin/bash scripts/box_walk_probes/probes/usage_journal_producers.sh --self-test 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          echo "self-test exit=${rc}"
+          if printf '%s\n' "$out" | grep -q 'VERDICT: BROKEN'; then
+            echo "PHASE 1 WOULD MARK THIS PROBE BROKEN and DISCARD its result"
+            echo "on every box walk. That is how ingest_coverage.sh spent its"
+            echo "entire life uncounted."
+            exit 1
+          fi
+          if [ "$rc" -ne 1 ]; then
+            echo "PHASE 1 WOULD MARK THIS PROBE BROKEN: --self-test returned"
+            echo "${rc}, and run_box_walk.sh requires 1 -- a probe that cannot"
+            echo "demonstrate a FAIL has not earned a PASS."
+            exit 1
+          fi
+          echo "phase 1 OK: the probe goes red on known-bad input"
+
+      # run_box_walk.sh globs probes/ and demands a --self-test from everything
+      # it finds. A probe that is not collected does not exist as far as a box
+      # walk is concerned, however good it is, and nothing anywhere prints the
+      # names of files it skipped.
+      - name: run_box_walk.sh actually COLLECTS this probe
+        if: always()
+        run: |
+          set -u
+          out="$(/bin/bash scripts/box_walk_probes/run_box_walk.sh --list)"
+          printf '%s\n' "$out"
+          if ! printf '%s\n' "$out" | grep -q '^usage_journal_producers:'; then
+            echo "THE RUNNER DOES NOT SEE THIS PROBE. It would never run on a"
+            echo "box walk, which is #719 rebuilt with a fresh filename."
+            exit 1
+          fi
+          echo "collected by the runner."
