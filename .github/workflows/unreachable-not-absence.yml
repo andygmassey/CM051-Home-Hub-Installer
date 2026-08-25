@@ -1,8 +1,30 @@
 name: unreachable-not-absence
+
+# TWO JOBS, ONE PROPERTY: a thing we could not look at must never be recorded
+# as a thing that is not there.
+#
+#   honesty      an unreachable WEB SERVICE recorded as a missing book (#833)
+#   denied-read  a refused FILESYSTEM READ recorded as a missing bundle
+#                (v1.0.46 BOM row 6)
+#
+# Same defect class, opposite ends of the estate. They share a workflow so that
+# neither can be quietly dropped without the other's name showing up in the
+# diff.
+
 on:
   pull_request:
   push:
     branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   honesty:
     runs-on: ubuntu-latest
@@ -10,3 +32,50 @@ jobs:
       - uses: actions/checkout@v4
       - name: an unreachable source must never be recorded as absent
         run: bash tests/test_unreachable_is_not_absence.sh
+
+  denied-read:
+    # macos, DELIBERATELY. The subject is a box-walk probe that runs on the
+    # customer's Mac under /bin/bash 3.2, and it reads TCC and SIP state that
+    # only exists there. Testing this on ubuntu would measure a different
+    # kernel's errno behaviour and a permission regime the product never meets.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Drives the real reader over a fixture holding one PRESENT, one ABSENT
+      # and one genuinely unreadable path, then mutates the reader so a refused
+      # read is classified as an absence and requires the probe's own negative
+      # control to catch it. Exits 2 CANNOT-RUN rather than passing if it is
+      # running as root, where a 000 directory denies nothing and the central
+      # assertion cannot be constructed.
+      - name: a refused read must never be reported as an absence (BOM row 6)
+        run: bash tests/test_a_denied_read_is_not_an_absence.sh
+
+      # The probe's negative control, run the way run_box_walk.sh runs it.
+      # Phase 1 of a box walk requires exit 1 from --self-test; anything else
+      # marks the probe BROKEN and discards its measurement. The pre-fix file
+      # had no --self-test at all, so it returned 2 here and had therefore
+      # never produced a measurement on any box walk.
+      - name: the seal probe can still demonstrate a FAIL
+        if: always()
+        run: |
+          set +e
+          bash scripts/box_walk_probes/probes/installed_bundle_seal_intact.sh --self-test
+          rc=$?
+          set -e
+          echo "self-test rc=${rc}"
+          if [ "${rc}" -ne 1 ]; then
+            echo "A probe that cannot produce a FAIL has not earned a PASS." >&2
+            exit 1
+          fi
+
+      # /bin/bash on macOS is 3.2, which is the shell the box walk ships under.
+      # A probe that only parses under 5.x is a probe that never ran.
+      - name: probe, reader and test parse under the box's own shell
+        if: always()
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n scripts/box_walk_probes/probes/installed_bundle_seal_intact.sh
+          /bin/bash -n scripts/box_walk_probes/lib/probe.sh
+          /bin/bash -n tests/test_a_denied_read_is_not_an_absence.sh
+          python3 -c "import py_compile; py_compile.compile('scripts/box_walk_probes/lib/bundle_inspect.py', doraise=True)"

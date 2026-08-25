@@ -1,0 +1,152 @@
+# cut-manifests/v1.0.46.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.46.
+#
+# WHY v1.0.46 EXISTS, AND IT IS ONE THING:
+# ---------------------------------------------------------------------------
+# TO PROVE THE BRICKING FIX IS REAL ON A PUBLISHED ARTEFACT.
+#
+# v1.0.45 BRICKS ITSELF ON FIRST RUN. Measured on hardware 2026-08-25 during
+# Andy's walk, on a DMG that had already passed 14 of 14 artefact checks. The
+# app ships ZERO .pyc, so the first time the bundled interpreter at
+# Contents/Resources/python/bin/python3.11 runs from a WRITABLE location it
+# compiles its own stdlib and writes .pyc INSIDE the signed bundle. Any file
+# ADDED to a signed bundle voids the seal; macOS then refuses the app as
+# "damaged and can't be opened. You should move it to the Bin." It reaches
+# EVERY customer, because quarantine is attached by every browser download and
+# the failure is on FIRST RUN, not relaunch.
+#
+# 🔴 THE LESSON THAT MADE v1.0.45's 14/14 WORTHLESS: every one of those checks
+# read the app on a READ-ONLY VOLUME. The defect only exists once the app is
+# copied somewhere WRITABLE, which is the only place a customer ever runs it.
+# A control that cannot exhibit the defect is not a control.
+#
+# v1.0.46 DOES NOT CONTAIN ANDY'S NINE WALK FIXES. Those are v1.0.47. Shipping
+# them here would have moved oa main and staled the verified daemon.
+#
+# ---------------------------------------------------------------------------
+# HOW THESE PREDICATES WERE CHOSEN, AND THE ONE I THREW AWAY
+# ---------------------------------------------------------------------------
+# A predicate BOTH artefacts satisfy proves nothing. Every pattern below was
+# counted against v1.0.45's SHIPPED install.sh (CM051 pin 1fc55f50) and against
+# this cut's BEFORE being written here.
+#
+#     PATTERN                             v1.0.45   v1.0.46
+#     OSTLER_ASSISTANT_VERSION:-0.4.66          0         1   ACCEPTED
+#     431eeceb                                  0         1   ACCEPTED
+#     PYTHONPYCACHEPREFIX (in install.sh)       0         0   REJECTED
+#
+# 🔴 THE REJECTED ONE IS THE IMPORTANT ONE, and it would have shipped a lie.
+# The bricking fix is in SWIFT (gui/OstlerInstaller/InstallerCoordinator.swift),
+# compiled into the Installer binary. install.sh greps 0 for PYTHONPYCACHEPREFIX
+# on BOTH arms -- that is CORRECT, not a defect. A `grep_in_installer` row for
+# it would have been must_match:false-satisfiable nonsense, or must_match:true
+# and permanently red. The fix needs a proof kind that reads the SOURCE AT THE
+# PINNED SHA, which is what row v1046-c uses. Counted there: 2 occurrences.
+#
+# ---------------------------------------------------------------------------
+# ⚠️ WHAT THIS MANIFEST CANNOT PROVE, STATED RATHER THAN BURIED
+# ---------------------------------------------------------------------------
+# NONE OF THESE ROWS PROVE THE BRICKING FIX WORKS. They prove it is PRESENT in
+# the pinned source and that the daemon pins moved. Presence is not behaviour.
+# The ONLY proof is artefact-level, against a WRITABLE COPY, and it must run
+# after the DMG exists:
+#
+#   T=$(mktemp -d); ditto "$M/OstlerInstaller.app" "$T/OstlerInstaller.app"
+#   "$T/OstlerInstaller.app/Contents/Resources/python/bin/python3.11" \
+#       -c 'import secrets,hmac,platform'
+#   codesign --verify --deep --strict --verbose=2 "$T/OstlerInstaller.app" 2>&1 \
+#       | grep -c '^file added:'          # EXPECT 0
+#   find "$T/OstlerInstaller.app" -name '*.pyc' | wc -l
+#       # DENOMINATOR. 0 BEFORE the import proves nothing; v1.0.45 = 26 after.
+#
+# 🔴 CANNOT-RUN IS NEITHER FAIL NOR PASS. If the DMG will not mount, if that
+# python3.11 path is absent, if ditto fails, or if codesign exits >=2, the row
+# has NOT been verified -- say so and REFUSE. A grep count of 0 from a command
+# that could not look is indistinguishable on screen from a 0 that means the
+# defect is gone.
+#
+# 🗿 AND THE RULE THAT OUTRANKS ALL OF THIS (2026-08-26): nothing is DONE until
+# someone who did not write it has watched it behave on an INSTALLED BOX. Not
+# merged. Not present in the binary. OBSERVED. A2 verifies this DMG, not me.
+# ============================================================================
+version: v1.0.46
+entries:
+  - id: v1046-a-the-shipped-installer-pins-the-rebuilt-daemon-version
+    title: install.sh pins ostler-assistant 0.4.66, the rebuilt daemon
+    incident: >-
+      hub-v0.4.65 was built, signed, notarised, stapled and PUBLISHED from oa
+      4d1f47ae -- and it is NOT what this cut ships. While CM051 was being
+      re-pinned to it, oa PR #348 merged at 15:17:04Z and moved oa main to
+      509c8333, touching web/src/lib/i18n.ts, web/src/pages/Cost.tsx and
+      Cost.coverage.test.ts. web/ is baked into the Hub app, so a hold could not
+      be evidenced and the daemon was REBUILT as hub-v0.4.66. Counted 0 on
+      v1.0.45's shipped install.sh, so this row tells the two artefacts apart
+      rather than being vacuously satisfiable.
+    proof:
+      kind: grep_in_installer
+      pattern: 'OSTLER_ASSISTANT_VERSION:-0\.4\.66'
+      must_match: true
+  - id: v1046-b-the-shipped-installer-pins-the-rebuilt-daemon-digest
+    title: install.sh pins the sha256 of the daemon tarball that actually ships
+    incident: >-
+      A DAEMON BUMP TOUCHES FIVE PIN SITES AND TWO OF THEM ARE DIGESTS. The
+      v0.4.65 bump moved only the two VERSION sites, because the sweep was keyed
+      on the string "0.4.64" and A SHA-256 DOES NOT CONTAIN ITS VERSION NUMBER.
+      tests/test_daemon_pins_agree.sh caught it. This row asserts the digest
+      specifically, so a half-done bump cannot pass on the version alone.
+      431eeceb was re-hashed FROM THE SERVER after publication, not trusted from
+      the upload; spctl accepted / Notarized Developer ID / V95N2B8X7A, stapler
+      rc=0, with a de-signed copy returning rc=3 as the negative control.
+    proof:
+      kind: grep_in_installer
+      pattern: '431eeceb'
+      must_match: true
+  - id: v1046-c-the-bricking-fix-is-in-the-pinned-source
+    title: InstallerCoordinator sets PYTHONPYCACHEPREFIX at the pinned sha
+    incident: >-
+      THE REASON THIS CUT EXISTS. The bundled interpreter must never write into
+      the signed bundle. The fix redirects the bytecode cache to a writable dir
+      outside Contents/ via PYTHONPYCACHEPREFIX, set in the environment handed
+      to the child process tree -- deliberately chosen over
+      PYTHONDONTWRITEBYTECODE, which would suppress caching entirely and could
+      be silently defeated if anything later set the prefix. Counted 2 at the
+      pinned sha. install.sh greps 0 for it on both arms and that is CORRECT,
+      which is exactly why this row does not use grep_in_installer.
+      ⚠️ THIS PROVES PRESENCE, NOT BEHAVIOUR. The writable-copy check in the
+      header comment is the only thing that proves the defect is gone, and it
+      cannot run until the DMG exists.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/OstlerInstaller/InstallerCoordinator.swift
+      pattern: 'PYTHONPYCACHEPREFIX'
+      must_match: true
+  - id: v1046-installer-version-is-1046
+    title: the Installer says which installer it is
+    incident: >-
+      v1.0.39 shipped a DMG whose plist read 1.0.38, and the first v1.0.43 tag
+      was refused for the same defect with plist 1.0.42. MEASURED ON THIS TREE
+      BEFORE THE BUMP: the plist still read 1.0.45/4500, so this cut would have
+      shipped v1.0.45's identity. Bumped across all sites -- Info.plist x2,
+      project.yml x4, pbxproj x4, ten substitutions, each with a per-site count
+      assertion that refused to write on any mismatch -- and read back through
+      plutil rather than from the file text, with a straggler sweep returning
+      zero.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: '1.0.46'
+  - id: v1046-installer-build-number-is-4600
+    title: short version and build number have not drifted apart
+    incident: >-
+      A build number that lags the short version is how two different DMGs claim
+      to be the same install.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleVersion
+      value: '4600'

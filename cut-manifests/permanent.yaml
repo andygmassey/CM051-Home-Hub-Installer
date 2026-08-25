@@ -439,7 +439,14 @@ entries:
     title: the installed bundle's code signature must still verify on the box
     incident: >-
       task #375 / CM051 #767; the installer broke the seal it had just verified,
-      and nothing checked the artefact after installation
+      and nothing checked the artefact after installation. v1.0.46 BOM row 6
+      then found the probe itself unciteable: it reported all three bundles
+      MISSING from /Applications while a direct SSH read found Ostler.app
+      present, because it named no box_run and had always been stat-ing the
+      operator's own laptop, and its one-word verdict recorded nothing about
+      what it had looked at. It now reads the box and prints host, uid,
+      transport, resolved path, TCC/SIP state and raw errno, and a refused read
+      exits 78 CANNOT-RUN rather than rendering as an absence.
     proof:
       kind: box_walk_probe
       probe: "installed_bundle_seal_intact"
@@ -620,3 +627,44 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "pairing_recovers_without_a_repair_storm"
+
+  # #713/#719 ARE THE REASON THIS ROW IS WORDED THE WAY IT IS. Every
+  # box_walk_probe row had returned SKIP for its entire life, and nothing
+  # invoked run_box_walk.sh at all -- two instruments, neither ever pointed at
+  # the thing. So this probe is ALSO driven from CI, over fixtures, by
+  # .github/workflows/usage-journal-producers.yml, which watches every file it
+  # runs. The box path proves it on a box; the CI path proves it can still go
+  # red between box walks.
+  #
+  # SKIPs while OSTLER_BOX_HOST is unset, like its siblings, and goes live the
+  # moment a cut targets a real box.
+  #
+  # HONEST WARNING, recorded here rather than discovered at 3am: this row is
+  # EXPECTED TO GO RED on the first box-targeted cut. Measured 2026-08-25
+  # against the dev Mac's real journal: 1 record, 5 of 5 required producers at
+  # zero, and the single record carrying purpose "enrichment" -- which is not
+  # one of the contract's five purposes and is REJECTED by the daemon's reader.
+  # The contract itself says so: CM048 and CM041 are "not wired", and CM044 is
+  # blocked on the writer being absent from its image AND on a missing bind
+  # mount. That is the row working. Wire the producers or descope them
+  # deliberately in cut-deferrals.yaml; do not delete the row.
+  # ==========================================================================
+  - id: box-walk-usage-journal-producers
+    title: every producer the usage-journal contract declares must have written a record after a full compile
+    incident: >-
+      the cost panel is compiled from <workspace_dir>/state/costs.jsonl, which
+      four repos and the daemon append to. A producer that STOPS writing is
+      invisible there: the number simply gets smaller, which reads as a quiet
+      month rather than a broken pipeline, and it is wrong in the flattering
+      direction next to a price comparison shown to a paying customer. The
+      contract's own gate paragraph asks only for "at least one enriching
+      record and at least one ingesting record" -- but THREE repos owe
+      enriching, so one of them writing satisfies it forever while the other
+      two are dark. A ">= 1 of each kind" predicate is a golden case and cannot
+      give a denominator. This row asserts the ROSTER
+      (scripts/usage_journal_producers.tsv), whose size is pinned separately in
+      scripts/usage_journal_producer_floor.tsv so it cannot be shrunk into a
+      pass in one edit.
+    proof:
+      kind: box_walk_probe
+      probe: "usage_journal_producers"

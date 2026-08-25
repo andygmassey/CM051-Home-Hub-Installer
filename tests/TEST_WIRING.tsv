@@ -18,6 +18,7 @@
 #
 # columns: test_file<TAB>status<TAB>runner
 test_a_dead_wiki_announces_itself.py	WIRED	.github/workflows/vendor-integrity.yml
+test_a_denied_read_is_not_an_absence.sh	WIRED	.github/workflows/unreachable-not-absence.yml
 test_a_failed_hydrate_may_not_fabricate_a_count.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_a_truncated_category_is_not_reported_complete.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_ai_conversations_leg_wired.sh	UNWIRED	-
@@ -111,6 +112,7 @@ test_email_ingest_bootstrap_guard.sh	UNWIRED	-
 test_email_ingest_loud_guard.sh	UNWIRED	-
 test_email_ingest_venv_wired.sh	UNWIRED	-
 test_email_settling_numerator_is_messages.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_engine_provenance_never_claims_what_it_did_not_install.sh	WIRED	.github/workflows/engine-provenance.yml
 test_enrich_budget.sh	WIRED	.github/workflows/enrich-budget.yml
 test_enrichment_has_a_recurring_invoker.sh	WIRED	.github/workflows/enrichment-invoker.yml
 test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist-paths.yml
@@ -262,6 +264,7 @@ test_unreachable_is_not_absence.sh	WIRED	.github/workflows/unreachable-not-absen
 test_upgrade_mode_invariants.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_upgrade_payload_shape_contract.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_upgrade_repairs_the_fda_venv.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
+test_usage_journal_producer_gate.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_user_facing_tree.sh	UNWIRED	-
 test_usr_local_bin_symlinks_gui_safe.sh	UNWIRED	-
 test_v1010_at_rest_exclusions.sh	UNWIRED	-

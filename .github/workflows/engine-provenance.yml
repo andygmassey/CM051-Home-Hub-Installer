@@ -1,0 +1,83 @@
+name: engine-provenance
+
+# The record that says whose container engine it is.
+#
+# Andy asked on 2026-08-24 whether we could write something to absolve us if a
+# customer disrupts what we install. The answer implemented here is that a
+# clause does not do that job -- EVIDENCE does. This guards the module that
+# records what was on the box before we touched it, so a health card can say
+# "Colima: installed by Ostler, currently stopped" or "Docker Desktop: was
+# already here, not managed by us", instead of an unfalsifiable "unsupported
+# configuration" that a customer can simply disbelieve.
+#
+# The module's whole value is that "not ours" can be TRUSTED, so its test is
+# deliberately lopsided: most assertions try to make it claim credit it has
+# not earned. One of them found a real over-claim during development -- with
+# no before-snapshot the diff concluded every engine on the box was ours,
+# on exactly the upgrade path where the snapshot cannot exist.
+#
+# ⚠️ BOUND, AND IT IS A REAL ONE: this proves the MODULE. It does not prove
+# install.sh calls it, because it does not yet. The call sites belong inside
+# the container-engine block that three open PRs (#992, #994, #995) are each
+# rewriting, and adding a fourth writer to that hunk would guarantee a
+# conflict. They land with whichever engine implementation survives the merge.
+# Until then this module is present, correct and NOT REACHED at runtime.
+# Tracked so it cannot quietly become permanent.
+
+on:
+  pull_request:
+    paths:
+      - 'lib/ostler-engine-provenance.sh'
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_engine_provenance_never_claims_what_it_did_not_install.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/engine-provenance.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  provenance:
+    # macOS because the module probes Docker Desktop as an app bundle and is
+    # written for the bash 3.2 that ships there. Running it on ubuntu would
+    # exercise a shell the customer never has.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The provenance record never claims what it did not install
+        run: bash tests/test_engine_provenance_never_claims_what_it_did_not_install.sh
+
+      # if: always() -- an independent failure above must not silence this.
+      - name: The disclosure strings exist and are not weakened to a disclaimer
+        if: always()
+        run: |
+          set -e
+          S=install.sh.strings.en-GB.sh
+          bash -n "$S"
+          for k in MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE MSG_INFO_ENGINE_ALREADY_PRESENT; do
+            grep -q "^${k}=" "$S" || { echo "missing string key: ${k}"; exit 1; }
+            echo "  ok  ${k}"
+          done
+          # The disclosure must keep promising BOTH halves. Each is backed by a
+          # real capability (periodic liveness, restart path); dropping the
+          # words while keeping the code is harmless, dropping them because the
+          # code went away is how a product starts lying to its customer.
+          grep -q 'tell you' "$S" || { echo "disclosure no longer promises to SAY when it breaks"; exit 1; }
+          grep -q 'restart'  "$S" || { echo "disclosure no longer promises to RESTART it"; exit 1; }
+          echo "  ok  disclosure still promises both detection and recovery"
+
+      - name: Parses under bash 3.2-compatible syntax
+        if: always()
+        run: |
+          set -e
+          bash -n lib/ostler-engine-provenance.sh
+          bash -n tests/test_engine_provenance_never_claims_what_it_did_not_install.sh
+          echo "  ok  both parse"

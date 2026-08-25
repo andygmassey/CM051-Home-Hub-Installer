@@ -1,0 +1,34 @@
+# THE PINNED FLOOR for scripts/usage_journal_producers.tsv.
+#
+# ANTI-VACUITY. A gate that inspects nothing is green in exactly the same way
+# as a gate that inspects everything. If the roster were the only tracked file,
+# deleting the rows for the producers that are dark would turn a RED into a
+# GREEN in one edit, and the diff would look like tidying.
+#
+# So the SIZE of the roster is pinned here, separately, and the gate refuses to
+# report a verdict -- exit 2, CANNOT-RUN, not a pass -- when the roster carries
+# fewer rows than these numbers. Removing a producer now takes two edits in one
+# change, and the second one is this file, which is very hard to justify in a
+# review sentence.
+#
+# NOT DERIVED. These numbers are not counted from the roster at runtime; a
+# baseline computed from the thing it is meant to constrain passes trivially,
+# always, and measures nothing. They are transcribed from the contract:
+#
+#   HR015 launch/USAGE_JOURNAL_CONTRACT.md, "WHAT EACH REPO OWES"
+#     CM044 enriching / CM048 enriching / CM041 enriching / CM051 ingesting
+#     / oa noticing                                                = 5 rows
+#   plus the sentence below that table, "The daemon already writes
+#   `answering` for the chat path."                                = 1
+#                                                            declared = 6
+#
+#   of which oa `noticing` is dormant by the contract's own words --
+#   "WHEN it grows a model call (it has none today)"              = 1 dormant
+#                                                            required = 5
+#
+# RAISING these numbers is how a new producer becomes mandatory. LOWERING
+# either of them is a retirement and needs the reason in the commit message.
+#
+# key	count
+declared	6
+required	5
