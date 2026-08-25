@@ -2088,14 +2088,31 @@ _ostler_relocate_bundled_python() {
 # Detection reads pyvenv.cfg rather than guessing from paths, and the match is
 # on `.app/` so it cannot fire on a legitimately relocated venv.
 _ostler_drop_venvs_anchored_in_an_app() {
-    local cfg venv
-    for venv in "$@"; do
-        cfg="${venv}/pyvenv.cfg"
+    local root="${1:-$OSTLER_FINAL_DIR}"
+    [[ -d "$root" ]] || return 0
+    local cfg venv n=0
+    # FIND them, do not list them.
+    #
+    # The first version of this named three paths: .venv, fda-venv and
+    # doctor/.venv. install.sh has TEN `-m venv` sites, and the seven it missed
+    # -- CM048_VENV, CM019_VENV, KNOWLEDGE_VENV, EMAIL_INGEST_VENV,
+    # _AICONV_VENV, a loop variable, and a relative `.venv` -- would have kept
+    # importing out of the signed bundle for ever on an upgraded box, silently.
+    # A hardcoded list is whack-a-mole, and the next venv added restores the bug
+    # with nothing to catch it.
+    #
+    # Depth is bounded so this cannot walk a customer's whole home if
+    # OSTLER_FINAL_DIR is ever mis-set, and the match is on `.app/` so a
+    # correctly relocated venv is never touched.
+    while IFS= read -r cfg; do
         [[ -f "$cfg" ]] || continue
-        if /usr/bin/grep -q '^home = .*\.app/' "$cfg"; then
+        if /usr/bin/grep -q '^home = .*\.app/' "$cfg" 2>/dev/null; then
+            venv="$(dirname "$cfg")"
             rm -rf "$venv"
+            n=$((n + 1))
         fi
-    done
+    done < <(find "$root" -maxdepth 4 -name pyvenv.cfg -type f 2>/dev/null)
+    return 0
 }
 
 _ostler_promote_prelaunch_tree() {
@@ -6210,10 +6227,7 @@ if [[ -z "${PYTHON3_BIN:-}" ]]; then
         PYTHON3_BIN="$(_ostler_relocate_bundled_python "$BUNDLED_PYTHON")"
         # Any venv from a PREVIOUS install is still anchored in the .app and
         # would never be rebuilt (both creation sites are `if [[ ! -d ]]`).
-        _ostler_drop_venvs_anchored_in_an_app \
-            "${OSTLER_FINAL_DIR}/.venv" \
-            "${OSTLER_FINAL_DIR}/fda-venv" \
-            "${OSTLER_FINAL_DIR}/doctor/.venv"
+        _ostler_drop_venvs_anchored_in_an_app "$OSTLER_FINAL_DIR"
         BUNDLED_PY_VERSION=$("$PYTHON3_BIN" --version 2>&1 | cut -d' ' -f2)
         ok "$(printf "$MSG_OK_PYTHON_BUNDLED" "${BUNDLED_PY_VERSION}")"
     else
