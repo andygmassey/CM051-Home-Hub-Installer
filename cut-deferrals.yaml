@@ -3219,3 +3219,147 @@ deferrals:
       and is not launch-blocking. Merge with the rest immediately after the
       v1.0.41 tag is pushed, so the NEXT daemon build carries them.
     until_cut: "v1.0.41"
+
+  # ==========================================================================
+  # v1.0.45 -- 2026-08-25, TNM. FIFTEEN refs, adjudicated one at a time.
+  # ==========================================================================
+  # These surfaced for the first time on this cut because the orphan gate sits
+  # AFTER the capability matrix in bin/cut.sh, and the capability matrix had
+  # been returning a false RED on every run (it called an unreadable row a
+  # MISSING capability). Fixing that let preflight reach this gate. So the
+  # count is not a sudden pile-up; it is a gate that finally got to speak.
+  #
+  # 🔴 THE ADJUDICATION THAT MATTERS: NONE OF THE FIFTEEN IS A v1.0.44 WALK
+  # FIX. Andy's rule of 2026-08-23 is that the next DMG he walks carries every
+  # fix from the last walk. All six of those (#873 #874 #875 #876 #877 and the
+  # wiki re-pin) are in this cut's BOM at landed=yes. Checked by reading each
+  # of the fifteen, not by assuming.
+  #
+  # The seven CM044/daemon rows share ONE mechanical reason: merging any of
+  # them moves a PINNED input. This cut pins CM044 6b0492d (the tree the wiki
+  # images were built from) and oa c4c5b40b (the tree the Hub was built from).
+  # Moving either forces an image or Hub rebuild plus a re-pin, which is a
+  # different cut, not this one.
+
+  - ref: CM044:#251
+    reason: >-
+      Dependabot: bump python from 2c941e8 to 4fad234 in /docker. Not a walk
+      fix. Merging moves CM044 main off 6b0492d, the commit the shipped wiki
+      site (sha256:4a7c6307) and compiler (sha256:866e2312) images were built
+      from, forcing an image rebuild and re-pin. Belongs with the CM044 dep
+      sweep tracked at board #878 (0 of 13 deps pinned).
+    until_cut: "v1.0.46"
+
+  - ref: CM044:#252
+    reason: >-
+      Dependabot: lxml >=6.1.1 -> >=6.1.2. Same pinned-input reason as #251;
+      not a walk fix. Rides the CM044 dep sweep (#878).
+    until_cut: "v1.0.46"
+
+  - ref: CM044:#253
+    reason: >-
+      Dependabot: playwright >=1.40 -> >=1.62. Same pinned-input reason as
+      #251; not a walk fix. Rides the CM044 dep sweep (#878).
+    until_cut: "v1.0.46"
+
+  - ref: CM044:#254
+    reason: >-
+      Dependabot: pyoxigraph >=0.5 -> >=0.5.9. Same pinned-input reason as
+      #251; not a walk fix. Touches the graph client, so it wants a real
+      compile before it ships rather than a same-night merge. Rides #878.
+    until_cut: "v1.0.46"
+
+  - ref: CM044:#255
+    reason: >-
+      Dependabot: actions/cache 4 -> 6. CI-only, cannot reach the artefact at
+      all, and still moves CM044 main off the pinned 6b0492d. Rides #878.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:#336
+    reason: >-
+      Dependabot: tar 0.4.45 -> 0.4.46. Not a walk fix. Merging moves oa main
+      off c4c5b40b, the commit this cut pins and the Hub was rebuilt from, so
+      it would force a Hub rebuild and a DAEMON_COMMIT re-pin.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:#337
+    reason: >-
+      Dependabot: tauri 2.10.3 -> 2.11.1. A MINOR bump of the framework that
+      builds the shipped Hub app -- the last thing to take unproven into a cut
+      whose Hub artefact is already built and stamp-verified at c4c5b40b.
+      Same pinned-input reason as #336.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:fmt/330-rebase
+    reason: >-
+      'fix(cli): handle ProbeTimedOut in prime-imessage-automation', 2026-08-23,
+      534 insertions across doctor/mod.rs, health/mod.rs, imessage_tcc.rs and
+      main.rs. This is the deadlined Messages Automation probe (board #664) and
+      it is REAL WORK, deferred on two grounds and not on its merits: it moves
+      the pinned oa c4c5b40b, and 534 unreviewed daemon lines are not something
+      to take into a cut on the night it is being made. Review it, then it
+      rides the next daemon build with #336/#337.
+    until_cut: "v1.0.46"
+
+  - ref: CM051:#977
+    reason: >-
+      'fix(#849): mount the licence dir in the SHIPPED compose'. PR is CLOSED;
+      the branch survives, which is why the gate still sees it. The underlying
+      defect is board #849 (the Pro Obsidian vault writer cannot run on any
+      install because ~/.ostler is never mounted into the compiler container).
+      That is a Pro-tier feature, not a v1.0.44 walk finding, and re-opening a
+      closed PR to land a compose change hours before a cut is the wrong
+      order. Re-open, review, land in v1.0.46.
+    until_cut: "v1.0.46"
+
+  - ref: CM051:#992
+    reason: >-
+      'fix(install): the runtime guard asked for a CLIENT and...'. PR is CLOSED
+      AND CONFLICTING with main, so it cannot merge as it stands -- a conflicted
+      PR also produces zero CI runs, so nothing here has been judged by today's
+      gate set. Needs a rebase before it can even be reviewed. Test-harness
+      scope; not a walk fix.
+    until_cut: "v1.0.46"
+
+  - ref: CM051:fix/849-shipped-compose-licence-mount
+    reason: >-
+      Branch-name spelling of CM051 #977 above, which the gate reports
+      separately because it walks branches as well as PRs. Same adjudication,
+      same closing condition -- deferred here so neither spelling goes quiet.
+    until_cut: "v1.0.46"
+
+  - ref: CM051:fix/runtime-guard-tests-engine-not-client
+    reason: >-
+      Branch-name spelling of CM051 #992 above ('a blacklist cannot survive
+      laundering, so constrain...'). Same adjudication: closed, conflicting,
+      test-scope. Recorded under both spellings deliberately.
+    until_cut: "v1.0.46"
+
+  - ref: CM051:integrate/995-over-994
+    reason: >-
+      'fix(test): the colima-shaped check red-flagged a strictly...'. A TEST
+      predicate correction -- it changes what a check reports, not what the
+      installer does, so it cannot alter the v1.0.45 artefact. Real and worth
+      landing, but landing a gate-predicate change during the cut it would
+      judge is the one ordering this estate has repeatedly been burned by.
+    until_cut: "v1.0.46"
+
+  - ref: CM051:integrate/997
+    reason: >-
+      'fix(test): `grep -q` under pipefail can SIGPIPE the producer'. A genuine
+      defect of exactly the class OS003 already fixed in capability_matrix.sh
+      (process substitution instead of a pipe), so the shape is understood and
+      believed. Test-scope: it changes verdicts, not installer behaviour.
+      Deferred for the same during-the-cut ordering reason as 995-over-994.
+    until_cut: "v1.0.46"
+
+  - ref: CM051:pr978b
+    reason: >-
+      'fix(#844): read qa_exit -- ORM found a QA failure being accepted'. PR
+      #978 itself is MERGED; pr978b is a follow-on branch carrying extra
+      commits, which is why the gate still flags it. This is CUT-MECHANISM
+      work (board #844: nothing between gates-green and customer-download is a
+      runtime proof) and it deserves a careful landing, not a rushed one at the
+      moment of a cut it would change the gating of. Land first thing in
+      v1.0.46 and let it gate that cut from the start.
+    until_cut: "v1.0.46"
