@@ -16,13 +16,23 @@
 # the defect only appears once the thing has been RUN. A signature that verifies
 # at rest tells you nothing about a bundle that writes into itself on first use.
 #
-# WHAT ARM 8 USED TO GET WRONG. It counted `codesign ... | grep -c '^file added:'`.
-# On this failure mode codesign prints NO SUCH LINE. It prints
-#   "a sealed resource is missing or invalid"
-# with rc=1. The grep returned 0 while 69 .pyc sat inside the bundle, so an
-# arm 8 trusting it would have called a bricked artefact GREEN.
-# It now counts .pyc and reads the EXIT CODE, and depends on the wording of no
-# message at all.
+# WHAT ARM 8 USED TO GET WRONG. It counted `codesign ... | grep -c '^file added:'`
+# and returned 0 while 69 .pyc sat inside the bundle, so an arm 8 trusting it
+# would have called a bricked artefact GREEN.
+#
+# I FIRST WROTE THAT codesign "prints no such line". THAT IS FALSE, and measured:
+#
+#   codesign --verify --deep --strict              grep 'file added:'  ->     0
+#   codesign --verify --deep --strict --verbose=4  grep 'file added:'  ->  1448
+#
+# The lines exist. They are SUPPRESSED AT DEFAULT VERBOSITY, which is what the
+# old arm used. The conclusion was right and the reason was wrong, which is worse
+# than a wrong conclusion because it teaches the next reader a mechanism that
+# does not exist.
+#
+# So: count .pyc and read the EXIT CODE. Not because the message is absent, but
+# because whether a message appears at all depends on a verbosity flag, and a
+# check should not rest on one.
 set -Eeuo pipefail
 #
 # WHAT THIS SUITE HAS AND HAS NOT BEEN SEEN TO DO, 2026-08-26:
