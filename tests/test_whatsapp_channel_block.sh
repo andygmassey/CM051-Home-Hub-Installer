@@ -234,13 +234,61 @@ if [[ "$WA_SP" == *"/Caches/"* ]]; then
 fi
 echo "PASS: emitted TOML carries an absolute session_path outside Caches"
 
-# ── the parent directory is created by the block ────────────────
-# wa-rs opens the file through RusqliteStore and will not mkdir for it.
-if [[ ! -d "$(dirname "$WA_SP")" ]]; then
-    echo "FAIL [whatsapp-session-dir]: $(dirname "$WA_SP") was not created by the block" >&2
+# ── the session path names the FINAL tree, and the block must NOT
+# ──  pre-create it ──────────────────────────────────────────────
+# THIS USED TO DEMAND `dirname "$WA_SP"` EXIST. Satisfying that demand would
+# DESTROY customer data, and install.sh:11351-11356 says so explicitly:
+#
+#     Do NOT also `mkdir -p "${OSTLER_FINAL_DIR}/state"` here.
+#     _ostler_promote_prelaunch_tree walks the staging tree and, on a name
+#     collision, `rm -rf`s the target before `mv`. Pre-creating the final
+#     state/ dir would hand the promote a collision to resolve by deleting
+#     whatever session the daemon had already written into it.
+#
+# The path deliberately names OSTLER_FINAL_DIR while the block runs PRE-FDA
+# with OSTLER_DIR still bound to /tmp/ostler-prelaunch-<pid>. That is the #177
+# fix, measured on the .219 box at v1.0.33 where the shipped config pointed the
+# WhatsApp device credentials into /tmp -- purged on reboot, link dies, customer
+# re-pairs, and the daemon keeps printing "Channels: imessage, whatsapp".
+#
+# So assert the fix, not the directory: the value must name the final tree and
+# must not sit in a purged location, and the STAGING state/ dir (which the
+# promote carries over) must be the one created.
+if echo "$OUTPUT_WEB" | grep -qE '^session_path = "/tmp/'; then
+    echo "FAIL [whatsapp-session-tmp]: session_path is under /tmp -- macOS purges it, the WhatsApp link dies and the customer must re-pair (#177)" >&2
     exit 1
 fi
-echo "PASS: the session directory is created by the block itself"
+# -F, not a regex: the `grep` on PATH here is ugrep, which reads ${...} as a
+# brace/interval expression and returns NO match where BSD grep returns one.
+# Measured on this file: /usr/bin/grep 1, bare grep 0. A must-be-absent check
+# written as a regex therefore passes SILENTLY on this machine.
+if ! grep -qF '_wa_session_path_esc="${OSTLER_FINAL_DIR}/state/whatsapp-session.db"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [whatsapp-session-not-final]: session_path is not built from OSTLER_FINAL_DIR; a PRE-FDA OSTLER_DIR points it at the staging tree (#177)" >&2
+    exit 1
+fi
+if ! grep -qF 'mkdir -p "${OSTLER_DIR}/state"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [whatsapp-staging-dir]: the block no longer creates the STAGING state/ dir that the promote carries over" >&2
+    exit 1
+fi
+# Strip comments first: install.sh:11351 is the COMMENT that FORBIDS this
+# mkdir, and a bare grep matches the prohibition and reports the thing it
+# forbids as present. A predicate over a self-documenting file must exclude
+# comments or it eventually arms on one.
+# NO `| grep -q` HERE, DELIBERATELY. This file is on
+# tests/pipefail_shortcircuit_baseline.txt, and under `set -o pipefail` a
+# short-circuiting consumer inverts a MATCH into a reported failure: grep -q
+# exits on the first hit, the producer dies EPIPE, and pipefail takes the
+# rightmost non-zero status. Written that way, this assertion was INERT -- it
+# could not fire even with a real mkdir present. `grep -c` reads all input, so
+# there is no early close and no EPIPE. See
+# tests/test_pipefail_shortcircuit_inversion.sh.
+_wa_final_mkdirs="$(grep -cF 'mkdir -p "${OSTLER_FINAL_DIR}/state"' "$INSTALL_SCRIPT" || true)"
+_wa_final_comments="$(grep -F 'mkdir -p "${OSTLER_FINAL_DIR}/state"' "$INSTALL_SCRIPT" | grep -c '^[[:space:]]*#' || true)"
+if [[ "$(( ${_wa_final_mkdirs:-0} - ${_wa_final_comments:-0} ))" -gt 0 ]]; then
+    echo "FAIL [whatsapp-precreates-final]: the block pre-creates \${OSTLER_FINAL_DIR}/state -- the promote resolves that collision with rm -rf and would DELETE an existing WhatsApp session" >&2
+    exit 1
+fi
+echo "PASS: session_path names the final tree, is not purged, and the block does not pre-create it"
 
 # ── pair_phone is DIGITS ONLY ───────────────────────────────────
 # The most likely silent failure in this change: reusing the E.164
