@@ -199,7 +199,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.65
+DAEMON_VERSION       ?= 0.4.66
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -242,7 +242,23 @@ DAEMON_VERSION       ?= 0.4.65
 # Both build-info.json files report 4d1f47aedb2839d8151314f74405ac9cf94f6d36,
 # and for the Hub app that value was PROBED out of the Mach-O inside the
 # shipped tarball, not copied from a build log (HR015 #225/#732).
-DAEMON_SHA256        ?= 8222931f084e11177445965f9fdd0786c9bb1b41617894d002b5b3d28d9dbef0
+#
+# v1.0.46 SUPERSEDED MID-CUT (2026-08-25 ORM): 0.4.65 -> 0.4.66, daemon commit
+# 4d1f47ae -> 509c8333. hub-v0.4.65 is published, signed and stapled, and it is
+# NOT what this cut ships. While CM051 was being re-pinned to it, oa PR #348
+# merged at 15:17:04Z and the freshness gate went RED (STALE:+1). #348 touches
+# web/src/lib/i18n.ts, web/src/pages/Cost.tsx and Cost.coverage.test.ts, and
+# web/ is baked into the Hub app, so a HOLD COULD NOT BE EVIDENCED -> REBUILD.
+# 🔴 THE RULE THAT DECIDED IT: any path that reaches the artefact forces a
+# rebuild. The directory list (crates/, src/) is a HINT, NOT THE TEST.
+# Moving a pin to follow a REBUILT artefact is not the v1.0.14 failure -- the
+# artefact is the fact, and this time the fact is what moved.
+#   ostler-releases  hub-v0.4.66  ostler-assistant-...-v0.4.66.tar.gz  431eeceb
+#   ostler-assistant hub-v0.4.66  ostler-hub-app-...-v0.4.66.tar.gz    777fab12
+# Both re-downloaded FROM THE SERVER and re-hashed rather than trusted from the
+# upload. Daemon: spctl accepted, source=Notarized Developer ID, V95N2B8X7A,
+# with a de-signed copy returning rc=3 as the negative control.
+DAEMON_SHA256        ?= 431eecebcab0535b77b8f0e190fb3c03585e60c8f9df221b9c9b27458eadf14d
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -317,7 +333,16 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # the string "0.4.64", which finds the two VERSION sites and neither DIGEST
 # site, because a digest does not contain its version. Sweep for the outgoing
 # SHA-256 as well as the outgoing version, or a bump silently lands half done.
-HUB_APP_SHA256       ?= 9f77ab15ee7fe952757750b48e2b0aa6a04eba7315b7b24bf966cdf76850e626
+# v1.0.46 rebuild (2026-08-25 ORM): 9f77ab15 -> 777fab12, hub-v0.4.66, built
+# from 509c8333 -- the SAME commit as the v0.4.66 daemon above, so
+# verify-commit-parity keeps its meaning. The sidecar was EMITTED by
+# release/emit-hub-build-info.py, never hand-authored, and its
+# wrapper_frontend_commit was probed out of the Mach-O in the packaged tarball;
+# the emitter exits 2 when that value and the build commit disagree.
+# The Hub app is ADHOC SIGNED BY DESIGN: Signature=adhoc, TeamIdentifier=not
+# set, `stapler validate` rc=65. That is the CORRECT reading, and the daemon's
+# rc=0 on the same command is the positive control that proves the probe works.
+HUB_APP_SHA256       ?= 777fab12d2b21ae93e48ec4f60673e5e9f361b5145c0dc9e646b5cbf7f127fc7
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
