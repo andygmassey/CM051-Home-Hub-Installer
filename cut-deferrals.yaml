@@ -3381,3 +3381,81 @@ deferrals:
       Python producers for ingestion'). Land it first in v1.0.46, on a daemon
       rebuild it can be gated by from the start.
     until_cut: "v1.0.46"
+
+  # ------------------------------------------------------------------
+  # Six branch refs the v1.0.45 preflight surfaced. ALL SIX WERE
+  # LOCAL-ONLY -- no remote ref, one `rm -rf` from gone. I PUSHED ALL SIX
+  # BEFORE WRITING THESE ROWS. A deferral records a decision; it does
+  # nothing whatever to protect the commits it defers, and the standing
+  # rule in this file is push-or-delete, never a row instead of either.
+  #
+  # Pushed 2026-08-25, verified by reading the REMOTE (ls-remote = 1 for
+  # each), not by trusting the push command's exit code -- the first
+  # attempt reported five failures because zsh ate the `:r` in
+  # "$b:refs/heads/$b", yielding "...rcefs/heads/...". Braced form fixed
+  # it. Same trap as reference_zsh_colon_modifier_eats_var_paths.
+  # ------------------------------------------------------------------
+
+  - ref: CM051:pr255-review
+    reason: >-
+      SUPERSEDED, NOT LOST. One commit, 0e4dfff8 'fix(install): #644 Tailscale
+      connect robustness (no doomed sign-in wait)'. Its content IS on main:
+      258c62f5 carries the identical fix as the squash-merge of PR #255. This
+      is the squash-orphan mechanism already recorded as board #697 -- the
+      pre-squash commit survives on a branch the merge left behind. 898 behind
+      / 1 ahead. Nothing to merge, nothing at risk; pushed anyway so the ref
+      stops being single-copy. Clear the row in v1.0.46 by deleting the branch.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:candidate/hub-v0.4.33-rc
+    reason: >-
+      A superseded RELEASE CANDIDATE, five weeks and thirty daemon versions
+      stale: hub-v0.4.33 against a cut shipping 0.4.64. 203 behind / 9 ahead,
+      last commit 2026-07-20. Of its nine commits, three are confirmed present
+      on main by equivalent commits -- Check-for-Updates tray (f27339c2),
+      masonry Front Page (ff57be3f + 3fd4dada), ActionBroker v1 (d63eddb6 +
+      8dcc5080). The remaining six are CM061 write-actions work that has never
+      landed anywhere (see the archive rows below). Not a v1.0.44 walk fix; not
+      a v1.0 feature at all.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:archive/stash-0-hub-v0433-rc
+    reason: >-
+      A literal git stash, archived: its tip is 'WIP on
+      candidate/hub-v0.4.33-rc' plus the matching 'index on' commit. Sits on
+      top of the same nine commits as candidate/hub-v0.4.33-rc above and is
+      adjudicated with it. 203 behind / 11 ahead, 2026-07-24. Deliberately
+      named archive/ by a human; deferring is recording that decision, not
+      making a new one.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:archive/stash-1-hub-v0433-rc
+    reason: >-
+      The second archived stash off the same candidate tip, same shape as
+      stash-0 above ('WIP on' + 'index on' over the identical nine commits).
+      203 behind / 11 ahead, 2026-07-23. Same adjudication.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:archive/wt-wt-oa-computer-use
+    reason: >-
+      REAL UNMERGED WORK, deliberately parked. Three commits: ActionBroker v1,
+      'native computer-use v1 scaffold -- the local Operator (CM061 spec)', and
+      'close computer-use safety findings 1-5 (PR #213)'. MEASURED against
+      main: the ActionBroker base IS on main (d63eddb6/8dcc5080); the
+      computer-use scaffold and its safety fixes are NOT on main by any
+      spelling. So this is the CM061 actor family, built on a base that landed
+      while the actors did not. It is a whole feature family beyond v1.0 --
+      not a walk fix, never shipped, and nothing in v1.0.45 depends on it.
+      267 behind / 3 ahead, 2026-07-15. Pushed, so it is safe to leave parked.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:archive/wt-wt-oa-voice-agent
+    reason: >-
+      REAL UNMERGED WORK, deliberately parked -- the sibling of the
+      computer-use branch above. Three commits: the same ActionBroker v1 base
+      (on main), 'outbound voice agent v1 scaffold -- register-and-block (CM061
+      spec)' and a BlockedActor reason test, neither of which is on main.
+      Register-and-block means the actor deliberately refuses to act, so
+      shipping it would add no customer-reachable behaviour even if it landed.
+      Beyond v1.0 scope. 267 behind / 3 ahead, 2026-07-15.
+    until_cut: "v1.0.46"
