@@ -93,7 +93,7 @@ walk_horizon: v1.0.41
 | v1.0.41 |  | not_walked | Andy | none |
 | v1.0.42 |  | not_walked | Andy (relayed 2026-08-23, see below) | v1042-D001 v1042-D002 v1042-D003 v1042-D004 |
 | v1.0.43 | 2026-08-24 | deferred | TNM (2026-08-24, under Andy's standing instruction to drive to the cut) | v1043-D001 v1043-D002 v1043-D003 |
-| v1.0.44 |  | not_walked |  | none |
+| v1.0.44 | 2026-08-24 | closed | Andy (walked on hardware; run header 2026-08-24T10:10:59Z) | v1044-D001 v1044-D002 v1044-D003 v1044-D004 v1044-D005 v1044-D006 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -3215,3 +3215,70 @@ These MUST-FIX-NEXT entries have no runnable gate yet because the fix shape is s
 | v1018-D022 | p50/p90 latency measurement belongs in the behavioural gate harness, not a standalone script | TNM (behind D003 contract) |
 | v1018-D024 | Doctor vendor-parity check depends on the `VENDOR_ONLY.tsv` design landing first | TNM |
 | v1018-D015 | Design-judgment defect — needs Andy's multi-viewport sign-off, not a mechanical assertion | Andy |
+
+
+### v1044-D001 -- the FDA dialog states something false and names the wrong entry
+
+Board #874. The Full Disk Access dialog told the customer "System Settings is
+open at Full Disk Access" when it was not open, and named the entry "Ostler"
+when the row macOS actually shows is "OstlerAssistant". A customer following
+the instruction looks for a name that is not on screen.
+
+CARRIED into v1.0.45 and landed -- BOM row 1.
+
+### v1044-D002 -- the installer re-asks the iPhone/Tailscale question on upgrade
+
+Board #875. The prompt is unconditional. It never consults the tailscaled.state
+that proves the step was already done, so an upgrading customer is asked to
+redo setup they completed.
+
+CARRIED into v1.0.45 and landed -- BOM row 2.
+
+### v1044-D003 -- a run that aborted AT a step reports zero failed steps
+
+Board #873, the #774 family. `DONE status=fail failed_steps=0` -- the run knows
+it failed and cannot say where. Plus an unguarded `convert` call on the
+customer path.
+
+CARRIED into v1.0.45 and landed -- BOM row 3.
+
+### v1044-D004 -- the installer said Doctor was running and it was not loaded
+
+Board #876, and the headline of this walk. install.sh ran
+`launchctl bootstrap ... || launchctl load ... || true` with both attempts
+silenced, then printed the success line unconditionally. MEASURED on hardware:
+com.ostler.doctor NOT LOADED, :8089 returned 000, no process and no log.
+
+It cascades -- Preferences blank, Governor "Box status is not available yet",
+Channels INACTIVE, People "No people yet", Timeline LOAD FAILED. All one bug.
+The launch-blocking half is that the wiki in the same app showed 6,932 people:
+the data was there, and every empty state told the customer a reassuring lie
+instead of "I could not read this".
+
+CARRIED into v1.0.45 and landed -- BOM row 6.
+
+### v1044-D005 -- the settings migration is half done
+
+Board #877. /preferences carries 10 flat keys; /config still owns 10 richer
+sections including the daily brief schedule and the robot-emoji prefix, and
+nothing links to /config. Andy asked for the pages to be combined; what shipped
+was one nav entry, not one page.
+
+CARRIED into v1.0.45 and landed -- BOM row 7.
+
+### v1044-D006 -- the QA console and the walk record disagree, and it is UNRECONCILED
+
+post_walk_qa.sh reported 22 PASS / 9 FAIL / 2 SKIP, verdict FAILED.
+walks/v1.0.44.tsv records pass 5 / fail 5 / cannot_run 3, verdict FAILED,
+qa_exit 1. Thirteen rows against thirty-three, and 5+3 does not equal 9.
+
+BOTH agree the walk FAILED, so the gate that blocked promotion was reading a
+true verdict and v1.0.44 was correctly never promoted -- ostler.ai/install.dmg
+stayed on v1.0.41. That is the part that matters and it held.
+
+WHAT IS NOT CLOSED: which denominator is right. Neither figure has been traced
+to its producer. This is recorded as a finding in its own right rather than
+folded into the five above, because a walk record whose arithmetic does not
+reconcile cannot be used as evidence for anything else, and the next reader
+must not quote either number as "the" result. Not carried into v1.0.45's BOM:
+it is a defect of the RECORD, not of the shipped artefact.
