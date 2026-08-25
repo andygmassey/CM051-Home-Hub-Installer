@@ -439,7 +439,14 @@ entries:
     title: the installed bundle's code signature must still verify on the box
     incident: >-
       task #375 / CM051 #767; the installer broke the seal it had just verified,
-      and nothing checked the artefact after installation
+      and nothing checked the artefact after installation. v1.0.46 BOM row 6
+      then found the probe itself unciteable: it reported all three bundles
+      MISSING from /Applications while a direct SSH read found Ostler.app
+      present, because it named no box_run and had always been stat-ing the
+      operator's own laptop, and its one-word verdict recorded nothing about
+      what it had looked at. It now reads the box and prints host, uid,
+      transport, resolved path, TCC/SIP state and raw errno, and a refused read
+      exits 78 CANNOT-RUN rather than rendering as an absence.
     proof:
       kind: box_walk_probe
       probe: "installed_bundle_seal_intact"

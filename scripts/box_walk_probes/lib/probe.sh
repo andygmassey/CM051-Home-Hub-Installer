@@ -130,6 +130,32 @@ box_reachable() {
     box_run 'echo ok' | grep -q '^ok$'
 }
 
+# box_run_v -- the same transport, with STDERR LEFT ALONE.
+#
+# box_run sends the remote command's stderr to /dev/null. For a probe that only
+# ever consumes a well-formed stdout that is tidiness. For a probe whose job is
+# to explain WHY it could not see something, it is fatal: the reason IS the
+# answer, and discarding it is how a refused read comes back looking like an
+# empty directory.
+#
+# v1.0.46 BOM row 6 is that shape. installed_bundle_seal_intact printed
+# "MISSING /Applications/Ostler.app" while a direct ssh read found the bundle
+# present, and neither reader had recorded what it looked at, so neither could
+# be cited. See probes/installed_bundle_seal_intact.sh.
+#
+# ADDITIVE ON PURPOSE. box_run keeps its behaviour for the twelve probes that
+# already depend on it; changing that under them would be an unmeasured change
+# to twelve verdicts at once.
+box_run_v() {
+    if [ -n "${OSTLER_BOX_HOST:-}" ]; then
+        ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" \
+            -o BatchMode=yes \
+            "$OSTLER_BOX_HOST" "$1"
+    else
+        bash -lc "$1"
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # probe_main -- the entry point every probe ends with.
 #
