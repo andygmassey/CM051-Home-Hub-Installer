@@ -63,6 +63,28 @@ set -euo pipefail
 # LaunchAgents inherit only the bare system PATH.
 export PATH="/usr/local/bin:/opt/homebrew/bin:${PATH:-/usr/bin:/bin}"
 
+# They inherit nothing else either -- and that is what bricked v1.0.45.
+#
+# MEASURED on the shipped v1.0.45 artefact, 2026-08-26 (ORM). __OSTLER_PYTHON__
+# is resolved by install.sh to $PYTHON3_BIN, which on a customer install is the
+# interpreter INSIDE the notarised OstlerInstaller.app -- there is exactly one
+# python3.11 in the artefact and install.sh never copies it out. CPython writes
+# __pycache__/*.pyc next to the source it imports, so an unguarded run of this
+# tick writes into the signed bundle and breaks the code seal:
+#
+#   import json, ssl, sqlite3, urllib.request, email.parser
+#     guard set   ->  0 .pyc in bundle, codesign --verify --deep --strict rc=0
+#     guard unset -> 69 .pyc in bundle, rc=1 "a sealed resource is missing or
+#                    invalid", and spctl REFUSES the app
+#
+# This agent is RunAtLoad + StartInterval 3600, so unguarded it fires once at
+# the END OF THE INSTALL and then every hour, forever. InstallerCoordinator
+# .swift:1350 cannot help: launchd is not in the installer's process tree, and
+# neither is the shell that ran install.sh.
+#
+# Same variable and same value the GUI uses. A parent that already set it wins.
+export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-${HOME}/.ostler/cache/pycache}"
+
 PYTHON_BIN="__OSTLER_PYTHON__"
 SOURCE_DIR="__OSTLER_SOURCE_DIR__"
 

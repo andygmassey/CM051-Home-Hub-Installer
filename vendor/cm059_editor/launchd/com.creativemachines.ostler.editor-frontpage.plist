@@ -38,6 +38,17 @@
     <dict>
         <key>PATH</key>
         <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <!--
+            Belt and braces with the same export in editor-frontpage-tick.sh.
+            The tick runs the interpreter bundled INSIDE the notarised app, and
+            CPython writes .pyc next to the source it imports, which breaks the
+            code seal (measured on v1.0.45: 69 .pyc from one ordinary import,
+            codesign rc=1, spctl refuses). Set here as well so the guard
+            survives a hand-run of the plist or a tick rendered from an older
+            template. OSTLER_HOME is substituted at install time.
+        -->
+        <key>PYTHONPYCACHEPREFIX</key>
+        <string>OSTLER_HOME/.ostler/cache/pycache</string>
     </dict>
 
     <!--
