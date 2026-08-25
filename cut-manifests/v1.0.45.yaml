@@ -1,0 +1,188 @@
+# cut-manifests/v1.0.45.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.45.
+#
+# WHY v1.0.45 EXISTS: v1.0.44 INSTALLED, AND THEN LIED.
+# ---------------------------------------------------------------------------
+# Andy walked the published v1.0.44 DMG on hardware 2026-08-24
+# (`=== install.sh run 2026-08-24T10:10:59Z (DMG #48 transcript) ===`). The
+# v1.0.43 blocker was gone: fda_extract passed, `STEP_END id=fda_extract
+# status=ok elapsed_s=7`, runtime-ready `scanned=30 third_party=2 missing=0`,
+# which is EXACTLY the off-box prediction. But post_walk_qa.sh returned FAILED.
+#
+# THE HEADLINE, #876, and it explains most of the rest. install.sh did:
+#
+#     launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
+#         launchctl load "$DOCTOR_PLIST" 2>/dev/null || true
+#     ok "$MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089"
+#
+# Both attempts silenced, the chain ends `|| true`, and success is printed
+# UNCONDITIONALLY. Measured on the box: com.ostler.doctor NOT LOADED, :8089
+# answered 000, no process, no log, no container. Six customer-facing surfaces
+# then showed reassuring empty states -- Preferences toggles blank, Governor
+# "Box status is not available yet", Doctor > Channels all INACTIVE, People
+# "No people yet", Timeline LOAD FAILED, "Status unavailable" in every header
+# -- while the wiki in the SAME app showed 6,932 people / 3,267 orgs / 3,978
+# meetings. The data was there. Every empty state told the customer a
+# comfortable lie instead of "I could not read this".
+#
+# ---------------------------------------------------------------------------
+# HOW THESE PREDICATES WERE CHOSEN, AND THE ONES I THREW AWAY
+# ---------------------------------------------------------------------------
+# A predicate BOTH artefacts satisfy proves nothing. Every pattern below was
+# counted against v1.0.44's shipped install.sh (pin 2fb63f73, 24,945 lines) and
+# against this cut's (30c09fe7, 25,488 lines) BEFORE being written here.
+#
+# REJECTED, because they are present in v1.0.44 too and would have passed
+# vacuously -- this is the part that would otherwise have gone unsaid:
+#
+#     launchctl print                 v1.0.44: 4    v1.0.45: 8
+#     pgrep -x "System Settings"      v1.0.44: 2    v1.0.45: 3
+#     tailscaled.state                v1.0.44: 1    v1.0.45: 2
+#     OstlerAssistant                 v1.0.44: 57   v1.0.45: 61
+#
+# Each of those is a phrase the FIX uses, which is exactly why it is tempting
+# and exactly why it is useless: the file already contained it. ACCEPTED
+# patterns are the four function names the fixes INTRODUCE, each 0 in v1.0.44:
+#
+#     _ostler_launchagent_load_verified   0 -> 15
+#     _ostler_fda_entry_name              0 ->  2
+#     _ostler_open_fda_pane               0 ->  2
+#     _ts_already_configured              0 ->  4
+#     sha256:4a7c6307                     0 ->  1
+#     sha256:866e2312                     0 ->  1
+#
+# ---------------------------------------------------------------------------
+# ⚠️ NOT ASSERTED HERE, DELIBERATELY -- #873.
+# ---------------------------------------------------------------------------
+# `DONE status=fail failed_steps=0`: a run that aborted AT a step reported zero
+# failed steps. It is real, it is merged (CM051 #1027), and it is in the BOM.
+# But its install.sh diff is COMMENT-ONLY -- the code that computes the summary
+# is not in the bundled installer. Asserting on the comment would be scoring a
+# comment as code, which is board #808's defect reproduced inside the gate that
+# is supposed to catch it. #873 is verified by the walk, not by this manifest,
+# and saying so is better than a green tick that means nothing.
+#
+# ⚠️ NOT ASSERTABLE HERE -- #877, the wiki nav crop host half.
+# It lives in the Hub app (oa e83d1997), not in install.sh, so grep_in_installer
+# cannot see it. It is guarded instead by bin/cut.sh's Hub/daemon parity check,
+# which REFUSED this cut once already: the Ostler.app on disk was from Aug 23
+# and embedded 1b0a5013525a. Proven on the rebuilt bundle by two independent
+# stamps inside the binary, OSTLER_HUB_BUILD_SHA and WRAPPER_FRONTEND_COMMIT,
+# both e83d1997ab1897c35a997229e2504c7975c833ab, with the old sha at 0 and a
+# control showing `strings` reading 27,780 lines so the zero is real. The
+# frontend is compressed into the binary, so grepping the bundle for the CSS
+# would have returned 0 for subject AND control -- a wrong-compartment control.
+# ============================================================================
+version: v1.0.45
+entries:
+  - id: v1045-a-launchagent-is-verified-before-it-is-announced
+    title: the shipped install.sh proves a LaunchAgent loaded before saying so
+    incident: >-
+      #876, and it is the reason this cut exists. `launchctl load` exits 0 on
+      failure and the site ended `|| true`, so "Ostler Doctor running at
+      http://localhost:8089/doctor" was printed while com.ostler.doctor was NOT
+      LOADED and :8089 answered 000. Asserted on the helper that performs the
+      verification, which exists only in the fixed form -- v1.0.44's installer
+      has no such function, so this predicate tells the two artefacts apart
+      rather than merely being satisfiable. Note it also uses `launchctl print`
+      and checks the job is RUNNING, not merely REGISTERED, because print
+      returns rc=0 for a registered-but-dead job.
+    proof:
+      kind: grep_in_installer
+      pattern: '_ostler_launchagent_load_verified'
+      must_match: true
+  - id: v1045-the-fda-dialog-names-the-real-entry
+    title: the shipped install.sh derives the Full Disk Access entry name
+    incident: >-
+      #874. The dialog told the customer to look for "Ostler" when the pane
+      actually lists "OstlerAssistant". A customer scanning for "Ostler"
+      concludes the entry is missing and grants nothing.
+    proof:
+      kind: grep_in_installer
+      pattern: '_ostler_fda_entry_name'
+      must_match: true
+  - id: v1045-the-fda-dialog-does-not-claim-a-pane-it-did-not-open
+    title: the shipped install.sh confirms System Settings actually appeared
+    incident: >-
+      #874, second limb. The dialog stated "System Settings is open at Full
+      Disk Access." It was not. `open` exiting 0 is not proof the pane is up,
+      so the fixed form waits for a System Settings process to appear and
+      degrades the wording when it does not.
+    proof:
+      kind: grep_in_installer
+      pattern: '_ostler_open_fda_pane'
+      must_match: true
+  - id: v1045-the-upgrade-does-not-re-ask-a-settled-question
+    title: the shipped install.sh consults tailscaled.state before asking
+    incident: >-
+      #875. The iPhone/Tailscale setup question was unconditional, so an
+      UPGRADE re-asked something the disk already answered. RESIDUAL, stated
+      rather than buried: the write-ORDER of tailscaled.state is INFERRED, not
+      measured. One look at a real ~/.ostler/tailscale/tailscaled.state on the
+      Hub Mac closes it. The predicate below proves the guard is present; it
+      does not prove the guard reads the right moment in that file's life.
+    proof:
+      kind: grep_in_installer
+      pattern: '_ts_already_configured'
+      must_match: true
+  - id: v1045-the-shipped-installer-pins-the-rebuilt-wiki-site-image
+    title: install.sh pins ostler-wiki-site built from CM044 6b0492d
+    incident: >-
+      WITHOUT THIS ROW THE NAV FIX DOES NOT SHIP. The host stopped cropping
+      56px, which is only safe because CM044 #256 emits ONE chrome band when
+      embedded. Crop-0 against the OLD image re-opens c638a6d7 and the black
+      bar returns. Both halves ride this cut or neither should.
+    proof:
+      kind: grep_in_installer
+      pattern: 'sha256:4a7c6307'
+      must_match: true
+  - id: v1045-the-shipped-installer-pins-the-rebuilt-wiki-compiler-image
+    title: install.sh pins ostler-wiki-compiler built from CM044 6b0492d
+    incident: >-
+      Sibling of the row above. Both images were rebuilt from the same CM044
+      commit (tag v0.1.26, release-images.yml success 16:31:24Z) and re-pinned
+      together in CM051 #1029; pinning one and not the other would ship a site
+      and a compiler from different trees.
+    proof:
+      kind: grep_in_installer
+      pattern: 'sha256:866e2312'
+      must_match: true
+  - id: v1045-the-old-wiki-site-digest-is-gone
+    title: the superseded site digest is not in the shipped installer
+    incident: >-
+      NEGATIVE LIMB, and its scope is stated rather than implied. This DOES
+      discriminate v1.0.44 from v1.0.45 -- 0d3b46d5 was the pin v1.0.44
+      shipped. It is here so a later edit cannot quietly reinstate the image
+      that renders the clipped nav while the positive rows above still pass.
+    proof:
+      kind: grep_in_installer
+      pattern: 'sha256:0d3b46d5'
+      must_match: false
+  - id: v1045-installer-version-is-1045
+    title: the Installer says which installer it is
+    incident: >-
+      v1.0.39 shipped a DMG whose plist read 1.0.38, and the first v1.0.43 tag
+      was refused for the same defect with plist 1.0.42. Measured on this tree
+      before the bump: the plist still read 1.0.44/4400, so this cut would have
+      shipped v1.0.44's identity. Bumped across all three sites (Info.plist,
+      project.yml x2 keys, plus MARKETING_VERSION/CURRENT_PROJECT_VERSION),
+      each replaced exactly once with zero stragglers, and read back through
+      plutil rather than from the file text.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: '1.0.45'
+  - id: v1045-installer-build-number-is-4500
+    title: short version and build number have not drifted apart
+    incident: >-
+      A build number that lags the short version is how two different DMGs
+      claim to be the same install.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleVersion
+      value: '4500'
