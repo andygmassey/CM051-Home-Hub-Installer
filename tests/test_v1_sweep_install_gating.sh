@@ -69,7 +69,14 @@ done
 # The install must pip the vendored ostler_security source into the
 # CM048 venv specifically (CM048_VENV/bin/pip), not just into the Hub
 # venv. Without this src/ingest.py raises on import.
-if ! grep -Eq '"\$CM048_VENV/bin/pip" install .*ostler_security' "$INSTALL_SH"; then
+# This demanded a DIRECT `"$CM048_VENV/bin/pip" install ... ostler_security`.
+# install.sh:15054-15055 now routes it through a helper:
+#     _ostler_pip_install_pkg "$CM048_VENV/bin/pip" "${SCRIPT_DIR}/ostler_security"
+# so no line carries the literal word `install` after the pip path and the old
+# pattern can never match. The behaviour is present AND self-verified:
+# install.sh:15102 runs `"$CM048_VENV/bin/python3" -c 'import src.ingest'`,
+# which is the very import this test says would fail. Accept either shape.
+if ! grep -Eq '"\$CM048_VENV/bin/pip"[^\n]*ostler_security|_ostler_pip_install_pkg "\$CM048_VENV/bin/pip"[^\n]*ostler_security' "$INSTALL_SH"; then
     failure "Fix 1: install.sh never pip-installs ostler_security into the CM048 venv (\$CM048_VENV/bin/pip) -- conversation pipeline dies at import"
 fi
 
