@@ -109,8 +109,16 @@ fi
 #
 # Assert the behaviour: the label is in the list, and the list is consumed by a
 # loop that boots the agent out AND removes its plist.
-if ! awk '/^OSTLER_LAUNCHAGENT_LABELS=\(/,/^\)/' "$INSTALL_SH" \
-        | grep -qE '^[[:space:]]*com\.ostler\.contact-resync[[:space:]]*$'; then
+# grep -c, NOT grep -q. Under `set -o pipefail` a short-circuiting consumer
+# inverts a MATCH into a non-zero pipeline status whenever the producer is still
+# writing: it dies EPIPE and pipefail takes its status. This awk emits ~31 lines
+# so it currently finishes first and the assertion works -- but that is safety
+# by SIZE, not by construction. Grow the label array and this flips to a false
+# RED with nobody having touched the assertion.
+# See tests/test_pipefail_shortcircuit_inversion.sh.
+_resync_in_labels="$(awk '/^OSTLER_LAUNCHAGENT_LABELS=\(/,/^\)/' "$INSTALL_SH" \
+    | grep -cE '^[[:space:]]*com\.ostler\.contact-resync[[:space:]]*$' || true)"
+if [[ "${_resync_in_labels:-0}" -eq 0 ]]; then
     failure "com.ostler.contact-resync is not in OSTLER_LAUNCHAGENT_LABELS, so the uninstaller loop never sees it"
 fi
 if ! grep -q 'launchctl bootout "gui/\$(id -u)/\${_label}"' "$INSTALL_SH"; then
