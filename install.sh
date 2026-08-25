@@ -2025,6 +2025,28 @@ _ostler_relocate_bundled_python() {
         printf '%s' "$bundled"
         return 0
     fi
+
+    # STRIP THE QUARANTINE XATTR ON THE COPY.
+    #
+    # A customer downloads the DMG in a browser, so the image and everything on
+    # it carries com.apple.quarantine. MEASURED: `ditto` PROPAGATES that
+    # attribute (so does cp), so the relocated tree inherits it -- and the copy
+    # is no longer covered by the ticket stapled to the .app, because it is no
+    # longer inside it.
+    #
+    # It ran fine on the machine this was written on, quarantined, rc=0. That is
+    # NOT evidence it is safe: this Mac has network and a cached Gatekeeper
+    # assessment. install.sh already says why in its own words at the assistant
+    # binary (~12216): "Gatekeeper still verifies the notarisation ticket ONLINE
+    # on first execution". An install behind a captive portal or with no network
+    # is exactly the case that would fail, and the installer's own DMG was
+    # already downloaded before the network went away.
+    #
+    # Same defensive treatment install.sh already applies to the Ollama bundle
+    # (~10351) and the assistant binary. `|| true` because failing to strip an
+    # attribute must never be worse than not relocating at all.
+    xattr -dr com.apple.quarantine "$dest" 2>/dev/null || true
+
     printf '%s' "$dest_py"
 }
 
