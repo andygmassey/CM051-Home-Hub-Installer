@@ -273,10 +273,13 @@ else
     # the mutated tree. Per this suite's inversion a self-test that behaves
     # exits 1; one that reports NEGATIVE CONTROL DID NOT FIRE exits 0, which
     # run_box_walk.sh reads as BROKEN and whose result it discards.
-    set +e
+    #
+    # No `set +e` guard here, deliberately: this file runs under `set -uo
+    # pipefail` and errexit is never on. Toggling it around a block that is
+    # EXPECTED to exit non-zero would leave errexit ENABLED for everything
+    # after it, which is a different script from the one that was tested.
     MUT_OUT="$(bash "${MUT}/probes/installed_bundle_seal_intact.sh" --self-test 2>&1)"
     MUT_RC=$?
-    set -e
     if grep -q 'NEGATIVE CONTROL DID NOT FIRE' <<< "$MUT_OUT" && [[ "$MUT_RC" -eq 0 ]]; then
         pass "(6c) the probe's own negative control CATCHES the killing mutant (rc=${MUT_RC}, reported NEGATIVE CONTROL DID NOT FIRE, which run_box_walk marks BROKEN)"
     else
@@ -290,11 +293,9 @@ fi
 #     against a host whose name cannot resolve (RFC 2606 reserves .invalid),
 #     because the pre-fix file produced a confident three-line verdict here.
 # ---------------------------------------------------------------------------
-set +e
 COMP_OUT="$(OSTLER_BOX_HOST=nobody@definitely-not-a-real-box.invalid \
             OSTLER_SSH_TIMEOUT=5 bash "$PROBE" 2>&1)"
 COMP_RC=$?
-set -e
 
 if [[ "$COMP_RC" -eq 78 ]]; then
     pass "(7) an unreachable box gives CANNOT-RUN (78), not a verdict"
