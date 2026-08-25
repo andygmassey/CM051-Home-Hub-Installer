@@ -16981,6 +16981,15 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     <string>${LOGS_DIR}/doctor.err</string>
     <key>EnvironmentVariables</key>
     <dict>
+        <!-- Redirect the bytecode cache OUT of the notarised app. This
+             agent runs a venv python whose base_prefix is the interpreter
+             bundled inside OstlerInstaller.app, so every import writes
+             __pycache__ into the signed bundle and breaks its code seal
+             (measured on v1.0.45: 69 .pyc from one ordinary import,
+             codesign --verify --deep --strict rc=1, spctl refusing).
+             LaunchAgents inherit no environment, so it must be set here. -->
+        <key>PYTHONPYCACHEPREFIX</key>
+        <string>${OSTLER_DIR}/cache/pycache</string>
         <key>DOCTOR_PORT</key>
         <string>8089</string>
         <key>DOCTOR_SUPPORT_EMAIL</key>
@@ -17238,6 +17247,15 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              non-default install home. -->
         <key>PYTHONPATH</key>
         <string>${OSTLER_DIR}/import-pipeline</string>
+        <!-- Redirect the bytecode cache OUT of the notarised app. This
+             agent runs a venv python whose base_prefix is the interpreter
+             bundled inside OstlerInstaller.app, so every import writes
+             __pycache__ into the signed bundle and breaks its code seal
+             (measured on v1.0.45: 69 .pyc from one ordinary import,
+             codesign --verify --deep --strict rc=1, spctl refusing).
+             LaunchAgents inherit no environment, so it must be set here. -->
+        <key>PYTHONPYCACHEPREFIX</key>
+        <string>${OSTLER_DIR}/cache/pycache</string>
         <key>HOME</key>
         <string>${HOME}</string>
         <key>USER_ID</key>
