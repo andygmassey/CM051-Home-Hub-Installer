@@ -1984,13 +1984,38 @@ _ostler_relocate_bundled_python() {
     local dest_py="${dest}/bin/python3.11"
     local want have
 
-    want="$("$bundled" --version 2>&1 | cut -d' ' -f2)"
+    # Ask the interpreter to IMPORT something and report its version in the same
+    # breath, rather than running `--version`.
+    #
+    # `--version` is built into the binary and answers correctly on a tree with
+    # NO STANDARD LIBRARY AT ALL. Measured: delete lib/python3.11/json and
+    # lib/python3.11/encodings from a relocated copy and
+    #
+    #     python3.11 --version        rc=0   "Python 3.11.15"
+    #     python3.11 -c 'import json' rc=1
+    #
+    # So a `ditto` interrupted by a full disk, a crash or a kill leaves a
+    # partial tree that the obvious idempotence check KEEPS, and every venv
+    # built from it afterwards fails. The health check has to exercise the
+    # thing that can be missing.
+    _probe_python() {
+        "$1" -c 'import json, ssl, sqlite3, sysconfig; print(sysconfig.get_python_version())' 2>/dev/null
+    }
+
+    want="$(_probe_python "$bundled")"
+    if [[ -z "$want" ]]; then
+        # The interpreter INSIDE the app cannot import its own stdlib. That is
+        # not a relocation problem and copying it would not help.
+        printf '%s' "$bundled"
+        return 0
+    fi
 
     # Idempotent AND version-aware. A re-run must not pay 71 MB of copy, but an
-    # UPGRADE that ships a new interpreter must not keep the old one either.
+    # UPGRADE that ships a new interpreter must not keep the old one, and a
+    # HALF-COPIED tree must not be mistaken for either.
     if [[ -x "$dest_py" ]]; then
-        have="$("$dest_py" --version 2>&1 | cut -d' ' -f2)"
-        if [[ "$have" == "$want" ]]; then
+        have="$(_probe_python "$dest_py")"
+        if [[ -n "$have" && "$have" == "$want" ]]; then
             printf '%s' "$dest_py"
             return 0
         fi
