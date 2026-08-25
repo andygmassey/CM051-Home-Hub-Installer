@@ -264,6 +264,7 @@ test_unreachable_is_not_absence.sh	WIRED	.github/workflows/unreachable-not-absen
 test_upgrade_mode_invariants.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_upgrade_payload_shape_contract.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_upgrade_repairs_the_fda_venv.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
+test_usage_journal_producer_gate.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_user_facing_tree.sh	UNWIRED	-
 test_usr_local_bin_symlinks_gui_safe.sh	UNWIRED	-
 test_v1010_at_rest_exclusions.sh	UNWIRED	-

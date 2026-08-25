@@ -71,6 +71,7 @@ scripts/tests/test_egress_probe_attribution.sh    an unattributable socket being
 scripts/tests/test_new_tests_are_wired_predicate.sh  a newly added test never being invoked by anything
 scripts/tests/test_comment_strip_is_quote_aware.sh   a quoted # read as a comment, so a real invocation is deleted before this gate sees it
 scripts/tests/test_invocation_predicate_rejects_non_execution.sh  bash -n scoring as a run, and the sh inside shipping scoring as a shell
+tests/test_usage_journal_producer_gate.sh         a usage-journal producer going dark while the cost panel merely shows a smaller number, and the box-walk half returning SKIP for its whole life (#713/#719)
 "
 
 cannot_run() { echo "CANNOT-RUN: $*" >&2; exit 2; }
