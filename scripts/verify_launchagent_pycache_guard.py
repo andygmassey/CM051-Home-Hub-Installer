@@ -202,18 +202,43 @@ def runs_python(root: Path, plist: dict, program_args: list[str], raw_xml: str =
     return False, ""
 
 
+# An EMPTY value is not a guard. MEASURED on the shipped v1.0.45 app:
+#
+#     env PYTHONPYCACHEPREFIX="" python3.11 -c 'import json, ssl, sqlite3, ...'
+#       -> 52 .pyc INSIDE the bundle, codesign --deep --strict rc=1
+#
+# CPython ignores an empty prefix, and treats PYTHONDONTWRITEBYTECODE as set
+# only when non-empty. So a key-presence check passes `export VAR=""` while it
+# protects nothing at all -- a bypass in the gate built to stop bypasses. This
+# check was key-presence-only until it was attacked; the arms below now cover it.
+_EMPTY_ASSIGN = re.compile(
+    r"^export\s+(?:%s|%s)\s*=\s*(?:\"\"|''|)\s*$" % (GUARD, ALT_GUARD)
+)
+
+
 def is_guarded(root: Path, plist: dict, program_args: list[str]) -> tuple[bool, str]:
     env = plist.get("EnvironmentVariables") or {}
-    if GUARD in env or ALT_GUARD in env:
-        return True, "plist EnvironmentVariables"
+    for key in (GUARD, ALT_GUARD):
+        if key in env:
+            value = str(env[key] or "").strip()
+            if not value:
+                return False, ""
+            return True, "plist EnvironmentVariables"
     for script in launched_scripts(root, program_args):
         body = script.read_text(encoding="utf-8", errors="replace")
         for line in body.splitlines():
             stripped = line.strip()
             if stripped.startswith("#"):
                 continue
-            if (GUARD in stripped or ALT_GUARD in stripped) and stripped.startswith("export "):
-                return True, f"{script.name} exports it"
+            if not stripped.startswith("export "):
+                continue
+            if GUARD not in stripped and ALT_GUARD not in stripped:
+                continue
+            if _EMPTY_ASSIGN.match(stripped):
+                # Exported, and worth nothing. Keep looking: another line may
+                # set it properly.
+                continue
+            return True, f"{script.name} exports it"
     return False, ""
 
 
@@ -420,6 +445,44 @@ def self_test() -> int:
             ),
         )
         check("a COMMENT mentioning the guard does NOT satisfy it", audit(r), 1)
+
+        # AN EMPTY VALUE IS NOT A GUARD. Measured on the shipped v1.0.45 app:
+        # PYTHONPYCACHEPREFIX="" produced 52 .pyc inside the bundle and
+        # codesign rc=1. This check was key-presence-only until it was attacked.
+        empty_plist = _GOOD_PLIST.replace(
+            "<string>/tmp/cache</string>", "<string></string>"
+        )
+        r = _scaffold(tmp / "j", {"e.plist": empty_plist})
+        check("an EMPTY value in the plist does NOT count as guarded", audit(r), 1)
+
+        bad_with_script2 = _GOOD_PLIST.replace(
+            "<string>/tmp/x/.venv/bin/python3</string><string>/tmp/x/run.py</string>",
+            "<string>/bin/bash</string><string>/tmp/x/tick.sh</string>",
+        ).replace(
+            """  <key>EnvironmentVariables</key><dict>
+    <key>PYTHONPYCACHEPREFIX</key><string>/tmp/cache</string>
+  </dict>
+""",
+            "",
+        )
+        r = _scaffold(
+            tmp / "k",
+            {"s.plist": bad_with_script2},
+            script='#!/usr/bin/env bash\nexport PYTHONPYCACHEPREFIX=""\n'
+                   'PYTHON_BIN=/tmp/x/.venv/bin/python3\n"$PYTHON_BIN" -c "import json"\n',
+        )
+        check("an EMPTY export in the script does NOT count either", audit(r), 1)
+
+        # CONTROL for both: the real form still passes, so the arms above are
+        # rejecting the EMPTINESS and not the mechanism.
+        r = _scaffold(
+            tmp / "l",
+            {"s.plist": bad_with_script2},
+            script='#!/usr/bin/env bash\n'
+                   'export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-${HOME}/.ostler/cache/pycache}"\n'
+                   'PYTHON_BIN=/tmp/x/.venv/bin/python3\n"$PYTHON_BIN" -c "import json"\n',
+        )
+        check("CONTROL the real export form still PASSES", audit(r), 0)
 
         # The malformed-XML arm. A new assertion with no self-test arm is the
         # thing this file exists to stop other people doing.
