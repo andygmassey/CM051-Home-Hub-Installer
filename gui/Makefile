@@ -309,7 +309,15 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # signed and deliberately NOT notarised: the cut re-signs it via embed-sparkle.sh
 # codesign --force --deep with the Developer ID, which would discard any earlier
 # ticket. Read from the release's own .sha256 sidecar, not from a build log.
-HUB_APP_SHA256       ?= b4ee190141866313642c0f696cb676a5b7408277bbf439e3ac6a16e46d1360c5
+# v1.0.46 (2026-08-25 ORM): re-pinned in lockstep to hub-v0.4.65, 9f77ab15,
+# built from 4d1f47ae -- the SAME commit as the v0.4.65 daemon above, so
+# verify-commit-parity keeps its meaning. I MISSED THIS PIN ON THE FIRST PASS
+# and tests/test_daemon_pins_agree.sh caught it, along with install.sh's
+# DEFAULT_ASSISTANT_TARBALL_SHA256. The reason is worth the line: I swept for
+# the string "0.4.64", which finds the two VERSION sites and neither DIGEST
+# site, because a digest does not contain its version. Sweep for the outgoing
+# SHA-256 as well as the outgoing version, or a bump silently lands half done.
+HUB_APP_SHA256       ?= 9f77ab15ee7fe952757750b48e2b0aa6a04eba7315b7b24bf966cdf76850e626
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
