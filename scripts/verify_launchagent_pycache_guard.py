@@ -255,6 +255,7 @@ def audit(root: Path) -> int:
     not_a_launchagent = 0
     python_capable = 0
     malformed: list[tuple[str, str]] = []
+    nested = 0
     unguarded: list[tuple[str, str]] = []
     guarded: list[str] = []
 
@@ -282,6 +283,11 @@ def audit(root: Path) -> int:
         if not reaches:
             continue
         python_capable += 1
+        for sc in launched_scripts(root, args):
+            for ln in sc.read_text(encoding="utf-8", errors="replace").splitlines():
+                st = ln.strip()
+                if st and not st.startswith("#") and re.search(r"\b(bash|sh|source|\.)\s+\S+\.sh\b", st):
+                    nested += 1
         ok, how = is_guarded(root, plist, args)
         if ok:
             guarded.append(f"{plist.get('Label', origin)}  [{how}]")
@@ -306,6 +312,13 @@ def audit(root: Path) -> int:
         )
 
     print(f"    malformed XML             {len(malformed)}")
+    # PRINT THE LIMIT, DO NOT BURY IT. Script resolution is ONE LEVEL DEEP: if a
+    # launched script invokes ANOTHER script that runs a python, the guard
+    # requirement is not enforced on the callee. Measured 2026-08-26 no shipped
+    # tick does that, so the gap is theoretical -- but a limit nobody can see is
+    # a limit nobody re-checks, and a "0" here is the thing that keeps it true.
+    print(f"    sub-script hops NOT followed {nested}"
+          + ("  <- resolution is one level deep; re-read this check if non-zero" if nested else ""))
     for origin, reason in malformed:
         print(f"      FAIL  {origin}  ({reason})")
 
