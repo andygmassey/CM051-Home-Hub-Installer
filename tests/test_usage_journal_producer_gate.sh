@@ -360,14 +360,27 @@ R4="$(resolved_with "HOME=${FAKE_HOME}")"
 mkdir -p "${W}/assistant-config"
 : > "${W}/assistant-config/config.toml"
 R2B="$(resolved_with "HOME=${FAKE_HOME}" "ZEROCLAW_WORKSPACE=${W}/assistant-config")"
+# Branch 3: the ~/.ostler/active_workspace.toml marker. Exercised with a
+# SEPARATE fake home, so writing the marker cannot change what branch 4 (the
+# no-marker default) resolves to -- a control that destroys the surface the
+# next control measures is not a control.
+MARKER_HOME="${W}/home_with_marker"
+mkdir -p "${MARKER_HOME}/.ostler"
+printf 'config_dir = "%s/elsewhere"\n' "$W" > "${MARKER_HOME}/.ostler/active_workspace.toml"
+R3="$(resolved_with "HOME=${MARKER_HOME}")"
 
 RESOLVER_BAD=""
 [ "$R1"  = "${W}/cfg/workspace/state/costs.jsonl" ]                  || RESOLVER_BAD="${RESOLVER_BAD} branch1(ZEROCLAW_CONFIG_DIR)=${R1}"
 [ "$R2"  = "${W}/ws/workspace/state/costs.jsonl" ]                   || RESOLVER_BAD="${RESOLVER_BAD} branch2(dir-named-workspace,used-as-is)=${R2}"
 [ "$R2B" = "${W}/assistant-config/workspace/state/costs.jsonl" ]     || RESOLVER_BAD="${RESOLVER_BAD} branch2b(config-dir,append-workspace)=${R2B}"
+[ "$R3"  = "${W}/elsewhere/workspace/state/costs.jsonl" ]            || RESOLVER_BAD="${RESOLVER_BAD} branch3(active_workspace.toml-marker)=${R3}"
 [ "$R4"  = "${FAKE_HOME}/.ostler/workspace/state/costs.jsonl" ]      || RESOLVER_BAD="${RESOLVER_BAD} branch4(default)=${R4}"
+# CONTROL: branch 3 and branch 4 must NOT resolve to the same place. If the
+# marker were being ignored they would both land on <home>/.ostler/workspace
+# and every equality above could still hold for the wrong reason.
+[ "$R3" != "$R4" ] || RESOLVER_BAD="${RESOLVER_BAD} branch3==branch4(the marker was ignored)"
 if [ -z "$RESOLVER_BAD" ]; then
-    pass "(11) all four journal-path branches resolve as the contract documents, including the config-dir-in-a-workspace-variable arm the installer actually uses"
+    pass "(11) all FIVE journal-path arms resolve as the contract documents -- the two env branches, the config-dir-in-a-workspace-variable arm the installer actually uses, the active_workspace.toml marker, and the default"
 else
     failure "(11) the resolver disagrees with the contract:${RESOLVER_BAD}"
 fi
@@ -396,14 +409,16 @@ else
     S1="$(shell_resolved_with "HOME=${FAKE_HOME}" "ZEROCLAW_CONFIG_DIR=${W}/cfg")"
     S2="$(shell_resolved_with "HOME=${FAKE_HOME}" "OSTLER_WORKSPACE=${W}/ws/workspace")"
     S2B="$(shell_resolved_with "HOME=${FAKE_HOME}" "ZEROCLAW_WORKSPACE=${W}/assistant-config")"
+    S3="$(shell_resolved_with "HOME=${MARKER_HOME}")"
     S4="$(shell_resolved_with "HOME=${FAKE_HOME}")"
     DRIFT=""
     [ "$S1"  = "$R1"  ] || DRIFT="${DRIFT} branch1(shell=${S1} python=${R1})"
     [ "$S2"  = "$R2"  ] || DRIFT="${DRIFT} branch2(shell=${S2} python=${R2})"
     [ "$S2B" = "$R2B" ] || DRIFT="${DRIFT} branch2b(shell=${S2B} python=${R2B})"
+    [ "$S3"  = "$R3"  ] || DRIFT="${DRIFT} branch3(shell=${S3} python=${R3})"
     [ "$S4"  = "$R4"  ] || DRIFT="${DRIFT} branch4(shell=${S4} python=${R4})"
     if [ -z "$DRIFT" ]; then
-        pass "(12) the probe's shell resolver and the gate's python resolver agree on all four branches"
+        pass "(12) the probe's shell resolver and the gate's python resolver agree on all five arms, marker branch included"
     else
         failure "(12) THE TWO RESOLVERS DISAGREE:${DRIFT}. A reader and a writer pointed at different files measure nothing."
     fi
