@@ -3363,3 +3363,21 @@ deferrals:
       moment of a cut it would change the gating of. Land first thing in
       v1.0.46 and let it gate that cut from the start.
     until_cut: "v1.0.46"
+
+  - ref: daemon:#342
+    reason: >-
+      'feat(usage): what your Mac did, with a rate table that can go stale and
+      gates that can go red'. Opened 2026-08-25 05:45Z, AFTER the v1.0.45 scope
+      was fixed, and it is a FEATURE, not a v1.0.44 walk fix -- checked against
+      the walk rows (#873-#877) and it claims none of them; #877 is separately
+      closed by oa #341, MERGED at c4c5b40b, which is the exact commit
+      hub-v0.4.64 was built from. 1,981 additions / 733 deletions across 15
+      files including zeroclaw-runtime, zeroclaw-gateway and zeroclaw-config,
+      plus the SPA. Merging it moves oa main off the DAEMON_COMMIT pin, which
+      flips the daemon freshness row to RED STALE and forces a full rebuild,
+      re-sign, re-notarise and five-site re-pin of a daemon that is already
+      published and artefact-verified -- hours before Andy walks this DMG. Its
+      own body states the work is unfinished ('the remaining blocker is the
+      Python producers for ingestion'). Land it first in v1.0.46, on a daemon
+      rebuild it can be gated by from the start.
+    until_cut: "v1.0.46"
