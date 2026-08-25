@@ -63,6 +63,100 @@ if [ ! -f "$ENTITLEMENTS" ]; then
     exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# PRECOMPILE THE BUNDLED STDLIB *BEFORE* SIGNING, SO THE .pyc ARE INSIDE THE SEAL.
+# ---------------------------------------------------------------------------
+# THE DEFECT THIS CLOSES, MEASURED ON THE SHIPPED v1.0.45 ARTEFACT 2026-08-26:
+#
+#   OstlerInstaller-1.0.45.dmg, sha256 70ebd926...989b57, dittoed to a WRITABLE
+#   dir (the only place the defect exists -- see below), then:
+#
+#     env -u PYTHONPYCACHEPREFIX -u PYTHONDONTWRITEBYTECODE \
+#         .../python/bin/python3.11 -c 'import secrets,hmac,platform'
+#
+#     .pyc inside the bundle   BEFORE 0  ->  AFTER 26
+#     codesign --verify --deep --strict   rc=1
+#       "a sealed resource is missing or invalid"
+#
+#   CPython writes __pycache__/*.pyc next to the source it imports. That source
+#   is inside the notarised .app, so the first import from a writable location
+#   ADDS files to a signed bundle and voids the seal. macOS then refuses the app
+#   as "damaged and can't be opened. You should move it to the Bin." It reaches
+#   EVERY customer: quarantine is attached by every browser download and the
+#   failure is on FIRST RUN.
+#
+# WHY PYTHONPYCACHEPREFIX ALONE IS NOT ENOUGH, AND THIS IS THE WHOLE POINT.
+#
+# InstallerCoordinator.swift sets PYTHONPYCACHEPREFIX on the process it spawns,
+# and that WORKS -- measured, same binary, same import, second arm:
+#     .pyc inside the bundle 0 -> 0, 26 redirected to the cache dir, codesign rc=0
+# But it is a fix conditional on a fact about the CALLER. v1.0.45 SHIPPED that
+# Swift fix (the string is in the shipped Mach-O: PYTHONPYCACHEPREFIX greps 2)
+# and v1.0.45 STILL BRICKED on hardware. After a full sweep of this repo --
+# 16 ProgramArguments blocks, only one python reference and it is the Doctor's
+# own venv, not this bundle; both install.sh resolution sites under the Swift
+# env -- the invoker that wrote those bytes REMAINS UNIDENTIFIED.
+#
+# So this step does not depend on knowing it. A file that is already present
+# cannot be added. Seeding is a fact about the ARTEFACT, not about its callers,
+# and it holds for callers nobody has found and callers that do not exist yet.
+#
+# MEASURED, same artefact, same harness:
+#     compileall           ->  1448 .pyc seeded, rc=0
+#     then the no-env run  ->  1448, NEW FILES WRITTEN = 0
+#     then a broad no-env import (json ssl sqlite3 subprocess urllib.request
+#       venv plistlib shutil tempfile)
+#                          ->  1448, NEW SINCE SEED = 0
+#
+# KEEP BOTH MECHANISMS. They are not redundant and they are not fighting:
+# the prefix keeps stray caches out of the bundle for callers that carry it,
+# the seeding makes breaking the seal structurally impossible for those that
+# do not. Removing either one re-opens a limb.
+#
+# ORDER MATTERS: this runs BEFORE the Mach-O walk below and therefore before
+# the caller's outer codesign, so the .pyc are sealed rather than added later.
+# .pyc are not Mach-O, so the walk skips them -- they need no signature of
+# their own, only to be inside the seal.
+#
+# 🔴 FAILS CLOSED. compileall exits non-zero if ANY file fails to compile, and
+# a partial seed is the dangerous state: the modules that did NOT compile are
+# exactly the ones a customer's first import will write. There is no
+# `|| true` here on purpose.
+BUNDLED_PY="${PYTHON_DIR}/bin/python3.11"
+if [ ! -x "$BUNDLED_PY" ]; then
+    echo "ERROR: bundled interpreter not found at $BUNDLED_PY" >&2
+    echo "       Cannot precompile the stdlib, so the shipped .app would write" >&2
+    echo "       .pyc into its own signed bundle on the customer's first run and" >&2
+    echo "       be refused by Gatekeeper as damaged. Refusing to sign." >&2
+    exit 1
+fi
+
+PYC_BEFORE="$(find "$PYTHON_DIR" -name '*.pyc' | wc -l | tr -d ' ')"
+echo "Precompiling bundled stdlib (.pyc before: $PYC_BEFORE)..."
+if ! "$BUNDLED_PY" -m compileall -q "${PYTHON_DIR}/lib"; then
+    echo "ERROR: compileall failed on ${PYTHON_DIR}/lib" >&2
+    echo "       A PARTIAL seed is worse than none: whatever failed to compile is" >&2
+    echo "       what the customer's first import will write into the signed" >&2
+    echo "       bundle, voiding the seal. Refusing to sign." >&2
+    exit 1
+fi
+PYC_AFTER="$(find "$PYTHON_DIR" -name '*.pyc' | wc -l | tr -d ' ')"
+echo "Precompiled: $PYC_AFTER .pyc now inside the bundle (was $PYC_BEFORE)"
+
+# ANTI-VACUITY. A compileall that silently compiled nothing exits 0 and would
+# leave this step looking green while shipping the exact defect it exists to
+# prevent -- the "uniform zero from a broken predicate" shape. The v1.0.45
+# bundle seeds 1448; a floor of 500 catches a python tree that failed to
+# extract or a lib/ path that moved, without pinning us to an exact count that
+# a python patch bump would legitimately change.
+if [ "$PYC_AFTER" -lt 500 ]; then
+    echo "ERROR: only $PYC_AFTER .pyc after compileall -- expected >=500" >&2
+    echo "       (v1.0.45's bundled stdlib seeds 1448). A near-zero count means" >&2
+    echo "       compileall found no stdlib to compile: check that" >&2
+    echo "       ${PYTHON_DIR}/lib exists and python-build-standalone extracted." >&2
+    exit 1
+fi
+
 echo "Walking $PYTHON_DIR for Mach-O files..."
 echo "Entitlements: $ENTITLEMENTS"
 
