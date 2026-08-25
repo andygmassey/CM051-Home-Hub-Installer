@@ -121,6 +121,15 @@ chmod +x "$TMP/bin/date"
 
 LOCK="$TMP/state/ingest.lock.d"
 
+# The tick FAILS CLOSED on an unconfigured environment: with no
+# OSTLER_USER_ID it exits EX_CONFIG (78), "Refusing to run an
+# unconfigured...", and writes nothing. The fixture never set it, so
+# seven assertions read back '' and reported behaviour failures that
+# were really one missing fixture variable. The subject is correct.
+# NOTE: this assignment belongs INSIDE the env list below. A comment
+# placed between a `\` continuation and its command terminates the
+# continuation, leaving `env` with no command -- it then prints the
+# environment and every assertion silently reads ''.
 run_tick() {
     # run_tick <fake_hour> [extra OSTLER_* env assignments...]
     local hour="$1"; shift
@@ -132,6 +141,7 @@ run_tick() {
         OSTLER_SOURCE_DIR="$TMP/src" \
         OSTLER_IMESSAGE_SINCE_DAYS=30 \
         OSTLER_INGEST_LOCK="$LOCK" \
+        OSTLER_USER_ID="${OSTLER_USER_ID:-orm-test-user}" \
         "$@" \
         bash "$IMSG" >/dev/null 2>&1 || true
 }
@@ -209,6 +219,7 @@ run_tick_marker() {
         FAKE_HOUR="$hour" \
         FAKEPY_OUT="$TMP/out.txt" \
         OSTLER_PYTHON="$TMP/bin/fakepy" \
+        OSTLER_USER_ID="${OSTLER_USER_ID:-orm-test-user}" \
         OSTLER_SOURCE_DIR="$TMP/src" \
         OSTLER_IMESSAGE_SINCE_DAYS=30 \
         OSTLER_INGEST_LOCK="$LOCK" \
