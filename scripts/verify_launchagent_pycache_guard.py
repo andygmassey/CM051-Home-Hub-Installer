@@ -102,6 +102,38 @@ def _substitute(xml: str) -> str:
     return xml
 
 
+def parses_strictly(xml: str) -> str | None:
+    """Return None if the document is well-formed XML, else the parser's reason.
+
+    Separate from `_parse` on purpose. `_parse` STRIPS COMMENTS so the audit can
+    always do its job; this one does not, because the defect it looks for lives
+    in a comment.
+
+    XML forbids a double hyphen inside a comment. Three inline plists in this
+    repo carried one, and every strict reader refused the WHOLE document as a
+    result. `plutil -lint` says OK on all of them -- Apple's parser is lenient
+    and launchd loads them happily -- so "I linted the plist" was not evidence.
+    Measured on com.ostler.ical-server:
+
+        plutil -lint  ->  OK
+        plistlib      ->  not well-formed (invalid token): line 44, column 24
+
+    Same file, two answers. The check has to be the parser that will actually
+    reject the thing you are worried about.
+    """
+    try:
+        plistlib.loads(_substitute_keeping_comments(xml).encode("utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return str(exc)
+    return None
+
+
+def _substitute_keeping_comments(xml: str) -> str:
+    xml = VAR_RE.sub("/tmp/substituted", xml)
+    xml = PLACEHOLDER_RE.sub("/tmp/substituted", xml)
+    return NUMERIC_SUB_RE.sub(lambda m: f"<{m.group(1)}>0</{m.group(1)}>", xml)
+
+
 def _parse(xml: str, origin: str) -> dict:
     try:
         return plistlib.loads(_substitute(xml).encode("utf-8"))
@@ -197,10 +229,14 @@ def audit(root: Path) -> int:
     examined = 0
     not_a_launchagent = 0
     python_capable = 0
+    malformed: list[tuple[str, str]] = []
     unguarded: list[tuple[str, str]] = []
     guarded: list[str] = []
 
     for origin, xml in entries:
+        reason = parses_strictly(xml)
+        if reason is not None:
+            malformed.append((origin, reason))
         plist = _parse(xml, origin)
         # install.sh also writes Info.plist documents for app wrappers
         # (CFBundleExecutable and friends, ~12663 and ~12815). They are not
@@ -243,6 +279,20 @@ def audit(root: Path) -> int:
             "no plist reaches a python. Measured 2026-08-26 there are four, so "
             "a zero here means the predicate broke, not that the risk went away."
         )
+
+    print(f"    malformed XML             {len(malformed)}")
+    for origin, reason in malformed:
+        print(f"      FAIL  {origin}  ({reason})")
+
+    if malformed:
+        print()
+        print("A plist that is not well-formed XML loads under launchd anyway,")
+        print("because Apple's parser is lenient, and is then unreadable to every")
+        print("strict tool we or anyone else writes against it. The usual cause is")
+        print("a DOUBLE HYPHEN inside an XML comment, which XML forbids.")
+        print("`plutil -lint` will NOT catch it: measured, it says OK on documents")
+        print("plistlib refuses outright.")
+        return 1
 
     if unguarded:
         print()
@@ -370,6 +420,24 @@ def self_test() -> int:
             ),
         )
         check("a COMMENT mentioning the guard does NOT satisfy it", audit(r), 1)
+
+        # The malformed-XML arm. A new assertion with no self-test arm is the
+        # thing this file exists to stop other people doing.
+        malformed = _GOOD_PLIST.replace(
+            "<key>Label</key>",
+            "<!-- a comment with a double -- hyphen, which XML forbids -->\n  <key>Label</key>",
+        )
+        r = _scaffold(tmp / "h", {"m.plist": malformed})
+        check("a plist that is not well-formed XML FAILS", audit(r), 1)
+
+        # CONTROL: the same comment WITHOUT the double hyphen must pass, so the
+        # arm above is failing on the hyphen and not merely on having a comment.
+        ok_comment = _GOOD_PLIST.replace(
+            "<key>Label</key>",
+            "<!-- a comment with a single - hyphen, which is fine -->\n  <key>Label</key>",
+        )
+        r = _scaffold(tmp / "i", {"m.plist": ok_comment})
+        check("CONTROL the same comment without the double hyphen PASSES", audit(r), 0)
 
     print()
     if failures:

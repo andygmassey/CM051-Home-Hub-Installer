@@ -10283,17 +10283,17 @@ else
         spoken) all summarise through it. Two settings keep chat snappy
         on a fresh install while the historic backlog is still draining:
 
-          OLLAMA_NUM_PARALLEL (2 on LOW/HIGH, 1 on the FLOOR tier) --
+          OLLAMA_NUM_PARALLEL (2 on LOW/HIGH, 1 on the FLOOR tier) -
             serve two requests against the one loaded model concurrently.
             Combined with the single-flight lock the conversation feeds
             take (they never run more than one summary at a time), this
             reserves a slot so a chat turn never queues behind a
             minute-long backfill summary. It is
             RAM-cheap: the model weights are shared across slots; only a
-            second (small, 4K-context) KV cache is added -- safe even on
+            second (small, 4K-context) KV cache is added - safe even on
             a 16GB Mac.
 
-          OLLAMA_KEEP_ALIVE=-1 -- keep the model resident instead of
+          OLLAMA_KEEP_ALIVE=-1 - keep the model resident instead of
             unloading it after each idle gap. Stops the cold-reload
             thrash that made the first chat after a quiet spell take
             tens of seconds.
@@ -17028,7 +17028,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              here would forward a working route straight into a 404. This is
              written down because the symptom that brought anyone here was a
              404 from the Doctor, and "the Doctor 404s it, so add it to the
-             proxy list" is the repair that looks right and is wrong -- the
+             proxy list" is the repair that looks right and is wrong - the
              real cause was that the held vendor pin predated the routes, so
              the shipped payload never registered them at all.
              Guard: tests/test_doctor_governor_routes_vendored.sh limb F. -->
