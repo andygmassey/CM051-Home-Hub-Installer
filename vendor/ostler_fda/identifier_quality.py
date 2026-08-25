@@ -86,7 +86,7 @@ import re
 import unicodedata
 
 from nameparser import HumanName
-from typing import Iterable, Set
+from typing import Dict, Iterable, Set
 
 try:
     from .role_addresses import is_role_identifier

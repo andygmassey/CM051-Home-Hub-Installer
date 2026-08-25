@@ -82,6 +82,39 @@ discarded and the checkpoint stays put -- no silent partial-state
 leak. Mirrors the no-silent-fallback discipline applied to the
 H4 / H5 audit fixes 2026-05-01.
 
+Memory contract
+---------------
+Peak memory is bounded by MESSAGE COUNT, not by mailbox SIZE.
+
+The tick runs in two passes:
+
+1. **Scan** -- ``scan_emlx_metadata`` reads at most
+   ``HEADER_SCAN_BYTES`` (64 KiB) from the front of each ``.emlx``,
+   just far enough to read ``Date:``, and retains only an
+   ``EmlxMeta`` (a path and a datetime). Bodies are never held.
+2. **Emit** -- only the messages the two sweeps selected are opened,
+   with ``parse_emlx``, ONE AT A TIME, and streamed straight to the
+   mbox. Each body is released before the next file is opened.
+
+So peak retained bytes are roughly
+``(messages in mailbox * sizeof(EmlxMeta)) + (largest single message)``
+-- tens of MB on a mailbox of any size -- rather than the total
+number of bytes in the mail store.
+
+This is load-bearing, not a tidy-up. The previous implementation
+built a ``list[ParsedEmlx]`` covering the WHOLE mailbox before
+filtering, so a tick's resident set was the size of the user's mail
+store: measured at 11.49 GB with 11.21 GB of swap in use on a 16 GB
+Mac mini, held for a ~14-minute tick every ~70 minutes. That is the
+same memory precondition that killed the Colima VM and took the wiki
+down. Worse, it was paid in full even on ticks that emitted NOTHING,
+because the filtering happened after every body had already been
+read and retained.
+
+If you add a pass over the mailbox here, keep it body-free, and keep
+``test_apple_mail_mbox_memory.py`` passing -- it is the regression
+guard on this contract.
+
 Observability posture
 ---------------------
 Each tick (success or failure) records an observability-posture
@@ -125,6 +158,15 @@ DEFAULT_INITIAL_BACKFILL_DAYS = 365
 # Matches the LaunchAgent label suffix (``email-ingest``) so Doctor
 # can correlate the marker with the launchctl entry.
 SERVICE_NAME = "email-ingest"
+
+# How much of each .emlx the metadata scan reads to find ``Date:``.
+# RFC 5322 sets no cap on a header block, but Apple Mail writes Date:
+# within the first couple of KiB; 64 KiB is generous headroom and
+# still ~30x smaller than the mean message on a mailbox with
+# attachments. A header block that overruns this window falls back to
+# a full parse of that ONE file (see ``scan_emlx_metadata``), so the
+# window is a performance knob and never a correctness one.
+HEADER_SCAN_BYTES = 64 * 1024
 
 
 def _ostler_home() -> Path:
@@ -291,18 +333,30 @@ class ParsedEmlx:
     source_path: Path
 
 
-def parse_emlx(path: Path) -> ParsedEmlx:
-    """Read a single ``.emlx`` file and return its RFC 822 body.
+@dataclass(frozen=True)
+class EmlxMeta:
+    """Ordering key for one ``.emlx`` -- WITHOUT its body.
 
-    The .emlx format prepends a decimal byte count + newline before
-    the RFC 822 portion, then appends an XML plist with internal
-    flags. We strip both wrappers and return the inner message.
-
-    ``received_at`` comes from the message's ``Date:`` header when
-    present, falling back to file mtime so the caller still has an
-    ordering key for messages with malformed dates.
+    This is the per-message record the scan pass retains for every
+    file in the mailbox. Holding ``ParsedEmlx`` here instead is what
+    made peak memory proportional to total mailbox SIZE rather than
+    to message COUNT: ``ParsedEmlx`` carries ``rfc822_bytes``, so a
+    list of them is a second copy of the entire mail store in RAM.
+    See ``emit_mbox`` for the two-pass structure that replaced it.
     """
-    data = path.read_bytes()
+
+    path: Path
+    received_at: Optional[datetime]
+
+
+def _split_length_prefix(data: bytes, path: Path) -> tuple[int, int]:
+    """Return ``(rfc822_start, length)`` for a length-prefixed .emlx.
+
+    Raises ``ValueError`` on a malformed prefix. Shared by the full
+    parse and the metadata scan so both agree on exactly which files
+    are unreadable -- a file the scan skips must be a file the emit
+    pass would also have skipped.
+    """
     newline = data.find(b"\n")
     if newline < 0:
         raise ValueError(f"{path} has no length-prefix newline; malformed .emlx")
@@ -312,21 +366,26 @@ def parse_emlx(path: Path) -> ParsedEmlx:
         raise ValueError(
             f"{path} length prefix is not an integer: {data[:newline]!r}"
         ) from exc
+    return newline + 1, length
 
-    rfc822_start = newline + 1
-    rfc822_end = rfc822_start + length
-    if rfc822_end > len(data):
-        # Some Mail-versions truncate the trailing plist; clip to the
-        # file size and continue rather than dropping the message.
-        rfc822_end = len(data)
-    rfc822 = data[rfc822_start:rfc822_end]
 
-    # Pull Date and From out of the RFC 822 headers without invoking
-    # the full email parser -- this is the hot path on the LaunchAgent
-    # tick and we touch hundreds of files per run.
+def _header_fields(rfc822: bytes) -> tuple[Optional[datetime], str, bool]:
+    """Pull ``Date:`` and ``From:`` out of an RFC 822 header block.
+
+    Returns ``(received_at, sender_address, header_block_terminated)``.
+    ``header_block_terminated`` reports whether a blank line actually
+    closed the header block inside ``rfc822`` -- the metadata scan
+    uses it to detect a header block that overran its read window.
+
+    Deliberately does not invoke the full ``email`` parser: this is
+    the hot path on the LaunchAgent tick and we touch every file in
+    the mailbox on every run.
+    """
+    headers_blob = rfc822.split(b"\r\n\r\n", 1)[0].split(b"\n\n", 1)[0]
+    terminated = b"\r\n\r\n" in rfc822 or b"\n\n" in rfc822
+
     received_at: Optional[datetime] = None
     sender_address = ""
-    headers_blob = rfc822.split(b"\r\n\r\n", 1)[0].split(b"\n\n", 1)[0]
     for line in headers_blob.splitlines():
         try:
             line_s = line.decode("utf-8", errors="replace")
@@ -347,13 +406,44 @@ def parse_emlx(path: Path) -> ParsedEmlx:
                 sender_address = value.split("<", 1)[1].split(">", 1)[0].strip()
             else:
                 sender_address = value
+    return received_at, sender_address, terminated
+
+
+def _mtime_utc(path: Path) -> Optional[datetime]:
+    """File mtime as an aware UTC datetime, or ``None`` if unstattable."""
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    except OSError:
+        return None
+
+
+def parse_emlx(path: Path) -> ParsedEmlx:
+    """Read a single ``.emlx`` file and return its RFC 822 body.
+
+    The .emlx format prepends a decimal byte count + newline before
+    the RFC 822 portion, then appends an XML plist with internal
+    flags. We strip both wrappers and return the inner message.
+
+    ``received_at`` comes from the message's ``Date:`` header when
+    present, falling back to file mtime so the caller still has an
+    ordering key for messages with malformed dates.
+
+    Reads the whole file. Call it ONE MESSAGE AT A TIME and let the
+    result fall out of scope before the next -- see ``scan_emlx_metadata``
+    for the body-free pass used to decide which messages are wanted.
+    """
+    data = path.read_bytes()
+    rfc822_start, length = _split_length_prefix(data, path)
+    rfc822_end = rfc822_start + length
+    if rfc822_end > len(data):
+        # Some Mail-versions truncate the trailing plist; clip to the
+        # file size and continue rather than dropping the message.
+        rfc822_end = len(data)
+    rfc822 = data[rfc822_start:rfc822_end]
+
+    received_at, sender_address, _terminated = _header_fields(rfc822)
     if received_at is None:
-        try:
-            received_at = datetime.fromtimestamp(
-                path.stat().st_mtime, tz=timezone.utc,
-            )
-        except OSError:
-            received_at = None
+        received_at = _mtime_utc(path)
 
     return ParsedEmlx(
         received_at=received_at,
@@ -361,6 +451,53 @@ def parse_emlx(path: Path) -> ParsedEmlx:
         sender_address=sender_address or "unknown@unknown",
         source_path=path,
     )
+
+
+def scan_emlx_metadata(
+    path: Path, *, header_bytes: int = HEADER_SCAN_BYTES,
+) -> EmlxMeta:
+    """Read just enough of a ``.emlx`` to date it. Never retains the body.
+
+    The emit decision needs one field -- ``received_at`` -- and that
+    field lives in the header block at the very front of the file.
+    Reading the whole message to obtain it, and then KEEPING the
+    message so a later pass can filter it, is what put the entire
+    mail store in RAM.
+
+    Reads at most ``header_bytes`` and returns a body-free
+    ``EmlxMeta``, so the scan pass costs O(number of messages) in
+    memory instead of O(size of mailbox).
+
+    Raises the same ``ValueError`` / ``OSError`` as ``parse_emlx``
+    for a malformed or unreadable file, so the caller's skip
+    accounting is identical either way.
+    """
+    with path.open("rb") as fh:
+        head = fh.read(header_bytes)
+
+    rfc822_start, length = _split_length_prefix(head, path)
+    # Never read past the RFC 822 region into the plist trailer: the
+    # trailer is XML and could otherwise be mistaken for headers.
+    head_rfc822 = head[rfc822_start:rfc822_start + length]
+
+    received_at, _sender, terminated = _header_fields(head_rfc822)
+
+    if received_at is None and not terminated and len(head_rfc822) < length:
+        # The header block did not fit in the read window. Rare (Apple
+        # Mail puts Date: within the first few KiB), but correctness
+        # must not depend on the window size, so fall back to a full
+        # parse of THIS ONE file. Still bounded: one message at a time.
+        logger.debug(
+            "Header block of %s overran the %d-byte scan window; "
+            "falling back to a full parse for this file.",
+            path, header_bytes,
+        )
+        received_at = parse_emlx(path).received_at
+
+    if received_at is None:
+        received_at = _mtime_utc(path)
+
+    return EmlxMeta(path=path, received_at=received_at)
 
 
 def discover_emlx_files(mail_dir: Path) -> Iterator[Path]:
@@ -600,25 +737,35 @@ def emit_mbox(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Discover everything once. parse_emlx is the hot path and we
-    # already touched every file in v1; the new model adds another
-    # filter pass over the same in-memory list rather than walking
-    # the tree twice.
-    discovered: list[ParsedEmlx] = []
+    # PASS 1 -- SCAN. Date every message in the mailbox WITHOUT keeping
+    # any bodies. This pass is what decides which messages the two
+    # sweeps want; it must therefore touch every file, but it retains
+    # only a path + a datetime per message.
+    #
+    # This used to build a list of ParsedEmlx, i.e. every RFC 822 body
+    # in the mailbox held in RAM simultaneously, and it did so even on
+    # a tick that went on to emit nothing at all. On a multi-gigabyte
+    # mail store that is a multi-gigabyte resident set on a 16 GB box:
+    # the precondition that took out the Colima VM. Peak memory is now
+    # O(message count) here plus O(largest single message) in pass 2,
+    # instead of O(total mailbox bytes).
+    discovered: list[EmlxMeta] = []
     skipped_unparseable = 0
     skipped_no_date = 0
+    scanned_files = 0
     try:
         for emlx_path in discover_emlx_files(mail_dir):
+            scanned_files += 1
             try:
-                parsed = parse_emlx(emlx_path)
+                meta = scan_emlx_metadata(emlx_path)
             except (OSError, ValueError) as exc:
                 logger.warning("Skipping unreadable .emlx %s: %s", emlx_path, exc)
                 skipped_unparseable += 1
                 continue
-            if parsed.received_at is None:
+            if meta.received_at is None:
                 skipped_no_date += 1
                 continue
-            discovered.append(parsed)
+            discovered.append(meta)
     except PermissionError as exc:
         # Apple Mail's ~/Library/Mail requires Full Disk Access.
         # Map this to the dedicated posture status so Doctor can
@@ -644,7 +791,7 @@ def emit_mbox(
     # oldest_edge); strictly less than the edge so we don't
     # double-emit a message that happens to land exactly on a
     # chunk boundary.
-    backward: list[ParsedEmlx] = []
+    backward: list[EmlxMeta] = []
     new_oldest_edge = oldest_edge
     if not backfill_complete and oldest_edge is not None and not is_seeding_tick:
         chunk_floor = oldest_edge - _days(backfill_chunk_days)
@@ -703,6 +850,27 @@ def emit_mbox(
             oldest_edge.isoformat() if oldest_edge else "<none>",
             backfill_complete,
         )
+        # A tick that walked the whole mail store and produced nothing
+        # is not the same event as an idle tick on an empty mailbox,
+        # and it must not print like one. The 12:19 tick on 2026-08-23
+        # emitted zero messages while holding ~11.5 GB, and said only
+        # "no new messages" -- the cost was invisible in the log, so
+        # the only evidence it had happened at all was a memory graph.
+        # State the work done alongside the work produced, every time.
+        if scanned_files:
+            logger.warning(
+                "ZERO-OUTPUT TICK: scanned %d .emlx file(s) and emitted 0 "
+                "messages (%d dated, %d unparseable, %d undated). The scan "
+                "pass reads every file in the mail store every tick by "
+                "design; if this repeats with a large scan count the "
+                "checkpoint edges are not advancing (forward cutoff=%s, "
+                "oldest_edge=%s, backfill_complete=%s).",
+                scanned_files, len(discovered), skipped_unparseable,
+                skipped_no_date,
+                forward_cutoff.isoformat() if forward_cutoff else "the dawn of time",
+                oldest_edge.isoformat() if oldest_edge else "<none>",
+                backfill_complete,
+            )
         # Persist the advanced edges + last_run_at even on a zero-
         # emit tick: the backward sweep needs to advance one chunk
         # whether or not it found mail, otherwise an empty 30-day
@@ -729,21 +897,55 @@ def emit_mbox(
         )
         return 0
 
+    # PASS 2 -- EMIT. Read the selected messages ONE AT A TIME and
+    # stream each straight to the mbox. The body of message N is
+    # released before message N+1 is opened, so this pass costs one
+    # message in memory regardless of how many are being emitted or
+    # how large the mailbox is.
+    #
+    # `fresh` holds EmlxMeta (path + date), not bodies, so the emit
+    # set itself is cheap to hold even for a 5-year backfill chunk.
+    forward_paths = {m.path for m in forward}
+    emitted_forward_dates: list[datetime] = []
+    emitted_count = 0
+    skipped_at_emit = 0
     try:
         with output_path.open("ab") as fh:
-            for parsed in fresh:
+            for meta in fresh:
+                try:
+                    parsed = parse_emlx(meta.path)
+                except (OSError, ValueError) as exc:
+                    # The file was readable during the scan pass and is
+                    # not now -- Apple Mail rearranges its tree mid-tick
+                    # (#197). Skip it and let a later tick pick it up
+                    # rather than failing the whole run.
+                    logger.warning(
+                        "Skipping .emlx that became unreadable between scan "
+                        "and emit %s: %s", meta.path, exc,
+                    )
+                    skipped_at_emit += 1
+                    continue
                 fh.write(_format_mbox_record(parsed))
+                emitted_count += 1
+                if meta.path in forward_paths and meta.received_at is not None:
+                    emitted_forward_dates.append(meta.received_at)
+                # Drop the body before opening the next file. Without
+                # this the loop variable keeps the last message alive,
+                # which is harmless at one message but makes the intent
+                # of the pass unclear to the next reader.
+                del parsed
     except OSError as exc:
         _record("extract_failed", error_message=f"mbox write failed: {exc}")
         raise
 
-    # Forward edge advances to the latest received_at we just
-    # emitted (or stays put if we only did backward work).
-    forward_received = [
-        p.received_at for p in forward if p.received_at is not None
-    ]
+    # Forward edge advances to the latest received_at we actually
+    # emitted (or stays put if we only did backward work). Using the
+    # EMITTED dates rather than the candidate dates means a message
+    # that vanished between the two passes is not silently stepped
+    # over by the checkpoint.
     advanced_newest = (
-        max(forward_received) if forward_received else checkpoint.newest_processed
+        max(emitted_forward_dates) if emitted_forward_dates
+        else checkpoint.newest_processed
     )
 
     try:
@@ -753,7 +955,7 @@ def emit_mbox(
                 oldest_processed=new_oldest_edge,
                 backfill_complete=new_backfill_complete,
                 last_run_at=now,
-                last_emit_count=len(fresh),
+                last_emit_count=emitted_count,
             ),
             checkpoint_path,
         )
@@ -762,21 +964,22 @@ def emit_mbox(
         raise
 
     logger.info(
-        "Emitted %d messages to %s (forward=%d, backward=%d, latest=%s, "
-        "oldest_edge=%s, backfill_complete=%s, %d unparseable, %d undated skipped).",
-        len(fresh), output_path, len(forward), len(backward),
+        "Emitted %d messages to %s (scanned=%d, forward=%d, backward=%d, "
+        "latest=%s, oldest_edge=%s, backfill_complete=%s, %d unparseable, "
+        "%d undated, %d vanished between scan and emit).",
+        emitted_count, output_path, scanned_files, len(forward), len(backward),
         advanced_newest.isoformat() if advanced_newest else "<none>",
         new_oldest_edge.isoformat() if new_oldest_edge else "<none>",
         new_backfill_complete,
-        skipped_unparseable, skipped_no_date,
+        skipped_unparseable, skipped_no_date, skipped_at_emit,
     )
     _record(
         "success",
-        emitted=len(fresh),
+        emitted=emitted_count,
         oldest=new_oldest_edge,
         newest=advanced_newest,
     )
-    return len(fresh)
+    return emitted_count
 
 
 def _days(n: int) -> "datetime":  # noqa: F821 -- forward ref to timedelta below
