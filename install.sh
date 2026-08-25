@@ -16986,7 +16986,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              bundled inside OstlerInstaller.app, so every import writes
              __pycache__ into the signed bundle and breaks its code seal
              (measured on v1.0.45: 69 .pyc from one ordinary import,
-             codesign --verify --deep --strict rc=1, spctl refusing).
+             codesign rc=1, spctl refusing).
              LaunchAgents inherit no environment, so it must be set here. -->
         <key>PYTHONPYCACHEPREFIX</key>
         <string>${OSTLER_DIR}/cache/pycache</string>
@@ -17252,7 +17252,7 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              bundled inside OstlerInstaller.app, so every import writes
              __pycache__ into the signed bundle and breaks its code seal
              (measured on v1.0.45: 69 .pyc from one ordinary import,
-             codesign --verify --deep --strict rc=1, spctl refusing).
+             codesign rc=1, spctl refusing).
              LaunchAgents inherit no environment, so it must be set here. -->
         <key>PYTHONPYCACHEPREFIX</key>
         <string>${OSTLER_DIR}/cache/pycache</string>
