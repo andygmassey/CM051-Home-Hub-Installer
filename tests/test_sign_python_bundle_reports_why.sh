@@ -219,6 +219,25 @@ fi
 check "floor: nothing was signed" "0" "$(attempts)"
 seed_count 600
 
+# (d) THE INVALIDATION MODE IS LOAD-BEARING AND MUST STAY unchecked-hash.
+#
+# The default (timestamp) records source mtime+size and CPython REWRITES any
+# .pyc whose recorded mtime does not match the .py -- a MODIFY inside the signed
+# bundle, which breaks the seal exactly as an add would, WITHOUT CHANGING THE
+# FILE COUNT. Every other assertion here counts files, so none of them can see
+# it. MEASURED on the shipped v1.0.45 app (secrets.cpython-311.pyc, after
+# touching the .py): timestamp ba2e9334 -> 0176fd93 REWRITTEN;
+# unchecked-hash ce2e1e6e -> ce2e1e6e UNCHANGED; count 1448 -> 1448 in both.
+#
+# This asserts the FLAG because the behaviour it buys cannot be observed
+# through the stub interpreter -- and says so, rather than implying it proved
+# the rewrite. The rewrite itself is proved in the commit message's measurement.
+if grep -q -- "--invalidation-mode unchecked-hash" "$SCRIPT"; then
+    echo "  PASS  compileall pins unchecked-hash (timestamp mode would allow a reseal-breaking rewrite)"
+else
+    echo "  FAIL  compileall lost --invalidation-mode unchecked-hash -- a .pyc REWRITE can now break the seal, and the file count will not show it"; fail=1
+fi
+
 echo
 if [ "$fail" -eq 0 ]; then echo "sign-python-bundle: all assertions pass"; else echo "sign-python-bundle: FAILURES ABOVE"; fi
 exit "$fail"

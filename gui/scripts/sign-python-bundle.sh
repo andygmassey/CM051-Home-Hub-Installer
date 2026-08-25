@@ -133,7 +133,32 @@ fi
 
 PYC_BEFORE="$(find "$PYTHON_DIR" -name '*.pyc' | wc -l | tr -d ' ')"
 echo "Precompiling bundled stdlib (.pyc before: $PYC_BEFORE)..."
-if ! "$BUNDLED_PY" -m compileall -q "${PYTHON_DIR}/lib"; then
+# 🔴 --invalidation-mode unchecked-hash IS LOAD-BEARING. DO NOT DROP IT.
+#
+# compileall's DEFAULT is TIMESTAMP: each .pyc records the source's mtime+size,
+# and CPython REWRITES any .pyc whose recorded mtime does not match the .py on
+# disk. That rewrite is a MODIFY inside the signed bundle -- the seal breaks
+# exactly as it did with an add, and the .pyc COUNT DOES NOT CHANGE, so a
+# count-based check reports clean.
+#
+# Under timestamp mode the fix would rest on an unstated invariant: that .py
+# mtimes survive DMG -> mount -> install -> /Applications. `ditto` preserves
+# them; plain `cp` does not. Nobody has measured that path end to end, and
+# v1.0.45 already shipped a .pyc fix that still bricked, so an unmeasured
+# invariant is not good enough here.
+#
+# MEASURED 2026-08-26 on the shipped v1.0.45 app, after touching the .py to
+# simulate a copy path that did not preserve mtimes:
+#     secrets.cpython-311.pyc
+#       timestamp        ba2e9334b5a31dc7 -> 0176fd93027b7b2a   REWRITTEN
+#       unchecked-hash   ce2e1e6edd258248 -> ce2e1e6edd258248   UNCHANGED
+#     file count 1448 -> 1448 in BOTH arms -- the count cannot see this.
+#
+# unchecked-hash records a source hash and never validates it, so no rewrite
+# can be provoked at all. That is what turns "works because the copy path
+# happens to preserve timestamps" into "cannot break".
+# Found by Archie1 in review of #1052; verified here rather than taken on trust.
+if ! "$BUNDLED_PY" -m compileall -q --invalidation-mode unchecked-hash "${PYTHON_DIR}/lib"; then
     echo "ERROR: compileall failed on ${PYTHON_DIR}/lib" >&2
     echo "       A PARTIAL seed is worse than none: whatever failed to compile is" >&2
     echo "       what the customer's first import will write into the signed" >&2
