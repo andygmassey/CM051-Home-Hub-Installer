@@ -80,6 +80,10 @@ fi
 
 # ENUMERATE, never head -1. An Ostler DMG holds TWO install.sh.
 APPS=$(find "$MP" -maxdepth 1 -name '*.app' | wc -l | tr -d ' ')
+if [ "$APPS" = "0" ]; then
+  echo "CANNOT-RUN: no .app at the top level of the image. Nothing was measured."
+  exit 2
+fi
 APP=$(find "$MP" -maxdepth 1 -name '*.app' | head -1)
 echo " apps on the image: $APPS"
 [ "$APPS" = "1" ] || say "CHECK" "more than one .app on the image; walking $(basename "$APP")"
@@ -143,19 +147,41 @@ N=$(wc -l < "$WORK/ish" | tr -d ' ')
 echo "  count: $N"
 [ "$N" -ge 1 ] && say "PASS" "  $N present" || say "FAIL" "  none found"
 
+# Arms 5 and 6 check EVERY install.sh, not the first.
+#
+# The earlier version `head -1`'d this list, in a script whose arm 4 header says
+# "enumerated, never head -1". On v1.0.45 the two copies are byte-identical
+# (same sha256, 1,287,082 bytes) so the answer was right BY LUCK. A cut that
+# shipped a stale payload copy would have walked straight past it, and the
+# payload copy is the one that ends up in /Applications.
+each_install_sh() { # $1 pattern, $2 arm label, $3 verdict-when-missing
+  local pattern="$1" label="$2" missing_verdict="$3"
+  local n=0 hit=0 f
+  while IFS= read -r f; do
+    n=$((n+1))
+    if /usr/bin/grep -q "$pattern" "$f" 2>/dev/null; then
+      hit=$((hit+1))
+    else
+      echo "    absent in ${f#$MP/}"
+    fi
+  done < "$WORK/ish"
+  echo "  $hit of $n copies carry it"
+  if [ "$n" -eq 0 ]; then
+    say "CANNOT" "  no install.sh to check"
+  elif [ "$hit" -eq "$n" ]; then
+    say "PASS" "  $label"
+  elif [ "$hit" -eq 0 ]; then
+    say "$missing_verdict" "  $label: absent from every copy"
+  else
+    say "FAIL" "  $label: THE COPIES DISAGREE ($hit of $n). One of them ships without it."
+  fi
+}
+
 echo "ARM 5  the interpreter is NOT an import root inside the app"
-if /usr/bin/grep -q '_ostler_relocate_bundled_python' "$(head -1 "$WORK/ish")" 2>/dev/null; then
-  say "PASS" "  install.sh relocates it out of the bundle"
-else
-  say "CHECK" "  no relocation; the per-entry-point guards are then load-bearing"
-fi
+each_install_sh '_ostler_relocate_bundled_python' 'install.sh relocates it out of the bundle' 'CHECK'
 
 echo "ARM 6  install.sh sets the bytecode redirect itself"
-if /usr/bin/grep -q 'PYTHONPYCACHEPREFIX' "$(head -1 "$WORK/ish")" 2>/dev/null; then
-  say "PASS" "  present"
-else
-  say "FAIL" "  install.sh sets neither guard"
-fi
+each_install_sh 'PYTHONPYCACHEPREFIX' 'the guard is present' 'FAIL' 
 
 echo "ARM 7  no .pyc shipped inside the image"
 SHIPPED=$(find "$MP" -name '*.pyc' 2>/dev/null | wc -l | tr -d ' ')
