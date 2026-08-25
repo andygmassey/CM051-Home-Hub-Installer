@@ -124,7 +124,15 @@ ALLOWLIST=" tailscale_confirm imessage_automation_incoming_ack save_keychain mai
 
 post_tags="$(awk -v b="$BOUNDARY" '
     NR<=b { next }
-    /gui_read/ { ing=1 }
+    # A COMMENT THAT MENTIONS gui_read IS NOT A gui_read. install.sh:10000-10067
+    # is prose explaining how gui_read works; without this line the scanner
+    # armed THERE and emitted three phantom tags ("", "0", "0") from quoted
+    # tokens on unrelated lines. fail() exits, so the run died on the first
+    # phantom and NEVER evaluated the six real prompts.
+    /^[[:space:]]*#/ { next }
+    # Reset on arm: a stale `last` from a previous block must not leak into
+    # the next one.
+    /gui_read/ { ing=1; last="" }
     ing {
         line=$0
         while (match(line, /"[A-Za-z0-9_]+"/)) {
