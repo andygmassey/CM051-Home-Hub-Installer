@@ -37,6 +37,8 @@ on:
       - 'tests/test_sign_python_bundle_reports_why.sh'
       - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
       - 'tests/test_provenance_gate_marker_read_is_not_piped.sh'
+      - 'scripts/walk_dmg.sh'
+      - 'tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh'
       # The marker arms are three-state (0 found / 1 not found / 2 could not
       # look). The test is watched as well as run: a run: without a matching
       # path entry is a gate you have read, not a gate you have run.
@@ -182,6 +184,16 @@ jobs:
       - name: provenance marker read is not piped into grep -q
         if: always()
         run: /bin/bash tests/test_provenance_gate_marker_read_is_not_piped.sh
+
+      # Arm 8b is a VETO arm, so over-approximating its hazard BLOCKS A GOOD
+      # CUT. A .pyc is only written for a module that is IMPORTED; CPython
+      # never caches bytecode for a __main__ script. This test proves the arm
+      # forgives only what provably cannot write a .pyc, and mutates every
+      # clause of that exemption -- diffing each mutation first, because a
+      # mutation that did not apply is a broken apparatus, not a pass.
+      - name: arm 8b vetoes on importable, not merely uncovered
+        if: always()
+        run: /bin/bash tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh
 
       - name: A marker pattern that cannot run is CANNOT-RUN, not 'absent'
         if: always()

@@ -198,51 +198,101 @@ for root, dirs, files in os.walk(app):
 print(best[1] if best else "")
 PROBE
 )
-    # 🔴 COVERAGE IS THE PROPERTY. THE IMPORT IS ONLY THE DEMONSTRATION.
+    # 🔴 THE HAZARD IS "UNCOVERED **AND IMPORTABLE**", NOT "UNCOVERED".
     #
-    # The probe above hunts for an unseeded `__init__.py`, because a 0-byte
-    # package init imports with no side effects and is therefore safe to run
-    # inside a walk. That choice is right for the DEMONSTRATION and wrong as
-    # the ASSERTION: a bundle can have zero unseeded __init__.py and still ship
-    # uncovered modules.
+    # A .pyc is only ever written for a module that is IMPORTED. CPython never
+    # caches bytecode for the script it runs as __main__. Measured on the
+    # pinned interpreter that actually ships (3.11.15, cache_tag cpython-311),
+    # with the control firing in the same run:
     #
-    # Measured after simulating the seeds from #1095 (outer tree) and #1096
-    # (nested Ostler.app) on the shipped v1.0.47: exactly ONE uncovered .py
-    # remained --
-    #   Contents/Resources/assistant-agent/OstlerAssistant.app/.../mark_first_ingest.py
-    # -- and it is not a package init, so the probe found nothing and this arm
-    # PASSED while claiming "every importable module in the bundle is seeded".
-    # That claim was false, in a VETO arm, on the cut it was written to guard.
+    #     a module that is IMPORTED    -> __pycache__/x.cpython-311.pyc appears
+    #     a script run as __main__     -> nothing is written, ever
     #
-    # So count first, and probe second. The count cannot be dodged by the shape
-    # of the remaining file.
-    UNCOVERED_N=$(/usr/bin/python3 - "$W8/app" <<'COVER'
-import sys, os
+    # So counting every uncovered .py over-approximates the hazard, and this is
+    # a VETO arm: over-approximating here BLOCKS A GOOD CUT.
+    #
+    # It already would have. On v1.0.47 with the #1095 and #1096 seeds applied,
+    # the single remaining uncovered file is
+    #   .../assistant-agent/OstlerAssistant.app/.../ingest/email-ingest/mark_first_ingest.py
+    # which release/ingest-ticks/email-ingest/tick.sh:185 invokes BY PATH
+    #   "$OSTLER_PYTHON" "$MARK_FIRST_INGEST" --sidecar "$SIDECAR"
+    # as __main__, and which nothing in the daemon imports. It cannot write a
+    # .pyc, so it cannot break the seal.
+    #
+    # And it is not ours to seed either: gui/Makefile:1230 ditto's that bundle
+    # in already signed, and gui/Makefile:1253 VERIFIES its Developer ID against
+    # the Team pin. Writing a .pyc into it would break the seal that check reads.
+    # The outer sign is deliberately NO --deep (v1.0.16) for the same reason.
+    #
+    # A file is forgiven ONLY when all three hold, and the reason is printed:
+    #   - it is not a package __init__.py (those are always imported)
+    #   - it carries an `if __name__ == "__main__":` guard
+    #   - no OTHER .py in the bundle mentions its module name, and no .sh in the
+    #     bundle contains an import-shaped reference to it
+    # Anything else counts as a hazard. Doubt vetoes.
+    COVER_OUT=$(/usr/bin/python3 - "$W8/app" <<'COVER'
+import sys, os, re
 app = sys.argv[1]
-n = 0
+
+pys, shs = [], []
 for root, dirs, files in os.walk(app):
     if "__pycache__" in root:
         continue
     for f in files:
-        if not f.endswith(".py"):
-            continue
-        if os.path.exists(os.path.join(root, "__pycache__", f[:-3] + ".cpython-311.pyc")):
-            continue
-        n += 1
-        if n <= 8:
-            sys.stderr.write("    uncovered: %s\n" % os.path.relpath(os.path.join(root, f), app))
-print(n)
+        if f.endswith(".py"):
+            pys.append(os.path.join(root, f))
+        elif f.endswith(".sh"):
+            shs.append(os.path.join(root, f))
+
+def read(q):
+    try:
+        return open(q, "r", encoding="utf-8", errors="replace").read()
+    except OSError:
+        return ""
+
+ptext = {q: read(q) for q in pys}
+shtext = "\n".join(read(q) for q in shs)
+
+uncovered = exempt = hazard = 0
+for q in pys:
+    d, f = os.path.dirname(q), os.path.basename(q)
+    if os.path.exists(os.path.join(d, "__pycache__", f[:-3] + ".cpython-311.pyc")):
+        continue
+    uncovered += 1
+    rel, stem = os.path.relpath(q, app), f[:-3]
+    word = r"\b" + re.escape(stem) + r"\b"
+    named_by_py = any(re.search(word, t) for o, t in ptext.items() if o != q)
+    named_by_sh = re.search(r"import(?:_module)?\s*\(?\s*['\"]?" + re.escape(stem) + r"\b", shtext)
+    is_main = re.search(r"^if\s+__name__\s*==\s*['\"]__main__['\"]", ptext[q], re.M)
+    if f != "__init__.py" and is_main and not named_by_py and not named_by_sh:
+        exempt += 1
+        if exempt <= 8:
+            sys.stderr.write("    exempt, cannot write a .pyc (runs as __main__, imported by nothing): %s\n" % rel)
+    else:
+        hazard += 1
+        if hazard <= 8:
+            sys.stderr.write("    HAZARD, uncovered and importable: %s\n" % rel)
+
+print("%d %d %d %d" % (len(pys), uncovered, exempt, hazard))
 COVER
-) || UNCOVERED_N=""
-    if [ -z "$UNCOVERED_N" ]; then
+) || COVER_OUT=""
+    if [ -z "$COVER_OUT" ]; then
       say "CANNOT" "  could not count .pyc coverage; an unmeasured seal is not a verified one"
-    elif [ "$UNCOVERED_N" != "0" ]; then
-      say "FAIL" "  🔴 VETO. $UNCOVERED_N .py in the bundle have NO .pyc beside them; the first import of any one writes into the seal"
+      HAZARD_N=""
+    else
+      PY_TOTAL=$(printf '%s' "$COVER_OUT" | /usr/bin/awk '{print $1}')
+      UNCOVERED_N=$(printf '%s' "$COVER_OUT" | /usr/bin/awk '{print $2}')
+      EXEMPT_N=$(printf '%s' "$COVER_OUT" | /usr/bin/awk '{print $3}')
+      HAZARD_N=$(printf '%s' "$COVER_OUT" | /usr/bin/awk '{print $4}')
+      echo "  .py examined $PY_TOTAL | uncovered $UNCOVERED_N | exempt $EXEMPT_N | hazard $HAZARD_N"
+      if [ "$HAZARD_N" != "0" ]; then
+        say "FAIL" "  🔴 VETO. $HAZARD_N .py in the bundle are uncovered AND importable; the first import of any one writes into the seal"
+      fi
     fi
 
     if [ -z "$UNSEEDED" ]; then
-      if [ "${UNCOVERED_N:-1}" = "0" ]; then
-        say "PASS" "  every .py in the bundle is seeded; nothing can be created"
+      if [ "${HAZARD_N:-1}" = "0" ]; then
+        say "PASS" "  every importable .py in the bundle is seeded; nothing can be created"
       else
         echo "  (no inert package-init left to probe, but the count above already vetoed)"
       fi
