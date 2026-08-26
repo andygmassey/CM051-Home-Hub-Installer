@@ -415,6 +415,37 @@ jobs:
       # measured 2026-08-13 (ghcr manifest HTTP 200 with an anonymous token).
       # If that ever changes, a failed pull is now CANNOT-RUN, not a false
       # STALE WIKI IMAGE.
+      # A LAUNCHAGENT MUST NOT BE ABLE TO RUN A PYTHON WITH NO BYTECODE REDIRECT.
+      #
+      # v1.0.45 installed cleanly and BRICKED ANDY'S MAC. Gatekeeper refused the
+      # app because 69 .pyc files had appeared inside the notarised bundle. The
+      # fix was present and correct; it was set on the ONE Process() the GUI
+      # spawns, and launchd is not in that process tree. The CM059 front-page
+      # agent ran the app's own interpreter at RunAtLoad and then hourly with
+      # EnvironmentVariables carrying PATH and nothing else.
+      #
+      # Four agents had worked in that area. Nothing caught it. The only reason
+      # it was found is that a customer's Mac stopped working, and the customer
+      # was Andy.
+      #
+      # PROVEN RED before being wired: run against the pre-fix origin/main it
+      # names all four unguarded agents and exits 1, editor-frontpage included.
+      # It would have refused v1.0.45.
+      #
+      # HERE AND NOT IN `cut`: this reads files, needs no DMG, and wants to fail
+      # before anything is built. python3 + plistlib are stdlib and present on
+      # ubuntu-latest -- deliberately NOT plutil or PlistBuddy, which are
+      # macOS-only and whose absence in this very job blocked the v1.0.40 cut.
+      # No extra token scope: `contents: read` already covers reading the tree.
+      #
+      # --self-test FIRST, same shape as the shipping-ledger gate: a checker
+      # that cannot demonstrate it fires is not evidence of anything.
+      - name: No LaunchAgent runs a python without a bytecode redirect
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_launchagent_pycache_guard.py --self-test
+          python3 scripts/verify_launchagent_pycache_guard.py --root .
+
       - name: Provenance -- wiki image contents (needs docker, hence here)
         env:
           OSTLER_PROVENANCE_ONLY_KINDS: wiki_image_grep,wiki_image_absent
