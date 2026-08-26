@@ -198,8 +198,54 @@ for root, dirs, files in os.walk(app):
 print(best[1] if best else "")
 PROBE
 )
+    # 🔴 COVERAGE IS THE PROPERTY. THE IMPORT IS ONLY THE DEMONSTRATION.
+    #
+    # The probe above hunts for an unseeded `__init__.py`, because a 0-byte
+    # package init imports with no side effects and is therefore safe to run
+    # inside a walk. That choice is right for the DEMONSTRATION and wrong as
+    # the ASSERTION: a bundle can have zero unseeded __init__.py and still ship
+    # uncovered modules.
+    #
+    # Measured after simulating the seeds from #1095 (outer tree) and #1096
+    # (nested Ostler.app) on the shipped v1.0.47: exactly ONE uncovered .py
+    # remained --
+    #   Contents/Resources/assistant-agent/OstlerAssistant.app/.../mark_first_ingest.py
+    # -- and it is not a package init, so the probe found nothing and this arm
+    # PASSED while claiming "every importable module in the bundle is seeded".
+    # That claim was false, in a VETO arm, on the cut it was written to guard.
+    #
+    # So count first, and probe second. The count cannot be dodged by the shape
+    # of the remaining file.
+    UNCOVERED_N=$(/usr/bin/python3 - "$W8/app" <<'COVER'
+import sys, os
+app = sys.argv[1]
+n = 0
+for root, dirs, files in os.walk(app):
+    if "__pycache__" in root:
+        continue
+    for f in files:
+        if not f.endswith(".py"):
+            continue
+        if os.path.exists(os.path.join(root, "__pycache__", f[:-3] + ".cpython-311.pyc")):
+            continue
+        n += 1
+        if n <= 8:
+            sys.stderr.write("    uncovered: %s\n" % os.path.relpath(os.path.join(root, f), app))
+print(n)
+COVER
+) || UNCOVERED_N=""
+    if [ -z "$UNCOVERED_N" ]; then
+      say "CANNOT" "  could not count .pyc coverage; an unmeasured seal is not a verified one"
+    elif [ "$UNCOVERED_N" != "0" ]; then
+      say "FAIL" "  🔴 VETO. $UNCOVERED_N .py in the bundle have NO .pyc beside them; the first import of any one writes into the seal"
+    fi
+
     if [ -z "$UNSEEDED" ]; then
-      say "PASS" "  every importable module in the bundle is seeded; nothing can be created"
+      if [ "${UNCOVERED_N:-1}" = "0" ]; then
+        say "PASS" "  every .py in the bundle is seeded; nothing can be created"
+      else
+        echo "  (no inert package-init left to probe, but the count above already vetoed)"
+      fi
     else
       B2=$(find "$W8/app" -name '*.pyc' | wc -l | tr -d ' ')
       PKG=$(basename "$UNSEEDED"); PARENT=$(dirname "$UNSEEDED")
