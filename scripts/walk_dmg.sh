@@ -216,9 +216,50 @@ each_install_sh '_ostler_relocate_bundled_python' 'install.sh relocates it out o
 echo "ARM 6  install.sh sets the bytecode redirect itself"
 each_install_sh 'PYTHONPYCACHEPREFIX' 'the guard is present' 'FAIL' 
 
-echo "ARM 7  no .pyc shipped inside the image"
+# ARM 7 IS THE SIBLING OF ARM 8, AND IT WENT STALE THE SAME WAY.
+#
+# It used to be `SHIPPED = 0`: no .pyc anywhere on the image. That was right
+# while the bundle shipped none and any .pyc was contraband. From v1.0.46 the
+# bundle SEEDS its stdlib on purpose (#1052), so zero is now the FAILING state
+# -- it would mean the seeding never ran -- and a non-zero count is the goal.
+#
+# Measured on the shipped v1.0.46 image: 1448 .pyc. Under the old predicate
+# that read FAIL "1448 already in the artefact", which is the artefact being
+# marked down for carrying its own fix. I corrected ARM 8 for exactly this and
+# missed ARM 7 ninety lines below it; fixing the instance is not fixing the
+# class.
+#
+# The question is no longer "are there .pyc" but "can any of them be REWRITTEN
+# in place", because a rewrite inside a signed bundle breaks the seal without
+# moving the count -- v1046-D001, 45 files, count 1448 -> 1448.
+#
+# PEP 552 flag word at offset 4:
+#     0 timestamp       validated against .py mtime   -> REWRITABLE
+#     1 unchecked-hash  never validated               -> SAFE
+#     3 checked-hash    validated against .py hash    -> REWRITABLE
+# Read with od so no interpreter is involved, and so an unreadable file is
+# CANNOT-RUN rather than a silent pass.
+echo "ARM 7  every shipped .pyc must be unrewritable (unchecked-hash)"
 SHIPPED=$(find "$MP" -name '*.pyc' 2>/dev/null | wc -l | tr -d ' ')
-[ "$SHIPPED" = "0" ] && say "PASS" "  0" || say "FAIL" "  $SHIPPED already in the artefact"
+if [ "$SHIPPED" = "0" ]; then
+  say "FAIL" "  0 .pyc on the image -- the stdlib seeding did not run"
+else
+  BADMODE=0
+  UNREAD=0
+  while IFS= read -r -d '' f; do
+    fl="$(od -An -tu4 -j4 -N4 "$f" 2>/dev/null | tr -d ' \n')"
+    if [ -z "$fl" ]; then UNREAD=$((UNREAD + 1))
+    elif [ "$fl" != "1" ]; then BADMODE=$((BADMODE + 1)); fi
+  done < <(find "$MP" -name '*.pyc' -type f -print0 2>/dev/null)
+  echo "  $SHIPPED seeded; $BADMODE not unchecked-hash; $UNREAD unreadable"
+  if [ "$UNREAD" != "0" ]; then
+    say "CANNOT" "  $UNREAD .pyc could not be read -- that is not a pass"
+  elif [ "$BADMODE" = "0" ]; then
+    say "PASS" "  all $SHIPPED are unchecked-hash and cannot be rewritten"
+  else
+    say "FAIL" "  🔴 $BADMODE of $SHIPPED are rewritable -- v1046-D001, the seal can break with the count unchanged"
+  fi
+fi
 
 echo
 echo "=============================================================="
