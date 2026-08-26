@@ -586,6 +586,48 @@ entries:
       probe: "assistant_answers_grounded"
 
   # ==========================================================================
+  # The two probes added for the v1.0.45 walk. Both existed on disk with NO
+  # row naming them, which `test_every_probe_on_disk_is_declared_in_permanent_
+  # manifest` correctly refused: "a probe nothing declares is a probe the cut
+  # never runs". Declaring them here is what makes them run.
+  # ==========================================================================
+  - id: box-walk-app-signature-survives-first-run
+    title: the installer must still verify AFTER it has been run once
+    incident: >-
+      v1.0.45 passed 14 of 14 artefact checks and then bricked itself the first
+      time it was launched -- "OstlerInstaller is damaged and can't be opened.
+      You should move it to the Bin." The app ships zero .pyc, so the first run
+      of its bundled python3.11 from a WRITABLE location compiles its own
+      stdlib into Contents/Resources/python/lib/python3.11/__pycache__, inside
+      the signed bundle, and adding any file voids the seal. syspolicyd then
+      refuses the interpreter about once a second, each refusal raising a
+      dialog the installer retries, so pressing Cancel summons the next one.
+      Recovery took three separate removals (the .pyc, com.apple.quarantine,
+      and the com.apple.provenance record) and a customer has none of them.
+      Every one of the 14 checks read the app on a READ-ONLY volume, where the
+      defect cannot occur: a control that cannot exhibit the defect is not a
+      control.
+    proof:
+      kind: box_walk_probe
+      probe: "app_signature_survives_first_run"
+
+  - id: box-walk-pairing-recovers-without-a-repair-storm
+    title: a dead session must recover ONCE, quietly, not in bursts of five
+    incident: >-
+      Measured on the Mac mini 2026-08-25 from the daemon's own log: roughly 25
+      "New client paired successfully" events between 08:41:00 and 08:46:04, in
+      bursts of five with gaps of 2.2s 3.0s 4.4s 7.5s 13.4s, then a pause over
+      60s, then another burst. This row also RETIRES its predecessor,
+      pairing_recovers_on_the_port_the_app_uses, which asserted a defect that
+      does not exist: it minted one pairing code, posted it to two ports and
+      called the second rejection a failure, when the code is single-use by
+      design (pairing.rs sets *pairing_code = None the instant one matches), so
+      it would have FAILED ON A HEALTHY BOX. Its control proved the predicate
+      and said nothing about the specimen.
+    proof:
+      kind: box_walk_probe
+      probe: "pairing_recovers_without_a_repair_storm"
+
   # #713/#719 ARE THE REASON THIS ROW IS WORDED THE WAY IT IS. Every
   # box_walk_probe row had returned SKIP for its entire life, and nothing
   # invoked run_box_walk.sh at all -- two instruments, neither ever pointed at
