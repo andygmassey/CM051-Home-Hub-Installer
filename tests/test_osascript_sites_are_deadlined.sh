@@ -46,7 +46,7 @@ count_sites() {
 import re, sys
 path = sys.argv[1]
 lines = open(path, encoding='utf-8', errors='replace').read().split('\n')
-total = wrapped = 0
+total = dialogs = machine_ok = dialog_ok = mismatched = 0
 for i, l in enumerate(lines):
     s = l.strip()
     if s.startswith('#'):
@@ -60,18 +60,61 @@ for i, l in enumerate(lines):
     if re.match(r'\s*(echo|printf|dbg|log|warn|ok|info)\b', s):
         continue
     total += 1
+    # A site is INTERACTIVE if the invocation (which may span continuation
+    # lines) contains `display dialog`. Those block on a HUMAN by design.
+    block = '\n'.join(lines[i-1:i+6])
+    interactive = 'display dialog' in block
     prev = lines[i-1] if i > 0 else ''
-    if '_ostler_run_with_deadline' in prev or '_ostler_run_with_deadline' in l:
-        wrapped += 1
-print(f"{total} {wrapped}")
+    ctx = prev + '\n' + l
+    # 🔴 SCORE THE BEHAVIOUR (is there a deadline wrapper?), NOT A VARIABLE
+    # NAME. An earlier version of this counter required the literal
+    # OSTLER_OSASCRIPT_TIMEOUT_S and therefore scored the two Messages
+    # Automation probes UNBOUNDED -- they are bounded, with their own
+    # purpose-specific OSTLER_IMESSAGE_PROBE_TIMEOUT_S from CM051 #891.
+    # A false negative in the instrument, from pinning a spelling instead of
+    # the property. Any deadline counts; only the DIALOG class needs its own.
+    has_deadline         = '_ostler_run_with_deadline' in ctx
+    has_dialog_deadline  = 'OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S' in ctx
+    has_machine_deadline = has_deadline and not has_dialog_deadline
+    if interactive:
+        dialogs += 1
+        if has_dialog_deadline:
+            dialog_ok += 1
+        elif has_machine_deadline:
+            # 🔴 THE REGRESSION THIS ARM EXISTS FOR: a 20 s deadline on a
+            # dialog kills it under a customer who is still reading.
+            mismatched += 1
+    else:
+        if has_machine_deadline:
+            machine_ok += 1
+        elif has_dialog_deadline:
+            # A 15-minute deadline on a machine event is not a bound at all.
+            mismatched += 1
+print(f"{total} {dialogs} {machine_ok} {dialog_ok} {mismatched}")
 PY
 }
 
-echo "=== ARM A: denominator and ratchet ==="
-read -r TOTAL WRAPPED <<<"$(count_sites "${INSTALL_SH}")"
+echo "=== ARM A: denominator, classification, and ratchet ==="
+read -r TOTAL DIALOGS MACHINE_OK DIALOG_OK MISMATCH <<<"$(count_sites "${INSTALL_SH}")"
+MACHINE=$((TOTAL - DIALOGS))
+WRAPPED=$((MACHINE_OK + DIALOG_OK))
 printf '  osascript invocations : %s   (DENOMINATOR)\n' "${TOTAL}"
-printf '  bounded by a deadline : %s\n' "${WRAPPED}"
+printf '    machine-to-machine  : %s   bounded %s  (20s -- nothing human in the loop)\n' \
+       "${MACHINE}" "${MACHINE_OK}"
+printf '    display dialog      : %s   bounded %s  (15min -- blocks on a HUMAN by design)\n' \
+       "${DIALOGS}" "${DIALOG_OK}"
+printf '  bounded, correct kind : %s\n' "${WRAPPED}"
 printf '  STILL UNBOUNDED       : %s   <-- these can wedge an install\n' "$((TOTAL - WRAPPED))"
+
+# 🔴 THE ARM THAT STOPS THE FIX FROM BECOMING THE DEFECT.
+# A dialog carrying the 20-second machine deadline reads as "bounded" to any
+# count, and would kill the FDA pre-warn dialog under a customer still reading
+# it. Over-approximating a hazard does not fail safe.
+if [ "${MISMATCH}" -eq 0 ]; then
+    ok "every site carries the deadline for ITS KIND (0 mismatched)"
+else
+    bad "${MISMATCH} site(s) carry the WRONG deadline -- a dialog on the 20s bound is killed mid-read"
+fi
 
 # ANTI-VACUITY. "0 of 0 wrapped" is what a broken read prints, and it would
 # satisfy any floor. Refuse to believe a count over a denominator this small.
@@ -79,11 +122,18 @@ if [ "${TOTAL}" -lt 10 ]; then
     cannot "only ${TOTAL} osascript sites found; the counter is broken, not the file"
 fi
 
-FLOOR=8   # RATCHET. Raise this as sites are bounded. It must never go down.
-if [ "${WRAPPED}" -ge "${FLOOR}" ]; then
-    ok "bounded sites ${WRAPPED} >= floor ${FLOOR}"
+# RATCHETS, one per class. Raise as sites are bounded; never lower.
+FLOOR_MACHINE=9
+FLOOR_DIALOG=6
+if [ "${MACHINE_OK}" -ge "${FLOOR_MACHINE}" ]; then
+    ok "machine sites bounded ${MACHINE_OK} >= floor ${FLOOR_MACHINE}"
 else
-    bad "bounded sites ${WRAPPED} < floor ${FLOOR} -- a site LOST its deadline"
+    bad "machine sites bounded ${MACHINE_OK} < floor ${FLOOR_MACHINE} -- a site LOST its deadline"
+fi
+if [ "${DIALOG_OK}" -ge "${FLOOR_DIALOG}" ]; then
+    ok "dialog sites bounded ${DIALOG_OK} >= floor ${FLOOR_DIALOG}"
+else
+    bad "dialog sites bounded ${DIALOG_OK} < floor ${FLOOR_DIALOG} -- a dialog can hang an unattended install forever"
 fi
 
 echo
@@ -126,7 +176,7 @@ TMPD="$(mktemp -d)"; trap 'rm -rf "${TMPD}"' EXIT
   printf '# osascript -e (commented out)\n'
   printf 'printf "Probe: osascript tell application\\n"\n'
 } > "${TMPD}/prose.sh"
-read -r P_TOT P_WRAP <<<"$(count_sites "${TMPD}/prose.sh")"
+read -r P_TOT P_D P_M P_DO P_MM <<<"$(count_sites "${TMPD}/prose.sh")"
 if [ "${P_TOT}" -eq 0 ]; then
     ok "prose-only file counts 0 invocations (filter is live)"
 else
@@ -135,7 +185,7 @@ fi
 
 # And the inverse: a real invocation MUST be counted, or the filter eats everything.
 printf 'osascript -e %s\n' "'tell application \"Finder\" to close windows'" > "${TMPD}/real.sh"
-read -r R_TOT R_WRAP <<<"$(count_sites "${TMPD}/real.sh")"
+read -r R_TOT R_D R_M R_DO R_MM <<<"$(count_sites "${TMPD}/real.sh")"
 if [ "${R_TOT}" -eq 1 ]; then
     ok "a real invocation counts 1 (filter is not over-broad)"
 else
@@ -161,7 +211,8 @@ for i, l in enumerate(lines):
 open(dst, 'w', encoding='utf-8').write('\n'.join(out))
 print(f"mutations applied: {removed}", file=sys.stderr)
 PY
-read -r M_TOT M_WRAP <<<"$(count_sites "${MUT}")"
+read -r M_TOT M_D M_MO M_DO M_MM <<<"$(count_sites "${MUT}")"
+M_WRAP=$((M_MO + M_DO))
 if [ "${M_TOT}" -ne "${TOTAL}" ]; then
     bad "mutation changed the DENOMINATOR ${TOTAL} -> ${M_TOT}; it deleted a site, not a wrap"
 elif [ "${M_WRAP}" -eq "$((WRAPPED - 1))" ]; then
@@ -172,7 +223,9 @@ fi
 
 echo
 printf 'PASS %s   FAIL %s\n' "${PASS}" "${FAIL}"
-printf '🔴 REMINDER: %s of %s osascript sites are still UNBOUNDED. Green != done.\n' \
-       "$((TOTAL - WRAPPED))" "${TOTAL}"
+printf '%s of %s osascript sites bounded (%s machine @20s, %s dialog @15min).\n' \
+       "${WRAPPED}" "${TOTAL}" "${MACHINE_OK}" "${DIALOG_OK}"
+printf '🔴 Green means every site carries the deadline for ITS KIND. It does NOT\n'
+printf '   mean anyone has watched a dialog survive 15 minutes on a real box.\n'
 [ "${FAIL}" -eq 0 ] || exit 1
 exit 0

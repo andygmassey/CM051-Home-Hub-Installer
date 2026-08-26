@@ -3094,6 +3094,30 @@ OSTLER_IMESSAGE_PROBE_TIMEOUT_S="${OSTLER_IMESSAGE_PROBE_TIMEOUT_S:-90}"
 # a healthy app to answer", not "long enough for a human to react".
 OSTLER_OSASCRIPT_TIMEOUT_S="${OSTLER_OSASCRIPT_TIMEOUT_S:-20}"
 
+# 🔴 A SECOND DEADLINE, BECAUSE THE SITES ARE TWO DIFFERENT ANIMALS AND ONE
+# NUMBER WOULD BREAK HALF OF THEM.
+#
+# The 20 s above is for MACHINE-TO-MACHINE Apple Events -- "count calendars",
+# "close windows", "quit". Nothing human is in that loop, so 20 s is generous.
+#
+# `display dialog` is the opposite: it is SUPPOSED to block until a customer
+# reads it and clicks. Applying the 20 s deadline to those would kill the FDA
+# pre-warn dialog out from under someone still reading it -- a REGRESSION
+# manufactured by over-approximating the hazard. That mistake has already been
+# made in this estate this week, in a veto arm, and it is the same shape.
+#
+# But unbounded is not right either. With nobody at the keyboard a dialog waits
+# FOREVER, which is precisely the multi-hour wedge shape we are hunting. So the
+# dialogs get their own bound: far longer than any human takes, short enough
+# that an ABANDONED install eventually proceeds instead of hanging overnight.
+#
+# 900 s = 15 minutes. Chosen to be indefensible to hit by reading: the longest
+# of these dialogs is a five-line FDA explanation. A customer who has not
+# clicked in fifteen minutes has walked away, and the honest thing is to carry
+# on best-effort (every one of these sites is already `|| true`) rather than
+# hold the install until they come back.
+OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S="${OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S:-900}"
+
 # ── Hardware-fit model picker helper (REUSE-4) ────────────────────
 #
 # lib/ostler-model-fit.sh holds the static model->min-RAM-for-num_ctx
@@ -3804,7 +3828,8 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
     # exist; the `2>/dev/null || true` makes us tolerant of cases
     # where xcode-select silently no-ops (e.g., a previous install
     # already in progress).
-    osascript -e 'tell application "System Events" to tell process "Install Command Line Developer Tools" to set frontmost to true' 2>/dev/null || true
+    _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+        osascript -e 'tell application "System Events" to tell process "Install Command Line Developer Tools" to set frontmost to true' 2>/dev/null || true
 
     # Path 2: macOS's `open -a` is the standard way to bring an app
     # to the front. The CLT installer's .app lives at the canonical
@@ -4541,7 +4566,8 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         else
             _prewarn_icon_clause="with icon note"
         fi
-        osascript \
+        _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+            osascript \
             -e 'tell application "System Events" to activate' \
             -e "tell application \"System Events\" to display dialog \"${_prewarn_msg_esc}\" with title \"${_prewarn_title_esc}\" buttons {\"${_prewarn_button_esc}\"} default button \"${_prewarn_button_esc}\" ${_prewarn_icon_clause}" \
             >/dev/null 2>&1 || true
@@ -4625,7 +4651,8 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         # permission on nothing. Focus-steal is the lesser defect and it is
         # chosen deliberately, not overlooked.
         sleep 1
-        osascript \
+        _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+            osascript \
             -e 'tell application "System Events" to activate' \
             -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
             >/dev/null 2>&1 || true
@@ -13302,7 +13329,8 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             else
                 _prewarn_icon_clause="with icon note"
             fi
-            osascript \
+            _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+                osascript \
                 -e 'tell application "System Events" to activate' \
                 -e "tell application \"System Events\" to display dialog \"${_prewarn_msg_esc}\" with title \"${_prewarn_title_esc}\" buttons {\"${_prewarn_button_esc}\"} default button \"${_prewarn_button_esc}\" ${_prewarn_icon_clause}" \
                 >/dev/null 2>&1 || true
@@ -13364,7 +13392,8 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             # without `activate` opens BEHIND the System Settings window we
             # just opened, and the customer sees no prompt at all.
             sleep 1
-            osascript \
+            _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+                osascript \
                 -e 'tell application "System Events" to activate' \
                 -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
                 >/dev/null 2>&1 || true
@@ -13503,7 +13532,8 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             # dialog, so an unseen one strands a customer who has already
             # hit the problem once.
             sleep 1
-            osascript \
+            _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+                osascript \
                 -e 'tell application "System Events" to activate' \
                 -e "tell application \"System Events\" to display dialog \"${_fda_recover_msg_esc}\" with title \"${_fda_recover_title_esc}\" buttons {\"${_fda_recover_button_esc}\"} default button \"${_fda_recover_button_esc}\" ${_fda_recover_icon_clause}" \
                 >/dev/null 2>&1 || true
@@ -19747,7 +19777,8 @@ else
                 # The pause stays: it stops the dialog racing a half-rendered
                 # Settings pane. Only the missing `activate` comes back.
                 sleep 1
-                osascript \
+                _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+                    osascript \
                     -e 'tell application "System Events" to activate' \
                     -e "tell application \"System Events\" to display dialog \"${_imessage_fda_dialog_msg_esc}\" with title \"${_imessage_fda_title_esc}\" buttons {\"${_imessage_fda_button_esc}\"} default button \"${_imessage_fda_button_esc}\" ${_imessage_fda_icon_clause}" \
                     >/dev/null 2>&1 || true
