@@ -140,8 +140,47 @@ if [[ -n "${HELPER_DEF_LINE:-}" ]]; then
             failure "helper body does not guard on the daemon binary existing (race can regress if call-site moves)"
         grep -q 'launchctl bootstrap' <<<"$body" || \
             failure "helper body lacks a launchctl bootstrap call -- the fresh-install case never bootstraps"
-        grep -q 'launchctl kickstart' <<<"$body" || \
-            failure "helper body lacks a launchctl kickstart -k call -- a stale EX_CONFIG(78) result on an already-loaded job never clears"
+        # The kickstart may be issued DIRECTLY, or routed through _ks_bounded,
+        # which is the shared bounded wrapper. Accept either -- but only after
+        # proving the wrapper really does issue a -k kickstart, so this is not
+        # a rename that quietly drops the call.
+        #
+        # WHY THIS ARM WIDENED (2026-08-26). It grepped the helper body for the
+        # literal string `launchctl kickstart`. install.sh now routes five call
+        # sites through _ks_bounded because BOTH `kickstart` and `kickstart -k`
+        # BLOCK on a penalty-boxed job -- measured on real hardware, controls
+        # returned in 7s/21s while both subjects were killed at 90s. That fix
+        # left the -k behaviour intact and only moved where the call is written,
+        # so this arm was failing on the SHAPE while the PROPERTY still held.
+        #
+        # A test anchored to a call site's spelling rather than its guarantee
+        # goes red on a correct refactor and green on a wrong one. So: check the
+        # guarantee, and follow the indirection rather than trusting the name.
+        if grep -q 'launchctl kickstart' <<<"$body"; then
+            :   # issued directly in the helper -- original shape, still fine
+        elif grep -Eq '_ks_bounded[^#]*-k' <<<"$body"; then
+            # Routed. Now PROVE the wrapper issues -k; a wrapper that dropped
+            # the flag would satisfy the grep above and silently reintroduce
+            # exactly the stale-EX_CONFIG(78) bug this file exists to catch.
+            _ksb_start=$(grep -n '^_ks_bounded() {' "$INSTALL_SH" | head -1 | cut -d: -f1)
+            if [[ -z "$_ksb_start" ]]; then
+                failure "helper routes through _ks_bounded but _ks_bounded is not defined in install.sh"
+            else
+                _ksb_body="$(awk -v s="$_ksb_start" -v e="$((_ksb_start + 22))" 'NR>=s && NR<=e' "$INSTALL_SH")"
+                grep -q 'launchctl kickstart' <<<"$_ksb_body" || \
+                    failure "_ks_bounded does not issue a launchctl kickstart at all -- the routed call is a no-op"
+                # 🔴 THE FLAG MUST APPEAR ON THE KICKSTART LINE, NOT MERELY IN
+                # 🔴 THE FUNCTION. Mutation-proved: `grep -q '_ksb_flag'` over
+                # the whole body SURVIVED the flag being dropped from the
+                # kickstart invocation, because _ksb_flag still occurs in the
+                # `if [ -n "$_ksb_flag" ]` branch test above it. Presence is
+                # not use. A wrapper can test a flag and then not pass it.
+                grep -Eq 'launchctl kickstart[[:space:]]+"\$_ksb_flag"' <<<"$_ksb_body" || \
+                    failure "_ks_bounded tests its flag but never passes it to launchctl, so the -k from the helper never reaches launchd -- a stale EX_CONFIG(78) on an already-loaded job never clears"
+            fi
+        else
+            failure "helper body lacks a launchctl kickstart -k call (direct or via _ks_bounded) -- a stale EX_CONFIG(78) result on an already-loaded job never clears"
+        fi
     fi
 fi
 
