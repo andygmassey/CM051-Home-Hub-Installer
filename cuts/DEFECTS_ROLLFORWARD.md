@@ -94,6 +94,7 @@ walk_horizon: v1.0.41
 | v1.0.42 |  | not_walked | Andy (relayed 2026-08-23, see below) | v1042-D001 v1042-D002 v1042-D003 v1042-D004 |
 | v1.0.43 | 2026-08-24 | deferred | TNM (2026-08-24, under Andy's standing instruction to drive to the cut) | v1043-D001 v1043-D002 v1043-D003 |
 | v1.0.44 | 2026-08-24 | closed | Andy (walked on hardware; run header 2026-08-24T10:10:59Z) | v1044-D001 v1044-D002 v1044-D003 v1044-D004 v1044-D005 v1044-D006 |
+| v1.0.45 |  | not_walked | A2 (ARTEFACT MEASURED 2026-08-26, NEVER INSTALLED. Not walked because it CANNOT be: the DMG bricks on first run, v1045-D001. There is no walks/v1.0.45.tsv and there should not be one -- no walker got past Gatekeeper.) | v1045-D001 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -3282,3 +3283,56 @@ folded into the five above, because a walk record whose arithmetic does not
 reconcile cannot be used as evidence for anything else, and the next reader
 must not quote either number as "the" result. Not carried into v1.0.45's BOM:
 it is a defect of the RECORD, not of the shipped artefact.
+
+### v1045-D001 -- the DMG bricks on first run: .pyc break the code seal
+
+**This is why v1.0.45 has no install walk.** It could not be installed and then
+assessed; the failure IS the install.
+
+Measured on the SHIPPED artefact, not on the tree. OstlerInstaller-1.0.45.dmg,
+58,099,134 bytes, sha256 70ebd926...989b57 -- byte count AND digest match BOM
+row 16, so this is the DMG that was published. Dittoed to a WRITABLE directory,
+which is the only place the defect exists and the reason v1.0.45's 14 of 14
+read-only checks were worthless:
+
+    env -u PYTHONPYCACHEPREFIX -u PYTHONDONTWRITEBYTECODE \
+        .../python/bin/python3.11 -c 'import secrets,hmac,platform'
+
+    .pyc inside the bundle   BEFORE 0  ->  AFTER 26
+    codesign --verify --deep --strict   rc=1
+        "a sealed resource is missing or invalid"
+    spctl                                REFUSES
+
+CPython writes `__pycache__/*.pyc` beside the source it imports. The interpreter
+ships INSIDE the notarised app, so the first ordinary import rewrites the sealed
+bundle and Gatekeeper refuses it. The customer sees "damaged and can't be
+opened. You should move it to the Bin." on first run -- every customer, because
+quarantine is attached by every browser download.
+
+CONTROL, same binary, same import, guard set: .pyc in bundle 0 -> 0, 26
+redirected to the cache dir, codesign rc=0. So the mechanism is the write
+LOCATION, not the import.
+
+🔴 AND THE OBVIOUS FIX WAS ALREADY SHIPPED AND STILL NOT ENOUGH. v1.0.45
+ALREADY carried PYTHONPYCACHEPREFIX -- the string is present in the shipped
+Mach-O (2 hits against a 20,685-string control) -- and it STILL bricked,
+because the redirect is conditional on a fact about the CALLER and LaunchAgents
+inherit no environment.
+
+FIXED IN v1.0.46, and deliberately at more than one layer:
+  #1052  seed the stdlib .pyc INSIDE the seal, so no caller can break it.
+         --invalidation-mode unchecked-hash, anti-vacuity floor >=500, fails
+         closed. Invoked from the real ship chain at gui/Makefile:2898, BEFORE
+         notarise-app, so the seeded files land inside the seal.
+  #1051  export the prefix from install.sh, not only from the GUI
+  #1053  the CM059 front-page LaunchAgent
+  #1054  the other three python LaunchAgents
+  #1056  a CI GATE that refuses any LaunchAgent able to run python with no
+         bytecode redirect -- the first gate aimed at the CLASS, not the case
+  #1057  box-walk the DMG itself, before anyone installs it
+
+NOT CLOSED BY THE ABOVE, and recorded so silence is not read as a pass:
+#1055 relocates the interpreter OUT of the notarised app, which removes the
+reason those four guards are needed at all. It is held for v1.0.47 because its
+arms ran on a mounted artefact and a scratch HOME, never a real install, and
+its author asks for a box walk -- which needs a DMG that does not brick.
