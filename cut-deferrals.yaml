@@ -3617,9 +3617,11 @@ deferrals:
   # correctly RED-ed the cut on it at 02:02Z. This file's own header says it:
   # "Nobody chose to defer any of them. They were just forgotten. A deferral
   # recorded here would have been fine. The silence was not."
-  - ref: "CM051:#1055"
-    reason: "ROOT FIX (relocate the interpreter out of the notarised app). Clean, mergeable and mechanism proven on a writable ditto copy. Deferred because the merged mitigations already protect every box (install.sh:62 exports PYTHONPYCACHEPREFIX process-wide; plists 17024/17290), while #1055 changes interpreter resolution for every venv, adds a 71MB copy, and deletes venvs anchored in a .app on upgrade. Its own author asks for a box walk and this cut has no walk record. Decision by ORM, 2026-08-26 01:26Z, backed by Archie."
-    until_cut: "v1.0.47"
+  # ROW REMOVED as a duplicate: this ref is already recorded once, earlier in
+  # this same `deferrals:` list, with a fuller `reason:`. Both rows agreed on
+  # until_cut: v1.0.47, so nothing about the deferral changed -- only the
+  # double-entry did. The reasoning above is kept because it is the detailed
+  # record and the surviving row's `reason:` is the summary of it.
 
   # daemon:feat/hub-build-info-emitter (oa #349) -- ALREADY a conscious decision,
   # recorded here because the gate cannot read prose.
@@ -3642,9 +3644,11 @@ deferrals:
   # check-orphans cannot read, so the gate RED-ed the cut on a decision that had
   # already been taken and written down -- in the wrong place for the reader that
   # needed it.
-  - ref: "daemon:feat/hub-build-info-emitter"
-    reason: "oa #349, OPEN and deliberately unmerged before this cut so the daemon row is FRESH rather than HELD. Nothing in the v1.0.46 pipeline consumes the emitter from the tree (0 files in CM051 and OS003, against an 18-and-5 control); both consumers fetch the published release asset. Rationale in cuts/v1.0.46/cut.env, transcribed here because the gate cannot read prose. Lands in v1.0.47."
-    until_cut: "v1.0.47"
+  # ROW REMOVED as a duplicate: this ref is already recorded once, earlier in
+  # this same `deferrals:` list, with a fuller `reason:`. Both rows agreed on
+  # until_cut: v1.0.47, so nothing about the deferral changed -- only the
+  # double-entry did. The reasoning above is kept because it is the detailed
+  # record and the surviving row's `reason:` is the summary of it.
 
   # daemon:fix/log-the-401-that-gates-every-api-call -- THE FIX ALREADY SHIPPED.
   # This row exists because the gate could not find that out.
@@ -3673,6 +3677,8 @@ deferrals:
   # neither ships in the binary.
   #
   # Clears when the branch is deleted; it is merged work with a stale head.
-  - ref: "daemon:fix/log-the-401-that-gates-every-api-call"
-    reason: "ALREADY SHIPPED as oa #345 (merged 2026-08-25T10:21:32Z, five hours before the daemon pin 509c8333 was built). The gate's PR lookup failed for want of an ostler-ai token and fell back to branch ancestry, which is meaningless after a squash merge. Verified on the readable surface: the string the fix adds is present in 509c8333 (1 file) against a 0-hit control. The two remaining branch commits are a gateway test and a CI doctest fix, neither of which ships."
-    until_cut: "v1.0.47"
+  # ROW REMOVED as a duplicate: this ref is already recorded once, earlier in
+  # this same `deferrals:` list, with a fuller `reason:`. Both rows agreed on
+  # until_cut: v1.0.47, so nothing about the deferral changed -- only the
+  # double-entry did. The reasoning above is kept because it is the detailed
+  # record and the surviving row's `reason:` is the summary of it.
