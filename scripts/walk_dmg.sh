@@ -128,10 +128,29 @@ else
     AFTER=$(find "$W8/app" -name '*.pyc' | wc -l | tr -d ' ')
     /usr/bin/codesign --verify --deep --strict "$W8/app" >/dev/null 2>&1 && RC1=0 || RC1=1
     echo "  after an unguarded first use: pyc=$AFTER codesign rc=$RC1"
-    if [ "$AFTER" = "0" ] && [ "$RC1" = "0" ]; then
-      say "PASS" "  the bundle survives its own first use"
+    # THE PREDICATE IS "NO NEW WRITES", NOT "NO .pyc AT ALL".
+    #
+    # This arm used to require AFTER = 0. That was correct when the bundle
+    # shipped with zero .pyc and any .pyc was proof of a write. From v1.0.46 the
+    # bundle SEEDS its stdlib -- 1448 .pyc, deliberately, inside the seal --
+    # because a pre-seeded unchecked-hash .pyc is one the interpreter can never
+    # be provoked into rewriting. Against that artefact AFTER = 0 is false by
+    # construction, so the old predicate would have VETOED v1.0.46 for carrying
+    # the very fix the veto exists to demand.
+    #
+    # AFTER = BEFORE is the invariant that actually means "first use wrote
+    # nothing into the bundle", and it holds in both worlds: 0 = 0 for an
+    # unseeded bundle, 1448 = 1448 for a seeded one.
+    #
+    # codesign is kept as an INDEPENDENT arm and not folded into the count,
+    # because the two failures are different: a rewrite-in-place changes no
+    # count at all (v1046-D001, 45 timestamp .pyc rewritten, count 1448 ->
+    # 1448, codesign rc 0 -> 1). Either signal alone is a veto.
+    if [ "$AFTER" = "$BEFORE" ] && [ "$RC1" = "0" ]; then
+      say "PASS" "  the bundle survives its own first use (pyc $BEFORE -> $AFTER, unchanged)"
     else
-      say "FAIL" "  🔴 VETO. first use wrote $AFTER .pyc into the bundle, codesign rc=$RC1"
+      DELTA=$((AFTER - BEFORE))
+      say "FAIL" "  🔴 VETO. first use changed the bundle: pyc $BEFORE -> $AFTER (delta $DELTA), codesign rc=$RC1"
     fi
   fi
 fi

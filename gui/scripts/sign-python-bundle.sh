@@ -158,7 +158,33 @@ echo "Precompiling bundled stdlib (.pyc before: $PYC_BEFORE)..."
 # can be provoked at all. That is what turns "works because the copy path
 # happens to preserve timestamps" into "cannot break".
 # Found by Archie1 in review of #1052; verified here rather than taken on trust.
-if ! "$BUNDLED_PY" -m compileall -q --invalidation-mode unchecked-hash "${PYTHON_DIR}/lib"; then
+# -f IS LOAD-BEARING, AND ITS ABSENCE SHIPPED IN v1.0.46.
+#
+# Without -f, compileall SKIPS any module whose .pyc already looks current.
+# python-build-standalone ships its stdlib pre-compiled with TIMESTAMP .pyc,
+# so compileall looked at those, judged them up to date, and left them exactly
+# as it found them -- still timestamp-based. The rest of the tree, which had no
+# .pyc yet, got written fresh in unchecked-hash mode.
+#
+# MEASURED on the shipped v1.0.46 artefact (sha256 231347368fcb..., downloaded
+# from the release, not from a build tree):
+#     by PEP 552 flag word:  {1: 1403, 0: 45}
+#     i.e. 45 of 1448 seeded .pyc were still TIMESTAMP mode.
+# Those 45 are the bootstrap set -- encodings/, urllib/, functools, enum,
+# collections, re/ -- which is to say the ones EVERY first import touches.
+#
+# What that cost, measured on the same artefact, ditto'd to a writable dir:
+#     unfixed tree, one bare-env import:  42 files modified in the bundle
+#                                         codesign --deep --strict rc=1
+#                                         spctl rc=1  ("a sealed resource is
+#                                                       missing or invalid")
+#     same tree after compileall -f:      0 files modified, flag words {1: 1448}
+# Same probe, same environment, two trees; the only difference is -f.
+#
+# The env mitigations (PYTHONPYCACHEPREFIX) held in the arm where they are set,
+# so v1.0.46 is not bricked for customers -- but they were meant to be the
+# braces, not the whole trouser. This restores the belt.
+if ! "$BUNDLED_PY" -m compileall -q -f --invalidation-mode unchecked-hash "${PYTHON_DIR}/lib"; then
     echo "ERROR: compileall failed on ${PYTHON_DIR}/lib" >&2
     echo "       A PARTIAL seed is worse than none: whatever failed to compile is" >&2
     echo "       what the customer's first import will write into the signed" >&2
@@ -179,6 +205,58 @@ if [ "$PYC_AFTER" -lt 500 ]; then
     echo "       (v1.0.45's bundled stdlib seeds 1448). A near-zero count means" >&2
     echo "       compileall found no stdlib to compile: check that" >&2
     echo "       ${PYTHON_DIR}/lib exists and python-build-standalone extracted." >&2
+    exit 1
+fi
+
+# THE PROPERTY, NOT THE COUNT. This is the check that would have caught v1.0.46
+# and the floor above could not.
+#
+# The floor asks "are there enough .pyc". v1.0.46 had 1448 of them and sailed
+# through -- while 45 were still timestamp-based and therefore still rewritable.
+# The comment above this block already says it in as many words: "the file count
+# 1448 -> 1448 in BOTH arms -- the count cannot see this." A count-shaped guard
+# cannot enforce a mode-shaped invariant, so here is the mode-shaped one.
+#
+# PEP 552: bytes 4..8 of a .pyc are the flag word.
+#     0 = timestamp        (validated against the .py mtime -> REWRITABLE)
+#     1 = unchecked-hash   (never validated -> can never be rewritten)
+#     3 = checked-hash     (validated against the .py hash -> REWRITABLE)
+# Only 1 is safe inside a signed bundle. Anything else is a seal break waiting
+# for a first import.
+NON_HASH="$("$BUNDLED_PY" - "$PYTHON_DIR" <<'PYEOF'
+import glob, struct, sys
+root = sys.argv[1]
+bad = []
+for p in glob.glob(root + '/**/*.pyc', recursive=True):
+    try:
+        with open(p, 'rb') as f:
+            f.read(4)
+            flags = struct.unpack('<I', f.read(4))[0]
+    except Exception as exc:                      # unreadable is NOT clean
+        print("UNREADABLE %s (%s)" % (p, exc))
+        bad.append(p)
+        continue
+    if flags != 1:
+        print("flags=%d %s" % (flags, p))
+        bad.append(p)
+print("COUNT %d" % len(bad))
+PYEOF
+)"
+BAD_N="$(printf '%s\n' "$NON_HASH" | sed -n 's/^COUNT //p')"
+if [ -z "$BAD_N" ]; then
+    echo "ERROR: the .pyc invalidation-mode probe produced no COUNT line." >&2
+    echo "       CANNOT-RUN is not a pass. Refusing to sign." >&2
+    exit 1
+fi
+echo "Invalidation mode: $BAD_N of $PYC_AFTER .pyc are not unchecked-hash"
+if [ "$BAD_N" -ne 0 ]; then
+    echo "ERROR: $BAD_N .pyc inside the bundle are NOT unchecked-hash." >&2
+    printf '%s\n' "$NON_HASH" | grep -v '^COUNT ' | head -20 >&2
+    echo "       Each one is validated at import time, so the interpreter may" >&2
+    echo "       REWRITE IT IN PLACE inside the signed bundle -- which breaks" >&2
+    echo "       the seal without changing the file count. That is v1046-D001." >&2
+    echo "       compileall is run with -f precisely so this cannot happen;" >&2
+    echo "       a non-zero here means -f was dropped or a .pyc arrived after." >&2
     exit 1
 fi
 
