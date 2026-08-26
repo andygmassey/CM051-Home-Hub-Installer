@@ -63,6 +63,19 @@ BLOCK=$(sed -n "$((LINE_NO - 2)),$((LINE_NO + 8))p" "$INSTALL_SH")
 # The kickstart LINE ITSELF, for the end-of-line assertions below.
 KS_LINE=$(sed -n "${LINE_NO}p" "$INSTALL_SH")
 
+# 🔴 HERESTRINGS, NOT `printf | grep -q`.
+#
+# This file's assertions were originally `printf '%s\n' "$X" | grep -q PAT`.
+# Under `set -o pipefail` that construct is a RACE: grep -q exits the moment it
+# matches, printf takes SIGPIPE, and the pipeline can report FAILURE for a
+# needle that IS present. It passes on short input and fails under load, which
+# is the worst possible failure mode for a gate. CM051 #895 is the same bug, and
+# the repo carries a ratchet (tests/pipefail_shortcircuit_baseline.txt) that
+# caught these six -- on this very PR, in a file whose sibling probe's comment
+# already warned about exactly this.
+#
+# `grep -q PAT <<< "$X"` has no pipeline and therefore no race.
+
 # 🔴 MATCH ON END-OF-LINE, NEVER ON "[^&]*&".
 # The first draft of this test used `launchctl kickstart …[^&]*&` to look for a
 # job-control ampersand, and `…[^&]*\|\| true` to look for the weak guard.
@@ -74,7 +87,7 @@ KS_LINE=$(sed -n "${LINE_NO}p" "$INSTALL_SH")
 
 # ── ARM 1: the kickstart must be BACKGROUNDED. This is the whole defect --
 # ── a synchronous call is what let a penalty-boxed job wedge the chain.
-if printf '%s\n' "$KS_LINE" | grep -qE '&[[:space:]]*$'; then
+if grep -qE '&[[:space:]]*$' <<< "$KS_LINE"; then
     pass "the kickstart is backgrounded (&) -- the caller cannot wait on it"
 else
     fail "the enrich kickstart is NOT backgrounded. A penalty-boxed job wedges"
@@ -83,7 +96,7 @@ fi
 
 # ── ARM 2: the enclosing block must ALSO be backgrounded, or a `wait` inside
 # ── it still blocks the import.
-if printf '%s\n' "$BLOCK" | grep -qE '^\s*\)\s*>/dev/null 2>&1 &\s*$'; then
+if grep -qE '^[[:space:]]*\)[[:space:]]*>/dev/null 2>&1 &[[:space:]]*$' <<< "$BLOCK"; then
     pass "the enclosing subshell is backgrounded too"
 else
     fail "the subshell around the kickstart is not backgrounded -- an inner wait would still block"
@@ -92,7 +105,7 @@ fi
 # ── ARM 3: there must be a WATCHDOG. Backgrounding stops the deadlock; without
 # ── a bound, a wedged kickstart lingers for a day, which is how this was found.
 # ── `timeout` does not exist on macOS, so the watchdog must be explicit.
-if printf '%s\n' "$BLOCK" | grep -q 'sleep 10' && printf '%s\n' "$BLOCK" | grep -q 'kill -TERM'; then
+if grep -q 'sleep 10' <<< "$BLOCK" && grep -q 'kill -TERM' <<< "$BLOCK"; then
     pass "a sleep+kill watchdog bounds the kickstart"
 else
     fail "no watchdog: a wedged kickstart would linger indefinitely (no 'timeout' on macOS)"
@@ -102,7 +115,7 @@ fi
 # ── reverts to a bare synchronous call with `|| true`, arms 1-3 fail, but
 # ── state plainly WHY that guard is insufficient so the next reader does not
 # ── re-add it thinking it is enough.
-if printf '%s\n' "$KS_LINE" | grep -qE '\|\|[[:space:]]+true[[:space:]]*$'; then
+if grep -qE '\|\|[[:space:]]+true[[:space:]]*$' <<< "$KS_LINE"; then
     fail "the call is guarded ONLY by '|| true', which covers an EXIT CODE."
     printf '        The measured failure was a HANG. || true is blind to it.\n'
 else

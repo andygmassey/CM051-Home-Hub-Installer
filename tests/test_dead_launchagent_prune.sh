@@ -56,7 +56,7 @@ if [ -z "$BLOCK" ] || [ "${BLOCK_LINES:-0}" -lt 20 ]; then
     exit 2
 fi
 # The extraction must contain the loop, not just the two assignment lines.
-if ! printf '%s\n' "$BLOCK" | grep -q 'PlistBuddy'; then
+if ! grep -q 'PlistBuddy' <<< "$BLOCK"; then
     echo "CANNOT-RUN: extracted block has no PlistBuddy read. Anchors matched the"
     echo "  wrong region. Not a pass."
     exit 2
@@ -196,7 +196,7 @@ done
 
 # ── ARM 9: the sweep must state its denominator even at zero. A silent zero
 # ── and "did not look" print identically.
-if printf '%s\n' "$BLOCK" | grep -q 'Dead-LaunchAgent sweep: 0 pruned'; then
+if grep -q 'Dead-LaunchAgent sweep: 0 pruned' <<< "$BLOCK"; then
     pass "the sweep states its denominator even when it prunes nothing"
 else
     fail "a silent zero and 'did not look' print identically -- state the denominator"

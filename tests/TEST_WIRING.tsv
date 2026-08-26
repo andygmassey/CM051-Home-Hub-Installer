@@ -91,6 +91,7 @@ test_cx98_channel_vars_unbound.sh	UNWIRED	-
 test_cx98_previous_install_detection.sh	UNWIRED	-
 test_daemon_fda_app_bundle_path.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_daemon_pins_agree.sh	WIRED	.github/workflows/supply-chain-pins.yml
+test_dead_launchagent_prune.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_dedupe_defer_background.sh	UNWIRED	-
 test_dedupe_heartbeat.sh	UNWIRED	-
 test_deferral_reachability.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
@@ -115,6 +116,7 @@ test_email_ingest_venv_wired.sh	UNWIRED	-
 test_email_settling_numerator_is_messages.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_engine_provenance_never_claims_what_it_did_not_install.sh	WIRED	.github/workflows/engine-provenance.yml
 test_enrich_budget.sh	WIRED	.github/workflows/enrich-budget.yml
+test_enrich_kickstart_cannot_block_ingest.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_enrichment_has_a_recurring_invoker.sh	WIRED	.github/workflows/enrichment-invoker.yml
 test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_enrichment_optin_is_owed_after_v1_0_36.sh	WIRED	.github/workflows/install-abort-and-egress.yml
@@ -144,6 +146,7 @@ test_gen_patch_new_files.sh	UNWIRED	-
 test_governor_pause_throttle.sh	UNWIRED	-
 test_graph_db_pull_retry.sh	UNWIRED	-
 test_grep_c_arith_safety.sh	UNWIRED	-
+test_grep_row_cannot_be_satisfied_by_its_own_manifest.py	WIRED	.github/workflows/cut-manifest.yml
 test_gui_progress_emitter.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_hub_app_fetch_wired.sh	WIRED	.github/workflows/hub-app-fetch.yml
 test_hydrate_apple_notes_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
@@ -226,6 +229,7 @@ test_preferences_vendor_wired.sh	UNWIRED	-
 test_provenance_gate_cannot_run_is_not_stale.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_provenance_gate_marker_read_is_not_piped.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_provenance_survives_the_filter_under_execution.py	WIRED	.github/workflows/install-abort-and-egress.yml
+test_readonly_flags_need_no_tty.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_repair_overmerged_contact_cards.py	WIRED	.github/workflows/contact-card-repair.yml
 test_repin_wiki_images_refuses_a_typed_sha.sh	WIRED	.github/workflows/cut-freshness.yml
 test_resolver_robustness.py	UNWIRED	-
