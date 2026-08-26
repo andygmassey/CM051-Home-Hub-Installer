@@ -15030,13 +15030,40 @@ fi
 if [[ "$HAS_PIPELINE" == true ]]; then
     cd "$PIPELINE_DIR"
 
-    if [[ -f "contact_syncer/requirements.txt" ]]; then
-        PIPELINE_REQS="contact_syncer/requirements.txt"
-    elif [[ -f "requirements.txt" ]]; then
-        PIPELINE_REQS="requirements.txt"
-    else
-        PIPELINE_REQS=""
-    fi
+    # EVERY package's requirements, not the first one found.
+    #
+    # 🔴 This was an if/elif chain that selected exactly ONE file:
+    #     contact_syncer/requirements.txt, else requirements.txt.
+    # contact_syncer always wins, so identity_resolver's and meeting_syncer's
+    # were NEVER installed although all three ship in this same directory.
+    #
+    # MEASURED on a live box 2026-08-26. In the interpreter that actually runs
+    # ical-server, with that process's own PYTHONPATH:
+    #
+    #     rapidfuzz          ModuleNotFoundError
+    #     identity_resolver  ModuleNotFoundError: No module named 'rapidfuzz'
+    #     qdrant_client      ModuleNotFoundError
+    #     CONTROL json       OK        <- same interpreter, so these are real
+    #                                     absences, not a broken invocation
+    #
+    # Consequence: the whole dedupe / identity-resolution layer is dark from
+    # first boot. batch_resolver cannot import either, so nothing reconciles
+    # Qdrant against Oxigraph, and _merge_qdrant() FAILS OPEN on the missing
+    # qdrant_client ("skipping Qdrant merge"). The only symptom is data quality
+    # drifting: 130 over-merged Person nodes and a 173-point store gap on the
+    # box measured, with nothing anywhere reporting a fault.
+    #
+    # THIS IS THE SAME OMISSION TWICE. identity_resolver/requirements.txt exists
+    # precisely because of it and says so in its own header: CI "installed only
+    # the contact_syncer, meeting_syncer and whatsapp_bridge requirement files,
+    # so the import failed at COLLECTION time". Declaring the dependency fixed
+    # CI. Nothing changed here, so the installer kept making the same choice.
+    # A declaration and an installation are different acts.
+    PIPELINE_REQS=""
+    for _pipeline_req in */requirements.txt requirements.txt; do
+        [[ -f "$_pipeline_req" ]] || continue
+        PIPELINE_REQS="${PIPELINE_REQS}${PIPELINE_REQS:+ }${_pipeline_req}"
+    done
 
     if [[ -n "$PIPELINE_REQS" ]]; then
         if [[ ! -d ".venv" ]]; then
@@ -15049,9 +15076,21 @@ if [[ "$HAS_PIPELINE" == true ]]; then
         # diagnosis CX-30 trail). Surface tail via warn() per-line so
         # the GUI prefix-aware parser actually renders the body.
         PIPELINE_PIP_LOG="/tmp/ostler-pipeline-pip.log"
+        # One pip call per file, not one call with many -r flags: a failure
+        # then names the file that caused it in the log, instead of leaving the
+        # operator to guess which of three packages broke.
         set +e
-        .venv/bin/pip install --quiet -r "$PIPELINE_REQS" > "$PIPELINE_PIP_LOG" 2>&1
-        PIPELINE_PIP_EXIT=$?
+        PIPELINE_PIP_EXIT=0
+        : > "$PIPELINE_PIP_LOG"
+        for _pipeline_req in $PIPELINE_REQS; do
+            printf '== %s ==\n' "$_pipeline_req" >> "$PIPELINE_PIP_LOG"
+            .venv/bin/pip install --quiet -r "$_pipeline_req" >> "$PIPELINE_PIP_LOG" 2>&1
+            _pipeline_req_exit=$?
+            if [[ $_pipeline_req_exit -ne 0 ]]; then
+                PIPELINE_PIP_EXIT=$_pipeline_req_exit
+                printf '== FAILED: %s (exit %s) ==\n' "$_pipeline_req" "$_pipeline_req_exit" >> "$PIPELINE_PIP_LOG"
+            fi
+        done
         set -e
         if [[ $PIPELINE_PIP_EXIT -ne 0 ]]; then
             warn "$(printf "$MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT" "$PIPELINE_PIP_EXIT")"

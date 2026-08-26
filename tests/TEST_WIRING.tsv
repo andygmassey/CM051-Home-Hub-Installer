@@ -172,6 +172,7 @@ test_install_log_reads_like_a_product.sh	WIRED	.github/workflows/install-log-hyg
 test_install_sh_no_call_before_definition.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_install_sh_prefers_bundled_python.sh	UNWIRED	-
 test_installer_app_bundle_contents.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_installer_installs_every_pipeline_requirements_file.sh	WIRED	.github/workflows/fda-deps-installed.yml
 test_installer_output_buffer_is_bounded.sh	WIRED	.github/workflows/installer-memory-bounds.yml
 test_installer_output_keeps_the_tail.sh	WIRED	.github/workflows/installer-memory-bounds.yml
 test_installer_version_consistency.sh	WIRED	.github/workflows/installer-version-consistency.yml
