@@ -649,7 +649,20 @@ phase0_reach_box_and_token() {
     # token" or "wrong process". Getting that backwards costs hours.
     out="${TMP}/ident.out"
     box_http GET "${API_BASE}/api/v1/hydration/status" noauth "$out"
-    ident_ctype="$(box_run "curl -sS -o /dev/null -w '%{content_type}' -m 8 '${API_BASE}/api/v1/hydration/status' 2>/dev/null")"
+    # box_exec, NOT box_run. box_run is the shared lib's transport and keys off
+    # OSTLER_BOX_HOST alone; box_exec is this probe's and honours RUN_MODE, which
+    # OSTLER_PROBE_FORCE_LOCAL sets. The harness runs with BOX_HOST=127.0.0.1 AND
+    # FORCE_LOCAL=1, so box_run tried to ssh to 127.0.0.1, got nothing, and
+    # reported content-type='' -- which this check then read as "not the
+    # assistant API" and returned CANNOT-RUN on a perfectly good fake box.
+    #
+    # A transport mismatch inside one probe is invisible in the verdict: the
+    # message said the SERVICE was wrong when the RUNNER was.
+    #
+    # --noproxy '*' for the same reason box_http mandates it: an operator's
+    # HTTP_PROXY will intercept even a 127.0.0.1 request and answer with its own
+    # error, which reads exactly like the service being down.
+    ident_ctype="$(box_exec "/usr/bin/curl -sS --noproxy '*' -o /dev/null -w '%{content_type}' --max-time ${HTTP_TIMEOUT} '${API_BASE}/api/v1/hydration/status'" 2>/dev/null)"
     if [ "$(judge_is_assistant_api "${out}.body" "${ident_ctype}")" = "yes" ]; then
         pass "C1b ${API_BASE} identifies as the assistant API (hydration/status is JSON with overall_state+phases)"
     else

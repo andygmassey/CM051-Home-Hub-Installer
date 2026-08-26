@@ -234,6 +234,20 @@ class Handler(BaseHTTPRequestHandler):
         # a real box, which is precisely why the probe uses it -- it keeps
         # measuring through an auth outage.
         if path == "/api/api/v1/hydration/status":
+            if MODE == "json_body_html_ctype":
+                # The CONTROL for the judge's content-type arm, which was
+                # otherwise unguarded: removing that arm left all 13 scenarios
+                # green, because wrong_service is caught by the SHAPE arm (HTML
+                # is not valid JSON) and nothing exercised content-type alone.
+                #
+                # This is a real shape, not a contrivance: an intercepting proxy
+                # or a catch-all that echoes an upstream body serves the right
+                # BYTES under the wrong content-type. Trusting a body because it
+                # parses, without asking what the server said it was, is how the
+                # SPA catch-all got believed in the first place.
+                self._send(200, json.dumps(
+                    {"overall_state": "running", "phases": []}), raw=True)
+                return
             if MODE == "wrong_service":
                 # The SPA catch-all: 200, HTML, for any /api/v1 path. Measured
                 # on the real daemon at :8000, which answers 200 text/html for
@@ -541,6 +555,7 @@ run_case leak             fail "RED: cleanup accepted but the fixture is still r
 # checking WHICH service answers and this suite would stay green -- which is
 # how the probe came to be measuring the wrong port in the first place.
 run_case wrong_service    fail "RED: port answers /health but serves HTML for /api/v1/hydration/status (not the assistant API)"
+run_case json_body_html_ctype fail "RED: right JSON body under text/html -- content-type arm of the identity judge"
 
 echo ""
 # ---------------------------------------------------------------------------
@@ -549,7 +564,7 @@ echo ""
 # as BROKEN, and a BROKEN probe measures exactly as much as an absent one.
 #
 # Deliberately NOT a run_case: it needs no fake box, and folding it into the
-# scenario count would make `scenarios=14/13` the normal reading of a clean run.
+# scenario count would make `scenarios=15/14` the normal reading of a clean run.
 # It contributes to FAILS, so the stubbed-probe control in cut-manifest.yml
 # still sees this as one more missed expectation rather than as a crash.
 # ---------------------------------------------------------------------------
@@ -574,20 +589,20 @@ echo ""
 # scenarios=13 out of 12, and a harness failure adds neither. Print the
 # denominator that was actually driven, plus every bucket, so a run that
 # examined less than it should cannot read as a clean one.
-echo "EXAMINED: scenarios=${CASES}/13 passed=${PASSES} failed=${FAILS} harness_failures=${HARNESS_FAILS} selftest=${SELFTEST}"
+echo "EXAMINED: scenarios=${CASES}/14 passed=${PASSES} failed=${FAILS} harness_failures=${HARNESS_FAILS} selftest=${SELFTEST}"
 if [ "$HARNESS_FAILS" -gt 0 ]; then
     echo "test_people_seed_and_retrieval_probe: FAIL (${HARNESS_FAILS} harness failures --"
     echo "  the fake box never became ready, so the probe was never exercised on those"
     echo "  scenarios; this is NOT evidence about the probe either way)"
     exit 2
 fi
-if [ "$CASES" -ne 13 ]; then
-    echo "test_people_seed_and_retrieval_probe: FAIL (drove ${CASES} scenarios, expected 13)"
+if [ "$CASES" -ne 14 ]; then
+    echo "test_people_seed_and_retrieval_probe: FAIL (drove ${CASES} scenarios, expected 14)"
     exit 2
 fi
 if [ "$FAILS" -gt 0 ]; then
     echo "test_people_seed_and_retrieval_probe: FAIL (${FAILS} expectations missed)"
     exit 1
 fi
-echo "test_people_seed_and_retrieval_probe: PASS (gate proven to fire on 12 distinct breaks, and its own --self-test proven to go red)"
+echo "test_people_seed_and_retrieval_probe: PASS (gate proven to fire on 13 distinct breaks, and its own --self-test proven to go red)"
 exit 0
