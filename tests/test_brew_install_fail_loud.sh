@@ -129,10 +129,28 @@ fi
 # Verify the actual tee redirection is in place. The exact pattern
 # is `exec > >(stdbuf -oL tee -a "${INSTALL_LOG}") 2>&1` -- both the
 # stdout AND stderr arms must be redirected.
-if ! grep -qE 'exec > >\(stdbuf -oL tee -a "\$\{INSTALL_LOG\}"\) 2>&1' "$INSTALL_SH"; then
+# The literal `stdbuf -oL tee` was replaced by ${_OSTLER_TEE_CMD}, which
+# resolves to `stdbuf -oL tee` on GNU and `gstdbuf -oL tee` where coreutils is
+# prefixed. That refactor exists BECAUSE the literal was not portable, and it
+# is why this grep stopped matching -- the behaviour is present and improved.
+# Accept either form, and additionally require that the resolver still handles
+# BOTH spellings, so the portability cannot be silently dropped later. That is
+# strictly stronger than the literal this replaces.
+if ! grep -qE 'exec > >\((stdbuf -oL tee|\$\{_OSTLER_TEE_CMD\}) -a "\$\{INSTALL_LOG\}"\) 2>&1' "$INSTALL_SH"; then
     fail_test "install.sh must redirect stdout+stderr through 'exec > >(stdbuf -oL tee -a \"\${INSTALL_LOG}\") 2>&1'. Without it, the GUI's progress lines never reach disk."
 else
     ok "install.log tee redirection in place (exec > >(tee -a ...) 2>&1)."
+fi
+
+# The resolver must still know both spellings. If it ever collapses to one,
+# the redirect silently stops working on the other platform and the GUI's
+# progress lines never reach disk -- the exact failure the assertion above
+# exists to prevent.
+if grep -q '_OSTLER_TEE_CMD' "$INSTALL_SH"; then
+    for _sb in 'stdbuf -oL tee' 'gstdbuf -oL tee'; do
+        grep -qF "$_sb" "$INSTALL_SH" \
+            || fail_test "install.sh resolves _OSTLER_TEE_CMD but no longer mentions '$_sb'; the BSD/GNU fallback has been dropped."
+    done
 fi
 
 # ── Test 7 — the new MSG_FAIL_* strings exist in the en-GB catalogue ──
