@@ -223,35 +223,36 @@ fi
 #     3 = checked-hash     (validated against the .py hash -> REWRITABLE)
 # Only 1 is safe inside a signed bundle. Anything else is a seal break waiting
 # for a first import.
-NON_HASH="$("$BUNDLED_PY" - "$PYTHON_DIR" <<'PYEOF'
-import glob, struct, sys
-root = sys.argv[1]
-bad = []
-for p in glob.glob(root + '/**/*.pyc', recursive=True):
-    try:
-        with open(p, 'rb') as f:
-            f.read(4)
-            flags = struct.unpack('<I', f.read(4))[0]
-    except Exception as exc:                      # unreadable is NOT clean
-        print("UNREADABLE %s (%s)" % (p, exc))
-        bad.append(p)
-        continue
-    if flags != 1:
-        print("flags=%d %s" % (flags, p))
-        bad.append(p)
-print("COUNT %d" % len(bad))
-PYEOF
+# READ THE BYTES, DO NOT ASK THE INTERPRETER.
+#
+# This deliberately does NOT shell out to "$BUNDLED_PY". The thing being
+# checked is the output of that interpreter, so using it as the instrument
+# couples the measurement to its subject -- and in the test harness, where
+# BUNDLED_PY is a stub, it would answer nothing at all and a CANNOT-RUN would
+# stand in for a verdict. `od` reads the 4-byte little-endian flag word at
+# offset 4 with no interpreter in the loop.
+NON_HASH="$(
+    find "$PYTHON_DIR" -name '*.pyc' -type f -print0 | while IFS= read -r -d '' f; do
+        flags="$(od -An -tu4 -j4 -N4 "$f" 2>/dev/null | tr -d ' \n')"
+        if [ -z "$flags" ]; then
+            echo "UNREADABLE-OR-TRUNCATED $f"      # not clean, not skipped
+        elif [ "$flags" != "1" ]; then
+            echo "flags=$flags $f"
+        fi
+    done
+    echo "SENTINEL_OK"
 )"
-BAD_N="$(printf '%s\n' "$NON_HASH" | sed -n 's/^COUNT //p')"
-if [ -z "$BAD_N" ]; then
-    echo "ERROR: the .pyc invalidation-mode probe produced no COUNT line." >&2
+if ! printf '%s\n' "$NON_HASH" | grep -q '^SENTINEL_OK$'; then
+    echo "ERROR: the .pyc invalidation-mode probe did not reach its own end." >&2
     echo "       CANNOT-RUN is not a pass. Refusing to sign." >&2
     exit 1
 fi
+BAD_N="$(printf '%s\n' "$NON_HASH" | grep -cv '^SENTINEL_OK$' || true)"
+BAD_N="${BAD_N:-0}"
 echo "Invalidation mode: $BAD_N of $PYC_AFTER .pyc are not unchecked-hash"
 if [ "$BAD_N" -ne 0 ]; then
     echo "ERROR: $BAD_N .pyc inside the bundle are NOT unchecked-hash." >&2
-    printf '%s\n' "$NON_HASH" | grep -v '^COUNT ' | head -20 >&2
+    printf '%s\n' "$NON_HASH" | grep -v '^SENTINEL_OK$' | head -20 >&2
     echo "       Each one is validated at import time, so the interpreter may" >&2
     echo "       REWRITE IT IN PLACE inside the signed bundle -- which breaks" >&2
     echo "       the seal without changing the file count. That is v1046-D001." >&2

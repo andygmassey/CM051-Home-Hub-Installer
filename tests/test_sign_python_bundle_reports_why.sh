@@ -56,17 +56,37 @@ echo "not really a binary" > "$APP/Contents/Resources/python/lib/libfake.dylib"
 # count for the codesign assertions, a tiny one to prove the anti-vacuity floor
 # fires, and FAIL to prove compileall failure is fatal.
 seed_count() { echo "$1" > "$WORK/seed"; }
+# Drives the stub's post-seed poison: none | timestamp | truncated. Applied
+# INSIDE compileall so it survives the reseed, the same way seed_count does.
+poison_mode() { echo "$1" > "$WORK/poison"; }
 cat >"$APP/Contents/Resources/python/bin/python3.11" <<STUB
 #!/bin/bash
 if [ "\$1" = "-m" ] && [ "\$2" = "compileall" ]; then
     n="\$(cat "$WORK/seed" 2>/dev/null || echo 600)"
     [ "\$n" = "FAIL" ] && { echo "stub: compileall refused" >&2; exit 1; }
     mkdir -p "$APP/Contents/Resources/python/lib/__pycache__"
+    # A REAL 16-byte .pyc HEADER, not an empty file. The seeded .pyc now carry
+    # the property the script checks: PEP 552 magic, then a 4-byte
+    # little-endian flag word of 1 (unchecked-hash), then 8 bytes of source
+    # hash. An empty file used to be enough because the only assertion was a
+    # COUNT; from v1.0.47 the script reads the flag word, and a fixture that
+    # cannot express the invariant cannot prove the guard.
     i=0
     while [ "\$i" -lt "\$n" ]; do
-        : > "$APP/Contents/Resources/python/lib/__pycache__/m\${i}.cpython-311.pyc"
+        printf '\\x6f\\x0d\\x0d\\x0a\\x01\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00' \\
+            > "$APP/Contents/Resources/python/lib/__pycache__/m\${i}.cpython-311.pyc"
         i=\$(( i + 1 ))
     done
+    # POISON, applied AFTER the seed so it survives into the check. compileall
+    # rewrites every .pyc it seeds, so a flag flipped by the harness before the
+    # run would simply be overwritten -- the poison has to come from inside the
+    # thing that writes them, exactly like seed_count.
+    p="\$(cat "$WORK/poison" 2>/dev/null || echo none)"
+    case "\$p" in
+      timestamp) printf '\\x6f\\x0d\\x0d\\x0a\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00' \\
+                     > "$APP/Contents/Resources/python/lib/__pycache__/m7.cpython-311.pyc" ;;
+      truncated) : > "$APP/Contents/Resources/python/lib/__pycache__/m7.cpython-311.pyc" ;;
+    esac
     exit 0
 fi
 exit 0
@@ -218,6 +238,39 @@ else
 fi
 check "floor: nothing was signed" "0" "$(attempts)"
 seed_count 600
+
+# (c2) THE MODE CHECK, DRIVEN RED BY A REAL BYTE. This is the arm the floor
+#      could not be: v1.0.46 shipped 1448 .pyc -- far over the floor -- while
+#      45 of them were still TIMESTAMP mode and therefore still rewritable
+#      inside the signed bundle. The floor passed. The seal broke anyway.
+#
+#      Driven here by flipping ONE seeded .pyc's flag word from 1 to 0, which
+#      is the exact byte that distinguishes the two modes. Nothing else about
+#      the fixture changes, so a pass here cannot come from anything but the
+#      mode check.
+make_codesign ok
+rc="$(run)"
+check "mode: a clean seed passes the flag-word check" "0" "$rc"
+
+poison_mode timestamp
+make_codesign ok
+rc="$(run)"
+check "mode: ONE timestamp .pyc refuses to sign" "1" "$rc"
+if grep -q "are NOT unchecked-hash" "$WORK/out"; then
+    echo "  PASS  mode: names the defect"
+else
+    echo "  FAIL  mode: did not fire, or did not say what it found"; fail=1
+fi
+check "mode: nothing was signed" "0" "$(attempts)"
+
+# An UNREADABLE .pyc is not a clean one. A zero-length file yields no flag word
+# at all, and the failure mode this must never have is treating "could not
+# look" as "looked and found nothing wrong".
+poison_mode truncated
+make_codesign ok
+rc="$(run)"
+check "mode: a truncated .pyc is refused, not skipped" "1" "$rc"
+poison_mode none
 
 # (d) THE INVALIDATION MODE IS LOAD-BEARING AND MUST STAY unchecked-hash.
 #
