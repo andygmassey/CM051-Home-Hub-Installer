@@ -20,7 +20,8 @@ on:
     paths:
       - 'scripts/verify_cut_manifest.py'
       - 'scripts/verify_cut_manifest.sh'
-      - 'scripts/tests/test_verify_cut_manifest.py scripts/tests/test_grep_in_source_at_sha_names_files.py'
+      - 'scripts/tests/test_verify_cut_manifest.py'
+      - 'scripts/tests/test_grep_in_source_at_sha_names_files.py'
       - 'tests/test_grep_row_cannot_be_satisfied_by_its_own_manifest.py'
       - 'scripts/box_walk_probes/**'
       - 'scripts/tests/test_people_seed_and_retrieval_probe.sh'
