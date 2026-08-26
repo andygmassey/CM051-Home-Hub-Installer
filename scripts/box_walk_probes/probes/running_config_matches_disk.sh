@@ -91,6 +91,36 @@ print("UNAVAILABLE" if v is None else str(v))' 2>/dev/null)"
     if [ -z "$_v" ]; then printf 'UNAVAILABLE'; else norm_bool "$_v"; fi
 }
 
+# --- setting 2: the service token, compared by HASH, never by value ---------
+#
+# This is the instance that did the most damage on 2026-08-26 and the one the
+# require_pairing comparison alone does NOT catch: ical-server held a
+# pre-rotation token while the plist and the secrets file both held the new one.
+# Every non-public /api/v1 route 401'd for every correctly configured client.
+#
+# NEVER PRINT THE VALUE. A walk log lands in support bundles. Only the first 12
+# hex of a sha256 is emitted -- enough to say "same" or "different", useless to
+# anyone who obtains the log.
+#
+# NORMALISE THE BYTES BEFORE HASHING, and this is not fussiness. Rehearsing this
+# comparison I hashed the live side through `sed | shasum`, which appends sed's
+# trailing newline, and the disk side through `tr -d`, which does not. The SAME
+# token hashed to 0fa1a5d2 and caa3d247, and for a moment it read as a fresh
+# security drift on a box I had already fixed. A probe that reports a false
+# drift on a security setting burns its credibility the first time it fires.
+# Hash the exact bytes, both sides, with printf '%s'.
+token_sha_live() {
+    _t="$(box_run "P=\$(pgrep -f ical-server.py | head -1); ps -Eww -p \$P 2>/dev/null | tr ' ' '\\n' | grep -m1 '^PWG_SERVICE_TOKEN=' | sed 's/^PWG_SERVICE_TOKEN=//'")"
+    if [ -z "$_t" ]; then printf 'UNAVAILABLE'; return; fi
+    printf '%s' "$_t" | shasum -a 256 | cut -c1-12
+}
+
+token_sha_disk() {
+    _t="$(box_run "cat \$HOME/.ostler/secrets/service_token 2>/dev/null | tr -d '\\r\\n'")"
+    if [ -z "$_t" ]; then printf 'UNAVAILABLE'; return; fi
+    printf '%s' "$_t" | shasum -a 256 | cut -c1-12
+}
+
 run_probe() {
     if ! box_reachable; then
         probe_cannot_run "cannot reach ${OSTLER_BOX_HOST:-this machine} over ssh; nothing was compared"
@@ -100,19 +130,34 @@ run_probe() {
     _live="$(read_live_require_pairing)"
     probe_note "require_pairing on disk : ${_disk}"
     probe_note "require_pairing live    : ${_live}"
+    _v1="$(judge_drift require_pairing "$_disk" "$_live")"
 
-    _verdict="$(judge_drift require_pairing "$_disk" "$_live")"
-    probe_examined "1 setting compared (require_pairing), 2 of 2 sides needed" "disk config vs the daemon's live /health"
+    _tdisk="$(token_sha_disk)"
+    _tlive="$(token_sha_live)"
+    probe_note "service token on disk   : ${_tdisk}  (sha256/12, value never printed)"
+    probe_note "service token live      : ${_tlive}"
+    _v2="$(judge_drift service_token "$_tdisk" "$_tlive")"
+
+    probe_examined "2 settings compared (require_pairing, service_token), 2 of 2 sides needed each" "disk config vs the live processes enforcing it"
+
+    # A DRIFT anywhere outranks an UNREADABLE anywhere. A proven disagreement is
+    # a finding; an unreadable second setting only costs coverage. Report the
+    # worst thing actually ESTABLISHED, never the average of the two.
+    _verdict=AGREE
+    case "${_v1}|${_v2}" in
+        *DRIFT*)      _verdict=DRIFT ;;
+        *UNREADABLE*) _verdict=UNREADABLE ;;
+    esac
 
     case "$_verdict" in
         UNREADABLE)
-            probe_cannot_run "one side of the comparison was unreadable (disk='${_disk}' live='${_live}'). A comparison needs BOTH; one side alone cannot disagree with itself."
+            probe_cannot_run "one side of a comparison was unreadable (require_pairing disk='${_disk}' live='${_live}' [${_v1}]; service_token disk='${_tdisk}' live='${_tlive}' [${_v2}]). A comparison needs BOTH; one side alone cannot disagree with itself."
             ;;
         DRIFT)
-            probe_fail "the daemon is NOT running the config on disk: require_pairing is '${_disk}' in ${CONFIG_PATH} and '${_live}' in the live daemon. The file is not what is being enforced. A restart that re-reads config is the remedy; note that launchctl kickstart restarts from the LOADED definition and will not pick up a rewritten plist."
+            probe_fail "a running process is NOT using the config on disk. require_pairing disk='${_disk}' live='${_live}' [${_v1}]; service_token disk='${_tdisk}' live='${_tlive}' [${_v2}]. The file is not what is being enforced. A restart that re-reads config is the remedy; note that launchctl kickstart restarts from the LOADED definition and will not pick up a rewritten plist."
             ;;
         AGREE)
-            probe_pass "the daemon enforces the config on disk (require_pairing=${_live} both sides)"
+            probe_pass "both settings match the config on disk (require_pairing=${_live}, service_token sha ${_tlive})"
             ;;
         *)
             probe_fail "adjudicator returned an unknown verdict '${_verdict}' -- treating as failure rather than guessing"
@@ -121,7 +166,7 @@ run_probe() {
 }
 
 self_test() {
-    probe_examined "4 crafted comparisons" "synthetic disk/live pairs adjudicated by the live judge (no box touched)"
+    probe_examined "6 crafted comparisons" "synthetic disk/live pairs adjudicated by the live judge (no box touched)"
 
     # 1. THE DEFECT. Config says the control is ON, the daemon runs it OFF.
     if [ "$(judge_drift require_pairing true false)" != "DRIFT" ]; then
@@ -144,7 +189,22 @@ self_test() {
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: an unreadable side adjudicated as a comparison. 'Could not look' would have been reported as a result."
     fi
 
-    probe_fail "negative controls fired on all 4 crafted comparisons (drift caught, agreement kept, case-difference forgiven, missing side refused)"
+    # 5+6. THE FALSE POSITIVE THAT NEARLY GOT REPORTED AS A SECURITY DRIFT.
+    #      Two hashes of the SAME token differ if one side carries a trailing
+    #      newline. The readers normalise with printf '%s'; these arms prove the
+    #      normalisation is load-bearing, so deleting it turns this probe into a
+    #      false-alarm generator on a security setting.
+    _n1="$(printf '%s' "abc" | shasum -a 256 | cut -c1-12)"
+    _n2="$(printf '%s' "abc" | shasum -a 256 | cut -c1-12)"
+    if [ "$(judge_drift service_token "$_n1" "$_n2")" != "AGREE" ]; then
+        probe_pass "FALSE POSITIVE: identically-normalised hashes of one value were reported as drift."
+    fi
+    _n3="$(printf '%s\n' "abc" | shasum -a 256 | cut -c1-12)"
+    if [ "$_n1" = "$_n3" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: a trailing newline made no difference to the hash, so the normalisation arm proves nothing."
+    fi
+
+    probe_fail "negative controls fired on all 6 crafted comparisons (drift caught, agreement kept, case-difference forgiven, missing side refused, trailing-newline false positive excluded)"
 }
 
 probe_main "$@"
