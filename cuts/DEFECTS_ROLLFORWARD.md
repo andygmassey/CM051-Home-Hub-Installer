@@ -95,6 +95,7 @@ walk_horizon: v1.0.41
 | v1.0.43 | 2026-08-24 | deferred | TNM (2026-08-24, under Andy's standing instruction to drive to the cut) | v1043-D001 v1043-D002 v1043-D003 |
 | v1.0.44 | 2026-08-24 | closed | Andy (walked on hardware; run header 2026-08-24T10:10:59Z) | v1044-D001 v1044-D002 v1044-D003 v1044-D004 v1044-D005 v1044-D006 |
 | v1.0.45 |  | not_walked | A2 (ARTEFACT MEASURED 2026-08-26, NEVER INSTALLED. Not walked because it CANNOT be: the DMG bricks on first run, v1045-D001. There is no walks/v1.0.45.tsv and there should not be one -- no walker got past Gatekeeper.) | v1045-D001 |
+| v1.0.46 | 2026-08-26 | deferred | ORM walked the artefact 2026-08-26T03:08Z with scripts/walk_dmg.sh: PASS 5, FAIL 2, CANNOT-RUN 1, VERDICT NO_GO. Deferred (not closed) by A1 under Andy's standing instruction to drive to a cut: the root cause is FIXED on CM051 main c196c1e0 and rides v1.0.47, but it is in NO artefact, so closing would be true about the repo and false about the DMG. | v1046-D001 v1046-D002 v1046-D003 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -3336,3 +3337,73 @@ NOT CLOSED BY THE ABOVE, and recorded so silence is not read as a pass:
 reason those four guards are needed at all. It is held for v1.0.47 because its
 arms ran on a mounted artefact and a scratch HOME, never a real install, and
 its author asks for a box walk -- which needs a DMG that does not brick.
+### v1046-D001 -- v1.0.46 still breaks its own seal: 45 .pyc shipped in TIMESTAMP mode
+
+**v1.0.46 existed to close v1045-D001 and it did not close it.** v1.0.45 shipped
+ZERO .pyc so first use ADDED files to the seal. v1.0.46 closed that limb -- 1448
+seeded, an unguarded first use adds ZERO -- and bricks anyway by the other limb.
+
+Measured on the SHIPPED artefact, read-only mount. OstlerInstaller-1.0.46.dmg,
+67,199,451 bytes, sha256 23134736...fa126f, matches SHA256SUMS:
+
+    1448 .pyc      1403 unchecked-hash   ·   45 TIMESTAMP mode
+    of those 45:    0 match their .py    ·   45 MISMATCH
+    recorded mtime 1704067200 (2024-01-01) vs actual 1787713192 (build time),
+    sizes IDENTICAL
+
+All 45 are stale AS PUBLISHED, on the read-only volume, so `ditto` and the
+customer's copy path are NOT implicated. Then, writable copy, no env:
+
+    NEW .pyc  0   ·   REWRITTEN 19   ·   count 1448 -> 1448
+    codesign --verify --deep --strict  rc=1
+        "a sealed resource is missing or invalid"   IDENTICAL to v1.0.45
+
+ORM reached the same defect independently via `env -i python3.11 -c 'pass'`.
+
+ROOT CAUSE: `--invalidation-mode unchecked-hash` was ALREADY on the compileall
+command line in v1.0.46 (counted 2 at d297cc59). It governs only what compileall
+itself compiles; the ~45 stdlib modules the interpreter imports to BOOT are
+written by the IMPORT SYSTEM in timestamp mode, and compileall then skips them
+as up-to-date.
+
+FIXED on CM051 main c196c1e0 (#1085): PYTHONDONTWRITEBYTECODE=1 + -f + an audit
+that reads byte 4 bit 0 of every .pyc and REFUSES TO SIGN unless the
+timestamp-mode count is 0. Gate: capability installer_refuses_timestamp_mode_pyc
+(OS003 #157), counted 0 at d297cc59 and 1 on c196c1e0.
+
+CARRIED into v1.0.47 -- BOM row, landed=no until an artefact contains it.
+
+### v1046-D002 -- walk arm 5 is CANNOT-RUN, and that is not a pass
+
+Arm 5 could not run because CM051 #1055 is absent: the bundled interpreter is
+still an import root, so the arm has no state in which to make its measurement.
+CANNOT-RUN is neither FAIL nor PASS. Recorded here so the next reader does not
+count 5 passes out of 8 arms and conclude the walk was mostly green.
+
+#1055 is Andy's ship-or-hold and is NOT in v1.0.47. v1046-D001's fix closes the
+BRICK without it -- ORM's own `env -i` reproducer returns 0 rewritten with the
+fix applied -- but arm 5 stays CANNOT-RUN until #1055 lands.
+
+DEFERRED to Andy's decision on #1055.
+
+### v1046-D003 -- arm 7 fails by asserting the OLD contract, and arm 8's wording hides its own finding
+
+Two instrument defects found by the same walk, neither of them product defects.
+
+Arm 7 FAILED on "1448 .pyc seeded in the image". Seeding is now DELIBERATE --
+it is v1045-D001's fix. The arm asserts a contract the product intentionally
+left behind, so it will fail on every future cut until its predicate is
+inverted.
+
+Arm 8 prints "first use wrote 1448 .pyc into the bundle". It did not. NEW files
+were ZERO; the number that matters is the REWRITE count, and the total is
+reported in its place. ORM flagged this himself. A count-based message cannot
+describe a defect that does not change the count.
+
+⚠️ ALSO UNRESOLVED: ORM measured 20 rewritten on `env -i python3.11 -c 'pass'`;
+A1 measures 4 on the same command against the same artefact. Both non-zero,
+both agree on direction, and 45 bounds both. The discrepancy is most likely
+what arm 8 executes before it samples. NOT RECONCILED -- stated rather than
+averaged.
+
+OPEN -- instrument fixes, owner ORM.
