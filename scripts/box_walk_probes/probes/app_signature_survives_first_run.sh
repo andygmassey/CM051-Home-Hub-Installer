@@ -248,7 +248,23 @@ self_test() {
     fi
 
     printf 'VERDICT: SELF-TEST PASS -- caught timestamp-mode, cleared unchecked-hash, saw a rewrite-in-place.\n'
-    exit "${PROBE_EX_OK:-0}"
+    # POLARITY. run_box_walk.sh PHASE 1 requires a self-test to exit 1:
+    #     "each probe must be able to FAIL", so exit 1 means "this probe CAN go
+    #     red on known-bad input" and anything else is reported BROKEN.
+    #
+    # This exited 0 on success, so the walk marked the probe BROKEN and DID NOT
+    # TRUST ITS MEASUREMENT -- while its own output said SELF-TEST PASS. Measured
+    # on a real walk 2026-08-26: 2 of 17 probes dark for exactly this reason.
+    #
+    # The failure branches above are already correct and are NOT being changed:
+    # they print the literal "VERDICT: BROKEN", which phase 1 greps for BEFORE it
+    # reads any exit code, precisely so a probe cannot vouch for itself with an
+    # exit status.
+    #
+    # (It also read ${PROBE_EX_OK:-0}, and PROBE_EX_OK is defined NOWHERE in
+    # lib/probe.sh -- the lib defines PROBE_EX_PASS. The :- default silently
+    # supplied 0, so the wrong name never surfaced as an error.)
+    exit "$PROBE_EX_FAIL"
 }
 
 probe_main "$@"
