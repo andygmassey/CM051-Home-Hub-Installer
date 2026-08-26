@@ -1,0 +1,189 @@
+# cut-manifests/v1.0.47.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.47.
+#
+# WHY v1.0.47 EXISTS, AND IT IS ONE THING:
+# ---------------------------------------------------------------------------
+# v1.0.46 STILL BRICKS. IT WAS CUT, PUBLISHED, WALKED, AND REFUSED.
+#
+# v1.0.45 shipped ZERO .pyc, so first use ADDED files to the signed bundle.
+# v1.0.46 fixed that limb -- 1448 seeded, and an unguarded first use adds ZERO
+# new files. It bricks anyway, by the OTHER limb: 45 of those 1448 shipped in
+# TIMESTAMP invalidation mode, and CPython REWRITES a timestamp-mode .pyc whose
+# recorded source mtime does not match the .py. A rewrite breaks the seal
+# exactly as an add does, and THE FILE COUNT NEVER CHANGES.
+#
+# MEASURED ON THE PUBLISHED v1.0.46 ARTEFACT, 2026-08-26, READ-ONLY MOUNT
+# (sha256 231347368fcb..., matches SHA256SUMS; plist 1.0.46 / 4600):
+#     1448 .pyc      1403 unchecked-hash   ·   45 TIMESTAMP
+#     of those 45:    0 match their .py    ·   45 MISMATCH
+#     recorded mtime 1704067200 (2024-01-01) vs actual 1787713192 (build time),
+#     sizes IDENTICAL. All 45 already stale AS PUBLISHED, on the read-only
+#     volume, so `ditto` and the customer's copy path are NOT implicated.
+#
+# Then, writable copy, bundled interpreter, no env -- what the hourly
+# `editor-frontpage` LaunchAgent does:
+#     NEW .pyc   0   ·   REWRITTEN 19   ·   count 1448 -> 1448
+#     codesign --verify --deep --strict  rc=1
+#         "a sealed resource is missing or invalid"    IDENTICAL to v1.0.45
+# ORM reached the same defect independently via `env -i python3.11 -c 'pass'`
+# and returned walk_result NO_GO on arm 8.
+#
+# ---------------------------------------------------------------------------
+# 🔴 ROOT CAUSE, AND WHY v1.0.46's TEST COULD NOT SEE IT
+# ---------------------------------------------------------------------------
+# `--invalidation-mode unchecked-hash` was ALREADY on the compileall command
+# line in v1.0.46. It governs ONLY what compileall itself compiles. The
+# interpreter that RUNS compileall must first boot-import ~45 stdlib modules;
+# those .pyc are written by the IMPORT SYSTEM, which is always timestamp mode.
+# compileall then walks the tree, sees them up-to-date, and SKIPS them.
+#
+# The v1.0.46 test asserted the FLAG by grepping the script for its own text.
+# That assertion is true in the world where the fix works AND the world where
+# it does not. Every count-based assertion passed too, because a REWRITE does
+# not change a count. The fix therefore had to become: assert the PROPERTY --
+# read byte 4 bit 0 of every .pyc and refuse to sign unless the timestamp-mode
+# count is 0.
+#
+# ---------------------------------------------------------------------------
+# HOW THESE PREDICATES WERE CHOSEN
+# ---------------------------------------------------------------------------
+# A predicate both artefacts satisfy proves nothing. Every pattern below was
+# counted against v1.0.46's PINNED SOURCE (d297cc59) and against this cut's:
+#
+#     PATTERN (gui/scripts/sign-python-bundle.sh)   v1.0.46   v1.0.47
+#     seeded .pyc are in TIMESTAMP mode                   0         1   ACCEPTED
+#     PYTHONDONTWRITEBYTECODE=1                           0         3   ACCEPTED
+#     compileall -q -f                                    0         1   ACCEPTED
+#     invalidation-mode unchecked-hash                    2         3   accepted
+#                                                                       but WEAK
+#     compileall                          (control)       8        13
+#
+# 🔴 THE LAST TWO MATTER. `invalidation-mode unchecked-hash` is 2 on v1.0.46 --
+# it is NOT a discriminator for the defect, only for the edit, which is exactly
+# why it is not used as a row below. And the `compileall` control is non-zero on
+# BOTH sides on purpose: an all-zero column is what a broken read looks like.
+# An earlier pass of this table DID return uniform zeros because a `2>/dev/null`
+# on the probe hid a failure; it was refused rather than written down.
+#
+# ---------------------------------------------------------------------------
+# ⚠️ WHAT THIS MANIFEST CANNOT PROVE, STATED RATHER THAN BURIED
+# ---------------------------------------------------------------------------
+# NONE OF THESE ROWS PROVE THE BRICK IS CLOSED. They prove the fix is PRESENT in
+# the pinned source and that the installer's identity moved. Presence is not
+# behaviour. The ONLY proof is artefact-level, against a WRITABLE COPY, after
+# the DMG exists:
+#
+#   T=$(mktemp -d); ditto "$M/OstlerInstaller.app" "$T/OstlerInstaller.app"
+#   # DENOMINATOR + per-file hashes BEFORE:
+#   find "$T" -name '*.pyc' | wc -l          # expect 1448
+#   env -i "$T/OstlerInstaller.app/Contents/Resources/python/bin/python3.11" -c 'pass'
+#   codesign --verify --deep --strict --verbose=2 "$T/OstlerInstaller.app" 2>&1 \
+#     | grep -cE '^file (added|modified):'   # EXPECT 0 -- CHECK BOTH VERBS
+#
+# 🔴 CHECK `modified:` AND NOT ONLY `added:`. v1.0.46 scored 0 on `added:` and
+# bricked. The count and the add-only check are BOTH blind to this defect.
+#
+# 🔴 CANNOT-RUN IS NEITHER FAIL NOR PASS. If the DMG will not mount, if ditto
+# fails, or if codesign exits >=2, the row is NOT verified -- say so and REFUSE.
+# A 0 from a command that could not look is indistinguishable on screen from a 0
+# that means the defect is gone.
+#
+# 🗿 AND THE RULE THAT OUTRANKS ALL OF THIS: nothing is DONE until someone who
+# did not write it has watched it behave on an INSTALLED BOX. Not merged. Not
+# present in the binary. OBSERVED.
+# ============================================================================
+version: v1.0.47
+entries:
+  - id: v1047-a-the-signing-step-refuses-timestamp-mode-pyc
+    title: sign-python-bundle refuses to sign if ANY .pyc is in timestamp mode
+    incident: >-
+      THE REASON THIS CUT EXISTS. v1.0.46 shipped 45 timestamp-mode .pyc and
+      bricked; 19 of them were rewritten by a 3-module import and codesign went
+      to rc=1, with the file count unchanged at 1448 throughout. The signing
+      step now reads byte 4 bit 0 of every .pyc in the bundle and exits non-zero
+      unless the timestamp-mode count is 0. It runs the audit with -B so the
+      check cannot write a .pyc into the bundle it is judging, and it treats an
+      unreadable file or a non-numeric result as CANNOT-RUN and REFUSES rather
+      than reading an empty count as zero. Counted 0 at v1.0.46's pinned sha
+      d297cc59 and 1 here, so this row tells the two artefacts apart rather than
+      being vacuously satisfiable. Proved to fire: with the REAL bundled
+      interpreter the audit returns 0 on the fixed bundle and 1 (naming the
+      file) on a tree carrying one timestamp-mode .pyc.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/scripts/sign-python-bundle.sh
+      pattern: 'seeded \.pyc are in TIMESTAMP mode'
+      must_match: true
+  - id: v1047-b-boot-imports-cannot-seed-timestamp-mode-pyc
+    title: compileall runs under PYTHONDONTWRITEBYTECODE=1
+    incident: >-
+      THE ROOT CAUSE, FIXED AT SOURCE. --invalidation-mode governs only what
+      compileall itself compiles; the interpreter that runs compileall
+      boot-imports ~45 stdlib modules first, and the IMPORT SYSTEM writes those
+      .pyc in timestamp mode unconditionally. compileall then skips them as
+      up-to-date. PYTHONDONTWRITEBYTECODE=1 stops that seeding. Verified it does
+      NOT neuter compileall itself -- py_compile writes explicitly and does not
+      consult sys.dont_write_bytecode: synthetic tree, rc=0, 2 .pyc produced,
+      both unchecked-hash. Counted 0 at d297cc59, 3 here.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/scripts/sign-python-bundle.sh
+      pattern: 'PYTHONDONTWRITEBYTECODE=1'
+      must_match: true
+  - id: v1047-c-compileall-rewrites-rather-than-skips
+    title: compileall is forced (-f) so an existing .pyc is not skipped
+    incident: >-
+      Without -f, any .pyc already on disk when compileall runs is left exactly
+      as the import system wrote it -- which is the whole defect. -f makes
+      compileall rewrite rather than skip, converting the boot-import set to
+      unchecked-hash. MEASURED on the shipped v1.0.46 bundle: 45 timestamp-mode
+      .pyc -> 0, all 1448 unchecked-hash; then 30 modules imported with no env
+      changed 0 of 1448 by sha256. POSITIVE CONTROL, because a zero from an
+      unproven instrument is worth nothing: the same harness in timestamp mode
+      with a real mtime mismatch reports 1 changed. The first attempt at that
+      control returned 0 and was REFUSED -- compileall and touch had run inside
+      the same second, so int(st_mtime) matched and there was no mismatch to
+      detect. Counted 0 at d297cc59, 1 here.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/scripts/sign-python-bundle.sh
+      pattern: 'compileall -q -f'
+      must_match: true
+  - id: v1047-installer-version-is-1047
+    title: the Installer says which installer it is
+    incident: >-
+      v1.0.39 shipped a DMG whose plist read 1.0.38, and the first v1.0.43 tag
+      was refused for the same defect with plist 1.0.42. Bumped across all
+      sites -- Info.plist x2, project.yml x4, pbxproj x4, ten substitutions,
+      each with a per-site count assertion that refused to write on any
+      mismatch -- and read back through plutil rather than from the file text.
+      🔴 THE BUMP SURFACE HAS AS MANY DECOYS AS REAL SITES: gui/Makefile carries
+      4 historical ORM pin notes mentioning v1.0.46, and
+      gui/scripts/sign-python-bundle.sh carries 6 occurrences inside the
+      measurement comment recording what v1.0.46 did wrong. Those 10 are
+      EVIDENCE AND HISTORY, not version pins. A naive sed over gui/ rewrites
+      them and destroys the record. Verified untouched: Makefile 4, signing
+      script 6, residual non-comment 1.0.46/4600 in gui/ = 0.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: '1.0.47'
+  - id: v1047-installer-build-number-is-4700
+    title: short version and build number have not drifted apart
+    incident: >-
+      A build number that lags the short version is how two different DMGs claim
+      to be the same install. tests/test_installer_version_consistency.sh passes
+      on this tree: all four version sites and all four build sites agree, and
+      4700 is correctly derived from 1.0.47.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleVersion
+      value: '4700'
