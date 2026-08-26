@@ -685,7 +685,7 @@ entries:
   # embedding them would push raw addresses into the People tab.
   # ==========================================================================
   - id: box-walk-people-stores-reconcile
-    title: the graph and the vector store must hold the same SET of people, not just the same count
+    title: the graph, the vector store and the number the customer is shown must all describe the same people
     incident: >-
       2026-08-26 box walk; the people count differed by 173 between Oxigraph and
       Qdrant and every existing surface reported only that difference. Set
@@ -694,7 +694,13 @@ entries:
       leaves the absorbed node's vector behind, and an email ingest that mints
       Person nodes with no name and no vector. A single total could not have
       distinguished any of them, and could have read as clean had the two errors
-      happened to cancel exactly.
+      happened to cancel exactly. A fourth residual covers the surface task #273
+      actually complained about: the wiki's headline People tile, which read
+      7,111 on the box measured -- the graph count, 76 short of the reconciled
+      7,187. It fails only when the tile matches NEITHER store, which is the
+      #273 signature (Oxigraph 6376, Doctor 6755, UI 6547 -- the UI had invented
+      a third number). A tile faithfully rendering a store this probe already
+      fails on is a consequence, not a second defect.
     proof:
       kind: box_walk_probe
       probe: "people_stores_reconcile"

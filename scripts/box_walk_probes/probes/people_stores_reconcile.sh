@@ -47,6 +47,29 @@
 #      Person node at all is a product question, not a defect this gate can
 #      settle.
 #
+#   D  the number the CUSTOMER is shown
+#      Task #273 measured THREE surfaces and got three answers: Oxigraph 6376,
+#      Doctor hydration 6755, UI 6547. The UI matched NEITHER store -- it had
+#      arrived at a third number of its own. Two of those surfaces are stores
+#      and are covered above; the third is the only one anybody actually reads.
+#
+#      The wiki's headline tile is compiled markdown, not an API:
+#          <span class="pw-tile-n">7,111</span>
+#          <span class="pw-tile-l">People</span>
+#      Measured 2026-08-26 it reads 7,111 -- exactly the graph count, so the
+#      customer is being shown a figure 76 short of the reconciled 7,187.
+#
+#      D FAILS ONLY WHEN IT MATCHES NEITHER the graph count NOR the reconciled
+#      count. That is deliberate and it is the #273 predicate:
+#        - matching the graph count means the tile faithfully renders a store
+#          this probe already fails on via A and B. Failing it again would
+#          report one defect twice and hide whether the UI itself is sound.
+#        - matching the reconciled count is correct.
+#        - matching NEITHER means the UI computed its own third number, which
+#          is the actual #273 defect and is invisible to any store-vs-store
+#          check.
+#      It also means a wiki compiled one cycle behind does not flap the gate.
+#
 # WHY THIS IS NOT A TOLERANCE CHECK. A residual is not drift. Each of A, B and C
 # names a specific broken write path, and the correct value for each is zero.
 # There is no ingest race that produces a merge survivor with no rdf:type.
@@ -150,6 +173,27 @@ except Exception as exc:
     print("CANNOTRUN " + type(exc).__name__ + " " + str(exc)[:120])
 PYPAYLOAD
 
+# The tile is COMPILED MARKDOWN, so this is keyed to a CSS class and a class is
+# a NAME, and gates keyed to names rot. Mitigated two ways: the pairing must
+# match (a number span IMMEDIATELY followed by a label span saying People), and
+# a marker that cannot be found returns UNREADABLE rather than 0. A missing tile
+# must never read as "the customer is shown zero people".
+read_wiki_people_tile() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_TILE:-UNREADABLE}"; return; fi
+    box_run "python3 - <<'OSTLERTILE'
+import os, re
+p = os.path.expanduser(\"~/Documents/Ostler/Wiki/index.md\")
+try:
+    src = open(p, encoding=\"utf-8\").read()
+except Exception:
+    print(\"UNREADABLE\"); raise SystemExit
+m = re.search(r'pw-tile-n\">([0-9,]+)<[^>]*>\\s*<span class=\"pw-tile-l\">People<', src)
+if not m:
+    print(\"UNREADABLE\"); raise SystemExit
+print(m.group(1).replace(\",\", \"\"))
+OSTLERTILE"
+}
+
 read_result() {
     if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_RECONCILE:-CANNOTRUN self-test-unset}"; return; fi
     box_run "python3 - '${OXIGRAPH_URL}' '${QDRANT_URL}' '${QDRANT_COLLECTION}' <<'PYPAYLOAD'
@@ -191,10 +235,34 @@ run_probe() {
     probe_note "residual C  NAMED persons with no vector     : ${c_named}"
     probe_note "            unnamed stubs with no vector     : ${c_unnamed}  (reported, not failed -- see header)"
 
+    local tile reconciled d_state
+    tile="$(read_wiki_people_tile)"
+    reconciled=$((graph + a - c_unnamed))
+    case "$tile" in
+        ''|UNREADABLE|*[!0-9]*)
+            d_state="unreadable"
+            probe_note "residual D  wiki People tile           : UNREADABLE (marker absent or page missing) -- NOT counted as zero" ;;
+        *)
+            if [ "$tile" -eq "$reconciled" ]; then
+                d_state="ok"
+            elif [ "$tile" -eq "$graph" ]; then
+                d_state="tracks-graph"
+            else
+                d_state="third-number"
+            fi
+            probe_note "residual D  wiki People tile           : ${tile}  (graph ${graph}, reconciled ${reconciled}) -> ${d_state}" ;;
+    esac
+
     local failures=""
     [ "$a" -gt 0 ] && failures="${failures}A=${a} untyped merge survivors; "
     [ "$b" -gt 0 ] && failures="${failures}B=${b} orphan vectors; "
     [ "$c_named" -gt 0 ] && failures="${failures}C=${c_named} named persons unsearchable; "
+    # D only when the stores agree. If A or B is non-zero the tile tracking the
+    # graph is a CONSEQUENCE, and reporting it as a second failure would say one
+    # defect twice while hiding whether the UI itself is sound.
+    if [ "$a" -eq 0 ] && [ "$b" -eq 0 ] && [ "$d_state" = "third-number" ]; then
+        failures="${failures}D=wiki tile ${tile} matches neither store (graph ${graph}, reconciled ${reconciled}); "
+    fi
 
     if [ -n "$failures" ]; then
         probe_fail "the two stores hold different SETS of people -- ${failures%; }"
@@ -219,7 +287,7 @@ self_test() {
     # and phase 1 treats that as BROKEN. So probe_pass below is the failure
     # path, not the success path.
     SELF_TEST_LOCAL=1
-    probe_examined 9 "synthetic reconciliation results (negative control)"
+    probe_examined 15 "synthetic reconciliation results (negative control)"
     local rc out fails=0 firstbad=""
 
     _case() {
@@ -237,6 +305,49 @@ self_test() {
     }
 
     # graph vec A B C_named C_unnamed both
+    _tcase() {
+        # _tcase <label> <FAKE_RECONCILE> <FAKE_TILE> <expected exit>
+        local label="$1" fake="$2" tile="$3" want="$4"
+        out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="$fake" FAKE_TILE="$tile" run_probe 2>&1)"; rc=$?
+        if [ "$rc" -ne "$want" ]; then
+            printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
+            printf '    output: %s\n' "$(printf '%s' "$out" | tail -1)"
+            fails=$((fails + 1))
+            [ -z "$firstbad" ] && firstbad="$label"
+        else
+            printf '  ok [%s] exit %s\n' "$label" "$rc"
+        fi
+    }
+
+    # ---- residual D. graph vec A B Cn Cu both ; reconciled = graph + A - Cu
+    # stores agree (A=B=0), tile matches reconciled -> PASS
+    _tcase "D tile correct -> PASS"           "OK 7187 7187 0 0 0 0 7187" "7187" "$PROBE_EX_PASS"
+    # stores agree, tile matches NEITHER -> the #273 defect -> FAIL
+    _tcase "D tile is a THIRD number -> FAIL" "OK 7187 7187 0 0 0 0 7187" "6547" "$PROBE_EX_FAIL"
+    # stores agree, tile tracks the graph, which here EQUALS reconciled -> PASS
+    _tcase "D tile tracks graph -> PASS"      "OK 7187 7187 0 0 0 0 7187" "7187" "$PROBE_EX_PASS"
+    # THE ONE THAT MATTERS: A is non-zero, so a graph-tracking tile is a
+    # CONSEQUENCE and must not be reported as a separate D failure.
+    # Exit code ALONE cannot test this: suppressed and not-suppressed both exit
+    # 1, because A already failed. The claim is about the MESSAGE, so the
+    # message is what gets asserted.
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7111 7284 106 0 0 30 7081" \
+           FAKE_TILE="7111" run_probe 2>&1)"; rc=$?
+    if [ "$rc" -ne "$PROBE_EX_FAIL" ]; then
+        printf '  SELF-TEST FAIL [D suppressed]: expected exit %s, got %s\n' "$PROBE_EX_FAIL" "$rc"
+        fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D suppressed exit"
+    else
+        case "$out" in
+            *"D=wiki tile"*)
+                printf '  SELF-TEST FAIL [D suppressed]: the verdict names D even though A=106 explains it.\n'
+                fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D suppressed message" ;;
+            *) printf '  ok [D suppressed while A non-zero -- verdict names A, not D]\n' ;;
+        esac
+    fi
+    # an unreadable tile must never read as "the customer is shown zero people"
+    _tcase "D unreadable -> not a zero"       "OK 7187 7187 0 0 0 0 7187" "UNREADABLE" "$PROBE_EX_PASS"
+    _tcase "D empty -> not a zero"            "OK 7187 7187 0 0 0 0 7187" "" "$PROBE_EX_PASS"
+
     _case "all residuals zero -> PASS"        "OK 7187 7187 0 0 0 0 7187"   "$PROBE_EX_PASS"
     _case "A untyped survivors -> FAIL"       "OK 7111 7284 106 0 0 30 7081" "$PROBE_EX_FAIL"
     _case "B orphan vectors -> FAIL"          "OK 7187 7284 0 97 0 0 7187"  "$PROBE_EX_FAIL"
@@ -251,9 +362,9 @@ self_test() {
     _case "garbage output -> CANNOT-RUN"      "totally unexpected"          "$PROBE_EX_CANNOT_RUN"
 
     if [ "$fails" -ne 0 ]; then
-        probe_pass "NEGATIVE CONTROL DID NOT BEHAVE: ${fails} of 9 self-test cases returned the wrong outcome (first: ${firstbad}). This probe cannot be trusted to distinguish PASS from FAIL from CANNOT-RUN, so its verdicts mean nothing."
+        probe_pass "NEGATIVE CONTROL DID NOT BEHAVE: ${fails} of 15 self-test cases returned the wrong outcome (first: ${firstbad}). This probe cannot be trusted to distinguish PASS from FAIL from CANNOT-RUN, so its verdicts mean nothing."
     fi
-    probe_fail "negative control behaved correctly on all 9 cases: three residuals each drive FAIL independently, unnamed stubs alone do NOT fail, and unreadable/empty/garbage input all return CANNOT-RUN rather than collapsing into a pass"
+    probe_fail "negative control behaved correctly on all 15 cases: three residuals each drive FAIL independently, unnamed stubs alone do NOT fail, and unreadable/empty/garbage input all return CANNOT-RUN rather than collapsing into a pass"
 }
 
 probe_main "$@"
