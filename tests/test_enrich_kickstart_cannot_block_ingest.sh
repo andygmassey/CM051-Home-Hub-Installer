@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # tests/test_enrich_kickstart_cannot_block_ingest.sh
 # ============================================================================
-# A FIRE-AND-FORGET KICKSTART MUST NOT BE ABLE TO WEDGE THE INGEST CHAIN.
+# NO launchctl kickstart IN install.sh MAY BLOCK ITS CALLER.
 #
-# MEASURED 2026-08-26 on a real box (macmini16, 16 GiB) during the v1.0.47
-# walk. The entire export-scan ingest chain had been wedged for 23h56m on
-# 40 milliseconds of total CPU:
+# This file used to scope exactly ONE call site (com.ostler.enrich). That was
+# too narrow, and the narrowness rested on a claim I never measured.
+#
+# ── WHAT WAS MEASURED, AND WHAT IT KILLED ──────────────────────────────────
+#
+# 2026-08-26 on a real box (macmini16, 16 GiB, macOS 26.5.2, arm64) the whole
+# export-scan ingest chain had been wedged for 23h56m on 40 MILLISECONDS of
+# total CPU:
 #
 #   ostler-assistant run-source export-scan   23:55:30  0:00.02
 #   └ tick.sh                                 23:55:30  0:00.00
@@ -14,26 +19,49 @@
 #         └ launchctl kickstart …enrich       23:50:30  0:00.00   <- the leaf
 #
 # Zero files written under ~/.ostler in ten minutes. Nothing ingested all day,
-# while the product tells the customer loading continues in the background.
+# while the product told the customer loading continues in the background.
 #
-# ROOT CAUSE. launchctl print reported, for com.ostler.enrich:
-#     state           = spawn scheduled
-#     last exit code  = 78: EX_CONFIG
-#     properties      = penalty box | inferred program | managed LWCR
-# Its program, ~/.ostler/bin/ostler-enrich-tick, DOES NOT EXIST on that box --
-# an orphan LaunchAgent left behind when the enrichment agent was gated off.
-# launchd cannot spawn it, penalty-boxes it, and a plain `kickstart` waits for
-# a spawn that is being deferred.
+# ROOT CAUSE: com.ostler.enrich pointed at ~/.ostler/bin/ostler-enrich-tick,
+# which does not exist. launchd cannot spawn an absent program, so:
+#     state = spawn scheduled | last exit code = 78: EX_CONFIG
+#     properties = penalty box | inferred program | managed LWCR
+# and kickstart waits on a spawn that is being deferred.
 #
-# THE GUARD THAT WAS THERE DID NOT COVER THE FAILURE THAT HAPPENED:
+# I then asserted the OTHER call sites were safe because they pass -k, and
+# wrote that into this file. IT WAS NEVER MEASURED. When I measured it:
+#
+#   CONTROL   kickstart     healthy agent      returned  (7s,  rc=0)
+#   CONTROL   kickstart -k  healthy agent      returned  (21s, rc=0)
+#   SUBJECT   kickstart     penalty-boxed      BLOCKED   (killed at 90s)
+#   SUBJECT   kickstart -k  penalty-boxed      BLOCKED   (killed at 90s)
+#
+# -k IS NOT A DISCRIMINATOR. The experiment is committed at
+# scripts/box_walk_probes/experiments/kickstart_k_blocks_on_penalty_box.sh --
+# run it rather than trusting this comment.
+#
+# So the assertion is now a PROPERTY OVER THE WHOLE POPULATION, not a spot
+# check on one line: every code call site must either go through _ks_bounded,
+# or be explicitly classified below with a reason.
+#
+# ── WHY THE GUARDS THAT WERE THERE DID NOT WORK ────────────────────────────
 #   `launchctl print … >/dev/null` proves the label is LOADED. A loaded job
 #   pointing at an absent program passes it.
-#   `|| true` covers a non-zero EXIT. The failure is a HANG.
+#   `|| true` covers a non-zero EXIT. The failure is a HANG -- no exit at all.
 #   `>/dev/null 2>&1` made the whole thing invisible.
+#   `timeout` does not exist on macOS, so a bound must be explicit.
 #
-# This test asserts the call is structurally incapable of blocking its caller.
-# It does NOT invoke launchctl -- a test that needs a penalty-boxed job to
+# This test does NOT invoke launchctl. A test needing a penalty-boxed job to
 # exist would be unrunnable on CI, and CANNOT-RUN is not PASS.
+#
+# 🔴 HERESTRINGS, NOT `printf | grep -q`. Under `set -o pipefail` that pipe is
+# a RACE: grep -q exits on match, printf takes SIGPIPE, and the pipeline can
+# report FAILURE for a needle that IS present (CM051 #895). Six of them were
+# in this very file and the repo's own ratchet caught them.
+#
+# 🔴 NO bash-4 BUILTINS. install.sh runs under /bin/bash, which is 3.2 on every
+# Mac. `mapfile` there is "command not found", and with `set -uo pipefail` and
+# no `set -e` the run CONTINUES -- printing passes for the arms it reached
+# while the rest silently never execute.
 #
 # Run: bash tests/test_enrich_kickstart_cannot_block_ingest.sh
 # ============================================================================
@@ -47,120 +75,116 @@ pass() { printf '  ok    %s\n' "$1"; }
 
 [ -r "$INSTALL_SH" ] || { echo "CANNOT-RUN: no readable $INSTALL_SH"; exit 2; }
 
-# ── Locate the enrich kickstart. Anchored on the label, so it cannot drift
-# ── onto one of the other kickstart call sites (there are several, and the
-# ── others are legitimately synchronous `-k` restarts).
-LINE_NO=$(grep -n 'launchctl kickstart "gui/\$(id -u)/com\.ostler\.enrich"' "$INSTALL_SH" | head -1 | cut -d: -f1)
-if [ -z "$LINE_NO" ]; then
-    echo "CANNOT-RUN: no enrich kickstart found in install.sh. It has moved or gone --"
-    echo "  re-point this test rather than deleting it. The deadlock it guards is real."
+# ── THE CLASSIFIED EXCEPTIONS ──────────────────────────────────────────────
+# A raw `launchctl kickstart` is allowed ONLY at a line listed here, and only
+# with a reason. This is a ratchet: a new site is a FAIL until someone decides
+# which it is. "Bounded" is the default; an exception must be argued.
+#
+# tailscaled: its EXIT CODE IS LOAD-BEARING --
+#     elif launchctl kickstart -k "…tailscaled"; then ok … else warn …
+# It chooses a customer-visible message. Backgrounding it makes the condition
+# always-true and reports "Tailscale started" for a daemon that never started.
+# Lying to the customer is worse than stalling them. It needs a three-state
+# bounded variant (started / failed / timed-out, timeout joining the warn
+# branch), which is tracked separately -- NOT a blind background.
+ALLOWED_RAW=" com.creativemachines.ostler.tailscaled "
+
+# ── ARM 1: _ks_bounded must EXIST and be correctly shaped. Everything below
+# ── depends on it, so if it is wrong the rest of this file proves nothing.
+if ! grep -q '^_ks_bounded() {' "$INSTALL_SH"; then
+    echo "CANNOT-RUN: _ks_bounded is not defined in install.sh. Every site below"
+    echo "  routes through it; without it this test asserts nothing. Not a pass."
     exit 2
 fi
-printf 'EXAMINED: enrich kickstart at install.sh:%s\n' "$LINE_NO"
+HELPER_LINE=$(grep -n '^_ks_bounded() {' "$INSTALL_SH" | head -1 | cut -d: -f1)
+HELPER=$(sed -n "${HELPER_LINE},$((HELPER_LINE + 22))p" "$INSTALL_SH")
 
-# The surrounding block: enough to see the backgrounding and the watchdog.
-BLOCK=$(sed -n "$((LINE_NO - 2)),$((LINE_NO + 8))p" "$INSTALL_SH")
-# The kickstart LINE ITSELF, for the end-of-line assertions below.
-KS_LINE=$(sed -n "${LINE_NO}p" "$INSTALL_SH")
-
-# 🔴 HERESTRINGS, NOT `printf | grep -q`.
-#
-# This file's assertions were originally `printf '%s\n' "$X" | grep -q PAT`.
-# Under `set -o pipefail` that construct is a RACE: grep -q exits the moment it
-# matches, printf takes SIGPIPE, and the pipeline can report FAILURE for a
-# needle that IS present. It passes on short input and fails under load, which
-# is the worst possible failure mode for a gate. CM051 #895 is the same bug, and
-# the repo carries a ratchet (tests/pipefail_shortcircuit_baseline.txt) that
-# caught these six -- on this very PR, in a file whose sibling probe's comment
-# already warned about exactly this.
-#
-# `grep -q PAT <<< "$X"` has no pipeline and therefore no race.
-
-# 🔴 MATCH ON END-OF-LINE, NEVER ON "[^&]*&".
-# The first draft of this test used `launchctl kickstart …[^&]*&` to look for a
-# job-control ampersand, and `…[^&]*\|\| true` to look for the weak guard.
-# BOTH gave FALSE PASSES on the un-fixed code, because the line contains
-# `2>&1` -- the `&` inside the redirection satisfied the first pattern and
-# blocked the second. The mutation run is what exposed it: two arms reported
-# ok on code that had the defect. A job-control `&` is the LAST character of
-# the command, so anchor there.
-
-# ── ARM 1: the kickstart must be BACKGROUNDED. This is the whole defect --
-# ── a synchronous call is what let a penalty-boxed job wedge the chain.
-if grep -qE '&[[:space:]]*$' <<< "$KS_LINE"; then
-    pass "the kickstart is backgrounded (&) -- the caller cannot wait on it"
+# 🔴 COUNT BOTH BRANCHES. DO NOT ASK "IS ANY LINE BACKGROUNDED".
+# _ks_bounded has TWO kickstart lines -- the -k branch and the bare branch.
+# The first version of this arm was `grep -q 'launchctl kickstart .*&$'`, i.e.
+# "does SOME line end in &". Mutation-proved GREEN with the bare branch's `&`
+# removed: the -k branch's `&` satisfied it and the arm never saw the defect.
+# An existential check over a population of two is half a check.
+HK_TOTAL=$(grep -cE '^[[:space:]]*launchctl kickstart ' <<< "$HELPER" || true)
+HK_BG=$(grep -cE '^[[:space:]]*launchctl kickstart .*&[[:space:]]*$' <<< "$HELPER" || true)
+if [ "${HK_TOTAL:-0}" -lt 2 ]; then
+    fail "_ks_bounded has ${HK_TOTAL:-0} kickstart line(s); expected 2 (-k branch + bare branch)."
+    printf '        If the branches were collapsed, re-point this arm rather than dropping it.\n'
+elif [ "${HK_BG:-0}" -eq "${HK_TOTAL:-0}" ]; then
+    pass "_ks_bounded backgrounds ALL ${HK_TOTAL} kickstart branches (not just one)"
 else
-    fail "the enrich kickstart is NOT backgrounded. A penalty-boxed job wedges"
-    printf '        the entire ingest chain; measured at 23h56m on 40ms of CPU.\n'
+    fail "_ks_bounded backgrounds only ${HK_BG}/${HK_TOTAL} kickstart branches."
+    printf '        The un-backgrounded branch blocks its caller exactly as the original\n'
+    printf '        defect did. Both -k and bare block on a penalty-boxed job (measured).\n'
+fi
+if grep -q 'sleep 10' <<< "$HELPER" && grep -q 'kill -TERM' <<< "$HELPER"; then
+    pass "_ks_bounded carries an explicit sleep+kill watchdog (no 'timeout' on macOS)"
+else
+    fail "_ks_bounded has no watchdog: a wedged kickstart lingers indefinitely"
+fi
+if grep -qE '^[[:space:]]*\)[[:space:]]*>/dev/null 2>&1 &[[:space:]]*$' <<< "$HELPER"; then
+    pass "_ks_bounded backgrounds its enclosing subshell too (an inner wait cannot block)"
+else
+    fail "_ks_bounded's subshell is not backgrounded -- the inner wait still blocks"
 fi
 
-# ── ARM 2: the enclosing block must ALSO be backgrounded, or a `wait` inside
-# ── it still blocks the import.
-if grep -qE '^[[:space:]]*\)[[:space:]]*>/dev/null 2>&1 &[[:space:]]*$' <<< "$BLOCK"; then
-    pass "the enclosing subshell is backgrounded too"
+# ── ARM 2: EVERY code call site is bounded, or classified.
+# ── Comments are excluded: a denominator that counts its own documentation is
+# ── not a denominator. This file's header alone quotes the string many times.
+RAW_ALL=$(grep -c 'launchctl kickstart' "$INSTALL_SH" || true)
+SITES=$(grep -nE '^[[:space:]]*(elif[[:space:]]+)?launchctl kickstart' "$INSTALL_SH" || true)
+BOUNDED=$(grep -cE '^[[:space:]]*_ks_bounded ' "$INSTALL_SH" || true)
+
+RAW_N=0
+while IFS= read -r _line; do
+    [ -n "$_line" ] || continue
+    _no=${_line%%:*}
+    # The two lines INSIDE _ks_bounded are the implementation, not call sites.
+    if [ "$_no" -gt "$HELPER_LINE" ] && [ "$_no" -lt $((HELPER_LINE + 22)) ]; then
+        continue
+    fi
+    RAW_N=$((RAW_N + 1))
+    _hit=""
+    for _a in $ALLOWED_RAW; do
+        case "$_line" in *"$_a"*) _hit="$_a" ;; esac
+    done
+    if [ -n "$_hit" ]; then
+        pass "install.sh:${_no} raw kickstart is CLASSIFIED (${_hit}) -- exit code is load-bearing"
+    else
+        fail "install.sh:${_no} calls launchctl kickstart RAW and is not classified."
+        printf '        -k does NOT make it safe (measured: blocks at 90s on a penalty-boxed\n'
+        printf '        job, healthy controls returned in 7s/21s). Route it through _ks_bounded,\n'
+        printf '        or add it to ALLOWED_RAW with the reason its exit code must be read.\n'
+    fi
+done <<< "$SITES"
+
+printf '\nEXAMINED: %s bounded call site(s) via _ks_bounded, %s raw call site(s), %s classified.\n' \
+    "${BOUNDED:-0}" "$RAW_N" "$(printf '%s' "$ALLOWED_RAW" | wc -w | tr -d ' ')"
+printf '          (%s raw grep matches in the file; the rest are comments.)\n' "${RAW_ALL:-0}"
+
+# ── ARM 3: THE CONTROL. If _ks_bounded is used nowhere, arms 1-2 are vacuous:
+# ── zero raw sites and zero bounded sites would sail through.
+if [ "${BOUNDED:-0}" -ge 4 ]; then
+    pass "CONTROL: ${BOUNDED} sites actually route through _ks_bounded (not a vacuous pass)"
 else
-    fail "the subshell around the kickstart is not backgrounded -- an inner wait would still block"
+    fail "CONTROL FAILED: only ${BOUNDED:-0} site(s) use _ks_bounded. Either the helper"
+    printf '        is unused -- making this whole test vacuous -- or the call sites were\n'
+    printf '        reverted to raw kickstart under a name this test cannot see.\n'
 fi
 
-# ── ARM 3: there must be a WATCHDOG. Backgrounding stops the deadlock; without
-# ── a bound, a wedged kickstart lingers for a day, which is how this was found.
-# ── `timeout` does not exist on macOS, so the watchdog must be explicit.
-if grep -q 'sleep 10' <<< "$BLOCK" && grep -q 'kill -TERM' <<< "$BLOCK"; then
-    pass "a sleep+kill watchdog bounds the kickstart"
+# ── ARM 4: the enrich site specifically. It is the one that was MEASURED
+# ── wedged, so name it and keep it named.
+if grep -qE '^[[:space:]]*_ks_bounded "gui/\$\(id -u\)/com\.ostler\.enrich"' "$INSTALL_SH"; then
+    pass "the measured deadlock site (com.ostler.enrich) is bounded"
 else
-    fail "no watchdog: a wedged kickstart would linger indefinitely (no 'timeout' on macOS)"
+    fail "com.ostler.enrich is no longer bounded -- this is the site measured at"
+    printf '        23h56m elapsed on 40ms of CPU. Do not un-bound it.\n'
 fi
-
-# ── ARM 4: THE CONTROL. `|| true` must NOT be the only guard. If someone
-# ── reverts to a bare synchronous call with `|| true`, arms 1-3 fail, but
-# ── state plainly WHY that guard is insufficient so the next reader does not
-# ── re-add it thinking it is enough.
-if grep -qE '\|\|[[:space:]]+true[[:space:]]*$' <<< "$KS_LINE"; then
-    fail "the call is guarded ONLY by '|| true', which covers an EXIT CODE."
-    printf '        The measured failure was a HANG. || true is blind to it.\n'
-else
-    pass "CONTROL: not relying on '|| true' alone to survive a wedged job"
-fi
-
-# ── ARM 5: SCOPE + DENOMINATOR.
-#
-# 🔴 THIS ARM USED TO CARRY A FALSE CLAIM AND A WRONG DENOMINATOR. Both fixed
-# 🔴 2026-08-26 after measuring on real hardware. Do not restore either.
-#
-# It used to say: "The others use -k and are deliberate synchronous restarts,
-# not fire-and-forget" -- i.e. that -k made them safe. THAT WAS AN ASSERTION I
-# NEVER MEASURED. Measured on andy@.228 (macOS 26.5.2, arm64) against a
-# synthetic penalty-boxed agent, with a healthy agent as the positive control:
-#
-#   CONTROL   kickstart     healthy agent      returned  (7s)
-#   CONTROL   kickstart -k  healthy agent      returned  (21s)
-#   SUBJECT   kickstart     penalty-boxed      BLOCKED   (killed at 90s)
-#   SUBJECT   kickstart -k  penalty-boxed      BLOCKED   (killed at 90s)
-#
-# -k BLOCKS TOO. It is not a discriminator. The controls cleared the bound by
-# 4x, so the block is the penalty box and not the harness. (A first run at a
-# 25s bound was thrown out: the -k control took 20s of it, leaving a 5s gap,
-# and a 5s gap is not a discrimination.)
-#
-# The denominator was also wrong. `grep -c 'launchctl kickstart'` counts COMMENT
-# lines -- this file's own header quotes the string, and so do five comments in
-# install.sh. It reported 11 where there are 6 real call sites. A denominator
-# that counts its own documentation is not a denominator.
-#
-# So: count CODE lines only, and say plainly that the other sites are UNFIXED.
-KS_ALL=$(/usr/bin/grep -c 'launchctl kickstart' "$INSTALL_SH" || true)
-KS_CODE=$(/usr/bin/grep -nE '^[[:space:]]*(elif[[:space:]]+)?launchctl kickstart' "$INSTALL_SH" | /usr/bin/grep -c '' || true)
-printf 'EXAMINED: %s CODE call site(s) to launchctl kickstart in install.sh (%s raw matches incl. comments).\n' \
-    "${KS_CODE:-0}" "${KS_ALL:-0}"
-printf '  This test scopes exactly ONE of them: com.ostler.enrich.\n'
-printf '  🔴 The other %s are NOT covered and NOT safe. -k does NOT save them --\n' "$(( ${KS_CODE:-1} - 1 ))"
-printf '     measured 2026-08-26: -k blocks on a penalty-boxed job just as plain\n'
-printf '     kickstart does. Each is a potential hang of whatever calls it, and\n'
-printf '     these run during INSTALL, where the symptom is a frozen installer.\n'
 
 echo
 if [ "$FAILURES" -eq 0 ]; then
-    echo "PASS -- the enrich kickstart cannot block the ingest chain."
+    echo "PASS -- no launchctl kickstart in install.sh can block its caller,"
+    echo "        and every raw call site is classified with a reason."
     exit 0
 fi
 echo "FAIL -- $FAILURES assertion(s) failed."
