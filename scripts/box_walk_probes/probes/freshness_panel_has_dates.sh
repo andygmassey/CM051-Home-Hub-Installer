@@ -100,6 +100,50 @@ print(f"{total} {unknown}")
 ' 2>/dev/null
 }
 
+# ── IS THERE ANY FRESHNESS DATA AT ALL? ─────────────────────────────────
+#
+# A 404 on the panel endpoint is CANNOT-RUN, and that is correct -- but it is
+# not ACTIONABLE, because two very different systems produce the identical
+# message:
+#
+#   (a) nothing has ever computed freshness      -> fix the sync
+#   (b) it is computed and nothing serves it     -> fix the route
+#
+# MEASURED on the v1.0.38 box, 2026-08-26. (b) is what is happening:
+#
+#   ~/.ostler/state/settling_progress.d/  4 files, each carrying started_at
+#     and updated_at: calendar, contacts, messages.imessage, messages.whatsapp
+#   :8089/openapi.json  57 routes advertised, exactly ONE matches
+#     settl|fresh|progress|hydrat -- and it is /api/v1/hydration/status
+#     (CONTROL: 7 routes contain "people", so the predicate does find things)
+#   :8000  200 text/html for /api/v1/definitely-not-a-real-route-zzz, so its
+#     200s on /api/v1/freshness are the SPA catch-all serving index.html, not
+#     a freshness payload. A 200 from that port means nothing without a
+#     content-type check.
+#
+# So the dates exist and no HTTP surface exposes them. This helper reports
+# that, so the CANNOT-RUN says WHICH system it is looking at rather than
+# leaving the reader to guess -- and it never upgrades the verdict, because
+# data on disk is still not an answer about the PANEL.
+settling_data_on_disk() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_DISK:-0 0}"; return; fi
+    box_run "python3 - <<'OSTLERDISK'
+import glob, json, os
+d = os.path.expanduser(\"~/.ostler/state/settling_progress.d\")
+files = sorted(glob.glob(os.path.join(d, \"*.json\")))
+dated = 0
+for f in files:
+    try:
+        doc = json.load(open(f))
+    except Exception:
+        continue
+    v = doc.get(\"updated_at\") or doc.get(\"started_at\")
+    if v and str(v).strip().lower() not in (\"\", \"unknown\", \"none\", \"null\"):
+        dated += 1
+print(str(len(files)) + \" \" + str(dated))
+OSTLERDISK"
+}
+
 run_probe() {
     if ! box_reachable; then
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; freshness panel not read"
@@ -118,7 +162,15 @@ run_probe() {
             ;;
         *)
             probe_examined 0 "freshness sources"
-            probe_cannot_run "$FRESHNESS_URL returned HTTP ${code}, not 200. The panel was never read, so this probe has NO opinion on whether its sources carry real dates. Body: $(printf '%s' "$body" | head -c 120)"
+            local disk dfiles ddated verdict_extra
+            disk="$(settling_data_on_disk)"
+            dfiles="${disk%% *}"; ddated="${disk##* }"
+            case "${dfiles:-0}" in
+                ''|*[!0-9]*) verdict_extra="On-disk state could not be read either, so it is unknown whether any freshness data exists." ;;
+                0)           verdict_extra="No settling_progress.d files exist either, so NOTHING has computed freshness: the fix is a sync, not a route." ;;
+                *)           verdict_extra="But the data it would serve EXISTS ON DISK: ${dfiles} settling_progress.d file(s), ${ddated} carrying a real timestamp. This is an UNWIRED RENDERER, not an empty system -- the fix is a route, not a sync." ;;
+            esac
+            probe_cannot_run "$FRESHNESS_URL returned HTTP ${code}, not 200. The panel was never read, so this probe has NO opinion on whether its sources carry real dates. ${verdict_extra} Body: $(printf '%s' "$body" | head -c 120)"
             ;;
     esac
 
@@ -201,7 +253,31 @@ self_test() {
         probe_pass "CONTROL PREMISE MOVED: a 404 error body now adjudicates as total=$t unknown=$u, not 1/0. The status-code guard in run_probe may no longer be the only thing preventing the false green -- re-derive before trusting this probe."
     fi
 
-    probe_fail "negative control behaved correctly (caught unknowns in both payload shapes, passed a healthy panel, and confirmed an error body still needs the HTTP-status guard to be caught)"
+    # 5. THE THREE NEW DISK BRANCHES. Each is a distinct diagnosis and a
+    #    branch with no control is a branch nobody has ever seen run. The
+    #    verdict must stay CANNOT-RUN in all three -- data on disk is still
+    #    not an answer about the PANEL, and an "actionable" message that
+    #    quietly upgrades a CANNOT-RUN to a FAIL would be worse than the
+    #    vague one it replaced.
+    local out rc
+    _disk_case() {
+        # _disk_case <label> <FAKE_DISK> <substring the message must contain>
+        out="$(SELF_TEST_LOCAL=1 FAKE_FRESHNESS='{"detail":"Not Found"}' \
+               FAKE_FRESHNESS_CODE=404 FAKE_DISK="$2" run_probe 2>&1)"
+        rc=$?
+        if [ "$rc" -ne "$PROBE_EX_CANNOT_RUN" ]; then
+            probe_pass "DISK BRANCH [$1] returned exit ${rc}, not CANNOT-RUN (${PROBE_EX_CANNOT_RUN}). Corroborating from disk must never change the verdict about the panel."
+        fi
+        case "$out" in
+            *"$3"*) : ;;
+            *) probe_pass "DISK BRANCH [$1] did not say '$3'. The message is the entire value of this branch; without it a 404 is unactionable." ;;
+        esac
+    }
+    _disk_case "data present"    "4 4" "UNWIRED RENDERER"
+    _disk_case "no data at all"  "0 0" "the fix is a sync, not a route"
+    _disk_case "disk unreadable" "x x" "could not be read either"
+
+    probe_fail "negative control behaved correctly (caught unknowns in both payload shapes, passed a healthy panel, confirmed an error body still needs the HTTP-status guard, and all three disk-corroboration branches report the right diagnosis while staying CANNOT-RUN)"
 }
 
 probe_main "$@"
