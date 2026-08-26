@@ -214,6 +214,60 @@ rc="$(run_gate v1.0.42)"
     && ok "a record with NO qa_exit is CANNOT-RUN (rc=2), not a pass and not a failure" \
     || bad "absent qa_exit returned rc=${rc}, expected 2"
 
+# ── THE RECORD'S COUNTS ARE USELESS IF THE DETAIL IS DELETED ────────────────
+#
+# post_walk_qa.sh WRITES the record this file gates on. Until 2026-08-26 it held
+# the probe output in `mktemp` under `trap rm EXIT`, so the instant the walk
+# ended the only record of WHICH probes failed was gone.
+#
+# MEASURED: walks/v1.0.47.tsv says fail=5 cannot_run=4 verdict=FAILED and names
+# not one probe. Those counts refuse the customer download. Recovering the
+# reasons costs a full re-walk of a physical box -- the most expensive step in
+# the pipeline. A refusal nobody can act on is a refusal that gets overridden.
+#
+# The predicate is EXTRACTED FROM THE WRITER AND RUN, not re-typed here: a test
+# that re-implements the thing it checks passes with the real code deleted.
+_pwq="${REPO_ROOT}/scripts/post_walk_qa.sh"
+if [[ ! -r "$_pwq" ]]; then
+    bad "CANNOT-RUN: no readable post_walk_qa.sh -- not a pass"
+else
+    _s=$(grep -n '^PROBE_LOG=""' "$_pwq" | head -1 | cut -d: -f1)
+    _e=$(grep -n '^OSTLER_BOX_HOST="\$BOX"' "$_pwq" | head -1 | cut -d: -f1)
+    if [[ -z "$_s" || -z "$_e" ]]; then
+        bad "CANNOT-RUN: could not extract the probe-log block from post_walk_qa.sh -- anchors moved, re-point this arm rather than deleting it"
+    else
+        _blk="$(sed -n "${_s},$((_e-1))p" "$_pwq")"
+        _h="$(mktemp -d)"
+        _got="$( export HOME="$_h"; CUT_VERSION=v0.0.0-test; eval "$_blk" >/dev/null 2>&1; printf '%s' "$PROBE_LOG" )"
+
+        # 1. It must survive the run.
+        case "$_got" in
+            "$_h"/.ostler/walks/*) ok "the probe detail is kept, not deleted with the run" ;;
+            *) bad "probe log is not persisted under HOME (got '${_got}') -- a FAILED walk would again name no probes" ;;
+        esac
+
+        # 2. AND IT MUST NOT BE IN THIS REPO. CM051 is PUBLIC -- that is exactly
+        # why the record stores box_fp as a hash. The raw log is the opposite:
+        # real hostname, real paths, real output. If someone "tidies" it into
+        # walks/ it becomes a tracked file and the hashing was for nothing.
+        case "$_got" in
+            "$REPO_ROOT"/*) bad "the probe log resolves INSIDE the repo (${_got}) -- this repo is public and the log carries the real hostname" ;;
+            *) ok "the probe log is outside the repo, so it cannot become a tracked file" ;;
+        esac
+
+        # 3. The fallback must CONFESS. Silently reverting to a temp file is the
+        # original defect wearing a different mask.
+        _h2="$(mktemp -d)"; chmod 500 "$_h2"
+        _out="$( export HOME="$_h2"; CUT_VERSION=v0.0.0-test; eval "$_blk" 2>&1 )"
+        chmod 700 "$_h2"
+        case "$_out" in
+            *"TEMPORARY and dies"*) ok "an unwritable log dir is ANNOUNCED, not silently downgraded" ;;
+            *) bad "the fallback path is silent -- an operator would believe detail was kept when it was not" ;;
+        esac
+        rm -rf "$_h" "$_h2"
+    fi
+fi
+
 echo
 echo "${PASS} passed, ${FAIL} failed"
 [[ "$FAIL" -eq 0 ]] || exit 1

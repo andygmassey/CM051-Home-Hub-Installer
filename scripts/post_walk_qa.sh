@@ -107,8 +107,37 @@ echo
 # is NOT run a second time to get them -- people_seed_and_retrieval writes a
 # synthetic person into the LIVE store (#829), so a second run is a second
 # write, and a second chance to leave the seed behind.
-PROBE_LOG="$(mktemp)"
-trap 'rm -f "$PROBE_LOG"' EXIT
+# THE LOG SURVIVES THE RUN. It used to be `mktemp` + `trap rm EXIT`, so the
+# moment the walk finished the only record of WHICH probes failed was deleted.
+#
+# MEASURED 2026-08-26: walks/v1.0.47.tsv says fail=5 cannot_run=4 verdict=FAILED
+# and names not one probe. The counts gate the customer download; the detail
+# that would let anyone ACT on them was destroyed by this script. The only way
+# back to it is to re-walk a physical box, which is the most expensive step we
+# have. A gate that refuses a cut and then discards its reasons makes the
+# refusal unactionable.
+#
+# NOT IN THE REPO, DELIBERATELY. This repo is PUBLIC, which is the whole reason
+# the walk record stores the box as a hash (box_fp) rather than a hostname. The
+# raw probe log is the opposite: real hostname, real paths, real output. It goes
+# to the operator's own machine and never becomes a tracked file. Do not "helpfully"
+# move this under walks/.
+#
+# If the durable path cannot be created we fall back to mktemp and SAY SO,
+# rather than silently returning to the old behaviour.
+PROBE_LOG=""
+_walk_logdir="${HOME}/.ostler/walks"
+if mkdir -p "$_walk_logdir" 2>/dev/null; then
+    PROBE_LOG="${_walk_logdir}/${CUT_VERSION:-unversioned}-$(date -u +%Y%m%dT%H%M%SZ).log"
+    : > "$PROBE_LOG" 2>/dev/null || PROBE_LOG=""
+fi
+if [[ -z "$PROBE_LOG" ]]; then
+    PROBE_LOG="$(mktemp)"
+    trap 'rm -f "$PROBE_LOG"' EXIT
+    echo "  ⚠️ could not write ${_walk_logdir}; probe detail is TEMPORARY and dies with this run"
+else
+    echo "  probe detail will be kept at: ${PROBE_LOG}"
+fi
 OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" 2>&1 | tee "$PROBE_LOG"
 probe_rc="${PIPESTATUS[0]}"
 
