@@ -33,6 +33,51 @@
 
 pr_exemptions:
 
+  # CM051:#982 -- CANNOT MERGE. It is RED, and that is the whole reason.
+  #
+  # "fix: the gate that opens a wiki image was never run, and passed when it
+  # could not look" -- a fail-open gate fix, exactly the class this cut has
+  # been closing all night, and I WANTED to merge it. Measured 2026-08-26:
+  #
+  #     42 checks pass, 2 FAIL
+  #
+  # Merging a red PR to clear a process gate is the precise move this file
+  # exists to prevent, and the CM041#119 entry above says so in as many words.
+  # So it is exempted rather than merged, and the exemption records that the
+  # blocker is its own CI, not a decision about its merit.
+  #
+  # It touches install.sh 0 times, so it is pin-safe and could have gone in
+  # today if it were green. Fix the two failures and land it in v1.0.47.
+  - ref: "CM051:#982"
+    reason: "RED on 2 checks (42 pass / 2 fail, measured 2026-08-26). A red PR cannot be merged to satisfy a 48h process gate -- that is the move this file exists to prevent. Merit not in question; its own CI is the blocker. Pin-safe (0 install.sh hits). Land in v1.0.47 once green."
+    review_by: "2026-08-28"
+
+  # CM051:#975 -- GREEN, and deferred on RISK rather than merit.
+  #
+  # "feat(ingest): quiet window 01:00-06:00 -> 23:00-07:00 (#789) + the harness
+  # that was proving nothing". 25 checks pass, 0 fail. It is clean and the
+  # defect it fixes (#789) is real and wanted.
+  #
+  # WHAT IT TOUCHES, and this is the deciding fact:
+  #     vendor/email_source/bin/email-bundle-tick.sh
+  #     vendor/imessage_source/bin/imessage-bundle-tick.sh
+  #     vendor/spoken_source/bin/spoken-bundle-tick.sh
+  #     vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh
+  #
+  # FOUR SHIPPED INGEST PIPELINES. That is the identical trade ORM refused for
+  # the stderr-tail fix, in this same file: "landing new code in four shipped
+  # ingest pipelines during the cut that is finally reaching the signing stage
+  # is not a trade worth making". The reasoning does not become weaker because
+  # the change is a quiet window rather than a log tail -- if anything a
+  # scheduling change is harder to walk, because its symptom is an absence at
+  # 3am rather than a message on screen.
+  #
+  # v1.0.46 exists to close the BRICK. Nothing else earns a place in it.
+  # Land it first in v1.0.47, where it can be walked on a box that boots.
+  - ref: "CM051:#975"
+    reason: "Green (25 pass / 0 fail) and deferred on RISK, not merit. Rewrites four SHIPPED vendor ingest tick scripts; same trade ORM refused for the stderr-tail fix in this file. v1.0.46 exists to close the brick and nothing else earns a place in it. Pin-safe (0 install.sh hits). First in v1.0.47, walked on a box."
+    review_by: "2026-08-28"
+
   # CM041-People-Graph#119 -- CANNOT MERGE, and that is the point of exempting it.
   #
   # This is NOT a clean PR being parked. Two independent blockers, both measured:
