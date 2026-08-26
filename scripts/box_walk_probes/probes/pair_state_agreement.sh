@@ -26,6 +26,9 @@ PROBE_NAME="pair_state_agreement"
 PROBE_QUESTION="do the daemon health flag, devices.db, and pair-state file all agree on whether a phone is paired?"
 
 DEVICES_DB="${OSTLER_DEVICES_DB:-\$HOME/.ostler/devices.db}"
+# Evaluated ON THE BOX -- a local `~` would expand to the operator's home and
+# is correct only while both machines happen to share a username.
+CONFIG_TOML="${OSTLER_CONFIG_TOML:-\$HOME/.ostler/assistant-config/config.toml}"
 HEALTH_URL="${OSTLER_HEALTH_URL:-http://127.0.0.1:8089/doctor/api/health}"
 
 # --- signal readers. Each prints  true | false | UNAVAILABLE ---------------
@@ -83,16 +86,86 @@ signal_pair_marker() {
     esac
 }
 
+# ── THE TWO SIGNALS THAT ARE ACTUALLY READABLE (added 2026-08-26) ──────────
+#
+# The three readers above all interrogate the dead device registry (#511), so
+# on a real box they are all UNAVAILABLE and this probe reported CANNOT-RUN
+# forever. These two read surfaces that DEMONSTRABLY EXIST, and on the live box
+# they CONTRADICT EACH OTHER -- which is the whole point of this probe.
+#
+# MEASURED 2026-08-26:
+#   config.toml:112            require_pairing  = true
+#   GET :8000/admin/paircode   pairing_required = False
+# The Doctor faithfully turns that into error_kind="pairing_disabled", so the
+# pair-iOS panel cannot mint a recovery QR and a customer whose session dies
+# has no way back in. That is task #512, and it is exactly a pairing-state
+# disagreement -- the class this probe was built to catch.
+
+signal_config_require_pairing() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        printf '%s' "${FAKE_CFG:-UNAVAILABLE}"; return
+    fi
+    local out
+    # `grep -c .` on the extracted value, not `grep -c` on the file: an absent
+    # key and a key set to false must not read alike.
+    out="$(box_run "/usr/bin/grep -E '^[[:space:]]*require_pairing[[:space:]]*=' \"$CONFIG_TOML\" 2>/dev/null | head -1")"
+    case "$out" in
+        *true*)  printf 'true' ;;
+        *false*) printf 'false' ;;
+        *)       printf 'UNAVAILABLE' ;;
+    esac
+}
+
+signal_gateway_pairing_required() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        printf '%s' "${FAKE_GW:-UNAVAILABLE}"; return
+    fi
+    local out
+    # The admin token is read and used ENTIRELY on the box. It is never
+    # interpolated into anything this side of the ssh boundary and is never
+    # printed -- probe output lands in a durable log.
+    #
+    # NOTE: do NOT probe :8000 with a plain path and trust the status code.
+    # The daemon serves the SPA as a catch-all: every path, including invented
+    # ones, returns 200 text/html. Measured. /admin/paircode with the bearer is
+    # the only honest read.
+    out="$(box_run 'T=$(cat "$HOME/.ostler/secrets/zeroclaw_admin_token" 2>/dev/null); [ -n "$T" ] || exit 0; curl -s --noproxy "*" --max-time 8 -H "Authorization: Bearer $T" http://127.0.0.1:8000/admin/paircode 2>/dev/null' )"
+    [ -n "${out:-}" ] || { printf 'UNAVAILABLE'; return; }
+    printf '%s' "$out" | python3 -c '
+import json,sys
+raw=sys.stdin.read().strip()
+if not raw: print("UNAVAILABLE"); sys.exit(0)
+try:
+    d=json.loads(raw)
+except Exception:
+    print("UNAVAILABLE"); sys.exit(0)
+v = d.get("pairing_required") if isinstance(d, dict) else None
+# Absent key is UNAVAILABLE, not False. A missing field and a field set to
+# false are different facts. Conflating them is the exact defect class that
+# left this probe fail-open for who knows how many walks.
+print("UNAVAILABLE" if v is None else ("true" if bool(v) else "false"))
+' 2>/dev/null || printf 'UNAVAILABLE'
+}
+
 # --- the comparison, shared by run_probe and self_test ---------------------
 
 adjudicate() {
-    # adjudicate <health> <devices> <marker>
+    # adjudicate <signal> [<signal> ...]
     # Prints a verdict token on stdout: AGREE | DISAGREE | INSUFFICIENT
     # followed by a space and a human-readable detail string.
-    local h="$1" d="$2" m="$3"
-    local seen="" n=0
+    #
+    # VARIADIC as of 2026-08-26. It used to take exactly three positional
+    # signals, all of which read the DEVICE REGISTRY -- a subsystem measured
+    # dead on the live box (#511): devices.db is 0 bytes with no schema,
+    # /doctor/api/health carries no `paired` key, and ~/.ostler/paired_devices
+    # is a path the daemon never writes (0 hits in its binary). All three were
+    # therefore permanently UNAVAILABLE, so this probe could only ever return
+    # INSUFFICIENT -- a CANNOT-RUN that blocks the cut with no path to green.
+    # Widening it to accept N signals lets it also read the surfaces that DO
+    # exist, without deleting the three that SHOULD exist once #511 is fixed.
+    local seen="" n=0 total=$#
 
-    for v in "$h" "$d" "$m"; do
+    for v in "$@"; do
         if [ "$v" != "UNAVAILABLE" ]; then
             seen="$seen $v"
             n=$((n + 1))
@@ -103,7 +176,7 @@ adjudicate() {
     # means anything, because a single reading cannot contradict itself and
     # would therefore pass forever.
     if [ "$n" -lt 2 ]; then
-        printf 'INSUFFICIENT only %s of 3 pairing signals were readable' "$n"
+        printf 'INSUFFICIENT only %s of %s pairing signals were readable' "$n" "$total"
         return
     fi
 
@@ -124,23 +197,32 @@ run_probe() {
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; no pairing signals read"
     fi
 
-    local h d m
+    local h d m c g
+    # Signals 1-3 read the device registry. MEASURED DEAD on the live box
+    # (#511) -- kept because they are the RIGHT signals once it is wired, and
+    # deleting them would hide the regression when it is.
     h="$(signal_health_flag)"
     d="$(signal_devices_rows)"
     m="$(signal_pair_marker)"
+    # Signals 4-5 read surfaces that exist today, and currently CONTRADICT
+    # each other (#512).
+    c="$(signal_config_require_pairing)"
+    g="$(signal_gateway_pairing_required)"
 
-    probe_note "daemon health paired flag : $h"
-    probe_note "devices.db row count      : $d"
-    probe_note "paired_devices/*.json     : $m"
+    probe_note "daemon health paired flag    : $h"
+    probe_note "devices.db row count         : $d"
+    probe_note "paired_devices/*.json        : $m"
+    probe_note "config.toml require_pairing  : $c"
+    probe_note "gateway pairing_required     : $g"
 
     local readable=0
-    for v in "$h" "$d" "$m"; do
+    for v in "$h" "$d" "$m" "$c" "$g"; do
         [ "$v" != "UNAVAILABLE" ] && readable=$((readable + 1))
     done
-    probe_examined "$readable" "of 3 pairing signals readable"
+    probe_examined "$readable" "of 5 pairing signals readable"
 
     local result
-    result="$(adjudicate "$h" "$d" "$m")"
+    result="$(adjudicate "$h" "$d" "$m" "$c" "$g")"
     local token="${result%% *}"
     local detail="${result#* }"
 
@@ -149,7 +231,14 @@ run_probe() {
             probe_fail "pairing state is split-brain: $detail (tasks #265, #208). A false 'paired' is worse than an honest 'not paired'."
             ;;
         INSUFFICIENT)
-            probe_cannot_run "$detail -- one signal cannot contradict itself, so this would pass forever. Is the daemon running?"
+            # DO NOT reinstate "Is the daemon running?" here. That hint was
+            # WRONG and cost real time: on 2026-08-26 the daemon was measured
+            # running (pids listening on :8000 AND :8443, /doctor/api/health
+            # 200) while this probe still could not read a single signal. The
+            # cause was that every signal it had pointed at a subsystem that
+            # was never wired (#511). A hint that names the wrong suspect is
+            # worse than no hint -- it sends the next reader down a dead path.
+            probe_cannot_run "$detail -- one signal cannot contradict itself, so this would pass forever. Check WHICH signals came back UNAVAILABLE in the notes above before assuming the daemon is down; see #511 (dead device registry) and #512 (config vs gateway)."
             ;;
         *)
             probe_pass "$detail"
@@ -159,7 +248,7 @@ run_probe() {
 
 self_test() {
     SELF_TEST_LOCAL=1
-    probe_examined 4 "synthetic signal combinations (negative control)"
+    probe_examined 6 "synthetic signal combinations (negative control)"
 
     # 1. The #208 shape: health says paired, devices.db is empty. MUST disagree.
     local r
@@ -187,7 +276,25 @@ self_test() {
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: a single readable signal adjudicated as '${r%% *}'. One signal cannot contradict itself, so this probe would report agreement forever."
     fi
 
-    probe_fail "negative control behaved correctly on all 4 combinations (split-brain caught, consistent states passed, single-signal refused)"
+    # 5. THE LIVE BOX SHAPE, 2026-08-26. The three device-registry signals are
+    #    all dead (#511) and the two readable ones contradict each other
+    #    (#512: config says require_pairing=true, gateway says
+    #    pairing_required=False). This MUST adjudicate DISAGREE. If it comes
+    #    back INSUFFICIENT the widening did not take, and the probe is back to
+    #    a permanent CANNOT-RUN that blocks the cut with no path to green.
+    r="$(adjudicate UNAVAILABLE UNAVAILABLE UNAVAILABLE true false)"
+    if [ "${r%% *}" != "DISAGREE" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: the live-box shape (3 registry signals dead, config=true vs gateway=false) adjudicated as '${r%% *}', not DISAGREE. This probe cannot detect #512, and reverts to a permanent CANNOT-RUN."
+    fi
+
+    # 6. Two readable signals that AGREE must still pass, or every correctly
+    #    configured box goes red on this row.
+    r="$(adjudicate UNAVAILABLE UNAVAILABLE UNAVAILABLE true true)"
+    if [ "${r%% *}" != "AGREE" ]; then
+        probe_pass "NEGATIVE CONTROL OVER-FIRED: config and gateway both saying true adjudicated as '${r%% *}'. A correctly configured box would fail this row."
+    fi
+
+    probe_fail "negative control behaved correctly on all 6 combinations (split-brain caught, consistent states passed, single-signal refused, live #512 shape caught, healthy 2-signal box cleared)"
 }
 
 probe_main "$@"
