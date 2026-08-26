@@ -115,15 +115,45 @@ grep -q 'DMG-bundled' "$INSTALL_SCRIPT" \
     || fail "no note distinguishing the DMG-bundled path from the fail-closed curl path"
 
 # ─────────────────────────────────────────────────────────────────
-# 3. The sentinel is STILL the sentinel (this is source control; the
-#    ORM pins the real hex at cut assembly). Guard against someone
-#    hard-coding a real SHA into DEFAULT_ASSISTANT_TARBALL_SHA256.
+# 3. The pin is PRESENT and well-formed.
+#
+#    This arm used to require DEFAULT_ASSISTANT_TARBALL_SHA256 to be
+#    the literal REPLACE_AT_RELEASE_TIME sentinel, on the reasoning
+#    that ORM pinned the real hex at cut assembly and a real SHA in
+#    source meant someone had hard-coded it.
+#
+#    THAT CONTRACT WAS SUPERSEDED and this arm was left behind. The
+#    daemon tarball pin now lives in source and is bumped in lockstep
+#    with the daemon version -- see gui/Makefile:328-335, where the
+#    v1.0.46 bump records missing this very pin because a sweep for
+#    the outgoing VERSION cannot find a DIGEST. Its correctness is
+#    guarded by tests/test_daemon_pins_agree.sh, which is WIRED into
+#    supply-chain-pins.yml, reads this exact variable, and is green.
+#
+#    So the old assertion did not protect anything; it contradicted
+#    the shipped design and failed on every commit, unread, because
+#    this file was wired to nothing.
+#
+#    THE SECURITY PROPERTY IS UNCHANGED AND IS NOT THIS ARM'S: a
+#    network-fetched tarball whose SHA is empty or still the sentinel
+#    is REFUSED (install.sh:12878-12904, asserted at arm 2 above).
+#    What belongs here is that the pin is present and well-formed --
+#    64 hex, or the sentinel for a source tree ORM has not pinned yet.
+#    Never empty, never a placeholder.
 # ─────────────────────────────────────────────────────────────────
-grep -q 'DEFAULT_ASSISTANT_TARBALL_SHA256="REPLACE_AT_RELEASE_TIME"' "$INSTALL_SCRIPT" \
-    || fail "DEFAULT_ASSISTANT_TARBALL_SHA256 is not the REPLACE_AT_RELEASE_TIME sentinel (ORM pins at cut time, not in source)"
+PIN_VALUE="$(grep -m1 'DEFAULT_ASSISTANT_TARBALL_SHA256="' "$INSTALL_SCRIPT" \
+             | sed 's/.*DEFAULT_ASSISTANT_TARBALL_SHA256="//; s/".*//')"
+case "$PIN_VALUE" in
+    REPLACE_AT_RELEASE_TIME) : ;;                       # unpinned tree, fail-closed at runtime
+    *[!a-f0-9]*|"")
+        fail "DEFAULT_ASSISTANT_TARBALL_SHA256 is neither 64 hex nor the sentinel: '${PIN_VALUE}'" ;;
+    *)
+        [ "${#PIN_VALUE}" -eq 64 ] \
+            || fail "DEFAULT_ASSISTANT_TARBALL_SHA256 is hex but ${#PIN_VALUE} chars, not 64: '${PIN_VALUE}'" ;;
+esac
 
 # The loud ORM cut-time note must be present near the sentinel.
 grep -q 'ORM CUT-TIME ACTION REQUIRED' "$INSTALL_SCRIPT" \
     || fail "loud ORM cut-time pin note missing at the sentinel"
 
-echo "PASS: Team-ID (-R ${TEAM_ID}) requirement on all three staging gates; curl-recovery fails closed on the sentinel; DMG-bundled path preserved; sentinel intact for ORM."
+echo "PASS: Team-ID (-R ${TEAM_ID}) requirement on all three staging gates; curl-recovery fails closed on the sentinel; DMG-bundled path preserved; the daemon tarball pin is present and well-formed."

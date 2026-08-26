@@ -278,7 +278,7 @@ test_v1010_daemon_signature_gate.sh	WIRED	.github/workflows/supply-chain-pins.ym
 test_v1010_ical_doctor_service_auth.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_v1010_ingest_reroute_plists.sh	UNWIRED	-
 test_v1010_redteam3_supply_chain_pins.sh	WIRED	.github/workflows/supply-chain-pins.yml
-test_v1010_redteam3_teamid_pin.sh	UNWIRED	-
+test_v1010_redteam3_teamid_pin.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_v1010_store_auth_loopback.sh	UNWIRED	-
 test_v1010_store_front_proxy.sh	UNWIRED	-
 test_v1010_wiki_not_tailscale_served.sh	UNWIRED	-
