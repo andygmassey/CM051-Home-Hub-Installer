@@ -3064,6 +3064,36 @@ _ostler_run_with_deadline() {
 # at all. Overridable for harnesses and for operators on slow machines.
 OSTLER_IMESSAGE_PROBE_TIMEOUT_S="${OSTLER_IMESSAGE_PROBE_TIMEOUT_S:-90}"
 
+# ── Deadline for osascript calls that are NOT a consented TCC prompt ──
+#
+# 🔴 THE HELPER ABOVE WAS BUILT FOR THIS AND WIRED TO 2 SITES OF 14.
+# install.sh makes 15 osascript invocations; 14 of them send an Apple Event
+# to another application, and an Apple Event BLOCKS ON THE TARGET'S EVENT
+# LOOP. If the target shows a modal -- a TCC consent sheet, a "reopen
+# windows?" panel, a beachball -- the send never returns. macOS has no
+# timeout(1), so the shell has no ambient rescue.
+#
+# MEASURED (2026-08-26, this Mac, controls both sides):
+#     osascript -e 'delay 4'                       -> 4105 ms, caller HELD
+#     AppleScript's own `with timeout of 2 seconds`
+#       wrapped round that delay                   -> 4101 ms, DID NOT BOUND IT
+#         (it bounds Apple EVENTS, not local work -- so it is not the remedy)
+#     _ostler_run_with_deadline 2 ... 'delay 30'   -> rc=124, 3080 ms
+#     _ostler_run_with_deadline 5 ... 'return 1'   -> rc=0,   1052 ms  (not killed)
+#     _ostler_run_with_deadline 5 ... error 42     -> rc=1           (real failure
+#                                                     passes through, != 124)
+#     orphaned osascript after the deadline arm    -> 0
+#
+# That third arm is why 124 is worth having: a caller can tell CANNOT-RUN
+# from FAIL from PASS, three states, rather than collapsing the first two.
+#
+# 20s not 90s. The 90s figure belongs to the iMessage probe, where the
+# customer has JUST acknowledged a pre-warn ack and is sitting at the
+# keyboard. These calls carry no such ack -- several are prewarms the
+# customer was never told about -- so the honest budget is "long enough for
+# a healthy app to answer", not "long enough for a human to react".
+OSTLER_OSASCRIPT_TIMEOUT_S="${OSTLER_OSASCRIPT_TIMEOUT_S:-20}"
+
 # ── Hardware-fit model picker helper (REUSE-4) ────────────────────
 #
 # lib/ostler-model-fit.sh holds the static model->min-RAM-for-num_ctx
@@ -4351,7 +4381,15 @@ echo ""
 if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
     info "$MSG_INFO_CALENDAR_PERMISSION_PREWARM"
 fi
-osascript -e 'tell application "Calendar" to count calendars' >/dev/null 2>&1 || true
+# BOUNDED (2026-08-26). This is a TCC prewarm: the whole point is that it
+# provokes a consent sheet. An Apple Event blocks on the target's event loop,
+# so if nobody is at the keyboard this send NEVER RETURNS and the install
+# stops here forever. The `|| true` below only swallows the exit code -- it
+# cannot rescue a call that never exits. Measured: `osascript -e 'delay 4'`
+# holds the caller 4105 ms; AppleScript's own `with timeout` does NOT bound
+# it. Deadline is the only remedy on macOS, which has no timeout(1).
+_ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+    osascript -e 'tell application "Calendar" to count calendars' >/dev/null 2>&1 || true
 
 # FDA_PREWARM (#572, 2026-06-09; refined 2026-06-13): register
 # OstlerInstaller in the System Settings > Full Disk Access list early by
@@ -4726,7 +4764,32 @@ open -gja Contacts >/dev/null 2>&1 || true
 # silently swallowed. The inner `|| true` keeps the failure inside the
 # $(...) subshell so set -E cannot fire the ERR trap on a denial (cf. #640).
 CARD_STDERR=$(mktemp)
+# 🔴 THE RC HAS TO CROSS A SUBSHELL, SO IT TRAVELS BY FILE, NOT BY VARIABLE.
+# `CARD_DATA=$(_read_my_card || true)` runs the function in a command-
+# substitution subshell -- anything it ASSIGNS is discarded when that subshell
+# exits, so an exported-looking `_READ_MY_CARD_RC=$?` inside the body would
+# read 0 at every call site and the deadline branch would be dead code. The
+# `|| true` is not removable either: it is what keeps `set -E` from firing the
+# ERR trap on a denial (see the note below, cf. #640). stderr already crosses
+# this boundary by file; the rc uses the same road.
+CARD_RC_FILE=$(mktemp)
+# BOUNDED (2026-08-26). Contacts is TCC-gated AND this event calls `launch`,
+# so on a box where nobody is at the keyboard the consent sheet is never
+# dismissed and this send never returns. `CARD_DATA=$(_read_my_card || true)`
+# cannot rescue that: `|| true` handles a non-zero exit, not the absence of
+# one. Measured: an Apple Event holds its caller for the target's whole
+# response time, and AppleScript's own `with timeout` does not bound it.
+#
+# 🔴 THE DEADLINE PATH NEEDED ITS OWN BRANCH, AND THAT IS WHY rc=124 EXISTS.
+# The two diagnoses below key on AppleScript error codes IN $CARD_STDERR
+# (-1743 denied, -600 not running). A deadline kill writes NEITHER, so before
+# this change a timed-out read fell through both branches and told the
+# customer NOTHING -- empty auto-fill with no explanation. _READ_MY_CARD_RC
+# carries the third state out so the caller can say so.
+_READ_MY_CARD_RC=0
 _read_my_card() {
+    local _rc=0
+    _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
     osascript -e '
 tell application "Contacts"
     launch
@@ -4750,7 +4813,12 @@ tell application "Contacts"
     end try
 
     return myName & "|" & firstName & "|" & myCountry & "|" & myEmail & "|" & myPhone
-end tell' 2>"$CARD_STDERR"
+end tell' 2>"$CARD_STDERR" || _rc=$?
+    # Written, not assigned -- see the CARD_RC_FILE note above. `|| _rc=$?`
+    # also makes the osascript send a non-final member of a `||` list, which is
+    # the second reason the ERR trap stays quiet here.
+    printf '%s\n' "$_rc" >"$CARD_RC_FILE"
+    return "$_rc"
 }
 CARD_DATA=$(_read_my_card || true)
 # Cold-start race: if the first event beat Contacts to readiness (-600),
@@ -4760,7 +4828,16 @@ if [[ -z "$CARD_DATA" ]] && grep -q -- '-600' "$CARD_STDERR" 2>/dev/null; then
     CARD_DATA=$(_read_my_card || true)
 fi
 
-if [[ -z "$CARD_DATA" ]] && grep -qE -- '-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
+_READ_MY_CARD_RC=$(cat "$CARD_RC_FILE" 2>/dev/null || echo 0)
+[[ "$_READ_MY_CARD_RC" =~ ^[0-9]+$ ]] || _READ_MY_CARD_RC=0
+
+if [[ -z "$CARD_DATA" ]] && [[ "$_READ_MY_CARD_RC" -eq 124 ]]; then
+    # THE THIRD STATE. Not "denied" (-1743) and not "not running" (-600):
+    # Contacts accepted the event and never answered inside the deadline, so
+    # $CARD_STDERR is EMPTY and both greps below would miss it. Before this
+    # branch existed the customer got a blank name field and no explanation.
+    warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
+elif [[ -z "$CARD_DATA" ]] && grep -qE -- '-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
     warn "$MSG_WARN_MACOS_CONTACTS_PERMISSION_WAS_DECLINED_NOT"
     warn "$MSG_WARN_YOU_CAN_RE_GRANT_IT_SYSTEM"
     warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
@@ -4769,7 +4846,7 @@ elif [[ -z "$CARD_DATA" ]] && grep -q -- '-600' "$CARD_STDERR" 2>/dev/null; then
     # auto-fill rather than swallowing the failure silently as before.
     warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
 fi
-rm -f "$CARD_STDERR"
+rm -f "$CARD_STDERR" "$CARD_RC_FILE"
 fi
 
 if [[ -n "$CARD_DATA" ]]; then
@@ -19751,7 +19828,14 @@ else
                     # Finder on the normal (registered/listed) path where the
                     # reveal was suppressed and no Finder window exists.
                     if [[ "${_fda_finder_revealed:-false}" == true ]]; then
-                        osascript -e 'tell application "Finder" to close windows' >/dev/null 2>&1 || true
+                        # BOUNDED (2026-08-26): sits inside a 60-iteration
+                        # 1s wait loop, so an unbounded send here stalls the
+                        # loop AND the FDA step around it. Finder is exactly
+                        # the app that shows a modal (permission, "reopen
+                        # windows?") and an Apple Event waits on its event
+                        # loop indefinitely.
+                        _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+                            osascript -e 'tell application "Finder" to close windows' >/dev/null 2>&1 || true
                     fi
                     # Break the instant neither pane process is alive.
                     if ! pgrep -x "System Settings" >/dev/null 2>&1 \
