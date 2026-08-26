@@ -3848,7 +3848,8 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
                     sleep 4
                     continue
                 fi
-                osascript -e 'tell application "OstlerInstaller" to activate' 2>/dev/null || \
+                _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+                    osascript -e 'tell application "OstlerInstaller" to activate' 2>/dev/null || \
                     open -a "OstlerInstaller" 2>/dev/null || true
                 sleep 4
             done
@@ -13167,7 +13168,8 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
         sleep 10
         # Close them quietly (SIGTERM via AppleScript, not force-kill)
         for app in "${APPS_TO_OPEN[@]}"; do
-            osascript -e "tell application \"$app\" to quit" 2>/dev/null || true
+            _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+                osascript -e "tell application \"$app\" to quit" 2>/dev/null || true
         done
         ok "$MSG_OK_APPS_LAUNCHED_TRIGGER_ICLOUD_SYNC"
     else
@@ -16314,7 +16316,8 @@ mkdir -p "${OSTLER_DIR}/state"
 
 _notify() {
     # $1 = message, $2 = subtitle
-    osascript -e "display notification \"$1\" with title \"Ostler\" subtitle \"$2\"" 2>/dev/null || true
+    _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+        osascript -e "display notification \"$1\" with title \"Ostler\" subtitle \"$2\"" 2>/dev/null || true
 }
 
 # Recognised export shapes. FOUND holds paths; FOUND_LABELS the platform

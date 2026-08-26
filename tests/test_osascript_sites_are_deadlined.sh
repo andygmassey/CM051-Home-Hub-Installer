@@ -79,7 +79,7 @@ if [ "${TOTAL}" -lt 10 ]; then
     cannot "only ${TOTAL} osascript sites found; the counter is broken, not the file"
 fi
 
-FLOOR=5   # RATCHET. Raise this as sites are bounded. It must never go down.
+FLOOR=8   # RATCHET. Raise this as sites are bounded. It must never go down.
 if [ "${WRAPPED}" -ge "${FLOOR}" ]; then
     ok "bounded sites ${WRAPPED} >= floor ${FLOOR}"
 else
