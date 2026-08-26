@@ -47,16 +47,60 @@ signal_health_flag() {
     esac
 }
 
+DEVICES_DB_USED=""   # set by signal_devices_rows so run_probe can report WHICH file
+
 signal_devices_rows() {
     if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
         printf '%s' "${FAKE_DEVICES:-UNAVAILABLE}"; return
     fi
-    local n
-    n="$(box_run "sqlite3 \"$DEVICES_DB\" 'SELECT COUNT(*) FROM devices;' 2>/dev/null")"
-    case "$n" in
-        ''|*[!0-9]*) printf 'UNAVAILABLE' ;;
-        0) printf 'false' ;;
-        *) printf 'true' ;;
+    # 🔴 THIS READ THE WRONG FILE (fixed 2026-08-27). It was hardcoded to
+    # $HOME/.ostler/devices.db. MEASURED on the live box, there are TWO:
+    #
+    #   ~/.ostler/devices.db                              0 bytes, mtime 08-21,
+    #                                                     NO SCHEMA AT ALL
+    #   ~/.ostler/assistant-config/workspace/devices.db  12288 bytes, mtime 08-24,
+    #                                                     table `devices`, 0 rows
+    #
+    # The daemon writes the SECOND one: api_pairing::DeviceRegistry::new()
+    # opens workspace_dir.join("devices.db"), and workspace_dir derives from
+    # ZEROCLAW_WORKSPACE (=~/.ostler/assistant-config) plus its own
+    # `workspace` subdir. The first is a stale artefact.
+    #
+    # Reading the stale one made this signal permanently UNAVAILABLE, which
+    # is WHY this probe could pass on 2 of 5 signals and why the registry
+    # looked like "dead code" -- it is not dead, it was never being read.
+    # Same class as task #325: OSTLER_HOME carries two meanings.
+    #
+    # So: DISCOVER the registry, prefer the one that actually has the schema,
+    # and keep "no file" / "file but no schema" / "schema, N rows" as three
+    # DISTINCT outcomes. A table-less database must never count as 0 devices.
+    local out rest
+    out="$(box_run '
+      best=""; n_found=0
+      for f in $(find "$HOME/.ostler" -maxdepth 4 -name devices.db 2>/dev/null); do
+        n_found=$((n_found+1))
+        if sqlite3 "$f" ".tables" 2>/dev/null | tr " " "\n" | grep -qx devices; then best="$f"; fi
+      done
+      if [ "$n_found" -eq 0 ]; then printf "NOFILE"; exit 0; fi
+      if [ -z "$best" ]; then printf "NOSCHEMA %s" "$n_found"; exit 0; fi
+      c=$(sqlite3 "$best" "select count(*) from devices;" 2>/dev/null)
+      printf "OK %s %s" "$c" "$best"
+    ')"
+    case "$out" in
+        NOFILE)    DEVICES_DB_USED="(no devices.db anywhere under ~/.ostler)"
+                   printf 'UNAVAILABLE' ;;
+        NOSCHEMA*) rest="${out#NOSCHEMA }"
+                   DEVICES_DB_USED="${rest} file(s) present, NONE carrying a devices table"
+                   printf 'UNAVAILABLE' ;;
+        OK*)       rest="${out#OK }"
+                   DEVICES_DB_USED="${rest#* }"
+                   case "${rest%% *}" in
+                       ''|*[!0-9]*) printf 'UNAVAILABLE' ;;
+                       0)           printf 'false' ;;
+                       *)           printf 'true' ;;
+                   esac ;;
+        *)         DEVICES_DB_USED="unparseable discovery output"
+                   printf 'UNAVAILABLE' ;;
     esac
 }
 
