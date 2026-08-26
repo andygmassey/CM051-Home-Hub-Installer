@@ -27,7 +27,23 @@ PROBE_NAME="people_count_agreement"
 PROBE_QUESTION="do Oxigraph and the Doctor API agree on the number of people?"
 
 OXIGRAPH_URL="${OSTLER_OXIGRAPH_URL:-http://127.0.0.1:7878/query}"
-DOCTOR_PEOPLE_URL="${OSTLER_DOCTOR_PEOPLE_URL:-http://127.0.0.1:8089/doctor/api/people/count}"
+# THIS URL HAS NEVER EXISTED. Measured 2026-08-26: /doctor/api/people/count
+# returns 404 on both 8089 and 8090, it is absent from the running Doctor's 57
+# advertised routes, and a repo-wide search finds 0 hits in HR015's doctor/ or
+# CM051's vendor/doctor (control: "doctor/api/status" = 3 hits in the same
+# files). So this arm has reported "doctor UNAVAILABLE" for its whole life and
+# the walk read that as "the surfaces could not be compared" rather than "the
+# probe is asking for a route nobody wrote".
+#
+# The surface that DOES answer is the assistant API's people list, which
+# carries an explicit total:
+#     GET /api/v1/people -> {"people": [...], "total": 7284}
+# It is token-gated, which is why the unauthenticated call below also had to be
+# fixed -- pointing at the right URL without the token just moves the 404 to a
+# 401 and still reports UNAVAILABLE.
+DOCTOR_PEOPLE_URL="${OSTLER_DOCTOR_PEOPLE_URL:-http://127.0.0.1:8090/api/v1/people}"
+# Read on the box, never printed, never passed on a command line.
+DOCTOR_TOKEN_PATH="${OSTLER_PROBE_TOKEN_PATH:-\$HOME/.ostler/secrets/service_token}"
 TOLERANCE_PCT="${OSTLER_PEOPLE_TOLERANCE_PCT:-2}"
 
 count_oxigraph() {
@@ -69,7 +85,9 @@ except Exception:
 count_doctor() {
     if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_DOC:-UNAVAILABLE}"; return; fi
     local out
-    out="$(box_run "curl -sS -m 10 '$DOCTOR_PEOPLE_URL' 2>/dev/null")"
+    # The token is read ON THE BOX inside the same shell that runs curl, so it
+    # never crosses into this script's environment, argv, or any log line.
+    out="$(box_run "T=\$(cat ${DOCTOR_TOKEN_PATH} 2>/dev/null | tr -d '\\r\\n'); curl -sS -m 10 -H \"Authorization: Bearer \$T\" '$DOCTOR_PEOPLE_URL' 2>/dev/null")"
     printf '%s' "$out" | python3 -c '
 import json,sys,re
 raw=sys.stdin.read().strip()
