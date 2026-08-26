@@ -693,7 +693,22 @@ fi
 # When piped via `curl | bash`, stdin is the script not the terminal.
 # We need terminal input for confirmations etc, so redirect from /dev/tty.
 # Skip for read-only flags so they work in non-interactive contexts.
-if [[ "$SHOW_HELP" != true && "$SHOW_LICENSES" != true && ! -t 0 && "${OSTLER_GUI:-0}" != "1" ]]; then
+#
+# 🔴 ALL THREE READ-ONLY FLAGS, NOT TWO. There are exactly three:
+#     CHECK_ONLY (--check)  SHOW_HELP (--help)  SHOW_LICENSES (--licenses)
+# CHECK_ONLY was missing from this list, so the flag whose entire documented
+# purpose is "Phase 1: Check prerequisites (automatic, no input)" and
+# "--check verifies prerequisites only and needs no licence" died instantly in
+# any context without a controlling terminal:
+#     install.sh: line 697: /dev/tty: Device not configured   (rc=1)
+# Measured 2026-08-26 on a real box: without a pty rc=1 and one line of output;
+# with a pty rc=0 and a full 19-line prerequisite report. That is the whole
+# pre-purchase compatibility check, unusable over ssh or from any script.
+# The comment above already stated the correct rule; the condition did not
+# implement it. If a fourth read-only flag is ever added, add it here too --
+# tests/test_readonly_flags_need_no_tty.sh reads this very line and will fail
+# if the flag list and the parser disagree.
+if [[ "$CHECK_ONLY" != true && "$SHOW_HELP" != true && "$SHOW_LICENSES" != true && ! -t 0 && "${OSTLER_GUI:-0}" != "1" ]]; then
     exec < /dev/tty
 fi
 
