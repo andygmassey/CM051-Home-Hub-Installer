@@ -52,6 +52,7 @@ test_cannot_run_is_a_third_state.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_canonical_keys_must_not_merge.py	WIRED	.github/workflows/vendor-integrity.yml
 test_cm048_prompts_packaged.sh	UNWIRED	-
 test_cm048_settings_models_wired.sh	UNWIRED	-
+test_codename_sweep_sees_an_early_leak.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_colima_autostart_mechanism.sh	WIRED	.github/workflows/colima-autostart.yml
 test_colima_start_retry.sh	WIRED	.github/workflows/colima-autostart.yml
 test_composite_cleanup.sh	UNWIRED	-
@@ -277,7 +278,7 @@ test_v1010_redteam3_teamid_pin.sh	UNWIRED	-
 test_v1010_store_auth_loopback.sh	UNWIRED	-
 test_v1010_store_front_proxy.sh	UNWIRED	-
 test_v1010_wiki_not_tailscale_served.sh	UNWIRED	-
-test_v1_sweep_install_gating.sh	UNWIRED	-
+test_v1_sweep_install_gating.sh	WIRED	(via test_codename_sweep_sees_an_early_leak.sh)
 test_vane_bundle.sh	UNWIRED	-
 test_vendor_cm052_ai_conversations.sh	UNWIRED	-
 test_vendor_doctor_knowledge_embed_wiring.sh	UNWIRED	-

@@ -559,7 +559,11 @@ MK
     OUT="$d/red.out"
     bash "$SELF" --repo "$d/red" > "$OUT" 2>&1; rc_red=$?
     orphan_block() { sed -n '/^  ORPHANED/,$p' "$OUT"; }
-    listed_orphan() { orphan_block | grep -qF "scripts/$1.sh"; }
+    # Count, do not -q. See the block at the top of this file: `grep -q`
+    # exits on first match, the upstream sed dies of SIGPIPE, and pipefail
+    # turns a SUCCESSFUL match into a non-zero status. Measured: this exact
+    # shape inverts once the orphan block passes about 1000 lines / 24KB.
+    listed_orphan() { [ "$(orphan_block | grep -cF "scripts/$1.sh")" -gt 0 ]; }
 
     listed_orphan called_gate     && no "(1) direct 'bash X' call site was called an orphan" \
                                   || ok "(1) a direct 'bash X' call site IS a call site"
@@ -576,7 +580,7 @@ MK
                                   || no "(6) dark runner wrongly reported reachable"
     listed_orphan second_hop_gate && ok "(7) TRANSITIVE: a gate reached only VIA a dark runner is still dark" \
                                   || no "(7) one-hop reasoning let a second-hop gate pass"
-    if orphan_block | grep -qF 'cut-manifests/v1.0.11.yaml'; then
+    if [ "$(orphan_block | grep -cF 'cut-manifests/v1.0.11.yaml')" -gt 0 ]; then
         no "(8) a DATA yaml was judged on the invocation axis (permanent false red)"
     elif grep -qF 'cut-manifests/v1.0.11.yaml' "$OUT"; then
         ok "(8) a DATA yaml declarer is reported under NOT MEASURED, not as an orphan"
@@ -604,7 +608,7 @@ MK
     #
     # This control exists so the limit is a DECISION with a fixture, not an
     # accident somebody later "fixes" into a false green.
-    orphan_block | grep -qF 'scripts/probes/glob_probe_gate.sh' \
+    [ "$(orphan_block | grep -cF 'scripts/probes/glob_probe_gate.sh')" -gt 0 ] \
         && ok "(19) LIMIT PINNED: a glob-reached gate reads as an orphan (safe direction)" \
         || no "(19) a glob call site is now resolved -- CHECK IT CANNOT BLESS A DARK GATE"
 

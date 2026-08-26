@@ -21,7 +21,6 @@ scripts/tests/test_daemon_fda_case6_controls.sh
 scripts/tests/test_regenerate_divergence_patch.sh
 scripts/verify_appcast_published.sh
 scripts/verify_cut_freshness.sh
-scripts/verify_declared_gates_reachable.sh
 scripts/verify_no_orphaned_fixes.sh
 tests/test_ai_model_env_contract.sh
 tests/test_bootstrap_prelude.sh
