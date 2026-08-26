@@ -259,6 +259,52 @@ pr_exemptions:
 
 
 deferrals:
+  - ref: "CM051:#1055"
+    reason: >-
+      THE ROOT FIX for the v1.0.45 brick, and it is HELD ON PURPOSE for a reason
+      that is about ORDER, not doubt. It relocates the bundled interpreter out of
+      the notarised app at INSTALL time, which is strictly better than what this
+      cut ships (#1052 seeds the .pyc inside the seal; #1051/#1053/#1054 redirect
+      the cache for every invoker). Its own PR body asks for a BOX WALK and states
+      that its arms ran "on a mounted artefact and a scratch HOME, never a real
+      install". THERE IS NO BOX TO WALK UNTIL THIS DMG EXISTS. Tagging first is
+      the only order that gets #1055 the proof it asks for, and it explicitly does
+      not make #1051/#1053/#1054 redundant, so deferring costs no coverage. Andy
+      owes the ship-or-hold call and has not given it; deferring is the direction
+      that withholds rather than ships. Measured green: 72 checks pass, 0 fail.
+    until_cut: "v1.0.47"
+  - ref: "daemon:feat/hub-build-info-emitter"
+    reason: >-
+      oa #349, OPEN, MERGEABLE, CLEAN, 14/0 green -- and merging it would BREAK
+      THE PIN THIS CUT IS BUILT ON. Measured: cuts/v1.0.46/cut.env declares
+      DAEMON_COMMIT=509c8333; oa main IS 509c8333ad97764cf85acf0ce36baf4b1c90da29;
+      #349 targets main. Merging moves oa main off the pinned daemon, stales
+      DAEMON_COMMIT, and forces a daemon rebuild -- the exact hub-v0.4.65 ->
+      0.4.66 churn this cut already paid for once when oa #348 landed mid-re-pin.
+      Customer impact of deferring: NONE. It is release tooling (emit the hub-app
+      build-info sidecar instead of hand-writing it), not shipped behaviour.
+    until_cut: "v1.0.47"
+  - ref: "daemon:fix/log-the-401-that-gates-every-api-call"
+    reason: >-
+      🔴 THIS IS NOT ORPHANED WORK. IT ALREADY SHIPPED. oa #345 MERGED
+      2026-08-25T10:21:32Z. This row exists ONLY because the gate cannot see that,
+      and a deferral is the only honest way past a gate whose input is wrong --
+      the alternative is editing the gate, which we do not do. THE MECHANISM,
+      measured: the gate ran `gh pr list` for ostler-ai/ostler-assistant and got
+      "GraphQL: Could not resolve to a Repository" -- a cross-org PRIVATE-repo
+      token scope in CI, NOT a wrong name (gh api repos/ostler-ai/ostler-assistant
+      resolves here, private=true; andygmassey/ostler-assistant is a real 404).
+      Having FAILED TO LOOK, the gate fell through to commit-ancestry and scored
+      the branch [RED] "unmerged". The branch is 3 ahead of main only because
+      ostler-ai/ostler-assistant is REBASE-MERGE-ONLY, which scripts/
+      verify_no_orphaned_fixes.sh:399 already records -- so the tip is not an
+      ancestor even though its content shipped. Control that the predicate CAN
+      say merged: oa #348 and #347 both read MERGED. THE REAL FIX IS THE CI TOKEN
+      SCOPE, not this row, and it is filed as board #842 (which this measurement
+      CONFIRMS and re-scopes: #842 says the auth failure leaves the gate green;
+      it actually marks the branch RED, which is worse -- it fabricates a
+      finding). Retire this row the moment CI can read the daemon repo.
+    until_cut: "v1.0.47"
   - ref: "CM051:#997"
     reason: "Engine provenance and install-time disclosure. DEFERRED BECAUSE IT IS NOT A FIX: the four defects v1.0.43 exists for are all merged and nothing in the cut waits on it. It is RED on two counts, both located and both four lines -- install.sh.strings.en-GB.sh:1488 char 235 uses a spaced double hyphen where the em-dash rule requires a spaced en-dash, and tests/test_engine_provenance_never_claims_what_it_did_not_install.sh:232 and :266 pipe into grep -q under pipefail, which the SIGPIPE ratchet correctly refuses. AND IT CARRIES TWO SUBSTANTIVE REVIEW FINDINGS THAT SHOULD NOT BE FIXED AT SPEED. First, the before_seen guard checks a snapshot EXISTENCE and not its VALIDITY, so a zero-byte or truncated .engine-before makes the module claim it installed EVERY engine on the box; reachable because the redirect truncates before it writes, which is exactly what a jetsam-killed installer produces, and that is what happened on 2026-08-23. Second, owner=customer is emitted alongside installed_by_ostler=[colima] whenever both hold, so the two fields contradict each other. Shipping the module with either open would put a wrong provenance claim in front of a customer, which is worse than shipping no claim."
     until_cut: v1.0.46
