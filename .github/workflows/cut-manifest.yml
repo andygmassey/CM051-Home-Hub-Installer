@@ -21,6 +21,7 @@ on:
       - 'scripts/verify_cut_manifest.py'
       - 'scripts/verify_cut_manifest.sh'
       - 'scripts/tests/test_verify_cut_manifest.py'
+      - 'tests/test_grep_row_cannot_be_satisfied_by_its_own_manifest.py'
       - 'scripts/box_walk_probes/**'
       - 'scripts/tests/test_people_seed_and_retrieval_probe.sh'
       - 'cut-manifests/**'
@@ -59,6 +60,23 @@ jobs:
       - name: Run verify_cut_manifest smoke tests
         run: |
           python -m pytest scripts/tests/test_verify_cut_manifest.py -v
+
+      # A grep_in_source_at_sha row must be provable by the SOURCE it names, not
+      # by the manifest text that makes the claim.
+      #
+      # This is not hypothetical. v1.0.46 shipped a BRICKED installer with a
+      # GREEN brick-gate: row v1046-c grepped PYTHONPYCACHEPREFIX across the
+      # whole tree and matched cut-manifests/v1.0.46.yaml five times -- its own
+      # file. The claim was TRUE and UNFALSIFIABLE, which is the worst kind of
+      # green. A row that cites itself proves the row was typed, nothing more.
+      #
+      # if: always() -- if the smoke suite above fails, this is exactly when you
+      # need to know whether self-satisfaction has come back too. A skipped gate
+      # reports nothing.
+      - name: a manifest row cannot be satisfied by its own manifest
+        if: always()
+        run: |
+          python3 tests/test_grep_row_cannot_be_satisfied_by_its_own_manifest.py -v
 
   # The box-walk probe body itself. The primitive above only proves the
   # verifier honours a probe's exit code; this job proves the people probe
