@@ -55,10 +55,21 @@ echo "not really a binary" > "$APP/Contents/Resources/python/lib/libfake.dylib"
 # of .pyc so the harness can drive the seed count from the outside: a normal
 # count for the codesign assertions, a tiny one to prove the anti-vacuity floor
 # fires, and FAIL to prove compileall failure is fatal.
+#
+# The stub also answers the INVALIDATION-MODE AUDIT (`-B -c`), which the script
+# runs after compileall to count timestamp-mode .pyc on disk. Driving that count
+# from the outside is the whole point: a real interpreter here would always
+# report 0 once the fix is in, so the arm proving the gate FIRES could never be
+# executed, and an assertion that has never been seen red is not an assertion.
 seed_count() { echo "$1" > "$WORK/seed"; }
+ts_mode()    { echo "$1" > "$WORK/tsmode"; }
 cat >"$APP/Contents/Resources/python/bin/python3.11" <<STUB
 #!/bin/bash
 if [ "\$1" = "-m" ] && [ "\$2" = "compileall" ]; then
+    # Record how compileall was actually invoked, so the test can assert the
+    # command line rather than grepping the script for a string.
+    printf '%s\n' "\$*" > "$WORK/compileall_argv"
+    printf '%s\n' "\${PYTHONDONTWRITEBYTECODE:-UNSET}" > "$WORK/compileall_dwb"
     n="\$(cat "$WORK/seed" 2>/dev/null || echo 600)"
     [ "\$n" = "FAIL" ] && { echo "stub: compileall refused" >&2; exit 1; }
     mkdir -p "$APP/Contents/Resources/python/lib/__pycache__"
@@ -69,10 +80,18 @@ if [ "\$1" = "-m" ] && [ "\$2" = "compileall" ]; then
     done
     exit 0
 fi
+if [ "\$1" = "-B" ]; then
+    m="\$(cat "$WORK/tsmode" 2>/dev/null || echo 0)"
+    [ "\$m" = "CANNOTRUN" ] && { echo "stub: .pyc unreadable" >&2; exit 3; }
+    [ "\$m" = "GARBAGE" ]   && { echo "not-a-number"; exit 0; }
+    echo "\$m"
+    exit 0
+fi
 exit 0
 STUB
 chmod +x "$APP/Contents/Resources/python/bin/python3.11"
 seed_count 600
+ts_mode 0
 
 # The script resolves entitlements relative to ITS OWN directory, so the real
 # repo file is used. Assert it rather than assume it: if it moves, this test
@@ -232,11 +251,74 @@ seed_count 600
 # This asserts the FLAG because the behaviour it buys cannot be observed
 # through the stub interpreter -- and says so, rather than implying it proved
 # the rewrite. The rewrite itself is proved in the commit message's measurement.
-if grep -q -- "--invalidation-mode unchecked-hash" "$SCRIPT"; then
-    echo "  PASS  compileall pins unchecked-hash (timestamp mode would allow a reseal-breaking rewrite)"
+#
+# 🔴 AND THE FLAG ASSERTION ALONE IS NOT ENOUGH -- v1.0.46 PROVED IT.
+# v1.0.46 shipped WITH --invalidation-mode unchecked-hash on this command line
+# and STILL published 45 timestamp-mode .pyc, because the flag governs only what
+# compileall itself compiles: the interpreter's own boot imports are written by
+# the import system in timestamp mode, and compileall then skips them as
+# up-to-date. A test that greps the flag passes in both worlds. So the arms
+# below assert the INVOCATION and then the MEASURED PROPERTY.
+make_codesign ok
+seed_count 600
+ts_mode 0
+rc="$(run)"
+check "clean run with the audit in place still succeeds" "0" "$rc"
+
+argv="$(cat "$WORK/compileall_argv" 2>/dev/null || echo MISSING)"
+dwb="$(cat "$WORK/compileall_dwb" 2>/dev/null || echo MISSING)"
+case "$argv" in
+  *"--invalidation-mode unchecked-hash"*)
+    echo "  PASS  compileall pins unchecked-hash" ;;
+  *)
+    echo "  FAIL  compileall lost --invalidation-mode unchecked-hash -- a .pyc REWRITE can break the seal and the count will not show it"
+    echo "        argv was: $argv"; fail=1 ;;
+esac
+case "$argv" in
+  *" -f "*|*" -f")
+    echo "  PASS  compileall forces recompilation (-f), so a timestamp-mode .pyc already on disk is rewritten rather than skipped" ;;
+  *)
+    echo "  FAIL  compileall lost -f -- boot-import .pyc are skipped as up-to-date and stay in timestamp mode. THIS IS THE v1.0.46 DEFECT."
+    echo "        argv was: $argv"; fail=1 ;;
+esac
+check "compileall runs with PYTHONDONTWRITEBYTECODE=1 (stops boot imports seeding timestamp-mode .pyc)" "1" "$dwb"
+
+# (e) THE AUDIT MUST FIRE. This is the arm that would have caught v1.0.46:
+#     the flag is present, compileall succeeds, the count clears the floor --
+#     and the bytes on disk are still wrong.
+make_codesign ok
+ts_mode 45
+rc="$(run)"
+check "timestamp-mode .pyc present: refuses to sign" "1" "$rc"
+if grep -q "45 of .* seeded .pyc are in TIMESTAMP mode" "$WORK/out"; then
+    echo "  PASS  audit names the count it measured"
 else
-    echo "  FAIL  compileall lost --invalidation-mode unchecked-hash -- a .pyc REWRITE can now break the seal, and the file count will not show it"; fail=1
+    echo "  FAIL  audit did not fire, or did not say what it counted -- v1.0.46 would ship again"
+    sed 's/^/          /' "$WORK/out"; fail=1
 fi
+check "timestamp-mode .pyc present: nothing was signed" "0" "$(attempts)"
+
+# (f) CANNOT-RUN IS NEITHER FAIL NOR PASS. An audit that could not read the
+#     bundle returns no count; treating that empty string as zero would report
+#     a verified seal from a command that never looked.
+make_codesign ok
+ts_mode CANNOTRUN
+rc="$(run)"
+check "audit CANNOT-RUN: refuses to sign" "1" "$rc"
+if grep -q "could not audit .pyc invalidation modes" "$WORK/out"; then
+    echo "  PASS  audit CANNOT-RUN: says so rather than passing on an empty count"
+else
+    echo "  FAIL  audit CANNOT-RUN: was swallowed"; fail=1
+fi
+check "audit CANNOT-RUN: nothing was signed" "0" "$(attempts)"
+
+# (g) A NON-NUMERIC MEASUREMENT IS NOT A ZERO EITHER.
+make_codesign ok
+ts_mode GARBAGE
+rc="$(run)"
+check "audit returns non-numeric: refuses to sign" "1" "$rc"
+check "audit returns non-numeric: nothing was signed" "0" "$(attempts)"
+ts_mode 0
 
 echo
 if [ "$fail" -eq 0 ]; then echo "sign-python-bundle: all assertions pass"; else echo "sign-python-bundle: FAILURES ABOVE"; fi
