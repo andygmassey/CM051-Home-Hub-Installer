@@ -209,6 +209,49 @@ if [ "$PYC_AFTER" -lt 500 ]; then
     exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# 🔴 THE PRODUCT TREE, NOT ONLY THE STDLIB -- v1.0.47's RESIDUAL
+# ---------------------------------------------------------------------------
+#
+# v1.0.47 seeded 1448 stdlib .pyc, every one unchecked-hash, and the audit below
+# printed "0 of 1448 in timestamp mode". Both statements were true and the
+# artefact still failed its walk, because THE AUDIT'S ROOT WAS $PYTHON_DIR --
+# the one directory that same commit had just fixed. It asserted a property over
+# a subset chosen so as to exclude the defect.
+#
+# MEASURED on the published v1.0.47 bundle: 1888 .py, 1448 .pyc, so 440 .py
+# shipped with NO .pyc AT ALL. ORM's walk arm 8b (#1092) imported one of them,
+# Contents/Resources/assistant_api/tests, and the count went 1448 -> 1449 with
+# codesign rc=1. That is the v1.0.45 defect -- an ADD, not a MODIFY -- surviving
+# in the compartment the v1.0.46 fix never looked at. Two different failures
+# wear the same colour, and only one of them changes a mode bit.
+#
+# Of the 440: 353 are in the OUTER bundle, sealed by this script's own signing
+# pass, so they are ours to fix here. 87 are inside a NESTED .app (Ostler.app)
+# which carries its OWN signature, sealed later by sparkle-embed's
+# `codesign --force --deep`. Seeding those from here would write into a bundle
+# this script does not sign. They are EXCLUDED BY REGEX below and then COUNTED
+# AND PRINTED by the audit, never silently dropped -- a residual nobody states
+# is a residual nobody fixes. Hub lane owns them.
+#
+# -x is a regex matched against the path: /python/ is the stdlib, already done
+# above; \.app/ is the nested-signature compartment.
+#
+# VERIFIED ON THE REAL v1.0.47 BUNDLE BEFORE THIS WAS WRITTEN, not after:
+# rc=0, 1448 -> 1801 (exactly the 353 predicted, nothing failed to compile),
+# 0 uncovered outer .py, 0 timestamp-mode, and re-running arm 8b's import left
+# the count at 1801 -- the add that vetoed v1.0.47 no longer happens.
+PRODUCT_ROOT="${APP_PATH}/Contents/Resources"
+if ! env PYTHONDONTWRITEBYTECODE=1 "$BUNDLED_PY" -m compileall -q -f \
+        --invalidation-mode unchecked-hash \
+        -x '(/python/|\.app/)' "$PRODUCT_ROOT"; then
+    echo "ERROR: compileall failed on the product tree $PRODUCT_ROOT" >&2
+    echo "       A PARTIAL seed is worse than none: whatever failed to compile" >&2
+    echo "       is exactly what the customer's first import writes into the" >&2
+    echo "       signed bundle, voiding the seal. Refusing to sign." >&2
+    exit 1
+fi
+
 # 🔴 ASSERT THE PROPERTY, NOT THE FLAG. THIS IS THE CHECK v1.0.46 DID NOT HAVE.
 #
 # The command line above carries --invalidation-mode unchecked-hash, and it
@@ -268,6 +311,119 @@ if [ "$PYC_TIMESTAMP" -ne 0 ]; then
     exit 1
 fi
 echo "Invalidation-mode audit: 0 of $PYC_AFTER .pyc in timestamp mode"
+
+# ---------------------------------------------------------------------------
+# 🔴 WHOLE-BUNDLE AUDIT: TWO DEFECTS WEAR THE SAME COLOUR
+# ---------------------------------------------------------------------------
+#
+# The audit above is scoped to $PYTHON_DIR and asks ONE question: what mode are
+# the .pyc in. That was enough for v1.0.46's defect (a MODIFY) and blind to
+# v1.0.45's (an ADD), and v1.0.47 shipped carrying the second one because the
+# root excluded the files that had it. Both break the same seal:
+#
+#     .py with NO .pyc          -> first import ADDS a file      (v1.0.45)
+#     .pyc in timestamp mode    -> first import REWRITES a file  (v1.0.46)
+#
+# So this asks BOTH, over the WHOLE outer bundle rather than one subdirectory.
+#
+# 🔴 ANTI-VACUITY ON THE DENOMINATOR, NOT JUST THE NUMERATOR. "0 uncovered" is
+# also what an empty tree prints. If Resources/ failed to stage, every count
+# here is 0 and the audit would pass while shipping nothing -- the uniform-zero
+# shape. The floor asserts the .py denominator is real BEFORE trusting a zero.
+#
+# Nested .app bundles are EXCLUDED and PRINTED, never silently dropped: they
+# carry their own signature (sparkle-embed seals Ostler.app with
+# `codesign --force --deep` later), so seeding them from here would write into
+# a bundle this script does not sign. v1.0.47 measured 87 such .py. That is a
+# real residual owned by the hub lane, and it is stated so it can be tracked.
+#
+# -B again: this check must not write a .pyc into the bundle it is judging.
+if ! BUNDLE_AUDIT="$("$BUNDLED_PY" -B -c '
+import os, re, struct, sys
+root = sys.argv[1]
+py = pyc = uncovered = timestamp = nested = 0
+have = set()
+pycs = []
+for dirpath, dirnames, filenames in os.walk(root):
+    for fn in filenames:
+        p = os.path.join(dirpath, fn)
+        rel = os.path.relpath(p, root)
+        if ".app/" in rel:
+            if fn.endswith(".py"):
+                nested += 1
+            continue
+        if fn.endswith(".py"):
+            py += 1
+        elif fn.endswith(".pyc"):
+            pyc += 1
+            pycs.append((rel, p))
+for rel, p in pycs:
+    m = re.match(r"(.*)__pycache__/([^/]+)\.cpython-[0-9]+[^.]*\.pyc$", rel)
+    if m:
+        have.add(m.group(1) + m.group(2) + ".py")
+    try:
+        with open(p, "rb") as fh:
+            head = fh.read(8)
+    except OSError as exc:
+        sys.stderr.write("unreadable %s: %s\n" % (p, exc))
+        sys.exit(3)
+    if len(head) < 8:
+        sys.stderr.write("truncated %s\n" % p)
+        sys.exit(3)
+    if not (struct.unpack("<I", head[4:8])[0] & 1):
+        timestamp += 1
+        if timestamp <= 10:
+            sys.stderr.write("  timestamp-mode: %s\n" % rel)
+shown = 0
+for dirpath, dirnames, filenames in os.walk(root):
+    for fn in filenames:
+        if not fn.endswith(".py"):
+            continue
+        rel = os.path.relpath(os.path.join(dirpath, fn), root)
+        if ".app/" in rel:
+            continue
+        if rel not in have:
+            uncovered += 1
+            if shown < 10:
+                sys.stderr.write("  no .pyc: %s\n" % rel)
+                shown += 1
+print("%d %d %d %d %d" % (py, pyc, uncovered, timestamp, nested))
+' "$APP_PATH")"; then
+    echo "ERROR: could not audit the bundle at $APP_PATH" >&2
+    echo "       CANNOT-RUN is neither pass nor fail, and an unverified seal is" >&2
+    echo "       not a verified one. Refusing to sign." >&2
+    exit 1
+fi
+set -- $BUNDLE_AUDIT
+if [ "$#" -ne 5 ]; then
+    echo "ERROR: bundle audit returned '$BUNDLE_AUDIT', not five counts." >&2
+    echo "       Refusing to sign on an unparseable measurement." >&2
+    exit 1
+fi
+B_PY="$1"; B_PYC="$2"; B_UNCOVERED="$3"; B_TIMESTAMP="$4"; B_NESTED="$5"
+echo "Bundle audit: $B_PY .py / $B_PYC .pyc outside nested apps" \
+     "-- uncovered $B_UNCOVERED, timestamp-mode $B_TIMESTAMP;" \
+     "$B_NESTED .py inside nested .app EXCLUDED (own signature)"
+
+if [ "$B_PY" -lt 1000 ]; then
+    echo "ERROR: only $B_PY .py in the bundle -- expected >=1000 (v1.0.47: 1801)." >&2
+    echo "       A zero numerator over a missing denominator is not a pass: the" >&2
+    echo "       Resources tree did not stage, so this audit could not look." >&2
+    exit 1
+fi
+if [ "$B_UNCOVERED" -ne 0 ]; then
+    echo "ERROR: $B_UNCOVERED of $B_PY .py have NO .pyc beside them." >&2
+    echo "       The customer's first import WRITES each one into the signed" >&2
+    echo "       bundle. An ADD breaks the seal exactly as a REWRITE does, and" >&2
+    echo "       macOS then refuses the app as damaged. This is the v1.0.45" >&2
+    echo "       brick, and the residual that vetoed v1.0.47. Refusing to sign." >&2
+    exit 1
+fi
+if [ "$B_TIMESTAMP" -ne 0 ]; then
+    echo "ERROR: $B_TIMESTAMP of $B_PYC .pyc in the bundle are TIMESTAMP mode." >&2
+    echo "       This is the v1.0.46 brick, outside \$PYTHON_DIR. Refusing." >&2
+    exit 1
+fi
 
 echo "Walking $PYTHON_DIR for Mach-O files..."
 echo "Entitlements: $ENTITLEMENTS"
