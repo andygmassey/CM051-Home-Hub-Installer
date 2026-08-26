@@ -204,6 +204,11 @@ capture && /^# ── ostler-assistant doctor probe/ {exit}
 
 # Stub `info`, `ok`, `warn` so the block runs without depending
 # on install.sh's helpers being defined.
+STRINGS_FILE="${REPO_ROOT}/install.sh.strings.en-GB.sh"
+if [[ ! -f "$STRINGS_FILE" ]]; then
+    echo "FAIL [strings-missing]: cannot find $STRINGS_FILE -- the probe block references MSG_ keys and the shim cannot run without them" >&2
+    exit 1
+fi
 PROBE_RUNNER="$SHIM_TMPDIR/runner.sh"
 cat > "$PROBE_RUNNER" <<'RUNNEREOF'
 #!/usr/bin/env bash
@@ -214,6 +219,17 @@ warn() { :; }
 CHANNEL_IMESSAGE_ENABLED=true
 OSTLER_DIR="$1"
 PWG_IMESSAGE_PROBE_OUTCOME="$2"
+# SOURCE THE LOCALE CATALOGUE. Under Rule 0.9 the probe block's customer-facing
+# text moved out of install.sh into install.sh.strings.en-GB.sh, so the block now
+# references MSG_ keys. This runner sets `set -u`, so the first unbound key kills
+# it -- the failure was
+#     probe.sh: line 76: MSG_INFO_PROBING_IMESSAGE_AUTOMATION_PERMISSION_READ_ONLY: unbound variable
+# and it read as "the probe block is broken" when the SHIM was simply not
+# supplying what the real install supplies. Sourcing the catalogue also makes the
+# shim faithful rather than merely quieter: a key that exists in install.sh and
+# NOT in the catalogue will now surface here, instead of printing an empty line
+# on a customer's machine.
+source "$4"
 source "$3"
 RUNNEREOF
 chmod +x "$PROBE_RUNNER"
@@ -221,7 +237,7 @@ chmod +x "$PROBE_RUNNER"
 for outcome in granted-and-working tcc-denied check-failed; do
     SHIM_OSTLER="$SHIM_TMPDIR/ostler-$outcome"
     mkdir -p "$SHIM_OSTLER"
-    if ! "$PROBE_RUNNER" "$SHIM_OSTLER" "$outcome" "$PROBE_BLOCK"; then
+    if ! "$PROBE_RUNNER" "$SHIM_OSTLER" "$outcome" "$PROBE_BLOCK" "$STRINGS_FILE"; then
         echo "FAIL [shim-run-$outcome]: probe block exited non-zero under shim '$outcome'" >&2
         exit 1
     fi
@@ -250,10 +266,10 @@ done
 # ── Re-run shim test: timestamp updates on second invocation ────
 SECOND_OSTLER="$SHIM_TMPDIR/ostler-rerun"
 mkdir -p "$SECOND_OSTLER"
-"$PROBE_RUNNER" "$SECOND_OSTLER" "granted-and-working" "$PROBE_BLOCK"
+"$PROBE_RUNNER" "$SECOND_OSTLER" "granted-and-working" "$PROBE_BLOCK" "$STRINGS_FILE"
 TS1=$(grep '^Captured at:' "$SECOND_OSTLER/imessage-posture/state.md")
 sleep 1.1
-"$PROBE_RUNNER" "$SECOND_OSTLER" "granted-and-working" "$PROBE_BLOCK"
+"$PROBE_RUNNER" "$SECOND_OSTLER" "granted-and-working" "$PROBE_BLOCK" "$STRINGS_FILE"
 TS2=$(grep '^Captured at:' "$SECOND_OSTLER/imessage-posture/state.md")
 if [[ "$TS1" == "$TS2" ]]; then
     echo "FAIL [shim-rerun]: re-running probe did not update 'Captured at' timestamp" >&2
