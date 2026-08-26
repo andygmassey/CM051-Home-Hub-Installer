@@ -182,10 +182,18 @@ else
         # Extract just the helper function body via awk + eval.
         # This avoids sourcing the full install.sh which has
         # side-effects (curl|bash bootstrap, gui_log, etc).
+        # Extract EVERY helper the entry point calls, not just the entry
+        # point. _ostler_repair_venv_after_promote calls
+        # _ostler_promote_venv_note (install.sh:2163); extracting only the
+        # former made the eval'd body die with
+        #   line 342: _ostler_promote_venv_note: command not found
+        # and exit 127 -- a number that reads like a missing binary, not a
+        # missing sibling function. `exit` after the first closing brace is
+        # what capped it at one; `in_func=0` lets the scan continue.
         helper_body="$(awk '
-            /^_ostler_repair_venv_after_promote\(\) \{/ { print; in_func=1; next }
+            /^_ostler_(repair_venv_after_promote|promote_venv_note)\(\) \{/ { print; in_func=1; next }
             in_func { print }
-            in_func && /^\}/ { exit }
+            in_func && /^\}/ { in_func=0 }
         ' "$INSTALL_SH")"
         eval "$helper_body"
 
