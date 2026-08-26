@@ -668,3 +668,27 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "usage_journal_producers"
+
+  # ==========================================================================
+  # #1112. launchd serves the job definition it LOADED, not the one on disk.
+  # `bootstrap` no-ops on an already-loaded label and `kickstart -k` restarts
+  # from the loaded definition, so a config or token rotated on disk can sit
+  # unserved indefinitely while every static gate stays green. Measured on
+  # 2026-08-26: the assistant API was still serving a token rotated out hours
+  # earlier, and every authenticated endpoint 401'd until bootout+bootstrap.
+  # This probe compares the RUNNING process's config against the file on disk,
+  # and compares the service token by SHA-256 PREFIX ONLY -- never by value,
+  # because a probe that echoes a secret copies it into every cut log.
+  # ==========================================================================
+  - id: box-walk-running-config-matches-disk
+    title: the running daemon's config and service token must match what is on disk
+    incident: >-
+      2026-08-26 box walk; the service token was rotated on disk at 16:02Z but
+      launchd kept serving the pre-rotation job definition, so every
+      authenticated endpoint returned 401 while the on-disk config looked
+      correct. bootout + bootstrap of the LABEL fixed it. Nothing reported the
+      divergence: the daemon was listening, the file was right, and no gate
+      compared the two.
+    proof:
+      kind: box_walk_probe
+      probe: "running_config_matches_disk"
