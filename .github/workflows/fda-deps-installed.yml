@@ -50,6 +50,8 @@ on:
       - 'vendor/ostler_fda/identifier_quality.py'
       - 'scripts/lib/strip_comments.sh'
       - 'tests/test_fda_deps_are_installed_not_just_copied.sh'
+      - 'tests/test_installer_installs_every_pipeline_requirements_file.sh'
+      - 'vendor/cm041/identity_resolver/requirements.txt'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/fda-deps-installed.yml'
   push:
@@ -85,6 +87,17 @@ jobs:
 
       - name: The gate
         run: /bin/bash tests/test_fda_deps_are_installed_not_just_copied.sh
+
+      # The same class, a different package. install.sh selected exactly ONE
+      # pipeline requirements file via if/elif, so contact_syncer always won and
+      # identity_resolver's -- the one declaring rapidfuzz -- was never
+      # installed. Measured on a live box: identity_resolver was un-importable
+      # in the interpreter running ical-server (CONTROL: json imported fine in
+      # the same interpreter), leaving the whole dedupe layer dark from first
+      # boot with no fault reported anywhere.
+      - name: every pipeline package's requirements are installed, not just the first
+        if: always()
+        run: /bin/bash tests/test_installer_installs_every_pipeline_requirements_file.sh
 
   self-test:
     # ANTI-VACUITY. A control never shown failing is not evidence.
