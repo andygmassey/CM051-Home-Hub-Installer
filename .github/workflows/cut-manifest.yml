@@ -75,7 +75,12 @@ jobs:
       # scripts/box_walk_probes/**, which is exactly the set of files it
       # guards. A gate that does not fire when its subject changes is not a
       # gate.
+      # `if: always()` is load-bearing, not decoration. Without it this step is
+      # SKIPPED whenever an earlier test in the same job fails -- so the run
+      # that most needs a PII verdict is exactly the run that would not get
+      # one. ci-maskless caught this and it was right.
       - name: No probe may emit a derivable Person URI
+        if: always()
         run: |
           python -m pytest scripts/tests/test_probes_do_not_emit_derivable_person_uris.py -v
 
