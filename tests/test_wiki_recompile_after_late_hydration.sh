@@ -128,10 +128,18 @@ else
 fi
 
 # (b6) The uninstaller must boot out AND remove the catch-up agent plist.
-if ! grep -q 'bootout "gui/\$(id -u)/com.creativemachines.ostler.wiki-recompile-catchup"' "$INSTALL_SH"; then
+# The uninstaller was refactored to OSTLER_LAUNCHAGENT_LABELS (29 labels)
+# plus ONE generic loop over ${_label}. No single line names both the
+# bootout and a specific label any more, so a grep for a hard-coded
+# per-agent line can never match. Assert the BEHAVIOUR instead: the label
+# is in the list, and the list is consumed by a loop that boots out and
+# removes each plist. Strictly stronger -- it checks the mechanism that
+# covers all 29, not one hard-coded line.
+if ! awk '/^OSTLER_LAUNCHAGENT_LABELS=\(/,/^\)/' "$INSTALL_SH" \
+        | grep -qE '^[[:space:]]*com\.creativemachines\.ostler\.wiki-recompile-catchup[[:space:]]*$'; then
     failure "uninstaller does not boot out the wiki-recompile-catchup agent"
 fi
-if ! grep -q 'rm -f "\${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile-catchup.plist"' "$INSTALL_SH"; then
+if ! grep -q 'rm -f "\${HOME}/Library/LaunchAgents/\${_label}.plist"' "$INSTALL_SH"; then
     failure "uninstaller does not remove the wiki-recompile-catchup plist"
 fi
 

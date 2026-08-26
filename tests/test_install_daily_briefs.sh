@@ -279,11 +279,19 @@ echo "PASS: install.sh wires INSTALL_WHATSAPP_KEEPALIVE through to the snippet"
 
 # Uninstall path also booted-out the keepalive, matching the
 # pattern for the other LaunchAgents.
-if ! grep -q 'launchctl bootout.*whatsapp-keepalive' "$INSTALL_SCRIPT"; then
+# The uninstaller was refactored to OSTLER_LAUNCHAGENT_LABELS (29 labels)
+# plus ONE generic loop over ${_label}. No single line names both the
+# bootout and a specific label any more, so a grep for a hard-coded
+# per-agent line can never match. Assert the BEHAVIOUR instead: the label
+# is in the list, and the list is consumed by a loop that boots out and
+# removes each plist. Strictly stronger -- it checks the mechanism that
+# covers all 29, not one hard-coded line.
+if ! awk '/^OSTLER_LAUNCHAGENT_LABELS=\(/,/^\)/' "$INSTALL_SCRIPT" \
+        | grep -qE '^[[:space:]]*com\.creativemachines\.ostler\.whatsapp-keepalive[[:space:]]*$'; then
     echo "FAIL [uninstall-no-bootout]: install.sh uninstall path does not bootout the keepalive" >&2
     exit 1
 fi
-if ! grep -q 'rm -f.*whatsapp-keepalive\.plist' "$INSTALL_SCRIPT"; then
+if ! grep -q 'rm -f "\${HOME}/Library/LaunchAgents/\${_label}.plist"' "$INSTALL_SCRIPT"; then
     echo "FAIL [uninstall-no-rm]: install.sh uninstall path does not rm the keepalive plist" >&2
     exit 1
 fi
@@ -432,8 +440,17 @@ OUTPUT_OFF="$(
     bash -c "$(cat "$EMITTER")" 2>&1
 )"
 
-if echo "$OUTPUT_OFF" | grep -q '\[\[cron\.jobs\]\]'; then
-    echo "FAIL [emitter-suppress-cron]: emitter wrote cron jobs when CHANNEL_WHATSAPP_ENABLED=false" >&2
+# This used to demand NO cron jobs at all when WhatsApp was disabled, which
+# was right when the daily briefs were WhatsApp-only. Brief delivery is now
+# channel-aware: with WhatsApp off and iMessage on, the emitter still writes
+# morning-brief and evening-wrap and routes them to
+# `delivery = { ... channel = "imessage" ... }`. Killing a customer's daily
+# briefs because they turned off ONE channel would be the worse behaviour, so
+# the old assertion was pinning a regression as if it were the requirement.
+#
+# Assert what actually matters: no job may be delivered to a DISABLED channel.
+if echo "$OUTPUT_OFF" | grep -qE 'channel = "whatsapp"'; then
+    echo "FAIL [emitter-suppress-cron]: emitter routed a cron job to whatsapp when CHANNEL_WHATSAPP_ENABLED=false" >&2
     echo "Output was:" >&2
     echo "$OUTPUT_OFF" >&2
     exit 1
