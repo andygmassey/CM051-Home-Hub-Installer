@@ -191,8 +191,19 @@ for v in "${all_arg2[@]}"; do
     for e in "${CANONICAL_ENUM[@]}"; do [[ "$v" == "$e" ]] && okv=1; done
     [[ "$okv" -eq 1 ]] || failure "a run-source plist uses non-canonical enum value '$v' (typo / rogue source outside the closed set)"
 done
-if [[ "${#all_arg2[@]}" -ne "${#CANONICAL_ENUM[@]}" ]]; then
-    failure "found ${#all_arg2[@]} run-source plist(s) across tracked sources; expected ${#CANONICAL_ENUM[@]} (one per canonical enum value) -- values: ${all_arg2[*]:-<none>}"
+# COUNT THE DISTINCT VALUES, NOT THE RAW HITS. collect_files is install.sh
+# PLUS every vendor file containing run-source. install.sh carries these plists
+# inline as heredocs while vendor/ carries the same six as standalone files, so
+# every vendored agent is counted TWICE: 16 hits for 10 canonical sources. The
+# raw-count assertion made a correct tree look like six rogue agents
+# double-ingesting. The loop above already rejects any NON-canonical value, so
+# what remains to assert is that each canonical source appears at least once.
+distinct_arg2=()
+while IFS= read -r dv; do [[ -n "$dv" ]] && distinct_arg2+=("$dv"); done < <(
+    printf '%s\n' "${all_arg2[@]}" | sort -u
+)
+if [[ "${#distinct_arg2[@]}" -ne "${#CANONICAL_ENUM[@]}" ]]; then
+    failure "found ${#distinct_arg2[@]} DISTINCT run-source value(s) across tracked sources (${#all_arg2[@]} raw hits); expected ${#CANONICAL_ENUM[@]} (one per canonical enum value) -- values: ${all_arg2[*]:-<none>}"
 fi
 
 if [[ "$FAILED" -ne 0 ]]; then
