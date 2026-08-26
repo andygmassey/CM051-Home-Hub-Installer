@@ -28,6 +28,39 @@
 # sourced. See CX-454 (task #454).
 set -Eeuo pipefail
 
+# -- .pyc redirect: never write bytecode into a signed bundle --------
+# WHY, MEASURED on the shipped v1.0.45 artefact, 2026-08-26 (ORM):
+#
+# The customer venv is built FROM the interpreter inside the notarised
+# .app -- there is exactly ONE python3.11 in the artefact and install.sh
+# never copies it out -- so ~/.ostler/.venv/pyvenv.cfg anchors `home`
+# and the stdlib path INSIDE Contents/Resources/python for the life of
+# the install. CPython writes __pycache__/*.pyc next to the source it
+# imports, so ANY later import by the Ostler python writes into the
+# signed bundle and breaks the code seal. Controlled pair on the
+# shipped app, `import json, ssl, sqlite3, urllib.request, email.parser`:
+#
+#   guard set   ->  0 .pyc in bundle, codesign --verify --deep --strict rc=0
+#   guard unset -> 69 .pyc in bundle, rc=1 "a sealed resource is missing
+#                  or invalid", and spctl REFUSES the app
+#
+# InstallerCoordinator.swift:1350 already sets this, but only on the ONE
+# Process() the GUI spawns. That covers the install and nothing after it.
+# This line covers install.sh however it is entered: the GUI, the
+# `curl | bash` bootstrap re-exec (export survives the exec), Terminal,
+# and a --repair re-run.
+#
+# Same variable and same value as the Swift, deliberately -- one
+# mechanism, not two fighting. If a parent already set it we keep the
+# parent's value rather than overriding it.
+#
+# PYTHONPYCACHEPREFIX rather than PYTHONDONTWRITEBYTECODE: the prefix
+# REDIRECTS the cache to a writable dir, so repeat runs keep the startup
+# benefit, and it cannot be silently defeated by something later setting
+# a prefix. CPython creates the directory tree itself (measured: 1042
+# .pyc landed in a prefix dir that did not exist beforehand).
+export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-${HOME}/.ostler/cache/pycache}"
+
 # ── Flags ──────────────────────────────────────────────────────────
 
 CHECK_ONLY=false
