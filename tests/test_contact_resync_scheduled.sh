@@ -101,11 +101,31 @@ else
 fi
 
 # Axis 7: the uninstaller must boot out AND remove the agent plist.
-if ! grep -q 'bootout "gui/\$(id -u)/com.ostler.contact-resync"' "$INSTALL_SH"; then
-    failure "uninstaller does not boot out the contact-resync agent"
+# These used to grep for two HARD-CODED lines naming this one agent. The
+# uninstaller was since refactored to a label ARRAY plus a generic loop, which
+# is strictly better -- it cannot forget an agent -- and that refactor is what
+# "broke" this test. Asserting an IMPLEMENTATION rather than a BEHAVIOUR is why
+# it was marked UNWIRED instead of updated.
+#
+# Assert the behaviour: the label is in the list, and the list is consumed by a
+# loop that boots the agent out AND removes its plist.
+# grep -c, NOT grep -q. Under `set -o pipefail` a short-circuiting consumer
+# inverts a MATCH into a non-zero pipeline status whenever the producer is still
+# writing: it dies EPIPE and pipefail takes its status. This awk emits ~31 lines
+# so it currently finishes first and the assertion works -- but that is safety
+# by SIZE, not by construction. Grow the label array and this flips to a false
+# RED with nobody having touched the assertion.
+# See tests/test_pipefail_shortcircuit_inversion.sh.
+_resync_in_labels="$(awk '/^OSTLER_LAUNCHAGENT_LABELS=\(/,/^\)/' "$INSTALL_SH" \
+    | grep -cE '^[[:space:]]*com\.ostler\.contact-resync[[:space:]]*$' || true)"
+if [[ "${_resync_in_labels:-0}" -eq 0 ]]; then
+    failure "com.ostler.contact-resync is not in OSTLER_LAUNCHAGENT_LABELS, so the uninstaller loop never sees it"
 fi
-if ! grep -q 'rm -f "\${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist"' "$INSTALL_SH"; then
-    failure "uninstaller does not remove the contact-resync plist"
+if ! grep -q 'launchctl bootout "gui/\$(id -u)/\${_label}"' "$INSTALL_SH"; then
+    failure "the uninstaller has no generic bootout loop over OSTLER_LAUNCHAGENT_LABELS"
+fi
+if ! grep -q 'rm -f "\${HOME}/Library/LaunchAgents/\${_label}.plist"' "$INSTALL_SH"; then
+    failure "the uninstaller's loop does not remove each agent's plist"
 fi
 
 if [[ "$FAILED" -ne 0 ]]; then
