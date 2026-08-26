@@ -94,6 +94,7 @@ walk_horizon: v1.0.41
 | v1.0.42 |  | not_walked | Andy (relayed 2026-08-23, see below) | v1042-D001 v1042-D002 v1042-D003 v1042-D004 |
 | v1.0.43 | 2026-08-24 | deferred | TNM (2026-08-24, under Andy's standing instruction to drive to the cut) | v1043-D001 v1043-D002 v1043-D003 |
 | v1.0.44 | 2026-08-24 | closed | Andy (walked on hardware; run header 2026-08-24T10:10:59Z) | v1044-D001 v1044-D002 v1044-D003 v1044-D004 v1044-D005 v1044-D006 |
+| v1.0.45 | 2026-08-25 | deferred | TNM (walked by Andy on hardware 2026-08-25; no walks/v1.0.45 record exists, so `closed` is REFUSED by this table's own rule) | v1045-D001 v1045-D002 v1045-D003 v1045-D004 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -3282,3 +3283,91 @@ folded into the five above, because a walk record whose arithmetic does not
 reconcile cannot be used as evidence for anything else, and the next reader
 must not quote either number as "the" result. Not carried into v1.0.45's BOM:
 it is a defect of the RECORD, not of the shipped artefact.
+
+
+### v1045-D001 -- THE INSTALLER BROKE ITS OWN CODE SIGNATURE ON FIRST RUN AND macOS REFUSED IT
+
+The defect that made this cut's successor exist. Andy walked the published
+v1.0.45 DMG on hardware on 2026-08-25 and macOS refused the app: *"damaged and
+can't be opened. You should move it to the Bin."*
+
+🔴 THE DMG HAD ALREADY PASSED 14 OF 14 ARTEFACT CHECKS. Every one of them read
+the app on a READ-ONLY VOLUME. The defect only exists once the app sits
+somewhere WRITABLE, which is the only place a customer ever runs it. A control
+that cannot exhibit the defect is not a control, and fourteen of them were not.
+
+MECHANISM, reproduced and then closed on the shipped artefact
+(58,099,134 bytes, sha256 70ebd926...):
+
+| arm, writable copy, same binary | .pyc in bundle | codesign |
+|---|---|---|
+| no env | 0 -> 26 | rc=1 sealed resource missing or invalid |
+| PYTHONPYCACHEPREFIX set | 0 -> 0 (26 redirected) | rc=0 |
+| seeded 1448 first, then no env | 1448 -> 0 new | -- |
+
+The app shipped ZERO .pyc, so the first import by the bundled interpreter wrote
+bytecode INSIDE the signed bundle and voided the seal. It reaches EVERY
+customer: quarantine is attached by every browser download and the failure is
+on FIRST RUN, not relaunch.
+
+🔴 AND THE OBVIOUS DIAGNOSIS WAS WRONG. PYTHONPYCACHEPREFIX was ALREADY in
+v1.0.45 -- 2 occurrences in InstallerCoordinator.swift, landed six days before
+the tag. The fix was PRESENT and INEFFECTIVE, because it only reached the
+installer's own process tree. The real invoker was `editor-frontpage`, an
+HOURLY LaunchAgent running the app's own interpreter with no redirect from the
+moment install finished.
+
+STATUS: FIXED and rides v1.0.46 -- CM051 #1051 (install.sh, not only the
+Swift), #1052 (seed the stdlib .pyc INSIDE the seal, invoker-independent),
+#1053 (editor-frontpage), #1054 (the other three python agents), #1056 (a CI
+gate that refuses a LaunchAgent able to run a python with no redirect).
+Measured on the v1.0.46 tag: all four discriminators 0 on v1.0.45, non-zero on
+v1.0.46.
+
+⚠️ PRESENCE IS NOT BEHAVIOUR. Everything above about v1.0.46 is source-level.
+The seal surviving is proven only by the writable-copy check on the built DMG,
+and that check has NOT been run at the time of writing.
+
+### v1045-D002 -- v1044-D001 WAS CARRIED, LANDED, AND DID NOT CLOSE
+
+Board #880. v1044-D001 (the FDA dialog states something false: "System Settings
+is open at Full Disk Access" when it is not) was carried into v1.0.45 and this
+file records it as *"CARRIED into v1.0.45 and landed -- BOM row 1."*
+
+It landed and the defect is STILL PRESENT on v1.0.45. The dialog still claims
+System Settings is open roughly a minute before it is.
+
+🔴 THIS IS THE FINDING THAT MATTERS MORE THAN THE DIALOG. "Carried and landed"
+was recorded as though it were closure. A BOM row says a change SHIPPED; it does
+not say the defect DIED. The two were conflated in this very file, which is
+exactly the failure the register exists to prevent. Any future "carried into
+vNNN and landed" line should be read as an unverified claim until a walk says
+otherwise.
+
+STATUS: OPEN. Rides v1.0.47.
+
+### v1045-D003 -- install.log CARRIES NO PER-LINE TIMESTAMPS, SO ORDERING CANNOT BE ADJUDICATED
+
+Board #880, second limb, and it is what made v1045-D002 hard to settle. The
+claim in D002 is an ORDERING claim -- the dialog speaks BEFORE System Settings
+opens. install.log has a run header but no per-line timestamps, so from the box
+alone the order of two events cannot be established either way.
+
+A defect whose evidence cannot be produced from the artefact is not a defect
+anyone can close on evidence. Fixing the log is therefore a prerequisite for
+closing D002 honestly, not a cosmetic improvement.
+
+STATUS: OPEN. Rides v1.0.47.
+
+### v1045-D004 -- v1.0.45 PUBLISHED AS A PRERELEASE, SO THE DOWNLOAD LINK NEVER MOVED
+
+Board #879. v1.0.45 was cut, published and artefact-verified 14/14, and it went
+out flagged PRERELEASE. ostler.ai/install.dmg consequently stayed on v1.0.41.
+
+Recorded here rather than waved through, because the consequence cuts both
+ways and the second way is the reason it is a finding at all: **no customer
+could reach the bricking build**, which is luck, not design. The same mechanism
+that accidentally contained a brick would equally have withheld a good cut, and
+nothing in the pipeline reported that the published link had not moved.
+
+STATUS: OPEN as a release-mechanism finding. The containment was accidental.
