@@ -3,6 +3,22 @@
 Automated checks that run against a freshly installed Hub and answer questions a
 human walking the box cannot answer by looking.
 
+## ▶ BEFORE ANY OF THAT: WALK THE DMG ITSELF
+
+```sh
+scripts/walk_dmg.sh <path-to.dmg>
+```
+
+The suite below needs a box that has already been installed onto. **Everything
+in this file assumes the artefact was worth installing**, and v1.0.45 proved
+that assumption can be false: it was correctly signed, stapled, and accepted by
+Gatekeeper as `source=Notarized Developer ID`, and it bricked the Mac it was
+installed on.
+
+`walk_dmg.sh` walks the artefact first. Its arm 8 runs the bundle and checks
+whether it survives its own first use, which is the only arm that catches that
+class. On v1.0.45 five arms pass and arm 8 vetoes.
+
 ## ▶ AFTER A DMG WALK, RUN THIS ONE COMMAND
 
 ```sh
