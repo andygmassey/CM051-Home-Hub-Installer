@@ -19,6 +19,18 @@
 # cpython-311.pyc, 0 uncovered, 0 wrong-mode, and after a reseal an unguarded
 # import left it at 86 with codesign rc=0.
 
+# 🔴 HERESTRINGS, NOT `printf | grep -q`. This file sets `set -uo pipefail`,
+# and under pipefail `producer | grep -q X` returns NON-ZERO ON A MATCH once the
+# producer is still writing when grep exits -- so a successful match reads as no
+# match. In an assertion that inverts the verdict silently.
+#
+# I wrote this test to prove I understood that mechanism and then used the
+# construct anyway, twice. The repo's own ratchet
+# (tests/test_pipefail_shortcircuit_inversion.sh) caught it on the first CI run:
+# "NEW instances, not listed in the baseline (70 found, baseline 69)".
+#
+# Knowing a rule is not the same as being subject to it. The gate is.
+
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -78,7 +90,7 @@ set +e; OUT="$("$SCRIPT" "$APP" "$WORK/wrong/bundle.tar.gz" 2>&1)"; RC=$?; set -
 # present even when the guard is gone. It has to be the ERROR wording.
 if [[ "$RC" -eq 0 ]]; then
     fail "wrong-tag-accepted" "an interpreter reporting cpython-314 was ACCEPTED. Its .pyc are invisible to the 3.11 that ships, so they would be regenerated into the seal while every count looked right"
-elif ! printf '%s' "$OUT" | grep -q "cache_tag is 'cpython-314', not cpython-311"; then
+elif ! grep -q "cache_tag is 'cpython-314', not cpython-311" <<< "$OUT"; then
     fail "wrong-tag-not-the-reason" "the script exited $RC, but NOT on the tag check -- its output never says \"cache_tag is 'cpython-314', not cpython-311\". It failed for some later reason, so this assertion would pass even with the tag guard deleted"
 else
     pass "an interpreter with the wrong cache_tag is refused ON THAT GROUND, and says so"
@@ -88,7 +100,7 @@ fi
 # Without this, a check that refuses EVERYTHING would pass assertion 1.
 make_shim "cpython-311" "$WORK/right"
 set +e; OUT2="$("$SCRIPT" "$APP" "$WORK/right/bundle.tar.gz" 2>&1)"; RC2=$?; set -e
-if printf '%s' "$OUT2" | grep -q 'cache_tag is'; then
+if grep -q 'cache_tag is' <<< "$OUT2"; then
     fail "control-refuses-everything" "an interpreter reporting cpython-311 was ALSO refused on the tag check; assertion 1 then proves nothing"
 else
     pass "control: cpython-311 passes the tag check (it fails later, on the audit, which is a different guard)"
