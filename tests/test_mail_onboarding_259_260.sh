@@ -47,7 +47,16 @@ echo "PASS [#260]: install.sh defaults mail window to 1825 days and exports it"
 # ── #260 axis 2: extract_all.py reads the env + no longer hard-codes 365.
 grep -q 'os.environ.get("OSTLER_MAIL_BACKFILL_DAYS"' "$EXTRACT_ALL" \
     || fail "#260: extract_all.py does not read OSTLER_MAIL_BACKFILL_DAYS"
-if grep -q 'extract_messages(since_days=365)' "$EXTRACT_ALL"; then
+# STRIP COMMENTS FIRST. extract_all.py:539-542 carries a LIST of the old
+# hardcoded windows, written to document the fix:
+#     #   apple_mail       extract_messages(since_days=365)
+# so a bare grep matches the comment that EXPLAINS the bug's removal and
+# reports the bug as present. The live call is line 821:
+#     messages = extract_messages(since_days=mail_backfill_days, limit=mail_limit)
+# which is env-driven and correct.
+_hardcoded_365="$(grep -vE '^[[:space:]]*#' "$EXTRACT_ALL" \
+    | grep -cF 'extract_messages(since_days=365)' || true)"
+if [[ "${_hardcoded_365:-0}" -gt 0 ]]; then
     fail "#260: extract_all.py still hard-codes the 1-year (365) Mail window"
 fi
 echo "PASS [#260]: extract_all.py reads the env var, 365 hard-cap removed"
