@@ -159,7 +159,7 @@ test_imessage_fda_probe.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_imessage_ladder_not_pinned.sh	WIRED	.github/workflows/imessage-ladder.yml
 test_imessage_probe_cannot_hang.sh	WIRED	.github/workflows/imessage-probe-cannot-hang.yml
 test_imessage_self_handles_fallback.sh	UNWIRED	-
-test_imessage_tcc_posture.sh	UNWIRED	-
+test_imessage_tcc_posture.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_inferred_category_never_egresses.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_ingest_offpeak_throttle.sh	UNWIRED	-
 test_ingest_slot_fairness.sh	WIRED	.github/workflows/ingest-slot.yml
