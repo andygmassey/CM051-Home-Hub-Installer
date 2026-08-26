@@ -220,6 +220,30 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"query": "x", "found": False})
                 return
 
+        # The identity check the probe makes before trusting anything else:
+        # is the thing on this port actually the assistant API, or is it some
+        # other service that happens to answer /health?
+        #
+        # THIS MOCK DID NOT SERVE THIS ROUTE AT ALL, so the green scenario
+        # could not satisfy an identity check and the whole suite went red the
+        # moment the probe started making one. A fixture that omits a route the
+        # real service has does not test a smaller thing -- it makes the
+        # correct behaviour unreachable.
+        #
+        # Public by design: /api/v1/hydration/status answers unauthenticated on
+        # a real box, which is precisely why the probe uses it -- it keeps
+        # measuring through an auth outage.
+        if path == "/api/api/v1/hydration/status":
+            if MODE == "wrong_service":
+                # The SPA catch-all: 200, HTML, for any /api/v1 path. Measured
+                # on the real daemon at :8000, which answers 200 text/html for
+                # /api/v1/definitely-not-a-real-route-zzz.
+                self._send(200, "<!DOCTYPE html><html><title>Ostler</title>", raw=True)
+                return
+            self._send(200, {"overall_state": "running",
+                             "phases": [{"key": "contacts", "state": "done", "count": 3}]})
+            return
+
         if path == "/api/health":
             if qs.get("detailed"):
                 if not self._authed():
@@ -513,6 +537,10 @@ run_case deps_down        fail "RED: dependency health reports the stores down"
 run_case no_collection    fail "RED: qdrant people collection absent on a fresh install"
 run_case search_empty     fail "RED: fallback route returns nothing for a seeded person"
 run_case leak             fail "RED: cleanup accepted but the fixture is still retrievable"
+# The control for the identity check itself. Without it, the probe could stop
+# checking WHICH service answers and this suite would stay green -- which is
+# how the probe came to be measuring the wrong port in the first place.
+run_case wrong_service    fail "RED: port answers /health but serves HTML for /api/v1/hydration/status (not the assistant API)"
 
 echo ""
 # ---------------------------------------------------------------------------
@@ -521,7 +549,7 @@ echo ""
 # as BROKEN, and a BROKEN probe measures exactly as much as an absent one.
 #
 # Deliberately NOT a run_case: it needs no fake box, and folding it into the
-# scenario count would make `scenarios=13/12` the normal reading of a clean run.
+# scenario count would make `scenarios=14/13` the normal reading of a clean run.
 # It contributes to FAILS, so the stubbed-probe control in cut-manifest.yml
 # still sees this as one more missed expectation rather than as a crash.
 # ---------------------------------------------------------------------------
@@ -546,20 +574,20 @@ echo ""
 # scenarios=13 out of 12, and a harness failure adds neither. Print the
 # denominator that was actually driven, plus every bucket, so a run that
 # examined less than it should cannot read as a clean one.
-echo "EXAMINED: scenarios=${CASES}/12 passed=${PASSES} failed=${FAILS} harness_failures=${HARNESS_FAILS} selftest=${SELFTEST}"
+echo "EXAMINED: scenarios=${CASES}/13 passed=${PASSES} failed=${FAILS} harness_failures=${HARNESS_FAILS} selftest=${SELFTEST}"
 if [ "$HARNESS_FAILS" -gt 0 ]; then
     echo "test_people_seed_and_retrieval_probe: FAIL (${HARNESS_FAILS} harness failures --"
     echo "  the fake box never became ready, so the probe was never exercised on those"
     echo "  scenarios; this is NOT evidence about the probe either way)"
     exit 2
 fi
-if [ "$CASES" -ne 12 ]; then
-    echo "test_people_seed_and_retrieval_probe: FAIL (drove ${CASES} scenarios, expected 12)"
+if [ "$CASES" -ne 13 ]; then
+    echo "test_people_seed_and_retrieval_probe: FAIL (drove ${CASES} scenarios, expected 13)"
     exit 2
 fi
 if [ "$FAILS" -gt 0 ]; then
     echo "test_people_seed_and_retrieval_probe: FAIL (${FAILS} expectations missed)"
     exit 1
 fi
-echo "test_people_seed_and_retrieval_probe: PASS (gate proven to fire on 11 distinct breaks, and its own --self-test proven to go red)"
+echo "test_people_seed_and_retrieval_probe: PASS (gate proven to fire on 12 distinct breaks, and its own --self-test proven to go red)"
 exit 0
