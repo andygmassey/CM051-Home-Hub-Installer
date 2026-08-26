@@ -61,8 +61,18 @@ echo "not really a binary" > "$APP/Contents/Resources/python/lib/libfake.dylib"
 # from the outside is the whole point: a real interpreter here would always
 # report 0 once the fix is in, so the arm proving the gate FIRES could never be
 # executed, and an assertion that has never been seen red is not an assertion.
-seed_count() { echo "$1" > "$WORK/seed"; }
-ts_mode()    { echo "$1" > "$WORK/tsmode"; }
+#
+# 🔴 THE STUB NOW ANSWERS TWO DIFFERENT AUDITS, AND THEY ARE NOT THE SAME
+# QUESTION. The first is scoped to $PYTHON_DIR and returns ONE count (how many
+# .pyc are timestamp-mode). The second is scoped to $APP_PATH and returns FIVE
+# (.py, .pyc, uncovered, timestamp-mode, nested-app .py). v1.0.47 shipped
+# because only the first existed and its root excluded the defect, so the two
+# are told apart HERE by the path they are handed -- exactly as the script
+# distinguishes them -- rather than by call order, which would silently pass if
+# the calls were ever reordered.
+seed_count()   { echo "$1" > "$WORK/seed"; }
+ts_mode()      { echo "$1" > "$WORK/tsmode"; }
+bundle_audit() { echo "$1" > "$WORK/bundle"; }
 cat >"$APP/Contents/Resources/python/bin/python3.11" <<STUB
 #!/bin/bash
 if [ "\$1" = "-m" ] && [ "\$2" = "compileall" ]; then
@@ -81,11 +91,20 @@ if [ "\$1" = "-m" ] && [ "\$2" = "compileall" ]; then
     exit 0
 fi
 if [ "\$1" = "-B" ]; then
-    m="\$(cat "$WORK/tsmode" 2>/dev/null || echo 0)"
-    [ "\$m" = "CANNOTRUN" ] && { echo "stub: .pyc unreadable" >&2; exit 3; }
-    [ "\$m" = "GARBAGE" ]   && { echo "not-a-number"; exit 0; }
-    echo "\$m"
-    exit 0
+    for a in "\$@"; do last="\$a"; done
+    case "\$last" in
+      */Contents/Resources/python)
+        m="\$(cat "$WORK/tsmode" 2>/dev/null || echo 0)"
+        [ "\$m" = "CANNOTRUN" ] && { echo "stub: .pyc unreadable" >&2; exit 3; }
+        [ "\$m" = "GARBAGE" ]   && { echo "not-a-number"; exit 0; }
+        echo "\$m"
+        exit 0 ;;
+      *)
+        b="\$(cat "$WORK/bundle" 2>/dev/null || echo '1801 1801 0 0 87')"
+        [ "\$b" = "CANNOTRUN" ] && { echo "stub: bundle unreadable" >&2; exit 3; }
+        echo "\$b"
+        exit 0 ;;
+    esac
 fi
 exit 0
 STUB
@@ -319,6 +338,76 @@ rc="$(run)"
 check "audit returns non-numeric: refuses to sign" "1" "$rc"
 check "audit returns non-numeric: nothing was signed" "0" "$(attempts)"
 ts_mode 0
+bundle_audit "1801 1801 0 0 87"
+
+# ===========================================================================
+# (h)-(k) THE WHOLE-BUNDLE AUDIT -- THE HALF v1.0.47 DID NOT HAVE
+# ===========================================================================
+#
+# v1.0.47 passed every assertion above and still failed its walk. The mode audit
+# is scoped to $PYTHON_DIR, so it could only ever see the compartment that had
+# already been fixed; 440 .py outside it shipped with no .pyc at all, and ORM's
+# arm 8b took the count 1448 -> 1449 with codesign rc=1.
+#
+# These arms drive the two NEW assertions RED, because an assertion never seen
+# red is not an assertion. Each is a state the real bundle was measured in.
+
+# (h) .py WITH NO .pyc -- THE EXACT v1.0.47 RESIDUAL. Measured 440 on the
+#     shipped artefact; here 353 (its outer-bundle share) to keep the numbers
+#     traceable to the measurement rather than invented.
+make_codesign ok
+bundle_audit "1801 1448 353 0 87"
+rc="$(run)"
+check "uncovered .py: refuses to sign" "1" "$rc"
+if grep -q "have NO .pyc beside them" "$WORK/out"; then
+    echo "  PASS  uncovered .py: names the defect that vetoed v1.0.47"
+else
+    echo "  FAIL  uncovered .py: fired without saying what it found"; fail=1
+fi
+check "uncovered .py: nothing was signed" "0" "$(attempts)"
+
+# (i) TIMESTAMP MODE OUTSIDE $PYTHON_DIR. The old audit is blind here by
+#     construction -- its root excludes these files -- so this proves the new
+#     one is not merely a second copy of the old one.
+make_codesign ok
+bundle_audit "1801 1801 0 12 87"
+rc="$(run)"
+check "timestamp-mode outside PYTHON_DIR: refuses to sign" "1" "$rc"
+check "timestamp-mode outside PYTHON_DIR: nothing was signed" "0" "$(attempts)"
+
+# (j) ANTI-VACUITY ON THE DENOMINATOR. "0 uncovered" is also what an unstaged
+#     Resources tree prints. Without this floor the audit passes loudest at the
+#     moment it can see least -- the uniform-zero shape that has cost us a cut
+#     more than once. A control for the CONTROL.
+make_codesign ok
+bundle_audit "3 3 0 0 0"
+rc="$(run)"
+check "empty bundle: refuses rather than passing vacuously" "1" "$rc"
+if grep -q "could not look" "$WORK/out"; then
+    echo "  PASS  empty bundle: says the audit could not look, not that it passed"
+else
+    echo "  FAIL  empty bundle: a zero over no denominator was read as a pass"; fail=1
+fi
+
+# (k) CANNOT-RUN ON THE BUNDLE AUDIT IS NEITHER FAIL NOR PASS.
+make_codesign ok
+bundle_audit CANNOTRUN
+rc="$(run)"
+check "bundle audit CANNOT-RUN: refuses to sign" "1" "$rc"
+check "bundle audit CANNOT-RUN: nothing was signed" "0" "$(attempts)"
+
+# (l) THE CLEAN RUN STILL SUCCEEDS, and the nested-app exclusion is PRINTED.
+#     A residual that is excluded silently is a residual nobody tracks.
+make_codesign ok
+bundle_audit "1801 1801 0 0 87"
+rc="$(run)"
+check "clean whole-bundle audit still signs" "0" "$rc"
+if grep -q "87 .py inside nested .app EXCLUDED" "$WORK/out"; then
+    echo "  PASS  nested-app residual is stated, not silently dropped"
+else
+    echo "  FAIL  nested-app exclusion is invisible -- 87 files dropped in silence"; fail=1
+fi
+bundle_audit "1801 1801 0 0 87"
 
 echo
 if [ "$fail" -eq 0 ]; then echo "sign-python-bundle: all assertions pass"; else echo "sign-python-bundle: FAILURES ABOVE"; fi
