@@ -156,6 +156,65 @@ else
     else
       say "FAIL" "  🔴 VETO. first use changed the bundle: pyc $BEFORE -> $AFTER, codesign rc=$RC1"
     fi
+
+    # ---- 8b. THE IMPORT ABOVE ONLY TOUCHES MODULES THAT ARE SEEDED ------
+    #
+    # Everything imported above -- json, ssl, sqlite3, urllib.request,
+    # email.parser -- is stdlib, and from #1052 the stdlib is seeded. A seeded
+    # unchecked-hash .pyc cannot be rewritten, so that import can no longer
+    # provoke a write and arm 8 passes.
+    #
+    # THE PRODUCT'S OWN PYTHON IS NOT SEEDED. Measured on the shipped v1.0.47:
+    # 1888 .py in the bundle, 1448 seeded, 440 with NO .pyc -- Ostler.app 86,
+    # cm019_preferences 78, cm048_pipeline 32, ostler_fda 30, doctor 30,
+    # ostler_security 29. Importing one of those under an empty environment
+    # CREATES a .pyc inside the seal:
+    #
+    #   .pyc 1448 -> 1449   codesign rc=1   file added: 1
+    #
+    # So the two versions fail on OPPOSITE counters -- v1.0.46 rewrote 20 in
+    # place with the count unchanged, v1.0.47 adds one with nothing rewritten --
+    # and an arm that only ever imports seeded modules sees neither the second
+    # shape nor the day someone adds an unseeded entry point.
+    #
+    # The count+rc predicate above is right and unchanged. What was missing is
+    # that nothing ever EXERCISED the uncovered half.
+    UNSEEDED=$(/usr/bin/python3 - "$W8/app" <<'PROBE'
+import sys, os
+app = sys.argv[1]
+best = None
+for root, dirs, files in os.walk(app):
+    if "__pycache__" in root:
+        continue
+    if "__init__.py" not in files:
+        continue
+    src = os.path.join(root, "__init__.py")
+    if os.path.exists(os.path.join(root, "__pycache__", "__init__.cpython-311.pyc")):
+        continue
+    sz = os.path.getsize(src)
+    # smallest wins: a 0-byte __init__ imports with no side effects at all
+    if best is None or sz < best[0]:
+        best = (sz, root)
+print(best[1] if best else "")
+PROBE
+)
+    if [ -z "$UNSEEDED" ]; then
+      say "PASS" "  every importable module in the bundle is seeded; nothing can be created"
+    else
+      B2=$(find "$W8/app" -name '*.pyc' | wc -l | tr -d ' ')
+      PKG=$(basename "$UNSEEDED"); PARENT=$(dirname "$UNSEEDED")
+      echo "  probing an UNSEEDED module: ${UNSEEDED#"$W8/app/"}"
+      env -i HOME="$W8/home" PATH=/usr/bin:/bin \
+          "$PY" -c "import sys; sys.path.insert(0, '$PARENT'); import $PKG" >/dev/null 2>&1 || true
+      A2=$(find "$W8/app" -name '*.pyc' | wc -l | tr -d ' ')
+      /usr/bin/codesign --verify --deep --strict "$W8/app" >/dev/null 2>&1 && RC2=0 || RC2=1
+      echo "  after importing it: pyc=$A2 codesign rc=$RC2"
+      if [ "$A2" = "$B2" ] && [ "$RC2" = "0" ]; then
+        say "PASS" "  an unseeded module can be imported without writing into the seal"
+      else
+        say "FAIL" "  🔴 VETO. importing an unseeded module wrote into the bundle: pyc $B2 -> $A2, codesign rc=$RC2"
+      fi
+    fi
   fi
 fi
 echo
