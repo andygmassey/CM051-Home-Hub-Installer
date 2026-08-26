@@ -158,7 +158,34 @@ echo "Precompiling bundled stdlib (.pyc before: $PYC_BEFORE)..."
 # can be provoked at all. That is what turns "works because the copy path
 # happens to preserve timestamps" into "cannot break".
 # Found by Archie1 in review of #1052; verified here rather than taken on trust.
-if ! "$BUNDLED_PY" -m compileall -q --invalidation-mode unchecked-hash "${PYTHON_DIR}/lib"; then
+#
+# 🔴🔴 PYTHONDONTWRITEBYTECODE=1 AND -f ARE BOTH LOAD-BEARING TOO, AND THE
+# REASON IS THE DEFECT THAT SHIPPED IN v1.0.46 WITH THIS FLAG ALREADY SET.
+#
+# --invalidation-mode governs ONLY what compileall itself compiles. The
+# interpreter that RUNS compileall must first import ~45 stdlib modules to boot
+# and to load compileall -- and those .pyc are written by the IMPORT SYSTEM,
+# which is always TIMESTAMP mode. compileall then walks the tree, sees them as
+# up to date, and SKIPS them. They stay in the one mode this flag exists to
+# eliminate.
+#
+# MEASURED ON THE PUBLISHED v1.0.46 ARTEFACT, 2026-08-26, read-only mount:
+#     1448 .pyc total -- 1403 unchecked-hash, 45 TIMESTAMP
+#     all 45 record source mtime 1704067200 while the .py on disk reads
+#     1787713192 (build time); sizes identical. 45 of 45 already STALE as
+#     PUBLISHED, so `ditto` is not implicated -- every one is primed to rewrite.
+#     A writable copy + `import` of 3 modules rewrote 19 of them and
+#     codesign --verify --deep --strict went to rc=1
+#     "a sealed resource is missing or invalid". File count 1448 -> 1448.
+#     THE COUNT NEVER MOVED. v1.0.46 bricks exactly as v1.0.45 did.
+#
+# PYTHONDONTWRITEBYTECODE=1 stops the boot imports polluting the tree; -f makes
+# compileall rewrite rather than skip anything already present. Verified on the
+# shipped bundle: 45 timestamp-mode -> 0, and a 30-module no-env import then
+# changed 0 of 1448 .pyc by sha256 (positive control: the same harness in
+# timestamp mode reports 1 changed, so the instrument is not blind).
+if ! env PYTHONDONTWRITEBYTECODE=1 "$BUNDLED_PY" -m compileall -q -f \
+        --invalidation-mode unchecked-hash "${PYTHON_DIR}/lib"; then
     echo "ERROR: compileall failed on ${PYTHON_DIR}/lib" >&2
     echo "       A PARTIAL seed is worse than none: whatever failed to compile is" >&2
     echo "       what the customer's first import will write into the signed" >&2
@@ -181,6 +208,66 @@ if [ "$PYC_AFTER" -lt 500 ]; then
     echo "       ${PYTHON_DIR}/lib exists and python-build-standalone extracted." >&2
     exit 1
 fi
+
+# 🔴 ASSERT THE PROPERTY, NOT THE FLAG. THIS IS THE CHECK v1.0.46 DID NOT HAVE.
+#
+# The command line above carries --invalidation-mode unchecked-hash, and it
+# carried it in v1.0.46 too, and v1.0.46 still shipped 45 timestamp-mode .pyc.
+# A test that greps the flag out of this script passes in both worlds. So does
+# every count-based assertion, because a REWRITE does not change the count.
+# The only honest question is what mode the bytes on disk are actually in, so
+# that is what this reads: byte 4 of each .pyc header, bit 0 = hash-based.
+#
+# -B on the audit interpreter so this check cannot itself write a .pyc into the
+# bundle it is judging -- a self-test must not write into the ledger it judges.
+#
+# CANNOT-RUN IS NOT A PASS: if the audit cannot read a file or the interpreter
+# fails, this refuses rather than treating an empty count as zero.
+if ! PYC_TIMESTAMP="$("$BUNDLED_PY" -B -c '
+import os, struct, sys
+root = sys.argv[1]
+n = 0
+for dirpath, dirnames, filenames in os.walk(root):
+    for fn in filenames:
+        if not fn.endswith(".pyc"):
+            continue
+        p = os.path.join(dirpath, fn)
+        try:
+            with open(p, "rb") as fh:
+                head = fh.read(8)
+        except OSError as exc:
+            sys.stderr.write("unreadable %s: %s\n" % (p, exc))
+            sys.exit(3)
+        if len(head) < 8:
+            sys.stderr.write("truncated %s\n" % p)
+            sys.exit(3)
+        if not (struct.unpack("<I", head[4:8])[0] & 1):
+            n += 1
+            if n <= 10:
+                sys.stderr.write("  timestamp-mode: %s\n" % os.path.relpath(p, root))
+print(n)
+' "$PYTHON_DIR")"; then
+    echo "ERROR: could not audit .pyc invalidation modes in $PYTHON_DIR" >&2
+    echo "       This is CANNOT-RUN, which is neither pass nor fail -- and an" >&2
+    echo "       unverified seal is not a verified one. Refusing to sign." >&2
+    exit 1
+fi
+case "$PYC_TIMESTAMP" in
+    ''|*[!0-9]*)
+        echo "ERROR: .pyc mode audit returned '$PYC_TIMESTAMP', not a count." >&2
+        echo "       Refusing to sign on an unparseable measurement." >&2
+        exit 1 ;;
+esac
+if [ "$PYC_TIMESTAMP" -ne 0 ]; then
+    echo "ERROR: $PYC_TIMESTAMP of $PYC_AFTER seeded .pyc are in TIMESTAMP mode." >&2
+    echo "       CPython REWRITES a timestamp-mode .pyc whose recorded source" >&2
+    echo "       mtime does not match the .py beside it. That rewrite is a MODIFY" >&2
+    echo "       inside the signed bundle: the seal breaks and macOS refuses the" >&2
+    echo "       app as damaged, WITHOUT the .pyc count ever changing." >&2
+    echo "       This is the v1.0.45/v1.0.46 brick. Refusing to sign." >&2
+    exit 1
+fi
+echo "Invalidation-mode audit: 0 of $PYC_AFTER .pyc in timestamp mode"
 
 echo "Walking $PYTHON_DIR for Mach-O files..."
 echo "Entitlements: $ENTITLEMENTS"
