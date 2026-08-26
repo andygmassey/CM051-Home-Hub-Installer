@@ -668,3 +668,30 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "usage_journal_producers"
+
+  # ==========================================================================
+  # #1116. The dedupe layer was not importable on the box and NOTHING said so.
+  # install.sh chose ONE pipeline requirements file with an if/elif, so
+  # rapidfuzz was never installed; identity_resolver/__init__.py re-exports
+  # lazily (PEP 562), so the missing dependency stayed invisible until the
+  # exact call that needed it; and the caller caught ImportError and returned
+  # degraded:true without aggregating it anywhere. Doctor diagnostics is 28KB
+  # and mentions the identity layer zero times. Three independent layers of
+  # silence over one missing package.
+  #
+  # This probe IMPORTS the layer on the box and fails if it cannot. It is the
+  # detection half; #1115 is the install-side fix. Keep both: the fix stops
+  # this instance, the probe stops the next one.
+  # ==========================================================================
+  - id: box-walk-identity-layer-is-importable
+    title: the identity/dedupe layer must actually import on the box that runs it
+    incident: >-
+      2026-08-26 box walk; identity_resolver could not be imported on a real
+      install because install.sh installed one of three pipeline requirements
+      files, so rapidfuzz was absent. Lazy PEP 562 re-exports plus a
+      try/except that returned degraded:true meant no log, no diagnostic and
+      no gate ever reported it. The dedupe defects being chased in the graph
+      lane sat downstream of a layer that was not running at all.
+    proof:
+      kind: box_walk_probe
+      probe: "identity_layer_is_importable"
