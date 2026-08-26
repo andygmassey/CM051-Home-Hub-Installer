@@ -122,12 +122,41 @@ else
     pass "CONTROL: not relying on '|| true' alone to survive a wedged job"
 fi
 
-# ── ARM 5: the OTHER kickstart call sites are legitimately synchronous `-k`
-# ── restarts. Prove this test is scoped, and print the denominator, so a
-# ── future reader knows what was NOT being asserted.
-OTHERS=$(grep -c 'launchctl kickstart' "$INSTALL_SH" || true)
-printf 'EXAMINED: %s launchctl kickstart call(s) in install.sh; this test scopes ONE (com.ostler.enrich).\n' "${OTHERS:-0}"
-printf '  The others use -k and are deliberate synchronous restarts, not fire-and-forget.\n'
+# ── ARM 5: SCOPE + DENOMINATOR.
+#
+# 🔴 THIS ARM USED TO CARRY A FALSE CLAIM AND A WRONG DENOMINATOR. Both fixed
+# 🔴 2026-08-26 after measuring on real hardware. Do not restore either.
+#
+# It used to say: "The others use -k and are deliberate synchronous restarts,
+# not fire-and-forget" -- i.e. that -k made them safe. THAT WAS AN ASSERTION I
+# NEVER MEASURED. Measured on andy@.228 (macOS 26.5.2, arm64) against a
+# synthetic penalty-boxed agent, with a healthy agent as the positive control:
+#
+#   CONTROL   kickstart     healthy agent      returned  (7s)
+#   CONTROL   kickstart -k  healthy agent      returned  (21s)
+#   SUBJECT   kickstart     penalty-boxed      BLOCKED   (killed at 90s)
+#   SUBJECT   kickstart -k  penalty-boxed      BLOCKED   (killed at 90s)
+#
+# -k BLOCKS TOO. It is not a discriminator. The controls cleared the bound by
+# 4x, so the block is the penalty box and not the harness. (A first run at a
+# 25s bound was thrown out: the -k control took 20s of it, leaving a 5s gap,
+# and a 5s gap is not a discrimination.)
+#
+# The denominator was also wrong. `grep -c 'launchctl kickstart'` counts COMMENT
+# lines -- this file's own header quotes the string, and so do five comments in
+# install.sh. It reported 11 where there are 6 real call sites. A denominator
+# that counts its own documentation is not a denominator.
+#
+# So: count CODE lines only, and say plainly that the other sites are UNFIXED.
+KS_ALL=$(/usr/bin/grep -c 'launchctl kickstart' "$INSTALL_SH" || true)
+KS_CODE=$(/usr/bin/grep -nE '^[[:space:]]*(elif[[:space:]]+)?launchctl kickstart' "$INSTALL_SH" | /usr/bin/grep -c '' || true)
+printf 'EXAMINED: %s CODE call site(s) to launchctl kickstart in install.sh (%s raw matches incl. comments).\n' \
+    "${KS_CODE:-0}" "${KS_ALL:-0}"
+printf '  This test scopes exactly ONE of them: com.ostler.enrich.\n'
+printf '  🔴 The other %s are NOT covered and NOT safe. -k does NOT save them --\n' "$(( ${KS_CODE:-1} - 1 ))"
+printf '     measured 2026-08-26: -k blocks on a penalty-boxed job just as plain\n'
+printf '     kickstart does. Each is a potential hang of whatever calls it, and\n'
+printf '     these run during INSTALL, where the symptom is a frozen installer.\n'
 
 echo
 if [ "$FAILURES" -eq 0 ]; then
