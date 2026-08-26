@@ -164,7 +164,23 @@ class Result:
 
 def emit(res: Result, colour: bool) -> None:
     if colour:
-        badge = {"PASS": f"{GREEN}PASS{RESET}", "FAIL": f"{RED}FAIL{RESET}", "SKIP": f"{YELLOW}SKIP{RESET}"}[res.status]
+        # .get(), NOT [], and CANNOT-RUN is in the table.
+        #
+        # This was a bare dict subscript over PASS/FAIL/SKIP. Adding the
+        # CANNOT-RUN status made it a KeyError on the first row that used it --
+        # i.e. the gate would CRASH rather than report, and only when colour was
+        # on, so a piped/CI run would look fine and an operator's terminal would
+        # not. Caught before it shipped by reading this function instead of
+        # assuming a new status would flow through.
+        #
+        # The fallback keeps that class shut for good: any status added later
+        # prints uncoloured instead of taking the process down.
+        badge = {
+            "PASS": f"{GREEN}PASS{RESET}",
+            "FAIL": f"{RED}FAIL{RESET}",
+            "SKIP": f"{YELLOW}SKIP{RESET}",
+            "CANNOT-RUN": f"{YELLOW}CANNOT-RUN{RESET}",
+        }.get(res.status, res.status)
     else:
         badge = res.status
     print(f"  {badge}  {res.id:<40} {res.title[:80]}")
@@ -728,6 +744,16 @@ def check_plist_env_key_present(entry: dict, ctx: dict) -> Result:
 
 BOX_WALK_PROBE_TIMEOUT_SECONDS = 180
 
+# The box-walk probes' CANNOT-RUN exit code. This is NOT a number invented here:
+# scripts/box_walk_probes/run_box_walk.sh:44 declares `EX_CANNOT_RUN=78` and 13
+# of the 17 registered probes exit with it when a prerequisite is unreadable.
+# It is 78 because that is sysexits.h EX_CONFIG, the same code launchd uses for
+# "the job is configured to run something that is not there".
+#
+# Kept as a named constant rather than a literal so the next reader can see it
+# is a shared protocol with the shell side, not a magic number.
+EX_CANNOT_RUN = 78
+
 
 def _box_walk_probe_search_dirs(cm051_dir: Path) -> list:
     """Every directory a probe may be registered in, in resolution order.
@@ -837,10 +863,46 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
     exit_code = result.returncode
     stdout_snippet = result.stdout.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
     stderr_snippet = result.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
-    ok = (exit_code == 0)
-    status = "PASS" if ok else "FAIL"
+
+    # THREE STATES, BECAUSE THE PROBES SPEAK THREE.
+    #
+    # This was `ok = (exit_code == 0); status = "PASS" if ok else "FAIL"` -- a
+    # two-state predicate over a three-state protocol.
+    #
+    # scripts/box_walk_probes/run_box_walk.sh:44 declares `EX_CANNOT_RUN=78` and
+    # 13 of the 17 registered probes honour it. This function had never heard of
+    # it, so a probe that could not MEASURE was reported as a defect in the
+    # ARTEFACT.
+    #
+    # MEASURED on the 2026-08-26T14:17:14Z walk of the v1.0.47 box:
+    #   pair_state_agreement exit=78
+    #   "VERDICT: CANNOT-RUN -- only 1 of 3 pairing signals were readable --
+    #    one signal cannot contradict itself, so this would pass forever."
+    # and the row was recorded FAIL. It went onto the cut-blocker list as a real
+    # pairing defect. It was not one. That is a false accusation, and it sends
+    # whoever reads the report hunting a bug that was never detected while the
+    # actual fault -- a signal nobody could read -- goes unsaid.
+    #
+    # WHY THE ORIGINAL AUTHOR PICKED FAIL, AND WHY "JUST USE SKIP" IS WRONG.
+    # This file's vocabulary was PASS / FAIL / SKIP, and main() ends with
+    # `return 0 if fails == 0 else 1` -- SKIP does not block. Faced with two
+    # options the author took the one that stops a cut, which was the right
+    # instinct. Mapping 78 to SKIP would fix the label by turning a blocking
+    # gate into a non-blocking one, and a cut would sail through on unmeasured
+    # pairing, egress and signing. That is a worse defect than the one being
+    # fixed.
+    #
+    # So CANNOT-RUN is a FOURTH status that still counts toward the exit code
+    # (see main(): cannot_runs are added to the blocking total) but reports as
+    # what it is. Blocking is preserved; only the label is repaired.
+    if exit_code == 0:
+        status = "PASS"
+    elif exit_code == EX_CANNOT_RUN:
+        status = "CANNOT-RUN"
+    else:
+        status = "FAIL"
     detail = f"probe={probe} exit={exit_code} stdout={stdout_snippet[0][:200]!r}"
-    if not ok and stderr_snippet[0]:
+    if status != "PASS" and stderr_snippet[0]:
         detail += f" stderr={stderr_snippet[0][:200]!r}"
     return Result(entry["id"], entry["title"], "box_walk_probe", status, detail, entry.get("source_pr", ""))
 
@@ -1946,12 +2008,18 @@ def main() -> int:
     passes = sum(1 for r in results if r.status == "PASS")
     fails = sum(1 for r in results if r.status == "FAIL")
     skips = sum(1 for r in results if r.status == "SKIP")
+    # CANNOT-RUN is counted SEPARATELY from FAIL and reported separately, but it
+    # BLOCKS exactly as hard. See _check_box_walk_probe: a probe that could not
+    # measure is not evidence the artefact is sound, so it must not let a cut
+    # through -- and it must not be printed as a defect in the artefact either.
+    cannot_runs = sum(1 for r in results if r.status == "CANNOT-RUN")
 
     if args.json:
         print(json.dumps({
             "app_path": str(app_path),
             "results": [asdict(r) for r in results],
-            "summary": {"pass": passes, "fail": fails, "skip": skips, "total": len(results)},
+            "summary": {"pass": passes, "fail": fails, "skip": skips,
+                        "cannot_run": cannot_runs, "total": len(results)},
         }, indent=2))
     else:
         print()
@@ -1965,12 +2033,24 @@ def main() -> int:
                 if r.status == "SKIP":
                     print(f"    - {r.id}  [{r.kind}]  {r.detail}")
             print()
-        print(f"=== Summary: {passes} PASS  {fails} FAIL  {skips} SKIP  ({len(results)} total) ===")
+        # Same reasoning, different state. These BLOCK, so they are not a
+        # footnote -- but they are a gap in the MEASUREMENT, not a defect in the
+        # artefact, and the operator has to be able to tell those apart to know
+        # what to go and fix.
+        if cannot_runs:
+            print("  Rows that COULD NOT BE MEASURED (CANNOT-RUN -- blocks the cut,")
+            print("  but the fault is in the probe's prerequisites, NOT the artefact):")
+            for r in results:
+                if r.status == "CANNOT-RUN":
+                    print(f"    - {r.id}  [{r.kind}]  {r.detail}")
+            print()
+        print(f"=== Summary: {passes} PASS  {fails} FAIL  "
+              f"{cannot_runs} CANNOT-RUN  {skips} SKIP  ({len(results)} total) ===")
         if skips and not args.require_runtime_proofs:
             print("  (re-run with --require-runtime-proofs to make a declared RUNTIME "
                   "proof that could not run a FAILURE rather than a skip)")
 
-    return 0 if fails == 0 else 1
+    return 0 if (fails == 0 and cannot_runs == 0) else 1
 
 
 if __name__ == "__main__":

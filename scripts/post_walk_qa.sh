@@ -166,7 +166,33 @@ probe_rc="${PIPESTATUS[0]}"
 # that a partial walk "exits non-zero", and until the counts were read that
 # promise could not be kept: the verdict was invariant to coverage loss, the
 # one distinction the box walk exists to make.
-count_of() { awk -v k="$1" '$1 == k { print $2; exit }' "$PROBE_LOG"; }
+# THE SUMMARY LINE, NOT THE FIRST LINE THAT STARTS WITH THE WORD.
+#
+# This was `awk '$1 == k {print $2; exit}'` and it under-reported BROKEN to ZERO
+# on every walk that had one.
+#
+# PASS / FAIL / CANNOT-RUN appear ONLY in the closing summary, so they parsed by
+# luck. BROKEN is also a PER-PROBE LABEL in phase 1 -- "BROKEN  <name>  (self-test
+# returned 0, expected 1)" -- and phase 1 comes first. So the match landed on the
+# probe line, returned the probe's NAME as the count, failed the ^[0-9]+$ guard
+# below, and was coerced to empty, which reads downstream as 0.
+#
+# MEASURED on the 2026-08-26T14:17:14Z walk of andy@192.168.1.228:
+#     line  20  BROKEN   app_signature_survives_first_run  (...)   <- matched this
+#     line 206  BROKEN      2                                      <- meant this
+#     count_of BROKEN -> "app_signature_survives_first_run" -> record wrote 0
+#
+# BROKEN is the most serious state the suite has: a probe that fails its own
+# negative control is measuring NOTHING, and phase 2 skips it. It was the one
+# count that read zero exactly when it mattered, in the record that gates the
+# customer download. Two probes were broken that run and the record said none.
+#
+# THE DISCRIMINATOR IS SHAPE, NOT POSITION. Summary lines are exactly two fields
+# with a numeric second field. Per-probe lines carry the name and a parenthetical,
+# so they are 7 or 13 fields. Anchoring on "NF == 2 && $2 is a number" cannot be
+# fooled by a probe whose name happens to sort earlier, and does not depend on
+# the summary staying at the bottom.
+count_of() { awk -v k="$1" '$1 == k && NF == 2 && $2 ~ /^[0-9]+$/ { print $2; exit }' "$PROBE_LOG"; }
 n_pass="$(count_of PASS)";       n_fail="$(count_of FAIL)"
 n_cannot="$(count_of CANNOT-RUN)"; n_broken="$(count_of BROKEN)"
 for v in n_pass n_fail n_cannot n_broken; do

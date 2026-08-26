@@ -310,6 +310,66 @@ else
     fi
 fi
 
+# ── BROKEN MUST NOT READ ZERO WHEN PROBES ARE BROKEN ────────────────────────
+#
+# count_of() parses the four counts that go into the walk record. It was
+#     awk '$1 == k { print $2; exit }'
+# which takes the FIRST line whose first field is the keyword.
+#
+# PASS / FAIL / CANNOT-RUN appear only in the closing summary, so they parsed by
+# luck. BROKEN is ALSO a per-probe label in phase 1 -- "BROKEN  <name>  (self-test
+# returned 0, expected 1)" -- and phase 1 is printed first. The match landed on
+# the probe line, returned the probe NAME, failed the ^[0-9]+$ guard, and was
+# coerced to empty, which the record writes as 0.
+#
+# MEASURED on the real 2026-08-26T14:17:14Z walk of the v1.0.47 box: two probes
+# were BROKEN and the record said broken 0. BROKEN is the most serious state the
+# suite has -- a probe that fails its own negative control measures NOTHING and
+# phase 2 skips it -- so it was the single count that read zero exactly when it
+# mattered, in the file that gates the customer download.
+#
+# The fixture below reproduces that ORDER deliberately: per-probe label first,
+# summary block after. A fixture with only the summary would pass against the
+# broken predicate and prove nothing.
+_pwq2="${REPO_ROOT}/scripts/post_walk_qa.sh"
+if [[ ! -r "$_pwq2" ]]; then
+    bad "CANNOT-RUN: no readable post_walk_qa.sh for the count_of arm -- not a pass"
+else
+    _cline="$(grep -n '^count_of() {' "$_pwq2" | head -1 | cut -d: -f1)"
+    if [[ -z "$_cline" ]]; then
+        bad "CANNOT-RUN: count_of() not found in post_walk_qa.sh -- re-point this arm rather than deleting it"
+    else
+        _fix="$(sed -n "${_cline}p" "$_pwq2")"
+        _log="$(mktemp)"
+        {
+            printf '  BROKEN   app_signature_survives_first_run  (self-test returned 0, expected 1)\n'
+            printf '  ok       daemon_is_listening  (goes red on known-bad input)\n'
+            printf '  BROKEN   pairing_recovers_without_a_repair_storm  (self-test returned 0, expected 1)\n'
+            printf '\n  === Summary ===\n'
+            printf '  PASS        7\n'
+            printf '  FAIL        4\n'
+            printf '  CANNOT-RUN  4\n'
+            printf '  BROKEN      2\n'
+        } > "$_log"
+
+        ( PROBE_LOG="$_log"; eval "$_fix"
+          _got_b="$(count_of BROKEN)"; _got_p="$(count_of PASS)"
+          [ "$_got_b" = "2" ] && [ "$_got_p" = "7" ] ) \
+            && ok "count_of reads the SUMMARY line: BROKEN=2 despite two per-probe BROKEN labels above it" \
+            || bad "count_of returned the wrong BROKEN -- a broken probe would be recorded as 0 and the walk would look cleaner than it is"
+
+        # THE CONTROL. A predicate that returned "" for everything would pass the
+        # assertion above only if it also broke PASS, so check a keyword that was
+        # never ambiguous still resolves.
+        ( PROBE_LOG="$_log"; eval "$_fix"
+          [ "$(count_of CANNOT-RUN)" = "4" ] ) \
+            && ok "CONTROL: an unambiguous keyword still parses (CANNOT-RUN=4)" \
+            || bad "CONTROL FAILED: count_of can no longer read CANNOT-RUN -- the fix broke the working cases"
+
+        rm -f "$_log"
+    fi
+fi
+
 echo
 echo "${PASS} passed, ${FAIL} failed"
 [[ "$FAIL" -eq 0 ]] || exit 1

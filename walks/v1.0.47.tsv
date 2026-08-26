@@ -15,11 +15,11 @@
 # along, because these keys were unqualified.
 version	v1.0.47
 version_source	measured(CFBundleShortVersionString, matches argument)
-walked_at	2026-08-26T04:58:50Z
+walked_at	2026-08-26T14:17:14Z
 box_fp	38abe713e160f279
 counts_scope	box_walk_probes_only(phase1); verdict+qa_exit cover all phases
-pass	6
-fail	5
+pass	7
+fail	4
 cannot_run	4
 broken	0
 verdict	FAILED
