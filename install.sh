@@ -15638,8 +15638,50 @@ for d in "${DIRS[@]}"; do
         # agent does not exist yet during the first install (it is created
         # later in the run), so an absent label is the NORMAL case here,
         # not an error, and must not fail the import.
+        # 🔴 FIRE-AND-FORGET MEANS DO NOT WAIT. MEASURED DEADLOCK, 2026-08-26.
+        #
+        # This was a SYNCHRONOUS kickstart guarded by `|| true`. That guard
+        # covers a non-zero EXIT. The failure that actually happens is a HANG,
+        # and `|| true` is blind to it.
+        #
+        # Measured on a real box (andy@.228), the whole ingest chain wedged for
+        # TWENTY-THREE HOURS AND FIFTY-SIX MINUTES on 40ms of total CPU:
+        #
+        #   ostler-assistant run-source export-scan   23:55:30  0:00.02
+        #   └ tick.sh                                 23:55:30  0:00.00
+        #     └ ostler-scan-exports                   23:55:30  0:00.01
+        #       └ ostler-import ~/Downloads           23:55:30  0:00.01
+        #         └ launchctl kickstart …enrich       23:50:30  0:00.00  <- leaf
+        #
+        # Zero files written under ~/.ostler in ten minutes. Nothing ingested
+        # all day, while the product tells the customer loading continues in
+        # the background.
+        #
+        # WHY KICKSTART BLOCKS: launchctl print reported
+        #     state = spawn scheduled
+        #     last exit code = 78: EX_CONFIG
+        #     properties = penalty box | …
+        # The job's program (~/.ostler/bin/ostler-enrich-tick) does not exist
+        # on that box -- an orphan LaunchAgent left behind when the enrichment
+        # agent was gated off. launchd cannot spawn it, drops it in the penalty
+        # box, and a plain `kickstart` waits for a spawn that is being deferred.
+        # The `launchctl print` guard above only proves the label is LOADED; a
+        # loaded job pointing at an absent program passes it.
+        #
+        # So the caller must not be able to wait on it AT ALL. Background the
+        # whole thing, and bound the kickstart itself so a wedged one does not
+        # linger for a day. `timeout` does not exist on macOS, hence the
+        # explicit watchdog.
         if launchctl print "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1; then
-            launchctl kickstart "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1 || true
+            (
+                launchctl kickstart "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1 &
+                _ks_pid=$!
+                ( sleep 10; kill -TERM "$_ks_pid" 2>/dev/null ) >/dev/null 2>&1 &
+                _ks_wd=$!
+                wait "$_ks_pid" 2>/dev/null || true
+                kill -TERM "$_ks_wd" 2>/dev/null || true
+            ) >/dev/null 2>&1 &
+            disown 2>/dev/null || true
         fi
     fi
 
