@@ -498,9 +498,32 @@ while IFS=$'\t' read -r repo fix artifact marker mpath desc; do
         info "set OSTLER_ASSISTANT_DIR to a checkout fetched deep enough to contain that tag"
         continue
       fi
-      if git -C "$dir" show "${tag_sha}:${mpath}" 2>/dev/null | grep -qE -- "${marker}"; then
+      # DO NOT pipe `git show` into `grep -q` here. This script sets
+      # `set -uo pipefail` (line 74), and `grep -q` exits on its FIRST match.
+      # When the blob is larger than the pipe buffer, git is still writing when
+      # grep goes away, takes SIGPIPE, and exits 141 -- so pipefail makes the
+      # whole pipeline non-zero ON A MATCH. The `if` reads false and the else
+      # branch below announces STALE DAEMON SOURCE about a marker that IS
+      # present. Reproduced against ostler-assistant at 509c8333 with
+      # crates/zeroclaw-config/src/schema.rs (679,963 bytes, marker on line 1):
+      # rc=141 with pipefail, rc=0 without it.
+      #
+      # Reading to a file removes the pipe, and lets git's own exit status be
+      # checked instead of discarded down 2>/dev/null.
+      _prov_blob="$(mktemp)"
+      _prov_blob_err="$(mktemp)"
+      if ! git -C "$dir" show "${tag_sha}:${mpath}" >"$_prov_blob" 2>"$_prov_blob_err"; then
+        cannot "${label} :: could not read ${tag_sha:0:12}:${mpath} -- content not examined"
+        info "$(head -2 "$_prov_blob_err")"
+        rm -f "$_prov_blob" "$_prov_blob_err"
+        continue
+      fi
+      rm -f "$_prov_blob_err"
+      if grep -qE -- "${marker}" "$_prov_blob"; then
+        rm -f "$_prov_blob"
         green "${label} :: ${fix:0:7} present in daemon tag ${tag_sha:0:12} (${mpath})"
       else
+        rm -f "$_prov_blob"
         red "${label} :: ${mpath} at daemon tag ${tag_sha:0:12} lacks /${marker}/ -- STALE DAEMON SOURCE"
       fi
       ;;
