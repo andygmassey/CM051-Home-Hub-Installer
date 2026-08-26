@@ -451,7 +451,12 @@ def _is_self_describing(path: str) -> bool:
 # must be LOUD: `path_hint:` was accepted by the YAML and ignored by the reader
 # for four rows, silently converting a targeted file check into a whole-tree
 # one. A key we do not consume is a check we are not performing.
-_PROOF_KEYS = {"kind", "target", "pattern", "must_match", "path", "path_hint"}
+# `repo:` is a third spelling live rows already use for the same registry as
+# `target:` (this-repo / cm051 / ostler-assistant / cm044 / hr015). All four
+# rows carrying it say `repo: cm051`, which resolves the same as the
+# `this-repo` default — so it was correct BY COINCIDENCE, not by construction.
+# A row saying `repo: ostler-assistant` would have silently grepped CM051.
+_PROOF_KEYS = {"kind", "target", "repo", "pattern", "must_match", "path", "path_hint"}
 
 
 def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
@@ -461,7 +466,7 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
         return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "FAIL",
                       f"unknown proof key(s) {unknown} — refusing to run a check whose "
                       f"instructions were not fully understood", entry.get("source_pr", ""))
-    target_name = proof.get("target", "this-repo")
+    target_name = proof.get("target") or proof.get("repo") or "this-repo"
     pattern = proof["pattern"]
     must_match = proof.get("must_match", True)
     # `path_hint` is the spelling four live rows already use. Honour both rather
