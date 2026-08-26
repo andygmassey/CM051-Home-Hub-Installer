@@ -17480,6 +17480,45 @@ ICALPLISTEOF
         #      fixed, the twin of green-while-blind. Keeping the literal keeps
         #      the vendored gate honest without a divergence patch.
         # The evidence question is the same one the helper asks, asked inline.
+        #
+        # 🔴 UPGRADE: BOOTSTRAP ALONE NEVER RE-READS THE PLIST WE JUST WROTE.
+        #
+        # The comment above says bootstrap "is idempotent enough for the
+        # first-install path", and that is exactly right and exactly the bug.
+        # On an UPGRADE the label is already bootstrapped, so bootstrap is a
+        # no-op, and launchd keeps serving the job definition it loaded at
+        # FIRST INSTALL -- including its EnvironmentVariables. The plist this
+        # phase just rendered is never read.
+        #
+        # MEASURED on a real box 2026-08-26. The service token had been rotated
+        # and the plist rewritten; launchd was still serving the old one:
+        #
+        #     launchd LOADED job token sha : 4e7620a2320c   (pre-rotation)
+        #     on-disk plist / secrets  sha : caa3d247d221   (current)
+        #
+        # Consequence: _authorized() in ical-server.py constant-time-compares
+        # against its env value and FAILS CLOSED, so every non-public
+        # /api/v1 route 401s for every correctly-configured client. The Doctor
+        # fronts this service, so it 401s too. It presents as a client-side
+        # auth fault and it is not one.
+        #
+        # `launchctl kickstart -k` does NOT fix it: it restarts the process
+        # from the LOADED definition, not from disk. Verified -- new pid, same
+        # stale token. Only bootout + bootstrap reloads the definition.
+        #
+        # THE LABEL FORM IS THE SAFE ONE, and this file already said so at the
+        # top of this block: the "kicks the customer back to the login screen"
+        # hazard belongs to the DOMAIN form (`bootout gui/<uid>`, no label).
+        # This boots out one named label, and only when it is already loaded,
+        # so a first install is untouched.
+        #
+        # This runs BEFORE the bootstrap line below rather than replacing it,
+        # deliberately: vendor/cm041/assistant_api/test_vendor_import.sh pins
+        # that literal by text, and routing around a gate to avoid editing it
+        # is how red-while-fixed happens.
+        if launchctl print "gui/$(id -u)/com.ostler.ical-server" >/dev/null 2>&1; then
+            launchctl bootout "gui/$(id -u)/com.ostler.ical-server" 2>/dev/null || true
+        fi
         launchctl bootstrap "gui/$(id -u)" "$ICAL_PLIST" 2>/dev/null || \
             launchctl load "$ICAL_PLIST" 2>/dev/null || true
         if launchctl print "gui/$(id -u)/com.ostler.ical-server" >/dev/null 2>&1; then

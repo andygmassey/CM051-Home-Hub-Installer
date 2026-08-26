@@ -269,6 +269,7 @@ test_universal_import_leg_wired.sh	UNWIRED	-
 test_unreachable_is_not_absence.sh	WIRED	.github/workflows/unreachable-not-absence.yml
 test_upgrade_mode_invariants.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_upgrade_payload_shape_contract.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
+test_upgrade_reloads_the_launchagent_it_rewrote.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_upgrade_repairs_the_fda_venv.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_usage_journal_producer_gate.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_user_facing_tree.sh	UNWIRED	-
