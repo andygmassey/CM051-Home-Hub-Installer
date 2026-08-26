@@ -9999,6 +9999,82 @@ if [[ -f "$_STALE_COLIMA_PLIST" ]]; then
 fi
 unset _STALE_COLIMA_LABEL _STALE_COLIMA_PLIST
 
+# ── 3.2b-bis GENERIC PRUNE: any Ostler agent whose program is GONE ──────
+#
+# 🔴 MEASURED LIVE 2026-08-26, and it had wedged a real box for 24 HOURS.
+#
+# The block above removes ONE hard-coded stale label. That does not scale:
+# every time a feature is retired the script is removed and the LaunchAgent
+# is not, and nothing prunes it. Measured on andy@.228:
+#
+#   com.ostler.enrich  ->  ~/.ostler/bin/ostler-enrich-tick   ABSENT
+#   launchctl print:  state = spawn scheduled
+#                     last exit code = 78: EX_CONFIG
+#                     properties = penalty box | …
+#
+# The plist survived the enrichment agent being gated off; the script did
+# not. launchd cannot spawn an absent program, so it penalty-boxes the job --
+# and a plain `launchctl kickstart` on a penalty-boxed job BLOCKS. The whole
+# export-scan -> import chain sat wedged behind it for 23h56m on 40ms of CPU,
+# ingesting nothing, while the product told the customer loading continued in
+# the background.
+#
+# So prune by PROPERTY, not by name: if an Ostler-owned agent's program does
+# not exist, it can never run, and leaving it loaded is strictly worse than
+# removing it.
+#
+# 🔴 SCOPE IS DELIBERATELY NARROW. Only labels we own -- com.ostler.* and
+# com.creativemachines.ostler.*. Never touch a customer's own agents, and
+# never touch another vendor's. A prune that over-reaches is worse than the
+# defect it fixes.
+#
+# 🔴 ARCHIVE, DO NOT DELETE. The plist moves to a dated quarantine directory,
+# so a wrong call is recoverable and the evidence survives for diagnosis.
+# The colima block above deletes because that agent is known-harmful; a
+# generic sweep has not earned that confidence.
+_PRUNE_QUARANTINE="${HOME}/.ostler/quarantine/launchagents"
+_PRUNE_N=0
+for _pl in "${HOME}/Library/LaunchAgents/"com.ostler.*.plist \
+           "${HOME}/Library/LaunchAgents/"com.creativemachines.ostler.*.plist; do
+    [[ -f "$_pl" ]] || continue
+    _pl_label="$(basename "$_pl" .plist)"
+
+    # ProgramArguments[0], else Program. Anything we cannot read is SKIPPED,
+    # not pruned: an unreadable plist is a CANNOT-RUN, and cannot-run is not
+    # a licence to delete.
+    _pl_prog="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$_pl" 2>/dev/null)" \
+        || _pl_prog="$(/usr/libexec/PlistBuddy -c 'Print :Program' "$_pl" 2>/dev/null)" || _pl_prog=""
+    [[ -n "$_pl_prog" ]] || continue
+
+    # Absolute paths only. A bare command name resolves via PATH at spawn
+    # time and we cannot judge it from here.
+    [[ "$_pl_prog" == /* ]] || continue
+    [[ -e "$_pl_prog" ]] && continue     # program exists -> leave it alone
+
+    warn "LaunchAgent ${_pl_label} points at a program that does not exist:"  # i18n-exempt
+    warn "  ${_pl_prog}"                                                      # i18n-exempt
+    warn "  launchd cannot spawn it, so it sits penalty-boxed and can wedge"  # i18n-exempt
+    warn "  a synchronous kickstart. Unloading and archiving it."             # i18n-exempt
+    launchctl bootout "gui/$(id -u)/${_pl_label}" 2>/dev/null || \
+        launchctl unload "$_pl" 2>/dev/null || true
+    mkdir -p "$_PRUNE_QUARANTINE"
+    if mv "$_pl" "${_PRUNE_QUARANTINE}/${_pl_label}.plist" 2>/dev/null; then
+        _PRUNE_N=$((_PRUNE_N + 1))
+        ok "Archived to ~/.ostler/quarantine/launchagents/${_pl_label}.plist"  # i18n-exempt
+    else
+        warn "Could not archive ${_pl_label}.plist -- left in place."          # i18n-exempt
+    fi
+done
+# Say the denominator either way. A silent zero and "did not look" print
+# identically, and this sweep is exactly the kind that must not read as clean
+# when it never ran.
+if [[ "$_PRUNE_N" -gt 0 ]]; then
+    ok "Pruned ${_PRUNE_N} dead Ostler LaunchAgent(s)."                        # i18n-exempt
+else
+    info "Dead-LaunchAgent sweep: 0 pruned (every Ostler agent's program exists)."  # i18n-exempt
+fi
+unset _PRUNE_QUARANTINE _PRUNE_N _pl _pl_label _pl_prog
+
 # ── 3.2c Reboot self-heal: automatic login on boot (v1.0.11) ────────
 #
 # WHY: the Ostler hub is an always-on, single-machine product -- after a
