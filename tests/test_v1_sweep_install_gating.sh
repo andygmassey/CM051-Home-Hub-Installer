@@ -204,7 +204,21 @@ fi
 # for CM0NN / HR0NN / OS0NN codenames.
 for jf in "$HINTCOPY" "$VIEWCOPY"; do
     [[ -f "$jf" ]] || continue
-    if grep -vE '"_meta"' "$jf" | grep -Eq '(CM|HR|OS)0[0-9]{2,3}'; then
+    # DO NOT pipe into `grep -q` here. This script sets `set -euo pipefail`
+    # (line 47) and `grep -q` exits on its first match, so `grep -v` dies of
+    # SIGPIPE and pipefail promotes that to a non-zero pipeline status -- a
+    # codename that IS present reports as absent and `failure` is never
+    # called. Measured on a 27,681-byte copy file with a codename on line 1:
+    # rc=141, the leak undetected. The size at which it starts is small; it
+    # is not a "big file" problem.
+    # COUNT, do not -q, and do not route it through printf either. `grep -q`
+    # exits on first match; so does the read behind `printf | grep -q` when the
+    # content is multi-line. Either way the upstream dies of SIGPIPE and
+    # pipefail turns a FOUND codename into "not found". `grep -c` consumes all
+    # of its input, so nothing takes EPIPE and the answer does not depend on
+    # where in the file the leak sits.
+    _codename_hits="$(grep -vE '"_meta"' "$jf" | grep -cE '(CM|HR|OS)0[0-9]{2,3}')"
+    if [[ "${_codename_hits:-0}" -gt 0 ]]; then
         failure "Fix 7: a CM0NN/HR0NN/OS0NN codename survives in a rendered value of $(basename "$jf")"
     fi
 done
