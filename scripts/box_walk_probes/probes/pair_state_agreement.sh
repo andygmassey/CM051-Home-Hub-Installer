@@ -265,10 +265,67 @@ run_probe() {
     done
     probe_examined "$readable" "of 5 pairing signals readable"
 
-    local result
-    result="$(adjudicate "$h" "$d" "$m" "$c" "$g")"
-    local token="${result%% *}"
-    local detail="${result#* }"
+    # 🔴 THESE FIVE SIGNALS DO NOT ANSWER THE SAME QUESTION (fixed 2026-08-27).
+    #
+    # They used to be adjudicated in ONE bucket. They must not be. The daemon
+    # source says so explicitly, at api_auth_pair.rs:824-830:
+    #
+    #   "token_paired (bearer-layer truth) and companion_paired (device-layer
+    #    truth) legitimately answer different questions; the fix is not to
+    #    conflate them"
+    #
+    # and the conflation here was worse than that, because signals 4-5 are not
+    # even a different LAYER of the same question -- they are a different
+    # question entirely:
+    #
+    #   signals 1-3  "is a device PAIRED?"    <- device-layer state
+    #   signals 4-5  "is pairing REQUIRED?"   <- policy
+    #
+    # A brand-new install has pairing REQUIRED and ZERO devices paired. That is
+    # the healthy first-boot state of every customer machine. Adjudicated in one
+    # bucket it reads as 2-say-true / 1-says-false and FAILS. I shipped exactly
+    # that false FAIL for one commit (b5207302) after fixing the path bug, and a
+    # false red blocks a walk just as hard as a real one.
+    #
+    # Two questions, two adjudications, both still enforced.
+    local res_dev res_pol tok_dev tok_pol det_dev det_pol
+    res_dev="$(adjudicate "$h" "$d" "$m")"      # device-layer agreement
+    res_pol="$(adjudicate "$c" "$g")"           # policy agreement (#512 lives here)
+    tok_dev="${res_dev%% *}"; det_dev="${res_dev#* }"
+    tok_pol="${res_pol%% *}"; det_pol="${res_pol#* }"
+
+    # COMBINING RULE. Both questions must be ANSWERED for this probe to pass.
+    #
+    # 🔴 My first version of this combiner required BOTH groups to be
+    # INSUFFICIENT before refusing, so one answerable group carried an
+    # unanswerable one into a PASS. Measured on the live box: device-layer was
+    # 1-of-3 readable (INSUFFICIENT), policy was 2-of-2 AGREE, and the probe
+    # printed "VERDICT: PASS". That is a probe reporting a question it could
+    # not answer as answered -- the same fail-open this whole suite exists to
+    # prevent, introduced by me while fixing the previous one.
+    #
+    # Precedence, strictest first:
+    #   any DISAGREE      -> FAIL         (a contradiction is a defect)
+    #   any INSUFFICIENT  -> CANNOT-RUN   (coverage lost, NOT a pass)
+    #   otherwise         -> PASS
+    # DISAGREE outranks INSUFFICIENT: a proven contradiction is a finding even
+    # if the other question is unreadable.
+    local result token detail
+    if [ "$tok_dev" = "DISAGREE" ]; then
+        result="DISAGREE device-layer signals contradict each other: ${det_dev}"
+    elif [ "$tok_pol" = "DISAGREE" ]; then
+        result="DISAGREE pairing POLICY disagrees with config: ${det_pol}"
+    elif [ "$tok_dev" = "INSUFFICIENT" ] && [ "$tok_pol" = "INSUFFICIENT" ]; then
+        result="INSUFFICIENT neither question is answerable -- device-layer: ${det_dev}; policy: ${det_pol}"
+    elif [ "$tok_dev" = "INSUFFICIENT" ]; then
+        result="INSUFFICIENT the DEVICE-LAYER question is unanswerable (${det_dev}); policy answered cleanly (${det_pol}), but one answered question does not cover an unanswered one"
+    elif [ "$tok_pol" = "INSUFFICIENT" ]; then
+        result="INSUFFICIENT the POLICY question is unanswerable (${det_pol}); device-layer answered cleanly (${det_dev}), but one answered question does not cover an unanswered one"
+    else
+        result="AGREE device-layer: ${det_dev}; policy: ${det_pol}"
+    fi
+    token="${result%% *}"
+    detail="${result#* }"
 
     case "$token" in
         DISAGREE)
