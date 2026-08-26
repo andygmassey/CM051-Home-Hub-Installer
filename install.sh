@@ -693,7 +693,22 @@ fi
 # When piped via `curl | bash`, stdin is the script not the terminal.
 # We need terminal input for confirmations etc, so redirect from /dev/tty.
 # Skip for read-only flags so they work in non-interactive contexts.
-if [[ "$SHOW_HELP" != true && "$SHOW_LICENSES" != true && ! -t 0 && "${OSTLER_GUI:-0}" != "1" ]]; then
+#
+# 🔴 ALL THREE READ-ONLY FLAGS, NOT TWO. There are exactly three:
+#     CHECK_ONLY (--check)  SHOW_HELP (--help)  SHOW_LICENSES (--licenses)
+# CHECK_ONLY was missing from this list, so the flag whose entire documented
+# purpose is "Phase 1: Check prerequisites (automatic, no input)" and
+# "--check verifies prerequisites only and needs no licence" died instantly in
+# any context without a controlling terminal:
+#     install.sh: line 697: /dev/tty: Device not configured   (rc=1)
+# Measured 2026-08-26 on a real box: without a pty rc=1 and one line of output;
+# with a pty rc=0 and a full 19-line prerequisite report. That is the whole
+# pre-purchase compatibility check, unusable over ssh or from any script.
+# The comment above already stated the correct rule; the condition did not
+# implement it. If a fourth read-only flag is ever added, add it here too --
+# tests/test_readonly_flags_need_no_tty.sh reads this very line and will fail
+# if the flag list and the parser disagree.
+if [[ "$CHECK_ONLY" != true && "$SHOW_HELP" != true && "$SHOW_LICENSES" != true && ! -t 0 && "${OSTLER_GUI:-0}" != "1" ]]; then
     exec < /dev/tty
 fi
 
@@ -9984,6 +9999,82 @@ if [[ -f "$_STALE_COLIMA_PLIST" ]]; then
 fi
 unset _STALE_COLIMA_LABEL _STALE_COLIMA_PLIST
 
+# ── 3.2b-bis GENERIC PRUNE: any Ostler agent whose program is GONE ──────
+#
+# 🔴 MEASURED LIVE 2026-08-26, and it had wedged a real box for 24 HOURS.
+#
+# The block above removes ONE hard-coded stale label. That does not scale:
+# every time a feature is retired the script is removed and the LaunchAgent
+# is not, and nothing prunes it. Measured on andy@.228:
+#
+#   com.ostler.enrich  ->  ~/.ostler/bin/ostler-enrich-tick   ABSENT
+#   launchctl print:  state = spawn scheduled
+#                     last exit code = 78: EX_CONFIG
+#                     properties = penalty box | …
+#
+# The plist survived the enrichment agent being gated off; the script did
+# not. launchd cannot spawn an absent program, so it penalty-boxes the job --
+# and a plain `launchctl kickstart` on a penalty-boxed job BLOCKS. The whole
+# export-scan -> import chain sat wedged behind it for 23h56m on 40ms of CPU,
+# ingesting nothing, while the product told the customer loading continued in
+# the background.
+#
+# So prune by PROPERTY, not by name: if an Ostler-owned agent's program does
+# not exist, it can never run, and leaving it loaded is strictly worse than
+# removing it.
+#
+# 🔴 SCOPE IS DELIBERATELY NARROW. Only labels we own -- com.ostler.* and
+# com.creativemachines.ostler.*. Never touch a customer's own agents, and
+# never touch another vendor's. A prune that over-reaches is worse than the
+# defect it fixes.
+#
+# 🔴 ARCHIVE, DO NOT DELETE. The plist moves to a dated quarantine directory,
+# so a wrong call is recoverable and the evidence survives for diagnosis.
+# The colima block above deletes because that agent is known-harmful; a
+# generic sweep has not earned that confidence.
+_PRUNE_QUARANTINE="${HOME}/.ostler/quarantine/launchagents"
+_PRUNE_N=0
+for _pl in "${HOME}/Library/LaunchAgents/"com.ostler.*.plist \
+           "${HOME}/Library/LaunchAgents/"com.creativemachines.ostler.*.plist; do
+    [[ -f "$_pl" ]] || continue
+    _pl_label="$(basename "$_pl" .plist)"
+
+    # ProgramArguments[0], else Program. Anything we cannot read is SKIPPED,
+    # not pruned: an unreadable plist is a CANNOT-RUN, and cannot-run is not
+    # a licence to delete.
+    _pl_prog="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$_pl" 2>/dev/null)" \
+        || _pl_prog="$(/usr/libexec/PlistBuddy -c 'Print :Program' "$_pl" 2>/dev/null)" || _pl_prog=""
+    [[ -n "$_pl_prog" ]] || continue
+
+    # Absolute paths only. A bare command name resolves via PATH at spawn
+    # time and we cannot judge it from here.
+    [[ "$_pl_prog" == /* ]] || continue
+    [[ -e "$_pl_prog" ]] && continue     # program exists -> leave it alone
+
+    warn "LaunchAgent ${_pl_label} points at a program that does not exist:"  # i18n-exempt
+    warn "  ${_pl_prog}"                                                      # i18n-exempt
+    warn "  launchd cannot spawn it, so it sits penalty-boxed and can wedge"  # i18n-exempt
+    warn "  a synchronous kickstart. Unloading and archiving it."             # i18n-exempt
+    launchctl bootout "gui/$(id -u)/${_pl_label}" 2>/dev/null || \
+        launchctl unload "$_pl" 2>/dev/null || true
+    mkdir -p "$_PRUNE_QUARANTINE"
+    if mv "$_pl" "${_PRUNE_QUARANTINE}/${_pl_label}.plist" 2>/dev/null; then
+        _PRUNE_N=$((_PRUNE_N + 1))
+        ok "Archived to ~/.ostler/quarantine/launchagents/${_pl_label}.plist"  # i18n-exempt
+    else
+        warn "Could not archive ${_pl_label}.plist -- left in place."          # i18n-exempt
+    fi
+done
+# Say the denominator either way. A silent zero and "did not look" print
+# identically, and this sweep is exactly the kind that must not read as clean
+# when it never ran.
+if [[ "$_PRUNE_N" -gt 0 ]]; then
+    ok "Pruned ${_PRUNE_N} dead Ostler LaunchAgent(s)."                        # i18n-exempt
+else
+    info "Dead-LaunchAgent sweep: 0 pruned (every Ostler agent's program exists)."  # i18n-exempt
+fi
+unset _PRUNE_QUARANTINE _PRUNE_N _pl _pl_label _pl_prog
+
 # ── 3.2c Reboot self-heal: automatic login on boot (v1.0.11) ────────
 #
 # WHY: the Ostler hub is an always-on, single-machine product -- after a
@@ -15623,8 +15714,50 @@ for d in "${DIRS[@]}"; do
         # agent does not exist yet during the first install (it is created
         # later in the run), so an absent label is the NORMAL case here,
         # not an error, and must not fail the import.
+        # 🔴 FIRE-AND-FORGET MEANS DO NOT WAIT. MEASURED DEADLOCK, 2026-08-26.
+        #
+        # This was a SYNCHRONOUS kickstart guarded by `|| true`. That guard
+        # covers a non-zero EXIT. The failure that actually happens is a HANG,
+        # and `|| true` is blind to it.
+        #
+        # Measured on a real box (andy@.228), the whole ingest chain wedged for
+        # TWENTY-THREE HOURS AND FIFTY-SIX MINUTES on 40ms of total CPU:
+        #
+        #   ostler-assistant run-source export-scan   23:55:30  0:00.02
+        #   └ tick.sh                                 23:55:30  0:00.00
+        #     └ ostler-scan-exports                   23:55:30  0:00.01
+        #       └ ostler-import ~/Downloads           23:55:30  0:00.01
+        #         └ launchctl kickstart …enrich       23:50:30  0:00.00  <- leaf
+        #
+        # Zero files written under ~/.ostler in ten minutes. Nothing ingested
+        # all day, while the product tells the customer loading continues in
+        # the background.
+        #
+        # WHY KICKSTART BLOCKS: launchctl print reported
+        #     state = spawn scheduled
+        #     last exit code = 78: EX_CONFIG
+        #     properties = penalty box | …
+        # The job's program (~/.ostler/bin/ostler-enrich-tick) does not exist
+        # on that box -- an orphan LaunchAgent left behind when the enrichment
+        # agent was gated off. launchd cannot spawn it, drops it in the penalty
+        # box, and a plain `kickstart` waits for a spawn that is being deferred.
+        # The `launchctl print` guard above only proves the label is LOADED; a
+        # loaded job pointing at an absent program passes it.
+        #
+        # So the caller must not be able to wait on it AT ALL. Background the
+        # whole thing, and bound the kickstart itself so a wedged one does not
+        # linger for a day. `timeout` does not exist on macOS, hence the
+        # explicit watchdog.
         if launchctl print "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1; then
-            launchctl kickstart "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1 || true
+            (
+                launchctl kickstart "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1 &
+                _ks_pid=$!
+                ( sleep 10; kill -TERM "$_ks_pid" 2>/dev/null ) >/dev/null 2>&1 &
+                _ks_wd=$!
+                wait "$_ks_pid" 2>/dev/null || true
+                kill -TERM "$_ks_wd" 2>/dev/null || true
+            ) >/dev/null 2>&1 &
+            disown 2>/dev/null || true
         fi
     fi
 

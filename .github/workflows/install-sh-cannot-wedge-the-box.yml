@@ -1,0 +1,102 @@
+name: install-sh-cannot-wedge-the-box
+
+# Three properties of install.sh that were each broken on a SHIPPED build and
+# each found only by walking a real box, never by CI.
+#
+# 1. THE INGEST DEADLOCK. Measured 2026-08-26 on a real 16 GiB Mini: the whole
+#    export-scan -> import chain had been wedged for 23h56m on 40 milliseconds
+#    of total CPU, behind a synchronous `launchctl kickstart` against an
+#    orphan LaunchAgent whose program did not exist. launchd penalty-boxes such
+#    a job (last exit code = 78: EX_CONFIG) and a plain kickstart waits for a
+#    spawn that is being deferred. `|| true` guards an EXIT CODE; the failure
+#    was a HANG. Nothing ingested for a day while the product told the customer
+#    loading was continuing in the background.
+#
+# 2. THE ORPHAN ITSELF. install.sh pruned exactly ONE hard-coded stale label.
+#    §3.2b-bis prunes by property: an Ostler agent whose program is gone can
+#    never run. Narrow scope, archive not delete, unreadable plist is skipped.
+#
+# 3. --check DIED WITHOUT A TTY on every build ever shipped. Three read-only
+#    flags, and the guard listed two.
+#
+# ── WHY macos-latest, AND WHY /bin/bash ─────────────────────────────────────
+#
+# NOT for convenience. install.sh runs on a customer Mac under /bin/bash, which
+# is 3.2.57. An ubuntu runner's bash 5 accepts things 3.2 rejects, and this is
+# not hypothetical: the first draft of test_readonly_flags_need_no_tty.sh used
+# `mapfile` (a bash 4 builtin) and `\s` (a GNU grep extension). Under bash 5 it
+# was fully green. Under /bin/bash 3.2 `mapfile: command not found` left
+# PARSED_FLAGS unset, the EXAMINED denominator line vanished, and ARM 4 never
+# executed -- yet the test still printed five ok lines and would have been read
+# as passing. Two of these tests also read /usr/libexec/PlistBuddy, which does
+# not exist on Linux at all; there they would go falsely RED.
+#
+# Measure on the host that runs it.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_enrich_kickstart_cannot_block_ingest.sh'
+      - 'tests/test_dead_launchagent_prune.sh'
+      - 'tests/test_readonly_flags_need_no_tty.sh'
+      # A gate must trigger on changes to ITSELF, or it can be quietly
+      # narrowed in a PR that never runs it.
+      - '.github/workflows/install-sh-cannot-wedge-the-box.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  install-sh-behaviour:
+    runs-on: macos-latest
+    # 62 of 63 workflows in this repo have no timeout and inherit GitHub's
+    # 6-hour default (task #426). These steps take seconds.
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Print it. If the runner image ever ships bash 5 as /bin/bash, the
+      # premise of this job has changed and the log must say so rather than
+      # letting it pass under a shell the customer never uses.
+      - name: Confirm /bin/bash is 3.2, as a customer Mac is
+        run: |
+          /bin/bash --version | head -1
+          /usr/bin/grep --version 2>&1 | head -1 || echo "(BSD grep: no --version)"
+
+      - name: the enrich kickstart cannot block the ingest chain
+        run: /bin/bash tests/test_enrich_kickstart_cannot_block_ingest.sh
+
+      # if: always() on every subsequent step. Without it a failure in the step
+      # above SKIPS the rest, and a skipped gate reports nothing -- which is
+      # precisely the moment you most need the other two answers. This repo has
+      # a gate (ci-maskless) that catches exactly this shape.
+      - name: dead Ostler LaunchAgents are pruned, live and foreign ones are not
+        if: always()
+        run: /bin/bash tests/test_dead_launchagent_prune.sh
+
+      - name: every read-only flag works without a controlling terminal
+        if: always()
+        run: /bin/bash tests/test_readonly_flags_need_no_tty.sh
+
+      # A test that no longer parses cannot fail honestly -- it fails for the
+      # wrong reason, or worse, a sourcing error reads as a pass. Parse all
+      # three under the same 3.2 that runs them.
+      - name: the gates themselves parse under bash 3.2
+        if: always()
+        run: |
+          set -e
+          for t in tests/test_enrich_kickstart_cannot_block_ingest.sh \
+                   tests/test_dead_launchagent_prune.sh \
+                   tests/test_readonly_flags_need_no_tty.sh; do
+            /bin/bash -n "$t" && echo "  parses: $t"
+          done

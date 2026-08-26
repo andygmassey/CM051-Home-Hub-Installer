@@ -102,18 +102,19 @@ def resolve_source_repo(target: str, cm051_dir: Path) -> Path:
     Fallback discovery: walk up parents from cm051_dir looking for the sibling.
     """
     if target in ("this-repo", "cm051"):
-        # If running in a worktree, resolve to the primary checkout.
-        try:
-            result = subprocess.run(
-                ["git", "-C", str(cm051_dir), "rev-parse", "--path-format=absolute", "--git-common-dir"],
-                capture_output=True, check=False, timeout=5,
-            )
-            if result.returncode == 0:
-                common_dir = Path(result.stdout.decode().strip())
-                if common_dir.name == ".git":
-                    return common_dir.parent
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
+        # 🔴 RESOLVE TO THE CHECKOUT UNDER VERIFICATION, NEVER TO THE PRIMARY CLONE.
+        #
+        # This used to hop from a worktree to the primary checkout via
+        # --git-common-dir. That reads whatever branch a developer happened to
+        # leave the main clone on, NOT the ref being cut. On 2026-08-26 it graded
+        # v1.0.47's three brick-fix rows against a stale local QA branch
+        # (qa/walk-probes-from-v1045, HEAD 744a3197) which predates the fix, and
+        # reported hits=0 for patterns that are present three times over on main.
+        # Three FALSE REDs on the row that matters most.
+        #
+        # A linked worktree is a first-class checkout: `git -C <worktree> show
+        # HEAD:path` resolves the worktree's own HEAD, which IS the version under
+        # test. That is exactly what we want, so use cm051_dir as given.
         return cm051_dir
 
     env_key = {"ostler-assistant": "OSTLER_ASSISTANT_DIR", "cm044": "CM044_DIR", "hr015": "HR015_DIR"}.get(target)
@@ -425,12 +426,52 @@ def check_grep_in_dmg_tree(entry: dict, ctx: dict) -> Result:
     return Result(entry["id"], entry["title"], "grep_in_dmg_tree", status, detail, entry.get("source_pr", ""))
 
 
+# Surfaces that DESCRIBE the gates rather than implement them. A whole-tree
+# grep must never be satisfied by one of these: the row's own `pattern:` is
+# sitting in its own manifest, so `must_match: true` would be true the moment
+# the row is written, with the fix entirely absent.
+#
+# 🔴 THIS IS HOW v1.0.46 SHIPPED BRICKED WITH A GREEN GATE.
+# Row v1046-c-the-bricking-fix-is-in-the-pinned-source grepped for
+# 'PYTHONPYCACHEPREFIX' with must_match: true. Its path_hint was silently
+# dropped (see _PROOF_KEYS below), so it whole-tree grepped at the pinned sha
+# d297cc59 and matched cut-manifests/v1.0.46.yaml FIVE TIMES, plus
+# cut-deferrals.yaml, cuts/DEFECTS_ROLLFORWARD.md and cuts/v1.0.46/cut.env.
+# The row asserting "the bricking fix is in the pinned source" was satisfied by
+# the prose describing the row. It would have gone green with zero fix present.
+_SELF_DESCRIBING_PREFIXES = ("cut-manifests/", "cuts/", "walks/")
+_SELF_DESCRIBING_FILES = ("cut-deferrals.yaml",)
+
+
+def _is_self_describing(path: str) -> bool:
+    return path.startswith(_SELF_DESCRIBING_PREFIXES) or path in _SELF_DESCRIBING_FILES
+
+
+# Every key this proof kind understands. Anything else is a typo, and a typo
+# must be LOUD: `path_hint:` was accepted by the YAML and ignored by the reader
+# for four rows, silently converting a targeted file check into a whole-tree
+# one. A key we do not consume is a check we are not performing.
+# `repo:` is a third spelling live rows already use for the same registry as
+# `target:` (this-repo / cm051 / ostler-assistant / cm044 / hr015). All four
+# rows carrying it say `repo: cm051`, which resolves the same as the
+# `this-repo` default — so it was correct BY COINCIDENCE, not by construction.
+# A row saying `repo: ostler-assistant` would have silently grepped CM051.
+_PROOF_KEYS = {"kind", "target", "repo", "pattern", "must_match", "path", "path_hint"}
+
+
 def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
     proof = entry["proof"]
-    target_name = proof.get("target", "this-repo")
+    unknown = sorted(set(proof) - _PROOF_KEYS)
+    if unknown:
+        return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "FAIL",
+                      f"unknown proof key(s) {unknown} — refusing to run a check whose "
+                      f"instructions were not fully understood", entry.get("source_pr", ""))
+    target_name = proof.get("target") or proof.get("repo") or "this-repo"
     pattern = proof["pattern"]
     must_match = proof.get("must_match", True)
-    path_hint = proof.get("path")
+    # `path_hint` is the spelling four live rows already use. Honour both rather
+    # than silently ignoring one of them.
+    path_hint = proof.get("path") or proof.get("path_hint")
     source_sha = entry.get("source_sha")
     try:
         repo = resolve_source_repo(target_name, ctx["cm051_dir"])
@@ -441,6 +482,7 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
         return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "SKIP",
                       f"repo not a git checkout: {repo}", entry.get("source_pr", ""))
     sha = source_sha or "HEAD"
+    self_described = 0
     try:
         if path_hint:
             result = subprocess.run(
@@ -466,8 +508,16 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
             hits = 0
             for line in result.stdout.decode("utf-8", "replace").splitlines():
                 # format: "<sha>:<path>:<count>"
+                head, _, count = line.rpartition(":")
+                # Drop the leading "<sha>:" to recover the repo-relative path.
+                _, _, rel = head.partition(":")
+                if _is_self_describing(rel):
+                    # The manifest/ledger surfaces describe the check; they are
+                    # not evidence that the code carries it.
+                    self_described += 1
+                    continue
                 try:
-                    hits += int(line.rsplit(":", 1)[-1])
+                    hits += int(count)
                 except ValueError:
                     pass
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
@@ -475,7 +525,12 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
                       f"git invocation failed: {e}", entry.get("source_pr", ""))
     ok = (hits > 0) if must_match else (hits == 0)
     status = "PASS" if ok else "FAIL"
-    detail = f"target={target_name} sha={sha[:12]} pattern={pattern!r} must_match={must_match} hits={hits}"
+    scope = f"path={path_hint}" if path_hint else "whole-tree"
+    detail = (f"target={target_name} repo={repo} sha={sha[:12]} {scope} "
+              f"pattern={pattern!r} must_match={must_match} hits={hits}")
+    if self_described:
+        detail += (f" ({self_described} match(es) DISCARDED in manifest/ledger surfaces — "
+                   f"a row is not evidence of itself)")
     return Result(entry["id"], entry["title"], "grep_in_source_at_sha", status, detail, entry.get("source_pr", ""))
 
 

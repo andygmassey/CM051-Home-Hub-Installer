@@ -70,20 +70,73 @@ try_import() {
 
 # Resolve the interpreter the TICK uses, not whichever python is on PATH.
 # Order matters: the wrapper is authoritative because it is what actually runs.
+# 🔴 EVALUATE THE WRAPPER'S WHOLE RESOLUTION CHAIN, NOT ONE LINE OF IT.
+#
+# This used to grep ONLY the OSTLER_PYTHON= line and re-evaluate it in a fresh
+# remote shell. The wrapper's actual text is:
+#
+#     line  3   OSTLER_DIR="${HOME}/.ostler"
+#     line 14   OSTLER_PYTHON="${OSTLER_PYTHON:-${OSTLER_DIR}/.venv/bin/python3}"
+#     line 15   if [[ ! -x "$OSTLER_PYTHON" ]]; then
+#     line 16       OSTLER_PYTHON="$(command -v python3 || true)"
+#
+# Lifting line 14 alone drops the line-3 assignment, so ${OSTLER_DIR} expanded
+# to EMPTY and the probe tested `/.venv/bin/python3`, which exists nowhere. The
+# import then failed for a reason that had nothing to do with the product, and
+# the probe reported FAIL on a box measured healthy: on andy@.228 2026-08-26 the
+# real interpreter imports httpx 0.28.1, nameparser 2.1.0, ostler_fda,
+# ostler_fda.identifier_quality and ostler_fda.pwg_ingest, all OK.
+#
+# A gate that cries wolf gets ignored, and the next REAL regression here would be
+# waved through as "that known false red".
+#
+# The fallback arm is mirrored deliberately: if the venv is absent the wrapper
+# silently lands on system python3, and THAT is the original defect's shape --
+# a system interpreter that never had nameparser installed. Which arm resolved
+# is therefore itself a finding, so the caller is told.
 resolve_tick_python() {
+    # Emits "ARM<space>PATH" on stdout. The caller splits it -- this runs inside
+    # a command substitution, so a variable set here would NOT reach the caller.
     _rp_wrapper="$(box_run 'ls ~/.ostler/bin/ostler-fda 2>/dev/null')"
-    if [ -n "$_rp_wrapper" ]; then
-        _rp_declared="$(box_run 'grep -m1 -E "^[[:space:]]*(export[[:space:]]+)?OSTLER_PYTHON=" ~/.ostler/bin/ostler-fda 2>/dev/null')"
-        _rp_path="$(echo "$_rp_declared" | sed -E 's/.*OSTLER_PYTHON=//; s/^"//; s/"$//; s/^.\{0,0\}//')"
-        _rp_path="$(box_run "echo ${_rp_path}" 2>/dev/null)"
-        if [ -n "$_rp_path" ]; then
-            echo "$_rp_path"
-            return 0
-        fi
+    if [ -z "$_rp_wrapper" ]; then
+        _rp_venv="$(box_run 'ls ~/.ostler/.venv/bin/python3 2>/dev/null')"
+        [ -n "$_rp_venv" ] && { echo "NO-WRAPPER $_rp_venv"; return 0; }
+        return 1
     fi
-    # Fallback to the documented venv location, and SAY that is what happened.
-    _rp_venv="$(box_run 'ls ~/.ostler/.venv/bin/python3 2>/dev/null')"
-    [ -n "$_rp_venv" ] && { echo "$_rp_venv"; return 0; }
+
+    # 🔴 THE WRAPPER'S LADDER IS CONDITIONAL. DO NOT eval ITS LINES.
+    # Two drafts of this probe got it wrong in two different ways, both by
+    # lifting text out of the control flow that gives it meaning:
+    #   draft 1  grepped ONLY the OSTLER_PYTHON= line, losing the line-3
+    #            OSTLER_DIR assignment, so ${OSTLER_DIR} expanded to EMPTY and
+    #            it tested "/.venv/bin/python3", which exists nowhere
+    #   draft 2  grepped every OSTLER_DIR/OSTLER_PYTHON assignment and eval'd
+    #            them in file order -- but the third one lives INSIDE
+    #            `if [[ ! -x "$OSTLER_PYTHON" ]]`, so lifting it out of its
+    #            conditional overwrote the venv path with system python3 on
+    #            EVERY box, healthy or not
+    # Both produced a confident FAIL on a box measured healthy.
+    #
+    # So replicate the wrapper's documented ladder directly, and ASSERT the
+    # wrapper still has that shape. If the shape changes, this returns nothing
+    # and the caller reports CANNOT-RUN rather than guessing.
+    _rp_shape="$(box_run 'W=~/.ostler/bin/ostler-fda
+        a=$(/usr/bin/grep -c "OSTLER_DIR=\"\${HOME}/.ostler\"" "$W" 2>/dev/null || true)
+        b=$(/usr/bin/grep -c "OSTLER_PYTHON:-\${OSTLER_DIR}/.venv/bin/python3" "$W" 2>/dev/null || true)
+        c=$(/usr/bin/grep -c "command -v python3" "$W" 2>/dev/null || true)
+        echo "${a:-0}${b:-0}${c:-0}"')"
+    case "$_rp_shape" in
+        1*1*1*) : ;;
+        *) return 1 ;;
+    esac
+
+    _rp_path="$(box_run '
+        # The wrapper ladder, replicated: explicit override, then the venv,
+        # then whatever python3 is on PATH.
+        P="${OSTLER_PYTHON:-$HOME/.ostler/.venv/bin/python3}"
+        if [ -x "$P" ]; then printf "VENV %s\n" "$P"
+        else printf "FALLBACK %s\n" "$(command -v python3 || true)"; fi')"
+    [ -n "$_rp_path" ] && { echo "$_rp_path"; return 0; }
     return 1
 }
 
@@ -92,11 +145,22 @@ run_probe() {
         probe_cannot_run "the box at '${OSTLER_BOX_HOST}' did not answer over ssh, so no interpreter could be resolved. Not a pass."
     fi
 
-    PY="$(resolve_tick_python)" || PY=""
-    if [ -z "$PY" ]; then
-        probe_cannot_run "neither ~/.ostler/bin/ostler-fda nor ~/.ostler/.venv/bin/python3 was found on the box, so the tick's interpreter is unknown. Not a pass: an absent wrapper is its own defect."
+    _resolved="$(resolve_tick_python)" || _resolved=""
+    TICK_PYTHON_ARM="${_resolved%% *}"
+    PY="${_resolved#* }"
+    if [ -z "$_resolved" ] || [ -z "$PY" ] || [ "$PY" = "$TICK_PYTHON_ARM" ]; then
+        probe_cannot_run "could not resolve the tick's interpreter: either ~/.ostler/bin/ostler-fda and ~/.ostler/.venv/bin/python3 are both absent, or the wrapper no longer has the OSTLER_DIR -> venv -> system-python3 ladder this probe replicates. Not a pass -- re-point the probe rather than assuming."
     fi
-    probe_note "interpreter: ${PY}"
+    probe_note "interpreter: ${PY}  [resolved via: ${TICK_PYTHON_ARM:-unknown}]"
+    # FALLBACK means the venv was absent or not executable and the wrapper
+    # silently reached for whatever python3 is on PATH. That is the shape of the
+    # original defect -- a system interpreter that never had the packages -- so
+    # say it out loud even when the imports below happen to succeed.
+    if [ "${TICK_PYTHON_ARM:-}" = "FALLBACK" ]; then
+        probe_note "⚠ the venv did not resolve, so the tick is running on SYSTEM python3."
+        probe_note "  Imports may still pass here by luck of what is installed globally;"
+        probe_note "  that is not the interpreter the install is supposed to provide."
+    fi
 
     _n=0
     _bad=""
