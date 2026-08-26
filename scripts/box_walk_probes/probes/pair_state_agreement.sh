@@ -62,8 +62,21 @@ signal_pair_marker() {
         printf '%s' "${FAKE_MARKER:-UNAVAILABLE}"; return
     fi
     local out
-    out="$(box_run "ls \$HOME/.ostler/paired_devices/*.json 2>/dev/null | wc -l | tr -d ' '")"
+    # 🔴 MEASURED 2026-08-26 on the live box: ~/.ostler/paired_devices DOES NOT
+    # EXIST. The old body was `ls .../*.json 2>/dev/null | wc -l`, and a failed
+    # `ls` still feeds `wc` an empty stream -- so an ABSENT DIRECTORY counted 0
+    # and this signal returned a confident `false`, meaning "no device is
+    # paired". That is a different fact from "I could not look", and it was the
+    # ONE answer that could not be right: the same box carries 35 issued bearer
+    # tokens in config.toml. Because the other two signals were UNAVAILABLE,
+    # this fail-open `false` was the sole readable signal, and a single signal
+    # cannot contradict itself -- so the probe could only ever say INSUFFICIENT
+    # while sitting on top of a real split-brain.
+    #
+    # Ask whether the directory exists BEFORE counting inside it.
+    out="$(box_run "if [ -d \"\$HOME/.ostler/paired_devices\" ]; then ls \$HOME/.ostler/paired_devices/*.json 2>/dev/null | wc -l | tr -d ' '; else printf ABSENT; fi")"
     case "$out" in
+        ABSENT) printf 'UNAVAILABLE' ;;
         ''|*[!0-9]*) printf 'UNAVAILABLE' ;;
         0) printf 'false' ;;
         *) printf 'true' ;;
