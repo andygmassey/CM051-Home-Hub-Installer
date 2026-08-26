@@ -36,6 +36,7 @@ on:
       - 'gui/scripts/sign-python-bundle.sh'
       - 'tests/test_sign_python_bundle_reports_why.sh'
       - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
+      - 'tests/test_provenance_gate_marker_read_is_not_piped.sh'
       # The marker arms are three-state (0 found / 1 not found / 2 could not
       # look). The test is watched as well as run: a run: without a matching
       # path entry is a gate you have read, not a gate you have run.
