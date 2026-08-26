@@ -316,24 +316,94 @@ fi
 echo
 
 # ---- ARMS 1-7 -----------------------------------------------------------
+#
+# BROKEN AND UNMEASURABLE ARE DIFFERENT VERDICTS, and these four arms used to
+# collapse them. Each ran its tool with output sent to /dev/null and branched on
+# nothing but the exit code, so ANY reason for a non-zero rc printed as a
+# specific, confident, wrong claim about the artefact.
+#
+# Demonstrated on a walk whose attach failed, so $APP was never there:
+#
+#     FAIL     rc=1
+#     FAIL     not stapled
+#     FAIL     none found
+#
+# That reads as an unsigned, unnotarised DMG with no installer in it, a
+# catastrophic cut-blocker, when in truth NOTHING WAS MEASURED. All three arms
+# discarded the one line that said so: "No such file or directory".
+#
+# This estate's expensive failure is the FALSE cut-blocker, and arm 7 below
+# already had the answer: separate the unreadable from the bad, and print the
+# denominator. These four now do the same. A missing target or a missing tool is
+# CANNOT-RUN. Only a tool that ran and disagreed is a FAIL, and it prints what
+# it disagreed with.
+#
+# The tools name the artefact before they name the problem, and the artefact
+# path is long. Truncating raw keeps the half the reader already knows and
+# throws away the half they need, so collapse the path to <app> first.
+why() { tr '\n' ' ' | sed "s|$APP|<app>|g" | tr -s ' ' | cut -c1-160; }
+
+ARMS_TARGET_OK=1
+if [ ! -d "$APP" ]; then
+  ARMS_TARGET_OK=0
+fi
+
 echo "ARM 1  codesign at rest"
-/usr/bin/codesign --verify --deep --strict "$APP" 2>/dev/null && say "PASS" "  rc=0" || say "FAIL" "  rc=1"
+if [ "$ARMS_TARGET_OK" = "0" ]; then
+  say "CANNOT" "  $APP is not there -- nothing was verified, and that is not a signing failure"
+elif /usr/bin/codesign --verify --deep --strict "$APP" >"$WORK/cs.err" 2>&1; then
+  say "PASS" "  rc=0"
+else
+  CS_RC=$?
+  # codesign prints the path on line 1 and the REASON on line 2, so head -1
+  # would print the least useful half.
+  say "FAIL" "  rc=$CS_RC: $(why < "$WORK/cs.err")"
+fi
 
 echo "ARM 2  notarisation stapled"
-/usr/bin/xcrun stapler validate "$APP" >/dev/null 2>&1 && say "PASS" "  stapled" || say "FAIL" "  not stapled"
+if [ "$ARMS_TARGET_OK" = "0" ]; then
+  say "CANNOT" "  $APP is not there -- staple state unknown, which is not 'not stapled'"
+elif ! /usr/bin/xcrun --find stapler >/dev/null 2>&1; then
+  say "CANNOT" "  xcrun cannot find stapler on this host -- staple state unknown"
+elif /usr/bin/xcrun stapler validate "$APP" >"$WORK/st.err" 2>&1; then
+  say "PASS" "  stapled"
+else
+  # stapler reports on STDOUT, so capturing only stderr left the FAIL with a
+  # bare rc and no cause. Measured: a non-stapled bundle gives rc=66 and prints
+  # nothing but "Processing: <path>", so on this arm the RC is the information.
+  ST_RC=$?
+  say "FAIL" "  rc=$ST_RC: $(why < "$WORK/st.err")"
+fi
 
 echo "ARM 3  Gatekeeper accepts it as a notarised installer"
-SPCTL=$(/usr/sbin/spctl -a -vvv -t install "$APP" 2>&1 || true)
-case "$SPCTL" in
-  *"source=Notarized Developer ID"*) say "PASS" "  source=Notarized Developer ID" ;;
-  *) say "FAIL" "  $(printf '%s' "$SPCTL" | tr '\n' ' ' | cut -c1-120)" ;;
-esac
+if [ "$ARMS_TARGET_OK" = "0" ]; then
+  say "CANNOT" "  $APP is not there -- Gatekeeper was never asked"
+else
+  SPCTL=$(/usr/sbin/spctl -a -vvv -t install "$APP" 2>&1 || true)
+  case "$SPCTL" in
+    *"source=Notarized Developer ID"*) say "PASS" "  source=Notarized Developer ID" ;;
+    "") say "CANNOT" "  spctl printed nothing at all -- no verdict was returned" ;;
+    *) say "FAIL" "  $(printf '%s' "$SPCTL" | why)" ;;
+  esac
+fi
 
 echo "ARM 4  every install.sh on the image (enumerated, never head -1)"
-find "$MP" -name install.sh -type f > "$WORK/ish"
-N=$(wc -l < "$WORK/ish" | tr -d ' ')
-echo "  count: $N"
-[ "$N" -ge 1 ] && say "PASS" "  $N present" || say "FAIL" "  none found"
+# A zero here has two shapes: an image with no install.sh, and a find that could
+# not read the mountpoint. They print identically unless find's stderr is kept.
+if [ ! -d "$MP" ]; then
+  say "CANNOT" "  $MP is not a directory -- the image is not mounted, so 0 means 'could not look'"
+else
+  find "$MP" -name install.sh -type f > "$WORK/ish" 2>"$WORK/ish.err"
+  N=$(wc -l < "$WORK/ish" | tr -d ' ')
+  echo "  count: $N"
+  if [ "$N" -ge 1 ]; then
+    say "PASS" "  $N present"
+  elif [ -s "$WORK/ish.err" ]; then
+    say "CANNOT" "  find could not read the image: $(why < "$WORK/ish.err")"
+  else
+    say "FAIL" "  none found"
+  fi
+fi
 
 # Arms 5 and 6 check EVERY install.sh, not the first.
 #

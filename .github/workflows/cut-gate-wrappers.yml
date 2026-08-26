@@ -40,6 +40,7 @@ on:
       - 'tests/test_provenance_gate_marker_read_is_not_piped.sh'
       - 'scripts/walk_dmg.sh'
       - 'tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh'
+      - 'tests/test_walk_arms_distinguish_cannot_run_from_fail.sh'
       # The marker arms are three-state (0 found / 1 not found / 2 could not
       # look). The test is watched as well as run: a run: without a matching
       # path entry is a gate you have read, not a gate you have run.
@@ -205,6 +206,14 @@ jobs:
       - name: arm 8b vetoes on importable, not merely uncovered
         if: always()
         run: /bin/bash tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh
+      # Arms 1-4 of the box walk branched on an exit code alone with output to
+      # /dev/null, so a walk whose attach failed printed FAIL rc=1 / not
+      # stapled / none found: three confident wrong verdicts about a DMG that
+      # was never measured. A false cut-blocker is this estate's expensive
+      # failure. Runs on macos-latest, where codesign, xcrun and spctl exist.
+      - name: walk arms say CANNOT-RUN when they could not measure
+        if: always()
+        run: /bin/bash tests/test_walk_arms_distinguish_cannot_run_from_fail.sh
 
       - name: A marker pattern that cannot run is CANNOT-RUN, not 'absent'
         if: always()
