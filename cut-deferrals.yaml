@@ -3501,3 +3501,59 @@ deferrals:
   - ref: "CM051:#1055"
     reason: "ROOT FIX (relocate the interpreter out of the notarised app). Clean, mergeable and mechanism proven on a writable ditto copy. Deferred because the merged mitigations already protect every box (install.sh:62 exports PYTHONPYCACHEPREFIX process-wide; plists 17024/17290), while #1055 changes interpreter resolution for every venv, adds a 71MB copy, and deletes venvs anchored in a .app on upgrade. Its own author asks for a box walk and this cut has no walk record. Decision by ORM, 2026-08-26 01:26Z, backed by Archie."
     until_cut: "v1.0.47"
+
+  # daemon:feat/hub-build-info-emitter (oa #349) -- ALREADY a conscious decision,
+  # recorded here because the gate cannot read prose.
+  #
+  # cut.env explains it at length: #349 was still unmerged when the daemon was
+  # rebuilt, so the daemon row is FRESH rather than HELD, and the emitter that
+  # produced the hub-app sidecar is a LOCAL script, not a shipped one. The
+  # discriminator was run before deciding rather than assumed -- does anything in
+  # the v1.0.46 pipeline consume the emitter FROM THE TREE?
+  #
+  #     CM051 origin/main  grep -l 'emit-build-info|emit-hub-build-info' -> 0 files
+  #     OS003 origin/main  same predicate                                -> 0 files
+  #     CONTROL, same repos, 'build-info'                -> 18 and 5 files
+  #
+  # So the predicate is live and the zero is a real absence. Both consumers
+  # (verify_cut_freshness.sh, verify_cut_manifest.py) FETCH the published release
+  # asset over the API; nothing re-derives it.
+  #
+  # 🔴 THE POINT OF THIS ROW: that reasoning lived only in cut.env, which
+  # check-orphans cannot read, so the gate RED-ed the cut on a decision that had
+  # already been taken and written down -- in the wrong place for the reader that
+  # needed it.
+  - ref: "daemon:feat/hub-build-info-emitter"
+    reason: "oa #349, OPEN and deliberately unmerged before this cut so the daemon row is FRESH rather than HELD. Nothing in the v1.0.46 pipeline consumes the emitter from the tree (0 files in CM051 and OS003, against an 18-and-5 control); both consumers fetch the published release asset. Rationale in cuts/v1.0.46/cut.env, transcribed here because the gate cannot read prose. Lands in v1.0.47."
+    until_cut: "v1.0.47"
+
+  # daemon:fix/log-the-401-that-gates-every-api-call -- THE FIX ALREADY SHIPPED.
+  # This row exists because the gate could not find that out.
+  #
+  # What the gate printed:
+  #
+  #     [warn] gh pr list failed for ostler-ai/ostler-assistant#fix/log-the-401...:
+  #            GraphQL: Could not resolve...
+  #     [RED]  daemon:fix/log-the-401-that-gates-every-api-call
+  #            unmerged branch, 3 commit(s) not in origin/main
+  #
+  # THE PR QUERY FAILED -- CM051's CI has no ostler-ai token -- so it fell back to
+  # branch ancestry, which is meaningless after a squash merge. A CANNOT-VERIFY
+  # wearing a RED.
+  #
+  # Measured instead on the READABLE SURFACE, which does not care about patch
+  # identity. oa #345 merged 2026-08-25T10:21:32Z; the daemon pin 509c8333 was
+  # committed 15:17:04Z, five hours later. The distinctive string the fix adds:
+  #
+  #     "auth: 401 {path} (no-token ..." present in 509c8333 : 1 file
+  #     CONTROL, a string that must not be there              : 0 files
+  #
+  # So the customer-facing fix IS in the shipped daemon. The 3 commits the gate
+  # counted are the branch tip, and the two beyond the merge are
+  # `test(gateway): record the mutation matrix` and `fix(ci): run doctests` --
+  # neither ships in the binary.
+  #
+  # Clears when the branch is deleted; it is merged work with a stale head.
+  - ref: "daemon:fix/log-the-401-that-gates-every-api-call"
+    reason: "ALREADY SHIPPED as oa #345 (merged 2026-08-25T10:21:32Z, five hours before the daemon pin 509c8333 was built). The gate's PR lookup failed for want of an ostler-ai token and fell back to branch ancestry, which is meaningless after a squash merge. Verified on the readable surface: the string the fix adds is present in 509c8333 (1 file) against a 0-hit control. The two remaining branch commits are a gateway test and a CI doctest fix, neither of which ships."
+    until_cut: "v1.0.47"
