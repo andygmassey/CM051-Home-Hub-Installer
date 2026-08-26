@@ -128,10 +128,33 @@ else
     AFTER=$(find "$W8/app" -name '*.pyc' | wc -l | tr -d ' ')
     /usr/bin/codesign --verify --deep --strict "$W8/app" >/dev/null 2>&1 && RC1=0 || RC1=1
     echo "  after an unguarded first use: pyc=$AFTER codesign rc=$RC1"
-    if [ "$AFTER" = "0" ] && [ "$RC1" = "0" ]; then
-      say "PASS" "  the bundle survives its own first use"
+    # THE PREDICATE IS "NO NEW WRITES", NOT "NO .pyc AT ALL".
+    #
+    # AFTER = 0 was correct while the bundle shipped with zero .pyc and any .pyc
+    # at all was proof of a write. From v1.0.46 the bundle SEEDS its stdlib --
+    # 1448 .pyc, deliberately, inside the seal (#1052, and #1085 which made all
+    # 1448 unchecked-hash) -- because a pre-seeded unchecked-hash .pyc is one
+    # the interpreter can never be provoked into rewriting.
+    #
+    # Against that artefact AFTER = 0 is false BY CONSTRUCTION. Measured on the
+    # shipped v1.0.46 app: 1448 .pyc at rest, before anything runs. So this arm
+    # would have returned 🔴 VETO on the artefact FOR CARRYING THE FIX, and
+    # ARM 8 is the veto arm -- it runs FIRST and it is the one that decides.
+    #
+    # AFTER = BEFORE is the invariant that actually says "first use wrote
+    # nothing into the bundle", and it holds in both worlds: 0 = 0 for an
+    # unseeded bundle, 1448 = 1448 for a seeded one.
+    #
+    # codesign stays an INDEPENDENT arm rather than being folded into the
+    # count, because the two failures are different shapes. A rewrite-in-place
+    # changes no count at all: on the shipped v1.0.46, one bare-env import
+    # rewrote 45 timestamp-mode .pyc with the count sitting at 1448 -> 1448 and
+    # __pycache__ dirs at 134 -> 134, while codesign went 0 -> 1. Either signal
+    # alone is a veto.
+    if [ "$AFTER" = "$BEFORE" ] && [ "$RC1" = "0" ]; then
+      say "PASS" "  the bundle survives its own first use (pyc $BEFORE -> $AFTER, unchanged)"
     else
-      say "FAIL" "  🔴 VETO. first use wrote $AFTER .pyc into the bundle, codesign rc=$RC1"
+      say "FAIL" "  🔴 VETO. first use changed the bundle: pyc $BEFORE -> $AFTER, codesign rc=$RC1"
     fi
   fi
 fi
