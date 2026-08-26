@@ -3459,3 +3459,45 @@ deferrals:
       shipping it would add no customer-reachable behaviour even if it landed.
       Beyond v1.0 scope. 267 behind / 3 ahead, 2026-07-15.
     until_cut: "v1.0.46"
+
+  # CM051:#1055 -- the ROOT FIX, deferred to v1.0.47 ON PURPOSE, by ORM.
+  #
+  # It relocates the bundled interpreter OUT of the notarised app, which kills
+  # the .pyc-breaks-the-seal class rather than redirecting around it. It is
+  # CLEAN, it is MERGEABLE, and its mechanism is PROVEN -- I measured it myself
+  # on a dittoed WRITABLE copy of a shipped artefact, with a control:
+  #
+  #     import via the APP's interpreter        32 .pyc in app, codesign rc=1
+  #     import via the RELOCATED interpreter     0 .pyc in app, codesign rc=0
+  #                                             32 .pyc in the relocated tree
+  #
+  # The 32/32 symmetry is what rules out "the import did not happen", and the
+  # control is what makes the second row mean anything.
+  #
+  # SO WHY DEFER SOMETHING THAT WORKS. Three reasons, in order of weight:
+  #
+  #  1. THE MITIGATIONS ALREADY PROTECT EVERY BOX, INCLUDING EXISTING ONES.
+  #     install.sh:62 exports PYTHONPYCACHEPREFIX process-wide and the plists at
+  #     17024 and 17290 set it. #1051/#1053/#1054/#1056 merged into this cut.
+  #     Deferring leaves NOBODY unprotected. That is the fact that decided it --
+  #     if deferring left a hole I would have said merge.
+  #  2. It changes interpreter resolution for EVERY venv in the product, adds a
+  #     71 MB copy, and DELETES venvs anchored in a .app on upgrade. That last
+  #     one is a destructive action on a customer machine.
+  #  3. Its own author asks for a box walk -- "It wants a box walk, not just a
+  #     green CI" -- and cut.env records that this cut has no walk record at the
+  #     moment it is made. Merging a root fix whose author requests a walk, into
+  #     a cut that has no walk, hours before a tag, is how a version gets burnt.
+  #
+  # What #1055 buys for v1.0.46 specifically is protection against FUTURE
+  # LaunchAgents. There are 29 on a customer box today and the mitigations cover
+  # them; the next one added is the real exposure, and that is a v1.0.47 problem.
+  #
+  # 🔴 THIS ROW EXISTS BECAUSE DECIDING TO DEFER IS NOT DEFERRING. I made this
+  # call in the channel at 01:26Z and did not record it, so check-orphans
+  # correctly RED-ed the cut on it at 02:02Z. This file's own header says it:
+  # "Nobody chose to defer any of them. They were just forgotten. A deferral
+  # recorded here would have been fine. The silence was not."
+  - ref: "CM051:#1055"
+    reason: "ROOT FIX (relocate the interpreter out of the notarised app). Clean, mergeable and mechanism proven on a writable ditto copy. Deferred because the merged mitigations already protect every box (install.sh:62 exports PYTHONPYCACHEPREFIX process-wide; plists 17024/17290), while #1055 changes interpreter resolution for every venv, adds a 71MB copy, and deletes venvs anchored in a .app on upgrade. Its own author asks for a box walk and this cut has no walk record. Decision by ORM, 2026-08-26 01:26Z, backed by Archie."
+    until_cut: "v1.0.47"
