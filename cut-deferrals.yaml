@@ -52,6 +52,20 @@ pr_exemptions:
     reason: "RED on 2 checks (42 pass / 2 fail, measured 2026-08-26). A red PR cannot be merged to satisfy a 48h process gate -- that is the move this file exists to prevent. Merit not in question; its own CI is the blocker. Pin-safe (0 install.sh hits). Land in v1.0.47 once green."
     review_by: "2026-08-28"
 
+  # SAME PR, SAME REASON, THE REF SHAPE check-pr-age ACTUALLY PRINTS.
+  #
+  # The row above says CM051:#982. verify_pr_age.sh builds its ref at line 175 as
+  # `ref="${repo#*/}#${num}"`, i.e. CM051-Home-Hub-Installer#982 -- so it never
+  # matched, and the v1.0.46 cut was RED on a PR that had been consciously
+  # exempted for days, with a reason, in the right section of the right file.
+  #
+  # check-orphans prints CM051:#982. check-pr-age prints the full repo name.
+  # TWO GATES, ONE FILE, TWO CONVENTIONS. Until they agree, an exemption has to
+  # be written twice or it silently covers only one of them.
+  - ref: "CM051-Home-Hub-Installer#982"
+    reason: "RED on 2 checks (42 pass / 2 fail, measured 2026-08-26). A red PR cannot be merged to satisfy a 48h process gate -- that is the move this file exists to prevent. Merit not in question; its own CI is the blocker. Pin-safe (0 install.sh hits). Land in v1.0.47 once green."
+    review_by: "2026-08-28"
+
   # CM051:#975 -- GREEN, and deferred on RISK rather than merit.
   #
   # "feat(ingest): quiet window 01:00-06:00 -> 23:00-07:00 (#789) + the harness
@@ -75,6 +89,20 @@ pr_exemptions:
   # v1.0.46 exists to close the BRICK. Nothing else earns a place in it.
   # Land it first in v1.0.47, where it can be walked on a box that boots.
   - ref: "CM051:#975"
+    reason: "Green (25 pass / 0 fail) and deferred on RISK, not merit. Rewrites four SHIPPED vendor ingest tick scripts; same trade ORM refused for the stderr-tail fix in this file. v1.0.46 exists to close the brick and nothing else earns a place in it. Pin-safe (0 install.sh hits). First in v1.0.47, walked on a box."
+    review_by: "2026-08-28"
+
+  # SAME PR, SAME REASON, THE REF SHAPE check-pr-age ACTUALLY PRINTS.
+  #
+  # The row above says CM051:#975. verify_pr_age.sh builds its ref at line 175 as
+  # `ref="${repo#*/}#${num}"`, i.e. CM051-Home-Hub-Installer#975 -- so it never
+  # matched, and the v1.0.46 cut was RED on a PR that had been consciously
+  # exempted for days, with a reason, in the right section of the right file.
+  #
+  # check-orphans prints CM051:#975. check-pr-age prints the full repo name.
+  # TWO GATES, ONE FILE, TWO CONVENTIONS. Until they agree, an exemption has to
+  # be written twice or it silently covers only one of them.
+  - ref: "CM051-Home-Hub-Installer#975"
     reason: "Green (25 pass / 0 fail) and deferred on RISK, not merit. Rewrites four SHIPPED vendor ingest tick scripts; same trade ORM refused for the stderr-tail fix in this file. v1.0.46 exists to close the brick and nothing else earns a place in it. Pin-safe (0 install.sh hits). First in v1.0.47, walked on a box."
     review_by: "2026-08-28"
 
