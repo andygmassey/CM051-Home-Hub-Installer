@@ -49,10 +49,37 @@ fi
 echo "== 2. CONTROL: stdlib-only imports must NOT be reported missing =="
 mk_pkg "${TMP}/p2/ostler_fda" "import os, sys, json, re" "from pathlib import Path"
 out="$(_ostler_verify_runtime_ready "$PY" "${TMP}/p2/ostler_fda" 2>&1)"; rc=$?
-if grep -q "MISSING os$\|MISSING sys$\|MISSING json$\|MISSING pathlib$" <<<"$out"; then
+if grep -qE "MISSING os$|MISSING sys$|MISSING json$|MISSING pathlib$" <<<"$out"; then
     bad "stdlib modules were reported as missing -- stdlib_module_names filter is not working"
 else
     ok "stdlib imports are filtered out (this is the control that proves limb 1 is selective)"
+fi
+
+echo "== 2b. THE PREDICATE ITSELF, DRIVEN DIRECTLY =="
+# Step 2 can only fail if a stdlib module becomes un-findable, and
+# importlib.util.find_spec() finds every stdlib module by construction -- the
+# `stdlib` set above is a FAST PATH, not the discriminator. So step 2 passes
+# whether or not its grep works. That is exactly how it survived carrying an
+# INERT predicate: in POSIX BRE `$` is an anchor only at the END of the whole
+# expression, so mid-alternation it is a LITERAL dollar. The old form
+#     grep -q "MISSING os$\|MISSING sys$\|..."
+# searched for a literal `$` glyph and matched NOTHING, ever. Measured on
+# /usr/bin/grep (BSD): 0 hits against a line reading exactly "MISSING os",
+# while 'MISSING os$' ALONE scores 1. The grep sits in the negative position,
+# so an inert predicate meant step 2 printed ok unconditionally -- a control
+# that could not fail, on the line the code itself calls "the control".
+#
+# These two drive the predicate on synthetic input, so it is falsifiable.
+# Revert -qE to -q and the first goes RED.
+if grep -qE "MISSING os$|MISSING sys$|MISSING json$|MISSING pathlib$" <<<"MISSING os"; then
+    ok "(2b) the stdlib predicate FIRES on a line it must catch"
+else
+    bad "(2b) the stdlib predicate cannot match 'MISSING os' -- INERT, so step 2 is a control that cannot fail"
+fi
+if grep -qE "MISSING os$|MISSING sys$|MISSING json$|MISSING pathlib$" <<<"MISSING oscar"; then
+    bad "(2b) the predicate matched 'MISSING oscar' -- unanchored, it would false-positive"
+else
+    ok "(2b) the stdlib predicate correctly REFUSES a mere substring"
 fi
 
 echo "== 3. Relative imports are NOT treated as third-party dependencies =="
