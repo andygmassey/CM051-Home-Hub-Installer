@@ -238,7 +238,12 @@ else
     else
         _blk="$(sed -n "${_s},$((_e-1))p" "$_pwq")"
         _h="$(mktemp -d)"
-        _got="$( export HOME="$_h"; CUT_VERSION=v0.0.0-test; eval "$_blk" >/dev/null 2>&1; printf '%s' "$PROBE_LOG" )"
+        # BOX must be set. post_walk_qa.sh takes it as $1 and exits 3 without
+        # one, and the block now reads it to write the plaintext host header --
+        # under `set -u` an unset BOX aborts the eval and PROBE_LOG comes back
+        # empty. Caught by this very arm when the header was added.
+        _got="$( export HOME="$_h"; BOX="synthetic.invalid"; CUT_VERSION=v0.0.0-test
+                 eval "$_blk" >/dev/null 2>&1; printf '%s' "$PROBE_LOG" )"
 
         # 1. It must survive the run.
         case "$_got" in
@@ -250,15 +255,52 @@ else
         # why the record stores box_fp as a hash. The raw log is the opposite:
         # real hostname, real paths, real output. If someone "tidies" it into
         # walks/ it becomes a tracked file and the hashing was for nothing.
-        case "$_got" in
-            "$REPO_ROOT"/*) bad "the probe log resolves INSIDE the repo (${_got}) -- this repo is public and the log carries the real hostname" ;;
-            *) ok "the probe log is outside the repo, so it cannot become a tracked file" ;;
-        esac
+        #
+        # EMPTY IS NOT "OUTSIDE THE REPO". Without this guard the arm passed
+        # vacuously the moment the eval aborted: '' does not match "$REPO_ROOT"/*,
+        # so a broken extraction scored as proof of containment. Measured -- it
+        # reported ok while arm 1 was already failing on the same empty value.
+        if [ -z "$_got" ]; then
+            bad "arm 2 has nothing to judge (PROBE_LOG empty) -- that is CANNOT-RUN, not proof the log is outside the repo"
+        else
+            case "$_got" in
+                "$REPO_ROOT"/*) bad "the probe log resolves INSIDE the repo (${_got}) -- this repo is public and the log carries the real hostname" ;;
+                *) ok "the probe log is outside the repo, so it cannot become a tracked file" ;;
+            esac
+        fi
+
+        # 3. The header must NAME THE BOX. The record cannot (it is public and
+        # stores only sha256(host)[0:16]), so if the local log does not carry
+        # the plaintext either, nobody can say which machine a FAILED walk ran
+        # against. Measured on v1.0.47: box_fp 38abe713e160f279, eleven
+        # candidate hosts, no match -- the box is simply unrecoverable.
+        if [ -n "$_got" ] && [ -f "$_got" ]; then
+            grep -q 'synthetic.invalid' "$_got" \
+                && ok "the local log names the box in plaintext, so a walk is attributable" \
+                || bad "the log does not name the host -- a FAILED walk stays unattributable, which is the v1.0.47 situation"
+        fi
+
+        # 4. THE TEE MUST APPEND. The three arms above eval the header block in
+        # isolation; they cannot see the line that writes the probe output,
+        # because driving that needs a real box over ssh. So this one is a
+        # source assertion, and it is not decoration:
+        #
+        #   `| tee "$PROBE_LOG"`     truncates -- header gone, box unattributable
+        #   `| tee -a "$PROBE_LOG"`  appends   -- header survives
+        #
+        # Measured: reverting to the truncating form still PARSES and still
+        # passes all three arms above. Without this line that regression is
+        # invisible, which is the gap this arm exists to close.
+        if grep -qE 'tee -a "\$PROBE_LOG"' "$_pwq"; then
+            ok "the probe output APPENDS to the log, so the host header survives"
+        else
+            bad "the probe output is tee'd WITHOUT -a -- it truncates the file and destroys the host header written above it"
+        fi
 
         # 3. The fallback must CONFESS. Silently reverting to a temp file is the
         # original defect wearing a different mask.
         _h2="$(mktemp -d)"; chmod 500 "$_h2"
-        _out="$( export HOME="$_h2"; CUT_VERSION=v0.0.0-test; eval "$_blk" 2>&1 )"
+        _out="$( export HOME="$_h2"; BOX="synthetic.invalid"; CUT_VERSION=v0.0.0-test; eval "$_blk" 2>&1 )"
         chmod 700 "$_h2"
         case "$_out" in
             *"TEMPORARY and dies"*) ok "an unwritable log dir is ANNOUNCED, not silently downgraded" ;;

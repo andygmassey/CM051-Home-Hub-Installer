@@ -136,9 +136,28 @@ if [[ -z "$PROBE_LOG" ]]; then
     trap 'rm -f "$PROBE_LOG"' EXIT
     echo "  ⚠️ could not write ${_walk_logdir}; probe detail is TEMPORARY and dies with this run"
 else
+    # THE LOG NAMES THE BOX IN PLAINTEXT. The walk record cannot: it stores
+    # sha256(host)[0:16], because it is committed to a PUBLIC repo.
+    #
+    # That hashing is right, and it also means NOBODY can recover which machine
+    # a walk ran against -- including the operator. Measured today: v1.0.47's
+    # record says box_fp 38abe713e160f279 and eleven candidate hosts hashed to
+    # none of them, so the box behind a FAILED verdict is simply unknown.
+    #
+    # This file is operator-local and never tracked, so it is the correct place
+    # for the plaintext. Public record: hash. Local log: host. Both true, and
+    # only one of them leaves the machine.
+    {
+        printf '# ostler box walk\n'
+        printf '# host      %s\n' "$BOX"
+        printf '# box_fp    %s\n' "$(printf '%s' "$BOX" | shasum -a 256 | cut -c1-16)"
+        printf '# version   %s\n' "${CUT_VERSION:-(none given)}"
+        printf '# started   %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf '#\n'
+    } > "$PROBE_LOG"
     echo "  probe detail will be kept at: ${PROBE_LOG}"
 fi
-OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" 2>&1 | tee "$PROBE_LOG"
+OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" 2>&1 | tee -a "$PROBE_LOG"
 probe_rc="${PIPESTATUS[0]}"
 
 # THE COUNTS, NOT THE RETURN CODE. run_box_walk.sh exits 0 whenever
