@@ -61,3 +61,19 @@ jobs:
               exit 1
           fi
           "$SCRIPT" ci "${{ steps.base.outputs.sha }}"
+
+      # The Rule 0.9 check above guards the SHAPE of customer strings: a literal
+      # where a catalogue lookup belongs. It says nothing about what the
+      # catalogue VALUES say. An internal codename sitting in a shipped MSG_*
+      # passes it cleanly.
+      #
+      # tests/test_no_internal_codenames_in_customer_strings.sh covers exactly
+      # that, existed already, and was wired to NOTHING -- the only mention of
+      # it anywhere in the repo is a COMMENT in install-log-hygiene.yml
+      # recording that it "was green throughout" while a codename leak reached
+      # a customer. It was green throughout because it never ran.
+      #
+      # This workflow has no paths filter, so a run: step is the whole wiring.
+      - name: no internal codename reaches a customer-facing string VALUE
+        if: always()
+        run: /bin/bash tests/test_no_internal_codenames_in_customer_strings.sh
