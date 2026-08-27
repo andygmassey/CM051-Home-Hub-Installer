@@ -152,6 +152,66 @@ done
 # Vendored service-tree refreshes are best-effort (logged, never
 # fatal): per Invariant 4 a service may lag the daemon and that is an
 # acceptable transient state.
+
+# ── _ks_bounded: kickstart a LaunchAgent that CANNOT block the caller ───────
+#
+# 🔴 MEASURED 2026-08-26, andy@.228, macOS 26.5.2 arm64. A synthetic agent whose
+# program does not exist gets penalty-boxed by launchd:
+#     state = spawn scheduled | last exit code = 78: EX_CONFIG
+#     properties = runatload | penalty box | inferred program
+# and BOTH forms of kickstart then wait forever on a spawn that is being
+# deferred. Healthy-agent controls in the same run returned promptly:
+#
+#     CONTROL   kickstart     healthy        returned  (7s)
+#     CONTROL   kickstart -k  healthy        returned  (21s)
+#     SUBJECT   kickstart     penalty-boxed  BLOCKED   (killed at 90s)
+#     SUBJECT   kickstart -k  penalty-boxed  BLOCKED   (killed at 90s)
+#
+# -k IS NOT A DISCRIMINATOR. It blocks exactly as the bare form does. That was
+# an assumption in this file for months and it was never measured; the
+# experiment that refuted it is committed at
+# scripts/box_walk_probes/experiments/kickstart_k_blocks_on_penalty_box.sh
+#
+# This is not hypothetical: com.ostler.enrich sat penalty-boxed on a real box
+# and wedged the whole export-scan -> import chain for 23h56m on 40ms of CPU.
+#
+# WHY `|| true` WAS NEVER ENOUGH: it guards an EXIT CODE. The failure is a
+# HANG, which produces no exit code at all. `launchctl print` before the call
+# does not help either -- a LOADED job pointing at an absent program passes it.
+#
+# `timeout` does not exist on macOS, so the bound is an explicit sleep + kill.
+#
+# 🔴 ONLY FOR CALL SITES THAT DISCARD THE RESULT. This returns 0 immediately,
+# always. Do NOT route a site whose exit code chooses a customer-visible
+# branch through this -- install.sh:20532 picks ok/warn from the exit status of
+# its kickstart, and backgrounding it would report "started" for a daemon that
+# never started. Lying to the customer is worse than stalling them. That site
+# needs a three-state bounded variant and is deliberately NOT converted here.
+#
+# Defined HERE, above the upgrade block, because the earliest call site is
+# inside it (line ~630) and the first ordinary helper is not defined until
+# ~950 -- far too late.
+_ks_bounded() {
+    # $1 = <domain>/<label>   $2 = optional "-k"
+    _ksb_target="${1:-}"
+    _ksb_flag="${2:-}"
+    [ -n "$_ksb_target" ] || return 0
+    (
+        if [ -n "$_ksb_flag" ]; then
+            launchctl kickstart "$_ksb_flag" "$_ksb_target" >/dev/null 2>&1 &
+        else
+            launchctl kickstart "$_ksb_target" >/dev/null 2>&1 &
+        fi
+        _ksb_pid=$!
+        ( sleep 10; kill -TERM "$_ksb_pid" 2>/dev/null ) >/dev/null 2>&1 &
+        _ksb_wd=$!
+        wait "$_ksb_pid" 2>/dev/null || true
+        kill -TERM "$_ksb_wd" 2>/dev/null || true
+    ) >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    return 0
+}
+
 if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "1" ]]; then
 
     # Own the error handling from here: manage exit codes explicitly so
@@ -606,7 +666,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
             *) _upg_log "ERROR: runtime-ready FAILED (upgrade path) -- com.ostler.fda-rerun will keep dying and the graph will NOT grow. See #595/#942. ${_upg_rr_out}" ;;
         esac
 
-        launchctl kickstart -k "${_UPG_DOMAIN}/com.ostler.doctor" 2>/dev/null || true
+        _ks_bounded "${_UPG_DOMAIN}/com.ostler.doctor" -k   # bounded: see _ks_bounded
 
         # (6b) DELIVER THE CUT RECORD TO THE BOX.
         #
@@ -12834,7 +12894,7 @@ _ostler_ensure_app_binary_agents_bootstrap() {
         _plist="${HOME}/Library/LaunchAgents/${_label}.plist"
         [[ -f "$_plist" ]] || continue
         if launchctl print "${_domain}/${_label}" >/dev/null 2>&1; then
-            launchctl kickstart -k "${_domain}/${_label}" 2>/dev/null || true
+            _ks_bounded "${_domain}/${_label}" -k   # bounded: see _ks_bounded
         else
             launchctl bootstrap "$_domain" "$_plist" 2>/dev/null || \
                 launchctl load "$_plist" 2>/dev/null || true
@@ -12849,7 +12909,7 @@ _ostler_ensure_export_scan_bootstrap() {
     [[ -f "$_plist" ]] || return 0
     [[ -x "$_bin" ]] || return 0
     if launchctl print "gui/$(id -u)/${_label}" >/dev/null 2>&1; then
-        launchctl kickstart -k "gui/$(id -u)/${_label}" 2>/dev/null || true
+        _ks_bounded "gui/$(id -u)/${_label}" -k   # bounded: see _ks_bounded
     else
         launchctl bootstrap "gui/$(id -u)" "$_plist" 2>/dev/null || \
             launchctl load "$_plist" 2>/dev/null || true
@@ -16055,15 +16115,10 @@ for d in "${DIRS[@]}"; do
         # linger for a day. `timeout` does not exist on macOS, hence the
         # explicit watchdog.
         if launchctl print "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1; then
-            (
-                launchctl kickstart "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1 &
-                _ks_pid=$!
-                ( sleep 10; kill -TERM "$_ks_pid" 2>/dev/null ) >/dev/null 2>&1 &
-                _ks_wd=$!
-                wait "$_ks_pid" 2>/dev/null || true
-                kill -TERM "$_ks_wd" 2>/dev/null || true
-            ) >/dev/null 2>&1 &
-            disown 2>/dev/null || true
+            # ONE implementation, not a second copy of the same watchdog. This
+            # site is where the 23h56m wedge was measured; _ks_bounded carries
+            # the evidence and the bound.
+            _ks_bounded "gui/$(id -u)/com.ostler.enrich"
         fi
     fi
 
@@ -19448,7 +19503,7 @@ _ostler_start_assistant_daemon() {
     local _plist="${HOME}/Library/LaunchAgents/${_label}.plist"
     [[ -f "$_plist" ]] || return 0
     if [[ "${OSTLER_ASSISTANT_STARTED:-0}" == "1" ]]; then
-        launchctl kickstart -k "${_domain}/${_label}" 2>/dev/null || true
+        _ks_bounded "${_domain}/${_label}" -k   # bounded: see _ks_bounded
         return 0
     fi
     launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
