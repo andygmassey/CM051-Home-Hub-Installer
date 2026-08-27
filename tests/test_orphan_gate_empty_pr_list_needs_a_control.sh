@@ -28,19 +28,32 @@ pass=0; fail=0
 ok()  { printf '  ok    %s\n' "$1"; pass=$((pass+1)); }
 bad() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
-mkstub() {   # $1 = exit status the repo-metadata probe should give: ok|blind
+mkstub() {   # $1 = how the /pulls control should answer: ok|blind
     mkdir -p "$TMP/bin"
     cat > "$TMP/bin/gh" <<STUB
 #!/usr/bin/env bash
-# stub gh: open list is always empty; the ANY-state list is the variable
+# stub gh: the open listing is always an empty page; the CONTROL is the variable
 if [ "\$1" = "auth" ]; then exit 1; fi
 # The open listing is ALWAYS an empty page -- the ambiguous shape.
 if [ "\$1" = "pr" ] && [ "\$2" = "list" ]; then printf '%s' '[]'; exit 0; fi
-# The control: can this token read the repo at all?
+# ONE api handler, dispatching on PATH, so each mode models a real token:
+#   ok        may read /pulls            -> a real zero is accepted
+#   blind     refused everywhere         -> CANNOT VERIFY
+#   metaonly  Metadata yes, /pulls NO    -> the #522 shape. A fine-grained PAT
+#             ALWAYS has Metadata, so a control probing repo metadata passes
+#             while the subject listing is refused.
 if [ "\$1" = "api" ]; then
-    case '$1' in
-        ok)    printf '%s' 'someowner/somerepo'; exit 0 ;;
-        blind) echo "HTTP 404: Not Found" >&2;   exit 1 ;;
+    case "\$2" in
+        */pulls*)
+            case '$1' in
+                ok) printf '%s' '[]'; exit 0 ;;
+                *)  echo "HTTP 403: Resource not accessible by personal access token" >&2; exit 1 ;;
+            esac ;;
+        *)
+            case '$1' in
+                blind) echo "HTTP 403" >&2; exit 1 ;;
+                *)     printf '%s' 'someowner/somerepo'; exit 0 ;;
+            esac ;;
     esac
 fi
 exit 0
@@ -76,9 +89,9 @@ R="$(make_repo)"
 mkstub blind
 out="$(run "$R")"
 has "CANNOT VERIFY" "$out" \
-    && ok "empty list + token cannot read the repo -> CANNOT VERIFY, not a pass" \
+    && ok "empty list + token refused on /pulls -> CANNOT VERIFY, not a pass" \
     || bad "an empty list with a blind control read as a PASS -- the false green this exists to stop"
-has "cannot read someowner/somerepo at all" "$out" \
+has "cannot read pull requests on someowner/somerepo" "$out" \
     && ok "the message names WHY, not just that it failed" \
     || bad "CANNOT VERIFY did not name the control"
 
@@ -88,7 +101,7 @@ out="$(run "$R")"
 if has "CANNOT VERIFY" "$out"; then
     bad "a REAL zero was rejected -- the control is too strict and will block clean cuts"
 else
-    ok "empty list + token CAN read the repo -> accepted as a real zero"
+    ok "empty list + /pulls answers 200 (even empty) -> accepted as a real zero"
 fi
 has "a real zero" "$out" \
     && ok "the accepted zero SAYS it was controlled" \
@@ -118,6 +131,26 @@ if has "CANNOT VERIFY" "$out"; then
 else
     ok "off unless OSTLER_ORPHAN_GATE_PR_CONTROL is set (the cut sets it)"
 fi
+
+# (5) THE #522 SHAPE, and the arm that proves the fix rather than the feature.
+#     A fine-grained PAT ALWAYS carries Metadata: read -- it is mandatory for
+#     any repo access -- and may carry no Pull requests permission at all. The
+#     old control read repos/{owner}/{repo}, which needs only Metadata, so such
+#     a token PASSED it and returned an empty list: the exact false green the
+#     control exists to stop. The control now asks /pulls, which needs the
+#     SAME permission the subject needs.
+#
+#     This stub grants metadata and refuses /pulls. It MUST be caught.
+mkstub metaonly
+out="$(run "$R")"
+if has "CANNOT VERIFY" "$out"; then
+    ok "metadata-only token is CAUGHT (the old repo-metadata control passed it)"
+else
+    bad "a metadata-only token passed -- the control still tests the wrong permission (#522)"
+fi
+has "cannot read pull requests on" "$out" \
+    && ok "the message names the PERMISSION, not just the repo" \
+    || bad "the failure does not name which permission was missing"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

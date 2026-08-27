@@ -883,13 +883,35 @@ except Exception: print(-1)' 2>/dev/null || printf '%s' -1)"
         if [[ "${_pr_n:-0}" -eq 0 && -n "${OSTLER_ORPHAN_GATE_PR_CONTROL:-}" ]]; then
             local ctl ctl_rc ctl_err
             ctl_err="$(mktemp)"
-            ctl="$(gh_as "${_tok:-}" api "repos/${gh_repo}" --jq '.full_name' 2>"$ctl_err")"; ctl_rc=$?
-            if [[ "$ctl_rc" -ne 0 || -z "$ctl" ]]; then
-                bad "${label}: CANNOT VERIFY -- open-PR list was empty AND the token cannot read ${gh_repo} at all"
+            # 🔴 THE CONTROL MUST EXERCISE THE SUBJECT'S PERMISSION, NOT MERELY
+            # SHARE ITS TOKEN.
+            #
+            # v1 of this control read `repos/{owner}/{repo}`. That needs
+            # Metadata: read. The subject, `gh pr list`, needs Pull requests:
+            # read. On a fine-grained PAT Metadata is MANDATORY for any repo
+            # access at all, so a token with metadata and no pull-requests
+            # permission PASSED the control and returned `[]` -- precisely the
+            # false green the control exists to stop. Sharing a token is not
+            # sharing a scope, and a control that can succeed for a reason the
+            # subject cannot is not a control. Board #522.
+            #
+            # `/pulls` needs the SAME permission the subject needs. And the
+            # discriminator is the HTTP STATUS, not the array length: 200 with
+            # `[]` means "allowed to look, nothing there" -- a real zero for a
+            # repo that has never had a PR -- while 403/404 means "not allowed
+            # to look", which is what `gh` exits non-zero on. So this does not
+            # require the repo to have PRs, only that the token may ask.
+            ctl="$(gh_as "${_tok:-}" api "repos/${gh_repo}/pulls?state=all&per_page=1" 2>"$ctl_err")"; ctl_rc=$?
+            if [[ "$ctl_rc" -ne 0 ]]; then
+                bad "${label}: CANNOT VERIFY -- open-PR list was empty AND the token cannot read pull requests on ${gh_repo}"
                 printf '         An empty list and a blind token look identical, so the\n' >&2
-                printf '         control reads the repo metadata with the SAME token. It\n' >&2
-                printf '         failed, so the listing did not measure zero open PRs --\n' >&2
-                printf '         it measured nothing.\n' >&2
+                printf '         control asks the pulls endpoint with the SAME token AND\n' >&2
+                printf '         the SAME permission the listing needs (Pull requests:\n' >&2
+                printf '         read). It was refused, so the listing did not measure\n' >&2
+                printf '         zero open PRs -- it measured nothing.\n' >&2
+                printf '         A repo-metadata probe would NOT have caught this: on a\n' >&2
+                printf '         fine-grained PAT, Metadata is mandatory for any access\n' >&2
+                printf '         and is granted by tokens that cannot read PRs at all.\n' >&2
                 printf '         token source: %s\n' "${_tok_src:-none}" >&2
                 [[ -s "$ctl_err" ]] && { printf '         gh said:\n' >&2; sed 's/^/           /' "$ctl_err" >&2; }
                 printf '         Give this owner a token that can read it:\n' >&2
@@ -900,7 +922,7 @@ except Exception: print(-1)' 2>/dev/null || printf '%s' -1)"
                 return
             fi
             rm -f "$ctl_err"
-            note "${label}: zero open PRs, and the control read ${ctl} with the same token -- a real zero (token: ${_tok_src:-none})"
+            note "${label}: zero open PRs, and the pulls endpoint answered with the same token AND permission -- a real zero (token: ${_tok_src:-none})"
         fi
         if [[ "${_pr_n:-0}" -gt 0 ]]; then
             local line
