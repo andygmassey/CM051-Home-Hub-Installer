@@ -1,8 +1,10 @@
 name: cut-gate-wrappers
 
-# Guards the SIX cut-gate wrappers in gui/Makefile -- the recipes that sit
-# between a gate script and the operator and decide what to say about its exit
-# code.
+# Guards the cut-gate WRAPPERS -- the code that sits between a gate script and
+# the operator and decides what to say about its exit code. Two files hold
+# wrappers of that shape: the recipes in gui/Makefile, and run() in
+# scripts/run_all_cut_gates.sh. Both are in scope here; the title says
+# "wrappers", not "Makefile", for that reason.
 #
 # The gate scripts have their own suites. Nothing tested the wrappers, and the
 # wrappers were where the reporting broke: `script || { echo "ERROR: <specific
@@ -34,12 +36,15 @@ on:
       - 'scripts/verify_stapling.sh'
       - 'scripts/verify_commit_parity.sh'
       - 'gui/scripts/sign-python-bundle.sh'
+      - 'gui/scripts/seed-hub-payload-pyc.sh'
+      - 'tests/test_hub_payload_seed_refuses_a_wrong_interpreter.sh'
       - 'tests/test_sign_python_bundle_reports_why.sh'
       - 'tests/test_product_seed_regex_does_not_exclude_the_bundle.sh'
       - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
       - 'tests/test_provenance_gate_marker_read_is_not_piped.sh'
       - 'scripts/walk_dmg.sh'
       - 'tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh'
+      - 'tests/test_walk_arms_distinguish_cannot_run_from_fail.sh'
       # The marker arms are three-state (0 found / 1 not found / 2 could not
       # look). The test is watched as well as run: a run: without a matching
       # path entry is a gate you have read, not a gate you have run.
@@ -55,6 +60,16 @@ on:
       - 'tests/test_pinned_wiki_image_has_design_system.sh'
       - 'scripts/verify_cut_provenance.sh'
       - 'tests/test_wiki_provenance_extracts_without_exec.sh'
+      # THE SECOND WRAPPER FILE. run() in run_all_cut_gates.sh reports on every
+      # gate's exit code and, until 2026-08-26, discarded the stderr it had
+      # already captured whenever rc==0. verify_must_contain.sh used `declare
+      # -A`, a bash 4 builtin; under /bin/bash 3.2.57 it printed "line 68: what:
+      # unbound variable" and EXITED 0, and run() reported "PASS MUST_CONTAIN
+      # BOM  every promised capability landed" for a BOM it had never parsed.
+      # Both the wrapper and its test are triggers: the defect surface and the
+      # instrument have to share one, same rule as the marker manifest above.
+      - 'scripts/run_all_cut_gates.sh'
+      - 'tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh'
       - '.github/workflows/cut-gate-wrappers.yml'
   push:
     branches: [main]
@@ -95,6 +110,28 @@ jobs:
 
       - name: Wrapper trichotomy self-test (stubbed gate scripts)
         run: /bin/bash tests/test_cut_gate_wrappers.sh
+
+      # THE OTHER WRAPPER. run() must not report a gate that died as a pass.
+      #
+      # /bin/bash DELIBERATELY, not `bash`. This is the shape the defect had:
+      # verify_must_contain.sh was green under Homebrew bash 5 on a developer's
+      # PATH and dead under /bin/bash 3.2.57, which is what the cut host and
+      # every customer Mac actually run. Testing it under 5 would reproduce the
+      # accident that hid it.
+      #
+      # The suite prefers the REAL pre-fix gate out of `git show
+      # origin/main:scripts/verify_must_contain.sh` as its specimen and falls
+      # back to a synthetic one only where history is unavailable -- and once
+      # this branch merges, origin/main carries the FIXED file, so the fallback
+      # is the steady state. It PRINTS which specimen it used; a green here is
+      # never silently the weaker claim.
+      #
+      # Exit 2 is CANNOT-RUN (the predicate was renamed or removed) and fails
+      # this step, deliberately. A gate whose self-test can no longer find it
+      # is not a gate that passed.
+      - name: run() cannot report a gate that died as a pass
+        if: always()
+        run: /bin/bash tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh
 
       - name: Test parses under /bin/bash 3.2 (the cut host's shell)
         if: always()
@@ -167,6 +204,13 @@ jobs:
       - name: the product seed actually seeds the product tree
         if: always()
         run: bash tests/test_product_seed_regex_does_not_exclude_the_bundle.sh
+      # The tag check is the difference between a seed and a decoration: a .pyc
+      # named cpython-314 is invisible to the 3.11 that ships, so it would be
+      # regenerated INTO the seal while compileall, the file count and the exit
+      # code all reported success. Shim tarballs, so this costs nothing in CI.
+      - name: the hub payload seed refuses a wrong interpreter
+        if: always()
+        run: bash tests/test_hub_payload_seed_refuses_a_wrong_interpreter.sh
 
       # provenance_gate.sh accused three healthy CM044 wiki images of being
       # stale on run 31696154993, because `gh api` prints its error body to
@@ -205,6 +249,14 @@ jobs:
       - name: arm 8b vetoes on importable, not merely uncovered
         if: always()
         run: /bin/bash tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh
+      # Arms 1-4 of the box walk branched on an exit code alone with output to
+      # /dev/null, so a walk whose attach failed printed FAIL rc=1 / not
+      # stapled / none found: three confident wrong verdicts about a DMG that
+      # was never measured. A false cut-blocker is this estate's expensive
+      # failure. Runs on macos-latest, where codesign, xcrun and spctl exist.
+      - name: walk arms say CANNOT-RUN when they could not measure
+        if: always()
+        run: /bin/bash tests/test_walk_arms_distinguish_cannot_run_from_fail.sh
 
       - name: A marker pattern that cannot run is CANNOT-RUN, not 'absent'
         if: always()

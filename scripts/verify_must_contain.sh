@@ -61,25 +61,50 @@ fail() { echo "FAIL: $*" >&2; }
 HEADER="$(grep -vE '^#' "$MANIFEST" | grep -vE '^[[:space:]]*$' | head -1)"
 [[ -n "$HEADER" ]] || die "manifest has no header row: $MANIFEST"
 
-declare -A COL
+# 🔴 NO `declare -A`. IT IS BASH 4; /bin/bash IS 3.2 ON EVERY MAC, AND THIS
+# 🔴 SCRIPT IS INVOKED BY scripts/run_all_cut_gates.sh ON THE CUT HOST.
+#
+# Measured 2026-08-26: three sibling cut-host gates flipped PASS (bash 5) to
+# FAIL (bash 3.2) on bash-4 builtins -- rc 0->1, 0->1, 0->127. They survive
+# only because their callers use PATH `bash`, which on this developer's Mac is
+# Homebrew 5.x. That is an accident of one machine's PATH, not a property of
+# the gate. On a clean Mac `declare -A` is "invalid option".
+#
+# Same map, portable: a delimited "name=index;" string plus a lookup helper.
+# The six indices are resolved ONCE below rather than per row.
+COL_MAP=";"
 i=0
 while IFS= read -r name; do
     name="$(echo "$name" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
-    [[ -n "$name" ]] && COL["$name"]=$i
+    [ -n "$name" ] && COL_MAP="${COL_MAP}${name}=${i};"
     i=$((i+1))
 done < <(printf '%s' "$HEADER" | tr '\t' '\n')
+
+# col <name> -> prints the column index, or nothing and rc=1 if absent.
+# The ";name=" anchoring matters: a bare substring match would let "repo"
+# find "source_repo" and silently read the wrong column.
+col() {
+    _col_rest="${COL_MAP#*;$1=}"
+    if [ "$_col_rest" = "$COL_MAP" ]; then return 1; fi
+    printf '%s' "${_col_rest%%;*}"
+}
 
 # An unrecognised schema is a HARD ERROR. Misparsing it into rows that read
 # like content failures is how the last one hid: 21 lines of "class unknown"
 # look like 21 problems with the cut, not one problem with the tool.
 for required in what repo landed capability_id verify; do
-    [[ -n "${COL[$required]:-}" ]] || die "this is not a MUST_CONTAIN manifest.
+    [[ -n "$(col "$required")" ]] || die "this is not a MUST_CONTAIN manifest.
        missing column: '$required'
        header found:   $HEADER
        expected:       what  repo  ref  landed  capability_id  verify  ticket
        If you meant the PR-hygiene manifest, use scripts/cut_hygiene_gate.sh.
        Refusing to guess -- a misparsed manifest reports tool faults as cut faults."
 done
+
+# Resolve once. Under bash 3.2 an unset scalar in an array index is a hard
+# error under `set -u`, and these are all proven present by the loop above.
+C_WHAT="$(col what)";   C_REPO="$(col repo)";     C_LANDED="$(col landed)"
+C_CAPID="$(col capability_id)"; C_VERIFY="$(col verify)"
 
 echo "=================================================================="
 echo " MUST_CONTAIN BOM GATE"
@@ -92,16 +117,16 @@ declare -a NOT_LANDED=()
 
 while IFS=$'\t' read -r -a f; do
     [[ ${#f[@]} -lt 2 ]] && continue
-    what="${f[${COL[what]}]:-}"
+    what="${f[$C_WHAT]:-}"
     [[ -z "${what// }" ]] && continue
     [[ "${what:0:1}" == "#" ]] && continue
     # skip the header itself
     [[ "$(echo "$what" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" == "what" ]] && continue
 
-    repo="${f[${COL[repo]}]:-}"
-    land="$(echo "${f[${COL[landed]}]:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
-    capid="${f[${COL[capability_id]}]:-}"
-    verify="${f[${COL[verify]}]:-}"
+    repo="${f[$C_REPO]:-}"
+    land="$(echo "${f[$C_LANDED]:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+    capid="${f[$C_CAPID]:-}"
+    verify="${f[$C_VERIFY]:-}"
 
     total=$((total+1))
 

@@ -37,6 +37,20 @@ Tab-separated `key<TAB>value`. Lines beginning `#` are comments.
 | `pass` / `fail` / `cannot_run` / `broken` | the four counts from `run_box_walk.sh` |
 | `verdict` | `CLEAN`, `FAILED` or `PARTIAL` |
 | `qa_exit` | exit code of the QA run |
+| `failed_probe_names_recorded` | `<n> of <count>`. Reconciles the named probes against the `fail` count IN THE FILE. If the parser that reads the names ever stops matching, this reads `0 of 5` instead of silently returning the record to counts-with-no-names. |
+| `failed_probe` | one row per probe that FAILED, by name. Repeatable. |
+| `not_measured_probe` | one row per probe that could not run. Repeatable. Coverage lost, not coverage passed. |
+| `broken_probe` | one row per probe that failed its own negative control, so its result is not trusted. Repeatable. |
+
+**Names only, never probe output.** A probe's stdout carries paths and
+hostnames; this repo is public, which is why `box_fp` is a hash. Only bare
+probe filenames are written, and anything else on those lines is dropped.
+
+Before this, the record kept the four counts and nothing else. The gate that
+decides whether customers get a build said `fail 5` and could not say which
+five: `run_box_walk.sh` printed the names into a `mktemp` log that
+`post_walk_qa.sh` deleted on exit. `walks/v1.0.44.tsv` is the only record that
+has ever existed and that is exactly what it says.
 
 ## Why four counts and not one
 

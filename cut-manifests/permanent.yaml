@@ -717,6 +717,40 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "identity_layer_is_importable"
+  # #1117. people_count_agreement compares two TOTALS. Two totals that are both
+  # wrong can agree, and on the box measured 2026-08-26 both were wrong in ways
+  # a total cannot show: qdrant 7284, graph 7111, but 203 in qdrant-not-graph
+  # against 30 in graph-not-qdrant. The headline "gap of 173" is a NET figure
+  # hiding two defects of opposite sign that partially cancel, so a fix aimed at
+  # "173 orphans" would have been wrong in both directions.
+  #
+  # This probe does set arithmetic instead, and reports THREE named residuals
+  # rather than one number: untyped terminal merge survivors (106), orphan
+  # vectors with no graph presence (97), and NAMED persons with no vector (0).
+  # Unnamed address-only stubs are reported and deliberately do NOT fail it --
+  # all 30 on the box carry prefLabel identical to their email and no name, so
+  # embedding them would push raw addresses into the People tab.
+  # ==========================================================================
+  - id: box-walk-people-stores-reconcile
+    title: the graph, the vector store and the number the customer is shown must all describe the same people
+    incident: >-
+      2026-08-26 box walk; the people count differed by 173 between Oxigraph and
+      Qdrant and every existing surface reported only that difference. Set
+      arithmetic showed it was 203 one way and 30 the other, from three distinct
+      broken write paths -- a merge that never types its survivor, a merge that
+      leaves the absorbed node's vector behind, and an email ingest that mints
+      Person nodes with no name and no vector. A single total could not have
+      distinguished any of them, and could have read as clean had the two errors
+      happened to cancel exactly. A fourth residual covers the surface task #273
+      actually complained about: the wiki's headline People tile, which read
+      7,111 on the box measured -- the graph count, 76 short of the reconciled
+      7,187. It fails only when the tile matches NEITHER store, which is the
+      #273 signature (Oxigraph 6376, Doctor 6755, UI 6547 -- the UI had invented
+      a third number). A tile faithfully rendering a store this probe already
+      fails on is a consequence, not a second defect.
+    proof:
+      kind: box_walk_probe
+      probe: "people_stores_reconcile"
 
   # PR-branch staleness gate. Encodes feedback_mergeable_api_state_isnt_semantic_safety
   # (filed 2026-07-31): mergeable: MERGEABLE from the GH API does NOT prove the

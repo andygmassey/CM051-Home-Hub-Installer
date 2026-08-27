@@ -26,6 +26,8 @@ on:
       - 'tests/test_grep_row_cannot_be_satisfied_by_its_own_manifest.py'
       - 'tests/test_cut_deferrals_no_duplicate_keys.sh'
       - 'cut-deferrals.yaml'
+      - 'scripts/post_walk_qa.sh'
+      - 'tests/test_walk_record_names_the_failing_probes.sh'
       - 'scripts/box_walk_probes/**'
       - 'scripts/tests/test_people_seed_and_retrieval_probe.sh'
       - 'cut-manifests/**'
@@ -114,6 +116,16 @@ jobs:
       - name: every written deferral is actually loaded (no silent duplicate key)
         if: always()
         run: /bin/bash tests/test_cut_deferrals_no_duplicate_keys.sh
+      # The walk record GATES THE CUSTOMER DOWNLOAD, and it used to record four
+      # counts and nothing else -- `fail 5` with no way to say which five,
+      # because run_box_walk.sh printed the names into a mktemp log that
+      # post_walk_qa.sh deleted on exit. This checks the names are recovered,
+      # that a parser which stops matching is EXPOSED by the reconciliation
+      # line rather than silently returning to counts, and that a line carrying
+      # a hostname is dropped -- walks/ is committed to a PUBLIC repo.
+      - name: the walk record names the failing probes, and leaks no host
+        if: always()
+        run: /bin/bash tests/test_walk_record_names_the_failing_probes.sh
 
   # The box-walk probe body itself. The primitive above only proves the
   # verifier honours a probe's exit code; this job proves the people probe

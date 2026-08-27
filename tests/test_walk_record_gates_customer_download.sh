@@ -214,6 +214,162 @@ rc="$(run_gate v1.0.42)"
     && ok "a record with NO qa_exit is CANNOT-RUN (rc=2), not a pass and not a failure" \
     || bad "absent qa_exit returned rc=${rc}, expected 2"
 
+# ── THE RECORD'S COUNTS ARE USELESS IF THE DETAIL IS DELETED ────────────────
+#
+# post_walk_qa.sh WRITES the record this file gates on. Until 2026-08-26 it held
+# the probe output in `mktemp` under `trap rm EXIT`, so the instant the walk
+# ended the only record of WHICH probes failed was gone.
+#
+# MEASURED: walks/v1.0.47.tsv says fail=5 cannot_run=4 verdict=FAILED and names
+# not one probe. Those counts refuse the customer download. Recovering the
+# reasons costs a full re-walk of a physical box -- the most expensive step in
+# the pipeline. A refusal nobody can act on is a refusal that gets overridden.
+#
+# The predicate is EXTRACTED FROM THE WRITER AND RUN, not re-typed here: a test
+# that re-implements the thing it checks passes with the real code deleted.
+_pwq="${REPO_ROOT}/scripts/post_walk_qa.sh"
+if [[ ! -r "$_pwq" ]]; then
+    bad "CANNOT-RUN: no readable post_walk_qa.sh -- not a pass"
+else
+    _s=$(grep -n '^PROBE_LOG=""' "$_pwq" | head -1 | cut -d: -f1)
+    _e=$(grep -n '^OSTLER_BOX_HOST="\$BOX"' "$_pwq" | head -1 | cut -d: -f1)
+    if [[ -z "$_s" || -z "$_e" ]]; then
+        bad "CANNOT-RUN: could not extract the probe-log block from post_walk_qa.sh -- anchors moved, re-point this arm rather than deleting it"
+    else
+        _blk="$(sed -n "${_s},$((_e-1))p" "$_pwq")"
+        _h="$(mktemp -d)"
+        # BOX must be set. post_walk_qa.sh takes it as $1 and exits 3 without
+        # one, and the block now reads it to write the plaintext host header --
+        # under `set -u` an unset BOX aborts the eval and PROBE_LOG comes back
+        # empty. Caught by this very arm when the header was added.
+        _got="$( export HOME="$_h"; BOX="synthetic.invalid"; CUT_VERSION=v0.0.0-test
+                 eval "$_blk" >/dev/null 2>&1; printf '%s' "$PROBE_LOG" )"
+
+        # 1. It must survive the run.
+        case "$_got" in
+            "$_h"/.ostler/walks/*) ok "the probe detail is kept, not deleted with the run" ;;
+            *) bad "probe log is not persisted under HOME (got '${_got}') -- a FAILED walk would again name no probes" ;;
+        esac
+
+        # 2. AND IT MUST NOT BE IN THIS REPO. CM051 is PUBLIC -- that is exactly
+        # why the record stores box_fp as a hash. The raw log is the opposite:
+        # real hostname, real paths, real output. If someone "tidies" it into
+        # walks/ it becomes a tracked file and the hashing was for nothing.
+        #
+        # EMPTY IS NOT "OUTSIDE THE REPO". Without this guard the arm passed
+        # vacuously the moment the eval aborted: '' does not match "$REPO_ROOT"/*,
+        # so a broken extraction scored as proof of containment. Measured -- it
+        # reported ok while arm 1 was already failing on the same empty value.
+        if [ -z "$_got" ]; then
+            bad "arm 2 has nothing to judge (PROBE_LOG empty) -- that is CANNOT-RUN, not proof the log is outside the repo"
+        else
+            case "$_got" in
+                "$REPO_ROOT"/*) bad "the probe log resolves INSIDE the repo (${_got}) -- this repo is public and the log carries the real hostname" ;;
+                *) ok "the probe log is outside the repo, so it cannot become a tracked file" ;;
+            esac
+        fi
+
+        # 3. The header must NAME THE BOX. The record cannot (it is public and
+        # stores only sha256(host)[0:16]), so if the local log does not carry
+        # the plaintext either, nobody can say which machine a FAILED walk ran
+        # against. Measured on v1.0.47: box_fp 38abe713e160f279, eleven
+        # candidate hosts, no match -- the box is simply unrecoverable.
+        if [ -n "$_got" ] && [ -f "$_got" ]; then
+            grep -q 'synthetic.invalid' "$_got" \
+                && ok "the local log names the box in plaintext, so a walk is attributable" \
+                || bad "the log does not name the host -- a FAILED walk stays unattributable, which is the v1.0.47 situation"
+        fi
+
+        # 4. THE TEE MUST APPEND. The three arms above eval the header block in
+        # isolation; they cannot see the line that writes the probe output,
+        # because driving that needs a real box over ssh. So this one is a
+        # source assertion, and it is not decoration:
+        #
+        #   `| tee "$PROBE_LOG"`     truncates -- header gone, box unattributable
+        #   `| tee -a "$PROBE_LOG"`  appends   -- header survives
+        #
+        # Measured: reverting to the truncating form still PARSES and still
+        # passes all three arms above. Without this line that regression is
+        # invisible, which is the gap this arm exists to close.
+        if grep -qE 'tee -a "\$PROBE_LOG"' "$_pwq"; then
+            ok "the probe output APPENDS to the log, so the host header survives"
+        else
+            bad "the probe output is tee'd WITHOUT -a -- it truncates the file and destroys the host header written above it"
+        fi
+
+        # 3. The fallback must CONFESS. Silently reverting to a temp file is the
+        # original defect wearing a different mask.
+        _h2="$(mktemp -d)"; chmod 500 "$_h2"
+        _out="$( export HOME="$_h2"; BOX="synthetic.invalid"; CUT_VERSION=v0.0.0-test; eval "$_blk" 2>&1 )"
+        chmod 700 "$_h2"
+        case "$_out" in
+            *"TEMPORARY and dies"*) ok "an unwritable log dir is ANNOUNCED, not silently downgraded" ;;
+            *) bad "the fallback path is silent -- an operator would believe detail was kept when it was not" ;;
+        esac
+        rm -rf "$_h" "$_h2"
+    fi
+fi
+
+# ── BROKEN MUST NOT READ ZERO WHEN PROBES ARE BROKEN ────────────────────────
+#
+# count_of() parses the four counts that go into the walk record. It was
+#     awk '$1 == k { print $2; exit }'
+# which takes the FIRST line whose first field is the keyword.
+#
+# PASS / FAIL / CANNOT-RUN appear only in the closing summary, so they parsed by
+# luck. BROKEN is ALSO a per-probe label in phase 1 -- "BROKEN  <name>  (self-test
+# returned 0, expected 1)" -- and phase 1 is printed first. The match landed on
+# the probe line, returned the probe NAME, failed the ^[0-9]+$ guard, and was
+# coerced to empty, which the record writes as 0.
+#
+# MEASURED on the real 2026-08-26T14:17:14Z walk of the v1.0.47 box: two probes
+# were BROKEN and the record said broken 0. BROKEN is the most serious state the
+# suite has -- a probe that fails its own negative control measures NOTHING and
+# phase 2 skips it -- so it was the single count that read zero exactly when it
+# mattered, in the file that gates the customer download.
+#
+# The fixture below reproduces that ORDER deliberately: per-probe label first,
+# summary block after. A fixture with only the summary would pass against the
+# broken predicate and prove nothing.
+_pwq2="${REPO_ROOT}/scripts/post_walk_qa.sh"
+if [[ ! -r "$_pwq2" ]]; then
+    bad "CANNOT-RUN: no readable post_walk_qa.sh for the count_of arm -- not a pass"
+else
+    _cline="$(grep -n '^count_of() {' "$_pwq2" | head -1 | cut -d: -f1)"
+    if [[ -z "$_cline" ]]; then
+        bad "CANNOT-RUN: count_of() not found in post_walk_qa.sh -- re-point this arm rather than deleting it"
+    else
+        _fix="$(sed -n "${_cline}p" "$_pwq2")"
+        _log="$(mktemp)"
+        {
+            printf '  BROKEN   app_signature_survives_first_run  (self-test returned 0, expected 1)\n'
+            printf '  ok       daemon_is_listening  (goes red on known-bad input)\n'
+            printf '  BROKEN   pairing_recovers_without_a_repair_storm  (self-test returned 0, expected 1)\n'
+            printf '\n  === Summary ===\n'
+            printf '  PASS        7\n'
+            printf '  FAIL        4\n'
+            printf '  CANNOT-RUN  4\n'
+            printf '  BROKEN      2\n'
+        } > "$_log"
+
+        ( PROBE_LOG="$_log"; eval "$_fix"
+          _got_b="$(count_of BROKEN)"; _got_p="$(count_of PASS)"
+          [ "$_got_b" = "2" ] && [ "$_got_p" = "7" ] ) \
+            && ok "count_of reads the SUMMARY line: BROKEN=2 despite two per-probe BROKEN labels above it" \
+            || bad "count_of returned the wrong BROKEN -- a broken probe would be recorded as 0 and the walk would look cleaner than it is"
+
+        # THE CONTROL. A predicate that returned "" for everything would pass the
+        # assertion above only if it also broke PASS, so check a keyword that was
+        # never ambiguous still resolves.
+        ( PROBE_LOG="$_log"; eval "$_fix"
+          [ "$(count_of CANNOT-RUN)" = "4" ] ) \
+            && ok "CONTROL: an unambiguous keyword still parses (CANNOT-RUN=4)" \
+            || bad "CONTROL FAILED: count_of can no longer read CANNOT-RUN -- the fix broke the working cases"
+
+        rm -f "$_log"
+    fi
+fi
+
 echo
 echo "${PASS} passed, ${FAIL} failed"
 [[ "$FAIL" -eq 0 ]] || exit 1
