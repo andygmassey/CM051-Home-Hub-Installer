@@ -105,6 +105,20 @@ run_case "detached HEAD (interrupted-rebase shape)" 1
 assert_contains "case 6 detects detached HEAD" "HEAD is DETACHED"
 git -C "${REPO}" checkout -q main
 
+# --- CASE 6b: detached AT A TAG -> GREEN (the CI tag-push shape) -------------
+# THE CONTROL FOR CASE 6. Case 6 alone cannot tell "refuses detached" from
+# "refuses everything detached including the shape the cut actually uses".
+# These two arms differ in EXACTLY ONE fact -- whether a tag points at HEAD --
+# so together they prove the predicate discriminates rather than blanket-denies.
+# Measured 2026-08-27: cut run 33074389084 built, signed, notarised and stapled
+# a DMG and was then refused here, because a tag push always detaches.
+git -C "${REPO}" tag -f archie-clean-tree-probe "${DET_SHA}" >/dev/null 2>&1
+git -C "${REPO}" checkout -q "${DET_SHA}"
+run_case "detached HEAD AT A TAG (the shape every tag-triggered cut has)" 0
+assert_contains "case 6b accepts a tag as a fixed cut point" "detached at TAG"
+git -C "${REPO}" checkout -q main
+git -C "${REPO}" tag -d archie-clean-tree-probe >/dev/null 2>&1
+
 # --- CASE 7: Makefile + release.sh wire-in (silent no-op guard) --------------
 printf '\n=== CASE: gui/Makefile + release.sh wire the gate in ===\n'
 mk_hits="$(grep -c 'check-clean-tree' "${MAKEFILE}")"
