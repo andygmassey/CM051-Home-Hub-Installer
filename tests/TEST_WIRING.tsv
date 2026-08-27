@@ -20,6 +20,7 @@
 test_a_dead_wiki_announces_itself.py	WIRED	.github/workflows/vendor-integrity.yml
 test_a_denied_read_is_not_an_absence.sh	WIRED	.github/workflows/unreachable-not-absence.yml
 test_a_failed_hydrate_may_not_fabricate_a_count.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_a_truncated_category_is_not_reported_complete.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_ai_conversations_leg_wired.sh	UNWIRED	-
 test_ai_model_env_contract.sh	WIRED	.github/workflows/install-gui-contract.yml
@@ -150,6 +151,7 @@ test_grep_c_arith_safety.sh	UNWIRED	-
 test_grep_row_cannot_be_satisfied_by_its_own_manifest.py	WIRED	.github/workflows/cut-manifest.yml
 test_gui_progress_emitter.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_hub_app_fetch_wired.sh	WIRED	.github/workflows/hub-app-fetch.yml
+test_hub_payload_seed_refuses_a_wrong_interpreter.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_hydrate_apple_notes_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_email_preferences_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_people_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
@@ -229,6 +231,7 @@ test_placeholder_strip.sh	UNWIRED	-
 test_pr_age_gate_declares_partial_runs.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pref_noise_source_cap.py	UNWIRED	-
 test_preferences_vendor_wired.sh	UNWIRED	-
+test_probe_absence_is_not_an_answer.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_product_seed_regex_does_not_exclude_the_bundle.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_provenance_gate_cannot_run_is_not_stale.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_provenance_gate_marker_read_is_not_piped.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
@@ -307,7 +310,9 @@ test_verify_ci_steps_are_maskless.sh	WIRED	.github/workflows/ci-maskless.yml
 test_verify_no_symbol_regression.sh	WIRED	.github/workflows/symbol-regression.yml
 test_verify_test_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_voice_consent_matches_catalogue.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_walk_arms_distinguish_cannot_run_from_fail.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_walk_record_gates_customer_download.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_walk_record_names_the_failing_probes.sh	WIRED	.github/workflows/cut-manifest.yml
 test_walkaway_no_phase2_input_leak.sh	UNWIRED	-
 test_whatsapp_channel_block.sh	UNWIRED	-
 test_whatsapp_parser_does_not_claim_meta_messages.py	WIRED	.github/workflows/parser-claim-separation.yml

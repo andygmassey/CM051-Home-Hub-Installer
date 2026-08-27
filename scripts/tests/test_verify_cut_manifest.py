@@ -702,6 +702,91 @@ def test_box_walk_probe_fail_on_nonzero(fake_cm051, fake_app, monkeypatch):
     assert "exit=7" in r.stdout or "exit\\\": 7" in r.stdout
 
 
+def test_box_walk_probe_exit_78_is_cannot_run_not_fail(fake_cm051, fake_app, monkeypatch):
+    """Exit 78 is CANNOT-RUN, never FAIL. A probe that could not MEASURE is not
+    evidence of a defect in the ARTEFACT.
+
+    THE DEFECT THIS PINS. _check_box_walk_probe was:
+        ok = (exit_code == 0)
+        status = "PASS" if ok else "FAIL"
+    -- a two-state predicate over a three-state protocol.
+    scripts/box_walk_probes/run_box_walk.sh:44 declares `EX_CANNOT_RUN=78` and 13
+    of the 17 registered probes honour it. This function had never heard of it.
+
+    MEASURED on the 2026-08-26T14:17:14Z walk of the v1.0.47 box:
+        pair_state_agreement exit=78
+        "VERDICT: CANNOT-RUN -- only 1 of 3 pairing signals were readable --
+         one signal cannot contradict itself, so this would pass forever."
+    and the row was recorded FAIL. It went onto the cut-blocker list as a real
+    pairing defect. It was not one. A false accusation sends whoever reads the
+    report hunting a bug that was never detected, while the actual fault -- a
+    signal nobody could read -- goes unsaid.
+    """
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_probe(fake_cm051, "unreadable",
+                 "echo 'VERDICT: CANNOT-RUN -- only 1 of 3 signals were readable'\nexit 78")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-unreadable",
+        "title": "runtime probe cannot run",
+        "proof": {"kind": "box_walk_probe", "probe": "unreadable"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    summary = json.loads(r.stdout)["summary"]
+    # Counted as CANNOT-RUN, and -- the load-bearing half -- NOT blamed on the
+    # artefact. Assert the FAIL count is zero, not merely that the words differ.
+    assert summary["cannot_run"] == 1, r.stdout
+    assert summary["fail"] == 0, r.stdout
+
+
+def test_box_walk_probe_cannot_run_still_blocks_the_cut(fake_cm051, fake_app, monkeypatch):
+    """CANNOT-RUN is relabelled, NOT downgraded. It must still exit non-zero.
+
+    THE TRAP THIS EXISTS TO SHUT. The obvious fix for the test above is to map 78
+    to the pre-existing SKIP status. That would be WORSE than the defect: main()
+    ends `return 0 if fails == 0 ...`, so SKIP does not block, and a cut would
+    sail through on unmeasured pairing, egress and signing.
+
+    The original author chose FAIL because it was the only blocking option
+    available -- the right instinct with the wrong label. This pins both halves:
+    the label is CANNOT-RUN (test above) AND the exit code is still 1 (here).
+    Delete either assertion and the other one alone is satisfiable by a
+    regression.
+    """
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_probe(fake_cm051, "unreadable2", "echo 'CANNOT-RUN'\nexit 78")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-unreadable2",
+        "title": "runtime probe cannot run",
+        "proof": {"kind": "box_walk_probe", "probe": "unreadable2"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, (
+        "a probe that could not measure let the cut through -- "
+        "coverage lost is not coverage passed\n" + r.stdout)
+
+
+def test_box_walk_probe_78_does_not_swallow_real_failures(fake_cm051, fake_app, monkeypatch):
+    """THE CONTROL. A predicate that called everything CANNOT-RUN would satisfy
+    both tests above while blinding the gate to real defects. Exit 1 must still
+    be FAIL, and must still be counted as one."""
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_probe(fake_cm051, "genuinely_broken",
+                 "echo 'VERDICT: FAIL -- 35 paired tokens persisted'\nexit 1")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-genuinely-broken",
+        "title": "runtime probe genuinely fails",
+        "proof": {"kind": "box_walk_probe", "probe": "genuinely_broken"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    summary = json.loads(r.stdout)["summary"]
+    assert summary["fail"] == 1, r.stdout
+    assert summary["cannot_run"] == 0, r.stdout
+
+
 def test_box_walk_probe_missing_probe_fails(fake_cm051, fake_app, monkeypatch):
     """Box available but probe script missing -> FAIL (registry gap)."""
     monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")

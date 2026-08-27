@@ -107,9 +107,57 @@ echo
 # is NOT run a second time to get them -- people_seed_and_retrieval writes a
 # synthetic person into the LIVE store (#829), so a second run is a second
 # write, and a second chance to leave the seed behind.
-PROBE_LOG="$(mktemp)"
-trap 'rm -f "$PROBE_LOG"' EXIT
-OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" 2>&1 | tee "$PROBE_LOG"
+# THE LOG SURVIVES THE RUN. It used to be `mktemp` + `trap rm EXIT`, so the
+# moment the walk finished the only record of WHICH probes failed was deleted.
+#
+# MEASURED 2026-08-26: walks/v1.0.47.tsv says fail=5 cannot_run=4 verdict=FAILED
+# and names not one probe. The counts gate the customer download; the detail
+# that would let anyone ACT on them was destroyed by this script. The only way
+# back to it is to re-walk a physical box, which is the most expensive step we
+# have. A gate that refuses a cut and then discards its reasons makes the
+# refusal unactionable.
+#
+# NOT IN THE REPO, DELIBERATELY. This repo is PUBLIC, which is the whole reason
+# the walk record stores the box as a hash (box_fp) rather than a hostname. The
+# raw probe log is the opposite: real hostname, real paths, real output. It goes
+# to the operator's own machine and never becomes a tracked file. Do not "helpfully"
+# move this under walks/.
+#
+# If the durable path cannot be created we fall back to mktemp and SAY SO,
+# rather than silently returning to the old behaviour.
+PROBE_LOG=""
+_walk_logdir="${HOME}/.ostler/walks"
+if mkdir -p "$_walk_logdir" 2>/dev/null; then
+    PROBE_LOG="${_walk_logdir}/${CUT_VERSION:-unversioned}-$(date -u +%Y%m%dT%H%M%SZ).log"
+    : > "$PROBE_LOG" 2>/dev/null || PROBE_LOG=""
+fi
+if [[ -z "$PROBE_LOG" ]]; then
+    PROBE_LOG="$(mktemp)"
+    trap 'rm -f "$PROBE_LOG"' EXIT
+    echo "  ⚠️ could not write ${_walk_logdir}; probe detail is TEMPORARY and dies with this run"
+else
+    # THE LOG NAMES THE BOX IN PLAINTEXT. The walk record cannot: it stores
+    # sha256(host)[0:16], because it is committed to a PUBLIC repo.
+    #
+    # That hashing is right, and it also means NOBODY can recover which machine
+    # a walk ran against -- including the operator. Measured today: v1.0.47's
+    # record says box_fp 38abe713e160f279 and eleven candidate hosts hashed to
+    # none of them, so the box behind a FAILED verdict is simply unknown.
+    #
+    # This file is operator-local and never tracked, so it is the correct place
+    # for the plaintext. Public record: hash. Local log: host. Both true, and
+    # only one of them leaves the machine.
+    {
+        printf '# ostler box walk\n'
+        printf '# host      %s\n' "$BOX"
+        printf '# box_fp    %s\n' "$(printf '%s' "$BOX" | shasum -a 256 | cut -c1-16)"
+        printf '# version   %s\n' "${CUT_VERSION:-(none given)}"
+        printf '# started   %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf '#\n'
+    } > "$PROBE_LOG"
+    echo "  probe detail will be kept at: ${PROBE_LOG}"
+fi
+OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" 2>&1 | tee -a "$PROBE_LOG"
 probe_rc="${PIPESTATUS[0]}"
 
 # THE COUNTS, NOT THE RETURN CODE. run_box_walk.sh exits 0 whenever
@@ -118,7 +166,33 @@ probe_rc="${PIPESTATUS[0]}"
 # that a partial walk "exits non-zero", and until the counts were read that
 # promise could not be kept: the verdict was invariant to coverage loss, the
 # one distinction the box walk exists to make.
-count_of() { awk -v k="$1" '$1 == k { print $2; exit }' "$PROBE_LOG"; }
+# THE SUMMARY LINE, NOT THE FIRST LINE THAT STARTS WITH THE WORD.
+#
+# This was `awk '$1 == k {print $2; exit}'` and it under-reported BROKEN to ZERO
+# on every walk that had one.
+#
+# PASS / FAIL / CANNOT-RUN appear ONLY in the closing summary, so they parsed by
+# luck. BROKEN is also a PER-PROBE LABEL in phase 1 -- "BROKEN  <name>  (self-test
+# returned 0, expected 1)" -- and phase 1 comes first. So the match landed on the
+# probe line, returned the probe's NAME as the count, failed the ^[0-9]+$ guard
+# below, and was coerced to empty, which reads downstream as 0.
+#
+# MEASURED on the 2026-08-26T14:17:14Z walk of andy@192.168.1.228:
+#     line  20  BROKEN   app_signature_survives_first_run  (...)   <- matched this
+#     line 206  BROKEN      2                                      <- meant this
+#     count_of BROKEN -> "app_signature_survives_first_run" -> record wrote 0
+#
+# BROKEN is the most serious state the suite has: a probe that fails its own
+# negative control is measuring NOTHING, and phase 2 skips it. It was the one
+# count that read zero exactly when it mattered, in the record that gates the
+# customer download. Two probes were broken that run and the record said none.
+#
+# THE DISCRIMINATOR IS SHAPE, NOT POSITION. Summary lines are exactly two fields
+# with a numeric second field. Per-probe lines carry the name and a parenthetical,
+# so they are 7 or 13 fields. Anchoring on "NF == 2 && $2 is a number" cannot be
+# fooled by a probe whose name happens to sort earlier, and does not depend on
+# the summary staying at the bottom.
+count_of() { awk -v k="$1" '$1 == k && NF == 2 && $2 ~ /^[0-9]+$/ { print $2; exit }' "$PROBE_LOG"; }
 n_pass="$(count_of PASS)";       n_fail="$(count_of FAIL)"
 n_cannot="$(count_of CANNOT-RUN)"; n_broken="$(count_of BROKEN)"
 for v in n_pass n_fail n_cannot n_broken; do
@@ -276,6 +350,33 @@ if [[ -n "$CUT_VERSION" ]]; then
 
     # Counts are the ones already parsed from the single probe run above --
     # the suite is deliberately not re-invoked. See the note at that call.
+    # WHICH PROBES FAILED, NOT JUST HOW MANY.
+    #
+    # run_box_walk.sh already prints the names, under "FAILED:", "NOT MEASURED"
+    # and "BROKEN". They were reaching a mktemp PROBE_LOG that this script
+    # deletes on EXIT, while only the four counts were lifted into the record.
+    # So the gate that decides whether customers get a build recorded `fail 5`
+    # and nothing that could say which five. Two days after the v1.0.44 walk,
+    # `fail 5` was the whole of what survived it.
+    #
+    # NAMES ONLY, never a probe's output. A probe's stdout carries paths and
+    # hostnames, and this repo is public -- which is why box_fp is a hash. The
+    # names are filenames under scripts/box_walk_probes/probes/ and carry
+    # nothing about the box. The pattern below accepts only that shape, so a
+    # line that is not a bare probe name is dropped rather than published.
+    section_names() { # $1 = leading text of the section header
+        awk -v hdr="$1" '
+            index($0, hdr) == 1 { grab = 1; next }
+            grab && $0 ~ /^[[:space:]]*$/ { exit }
+            grab && $0 ~ /^  [A-Za-z0-9._-]+$/ { sub(/^  /, ""); print; next }
+            grab { exit }
+        ' "$PROBE_LOG"
+    }
+    FAILED_NAMES="$(section_names 'FAILED:')"
+    NOTMEAS_NAMES="$(section_names 'NOT MEASURED')"
+    BROKEN_NAMES="$(section_names 'BROKEN (')"
+    n_failed_named="$(printf '%s' "$FAILED_NAMES" | grep -c . || true)"
+
     {
         printf '# Ostler walk record -- written by scripts/post_walk_qa.sh\n'
         printf '# Read by scripts/verify_walk_record.sh, which gates the customer download.\n'
@@ -303,6 +404,16 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf 'broken\t%s\n'      "${n_broken:-0}"
         printf 'verdict\t%s\n'     "$VERDICT"
         printf 'qa_exit\t%s\n'     "$overall"
+        # RECONCILE THE NAMES AGAINST THE COUNT, IN THE FILE.
+        # If the parser above ever stops matching -- a header reworded, an
+        # indent changed -- it returns nothing and the record would quietly go
+        # back to counts with no names, which is the exact blindness being
+        # fixed and would look like a clean walk with nothing to report. This
+        # line makes that visible to anyone reading the record.
+        printf 'failed_probe_names_recorded\t%s of %s\n' "${n_failed_named:-0}" "${n_fail:-0}"
+        printf '%s\n' "$FAILED_NAMES"  | while IFS= read -r _n; do [ -n "$_n" ] && printf 'failed_probe\t%s\n' "$_n"; done
+        printf '%s\n' "$NOTMEAS_NAMES" | while IFS= read -r _n; do [ -n "$_n" ] && printf 'not_measured_probe\t%s\n' "$_n"; done
+        printf '%s\n' "$BROKEN_NAMES"  | while IFS= read -r _n; do [ -n "$_n" ] && printf 'broken_probe\t%s\n' "$_n"; done
     } > "$RECORD"
 
     echo

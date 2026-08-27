@@ -27,13 +27,24 @@ PROBE_NAME="people_count_agreement"
 PROBE_QUESTION="do Oxigraph and the Doctor API agree on the number of people?"
 
 OXIGRAPH_URL="${OSTLER_OXIGRAPH_URL:-http://127.0.0.1:7878/query}"
-# THIS URL HAS NEVER EXISTED. Measured 2026-08-26: /doctor/api/people/count
-# returns 404 on both 8089 and 8090, is absent from the running Doctor's 57
-# advertised routes, and a repo-wide search finds 0 hits in HR015's doctor/ or
-# CM051's vendor/doctor (control: "doctor/api/status" = 3 hits in those same
-# files). So this arm reported "doctor UNAVAILABLE" for its whole life and the
-# walk read that as "the surfaces could not be compared" rather than "the probe
-# is asking for a route nobody wrote".
+# 🔴 THIS PROBE ASKED A ROUTE NOBODY EVER WROTE (fixed 2026-08-26).
+# It pointed at /doctor/api/people/count. MEASURED on the live box:
+#
+#   /doctor/api/people/count   -> 404
+#   /doctor/api/freshness      -> 404      (sibling probe, same class)
+#   /doctor/api/health         -> 200      <- POSITIVE CONTROL: the predicate
+#                                             works, so those 404s are real
+#                                             absences, not a broken probe
+#
+# The route is absent from the SHIPPING doctor, not merely from this box: the
+# vendored vendor/doctor/agent/web_ui.py contains ZERO occurrences of "people/
+# count", and the box's copy is BYTE-IDENTICAL to the vendored one (sha256
+# 9a160ada279338b3 both sides). So the box is not stale -- the route never
+# existed in any build. A repo-wide search finds 0 hits in HR015's doctor/ or
+# CM051's vendor/doctor either; control "doctor/api/status" = 3 hits in those
+# same files. So this arm reported "doctor UNAVAILABLE" for its whole life and
+# the walk read that as "the surfaces could not be compared" rather than "the
+# probe is asking for a route nobody wrote".
 #
 # WHY THE PUBLIC HYDRATION ROUTE, NOT /api/v1/people. Both answer and both
 # report the same number (7284 on the box measured). The difference is what
@@ -48,8 +59,27 @@ OXIGRAPH_URL="${OSTLER_OXIGRAPH_URL:-http://127.0.0.1:7878/query}"
 # the situation where you most need to know whether the stores agree, and that
 # silence is indistinguishable from "the endpoint is missing". The public route
 # keeps measuring through an auth outage, and there is no token to plumb into a
-# walk log.
-DOCTOR_PEOPLE_URL="${OSTLER_DOCTOR_PEOPLE_URL:-http://127.0.0.1:8090/api/v1/hydration/status}"
+# walk log. "Public by design" is not an observation about one box: the shipping
+# ical-server hardcodes it at vendor/cm041/assistant_api/ical-server.py:225,
+#     _PUBLIC_GET_PATHS = {"/health", "/api/v1/hydration/status"}
+# so the exemption travels with the payload.
+#
+# WHY :8089 AND NOT :8090, given both answer with contacts=7284. They are not
+# two rival Doctors; that reading was wrong. install.sh ships ONE Doctor on
+# :8089 that PROXIES /api/v1/* to the loopback-only ical-server on :8090
+# (DOCTOR_PROXY_PATHS + DOCTOR_GATEWAY_URL in the com.ostler.doctor plist),
+# attaching the #200 PWG_SERVICE_TOKEN on the forwarded hop. Both hops are
+# real and both are guarded -- vendor/cm041/assistant_api/test_vendor_import.sh
+# asserts the ical-server carries the handler AND that install.sh lists the path
+# in DOCTOR_PROXY_PATHS.
+#
+# :8089 is the surface THE CUSTOMER READS. install.sh sets HUB_HOST to
+# http://localhost:8089; the app and the browser reach Ostler through the
+# Doctor, which is why MSG_WARN_DOCTOR_NOT_RESPONDING says data and pairing may
+# be unavailable when it is down. Measuring :8090 direct would step around the
+# Doctor and report cheerful agreement while the customer's People page is
+# blank. A probe should fail where the customer fails.
+DOCTOR_PEOPLE_URL="${OSTLER_DOCTOR_PEOPLE_URL:-http://127.0.0.1:8089/api/v1/hydration/status}"
 TOLERANCE_PCT="${OSTLER_PEOPLE_TOLERANCE_PCT:-2}"
 
 count_oxigraph() {
@@ -93,24 +123,61 @@ count_doctor() {
     local out
     out="$(box_run "curl -sS -m 10 '$DOCTOR_PEOPLE_URL' 2>/dev/null")"
     printf '%s' "$out" | python3 -c '
-import json,sys,re
-raw=sys.stdin.read().strip()
-if not raw: print("UNAVAILABLE"); sys.exit(0)
+import json,sys
+# NOTE: there is deliberately NO regex fallback here any more.
+# It used to end with re.search(r"\d+", raw) on unparseable input. Against the
+# hydration payload that is actively dangerous: the phases array also carries
+# {"key":"graph","count":293461}, so "the first number in the blob" can hand
+# back a KNOWLEDGE-GRAPH TRIPLE COUNT dressed up as a count of people, and the
+# adjudicator would compare it to Oxigraph and scream about a 286,000-person
+# disagreement. A number scraped from arbitrary text is not a measurement.
+# Unparseable input is UNAVAILABLE. That is the honest third state.
+PEOPLE_PHASE = "contacts"
+raw = sys.stdin.read().strip()
+if not raw:
+    print("UNAVAILABLE"); sys.exit(0)
 try:
-    d=json.loads(raw)
-    # hydration/status shape: {"phases":[{"key":"contacts","count":N},...]}
-    if isinstance(d,dict) and isinstance(d.get("phases"),list):
-        for ph in d["phases"]:
-            if isinstance(ph,dict) and ph.get("key")=="contacts" and isinstance(ph.get("count"),int):
-                print(ph["count"]); sys.exit(0)
-    # flat shapes kept, so a differently-shaped surface still parses
-    for k in ("count","people","total","people_count"):
-        if isinstance(d,dict) and k in d and isinstance(d[k],int):
-            print(d[k]); sys.exit(0)
-    print("UNAVAILABLE")
+    # PARSE ONLY -- the shape-walking lives below, deliberately once.
+    #
+    # Two branches of this file each grew a phases[] reader, and the merge that
+    # brought them together made the duplication visible. The rejected one sat
+    # INSIDE this try block, above the one below, and had two faults the lower
+    # one does not:
+    #   - its flat-shape arm used `isinstance(d[k], int)`, and in Python
+    #     isinstance(True, int) is True, so {"count": true} printed the string
+    #     "True" as a count of people;
+    #   - its UNAVAILABLE arm did not exit, so an unrecognised payload printed
+    #     UNAVAILABLE and then FELL THROUGH into the reader below, emitting two
+    #     lines for one measurement.
+    # NOTE: no apostrophes anywhere in this block. The whole script body is
+    # passed to python3 -c inside a SINGLE-QUOTED shell string, so one typed
+    # apostrophe closes it and bash -n dies on the next parenthesis. Measured:
+    # the word "callers" written with an apostrophe broke this file once.
+    # Two lines fail the calling shell numeric guard, case $x in *[!0-9]*), so the
+    # visible symptom would have been a permanent UNAVAILABLE -- a probe that
+    # cannot answer, wearing the face of a surface that cannot be read.
+    d = json.loads(raw)
 except Exception:
-    m=re.search(r"\d+", raw)
-    print(m.group(0) if m else "UNAVAILABLE")
+    print("UNAVAILABLE"); sys.exit(0)
+if not isinstance(d, dict):
+    print("UNAVAILABLE"); sys.exit(0)
+# Shape A: the live Doctor -- /api/v1/hydration/status, phases[key=contacts].
+for ph in d.get("phases", []) or []:
+    if isinstance(ph, dict) and ph.get("key") == PEOPLE_PHASE:
+        n = ph.get("count")
+        # A phase that has not run yet reports state=pending with NO count.
+        # Absent count is UNAVAILABLE, never 0 -- "not counted yet" and
+        # "counted, found none" are different facts.
+        if isinstance(n, int) and not isinstance(n, bool):
+            print(n); sys.exit(0)
+        print("UNAVAILABLE"); sys.exit(0)
+# Shape B: a flat {"count": N} object, kept so the self-test fixtures and any
+# future dedicated endpoint still work.
+for k in ("count", "people", "total", "people_count"):
+    v = d.get(k)
+    if isinstance(v, int) and not isinstance(v, bool):
+        print(v); sys.exit(0)
+print("UNAVAILABLE")
 ' 2>/dev/null || printf 'UNAVAILABLE'
 }
 

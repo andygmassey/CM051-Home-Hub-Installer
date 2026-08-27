@@ -39,7 +39,23 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "ok: $*"; }
 
 # ── What does install.sh pull from? ───────────────────────────────────────
-mapfile -t PINNED < <(grep -oE 'ghcr\.io/[a-z0-9-]+/ostler-wiki-(site|compiler)@sha256:[a-f0-9]{64}' "$INSTALL" | sort -u)
+# 🔴 NO mapfile. BASH 4 BUILTIN; THIS RUNS UNDER /bin/bash 3.2 ON THE CUT HOST.
+#
+# MEASURED 2026-08-26: bash 5 rc=0, /bin/bash 3.2 rc=127 "mapfile: command not
+# found". This file is invoked by scripts/run_all_cut_gates.sh (line ~136),
+# which runs on the CUT HOST -- a Mac, where /bin/bash is 3.2.57. It survives
+# today only because run_all_cut_gates.sh invokes it via PATH `bash`, which on
+# this developer's machine is Homebrew 5.x. That is an accident of one PATH,
+# not a property of the gate. On a clean Mac it is rc=127.
+#
+# The count is LOAD-BEARING: the whole point is "exactly 2 pinned wiki images".
+# A conversion that changed it would turn a real assertion into a wrong one, so
+# the replacement is verified by diffing full output before and after.
+PINNED=()
+while IFS= read -r _p; do
+    [ -n "$_p" ] || continue
+    PINNED+=("$_p")
+done < <(grep -oE 'ghcr\.io/[a-z0-9-]+/ostler-wiki-(site|compiler)@sha256:[a-f0-9]{64}' "$INSTALL" | sort -u)
 [[ ${#PINNED[@]} -eq 2 ]] \
     || fail "expected exactly 2 pinned wiki images in $INSTALL, found ${#PINNED[@]}"
 
