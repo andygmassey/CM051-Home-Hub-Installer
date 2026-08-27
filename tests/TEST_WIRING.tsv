@@ -112,6 +112,7 @@ test_doctor_repo_fallback.sh	UNWIRED	-
 test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml
 test_doctor_silent_failure_grafts.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_web_ui_strings_complete.py	WIRED	.github/workflows/vendor-integrity.yml
+test_egress_verdict_claims_only_what_it_checked.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_email_folder_prompt.sh	UNWIRED	-
 test_email_ingest_bootstrap_guard.sh	UNWIRED	-
 test_email_ingest_loud_guard.sh	UNWIRED	-
