@@ -220,7 +220,26 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
         _owner="${_rest##*[:/]}"      # owner, after the last : or /
         _slug="${_owner}/${_name}"
         [ "$_slug" = "/" ] && _slug=""
-        if [ -z "$_slug" ]; then
+        # HOST TOO. TNM's find: owner/name alone is host-blind, so
+        # https://evil.example/andygmassey/CM044-PWG-Personal-Wiki yields the
+        # exact expected slug and would PASS -- simulating against a mirror's
+        # main. A false MATCH is the dangerous direction; every other wrong
+        # extraction here fails closed, this one failed open.
+        # --repo carries no host (it is always github.com for us), so we do not
+        # compare hosts to each other -- we refuse a remote that is not GitHub.
+        case "$_origin" in
+            *github.com[:/]*) : ;;
+            "")               : ;;   # handled by the empty-slug arm below
+            *) _nonhost="$_origin"; _slug="" ;;
+        esac
+        if [ -n "${_nonhost:-}" ]; then
+            echo "STALE CHECK: CANNOT-RUN -- origin is not a github.com remote, refusing to simulate"
+            echo "  origin  ${_nonhost}"
+            echo "  --repo  ${REPO}"
+            echo "  owner/name alone is host-blind: a mirror can present the same"
+            echo "  slug and would silently pass. Refusing rather than matching."
+            _skip_stale=1
+        elif [ -z "$_slug" ]; then
             echo "STALE CHECK: CANNOT-RUN -- no origin remote to compare against --repo ${REPO}"
             echo "  The collision list above is still valid (it is pure API). Only the"
             echo "  vs-main simulation is refused."
