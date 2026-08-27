@@ -38,10 +38,41 @@ jobs:
       - name: Detector functional + drift guard
         run: bash tests/test_gdpr_export_detect.sh
 
-      # #889 RESIDUAL. The ratchet in tests/pipefail_shortcircuit_baseline.txt
-      # guards the TEXT of the `unzip -Z1 | grep -q` construct. Nothing proved
-      # the DETECTOR still works on an archive big enough for that construct to
-      # invert -- and the functional test above builds a fixture too small to
-      # invert, so it passed identically before and after #1124.
+  # ==========================================================================
+  # #889 RESIDUAL -- AND IT HAS TO RUN ON macOS, WHICH WAS MEASURED, NOT ASSUMED.
+  #
+  # The ratchet in tests/pipefail_shortcircuit_baseline.txt guards the TEXT of
+  # the `unzip -Z1 | grep -q` construct. Nothing proved the DETECTOR still works
+  # on an archive big enough for that construct to invert -- and the functional
+  # job above builds a fixture far too small to invert, so it passed identically
+  # before and after the fix in #1124.
+  #
+  # 🔴 ON ubuntu-latest THE DEFECT DOES NOT REPRODUCE AT ALL. Run on this repo's
+  # own Linux runner, the ladder climbed every rung and the pre-fix construct
+  # inverted 0/5 at each:
+  #
+  #     801 entries /    14,416 B  -> 0/5
+  #   8,001 entries /   144,016 B  -> 0/5
+  #  30,001 entries /   540,016 B  -> 0/5
+  #  80,001 entries / 1,440,016 B  -> 0/5
+  #
+  # while on macOS it inverts 5/5 from 501 entries up. Linux's pipe buffer
+  # absorbs the whole listing, so unzip finishes writing before grep exits and
+  # never takes SIGPIPE.
+  #
+  # THAT IS NOT A REASON TO WEAKEN THE TEST. install.sh and
+  # lib/ostler-detect-exports.sh run on the CUSTOMER'S MAC. Darwin is the
+  # platform where the defect is real, so Darwin is where the proof has to be
+  # taken. A Linux-only proof of a Darwin-only defect is the wrong compartment.
+  #
+  # Its own job, not a step in the one above, so it cannot be masked by an
+  # earlier failure (ci-maskless).
+  # ==========================================================================
+  large-zip-detection-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: A large signature-bearing zip is still detected (#889)
         run: bash tests/test_export_detect_large_zip_behaviour.sh
