@@ -1856,7 +1856,9 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
 #      can no longer prove the work landed).
 #
 # Fail-closed on any API error. Skips when PR_NUMBER unset OR when
-# GITHUB_REPOSITORY unset -- both required for the primitive to apply.
+# GITHUB_REPOSITORY unset -- both required for the primitive to apply -- and
+# when the PR is no longer open, because base.sha freezes at that moment and
+# the comparison stops meaning anything (see the block inside the function).
 # ---------------------------------------------------------------------------
 
 def check_pr_branch_not_stale_vs_main(entry: dict, ctx: dict) -> Result:
@@ -1890,6 +1892,35 @@ def check_pr_branch_not_stale_vs_main(entry: dict, ctx: dict) -> Result:
     if err or not isinstance(pr, dict):
         return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
                       f"fetching PR #{pr_number} on {repo}: {err or 'unexpected shape'}",
+                      entry.get("source_pr", ""))
+
+    # A MERGED OR CLOSED PR HAS NO ANSWER TO THIS QUESTION, and asking anyway
+    # produces a confident wrong one. `pulls/{n}.base.sha` is FROZEN once a PR
+    # leaves the open state, so the compare below measures the branch against a
+    # base nobody is merging into any more and reports a huge "behind" count for
+    # work that has already landed.
+    #
+    # Found by running this primitive by hand on #1124 and #1118 on 2026-08-27:
+    # both reported "22 commits behind, over the threshold of 10" and I
+    # published that. Both had MERGED ~85 minutes earlier (3e510b54, dcbf2832),
+    # and both merge commits were already ancestors of the main I measured
+    # against. The number was real; the question was void.
+    #
+    # CI cannot hit this -- `on: pull_request` only fires for open PRs -- so it
+    # is not a defect in the wiring. It is a defect in the primitive, and the
+    # primitive is what a human invokes at 3am. SKIP, not PASS and not FAIL:
+    # under --require-kind that surfaces as CANNOT-RUN (exit 3), which is the
+    # honest answer. "Could not be measured" is not "measured and fine".
+    pr_state = str(pr.get("state") or "").lower()
+    if pr_state and pr_state != "open":
+        merged = pr.get("merged_at") or pr.get("mergedAt")
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "SKIP",
+                      f"PR #{pr_number} on {repo} is {pr_state}"
+                      + (f" (merged {merged})" if merged else "")
+                      + ". Staleness is a question about a branch someone still "
+                      "intends to merge; base.sha is frozen once a PR closes, so "
+                      "comparing it would report a large behind-count for work "
+                      "that has already landed. Not measured.",
                       entry.get("source_pr", ""))
 
     base = pr.get("base") or {}

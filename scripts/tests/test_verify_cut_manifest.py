@@ -2197,7 +2197,8 @@ class _FakePR:
                  repo="andygmassey/CM051-Home-Hub-Installer",
                  compare_status="ahead", ahead_by=0, commits=None,
                  token="fake-token",
-                 branches_error="", compare_error="", pr_error=""):
+                 branches_error="", compare_error="", pr_error="",
+                 state="open", merged_at=None):
         self.base_sha = base_sha
         self.head_sha = head_sha
         self.base_ref = base_ref
@@ -2210,6 +2211,8 @@ class _FakePR:
         self.branches_error = branches_error
         self.compare_error = compare_error
         self.pr_error = pr_error
+        self.state = state
+        self.merged_at = merged_at
         self.calls: list[str] = []
 
     def install(self, mod):
@@ -2219,7 +2222,8 @@ class _FakePR:
             if path == f"repos/{self.repo}/pulls/{self.pr_number}":
                 if self.pr_error:
                     return None, self.pr_error
-                return {"base": {"sha": self.base_sha, "ref": self.base_ref}}, ""
+                return {"base": {"sha": self.base_sha, "ref": self.base_ref},
+                        "state": self.state, "merged_at": self.merged_at}, ""
             if path == f"repos/{self.repo}/branches/{self.base_ref}":
                 if self.branches_error:
                     return None, self.branches_error
@@ -2525,3 +2529,76 @@ def test_compare_commit_cap_counts_uninspected_commits_as_non_ignored():
     finally:
         _os.environ.pop("PR_NUMBER", None)
         _os.environ.pop("GITHUB_REPOSITORY", None)
+
+
+# ---------------------------------------------------------------------------
+# A CLOSED PR HAS NO ANSWER TO THIS QUESTION.
+#
+# I ran this primitive by hand against #1124 and #1118 on 2026-08-27 and it said
+# "22 commits behind, over the threshold of 10". I published that. Both had
+# MERGED 85 minutes earlier, and both merge commits were already ancestors of
+# the main I was comparing against. `pulls/{n}.base.sha` freezes when a PR
+# leaves the open state, so the arithmetic was right and the question was void.
+#
+# CI cannot reach this -- `on: pull_request` fires only for open PRs -- which is
+# exactly why nothing would ever have caught it. The primitive is what a human
+# invokes directly.
+# ---------------------------------------------------------------------------
+
+def test_a_merged_pr_is_not_measured_it_is_skipped(tmp_path, monkeypatch):
+    monkeypatch.setenv("PR_NUMBER", "1124")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "andygmassey/CM051-Home-Hub-Installer")
+    mod = _load_module()
+    commits = [{"sha": f"c{i:03d}" * 8, "commit": {"message": f"feat: real work {i}"}}
+               for i in range(22)]
+    _FakePR(base_sha="a" * 40, head_sha="b" * 40, pr_number="1124",
+            ahead_by=22, commits=commits,
+            state="closed", merged_at="2026-08-27T03:34:24Z").install(mod)
+    result = mod.check_pr_branch_not_stale_vs_main(
+        _stale_branch_entry(max_behind=10),
+        {"cm051_dir": tmp_path, "app_path": tmp_path})
+    assert result.status == "SKIP", result.detail
+    assert "closed" in result.detail
+    assert "2026-08-27T03:34:24Z" in result.detail
+    # And it must NOT report the void number as though it meant something.
+    assert "22 non-ignored" not in result.detail, result.detail
+
+
+def test_an_open_pr_with_the_same_shape_still_fails(tmp_path, monkeypatch):
+    """CONTROL for the case above, and it is the load-bearing half.
+
+    Identical inputs except `state`. If this also skipped, the guard would have
+    silenced the gate rather than narrowed it -- which is the mistake the guard
+    exists to avoid, one level down.
+    """
+    monkeypatch.setenv("PR_NUMBER", "1124")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "andygmassey/CM051-Home-Hub-Installer")
+    mod = _load_module()
+    commits = [{"sha": f"c{i:03d}" * 8, "commit": {"message": f"feat: real work {i}"}}
+               for i in range(22)]
+    _FakePR(base_sha="a" * 40, head_sha="b" * 40, pr_number="1124",
+            ahead_by=22, commits=commits, state="open").install(mod)
+    result = mod.check_pr_branch_not_stale_vs_main(
+        _stale_branch_entry(max_behind=10),
+        {"cm051_dir": tmp_path, "app_path": tmp_path})
+    assert result.status == "FAIL", result.detail
+    assert "22 non-ignored" in result.detail
+
+
+def test_a_response_with_no_state_field_is_still_measured(tmp_path, monkeypatch):
+    """Absence of `state` must not be read as 'closed'.
+
+    A stubbed or partial API response omits it. Treating a missing field as a
+    reason to skip would turn every harness that does not model `state` into a
+    silent pass -- absence and failure, indistinguishable at the call site.
+    """
+    monkeypatch.setenv("PR_NUMBER", "484")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "andygmassey/CM051-Home-Hub-Installer")
+    mod = _load_module()
+    _FakePR(base_sha="a" * 40, head_sha="a" * 40, pr_number="484",
+            state=None).install(mod)
+    result = mod.check_pr_branch_not_stale_vs_main(
+        _stale_branch_entry(), {"cm051_dir": tmp_path, "app_path": tmp_path})
+    assert result.status == "PASS", result.detail
+    assert "up to date" in result.detail
+
