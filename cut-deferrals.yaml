@@ -1963,6 +1963,18 @@ deferrals:
       Clears when the content is on main, or is explicitly rejected in writing. Never
       by deleting the branch.
     until_cut: "v1.0.49"
+  - ref: "CM051:fix/walk-record-names-must-reconcile"
+    reason: >-
+      TNM's #893 work (walk-record name-field reconciliation), held deliberately until
+      v1.0.48 tags. PR #1175 was CLOSED, branch PRESERVED at aa65ddb4 -- it is held, not
+      abandoned, and re-opens the moment the tag lands.
+      MECHANISM WORTH RECORDING: closing the PR did not clear the orphan, it RE-SPELLED
+      it. Attempt eight red on "CM051:#1175" (PR axis); attempt nine red on
+      "CM051:fix/walk-record-names-must-reconcile" (branch axis), same work. A close is
+      not a resolution on this gate -- only a merge or a deferral is. Deleting the branch
+      would clear it and is exactly the delete-to-green habit #1168 refused.
+      Clears when the content is on main, or is explicitly rejected in writing.
+    until_cut: "v1.0.49"
   - ref: "daemon:#282"
     reason: "Open PR predating the 2026-08-06 48h merge rule. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Work it into v1.0.17 via the phased sweep, not by widening a gate."
     until_cut: "v1.0.27"
