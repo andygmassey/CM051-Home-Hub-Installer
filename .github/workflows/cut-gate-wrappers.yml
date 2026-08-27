@@ -72,6 +72,14 @@ on:
       - 'tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh'
       - 'scripts/cut_hygiene_gate.sh'
       - 'tests/test_mergeable_unknown_is_not_clean.sh'
+      # Without this line the step that runs it below is DARK ON SELF-EDIT:
+      # the workflow invokes the test, but a PR that only changes the test
+      # never triggers the workflow, so the change ships unrun. Caught by
+      # verify_invoked_tests_are_watched.py on this very PR -- a run: step
+      # with no matching path entry is a gate you have read, not one you
+      # have run.
+      - 'tests/test_exemption_ref_form.sh'
+      - 'cut-deferrals.yaml'
       - '.github/workflows/cut-gate-wrappers.yml'
   push:
     branches: [main]
