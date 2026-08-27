@@ -82,7 +82,7 @@ chmod 0644 "$RENDERED_PLIST"
 UID_NUM="$(id -u)"
 LABEL="com.creativemachines.ostler.hub-power"
 
-if launchctl list 2>/dev/null | grep -q "$LABEL"; then
+if [ "$(launchctl list 2>/dev/null | grep -c "$LABEL")" -gt 0 ]; then
     launchctl bootout "gui/$UID_NUM/$LABEL" 2>/dev/null || \
         launchctl unload "$RENDERED_PLIST"  2>/dev/null || true
 fi
