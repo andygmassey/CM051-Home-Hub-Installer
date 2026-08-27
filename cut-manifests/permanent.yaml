@@ -717,3 +717,40 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "identity_layer_is_importable"
+
+  # PR-branch staleness gate. Encodes feedback_mergeable_api_state_isnt_semantic_safety
+  # (filed 2026-07-31): mergeable: MERGEABLE from the GH API does NOT prove the
+  # branch is semantically safe to merge. A branch that predates a critical
+  # recent commit would REVERT it silently. TNM caught this on PR #484 before
+  # merging; this primitive turns "cross-check base_sha is current main HEAD"
+  # into a mechanical gate.
+  #
+  # SKIPS cleanly when PR_NUMBER / GITHUB_REPOSITORY are unset (local dev,
+  # non-PR CI), so the manifest gate can still be run without failing outside
+  # of a PR context. On any PR CI run it PROVES the branch isn't drifting more
+  # than 10 non-ignored commits behind main.
+  #
+  # THAT SKIP WAS THE WHOLE STORY UNTIL 2026-08-19. No workflow in this repo
+  # ever set PR_NUMBER -- `grep -rn PR_NUMBER .github/workflows/` returned
+  # nothing, while the same grep for `pull_request` matched 12 files, so the
+  # absence was real. The row returned SKIP on every invocation it ever had,
+  # and SKIP and PASS both leave the exit code at 0. It looked like coverage
+  # and asserted nothing.
+  #
+  # THE RUNNER IS .github/workflows/pr-branch-staleness.yml. It sets PR_NUMBER
+  # and passes `--require-kind pr_branch_not_stale_vs_main`, which turns an
+  # all-SKIP outcome into CANNOT-RUN (exit 3). Do not delete that workflow, do
+  # not give it a `paths:` filter, and do not drop the --require-kind flag:
+  # each of those restores a row that is green because it never ran.
+  # Guarded by test_workflow_wiring_sets_pr_number.
+  # ==========================================================================
+  - id: permanent-pr-branch-not-stale-vs-main
+    title: current PR branch must not be more than N commits behind its target branch
+    incident: PR #484 near-miss (2026-07-31); mergeable=MERGEABLE despite branch stale vs #492 daemon pin bump
+    proof:
+      kind: pr_branch_not_stale_vs_main
+      max_commits_behind: 10
+      ignore_commits_matching:
+        - "^chore\\(fmt\\)"
+        - "^docs:"
+        - "^chore\\(docs\\)"
