@@ -1878,6 +1878,201 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
                   entry.get("source_pr", ""))
 
 
+# ---------------------------------------------------------------------------
+# pr_branch_not_stale_vs_main -- catch the class of failure where a PR is
+# labelled `mergeable: MERGEABLE` by the GitHub API but its base is many
+# commits behind main; merging as-is silently REVERTS a critical recent
+# commit. Filed as `feedback_mergeable_api_state_isnt_semantic_safety`
+# 2026-07-31, sibling to `feedback_pr_state_via_api_not_assertion`.
+#
+# The v1.0.13 near-miss shape (PR #484): branch predated the daemon pin bump
+# PR #492; merging it AS-IS would have reverted 0.4.43 -> 0.4.41. TNM caught
+# it before merging by manually rebasing; this primitive turns that into a
+# mechanical gate.
+#
+# Contract:
+#   1. Read the PR number from env `PR_NUMBER` (populated by GHA
+#      `github.event.pull_request.number`); skip cleanly if absent (local
+#      dev / non-PR CI).
+#
+#      THE ROW SPENT ITS WHOLE LIFE ON THAT SKIP. `grep -rn PR_NUMBER
+#      .github/workflows/` returned NOTHING when this was measured on
+#      2026-08-19, while the same grep for `pull_request` matched 12 files, so
+#      the absence was real and not a broken predicate. No caller ever set the
+#      variable, so the primitive returned SKIP every single time, and SKIP and
+#      PASS both leave main()'s exit code at 0. A row that always skips reports
+#      identically to a row that always passes.
+#
+#      The wiring now lives in .github/workflows/pr-branch-staleness.yml, which
+#      sets PR_NUMBER and passes `--require-kind pr_branch_not_stale_vs_main`.
+#      With that flag an all-SKIP outcome exits 3 (CANNOT-RUN), so the row can
+#      never again be green by being unreachable.
+#   2. `gh api repos/{this_repo}/pulls/{n}` -> base.sha, head.sha, base.ref,
+#      merge_commit_sha.
+#   3. `gh api repos/{this_repo}/compare/{base.sha}...{base.ref}` where
+#      base.ref is HEAD of the target branch. Count commits main has that
+#      the PR branch does not.
+#   4. If count > max_commits_behind (default 10) -> FAIL, list the
+#      diverging commits + merge-recovery instructions (merge, never
+#      rebase: a rebase rewrites shas so `git merge-base --is-ancestor`
+#      can no longer prove the work landed).
+#
+# Fail-closed on any API error. Skips when PR_NUMBER unset OR when
+# GITHUB_REPOSITORY unset -- both required for the primitive to apply -- and
+# when the PR is no longer open, because base.sha freezes at that moment and
+# the comparison stops meaning anything (see the block inside the function).
+# ---------------------------------------------------------------------------
+
+def check_pr_branch_not_stale_vs_main(entry: dict, ctx: dict) -> Result:
+    """Assert the current PR branch's base is not stale vs the target branch."""
+    proof = entry["proof"]
+    max_behind = int(proof.get("max_commits_behind", 10))
+    ignore_patterns = proof.get("ignore_commits_matching") or []
+
+    pr_number = os.environ.get("PR_NUMBER", "").strip()
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if not pr_number or not repo:
+        missing = [name for name, val in (("PR_NUMBER", pr_number),
+                                          ("GITHUB_REPOSITORY", repo)) if not val]
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "SKIP",
+                      f"not a PR context: unset {' + '.join(missing)} "
+                      f"(set: {', '.join(n for n in ('PR_NUMBER', 'GITHUB_REPOSITORY') if n not in missing) or 'none'}). "
+                      "The PR-context runner is the `pr-staleness` job in "
+                      ".github/workflows/pr-branch-staleness.yml, which passes "
+                      "--require-kind pr_branch_not_stale_vs_main so this SKIP "
+                      "becomes CANNOT-RUN (exit 3) rather than a silent pass.",
+                      entry.get("source_pr", ""))
+
+    owner = _repo_owner(repo)
+    token = _gh_token_for(owner) or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
+                      f"could not resolve gh token for owner {owner!r}",
+                      entry.get("source_pr", ""))
+
+    pr, err = _gh_api_json(f"repos/{repo}/pulls/{pr_number}", token)
+    if err or not isinstance(pr, dict):
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
+                      f"fetching PR #{pr_number} on {repo}: {err or 'unexpected shape'}",
+                      entry.get("source_pr", ""))
+
+    # A MERGED OR CLOSED PR HAS NO ANSWER TO THIS QUESTION, and asking anyway
+    # produces a confident wrong one. `pulls/{n}.base.sha` is FROZEN once a PR
+    # leaves the open state, so the compare below measures the branch against a
+    # base nobody is merging into any more and reports a huge "behind" count for
+    # work that has already landed.
+    #
+    # Found by running this primitive by hand on #1124 and #1118 on 2026-08-27:
+    # both reported "22 commits behind, over the threshold of 10" and I
+    # published that. Both had MERGED ~85 minutes earlier (3e510b54, dcbf2832),
+    # and both merge commits were already ancestors of the main I measured
+    # against. The number was real; the question was void.
+    #
+    # CI cannot hit this -- `on: pull_request` only fires for open PRs -- so it
+    # is not a defect in the wiring. It is a defect in the primitive, and the
+    # primitive is what a human invokes at 3am. SKIP, not PASS and not FAIL:
+    # under --require-kind that surfaces as CANNOT-RUN (exit 3), which is the
+    # honest answer. "Could not be measured" is not "measured and fine".
+    pr_state = str(pr.get("state") or "").lower()
+    if pr_state and pr_state != "open":
+        merged = pr.get("merged_at") or pr.get("mergedAt")
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "SKIP",
+                      f"PR #{pr_number} on {repo} is {pr_state}"
+                      + (f" (merged {merged})" if merged else "")
+                      + ". Staleness is a question about a branch someone still "
+                      "intends to merge; base.sha is frozen once a PR closes, so "
+                      "comparing it would report a large behind-count for work "
+                      "that has already landed. Not measured.",
+                      entry.get("source_pr", ""))
+
+    base = pr.get("base") or {}
+    base_sha = base.get("sha", "")
+    base_ref = base.get("ref", "")
+    if not base_sha or not base_ref:
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
+                      f"PR #{pr_number} missing base.sha or base.ref",
+                      entry.get("source_pr", ""))
+
+    # Fetch current HEAD of the target branch.
+    branch, err = _gh_api_json(f"repos/{repo}/branches/{base_ref}", token)
+    if err or not isinstance(branch, dict):
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
+                      f"fetching {base_ref} HEAD for {repo}: {err or 'unexpected shape'}",
+                      entry.get("source_pr", ""))
+    head_sha = (branch.get("commit") or {}).get("sha", "")
+    if not head_sha:
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
+                      f"branch response missing commit.sha: {branch}",
+                      entry.get("source_pr", ""))
+
+    if base_sha == head_sha:
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "PASS",
+                      f"PR #{pr_number} branch is up to date with {base_ref} ({head_sha[:8]})",
+                      entry.get("source_pr", ""))
+
+    compare, err = _gh_api_json(f"repos/{repo}/compare/{base_sha}...{head_sha}", token)
+    if err or not isinstance(compare, dict):
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
+                      f"comparing {base_sha[:8]}...{head_sha[:8]}: {err or 'unexpected shape'}",
+                      entry.get("source_pr", ""))
+
+    ahead_by = int(compare.get("ahead_by") or 0)
+    commits = compare.get("commits") or []
+
+    # THE COMMITS ARRAY IS CAPPED. GitHub's compare endpoint returns at most 250
+    # entries in `.commits` while `.ahead_by` reports the true total, with no
+    # error and no flag. Measured 2026-08-19 against PR #509: ahead_by=393,
+    # len(commits)=250. Filtering ignore_commits_matching over the capped page
+    # and reporting the survivor count as "commits behind" understates the gap,
+    # and in the worst case FALSELY PASSES: if every one of the 250 fetched
+    # commits matched an ignore pattern, `surviving` would be 0 while 143
+    # un-inspected commits sat unexamined. An unexamined commit is not an
+    # ignorable one -- count the remainder as non-ignored and say so.
+    uninspected = max(0, ahead_by - len(commits))
+
+    surviving = []
+    ignored = 0
+    for c in commits:
+        msg = ((c.get("commit") or {}).get("message") or "").strip()
+        first_line = msg.splitlines()[0] if msg else ""
+        if any(re.search(pat, first_line) for pat in ignore_patterns):
+            ignored += 1
+            continue
+        surviving.append((c.get("sha", "")[:8], first_line[:120]))
+
+    non_ignored_total = len(surviving) + uninspected
+    denom = (f"compare {base_sha[:8]}...{head_sha[:8]}: ahead_by={ahead_by}, "
+             f"{len(commits)} commit message(s) inspected, {ignored} matched "
+             f"ignore_commits_matching={ignore_patterns or '[]'}, "
+             f"{uninspected} NOT inspected (GitHub caps .commits at 250) and counted "
+             f"as non-ignored")
+
+    if non_ignored_total <= max_behind:
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "PASS",
+                      f"PR #{pr_number} branch base is {ahead_by} commit(s) behind {base_ref} "
+                      f"HEAD ({head_sha[:8]}); {non_ignored_total} non-ignored, within "
+                      f"max_commits_behind={max_behind}. {denom}",
+                      entry.get("source_pr", ""))
+
+    lines = [f"PR #{pr_number} branch base ({base_sha[:8]}) is {non_ignored_total} non-ignored "
+             f"commit(s) behind {base_ref} HEAD ({head_sha[:8]}); "
+             f"max_commits_behind={max_behind} exceeded.",
+             f"measured: {denom}",
+             f"expected: at most {max_behind} non-ignored commit(s) between the PR base and "
+             f"{base_ref} HEAD on {repo}",
+             "the commits this branch would merge WITHOUT:"]
+    for short, subj in surviving[:10]:
+        lines.append(f"    {short} {subj}")
+    if len(surviving) > 10:
+        lines.append(f"    ... (+{len(surviving) - 10} more listed)")
+    if uninspected:
+        lines.append(f"    ... (+{uninspected} beyond the 250-commit compare cap, not listed)")
+    lines.append(f"Recovery: merge {base_ref} into the branch + push. See "
+                 "feedback_mergeable_api_state_isnt_semantic_safety.")
+    return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
+                  "\n        ".join(lines), entry.get("source_pr", ""))
+
+
 DISPATCH: dict[str, Callable[[dict, dict], Result]] = {
     "grep_in_installer": check_grep_in_installer,
     "grep_in_artefact": check_grep_in_artefact,
@@ -1890,6 +2085,7 @@ DISPATCH: dict[str, Callable[[dict, dict], Result]] = {
     "payload_version_matches_daemon_version": check_payload_version_matches_daemon_version,
     "pinned_artefact_freshness": check_pinned_artefact_freshness,
     "verify_build_info_sidecar_present": check_verify_build_info_sidecar_present,
+    "pr_branch_not_stale_vs_main": check_pr_branch_not_stale_vs_main,
 }
 
 
@@ -1945,6 +2141,15 @@ def main() -> int:
                     help="A declared RUNTIME proof that could not run is a FAILURE, not a skip. "
                          "Use for a real cut: a box_walk_probe with no OSTLER_BOX_HOST proves "
                          "nothing, and without this flag it exits 0.")
+    ap.add_argument("--only-kind", action="append", default=[], metavar="KIND",
+                    help="Run ONLY entries whose proof.kind matches. Repeatable. "
+                         "Lets a CI job exercise one primitive without a built .app.")
+    ap.add_argument("--require-kind", action="append", default=[], metavar="KIND",
+                    help="Demand that this proof.kind actually RAN. If every entry of "
+                         "that kind ended SKIP -- or the manifests contain none at all -- "
+                         "exit 3 (CANNOT-RUN). Repeatable. This is the anti-silent-skip "
+                         "lever: a row that always skips reports identically to a row "
+                         "that always passes unless something demands it ran.")
     args = ap.parse_args()
 
     app_path = Path(args.app_path).expanduser().resolve()
@@ -1989,10 +2194,19 @@ def main() -> int:
         print(f"  manifests      = {[p.name for _, m in manifests for p in [Path(str(m.get('version','?'))+'.yaml')]]}")
         print()
 
+    only_kinds = set(args.only_kind)
+    require_kinds = list(dict.fromkeys(args.require_kind))
+    entries_seen = 0
+    entries_filtered_out = 0
+
     for label, doc in manifests:
         if not args.json:
             print(f"--- {label} ({len(doc.get('entries', []))} entries) ---")
         for entry in doc.get("entries", []):
+            entries_seen += 1
+            if only_kinds and entry.get("proof", {}).get("kind") not in only_kinds:
+                entries_filtered_out += 1
+                continue
             if args.skip_source_at_sha and entry.get("proof", {}).get("kind") == "grep_in_source_at_sha":
                 results.append(Result(entry["id"], entry["title"], "grep_in_source_at_sha", "SKIP",
                                       "skipped by --skip-source-at-sha", entry.get("source_pr", "")))
@@ -2004,6 +2218,35 @@ def main() -> int:
                 emit(r, colour)
                 if args.verbose and r.status == "PASS" and r.detail:
                     print(f"        {DIM if colour else ''}{r.detail}{RESET if colour else ''}")
+
+    # -----------------------------------------------------------------------
+    # --require-kind: the anti-silent-skip lever.
+    #
+    # permanent-pr-branch-not-stale-vs-main shipped as a permanent SKIP. It
+    # reads PR_NUMBER, no workflow ever set PR_NUMBER, so it returned SKIP on
+    # every invocation from the day it was written -- and SKIP and PASS both
+    # leave the exit code at 0. The row looked like coverage and asserted
+    # nothing. Naming a kind here says "this MUST have executed"; if it did not,
+    # the run ends CANNOT-RUN (3), never 0.
+    #
+    # This is a THIRD exit state, deliberately distinct from both 0 and 1:
+    # "could not run" is neither a pass nor a defect in the artefact, and a
+    # caller that collapses it into either one has thrown away the finding.
+    # -----------------------------------------------------------------------
+    cannot_run: list[str] = []
+    for kind in require_kinds:
+        of_kind = [r for r in results if r.kind == kind]
+        ran = [r for r in of_kind if r.status not in ("SKIP", "CANNOT-RUN")]
+        if not of_kind:
+            cannot_run.append(
+                f"--require-kind {kind}: 0 entries of that kind exist across "
+                f"{[Path(str(m.get('version', '?'))).name for _, m in manifests]} "
+                f"({entries_seen} entries read). Nothing was measured, so nothing was proven.")
+        elif not ran:
+            reasons = "; ".join(f"{r.id}: {r.detail}" for r in of_kind) or "no detail recorded"
+            cannot_run.append(
+                f"--require-kind {kind}: {len(of_kind)} entr(y/ies) of that kind, "
+                f"{len(ran)} RAN, {len(of_kind) - len(ran)} SKIPPED. {reasons}")
 
     passes = sum(1 for r in results if r.status == "PASS")
     fails = sum(1 for r in results if r.status == "FAIL")
@@ -2019,8 +2262,10 @@ def main() -> int:
             "app_path": str(app_path),
             "results": [asdict(r) for r in results],
             "summary": {"pass": passes, "fail": fails, "skip": skips,
-                        "cannot_run": cannot_runs, "total": len(results)},
-        }, indent=2))
+                        "cannot_run": cannot_runs, "total": len(results),
+                        "entries_read": entries_seen,
+                        "entries_filtered_out_by_only_kind": entries_filtered_out,
+                        "require_kind_failures": cannot_run},        }, indent=2))
     else:
         print()
         # 🔴 #713: NAME the skipped rows. A bare skip COUNT is a silent cap --
@@ -2033,23 +2278,39 @@ def main() -> int:
                 if r.status == "SKIP":
                     print(f"    - {r.id}  [{r.kind}]  {r.detail}")
             print()
-        # Same reasoning, different state. These BLOCK, so they are not a
-        # footnote -- but they are a gap in the MEASUREMENT, not a defect in the
-        # artefact, and the operator has to be able to tell those apart to know
-        # what to go and fix.
-        if cannot_runs:
-            print("  Rows that COULD NOT BE MEASURED (CANNOT-RUN -- blocks the cut,")
-            print("  but the fault is in the probe's prerequisites, NOT the artefact):")
-            for r in results:
-                if r.status == "CANNOT-RUN":
-                    print(f"    - {r.id}  [{r.kind}]  {r.detail}")
+        print(f"=== Summary: {passes} PASS  {fails} FAIL  {skips} SKIP  ({len(results)} total"
+              + (f", {entries_filtered_out} filtered out by --only-kind" if only_kinds else "")
+              + ") ===")
+        for kind in require_kinds:
+            of_kind = [r for r in results if r.kind == kind]
+            ran = [r for r in of_kind if r.status not in ("SKIP", "CANNOT-RUN")]
+            print(f"    required kind {kind}: {len(of_kind)} entr(y/ies), {len(ran)} RAN, "
+                  f"{len(of_kind) - len(ran)} did not")
+        if cannot_run:
             print()
-        print(f"=== Summary: {passes} PASS  {fails} FAIL  "
-              f"{cannot_runs} CANNOT-RUN  {skips} SKIP  ({len(results)} total) ===")
+            for line in cannot_run:
+                print(f"  CANNOT-RUN  {line}", file=sys.stderr)
         if skips and not args.require_runtime_proofs:
             print("  (re-run with --require-runtime-proofs to make a declared RUNTIME "
                   "proof that could not run a FAILURE rather than a skip)")
 
+    # ⚠️ TWO ADJACENT CONCEPTS, TWO EXIT CODES -- BOTH KEPT DELIBERATELY, AND
+    # THIS SEAM IS DISCLOSED RATHER THAN QUIETLY PICKED.
+    #
+    #   cannot_run  (list, --require-kind)  a required KIND never ran at all
+    #                                       -> 3, the CANNOT-RUN code the
+    #                                          pr-branch-staleness workflow
+    #                                          demands (`-ne 3` is its control)
+    #   cannot_runs (int, from main)        individual RESULTS reported
+    #                                       status CANNOT-RUN -> 1
+    #
+    # Checked in that order because the first is the stronger statement: the
+    # measurement never happened, which a count of results cannot see. I have
+    # NOT changed main's choice of 1 for its case -- silently re-coding another
+    # author's exit contract during a conflict resolution is how intent gets
+    # reverted. Filed for someone to unify on purpose.
+    if cannot_run:
+        return 3
     return 0 if (fails == 0 and cannot_runs == 0) else 1
 
 

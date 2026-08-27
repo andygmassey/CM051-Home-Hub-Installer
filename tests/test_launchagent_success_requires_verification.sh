@@ -380,6 +380,13 @@ fi
 if [[ "$SELF_TEST" -eq 1 ]]; then
     echo
     echo "SELF-TEST: the pre-fix v1.0.44 Doctor block must go RED"
+    # PORTABILITY, DORMANT NOT ABSENT: `mktemp -t NAME` with no X's in the
+    # template is BSD-ONLY. GNU mktemp rejects it with "too few X's in
+    # template", the variable comes back EMPTY, and whatever consumes it
+    # fails somewhere else wearing a cause that is not the real one. This is
+    # safe TODAY only because launchagent-success-verification.yml is macos-latest. Move it to ubuntu and it fires.
+    # Fix if you move it: mktemp "${TMPDIR:-/tmp}/NAME.XXXXXX" plus an
+    # emptiness guard -- the guard matters as much as the template.
     _tmp="$(mktemp -t launchagent_selftest)" || cannot_run "mktemp failed"
     trap 'rm -f "$_tmp"' EXIT
 
@@ -446,6 +453,13 @@ The self-test edit is not isolated to the Doctor block."
     # Adding BLOCK_OPEN to the stop set could have re-blinded exactly this,
     # which is why the narrowing gets its own mutation rather than trusting
     # arm 1's green.
+    # PORTABILITY, DORMANT NOT ABSENT: `mktemp -t NAME` with no X's in the
+    # template is BSD-ONLY. GNU mktemp rejects it with "too few X's in
+    # template", the variable comes back EMPTY, and whatever consumes it
+    # fails somewhere else wearing a cause that is not the real one. This is
+    # safe TODAY only because launchagent-success-verification.yml is macos-latest. Move it to ubuntu and it fires.
+    # Fix if you move it: mktemp "${TMPDIR:-/tmp}/NAME.XXXXXX" plus an
+    # emptiness guard -- the guard matters as much as the template.
     _tmp2="$(mktemp -t launchagent_selftest2)" || cannot_run "mktemp failed"
     trap 'rm -f "$_tmp" "$_tmp2"' EXIT
 

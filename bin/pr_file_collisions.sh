@@ -131,6 +131,10 @@ fi
 # Same BSD-only trap as above; same guard, for the same reason.
 _err="$(mktemp "${TMPDIR:-/tmp}/prlist_err.XXXXXX")"
 [ -n "$_err" ] || { echo "CANNOT-RUN: mktemp failed"; exit 78; }
+# The paginated file API needs owner/repo explicitly.
+SLUG="${REPO:-$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)}"
+[ -n "$SLUG" ] || { echo "CANNOT-RUN: could not resolve owner/repo for the files API"; exit 78; }
+
 prs="$(gh pr list ${REPO_ARG[@]+"${REPO_ARG[@]}"} --state open --limit "$LIMIT" \
         --json number,author,headRefName -q '.[] | "\(.number)\t\(.author.login)\t\(.headRefName)"' 2>"$_err")"
 if [ -z "$prs" ]; then
@@ -143,7 +147,32 @@ rm -f "$_err"
 tsv=""
 while IFS=$'\t' read -r n a b; do
     [ -z "$n" ] && continue
-    files="$(gh pr view "$n" ${REPO_ARG[@]+"${REPO_ARG[@]}"} --json files -q '.files[].path' 2>/dev/null)"
+    # `gh pr view --json files` SILENTLY CAPS AT 100 FILES. Measured on
+    # ostler-assistant#246: --json files reports 100, the paginated REST API
+    # reports 617. A 6x under-count with no error and no warning.
+    #
+    # For a COLLISION checker that is the worst possible failure: files past the
+    # cap are invisible, so the tool reports "no collision" on a file two PRs are
+    # both editing. A false zero in the one tool whose job is not producing one.
+    #
+    # CM051's largest open PR is 34 files, so this repo is 66 files from the
+    # cliff and the bug would have arrived silently, on some future big PR,
+    # looking like a clean result. Archie hit it in oa where PRs are larger.
+    #
+    # --paginate with --jq is safe HERE because the output is consumed as LINES.
+    # (`gh api --paginate` without --slurp emits one JSON DOCUMENT PER PAGE, so
+    # anything parsing the concatenation as a single document gets invalid JSON.
+    # This does not, and must not start to.)
+    files="$(gh api "repos/${SLUG}/pulls/${n}/files?per_page=100" --paginate --jq '.[].filename' 2>/dev/null)"
+    # BUILT-IN CONTROL: the capped call is still made, and a disagreement is
+    # REPORTED rather than silently preferred. This is the check that would have
+    # caught the bug in the first place, so it ships.
+    _capped="$(gh pr view "$n" ${REPO_ARG[@]+"${REPO_ARG[@]}"} --json files -q '.files | length' 2>/dev/null)"
+    _full="$(printf '%s' "$files" | grep -c . || true)"
+    if [ -n "$_capped" ] && [ "$_capped" != "$_full" ]; then
+        printf 'NOTE: #%s has %s files; gh --json files reported %s (capped). Using the paginated count.\n' \
+               "$n" "$_full" "$_capped" >&2
+    fi
     while read -r f; do
         [ -z "$f" ] && continue
         tsv="${tsv}${f}	${n}	${a}

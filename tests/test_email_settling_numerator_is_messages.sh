@@ -150,6 +150,13 @@ fi
 # A guard that cannot fail is not a guard. This reconstructs the defect in a
 # temp file and asserts the same grep flags it.
 # ---------------------------------------------------------------------------
+# PORTABILITY, DORMANT NOT ABSENT: `mktemp -t NAME` with no X's in the
+# template is BSD-ONLY. GNU mktemp rejects it with "too few X's in
+# template", the variable comes back EMPTY, and whatever consumes it
+# fails somewhere else wearing a cause that is not the real one. This is
+# safe TODAY only because hydrate-sentinel.yml is macos-14. Move it to ubuntu and it fires.
+# Fix if you move it: mktemp "${TMPDIR:-/tmp}/NAME.XXXXXX" plus an
+# emptiness guard -- the guard matters as much as the template.
 _ctl="$(mktemp -t ostler-email-settling-ctl)"
 trap 'rm -f "$_ctl"' EXIT
 {

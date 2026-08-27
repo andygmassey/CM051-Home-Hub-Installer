@@ -130,6 +130,7 @@ test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-hand
 test_every_marker_pattern_compiles.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_expired_deferral_ratchet.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_expiry_needs_a_cut_version.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
+test_export_detect_large_zip_behaviour.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_fallback_pin_moves_with_the_version.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_fda_assist_ordering.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -197,6 +198,7 @@ test_marker_grep_is_three_state.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_marker_payloads_never_reach_install_log.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_meeting_brief_sender.sh	UNWIRED	-
 test_memory_embeddings_wired.sh	WIRED	.github/workflows/memory-embeddings.yml
+test_mergeable_unknown_is_not_clean.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_migration_marker_guard_fresh_install.py	UNWIRED	-
 test_model_fit.sh	UNWIRED	-
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
