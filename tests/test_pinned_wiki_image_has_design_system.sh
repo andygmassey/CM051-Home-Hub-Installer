@@ -26,10 +26,38 @@
 # branch, a namespace) rots the moment someone renames the thing. Bytes do not
 # rot.
 #
-# Requires: docker, network, and a CM044 checkout. Skips LOUDLY without them --
-# skipping is not passing.
+# TWO MODES, because the two halves need different operands.
+#
+#   (default)         everything. Needs docker, network AND a CM044 checkout,
+#                     because the byte-identity half compares against git.
+#                     This is the CUT gate: run_all_cut_gates.sh supplies
+#                     CM044_DIR at cut time.
+#
+#   --presence-only   the assertions that need NO checkout: the design system
+#                     is IN the shipped stylesheet, and the shipped compiler
+#                     carries the current generator markers. Needs docker and
+#                     network only, so it runs on every PR.
+#
+# WHY THE SPLIT, since one gate would be simpler. Byte-identity compares the
+# image against a CM044 WORKING TREE. In CI the only tree available is CM044
+# main, and main legitimately moves ahead of the pinned image between a merge
+# and the next re-pin -- so a byte comparison in CI would go red on a correct
+# image every time CM044 lands a commit. That is a false-red treadmill, and
+# run_all_cut_gates.sh already carries the scar: "A false red costs as much
+# trust as a false green: it teaches you to disbelieve the gate." The presence
+# assertions have no such dependency. They are absolute, not relative.
+#
+# EXIT CODES. 0 = the assertions ran and held. 1 = they ran and FAILED. 2 =
+# they could not run. Never 0 for the third case; see cannot_run() below.
 
 set -euo pipefail
+
+PRESENCE_ONLY=0
+case "${1:-}" in
+    --presence-only) PRESENCE_ONLY=1 ;;
+    "")              ;;
+    *)               echo "usage: $0 [--presence-only]" >&2; exit 3 ;;
+esac
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Read files OUT of the pinned images, never RUN them -- these images are
@@ -43,10 +71,29 @@ CSS_IN_GIT="mkdocs/overrides/stylesheets/extra.css"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "ok: $*"; }
-skip() { echo "SKIP: $*" >&2; echo "      (Skipping is NOT a pass.)" >&2; exit 0; }
 
-command -v docker >/dev/null || skip "docker not available"
-docker info >/dev/null 2>&1  || skip "docker daemon not running"
+# CANNOT-RUN IS NOT A PASS, AND IT MUST NOT SHARE AN EXIT CODE WITH ONE.
+#
+# Until 2026-08-23 this function printed "(Skipping is NOT a pass.)" and then
+# exited 0 -- it said the right thing and did the opposite. Every caller reads
+# the status, not the prose, so "docker is not running" and "the design system
+# is present and current" were byte-identical to every automated consumer.
+#
+# That mattered more here than anywhere else in the repo, because this is the
+# ONLY check in the estate that opens a wiki image and looks inside. The defect
+# in this file's header -- a months-old stylesheet shipping behind a valid
+# digest -- is precisely what a silent 0 lets recur.
+#
+# Exit 2, matching test_wiki_image_namespace_matches_ci.sh, which was given the
+# same treatment and is the gate that sits directly beside this one.
+cannot_run() {
+    echo "CANNOT-RUN: $*" >&2
+    echo "      Nothing was measured. This is NOT a pass -- exit 2." >&2
+    exit 2
+}
+
+command -v docker >/dev/null || cannot_run "docker not available"
+docker info >/dev/null 2>&1  || cannot_run "docker daemon not running"
 
 # ── Which image does install.sh actually pin? ─────────────────────────────
 # Read it out of install.sh rather than accepting it as an argument: the
@@ -56,11 +103,24 @@ PIN="$(grep -oE 'ghcr\.io/[a-z0-9-]+/ostler-wiki-site@sha256:[a-f0-9]{64}' insta
 pass "install.sh pins ${PIN##*/}"
 
 # ── Where is CM044? ───────────────────────────────────────────────────────
+# Only the byte-identity half needs it. In --presence-only we never look.
 CM044=""
-for cand in "${CM044_DIR:-}" "$HOME/Developer/cm044-wiki-remaining" "$REPO_ROOT/../cm044-wiki-remaining"; do
-    [[ -n "$cand" && -f "$cand/$CSS_IN_GIT" ]] && { CM044="$cand"; break; }
-done
-[[ -n "$CM044" ]] || skip "no CM044 checkout found; set CM044_DIR to enable the comparison"
+if [[ "$PRESENCE_ONLY" -eq 0 ]]; then
+    for cand in "${CM044_DIR:-}" "$HOME/Developer/cm044-wiki-remaining" "$REPO_ROOT/../cm044-wiki-remaining"; do
+        [[ -n "$cand" && -f "$cand/$CSS_IN_GIT" ]] && { CM044="$cand"; break; }
+    done
+    # NOTE the predicate: -f on the CSS file, NOT -d on the directory.
+    # run_all_cut_gates.sh gates this call on `-d "$CM044_DIR"`, which is
+    # strictly weaker -- a directory that exists but is not a CM044 checkout
+    # satisfies the caller and lands here. Before exit 2, that combination
+    # produced a PASS from a gate that had opened nothing.
+    [[ -n "$CM044" ]] || cannot_run \
+        "no CM044 checkout found (looked for $CSS_IN_GIT under CM044_DIR).
+      Set CM044_DIR to enable the byte-identity comparison, or invoke with
+      --presence-only to run the half that needs no checkout."
+else
+    echo "-- --presence-only: byte-identity vs CM044 is OUT OF SCOPE for this run"
+fi
 
 SCRATCH="$(mktemp -d "$REPO_ROOT/.wikicheck.XXXXXX")"
 trap 'rm -rf "$SCRATCH"' EXIT
@@ -81,12 +141,13 @@ rm -rf "$IMG_EXTRACT_DIR"; IMG_EXTRACT_DIR=""
 [[ -s "$SCRATCH/image.css" ]] || fail "$CSS_IN_IMAGE is EMPTY in the pinned image"
 
 IMG_BYTES=$(wc -c < "$SCRATCH/image.css" | tr -d ' ')
-GIT_BYTES=$(wc -c < "$CM044/$CSS_IN_GIT" | tr -d ' ')
 IMG_RULES=$(grep -c '\.pw-doc' "$SCRATCH/image.css" || true)
-GIT_RULES=$(grep -c '\.pw-doc' "$CM044/$CSS_IN_GIT" || true)
-
 printf '  image  %8s bytes  %4s .pw-doc rules\n' "$IMG_BYTES" "$IMG_RULES"
-printf '  git    %8s bytes  %4s .pw-doc rules\n' "$GIT_BYTES" "$GIT_RULES"
+if [[ -n "$CM044" ]]; then
+    GIT_BYTES=$(wc -c < "$CM044/$CSS_IN_GIT" | tr -d ' ')
+    GIT_RULES=$(grep -c '\.pw-doc' "$CM044/$CSS_IN_GIT" || true)
+    printf '  git    %8s bytes  %4s .pw-doc rules\n' "$GIT_BYTES" "$GIT_RULES"
+fi
 
 # ── The design system must be IN there ────────────────────────────────────
 # A bare byte-comparison would pass if both sides lost the design system
@@ -100,7 +161,25 @@ if [[ "$IMG_RULES" -lt 100 ]]; then
 fi
 pass "the design system is present in the shipped image ($IMG_RULES rules)"
 
+# POSITIVE CONTROL for the rule count above.
+#
+# It needs its own, because the two diff controls further down prove the BYTE
+# comparison bites and say nothing about this threshold -- and in
+# --presence-only they do not run at all, which would leave the entire CI
+# invocation with no proof it can fail. Strip .pw-doc from a copy and assert
+# the same count now falls under the threshold.
+CSS_PROBE="$SCRATCH/css_probe.css"
+grep -v '\.pw-doc' "$SCRATCH/image.css" > "$CSS_PROBE" || true
+PROBE_RULES=$(grep -c '\.pw-doc' "$CSS_PROBE" || true)
+if [[ "$PROBE_RULES" -ge 100 ]]; then
+    fail "POSITIVE CONTROL FAILED -- after removing every line containing
+      .pw-doc, the count is still $PROBE_RULES. The rule count cannot detect a
+      stylesheet with the design system missing."
+fi
+pass "positive control: the rule count detects a stripped stylesheet ($PROBE_RULES)"
+
 # ── ...and it must be the CURRENT one ─────────────────────────────────────
+if [[ -n "$CM044" ]]; then
 if ! diff -q "$CM044/$CSS_IN_GIT" "$SCRATCH/image.css" >/dev/null; then
     cat >&2 <<EOF
 FAIL: the stylesheet in the pinned image is NOT the one in CM044.
@@ -129,6 +208,7 @@ if diff -q "$CM044/$CSS_IN_GIT" "$SCRATCH/image.css" >/dev/null; then
       image copy was deliberately modified. It is not comparing anything."
 fi
 pass "positive control: the comparison detects a one-line difference"
+fi  # CM044 byte-identity half
 
 # ══════════════════════════════════════════════════════════════════════════
 # THE COMPILER IMAGE (the gate hole, closed 2026-08-08)
@@ -218,6 +298,7 @@ for marker in "${MARKERS[@]}"; do
 done
 pass "positive control: the marker check detects each marker's absence"
 
+if [[ -n "$CM044" ]]; then
 if ! diff -q "$CM044/$PY_IN_GIT" "$SCRATCH/image_dashboard.py" >/dev/null; then
     echo "FAIL: the compiler image's dashboard.py DIFFERS from CM044 git." >&2
     diff "$CM044/$PY_IN_GIT" "$SCRATCH/image_dashboard.py" | head -20 >&2
@@ -231,5 +312,14 @@ if diff -q "$CM044/$PY_IN_GIT" "$SCRATCH/image_dashboard.py" >/dev/null; then
       after the image copy was deliberately modified. It compares nothing."
 fi
 pass "positive control: the compiler comparison detects a one-line difference"
+fi  # CM044 byte-identity half
 
-echo "PASS: BOTH pinned wiki images (site + compiler) carry current content"
+# State the SCOPE in the verdict, never just the colour. A reader who sees only
+# "PASS" cannot tell which half ran, and the presence half is genuinely weaker:
+# it proves the design system is there, not that it is the CURRENT one.
+if [[ "$PRESENCE_ONLY" -eq 1 ]]; then
+    echo "PASS (presence only): BOTH pinned wiki images carry the design system"
+    echo "      NOT asserted: that they match CM044 -- needs a checkout, cut gate only"
+else
+    echo "PASS: BOTH pinned wiki images (site + compiler) carry current content"
+fi

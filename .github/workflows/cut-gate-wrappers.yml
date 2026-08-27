@@ -60,6 +60,11 @@ on:
       - 'tests/test_pinned_wiki_image_has_design_system.sh'
       - 'scripts/verify_cut_provenance.sh'
       - 'tests/test_wiki_provenance_extracts_without_exec.sh'
+      # The gate this workflow RUNS at the wiki-content step, which it did not
+      # WATCH. That is the one shape invoked-tests-are-watched exists to refuse:
+      # a run: step with no matching path entry is a gate you have read, not a
+      # gate you have run -- editing the test would never have re-run it here.
+      - 'tests/test_wiki_content_gate_is_invoked_and_cannot_run_is_not_pass.sh'
       # THE SECOND WRAPPER FILE. run() in run_all_cut_gates.sh reports on every
       # gate's exit code and, until 2026-08-26, discarded the stderr it had
       # already captured whenever rc==0. verify_must_contain.sh used `declare
@@ -292,10 +297,48 @@ jobs:
         if: always()
         run: bash tests/test_no_gate_execs_a_pinned_image.sh
 
+      # THE ONLY CHECK IN THE ESTATE THAT OPENS A WIKI IMAGE AND LOOKS INSIDE,
+      # and until 2026-08-23 no workflow ran it. Its name appeared in the
+      # `paths:` filter above -- a TRIGGER, not an invocation -- and
+      # tests/TEST_WIRING.tsv scored that as WIRED. Measured on origin/main
+      # 5faaf73: 201 WIRED rows naming a workflow, 160 genuinely invoked after
+      # `jobs:`, and of the 41 that were not, 36 are Swift files swept up by
+      # xcodebuild's whole-target run and 4 are invoked by dotted module path
+      # (python3 -m unittest tests.x). This was the ONE real false label.
+      #
+      # --presence-only deliberately: the byte-identity half compares the image
+      # against a CM044 working tree, and CM044 main legitimately moves ahead of
+      # the pinned image between a merge and the next re-pin, so running that
+      # half here would go red on a correct image. The presence assertions are
+      # absolute. The byte half stays in run_all_cut_gates.sh at cut time.
+      #
+      # if: always() so a earlier failure cannot silently drop the one gate that
+      # reads the shipped artefact.
+      # Guards the step above, and the exit-code contract of the gate it runs.
+      # Needs no docker and no network -- it asserts WIRING and CANNOT-RUN
+      # behaviour, which is why it can block every PR while the gate it guards
+      # cannot. Carries its own DEMONSTRATED RED against origin/main.
+      - name: the wiki content gate is invoked, and cannot-run is not a pass
+        if: always()
+        run: bash tests/test_wiki_content_gate_is_invoked_and_cannot_run_is_not_pass.sh
+
       # NOTE: the wiki-provenance extraction test is NOT here. This job is
       # macos-latest, which has no docker, so the test skipped and the step went
       # green having examined nothing -- see the wiki-provenance-extract job
       # below, which runs it on ubuntu where docker exists and the defect lives.
+
+      # MOVED HERE FROM THE macos-latest JOB, 2026-08-27.
+      # --presence-only still needs docker -- the script's own guard is
+      # `command -v docker || cannot_run "docker not available"`. macos-latest
+      # has no docker, so the step returned exit 2 (CANNOT-RUN) on every run.
+      # That was the gate being HONEST, not broken: it refused to claim a
+      # verdict it could not reach, which is the whole point of the three-state
+      # contract. But a gate that can only ever say CANNOT-RUN gates nothing.
+      #
+      # The comment eleven lines below the old location already stated the rule:
+      # docker-needing checks belong on ubuntu. Measured on a Mac WITH docker,
+      # the same command passes -- 431 rules found, both positive controls fire,
+      # rc=0. The check is sound; only its host was wrong.
 
   # ---------------------------------------------------------------------------
   # The wiki provenance checks must READ the image, never EXECUTE it.
@@ -375,3 +418,9 @@ jobs:
           # inert, so an inert guard for it would be a joke.
           bash tests/test_exemption_ref_form.sh --self-test
           bash tests/test_exemption_ref_form.sh
+
+      # The presence half of the design-system gate. It lives HERE and not on
+      # macos-latest because it needs docker; see the note above the job header.
+      - name: pinned wiki images carry the design system (presence)
+        if: always()
+        run: bash tests/test_pinned_wiki_image_has_design_system.sh --presence-only
