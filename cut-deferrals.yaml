@@ -1937,6 +1937,32 @@ deferrals:
   - ref: "daemon:fix/v152-imessage-sender-guard-and-prefix"
     reason: "1 commit(s) not in the shipped ref; 1 of its patches ALREADY applied under different SHAs. Merging it into the shipped ref CONFLICTS (git merge-tree), which means it is a STALE SUPERSEDE: its fix reached the product by another route and the branch has since rotted. Merging it by name would turn a green cut red -- the exact trap fix/browsing-hydrate-ensure-collection sprang on the v1.0.15 walk. Delete it after review; do not merge it. Tip preserved as an archive/2026-08-07 tag on the remote, so deferring cannot lose it."
     until_cut: "v1.0.27"
+  - ref: "daemon:#363"
+    reason: >-
+      ONE file, .github/workflows/ci.yml, in a DIFFERENT repository. It changes a CI
+      concurrency group and compiles into nothing. The daemon this cut ships is pinned
+      at f1c7c57d and that artefact is already built, signed, notarised and published,
+      so no content of this PR can reach the DMG.
+      NOT MERGED because its OWN checks are red: 8 failing, 2-4s each, measured
+      2026-08-27. Merging a red PR into the release repo to green a different repo's
+      gate is the habit this gate exists to stop.
+      EXPLICITLY NOT A CLAIM THAT oa CI IS DOWN. It is alive -- Quality Gate
+      completed/success 2026-08-27T10:40:16Z. Board #518 says otherwise and board #518
+      is stale; do not carry it forward as fact.
+      Clears when the content is on main, or is explicitly rejected in writing. Never
+      by deleting the branch.
+    until_cut: "v1.0.49"
+  - ref: "daemon:#351"
+    reason: >-
+      A DRAFT, and a draft is by definition not proposed for merge. 11 crates/ files:
+      a prompt_injection_mode rename plus deletion of a dead prompt guard. It WOULD
+      reach a daemon binary, but not this one -- the pin is f1c7c57d and that artefact
+      is already built, signed and notarised, so nothing here is in the DMG.
+      Deferred until it leaves draft and gets a review. It renames a SECURITY surface
+      and deletes a guard, so it earns a real review rather than a cut-pressure merge.
+      Clears when the content is on main, or is explicitly rejected in writing. Never
+      by deleting the branch.
+    until_cut: "v1.0.49"
   - ref: "daemon:#282"
     reason: "Open PR predating the 2026-08-06 48h merge rule. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Work it into v1.0.17 via the phased sweep, not by widening a gate."
     until_cut: "v1.0.27"
