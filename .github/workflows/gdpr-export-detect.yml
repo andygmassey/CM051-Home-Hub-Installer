@@ -12,6 +12,7 @@ on:
     paths:
       - 'lib/ostler-detect-exports.sh'
       - 'tests/test_gdpr_export_detect.sh'
+      - 'tests/test_export_detect_large_zip_behaviour.sh'
       - 'install.sh'
       - '.github/workflows/gdpr-export-detect.yml'
   push:
@@ -36,3 +37,67 @@ jobs:
 
       - name: Detector functional + drift guard
         run: bash tests/test_gdpr_export_detect.sh
+
+  # ==========================================================================
+  # #889 RESIDUAL -- AND IT HAS TO RUN ON macOS, WHICH WAS MEASURED, NOT ASSUMED.
+  #
+  # The ratchet in tests/pipefail_shortcircuit_baseline.txt guards the TEXT of
+  # the `unzip -Z1 | grep -q` construct. Nothing proved the DETECTOR still works
+  # on an archive big enough for that construct to invert -- and the functional
+  # job above builds a fixture far too small to invert, so it passed identically
+  # before and after the fix in #1124.
+  #
+  # 🔴 ON ubuntu-latest THE DEFECT DOES NOT REPRODUCE AT ALL. Run on this repo's
+  # own Linux runner, the ladder climbed every rung and the pre-fix construct
+  # inverted 0/5 at each:
+  #
+  #     801 entries /    14,416 B  -> 0/5
+  #   8,001 entries /   144,016 B  -> 0/5
+  #  30,001 entries /   540,016 B  -> 0/5
+  #  80,001 entries / 1,440,016 B  -> 0/5
+  #
+  # while on macOS it inverts 5/5 from 501 entries up. Linux's pipe buffer
+  # absorbs the whole listing, so unzip finishes writing before grep exits and
+  # never takes SIGPIPE.
+  #
+  # THAT IS NOT A REASON TO WEAKEN THE TEST. install.sh and
+  # lib/ostler-detect-exports.sh run on the CUSTOMER'S MAC. Darwin is the
+  # platform where the defect is real, so Darwin is where the proof has to be
+  # taken. A Linux-only proof of a Darwin-only defect is the wrong compartment.
+  #
+  # Its own job, not a step in the one above, so it cannot be masked by an
+  # earlier failure (ci-maskless).
+  # ==========================================================================
+  large-zip-detection-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # THREE STATES, NOT TWO.
+      #   0  the detector handled a fixture the old construct provably breaks
+      #   1  it did not -- a real behavioural regression, and this blocks
+      #   3  CANNOT-RUN: this host cannot make the old construct invert at any
+      #      size, so the measurement was not taken
+      #
+      # 🔴 SAY THE UNCOMFORTABLE PART. Measured on 2026-08-27, BOTH hosted
+      # runners return 3: ubuntu-latest and macos-latest each scored 0/5 at
+      # every rung up to a 1.44 MB listing, while this developer's Mac inverts
+      # 5/5 from 501 entries. So on today's runners THIS STEP IS A REPORTER,
+      # NOT A GATE. It cannot block anything, and pretending otherwise would be
+      # the same "green because it never ran" defect one level up.
+      #
+      # What it IS good for: it fires the moment it runs anywhere that can
+      # witness the defect -- a developer Mac, or the box-walk, which runs on
+      # real hardware and is where this proof belongs. Filed as the residual.
+      - name: A large signature-bearing zip is still detected (#889)
+        run: |
+          set +e
+          bash tests/test_export_detect_large_zip_behaviour.sh
+          rc=$?
+          set -e
+          if [ "$rc" -eq 3 ]; then
+            echo "::warning title=large-zip proof CANNOT-RUN::This runner cannot make the pre-fix construct invert at any fixture size, so the behavioural proof was NOT taken here. Not a pass. See the ladder line above."
+            exit 0
+          fi
+          exit "$rc"
