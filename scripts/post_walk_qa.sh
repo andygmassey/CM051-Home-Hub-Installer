@@ -350,6 +350,33 @@ if [[ -n "$CUT_VERSION" ]]; then
 
     # Counts are the ones already parsed from the single probe run above --
     # the suite is deliberately not re-invoked. See the note at that call.
+    # WHICH PROBES FAILED, NOT JUST HOW MANY.
+    #
+    # run_box_walk.sh already prints the names, under "FAILED:", "NOT MEASURED"
+    # and "BROKEN". They were reaching a mktemp PROBE_LOG that this script
+    # deletes on EXIT, while only the four counts were lifted into the record.
+    # So the gate that decides whether customers get a build recorded `fail 5`
+    # and nothing that could say which five. Two days after the v1.0.44 walk,
+    # `fail 5` was the whole of what survived it.
+    #
+    # NAMES ONLY, never a probe's output. A probe's stdout carries paths and
+    # hostnames, and this repo is public -- which is why box_fp is a hash. The
+    # names are filenames under scripts/box_walk_probes/probes/ and carry
+    # nothing about the box. The pattern below accepts only that shape, so a
+    # line that is not a bare probe name is dropped rather than published.
+    section_names() { # $1 = leading text of the section header
+        awk -v hdr="$1" '
+            index($0, hdr) == 1 { grab = 1; next }
+            grab && $0 ~ /^[[:space:]]*$/ { exit }
+            grab && $0 ~ /^  [A-Za-z0-9._-]+$/ { sub(/^  /, ""); print; next }
+            grab { exit }
+        ' "$PROBE_LOG"
+    }
+    FAILED_NAMES="$(section_names 'FAILED:')"
+    NOTMEAS_NAMES="$(section_names 'NOT MEASURED')"
+    BROKEN_NAMES="$(section_names 'BROKEN (')"
+    n_failed_named="$(printf '%s' "$FAILED_NAMES" | grep -c . || true)"
+
     {
         printf '# Ostler walk record -- written by scripts/post_walk_qa.sh\n'
         printf '# Read by scripts/verify_walk_record.sh, which gates the customer download.\n'
@@ -377,6 +404,16 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf 'broken\t%s\n'      "${n_broken:-0}"
         printf 'verdict\t%s\n'     "$VERDICT"
         printf 'qa_exit\t%s\n'     "$overall"
+        # RECONCILE THE NAMES AGAINST THE COUNT, IN THE FILE.
+        # If the parser above ever stops matching -- a header reworded, an
+        # indent changed -- it returns nothing and the record would quietly go
+        # back to counts with no names, which is the exact blindness being
+        # fixed and would look like a clean walk with nothing to report. This
+        # line makes that visible to anyone reading the record.
+        printf 'failed_probe_names_recorded\t%s of %s\n' "${n_failed_named:-0}" "${n_fail:-0}"
+        printf '%s\n' "$FAILED_NAMES"  | while IFS= read -r _n; do [ -n "$_n" ] && printf 'failed_probe\t%s\n' "$_n"; done
+        printf '%s\n' "$NOTMEAS_NAMES" | while IFS= read -r _n; do [ -n "$_n" ] && printf 'not_measured_probe\t%s\n' "$_n"; done
+        printf '%s\n' "$BROKEN_NAMES"  | while IFS= read -r _n; do [ -n "$_n" ] && printf 'broken_probe\t%s\n' "$_n"; done
     } > "$RECORD"
 
     echo
