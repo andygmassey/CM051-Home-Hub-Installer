@@ -255,7 +255,27 @@ for outcome in granted-and-working tcc-denied check-failed; do
         echo "FAIL [shim-frontmatter-$outcome]: marker missing install-time-snapshot framing" >&2
         exit 1
     fi
-    PERMS=$(stat -f '%Lp' "$MARKER" 2>/dev/null || stat -c '%a' "$MARKER" 2>/dev/null)
+    # BSD and GNU stat BOTH accept -f, and they mean different things by it.
+    # On macOS `stat -f FMT` is a format string; on GNU coreutils `stat -f` is
+    # "display FILESYSTEM status" and SUCCEEDS, so the old
+    #     stat -f '%Lp' ... || stat -c '%a' ...
+    # never reached its fallback on Linux. It exited 0 having printed
+    #     File: "/tmp/.../state.md"
+    # into PERMS, and the comparison then failed with a mode nobody could read.
+    # The chain assumed -f would ERROR off-platform. It does not; it just means
+    # something else, which is the harder half of BSD-vs-GNU to spot by reading.
+    #
+    # So probe the TOOL, not the file, and branch on a flag only one of them
+    # has: GNU stat accepts -c, BSD stat rejects it as an illegal option.
+    if stat -c '%a' . >/dev/null 2>&1; then
+        PERMS=$(stat -c '%a' "$MARKER")
+    else
+        PERMS=$(stat -f '%Lp' "$MARKER")
+    fi
+    if [[ ! "$PERMS" =~ ^[0-7]{3,4}$ ]]; then
+        echo "CANNOT [shim-perms-$outcome]: neither stat form returned a mode for $MARKER (got '$PERMS'); permissions were NOT checked" >&2
+        exit 2
+    fi
     if [[ "$PERMS" != "600" ]]; then
         echo "FAIL [shim-perms-$outcome]: marker permissions are '$PERMS', expected 600" >&2
         exit 1

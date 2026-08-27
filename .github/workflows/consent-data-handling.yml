@@ -31,6 +31,11 @@
 #   the daemon's TCC pre-probe covers the legacy client, so an upgrade
 #     resolves an existing grant instead of silently asking again
 #
+# ADDED SINCE: the install-time iMessage TCC posture probe (2026-08-26). The
+# nine above are the original triage; this set is expected to grow as the
+# backlog is cleared, so read the run: steps for the current membership, not
+# this list.
+#
 # WHOLE-REPO TRIGGER, DELIBERATELY. Every other gate here filters by path.
 # That is right for a gate whose inputs are one directory, and wrong for this
 # one: these nine read install.sh, the string catalogue, ViewCopy.json, a
@@ -123,6 +128,17 @@ jobs:
       - name: iMessage FDA probe stays best-effort and its card stays quiet
         if: always()
         run: bash tests/test_imessage_fda_probe.sh
+
+      # ADDED 2026-08-26, and it is the same defect as the original nine.
+      # This test was REPAIRED in #1072 (its shim never sourced the locale
+      # catalogue, so four call sites asserted against strings that were not
+      # loaded) and left wired to nothing, so the repair changed a file that
+      # no runner has ever executed. Fixing an unwired test is not wiring it.
+      # 18 assertions, green, and portable: its only platform-specific call
+      # already falls back from `stat -f` to `stat -c`.
+      - name: the install-time iMessage TCC posture probe stays read-only and honest
+        if: always()
+        run: bash tests/test_imessage_tcc_posture.sh
 
       - name: the vendored defect register carries no personal data
         if: always()
