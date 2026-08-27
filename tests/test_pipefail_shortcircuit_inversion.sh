@@ -51,7 +51,10 @@
 # ============================================================================
 #
 #   1  the OLD construct really does invert (positive control on the premise)
-#   2  the herestring replacement reports the match correctly
+#   2  BOTH remedies report the match correctly, and a real POSIX shell shows
+#      which is which: the herestring is bash-only, `grep -c` is portable.
+#      That distinction is load-bearing -- box_run() ships command TEXT over
+#      ssh to a login shell nobody here chooses
 #   3  repo-wide: the scanner finds a SEEDED instance and rejects two lookalikes
 #      that cannot invert, and the population is not growing
 #
@@ -93,11 +96,58 @@ else
     ok "POSITIVE CONTROL: 'printf | grep -q' under pipefail reports FAILURE on a needle that IS present"
 fi
 
-# --- 2. the replacement is correct -------------------------------------------
+# --- 2A. REMEDY A -- the herestring, correct under pipefail, BASH ONLY --------
 if ( set -o pipefail; grep -q -- '- verify-stapling' <<< "$HAY" ); then
-    ok "FIXED: 'grep -q PAT <<< \$var' reports the match correctly under pipefail"
+    ok "REMEDY A: 'grep -q PAT <<< \$var' reports the match correctly under pipefail (bash)"
 else
-    bad "the herestring reported NO match on a needle that IS present. The replacement is wrong."
+    bad "REMEDY A reported NO match on a needle that IS present. The replacement is wrong."
+fi
+
+# --- 2B. REMEDY B -- grep -c, correct under pipefail AND portable ------------
+# `grep -c` has to consume all input to produce a count, so it cannot exit
+# early, so the producer never takes SIGPIPE. That is a POSIX property of -c,
+# not a bash one -- which is what makes it the remedy that survives leaving
+# this shell.
+if ( set -o pipefail; n="$(printf '%s\n' "$HAY" | grep -c -- '- verify-stapling')"; [ "$n" -gt 0 ] ); then
+    ok "REMEDY B: '[ \"\$(... | grep -c PAT)\" -gt 0 ]' reports the match correctly under pipefail"
+else
+    bad "REMEDY B reported NO match on a needle that IS present. grep -c is supposed to be the PORTABLE fix; if this fires, the advice limb 3 prints is wrong."
+fi
+
+# --- 2C. THE DISCRIMINATOR: A IS A BASHISM, B IS NOT -------------------------
+# This is the whole point. The ratchet's failure message used to name ONLY the
+# herestring. This repo executes command TEXT in shells it does not choose:
+# scripts/box_walk_probes/lib/probe.sh box_run() runs `ssh HOST "$1"`, naming
+# no shell, so the box's LOGIN shell parses it. If that is dash, remedy A is a
+# syntax error and the "fix" breaks the probe outright.
+#
+# 🔴 /bin/sh CANNOT BE THE CONTROL HERE. On macOS /bin/sh IS bash 3.2.57: it
+# accepts `<<<` and would pass for the wrong reason -- a control in the wrong
+# compartment. So the candidate is PROVED not-bash before it is trusted, and
+# if none is found this limb says CANNOT-RUN rather than nothing.
+POSIX_SH=""
+for _cand in /bin/dash /usr/bin/dash "$(command -v dash 2>/dev/null || true)" /bin/ash /usr/bin/busybox; do
+    [ -n "$_cand" ] && [ -x "$_cand" ] || continue
+    _v="$("$_cand" -c 'echo "${BASH_VERSION:-}"' 2>/dev/null || true)"
+    [ -n "$_v" ] && continue          # reports a BASH_VERSION -> disqualified
+    POSIX_SH="$_cand"; break
+done
+
+if [ -z "$POSIX_SH" ]; then
+    bad "CANNOT-RUN: no non-bash POSIX shell found (tried dash, ash, busybox), so 'remedy A is a bashism, remedy B is portable' is UNMEASURED on this host. /bin/sh was deliberately NOT used: here it is bash $(/bin/sh -c 'echo ${BASH_VERSION:-?}') and would pass for the wrong reason. Install dash, or run this limb on Linux, before trusting the advice limb 3 prints."
+else
+    if "$POSIX_SH" -c 'grep -c x <<< "xyz"' >/dev/null 2>&1; then
+        bad "DISCRIMINATOR: ${POSIX_SH} ACCEPTED a herestring, so it is not the POSIX control this limb needs and the bashism claim is unproven here."
+    else
+        ok "DISCRIMINATOR: ${POSIX_SH} REJECTS 'grep -q PAT <<< \$var' -- remedy A is a bashism, exactly as limb 3 says"
+    fi
+    # The other half. Without it the limb above only proves dash is fussy, not
+    # that grep -c is the answer.
+    if "$POSIX_SH" -c 'n=$(printf "%s\n" "xyz" | grep -c x); [ "$n" -gt 0 ]' >/dev/null 2>&1; then
+        ok "DISCRIMINATOR: ${POSIX_SH} ACCEPTS the grep -c remedy -- remedy B is the one that survives box_run's ssh branch"
+    else
+        bad "DISCRIMINATOR: ${POSIX_SH} rejected the grep -c remedy too. Limb 3 would then be advising something that works in NEITHER shell."
+    fi
 fi
 
 # --- 3. REPO-WIDE, WITH A POSITIVE CONTROL AND A RATCHET ---------------------
@@ -301,7 +351,19 @@ else
     if [ -n "$ADDED" ]; then
         bad "ratchet: NEW instances, not listed in ${BASELINE_FILE} (${POP_N} found, baseline ${BASE_N}):"
         sed 's/^/          /' <<< "$ADDED"
-        printf '          Use a herestring: grep -q PAT <<< "$var", never printf | grep -q.\n'
+        # TWO REMEDIES, AND WHICH IS CORRECT DEPENDS ON WHICH SHELL RUNS THE
+        # STRING. This used to name only the herestring -- a bashism, and so
+        # wrong advice for every site whose text is executed elsewhere. This
+        # repo has those: scripts/box_walk_probes/lib/probe.sh box_run() sends
+        # "$1" to `ssh HOST "$1"`, naming no shell, so the BOX'S LOGIN SHELL
+        # parses it. Handing a herestring to a dash login shell is a syntax
+        # error, not a fix. Proved by limb 2C.
+        printf '          TWO REMEDIES -- pick by WHICH SHELL EXECUTES THE STRING:\n'
+        printf '            bash you control  grep -q PAT <<< "$var"            no pipe, so no SIGPIPE\n'
+        printf '            any POSIX shell   [ "$(... | grep -c PAT)" -gt 0 ]  grep -c must read to EOF\n'
+        printf '          If the text runs remotely or via `sh -c` -- box_run(), ssh, a login shell\n'
+        printf '          you do not choose -- the herestring is a BASHISM. Use grep -c.\n'
+        printf '          Never `... | grep -q`: it exits on first match and SIGPIPEs the producer.\n'
     else
         ok "ratchet: no new instances -- every one of the ${POP_N} found is already baselined"
     fi
