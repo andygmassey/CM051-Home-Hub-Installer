@@ -116,5 +116,53 @@ for marker in 'DOCTOR_ERRORS=' 'TOTAL_STEPS='; do
     fi
 done
 
+# ---------------------------------------------------------------------
+# 4. THE GATE COULD ONLY SEE install.sh, SO THE DEFECT LIVED NEXT DOOR.
+#
+#    Measured on the live box 2026-08-27, from a probe this test never read:
+#
+#      ./install_error_honesty.sh: line 88: [: 0
+#      0: integer expected
+#      VERDICT: PASS
+#
+#    `grep -c` prints the count AND exits 1 on zero matches, so
+#    `grep -c ... || echo 0` emits "0\n0". `[ "$errs" -gt 0 ]` then exits 2,
+#    the comparison is SKIPPED, and the probe falls through to probe_pass.
+#
+#    install.sh was clean the whole time. The idiom had simply moved to a
+#    surface the gate was not scoped to, which is the failure this repo keeps
+#    paying for: a predicate scoped to where the bug WAS cannot see where it IS.
+#
+#    Scope now covers the box-walk probes as well. NOT widened to tests/ --
+#    several tests carry this idiom deliberately, as fixtures, including this
+#    one. A gate that flags its own positive control is not a wider gate, it is
+#    a broken one.
+# ---------------------------------------------------------------------
+PROBE_DIR="${REPO_ROOT}/scripts/box_walk_probes"
+if [[ ! -d "$PROBE_DIR" ]]; then
+    bad "box-walk probe directory not found at ${PROBE_DIR} -- this section could not run, which is not a pass"
+else
+    probe_files=0
+    probe_offenders=""
+    while IFS= read -r _pf; do
+        probe_files=$((probe_files + 1))
+        _hits="$(grep -nE 'grep -c[^|]*\|\| *echo' "$_pf" | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
+        if [[ -n "$_hits" ]]; then
+            probe_offenders="${probe_offenders}${_pf}
+${_hits}
+"
+        fi
+    done < <(find "$PROBE_DIR" -name '*.sh' -type f | sort)
+
+    if [[ "$probe_files" -eq 0 ]]; then
+        bad "zero probe files examined -- an empty scan is not a clean scan"
+    elif [[ -z "$probe_offenders" ]]; then
+        ok "no 'grep -c ... || echo N' call sites in ${probe_files} box-walk probe file(s)"
+    else
+        bad "box-walk probes still contain the broken idiom:"
+        printf '%s\n' "$probe_offenders" | sed 's/^/         /'
+    fi
+fi
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]
