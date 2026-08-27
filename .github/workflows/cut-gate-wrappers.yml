@@ -304,10 +304,6 @@ jobs:
       #
       # if: always() so a earlier failure cannot silently drop the one gate that
       # reads the shipped artefact.
-      - name: pinned wiki images carry the design system (presence)
-        if: always()
-        run: bash tests/test_pinned_wiki_image_has_design_system.sh --presence-only
-
       # Guards the step above, and the exit-code contract of the gate it runs.
       # Needs no docker and no network -- it asserts WIRING and CANNOT-RUN
       # behaviour, which is why it can block every PR while the gate it guards
@@ -320,6 +316,19 @@ jobs:
       # macos-latest, which has no docker, so the test skipped and the step went
       # green having examined nothing -- see the wiki-provenance-extract job
       # below, which runs it on ubuntu where docker exists and the defect lives.
+
+      # MOVED HERE FROM THE macos-latest JOB, 2026-08-27.
+      # --presence-only still needs docker -- the script's own guard is
+      # `command -v docker || cannot_run "docker not available"`. macos-latest
+      # has no docker, so the step returned exit 2 (CANNOT-RUN) on every run.
+      # That was the gate being HONEST, not broken: it refused to claim a
+      # verdict it could not reach, which is the whole point of the three-state
+      # contract. But a gate that can only ever say CANNOT-RUN gates nothing.
+      #
+      # The comment eleven lines below the old location already stated the rule:
+      # docker-needing checks belong on ubuntu. Measured on a Mac WITH docker,
+      # the same command passes -- 431 rules found, both positive controls fire,
+      # rc=0. The check is sound; only its host was wrong.
 
   # ---------------------------------------------------------------------------
   # The wiki provenance checks must READ the image, never EXECUTE it.
@@ -371,3 +380,9 @@ jobs:
             echo "::error::the test examined its assertions and FAILED (rc=${rc}) -- see the arms above"
             exit 1
           fi
+
+      # The presence half of the design-system gate. It lives HERE and not on
+      # macos-latest because it needs docker; see the note above the job header.
+      - name: pinned wiki images carry the design system (presence)
+        if: always()
+        run: bash tests/test_pinned_wiki_image_has_design_system.sh --presence-only
