@@ -94,10 +94,44 @@ fi
 BRANCH="$(git -C "${REPO_DIR}" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
 HEAD_SHA="$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo '?')"
 if [ -z "${BRANCH}" ]; then
-    err "HEAD is DETACHED (at ${HEAD_SHA}) -- a cut must run from a NAMED branch, not a detached HEAD"
-    info "a detached HEAD is a non-reproducible cut point (often an interrupted rebase/bisect artefact);"
-    info "'git checkout <cut-branch>' and re-cut."
-    FAIL=1
+    # A DETACHED HEAD AT A TAG IS THE MOST REPRODUCIBLE CUT POINT THERE IS.
+    #
+    # This arm used to refuse every detached HEAD. That was written for a LOCAL
+    # cut on a developer machine, where detached usually IS an interrupted
+    # rebase. In CI it is the normal and correct shape: cut.yml triggers on a
+    # tag push, and actions/checkout on a tag produces a detached HEAD BY
+    # DEFINITION -- a tag is not a branch. So the gate could never pass on the
+    # cut path, and nobody saw it because the orphan gate above it always
+    # failed first. Measured on run 33074389084, 2026-08-27: the DMG built,
+    # signed, notarised and stapled, and THEN this refused it.
+    #
+    # The refusal also had its own reasoning backwards. It called a detached
+    # HEAD "non-reproducible". A tag is fixed; a BRANCH is the ref that moves.
+    # Re-running a cut from a named branch a week later can produce a different
+    # tree. Re-running it from a tag cannot.
+    #
+    # THREE OUTCOMES, not two. The interrupted-rebase case it was built for is
+    # still refused -- that is a detached HEAD at NO tag.
+    TAG_AT_HEAD="$(git -C "${REPO_DIR}" describe --exact-match --tags HEAD 2>/dev/null || true)"
+    if [ -n "${TAG_AT_HEAD}" ]; then
+        ok "HEAD is detached at TAG '${TAG_AT_HEAD}' (${HEAD_SHA}) -- a tag is a FIXED cut point"
+        info "a tag cannot move; a branch can. This is stricter than a named branch, not looser."
+    elif [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ -n "${GITHUB_SHA:-}" ] \
+         && [ "${GITHUB_SHA}" = "$(git -C "${REPO_DIR}" rev-parse HEAD 2>/dev/null || echo '')" ]; then
+        # FALLBACK, and it says which evidence it used. A shallow checkout can
+        # fetch the tagged COMMIT without the tag OBJECT, so `describe` finds
+        # nothing even though the ref really is a tag. Accepting on CI metadata
+        # is weaker than reading a tag object, so it is reported as such rather
+        # than folded into the line above.
+        ok "HEAD is detached at ${HEAD_SHA}, which CI declares is tag '${GITHUB_REF_NAME:-<unnamed>}'"
+        info "established from CI metadata (GITHUB_REF_TYPE + GITHUB_SHA), NOT from a local tag object;"
+        info "the tag object is absent from this shallow checkout, which is expected, not a fault."
+    else
+        err "HEAD is DETACHED (at ${HEAD_SHA}) and is NOT at a tag -- a cut must run from a named branch or a tag"
+        info "a detached HEAD at no tag is a non-reproducible cut point (often an interrupted rebase/bisect artefact);"
+        info "'git checkout <cut-branch>' and re-cut."
+        FAIL=1
+    fi
 elif [ "${BRANCH}" != "${EXPECTED_CUT_BRANCH}" ]; then
     if [ "${EXPECTED_BRANCH_EXPLICIT}" -eq 1 ]; then
         err "on branch '${BRANCH}' but the cut was pinned to '${EXPECTED_CUT_BRANCH}' (at ${HEAD_SHA})"
