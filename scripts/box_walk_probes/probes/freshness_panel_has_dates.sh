@@ -144,140 +144,278 @@ print(str(len(files)) + \" \" + str(dated))
 OSTLERDISK"
 }
 
+# ── THE SURFACE MOVED, AND THIS PROBE WAS WAITING ON ONE THAT NEVER SHIPS ──
+#
+# MEASURED 2026-08-27 on the live box: the API at :8089 serves 57 routes and
+# NONE of them is /doctor/api/freshness. /doctor/api/status, /health,
+# /diagnostics and /history all 200 and all carry system diagnostics --
+# containers, models, services, disk -- not a per-source date.
+#
+# So the old CANNOT-RUN was correct about the 404 and wrong about what it
+# implied. It read as "the route is not up yet". The route is not coming. A row
+# that can only ever return CANNOT-RUN never clears and never says why.
+#
+# THE PANEL THE CUSTOMER ACTUALLY SEES is compiled markdown, in the wiki:
+#
+#   ~/Documents/Ostler/Wiki/index.md
+#     ## Data freshness
+#     | Meetings      | <span class="pw-status pw-status--ok">26 August 2026</span> |
+#     | Contact       | <span class="pw-status pw-status--ok">26 August 2026</span> |
+#     | Wiki compiled | <span class="pw-status pw-status--ok">26 August 2026</span> |
+#
+# THREE ROWS. THE BOX INGESTS FOUR FILES ACROSS THREE KEYS:
+#
+#   ~/.ostler/state/settling_progress.d/
+#     calendar.json           key=calendar   updated 2026-08-27T05:18:05Z
+#     contacts.json           key=contacts   updated 2026-08-25T08:10:29Z
+#     messages.imessage.json  key=messages   updated 2026-08-27T05:18:04Z   28538 records
+#     messages.whatsapp.json  key=messages   updated 2026-08-27T05:18:04Z  158155 records
+#
+# `messages` has no row. 186,693 records, the largest source on the box by two
+# orders of magnitude, and the panel that reports currency does not mention it.
+#
+# WHICH IS WHY THE PREDICATE IS COVERAGE, NOT FORMAT. "Does every row carry a
+# real date" PASSES on this box today -- all three present rows are dated. It
+# would pass while the biggest source is invisible. The header above already
+# warns that "unknown" is the panel's version of a zero meaning "did not look";
+# AN ABSENT ROW IS A ZERO THAT DOES NOT EVEN PRINT.
+#
+# WHY THIS STILL CANNOT-RUNs TODAY, AND WHY THAT IS NOT THE SAME CANNOT-RUN.
+# Identifying a row needs the source KEY. The panel renders only a LOCALISED
+# label (`_locale.term("source_" + key)`), so matching English words here would
+# be a predicate scoped to one locale, silently returning "absent" on a box that
+# ships another. CM044 #227 adds the per-source table; CM044 #259 asks it to
+# carry `data-source="<key>"`, which is the unlocalised key already in hand at
+# that line. The moment either lands, this probe gives a real verdict.
+# Until then it names its blocker and reports what it CAN see, which is a
+# different act from waiting on a phantom route.
+#
+# Deliberately NOT done: reverse-mapping locale terms back to keys. That is the
+# convention-scoped predicate this codebase has been bitten by before, and it
+# would fail CLOSED into a false pass -- an unmatched label reads as "no such
+# source", which is indistinguishable from "covered".
+panel_and_ingest() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_PANEL:-}"; return; fi
+    box_run "python3 - <<'OSTLERPANEL'
+import glob, json, os
+
+state = os.path.expanduser('~/.ostler/state/settling_progress.d')
+files = sorted(glob.glob(os.path.join(state, '*.json')))
+keys, dated = set(), 0
+for f in files:
+    try:
+        doc = json.load(open(f))
+    except Exception:
+        continue
+    k = doc.get('key')
+    if k:
+        keys.add(str(k))
+    v = doc.get('updated_at') or doc.get('started_at')
+    if v and str(v).strip().lower() not in ('', 'unknown', 'none', 'null'):
+        dated += 1
+
+wiki = os.path.expanduser('~/Documents/Ostler/Wiki/index.md')
+found = os.path.exists(wiki)
+text = ''
+if found:
+    try:
+        text = open(wiki, encoding='utf-8', errors='replace').read()
+    except Exception:
+        found = False
+
+# Machine-readable rows. No regex: single string ops only, so nothing here
+# depends on shell or python escaping surviving three levels of quoting.
+pairs = []
+for seg in text.split('<tr ')[1:]:
+    seg = seg.split('</tr>')[0]
+    cls = seg.split('class=\"', 1)[1].split('\"', 1)[0] if 'class=\"' in seg else ''
+    if 'pwg-source' not in cls:
+        continue
+    if 'data-source=\"' not in seg:
+        continue
+    key = seg.split('data-source=\"', 1)[1].split('\"', 1)[0]
+    status = ''
+    for tok in cls.split():
+        if tok.startswith('pwg-source--'):
+            status = tok[len('pwg-source--'):]
+    pairs.append(key + ':' + (status or 'nostatus'))
+
+# The legacy table, counted locale-independently via its status class.
+legacy = len([l for l in text.splitlines()
+              if l.startswith('|') and 'pw-status--' in l])
+
+print('PANEL_FOUND=' + ('1' if found else '0'))
+print('INGEST_FILES=' + str(len(files)))
+print('INGEST_DATED=' + str(dated))
+print('INGEST_KEYS=' + ','.join(sorted(keys)))
+print('DS_ROWS=' + ','.join(pairs))
+print('LEGACY_ROWS=' + str(legacy))
+OSTLERPANEL"
+}
+
+field() { printf '%s\n' "$1" | sed -n "s/^$2=//p" | head -1; }
 run_probe() {
     if ! box_reachable; then
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; freshness panel not read"
     fi
 
-    local raw code body
-    raw="$(fetch_freshness_with_code)"
-    code="$(freshness_code "$raw")"
-    body="$(freshness_body "$raw")"
+    local raw found ifiles idated ikeys dsrows legacy
+    raw="$(panel_and_ingest)"
 
-    # STATUS FIRST. Before any question about what the payload SAYS, settle
-    # whether a payload arrived at all. A 404 body is not a freshness panel
-    # with one healthy source in it -- that is what this probe used to report.
-    case "$code" in
-        200|"")
-            ;;
-        *)
-            probe_examined 0 "freshness sources"
-            local disk dfiles ddated verdict_extra
-            disk="$(settling_data_on_disk)"
-            dfiles="${disk%% *}"; ddated="${disk##* }"
-            case "${dfiles:-0}" in
-                ''|*[!0-9]*) verdict_extra="On-disk state could not be read either, so it is unknown whether any freshness data exists." ;;
-                0)           verdict_extra="No settling_progress.d files exist either, so NOTHING has computed freshness: the fix is a sync, not a route." ;;
-                *)           verdict_extra="But the data it would serve EXISTS ON DISK: ${dfiles} settling_progress.d file(s), ${ddated} carrying a real timestamp. This is an UNWIRED RENDERER, not an empty system -- the fix is a route, not a sync." ;;
+    if [ -z "$raw" ]; then
+        probe_examined 0 "freshness sources"
+        probe_cannot_run "the panel collector returned nothing at all. That is the collector failing, not an empty panel -- an empty answer and a broken reader print identically and this probe refuses to call it either way."
+    fi
+
+    found="$(field "$raw" PANEL_FOUND)"
+    ifiles="$(field "$raw" INGEST_FILES)"
+    idated="$(field "$raw" INGEST_DATED)"
+    ikeys="$(field "$raw" INGEST_KEYS)"
+    dsrows="$(field "$raw" DS_ROWS)"
+    legacy="$(field "$raw" LEGACY_ROWS)"
+
+    case "${ifiles:-x}" in ''|*[!0-9]*)
+        probe_examined 0 "freshness sources"
+        probe_cannot_run "could not read ~/.ostler/state/settling_progress.d, so the set of sources this box ingests is unknown. Without a denominator there is nothing to check coverage against."
+    ;; esac
+
+    if [ "$found" != "1" ]; then
+        probe_examined 0 "freshness sources"
+        probe_cannot_run "the compiled wiki index (~/Documents/Ostler/Wiki/index.md) is not present, so the panel the customer reads was never opened. ${ifiles} settling_progress.d file(s) exist, ${idated} carrying a real timestamp -- the data is there, the rendered panel is not."
+    fi
+
+    if [ "${ifiles}" = "0" ]; then
+        probe_examined 0 "freshness sources"
+        probe_cannot_run "no settling_progress.d files exist, so NOTHING on this box has computed freshness. There is no coverage question to answer yet: the fix is a sync, not a panel."
+    fi
+
+    # ── The per-source table with machine-readable keys is the only surface
+    # that can answer the question. Its absence is reported as a NAMED blocker,
+    # never as a pass, and never by guessing at localised labels.
+    if [ -z "$dsrows" ]; then
+        probe_examined 0 "identifiable freshness rows"
+        probe_note "sources this box ingests: ${ikeys:-(none)} (${ifiles} file(s), ${idated} timestamped)"
+        probe_note "legacy '## Data freshness' rows visible: ${legacy:-0} (counted by status class, not by label, so this holds in any locale)"
+        probe_cannot_run "the panel carries no row with a machine-readable data-source key, so no row can be attributed to a source. This probe has NO opinion on coverage. Blocked on CM044 #227 (per-source freshness table) and CM044 #259 (emit data-source on the row). NOT a phantom route: the legacy table renders ${legacy:-0} row(s) right now and this box ingests ${ifiles} file(s) across keys [${ikeys:-none}] -- the numbers are visible, the attribution is not."
+    fi
+
+    # ── Coverage. Every ingested key must have a row, and that row must carry
+    # a state that means a date was actually established.
+    local missing="" bad="" nrows=0 k st
+    local IFS_SAVE="$IFS"
+    IFS=','
+    for k in ${ikeys}; do
+        [ -n "$k" ] || continue
+        st=""
+        local pair
+        for pair in ${dsrows}; do
+            case "$pair" in "${k}:"*) st="${pair#*:}" ;; esac
+        done
+        if [ -z "$st" ]; then
+            missing="${missing}${missing:+ }${k}"
+        else
+            case "$st" in
+                never|unknown|nostatus) bad="${bad}${bad:+ }${k}(${st})" ;;
             esac
-            probe_cannot_run "$FRESHNESS_URL returned HTTP ${code}, not 200. The panel was never read, so this probe has NO opinion on whether its sources carry real dates. ${verdict_extra} Body: $(printf '%s' "$body" | head -c 120)"
-            ;;
+        fi
+    done
+    for pair in ${dsrows}; do [ -n "$pair" ] && nrows=$((nrows + 1)); done
+    IFS="$IFS_SAVE"
+
+    probe_examined "$nrows" "identifiable freshness rows against ${ifiles} ingested source file(s)"
+    probe_note "sources ingested: ${ikeys}"
+    probe_note "rows on the panel: ${dsrows}"
+
+    if [ -n "$missing" ]; then
+        probe_fail "the freshness panel has NO ROW for: ${missing}. An absent row is not a neutral omission -- the customer is shown a currency report that silently excludes a source they are relying on. Ingested keys [${ikeys}] vs panel rows [${dsrows}]."
+    fi
+    if [ -n "$bad" ]; then
+        probe_fail "row(s) present but carrying no established date: ${bad}. 'never' and 'unknown' are the panel's way of saying it did not look, and they render as though they were an answer (tasks #349, #266)."
+    fi
+    probe_pass "every ingested source [${ikeys}] has a freshness row with an established date"
+}
+# ── SELF-TEST ────────────────────────────────────────────────────────────
+# Convention: this exits FAIL when healthy. A self-test that exits 0 is
+# reporting that one of its own controls did not behave, which is the only
+# thing worse than a failing probe -- a probe that cannot go red.
+#
+# The case that matters most is CASE 2. The panel on the live box today has
+# three dated rows and is missing `messages`. A format-checking probe passes
+# that. This asserts it FAILS, so the predicate is proved to be coverage.
+_F8_OK=0
+_f8_case() {
+    local label="$1" payload="$2" want="$3"
+    local out rc got
+    out="$(SELF_TEST_LOCAL=1 FAKE_PANEL="$payload" run_probe 2>&1)"; rc=$?
+    case "$rc" in
+        0)  got=PASS ;;
+        1)  got=FAIL ;;
+        78) got=CANNOT-RUN ;;
+        *)  got="rc${rc}" ;;
     esac
-
-    if [ -z "$body" ]; then
-        probe_examined 0 "freshness sources"
-        probe_cannot_run "no response from $FRESHNESS_URL -- Doctor may not be running. An empty payload is NOT an empty panel."
+    if [ "$got" != "$want" ]; then
+        probe_pass "NEGATIVE CONTROL MISFIRED on [${label}]: expected ${want}, got ${got}. No verdict from this probe is trustworthy until that is understood. Output: $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"
     fi
-
-    local counts total unknown
-    counts="$(analyse_freshness "$body")"
-    total="${counts%% *}"
-    unknown="${counts##* }"
-
-    if [ "$total" = "PARSE_ERROR" ]; then
-        probe_examined 0 "freshness sources"
-        probe_cannot_run "$FRESHNESS_URL returned something that is not JSON; cannot count sources"
-    fi
-
-    if [ "${total:-0}" -eq 0 ]; then
-        probe_examined 0 "freshness sources"
-        probe_cannot_run "freshness payload parsed but names 0 sources -- an installed Hub always tracks several, so this is a shape mismatch, not a clean panel"
-    fi
-
-    probe_examined "$total" "freshness sources from $FRESHNESS_URL"
-    probe_note "sources reporting a real date: $((total - unknown))"
-    probe_note "sources reporting unknown/empty: $unknown"
-
-    if [ "$unknown" -gt 0 ]; then
-        probe_fail "$unknown of $total freshness sources report 'unknown' rather than a date (tasks #349, #266). The panel cannot distinguish 'never synced' from 'the query failed'."
-    fi
-
-    probe_pass "all $total freshness sources report a real date"
+    _F8_OK=$((_F8_OK + 1))
 }
 
 self_test() {
     SELF_TEST_LOCAL=1
+    probe_examined 9 "synthetic panel/ingest fixtures (negative control)"
 
-    # 1. The #349 shape: two sources reporting unknown. MUST be counted.
-    local bad='{"sources":{"meetings":"unknown","contacts":null,"email":"2026-08-15T10:00:00Z"}}'
-    local c t u
-    c="$(analyse_freshness "$bad")"; t="${c%% *}"; u="${c##* }"
-    probe_examined "$t" "fixture freshness sources (negative control)"
+    local healthy missing never_state nostatus norows nopanel noingest unreadable
 
-    if [ "$t" -ne 3 ]; then
-        probe_fail "counter saw $t of 3 fixture sources -- the parser is wrong, so no verdict from this probe is trustworthy"
+    healthy="$(printf '%s\n' 'PANEL_FOUND=1' 'INGEST_FILES=4' 'INGEST_DATED=4' \
+        'INGEST_KEYS=calendar,contacts,messages' \
+        'DS_ROWS=calendar:ok,contacts:ok,messages:ok' 'LEGACY_ROWS=3')"
+
+    # The live box, once #227/#259 land and messages is STILL not rendered.
+    missing="$(printf '%s\n' 'PANEL_FOUND=1' 'INGEST_FILES=4' 'INGEST_DATED=4' \
+        'INGEST_KEYS=calendar,contacts,messages' \
+        'DS_ROWS=calendar:ok,contacts:ok' 'LEGACY_ROWS=3')"
+
+    never_state="$(printf '%s\n' 'PANEL_FOUND=1' 'INGEST_FILES=4' 'INGEST_DATED=4' \
+        'INGEST_KEYS=calendar,contacts,messages' \
+        'DS_ROWS=calendar:ok,contacts:ok,messages:never' 'LEGACY_ROWS=3')"
+
+    nostatus="$(printf '%s\n' 'PANEL_FOUND=1' 'INGEST_FILES=4' 'INGEST_DATED=4' \
+        'INGEST_KEYS=calendar,contacts,messages' \
+        'DS_ROWS=calendar:ok,contacts:ok,messages:nostatus' 'LEGACY_ROWS=3')"
+
+    # TODAY. Legacy table renders, nothing is attributable.
+    norows="$(printf '%s\n' 'PANEL_FOUND=1' 'INGEST_FILES=4' 'INGEST_DATED=4' \
+        'INGEST_KEYS=calendar,contacts,messages' 'DS_ROWS=' 'LEGACY_ROWS=3')"
+
+    nopanel="$(printf '%s\n' 'PANEL_FOUND=0' 'INGEST_FILES=4' 'INGEST_DATED=4' \
+        'INGEST_KEYS=calendar,contacts,messages' 'DS_ROWS=' 'LEGACY_ROWS=0')"
+
+    noingest="$(printf '%s\n' 'PANEL_FOUND=1' 'INGEST_FILES=0' 'INGEST_DATED=0' \
+        'INGEST_KEYS=' 'DS_ROWS=' 'LEGACY_ROWS=0')"
+
+    unreadable="$(printf '%s\n' 'PANEL_FOUND=1' 'INGEST_FILES=' 'INGEST_DATED=' \
+        'INGEST_KEYS=' 'DS_ROWS=' 'LEGACY_ROWS=0')"
+
+    _f8_case "every source covered and dated"          "$healthy"     PASS
+    _f8_case "messages ingested but ABSENT from panel" "$missing"     FAIL
+    _f8_case "messages row present but state=never"    "$never_state" FAIL
+    _f8_case "row present with no status class"        "$nostatus"    FAIL
+    _f8_case "no attributable rows (today's box)"      "$norows"      CANNOT-RUN
+    _f8_case "compiled wiki index absent"              "$nopanel"     CANNOT-RUN
+    _f8_case "nothing has computed freshness"          "$noingest"    CANNOT-RUN
+    _f8_case "settling dir unreadable"                 "$unreadable"  CANNOT-RUN
+    _f8_case "collector returned nothing"              ""             CANNOT-RUN
+
+    # A control that cannot tell the healthy fixture from the broken one proves
+    # nothing, however many cases it ran. Assert the two differ in VERDICT, not
+    # merely that each matched its own expectation.
+    local h m hrc mrc
+    h="$(SELF_TEST_LOCAL=1 FAKE_PANEL="$healthy" run_probe 2>&1)"; hrc=$?
+    m="$(SELF_TEST_LOCAL=1 FAKE_PANEL="$missing" run_probe 2>&1)"; mrc=$?
+    if [ "$hrc" = "$mrc" ]; then
+        probe_pass "CONTROL IS BLIND: the covered fixture and the one missing an entire source both exit ${hrc}. The coverage predicate is not discriminating and this probe would pass the very defect it exists to catch."
     fi
-    if [ "$u" -ne 2 ]; then
-        probe_pass "NEGATIVE CONTROL DID NOT FIRE: counted $u of 2 planted 'unknown' sources. This probe cannot detect task #349."
-    fi
 
-    # 2. A wholly healthy panel must NOT be flagged.
-    local good='{"sources":{"meetings":"2026-08-15","contacts":"2026-08-14","email":"2026-08-16"}}'
-    c="$(analyse_freshness "$good")"; u="${c##* }"
-    if [ "$u" -ne 0 ]; then
-        probe_pass "NEGATIVE CONTROL OVER-FIRED: flagged $u sources on a panel where every date is real. It would fail every healthy box."
-    fi
-
-    # 3. The nested shape must parse too. A probe that understands only one
-    #    payload shape returns a false zero on the other, which is the exact
-    #    defect class this whole suite exists to prevent.
-    local nested='{"sources":{"meetings":{"last_updated":"unknown"},"email":{"last_updated":"2026-08-16"}}}'
-    c="$(analyse_freshness "$nested")"; t="${c%% *}"; u="${c##* }"
-    if [ "$t" -ne 2 ] || [ "$u" -ne 1 ]; then
-        probe_pass "NEGATIVE CONTROL DID NOT FIRE: nested payload shape parsed as total=$t unknown=$u, expected 2 and 1. The probe is blind to one of the two live shapes."
-    fi
-
-    # 4. THE FALSE GREEN THAT SHIPPED. This is the limb that was missing, and
-    #    its absence is why the probe reported PASS off a 404 on the v1.0.38
-    #    box. Every earlier fixture was well-formed, so nothing ever asked
-    #    what the adjudicator does with an ERROR body.
-    #
-    #    Assert the adjudicator STILL mis-reads it -- deliberately. The fix is
-    #    not in analyse_freshness (which is only ever handed a body) but in
-    #    run_probe checking the HTTP status first. If this limb ever stops
-    #    reporting 1/0, the status guard has quietly stopped being the thing
-    #    keeping the probe honest, and whoever changed it needs to know.
-    local errbody='{"detail":"Not Found"}'
-    c="$(analyse_freshness "$errbody")"; t="${c%% *}"; u="${c##* }"
-    if [ "$t" != "1" ] || [ "$u" != "0" ]; then
-        probe_pass "CONTROL PREMISE MOVED: a 404 error body now adjudicates as total=$t unknown=$u, not 1/0. The status-code guard in run_probe may no longer be the only thing preventing the false green -- re-derive before trusting this probe."
-    fi
-
-    # 5. THE THREE NEW DISK BRANCHES. Each is a distinct diagnosis and a
-    #    branch with no control is a branch nobody has ever seen run. The
-    #    verdict must stay CANNOT-RUN in all three -- data on disk is still
-    #    not an answer about the PANEL, and an "actionable" message that
-    #    quietly upgrades a CANNOT-RUN to a FAIL would be worse than the
-    #    vague one it replaced.
-    local out rc
-    _disk_case() {
-        # _disk_case <label> <FAKE_DISK> <substring the message must contain>
-        out="$(SELF_TEST_LOCAL=1 FAKE_FRESHNESS='{"detail":"Not Found"}' \
-               FAKE_FRESHNESS_CODE=404 FAKE_DISK="$2" run_probe 2>&1)"
-        rc=$?
-        if [ "$rc" -ne "$PROBE_EX_CANNOT_RUN" ]; then
-            probe_pass "DISK BRANCH [$1] returned exit ${rc}, not CANNOT-RUN (${PROBE_EX_CANNOT_RUN}). Corroborating from disk must never change the verdict about the panel."
-        fi
-        case "$out" in
-            *"$3"*) : ;;
-            *) probe_pass "DISK BRANCH [$1] did not say '$3'. The message is the entire value of this branch; without it a 404 is unactionable." ;;
-        esac
-    }
-    _disk_case "data present"    "4 4" "UNWIRED RENDERER"
-    _disk_case "no data at all"  "0 0" "the fix is a sync, not a route"
-    _disk_case "disk unreadable" "x x" "could not be read either"
-
-    probe_fail "negative control behaved correctly (caught unknowns in both payload shapes, passed a healthy panel, confirmed an error body still needs the HTTP-status guard, and all three disk-corroboration branches report the right diagnosis while staying CANNOT-RUN)"
+    probe_fail "negative control behaved correctly on all ${_F8_OK} cases: absent source, undated row, unattributable panel, missing index and dead collector each drive their own verdict, and covered-vs-missing exit differently (${hrc} vs ${mrc})"
 }
 
 probe_main "$@"
