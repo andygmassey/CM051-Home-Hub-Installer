@@ -1,0 +1,54 @@
+name: grep-c-arith-safety
+#
+# `grep -c` prints the count AND exits 1 when the count is zero. So
+# `grep -c PATTERN file || echo 0` emits TWO lines on no-match -- "0\n0" --
+# and any numeric test on that value exits 2 with "integer expected",
+# SKIPPING the comparison rather than failing it.
+#
+# tests/test_grep_c_arith_safety.sh has hunted this since it cost four release
+# tags. It was scoped to install.sh, and it was UNWIRED: nothing ran it. On
+# 2026-08-27 the idiom was found live in a box-walk probe --
+# install_error_honesty, whose entire purpose is to distrust a summary --
+# printing "[: 0\n0: integer expected" and then VERDICT: PASS.
+#
+# install.sh had been clean the whole time. A predicate scoped to where the bug
+# WAS cannot see where it IS, and a gate nothing invokes is a gate you have
+# read rather than a gate you have run.
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'scripts/box_walk_probes/**'
+      - 'tests/test_grep_c_arith_safety.sh'
+      # A gate must trigger on changes to ITSELF, or it can be quietly
+      # narrowed in a PR that never runs it.
+      - '.github/workflows/grep-c-arith-safety.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  grep-c-arith-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: no 'grep -c ... || echo N' in install.sh or the box-walk probes
+        run: /bin/bash tests/test_grep_c_arith_safety.sh
+
+      # `if: always()` because this step is SKIPPED otherwise when the step
+      # above it fails -- which is the precise moment the gate is in trouble
+      # and a syntax check is worth having. The repo's ci-maskless gate catches
+      # the omission.
+      - name: the gate itself parses
+        if: always()
+        run: /bin/bash -n tests/test_grep_c_arith_safety.sh

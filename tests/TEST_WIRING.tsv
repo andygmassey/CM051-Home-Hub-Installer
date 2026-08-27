@@ -148,7 +148,7 @@ test_gdpr_scan_prewarn.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_gen_patch_new_files.sh	UNWIRED	-
 test_governor_pause_throttle.sh	UNWIRED	-
 test_graph_db_pull_retry.sh	UNWIRED	-
-test_grep_c_arith_safety.sh	UNWIRED	-
+test_grep_c_arith_safety.sh	WIRED	.github/workflows/grep-c-arith-safety.yml
 test_grep_row_cannot_be_satisfied_by_its_own_manifest.py	WIRED	.github/workflows/cut-manifest.yml
 test_gui_progress_emitter.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_hub_app_fetch_wired.sh	WIRED	.github/workflows/hub-app-fetch.yml
