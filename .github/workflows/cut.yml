@@ -316,6 +316,7 @@ jobs:
           ./tests/test_no_orphaned_fixes_gate.sh
           ./tests/test_orphan_gate_cannot_verify.sh
           ./tests/test_orphan_gate_pr_skip_is_per_label.sh
+          ./tests/test_orphan_gate_empty_pr_list_needs_a_control.sh
 
       - name: Rollforward claims -- no row may claim a fix with no gate
         run: |
@@ -720,6 +721,7 @@ jobs:
           ./tests/test_no_orphaned_fixes_gate.sh
           ./tests/test_orphan_gate_cannot_verify.sh
           ./tests/test_orphan_gate_pr_skip_is_per_label.sh
+          ./tests/test_orphan_gate_empty_pr_list_needs_a_control.sh
 
       - name: Build, sign, notarise, staple
         env:
@@ -817,6 +819,21 @@ jobs:
           # run of scripts/verify_no_orphaned_fixes.sh on the build machine,
           # where all three gh accounts resolve -- run it before tagging.
           OSTLER_ORPHAN_GATE_SKIP: CM044,CM041,CM059,CM031,daemon
+          # The daemon lives in a DIFFERENT ORG (ostler-ai), and a workflow's
+          # own GITHUB_TOKEN is scoped to the repo it runs in, so listing PRs
+          # there could never succeed and the limb went CANNOT VERIFY on every
+          # cut. Named per owner: ostler-ai -> OSTLER_AI. #1166.
+          #
+          # If this token cannot read that repo's pull requests, the gate's
+          # positive control turns the empty listing into CANNOT-VERIFY and
+          # names this variable. It does NOT quietly pass -- which is the whole
+          # reason the limb is not simply added to a skip list.
+          OSTLER_ORPHAN_GATE_TOKEN_OSTLER_AI: ${{ secrets.CM051_RELEASES_READ }}
+          # An empty PR listing and a blind token are the same four characters.
+          # With this set, a zero is only accepted after the repo metadata reads
+          # back with the SAME token. Off by default so the gate's synthetic
+          # fixtures still pass; the cut is where the cross-org hazard lives.
+          OSTLER_ORPHAN_GATE_PR_CONTROL: '1'
           # Lets the gate flag deferrals whose until_cut has already passed.
           OSTLER_CUT_VERSION: ${{ github.ref_name }}
         run: make -C gui ship
@@ -1204,6 +1221,7 @@ jobs:
           ./tests/test_no_orphaned_fixes_gate.sh
           ./tests/test_orphan_gate_cannot_verify.sh
           ./tests/test_orphan_gate_pr_skip_is_per_label.sh
+          ./tests/test_orphan_gate_empty_pr_list_needs_a_control.sh
 
       # OSTLER_CUT_VERSION, derived the same way preflight derives it: the
       # version this tree would stamp. It lets the deferral gate flag rows
@@ -1238,4 +1256,19 @@ jobs:
           OSTLER_PROVENANCE_SKIP_KINDS: wiki_image_grep,wiki_image_absent
           PROV_GATE_SKIP_CLASSES: wiki
           OSTLER_ORPHAN_GATE_SKIP: CM044,CM041,CM059,CM031,daemon
+          # The daemon lives in a DIFFERENT ORG (ostler-ai), and a workflow's
+          # own GITHUB_TOKEN is scoped to the repo it runs in, so listing PRs
+          # there could never succeed and the limb went CANNOT VERIFY on every
+          # cut. Named per owner: ostler-ai -> OSTLER_AI. #1166.
+          #
+          # If this token cannot read that repo's pull requests, the gate's
+          # positive control turns the empty listing into CANNOT-VERIFY and
+          # names this variable. It does NOT quietly pass -- which is the whole
+          # reason the limb is not simply added to a skip list.
+          OSTLER_ORPHAN_GATE_TOKEN_OSTLER_AI: ${{ secrets.CM051_RELEASES_READ }}
+          # An empty PR listing and a blind token are the same four characters.
+          # With this set, a zero is only accepted after the repo metadata reads
+          # back with the SAME token. Off by default so the gate's synthetic
+          # fixtures still pass; the cut is where the cross-org hazard lives.
+          OSTLER_ORPHAN_GATE_PR_CONTROL: '1'
         run: bash scripts/dry_run_cut_checks.sh

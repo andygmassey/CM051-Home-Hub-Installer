@@ -639,10 +639,36 @@ check_repo() {
     # whose answer depends on ambient shell state is not a gate.
     #
     # So resolve the token for the repo's OWNER and use it explicitly.
-    local _owner="" _tok="" _auth=""
+    local _owner="" _tok="" _auth="" _tok_src=""
     _owner="${gh_repo%%/*}"
-    if [[ -n "$_owner" ]] && command -v gh >/dev/null 2>&1; then
+
+    # 1. AN EXPLICIT PER-OWNER TOKEN, highest precedence.
+    #
+    # A hosted runner has no `gh auth login`, so the per-owner lookup below
+    # finds nothing and the fallback is the workflow's own GITHUB_TOKEN, which
+    # is scoped to the repo the workflow runs in. `ostler-ai/ostler-assistant`
+    # is a DIFFERENT ORG, so that listing could never succeed and the limb went
+    # CANNOT VERIFY on every cut. It is not enough to set GH_TOKEN in the
+    # workflow -- one token cannot be right for four owners at once, and the
+    # cut repo's own limb needs the repo-scoped one.
+    #
+    # So: name the owner in the variable. `ostler-ai` -> OSTLER_AI.
+    #     OSTLER_ORPHAN_GATE_TOKEN_OSTLER_AI
+    #     OSTLER_ORPHAN_GATE_TOKEN_ANDYGMASSEY
+    # Anything not [A-Za-z0-9] becomes `_`, uppercased. Absent means "fall
+    # through", never "use a token that cannot reach here".
+    if [[ -n "$_owner" ]]; then
+        local _ovar
+        _ovar="OSTLER_ORPHAN_GATE_TOKEN_$(printf '%s' "$_owner" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9' '_')"
+        _ovar="${_ovar%_}"
+        _tok="${!_ovar:-}"
+        [[ -n "$_tok" ]] && _tok_src="$_ovar"
+    fi
+
+    # 2. A LOCAL `gh auth login` for that owner.
+    if [[ -z "$_tok" ]] && [[ -n "$_owner" ]] && command -v gh >/dev/null 2>&1; then
         _tok="$(gh auth token -u "$_owner" 2>/dev/null || true)"
+        [[ -n "$_tok" ]] && _tok_src="gh auth token -u ${_owner}"
     fi
     # On a hosted runner there is no `gh auth login`, so the per-owner lookup
     # above returns nothing and the ONLY credential available is the workflow's
@@ -652,6 +678,7 @@ check_repo() {
     # the siblings, which is exactly the true division of what CI can see.
     if [[ -z "$_tok" ]]; then
         _tok="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+        [[ -n "$_tok" ]] && _tok_src="workflow GITHUB_TOKEN (repo-scoped)"
     fi
 
     _timeout=""; command -v gtimeout >/dev/null 2>&1 && _timeout="gtimeout 30"
@@ -822,9 +849,60 @@ check_repo() {
         rm -f "$pr_err"
         # `[]` is a SUCCESSFUL listing of zero open PRs -- a real measurement,
         # and distinguishable from the failure above only because the exit
-        # code is now kept. It falls through to the loop, which does nothing,
-        # which is correct.
-        if [[ -n "$prs" ]]; then
+        # code is now kept.
+        #
+        # 🔴 BUT AN EMPTY LIST IS THE ONE ANSWER A BLIND TOKEN CAN ALSO PRODUCE.
+        # `gh pr list` exits 0 with `[]` for a repo it can see and that has no
+        # open PRs. Some auth failures raise and are caught above; a token that
+        # resolves but cannot read pull requests can return an empty page
+        # instead. Zero-with-no-error is therefore the shape a silent auth
+        # regression wears, and it is the shape that reads as a clean pass.
+        #
+        # POSITIVE CONTROL, and it asks the RIGHT question. The first version
+        # asked "has this repo ever had a PR" -- which rejected six legitimate
+        # zero-PR fixtures in orphan_gate_selftest.sh, because "no PRs ever" is
+        # a real state and not evidence of blindness. What actually
+        # distinguishes blind from empty is whether the token can SEE THE REPO
+        # AT ALL. So: read the repo's own metadata with the SAME token. If that
+        # fails, the empty list measured nothing. If it succeeds, the zero is
+        # real, however boring the repo.
+        #
+        # Runs ONLY on an empty list, so it costs one extra call in the one
+        # case that is ambiguous, and none otherwise.
+        local _pr_n
+        _pr_n="$(printf '%s' "${prs:-[]}" | python3 -c 'import json,sys
+try: print(len(json.load(sys.stdin)))
+except Exception: print(-1)' 2>/dev/null || printf '%s' -1)"
+        # ENABLED BY THE CALLER, and deliberately so. The gate's own fixtures
+        # in scripts/orphan_gate_selftest.sh use synthetic repos that no token
+        # can read; running the control against them turns eight legitimately
+        # GREEN arms red, which would make this change a net loss. The hazard
+        # it guards -- a cross-org listing that returns an empty page instead
+        # of an error -- exists on the CUT, so the cut turns it on. Off means
+        # "not asked", and the zero is reported exactly as it was before.
+        if [[ "${_pr_n:-0}" -eq 0 && -n "${OSTLER_ORPHAN_GATE_PR_CONTROL:-}" ]]; then
+            local ctl ctl_rc ctl_err
+            ctl_err="$(mktemp)"
+            ctl="$(gh_as "${_tok:-}" api "repos/${gh_repo}" --jq '.full_name' 2>"$ctl_err")"; ctl_rc=$?
+            if [[ "$ctl_rc" -ne 0 || -z "$ctl" ]]; then
+                bad "${label}: CANNOT VERIFY -- open-PR list was empty AND the token cannot read ${gh_repo} at all"
+                printf '         An empty list and a blind token look identical, so the\n' >&2
+                printf '         control reads the repo metadata with the SAME token. It\n' >&2
+                printf '         failed, so the listing did not measure zero open PRs --\n' >&2
+                printf '         it measured nothing.\n' >&2
+                printf '         token source: %s\n' "${_tok_src:-none}" >&2
+                [[ -s "$ctl_err" ]] && { printf '         gh said:\n' >&2; sed 's/^/           /' "$ctl_err" >&2; }
+                printf '         Give this owner a token that can read it:\n' >&2
+                printf '           OSTLER_ORPHAN_GATE_TOKEN_%s\n' \
+                    "$(printf '%s' "${_owner}" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9' '_' | sed 's/_$//')" >&2
+                unverifiable=$((unverifiable + 1))
+                rm -f "$ctl_err"
+                return
+            fi
+            rm -f "$ctl_err"
+            note "${label}: zero open PRs, and the control read ${ctl} with the same token -- a real zero (token: ${_tok_src:-none})"
+        fi
+        if [[ "${_pr_n:-0}" -gt 0 ]]; then
             local line
             while IFS=$'\t' read -r num title head draft; do
                 [[ -z "${num:-}" ]] && continue
