@@ -106,16 +106,93 @@ class PreferenceFilter:
     }
     DEFAULT_CATEGORY_PRIORITY = 50
 
-    def __init__(self, enable_dedup: bool = True, aggregate_frequency: bool = True):
+    # ------------------------------------------------------------------
+    # Non-preference SHAPE gate (v1.0.11).
+    #
+    # A stated preference is a short noun phrase naming a *thing* the user
+    # likes or dislikes ("sushi", "Coldplay", "Nike", "hiking"). Upstream
+    # feeds -- CM021 email intelligence, conversation content, mis-shaped
+    # exports -- sometimes push raw material that is NOT a taste at all:
+    # email subject lines ("Re: your order has shipped"), LinkedIn
+    # recommendation / testimonial prose ("I had the pleasure of working
+    # with ..."), promotional blurbs, URLs. Before v1.0.11 the only content
+    # gate was ``is_low_value()``, which rejected empty/placeholder subjects
+    # but let this junk through, so it surfaced on the wiki's Food / Media /
+    # Social preference pages and looked broken.
+    #
+    # This is a *source-agnostic, belt-and-braces* gate: every preference
+    # from every parser flows through the PreferenceFilter, so rejecting the
+    # known non-preference shapes here catches the garbage no matter which
+    # upstream produced it. It is deliberately high-precision -- it rejects
+    # only shapes a genuine taste subject never takes, so real preferences
+    # (including long-ish media titles) survive.
+    # ------------------------------------------------------------------
+
+    # Reply/forward header prefix on an email subject line ("Re:", "Fwd:").
+    _EMAIL_HEADER_PREFIX = re.compile(r"^\s*(?:re|fwd?|fw|aw|wg)\s*:", re.IGNORECASE)
+
+    # A literal email address in the subject == a header / quoted artifact.
+    _EMAIL_ADDRESS_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+
+    # A URL in the subject == a link artifact, not a taste.
+    _URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+
+    # Transactional / newsletter / notification boilerplate. If any appears,
+    # the string is a system message, not a stated taste. Lowercase substring.
+    _TRANSACTIONAL_MARKERS = (
+        "unsubscribe", "no-reply", "noreply", "do not reply",
+        "view in browser", "view this email", "click here",
+        "confirm your email", "verify your", "reset your password",
+        "your order", "your receipt", "your invoice",
+        "order confirmation", "order number", "order #",
+        "tracking number", "has shipped", "out for delivery",
+        "sign in to", "log in to", "activate your account",
+        "% off", "sale ends", "flash sale", "limited time offer",
+        "you have a new", "wants to connect", "invitation to connect",
+        "view your profile", "endorsed you", "sent you a message",
+    )
+
+    # LinkedIn recommendation / reference-letter testimonial boilerplate.
+    # This is prose ABOUT a person, never a taste of the graph owner.
+    _TESTIMONIAL_MARKERS = (
+        "i had the pleasure", "i've had the pleasure",
+        "pleasure of working with", "it was a pleasure working",
+        "a pleasure to work with", "pleasure to work with",
+        "highly recommend", "wholeheartedly recommend",
+        "cannot recommend", "can't recommend", "would recommend",
+        "i recommend", "i worked with", "i've worked with",
+        "we worked together", "goes above and beyond",
+        "team player", "an asset to", "attention to detail",
+        "consistently deliver", "one of the best i", "testament to",
+    )
+
+    # A stated-preference subject is a short noun phrase. Anything longer than
+    # this many words is prose -- a sentence, a subject line, a testimonial --
+    # not a taste target. Generous ceiling: even long media titles ("The Lord
+    # of the Rings: The Fellowship of the Ring") sit well under it.
+    _MAX_PREFERENCE_WORDS = 12
+
+    def __init__(
+        self,
+        enable_dedup: bool = True,
+        aggregate_frequency: bool = True,
+        reject_non_preference_shapes: bool = True,
+    ):
         """
         Initialize the filter.
 
         Args:
             enable_dedup: Whether to enable deduplication
             aggregate_frequency: Whether to track frequency counts (requires enable_dedup)
+            reject_non_preference_shapes: Whether to reject email subject lines,
+                LinkedIn recommendation prose, promotional boilerplate, URLs and
+                run-on prose that are never genuine tastes (default True). Kept
+                as a toggle so an operator can disable it if a locale/source ever
+                needs the raw material through unfiltered.
         """
         self.enable_dedup = enable_dedup
         self.aggregate_frequency = aggregate_frequency and enable_dedup
+        self.reject_non_preference_shapes = reject_non_preference_shapes
 
         # For simple dedup mode: just track seen keys
         self._seen_keys: Set[str] = set()
@@ -139,6 +216,7 @@ class PreferenceFilter:
         self.stats = {
             "total_seen": 0,
             "filtered_low_value": 0,
+            "filtered_non_preference": 0,
             "filtered_dropped_category": 0,
             "filtered_duplicates": 0,
             "aggregated_count": 0,
@@ -193,6 +271,61 @@ class PreferenceFilter:
         for pattern in self._compiled_patterns:
             if pattern.match(subject):
                 return True
+
+        # Reject non-preference *shapes* (email subject lines, LinkedIn
+        # recommendation prose, promotional boilerplate, URLs, run-on prose).
+        # Source-agnostic belt-and-braces gate added in v1.0.11: this is the
+        # single chokepoint every parser's output passes through, so it stops
+        # the junk regardless of which upstream produced it.
+        if self.is_non_preference_shape(subject):
+            self.stats["filtered_non_preference"] += 1
+            return True
+
+        return False
+
+    def is_non_preference_shape(self, subject: str) -> bool:
+        """Return True if ``subject`` is a shape that is never a genuine taste.
+
+        Rejects email subject-line artifacts (``Re:`` / ``Fwd:`` prefixes,
+        embedded addresses), LinkedIn recommendation / testimonial prose,
+        promotional / notification boilerplate, URLs, and run-on prose. High
+        precision by construction: it only matches shapes a real preference
+        subject never takes, so genuine tastes -- including long-ish media
+        titles -- pass through untouched.
+
+        See the class-level ``Non-preference SHAPE gate`` block for the why.
+        """
+        if not self.reject_non_preference_shapes:
+            return False
+
+        text = subject.strip()
+        if not text:
+            return False
+        low = text.lower()
+
+        # Email reply/forward header prefix ("Re:", "Fwd:", ...).
+        if self._EMAIL_HEADER_PREFIX.match(text):
+            return True
+
+        # Embedded email address or URL == an artifact, not a taste.
+        if self._EMAIL_ADDRESS_RE.search(text):
+            return True
+        if self._URL_RE.search(text):
+            return True
+
+        # Transactional / notification boilerplate.
+        for marker in self._TRANSACTIONAL_MARKERS:
+            if marker in low:
+                return True
+
+        # LinkedIn recommendation / testimonial prose.
+        for marker in self._TESTIMONIAL_MARKERS:
+            if marker in low:
+                return True
+
+        # Run-on prose: too many words to be a taste subject.
+        if len(text.split()) > self._MAX_PREFERENCE_WORDS:
+            return True
 
         return False
 
@@ -592,6 +725,7 @@ class PreferenceFilter:
         self.stats = {
             "total_seen": 0,
             "filtered_low_value": 0,
+            "filtered_non_preference": 0,
             "filtered_dropped_category": 0,
             "filtered_duplicates": 0,
             "aggregated_count": 0,
