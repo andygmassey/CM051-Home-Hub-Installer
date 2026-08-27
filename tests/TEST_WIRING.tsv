@@ -197,6 +197,7 @@ test_marker_grep_is_three_state.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_marker_payloads_never_reach_install_log.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_meeting_brief_sender.sh	UNWIRED	-
 test_memory_embeddings_wired.sh	WIRED	.github/workflows/memory-embeddings.yml
+test_mergeable_unknown_is_not_clean.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_migration_marker_guard_fresh_install.py	UNWIRED	-
 test_model_fit.sh	UNWIRED	-
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
