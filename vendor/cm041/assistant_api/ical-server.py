@@ -27,6 +27,7 @@ Endpoints:
   GET /api/v1/memory               – list facts Ostler has learnt about the user (CM031 iOS Memory tab v1.0)
   POST /api/v1/conversation/process – submit conversation for processing (CM048)
   POST /api/v1/ingest/ios          – batch upload from iOS companion
+  POST /api/safari/ingest          – live capture from Safari/Chrome extension (HR015 #180)
   GET  /api/v1/health/day?date=    – day's physiology joined to its context (#680)
   POST /api/v1/people/{slug}/forget – GDPR Art. 17 right-of-erasure (one-click forget)
   POST /api/v1/memory/correct/{id} – correct ({"newValue":...}) or forget ({"forget":true}) a fact
@@ -5520,6 +5521,284 @@ def api_ingest_ios(payload):
         return {"error": str(exc)}, 500
 
 
+# ── Safari / Chrome browsing-extension ingest (HR015 #180) ──────────
+#
+# The browser extension POSTs each captured page to the Doctor proxy
+# on :8089/api/safari/ingest; the Doctor validates the paired bearer
+# against the ZeroClaw gateway's paired-token store, substitutes the
+# per-install service token, and forwards to :8090 (this server). So
+# by the time the request reaches THIS handler, the auth wall has
+# already been enforced upstream.
+#
+# We embed the page (title + host + url) via the local Ollama
+# embedder and upsert into the same ``safari_history`` Qdrant
+# collection the install-time importer writes to. Sensitive domains
+# are filtered here as belt-and-braces — the extension already
+# filters client-side, and both surfaces are the exact same list so
+# any change to the list is a PR across CM020 + HR015 + this repo.
+
+# Persistent state file the Doctor reads to render the browsing-
+# capture row. See doctor/agent/diagnostic_rules.check_browsing_capture.
+_BROWSING_STATE_PATH = os.environ.get(
+    "OSTLER_BROWSING_STATE_PATH",
+    os.path.expanduser("~/.ostler/state/browsing_capture.json"),
+)
+
+# Mirror of ``_SENSITIVE_DOMAIN_SUBSTRINGS`` in
+# ``ostler_fda/pwg_ingest.py`` and ``SensitiveDomains.swift``. Kept
+# separate (not imported) so this server has no runtime dependency
+# on ostler_fda's install-time importer machinery; drift is caught
+# by ``tests/test_safari_ingest_endpoint.py`` (test_sensitive_domains
+# _mirror_matches_pwg_ingest).
+_SAFARI_SENSITIVE_DOMAIN_SUBSTRINGS = (
+    # Banking / finance
+    "bank", "paypal", "stripe.com", "wise.com", "revolut", "monzo",
+    "barclays", "hsbc", "natwest", "lloyds", "santander", "halifax",
+    "nationwide", "amex", "americanexpress", "mastercard", "visa.com",
+    "coinbase", "binance", "kraken.com",
+    # Medical / health
+    "nhs.uk", "patient", "healthgrades", "webmd", "mayoclinic",
+    "pharmacy", "doctolib", "zocdoc", "medical", "clinic", "hospital",
+    "therapy", "psychology", "mentalhealth",
+    # Adult
+    "pornhub", "xvideos", "xnxx", "onlyfans", "xhamster", "redtube",
+    # Auth / account-recovery surfaces
+    "accounts.google.com", "appleid.apple.com", "login.microsoftonline",
+)
+
+# The Qdrant collection name the CM044 wiki Browsing page + person-
+# matching reader BOTH scroll. Chrome + Safari visits land here in
+# the same shape; readers key off url/title/domain, not source.
+_SAFARI_QDRANT_COLLECTION = os.environ.get(
+    "BROWSING_QDRANT_COLLECTION", "safari_history"
+)
+
+# Fallback embed dim when Ollama returns an empty vector for the
+# first probe. nomic-embed-text is 768 today; overriding is fine.
+_SAFARI_EMBED_DIM_FALLBACK = int(
+    os.environ.get("BROWSING_EMBED_DIM", "768")
+)
+
+
+def _safari_is_sensitive_domain(domain):
+    """True if ``domain`` (or the host extracted from a URL) matches
+    the sensitive blocklist. Substring, case-insensitive, matches on
+    subdomains too."""
+    if not domain:
+        return False
+    d = domain.lower()
+    return any(token in d for token in _SAFARI_SENSITIVE_DOMAIN_SUBSTRINGS)
+
+
+def _safari_extract_host(url):
+    """Return the lowercased host component of ``url`` or empty
+    string on any parse failure. Never raises."""
+    if not url or not isinstance(url, str):
+        return ""
+    try:
+        parsed = urlparse(url)
+        return (parsed.hostname or "").lower()
+    except Exception:
+        return ""
+
+
+def _safari_qdrant_ensure_collection(vector_size):
+    """Create the ``safari_history`` Qdrant collection if it does not
+    already exist. Idempotent: a 200 on GET short-circuits. Any other
+    error is left to bubble so ``api_safari_ingest`` can degrade the
+    response with a clear ``error`` field."""
+    base = QDRANT_URL.rstrip("/")
+    collection = _SAFARI_QDRANT_COLLECTION
+    # Probe first — GET on existing collection returns 200; a create
+    # PUT on an existing collection errors.
+    try:
+        with urllib.request.urlopen(
+            f"{base}/collections/{collection}", timeout=5
+        ) as resp:
+            if resp.status == 200:
+                return
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+        # 404: fall through to create
+    body = json.dumps({
+        "vectors": {"size": vector_size, "distance": "Cosine"}
+    }).encode()
+    req = urllib.request.Request(
+        f"{base}/collections/{collection}",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="PUT",
+    )
+    urllib.request.urlopen(req, timeout=15)
+
+
+def _safari_qdrant_upsert(point_id, vector, payload):
+    """Upsert a single point into the safari_history collection.
+    Returns True on success, False otherwise (never raises)."""
+    if not vector:
+        return False
+    base = QDRANT_URL.rstrip("/")
+    collection = _SAFARI_QDRANT_COLLECTION
+    body = json.dumps({
+        "points": [{
+            "id": point_id,
+            "vector": vector,
+            "payload": payload,
+        }]
+    }).encode()
+    # PUT /collections/{name}/points with wait=true for read-your-writes.
+    req = urllib.request.Request(
+        f"{base}/collections/{collection}/points?wait=true",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="PUT",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status in (200, 202)
+    except Exception:
+        return False
+
+
+def _safari_write_state(update):
+    """Merge ``update`` into the browsing-capture state file for the
+    Doctor. Best-effort: any I/O error is swallowed so a state write
+    failure never fails the ingest request."""
+    try:
+        path = _BROWSING_STATE_PATH
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        current = {}
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    current = json.load(f) or {}
+            except Exception:
+                current = {}
+        current.update(update)
+        # Atomic replace to survive a Doctor read racing our write.
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(current, f, indent=2)
+        os.replace(tmp, path)
+    except Exception:
+        pass
+
+
+def api_safari_ingest(payload):
+    """POST /api/safari/ingest — accept a single captured page from
+    the Safari/Chrome extension.
+
+    Expected body shape (single page, extension sends one at a time):
+        {"url": "https://…", "title": "…", "html": "…",
+         "timestamp": "2026-07-30T12:34:56Z", "device": "Safari"}
+
+    The handler runs the same logic as the install-time importer in
+    ``ostler_fda/pwg_ingest.ingest_browser_history`` but for one page
+    at a time: sensitive-domain filter, Ollama embed of
+    (title + host + url), Qdrant upsert into ``safari_history``.
+    """
+    import uuid as _uuid
+    import time as _time
+
+    if not isinstance(payload, dict):
+        return {"error": "body must be a JSON object"}, 400
+
+    url = (payload.get("url") or "").strip()
+    if not url:
+        return {"error": "missing 'url'"}, 400
+    title = (payload.get("title") or "").strip()
+    html = payload.get("html") or ""  # accepted but not stored raw
+    timestamp = (payload.get("timestamp") or "").strip()
+    device = (payload.get("device") or "").strip() or "browser"
+
+    host = _safari_extract_host(url)
+
+    # Sensitive-domain filter (server-side belt + braces; the
+    # extension's client-side list is the primary).
+    if _safari_is_sensitive_domain(host):
+        _safari_write_state({
+            "last_skipped_ts": int(_time.time()),
+            "last_skipped_host": host,
+        })
+        # 200 not 4xx: the extension asked us politely to store this
+        # and we chose not to. The extension logs "filtered" server-
+        # side too, but the request is not an error.
+        return {
+            "ok": True,
+            "stored": 0,
+            "skipped_sensitive": 1,
+            "reason": "sensitive_domain",
+        }, 200
+
+    # Build the embedding document. Match the install-time importer
+    # shape (title + host + url) so the wiki Browsing page + person-
+    # matching reader see the same signal regardless of source path.
+    doc_parts = [p for p in (title, host, url) if p]
+    doc = " ".join(doc_parts)
+    if not doc:
+        return {"error": "no embeddable content"}, 400
+
+    # Stable point id (same url+timestamp is idempotent on re-post).
+    point_id = str(_uuid.uuid5(
+        _uuid.NAMESPACE_URL, f"browsing|safari_history|{url}|{timestamp}"
+    ))
+
+    # Embed. Any failure here is a hard fail — the client will retry.
+    try:
+        vector = _embed_text(doc)
+    except Exception as exc:
+        return {"error": f"embed failed: {type(exc).__name__}"}, 502
+
+    if not vector:
+        return {"error": "empty embedding vector"}, 502
+
+    # Ensure the collection exists before the first upsert. On a
+    # fresh Mac install the safari_history collection may not exist
+    # until either the install-time importer or this handler creates
+    # it. See feedback_qdrant_collections_no_self_create_fresh_install.
+    try:
+        _safari_qdrant_ensure_collection(len(vector))
+    except Exception as exc:
+        return {
+            "error": f"qdrant collection ensure failed: {type(exc).__name__}"
+        }, 502
+
+    qdrant_payload = {
+        "url": url,
+        "domain": host,
+        "title": title,
+        "timestamp": timestamp,
+        # Readers look for one of these date keys; provide aliases so
+        # the Browsing timeline buckets correctly regardless of key.
+        "visit_date": timestamp,
+        "created_at": timestamp,
+        "date": timestamp,
+        "visit_count": 1,
+        "source": "safari_extension_live",
+        "type": "web_visit",
+        "device": device,
+        # HTML is intentionally NOT stored raw — we only stored what
+        # the wiki reader can use. Setting a small html_len signal
+        # lets us audit truncation behaviour without payload bloat.
+        "html_len": len(html),
+    }
+
+    ok = _safari_qdrant_upsert(point_id, vector, qdrant_payload)
+    if not ok:
+        return {"error": "qdrant upsert failed"}, 502
+
+    # Update the state file so the Doctor row can render "active,
+    # last write N minutes ago". Best-effort; never fails the request.
+    _safari_write_state({
+        "last_write_ts": int(_time.time()),
+        "last_write_host": host,
+        "last_write_device": device,
+    })
+
+    return {"ok": True, "stored": 1, "id": point_id}, 200
+
+
 # ── Hub health helpers ───────────────────────────────────────────────
 # Each helper returns a (key, result_dict) tuple so the parallel runner
 # can fan out work and collect named results. Every helper is wrapped in
@@ -7390,6 +7669,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/v1/preferences?domain=Music&min_confidence=0.3&limit=20": "Compiled interest profile from the CM059 artefact (score-sorted; preserves sources/confidence/polarity provenance)",
             "POST /api/v1/conversation/process": "Submit conversation for processing (CM048)",
             "POST /api/v1/ingest/ios": "Batch upload from the iOS companion (application/json)",
+            "POST /api/safari/ingest": "Live capture from the Safari/Chrome extension (HR015 #180). One page per POST; behind the Doctor paired-bearer wall.",
             "/api/v1/health/day?date=YYYY-MM-DD": "A day's Apple Health physiology joined to that day's life-context (defaults to today)",
             "POST /api/v1/memory/correct/{id}": "Correct or forget a memory fact (body: {\"newValue\":...} or {\"forget\":true})",
             "/health": "Health check (pass ?detailed=1 for dependency checks)",
@@ -7496,6 +7776,20 @@ class Handler(BaseHTTPRequestHandler):
             # pipelines to consult via is_active_or_grace().
             try:
                 result, status = api_subscription_receipt(payload)
+            except Exception as exc:
+                result, status = {"error": str(exc)}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
+        # Live browsing capture from the Safari / Chrome extension
+        # (HR015 #180). Behind the Doctor proxy's paired-bearer wall
+        # (proxy.py DEFAULT_PROXY_PATHS includes /api/safari/ingest).
+        if parsed.path == "/api/safari/ingest":
+            try:
+                result, status = api_safari_ingest(payload)
             except Exception as exc:
                 result, status = {"error": str(exc)}, 500
             self.send_response(status)
@@ -7641,7 +7935,7 @@ if __name__ == "__main__":
             flush=True,
         )
     print(f"Assistant API running on http://{BIND_HOST}:{PORT}")
-    print("Endpoints: /calendar, /people/{search,context,stale,recent,birthdays}, /email, /api/v1/email/recent, /api/v1/suggestions, /api/v1/timeline, /api/v1/contacts/diff, /api/v1/meeting/upcoming, /api/v1/reply-debt, /api/v1/hub/health, /api/v1/health/day, /api/v1/memory, POST /api/v1/ingest/ios, POST /api/v1/people/{slug}/forget, POST /api/v1/memory/correct/{id}, POST /api/v1/memory/assert, /health")
+    print("Endpoints: /calendar, /people/{search,context,stale,recent,birthdays}, /email, /api/v1/email/recent, /api/v1/suggestions, /api/v1/timeline, /api/v1/contacts/diff, /api/v1/meeting/upcoming, /api/v1/reply-debt, /api/v1/hub/health, /api/v1/health/day, /api/v1/memory, POST /api/v1/ingest/ios, POST /api/safari/ingest, POST /api/v1/people/{slug}/forget, POST /api/v1/memory/correct/{id}, POST /api/v1/memory/assert, /health")
     if BIND_HOST == "0.0.0.0":
         print(
             "WARNING: OSTLER_API_BIND=0.0.0.0 exposes the Assistant API on "
