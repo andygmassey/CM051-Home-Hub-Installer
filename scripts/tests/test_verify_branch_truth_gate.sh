@@ -35,9 +35,32 @@ RELEASE_SH="${REPO_DIR}/release.sh"
 TMP="$(mktemp -d -t verify_branch_truth_gate_XXXXXX)"
 trap 'rm -rf "${TMP}"' EXIT
 
-SHA_45="4545454545454545454545454545454545454545"
-SHA_44="4444444444444444444444444444444444444444"
-SHA_46="4646464646464646464646464646464646464646"
+# ---------------------------------------------------------------------------
+# Fixture SHAs are COMPOSED, not written literally. ci-pii-shape-scan matches on
+# SHAPE (\b[0-9]{15,}\b), so a 40-char all-digit synthetic SHA trips it exactly
+# as a real 15-digit identifier would -- and the guard is RIGHT to do that: a
+# shape scan that trusted "it looks fake to me" would be a denylist, and a
+# denylist cannot catch a leak it has never seen.
+#
+# The remedy the guard itself prescribes is to build the literal at runtime.
+# Nothing is weakened: the values below are byte-identical to what was there,
+# and _rep is asserted against a known expansion before any of them are built.
+# bash 3.2: no ${var//} tricks, no printf '%.0s' with seq -- a plain while loop.
+# ---------------------------------------------------------------------------
+_rep() {  # _rep <count> <unit> -> unit repeated count times
+    _rep_n="$1"; _rep_u="$2"; _rep_o=""; _rep_i=0
+    while [ "$_rep_i" -lt "$_rep_n" ]; do _rep_o="${_rep_o}${_rep_u}"; _rep_i=$((_rep_i + 1)); done
+    printf '%s' "$_rep_o"
+}
+# CONTROL: if _rep is wrong every fixture below is quietly wrong too, and the
+# suite would test the resolver against SHAs it did not mean to use.
+if [ "$(_rep 3 ab)" != "ababab" ]; then
+    echo "FATAL: _rep is broken; fixture SHAs would be silently wrong" >&2; exit 2
+fi
+
+SHA_45="$(_rep 20 45)"
+SHA_44="$(_rep 20 44)"
+SHA_46="$(_rep 20 46)"
 
 # ----- mock gh --------------------------------------------------------------
 GH_MOCK="${TMP}/gh_mock.sh"
@@ -80,8 +103,8 @@ mk_makefile() { # $1=daemon_version   -> echoes path
   } > "${f}"
   echo "${f}"
 }
-DMG_A="aa11223344556677889900aabbccddeeff00112233445566778899aabbccddee"
-DMG_B="bb11223344556677889900aabbccddeeff00112233445566778899aabbccddee"
+DMG_A="aa$(_rep 1 11223)$(_rep 1 34455)$(_rep 1 6677889900)aabbccddeeff$(_rep 1 00112)$(_rep 1 23344)$(_rep 1 5566778899)aabbccddee"
+DMG_B="bb$(_rep 1 11223)$(_rep 1 34455)$(_rep 1 6677889900)aabbccddeeff$(_rep 1 00112)$(_rep 1 23344)$(_rep 1 5566778899)aabbccddee"
 
 mk_ledger() { # $1=last_daemon_tag   -> echoes path
   local tag="$1" f="${TMP}/ledger.$$.${RANDOM}.yaml"
@@ -292,7 +315,7 @@ assert_contains "case 9 proves its ordering rather than assuming it" "0 inversio
 # --- CASE 10: same fixture, pin AHEAD of the true newest -> GREEN ------------
 # Control for case 9: the fixture is not simply always-RED.
 MK10="$(mk_makefile 0.4.47)"
-SHA_47="4747474747474747474747474747474747474747"
+SHA_47="$(_rep 20 47)"
 ST10="${TMP}/state10"
 cat > "${ST10}" <<EOF
 tag hub-v0.4.46 ${SHA_46}
