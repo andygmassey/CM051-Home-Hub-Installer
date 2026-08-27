@@ -262,7 +262,7 @@ same log is not.
 | `OSTLER_INSTALL_LOG` | `$HOME/.ostler/logs/install.log` | install log |
 | `OSTLER_LAUNCHAGENT_DIR` | `$HOME/Library/LaunchAgents` | agent directory |
 | `OSTLER_HEALTH_URL` | `http://127.0.0.1:8089/doctor/api/health` | Doctor health |
-| `OSTLER_FRESHNESS_URL` | `http://127.0.0.1:8089/doctor/api/freshness` | freshness panel |
+| ~~`OSTLER_FRESHNESS_URL`~~ | -- | **removed.** No such route exists: the API at :8089 serves 57 routes and this is not one of them. `freshness_panel_has_dates` now reads the compiled wiki panel and `~/.ostler/state/settling_progress.d` directly, so there is nothing to point at. |
 | `OSTLER_OXIGRAPH_URL` | `http://127.0.0.1:7878/query` | SPARQL endpoint |
 | `OSTLER_PEOPLE_TOLERANCE_PCT` | `2` | allowed people-count drift |
 | `OSTLER_PROBE_API_BASE` | `http://127.0.0.1:8090` | Assistant API, `people_seed_and_retrieval` |

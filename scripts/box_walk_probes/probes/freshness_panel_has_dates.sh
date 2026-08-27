@@ -25,7 +25,6 @@ set -uo pipefail
 PROBE_NAME="freshness_panel_has_dates"
 PROBE_QUESTION="does every freshness-panel source report a real date rather than 'unknown'?"
 
-FRESHNESS_URL="${OSTLER_FRESHNESS_URL:-http://127.0.0.1:8089/doctor/api/freshness}"
 
 # ── THE HTTP STATUS IS PART OF THE ANSWER, AND THIS PROBE IGNORED IT ─────
 #
@@ -53,52 +52,13 @@ FRESHNESS_URL="${OSTLER_FRESHNESS_URL:-http://127.0.0.1:8089/doctor/api/freshnes
 #
 # `-w '\n%{http_code}'` puts the code on its own final line so the body stays
 # byte-exact for the adjudicator.
-fetch_freshness_with_code() {
-    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
-        printf '%s\n%s' "${FAKE_FRESHNESS:-}" "${FAKE_FRESHNESS_CODE:-200}"
-        return
-    fi
-    box_run "curl -sS -m 8 -w '\\n%{http_code}' '$FRESHNESS_URL' 2>/dev/null"
-}
 
 # Split the combined output: last line is the status, everything before is body.
-freshness_code() { printf '%s' "$1" | tail -n 1; }
-freshness_body() { printf '%s' "$1" | sed '$d'; }
 
 # Counts, over a freshness payload:
 #   $1 = total source entries seen
 #   $2 = entries whose value is unknown/null/empty
 # Shared by run_probe and self_test so the control exercises the shipping code.
-analyse_freshness() {
-    printf '%s' "$1" | python3 -c '
-import json, sys
-raw = sys.stdin.read().strip()
-if not raw:
-    print("0 0"); sys.exit(0)
-try:
-    doc = json.loads(raw)
-except Exception:
-    print("PARSE_ERROR 0"); sys.exit(0)
-
-# Accept either {"sources": {...}} or a bare mapping, because the shape has
-# moved once already and a probe that only understands one shape reports a
-# false zero on the other.
-src = doc.get("sources", doc) if isinstance(doc, dict) else {}
-if not isinstance(src, dict):
-    print("0 0"); sys.exit(0)
-
-total = 0
-unknown = 0
-for _k, v in src.items():
-    if isinstance(v, dict):
-        v = v.get("last_updated", v.get("last_sync", v.get("date")))
-    total += 1
-    s = ("" if v is None else str(v)).strip().lower()
-    if s in ("", "unknown", "none", "null", "never", "n/a"):
-        unknown += 1
-print(f"{total} {unknown}")
-' 2>/dev/null
-}
 
 # ── IS THERE ANY FRESHNESS DATA AT ALL? ─────────────────────────────────
 #
@@ -361,7 +321,10 @@ _f8_case() {
 
 self_test() {
     SELF_TEST_LOCAL=1
-    probe_examined 9 "synthetic panel/ingest fixtures (negative control)"
+    # ONE literal, used by the announcement AND the drift check AND the
+    # message. Three copies of a number is three chances to disagree.
+    _F8_DECLARED=9
+    probe_examined "$_F8_DECLARED" "synthetic panel/ingest fixtures (negative control)"
 
     local healthy missing never_state nostatus norows nopanel noingest unreadable
 
@@ -413,6 +376,14 @@ self_test() {
     m="$(SELF_TEST_LOCAL=1 FAKE_PANEL="$missing" run_probe 2>&1)"; mrc=$?
     if [ "$hrc" = "$mrc" ]; then
         probe_pass "CONTROL IS BLIND: the covered fixture and the one missing an entire source both exit ${hrc}. The coverage predicate is not discriminating and this probe would pass the very defect it exists to catch."
+    fi
+
+    # The denominator printed at the top is a literal, and _F8_OK is what
+    # actually ran. If someone adds a case and forgets the literal, EXAMINED
+    # would under-report the work -- a denominator that drifts is exactly the
+    # thing this suite exists to stop, and it must not be this file that does it.
+    if [ "$_F8_OK" != "$_F8_DECLARED" ]; then
+        probe_pass "DENOMINATOR DRIFTED: EXAMINED announced ${_F8_DECLARED} cases, ${_F8_OK} ran. Fix the literal in self_test before trusting any count this probe prints."
     fi
 
     probe_fail "negative control behaved correctly on all ${_F8_OK} cases: absent source, undated row, unattributable panel, missing index and dead collector each drive their own verdict, and covered-vs-missing exit differently (${hrc} vs ${mrc})"
