@@ -3254,6 +3254,60 @@ _ostler_run_with_deadline() {
 # at all. Overridable for harnesses and for operators on slow machines.
 OSTLER_IMESSAGE_PROBE_TIMEOUT_S="${OSTLER_IMESSAGE_PROBE_TIMEOUT_S:-90}"
 
+# ── Deadline for osascript calls that are NOT a consented TCC prompt ──
+#
+# 🔴 THE HELPER ABOVE WAS BUILT FOR THIS AND WIRED TO 2 SITES OF 14.
+# install.sh makes 15 osascript invocations; 14 of them send an Apple Event
+# to another application, and an Apple Event BLOCKS ON THE TARGET'S EVENT
+# LOOP. If the target shows a modal -- a TCC consent sheet, a "reopen
+# windows?" panel, a beachball -- the send never returns. macOS has no
+# timeout(1), so the shell has no ambient rescue.
+#
+# MEASURED (2026-08-26, this Mac, controls both sides):
+#     osascript -e 'delay 4'                       -> 4105 ms, caller HELD
+#     AppleScript's own `with timeout of 2 seconds`
+#       wrapped round that delay                   -> 4101 ms, DID NOT BOUND IT
+#         (it bounds Apple EVENTS, not local work -- so it is not the remedy)
+#     _ostler_run_with_deadline 2 ... 'delay 30'   -> rc=124, 3080 ms
+#     _ostler_run_with_deadline 5 ... 'return 1'   -> rc=0,   1052 ms  (not killed)
+#     _ostler_run_with_deadline 5 ... error 42     -> rc=1           (real failure
+#                                                     passes through, != 124)
+#     orphaned osascript after the deadline arm    -> 0
+#
+# That third arm is why 124 is worth having: a caller can tell CANNOT-RUN
+# from FAIL from PASS, three states, rather than collapsing the first two.
+#
+# 20s not 90s. The 90s figure belongs to the iMessage probe, where the
+# customer has JUST acknowledged a pre-warn ack and is sitting at the
+# keyboard. These calls carry no such ack -- several are prewarms the
+# customer was never told about -- so the honest budget is "long enough for
+# a healthy app to answer", not "long enough for a human to react".
+OSTLER_OSASCRIPT_TIMEOUT_S="${OSTLER_OSASCRIPT_TIMEOUT_S:-20}"
+
+# 🔴 A SECOND DEADLINE, BECAUSE THE SITES ARE TWO DIFFERENT ANIMALS AND ONE
+# NUMBER WOULD BREAK HALF OF THEM.
+#
+# The 20 s above is for MACHINE-TO-MACHINE Apple Events -- "count calendars",
+# "close windows", "quit". Nothing human is in that loop, so 20 s is generous.
+#
+# `display dialog` is the opposite: it is SUPPOSED to block until a customer
+# reads it and clicks. Applying the 20 s deadline to those would kill the FDA
+# pre-warn dialog out from under someone still reading it -- a REGRESSION
+# manufactured by over-approximating the hazard. That mistake has already been
+# made in this estate this week, in a veto arm, and it is the same shape.
+#
+# But unbounded is not right either. With nobody at the keyboard a dialog waits
+# FOREVER, which is precisely the multi-hour wedge shape we are hunting. So the
+# dialogs get their own bound: far longer than any human takes, short enough
+# that an ABANDONED install eventually proceeds instead of hanging overnight.
+#
+# 900 s = 15 minutes. Chosen to be indefensible to hit by reading: the longest
+# of these dialogs is a five-line FDA explanation. A customer who has not
+# clicked in fifteen minutes has walked away, and the honest thing is to carry
+# on best-effort (every one of these sites is already `|| true`) rather than
+# hold the install until they come back.
+OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S="${OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S:-900}"
+
 # ── Hardware-fit model picker helper (REUSE-4) ────────────────────
 #
 # lib/ostler-model-fit.sh holds the static model->min-RAM-for-num_ctx
@@ -3964,7 +4018,8 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
     # exist; the `2>/dev/null || true` makes us tolerant of cases
     # where xcode-select silently no-ops (e.g., a previous install
     # already in progress).
-    osascript -e 'tell application "System Events" to tell process "Install Command Line Developer Tools" to set frontmost to true' 2>/dev/null || true
+    _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+        osascript -e 'tell application "System Events" to tell process "Install Command Line Developer Tools" to set frontmost to true' 2>/dev/null || true
 
     # Path 2: macOS's `open -a` is the standard way to bring an app
     # to the front. The CLT installer's .app lives at the canonical
@@ -4008,7 +4063,8 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
                     sleep 4
                     continue
                 fi
-                osascript -e 'tell application "OstlerInstaller" to activate' 2>/dev/null || \
+                _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+                    osascript -e 'tell application "OstlerInstaller" to activate' 2>/dev/null || \
                     open -a "OstlerInstaller" 2>/dev/null || true
                 sleep 4
             done
@@ -4541,7 +4597,15 @@ echo ""
 if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
     info "$MSG_INFO_CALENDAR_PERMISSION_PREWARM"
 fi
-osascript -e 'tell application "Calendar" to count calendars' >/dev/null 2>&1 || true
+# BOUNDED (2026-08-26). This is a TCC prewarm: the whole point is that it
+# provokes a consent sheet. An Apple Event blocks on the target's event loop,
+# so if nobody is at the keyboard this send NEVER RETURNS and the install
+# stops here forever. The `|| true` below only swallows the exit code -- it
+# cannot rescue a call that never exits. Measured: `osascript -e 'delay 4'`
+# holds the caller 4105 ms; AppleScript's own `with timeout` does NOT bound
+# it. Deadline is the only remedy on macOS, which has no timeout(1).
+_ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+    osascript -e 'tell application "Calendar" to count calendars' >/dev/null 2>&1 || true
 
 # FDA_PREWARM (#572, 2026-06-09; refined 2026-06-13): register
 # OstlerInstaller in the System Settings > Full Disk Access list early by
@@ -4692,7 +4756,8 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         else
             _prewarn_icon_clause="with icon note"
         fi
-        osascript \
+        _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+            osascript \
             -e 'tell application "System Events" to activate' \
             -e "tell application \"System Events\" to display dialog \"${_prewarn_msg_esc}\" with title \"${_prewarn_title_esc}\" buttons {\"${_prewarn_button_esc}\"} default button \"${_prewarn_button_esc}\" ${_prewarn_icon_clause}" \
             >/dev/null 2>&1 || true
@@ -4776,7 +4841,8 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         # permission on nothing. Focus-steal is the lesser defect and it is
         # chosen deliberately, not overlooked.
         sleep 1
-        osascript \
+        _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+            osascript \
             -e 'tell application "System Events" to activate' \
             -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
             >/dev/null 2>&1 || true
@@ -4916,7 +4982,32 @@ open -gja Contacts >/dev/null 2>&1 || true
 # silently swallowed. The inner `|| true` keeps the failure inside the
 # $(...) subshell so set -E cannot fire the ERR trap on a denial (cf. #640).
 CARD_STDERR=$(mktemp)
+# 🔴 THE RC HAS TO CROSS A SUBSHELL, SO IT TRAVELS BY FILE, NOT BY VARIABLE.
+# `CARD_DATA=$(_read_my_card || true)` runs the function in a command-
+# substitution subshell -- anything it ASSIGNS is discarded when that subshell
+# exits, so an exported-looking `_READ_MY_CARD_RC=$?` inside the body would
+# read 0 at every call site and the deadline branch would be dead code. The
+# `|| true` is not removable either: it is what keeps `set -E` from firing the
+# ERR trap on a denial (see the note below, cf. #640). stderr already crosses
+# this boundary by file; the rc uses the same road.
+CARD_RC_FILE=$(mktemp)
+# BOUNDED (2026-08-26). Contacts is TCC-gated AND this event calls `launch`,
+# so on a box where nobody is at the keyboard the consent sheet is never
+# dismissed and this send never returns. `CARD_DATA=$(_read_my_card || true)`
+# cannot rescue that: `|| true` handles a non-zero exit, not the absence of
+# one. Measured: an Apple Event holds its caller for the target's whole
+# response time, and AppleScript's own `with timeout` does not bound it.
+#
+# 🔴 THE DEADLINE PATH NEEDED ITS OWN BRANCH, AND THAT IS WHY rc=124 EXISTS.
+# The two diagnoses below key on AppleScript error codes IN $CARD_STDERR
+# (-1743 denied, -600 not running). A deadline kill writes NEITHER, so before
+# this change a timed-out read fell through both branches and told the
+# customer NOTHING -- empty auto-fill with no explanation. _READ_MY_CARD_RC
+# carries the third state out so the caller can say so.
+_READ_MY_CARD_RC=0
 _read_my_card() {
+    local _rc=0
+    _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
     osascript -e '
 tell application "Contacts"
     launch
@@ -4940,7 +5031,12 @@ tell application "Contacts"
     end try
 
     return myName & "|" & firstName & "|" & myCountry & "|" & myEmail & "|" & myPhone
-end tell' 2>"$CARD_STDERR"
+end tell' 2>"$CARD_STDERR" || _rc=$?
+    # Written, not assigned -- see the CARD_RC_FILE note above. `|| _rc=$?`
+    # also makes the osascript send a non-final member of a `||` list, which is
+    # the second reason the ERR trap stays quiet here.
+    printf '%s\n' "$_rc" >"$CARD_RC_FILE"
+    return "$_rc"
 }
 CARD_DATA=$(_read_my_card || true)
 # Cold-start race: if the first event beat Contacts to readiness (-600),
@@ -4950,7 +5046,16 @@ if [[ -z "$CARD_DATA" ]] && grep -q -- '-600' "$CARD_STDERR" 2>/dev/null; then
     CARD_DATA=$(_read_my_card || true)
 fi
 
-if [[ -z "$CARD_DATA" ]] && grep -qE -- '-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
+_READ_MY_CARD_RC=$(cat "$CARD_RC_FILE" 2>/dev/null || echo 0)
+[[ "$_READ_MY_CARD_RC" =~ ^[0-9]+$ ]] || _READ_MY_CARD_RC=0
+
+if [[ -z "$CARD_DATA" ]] && [[ "$_READ_MY_CARD_RC" -eq 124 ]]; then
+    # THE THIRD STATE. Not "denied" (-1743) and not "not running" (-600):
+    # Contacts accepted the event and never answered inside the deadline, so
+    # $CARD_STDERR is EMPTY and both greps below would miss it. Before this
+    # branch existed the customer got a blank name field and no explanation.
+    warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
+elif [[ -z "$CARD_DATA" ]] && grep -qE -- '-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
     warn "$MSG_WARN_MACOS_CONTACTS_PERMISSION_WAS_DECLINED_NOT"
     warn "$MSG_WARN_YOU_CAN_RE_GRANT_IT_SYSTEM"
     warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
@@ -4959,7 +5064,7 @@ elif [[ -z "$CARD_DATA" ]] && grep -q -- '-600' "$CARD_STDERR" 2>/dev/null; then
     # auto-fill rather than swallowing the failure silently as before.
     warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
 fi
-rm -f "$CARD_STDERR"
+rm -f "$CARD_STDERR" "$CARD_RC_FILE"
 fi
 
 if [[ -n "$CARD_DATA" ]]; then
@@ -13287,7 +13392,8 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
         sleep 10
         # Close them quietly (SIGTERM via AppleScript, not force-kill)
         for app in "${APPS_TO_OPEN[@]}"; do
-            osascript -e "tell application \"$app\" to quit" 2>/dev/null || true
+            _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+                osascript -e "tell application \"$app\" to quit" 2>/dev/null || true
         done
         ok "$MSG_OK_APPS_LAUNCHED_TRIGGER_ICLOUD_SYNC"
     else
@@ -13420,7 +13526,8 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             else
                 _prewarn_icon_clause="with icon note"
             fi
-            osascript \
+            _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+                osascript \
                 -e 'tell application "System Events" to activate' \
                 -e "tell application \"System Events\" to display dialog \"${_prewarn_msg_esc}\" with title \"${_prewarn_title_esc}\" buttons {\"${_prewarn_button_esc}\"} default button \"${_prewarn_button_esc}\" ${_prewarn_icon_clause}" \
                 >/dev/null 2>&1 || true
@@ -13482,7 +13589,8 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             # without `activate` opens BEHIND the System Settings window we
             # just opened, and the customer sees no prompt at all.
             sleep 1
-            osascript \
+            _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+                osascript \
                 -e 'tell application "System Events" to activate' \
                 -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
                 >/dev/null 2>&1 || true
@@ -13621,7 +13729,8 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             # dialog, so an unseen one strands a customer who has already
             # hit the problem once.
             sleep 1
-            osascript \
+            _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+                osascript \
                 -e 'tell application "System Events" to activate' \
                 -e "tell application \"System Events\" to display dialog \"${_fda_recover_msg_esc}\" with title \"${_fda_recover_title_esc}\" buttons {\"${_fda_recover_button_esc}\"} default button \"${_fda_recover_button_esc}\" ${_fda_recover_icon_clause}" \
                 >/dev/null 2>&1 || true
@@ -16434,7 +16543,8 @@ mkdir -p "${OSTLER_DIR}/state"
 
 _notify() {
     # $1 = message, $2 = subtitle
-    osascript -e "display notification \"$1\" with title \"Ostler\" subtitle \"$2\"" 2>/dev/null || true
+    _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+        osascript -e "display notification \"$1\" with title \"Ostler\" subtitle \"$2\"" 2>/dev/null || true
 }
 
 # Recognised export shapes. FOUND holds paths; FOUND_LABELS the platform
@@ -19864,7 +19974,8 @@ else
                 # The pause stays: it stops the dialog racing a half-rendered
                 # Settings pane. Only the missing `activate` comes back.
                 sleep 1
-                osascript \
+                _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+                    osascript \
                     -e 'tell application "System Events" to activate' \
                     -e "tell application \"System Events\" to display dialog \"${_imessage_fda_dialog_msg_esc}\" with title \"${_imessage_fda_title_esc}\" buttons {\"${_imessage_fda_button_esc}\"} default button \"${_imessage_fda_button_esc}\" ${_imessage_fda_icon_clause}" \
                     >/dev/null 2>&1 || true
@@ -19948,7 +20059,14 @@ else
                     # Finder on the normal (registered/listed) path where the
                     # reveal was suppressed and no Finder window exists.
                     if [[ "${_fda_finder_revealed:-false}" == true ]]; then
-                        osascript -e 'tell application "Finder" to close windows' >/dev/null 2>&1 || true
+                        # BOUNDED (2026-08-26): sits inside a 60-iteration
+                        # 1s wait loop, so an unbounded send here stalls the
+                        # loop AND the FDA step around it. Finder is exactly
+                        # the app that shows a modal (permission, "reopen
+                        # windows?") and an Apple Event waits on its event
+                        # loop indefinitely.
+                        _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+                            osascript -e 'tell application "Finder" to close windows' >/dev/null 2>&1 || true
                     fi
                     # Break the instant neither pane process is alive.
                     if ! pgrep -x "System Settings" >/dev/null 2>&1 \
