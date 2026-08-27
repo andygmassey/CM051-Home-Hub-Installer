@@ -192,7 +192,12 @@ while IFS= read -r rec; do
     fi
 
     CROSS=$(( CROSS + 1 ))
-    if printf '%s' "${ALLOWED}" | grep -qx -- "${src_repo}"; then
+    # Remedy B, not `| grep -q`. Under `set -o pipefail` grep -q exits on the
+    # first match and SIGPIPEs printf, so the PIPELINE reports failure exactly
+    # WHEN THE PATTERN IS FOUND -- here that would read an allowlisted repo as
+    # NOT allowlisted. grep -c must read to EOF, so it cannot short-circuit.
+    # `|| true` because grep -c exits 1 on zero matches.
+    if [ "$(printf '%s' "${ALLOWED}" | grep -cx -- "${src_repo}" || true)" -gt 0 ]; then
         printf '  %sWARN%s  %s:%s cross-repo call to %s -- ALLOWLISTED in %s\n' \
             "$C_Y" "$C_0" "$(basename "${file}")" "${lineno}" "${src_repo}" "${ALLOWLIST}"
         # When a token is available, do not take the allowlist's word for it.
