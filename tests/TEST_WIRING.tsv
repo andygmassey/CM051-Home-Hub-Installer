@@ -309,6 +309,7 @@ test_verify_ci_steps_are_maskless.sh	WIRED	.github/workflows/ci-maskless.yml
 test_verify_no_symbol_regression.sh	WIRED	.github/workflows/symbol-regression.yml
 test_verify_test_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_voice_consent_matches_catalogue.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_walk_arms_distinguish_cannot_run_from_fail.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_walk_record_gates_customer_download.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_record_names_the_failing_probes.sh	WIRED	.github/workflows/cut-manifest.yml
 test_walkaway_no_phase2_input_leak.sh	UNWIRED	-
