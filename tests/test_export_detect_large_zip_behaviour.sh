@@ -31,6 +31,15 @@
 #
 # and with the SAME 20,001 entries but the signature LAST: 0/5.
 #
+# 🔴 THE PLATFORM MATRIX, ALL THREE MEASURED, NONE ASSUMED:
+#
+#   this developer Mac (UnZip 6.00, Darwin 25.4)  inverts 5/5 from 501 entries
+#   ubuntu-latest runner                          0/5 at every rung to 1.44 MB
+#   macos-latest runner                           0/5 at every rung to 1.44 MB
+#
+# So the defect is real, and NEITHER HOSTED RUNNER CAN WITNESS IT. See the
+# workflow: this file is a REPORTER in CI, not a gate, and it says so.
+#
 # 🔴 AND ON LINUX 801 ENTRIES INVERTS 0/5. Measured on an ubuntu-latest runner,
 # not reasoned about: the first CI run of this file failed its own positive
 # control and said so. The floor is set by how much of the listing the kernel
@@ -58,11 +67,16 @@ pass=0; fail=0
 ok()  { printf '  ok    %s\n' "$*"; pass=$((pass+1)); }
 bad() { printf '  FAIL  %s\n' "$*"; fail=$((fail+1)); }
 finish() { printf '\n%d passed, %d failed\n' "$pass" "$fail"; [ "$fail" -eq 0 ] || exit 1; exit 0; }
+# CANNOT-RUN IS A THIRD STATE AND GETS ITS OWN EXIT CODE. Collapsing it into 0
+# would be the exact defect this whole family is about; collapsing it into 1
+# would make a platform that cannot host the measurement look like a product
+# defect. 3, and the caller decides.
+cannot_run() { printf '  CANNOT-RUN  %s\n\n0 passed, 0 failed, 1 could not run\n' "$*"; exit 3; }
 
 DETECT="lib/ostler-detect-exports.sh"
 [ -f "$DETECT" ] || { bad "detector not found at ${DETECT} -- nothing to measure"; finish; }
-command -v zip >/dev/null 2>&1 || { bad "CANNOT-RUN: no zip(1), so no fixture can be built. This is not a pass."; finish; }
-command -v unzip >/dev/null 2>&1 || { bad "CANNOT-RUN: no unzip(1). This is not a pass."; finish; }
+command -v zip >/dev/null 2>&1   || cannot_run "no zip(1), so no fixture can be built."
+command -v unzip >/dev/null 2>&1 || cannot_run "no unzip(1)."
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 # THE FLOOR IS PLATFORM-DEPENDENT, SO IT IS MEASURED, NOT HARDCODED.
@@ -135,8 +149,7 @@ SIGLINE="$(unzip -Z1 "$BIG" | grep -n 'Connections\.csv' | cut -d: -f1)"
 if [ -n "$FILLER" ]; then
     ok "POSITIVE CONTROL: the pre-fix 'unzip -Z1 | grep -q' inverts 5/5 at ${ENTRIES} entries / ${LISTING} B listing, signature at line ${SIGLINE} [ladder: ${LADDER_TRIED}]"
 else
-    bad "CANNOT-RUN: no rung of the ladder made the pre-fix construct invert [${LADDER_TRIED}]. Either this platform's unzip does not die on SIGPIPE, or the pipe buffer swallows even the largest listing. Limb 2 cannot distinguish the fix from the bug here, so its green would be worthless -- this is NOT a pass. Extend FILLER_LADDER, or investigate the platform."
-    finish
+    cannot_run "no rung of the ladder made the pre-fix construct invert [${LADDER_TRIED}]. This platform's unzip does not die on SIGPIPE at any listing size tried, so limb 2 cannot distinguish the fix from the bug HERE. That is NOT a pass and NOT a product defect -- it is a host that cannot host the measurement. Exit 3."
 fi
 
 # --- 2. THE BEHAVIOUR -------------------------------------------------------
