@@ -96,7 +96,7 @@ walk_horizon: v1.0.41
 | v1.0.44 | 2026-08-24 | closed | Andy (walked on hardware; run header 2026-08-24T10:10:59Z) | v1044-D001 v1044-D002 v1044-D003 v1044-D004 v1044-D005 v1044-D006 |
 | v1.0.45 |  | not_walked | A2 (ARTEFACT MEASURED 2026-08-26, NEVER INSTALLED. Not walked because it CANNOT be: the DMG bricks on first run, v1045-D001. There is no walks/v1.0.45.tsv and there should not be one -- no walker got past Gatekeeper.) | v1045-D001 |
 | v1.0.46 | 2026-08-26 | deferred | ORM walked the artefact 2026-08-26T03:08Z with scripts/walk_dmg.sh: PASS 5, FAIL 2, CANNOT-RUN 1, VERDICT NO_GO. Deferred (not closed) by A1 under Andy's standing instruction to drive to a cut: the root cause is FIXED on CM051 main c196c1e0 and rides v1.0.47, but it is in NO artefact, so closing would be true about the repo and false about the DMG. | v1046-D001 v1046-D002 v1046-D003 |
-| v1.0.47 | 2026-08-26 | deferred | Archie (ORM walked the INSTALLED box 2026-08-26T14:17:14Z; walks/v1.0.47.tsv records pass 7, fail 4, cannot_run 4, broken 0, verdict FAILED, qa_exit 1, box_fp 38abe713e160f279. Deferred, not closed: the cut-blocking root cause v1047-D001 is FIXED on CM051 main by #1093 and #1095 and rides v1.0.48, but it is in NO artefact, so closing would be true about the repo and false about the DMG -- the same reasoning as the v1.0.46 row above. The other 3 fails and 4 cannot-runs are NOT NAMED BY THE RECORD. walks/v1.0.47.tsv carries counts only -- it has no probe-name field, so nothing here can say WHICH probes they were. I believe they are standing defects predating v1.0.47, but that is an assertion from session memory, not something this register or the walk record can support, and it must not be read as evidence. Corrected 2026-08-27 after TNM refuted the earlier wording, which claimed the split as fact. CONSEQUENCE, stated plainly: a genuinely NEW v1.0.47 finding hiding inside that fail-4 would be invisible to every check in this repo, because the closure rule only bites on findings a row already lists. Naming the failures in the walk record is the fix and it is owed.) | v1047-D001 |
+| v1.0.47 | 2026-08-26 | deferred | ORM walked the artefact 2026-08-26 with scripts/walk_dmg.sh; arm 8b (#1092) imports an UNSEEDED product module and takes .pyc 1448 -> 1449 with codesign rc=1, VERDICT NO_GO. Deferred (not closed) by A2 under Andy's standing instruction to drive to a cut: the root cause is FIXED on CM051 main 7857e00c (#1093) and rides v1.0.48, but it is in NO artefact, so closing would be true about the repo and false about the DMG. | v1047-D001 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -3338,6 +3338,13 @@ NOT CLOSED BY THE ABOVE, and recorded so silence is not read as a pass:
 reason those four guards are needed at all. It is held for v1.0.47 because its
 arms ran on a mounted artefact and a scratch HOME, never a real install, and
 its author asks for a box walk -- which needs a DMG that does not brick.
+
+✅ THAT PRECONDITION IS NOW MET. v1.0.47 is a DMG that does not brick, measured
+on the published artefact (see v1046-D001): unguarded interpreter start and a
+30-module no-env import both leave codesign at rc=0, with 0 added and 0
+modified. The #1055 box walk is no longer blocked by the absence of a bootable
+DMG. It remains blocked on Andy's ship-or-hold, which is a decision, not a
+measurement.
 ### v1046-D001 -- v1.0.46 still breaks its own seal: 45 .pyc shipped in TIMESTAMP mode
 
 **v1.0.46 existed to close v1045-D001 and it did not close it.** v1.0.45 shipped
@@ -3372,60 +3379,28 @@ that reads byte 4 bit 0 of every .pyc and REFUSES TO SIGN unless the
 timestamp-mode count is 0. Gate: capability installer_refuses_timestamp_mode_pyc
 (OS003 #157), counted 0 at d297cc59 and 1 on c196c1e0.
 
-CARRIED into v1.0.47 -- BOM row, landed=no until an artefact contains it.
+✅ AN ARTEFACT NOW CONTAINS IT. v1.0.47 cut + published 2026-08-26T04:32:56Z,
+tag -> 10c24171 == CM051 origin/main. Downloaded and re-hashed rather than
+trusted from the run: OstlerInstaller-1.0.47.dmg, 67,180,568 bytes, sha256
+12fb6366f1ca5a02f8831958e6dfceb0e9f7e307bc30f7274638ae5bbb8a86ff, MATCHES
+SHA256SUMS, and the byte count differs from v1.0.46's 67,199,451 so it is a
+different artefact rather than a re-label.
 
+    MODE CENSUS       1448 .pyc · timestamp 0 · unchecked-hash 1448
+                      (v1.0.46: 45 timestamp-mode, 45 of 45 already stale)
+                      denominator 1448 is non-zero, so this is a real zero
+    WRITABLE COPY     .pyc BEFORE 1448  <- DENOMINATOR
+      env -i python3.11 -c 'pass'        rc=0
+      30 modules, no env                 rc=0, 30/30
+      AFTER 1448 · NEW 0 · bytes CHANGED 0 (per-file sha256)
+      codesign --verify --deep --strict  rc=0   <- v1.0.45 AND v1.0.46 were 1
+      ^file added: 0   ·   ^file modified: 0    <- the verb that caught v1.0.46
 
-### v1047-D001 -- v1.0.47 seals only the STDLIB: 440 product .py ship with NO .pyc
+BOM row v1.0.47 is landed=yes.
 
-**v1.0.47 existed to close v1046-D001 and it closed half of it.**
-
-THE HALF THAT HOLDS, and must not be re-litigated: the STDLIB. v1.0.47 ships
-1448 seeded .pyc, all unchecked-hash, 0 in timestamp mode, and a broad no-env
-import changes nothing. That was the v1.0.46 brick and it is gone.
-
-THE HALF THAT DID NOT. Measured on the published artefact
-(OstlerInstaller-1.0.47.dmg, 67,180,568 bytes, sha256 12fb6366...a86ff,
-matching SHA256SUMS, plist 1.0.47 / 4700):
-
-    .py in the bundle          1888
-    .pyc                       1448
-    .py with NO .pyc            440
-      outer bundle              353
-      inside nested Ostler.app   87
-
-ORM's walk arm 8b (#1092) imported the smallest unseeded module,
-Contents/Resources/assistant_api/tests:
-
-    .pyc 1448 -> 1449    codesign --verify --deep --strict rc=1
-    VERDICT NO_GO
-
-That is an ADD, not a REWRITE -- v1045-D001's defect, not v1.0.46's, surviving
-in the compartment the v1.0.46 fix never inspected. Two defects, one colour, and
-only one of them touches a mode bit:
-
-    .py with NO .pyc        -> first import ADDS a file      (v1045-D001)
-    .pyc in timestamp mode  -> first import REWRITES a file  (v1046-D001)
-
-ROOT CAUSE IS AN INSTRUMENT DEFECT. The audit added by #1085 reads $PYTHON_DIR
--- the one directory that same commit had just fixed. It asserted a property
-over a subset chosen so as to exclude the defect, and asked only about MODE,
-never about ABSENCE. Every count-based and mode-based assertion in v1.0.47 was
-green while 440 files sat outside the audit's root.
-
-FIXED FOR v1.0.48, at two layers:
-  #1093/#1095  the signing step now runs compileall over the PRODUCT tree, the
-               audit refuses a .py with no .pyc, and an anti-vacuity floor
-               refuses a zero over a missing denominator.
-  #1155        the BOX-WALK PROBE that guards the seal was itself blind: its
-               trigger imported 24 stdlib modules only, so it returned PASS on
-               this very artefact. Now proved RED against v1.0.47: "353 of 353
-               product .py ship with NO .pyc". Without this the v1.0.48 walk
-               would have certified the defect it exists to close.
-
-NOT CLOSED BY THE ABOVE, recorded so silence is not read as a pass: the 87 .py
-inside the nested Ostler.app. `ship:` runs sparkle-embed, which seals Ostler.app
-with `codesign --force --deep`, TWO STEPS BEFORE sign-python-bundle -- so
-excluding them was mandatory, not cautious. The Hub lane owns that fix.
+🔴 CLOSED BY MEASUREMENT, NOT BY A WALK. Nobody has installed v1.0.47. The
+release is prerelease=true and ostler.ai/install.dmg is unmoved, so no customer
+is on it. A2 verifies; A1 wrote the fix and is the wrong person to certify it.
 
 ### v1046-D002 -- walk arm 5 is CANNOT-RUN, and that is not a pass
 
@@ -3454,10 +3429,93 @@ were ZERO; the number that matters is the REWRITE count, and the total is
 reported in its place. ORM flagged this himself. A count-based message cannot
 describe a defect that does not change the count.
 
-⚠️ ALSO UNRESOLVED: ORM measured 20 rewritten on `env -i python3.11 -c 'pass'`;
-A1 measures 4 on the same command against the same artefact. Both non-zero,
-both agree on direction, and 45 bounds both. The discrepancy is most likely
-what arm 8 executes before it samples. NOT RECONCILED -- stated rather than
-averaged.
+✅ BOTH FIXED ON CM051 main, AFTER the walk that found them, and I verified it
+rather than took the channel's word:
+    3fd124df 2026-08-26T11:40:04+08:00  ARM 8 vetoes a SEEDED bundle (#1086)
+    5cab70b2 2026-08-26T11:55:03+08:00  ARM 7 is ARM 8's sibling (#1088)
+ORM's walk was 03:08Z = 11:08+08:00, so both landed within the hour after it.
 
-OPEN -- instrument fixes, owner ORM.
+Arm 7 now reads the PEP 552 flag word at offset 4 and requires 1
+(unchecked-hash); 0 .pyc on the image is now the FAILING state, because zero
+would mean the seeding never ran. Arm 8's invariant is AFTER = BEFORE plus an
+independent codesign rc, which holds for a seeded and an unseeded bundle alike.
+CONTROL: the old `1448 already in the artefact` predicate survives only inside a
+comment at line 227 -- I checked, because a grep that scores comments as code is
+its own defect (board #808).
+
+✅ AND THE COUNT DISCREPANCY IS RESOLVED, NOT AVERAGED. It read as ORM 20 vs A1
+4 on `env -i python3.11 -c 'pass'`. It is not a contradiction: THE NUMBER IS A
+FUNCTION OF HOW MUCH YOU IMPORT, and 45 is the ceiling because that is how many
+timestamp-mode .pyc shipped.
+    bare `-c 'pass'`      4 rewritten   (boot set only)
+    3 modules            19 rewritten
+    broad import      up to 45          (the whole exposure)
+ORM's own corrected comment in walk_dmg.sh:151 now says 45 for a bare-env
+import, which sits at the top of that same curve. Every measurement any of us
+took is a point on it.
+
+CLOSED -- instrument fixes landed, discrepancy explained.
+
+
+### v1047-D001 -- v1.0.47 seals only the stdlib: 440 product .py ship with NO .pyc
+
+**v1.0.47 existed to close v1046-D001 and it closed only half of it.** The
+stdlib limb IS closed -- 1448 seeded, all 1448 unchecked-hash, 0 timestamp-mode,
+and a broad no-env import changes nothing. That half holds and should not be
+re-litigated.
+
+It fails by the OTHER limb, which is v1045-D001's, not v1.0.46's. Measured on
+the SHIPPED artefact, OstlerInstaller-1.0.47.dmg, 67,180,568 bytes, sha256
+12fb6366...a86ff, matches SHA256SUMS, plist 1.0.47 / 4700:
+
+    .py in the bundle          1888
+    .pyc                       1448
+    .py with NO .pyc            440   <- ADDED by the customer's first import
+      of the 440: outer bundle  353
+      inside nested Ostler.app   87   (own signature -- see the residual below)
+
+ORM's walk arm 8b found the smallest unseeded module and imported it:
+
+    probing Contents/Resources/assistant_api/tests
+    .pyc 1448 -> 1449    codesign rc=1    FAIL, VETO
+
+That is an ADD, not a REWRITE. **Two defects wear the same colour and only one
+of them touches a mode bit:**
+
+    .py with NO .pyc        -> first import ADDS a file      (v1045-D001)
+    .pyc in timestamp mode  -> first import REWRITES a file  (v1046-D001)
+
+🔴 ROOT CAUSE, AND IT IS AN INSTRUMENT DEFECT, NOT A NEW PRODUCT DEFECT. The
+audit added by #1085 reads `$PYTHON_DIR` -- the one directory that same commit
+had just fixed. It asserted a property over a subset chosen so as to exclude the
+defect, and it only ever asked about MODE, never about ABSENCE. Every count-based
+and mode-based assertion was green while 440 files sat outside the root. Same
+family as v1046-D001's flag-grep, one level up: see
+`feedback_a_control_can_be_in_the_wrong_compartment`.
+
+FIXED on CM051 main 7857e00c (#1093). Seeds the product tree with the same
+compileall line, excluding `/python/` (already done) and `\.app/` (own
+signature), and replaces the single-question audit with a whole-bundle one
+asking BOTH questions, plus an anti-vacuity floor on the DENOMINATOR -- "0
+uncovered" is also what an unstaged Resources tree prints.
+
+VERIFIED ON THE REAL v1.0.47 BUNDLE BEFORE THE PATCH WAS WRITTEN, not after:
+
+    compileall -q -f --invalidation-mode unchecked-hash -x '(/python/|\.app/)'
+        rc=0    1448 -> 1801   exactly the 353 predicted, nothing failed to compile
+        uncovered outer .py 0  ·  timestamp-mode 0
+    re-ran arm 8b's own import:   1801 -> 1801    the add does not happen
+
+41 test assertions (was 30). Both new predicates MUTATION-TESTED: neutering the
+uncovered check fails 3 assertions, neutering the floor fails 2.
+
+🟠 RESIDUAL, STATED NOT BURIED: the 87 .py inside Ostler.app are NOT fixed.
+`ship:` runs `sparkle-embed` -- which seals Ostler.app with
+`codesign --force --deep` -- two steps BEFORE `sign-python-bundle`, so excluding
+them was mandatory, not cautious. Their fix belongs at `stage-payload`, before
+that reseal. Hub lane owns it. If the Hub ever runs an unguarded product python
+it breaks its own seal exactly as the installer did.
+
+DEFERRED, NOT CLOSED: the fix is on CM051 main and in NO artefact. v1.0.47 is
+published, prerelease, and installed by nobody; ostler.ai/install.dmg still
+serves v1.0.41. Closing this would be true about the repo and false about the DMG.
