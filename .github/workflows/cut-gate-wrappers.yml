@@ -72,6 +72,14 @@ on:
       - 'tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh'
       - 'scripts/cut_hygiene_gate.sh'
       - 'tests/test_mergeable_unknown_is_not_clean.sh'
+      # Without this line the step that runs it below is DARK ON SELF-EDIT:
+      # the workflow invokes the test, but a PR that only changes the test
+      # never triggers the workflow, so the change ships unrun. Caught by
+      # verify_invoked_tests_are_watched.py on this very PR -- a run: step
+      # with no matching path entry is a gate you have read, not one you
+      # have run.
+      - 'tests/test_exemption_ref_form.sh'
+      - 'cut-deferrals.yaml'
       - '.github/workflows/cut-gate-wrappers.yml'
   push:
     branches: [main]
@@ -353,3 +361,17 @@ jobs:
             echo "::error::the test examined its assertions and FAILED (rc=${rc}) -- see the arms above"
             exit 1
           fi
+
+      - name: pr_exemptions refs are in a form their consumer can generate
+        # if: always() -- like the step above, many test steps precede this one
+        # in the same job, and without it a red anywhere earlier turns this into
+        # a grey tick that reads as a pass. That is the #888 shape applied to
+        # the guard for #839.
+        if: always()
+        run: |
+          set -uo pipefail
+          # SELF-TEST FIRST. A gate that cannot demonstrate a NO has a YES worth
+          # nothing -- and this one's whole subject is a check that was silently
+          # inert, so an inert guard for it would be a joke.
+          bash tests/test_exemption_ref_form.sh --self-test
+          bash tests/test_exemption_ref_form.sh
