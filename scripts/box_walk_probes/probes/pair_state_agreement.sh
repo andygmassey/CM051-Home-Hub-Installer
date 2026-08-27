@@ -79,7 +79,7 @@ signal_devices_rows() {
       best=""; n_found=0
       for f in $(find "$HOME/.ostler" -maxdepth 4 -name devices.db 2>/dev/null); do
         n_found=$((n_found+1))
-        if sqlite3 "$f" ".tables" 2>/dev/null | tr " " "\n" | grep -qx devices; then best="$f"; fi
+        if [ "$(sqlite3 "$f" ".tables" 2>/dev/null | tr " " "\n" | grep -cx devices)" -gt 0 ]; then best="$f"; fi
       done
       if [ "$n_found" -eq 0 ]; then printf "NOFILE"; exit 0; fi
       if [ -z "$best" ]; then printf "NOSCHEMA %s" "$n_found"; exit 0; fi
