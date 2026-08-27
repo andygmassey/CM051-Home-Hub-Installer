@@ -58,7 +58,18 @@ fi
 
 # Axis 3: a FULL summary compile must be kicked in the BACKGROUND (full
 # mode -- no skip flag) and detached so it survives install.sh.
-if ! grep -q 'nohup docker compose --profile compile run --rm -T wiki-compiler' "$INSTALL_SH"; then
+# THE BACKGROUND COMPILE MOVED INSIDE A `bash -c`, so `nohup` is no longer
+# adjacent to `docker compose` and a single-line grep cannot match it.
+# install.sh:24017-24034 is now:
+#     nohup bash -c '
+#         ... docker compose --profile compile run --rm -T wiki-compiler </dev/null
+#     ' _ "$_wiki_slot" "$OSTLER_DIR" >"$WIKI_BG_LOG" 2>&1 &
+#     disown 2>/dev/null || true
+# The wrapper exists to hold the shared background-LLM slot lock, so the first-run
+# summary compile cannot starve live chat. That is an IMPROVEMENT, and it is what
+# broke the literal. Assert over the BLOCK instead of one line.
+_bg_block="$(awk '/nohup bash -c/,/^[[:space:]]*disown/' "$INSTALL_SH")"
+if ! printf '%s\n' "$_bg_block" | grep -qF 'docker compose --profile compile run --rm -T wiki-compiler'; then
     failure "no detached background full compile -- summaries would never land"
 fi
 # The background invocation must NOT carry the skip flag (it is the FULL
@@ -67,7 +78,11 @@ if grep 'nohup docker compose --profile compile run --rm -T wiki-compiler' "$INS
     failure "the background compile carries OSTLER_WIKI_SKIP_LLM -- it would skip the very summaries it exists to generate"
 fi
 # It must be backgrounded (&) and disowned so its exit code can't gate.
-if ! grep -Eq '</dev/null >"\$WIKI_BG_LOG" 2>&1 &' "$INSTALL_SH"; then
+# The redirect is split from the `</dev/null` by the bash -c close quote, so
+# assert the two facts separately over the same block: it is DETACHED (& plus
+# disown) and its output is CAPTURED (WIKI_BG_LOG), which is what "install would
+# not wait on it" and "we can see what it did" actually mean.
+if ! printf '%s\n' "$_bg_block" | grep -qE '>"\$WIKI_BG_LOG" 2>&1 &[[:space:]]*$'; then
     failure "background compile is not detached with & -- install would wait on it"
 fi
 if ! grep -q 'disown' "$INSTALL_SH"; then

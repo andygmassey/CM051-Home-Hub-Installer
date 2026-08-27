@@ -161,7 +161,11 @@ MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE="Registering the Ostler assistant with macO
 MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED="Full Disk Access is still pending. The Doctor dashboard will keep the card visible until access is granted."
 MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED="ostler-assistant already has Full Disk Access; no further action needed."
 MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE="This part needs you for about two minutes: switch on Full Disk Access for the assistant now, then sign in to Tailscale on the next step. After that, you can leave Ostler to finish on its own."
-MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED="Ostler is already listed in Full Disk Access, so you can just switch it on. No need to drag anything from Finder."
+# WALK-874(b): %s is the Full Disk Access row name, DERIVED from the
+# assistant .app bundle (install.sh: _ostler_fda_entry_name). It read
+# "Ostler is already listed" while the row said OstlerAssistant, so the
+# customer went hunting in Finder for a row this line says is there.
+MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED="\"%s\" is already listed in Full Disk Access, so you can just switch it on. No need to drag anything from Finder."
 MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN="Checking whether the Ostler assistant can read your Messages history..."
 MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED="Assistant can read Messages history; iMessage channel will work."
 MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT="Assistant cannot read Messages history yet. The Doctor dashboard will show a card guiding you through System Settings."
@@ -292,6 +296,7 @@ MSG_INFO_VIEW_ANY_TIME_WITH_BASH_INSTALL="View any time with: bash install.sh --
 MSG_INFO_VOICE_RECOGNITION_WILL_STAY_OFF_YOU="Voice recognition will stay off. You can enable later in Settings."
 MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3="Waiting for you to sign in to Tailscale (up to 3 minutes)..."
 MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS="Tailscale remote access was not set up. Your iOS Companion will work on your home Wi-Fi; you can set up remote access later from Settings."
+MSG_INFO_TAILSCALE_ALREADY_CONFIGURED="This Mac is already connected to your Tailscale network, so there is nothing to set up. Keeping your existing connection."
 MSG_INFO_WHATSAPP_CONNECTOR_LEFT_OFF_YOU_CAN="WhatsApp connector left off. You can enable it later via Settings."
 MSG_INFO_WHATSAPP_KEEPALIVE_SCHEDULED_08_50_17="WhatsApp keepalive scheduled at 08:50 + 17:50 (label com.creativemachines.ostler.whatsapp-keepalive)"
 MSG_INFO_WIKI_RECOMPILE_CATCHUP_SKIPPED_NO_TICK="Skipping first-day wiki catch-up: the wiki-recompile tick is not installed. The daily wiki rebuild, if installed, still runs."
@@ -329,6 +334,31 @@ MSG_OK_BACKED_UP_CONTACTS="Backed up %s contacts to %s"
 MSG_OK_CM042_INSTALLED="Ostler RemoteCapture v%s installed at %s"
 MSG_OK_CM042_LAUNCHAGENT_LOADED="Ostler RemoteCapture LaunchAgent loaded (label %s)"
 MSG_OK_COLIMA_DOCKER_CLI_INSTALLED="Colima and Docker CLI installed"
+# v1.0.38 walk (2026-08-23): the container engine was killed by macOS
+# mid-life and nothing checked again for a day, because the only thing that
+# could restart it ran once at daemon startup. These cover the agent that
+# supplies the missing cadence.
+MSG_OK_ENGINE_SUPERVISOR_INSTALLED="Container-runtime supervisor installed (checks every 5 minutes and restarts the runtime if it stops)"
+MSG_WARN_ENGINE_SUPERVISOR_NOT_LOADED="The container-runtime supervisor could not be scheduled. Ostler will still install, but if the runtime stops later nothing will bring it back on its own - your wiki would stay down until you re-run the installer."
+MSG_WARN_ENGINE_SUPERVISOR_NOT_STAGED="The container-runtime supervisor files are missing from this installer, so it was not scheduled. Ostler will still install, but automatic recovery of the runtime is not active."
+# v1.0.44 walk (2026-08-24), #876 and the #800 class behind it. Five
+# background helpers used to announce themselves as running with no way for
+# the code to be wrong: `launchctl … || true` and then an unconditional `ok`.
+# On Andy's walk the Doctor line printed while com.ostler.doctor was not
+# loaded at all. These are the sentences the installer now says when launchd
+# does NOT report the agent registered. Each names what the customer loses,
+# not what failed internally, and none of them claims the install is ruined:
+# these are helpers, and the machine still works without them.
+MSG_WARN_OSTLER_DOCTOR_NOT_LOADED="The Ostler Doctor dashboard could not be started, so http://localhost:8089 will not answer. The app's own pages that read from it - People, Timeline, Governor, channel status - will show as unavailable until it is running. Re-run the installer to try again."
+MSG_WARN_STAY_AWAKE_AGENT_NOT_LOADED="The keep-awake helper could not be scheduled. Ostler still works, but this Mac may sleep during long background jobs and they will resume when it wakes rather than finishing overnight."
+MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED="The background top-up helper could not be scheduled, so new messages, mail and calendar entries will not be picked up on their own. Re-run the installer to restore it."
+MSG_WARN_MEETING_BRIEF_SENDER_NOT_LOADED="The daily brief could not be scheduled, so you will not receive the morning summary. Everything else works; re-run the installer to restore it."
+MSG_WARN_EXPORT_SCAN_NOT_LOADED="The Downloads watcher could not be started, so files you drop into Downloads will not be picked up automatically. Everything already imported is unaffected, and you can still add files from inside the app. Re-run the installer to restore it."
+MSG_WARN_DEFERRED_DEVICE_REGISTRATION_NOT_LOADED="The retry helper for device registration could not be scheduled. If your iPhone registered during setup this changes nothing; if it did not, you will need to pair again from the app rather than it completing on its own."
+# v1.0.38 walk (2026-08-23): a green install finished on a Mac with the
+# Docker CLI present and no engine behind it. On macOS `docker` is a client;
+# these strings keep the two apart in everything the customer reads.
+MSG_OK_CONTAINER_ENGINE_ANSWERED="Container runtime responding"
 MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED="Removed a stale Colima start-up item left by an older version"
 MSG_OK_CONFIG_SAVED_ENV="Config saved to %s/.env"
 MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Consent records and region persisted to ~/.ostler/posture/"
@@ -467,6 +497,7 @@ MSG_OK_GATEWAY_HEALTHY="Pairing service healthy"
 MSG_WARN_GATEWAY_NOT_RESPONDING="Pairing service not responding (127.0.0.1:8000) - phone/browser pairing and the chat assistant may not work yet"
 MSG_OK_DOCTOR_HEALTHY="Doctor healthy"
 MSG_WARN_DOCTOR_NOT_RESPONDING="Doctor not responding (127.0.0.1:8089) - the app and browser reach Ostler through it, so data and pairing may be unavailable"
+MSG_OK_WIKI_HEALTHY="Your wiki healthy"
 MSG_OK_ICAL_SERVER_HEALTHY="Assistant API healthy"
 MSG_WARN_ICAL_SERVER_NOT_RESPONDING="Assistant API not responding (127.0.0.1:8090) - People, Meetings and Timeline may be empty until it starts"
 MSG_OK_READY="%s ready"
@@ -611,6 +642,10 @@ MSG_WARN_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM_2="    docker compose --profile c
 MSG_WARN_DOCKER_COMPOSE_UP_D_WIKI_SITE="    docker compose up -d wiki-site"
 MSG_WARN_DOCKER_DID_NOT_START_WITHIN_SECONDS="Docker did not start within %s seconds."
 MSG_WARN_DOCKER_INSTALLED_BUT_NOT_RUNNING_WILL="Docker installed but not running. Will need to start it."
+MSG_WARN_DOCKER_CLIENT_WITHOUT_ENGINE="The Docker command is on this Mac but nothing is running behind it. On macOS the Docker command is only a client - it needs an engine such as Colima or Docker Desktop to actually run anything. The installer will set one up."
+MSG_WARN_CONTAINER_ENGINE_DIAGNOSTIC="Container runtime diagnostic - docker client: %s | colima: %s | Docker Desktop: %s"
+MSG_WARN_WIKI_PORT_NOT_ANSWERING="The wiki container was started but nothing answered on http://localhost:8044 within 60 seconds. Treat the wiki as NOT running - the exit code of the start command is not evidence that the page loads."
+MSG_WARN_WIKI_NOT_RESPONDING="Your wiki is not responding (127.0.0.1:8044). It runs in a container, so this usually means the container runtime stopped. Open Ostler Doctor at http://localhost:8089/doctor to see why."
 MSG_WARN_DOCKER_OLLAMA_MID_INSTALL_HANG_READINESS="Docker / Ollama mid-install and hang the readiness probes."
 MSG_WARN_EARLY_MARKERS_CHANNELS_STILL_CONNECTING_APPLE="  early markers (channels still connecting + Apple"
 MSG_WARN_EMAIL_INGEST_LAUNCHAGENT_INSTALL_FAILED_SEE="Email-ingest LaunchAgent install failed. See output above."
@@ -757,6 +792,7 @@ MSG_WARN_STOP_CONFLICTING_SERVICES_CHANGE_PORTS_DOCKER="Stop the conflicting ser
 MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN="Tailscale didn't sign in within 3 minutes. You can come back to this later from Settings."
 MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED="Tailscale IP was written to .env but a follow-up read could not see it. iOS Companion may not pick it up – re-run install.sh --repair if that happens."
 MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL="Tailscale install failed – you can install it later from tailscale.com"
+MSG_WARN_TAILSCALE_STATE_UNREADABLE="This Mac has existing Tailscale settings that could not be read, so we cannot tell whether it is still connected to your network. Please choose below – if it is already connected, setting it up again does no harm."
 MSG_WARN_THE_DEPLOYED_SERVICES_REFUSE_START_WITHOUT="the deployed services refuse to start without them."
 MSG_WARN_THIS_RESOLVED_SEE_NEXT_STEPS_BANNER="  this is resolved. See next-steps banner for remediation."
 MSG_WARN_TO_INSPECT_CRON_DELIVERY_IMESSAGE_TCC="  to inspect. cron-delivery / imessage-tcc are common"
@@ -810,6 +846,8 @@ MSG_FAIL_CM042_SIGNATURE_FAILED="Ostler RemoteCapture install aborted: signature
 MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS="Could not pull %s after 3 attempts. Check your network and re-run the installer."
 MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT="Could not pull nomic-embed-text after 3 attempts. Check your network and re-run the installer."
 MSG_FAIL_DOCKER_NOT_AVAILABLE_RE_RUN_INSTALLER="Docker not available. Re-run the installer to install Colima."
+MSG_FAIL_CONTAINER_CLIENT_MISSING="The docker command is not on this Mac, so Ostler cannot start the services it needs. Re-run the installer; if it fails again, send us the log at %s."
+MSG_FAIL_CONTAINER_ENGINE_ABSENT="Ostler needs a container runtime and none is responding on this Mac. Your wiki, your knowledge graph and your search index all run inside containers, so the install has stopped here rather than finish and leave them missing. To fix it: open Terminal and run 'colima start', then run this installer again. If you use Docker Desktop instead, open it, wait for the whale icon to settle, then re-run. The full log is at %s."
 MSG_FAIL_GRAPH_DB_DOCKER_NOT_READY="Docker did not become ready in time to start the knowledge-graph databases. Make sure Colima or Docker is running, then re-run the installer."
 MSG_FAIL_GRAPH_DB_PULL_FAILED="Could not download the knowledge-graph database images after several attempts. This is usually a network problem. Check your internet connection and re-run the installer."
 MSG_FAIL_GRAPH_DB_UP_FAILED="The knowledge-graph databases were downloaded but could not be started. Re-run the installer; if it keeps happening, open Terminal and run: cd ~/.ostler && docker compose up -d qdrant oxigraph redis"
@@ -913,8 +951,16 @@ MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Acces
 # whole reason the poll exists.
 # Locator wording taken from the other side: "Find ... in the list" tells
 # them WHERE to look before naming WHICH switch to flip.
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"Ostler\" in the list and turn its Full Disk Access switch on."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Not listed? Drag \"Ostler\" from the Finder window into the list, then turn its switch on. Order does not matter – click Done before or after; the installer waits until the switch is actually on."
+# WALK-874(b), measured on the v1.0.44 walk 2026-08-24 step 26/37: these
+# two lines named the row "Ostler". The row macOS shows is the assistant
+# bundle's file name -- OstlerAssistant. A customer scanning for "Ostler"
+# concludes it is absent and goes to Finder, which LINE3 tells them not
+# to do. %s is now DERIVED from the bundle at run time
+# (install.sh: _ostler_fda_entry_name), so a bundle rename moves the copy
+# with it. Do NOT reintroduce a literal product name here -- it is
+# mutation-tested by tests/test_fda_dialog_tells_the_truth.sh case-4.
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"%s\" in the list and turn its Full Disk Access switch on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Not listed? Drag \"%s\" from the Finder window into the list, then turn its switch on. Order does not matter – click Done before or after; the installer waits until the switch is actually on."
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="Done"
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT="You can click Done before or after flipping the switch – the installer waits until it is actually on."
 
@@ -956,7 +1002,12 @@ MSG_INFO_DAEMON_FDA_LATER_PREANNOUNCE="One more permission (Messages history for
 # extraction. Granting now, or continuing with less data, both let the
 # install complete. TODO(i18n): de/fr/es/it needed -- do NOT machine-translate.
 MSG_PROMPT_INSTALLER_FDA_RECOVER_TITLE="Full Disk Access still needed"
-MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE1="Ostler is about to read your Mac data, but Full Disk Access for OstlerInstaller is still off. Find \"OstlerInstaller\" in System Settings (now open at Full Disk Access) and turn it on."
+# WALK-874(a): the parenthetical "(now open at Full Disk Access)" was
+# the same untrue assertion as the two ASSIST_LINE1 keys, buried
+# mid-sentence in a third one. The pane state is now stated by the
+# verified line the modal opens with, so this line only has to name the
+# row and the switch.
+MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE1="Ostler is about to read your Mac data, but Full Disk Access for OstlerInstaller is still off. Find \"OstlerInstaller\" in the list and turn it on."
 MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE2="Or just click Continue to finish the install with less data – you can grant it and re-run the extractor later."
 MSG_PROMPT_INSTALLER_FDA_RECOVER_BUTTON="Continue"
 
@@ -1457,3 +1508,26 @@ MSG_INFO_AUTOLOGIN_SKIPPED_NONINTERACTIVE="Skipping automatic sign-in setup: the
 MSG_WARN_AUTOLOGIN_NO_PASSWORD="No password was entered, so automatic sign-in was not enabled and nothing was stored. If you want it later, turn Automatic login on in System Settings > Users & Groups."
 MSG_WARN_AUTOLOGIN_FAILED="Could not enable automatic sign-in (%s). This is not retried. If /etc/kcpassword exists on this Mac it holds that login password in scrambled form even though the feature is off; you can remove it from Terminal with: sudo rm /etc/kcpassword. To try again, turn Automatic login on in System Settings > Users & Groups."
 MSG_WARN_AUTOLOGIN_FILEVAULT="FileVault is on, so this Mac asks for a password at the boot screen to unlock the disk before anyone can sign in. Automatic sign-in cannot answer that, so after a power-cut this Mac waits at the FileVault unlock screen until someone enters it. Automatic sign-in was not enabled and no password was stored. That is the stronger of the two arrangements: unattended restart recovery is not possible while FileVault is on, and in exchange the disk stays unreadable to anyone who does not have that password."
+
+# ── WALK-874 (2026-08-24, v1.0.44 upgrade walk, step 26/37) ──────────
+# The Full Disk Access modal opened with "System Settings is open at
+# Full Disk Access." It was NOT open -- Andy opened it himself. The pane
+# open was fire-and-forget (`open ... 2>/dev/null || true`) and the
+# sentence was printed regardless: the same shape as #876's
+# `launchctl ... || true` followed by an unconditional success line.
+#
+# This is the line the modal shows when the pane could NOT be brought
+# up. It ESTABLISHES the state instead of asserting it, and it does not
+# pretend the installer did something it did not do.
+MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="Ostler could not open System Settings for you. Please open System Settings yourself and go to Privacy & Security > Full Disk Access."
+# ── Container-engine ownership disclosure ─────────────────────────────────
+# DISCLOSURE, NOT DISCLAIMER. Andy asked (2026-08-24) whether we could write
+# something to absolve us if a customer disrupts what we install. A clause
+# does not do that job -- to a customer it is our product that stopped
+# working. What does the job is saying plainly, up front, what we install and
+# what depends on it, and then DETECTING and SAYING SO when it breaks.
+# Deliberately says "will tell you and try to restart it" because both halves
+# are now true (periodic liveness + a real restart path); do not weaken either
+# sentence without removing the corresponding capability.
+MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE="Ostler runs your wiki and search in containers, so it installs and manages a container engine (Colima) on this Mac. If that engine is removed or reconfigured, your wiki and search will stop working – Ostler will tell you and try to restart it."
+MSG_INFO_ENGINE_ALREADY_PRESENT="A container engine is already installed on this Mac. Ostler will use it rather than installing its own, and will not manage or modify it."

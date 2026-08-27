@@ -79,6 +79,17 @@ fi
 # (stable, present on every Ostler install) and fall back to any
 # python3 on PATH. The generator is pure standard library, so any
 # python3 works.
+# Redirect the bytecode cache OUT of any signed bundle before we resolve an
+# interpreter. ${OSTLER_DIR}/.venv is created by `"$PYTHON3_BIN" -m venv` from
+# the interpreter INSIDE the notarised app (install.sh:6085), so its
+# base_prefix -- and therefore its stdlib import root -- is that app bundle.
+# CPython writes __pycache__/*.pyc next to the source it imports, so an
+# unguarded run of this tick breaks the app's code seal. Measured on the
+# shipped v1.0.45 artefact: one ordinary import produced 69 .pyc inside the
+# bundle and `codesign --verify --deep --strict` rc=1, spctl refusing.
+# LaunchAgents inherit no environment, so this cannot be left to the caller.
+export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-${HOME}/.ostler/cache/pycache}"
+
 PYTHON_BIN=""
 if [ -x "${OSTLER_DIR}/.venv/bin/python3" ]; then
     PYTHON_BIN="${OSTLER_DIR}/.venv/bin/python3"

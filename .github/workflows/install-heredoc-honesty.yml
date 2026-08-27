@@ -1,0 +1,76 @@
+name: install-heredoc-honesty
+
+# PROSE IN AN UNQUOTED HEREDOC IS NOT PROSE. IT IS A COMMAND.
+#
+# Andy's v1.0.43 walk transcript put this in front of a customer:
+#
+#     install.sh: line 9979: convert: command not found
+#
+# This product has never called ImageMagick. Line 9979 of that install.sh is
+#
+#     cat > "${CONFIG_DIR}/.env" <<ENVEOF
+#
+# and 34 lines into the heredoc body sat an explanatory comment reading
+# "So `convert --source apple_notes` exits non-zero on an unknown source".
+# The delimiter is unquoted -- it has to be, the body interpolates two dozen
+# ${VAR}s -- and an unquoted heredoc runs COMMAND SUBSTITUTION on its body.
+# The backticks were not punctuation. Bash ran them, and reports a failed
+# substitution at the line of the enclosing command, which is why the
+# customer's error names the `cat` and not the sentence.
+#
+# TWO HARMS, BOTH MEASURED, NEITHER VISIBLE TO ANY EXISTING GATE:
+#   1. Raw shell noise on a customer's screen for a binary we never call.
+#   2. The substitution's output REPLACED the backticked text, so the .env
+#      written to the customer's disk read "# So  exits non-zero on an
+#      unknown source". On a machine that HAS ImageMagick, `convert` runs
+#      for real against the words in the sentence.
+#
+# `bash -n` parses this file happily. So does every other gate in the repo.
+# It only misbehaves at run time, on someone else's machine.
+#
+# WHY ubuntu AND NOT macos
+#
+# The gate reads the bytes of install.sh and parses heredoc delimiters. It
+# is static analysis of file content, identical on either runner, and it
+# executes nothing from install.sh. The bash-3.2 behaviour of that file is
+# already gated on macos-14 by step-end-status-honesty.yml, which runs
+# `/bin/bash -n install.sh` under the cut host's own shell. Running this on
+# ubuntu buys speed without giving up a platform-sensitive measurement,
+# because there is no platform-sensitive measurement here to give up.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_no_live_command_substitution_in_heredocs.sh'
+      - '.github/workflows/install-heredoc-honesty.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  heredoc-honesty:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The test carries FOUR controls and reports its own denominator, so a
+      # zero cannot be mistaken for a broken parser:
+      #   - a live substitution PLANTED into a copy of the real install.sh
+      #     must be found (otherwise "found none" means "could not look");
+      #   - a backslash-escaped backtick must NOT be reported (install.sh has
+      #     three correct ones, and a gate that fires on those gets deleted);
+      #   - a live backtick inside a QUOTED heredoc must NOT be reported;
+      #   - it prints how many heredocs and how many unquoted ones it saw.
+      # It refuses with a CANNOT-RUN message if python3 is absent rather than
+      # exiting 0 having measured nothing.
+      - name: No prose is executed out of an unquoted heredoc (#873)
+        run: /bin/bash tests/test_no_live_command_substitution_in_heredocs.sh

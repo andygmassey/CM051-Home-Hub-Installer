@@ -1,0 +1,32 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.47.
+#
+# ===========================================================================
+# OPENED 2026-08-25 AS A DEFERRAL, NOT AS A PLAN.
+# ===========================================================================
+# One row, carried UNCHANGED out of v1.0.46 and still landed=no, by the same
+# mechanism v1.0.45 used to reach v1.0.46: a row that will not be in the cut
+# is MOVED FORWARD, never flipped and never quietly dropped.
+#
+# WHY IT MOVED, precisely -- and the distinction is the whole point:
+# HR015 #698 IS MERGED (auto-merge fired 13:21Z once the andygmassey Actions
+# billing block cleared; the gate ran 77s to success, against 3s when it was
+# blocked -- elapsed time is the discriminator). So the row's SOURCE is
+# complete. What ships, however, is CM051's VENDORED copy of ostler_fda, and
+# that copy is byte-unchanged. The fix therefore reaches no customer in
+# v1.0.46. Marking it landed would have been true about HR015 and false about
+# the artefact, which is #799's exact failure ("merged is not shipped").
+#
+# CLOSING CONDITION: ORM re-vendors ostler_fda into CM051 and the vendored
+# emit_mbox carries the bounded scan. Then, and only then, this row lands.
+#
+# Measured, so the next reader does not have to re-derive it: peak RSS
+# 434.3 MiB -> 27.2 MiB on a zero-output tick, 1123.6 MiB -> 51.5 MiB on a
+# full one, and FLAT when mailbox size doubles -- bounded by message count
+# (~2.9 KiB/message), not by bytes. Cause was NOT backfill_days: emit_mbox
+# built a list over the whole store and filtered afterwards, so a 1-day
+# window paid the same price as 1825. The 1825 rung was left alone.
+# ⚠️ The test asserts on tracemalloc, NOT RSS: macOS compresses resident
+# pages under pressure, so RSS UNDERSTATES the leak exactly when it is worst
+# -- the pre-fix 2166 MiB case read LOWER than the 1083 MiB one.
+what	repo	ref	landed	capability_id	verify	ticket
+🟠 NOT A CUT BLOCKER, BUT A JETSAM RISK ON THE MINIMUM-SPEC BOX. email-ingest holds ~11.5 GB for a ~14-minute tick, every ~70 minutes (StartInterval 3600; measured starts 06:27 07:36 08:45 09:56 11:06 12:19), on a 16 GB Mac mini -- and the 12:19 tick emitted ZERO messages while doing it. Observed live at 11.49 GB with 11.21 GB swap in use, minutes before the v1.0.43 walk. No jetsam fired this time (the five JetsamEvent reports on file are all 23 Aug) but it is the same precondition that killed the Colima VM. ALSO REOPENS #870: an email-ingest tick started 15:42:55 on 23 Aug and never logged a finish, 31 minutes before the first jetsam at 16:13:35, and the jetsam report's own largestProcess is VTDecoderXPCService -- so the recorded chain (installer buffer -> jetsam -> Colima) is at best incomplete. backfill_days=1825.	HR015	TBD	no	none	TBD	TNM 2026-08-24

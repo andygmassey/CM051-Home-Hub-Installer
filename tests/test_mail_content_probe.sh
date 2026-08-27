@@ -97,6 +97,12 @@ set -eo pipefail
 info()     { echo "[info] $*"; }
 warn()     { echo "[warn] $*" >&2; }
 gui_emit() { echo "[emit] $*"; }
+# dbg is install.sh's debug logger and the probe block calls it at
+# probe.sh:34. Without this stub the sourced block exits 127 -- and
+# because the driver was invoked with >/dev/null 2>&1 under set -e, the
+# "dbg: command not found" that said so was discarded and the test died
+# mute after printing five PASS lines.
+dbg()      { echo "[dbg] $*" >&2; }
 ok()       { echo "[ok] $*"; }
 
 # CX-100 added two helper probes the install.sh block now uses:

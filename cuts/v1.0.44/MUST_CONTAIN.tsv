@@ -1,0 +1,66 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.44.
+#
+# Columns, tab separated, as written by bin/bom_add.sh:
+#   what | repo | ref | landed | capability_id | verify command | ticket
+#
+# ===========================================================================
+# OPENED BEFORE THE CUT, WHILE v1.0.44 IS STILL A COLLECTION OF INTENTIONS
+# ===========================================================================
+# Opened 2026-08-24 by TNM at Andy's instruction. v1.0.43 is cut, published and
+# unwalked; nothing below has been built into an artefact yet, so every row
+# reads landed=no by construction rather than by omission.
+#
+# 🔴 THIS HEADER'S FIRST VERSION CARRIED A FALSE CLAIM. It said v1.0.41,
+# v1.0.42 and v1.0.43 had no BOM directory. All three DO. I measured
+# `[ -d cuts/vX ]` against the working tree of a feature branch that predated
+# ORM's #133-#136, instead of against origin/main -- and my `git fetch` had
+# silently failed because I sent its stderr to /dev/null, so I was reading a
+# remote-tracking ref frozen at 23 Aug 19:03. Measured on origin/main 9c86613,
+# the BOM directories present are:
+#
+#   v1.0.14.1 v1.0.15 v1.0.17 v1.0.18 v1.0.19 v1.0.24 v1.0.27
+#   v1.0.38 v1.0.39 v1.0.40 v1.0.41 v1.0.42 v1.0.43
+#
+# The gap I claimed does not exist. What IS true, and is v1.0.40's own header
+# saying it: that BOM was written after the DMG shipped and served. This file
+# is the first opened before its cut rather than after it. That is the whole
+# claim, and it is smaller than the one I made first.
+#
+# THE LESSON, because it is the third time this week: a local checkout is not
+# the repo, and a silenced fetch failure is indistinguishable from a fetch that
+# found nothing new. Never redirect a fetch's stderr.
+#
+# ===========================================================================
+# THE ENFORCEMENT GAP IS STILL OPEN. CARRIED FORWARD SO IT CANNOT GO QUIET.
+# ===========================================================================
+# Copied forward from v1.0.40's header because nothing has changed it:
+# gates/verify_must_contain.sh runs in OS003 bin/cut.sh preflight. THE DMG IS
+# NOT CUT THAT WAY -- it is cut by a tag push firing CM051
+# .github/workflows/cut.yml, which references must_contain / bom /
+# capability_manifest zero times, against controls in the same file that do
+# match. So this register is still not read by the path that ships.
+#
+# Andy decided 2026-08-23 that the BOM rides the launch cut (board #631):
+# emit at cut -> embed and print at install -> runtime-reconcile-and-fail-loud.
+# Until that lands, every row below is a reminder rather than a gate.
+#
+# ===========================================================================
+# ROWS CARRYING capability_id=none ARE UNGUARDED
+# ===========================================================================
+# Every row below needs a capability_manifest.tsv entry before this cut is
+# taken, or it can regress silently. They are written as `none` rather than
+# given invented ids, because an id the manifest does not carry reads as
+# guarded and is worse than an honest blank.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+Local usage panel: the Cost surface reframed from 'what you spent' to 'what your Mac did', priced against a dated cloud rate card. Built by Archie1. 4 commits: purpose axis on TokenUsage + LocalWorkSummary + monthly reader; shadow tracker.rs deleted; producers declare purpose and /api/cost gains local_work; the page. Green 25/25 config, 5/5 runtime, 345/345 frontend, clippy clean.	oa	archie/cost-panel-local 8570f360	no	none	TBD	HR015 launch/USAGE_JOURNAL_CONTRACT.md 356a046
+BLOCKER ON THE ABOVE -- the /cost route is NOT flag-gated, so 'dark by default' is false. v1_show_cost gates the sidebar entry (Sidebar.tsx:123), the SystemStatus card (SystemStatus.tsx:390) and the config section (ConfigFormView.tsx:57,129). App.tsx:622 registers <Route path=/cost> unconditionally and Cost.tsx has ZERO references to featureFlags. Typing the URL reaches the full panel including the unsourced rate card. Must be fixed BEFORE merge to oa/main, because 'merging early is low risk' rests entirely on this.	oa	TBD	no	none	TBD	TNM 2026-08-24
+Rate-card provenance: every row in web/src/config/cloudRates.ts must carry its source URL and the date it was read, and the page must show the customer the rate it compares against. Rates are currently cross-read, not sourced -- the vendor pricing page 403s -- and gpt-5-nano is DEFAULT_COMPARATOR_ID (cloudRates.ts:133), so every headline figure derives from an unsourced number. Archie1's own MEASURED-NEVER-ESTIMATED rule disciplines the token count and leaves the rate free; tokens x unsourced-rate is an estimate one multiplication downstream. If a row cannot cite, the panel shows tokens and hours, not money.	oa	TBD	no	none	TBD	TNM 2026-08-24
+Usage-journal producer gate: after a full compile on a real box, assert the journal carries a record from EVERY producer the contract declares -- not >=1 of each kind. A >=1 predicate is a golden case and cannot give a denominator: nine producers with one writing passes forever. Absence with no compile having run must exit 2 CANNOT-RUN, not 1 FAIL. Gate must be wired to a path that executes and PROVED to fire -- ref #713/#719, where every box-walk probe returned SKIP for its whole life and nothing invoked the runner.	CM051	TBD	no	none	TBD	TNM 2026-08-24
+Engine provenance and disclosure: record what WE installed vs what was already on the box, derived from a before/after diff and never asserted. owner: customer|ostler|none|unknown. Lets a health card say 'Colima: installed by Ostler, currently stopped' vs 'Docker Desktop: was already here, not managed by us'. Open and green; ORM scoped it OUT of v1.0.43 and INTO this cut. Its own test caught a real over-claim: with no before-snapshot the diff concluded every engine on the box was ours, on exactly the upgrade path where the snapshot cannot exist.	CM051	#997	no	none	TBD	ORM adjudication 2026-08-23
+UNRESOLVED CONTRADICTION, blocks a CLAIM not the cut: installed_bundle_seal_intact reports all three Ostler bundles MISSING from /Applications while a direct SSH read finds /Applications/Ostler.app present (short=0.7.1, mtime 22 Aug 17:34). One of the two readers is lying and neither may be cited until it is known which. Discriminating method, agreed with Archie1: make each reader print WHAT IT LOOKED AT -- resolved paths, effective uid, sandbox/TCC state -- rather than only its verdict.	CM051	TBD	no	none	TBD	TNM finding 8, 2026-08-24
+🔴 v1.0.43 INSTALL BLOCKER, PROVEN ON HARDWARE. _ostler_verify_runtime_ready counted 'except ImportError:' script-mode fallback arms as HARD dependencies, so v1.0.43 aborted every install at 19% (step fda_extract, ERR-99-INSTALL-ABORT-L2151 -> L1722) on an artefact that verified clean for signature, staple, hash and embedded version. Measured pre-fix: scanned=30 third_party=7 missing=4 (given_name_variants, pwg_ingest, relationship_labels, role_addresses -- all four files INSIDE the package) while ostler_fda.identifier_quality imported fine. Fix is two layers: skip imports inside an ImportError handler (per-NODE, so a module guarded in one file and hard-imported in another stays required), and subtract the package's own module names. Test carries a DEMONSTRATED RED (pre-fix 5/2 reproducing MISSING role_addresses; post-fix 7/0) plus a discriminating arm that plants an absent unguarded dependency and requires rc=1 -- green in BOTH columns, so the fix did not buy green by going blind.	CM051	#1013 squashed to main d39bca0a	yes	none	hdiutil attach the v1.0.44 DMG to a path you create, then grep -c _guarded_import_nodes <mount>/OstlerInstaller.app/Contents/Resources/install.sh -- expect >=1. CONTROL: the same grep on the v1.0.43 DMG returns 0, so the predicate discriminates the artefacts rather than merely being satisfiable. Source-side: bash tests/test_runtime_ready_does_not_require_optional_imports.sh -- expect PASS=7 FAIL=0.	TNM v1.0.43 walk 2026-08-24 | MERGED 2026-08-24T07:24:27Z. Proven on the specimen that failed: OLD guard rc=1 missing=4, NEW guard rc=0 missing=0, same interpreter + same package on the walk box, scanned=30 on BOTH arms.
+🟠 NOT A CUT BLOCKER, BUT A JETSAM RISK ON THE MINIMUM-SPEC BOX. email-ingest holds ~11.5 GB for a ~14-minute tick, every ~70 minutes (StartInterval 3600; measured starts 06:27 07:36 08:45 09:56 11:06 12:19), on a 16 GB Mac mini -- and the 12:19 tick emitted ZERO messages while doing it. Observed live at 11.49 GB with 11.21 GB swap in use, minutes before the v1.0.43 walk. No jetsam fired this time (the five JetsamEvent reports on file are all 23 Aug) but it is the same precondition that killed the Colima VM. ALSO REOPENS #870: an email-ingest tick started 15:42:55 on 23 Aug and never logged a finish, 31 minutes before the first jetsam at 16:13:35, and the jetsam report's own largestProcess is VTDecoderXPCService -- so the recorded chain (installer buffer -> jetsam -> Colima) is at best incomplete. backfill_days=1825.	HR015	TBD	no	none	TBD	TNM 2026-08-24
+
+🔴 THE WALK RECORD RECORDED THE VERSION IT WAS TOLD. post_walk_qa.sh took CUT_VERSION from argv and wrote it verbatim, so walks/v1.0.42.tsv files four real defects against a version that has never been installed on any machine. That file gates the customer download. Now MEASURES CFBundleShortVersionString from /Applications/OstlerInstaller.app on the box and refuses on mismatch (exit 3), with a version_source field recording how it knew. NEAR-MISS CAUGHT BY DRIVING IT AT THE LIVE BOX: the first draft read /Applications/Ostler.app -- the hub app, version 0.7.1 -- and would have refused EVERY legitimate walk record while looking rigorous. Three version surfaces exist on a walked box and only OstlerInstaller.app is the cut.	CM051	#1014 squashed to main cd666901	yes	none	git show v1.0.44:scripts/post_walk_qa.sh | grep -c CFBundleShortVersionString -- expect 4. CONTROL, run live 2026-08-24 against the walk box: arg v1.0.43 matches and records measured(...matches argument); arg v1.0.42 REFUSES with exit 3 printing both versions -- which is yesterday's exact mistake, now mechanically impossible; no arg derives v1.0.43.	TNM 2026-08-24, successor to walks/v1.0.42.tsv
+🔴 THE FIX FOR THE BLOCKER COULD BE DEFEATED BY ONE EMPTY FILE, AND #1013 ALONE MUST NOT SHIP. #1013's second layer built ONE FLAT SET of every .py basename anywhere under the package and subtracted it globally -- the exact per-name exclusion list layer one was deliberately written to avoid, reintroduced one layer down. ORM demonstrated it and I reproduced it independently on the walk box against both guards, same interpreter, trees differing by ONE EMPTY FILE ostler_fda/vendor/zzz_not_installed_xyzzy.py: control #1013 rc=1 missing=1 / #1015 rc=1 missing=1; attack #1013 rc=0 missing=0 DEFEATED / #1015 rc=1 missing=1 HOLDS. Case 3 of my #1013 test stayed GREEN throughout because it never plants a collision -- so the arm I offered as proof the fix had not gone blind could not see this. #1013 alone replaces a loud false positive with a SILENT FALSE NEGATIVE, which is strictly worse. Fix scopes the sibling rule to the importing file's OWN directory. Real package byte-identical through both guards (scanned=30 third_party=2 missing=0 rc=0), so v1.0.43's abort stays fixed. Mutation tested both directions: layer two back to global -> 3b dies; layer two deleted -> case 2 and 3c die.	CM051	#1015 squashed to main 2fb63f73	yes	none	hdiutil attach the v1.0.44 DMG to a path you create, then grep -c 'siblings.get(root, ())' <mount>/OstlerInstaller.app/Contents/Resources/install.sh -- expect >=1. CONTROL: the same grep on the v1.0.43 DMG returns 0 (measured: v1.0.44 tree 2 hits, v1.0.43 shipped 0). Source-side: bash tests/test_runtime_ready_does_not_require_optional_imports.sh -- cases 3b and 3c.	ORM 2026-08-24, follow-up to TNM #1013

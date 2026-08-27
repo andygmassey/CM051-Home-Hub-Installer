@@ -32,6 +32,12 @@ on:
       - 'tests/test_orphan_gate_cannot_verify.sh'
       - 'tests/test_deferral_reachability.sh'
       - 'tests/test_deferral_reason_reads_block_scalars.sh'
+      # The expiry ratchet: its comparison, and the baseline it compares to.
+      # Both are watched, because a change to either can retire the ratchet --
+      # a doctored baseline is as good as a deleted check.
+      - 'tests/test_expired_deferral_ratchet.sh'
+      - 'tests/test_expiry_needs_a_cut_version.sh'
+      - 'tests/expired_deferrals_baseline.txt'
       # The gate READS this file, so a change to its shape (a reason moving to
       # a block scalar, say) can silently change what the gate can report.
       - 'cut-deferrals.yaml'
@@ -80,6 +86,25 @@ jobs:
             [ -x "$f" ] || { echo "::error::$f missing or not executable" >&2; exit 1; }
             echo "  ok $f"
           done
+
+      # The ratchet's comparison, driven directly. The gate it lives in makes a
+      # network call per ref and takes about four minutes on a full run, so
+      # this exists to make the comparison cheap enough to actually test. 12
+      # checks, including the SWAP case a count-based ratchet cannot see and a
+      # MISSING baseline, which must read as "everything is new" and never as
+      # clean.
+      - name: The deferral-expiry ratchet compares sets, not counts
+        if: always()
+        run: /bin/bash tests/test_expired_deferral_ratchet.sh
+
+      # The ratchet compares sets correctly and could still be handed a set that
+      # is empty BY CONSTRUCTION. Without a cut version nothing can expire, and
+      # the gate used to print that as "0 expired now" and then advise
+      # regenerating the baseline, which would have deleted all 426 refs and
+      # retired the ratchet, on the run whose header says every repo resolved.
+      - name: Expiry needs a cut version, and says so instead of counting zero
+        if: always()
+        run: /bin/bash tests/test_expiry_needs_a_cut_version.sh
 
       - name: Gate is still INVOKED by the build
         # The proofs show the gate works. This shows something still calls it.

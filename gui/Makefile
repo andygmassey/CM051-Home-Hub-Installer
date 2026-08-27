@@ -199,7 +199,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.62
+DAEMON_VERSION       ?= 0.4.66
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -230,7 +230,35 @@ DAEMON_VERSION       ?= 0.4.62
 # Commit parity re-derived rather than inherited: BOTH build-info.json files
 # report commit 723c682fd7b44b87e3769adfd2db2fdf59f5dadd, so the daemon and the
 # Hub app are the same line, which is what verify-commit-parity asserts.
-DAEMON_SHA256        ?= ee1b01610d90a8c530430a1102626c736540f21c7be7b887e348104f1f0786cd
+# v1.0.46 (2026-08-25 ORM): 0.4.64 -> 0.4.65, daemon commit c4c5b40b408e ->
+# 4d1f47aedb28. THE REBUILD WAS NOT OPTIONAL: hub-v0.4.64 was built from
+# c4c5b40b408e, the same commit v1.0.45 pinned, and published 05:30:04Z, while
+# the cost panel (oa #346) merged at 10:56:11Z. Measured with
+# `git merge-base --is-ancestor`: #340 and #341 ARE in 0.4.64; #345, #346 and
+# #347 are NOT. So the old pin could not carry the one thing this cut is for.
+# Per-side, measured against the published bytes as .27 taught:
+#   ostler-releases  hub-v0.4.65  ostler-assistant-...-v0.4.65.tar.gz  8222931f
+#   ostler-assistant hub-v0.4.65  ostler-hub-app-...-v0.4.65.tar.gz    9f77ab15
+# Both build-info.json files report 4d1f47aedb2839d8151314f74405ac9cf94f6d36,
+# and for the Hub app that value was PROBED out of the Mach-O inside the
+# shipped tarball, not copied from a build log (HR015 #225/#732).
+#
+# v1.0.46 SUPERSEDED MID-CUT (2026-08-25 ORM): 0.4.65 -> 0.4.66, daemon commit
+# 4d1f47ae -> 509c8333. hub-v0.4.65 is published, signed and stapled, and it is
+# NOT what this cut ships. While CM051 was being re-pinned to it, oa PR #348
+# merged at 15:17:04Z and the freshness gate went RED (STALE:+1). #348 touches
+# web/src/lib/i18n.ts, web/src/pages/Cost.tsx and Cost.coverage.test.ts, and
+# web/ is baked into the Hub app, so a HOLD COULD NOT BE EVIDENCED -> REBUILD.
+# 🔴 THE RULE THAT DECIDED IT: any path that reaches the artefact forces a
+# rebuild. The directory list (crates/, src/) is a HINT, NOT THE TEST.
+# Moving a pin to follow a REBUILT artefact is not the v1.0.14 failure -- the
+# artefact is the fact, and this time the fact is what moved.
+#   ostler-releases  hub-v0.4.66  ostler-assistant-...-v0.4.66.tar.gz  431eeceb
+#   ostler-assistant hub-v0.4.66  ostler-hub-app-...-v0.4.66.tar.gz    777fab12
+# Both re-downloaded FROM THE SERVER and re-hashed rather than trusted from the
+# upload. Daemon: spctl accepted, source=Notarized Developer ID, V95N2B8X7A,
+# with a de-signed copy returning rc=3 as the negative control.
+DAEMON_SHA256        ?= 431eecebcab0535b77b8f0e190fb3c03585e60c8f9df221b9c9b27458eadf14d
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -297,7 +325,24 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # signed and deliberately NOT notarised: the cut re-signs it via embed-sparkle.sh
 # codesign --force --deep with the Developer ID, which would discard any earlier
 # ticket. Read from the release's own .sha256 sidecar, not from a build log.
-HUB_APP_SHA256       ?= 6b73408823f52eb1b0fc8b4af9fc353143ff890519de8a1c333bc7bbb6ee62ae
+# v1.0.46 (2026-08-25 ORM): re-pinned in lockstep to hub-v0.4.65, 9f77ab15,
+# built from 4d1f47ae -- the SAME commit as the v0.4.65 daemon above, so
+# verify-commit-parity keeps its meaning. I MISSED THIS PIN ON THE FIRST PASS
+# and tests/test_daemon_pins_agree.sh caught it, along with install.sh's
+# DEFAULT_ASSISTANT_TARBALL_SHA256. The reason is worth the line: I swept for
+# the string "0.4.64", which finds the two VERSION sites and neither DIGEST
+# site, because a digest does not contain its version. Sweep for the outgoing
+# SHA-256 as well as the outgoing version, or a bump silently lands half done.
+# v1.0.46 rebuild (2026-08-25 ORM): 9f77ab15 -> 777fab12, hub-v0.4.66, built
+# from 509c8333 -- the SAME commit as the v0.4.66 daemon above, so
+# verify-commit-parity keeps its meaning. The sidecar was EMITTED by
+# release/emit-hub-build-info.py, never hand-authored, and its
+# wrapper_frontend_commit was probed out of the Mach-O in the packaged tarball;
+# the emitter exits 2 when that value and the build commit disagree.
+# The Hub app is ADHOC SIGNED BY DESIGN: Signature=adhoc, TeamIdentifier=not
+# set, `stapler validate` rc=65. That is the CORRECT reading, and the daemon's
+# rc=0 on the same command is the positive control that proves the probe works.
+HUB_APP_SHA256       ?= 777fab12d2b21ae93e48ec4f60673e5e9f361b5145c0dc9e646b5cbf7f127fc7
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
@@ -866,12 +911,42 @@ download-hub-app:
 	            --clobber || { \
 	        echo "" >&2; \
 	        echo "ERROR: could not read $(HUB_APP_REPO) $(DAEMON_RELEASE_TAG) with OSTLER_RELEASES_TOKEN." >&2; \
-	        echo "  The token IS set, so this is a scope problem, not a missing credential." >&2; \
-	        echo "  $(HUB_APP_REPO) is a DIFFERENT repository from the daemon's" >&2; \
-	        echo "  $(DAEMON_REPO), and a fine-grained token scoped to one cannot read" >&2; \
-	        echo "  the other. Add $(HUB_APP_REPO) to the token's repository list with" >&2; \
-	        echo "  Contents: Read, or publish the hub app tarball alongside the daemon" >&2; \
-	        echo "  and set HUB_APP_REPO=$(DAEMON_REPO)." >&2; \
+	        PROBE="$$(GH_TOKEN="$$OSTLER_RELEASES_TOKEN" gh api \
+	            "repos/$(HUB_APP_REPO)/releases/tags/$(DAEMON_RELEASE_TAG)" 2>&1 >/dev/null)"; \
+	        PROBE_RC=$$?; \
+	        if [ "$$PROBE_RC" -eq 0 ]; then \
+	            echo "  MEASURED: the release EXISTS and this token CAN read it." >&2; \
+	            echo "  So the release object is fine and the ASSET is what is absent." >&2; \
+	            echo "  Assets actually published at $(DAEMON_RELEASE_TAG):" >&2; \
+	            GH_TOKEN="$$OSTLER_RELEASES_TOKEN" gh release view "$(DAEMON_RELEASE_TAG)" \
+	                --repo "$(HUB_APP_REPO)" --json assets --jq '.assets[].name' \
+	                2>/dev/null | sed 's/^/    /' >&2 || true; \
+	            echo "  Expected: $(HUB_APP_TARBALL_NAME)" >&2; \
+	            echo "  The hub app is a LOCAL build uploaded by hand -- NO CI workflow" >&2; \
+	            echo "  produces it. If it is absent it was never built for this version." >&2; \
+	            echo "  Build and upload it. Do NOT re-pin to an older hub app: that" >&2; \
+	            echo "  silently drops whatever change the version bump exists for." >&2; \
+	        elif printf '%s' "$$PROBE" | grep -q 'HTTP 403'; then \
+	            echo "  MEASURED: HTTP 403 -- the token is recognised but FORBIDDEN." >&2; \
+	            echo "  This one really is a scope problem. $(HUB_APP_REPO) is a" >&2; \
+	            echo "  DIFFERENT repository from the daemon's $(DAEMON_REPO), and a" >&2; \
+	            echo "  fine-grained token scoped to one cannot read the other. Add" >&2; \
+	            echo "  $(HUB_APP_REPO) to the token's repository list, Contents: Read." >&2; \
+	        elif printf '%s' "$$PROBE" | grep -q 'HTTP 404'; then \
+	            echo "  MEASURED: HTTP 404 on releases/tags/$(DAEMON_RELEASE_TAG)." >&2; \
+	            echo "  GitHub returns 404 BOTH when the release does not exist AND when" >&2; \
+	            echo "  the token cannot see the repo -- it hides existence from a token" >&2; \
+	            echo "  without access. Those two are NOT distinguishable from here, so" >&2; \
+	            echo "  this message will not guess between them. Check both, in order:" >&2; \
+	            echo "    1. Is $(DAEMON_RELEASE_TAG) published (and out of draft) at" >&2; \
+	            echo "       https://github.com/$(HUB_APP_REPO)/releases/tag/$(DAEMON_RELEASE_TAG) ?" >&2; \
+	            echo "    2. Does the token grant Contents: Read on $(HUB_APP_REPO)?" >&2; \
+	        else \
+	            echo "  MEASURED: probe failed rc=$$PROBE_RC with no HTTP status line." >&2; \
+	            echo "  That shape is transport (proxy/DNS/TLS), not permissions." >&2; \
+	            echo "  Raw probe output:" >&2; \
+	            printf '%s\n' "$$PROBE" | sed 's/^/    /' >&2; \
+	        fi; \
 	        echo "  NOT falling back to GITHUB_TOKEN: it cannot read another org either," >&2; \
 	        echo "  so the fallback would fail later and blame the wrong component." >&2; \
 	        exit 1; \

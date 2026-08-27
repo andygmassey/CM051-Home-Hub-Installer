@@ -97,6 +97,17 @@ jobs:
         if: always()
         run: bash tests/test_pipefail_shortcircuit_inversion.sh
 
+      # The same mechanism, caught in a LAUNCH gate rather than in the ratchet:
+      # the CM0NN/HR0NN/OS0NN sweep over rendered customer copy piped grep -v
+      # into grep -Eq, so a codename on LINE 1 was silently invisible and would
+      # have shipped. The blindness is POSITIONAL -- a leak near the end of a
+      # file is caught, one near the top is missed. This test samples five
+      # times, because one sample of a race is not evidence, and it proves its
+      # own fixture reproduces the defect before asserting anything.
+      - name: the codename sweep can see a leak on line 1
+        if: always()
+        run: bash tests/test_codename_sweep_sees_an_early_leak.sh
+
       - name: CONTROL A -- ship still names every prerequisite it named before
         if: always()
         run: /bin/bash tests/test_ship_prereqs_are_a_superset.sh

@@ -87,8 +87,27 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 # Shared harness preamble: faithful stubs that mirror the real lib.
+#
+# #873: the step helpers are stubbed here for the same reason install.sh
+# stubs them at the top of the file before lib/progress_emitter.sh is
+# sourced -- so an abort path can call them unguarded. Without them,
+# _ostler_on_err's `gui_step_record_rc "$exit_code"` dies with `command
+# not found` under `set -Eeuo pipefail` BEFORE reaching gui_done, and
+# every axis below reports "expected one DONE, got: <nothing>".
+#
+# NOTE WHAT STUBBING gui_done COSTS THIS TEST, because it is the reason
+# #873 survived. This harness drives all three real abort paths, but its
+# gui_done is a print, so the REAL __OSTLER_FAILED_STEPS counter is not
+# present in this process at all and `failed_steps` cannot be observed
+# here by construction. That is fine -- this file's subject is "exactly
+# one terminal marker, with the right code" -- but it means this file can
+# never be the guard for the tally. That guard is
+# tests/test_an_abort_inside_a_step_is_counted.sh, which drives the same
+# three paths against the REAL lib/progress_emitter.sh.
 PREAMBLE='
 gui_log() { :; }
+gui_step_record_rc() { :; }
+gui_step_end() { :; }
 gui_done() {
     local status="${1:-ok}"
     OSTLER_DONE_EMITTED=1

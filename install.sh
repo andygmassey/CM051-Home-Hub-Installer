@@ -28,6 +28,39 @@
 # sourced. See CX-454 (task #454).
 set -Eeuo pipefail
 
+# -- .pyc redirect: never write bytecode into a signed bundle --------
+# WHY, MEASURED on the shipped v1.0.45 artefact, 2026-08-26 (ORM):
+#
+# The customer venv is built FROM the interpreter inside the notarised
+# .app -- there is exactly ONE python3.11 in the artefact and install.sh
+# never copies it out -- so ~/.ostler/.venv/pyvenv.cfg anchors `home`
+# and the stdlib path INSIDE Contents/Resources/python for the life of
+# the install. CPython writes __pycache__/*.pyc next to the source it
+# imports, so ANY later import by the Ostler python writes into the
+# signed bundle and breaks the code seal. Controlled pair on the
+# shipped app, `import json, ssl, sqlite3, urllib.request, email.parser`:
+#
+#   guard set   ->  0 .pyc in bundle, codesign --verify --deep --strict rc=0
+#   guard unset -> 69 .pyc in bundle, rc=1 "a sealed resource is missing
+#                  or invalid", and spctl REFUSES the app
+#
+# InstallerCoordinator.swift:1350 already sets this, but only on the ONE
+# Process() the GUI spawns. That covers the install and nothing after it.
+# This line covers install.sh however it is entered: the GUI, the
+# `curl | bash` bootstrap re-exec (export survives the exec), Terminal,
+# and a --repair re-run.
+#
+# Same variable and same value as the Swift, deliberately -- one
+# mechanism, not two fighting. If a parent already set it we keep the
+# parent's value rather than overriding it.
+#
+# PYTHONPYCACHEPREFIX rather than PYTHONDONTWRITEBYTECODE: the prefix
+# REDIRECTS the cache to a writable dir, so repeat runs keep the startup
+# benefit, and it cannot be silently defeated by something later setting
+# a prefix. CPython creates the directory tree itself (measured: 1042
+# .pyc landed in a prefix dir that did not exist beforehand).
+export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-${HOME}/.ostler/cache/pycache}"
+
 # ── Flags ──────────────────────────────────────────────────────────
 
 CHECK_ONLY=false
@@ -119,6 +152,66 @@ done
 # Vendored service-tree refreshes are best-effort (logged, never
 # fatal): per Invariant 4 a service may lag the daemon and that is an
 # acceptable transient state.
+
+# ── _ks_bounded: kickstart a LaunchAgent that CANNOT block the caller ───────
+#
+# 🔴 MEASURED 2026-08-26, andy@.228, macOS 26.5.2 arm64. A synthetic agent whose
+# program does not exist gets penalty-boxed by launchd:
+#     state = spawn scheduled | last exit code = 78: EX_CONFIG
+#     properties = runatload | penalty box | inferred program
+# and BOTH forms of kickstart then wait forever on a spawn that is being
+# deferred. Healthy-agent controls in the same run returned promptly:
+#
+#     CONTROL   kickstart     healthy        returned  (7s)
+#     CONTROL   kickstart -k  healthy        returned  (21s)
+#     SUBJECT   kickstart     penalty-boxed  BLOCKED   (killed at 90s)
+#     SUBJECT   kickstart -k  penalty-boxed  BLOCKED   (killed at 90s)
+#
+# -k IS NOT A DISCRIMINATOR. It blocks exactly as the bare form does. That was
+# an assumption in this file for months and it was never measured; the
+# experiment that refuted it is committed at
+# scripts/box_walk_probes/experiments/kickstart_k_blocks_on_penalty_box.sh
+#
+# This is not hypothetical: com.ostler.enrich sat penalty-boxed on a real box
+# and wedged the whole export-scan -> import chain for 23h56m on 40ms of CPU.
+#
+# WHY `|| true` WAS NEVER ENOUGH: it guards an EXIT CODE. The failure is a
+# HANG, which produces no exit code at all. `launchctl print` before the call
+# does not help either -- a LOADED job pointing at an absent program passes it.
+#
+# `timeout` does not exist on macOS, so the bound is an explicit sleep + kill.
+#
+# 🔴 ONLY FOR CALL SITES THAT DISCARD THE RESULT. This returns 0 immediately,
+# always. Do NOT route a site whose exit code chooses a customer-visible
+# branch through this -- install.sh:20532 picks ok/warn from the exit status of
+# its kickstart, and backgrounding it would report "started" for a daemon that
+# never started. Lying to the customer is worse than stalling them. That site
+# needs a three-state bounded variant and is deliberately NOT converted here.
+#
+# Defined HERE, above the upgrade block, because the earliest call site is
+# inside it (line ~630) and the first ordinary helper is not defined until
+# ~950 -- far too late.
+_ks_bounded() {
+    # $1 = <domain>/<label>   $2 = optional "-k"
+    _ksb_target="${1:-}"
+    _ksb_flag="${2:-}"
+    [ -n "$_ksb_target" ] || return 0
+    (
+        if [ -n "$_ksb_flag" ]; then
+            launchctl kickstart "$_ksb_flag" "$_ksb_target" >/dev/null 2>&1 &
+        else
+            launchctl kickstart "$_ksb_target" >/dev/null 2>&1 &
+        fi
+        _ksb_pid=$!
+        ( sleep 10; kill -TERM "$_ksb_pid" 2>/dev/null ) >/dev/null 2>&1 &
+        _ksb_wd=$!
+        wait "$_ksb_pid" 2>/dev/null || true
+        kill -TERM "$_ksb_wd" 2>/dev/null || true
+    ) >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    return 0
+}
+
 if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "1" ]]; then
 
     # Own the error handling from here: manage exit codes explicitly so
@@ -573,7 +666,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
             *) _upg_log "ERROR: runtime-ready FAILED (upgrade path) -- com.ostler.fda-rerun will keep dying and the graph will NOT grow. See #595/#942. ${_upg_rr_out}" ;;
         esac
 
-        launchctl kickstart -k "${_UPG_DOMAIN}/com.ostler.doctor" 2>/dev/null || true
+        _ks_bounded "${_UPG_DOMAIN}/com.ostler.doctor" -k   # bounded: see _ks_bounded
 
         # (6b) DELIVER THE CUT RECORD TO THE BOX.
         #
@@ -660,7 +753,22 @@ fi
 # When piped via `curl | bash`, stdin is the script not the terminal.
 # We need terminal input for confirmations etc, so redirect from /dev/tty.
 # Skip for read-only flags so they work in non-interactive contexts.
-if [[ "$SHOW_HELP" != true && "$SHOW_LICENSES" != true && ! -t 0 && "${OSTLER_GUI:-0}" != "1" ]]; then
+#
+# 🔴 ALL THREE READ-ONLY FLAGS, NOT TWO. There are exactly three:
+#     CHECK_ONLY (--check)  SHOW_HELP (--help)  SHOW_LICENSES (--licenses)
+# CHECK_ONLY was missing from this list, so the flag whose entire documented
+# purpose is "Phase 1: Check prerequisites (automatic, no input)" and
+# "--check verifies prerequisites only and needs no licence" died instantly in
+# any context without a controlling terminal:
+#     install.sh: line 697: /dev/tty: Device not configured   (rc=1)
+# Measured 2026-08-26 on a real box: without a pty rc=1 and one line of output;
+# with a pty rc=0 and a full 19-line prerequisite report. That is the whole
+# pre-purchase compatibility check, unusable over ssh or from any script.
+# The comment above already stated the correct rule; the condition did not
+# implement it. If a fourth read-only flag is ever added, add it here too --
+# tests/test_readonly_flags_need_no_tty.sh reads this very line and will fail
+# if the flag list and the parser disagree.
+if [[ "$CHECK_ONLY" != true && "$SHOW_HELP" != true && "$SHOW_LICENSES" != true && ! -t 0 && "${OSTLER_GUI:-0}" != "1" ]]; then
     exec < /dev/tty
 fi
 
@@ -906,6 +1014,103 @@ warn()  { gui_active || echo -e "${YELLOW}[warn]${NC}  $*"; gui_warn "$*"; }
 # match the visual class of `fail` (which exits) without exiting
 # itself -- caller decides whether to exit or recover.
 err()   { gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log error "$*"; }
+
+# ── LaunchAgent load, VERIFIED (#876, and the #800 class behind it) ──
+#
+# Every LaunchAgent site in this file used to end with a bootstrap, a load
+# fallback, a trailing `|| true`, and then a bare `ok` naming that agent's
+# success string -- and the success line printed whether or not anything had
+# loaded. (Written in prose rather than pasted verbatim: a literal MSG_OK_
+# token in a comment is scored as a live reference by
+# tests/test_no_undefined_msg_refs_in_install_sh.sh, and a placeholder one
+# reads as an undefined key. That gate scores comments as code -- #808's
+# family -- but the cheap correct move is to not put a phantom key here.)
+# TWO independent reasons, both measured, and the shape survives neither:
+#
+#   1. `|| true` terminates the chain, so the `ok` is UNCONDITIONAL.
+#      There is no path through those three lines that does not print it.
+#   2. Even without the `|| true`, branching on the exit status does not
+#      work: `launchctl load /path/that/does/not/exist.plist` prints
+#      "Load failed: 5: Input/output error" to stderr and EXITS 0
+#      (measured on macOS 26.5.2 -- see the same note at the enrich
+#      agent, ~L14070). So `if bootstrap || load; then ok; else warn; fi`
+#      is ALSO true unconditionally whenever `load` is the fallback arm,
+#      and its `else` is unreachable code.
+#
+# What that cost: on Andy's 2026-08-24 v1.0.44 walk the installer printed
+# "Ostler Doctor running at http://localhost:8089/doctor" while
+# com.ostler.doctor was NOT LOADED and :8089 answered 000. Six
+# customer-facing surfaces -- Preferences toggles, Governor, Doctor >
+# Channels, People, Timeline, and every "Status unavailable" header --
+# were dark behind that one reassuring line.
+#
+# The only sound question is the one launchd itself answers: is the label
+# actually registered in the domain? Ask it, and let nothing else decide.
+#
+# Takes the PLIST PATH ONLY and derives the label from its basename, so a
+# caller cannot pass a label that disagrees with the file it loaded --
+# every LaunchAgent this installer writes is
+# ~/Library/LaunchAgents/<label>.plist. Returns 0 iff launchd reports the
+# label registered afterwards.
+#
+# Guarded by tests/test_launchagent_success_requires_verification.sh,
+# which fails the build if any new site announces success without it.
+_ostler_launchagent_load_verified() {
+    local _plist="$1"
+    local _label _domain
+    _label="$(basename "$_plist" .plist)"
+    _domain="gui/$(id -u)"
+
+    # A plist that was never written cannot be loaded. Say no here rather
+    # than let launchctl's exit-0-on-failure decide it for us.
+    [[ -f "$_plist" ]] || return 1
+
+    # bootout first: bootstrap onto an already-loaded label errors, and a
+    # stale registration would otherwise keep the OLD plist's environment
+    # live until the next login. bootout of a non-loaded label is a no-op.
+    # This is the LABEL form. The DOMAIN form (`bootout gui/<uid>`, no label)
+    # tears down the customer's whole GUI session and must never appear here.
+    launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
+
+    # bootstrap on Sequoia+ (load is deprecated), fall back to load. BOTH
+    # are allowed to fail: their exit status is not the evidence, and the
+    # ERR trap must not abort the install on an expected failure here.
+    launchctl bootstrap "$_domain" "$_plist" 2>/dev/null || \
+        launchctl load "$_plist" 2>/dev/null || true
+
+    # THE EVIDENCE. Nothing above this line is permitted to decide.
+    #
+    # `launchctl print` returns rc=0 for a job that is merely REGISTERED --
+    # MEASURED on macOS 26.5.2 against a plist naming a binary that does not
+    # exist. Registration is not runnability, so the exit code alone still
+    # lets a parked job announce success.
+    #
+    # The discriminator was already in the output this line used to discard:
+    #
+    #   broken   state = spawn scheduled   last exit code = 78: EX_CONFIG
+    #   working  state = running           last exit code = (never exited)
+    #
+    # Same call, same instant. So capture stdout instead of throwing it away.
+    # No port probe and no second invocation are needed.
+    #
+    # REFUSE ON 78 SPECIFICALLY, NOT ON ANY NON-ZERO. Several agents here are
+    # periodic (StartInterval) and have legitimately run and exited with a
+    # non-zero status by the time this runs; a bare "last exit code != 0"
+    # test would report those as broken. 78 is EX_CONFIG, which launchd does
+    # NOT retry -- it parks the job until a `kickstart -k` clears it. That is
+    # the state a customer would otherwise be told was fine.
+    local _print
+    _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null)" || return 1
+
+    case "$_print" in
+        *"last exit code = 78:"*|*"last exit code = 78"[!0-9]*)
+            # Parked on EX_CONFIG. Registered, never going to run.
+            return 1
+            ;;
+    esac
+
+    return 0
+}
 
 # dbg -- developer probes, silent on a customer install.
 #
@@ -1666,6 +1871,115 @@ _ostler_set_paths() {
 
 _ostler_set_paths "$OSTLER_PRELAUNCH_DIR"
 
+# ═══════════════════════════════════════════════════════════════════
+# WALK-874 (2026-08-24, v1.0.44 upgrade walk, step 26/37)
+#
+# The Full Disk Access modal told the customer two things that were not
+# true. These three helpers exist so it cannot tell them again.
+#
+# (a) "System Settings is open at Full Disk Access." It was not. The
+#     pane open was `open <url> 2>/dev/null || true` -- stderr binned,
+#     exit status discarded -- and the sentence was printed regardless.
+#     Same shape as #876: an action whose failure is swallowed, then an
+#     unconditional success message. The fix is not a nicer sentence;
+#     it is to make the sentence a RESULT of the open rather than a
+#     statement placed next to it.
+#
+# (b) 'Find "Ostler" in the list'. The row macOS shows is
+#     OstlerAssistant. A customer scanning for "Ostler" concludes it is
+#     absent and goes hunting in Finder -- which the very next helper
+#     line tells them not to do.
+# ═══════════════════════════════════════════════════════════════════
+
+# Name the Full Disk Access row after the bundle it actually belongs
+# to, so a rename of the bundle carries the copy with it.
+#
+# DERIVED FROM THE BUNDLE FILE NAME, deliberately not from the bundle's
+# Info.plist. Measured on the shipped 0.4.51 bundle
+# (release-artefacts/staging-0.4.51/OstlerAssistant.app):
+# CFBundleDisplayName is "Ostler" and CFBundleName is "Ostler
+# Assistant" -- yet the pane Andy was looking at read "OstlerAssistant",
+# which is the bundle's file name. The file name is the string that
+# matched reality on the walk, so the file name is what we quote.
+# (Plausible mechanism: the daemon bundle is LSBackgroundOnly +
+# LSUIElement, so LaunchServices has no foreground display name to give
+# the Privacy pane and it falls back to the file name. NOT verified on
+# hardware -- recorded here as a hypothesis, not a finding.)
+_ostler_fda_entry_name() {
+    local _bundle="${1:-${ASSISTANT_APP_BUNDLE:-}}"
+    local _name=""
+    if [[ -n "$_bundle" ]]; then
+        _name="${_bundle##*/}"
+        _name="${_name%.app}"
+    fi
+    if [[ -z "$_name" ]]; then
+        # No bundle path to derive from is a wiring fault. Say so and
+        # return non-zero; a caller must NOT render Find "" in the list.
+        gui_log warn "FDA row name: no assistant bundle path to derive it from (ASSISTANT_APP_BUNDLE='${ASSISTANT_APP_BUNDLE:-}'). The modal will use the unnamed locator."
+        return 1
+    fi
+    printf '%s' "$_name"
+}
+
+# Open System Settings at the Full Disk Access pane and report whether
+# it is ACTUALLY up. Returns 0 only when both are true:
+#
+#   1. `open` exited 0. Its stderr is captured and logged, never binned.
+#   2. A System Settings (or legacy System Preferences) process was
+#      observed afterwards. `open` exiting 0 only means LaunchServices
+#      accepted the URL -- it is not proof a window exists, and the
+#      whole of #874(a) is the gap between those two things.
+#
+# Predicate verified on macOS 26.4.1: System Settings.app's
+# CFBundleExecutable is exactly "System Settings", and `pgrep -x` does
+# match a process name containing a space (control: `pgrep -x "Claude
+# Helper"` -> rc=0). Not a proof the FDA *pane* is the one showing --
+# no public API reports that -- but it is a real observation of the app
+# rather than a hope.
+_ostler_open_fda_pane() {
+    local _url="$1"
+    local _attempts=2
+    local _settle=5
+    local _attempt=0 _rc=0 _err="" _waited=0
+
+    while (( _attempt < _attempts )); do
+        _attempt=$(( _attempt + 1 ))
+        _rc=0
+        _err="$(open "$_url" 2>&1)" || _rc=$?
+        if (( _rc != 0 )); then
+            gui_log warn "FDA pane: 'open ${_url}' exited ${_rc} on attempt ${_attempt}: ${_err}"
+        else
+            _waited=0
+            while (( _waited < _settle )); do
+                if pgrep -x "System Settings" >/dev/null \
+                   || pgrep -x "System Preferences" >/dev/null; then
+                    return 0
+                fi
+                sleep 1
+                _waited=$(( _waited + 1 ))
+            done
+            gui_log warn "FDA pane: 'open' exited 0 on attempt ${_attempt} but no System Settings process appeared within ${_settle}s. Exit 0 from 'open' is not proof the pane is up."
+        fi
+    done
+    gui_log warn "FDA pane: could not bring up Full Disk Access after ${_attempts} attempt(s). The modal will ask the customer to open it themselves rather than claim it is already open."
+    return 1
+}
+
+# The line the modal opens with. It is PRODUCED BY the act of opening
+# the pane, so no call site can print the claim without having tried --
+# and verified -- the open first. That ordering is structural here, not
+# a convention a future edit can quietly reverse.
+#
+#   $1  the Full Disk Access deep link
+#   $2  the catalogue line that CLAIMS the pane is open
+_ostler_fda_pane_line1() {
+    if _ostler_open_fda_pane "$1"; then
+        printf '%s' "$2"
+    else
+        printf '%s' "$MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1"
+    fi
+}
+
 # Pre-create the staging tree so the first writes downstream
 # (LOGS_DIR mkdir at ~line 396) land in a writable location.
 mkdir -p "$OSTLER_PRELAUNCH_DIR"
@@ -1719,6 +2033,196 @@ OSTLER_PRELAUNCH_PROMOTED=false
 # have to re-drop the .json. Walking the staging tree top-level
 # instead keeps the licence intact while still doing one rename
 # per child (atomic per-entry, which is the property we need).
+# Relocate the bundled interpreter OUT of the notarised app, and hand back its
+# new path. THIS IS THE ROOT FIX FOR THE v1.0.45 BRICKING CLASS.
+#
+# THE PROBLEM. Every venv in the product is built by `"$PYTHON3_BIN" -m venv`,
+# and on a customer install PYTHON3_BIN was the interpreter inside
+# OstlerInstaller.app -- there is exactly ONE python3.11 in the artefact and
+# nothing copied it out. So every venv's base_prefix, and therefore its stdlib
+# import root, was inside a SIGNED BUNDLE:
+#
+#   ~/.ostler/.venv/pyvenv.cfg
+#     home = OstlerInstaller.app/Contents/Resources/python/bin
+#
+# CPython writes __pycache__/*.pyc next to the source it imports, so ANY import
+# by ANY of those interpreters broke the app's code seal. Measured on the
+# shipped v1.0.45 app, one ordinary import
+# (json, ssl, sqlite3, urllib.request, email.parser):
+#
+#   guard set   ->  0 .pyc in the bundle, codesign --verify --deep --strict rc=0
+#   guard unset -> 69 .pyc in the bundle, rc=1 "a sealed resource is missing or
+#                  invalid", and spctl REFUSES the app
+#
+# Setting PYTHONPYCACHEPREFIX at each entry point works, and is done, but it is
+# whack-a-mole: there are 29 LaunchAgents on a customer box and the next one
+# added re-bricks the Mac with nothing to catch it.
+#
+# THE FIX. Copy the interpreter to ~/.ostler/python and point PYTHON3_BIN at
+# the copy. Nothing signed is ever an import root again, and all 29 agents and
+# all 8 `-m venv` sites become harmless without being touched.
+#
+# MEASURED before writing this, on the shipped v1.0.45 artefact:
+#   relocated interpreter runs        Python 3.11.15, rc=0
+#   resolves to the NEW prefix        sys.base_prefix = <the copy>, NOT the app
+#                                     (it is a relocatable build)
+#   its own signature stays valid     codesign --verify --strict rc=0
+#   venv from it, guard UNSET, env -i pyc inside the app: 0, codesign rc=0
+#
+# WHY OSTLER_FINAL_DIR AND NOT OSTLER_DIR. `_ostler_set_paths` reassigns
+# OSTLER_DIR mid-install: the prelaunch staging tree first, ~/.ostler after the
+# FDA grant. Relocating into the staging tree would put the interpreter
+# somewhere that is later mv'd and rm -rf'd, leaving every venv's pyvenv.cfg
+# pointing at a deleted python -- the same class
+# _ostler_repair_venv_after_promote already exists to clean up after, except
+# that one repairs SHEBANGS and would not touch pyvenv.cfg. OSTLER_FINAL_DIR is
+# assigned once at top level (line ~1683) and never moves.
+#
+# This is SAFE ACROSS THE PROMOTE because _ostler_promote_prelaunch_tree merges
+# per top-level entry rather than moving the tree wholesale: it mkdir -p's the
+# final dir and mv's each staging entry in, so a pre-existing `python/` there is
+# untouched unless the staging tree also contains one, which it does not.
+#
+# It also fixes a latent failure nobody has reported yet: with the interpreter
+# inside the .app, a customer who ejects the DMG or deletes the installer is
+# left with a venv whose python no longer exists.
+_ostler_relocate_bundled_python() {
+    local bundled="$1"
+    local dest="${OSTLER_FINAL_DIR}/python"
+    local dest_py="${dest}/bin/python3.11"
+    local want have
+
+    # Ask the interpreter to IMPORT something and report its version in the same
+    # breath, rather than running `--version`.
+    #
+    # `--version` is built into the binary and answers correctly on a tree with
+    # NO STANDARD LIBRARY AT ALL. Measured: delete lib/python3.11/json and
+    # lib/python3.11/encodings from a relocated copy and
+    #
+    #     python3.11 --version        rc=0   "Python 3.11.15"
+    #     python3.11 -c 'import json' rc=1
+    #
+    # So a `ditto` interrupted by a full disk, a crash or a kill leaves a
+    # partial tree that the obvious idempotence check KEEPS, and every venv
+    # built from it afterwards fails. The health check has to exercise the
+    # thing that can be missing.
+    _probe_python() {
+        "$1" -c 'import json, ssl, sqlite3, sysconfig; print(sysconfig.get_python_version())' 2>/dev/null
+    }
+
+    want="$(_probe_python "$bundled")"
+    if [[ -z "$want" ]]; then
+        # The interpreter INSIDE the app cannot import its own stdlib. That is
+        # not a relocation problem and copying it would not help.
+        printf '%s' "$bundled"
+        return 0
+    fi
+
+    # Idempotent AND version-aware. A re-run must not pay 71 MB of copy, but an
+    # UPGRADE that ships a new interpreter must not keep the old one, and a
+    # HALF-COPIED tree must not be mistaken for either.
+    if [[ -x "$dest_py" ]]; then
+        have="$(_probe_python "$dest_py")"
+        if [[ -n "$have" && "$have" == "$want" ]]; then
+            printf '%s' "$dest_py"
+            return 0
+        fi
+        rm -rf "$dest"
+    fi
+
+    # Explicit degrade rather than a bare `mkdir -p`.
+    #
+    # HONEST NOTE ON WHY. I first wrote this claiming a bare mkdir would abort
+    # the install: the function is called from a command substitution in an
+    # assignment and install.sh runs under `set -Eeuo pipefail`. THE MUTATION
+    # TEST REFUTED THAT. Restoring the bare form against an unwritable
+    # destination, in the real call shape, under /bin/bash 3.2:
+    #
+    #   MUTANT SURVIVED, rc=0, and it degraded correctly anyway
+    #
+    # `set -e` did not propagate into the command substitution. So this is NOT
+    # fixing a demonstrated abort. It is here because depending on `set -e`
+    # semantics inside `$( )` is fragile and version-dependent, and an explicit
+    # degrade says what happens instead of inferring it. Keeping the reason
+    # accurate matters more than keeping it impressive.
+    mkdir -p "$OSTLER_FINAL_DIR" 2>/dev/null || { printf '%s' "$bundled"; return 0; }
+    if ! ditto "$(dirname "$(dirname "$bundled")")" "$dest" 2>/dev/null; then
+        # Warn, never abort: a failed copy must fall back to the bundled
+        # interpreter rather than leaving the customer with no python at all.
+        # The seal is then at risk again, which the per-entry-point guards
+        # still cover, so this degrades rather than breaks.
+        printf '%s' "$bundled"
+        return 0
+    fi
+    if [[ ! -x "$dest_py" ]]; then
+        printf '%s' "$bundled"
+        return 0
+    fi
+
+    # STRIP THE QUARANTINE XATTR ON THE COPY.
+    #
+    # A customer downloads the DMG in a browser, so the image and everything on
+    # it carries com.apple.quarantine. MEASURED: `ditto` PROPAGATES that
+    # attribute (so does cp), so the relocated tree inherits it -- and the copy
+    # is no longer covered by the ticket stapled to the .app, because it is no
+    # longer inside it.
+    #
+    # It ran fine on the machine this was written on, quarantined, rc=0. That is
+    # NOT evidence it is safe: this Mac has network and a cached Gatekeeper
+    # assessment. install.sh already says why in its own words at the assistant
+    # binary (~12216): "Gatekeeper still verifies the notarisation ticket ONLINE
+    # on first execution". An install behind a captive portal or with no network
+    # is exactly the case that would fail, and the installer's own DMG was
+    # already downloaded before the network went away.
+    #
+    # Same defensive treatment install.sh already applies to the Ollama bundle
+    # (~10351) and the assistant binary. `|| true` because failing to strip an
+    # attribute must never be worse than not relocating at all.
+    xattr -dr com.apple.quarantine "$dest" 2>/dev/null || true
+
+    printf '%s' "$dest_py"
+}
+
+# Nuke any venv whose interpreter still lives inside a .app, so it gets rebuilt
+# against the relocated one.
+#
+# WHY THIS IS NEEDED SEPARATELY. Both venv-creation sites are guarded by
+# `if [[ ! -d "$OSTLER_VENV" ]]`, so on an UPGRADE the existing venv is kept --
+# and an existing venv on a box installed before this change has
+# `home = .../OstlerInstaller.app/...` baked into pyvenv.cfg. It would go on
+# importing out of the signed bundle forever, and the relocation would silently
+# do nothing for exactly the customers who already have the problem.
+#
+# Detection reads pyvenv.cfg rather than guessing from paths, and the match is
+# on `.app/` so it cannot fire on a legitimately relocated venv.
+_ostler_drop_venvs_anchored_in_an_app() {
+    local root="${1:-$OSTLER_FINAL_DIR}"
+    [[ -d "$root" ]] || return 0
+    local cfg venv n=0
+    # FIND them, do not list them.
+    #
+    # The first version of this named three paths: .venv, fda-venv and
+    # doctor/.venv. install.sh has TEN `-m venv` sites, and the seven it missed
+    # -- CM048_VENV, CM019_VENV, KNOWLEDGE_VENV, EMAIL_INGEST_VENV,
+    # _AICONV_VENV, a loop variable, and a relative `.venv` -- would have kept
+    # importing out of the signed bundle for ever on an upgraded box, silently.
+    # A hardcoded list is whack-a-mole, and the next venv added restores the bug
+    # with nothing to catch it.
+    #
+    # Depth is bounded so this cannot walk a customer's whole home if
+    # OSTLER_FINAL_DIR is ever mis-set, and the match is on `.app/` so a
+    # correctly relocated venv is never touched.
+    while IFS= read -r cfg; do
+        [[ -f "$cfg" ]] || continue
+        if /usr/bin/grep -q '^home = .*\.app/' "$cfg" 2>/dev/null; then
+            venv="$(dirname "$cfg")"
+            rm -rf "$venv"
+            n=$((n + 1))
+        fi
+    done < <(find "$root" -maxdepth 4 -name pyvenv.cfg -type f 2>/dev/null)
+    return 0
+}
+
 _ostler_promote_prelaunch_tree() {
     if [[ "$OSTLER_PRELAUNCH_PROMOTED" == "true" ]]; then
         return 0
@@ -2164,6 +2668,89 @@ import ast, os, sys, importlib.util
 pkg = sys.argv[1]
 stdlib = getattr(sys, "stdlib_module_names", frozenset())
 
+# AN IMPORT INSIDE AN ImportError HANDLER IS OPTIONAL BY CONSTRUCTION.
+#
+# v1.0.43 ABORTED EVERY INSTALL AT 19% ON THIS. Several shipped files carry
+# the script-mode fallback pattern:
+#
+#     try:
+#         from .role_addresses import is_role_identifier
+#     except ImportError:      # running as a plain script (repair on the box)
+#         from role_addresses import is_role_identifier   # type: ignore
+#
+# The relative arm was already skipped by `node.level`. The FALLBACK arm was
+# not -- and ast.walk() visits every node regardless of control flow, so a
+# branch that never executes when the relative import succeeds was collected
+# as a HARD requirement. find_spec() cannot see a bare sibling from the venv,
+# so four optional-by-construction imports scored missing=4, the function
+# returned 1, and install.sh aborted at step fda_extract.
+#
+# Measured on the walk box 2026-08-24: scanned=30 third_party=7 missing=4 --
+# given_name_variants, pwg_ingest, relationship_labels, role_addresses, all
+# four of them files INSIDE the package, with `ostler_fda.identifier_quality`
+# importing cleanly the whole time. Nothing was missing. The check was wrong.
+#
+# Skipping is per-NODE, not per-name: a module that is guarded in one file and
+# hard-imported in another stays required, which is the property a per-name
+# exclusion list would lose.
+def _guarded_import_nodes(tree):
+    out = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try):
+            continue
+        catches = False
+        for h in node.handlers:
+            exc = h.type
+            names = []
+            if isinstance(exc, ast.Name):
+                names = [exc.id]
+            elif isinstance(exc, ast.Tuple):
+                names = [e.id for e in exc.elts if isinstance(e, ast.Name)]
+            if any(n in ("ImportError", "ModuleNotFoundError") for n in names):
+                catches = True
+        if not catches:
+            continue
+        for sub in list(node.body) + [s for h in node.handlers for s in h.body]:
+            for n2 in ast.walk(sub):
+                if isinstance(n2, (ast.Import, ast.ImportFrom)):
+                    out.add(id(n2))
+    return out
+
+# The package's OWN modules are not third-party either. Second layer on
+# purpose: layer one only covers imports someone remembered to guard. An
+# UNGUARDED bare sibling import would sail through it.
+#
+# SCOPED PER DIRECTORY, NOT PER NAME, AND THAT DISTINCTION IS THE WHOLE POINT.
+# The first version of this layer built ONE flat set of every .py basename
+# anywhere under the package and subtracted it globally -- which is exactly the
+# per-name exclusion list layer one was deliberately written to avoid. Demonstrated
+# against the merged guard 2026-08-24: adding ONE empty file
+# ostler_fda/vendor/zzz_not_installed.py to a package that carries an unguarded
+# `import zzz_not_installed` moved the verdict from
+#
+#     scanned=3 third_party=1 missing=1  MISSING zzz_not_installed   rc=1
+# to
+#     scanned=4 third_party=0 missing=0                              rc=0
+#
+# with the dependency still genuinely absent (find_spec -> None) and the two
+# trees differing by that one empty file. A loud false positive replaced by a
+# silent false negative, which is the trade the case-3 control exists to refuse.
+#
+# A bare `import X` is the script-mode sibling pattern only when X sits NEXT TO
+# the importing file. A file buried in a vendored subtree says nothing about
+# whether a top-level dependency of the same name is installed.
+siblings = {}
+for root, dirs, files in os.walk(pkg):
+    here = set()
+    for fn in files:
+        if fn.endswith(".py") and fn != "__init__.py":
+            here.add(fn[:-3])
+    for d in dirs:
+        if os.path.exists(os.path.join(root, d, "__init__.py")):
+            here.add(d)
+    siblings[root] = here
+pkg_name = os.path.basename(pkg.rstrip(os.sep))
+
 wanted = set()
 scanned = 0
 for root, _dirs, files in os.walk(pkg):
@@ -2176,15 +2763,24 @@ for root, _dirs, files in os.walk(pkg):
         except Exception:
             continue          # unparseable file is not a dependency signal
         scanned += 1
+        optional = _guarded_import_nodes(tree)
         for node in ast.walk(tree):
+            if id(node) in optional:
+                continue      # inside an ImportError handler -- not required
             if isinstance(node, ast.Import):
                 for a in node.names:
-                    wanted.add(a.name.split(".")[0])
+                    top = a.name.split(".")[0]
+                    if top == pkg_name or top in siblings.get(root, ()):
+                        continue      # sibling of THIS file -- intra-package
+                    wanted.add(top)
             elif isinstance(node, ast.ImportFrom):
                 if node.level:            # relative import -- intra-package
                     continue
                 if node.module:
-                    wanted.add(node.module.split(".")[0])
+                    top = node.module.split(".")[0]
+                    if top == pkg_name or top in siblings.get(root, ()):
+                        continue      # sibling of THIS file -- intra-package
+                    wanted.add(top)
 
 # ANTI-VACUITY. A walk that found no files would derive an empty set and
 # report a perfectly ready runtime. That is the #851 shape: "nothing found"
@@ -2194,7 +2790,6 @@ if scanned == 0:
     sys.exit(2)
 
 wanted -= set(stdlib)
-wanted -= {"ostler_fda"}      # the package itself is checked by import below
 wanted = {m for m in wanted if m and not m.startswith("_")}
 
 missing = sorted(m for m in wanted if importlib.util.find_spec(m) is None)
@@ -2719,6 +3314,60 @@ _ostler_run_with_deadline() {
 # at all. Overridable for harnesses and for operators on slow machines.
 OSTLER_IMESSAGE_PROBE_TIMEOUT_S="${OSTLER_IMESSAGE_PROBE_TIMEOUT_S:-90}"
 
+# ── Deadline for osascript calls that are NOT a consented TCC prompt ──
+#
+# 🔴 THE HELPER ABOVE WAS BUILT FOR THIS AND WIRED TO 2 SITES OF 14.
+# install.sh makes 15 osascript invocations; 14 of them send an Apple Event
+# to another application, and an Apple Event BLOCKS ON THE TARGET'S EVENT
+# LOOP. If the target shows a modal -- a TCC consent sheet, a "reopen
+# windows?" panel, a beachball -- the send never returns. macOS has no
+# timeout(1), so the shell has no ambient rescue.
+#
+# MEASURED (2026-08-26, this Mac, controls both sides):
+#     osascript -e 'delay 4'                       -> 4105 ms, caller HELD
+#     AppleScript's own `with timeout of 2 seconds`
+#       wrapped round that delay                   -> 4101 ms, DID NOT BOUND IT
+#         (it bounds Apple EVENTS, not local work -- so it is not the remedy)
+#     _ostler_run_with_deadline 2 ... 'delay 30'   -> rc=124, 3080 ms
+#     _ostler_run_with_deadline 5 ... 'return 1'   -> rc=0,   1052 ms  (not killed)
+#     _ostler_run_with_deadline 5 ... error 42     -> rc=1           (real failure
+#                                                     passes through, != 124)
+#     orphaned osascript after the deadline arm    -> 0
+#
+# That third arm is why 124 is worth having: a caller can tell CANNOT-RUN
+# from FAIL from PASS, three states, rather than collapsing the first two.
+#
+# 20s not 90s. The 90s figure belongs to the iMessage probe, where the
+# customer has JUST acknowledged a pre-warn ack and is sitting at the
+# keyboard. These calls carry no such ack -- several are prewarms the
+# customer was never told about -- so the honest budget is "long enough for
+# a healthy app to answer", not "long enough for a human to react".
+OSTLER_OSASCRIPT_TIMEOUT_S="${OSTLER_OSASCRIPT_TIMEOUT_S:-20}"
+
+# 🔴 A SECOND DEADLINE, BECAUSE THE SITES ARE TWO DIFFERENT ANIMALS AND ONE
+# NUMBER WOULD BREAK HALF OF THEM.
+#
+# The 20 s above is for MACHINE-TO-MACHINE Apple Events -- "count calendars",
+# "close windows", "quit". Nothing human is in that loop, so 20 s is generous.
+#
+# `display dialog` is the opposite: it is SUPPOSED to block until a customer
+# reads it and clicks. Applying the 20 s deadline to those would kill the FDA
+# pre-warn dialog out from under someone still reading it -- a REGRESSION
+# manufactured by over-approximating the hazard. That mistake has already been
+# made in this estate this week, in a veto arm, and it is the same shape.
+#
+# But unbounded is not right either. With nobody at the keyboard a dialog waits
+# FOREVER, which is precisely the multi-hour wedge shape we are hunting. So the
+# dialogs get their own bound: far longer than any human takes, short enough
+# that an ABANDONED install eventually proceeds instead of hanging overnight.
+#
+# 900 s = 15 minutes. Chosen to be indefensible to hit by reading: the longest
+# of these dialogs is a five-line FDA explanation. A customer who has not
+# clicked in fifteen minutes has walked away, and the honest thing is to carry
+# on best-effort (every one of these sites is already `|| true`) rather than
+# hold the install until they come back.
+OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S="${OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S:-900}"
+
 # ── Hardware-fit model picker helper (REUSE-4) ────────────────────
 #
 # lib/ostler-model-fit.sh holds the static model->min-RAM-for-num_ctx
@@ -2800,6 +3449,125 @@ _has_fda() {
         return 1
     fi
     return 0
+}
+
+# ── Has this Mac already joined the customer's tailnet? ─────── (#875)
+#
+# #875 (Andy's v1.0.44 UPGRADE walk, 2026-08-24): the installer re-asked
+# "Connect your iPhone and Watch -- set up or skip?" on a box where
+# Tailscale was already set up. Both prompt sites (the Phase-2 hoist and
+# the Phase-3 "3.15 Tailscale" step) asked unconditionally, and the only
+# Tailscale-shaped test near either of them is
+#
+#     if ! command -v tailscale &>/dev/null; then ... brew install ...
+#
+# which answers a DIFFERENT question. "Is the tailscale binary on PATH"
+# decides whether a package needs installing. The prompt is asking "has
+# this customer already joined this Mac to their tailnet", and a binary
+# cannot answer that: brew can have run and the sign-in never completed,
+# and a tailnet can exist while the binary is mid-reinstall.
+#
+# The evidence for the question actually being asked is the TAILNET STATE
+# that tailscaled writes, so that is what this reads.
+#
+# THREE OUTCOMES, THREE RETURN CODES -- deliberately not two:
+#
+#   0  CONFIGURED      the store proves a completed sign-in -> do not ask
+#   1  NOT CONFIGURED  no store, or a store that only proves the daemon
+#                      once started -> ask
+#   2  CANNOT-RUN      a store is there and we could not read or parse it.
+#                      NOT a pass and NOT a clean absence. The caller says
+#                      so out loud and then asks. An unreadable file must
+#                      never read as "configured": that silently skips
+#                      setup and the customer's iPhone never reaches this
+#                      Mac, with nothing on screen to explain why.
+#
+# WHY EXISTENCE AND SIZE ARE BOTH WRONG DISCRIMINATORS. tailscaled writes
+# its state store as soon as the daemon starts, BEFORE any login, so the
+# file can exist -- well-formed and non-empty -- on a box that has never
+# signed in. The separating property is structural: a store carrying only
+# the pre-login machine key is not a configured tailnet. A completed
+# sign-in leaves at least one FURTHER key with real material in it.
+#
+# WHICH DIRECTORY. Deliberately OSTLER_FINAL_DIR, not OSTLER_DIR. Before
+# the FDA re-probe, _ostler_set_paths has OSTLER_DIR pointing at the
+# per-PID /tmp staging tree (see OSTLER_PRELAUNCH_DIR above), which never
+# holds tailnet state. Reading OSTLER_DIR here would make the Phase-2 site
+# answer "not configured" on every single install and quietly do nothing.
+_TS_CONFIGURED_VERDICT=""
+_ts_already_configured() {
+    local state_file="${1:-${OSTLER_FINAL_DIR:-${HOME}/.ostler}/tailscale/tailscaled.state}"
+
+    _TS_CONFIGURED_VERDICT="not_configured"
+
+    # Real absence: this Mac has never run our tailscaled. Ask.
+    [[ -e "$state_file" || -L "$state_file" ]] || return 1
+
+    # Something is there that we cannot open as a file -- a directory in
+    # the way, a dangling symlink, or a mode we are not allowed to read.
+    # We cannot tell whether a tailnet identity exists, which is a
+    # different fact from "there is no tailnet".
+    if [[ ! -f "$state_file" || ! -r "$state_file" ]]; then
+        _TS_CONFIGURED_VERDICT="cannot_run"
+        return 2
+    fi
+
+    # Telling a truncated store from a good one needs a real parse, not a
+    # pattern match. Reuse the interpreter resolver the licence check
+    # already established rather than growing a second copy of it -- a
+    # hand-maintained twin of a fact the code can compute is the defect
+    # the Tailscale block's own comments call out further down.
+    local py
+    py="$(_ostler_licence_python)" || {
+        _TS_CONFIGURED_VERDICT="cannot_run"
+        return 2
+    }
+
+    local rc=0
+    "$py" - "$state_file" <<'TS_STATE_PY' || rc=$?
+import json, sys
+
+# 0 = configured, 1 = not configured, 2 = cannot determine.
+try:
+    with open(sys.argv[1], "rb") as fh:
+        raw = fh.read()
+except OSError:
+    raise SystemExit(2)
+
+# Present and carrying nothing. A store that was created and never
+# written, or truncated to zero. That is a half-made file, not an
+# absent one, and not a configured tailnet either.
+if not raw.strip():
+    raise SystemExit(2)
+
+try:
+    store = json.loads(raw.decode("utf-8"))
+except Exception:
+    raise SystemExit(2)
+
+if not isinstance(store, dict):
+    raise SystemExit(2)
+
+# "_machinekey" lands when the daemon first starts, before anyone signs
+# in, so it proves the daemon ran and nothing more. Require at least one
+# other key carrying real material -- the profile / node material a
+# completed sign-in leaves behind.
+for key, value in store.items():
+    if key == "_machinekey":
+        continue
+    if isinstance(value, str) and value.strip():
+        raise SystemExit(0)
+    if isinstance(value, (dict, list)) and value:
+        raise SystemExit(0)
+
+raise SystemExit(1)
+TS_STATE_PY
+
+    case "$rc" in
+        0) _TS_CONFIGURED_VERDICT="configured"     ; return 0 ;;
+        1) _TS_CONFIGURED_VERDICT="not_configured" ; return 1 ;;
+        *) _TS_CONFIGURED_VERDICT="cannot_run"     ; return 2 ;;
+    esac
 }
 
 # Returns the number of mail-capable accounts the customer has
@@ -3310,7 +4078,8 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
     # exist; the `2>/dev/null || true` makes us tolerant of cases
     # where xcode-select silently no-ops (e.g., a previous install
     # already in progress).
-    osascript -e 'tell application "System Events" to tell process "Install Command Line Developer Tools" to set frontmost to true' 2>/dev/null || true
+    _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+        osascript -e 'tell application "System Events" to tell process "Install Command Line Developer Tools" to set frontmost to true' 2>/dev/null || true
 
     # Path 2: macOS's `open -a` is the standard way to bring an app
     # to the front. The CLT installer's .app lives at the canonical
@@ -3354,7 +4123,8 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
                     sleep 4
                     continue
                 fi
-                osascript -e 'tell application "OstlerInstaller" to activate' 2>/dev/null || \
+                _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+                    osascript -e 'tell application "OstlerInstaller" to activate' 2>/dev/null || \
                     open -a "OstlerInstaller" 2>/dev/null || true
                 sleep 4
             done
@@ -3473,18 +4243,63 @@ else
     ok "$MSG_OK_POWER_SOURCE_AC_DESKTOP_MAC_NO"
 fi
 
-# Check Docker availability (don't install yet -- just check)
-HAS_DOCKER=false
-if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
-    HAS_DOCKER=true
-    ok "$MSG_OK_DOCKER_RUNNING"
+# ── Container runtime: the CLIENT is not the ENGINE ────────────────
+#
+# MEASURED on Andy's Mac mini after a GREEN v1.0.38 install, 2026-08-23:
+#
+#     /opt/homebrew/bin/docker      EXISTS      <-- the CLI, a client only
+#     colima                        ABSENT
+#     /Applications/Docker.app      ABSENT
+#     podman / OrbStack             ABSENT
+#     :8044 wiki                    000
+#     :7878 Oxigraph                000
+#     CONTROL  :8000 daemon 200, :8089 ical 302   <-- native launchd, alive
+#
+# The zero is RAGGED and it falls on an architectural line: the two dead
+# ports are exactly the Docker-hosted services and the two live ones are
+# exactly the native launchd services. That is what makes it trustworthy.
+#
+# On macOS `docker` is a CLIENT. There is no engine in the box. So a
+# machine can have `command -v docker` succeed and still be unable to run
+# a single container -- which is precisely the state that install found,
+# and reported success from.
+#
+# HAS_CONTAINER_ENGINE is therefore the ONLY variable Phase 3.2 may branch
+# on. HAS_DOCKER_CLIENT exists to make the diagnostic honest, never to
+# decide anything.
+HAS_DOCKER_CLIENT=false
+HAS_CONTAINER_ENGINE=false
+CONTAINER_ENGINE_KIND="none"
+command -v docker &>/dev/null && HAS_DOCKER_CLIENT=true
+if [[ "$HAS_DOCKER_CLIENT" == true ]] && docker info &>/dev/null 2>&1; then
+    HAS_CONTAINER_ENGINE=true
+    CONTAINER_ENGINE_KIND="running"
 elif command -v colima &>/dev/null; then
-    info "$MSG_INFO_COLIMA_INSTALLED_BUT_NOT_RUNNING_WILL"
-elif command -v docker &>/dev/null; then
-    warn "$MSG_WARN_DOCKER_INSTALLED_BUT_NOT_RUNNING_WILL"
-else
-    info "$MSG_INFO_DOCKER_NOT_INSTALLED_WILL_INSTALL_COLIMA"
+    CONTAINER_ENGINE_KIND="colima-stopped"
+elif [[ -d "/Applications/Docker.app" ]]; then
+    CONTAINER_ENGINE_KIND="desktop-stopped"
 fi
+
+# HAS_DOCKER is kept as the name Phase 3.2 already reads. It now means
+# "an engine answered", never "the CLI is on PATH".
+HAS_DOCKER="$HAS_CONTAINER_ENGINE"
+
+case "$CONTAINER_ENGINE_KIND" in
+    running)
+        ok "$MSG_OK_DOCKER_RUNNING" ;;
+    colima-stopped)
+        info "$MSG_INFO_COLIMA_INSTALLED_BUT_NOT_RUNNING_WILL" ;;
+    desktop-stopped)
+        warn "$MSG_WARN_DOCKER_INSTALLED_BUT_NOT_RUNNING_WILL" ;;
+    none)
+        # NAME what is missing, and say it EARLY -- before the customer
+        # walks away. A bare "Docker not installed" was wrong on the Mini:
+        # the Docker CLI WAS installed. What was missing was an engine.
+        if [[ "$HAS_DOCKER_CLIENT" == true ]]; then
+            warn "$MSG_WARN_DOCKER_CLIENT_WITHOUT_ENGINE"
+        fi
+        info "$MSG_INFO_DOCKER_NOT_INSTALLED_WILL_INSTALL_COLIMA" ;;
+esac
 gui_emit PCT "step=prereq_check" "pct=100"
 
 # Minimum-dwell pad for the prereq_check phase. On a fast Mac with
@@ -3842,7 +4657,15 @@ echo ""
 if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
     info "$MSG_INFO_CALENDAR_PERMISSION_PREWARM"
 fi
-osascript -e 'tell application "Calendar" to count calendars' >/dev/null 2>&1 || true
+# BOUNDED (2026-08-26). This is a TCC prewarm: the whole point is that it
+# provokes a consent sheet. An Apple Event blocks on the target's event loop,
+# so if nobody is at the keyboard this send NEVER RETURNS and the install
+# stops here forever. The `|| true` below only swallows the exit code -- it
+# cannot rescue a call that never exits. Measured: `osascript -e 'delay 4'`
+# holds the caller 4105 ms; AppleScript's own `with timeout` does NOT bound
+# it. Deadline is the only remedy on macOS, which has no timeout(1).
+_ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+    osascript -e 'tell application "Calendar" to count calendars' >/dev/null 2>&1 || true
 
 # FDA_PREWARM (#572, 2026-06-09; refined 2026-06-13): register
 # OstlerInstaller in the System Settings > Full Disk Access list early by
@@ -3993,7 +4816,8 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         else
             _prewarn_icon_clause="with icon note"
         fi
-        osascript \
+        _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+            osascript \
             -e 'tell application "System Events" to activate' \
             -e "tell application \"System Events\" to display dialog \"${_prewarn_msg_esc}\" with title \"${_prewarn_title_esc}\" buttons {\"${_prewarn_button_esc}\"} default button \"${_prewarn_button_esc}\" ${_prewarn_icon_clause}" \
             >/dev/null 2>&1 || true
@@ -4012,10 +4836,15 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         killall "System Settings" >/dev/null 2>&1 || true
         killall "System Preferences" >/dev/null 2>&1 || true
         sleep 1
-        open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
+        # WALK-874(a): open the pane, VERIFY it, and only then say so.
+        # The opening line is the RESULT of the open, not a sentence
+        # sitting next to a fire-and-forget `|| true`.
+        _installer_fda_line1="$(_ostler_fda_pane_line1 \
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" \
+            "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1")"
 
         _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
-            "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1" \
+            "$_installer_fda_line1" \
             "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE2" \
             "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE3")"
         _installer_fda_msg_esc="${_installer_fda_msg//\"/\\\"}"
@@ -4072,11 +4901,13 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         # permission on nothing. Focus-steal is the lesser defect and it is
         # chosen deliberately, not overlooked.
         sleep 1
-        osascript \
+        _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+            osascript \
             -e 'tell application "System Events" to activate' \
             -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
             >/dev/null 2>&1 || true
         unset _installer_fda_msg _installer_fda_msg_esc \
+              _installer_fda_line1 \
               _installer_fda_title_esc _installer_fda_button_esc \
               _installer_fda_icon_path _installer_fda_icon_path_esc \
               _installer_fda_icon_clause
@@ -4211,7 +5042,32 @@ open -gja Contacts >/dev/null 2>&1 || true
 # silently swallowed. The inner `|| true` keeps the failure inside the
 # $(...) subshell so set -E cannot fire the ERR trap on a denial (cf. #640).
 CARD_STDERR=$(mktemp)
+# 🔴 THE RC HAS TO CROSS A SUBSHELL, SO IT TRAVELS BY FILE, NOT BY VARIABLE.
+# `CARD_DATA=$(_read_my_card || true)` runs the function in a command-
+# substitution subshell -- anything it ASSIGNS is discarded when that subshell
+# exits, so an exported-looking `_READ_MY_CARD_RC=$?` inside the body would
+# read 0 at every call site and the deadline branch would be dead code. The
+# `|| true` is not removable either: it is what keeps `set -E` from firing the
+# ERR trap on a denial (see the note below, cf. #640). stderr already crosses
+# this boundary by file; the rc uses the same road.
+CARD_RC_FILE=$(mktemp)
+# BOUNDED (2026-08-26). Contacts is TCC-gated AND this event calls `launch`,
+# so on a box where nobody is at the keyboard the consent sheet is never
+# dismissed and this send never returns. `CARD_DATA=$(_read_my_card || true)`
+# cannot rescue that: `|| true` handles a non-zero exit, not the absence of
+# one. Measured: an Apple Event holds its caller for the target's whole
+# response time, and AppleScript's own `with timeout` does not bound it.
+#
+# 🔴 THE DEADLINE PATH NEEDED ITS OWN BRANCH, AND THAT IS WHY rc=124 EXISTS.
+# The two diagnoses below key on AppleScript error codes IN $CARD_STDERR
+# (-1743 denied, -600 not running). A deadline kill writes NEITHER, so before
+# this change a timed-out read fell through both branches and told the
+# customer NOTHING -- empty auto-fill with no explanation. _READ_MY_CARD_RC
+# carries the third state out so the caller can say so.
+_READ_MY_CARD_RC=0
 _read_my_card() {
+    local _rc=0
+    _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
     osascript -e '
 tell application "Contacts"
     launch
@@ -4235,7 +5091,12 @@ tell application "Contacts"
     end try
 
     return myName & "|" & firstName & "|" & myCountry & "|" & myEmail & "|" & myPhone
-end tell' 2>"$CARD_STDERR"
+end tell' 2>"$CARD_STDERR" || _rc=$?
+    # Written, not assigned -- see the CARD_RC_FILE note above. `|| _rc=$?`
+    # also makes the osascript send a non-final member of a `||` list, which is
+    # the second reason the ERR trap stays quiet here.
+    printf '%s\n' "$_rc" >"$CARD_RC_FILE"
+    return "$_rc"
 }
 CARD_DATA=$(_read_my_card || true)
 # Cold-start race: if the first event beat Contacts to readiness (-600),
@@ -4245,7 +5106,16 @@ if [[ -z "$CARD_DATA" ]] && grep -q -- '-600' "$CARD_STDERR" 2>/dev/null; then
     CARD_DATA=$(_read_my_card || true)
 fi
 
-if [[ -z "$CARD_DATA" ]] && grep -qE -- '-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
+_READ_MY_CARD_RC=$(cat "$CARD_RC_FILE" 2>/dev/null || echo 0)
+[[ "$_READ_MY_CARD_RC" =~ ^[0-9]+$ ]] || _READ_MY_CARD_RC=0
+
+if [[ -z "$CARD_DATA" ]] && [[ "$_READ_MY_CARD_RC" -eq 124 ]]; then
+    # THE THIRD STATE. Not "denied" (-1743) and not "not running" (-600):
+    # Contacts accepted the event and never answered inside the deadline, so
+    # $CARD_STDERR is EMPTY and both greps below would miss it. Before this
+    # branch existed the customer got a blank name field and no explanation.
+    warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
+elif [[ -z "$CARD_DATA" ]] && grep -qE -- '-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
     warn "$MSG_WARN_MACOS_CONTACTS_PERMISSION_WAS_DECLINED_NOT"
     warn "$MSG_WARN_YOU_CAN_RE_GRANT_IT_SYSTEM"
     warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
@@ -4254,7 +5124,7 @@ elif [[ -z "$CARD_DATA" ]] && grep -q -- '-600' "$CARD_STDERR" 2>/dev/null; then
     # auto-fill rather than swallowing the failure silently as before.
     warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
 fi
-rm -f "$CARD_STDERR"
+rm -f "$CARD_STDERR" "$CARD_RC_FILE"
 fi
 
 if [[ -n "$CARD_DATA" ]]; then
@@ -5563,7 +6433,14 @@ if [[ -z "${PYTHON3_BIN:-}" ]]; then
     PYTHON3_BIN=""
     BUNDLED_PYTHON="${SCRIPT_DIR}/python/bin/python3.11"
     if [[ -x "$BUNDLED_PYTHON" ]]; then
-        PYTHON3_BIN="$BUNDLED_PYTHON"
+        # Copy it out of the notarised app first. See
+        # _ostler_relocate_bundled_python for the measurement; in short, a venv
+        # built from an interpreter inside a signed bundle makes that bundle an
+        # import root, and CPython writes .pyc next to what it imports.
+        PYTHON3_BIN="$(_ostler_relocate_bundled_python "$BUNDLED_PYTHON")"
+        # Any venv from a PREVIOUS install is still anchored in the .app and
+        # would never be rebuilt (both creation sites are `if [[ ! -d ]]`).
+        _ostler_drop_venvs_anchored_in_an_app "$OSTLER_FINAL_DIR"
         BUNDLED_PY_VERSION=$("$PYTHON3_BIN" --version 2>&1 | cut -d' ' -f2)
         ok "$(printf "$MSG_OK_PYTHON_BUNDLED" "${BUNDLED_PY_VERSION}")"
     else
@@ -6206,7 +7083,7 @@ done
 if [[ "$DO_UNZIP" == "1" ]]; then
     while IFS= read -r z; do
         [[ -f "$z" ]] || continue
-        if unzip -Z1 "$z" 2>/dev/null | grep -qiE "(${_zip_re})"; then
+        if [ "$(unzip -Z1 "$z" 2>/dev/null | grep -ciE "(${_zip_re})")" -gt 0 ]; then
             dest="${z%.zip}"
             # Only extract once; never clobber an already-unzipped folder.
             if [[ ! -d "$dest" ]]; then
@@ -8198,7 +9075,32 @@ done
 # gets the gui_read fallback; the SHOWN_EARLY guard is set unconditionally
 # once we have asked (or decided not to ask), so the Phase-3 site is fully
 # driven by the upfront answer.
-if [[ -z "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]; then
+#
+# #875: and do not ask at all if the answer is already on disk. See
+# _ts_already_configured (search "Has this Mac already joined") for why the
+# tailnet state, and not `command -v tailscale`, is the evidence.
+if [[ -n "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]; then
+    # Already answered in this process. A human answer outranks anything on
+    # disk -- a customer who says "skip" this time must not be overridden by
+    # a tailnet a previous install left behind.
+    :
+elif _ts_already_configured; then
+    # Already set up. Phase 3 is idempotent on this path: `up` mints no URL
+    # for an authenticated node, the IP poll returns on its first tick, and
+    # `serve` is re-applied. So there is nothing to ask and nothing to wait
+    # for -- just say that it is done.
+    TAILSCALE_CONFIRM="setup"
+    TAILSCALE_CONFIRM_SHOWN_EARLY=1
+    export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
+    info "$MSG_INFO_TAILSCALE_ALREADY_CONFIGURED"
+else
+    # CANNOT-RUN gets its own appearance. Falling through to the question is
+    # right -- the customer decides -- but they are told first that there is
+    # existing setup here we could not read, so an unreadable file is never
+    # silently indistinguishable from a box that has never been set up.
+    if [[ "${_TS_CONFIGURED_VERDICT:-}" == "cannot_run" ]]; then
+        warn "$MSG_WARN_TAILSCALE_STATE_UNREADABLE"
+    fi
     TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
     TAILSCALE_CONFIRM_SHOWN_EARLY=1
     export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
@@ -8447,10 +9349,29 @@ composite_cleanup() {
     #     opens a step) cannot be mislabelled as a failure.
     # Fully ${VAR:-}-guarded so the backstop itself is set -u safe.
     # ─── OSTLER_EXIT_BACKSTOP_BEGIN ───
+    # #873: FIRST EXECUTABLE LINE OF THE FUNCTION, and it has to be. `$?`
+    # in an EXIT trap is the status the script is exiting with, and the
+    # very next command clobbers it. Only comments sit between here and
+    # the opening brace, and a comment does not touch `$?`. Capturing it
+    # lets the backstop hand the real code to the step gui_done is about
+    # to close. On bash 3.2 a `set -u` abort can mask this to 0 -- which
+    # is the reason this backstop exists at all -- and in that case
+    # gui_step_record_rc no-ops and gui_step_end falls back to its
+    # documented rc=1 convention, so a masked code is never dressed up as
+    # a measured one.
+    # It lives INSIDE the sentinels because
+    # tests/test_an_abort_inside_a_step_is_counted.sh extracts exactly
+    # this block and runs it; a line outside them is a line the test
+    # cannot see.
+    local _ostler_exit_rc=$?
     if [[ -z "${OSTLER_DONE_EMITTED:-}" && -n "${__OSTLER_STEP_ID:-}" ]]; then
         OSTLER_LAST_ERROR_CODE="ERR-99-INSTALL-ABORT-${__OSTLER_STEP_ID}"
         export OSTLER_LAST_ERROR_CODE
         gui_log error "Install aborted before completion during step '${__OSTLER_STEP_ID}' with no completion marker (likely a set -u unbound-variable abort)."
+        # #873: hand the real exit status to the step gui_done is about to
+        # close, so the STEP_END carries a measured rc wherever bash left
+        # us one. See the capture at the top of this function.
+        gui_step_record_rc "${_ostler_exit_rc:-0}"
         gui_done fail
     fi
     # ─── OSTLER_EXIT_BACKSTOP_END ───
@@ -8547,6 +9468,12 @@ _ostler_on_err() {
     # code only, via the DONE marker below.
     local step="${__OSTLER_STEP_ID:-}"
     gui_log error "Install aborted unexpectedly at line ${line}${step:+ (step ${step})}: ${cmd}"
+    # #873: gui_done closes the still-open step so the terminal
+    # failed_steps count includes the step we died in. It has no way to
+    # know the exit code, and falls back to the convention rc=1. WE know
+    # it -- the ERR trap was handed it -- so record it first and the
+    # STEP_END carries the code the command actually returned.
+    gui_step_record_rc "$exit_code"
     # Emit the one DONE-fail marker the GUI keys on. gui_done attaches
     # OSTLER_LAST_ERROR_CODE as code= AND sets OSTLER_DONE_EMITTED, so
     # the EXIT backstop below then stays silent.
@@ -8811,9 +9738,11 @@ cat > "$STAY_AWAKE_PLIST" <<'STAYAWAKEEOF'
 </dict>
 </plist>
 STAYAWAKEEOF
-launchctl bootstrap "gui/$(id -u)" "$STAY_AWAKE_PLIST" 2>/dev/null || \
-    launchctl load "$STAY_AWAKE_PLIST" 2>/dev/null || true
-ok "$MSG_OK_STAY_AWAKE_AGENT_INSTALLED"
+if _ostler_launchagent_load_verified "$STAY_AWAKE_PLIST"; then
+    ok "$MSG_OK_STAY_AWAKE_AGENT_INSTALLED"
+else
+    warn "$MSG_WARN_STAY_AWAKE_AGENT_NOT_LOADED"
+fi
 
 # ── 3.0a Phase 3 battery watcher ───────────────────────────────────
 # The hub-power LaunchAgent that pauses Docker / Ollama on battery is
@@ -9077,7 +10006,46 @@ else
     # Prefer Colima over Docker Desktop. Colima is headless (no EULA, no
     # account signup, no system extension dialogs) and works perfectly for
     # running containers on macOS. Docker Desktop is a fallback.
-    if ! command -v docker &>/dev/null; then
+    #
+    # 🔴 THE GUARD BELOW ASKS FOR AN ENGINE, NOT A CLIENT. Found on the
+    # v1.0.42 upgrade walk, 2026-08-23, on a real box:
+    #
+    #     /Applications/Docker.app          ABSENT
+    #     colima / orbstack / podman        ABSENT
+    #     /opt/homebrew/bin/docker          EXISTS
+    #     8044 wiki 000 · 7878 store 000    (8000 -> 200, 8089 -> 302)
+    #
+    # The old guard was `if ! command -v docker`. On macOS the `docker`
+    # binary is only a CLIENT; the engine comes from Colima, Docker Desktop,
+    # OrbStack or Podman. A box that once had Docker Desktop and lost it
+    # keeps the client behind. The installer saw the client, concluded the
+    # runtime was handled, SKIPPED installing Colima entirely, and walked on
+    # with no engine at all -- while reporting a successful install.
+    #
+    # That is this repo's signature defect: THE VERDICT WAS INVARIANT TO THE
+    # DEFECT. `command -v docker` returns the same answer whether or not a
+    # single container can run.
+    #
+    # ENGINE_PRESENT is true only if something that can actually run a
+    # container is installed. `docker info` is deliberately NOT the test
+    # here -- an engine can be installed but not yet started, which is a
+    # different state handled further down. This asks "is a runtime on the
+    # box at all", which is the question the brew install answers.
+    ENGINE_PRESENT=false
+    for _rt in colima orbstack podman; do
+        if command -v "$_rt" &>/dev/null; then
+            ENGINE_PRESENT=true
+            info "container runtime present: ${_rt}"
+            break
+        fi
+    done
+    # Docker Desktop is an app bundle, not a binary on PATH.
+    if [[ "$ENGINE_PRESENT" == false && -d /Applications/Docker.app ]]; then
+        ENGINE_PRESENT=true
+        info "container runtime present: Docker Desktop"
+    fi
+
+    if [[ "$ENGINE_PRESENT" == false ]]; then
         info "$MSG_INFO_INSTALLING_COLIMA_DOCKER_CLI"
         brew install colima docker docker-compose
         # Re-eval Homebrew PATH so newly installed commands are found
@@ -9222,6 +10190,135 @@ else
     # immediately after this block; see the section below the `fi`.
 fi
 
+# ── 3.2a POST-CONDITION: an engine must ANSWER, on every path ──────
+#
+# 🔴 THE INSTALL REPORTED SUCCESS WITH NO CONTAINER RUNTIME (v1.0.38 walk).
+#
+# Everything above is a LADDER of conditional arms -- HAS_DOCKER true,
+# Colima present, Docker Desktop present, brew install, retry loop. Every
+# arm is individually reasonable and every arm can be skipped. A ladder
+# whose rungs are all optional has no floor.
+#
+# This is the floor, and it is deliberately OUTSIDE the `if
+# [[ "$HAS_DOCKER" == true ]] ... else ... fi` above so it runs on the
+# already-had-an-engine path too: an engine that answered in Phase 1 and
+# died before Phase 3 is the same customer outcome as one that never
+# existed.
+#
+# Walked byte-by-byte per [[feedback-silent-bail-regression-test-shape]]:
+# ask the engine, do not infer it from the presence of a binary. `docker
+# info` is the only question whose answer distinguishes a client from a
+# runtime.
+#
+# THIS IS A HARD FAIL. `ostler-wiki-site` and `ostler-wiki-compiler` are
+# pinned BY DIGEST in the compose file below and cannot start without an
+# engine, so continuing produces an install that is missing the wiki, the
+# triple store and the vector store while reporting success. That is worse
+# than stopping, because the customer walks away believing it worked.
+progress "Verifying container runtime" "docker_verify"
+if ! command -v docker &>/dev/null; then
+    fail_with_code "ERR-06-CONTAINER-CLIENT-MISSING" \
+        "$(printf "$MSG_FAIL_CONTAINER_CLIENT_MISSING" "$INSTALL_LOG")"
+fi
+DOCKER_INFO_ERR="$(docker info 2>&1 >/dev/null)" || DOCKER_INFO_ERR="${DOCKER_INFO_ERR:-docker info failed}"
+if ! docker info &>/dev/null 2>&1; then
+    # Name WHAT is missing and HOW to fix it. A customer reading this must
+    # be able to act on it without a support round-trip.
+    warn "$(printf "$MSG_WARN_CONTAINER_ENGINE_DIAGNOSTIC" \
+        "$(command -v docker)" \
+        "$(command -v colima || echo 'not installed')" \
+        "$( [[ -d /Applications/Docker.app ]] && echo present || echo absent )")"
+    warn "${DOCKER_INFO_ERR}"
+    fail_with_code "ERR-06-CONTAINER-ENGINE-ABSENT" \
+        "$(printf "$MSG_FAIL_CONTAINER_ENGINE_ABSENT" "$INSTALL_LOG")"
+fi
+ok "$MSG_OK_CONTAINER_ENGINE_ANSWERED"
+# ── 3.2a-sup Container-engine supervisor (PERIODIC, not startup-only) ──
+#
+# 🔴 THE ENGINE DIED MID-LIFE AND NOTHING CHECKED AGAIN FOR A DAY.
+#
+# Measured on Andrews-Mac-mini, 2026-08-23, from the box's own logs:
+#
+#   ~/.ostler/logs/ostler-assistant.err carries SIX colima lines -- three
+#   start/success pairs -- the last at 2026-08-22T09:57:58Z, two seconds
+#   after the daemon booted. The daemon (pid 19647) has
+#   `last exit code = (never exited)`, because ensure_colima_running() runs
+#   ONCE, at startup (ostler-assistant src/main.rs:1159, called at :1923).
+#
+#   Jetsam killed the Colima VM ~31 hours later, between 16:10 and 17:33 on
+#   2026-08-23 -- eight JetsamEvent reports in
+#   /Library/Logs/DiagnosticReports/ -- after the installer's unbounded
+#   output buffer took the machine to 4.27 GB. No reboot: uptime 2 days.
+#
+#   The only periodic job that touches the runtime is wiki-recompile, and
+#   its plist on that box reads StartInterval = 86400. ONCE A DAY. Its last
+#   tick waited 120 s, logged "not ready ... Exiting 0", and did nothing.
+#   A daily tick is exactly a day of latency.
+#
+# A supervisor that runs once at process launch cannot recover a mid-life
+# death. That is the defect in one sentence. The primitive is fine -- it
+# recovered Colima three times in under half a second each. Its TRIGGER is
+# the bug, so this agent supplies a trigger.
+#
+# IT DOES NOT RUN `colima start` ITSELF, and that is the point of the whole
+# design. See §3.2b directly below: a bare LaunchAgent has NO Full Disk
+# Access, Colima then cannot mount ~/Documents, and the wiki's bind-mount
+# fails -- that agent was DELETED to fix exactly that. The signed daemon
+# holds FDA and its children inherit it, which is why the recovery lives
+# there. This supervisor asks launchd to restart the FDA holder, which
+# re-runs the proven primitive with the right privileges.
+mkdir -p "${OSTLER_DIR}/bin" "${OSTLER_DIR}/lib"
+if [[ -f "${SCRIPT_DIR}/lib/ostler-container-engine.sh" ]]; then
+    cp "${SCRIPT_DIR}/lib/ostler-container-engine.sh" "${OSTLER_DIR}/lib/"
+    chmod +x "${OSTLER_DIR}/lib/ostler-container-engine.sh"
+fi
+if [[ -f "${SCRIPT_DIR}/bin/ostler-engine-supervisor.sh" ]]; then
+    cp "${SCRIPT_DIR}/bin/ostler-engine-supervisor.sh" "${OSTLER_DIR}/bin/"
+    chmod +x "${OSTLER_DIR}/bin/ostler-engine-supervisor.sh"
+fi
+
+# Walk the post-condition: a supervisor that was never staged would leave
+# launchd firing at a missing path and recording EX_CONFIG for the life of
+# the install, which reads as "an agent exists" while nothing supervises.
+if [[ -x "${OSTLER_DIR}/bin/ostler-engine-supervisor.sh" \
+   && -f "${OSTLER_DIR}/lib/ostler-container-engine.sh" ]]; then
+    ENGINE_SUP_PLIST="${HOME}/Library/LaunchAgents/com.ostler.engine-supervisor.plist"
+    cat > "$ENGINE_SUP_PLIST" <<ESPEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.engine-supervisor</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>${OSTLER_DIR}/bin/ostler-engine-supervisor.sh</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/engine-supervisor.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/engine-supervisor.err</string>
+</dict>
+</plist>
+ESPEOF
+    if _ostler_launchagent_load_verified "$ENGINE_SUP_PLIST"; then
+        ok "$MSG_OK_ENGINE_SUPERVISOR_INSTALLED"
+    else
+        # Non-fatal: the install still works, the box just loses automatic
+        # recovery. Say so rather than let it pass as installed.
+        warn "$MSG_WARN_ENGINE_SUPERVISOR_NOT_LOADED"
+    fi
+else
+    warn "$MSG_WARN_ENGINE_SUPERVISOR_NOT_STAGED"
+fi
+
 # ── 3.2b Remove any stale FDA-less Colima LaunchAgent ──────────────
 #
 # An install upgrading from before v1.0.10 still has
@@ -9263,6 +10360,82 @@ if [[ -f "$_STALE_COLIMA_PLIST" ]]; then
     fi
 fi
 unset _STALE_COLIMA_LABEL _STALE_COLIMA_PLIST
+
+# ── 3.2b-bis GENERIC PRUNE: any Ostler agent whose program is GONE ──────
+#
+# 🔴 MEASURED LIVE 2026-08-26, and it had wedged a real box for 24 HOURS.
+#
+# The block above removes ONE hard-coded stale label. That does not scale:
+# every time a feature is retired the script is removed and the LaunchAgent
+# is not, and nothing prunes it. Measured on andy@.228:
+#
+#   com.ostler.enrich  ->  ~/.ostler/bin/ostler-enrich-tick   ABSENT
+#   launchctl print:  state = spawn scheduled
+#                     last exit code = 78: EX_CONFIG
+#                     properties = penalty box | …
+#
+# The plist survived the enrichment agent being gated off; the script did
+# not. launchd cannot spawn an absent program, so it penalty-boxes the job --
+# and a plain `launchctl kickstart` on a penalty-boxed job BLOCKS. The whole
+# export-scan -> import chain sat wedged behind it for 23h56m on 40ms of CPU,
+# ingesting nothing, while the product told the customer loading continued in
+# the background.
+#
+# So prune by PROPERTY, not by name: if an Ostler-owned agent's program does
+# not exist, it can never run, and leaving it loaded is strictly worse than
+# removing it.
+#
+# 🔴 SCOPE IS DELIBERATELY NARROW. Only labels we own -- com.ostler.* and
+# com.creativemachines.ostler.*. Never touch a customer's own agents, and
+# never touch another vendor's. A prune that over-reaches is worse than the
+# defect it fixes.
+#
+# 🔴 ARCHIVE, DO NOT DELETE. The plist moves to a dated quarantine directory,
+# so a wrong call is recoverable and the evidence survives for diagnosis.
+# The colima block above deletes because that agent is known-harmful; a
+# generic sweep has not earned that confidence.
+_PRUNE_QUARANTINE="${HOME}/.ostler/quarantine/launchagents"
+_PRUNE_N=0
+for _pl in "${HOME}/Library/LaunchAgents/"com.ostler.*.plist \
+           "${HOME}/Library/LaunchAgents/"com.creativemachines.ostler.*.plist; do
+    [[ -f "$_pl" ]] || continue
+    _pl_label="$(basename "$_pl" .plist)"
+
+    # ProgramArguments[0], else Program. Anything we cannot read is SKIPPED,
+    # not pruned: an unreadable plist is a CANNOT-RUN, and cannot-run is not
+    # a licence to delete.
+    _pl_prog="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$_pl" 2>/dev/null)" \
+        || _pl_prog="$(/usr/libexec/PlistBuddy -c 'Print :Program' "$_pl" 2>/dev/null)" || _pl_prog=""
+    [[ -n "$_pl_prog" ]] || continue
+
+    # Absolute paths only. A bare command name resolves via PATH at spawn
+    # time and we cannot judge it from here.
+    [[ "$_pl_prog" == /* ]] || continue
+    [[ -e "$_pl_prog" ]] && continue     # program exists -> leave it alone
+
+    warn "LaunchAgent ${_pl_label} points at a program that does not exist:"  # i18n-exempt
+    warn "  ${_pl_prog}"                                                      # i18n-exempt
+    warn "  launchd cannot spawn it, so it sits penalty-boxed and can wedge"  # i18n-exempt
+    warn "  a synchronous kickstart. Unloading and archiving it."             # i18n-exempt
+    launchctl bootout "gui/$(id -u)/${_pl_label}" 2>/dev/null || \
+        launchctl unload "$_pl" 2>/dev/null || true
+    mkdir -p "$_PRUNE_QUARANTINE"
+    if mv "$_pl" "${_PRUNE_QUARANTINE}/${_pl_label}.plist" 2>/dev/null; then
+        _PRUNE_N=$((_PRUNE_N + 1))
+        ok "Archived to ~/.ostler/quarantine/launchagents/${_pl_label}.plist"  # i18n-exempt
+    else
+        warn "Could not archive ${_pl_label}.plist -- left in place."          # i18n-exempt
+    fi
+done
+# Say the denominator either way. A silent zero and "did not look" print
+# identically, and this sweep is exactly the kind that must not read as clean
+# when it never ran.
+if [[ "$_PRUNE_N" -gt 0 ]]; then
+    ok "Pruned ${_PRUNE_N} dead Ostler LaunchAgent(s)."                        # i18n-exempt
+else
+    info "Dead-LaunchAgent sweep: 0 pruned (every Ostler agent's program exists)."  # i18n-exempt
+fi
+unset _PRUNE_QUARANTINE _PRUNE_N _pl _pl_label _pl_prog
 
 # ── 3.2c Reboot self-heal: automatic login on boot (v1.0.11) ────────
 #
@@ -9596,17 +10769,17 @@ else
         spoken) all summarise through it. Two settings keep chat snappy
         on a fresh install while the historic backlog is still draining:
 
-          OLLAMA_NUM_PARALLEL (2 on LOW/HIGH, 1 on the FLOOR tier) --
+          OLLAMA_NUM_PARALLEL (2 on LOW/HIGH, 1 on the FLOOR tier) -
             serve two requests against the one loaded model concurrently.
             Combined with the single-flight lock the conversation feeds
             take (they never run more than one summary at a time), this
             reserves a slot so a chat turn never queues behind a
             minute-long backfill summary. It is
             RAM-cheap: the model weights are shared across slots; only a
-            second (small, 4K-context) KV cache is added -- safe even on
+            second (small, 4K-context) KV cache is added - safe even on
             a 16GB Mac.
 
-          OLLAMA_KEEP_ALIVE=-1 -- keep the model resident instead of
+          OLLAMA_KEEP_ALIVE=-1 - keep the model resident instead of
             unloading it after each idle gap. Stops the cold-reload
             thrash that made the first chat after a quiet spell take
             tens of seconds.
@@ -9761,6 +10934,33 @@ fi
 
 progress "Saving your configuration" "config_save"
 
+# ⚠️ THE DELIMITER BELOW IS UNQUOTED, AND IT HAS TO BE: this heredoc
+# interpolates ${USER_ID}, ${USER_NAME} and two dozen more. Quoting it as
+# <<'ENVEOF' would emit those names literally and produce a dead .env.
+#
+# THE PRICE, WHICH #873 MADE US PAY. An unquoted heredoc runs COMMAND
+# SUBSTITUTION in its body as well as expanding parameters, and the body
+# below is half prose. A comment here reading
+#
+#     # So `convert --source apple_notes` exits non-zero ...
+#
+# did not describe a command. It RAN one. On Andy's v1.0.43 walk the
+# customer's own transcript carried
+#
+#     install.sh: line 9979: convert: command not found
+#
+# where 9979 is this `cat` line -- bash reports a failed substitution at
+# the line of the command containing it, not at the line of the prose.
+# Two things went wrong at once: a raw shell error was shown to a
+# customer, and the substitution's (empty) output replaced the backticked
+# text, so the .env we wrote to their disk read "# So  exits non-zero on
+# an unknown source". On a machine that HAS ImageMagick it is worse --
+# `convert` runs for real against the arguments in the sentence.
+#
+# So: every backtick and every $( in this body MUST be backslash-escaped.
+# That is not decoration and it is not a typo to tidy up.
+# tests/test_no_live_command_substitution_in_heredocs.sh refuses the file
+# if one is ever left live again.
 cat > "${CONFIG_DIR}/.env" <<ENVEOF
 # Ostler configuration – generated by installer
 USER_ID="${USER_ID}"
@@ -9795,8 +10995,8 @@ DEFAULT_PRIVACY_LEVEL=L2
 # apple_notes.json, but the converter that would make them searchable ships in
 # vendor/cm024_knowledge, whose VENDOR_MANIFEST.toml pin is held at 43d6c5da --
 # the re-pin to 7ace7672, which carries the apple_notes.py adapter, is DEFERRED.
-# So `convert --source apple_notes` exits non-zero on an unknown source and the
-# notes go nowhere. Asking Full Disk Access for data we then do not use is the
+# So \`convert --source apple_notes\` exits non-zero on an unknown source and
+# the notes go nowhere. Asking Full Disk Access for data we then do not use is the
 # one option that trades consent for nothing. Restore this entry in the same
 # change that lands the CM024 re-pin, not before.
 OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES:-safari_history,safari_bookmarks,calendar,reminders}"
@@ -11392,7 +12592,7 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.62}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.66}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -11452,7 +12652,7 @@ OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.62}"
 # fallback now exercises the app-bundle shape rather than the bare
 # binary; the bare-binary path below is retained for any customer
 # resuming from an older staged tarball.
-ASSISTANT_FALLBACK_VERSION="0.4.61"
+ASSISTANT_FALLBACK_VERSION="0.4.62"
 # Customer-facing distribution.
 #
 # CX-88 (DMG #48g, 2026-05-29): the daemon ships from the public
@@ -11505,7 +12705,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="ee1b01610d90a8c530430a1102626c736540f21c7be7b887e348104f1f0786cd"
+DEFAULT_ASSISTANT_TARBALL_SHA256="431eecebcab0535b77b8f0e190fb3c03585e60c8f9df221b9c9b27458eadf14d"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -11519,7 +12719,7 @@ DEFAULT_ASSISTANT_TARBALL_SHA256="ee1b01610d90a8c530430a1102626c736540f21c7be7b8
 # apart is the defect class this pin exists to catch; it should not be the
 # defect class the pin itself ships with. Read from the published .sha256
 # sidecar of hub-v${ASSISTANT_FALLBACK_VERSION}, never typed by hand.
-DEFAULT_ASSISTANT_FALLBACK_TARBALL_SHA256="ff7b0b634345a2da10dce1aa0d17a3cc6b8b9b380687c8024072e53bfc4ced24"
+DEFAULT_ASSISTANT_FALLBACK_TARBALL_SHA256="ee1b01610d90a8c530430a1102626c736540f21c7be7b887e348104f1f0786cd"
 ASSISTANT_FALLBACK_TARBALL_SHA256="${OSTLER_ASSISTANT_FALLBACK_TARBALL_SHA256:-${DEFAULT_ASSISTANT_FALLBACK_TARBALL_SHA256}}"
 ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
 
@@ -11694,7 +12894,7 @@ _ostler_ensure_app_binary_agents_bootstrap() {
         _plist="${HOME}/Library/LaunchAgents/${_label}.plist"
         [[ -f "$_plist" ]] || continue
         if launchctl print "${_domain}/${_label}" >/dev/null 2>&1; then
-            launchctl kickstart -k "${_domain}/${_label}" 2>/dev/null || true
+            _ks_bounded "${_domain}/${_label}" -k   # bounded: see _ks_bounded
         else
             launchctl bootstrap "$_domain" "$_plist" 2>/dev/null || \
                 launchctl load "$_plist" 2>/dev/null || true
@@ -11709,7 +12909,7 @@ _ostler_ensure_export_scan_bootstrap() {
     [[ -f "$_plist" ]] || return 0
     [[ -x "$_bin" ]] || return 0
     if launchctl print "gui/$(id -u)/${_label}" >/dev/null 2>&1; then
-        launchctl kickstart -k "gui/$(id -u)/${_label}" 2>/dev/null || true
+        _ks_bounded "gui/$(id -u)/${_label}" -k   # bounded: see _ks_bounded
     else
         launchctl bootstrap "gui/$(id -u)" "$_plist" 2>/dev/null || \
             launchctl load "$_plist" 2>/dev/null || true
@@ -12252,7 +13452,8 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
         sleep 10
         # Close them quietly (SIGTERM via AppleScript, not force-kill)
         for app in "${APPS_TO_OPEN[@]}"; do
-            osascript -e "tell application \"$app\" to quit" 2>/dev/null || true
+            _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+                osascript -e "tell application \"$app\" to quit" 2>/dev/null || true
         done
         ok "$MSG_OK_APPS_LAUNCHED_TRIGGER_ICLOUD_SYNC"
     else
@@ -12385,7 +13586,8 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             else
                 _prewarn_icon_clause="with icon note"
             fi
-            osascript \
+            _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+                osascript \
                 -e 'tell application "System Events" to activate' \
                 -e "tell application \"System Events\" to display dialog \"${_prewarn_msg_esc}\" with title \"${_prewarn_title_esc}\" buttons {\"${_prewarn_button_esc}\"} default button \"${_prewarn_button_esc}\" ${_prewarn_icon_clause}" \
                 >/dev/null 2>&1 || true
@@ -12407,10 +13609,14 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             killall "System Settings" >/dev/null 2>&1 || true
             killall "System Preferences" >/dev/null 2>&1 || true
             sleep 1
-            open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
+            # WALK-874(a): open the pane, VERIFY it, and only then say
+            # so. Sibling of the early installer grant above.
+            _installer_fda_line1="$(_ostler_fda_pane_line1 \
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" \
+                "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1")"
 
             _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
-                "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1" \
+                "$_installer_fda_line1" \
                 "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE2" \
                 "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE3")"
             _installer_fda_msg_esc="${_installer_fda_msg//\"/\\\"}"
@@ -12443,11 +13649,13 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             # without `activate` opens BEHIND the System Settings window we
             # just opened, and the customer sees no prompt at all.
             sleep 1
-            osascript \
+            _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+                osascript \
                 -e 'tell application "System Events" to activate' \
                 -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
                 >/dev/null 2>&1 || true
             unset _installer_fda_msg _installer_fda_msg_esc \
+                  _installer_fda_line1 \
                   _installer_fda_title_esc _installer_fda_button_esc \
                   _installer_fda_icon_path _installer_fda_icon_path_esc \
                   _installer_fda_icon_clause
@@ -12543,9 +13751,16 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             killall "System Settings" >/dev/null 2>&1 || true
             killall "System Preferences" >/dev/null 2>&1 || true
             sleep 1
-            open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
+            # WALK-874(a): this modal used to carry the pane claim
+            # mid-sentence -- "in System Settings (now open at Full Disk
+            # Access)" -- next to the same fire-and-forget open. The
+            # claim is now the verified opening line instead.
+            _fda_recover_line1="$(_ostler_fda_pane_line1 \
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" \
+                "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1")"
 
-            _fda_recover_msg="$(printf '%s\n\n%s' \
+            _fda_recover_msg="$(printf '%s\n\n%s\n\n%s' \
+                "$_fda_recover_line1" \
                 "$MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE1" \
                 "$MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE2")"
             _fda_recover_msg_esc="${_fda_recover_msg//\"/\\\"}"
@@ -12574,11 +13789,13 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             # dialog, so an unseen one strands a customer who has already
             # hit the problem once.
             sleep 1
-            osascript \
+            _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+                osascript \
                 -e 'tell application "System Events" to activate' \
                 -e "tell application \"System Events\" to display dialog \"${_fda_recover_msg_esc}\" with title \"${_fda_recover_title_esc}\" buttons {\"${_fda_recover_button_esc}\"} default button \"${_fda_recover_button_esc}\" ${_fda_recover_icon_clause}" \
                 >/dev/null 2>&1 || true
             unset _fda_recover_msg _fda_recover_msg_esc _fda_recover_title_esc \
+                  _fda_recover_line1 \
                   _fda_recover_button_esc _fda_recover_icon_path \
                   _fda_recover_icon_path_esc _fda_recover_icon_clause
 
@@ -12919,9 +14136,11 @@ FDARPEOF
             launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
                 launchctl unload "$FDA_RERUN_PLIST" 2>/dev/null || true
         fi
-        launchctl bootstrap "gui/$(id -u)" "$FDA_RERUN_PLIST" 2>/dev/null || \
-            launchctl load "$FDA_RERUN_PLIST" 2>/dev/null || true
-        ok "$(printf "$MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING" "$(( OSTLER_FDA_RERUN_INTERVAL_S / 60 ))")"
+        if _ostler_launchagent_load_verified "$FDA_RERUN_PLIST"; then
+            ok "$(printf "$MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING" "$(( OSTLER_FDA_RERUN_INTERVAL_S / 60 ))")"
+        else
+            warn "$MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED"
+        fi
     fi
 else
     # Reachable only when --allow-plaintext was passed AND the FDA
@@ -13125,7 +14344,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:0d3b46d573d0bdfc712bde84435cae0fb76cc2f0f325f0e0bb327b91dc7a9925
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:3d9d8b6439bbe3dfe5754b24dfa5d8362888a1a8ef3dfc16a9b3f37bab0d1318
     container_name: ostler-wiki-site
     ports:
       - "127.0.0.1:8044:8000"
@@ -13160,7 +14379,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:fae4843968d789fd3f14f550c5b131343a48bf8223f6360f3f17deea97c5781f
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:2f02b761a46571bc4360546ab490e7aaa2bc213e556b81f8f5a1377093e2c12f
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -13178,6 +14397,32 @@ services:
       # (WIKI_HYDRATION_STATUS_FILE below); that lands at ~/.ostler/state
       # on the host where the endpoint reads it.
       - ${HOME}/.ostler/state:/state
+      # 🔴 #849 -- THE PRO OBSIDIAN VAULT WRITER COULD NOT RUN ON ANY
+      # INSTALL. compiler/vault_licence.py gates it on the Pro licence
+      # state. Before this line, NOTHING under ${HOME}/.ostler except
+      # state/ was mounted here, so the reader resolved
+      # ~/.ostler/licence/state.json to /root/.ostler/licence/state.json
+      # INSIDE the container -- a path that has never existed on any
+      # install -- and fail-closed to pro_none on every compile pass.
+      # Every Pro customer silently got no vault, forever.
+      #
+      # ⚠️ IT WAS ALREADY FIXED IN CM044's docker/docker-compose.yml AND
+      # TESTED THERE, AND THAT TEST WAS GREEN WHILE THIS FILE WAS BROKEN.
+      # CM044's test_licence_dir_is_bind_mounted reads CM044's OWN dev
+      # compose. The customer runs THIS compose, generated here. Measured
+      # 2026-08-23, control on both sides:
+      #     CM044 docker/docker-compose.yml   .ostler/licence -> 5
+      #     CM051 install.sh                  .ostler/licence -> 0
+      #     control: wiki-compiler present in both (5 and 15), so neither
+      #     count is a false zero from reading the wrong file.
+      # A guard on the dev compose says nothing about the artefact.
+      #
+      # READ-ONLY: the compiler CONSUMES licence state, nothing in CM044
+      # writes it, and a writable mount onto the licence tree is a foothold
+      # the wiki compiler has no reason to hold. Scoped to licence/ alone,
+      # not all of ~/.ostler, which also holds daemon config and store
+      # credentials.
+      - ${HOME}/.ostler/licence:/licence:ro
     environment:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
@@ -13190,6 +14435,17 @@ services:
       # host-side CM041 ical-server hydration endpoint reads the same
       # file the compiler writes. See compiler/hydration.py::status_path.
       - WIKI_HYDRATION_STATUS_FILE=/state/wiki_hydration.json
+      # #849, second half. Absolute in-container path of the Pro licence
+      # state file, matching the ${HOME}/.ostler/licence:/licence:ro mount
+      # above. Set EXPLICITLY rather than letting the mount land at the
+      # container's ~/.ostler/licence: the image declares no USER and no
+      # ENV HOME, so "~" is /root ONLY by inheritance from the base image.
+      # The day anyone adds a USER line, a HOME-relative resolution would
+      # silently stop matching and the Pro vault writer would go quiet
+      # again in exactly the #849 way -- with no error, because the reader
+      # fail-closes to pro_none. An explicit env var is also the thing a
+      # test can assert lands inside a declared mount target.
+      - OSTLER_LICENCE_STATE_FILE=/licence/state.json
       # CM044 productisation knobs (set by CM044 PR #22). Empty
       # defaults are intentional: the compiler treats "" as "no
       # operator-specific filter" and emits a generic wiki rather
@@ -14140,13 +15396,40 @@ fi
 if [[ "$HAS_PIPELINE" == true ]]; then
     cd "$PIPELINE_DIR"
 
-    if [[ -f "contact_syncer/requirements.txt" ]]; then
-        PIPELINE_REQS="contact_syncer/requirements.txt"
-    elif [[ -f "requirements.txt" ]]; then
-        PIPELINE_REQS="requirements.txt"
-    else
-        PIPELINE_REQS=""
-    fi
+    # EVERY package's requirements, not the first one found.
+    #
+    # 🔴 This was an if/elif chain that selected exactly ONE file:
+    #     contact_syncer/requirements.txt, else requirements.txt.
+    # contact_syncer always wins, so identity_resolver's and meeting_syncer's
+    # were NEVER installed although all three ship in this same directory.
+    #
+    # MEASURED on a live box 2026-08-26. In the interpreter that actually runs
+    # ical-server, with that process's own PYTHONPATH:
+    #
+    #     rapidfuzz          ModuleNotFoundError
+    #     identity_resolver  ModuleNotFoundError: No module named 'rapidfuzz'
+    #     qdrant_client      ModuleNotFoundError
+    #     CONTROL json       OK        <- same interpreter, so these are real
+    #                                     absences, not a broken invocation
+    #
+    # Consequence: the whole dedupe / identity-resolution layer is dark from
+    # first boot. batch_resolver cannot import either, so nothing reconciles
+    # Qdrant against Oxigraph, and _merge_qdrant() FAILS OPEN on the missing
+    # qdrant_client ("skipping Qdrant merge"). The only symptom is data quality
+    # drifting: 130 over-merged Person nodes and a 173-point store gap on the
+    # box measured, with nothing anywhere reporting a fault.
+    #
+    # THIS IS THE SAME OMISSION TWICE. identity_resolver/requirements.txt exists
+    # precisely because of it and says so in its own header: CI "installed only
+    # the contact_syncer, meeting_syncer and whatsapp_bridge requirement files,
+    # so the import failed at COLLECTION time". Declaring the dependency fixed
+    # CI. Nothing changed here, so the installer kept making the same choice.
+    # A declaration and an installation are different acts.
+    PIPELINE_REQS=""
+    for _pipeline_req in */requirements.txt requirements.txt; do
+        [[ -f "$_pipeline_req" ]] || continue
+        PIPELINE_REQS="${PIPELINE_REQS}${PIPELINE_REQS:+ }${_pipeline_req}"
+    done
 
     if [[ -n "$PIPELINE_REQS" ]]; then
         if [[ ! -d ".venv" ]]; then
@@ -14159,9 +15442,21 @@ if [[ "$HAS_PIPELINE" == true ]]; then
         # diagnosis CX-30 trail). Surface tail via warn() per-line so
         # the GUI prefix-aware parser actually renders the body.
         PIPELINE_PIP_LOG="/tmp/ostler-pipeline-pip.log"
+        # One pip call per file, not one call with many -r flags: a failure
+        # then names the file that caused it in the log, instead of leaving the
+        # operator to guess which of three packages broke.
         set +e
-        .venv/bin/pip install --quiet -r "$PIPELINE_REQS" > "$PIPELINE_PIP_LOG" 2>&1
-        PIPELINE_PIP_EXIT=$?
+        PIPELINE_PIP_EXIT=0
+        : > "$PIPELINE_PIP_LOG"
+        for _pipeline_req in $PIPELINE_REQS; do
+            printf '== %s ==\n' "$_pipeline_req" >> "$PIPELINE_PIP_LOG"
+            .venv/bin/pip install --quiet -r "$_pipeline_req" >> "$PIPELINE_PIP_LOG" 2>&1
+            _pipeline_req_exit=$?
+            if [[ $_pipeline_req_exit -ne 0 ]]; then
+                PIPELINE_PIP_EXIT=$_pipeline_req_exit
+                printf '== FAILED: %s (exit %s) ==\n' "$_pipeline_req" "$_pipeline_req_exit" >> "$PIPELINE_PIP_LOG"
+            fi
+        done
         set -e
         if [[ $PIPELINE_PIP_EXIT -ne 0 ]]; then
             warn "$(printf "$MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT" "$PIPELINE_PIP_EXIT")"
@@ -14824,8 +16119,45 @@ for d in "${DIRS[@]}"; do
         # agent does not exist yet during the first install (it is created
         # later in the run), so an absent label is the NORMAL case here,
         # not an error, and must not fail the import.
+        # 🔴 FIRE-AND-FORGET MEANS DO NOT WAIT. MEASURED DEADLOCK, 2026-08-26.
+        #
+        # This was a SYNCHRONOUS kickstart guarded by `|| true`. That guard
+        # covers a non-zero EXIT. The failure that actually happens is a HANG,
+        # and `|| true` is blind to it.
+        #
+        # Measured on a real box (andy@.228), the whole ingest chain wedged for
+        # TWENTY-THREE HOURS AND FIFTY-SIX MINUTES on 40ms of total CPU:
+        #
+        #   ostler-assistant run-source export-scan   23:55:30  0:00.02
+        #   └ tick.sh                                 23:55:30  0:00.00
+        #     └ ostler-scan-exports                   23:55:30  0:00.01
+        #       └ ostler-import ~/Downloads           23:55:30  0:00.01
+        #         └ launchctl kickstart …enrich       23:50:30  0:00.00  <- leaf
+        #
+        # Zero files written under ~/.ostler in ten minutes. Nothing ingested
+        # all day, while the product tells the customer loading continues in
+        # the background.
+        #
+        # WHY KICKSTART BLOCKS: launchctl print reported
+        #     state = spawn scheduled
+        #     last exit code = 78: EX_CONFIG
+        #     properties = penalty box | …
+        # The job's program (~/.ostler/bin/ostler-enrich-tick) does not exist
+        # on that box -- an orphan LaunchAgent left behind when the enrichment
+        # agent was gated off. launchd cannot spawn it, drops it in the penalty
+        # box, and a plain `kickstart` waits for a spawn that is being deferred.
+        # The `launchctl print` guard above only proves the label is LOADED; a
+        # loaded job pointing at an absent program passes it.
+        #
+        # So the caller must not be able to wait on it AT ALL. Background the
+        # whole thing, and bound the kickstart itself so a wedged one does not
+        # linger for a day. `timeout` does not exist on macOS, hence the
+        # explicit watchdog.
         if launchctl print "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1; then
-            launchctl kickstart "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1 || true
+            # ONE implementation, not a second copy of the same watchdog. This
+            # site is where the 23h56m wedge was measured; _ks_bounded carries
+            # the evidence and the bound.
+            _ks_bounded "gui/$(id -u)/com.ostler.enrich"
         fi
     fi
 
@@ -15305,7 +16637,8 @@ mkdir -p "${OSTLER_DIR}/state"
 
 _notify() {
     # $1 = message, $2 = subtitle
-    osascript -e "display notification \"$1\" with title \"Ostler\" subtitle \"$2\"" 2>/dev/null || true
+    _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+        osascript -e "display notification \"$1\" with title \"Ostler\" subtitle \"$2\"" 2>/dev/null || true
 }
 
 # Recognised export shapes. FOUND holds paths; FOUND_LABELS the platform
@@ -15445,12 +16778,35 @@ SPEOF
 if [[ -x "${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant" ]]; then
     launchctl bootstrap "gui/$(id -u)" "$SCAN_PLIST" 2>/dev/null || \
         launchctl load "$SCAN_PLIST" 2>/dev/null || true
+
+    # THE ANNOUNCEMENT LIVES INSIDE THIS BRANCH NOW (#876).
+    #
+    # It used to sit after `fi`, so it fired on BOTH paths -- including the
+    # one that had just warned the daemon binary was missing. The install log
+    # read:
+    #     [WARN] ... daemon binary missing: .../MacOS/ostler-assistant
+    #     [ ok ] Export watcher installed, scans Downloads every ...
+    # A customer was told it failed and then told it was installed. This is a
+    # live instance of the class the helper above exists to close, and it was
+    # found by Archie2's review rather than by the class gate -- the scanner
+    # stopped walking at `fi` and never reached the announcement.
+    #
+    # The bootstrap/load pair above stays SPELLED OUT rather than routed
+    # through _ostler_launchagent_load_verified, because
+    # tests/test_export_scan_plist_bootstrap_race_217.sh Property A greps the
+    # twelve lines above it for exactly that literal. A gate must not be
+    # loosened to accommodate a refactor, so the verification is added inline
+    # instead -- same treatment as the ical-server site, same reason.
+    if launchctl print "gui/$(id -u)/com.ostler.export-scan" >/dev/null 2>&1; then
+        ok "$MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY"
+    else
+        warn "$MSG_WARN_EXPORT_SCAN_NOT_LOADED"
+    fi
 else
     # NAME THE FILE: print the exact absolute path whose absence caused
     # the refusal, so the install log answers "looked for what?" itself.
     warn "$(printf "$MSG_WARN_EXPORT_SCAN_DAEMON_BINARY_MISSING" "${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant")"
 fi
-ok "$MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY"
 
 # ── Pre-meeting brief sender ───────────────────────────────────────
 #
@@ -15675,9 +17031,11 @@ cat > "$BRIEF_PLIST" <<MBSPLIST
 </dict>
 </plist>
 MBSPLIST
-launchctl bootstrap "gui/$(id -u)" "$BRIEF_PLIST" 2>/dev/null || \
-    launchctl load "$BRIEF_PLIST" 2>/dev/null || true
-ok "$MSG_OK_MEETING_BRIEF_SENDER_INSTALLED"
+if _ostler_launchagent_load_verified "$BRIEF_PLIST"; then
+    ok "$MSG_OK_MEETING_BRIEF_SENDER_INSTALLED"
+else
+    warn "$MSG_WARN_MEETING_BRIEF_SENDER_NOT_LOADED"
+fi
 else
     info "$MSG_INFO_MEETING_BRIEF_AGENT_SKIPPED"
 fi
@@ -15721,9 +17079,11 @@ if [[ -f "${SCRIPT_DIR}/scripts/deferred-register-device.sh" ]]; then
 </dict>
 </plist>
 DRDPEOF
-    launchctl bootstrap "gui/$(id -u)" "$REGISTER_PLIST" 2>/dev/null || \
-        launchctl load "$REGISTER_PLIST" 2>/dev/null || true
-    ok "$MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS"
+    if _ostler_launchagent_load_verified "$REGISTER_PLIST"; then
+        ok "$MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS"
+    else
+        warn "$MSG_WARN_DEFERRED_DEVICE_REGISTRATION_NOT_LOADED"
+    fi
 else
     # Surface a missing-bundle warning. The deferred-register agent
     # is a belt-and-braces retry path; the primary registration runs
@@ -15952,6 +17312,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.ostler.deferred-register-device
     com.ostler.aiconv-resume
     com.ostler.colima
+    com.ostler.engine-supervisor
     com.ostler.meeting-brief-sender
     com.ostler.ollama-logrotate
     com.ostler.stay-awake
@@ -16187,6 +17548,15 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     <string>${LOGS_DIR}/doctor.err</string>
     <key>EnvironmentVariables</key>
     <dict>
+        <!-- Redirect the bytecode cache OUT of the notarised app. This
+             agent runs a venv python whose base_prefix is the interpreter
+             bundled inside OstlerInstaller.app, so every import writes
+             __pycache__ into the signed bundle and breaks its code seal
+             (measured on v1.0.45: 69 .pyc from one ordinary import,
+             codesign rc=1, spctl refusing).
+             LaunchAgents inherit no environment, so it must be set here. -->
+        <key>PYTHONPYCACHEPREFIX</key>
+        <string>${OSTLER_DIR}/cache/pycache</string>
         <key>DOCTOR_PORT</key>
         <string>8089</string>
         <key>DOCTOR_SUPPORT_EMAIL</key>
@@ -16225,7 +17595,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              here would forward a working route straight into a 404. This is
              written down because the symptom that brought anyone here was a
              404 from the Doctor, and "the Doctor 404s it, so add it to the
-             proxy list" is the repair that looks right and is wrong -- the
+             proxy list" is the repair that looks right and is wrong - the
              real cause was that the held vendor pin predated the routes, so
              the shipped payload never registered them at all.
              Guard: tests/test_doctor_governor_routes_vendored.sh limb F. -->
@@ -16291,13 +17661,29 @@ DOCEOF
     # reload without the global stop (e.g. a partial/--repair re-run). Without
     # it, a bootstrap onto an already-loaded label errors and `|| true` swallows
     # it, leaving the OLD env live until reboot. Mirrors the daemon reload
-    # (~L13611); idempotent (`|| true`).
-    launchctl bootout "gui/$(id -u)/com.ostler.doctor" 2>/dev/null || true
-
-    # Use bootstrap on Sequoia+ (load is deprecated), fall back to load
-    launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
-        launchctl load "$DOCTOR_PLIST" 2>/dev/null || true
-    ok "$MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089"
+    # (~L13611). The bootout now lives INSIDE
+    # _ostler_launchagent_load_verified, which performs it for EVERY agent
+    # for exactly this reason, so the reload stays self-contained.
+    #
+    # 🔴 #876 (2026-08-24). These four lines used to be
+    #     launchctl bootout … || true
+    #     launchctl bootstrap … || launchctl load … || true
+    #     ok "$MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089"
+    # and on Andy's v1.0.44 walk the installer printed "Ostler Doctor
+    # running at http://localhost:8089/doctor" while com.ostler.doctor was
+    # NOT LOADED and :8089 answered 000. Preferences, Governor, Doctor >
+    # Channels, People, Timeline and every status header were dark behind
+    # that one line, and the install log said everything was fine.
+    #
+    # HEALTHY=false is safe here: the Phase 4 health block initialises with
+    # `: "${HEALTHY:=true}"` (see the #839 note at ~L23599), so a verdict
+    # recorded this early survives to the finish line.
+    if _ostler_launchagent_load_verified "$DOCTOR_PLIST"; then
+        ok "$MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089"
+    else
+        warn "$MSG_WARN_OSTLER_DOCTOR_NOT_LOADED"
+        HEALTHY=false
+    fi
 fi
 
 # ── 3.13a Assistant API (ical-server.py) ────────────────────────
@@ -16428,6 +17814,15 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              non-default install home. -->
         <key>PYTHONPATH</key>
         <string>${OSTLER_DIR}/import-pipeline</string>
+        <!-- Redirect the bytecode cache OUT of the notarised app. This
+             agent runs a venv python whose base_prefix is the interpreter
+             bundled inside OstlerInstaller.app, so every import writes
+             __pycache__ into the signed bundle and breaks its code seal
+             (measured on v1.0.45: 69 .pyc from one ordinary import,
+             codesign rc=1, spctl refusing).
+             LaunchAgents inherit no environment, so it must be set here. -->
+        <key>PYTHONPYCACHEPREFIX</key>
+        <string>${OSTLER_DIR}/cache/pycache</string>
         <key>HOME</key>
         <string>${HOME}</string>
         <key>USER_ID</key>
@@ -16466,10 +17861,72 @@ ICALPLISTEOF
         # GUI session can kick them back to the login screen. The
         # bootstrap call is idempotent enough for the first-install
         # path; re-install relies on the uninstaller bootout below.
+        # 🔴 #876. This block used to read
+        #     launchctl bootstrap … || launchctl load … || warn "…FAILED"
+        #     ok "…INSTALLED"
+        # and on a failure it printed BOTH, one line apart: the `|| warn`
+        # terminated the chain successfully, so the unconditional `ok` on the
+        # next line fired too. A customer whose ical-server did not load was
+        # told it failed and then told it was installed.
+        #
+        # This site does NOT go through _ostler_launchagent_load_verified,
+        # deliberately, and for two reasons worth writing down:
+        #   1. The comment above says not to bootout here. That hazard is
+        #      real for the DOMAIN form (`bootout gui/<uid>`, no label) rather
+        #      than the LABEL form, but closing #876 is not the place to
+        #      overrule a documented decision on the customer's login session.
+        #   2. vendor/cm041/assistant_api/test_vendor_import.sh pins this exact
+        #      bootstrap line by text. Routing it through the helper turned that
+        #      gate RED while the behaviour was strictly better -- red-while-
+        #      fixed, the twin of green-while-blind. Keeping the literal keeps
+        #      the vendored gate honest without a divergence patch.
+        # The evidence question is the same one the helper asks, asked inline.
+        #
+        # 🔴 UPGRADE: BOOTSTRAP ALONE NEVER RE-READS THE PLIST WE JUST WROTE.
+        #
+        # The comment above says bootstrap "is idempotent enough for the
+        # first-install path", and that is exactly right and exactly the bug.
+        # On an UPGRADE the label is already bootstrapped, so bootstrap is a
+        # no-op, and launchd keeps serving the job definition it loaded at
+        # FIRST INSTALL -- including its EnvironmentVariables. The plist this
+        # phase just rendered is never read.
+        #
+        # MEASURED on a real box 2026-08-26. The service token had been rotated
+        # and the plist rewritten; launchd was still serving the old one:
+        #
+        #     launchd LOADED job token sha : 4e7620a2320c   (pre-rotation)
+        #     on-disk plist / secrets  sha : caa3d247d221   (current)
+        #
+        # Consequence: _authorized() in ical-server.py constant-time-compares
+        # against its env value and FAILS CLOSED, so every non-public
+        # /api/v1 route 401s for every correctly-configured client. The Doctor
+        # fronts this service, so it 401s too. It presents as a client-side
+        # auth fault and it is not one.
+        #
+        # `launchctl kickstart -k` does NOT fix it: it restarts the process
+        # from the LOADED definition, not from disk. Verified -- new pid, same
+        # stale token. Only bootout + bootstrap reloads the definition.
+        #
+        # THE LABEL FORM IS THE SAFE ONE, and this file already said so at the
+        # top of this block: the "kicks the customer back to the login screen"
+        # hazard belongs to the DOMAIN form (`bootout gui/<uid>`, no label).
+        # This boots out one named label, and only when it is already loaded,
+        # so a first install is untouched.
+        #
+        # This runs BEFORE the bootstrap line below rather than replacing it,
+        # deliberately: vendor/cm041/assistant_api/test_vendor_import.sh pins
+        # that literal by text, and routing around a gate to avoid editing it
+        # is how red-while-fixed happens.
+        if launchctl print "gui/$(id -u)/com.ostler.ical-server" >/dev/null 2>&1; then
+            launchctl bootout "gui/$(id -u)/com.ostler.ical-server" 2>/dev/null || true
+        fi
         launchctl bootstrap "gui/$(id -u)" "$ICAL_PLIST" 2>/dev/null || \
-            launchctl load "$ICAL_PLIST" 2>/dev/null || \
+            launchctl load "$ICAL_PLIST" 2>/dev/null || true
+        if launchctl print "gui/$(id -u)/com.ostler.ical-server" >/dev/null 2>&1; then
+            ok "$MSG_OK_ICAL_SERVER_INSTALLED"
+        else
             warn "$MSG_WARN_ICAL_SERVER_FAILED"
-        ok "$MSG_OK_ICAL_SERVER_INSTALLED"
+        fi
     else
         warn "$MSG_WARN_ICAL_SERVER_FAILED"
     fi
@@ -17186,9 +18643,7 @@ _install_conversation_feed() {
     # _finalise_daemon_staging once a signed daemon is on disk. Upgrade
     # installs, where the binary is already staged, still bootstrap right
     # here so the first tick happens now rather than next login.
-    local domain="gui/$(id -u)"
     local _assistant_bin="${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
-    launchctl bootout "${domain}/${label}" 2>/dev/null || true
     if [[ ! -x "$_assistant_bin" ]]; then
         # NAME THE FILE. A refusal that does not say what it looked for
         # sends the reader hunting; this one prints the exact absolute
@@ -17204,7 +18659,7 @@ _install_conversation_feed() {
         # job if a daemon lands later; the refusal itself is unchanged.
         warn "$(printf "$MSG_WARN_BUNDLE_DAEMON_BINARY_MISSING" "$_assistant_bin")"
         info "$(printf "${!k_info_logs}" "$LOGS_DIR")"
-    elif launchctl bootstrap "$domain" "$rendered"; then
+    elif _ostler_launchagent_load_verified "$rendered"; then
         ok "${!k_ok_loaded}"
         info "${!k_info_tick}"
         info "$(printf "${!k_info_logs}" "$LOGS_DIR")"
@@ -17781,9 +19236,7 @@ WCUEOF
 WCUPLIST
     chmod 0644 "$WIKI_CATCHUP_PLIST"
 
-    launchctl bootout "gui/$(id -u)/${WIKI_CATCHUP_LABEL}" 2>/dev/null || true
-    if launchctl bootstrap "gui/$(id -u)" "$WIKI_CATCHUP_PLIST" 2>/dev/null || \
-       launchctl load "$WIKI_CATCHUP_PLIST" 2>/dev/null; then
+    if _ostler_launchagent_load_verified "$WIKI_CATCHUP_PLIST"; then
         ok "$MSG_OK_WIKI_RECOMPILE_CATCHUP_LOADED"
     else
         warn "$MSG_WARN_WIKI_RECOMPILE_CATCHUP_LOAD_FAILED"
@@ -18128,7 +19581,7 @@ _ostler_start_assistant_daemon() {
     local _plist="${HOME}/Library/LaunchAgents/${_label}.plist"
     [[ -f "$_plist" ]] || return 0
     if [[ "${OSTLER_ASSISTANT_STARTED:-0}" == "1" ]]; then
-        launchctl kickstart -k "${_domain}/${_label}" 2>/dev/null || true
+        _ks_bounded "${_domain}/${_label}" -k   # bounded: see _ks_bounded
         return 0
     fi
     launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
@@ -18462,9 +19915,38 @@ else
                 # Open System Settings to the Full Disk Access pane.
                 # The URL scheme is stable on macOS 13+; older macOS
                 # falls back to Privacy & Security top-level which
-                # is acceptable. The 2>/dev/null swallows the rare
-                # "scheme not registered" warning on stripped builds.
-                open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
+                # is acceptable.
+                #
+                # WALK-874(a): this used to be
+                # `open ... 2>/dev/null || true` -- stderr binned, exit
+                # status discarded -- immediately followed by a modal
+                # whose first line said "System Settings is open at Full
+                # Disk Access." On Andy's 2026-08-24 walk it was not
+                # open and he opened it himself. The opening line is now
+                # the RESULT of the open: _ostler_fda_pane_line1 runs
+                # it, waits for the process to actually appear, logs
+                # whatever went wrong, and returns copy that matches.
+                _fda_pane_line1="$(_ostler_fda_pane_line1 \
+                    "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" \
+                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1")"
+
+                # WALK-874(b): the row the customer is hunting for is
+                # named after the bundle, not after the product. Derive
+                # it once here and use it in every line that names it.
+                # If it cannot be derived (no bundle path -- a wiring
+                # fault) the modal drops to a locator that names no row
+                # at all rather than printing Find "" in the list.
+                _fda_entry_name="$(_ostler_fda_entry_name)" || _fda_entry_name=""
+                if [[ -z "$_fda_entry_name" ]]; then
+                    # Unreachable on any real install: _ostler_set_paths
+                    # always sets ASSISTANT_APP_BUNDLE, and the register
+                    # nudge above already required the bundle to exist
+                    # on disk. That invariant is locked by
+                    # tests/test_fda_dialog_tells_the_truth.sh case-6.
+                    # If it ever does break, drop the naming lines
+                    # rather than print Find "" in the list.
+                    gui_log warn "FDA dialog: could not derive the Full Disk Access row name; showing the modal without the row locator."
+                fi
 
                 # Reveal the daemon .app bundle in Finder so the
                 # customer can drag it directly into System
@@ -18486,8 +19968,12 @@ else
                 _fda_finder_revealed=false
                 if [[ "${_fda_listed:-}" != "listed" ]]; then
                     open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null && _fda_finder_revealed=true || true
-                else
-                    info "$MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED"
+                elif [[ -n "$_fda_entry_name" ]]; then
+                    # WALK-874(b): this line used to read "Ostler is
+                    # already listed" while the row said OstlerAssistant,
+                    # which is what sent Andy to Finder looking for a row
+                    # this very sentence says is already there.
+                    info "$(printf "$MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED" "$_fda_entry_name")"
                 fi
 
                 # Modal that blocks install.sh until the customer
@@ -18510,16 +19996,23 @@ else
                 # a short Done hint instead. Not-listed keeps the original
                 # three-line copy (LINE3 already ends with the Done
                 # instruction).
-                if [[ "${_fda_listed:-}" == "listed" ]]; then
+                # WALK-874: LINE1 is now $_fda_pane_line1 -- the verified
+                # result of opening the pane, not an assertion printed
+                # beside it. LINE2/LINE3 carry the derived row name.
+                if [[ -z "$_fda_entry_name" ]]; then
+                    _imessage_fda_dialog_msg="$(printf '%s\n\n%s' \
+                        "$_fda_pane_line1" \
+                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT")"
+                elif [[ "${_fda_listed:-}" == "listed" ]]; then
                     _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s' \
-                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
-                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
+                        "$_fda_pane_line1" \
+                        "$(printf "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" "$_fda_entry_name")" \
                         "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT")"
                 else
                     _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s' \
-                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
-                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
-                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3")"
+                        "$_fda_pane_line1" \
+                        "$(printf "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" "$_fda_entry_name")" \
+                        "$(printf "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3" "$_fda_entry_name")")"
                 fi
                 # Escape any embedded double-quotes for the
                 # AppleScript string literal. Then pass through
@@ -18614,7 +20107,8 @@ else
                 # The pause stays: it stops the dialog racing a half-rendered
                 # Settings pane. Only the missing `activate` comes back.
                 sleep 1
-                osascript \
+                _ostler_run_with_deadline "$OSTLER_OSASCRIPT_DIALOG_TIMEOUT_S" \
+                    osascript \
                     -e 'tell application "System Events" to activate' \
                     -e "tell application \"System Events\" to display dialog \"${_imessage_fda_dialog_msg_esc}\" with title \"${_imessage_fda_title_esc}\" buttons {\"${_imessage_fda_button_esc}\"} default button \"${_imessage_fda_button_esc}\" ${_imessage_fda_icon_clause}" \
                     >/dev/null 2>&1 || true
@@ -18698,7 +20192,14 @@ else
                     # Finder on the normal (registered/listed) path where the
                     # reveal was suppressed and no Finder window exists.
                     if [[ "${_fda_finder_revealed:-false}" == true ]]; then
-                        osascript -e 'tell application "Finder" to close windows' >/dev/null 2>&1 || true
+                        # BOUNDED (2026-08-26): sits inside a 60-iteration
+                        # 1s wait loop, so an unbounded send here stalls the
+                        # loop AND the FDA step around it. Finder is exactly
+                        # the app that shows a modal (permission, "reopen
+                        # windows?") and an Apple Event waits on its event
+                        # loop indefinitely.
+                        _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
+                            osascript -e 'tell application "Finder" to close windows' >/dev/null 2>&1 || true
                     fi
                     # Break the instant neither pane process is alive.
                     if ! pgrep -x "System Settings" >/dev/null 2>&1 \
@@ -19014,9 +20515,7 @@ RCAPEOF
 
     # bootout-then-bootstrap so re-runs of the installer reload
     # the plist cleanly. bootout of a non-loaded label is a no-op.
-    launchctl bootout "gui/$(id -u)/${REMOTECAPTURE_LAUNCHAGENT_LABEL}" 2>/dev/null || true
-    if launchctl bootstrap "gui/$(id -u)" "$REMOTECAPTURE_LAUNCHAGENT_PLIST" 2>/dev/null \
-       || launchctl load "$REMOTECAPTURE_LAUNCHAGENT_PLIST" 2>/dev/null; then
+    if _ostler_launchagent_load_verified "$REMOTECAPTURE_LAUNCHAGENT_PLIST"; then
         ok "$(printf "$MSG_OK_CM042_LAUNCHAGENT_LOADED" "${REMOTECAPTURE_LAUNCHAGENT_LABEL}")"
         info "$(printf "$MSG_INFO_CM042_LOGS_AT" "${LOGS_DIR}")"
     else
@@ -19248,8 +20747,31 @@ OSTLER_TAILSCALE_IP=""
 # or the GUI was off then on) do we fall back to asking here -- the same
 # belt-and-braces shape the Mail probes use. The actual install + browser
 # sign-in below was pre-announced in Phase 2.
-if [[ -z "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]; then
+#
+# #875 (v1.0.44 upgrade walk, 2026-08-24): THIS is the site that re-asked.
+# A re-run over an existing install sets SKIP_PHASE2=true, so the whole
+# Phase-2 block -- including the early prompt above -- is jumped,
+# TAILSCALE_CONFIRM_SHOWN_EARLY is never set, and the fallback below asked
+# from scratch on a box whose tailnet was already joined. The fallback is
+# still right when nothing is set up; it just has to look first.
+if [[ -n "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]; then
+    # Answered upfront in this run. Honour it; ask nothing.
+    :
+elif _ts_already_configured; then
+    TAILSCALE_CONFIRM="setup"
+    TAILSCALE_CONFIRM_SHOWN_EARLY=1
+    export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
+    info "$MSG_INFO_TAILSCALE_ALREADY_CONFIGURED"
+else
+    if [[ "${_TS_CONFIGURED_VERDICT:-}" == "cannot_run" ]]; then
+        warn "$MSG_WARN_TAILSCALE_STATE_UNREADABLE"
+    fi
+    # Reached only when TAILSCALE_CONFIRM_SHOWN_EARLY is unset AND no tailnet
+    # state was found: nothing is set up and nobody has been asked yet. The
+    # walk-away middle never lands here.
     TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
+    TAILSCALE_CONFIRM_SHOWN_EARLY=1
+    export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
 fi
 
 if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
@@ -19446,8 +20968,7 @@ OSTLER_TS_WRAPPER
 </plist>
 TSPLIST
         chmod 0644 "$TS_LAUNCH_AGENT"
-        launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.tailscaled" 2>/dev/null || true
-        if launchctl bootstrap "gui/$(id -u)" "$TS_LAUNCH_AGENT" 2>/dev/null; then
+        if _ostler_launchagent_load_verified "$TS_LAUNCH_AGENT"; then
             ok "$MSG_OK_TAILSCALED_USERSPACE_STARTED"
         # #644: on a relaunch the label may already be registered (the
         # first run's RunAtLoad + KeepAlive), so bootstrap reports failure
@@ -20625,9 +22146,7 @@ DCUEOF
 DCUPLIST
     chmod 0644 "$plist"
 
-    launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
-    if launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || \
-       launchctl load "$plist" 2>/dev/null; then
+    if _ostler_launchagent_load_verified "$plist"; then
         ok "$MSG_OK_DEDUPE_CATCHUP_LOADED"
     else
         warn "$MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED"
@@ -23062,9 +24581,34 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
     # had to be restarted (#598); that restart WAS the recompile-window 000 the
     # static server removes. Identical publish primitive to
     # wiki-recompile-tick.sh.
+    # 🔴 "Wiki running at http://localhost:8044" used to be printed on the
+    # exit code of `docker compose up -d`, with NO probe of :8044 and no
+    # re-read of the container state. `up -d` returning 0 means compose
+    # asked for a container, not that anything answers on the port. On the
+    # v1.0.38 walk the wiki was dead for about a day and this line was the
+    # last thing that had claimed otherwise.
+    #
+    # INSTRUMENT AND DEFECT MUST SHARE A SURFACE: the claim is about a URL,
+    # so the evidence has to be that URL.
     if docker compose up -d wiki-site 2>&1 | tail -3; then
         WIKI_FIRST_COMPILE_OK=true
-        ok "$MSG_OK_WIKI_RUNNING_HTTP_LOCALHOST_8044"
+        # Poll rather than probe once: the static server binds a second or
+        # two after `up -d` returns. Bounded, and its failure is loud.
+        WIKI_PORT_UP=false
+        for _wiki_wait in $(seq 1 30); do
+            if curl -sf -o /dev/null -m 3 "http://127.0.0.1:8044/" 2>/dev/null; then
+                WIKI_PORT_UP=true
+                break
+            fi
+            sleep 2
+        done
+        if [[ "$WIKI_PORT_UP" == true ]]; then
+            ok "$MSG_OK_WIKI_RUNNING_HTTP_LOCALHOST_8044"
+        else
+            WIKI_FIRST_COMPILE_OK=false
+            HEALTHY=false
+            warn "$MSG_WARN_WIKI_PORT_NOT_ANSWERING"
+        fi
         # Detached full summary compile (summaries ON -- no skip flag).
         # nohup + </dev/null + disown so it survives install.sh exit and
         # its exit code can never gate install completion.
@@ -23160,7 +24704,18 @@ fi
 __OSTLER_STEP_ID="health_check"
 gui_step_begin "health_check" "$MSG_STEP_RUNNING_HEALTH_CHECK" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
 
-HEALTHY=true
+# 🔴 THIS LINE USED TO READ `HEALTHY=true`, AND IT ERASED TWO VERDICTS.
+#
+# #839 added `HEALTHY=false` at the zero-pages check (~23185) so that "the
+# wiki compiled zero pages" would mark the run unhealthy. This branch adds
+# a second one for ":8044 never answered". BOTH sit ~140 lines ABOVE this
+# point, and a bare `HEALTHY=true` here overwrote them, unconditionally,
+# every time. The instrument reported into a variable that was then reset
+# before anyone read it -- a gate that is green by construction.
+#
+# `:=` initialises only when unset, so the earlier verdicts survive and the
+# Phase 4 probes below can still only ever make things worse, never better.
+: "${HEALTHY:=true}"
 
 if curl -sf http://localhost:6333/healthz &>/dev/null; then
     ok "$MSG_OK_QDRANT_HEALTHY"
@@ -23276,6 +24831,25 @@ if _probe_http_live "http://127.0.0.1:8090/" 5; then
     ok "$MSG_OK_ICAL_SERVER_HEALTHY"
 else
     warn "$MSG_WARN_ICAL_SERVER_NOT_RESPONDING"
+    HEALTHY=false
+fi
+
+# 🔴 THE WIKI WAS NOT IN THE HEALTH CHECK AT ALL (v1.0.38 walk).
+#
+# Phase 4 probed Qdrant, Oxigraph, Redis, Ollama, the gateway, Doctor,
+# ical-server and Vane. It did not probe :8044, and there was no `curl` or
+# `nc` against 8044 anywhere in install.sh or scripts/ -- the only mentions
+# were an `echo` of the URL and an `open` of it. So the ONE surface the
+# customer is told to visit at the end ("Your wiki: http://localhost:8044")
+# was the one surface nothing checked.
+#
+# On the walk it was 000 for about a day and nothing said so. This is the
+# install-time half of that fix; the running-system half is the Doctor
+# service probe.
+if _probe_http_live "http://127.0.0.1:8044/" 10; then
+    ok "$MSG_OK_WIKI_HEALTHY"
+else
+    warn "$MSG_WARN_WIKI_NOT_RESPONDING"
     HEALTHY=false
 fi
 

@@ -1,7 +1,9 @@
 name: permission-briefing
 on:
   pull_request:
-    paths: ['install.sh', 'scripts/verify_permission_briefing.sh', 'scripts/tests/test_permission_briefing.sh']
+    # The last entry is this file: a gate must trigger on changes to ITSELF.
+    paths: ['install.sh', 'scripts/verify_permission_briefing.sh', 'scripts/tests/test_permission_briefing.sh',
+            '.github/workflows/permission-briefing.yml']
   push:
     branches: [main]
 jobs:

@@ -1,0 +1,132 @@
+# cut-manifests/v1.0.42.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.42.
+#
+# WHY v1.0.42 EXISTS: THE WALK GATE, THE LICENCE MOUNT, AND A WIKI RE-PIN
+# ---------------------------------------------------------------------------
+# v1.0.41 shipped with three things still open, and each of them is the same
+# family: something was TRUE in the repo and NOT TRUE in the artefact.
+#
+# 1. NOTHING BETWEEN "GATES GREEN" AND "CUSTOMER DOWNLOAD" WAS A RUNTIME PROOF
+#    (#844). A green cut repointed ostler.ai/install.dmg automatically, and all
+#    twelve box-walk probes returned SKIP. "Nobody found a defect" and "nobody
+#    looked" produced the same colour. v1.0.42 carries scripts/verify_walk_record.sh
+#    and publish_release.sh now gates --latest behind it.
+#
+#    ⚠️ CONSEQUENCE, STATED NOT HIDDEN: there is no walks/v1.0.42.tsv, so THIS
+#    CUT WILL BUILD AND PUBLISH BUT WILL NOT PROMOTE. ostler.ai/install.dmg
+#    keeps serving the previous release until a clean box walk is recorded.
+#    That is the gate working, not the gate failing. Do not bypass it with
+#    PUBLISH_RELEASE_ALLOW_UNWALKED to make the number go up.
+#
+# 2. THE PRO OBSIDIAN VAULT WRITER COULD NOT RUN ON ANY INSTALL (#849). The
+#    compiler reads /root/.ostler/licence/state.json and ~/.ostler was not
+#    mounted into that container at all. CM044's own test was green because it
+#    reads CM044's DEV compose; customers run CM051's install.sh. Instrument and
+#    defect on different surfaces.
+#
+# 3. THE WIKI IMAGES WERE REBUILT AND RE-PINNED to CM044 7bfcc58 (v0.1.25),
+#    which carries the L1 commitment-text leak fix (#250) and the joke-as-
+#    decision fix (#861). Both were merged and on NO box. Provenance was proven
+#    by extracting the three touched files out of the pinned compiler image and
+#    hashing them against CM044, with the OLD pin as the discriminating control
+#    -- without that last line the three matches prove only that the comparison
+#    returns MATCH.
+#
+# THE DAEMON: 0.4.62 -> 0.4.63, built LOCALLY with the keychain, not tag-pushed.
+# A daemon tag push produces an UNSIGNED draft, because sign-and-notarize.sh
+# treats an empty signing identity as "skip" and exits 0. Verified on the
+# PUBLISHED bytes fetched anonymously, not on the build log.
+#
+# THE VERSION STAMP: bumped to 1.0.42 / 4200 in this commit. It was still 1.0.41
+# / 4100 when the tag was first pushed, and the preflight refused the cut for
+# exactly that reason -- the v1.0.39 defect (a DMG that cannot tell you which
+# installer it is) caught before the artefact existed rather than after.
+# ============================================================================
+version: v1.0.42
+entries:
+  - id: v1042-wiki-site-image-is-the-v0125-rebuild
+    title: the shipped compose file pins the v0.1.25 wiki-site image
+    incident: >-
+      v1.0.41 pinned wiki-site sha256:0df14b72, built from CM044 946a624,
+      which predates #250 and #861. The full 64-hex digest is anchored rather
+      than a prefix, because a truncated match would accept a neighbouring
+      build and there are neighbouring builds.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-site@sha256:0d3b46d573d0bdfc712bde84435cae0fb76cc2f0f325f0e0bb327b91dc7a9925'
+      must_match: true
+
+  - id: v1042-wiki-compiler-image-is-the-v0125-rebuild
+    title: the shipped compose file pins the v0.1.25 wiki-compiler image
+    incident: >-
+      The compiler image is the half that GENERATES the pages, so a stale
+      compiler reproduces the defect on every recompile even behind a fresh
+      site image. Both images are pinned by digest and both must move.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-compiler@sha256:fae4843968d789fd3f14f550c5b131343a48bf8223f6360f3f17deea97c5781f'
+      must_match: true
+
+  - id: v1042-the-v1041-wiki-digests-are-gone
+    title: neither v1.0.41 wiki digest survives in the shipped installer
+    incident: >-
+      The negative limb. A re-pin that adds the new digest while leaving the
+      old one somewhere else in the file ships both, and compose would resolve
+      whichever it read first. Anchored on the two exact outgoing digests.
+    proof:
+      kind: grep_in_installer
+      pattern: 'sha256:(0df14b724a80895896803442692584d01a6b099b3d76e5cb9deccdbb2be68d9e|ab53c66a51cba53040009791cf9bb838a7913721b0b85130fb4fdb51f9f168b6)'
+      must_match: false
+
+  - id: v1042-licence-dir-is-mounted-into-the-compiler
+    title: the SHIPPED compose mounts ~/.ostler/licence read-only into the compiler
+    incident: >-
+      #849. Without this mount the Pro Obsidian vault writer reads
+      /root/.ostler/licence/state.json inside a container where that path does
+      not exist, so the Pro feature is inert on every install. Asserted on
+      install.sh, which is what a customer runs, NOT on CM044's dev compose,
+      which is what the previously-green test read.
+    proof:
+      kind: grep_in_installer
+      pattern: '\$\{HOME\}/\.ostler/licence:'
+      must_match: true
+
+  - id: v1042-installer-reports-its-own-version
+    title: the shipped installer bundle reports 1.0.42
+    incident: >-
+      v1.0.39 shipped an OstlerInstaller.app stamped 1.0.38 because gui/Makefile
+      derives the version by reading a tracked plist that was never bumped. The
+      plist still read 1.0.41 when v1.0.42 was first tagged and the preflight
+      REFUSED the cut, which is the gate doing its job. Bumped to 1.0.42 / 4200.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: "1.0.42"
+
+  - id: v1042-installer-build-number-moves-with-it
+    title: the shipped installer bundle's build number is 4200
+    incident: >-
+      Short version and build number must not drift apart: the build number is
+      what Finder and the update path compare, and a bundle whose two version
+      fields disagree cannot be reasoned about. Derivation is 1.0.42 -> 4200.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleVersion
+      value: "4200"
+
+  - id: v1042-daemon-is-0463
+    title: install.sh installs daemon 0.4.63
+    incident: >-
+      0.4.62 -> 0.4.63, built locally with the keychain rather than tag-pushed,
+      because a daemon tag push produces an UNSIGNED draft and exits 0. The
+      fallback default is bumped in lockstep: a stale fallback is how a box
+      silently installs a version nobody cut.
+    proof:
+      kind: grep_in_installer
+      pattern: 'OSTLER_ASSISTANT_VERSION:-0\.4\.63'
+      must_match: true

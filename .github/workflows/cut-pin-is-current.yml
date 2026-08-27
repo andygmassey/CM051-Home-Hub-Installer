@@ -51,6 +51,10 @@ on:
       - '.github/workflows/cut-pin-is-current.yml'
       - 'cuts/**/cut.env'
       - 'install.sh'
+      # Watched because the step below RUNS it. A run: without a
+      # matching path entry means editing this file does not trigger
+      # the only workflow that checks it.
+      - 'scripts/classify_pr_pin_shape.sh'
   push:
     branches: [main]
 

@@ -57,7 +57,13 @@ fi
 echo "PASS: install location is ~/.ostler/services/knowledge/"
 
 # ── Empty KNOWLEDGE_REPO branch warns and skips ─────────────────
-if ! grep -qE 'if \[\[ -z "\$KNOWLEDGE_REPO" \]\]; then' "$INSTALL_SCRIPT"; then
+# THIS DEMANDED AN EXPLICIT `if [[ -z "$KNOWLEDGE_REPO" ]]` BRANCH. The
+# installer expresses the same behaviour as the terminal `else` of an if/elif
+# chain (install.sh:17354 bundled / :17370 KNOWLEDGE_REPO / :17402 else), which
+# is why the literal stopped matching. KNOWLEDGE_REPO is a DEV OVERRIDE; the
+# customer path is the bundled copy, so `info` rather than `warn` is right.
+# Assert the BEHAVIOUR: the empty path is ANNOUNCED to the customer.
+if ! grep -qF 'MSG_INFO_KNOWLEDGE_SERVICE_NOT_INSTALLED_PWG_KNOWLEDGE' "$INSTALL_SCRIPT"; then
     echo "FAIL [empty-branch]: no '[[ -z \"\$KNOWLEDGE_REPO\" ]]' warn-and-skip branch" >&2
     exit 1
 fi
@@ -75,8 +81,14 @@ if ! grep -qE 'KNOWLEDGE_VENV="\$\{KNOWLEDGE_DIR\}/\.venv"' "$INSTALL_SCRIPT"; t
     echo "FAIL [venv-path]: venv path not at \$KNOWLEDGE_DIR/.venv" >&2
     exit 1
 fi
-if ! grep -qE 'python3 -m venv "\$KNOWLEDGE_VENV"' "$INSTALL_SCRIPT"; then
-    echo "FAIL [venv-create]: 'python3 -m venv \$KNOWLEDGE_VENV' missing" >&2
+# NOT a literal `python3`. install.sh:17411 uses "$PYTHON3_BIN" -m venv, the
+# RESOLVED interpreter, which on a customer install is the BUNDLED
+# python-build-standalone rather than the /usr/bin/python3 Apple stub.
+# Demanding the literal would demand the very thing CX-19 exists to stop: on a
+# fresh Mac with no Command Line Tools, `python3` fires a GUI dialog and the
+# install dies mid-step.
+if ! grep -qF '"$PYTHON3_BIN" -m venv "$KNOWLEDGE_VENV"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [venv-create]: install.sh does not create the knowledge venv with the RESOLVED interpreter ('\"\$PYTHON3_BIN\" -m venv \"\$KNOWLEDGE_VENV\"'). A literal python3 here is the /usr/bin/python3 Apple stub on a fresh Mac -- CX-19." >&2
     exit 1
 fi
 echo "PASS: venv created at \$KNOWLEDGE_DIR/.venv"
@@ -118,10 +130,35 @@ fi
 echo "PASS: knowledge-staging dir at ~/.ostler/data/knowledge-staging/"
 
 # ── Clone failure produces useful diagnostics ───────────────────
-if ! grep -q 'Override the source repo with PWG_KNOWLEDGE_REPO' "$INSTALL_SCRIPT"; then
+# THE STRING MOVED TO THE LOCALE CATALOGUE (Rule 0.9). install.sh:17399 emits
+# the KEY -- `info "$MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE"` -- so a
+# grep for the English words in install.sh can never match.
+#
+# Assert BOTH HALVES of the writer/reader contract. A key emitted with no
+# catalogue entry prints an EMPTY LINE, and the literal form could not see that:
+# it would fail identically whether the message was missing or merely moved.
+_ovr_key='MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE'
+if ! grep -qF "$_ovr_key" "$INSTALL_SCRIPT"; then
     echo "FAIL [diag-override]: clone failure does not mention PWG_KNOWLEDGE_REPO override" >&2
     exit 1
 fi
+
+_ovr_strings="${REPO_ROOT}/install.sh.strings.en-GB.sh"
+if [[ ! -f "$_ovr_strings" ]]; then
+    echo "FAIL [diag-catalogue]: cannot find install.sh.strings.en-GB.sh to verify $_ovr_key" >&2
+    exit 1
+fi
+_ovr_line="$(grep -F "${_ovr_key}=" "$_ovr_strings" || true)"
+if [[ -z "$_ovr_line" ]]; then
+    echo "FAIL [diag-catalogue]: $_ovr_key is emitted by install.sh but has NO catalogue entry -- the clone-failure hint would print an empty line" >&2
+    exit 1
+fi
+case "$_ovr_line" in
+    *PWG_KNOWLEDGE_REPO*) : ;;
+    *) echo "FAIL [diag-catalogue]: $_ovr_key no longer names PWG_KNOWLEDGE_REPO, so the hint does not tell the customer what to set" >&2
+       exit 1 ;;
+esac
+echo "PASS: clone-failure hint is emitted AND its catalogue entry names PWG_KNOWLEDGE_REPO"
 echo "PASS: clone failure surfaces PWG_KNOWLEDGE_REPO override hint"
 
 # ── Uninstaller removes /usr/local/bin/ostler-knowledge ─────────

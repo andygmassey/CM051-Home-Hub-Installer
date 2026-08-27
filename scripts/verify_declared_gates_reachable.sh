@@ -18,20 +18,84 @@
 #
 #   * CM051 tests/verify_hub_chat.sh   "Exit 0 = chat works. Non-zero = BLOCK
 #                                       THE CUT." Zero callers, zero mentions.
-#                                       DISPOSITIONED 2026-08-16: deleted. The
-#                                       live equivalent is OS003
-#                                       gates/behavioural_chat_probe.py, and it
-#                                       IS reached --
-#                                       pipeline/release.yml:169 runs
-#                                       gates/verify_behavioural_acceptance.sh
-#                                       --seed, which invokes the probe. Two
-#                                       copies of one gate where only one is
-#                                       reachable is worse than one copy: the
-#                                       dark one absorbs the attention the live
-#                                       one needs.
+#                                       DISPOSITIONED 2026-08-16 by deletion,
+#                                       naming a survivor. RIGHT CALL, WRONG
+#                                       EVIDENCE. Corrected 2026-08-23; see
+#                                       "THE DISPOSITION THAT CITED A DARK
+#                                       CALLER" below.
 #   * HR015 bin/ci-pii-shape-scan.sh   declared blocking, reachable only via a
 #                                       workflow nothing required.
 #   * D011 repair pass                  same shape.
+#
+# ============================================================================
+# THE DISPOSITION THAT CITED A DARK CALLER
+# ============================================================================
+#
+# This header used to record that verify_hub_chat.sh was safe to delete because
+# "the live equivalent is OS003 gates/behavioural_chat_probe.py, and it IS
+# reached -- pipeline/release.yml:169 runs gates/verify_behavioural_acceptance.sh
+# --seed, which invokes the probe."
+#
+# MEASURED 2026-08-23 against OS003 main 35753583df45. Every clause of that is
+# wrong except the conclusion:
+#
+#   * the line is 204, not 169
+#   * pipeline/release.yml is NOT under .github/workflows/, and OS003 has
+#     exactly one workflow (gates.yml, self-tests). GitHub never reads it.
+#   * so NOTHING invokes it, and OS003's own registers already said so:
+#     cuts/DEFECTS_ROLLFORWARD.md:39 -- "no file in the repo invokes
+#     pipeline/release.yml" -- and bin/cut.sh:358-363, which refuses to
+#     register a gate there because it would be "a gate that looks required
+#     and runs never".
+#   * bin/cut.sh, the operator road, does not mention behavioural at all.
+#     Control: verify_must_contain appears in it at line 368.
+#
+# So a gate was retired against evidence that was itself the defect this gate
+# exists to catch. It is worth saying plainly, because the failure is not
+# carelessness -- the search was reasonable and the conclusion was correct:
+#
+#   A FILENAME SEARCH CANNOT FIND A GLOB-DRIVEN RUNNER'S CALLEES.
+#
+# The real survivor was in CM051 the whole time, and no search for "hub_chat"
+# or "chat_probe" could have surfaced it -- NOR CAN THIS GATE, see control (19):
+#
+#   scripts/post_walk_qa.sh:112
+#     -> scripts/box_walk_probes/run_box_walk.sh
+#     -> for f in "$PROBE_DIR"/*.sh                (run_box_walk.sh:83)
+#     -> probes/assistant_answers_grounded.sh
+#
+# and #978's walk-record gate makes that walk a precondition of promoting a
+# build to customers. The chat behaviour IS proven before a customer sees it.
+# Through the human box walk, not through CI.
+#
+# Two copies of one gate where only one is reachable is still worse than one
+# copy: the dark one absorbs the attention the live one needs. That part stood.
+#
+# ============================================================================
+# THIS GATE TAKES --repo, AND HAD ONLY EVER BEEN POINTED AT CM051
+# ============================================================================
+#
+# 2026-08-23. One command, no runner, no network:
+#
+#   OSTLER_CUT_ENTRYPOINTS='bin/cut.sh' \
+#     bash scripts/verify_declared_gates_reachable.sh --repo <OS003>
+#   -> 3 of 8 reachable, rc=1
+#
+# Without the entry-point declaration it reports 2 of 8 and scores bin/cut.sh
+# itself an orphan -- a FALSE orphan, because a human starts it by hand and
+# this gate's built-in entry points are .github/workflows/* and Makefile.
+# Declaring the operator road is what OSTLER_CUT_ENTRYPOINTS is for.
+#
+# The five real orphans share one root cause -- reachable only from
+# pipeline/release.yml -- and one of them matters more than the rest:
+#
+#   gates/reconcile_gates.sh reads release.toml [gates].required, THE DECLARED
+#   LIST OF GATES THAT BLOCK A RELEASE, and reconciles it against computed
+#   verdicts. Its only call site is pipeline/release.yml:238.
+#
+# Not every OS003 orphan is a hole. vendor/verify_vendor_fresh.sh is dark THERE
+# and live HERE (.github/workflows/vendor-integrity.yml:150, every PR). Two
+# copies, one reachable: check which one before wiring anything.
 #
 # None was caught by the test-wiring register, because that register enumerates
 # `test_*` and these are named otherwise: they were not scored UNWIRED, they
@@ -404,6 +468,7 @@ check:
 	bash scripts/consumed_gate.sh
 	bash scripts/consumer.sh
 	bash scripts/prose_gate.sh
+	bash scripts/glob_runner.sh
 	bash scripts/darkly_proven_gate.sh
 	bash scripts/falsely_registered_gate.sh
 	@rc=0; bash "$(GATE_SH)" || rc=$$?; exit $$rc
@@ -418,6 +483,17 @@ MK
                 > "$r/scripts/dark_runner.sh"
             # Prose mention. Must not rescue orphan_gate.
             printf 'The orphan_gate.sh check is important and must be kept.\n' > "$r/docs/notes.md"
+
+            # A GLOB-DRIVEN RUNNER and the probe it really does execute. The
+            # runner is reachable; the probe is named literally NOWHERE.
+            mkdir -p "$r/scripts/probes"
+            {
+              printf '#!/bin/sh\n'
+              printf '# Non-zero = BLOCK THE CUT.\n'
+              printf 'for f in "$(dirname "$0")"/probes/*.sh; do bash "$f"; done\n'
+            } > "$r/scripts/glob_runner.sh"
+            printf '#!/bin/sh\n# Non-zero = BLOCK THE CUT.\nexit 0\n' \
+                > "$r/scripts/probes/glob_probe_gate.sh"
             # A DATA yaml that declares a blocking rule. Belongs in the second
             # population, never in the orphan list.
             printf 'version: v1.0.11\nnote: this manifest MUST NOT SHIP unverified\n' \
@@ -483,7 +559,11 @@ MK
     OUT="$d/red.out"
     bash "$SELF" --repo "$d/red" > "$OUT" 2>&1; rc_red=$?
     orphan_block() { sed -n '/^  ORPHANED/,$p' "$OUT"; }
-    listed_orphan() { orphan_block | grep -qF "scripts/$1.sh"; }
+    # Count, do not -q. See the block at the top of this file: `grep -q`
+    # exits on first match, the upstream sed dies of SIGPIPE, and pipefail
+    # turns a SUCCESSFUL match into a non-zero status. Measured: this exact
+    # shape inverts once the orphan block passes about 1000 lines / 24KB.
+    listed_orphan() { [ "$(orphan_block | grep -cF "scripts/$1.sh")" -gt 0 ]; }
 
     listed_orphan called_gate     && no "(1) direct 'bash X' call site was called an orphan" \
                                   || ok "(1) a direct 'bash X' call site IS a call site"
@@ -500,13 +580,42 @@ MK
                                   || no "(6) dark runner wrongly reported reachable"
     listed_orphan second_hop_gate && ok "(7) TRANSITIVE: a gate reached only VIA a dark runner is still dark" \
                                   || no "(7) one-hop reasoning let a second-hop gate pass"
-    if orphan_block | grep -qF 'cut-manifests/v1.0.11.yaml'; then
+    if [ "$(orphan_block | grep -cF 'cut-manifests/v1.0.11.yaml')" -gt 0 ]; then
         no "(8) a DATA yaml was judged on the invocation axis (permanent false red)"
     elif grep -qF 'cut-manifests/v1.0.11.yaml' "$OUT"; then
         ok "(8) a DATA yaml declarer is reported under NOT MEASURED, not as an orphan"
     else
         no "(8) the data-yaml declarer vanished entirely -- it must still be COUNTED"
     fi
+    # (19) A GLOB CALL SITE IS NOT RESOLVED, AND THAT IS THE DELIBERATE ANSWER.
+    #
+    # scripts/glob_runner.sh IS reachable and genuinely executes
+    # scripts/probes/glob_probe_gate.sh, whose name appears nowhere. The gate
+    # reports the probe as an ORPHAN.
+    #
+    # PINNED, NOT FIXED, and the reason is this file's own error-direction
+    # rule: "an over-tight predicate reports an extra orphan, which is noise a
+    # human resolves in a minute. An over-loose one blesses a dark gate, which
+    # is invisible forever." Expanding globs to decide reachability is the
+    # over-loose direction, so the miss is the safe one.
+    #
+    # 🔴 IT IS NOT FREE, and axis one is BLOCKING now. The day a box-walk probe
+    # writes "BLOCK THE CUT" in its header, this gate reports a FALSE ORPHAN and
+    # stops main. Measured 2026-08-23: 0 of the box_walk probes declare
+    # themselves blocking, against 23 declarers tree-wide, so the risk is latent
+    # rather than live. If it goes live, add the runner's directory to an
+    # explicit allowance -- do NOT widen the predicate to expand globs.
+    #
+    # This control exists so the limit is a DECISION with a fixture, not an
+    # accident somebody later "fixes" into a false green.
+    [ "$(orphan_block | grep -cF 'scripts/probes/glob_probe_gate.sh')" -gt 0 ] \
+        && ok "(19) LIMIT PINNED: a glob-reached gate reads as an orphan (safe direction)" \
+        || no "(19) a glob call site is now resolved -- CHECK IT CANNOT BLESS A DARK GATE"
+
+    listed_orphan glob_runner \
+        && no "(20) the glob RUNNER was called an orphan -- (19) proves nothing then" \
+        || ok "(20) CONTROL: the glob runner itself IS reachable, so (19) is about the glob"
+
     [ "$rc_red" -eq 1 ] && ok "(9) exits 1 when orphans exist" \
                         || no "(9) orphans present but exit code was ${rc_red}"
 

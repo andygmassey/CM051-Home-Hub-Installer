@@ -3,6 +3,22 @@
 Automated checks that run against a freshly installed Hub and answer questions a
 human walking the box cannot answer by looking.
 
+## ▶ BEFORE ANY OF THAT: WALK THE DMG ITSELF
+
+```sh
+scripts/walk_dmg.sh <path-to.dmg>
+```
+
+The suite below needs a box that has already been installed onto. **Everything
+in this file assumes the artefact was worth installing**, and v1.0.45 proved
+that assumption can be false: it was correctly signed, stapled, and accepted by
+Gatekeeper as `source=Notarized Developer ID`, and it bricked the Mac it was
+installed on.
+
+`walk_dmg.sh` walks the artefact first. Its arm 8 runs the bundle and checks
+whether it survives its own first use, which is the only arm that catches that
+class. On v1.0.45 five arms pass and arm 8 vetoes.
+
 ## ▶ AFTER A DMG WALK, RUN THIS ONE COMMAND
 
 ```sh
@@ -33,6 +49,30 @@ Exit codes, and the middle one is the point:
 back to "this machine" is how `installed_bundle_seal_intact` once ran its
 self-test on the wrong computer, found no Ostler bundles, and reported BROKEN
 instead of a verdict.
+
+**And it was worse than the self-test.** v1.0.46 BOM row 6 recorded a
+contradiction that blocked a claim: the probe reported all three bundles
+`MISSING` from `/Applications` while a direct SSH read found
+`/Applications/Ostler.app` present. The probe was the wrong reader, and not
+because it was denied — it named no `ssh`, no `box_run` and no
+`OSTLER_BOX_HOST`, so `[[ -d ... ]]` had always been a question about the
+operator's own laptop. Pointed at a hostname that does not resolve, it still
+produced a confident three-line verdict.
+
+Two rules came out of it, and they apply to every probe here:
+
+1. **Reach the box through `box_run` / `box_run_v`.** A probe that stats a path
+   directly is measuring whichever machine invoked it.
+2. **A reader must print what it looked at.** `lib/bundle_inspect.py` is the
+   reference shape: hostname, uid/euid, transport, SIP and TCC state, the
+   RESOLVED path after expansion, the raw errno and strerror of any failing
+   syscall, and — for an absence — the ancestor directory it enumerated and how
+   many entries were in it. `PRESENT` / `ABSENT` / `CANNOT-LOOK` are three
+   verdicts, and **a refused read exits 78, never "missing"**. Pinned by
+   `tests/test_a_denied_read_is_not_an_absence.sh`.
+
+`box_run` discards the remote command's stderr; **`box_run_v` does not**. Use
+the latter whenever the reason a read failed is part of the answer.
 
 **Why this file had to be written.** #719: nothing invoked `run_box_walk.sh` at
 all. #713: every `box_walk_probe` manifest row had ALWAYS returned SKIP, and
@@ -205,7 +245,7 @@ the system it models misses them. Both cost the same amount of trust.
 | `freshness_panel_has_dates` | does every source report a date, not `unknown`? | #349, #266 |
 | `people_count_agreement` | do the graph and the API agree on the count? | #273 |
 | `daemon_is_listening` | does the gateway accept connections, and can the daemon load its config at all? | #363 |
-| `installed_bundle_seal_intact` | does the installed bundle's signature still verify? | #375 |
+| `installed_bundle_seal_intact` | does the installed bundle's signature still verify **on the box**, and can the reader prove what it looked at? | #375, v1.0.46 BOM row 6 |
 | `people_seed_and_retrieval` | can a person seeded on the box be retrieved again through the route the daemon really uses? | v1.0.12 |
 
 Each asserts **agreement or absence of a lie**, not a particular value. An

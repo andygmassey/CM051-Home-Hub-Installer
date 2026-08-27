@@ -828,21 +828,27 @@ private struct FooterView: View {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
                 .buttonStyle(.ostlerGhost)
+                // v1.0.42 walk, finding 1: the auto-quit countdown. Visible so
+                // the close is never a surprise; every CTA above stays live
+                // for the whole window.
+                if let left = coordinator.autoQuitRemaining {
+                    Text(ViewCopy.shared.string(for: "footer.auto_quit_countdown",
+                                                fills: ["time": InstallerCoordinator.mmss(left)]))
+                        .font(.ostlerCaption)
+                        .foregroundStyle(Color.ostlerInkSubdued)
+                }
                 Button(ViewCopy.shared.string(for: "footer.done_button")) {
-                    // CX-52 (DMG #30, 2026-05-24): on successful install,
-                    // move OstlerInstaller.app to ~/.Trash on the way out.
-                    // The installer has served its purpose; leaving it
-                    // in /Applications as a stale 33MB DMG-extracted
-                    // bundle is clutter the customer didn't ask for.
-                    // Best-effort: any failure (path missing, perms) is
-                    // swallowed so the terminate still happens.
-                    let bundleURL = Bundle.main.bundleURL
-                    if bundleURL.path.hasPrefix("/Applications/") {
-                        var trashedURL: NSURL?
-                        try? FileManager.default.trashItem(
-                            at: bundleURL, resultingItemURL: &trashedURL)
-                    }
-                    NSApp.terminate(nil)
+                    // CX-52 (DMG #30) used to move OstlerInstaller.app to the
+                    // Trash here UNCONDITIONALLY and silently. That was wrong:
+                    // re-running the installer is a legitimate repair route --
+                    // the v1.0.42 upgrade walk is exactly that route -- and
+                    // CM031 #637 is the standing example of what "your only
+                    // escape is delete and reinstall" costs a customer.
+                    //
+                    // The choice now lives on an explicit toggle that DEFAULTS
+                    // TO KEEP, and both this button and the auto-quit go
+                    // through the same sink so they cannot disagree.
+                    coordinator.finishAndQuit()
                 }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.ostlerPrimary)

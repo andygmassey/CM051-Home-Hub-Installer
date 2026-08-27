@@ -144,23 +144,31 @@ SAMPLE_GAP="${OSTLER_EGRESS_SAMPLE_GAP:-2}"
 # classification is not at the mercy of reverse DNS, which can hang and can
 # also rewrite an address into a name the policy regex would miss.
 # ---------------------------------------------------------------------------
+# THE ONE PLACE THE SOCKET READING IS DEFINED.
+#
+# Shared verbatim by the MEASUREMENT (sample_sockets) and by the CONTROL in
+# self_test. If the control exercised a copy, the copy could drift and the
+# control would go on certifying a reader nobody uses -- which is the shape of
+# every finding in this file. One string, two callers, no drift possible.
+#
+# FIND the field containing '->', do not assume a position. lsof appends
+# '(ESTABLISHED)' after the address, so $NF is the STATE and the address is
+# $(NF-1). The first version of this used $NF, saw nothing at all, and the
+# self-test caught it by failing to observe its own planted socket. Scanning
+# for the arrow survives the state suffix being present, absent, or moved.
+_EGRESS_LSOF_SNIPPET='lsof -nP -iTCP -sTCP:ESTABLISHED 2>/dev/null | awk '"'"'NR>1 { for (f=NF; f>=1; f--) { i=index($f,"->"); if (i>0) { print $1 "\t" $2 "\t" substr($f,i+2); break } } }'"'"''
+
 sample_sockets() {
-    # FIND the field containing '->', do not assume a position. lsof appends
-    # '(ESTABLISHED)' after the address, so \$NF is the STATE and the address is
-    # \$(NF-1). The first version of this used \$NF, saw nothing at all, and the
-    # self-test caught it by failing to observe its own planted socket. Scanning
-    # for the arrow survives the state suffix being present, absent, or moved.
-    box_run "lsof -nP -iTCP -sTCP:ESTABLISHED 2>/dev/null \
-             | awk 'NR>1 { for (f=NF; f>=1; f--) { i=index(\$f,\"->\"); if (i>0) { print \$1 \"\t\" \$2 \"\t\" substr(\$f,i+2); break } } }' \\
-             | while IFS=\$'\t' read -r c pp r; do
-                 chain=''; cur=\"\$pp\"; n=0
-                 while [ -n \"\$cur\" ] && [ \"\$cur\" != 1 ] && [ \"\$cur\" != 0 ] && [ \$n -lt 8 ]; do
-                   chain=\"\${chain}:\$(ps -p \"\$cur\" -o comm= 2>/dev/null)\"
-                   cur=\$(ps -p \"\$cur\" -o ppid= 2>/dev/null | tr -d ' ')
-                   n=\$((n+1))
+    box_run "${_EGRESS_LSOF_SNIPPET}"' \
+             | while IFS=$'"'"'\t'"'"' read -r c pp r; do
+                 chain=""; cur="$pp"; n=0
+                 while [ -n "$cur" ] && [ "$cur" != 1 ] && [ "$cur" != 0 ] && [ $n -lt 8 ]; do
+                   chain="${chain}:$(ps -p "$cur" -o comm= 2>/dev/null)"
+                   cur=$(ps -p "$cur" -o ppid= 2>/dev/null | tr -d " ")
+                   n=$((n+1))
                  done
-                 printf '%s\t%s\t%s\t%s\n' \"\$c\" \"\$pp\" \"\$r\" \"\$chain\"
-               done"
+                 printf "%s\t%s\t%s\t%s\n" "$c" "$pp" "$r" "$chain"
+               done'
 }
 
 # Everything the product owns, across the samples, deduplicated.
@@ -231,10 +239,76 @@ is_outside_boundary() {   # $1 = remote address:port
     return 0
 }
 
+# ---------------------------------------------------------------------------
+# DETECTION CAPABILITY, PROVED ON EVERY RUN -- not in a self-test somebody
+# remembers to invoke.
+#
+# Plants a real loopback socket ON THE SAMPLING HOST and returns the sampler's
+# own reading of it. Echoes "__PORT__ <p>" then the raw socket lines.
+#
+# Everything is co-located inside ONE box_run. That is the whole point: the
+# previous control planted locally and sampled remotely, so it observed
+# nothing on every walk and reported PASS anyway.
+# ---------------------------------------------------------------------------
+plant_and_sample() {
+    box_run '
+        set -u
+        command -v python3 >/dev/null 2>&1 || { echo "__NOPY__"; exit 0; }
+        T=$(mktemp -t egressctl.XXXXXX) || { echo "__NOTMP__"; exit 0; }
+        cat > "$T" <<'"'"'PYCTL'"'"'
+import socket, sys, time
+srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(1)
+port = srv.getsockname()[1]
+cli = socket.socket(); cli.connect(("127.0.0.1", port))
+conn, _ = srv.accept()
+sys.stdout.write(str(port) + "\n"); sys.stdout.flush()
+time.sleep(20)
+PYCTL
+        python3 "$T" > "$T.port" 2>/dev/null &
+        CPID=$!
+        n=0
+        while [ ! -s "$T.port" ] && [ $n -lt 60 ]; do sleep 0.1; n=$((n+1)); done
+        P=$(tr -d " \n" < "$T.port" 2>/dev/null)
+        [ -n "$P" ] || { kill $CPID 2>/dev/null; rm -f "$T" "$T.port"; echo "__NOPORT__"; exit 0; }
+        echo "__PORT__ $P"
+        '"$_EGRESS_LSOF_SNIPPET"'
+        kill $CPID 2>/dev/null; rm -f "$T" "$T.port"
+    '
+}
+
+# The POSITIVE control, run before any measurement is reported. If the sampler
+# cannot see a socket that is definitely there, this run has measured nothing
+# and must say so -- CANNOT-RUN (exit 2), never a quiet exit 0.
+#
+# "Nothing found" and "nothing looked at" print identically unless something
+# refuses to let them.
+assert_detection_capability() {
+    local out port seen
+    out="$(plant_and_sample)"
+    case "$out" in
+        *__NOPY__*)   probe_cannot_run "python3 is not available where the sampler runs, so detection capability could not be established. This run proves nothing about egress." ;;
+        *__NOTMP__*)  probe_cannot_run "could not create a temp file where the sampler runs; detection capability not established." ;;
+        *__NOPORT__*) probe_cannot_run "the control socket never came up where the sampler runs; detection capability not established." ;;
+    esac
+    port="$(printf '%s\n' "$out" | sed -n 's/^__PORT__ //p' | head -1)"
+    [ -n "$port" ] || probe_cannot_run "the control did not report a port; detection capability not established."
+
+    seen="$(printf '%s\n' "$out" | grep -E "^(python3|Python)" | grep -F ":${port}" || true)"
+    if [ -z "$seen" ]; then
+        probe_cannot_run "POSITIVE CONTROL FAILED: the sampler did not observe a loopback socket planted on the sampling host itself. It cannot see an established connection that is definitely there, so a clean reading below would be uninterpretable. This is CANNOT-RUN, not a pass."
+    fi
+    probe_note "detection proved: planted socket on :${port} observed by this run's own sampler"
+}
+
 run_probe() {
     if ! box_reachable; then
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; nothing inspected"
     fi
+
+    # EVERY RUN, BEFORE ANY VERDICT. A pass from an instrument that has not
+    # demonstrated it can detect is indistinguishable from a pass from one that
+    # is blind, and those two print the same string.
+    assert_detection_capability
 
     probe_note "boundary policy : ${OSTLER_EGRESS_ALLOWED_RE}"
     probe_note "ours (lineage)  : ${OSTLER_OURS_PATH_RE}"
@@ -342,45 +416,75 @@ run_probe() {
 # correctly. probe_fail is therefore the SUCCESS path here.
 # ---------------------------------------------------------------------------
 self_test() {
-    SELF_TEST_LOCAL=1
 
     command -v python3 >/dev/null 2>&1 || \
         probe_cannot_run "python3 is needed to plant the control socket"
 
-    local port pyfile pid
-    pyfile="$(mktemp -t egressctl.XXXXXX)"
-    cat > "$pyfile" <<'PY'
+    # 🔴 THE PLANTED SOCKET AND THE SAMPLER MUST BE ON THE SAME MACHINE.
+    #
+    # This is the defect that made every walk-time clean run uninterpretable,
+    # and it was invisible from a local run.
+    #
+    # The old control planted a python socket with a bare `python3 ... &` --
+    # i.e. on the machine RUNNING the probe -- and then called sample_sockets,
+    # which goes through box_run. box_run SSHes to $OSTLER_BOX_HOST when it is
+    # set, and a walk always sets it. So lsof ran on the TARGET box while the
+    # socket existed on the LAPTOP. The control could not observe its own
+    # planted socket for the same reason you cannot see your own house from
+    # inside someone else's.
+    #
+    # It set SELF_TEST_LOCAL=1 intending to prevent exactly this. Nothing ever
+    # read that variable -- `grep -rn SELF_TEST_LOCAL` returns its own
+    # assignment and nothing else. A write-only flag, the same shape as #678.
+    #
+    # MEASURED, both directions, before the fix:
+    #     local  (OSTLER_BOX_HOST unset)   EXAMINED: 1   control behaves
+    #     remote (OSTLER_BOX_HOST set)     EXAMINED: 0   "CONTROL DID NOT EVEN
+    #                                                     OBSERVE ITS OWN
+    #                                                     PLANTED SOCKET"
+    #
+    # The fix is not to make box_run honour the flag. It is to remove the
+    # possibility: plant, sample and tear down in ONE box_run, so the socket
+    # and the sampler are co-located by construction rather than by a variable
+    # somebody has to remember to read. There is no longer a flag to get wrong.
+    local out port seen
+    out="$(box_run '
+        set -u
+        command -v python3 >/dev/null 2>&1 || { echo "__NOPY__"; exit 0; }
+        T=$(mktemp -t egressctl.XXXXXX) || { echo "__NOTMP__"; exit 0; }
+        cat > "$T" <<'"'"'PYCTL'"'"'
 import socket, sys, time
 srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(1)
 port = srv.getsockname()[1]
 cli = socket.socket(); cli.connect(("127.0.0.1", port))
 conn, _ = srv.accept()
-print(port, flush=True)
-time.sleep(float(sys.argv[1]))
-PY
-    # Hold the socket open long enough for the sampler to see it.
-    python3 "$pyfile" 25 > "${pyfile}.port" 2>/dev/null &
-    pid=$!
-    # Wait for the port line rather than sleeping a guess.
-    local waited=0
-    while [ ! -s "${pyfile}.port" ] && [ "$waited" -lt 50 ]; do
-        sleep 0.1; waited=$((waited + 1))
-    done
-    port="$(cat "${pyfile}.port" 2>/dev/null | tr -d ' \n')"
-    cleanup() { kill "$pid" 2>/dev/null; rm -f "$pyfile" "${pyfile}.port"; }
+sys.stdout.write(str(port) + "\n"); sys.stdout.flush()
+time.sleep(20)
+PYCTL
+        python3 "$T" > "$T.port" 2>/dev/null &
+        CPID=$!
+        n=0
+        while [ ! -s "$T.port" ] && [ $n -lt 60 ]; do sleep 0.1; n=$((n+1)); done
+        P=$(tr -d " \n" < "$T.port" 2>/dev/null)
+        [ -n "$P" ] || { kill $CPID 2>/dev/null; rm -f "$T" "$T.port"; echo "__NOPORT__"; exit 0; }
+        echo "__PORT__ $P"
+        '"$_EGRESS_LSOF_SNIPPET"'
+        kill $CPID 2>/dev/null; rm -f "$T" "$T.port"
+    ')"
 
+    case "$out" in
+        *__NOPY__*)   probe_cannot_run "python3 is not available where the sampler runs; the control socket could not be planted there" ;;
+        *__NOTMP__*)  probe_cannot_run "could not create a temp file where the sampler runs" ;;
+        *__NOPORT__*) probe_cannot_run "the control socket never came up where the sampler runs; nothing was proved either way" ;;
+    esac
+    port="$(printf '%s\n' "$out" | sed -n 's/^__PORT__ //p' | head -1)"
     if [ -z "$port" ]; then
-        cleanup
-        probe_cannot_run "could not plant the control socket; nothing was proved either way"
+        probe_cannot_run "the control did not report a port; nothing was proved either way"
     fi
 
-    # The classifier reads THIS process's sockets, so the product filter is
-    # narrowed to python3 for the control. The thing under test is the
-    # BOUNDARY DECISION, and that is exercised for real.
-    local seen red_hits green_hits
-    OSTLER_EGRESS_PROC_RE='python3|Python'
-    SAMPLES=1
-    seen="$(sample_sockets | grep -E "^(python3|Python)" | grep -F ":${port}" || true)"
+    # SAME host, SAME lsof snippet the measurement uses.
+    seen="$(printf '%s\n' "$out" | grep -E "^(python3|Python)" | grep -F ":${port}" || true)"
+    cleanup() { :; }
 
     probe_examined "$(printf '%s' "$seen" | grep -c .)" "planted loopback socket(s) observed by the real sampler"
 

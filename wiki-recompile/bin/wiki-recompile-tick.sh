@@ -161,14 +161,50 @@ while [ "$_try" -le "$WIKI_RUNTIME_WAIT_TRIES" ]; do
     sleep "$WIKI_RUNTIME_WAIT_INTERVAL"
     _try=$((_try + 1))
 done
+# 🔴 A TRANSIENT AND A PERMANENT OUTAGE EXITED 0 IDENTICALLY (v1.0.42 walk).
+#
+# The exit-0 above is right for a reboot transient and wrong for everything
+# else, and until now the two were indistinguishable: a runtime that never
+# came back produced a green launchd record on every tick, forever, and the
+# wiki was dead for about a day with nothing anywhere saying so.
+#
+# The exit code stays 0 -- flipping it would put a red launchd record on
+# every ordinary reboot, and a gate that is always red stops being read just
+# as surely as one that is always green. What changes is that the tick now
+# COUNTS its consecutive no-ops into a state file the Doctor reads
+# (check_wiki_health), so the second hour of an outage looks different from
+# the first ten minutes of one.
+_wiki_stall_state_dir="${OSTLER_STATE_DIR:-${HOME}/.ostler/state}/wiki-recompile"
+_wiki_stall_file="${_wiki_stall_state_dir}/runtime-unready.json"
+
 if [ "$_runtime_ready" != true ]; then
     _waited=$((WIKI_RUNTIME_WAIT_TRIES * WIKI_RUNTIME_WAIT_INTERVAL))
     log "container runtime (Colima/Docker) not ready after ${_waited}s; will retry next tick."
     log "       This is expected shortly after a reboot while the container"
     log "       runtime's VM starts; the next scheduled tick (or the catch-up"
     log "       runner) recompiles once it is up. Exiting 0 (no launchd failure)."
+
+    mkdir -p "$_wiki_stall_state_dir" 2>/dev/null || true
+    _prev_count=0
+    _first_seen=""
+    if [ -f "$_wiki_stall_file" ]; then
+        _prev_count=$(sed -n 's/.*"consecutive"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "$_wiki_stall_file" | head -1)
+        _first_seen=$(sed -n 's/.*"first_seen"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_wiki_stall_file" | head -1)
+    fi
+    [ -n "$_prev_count" ] || _prev_count=0
+    _now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    [ -n "$_first_seen" ] || _first_seen="$_now_iso"
+    printf '{"consecutive": %d, "first_seen": "%s", "last_seen": "%s"}\n' \
+        $((_prev_count + 1)) "$_first_seen" "$_now_iso" \
+        > "${_wiki_stall_file}.tmp" 2>/dev/null \
+        && mv -f "${_wiki_stall_file}.tmp" "$_wiki_stall_file" 2>/dev/null || true
+    log "       recorded consecutive runtime-unready ticks: $((_prev_count + 1)) (${_wiki_stall_file})"
     exit 0
 fi
+
+# The runtime answered. Clear the streak so a recovered box stops reporting
+# an outage -- a marker that is never cleared is a false alarm generator.
+rm -f "$_wiki_stall_file" 2>/dev/null || true
 
 cd "$OSTLER_DIR"
 

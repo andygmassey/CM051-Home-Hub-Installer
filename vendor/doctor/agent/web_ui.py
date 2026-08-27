@@ -411,6 +411,18 @@ def run_local_diagnostics(snapshot: SystemSnapshot) -> list[dict]:
 
     # Check services
     for svc in snapshot.services:
+        # The wiki is handled by diagnostic_rules.check_wiki_health, which
+        # names the layer that is actually broken (stopped VM vs stopped
+        # container vs bad response). The generic fix command below is
+        # `docker restart <prefix><name>`, and for the wiki that is the
+        # WRONG INSTRUCTION in the most common case: restarting a container
+        # inside a stopped Linux VM does nothing. Two rows about one
+        # service, one of them carrying a command that cannot work, is
+        # worse than one row -- the customer tries it, it fails, and the
+        # page stops being trusted. Skipped here, never dropped: the rule
+        # in diagnostic_rules always emits when the wiki is not healthy.
+        if svc.name == "wiki":
+            continue
         if svc.status == "unreachable":
             findings.append({
                 "severity": "critical",

@@ -31,6 +31,11 @@
 #   the daemon's TCC pre-probe covers the legacy client, so an upgrade
 #     resolves an existing grant instead of silently asking again
 #
+# ADDED SINCE: the install-time iMessage TCC posture probe (2026-08-26). The
+# nine above are the original triage; this set is expected to grow as the
+# backlog is cleared, so read the run: steps for the current membership, not
+# this list.
+#
 # WHOLE-REPO TRIGGER, DELIBERATELY. Every other gate here filters by path.
 # That is right for a gate whose inputs are one directory, and wrong for this
 # one: these nine read install.sh, the string catalogue, ViewCopy.json, a
@@ -88,6 +93,16 @@ jobs:
         if: always()
         run: bash tests/test_runtime_ready_invariant.sh
 
+      # ...and DERIVING it must not over-collect. v1.0.43 aborted every install
+      # at 19% because the derivation counted `except ImportError:` fallback
+      # arms as hard requirements. Its sibling above asserts the requirement is
+      # derived and consulted; it does not assert the derived SET is right, and
+      # a set that is too large fails exactly as loudly as one that is too
+      # small while being wrong in the opposite direction.
+      - name: A derived requirement excludes optional and intra-package imports
+        if: always()
+        run: bash tests/test_runtime_ready_does_not_require_optional_imports.sh
+
       # Every osascript dialog must `activate` System Events first.
       #
       # ba94a24 stripped `activate` from FOUR FDA modals, so they opened
@@ -113,6 +128,17 @@ jobs:
       - name: iMessage FDA probe stays best-effort and its card stays quiet
         if: always()
         run: bash tests/test_imessage_fda_probe.sh
+
+      # ADDED 2026-08-26, and it is the same defect as the original nine.
+      # This test was REPAIRED in #1072 (its shim never sourced the locale
+      # catalogue, so four call sites asserted against strings that were not
+      # loaded) and left wired to nothing, so the repair changed a file that
+      # no runner has ever executed. Fixing an unwired test is not wiring it.
+      # 18 assertions, green, and portable: its only platform-specific call
+      # already falls back from `stat -f` to `stat -c`.
+      - name: the install-time iMessage TCC posture probe stays read-only and honest
+        if: always()
+        run: bash tests/test_imessage_tcc_posture.sh
 
       - name: the vendored defect register carries no personal data
         if: always()

@@ -15,8 +15,8 @@ settings:
     CODE_SIGN_STYLE: Manual
     PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer
     PRODUCT_NAME: OstlerInstaller
-    CURRENT_PROJECT_VERSION: "4100"
-    MARKETING_VERSION: "1.0.41"
+    CURRENT_PROJECT_VERSION: "4800"
+    MARKETING_VERSION: "1.0.48"
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS: YES
     OTHER_CODE_SIGN_FLAGS: "--timestamp"
@@ -48,8 +48,8 @@ targets:
         CFBundleName: OstlerInstaller
         CFBundleDisplayName: Ostler Installer
         CFBundleIdentifier: ai.ostler.installer
-        CFBundleShortVersionString: "1.0.41"
-        CFBundleVersion: "4100"
+        CFBundleShortVersionString: "1.0.48"
+        CFBundleVersion: "4800"
         CFBundlePackageType: APPL
         CFBundleExecutable: $(EXECUTABLE_NAME)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
@@ -237,6 +237,20 @@ targets:
           # falls back to a silent no-op and both channels ship permanently
           # blank, which looks identical to a feature nobody built.
           cp "${SRCROOT}/../lib/settling_progress.sh"            "${DEST}/lib/settling_progress.sh"
+          # ostler-container-engine.sh + ostler-engine-supervisor.sh: the
+          # periodic container-engine liveness check and its recovery path.
+          # install.sh stages both into ~/.ostler and schedules
+          # com.ostler.engine-supervisor from them, but ONLY if it finds them
+          # at ${SCRIPT_DIR}/lib and ${SCRIPT_DIR}/bin. Missing from the
+          # bundle = install.sh takes its warn branch and every customer gets
+          # an install with NO automatic recovery of the runtime -- which is
+          # exactly the state that left the walk box's wiki dark for a day
+          # while every gate stayed green. Ships-dark by construction unless
+          # they are copied here.
+          mkdir -p "${DEST}/bin"
+          cp "${SRCROOT}/../lib/ostler-container-engine.sh"      "${DEST}/lib/ostler-container-engine.sh"
+          cp "${SRCROOT}/../bin/ostler-engine-supervisor.sh"     "${DEST}/bin/ostler-engine-supervisor.sh"
+          chmod 755 "${DEST}/lib/ostler-container-engine.sh" "${DEST}/bin/ostler-engine-supervisor.sh"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
           chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh" "${DEST}/lib/settling_progress.sh"
           chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
@@ -281,6 +295,8 @@ targets:
           - $(SRCROOT)/../lib/write_pipeline_signals.py
           - $(SRCROOT)/../lib/ostler-model-fit.sh
           - $(SRCROOT)/../lib/settling_progress.sh
+          - $(SRCROOT)/../lib/ostler-container-engine.sh
+          - $(SRCROOT)/../bin/ostler-engine-supervisor.sh
           - $(SRCROOT)/../install.sh.strings.en-GB.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
@@ -288,6 +304,8 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-container-engine.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/ostler-engine-supervisor.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
       - name: Compile + bundle ostler-mecard helper into Resources
         # BW2-1 (box-walk recut #2, 2026-07-25): a signed native helper that

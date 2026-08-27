@@ -359,6 +359,39 @@ except Exception:
 PY
 }
 
+# judge_is_assistant_api <bodyfile> <content_type> -> yes|no
+#
+# "AM I TALKING TO THE ASSISTANT API?", asked on a PUBLIC route so it still
+# answers when the service token is wrong -- which is exactly when you most
+# need to know whether a 401 means "bad token" or "wrong process".
+#
+# Measured on the walk box 2026-08-26, GET /api/v1/hydration/status:
+#
+#   8090  application/json   {"overall_state": "running", "phases": [...]}
+#         <- ical-server.py, i.e. CM041 assistant_api, which implements every
+#            leg this probe uses: people/context, people/search,
+#            memory/assert, people/{slug}/forget
+#   8000  text/html          <!DOCTYPE html>...
+#         <- the daemon, answering 200 from its SPA catch-all for a path it
+#            does not implement
+#
+# BOTH RETURN 200. A status code cannot tell them apart, and neither can
+# "is the body a non-empty JSON dict" -- the daemon's /health is one too.
+# The shape of a route the assistant API actually implements can.
+judge_is_assistant_api() {
+    python3 - "$1" "$2" <<'PY'
+import json, sys
+body, ctype = sys.argv[1], (sys.argv[2] or "").lower()
+if "json" not in ctype:
+    print("no"); raise SystemExit
+try:
+    d = json.load(open(body))
+except Exception:
+    print("no"); raise SystemExit
+print("yes" if isinstance(d, dict) and "overall_state" in d and "phases" in d else "no")
+PY
+}
+
 # judge_people_payload_shape <bodyfile> -> yes|no
 # "Does this look like a valid people payload?" -- the predicate C3 proves is
 # discriminating. A Hub surface that answers 200 on every path has fooled this
@@ -600,6 +633,41 @@ phase0_reach_box_and_token() {
     CONTROLS_RUN=$((CONTROLS_RUN + 1))
     if [ "$code" = "200" ] && [ "$live" = "yes" ]; then
         pass "C1 /health live and parseable (HTTP 200)"
+
+    # C1b -- AND IT IS THE ASSISTANT API, not merely something with a /health.
+    #
+    # On the v1.0.47 walk this probe reported FAIL about a service it had never
+    # identified. Two processes on that box answer 200 on /health:
+    #
+    #   8090  ical-server.py (CM041 assistant_api) -- implements every leg here
+    #   8000  ostler-assistant daemon             -- 200s unknown /api/v1 paths
+    #                                                from its SPA catch-all
+    #
+    # So a 200, and even a well-formed JSON body, proves nothing about WHICH.
+    # Asked on a PUBLIC route deliberately: it still answers when the token is
+    # wrong, which is precisely when you need to know whether a 401 means "bad
+    # token" or "wrong process". Getting that backwards costs hours.
+    out="${TMP}/ident.out"
+    box_http GET "${API_BASE}/api/v1/hydration/status" noauth "$out"
+    # box_exec, NOT box_run. box_run is the shared lib's transport and keys off
+    # OSTLER_BOX_HOST alone; box_exec is this probe's and honours RUN_MODE, which
+    # OSTLER_PROBE_FORCE_LOCAL sets. The harness runs with BOX_HOST=127.0.0.1 AND
+    # FORCE_LOCAL=1, so box_run tried to ssh to 127.0.0.1, got nothing, and
+    # reported content-type='' -- which this check then read as "not the
+    # assistant API" and returned CANNOT-RUN on a perfectly good fake box.
+    #
+    # A transport mismatch inside one probe is invisible in the verdict: the
+    # message said the SERVICE was wrong when the RUNNER was.
+    #
+    # --noproxy '*' for the same reason box_http mandates it: an operator's
+    # HTTP_PROXY will intercept even a 127.0.0.1 request and answer with its own
+    # error, which reads exactly like the service being down.
+    ident_ctype="$(box_exec "/usr/bin/curl -sS --noproxy '*' -o /dev/null -w '%{content_type}' --max-time ${HTTP_TIMEOUT} '${API_BASE}/api/v1/hydration/status'" 2>/dev/null)"
+    if [ "$(judge_is_assistant_api "${out}.body" "${ident_ctype}")" = "yes" ]; then
+        pass "C1b ${API_BASE} identifies as the assistant API (hydration/status is JSON with overall_state+phases)"
+    else
+        verdict_cannot_run "${API_BASE} answers /health but does not serve /api/v1/hydration/status as assistant-API JSON (content-type='${ident_ctype}'). Something else is on that port -- the daemon 200s unknown /api/v1 paths as HTML. Nothing about people was measured."
+    fi
     else
         fail "C1 /health unusable (HTTP ${code}, parseable=${live}) -- something is listening on ${API_BASE} but it is not a working Assistant API"
     fi
@@ -947,7 +1015,29 @@ run_probe() {
 self_test() {
     local body r
 
-    probe_examined "fixtures=12" "synthetic API responses adjudicated by the live judges (no box touched)"
+    probe_examined "fixtures=15" "synthetic API responses adjudicated by the live judges (no box touched)"
+
+    # 0. IDENTITY. The daemon's SPA catch-all returns 200 text/html for a path
+    #    it does not implement; the assistant API returns JSON with
+    #    overall_state+phases. If the judge cannot tell those apart, C1b cannot
+    #    tell the walk which process it is interrogating.
+    body="${TMP}/st_ident_html.json"
+    printf '%s' '<!DOCTYPE html><html lang="en"><head></head></html>' > "$body"
+    if [ "$(judge_is_assistant_api "$body" "text/html; charset=utf-8")" != "no" ]; then
+        verdict_pass "NEGATIVE CONTROL DID NOT FIRE: an HTML catch-all body adjudicated as the assistant API."
+    fi
+    body="${TMP}/st_ident_wrongjson.json"
+    printf '%s' '{"status": "ok"}' > "$body"
+    if [ "$(judge_is_assistant_api "$body" "application/json")" != "no" ]; then
+        verdict_pass "NEGATIVE CONTROL DID NOT FIRE: JSON without overall_state/phases adjudicated as the assistant API."
+    fi
+    # POSITIVE CONTROL -- the real shape must still be accepted, or C1b would
+    # refuse the very service the probe needs.
+    body="${TMP}/st_ident_real.json"
+    printf '%s' '{"overall_state": "running", "phases": [{"key": "contacts", "state": "done"}]}' > "$body"
+    if [ "$(judge_is_assistant_api "$body" "application/json")" != "yes" ]; then
+        verdict_pass "POSITIVE CONTROL DID NOT FIRE: a real hydration/status body was refused, so C1b would reject the assistant API itself."
+    fi
 
     # 1. HTTP 200 + degraded:true. The trap the whole probe is built around: a
     #    dead store answers 200 and must never read as "the person is absent".
@@ -1071,7 +1161,7 @@ PY
         verdict_pass "NEGATIVE CONTROL DID NOT FIRE: an unreadable vector config adjudicated as '${r}'."
     fi
 
-    verdict_fail "negative control fired on all 12 fixtures (degraded-200 on both legs, found:false, wrong uri, wrong+masked name, 401-is-not-absence, empty search, false hit, store down, non-minting seed, unreadable vector config) and left the honest response green"
+    verdict_fail "negative control fired on all 15 fixtures (wrong-process identity, degraded-200 on both legs, found:false, wrong uri, wrong+masked name, 401-is-not-absence, empty search, false hit, store down, non-minting seed, unreadable vector config) and left the honest response green"
 }
 
 probe_main "$@"

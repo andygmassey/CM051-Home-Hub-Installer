@@ -1,0 +1,79 @@
+# THE USAGE-JOURNAL PRODUCER ROSTER -- the DENOMINATOR, written down.
+#
+# Read by scripts/verify_usage_journal_producers.py. One row per producer the
+# usage-journal contract declares. The contract is
+# HR015 launch/USAGE_JOURNAL_CONTRACT.md, section "WHAT EACH REPO OWES" plus the
+# sentence immediately below that table ("The daemon already writes `answering`
+# for the chat path.").
+#
+# ===========================================================================
+# WHY A ROSTER AND NOT ">= 1 ENRICHING RECORD"
+# ===========================================================================
+#
+# The contract's own gate paragraph asks for "at least one `enriching` record
+# and at least one `ingesting` record". That predicate is a GOLDEN CASE: three
+# repos owe `enriching`, so one of them writing satisfies it forever while the
+# other two are dark. The panel then shows a smaller number, which reads as a
+# quiet month rather than a broken pipeline -- the exact silent-failure shape
+# the contract says it exists to stop, rebuilt inside its own gate.
+#
+# A denominator cannot be inferred from a journal, because a producer that has
+# never written is invisible in it. So it is declared here, in a tracked file,
+# and the floor on this file's size is pinned separately in
+# scripts/usage_journal_producer_floor.tsv. Shrinking the roster to make the
+# gate pass therefore takes TWO edits in one change, both visible in review.
+#
+# ===========================================================================
+# HOW A PRODUCER IS IDENTIFIED IN THE JOURNAL, AND WHAT IS MEASURED VS PINNED
+# ===========================================================================
+#
+# A record carries no producer field. The only per-producer discriminators
+# available are `session_id` and `purpose`, so each row declares which one it
+# is matched by:
+#
+#   session_prefix   the record's session_id starts with match_value AND its
+#                    purpose equals this row's purpose. Both, because a
+#                    producer writing the wrong purpose is also a defect.
+#   purpose          the record's purpose equals match_value. Used only where
+#                    no prefix exists to match on.
+#
+# MEASURED, not assumed:
+#
+#   cm051_ostler_fda_ingest   HR015 ostler_fda/pwg_ingest.py:50 --
+#                             _USAGE_SESSION_ID = f"ostler-fda-ingest-{uuid4}"
+#   cm044_wiki_compiler       the worked example in the contract's own THE
+#                             RECORD section: "cm044-compile-2026-08-24T..."
+#   oa_daemon_chat            oa crates/zeroclaw-config/src/cost/tracker.rs:32
+#                             session_id = uuid::Uuid::new_v4().to_string().
+#                             A BARE UUID -- there is no prefix to match on,
+#                             which is why this row matches on purpose and the
+#                             others do not. Checked before assuming.
+#
+# PINNED BY THIS FILE, not yet observable, because the producer is not written:
+#
+#   cm048_conversation_extract, cm041_identity_resolution. Their prefixes
+#   follow the contract's own naming of the CM044 example. If either lands
+#   writing a DIFFERENT session_id prefix, this gate reports it ABSENT and goes
+#   RED, and the fix is to correct the row in the same change that wires the
+#   producer. That direction is deliberate: a false RED here is one line of
+#   review, and a false GREEN is a customer being shown a cost figure that is
+#   wrong in the flattering direction.
+#
+# ===========================================================================
+# status
+# ===========================================================================
+#
+#   required   must appear in the journal, or the gate FAILS naming it.
+#   dormant    declared by the contract but not owed yet, with the contract's
+#              own reason quoted in provenance. Reported, never failed on. A
+#              dormant producer that DOES appear is a note, not a fault.
+#
+# Fields are TAB separated. No field may contain a tab.
+#
+# producer_id	repo	purpose	match_kind	match_value	status	provenance
+cm044_wiki_compiler	CM044	enriching	session_prefix	cm044-compile-	required	contract WHAT EACH REPO OWES: every embedding + every summarisation call in the compiler. Prefix from the contract's THE RECORD worked example.
+cm048_conversation_extract	CM048	enriching	session_prefix	cm048-	required	contract WHAT EACH REPO OWES: conversation fact extraction. Prefix pinned by this roster; not yet observable, the producer is unwired.
+cm041_identity_resolution	CM041	enriching	session_prefix	cm041-	required	contract WHAT EACH REPO OWES: identity resolution, where it calls a model. Prefix pinned by this roster; not yet observable, the producer is unwired.
+cm051_ostler_fda_ingest	CM051	ingesting	session_prefix	ostler-fda-ingest-	required	contract WHAT EACH REPO OWES: vendored ostler_fda, per source parse that invokes a model. Prefix measured from HR015 ostler_fda/pwg_ingest.py:50.
+oa_daemon_chat	oa	answering	purpose	answering	required	contract, sentence below the table: the daemon already writes answering for the chat path. Matched on purpose because its session_id is a bare uuid4 (oa cost/tracker.rs:32).
+oa_proactive_cycle	oa	noticing	purpose	noticing	dormant	contract WHAT EACH REPO OWES: the proactive cycle, WHEN it grows a model call (it has none today). Declared, not owed; never failed on.

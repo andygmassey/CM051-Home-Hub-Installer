@@ -53,6 +53,24 @@ blocking), `not_walked` (nobody walked it). The last two REQUIRE a named
 approver, the same rule `gates/reconcile_gates.sh` already applies to gate
 waivers: an anonymous waiver is one nobody signed.
 
+**And the status is DERIVED, not taken on trust.** CM051 #978 writes
+`walks/<version>.tsv` after driving the box-walk probes against a real installed
+box, which is the only RUNTIME evidence in the release pipeline: everything else
+measures the artefact, and all of it passes on a DMG that installs to a broken
+machine. Two registers of one fact is this estate's signature failure, so where
+a record exists it decides which statuses are LEGAL:
+
+| walk record | statuses this table may carry |
+|---|---|
+| verdict `CLEAN` | `closed` only. It was walked and it was clean; `not_walked` is a false statement contradicted by an artefact. |
+| verdict `FAILED` or `PARTIAL` | `closed` or `deferred`. Not `not_walked`. |
+| no record for that cut | `deferred` or `not_walked`. **`closed` is REFUSED** -- a walk claimed closed with nothing written by the walker is the silence this mechanism exists to refuse. |
+| no `walks/` directory at all | any, and every row is labelled `UNAVAILABLE` on the verdict line. OS003 has no `walks/`; CM051, where the shipping cut runs this gate, does. A reader must be able to tell a DERIVED status from one taken on trust, so the output says which. |
+
+The row still carries the approver and the findings, because a record cannot
+know either. What it can no longer do is CLAIM a walk that left no trace, or
+deny one that did.
+
 **findings** is a space-separated list of the section ids for that walk, or the
 literal `none`. The gate requires it to EQUAL the set of `### vNNNN-Dxxx`
 sections in this file for that cut, so a finding the row forgot fails and a
@@ -73,10 +91,74 @@ walk_horizon: v1.0.41
 | cut | walked_on | status | approver | findings |
 |---|---|---|---|---|
 | v1.0.41 |  | not_walked | Andy | none |
+| v1.0.42 |  | not_walked | Andy (relayed 2026-08-23, see below) | v1042-D001 v1042-D002 v1042-D003 v1042-D004 |
+| v1.0.43 | 2026-08-24 | deferred | TNM (2026-08-24, under Andy's standing instruction to drive to the cut) | v1043-D001 v1043-D002 v1043-D003 |
+| v1.0.44 | 2026-08-24 | closed | Andy (walked on hardware; run header 2026-08-24T10:10:59Z) | v1044-D001 v1044-D002 v1044-D003 v1044-D004 v1044-D005 v1044-D006 |
+| v1.0.45 |  | not_walked | A2 (ARTEFACT MEASURED 2026-08-26, NEVER INSTALLED. Not walked because it CANNOT be: the DMG bricks on first run, v1045-D001. There is no walks/v1.0.45.tsv and there should not be one -- no walker got past Gatekeeper.) | v1045-D001 |
+| v1.0.46 | 2026-08-26 | deferred | ORM walked the artefact 2026-08-26T03:08Z with scripts/walk_dmg.sh: PASS 5, FAIL 2, CANNOT-RUN 1, VERDICT NO_GO. Deferred (not closed) by A1 under Andy's standing instruction to drive to a cut: the root cause is FIXED on CM051 main c196c1e0 and rides v1.0.47, but it is in NO artefact, so closing would be true about the repo and false about the DMG. | v1046-D001 v1046-D002 v1046-D003 |
+
+**On the v1.0.42 row, and it corrects something this file said hours earlier.**
+**v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
+`v1042-D001..D004` ran on **v1.0.38**. Measured three independent ways on
+2026-08-23:
+
+| | |
+|---|---|
+| DMG on the walk box | 57,818,336 bytes, dated 21 Aug 19:32 HKT |
+| published v1.0.38 | **57,818,336 bytes**, published 2026-08-21T11:29:32Z |
+| published v1.0.42 | 57,970,010 bytes, published 2026-08-23T10:55:39Z |
+| `install.sh` run headers on that box, all time | exactly ONE, 2026-08-21T11:36:44Z |
+
+The byte count matches v1.0.38 exactly, 19:32 HKT **is** 11:32Z -- three minutes
+after v1.0.38 was published -- and v1.0.42 did not exist for another two days.
+Three facts agreeing, none of them inferred from a version label.
+
+So the row is `not_walked` and it always was going to be: **there was no
+v1.0.42 install to walk.** The approver is recorded as relayed rather than
+direct, because what was given was a directive and not a row sign-off: *"Andy's
+directive is a NEW cut, v1.0.43, carrying everything surfaced since v1.0.38,
+walkable when he wakes. Do not wait on a v1.0.42 walk."* That is an explicit
+decision not to walk v1.0.42, and it is cited here so a reader can weigh the
+provenance instead of taking a name on trust.
+
+**A `not_walked` row that still lists findings is not a contradiction, and it is
+the most accurate thing this table can say.** The status answers "did anyone
+walk this cut", and nobody did. The findings column answers "what do we know
+this cut carries", and the answer is four defects that shipped in v1.0.38 and
+were never fixed, so **v1.0.39, .40, .41 and .42 all carry them**. Listing them
+here asserts that v1.0.42 HAS these defects, which is true, and asserts nothing
+about how they were discovered.
+
+The sections keep their `v1042-` ids -- see the correction banner on the block
+-- because the ids are already cited in `SHIPPING_LEDGER.yaml`, in
+`launch/GROUNDING.md` and across five PRs. **Renaming a label that other
+documents point at trades one wrong fact for a set of dangling references**, and
+a wrong label that says it is wrong is the safer half of that trade.
+
+**On the v1.0.44 row, and it is deliberately RED.** v1.0.44 was cut. Run
+32706147520 succeeded at 2026-08-24T08:24Z, all thirteen cut steps green, and a
+signed, notarised, stapled DMG was published to `ostler-ai/ostler-installer` as a
+prerelease at 08:33Z, sha256 `d13da1d9b729f277d8ac3480723ddb88bd4ef77211f5a6c5418bf00507c4126a`.
+The earlier run at 07:46Z failed on the expiry ratchet and the tag was moved to
+`3ee69f16` before the successful one, so a reader who stops at the first run
+concludes the opposite.
+
+Nobody has walked it and nobody has waived it, so the approver column is EMPTY on
+purpose. The gate reads `not_walked` with no named approver as RED, and that is
+the correct verdict: this row exists to turn "no row at all", which is
+indistinguishable from a cut nobody looked at, into a named decision that somebody
+has to make. Filling that column requires a person, and inventing one to make the
+gate green would be exactly the fabrication the horizon rule exists to prevent.
+
+Two ways to close it. Walk v1.0.44 on a box and commit the record
+`scripts/post_walk_qa.sh` writes, which also promotes it out of prerelease. Or
+waive it by name, the way v1.0.41 and v1.0.42 were waived, and say why.
 
 **On the v1.0.41 row.** Andy signed this off unwalked on 2026-08-23, asked
 directly, because the alternative was inference. `SHIPPING_LEDGER.yaml` cannot
-answer the question: its `dmg_cuts` section ends at v1.0.37, and v1.0.38, .39,
+answer the question: its `dmg_cuts` section had no row for any of them (it now
+holds v1.0.42, v1.0.43 and v1.0.44, filed 2026-08-24, but still none for the four
+named here), and v1.0.38, .39,
 .40 and .41 appear 28, 45, 31 and 24 times across that file without a single cut
 row between them. The last cut recorded as `box_walked: true` is v1.0.36. So the
 launch cut ships without a walk of its predecessor, and this row is that fact
@@ -2822,6 +2904,307 @@ demonstrates the customer-visible behaviour, only the mechanism that produces it
 I did not run the two-channel probe, because it would send real iMessages from
 Andy's account.
 
+### 🔴 v1042-D001..D004 ARE v1.0.38's DEFECTS. THE ID IS A LABEL, NOT A CLAIM.
+
+Written 2026-08-23 as findings of a v1.0.42 upgrade walk. **They are not.**
+v1.0.42 was never installed on any machine; the walk ran on v1.0.38. The
+evidence is in the v1.0.42 row above.
+
+Nothing about the four findings changes -- every measurement in them was taken
+on a real box and stands. What changes is which cut produced the box, and
+therefore which cut a reader should hold. **They were shipped by v1.0.38 and
+have been in every cut since**, so v1.0.39, .40, .41 and .42 all carry them and
+none was walked either.
+
+The ids are kept because they are cited elsewhere. **A label that is wrong and
+says so is safer than a rename that leaves five documents pointing at nothing.**
+
+### v1042-D001 -- the runtime guard asked for a CLIENT and inferred an ENGINE
+
+Found on the v1.0.42 upgrade walk, 2026-08-23. `install.sh` decided whether to
+install a container runtime with `if ! command -v docker`. **On macOS `docker`
+is a CLIENT.** Any box that had ever installed the Homebrew `docker` formula --
+including one this installer had run on before -- skipped the Colima install and
+walked on with no engine, while `ostler-wiki-site` and `ostler-wiki-compiler`
+are pinned by digest as containers and have no native path.
+
+CM051 #992 commit 1 replaces the client test with a loop over the runtimes that
+can actually run a container (`colima orbstack podman`) plus the Docker Desktop
+app bundle, behind an `ENGINE_PRESENT` variable the install decision reads.
+CM051 #994 independently computes `HAS_CONTAINER_ENGINE` from `docker info` --
+whether an engine ANSWERS, which is stronger -- and keeps `HAS_DOCKER_CLIENT`
+deliberately, to make the diagnostic honest while deciding nothing.
+
+**The two implementations collide and neither wins whole.** #994's Phase 0
+detection is better; #994's Phase 3.2 guard is NARROWER than #992's (colima and
+Docker.app only, 0 mentions of orbstack or podman in its guard block), so a box
+running OrbStack gets `brew install colima` poured over a live engine.
+
+**THE WALK EVIDENCE ORIGINALLY ATTACHED TO THIS FINDING IS WITHDRAWN, and the
+withdrawal matters more than the finding.** The Mini was reported as having no
+engine. It had one throughout: colima, docker, docker-compose and limactl were
+all present and correctly symlinked, dated 21 Aug 19:43. The reading came from
+a shell with no Homebrew on PATH. **A uniform zero across four different
+runtimes is not four facts, it is one broken predicate**, and it was visible in
+the same paste that reported `PATH homebrew count 0`. The error was then
+repeated twice more over SSH before anyone caught it.
+
+So the guard is a real defect and the mutants below prove the class, but **on
+that box the fixed guard would have found colima, skipped the brew install, and
+correctly changed nothing. It would not have restored the wiki.** The thing that
+took the wiki down is v1042-D004.
+
+**Three test defeats are recorded because they are the finding's real lesson.**
+The first test asserted `grep -qE 'command -v docker'` over a 40-line window:
+defeated by `-x /opt/homebrew/bin/docker` (no literal match) and by
+`command -v "docker"` (two quote characters), both scoring 10/0. The window was
+also 14 lines of code rather than 40, because `sed 's/#.*//'` BLANKS a comment
+line and leaves it. The rebuilt test asserts a property of the ASSIGNMENTS and
+was defeated twice more, both at 14/0: by `-x /opt/homebrew/bin/"docker"`,
+because the client predicate was made quote-tolerant on its `command -v` limb
+and left literal on its `bin/docker` limb; and by laundering the client check
+through a variable set more than eight lines away, because **a window is a
+distance and a distance can be padded with statements.**
+
+### v1042-D002 -- the installer retained one byte per byte of carriage-return output
+
+The Installer held **4.27 GB after a SUCCESSFUL install**. `stdoutBuffer` drained
+only on `"\n"`; `docker pull` writes layer progress with `"\r"` and no newline,
+so for the length of a multi-gigabyte pull the drain loop never executed once.
+The trailing partial line was never drained at all, so the bytes survived the
+install.
+
+Driven, not read. The accumulator extracted from the shipped file and compiled:
+
+    origin/main   fed 25,770,400   peak 25,770,400   final 25,770,400
+    CM051 #993    fed 26,185,600   peak          0   lines emitted 534,400
+
+**#993 does not merely bound it, it parses it**, because it treats `\r` as a
+terminator rather than as something to discard. CM051 #992 commit 2 caps the
+buffer at 64 KiB instead and emits nothing; #993 supersedes it and the two
+conflict on the same function.
+
+**A SECOND, OLDER PATH WAS FOUND WHILE PROBING.** Swift treats `"\r\n"` as ONE
+Character -- a single grapheme cluster equal to neither `"\r"` nor `"\n"` -- so
+`firstIndex(of: "\n")` is FALSE on it. Measured: 4,000 CRLF lines yielded **0
+lines emitted and 42,890 bytes retained**, with plain LF as the control
+returning TRUE. The `if line.hasSuffix("\r")` strip, whose comment says "a
+handful of tool outputs put CRLF even into pipes", **could not be reached by the
+input it names.** #993 fixes this explicitly; #992's cap bounds it without ever
+parsing it.
+
+**AND THE FIX STILL LOSES THE LINE THAT MATTERS.** Driven against #993: 1.3 MB
+with no terminator followed by `"ERROR: no space left on device\n"` emits one
+line of 65,669 bytes that does **not** contain the error text. Both notices
+attached to it are honest -- bytes truncated, bytes dropped -- and the
+diagnostic is gone anyway, because `finish()` keeps `prefix(maxLineBytes)` and
+the error arrived at the end. **This is `v1018-D032` in a new file: captured
+output keeps the head when a hang needs the tail.**
+
+**A SOURCE-TEXT PREDICATE CANNOT HOLD THIS LINE.** The first test asserted that
+a cap is declared, consulted, and that the buffer is reassigned. A decoy
+satisfying all three -- guarded by `stdoutBuffer.isEmpty`, which cannot hold
+above a cap -- scored **6 PASS / 0 FAIL while leaking 11,844,000 bytes and
+climbing.** The property is "the number stops going up", and that is a fact
+about execution.
+
+### v1042-D003 -- install reported success with no container runtime
+
+The install exits green having never established that a container can run. On
+the walk box the two Docker-hosted ports were dark (`:8044` wiki, `:7878`
+Oxigraph) while the two native launchd ports answered (`:8000` daemon,
+`:8089` ical). **The zero was RAGGED and it fell on an architectural line**,
+which is what made it trustworthy: the dead ports were exactly the containerised
+services.
+
+CM051 #994 adds the postcondition. It is additive -- nothing else in the walk
+set covers it -- and it is the half of #994 that is not in dispute.
+
+**It also collides with #995**, three files deep: `install.sh`,
+`install.sh.strings.en-GB.sh` and `tests/TEST_WIRING.tsv`. That pair needs a
+sequencing decision of its own and it is not the same decision as the #992
+overlap.
+
+### v1042-D004 -- an engine killed while the daemon stays up has no recovery road
+
+**This is the finding that took the wiki down, and it is the one v1.0.43 holds
+on.** Chain, measured on the box:
+
+    the D002 buffer leak
+      -> five JetsamEvent reports on 2026-08-23, 16:13:35 to 17:33:51
+      -> jetsam killed the 4 GB Colima VM (install.sh --memory 4;
+         pgrep 'limactl|qemu' returns 0)
+      -> docker.sock gone; :8044 and :7878 dark, :8000 and :8089 alive
+      -> ensure_colima_running() is called ONCE at daemon startup
+         (ostler-assistant src/main.rs:1159, called at :1923)
+      -> the daemon never exited, so recovery never fired
+      -> no reboot: uptime 2d, last boot 21 Aug 17:31
+
+Fixing D002 makes the TRIGGER rarer and gives the system no recovery road.
+Jetsam is one way that VM dies; `colima stop`, a VM crash, a full disk and an OS
+update are others, and every one of them lands in the same state: daemon up,
+`ensure_colima_running()` already spent, wiki dark until a human notices.
+
+**A one-shot at startup is not a recovery mechanism, it is an initialisation
+step wearing one. Anything the daemon starts once at boot has this hole**, and
+that is the finding -- Colima is the symptom.
+
+`install.sh` deliberately creates no LaunchAgent here, and the reason rules out
+the obvious fix: **a bare LaunchAgent has no Full Disk Access**, so a
+LaunchAgent-spawned Colima cannot mount `~/Documents`, which `install.sh` binds
+into `wiki-site` and `wiki-compiler`. That would bring the wiki up EMPTY instead
+of DOWN, which is the harder failure to notice and therefore the worse one. The
+smaller change is a periodic trigger on the daemon, which already holds FDA.
+
+CM051 #995 is the candidate fix (`bin/ostler-engine-supervisor.sh`,
+`lib/ostler-container-engine.sh`, plus a Doctor rule so a dead wiki announces
+itself rather than rendering byte-identically to a healthy one).
+
+**THE HOLD CLEARS** when #995 lands AND is demonstrated against the box in its
+current failure state -- engine installed, engine stopped, `:8044`/`:7878` at
+000, `:8000`/`:8089` alive. That fixture is perishable and repairing the box
+destroys it.
+
+**AND #995's OWN GATES ARE NOT WIRED TO FIRE.** `vendor-integrity.yml` gained
+both run steps and none of the five path entries they need. Parsed, 27 entries,
+with two must-be-present controls:
+
+    tests/test_a_dead_wiki_announces_itself.py            NOT WATCHED
+    wiki-recompile/bin/wiki-recompile-tick.sh             NOT WATCHED
+    tests/test_container_engine_liveness_and_recovery.sh  NOT WATCHED
+    bin/ostler-engine-supervisor.sh                       NOT WATCHED
+    lib/ostler-container-engine.sh                        NOT WATCHED
+    install.sh                                            install.sh   (control)
+    vendor/doctor/agent/diagnostic_rules.py               vendor/**    (control)
+
+That file states the rule in its own comment: "A path entry alone would only
+make the workflow TRIGGER; the run step above is what makes it CHECK. Both are
+needed." The dead-wiki gate is PARTIALLY covered, because `vendor/**` catches
+the change it most needs to catch. **The engine-liveness gate is covered by
+nothing**, and passes today only because its PR happens to touch `install.sh`.
+
+### 🔴 v1.0.43 WAS WALKED, ON HARDWARE, AND IT COULD NOT INSTALL
+
+Andy walked the published v1.0.43 DMG on the Mac mini on 2026-08-24. It aborted
+at **19%**, step `fda_extract`, `ERR-99-INSTALL-ABORT-L2151 -> L1722`.
+Deterministic: twice, same point, same error.
+
+**The artefact was perfect and it did not matter.** 58,075,821 bytes; SHA256
+`b753f152...39a0` matching the published SHA256SUMS; `spctl` Notarized Developer
+ID (V95N2B8X7A); staple valid; `CFBundleShortVersionString 1.0.43` /
+`CFBundleVersion 4300`. Every gate green, every signature good, dead installer.
+Nothing between "gates green" and a human double-clicking would have caught it,
+which is board #844 stated as an event rather than a risk.
+
+**Why the status is `deferred` and not `closed`.** There is no
+`walks/v1.0.43.tsv`: the install aborted long before `post_walk_qa.sh` could be
+driven, so the walker left no artefact. This table's own rule refuses `closed`
+with no record, and it is right to -- a walk claimed closed with nothing written
+is the silence the mechanism exists to refuse. `not_walked` would be a plain
+falsehood: it WAS walked, by a human, on hardware. `deferred` over a named
+approver is the only honest status available, and D001/D002 below are deferred
+because they are FIXED and ride v1.0.44, not because they were waved through.
+
+**What the walk banked, and it is not nothing.** The stdout-buffer fix (#993)
+was proven on hardware for the first time: peak installer RSS **0.14 GB**,
+flat, against v1.0.38's 4.27 GB, with swap never moving off 2160 MB. That is
+v1042-D002 demonstrated on a real box rather than in a driven harness.
+
+### v1043-D001 -- a guarded ImportError fallback was counted as a hard dependency
+
+`_ostler_verify_runtime_ready` derives the runtime's dependency set by walking
+the AST of every file in the shipped `ostler_fda` package. Several files carry
+the script-mode fallback pattern:
+
+    try:
+        from .role_addresses import is_role_identifier
+    except ImportError:      # running as a plain script (repair on the box)
+        from role_addresses import is_role_identifier   # type: ignore
+
+`node.level` already skipped the relative arm. **Nothing skipped the fallback**,
+and `ast.walk()` does not care about control flow, so a branch that never
+executes when the relative import succeeds was collected as a hard requirement.
+`importlib.util.find_spec("role_addresses")` returns None from the venv, because
+a bare sibling only resolves with the package directory on `sys.path`. Four
+optional-by-construction imports -> `missing=4` -> `return 1` -> abort at 19%.
+
+Measured on the walk box before the fix:
+
+    scanned=30 third_party=7 missing=4
+    MISSING given_name_variants / pwg_ingest / relationship_labels / role_addresses
+
+All four are files INSIDE the package, and `import ostler_fda.identifier_quality`
+succeeded throughout. **Nothing was missing. The check was wrong.**
+
+**This check is NEW since v1.0.38** -- `git grep -c` scores 0 at v1.0.38 and 4 at
+v1.0.42/43. So **v1.0.42 would have failed identically**, and nobody found out
+because v1.0.42 was never installed on any machine. The defect had two cuts to
+be discovered in and was discovered in neither.
+
+FIXED: CM051 #1013, squashed to main `d39bca0a`. Two layers -- skip imports
+inside an `ImportError` handler (per-NODE, so a module guarded in one file and
+hard-imported in another stays required), and subtract the package's own module
+names. Proven on the specimen that failed, not on a fixture: same interpreter,
+same package, on the walk box, the OLD guard returns rc=1 missing=4 and the NEW
+one rc=0 missing=0, with `scanned=30` on BOTH arms -- so the fix narrowed the
+classification, not the scan. The six dropped names were enumerated rather than
+trusted; the only external one, `ostler_security`, soft-degrades by construction
+and its hard gate lives at the CM046 LaunchAgent's boot. Masking risk measured
+at zero: no derived own-name shadows an installed distribution.
+
+Guarded by `tests/test_runtime_ready_does_not_require_optional_imports.sh`,
+which carries a demonstrated red (pre-fix 5/2, reproducing `MISSING
+role_addresses`; post-fix 7/0) and a discriminating arm that plants an absent
+UNGUARDED dependency and requires rc=1 -- green in BOTH columns, so the fix did
+not buy green by going blind.
+
+### v1043-D002 -- the walk record recorded the version it was told
+
+`scripts/post_walk_qa.sh` took `CUT_VERSION` from `argv` and wrote it verbatim
+into `walks/<version>.tsv`. That file gates the customer download. The result is
+already on disk and already wrong: `walks/v1.0.42.tsv` files four real,
+correctly-measured defects against a version that has never been installed on
+any machine.
+
+Surfaced by this walk rather than caused by it, and it belongs to v1.0.43
+because this is the walk that made it consequential: with the install dead,
+the only thing that could have spoken about v1.0.43 was a record, and the record
+could not have been trusted to name its own subject.
+
+FIXED: CM051 #1014, squashed to main `cd666901`. The version is now MEASURED --
+`CFBundleShortVersionString` read from `/Applications/OstlerInstaller.app` on
+the box -- with four arms (no app -> `asserted-unverifiable`; no argument ->
+derive; match; mismatch -> print both and `exit 3`) and a `version_source` field
+recording how it knew.
+
+**Near-miss worth recording, caught only by driving it at the live box:** the
+first draft read `/Applications/Ostler.app`, which is the hub app at 0.7.1, and
+would have REFUSED every legitimate walk record while looking rigorous. Three
+version surfaces exist on a walked box -- `OstlerInstaller.app` (the cut),
+`Ostler.app` (0.7.1, the hub app) and `~/.ostler/VERSION` (`hub-v0.4.61`, the
+daemon, stale) -- and only the first is the thing being walked.
+
+### v1043-D003 -- COVERAGE LOST: the abort meant most of the install was never exercised
+
+CARRIED FORWARD, NOT FIXED. This one has no PR and must not be allowed to look
+like it does.
+
+Dying at 19% means everything after `fda_extract` went unmeasured on hardware:
+the container-engine precondition, the wiki image pull, and -- the one that
+matters for this register -- **#995's periodic engine liveness and recovery
+path, which v1042-D004 exists to close**. `engine-supervisor.log` exists on the
+box and is **0 bytes**.
+
+So v1042-D004's demonstration limb is still open. ORM's adjudication on it
+stands: "a one-shot at startup is not a recovery mechanism, it is an
+initialisation step wearing one", and it clears only when #995 lands AND is
+demonstrated on a live box. #995 has landed. It has still never run.
+
+CLOSING CONDITION: a v1.0.44 walk that reaches past `fda_extract`, plus a
+non-empty `engine-supervisor.log` and a demonstrated engine restart on the box.
+Anything less leaves this row open, and a v1.0.44 walk that aborts for a
+different reason does NOT close it.
+
 ## Gates deferred pending fix design
 
 These MUST-FIX-NEXT entries have no runnable gate yet because the fix shape is still open. **They are listed deliberately so the parser sees them and the pipeline refuses to treat their absence as a pass.** Each needs a gate before v1.0.19 tags.
@@ -2834,3 +3217,193 @@ These MUST-FIX-NEXT entries have no runnable gate yet because the fix shape is s
 | v1018-D022 | p50/p90 latency measurement belongs in the behavioural gate harness, not a standalone script | TNM (behind D003 contract) |
 | v1018-D024 | Doctor vendor-parity check depends on the `VENDOR_ONLY.tsv` design landing first | TNM |
 | v1018-D015 | Design-judgment defect — needs Andy's multi-viewport sign-off, not a mechanical assertion | Andy |
+
+
+### v1044-D001 -- the FDA dialog states something false and names the wrong entry
+
+Board #874. The Full Disk Access dialog told the customer "System Settings is
+open at Full Disk Access" when it was not open, and named the entry "Ostler"
+when the row macOS actually shows is "OstlerAssistant". A customer following
+the instruction looks for a name that is not on screen.
+
+CARRIED into v1.0.45 and landed -- BOM row 1.
+
+### v1044-D002 -- the installer re-asks the iPhone/Tailscale question on upgrade
+
+Board #875. The prompt is unconditional. It never consults the tailscaled.state
+that proves the step was already done, so an upgrading customer is asked to
+redo setup they completed.
+
+CARRIED into v1.0.45 and landed -- BOM row 2.
+
+### v1044-D003 -- a run that aborted AT a step reports zero failed steps
+
+Board #873, the #774 family. `DONE status=fail failed_steps=0` -- the run knows
+it failed and cannot say where. Plus an unguarded `convert` call on the
+customer path.
+
+CARRIED into v1.0.45 and landed -- BOM row 3.
+
+### v1044-D004 -- the installer said Doctor was running and it was not loaded
+
+Board #876, and the headline of this walk. install.sh ran
+`launchctl bootstrap ... || launchctl load ... || true` with both attempts
+silenced, then printed the success line unconditionally. MEASURED on hardware:
+com.ostler.doctor NOT LOADED, :8089 returned 000, no process and no log.
+
+It cascades -- Preferences blank, Governor "Box status is not available yet",
+Channels INACTIVE, People "No people yet", Timeline LOAD FAILED. All one bug.
+The launch-blocking half is that the wiki in the same app showed 6,932 people:
+the data was there, and every empty state told the customer a reassuring lie
+instead of "I could not read this".
+
+CARRIED into v1.0.45 and landed -- BOM row 6.
+
+### v1044-D005 -- the settings migration is half done
+
+Board #877. /preferences carries 10 flat keys; /config still owns 10 richer
+sections including the daily brief schedule and the robot-emoji prefix, and
+nothing links to /config. Andy asked for the pages to be combined; what shipped
+was one nav entry, not one page.
+
+CARRIED into v1.0.45 and landed -- BOM row 7.
+
+### v1044-D006 -- the QA console and the walk record disagree, and it is UNRECONCILED
+
+post_walk_qa.sh reported 22 PASS / 9 FAIL / 2 SKIP, verdict FAILED.
+walks/v1.0.44.tsv records pass 5 / fail 5 / cannot_run 3, verdict FAILED,
+qa_exit 1. Thirteen rows against thirty-three, and 5+3 does not equal 9.
+
+BOTH agree the walk FAILED, so the gate that blocked promotion was reading a
+true verdict and v1.0.44 was correctly never promoted -- ostler.ai/install.dmg
+stayed on v1.0.41. That is the part that matters and it held.
+
+WHAT IS NOT CLOSED: which denominator is right. Neither figure has been traced
+to its producer. This is recorded as a finding in its own right rather than
+folded into the five above, because a walk record whose arithmetic does not
+reconcile cannot be used as evidence for anything else, and the next reader
+must not quote either number as "the" result. Not carried into v1.0.45's BOM:
+it is a defect of the RECORD, not of the shipped artefact.
+
+### v1045-D001 -- the DMG bricks on first run: .pyc break the code seal
+
+**This is why v1.0.45 has no install walk.** It could not be installed and then
+assessed; the failure IS the install.
+
+Measured on the SHIPPED artefact, not on the tree. OstlerInstaller-1.0.45.dmg,
+58,099,134 bytes, sha256 70ebd926...989b57 -- byte count AND digest match BOM
+row 16, so this is the DMG that was published. Dittoed to a WRITABLE directory,
+which is the only place the defect exists and the reason v1.0.45's 14 of 14
+read-only checks were worthless:
+
+    env -u PYTHONPYCACHEPREFIX -u PYTHONDONTWRITEBYTECODE \
+        .../python/bin/python3.11 -c 'import secrets,hmac,platform'
+
+    .pyc inside the bundle   BEFORE 0  ->  AFTER 26
+    codesign --verify --deep --strict   rc=1
+        "a sealed resource is missing or invalid"
+    spctl                                REFUSES
+
+CPython writes `__pycache__/*.pyc` beside the source it imports. The interpreter
+ships INSIDE the notarised app, so the first ordinary import rewrites the sealed
+bundle and Gatekeeper refuses it. The customer sees "damaged and can't be
+opened. You should move it to the Bin." on first run -- every customer, because
+quarantine is attached by every browser download.
+
+CONTROL, same binary, same import, guard set: .pyc in bundle 0 -> 0, 26
+redirected to the cache dir, codesign rc=0. So the mechanism is the write
+LOCATION, not the import.
+
+🔴 AND THE OBVIOUS FIX WAS ALREADY SHIPPED AND STILL NOT ENOUGH. v1.0.45
+ALREADY carried PYTHONPYCACHEPREFIX -- the string is present in the shipped
+Mach-O (2 hits against a 20,685-string control) -- and it STILL bricked,
+because the redirect is conditional on a fact about the CALLER and LaunchAgents
+inherit no environment.
+
+FIXED IN v1.0.46, and deliberately at more than one layer:
+  #1052  seed the stdlib .pyc INSIDE the seal, so no caller can break it.
+         --invalidation-mode unchecked-hash, anti-vacuity floor >=500, fails
+         closed. Invoked from the real ship chain at gui/Makefile:2898, BEFORE
+         notarise-app, so the seeded files land inside the seal.
+  #1051  export the prefix from install.sh, not only from the GUI
+  #1053  the CM059 front-page LaunchAgent
+  #1054  the other three python LaunchAgents
+  #1056  a CI GATE that refuses any LaunchAgent able to run python with no
+         bytecode redirect -- the first gate aimed at the CLASS, not the case
+  #1057  box-walk the DMG itself, before anyone installs it
+
+NOT CLOSED BY THE ABOVE, and recorded so silence is not read as a pass:
+#1055 relocates the interpreter OUT of the notarised app, which removes the
+reason those four guards are needed at all. It is held for v1.0.47 because its
+arms ran on a mounted artefact and a scratch HOME, never a real install, and
+its author asks for a box walk -- which needs a DMG that does not brick.
+### v1046-D001 -- v1.0.46 still breaks its own seal: 45 .pyc shipped in TIMESTAMP mode
+
+**v1.0.46 existed to close v1045-D001 and it did not close it.** v1.0.45 shipped
+ZERO .pyc so first use ADDED files to the seal. v1.0.46 closed that limb -- 1448
+seeded, an unguarded first use adds ZERO -- and bricks anyway by the other limb.
+
+Measured on the SHIPPED artefact, read-only mount. OstlerInstaller-1.0.46.dmg,
+67,199,451 bytes, sha256 23134736...fa126f, matches SHA256SUMS:
+
+    1448 .pyc      1403 unchecked-hash   ·   45 TIMESTAMP mode
+    of those 45:    0 match their .py    ·   45 MISMATCH
+    recorded mtime 1704067200 (2024-01-01) vs actual 1787713192 (build time),
+    sizes IDENTICAL
+
+All 45 are stale AS PUBLISHED, on the read-only volume, so `ditto` and the
+customer's copy path are NOT implicated. Then, writable copy, no env:
+
+    NEW .pyc  0   ·   REWRITTEN 19   ·   count 1448 -> 1448
+    codesign --verify --deep --strict  rc=1
+        "a sealed resource is missing or invalid"   IDENTICAL to v1.0.45
+
+ORM reached the same defect independently via `env -i python3.11 -c 'pass'`.
+
+ROOT CAUSE: `--invalidation-mode unchecked-hash` was ALREADY on the compileall
+command line in v1.0.46 (counted 2 at d297cc59). It governs only what compileall
+itself compiles; the ~45 stdlib modules the interpreter imports to BOOT are
+written by the IMPORT SYSTEM in timestamp mode, and compileall then skips them
+as up-to-date.
+
+FIXED on CM051 main c196c1e0 (#1085): PYTHONDONTWRITEBYTECODE=1 + -f + an audit
+that reads byte 4 bit 0 of every .pyc and REFUSES TO SIGN unless the
+timestamp-mode count is 0. Gate: capability installer_refuses_timestamp_mode_pyc
+(OS003 #157), counted 0 at d297cc59 and 1 on c196c1e0.
+
+CARRIED into v1.0.47 -- BOM row, landed=no until an artefact contains it.
+
+### v1046-D002 -- walk arm 5 is CANNOT-RUN, and that is not a pass
+
+Arm 5 could not run because CM051 #1055 is absent: the bundled interpreter is
+still an import root, so the arm has no state in which to make its measurement.
+CANNOT-RUN is neither FAIL nor PASS. Recorded here so the next reader does not
+count 5 passes out of 8 arms and conclude the walk was mostly green.
+
+#1055 is Andy's ship-or-hold and is NOT in v1.0.47. v1046-D001's fix closes the
+BRICK without it -- ORM's own `env -i` reproducer returns 0 rewritten with the
+fix applied -- but arm 5 stays CANNOT-RUN until #1055 lands.
+
+DEFERRED to Andy's decision on #1055.
+
+### v1046-D003 -- arm 7 fails by asserting the OLD contract, and arm 8's wording hides its own finding
+
+Two instrument defects found by the same walk, neither of them product defects.
+
+Arm 7 FAILED on "1448 .pyc seeded in the image". Seeding is now DELIBERATE --
+it is v1045-D001's fix. The arm asserts a contract the product intentionally
+left behind, so it will fail on every future cut until its predicate is
+inverted.
+
+Arm 8 prints "first use wrote 1448 .pyc into the bundle". It did not. NEW files
+were ZERO; the number that matters is the REWRITE count, and the total is
+reported in its place. ORM flagged this himself. A count-based message cannot
+describe a defect that does not change the count.
+
+⚠️ ALSO UNRESOLVED: ORM measured 20 rewritten on `env -i python3.11 -c 'pass'`;
+A1 measures 4 on the same command against the same artefact. Both non-zero,
+both agree on direction, and 45 bounds both. The discrepancy is most likely
+what arm 8 executes before it samples. NOT RECONCILED -- stated rather than
+averaged.
+
+OPEN -- instrument fixes, owner ORM.

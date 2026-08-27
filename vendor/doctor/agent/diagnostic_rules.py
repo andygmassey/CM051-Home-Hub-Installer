@@ -203,8 +203,45 @@ from diagnostic_copy import (
     STALE_IMPORT_FIX,
     STALE_IMPORT_FIX_COMMAND,
     STALE_IMPORT_TITLE_FMT,
+    WIKI_CONTAINER_STOPPED_DETAIL_FMT,
+    WIKI_CONTAINER_STOPPED_FIX,
+    WIKI_CONTAINER_STOPPED_FIX_COMMAND_FMT,
+    WIKI_CONTAINER_STOPPED_TITLE,
+    WIKI_ENGINE_DOWN_DETAIL,
+    WIKI_ENGINE_DOWN_FIX,
+    WIKI_ENGINE_DOWN_FIX_COMMAND,
+    WIKI_ENGINE_DOWN_TITLE,
+    ENGINE_ABSENT_DETAIL_FMT,
+    ENGINE_ABSENT_FIX,
+    ENGINE_ABSENT_FIX_COMMAND,
+    ENGINE_ABSENT_TITLE,
+    ENGINE_RECOVERY_EXHAUSTED_DETAIL_FMT,
+    ENGINE_RECOVERY_EXHAUSTED_FIX,
+    ENGINE_RECOVERY_EXHAUSTED_FIX_COMMAND,
+    ENGINE_RECOVERY_EXHAUSTED_TITLE,
+    ENGINE_STOPPED_DETAIL_FMT,
+    ENGINE_STOPPED_FIX,
+    ENGINE_STOPPED_FIX_COMMAND,
+    ENGINE_STOPPED_TITLE,
+    ENGINE_SUPERVISOR_MISSING_DETAIL,
+    ENGINE_SUPERVISOR_MISSING_FIX,
+    ENGINE_SUPERVISOR_MISSING_FIX_COMMAND,
+    ENGINE_SUPERVISOR_MISSING_TITLE,
+    WIKI_REFRESH_STALLED_DETAIL_FMT,
+    WIKI_REFRESH_STALLED_FIX,
+    WIKI_REFRESH_STALLED_FIX_COMMAND,
+    WIKI_REFRESH_STALLED_TITLE,
+    WIKI_UNHEALTHY_DETAIL_FMT,
+    WIKI_UNHEALTHY_FIX,
+    WIKI_UNHEALTHY_FIX_COMMAND_FMT,
+    WIKI_UNHEALTHY_TITLE_FMT,
+    WIKI_UNREACHABLE_DETAIL_FMT,
+    WIKI_UNREACHABLE_FIX,
+    WIKI_UNREACHABLE_FIX_COMMAND,
+    WIKI_UNREACHABLE_TITLE,
 )
 from status_collector import (
+    WIKI_URL,
     detect_ostler_prefix,
     is_native_deployment,
     is_ostler_container,
@@ -409,6 +446,352 @@ def check_oxigraph_health(snapshot: Any) -> list[dict]:
         })
 
     return findings
+
+
+def check_wiki_health(snapshot: Any) -> list[dict]:
+    """The wiki must announce its own death.
+
+    🔴 v1.0.42 UPGRADE WALK, 2026-08-23. The wiki was dead for about a day
+    and NOTHING said so. No alert, no card, no banner. It was found only
+    because someone was asked to open the URL. Before this rule, the whole
+    doctor package's only mention of port 8044 was a comment.
+
+    This is not a duplicate of the generic SERVICE_UNREACHABLE finding that
+    web_ui.run_local_diagnostics emits for every unreachable service. That
+    one exists and now covers the wiki too, because "wiki" was added to
+    collect_service_health. But its fix command is
+    `docker restart <prefix><name>`, which is the WRONG INSTRUCTION here in
+    the most common case: the wiki is a container behind a Linux VM, so the
+    usual reason it is unreachable is that the VM is stopped, and
+    restarting a container inside a stopped VM does nothing at all. A fix
+    command that cannot work is worse than none, because the customer tries
+    it, sees it fail, and stops trusting the page.
+
+    So this rule names the layer that is actually broken:
+
+      engine down + wiki down  -> ONE finding about the engine
+      engine up  + container   -> a finding naming the container
+                    stopped
+      engine up  + no container-> the generic unreachable finding, with a
+                    visible               fix that starts the runtime first
+
+    An exited-cleanly container is the case nothing else catches:
+    check_container_health deliberately ignores `Exited (0)` because a
+    stopped container is a legitimate state for most services. For the
+    wiki it is not -- it is the customer's front door.
+    """
+    findings = []
+
+    # THE ENGINE SUPERVISOR'S REPORT, read FIRST.
+    #
+    # 🔴 Measured on the walk box 2026-08-23: the engine was INSTALLED and
+    # STOPPED -- killed by macOS after the installer exhausted application
+    # memory -- on a machine that never rebooted. `is a runtime installed`
+    # returns HEALTHY on that box while the wiki is dark, which is why this
+    # reads the supervisor's OBSERVED state rather than probing for
+    # binaries. It also carries what the supervisor TRIED, because a card
+    # that reports an outage and cannot act on it is a nicer version of the
+    # same outage.
+    findings.extend(_engine_supervisor_findings())
+
+    # The refresh tick's own streak, read next and independently of the
+    # port probe: a wiki that still serves yesterday's pages is a different
+    # fault from one that does not answer, and both can be true at once.
+    stall = _wiki_recompile_stall()
+    if stall is not None:
+        ticks, hours = stall
+        findings.append({
+            "severity": "critical" if hours >= 6 else "warning",
+            "title": WIKI_REFRESH_STALLED_TITLE,
+            "detail": WIKI_REFRESH_STALLED_DETAIL_FMT.format(
+                ticks=ticks, hours=hours
+            ),
+            "fix": WIKI_REFRESH_STALLED_FIX,
+            "fix_command": WIKI_REFRESH_STALLED_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+
+    wiki_svc = next((s for s in snapshot.services if s.name == "wiki"), None)
+    if not wiki_svc:
+        # No probe result at all. Silence here is correct: an older
+        # snapshot without the wiki row must not fabricate a verdict about
+        # a service it never looked at.
+        return findings
+
+    if wiki_svc.status == "healthy":
+        return findings
+
+    # Is the engine itself reachable? docker_error is set ONLY when the
+    # engine could not be queried.
+    engine_down = bool(getattr(snapshot, "docker_error", None))
+
+    if wiki_svc.status == "unhealthy":
+        findings.append({
+            "severity": "warning",
+            "title": WIKI_UNHEALTHY_TITLE_FMT.format(
+                status_code=wiki_svc.status_code
+            ),
+            "detail": WIKI_UNHEALTHY_DETAIL_FMT.format(
+                url=WIKI_URL, status_code=wiki_svc.status_code
+            ),
+            "fix": WIKI_UNHEALTHY_FIX,
+            "fix_command": WIKI_UNHEALTHY_FIX_COMMAND_FMT.format(
+                name=_wiki_container_name(snapshot)
+            ),
+            "risk": "low",
+            "category": "runtime",
+        })
+        return findings
+
+    # status == "unreachable" from here down.
+    if engine_down:
+        findings.append({
+            "severity": "critical",
+            "title": WIKI_ENGINE_DOWN_TITLE,
+            "detail": WIKI_ENGINE_DOWN_DETAIL,
+            "fix": WIKI_ENGINE_DOWN_FIX,
+            "fix_command": WIKI_ENGINE_DOWN_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+        return findings
+
+    stopped = _stopped_wiki_container(snapshot)
+    if stopped is not None:
+        findings.append({
+            "severity": "critical",
+            "title": WIKI_CONTAINER_STOPPED_TITLE,
+            "detail": WIKI_CONTAINER_STOPPED_DETAIL_FMT.format(
+                name=stopped.name, state=stopped.state
+            ),
+            "fix": WIKI_CONTAINER_STOPPED_FIX,
+            "fix_command": WIKI_CONTAINER_STOPPED_FIX_COMMAND_FMT.format(
+                name=stopped.name
+            ),
+            "risk": "low",
+            "category": "runtime",
+        })
+        return findings
+
+    findings.append({
+        "severity": "critical",
+        "title": WIKI_UNREACHABLE_TITLE,
+        "detail": WIKI_UNREACHABLE_DETAIL_FMT.format(url=WIKI_URL),
+        "fix": WIKI_UNREACHABLE_FIX,
+        "fix_command": WIKI_UNREACHABLE_FIX_COMMAND,
+        "risk": "low",
+        "category": "runtime",
+    })
+    return findings
+
+
+def check_engine_supervisor_present(snapshot: Any) -> list[dict]:
+    """Is anything actually WATCHING the runtime?
+
+    The walk box had a healthy-looking estate and no periodic engine check
+    at all: ensure_colima_running() ran once at daemon startup and the only
+    other job that touched the runtime had StartInterval = 86400. So the
+    absence of a supervisor is itself a finding, raised while things are
+    still working rather than after they stop.
+
+    A WARNING, not a critical: nothing is broken yet. That is the whole
+    point of raising it now.
+    """
+    findings = []
+    scheduled = _engine_supervisor_is_scheduled()
+    if scheduled is False:
+        findings.append({
+            "severity": "warning",
+            "title": ENGINE_SUPERVISOR_MISSING_TITLE,
+            "detail": ENGINE_SUPERVISOR_MISSING_DETAIL,
+            "fix": ENGINE_SUPERVISOR_MISSING_FIX,
+            "fix_command": ENGINE_SUPERVISOR_MISSING_FIX_COMMAND,
+            "risk": "low",
+            "category": "installation",
+        })
+    # scheduled is None -> launchctl could not be asked. Silent by design:
+    # "could not check" must not render as "not installed".
+    return findings
+
+
+_ENGINE_RECOVERY_MAX_ATTEMPTS = 5   # must match ostler-engine-supervisor.sh
+
+
+def _engine_state_path():
+    from pathlib import Path
+    base = os.environ.get("OSTLER_STATE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".ostler", "state",
+    )
+    return Path(base) / "engine-supervisor" / "state.json"
+
+
+def _engine_supervisor_findings() -> list[dict]:
+    """Report what the supervisor SAW and what it TRIED.
+
+    Four states, three of which look identical to a naive probe:
+
+        absent             nothing installed. Needs an INSTALL.
+        installed_stopped  installed, nothing answering. Needs a START.
+                           <-- the measured state on the walk box
+        running_no_wiki    engine up, container down. Handled by the wiki
+                           arms below, not here.
+        up                 the supervisor deletes its state file, so
+                           absence of the file IS the healthy signal.
+
+    Absence of the file is deliberately NOT reported as an alarm: a box
+    where the supervisor has never had anything to say looks the same as a
+    box where it is not installed. The separate supervisor-missing finding
+    below is keyed on the LaunchAgent, not on this file, for exactly that
+    reason.
+
+    Never raises. An unreadable file means we do not know, and "we do not
+    know" must not render as "all is well" OR as an outage.
+    """
+    import json
+    findings: list[dict] = []
+    path = _engine_state_path()
+    try:
+        if not path.exists():
+            return findings
+        data = json.loads(path.read_text())
+    except Exception:
+        log.debug("engine supervisor state unreadable", exc_info=True)
+        return findings
+
+    state = data.get("state")
+    detail = str(data.get("detail", ""))[:300]
+    attempts = int(data.get("consecutive_failures", 0) or 0)
+    action = str(data.get("last_action", "none"))
+    first_seen = str(data.get("first_seen", "an unknown time"))
+
+    if state == "absent":
+        findings.append({
+            "severity": "critical",
+            "title": ENGINE_ABSENT_TITLE,
+            "detail": ENGINE_ABSENT_DETAIL_FMT.format(detail=detail),
+            "fix": ENGINE_ABSENT_FIX,
+            "fix_command": ENGINE_ABSENT_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+    elif state == "installed_stopped":
+        if attempts >= _ENGINE_RECOVERY_MAX_ATTEMPTS:
+            findings.append({
+                "severity": "critical",
+                "title": ENGINE_RECOVERY_EXHAUSTED_TITLE,
+                "detail": ENGINE_RECOVERY_EXHAUSTED_DETAIL_FMT.format(
+                    first_seen=first_seen, attempts=attempts, detail=detail
+                ),
+                "fix": ENGINE_RECOVERY_EXHAUSTED_FIX,
+                "fix_command": ENGINE_RECOVERY_EXHAUSTED_FIX_COMMAND,
+                "risk": "low",
+                "category": "runtime",
+            })
+        else:
+            findings.append({
+                "severity": "critical",
+                "title": ENGINE_STOPPED_TITLE,
+                "detail": ENGINE_STOPPED_DETAIL_FMT.format(
+                    detail=detail, attempts=attempts, action=action
+                ),
+                "fix": ENGINE_STOPPED_FIX,
+                "fix_command": ENGINE_STOPPED_FIX_COMMAND,
+                "risk": "low",
+                "category": "runtime",
+            })
+    return findings
+
+
+def _engine_supervisor_is_scheduled() -> bool | None:
+    """True/False if launchctl answered, None if it could not be asked.
+
+    None is NOT False. A gate that cannot ask must not report the answer it
+    would have liked.
+    """
+    import subprocess
+    label = "com.ostler.engine-supervisor"
+    try:
+        uid = os.getuid()
+        r = subprocess.run(
+            ["launchctl", "print", f"gui/{uid}/{label}"],
+            capture_output=True, timeout=10,
+        )
+        if r.returncode == 127:
+            return None
+        return r.returncode == 0
+    except Exception:
+        return None
+
+
+_WIKI_STALL_MIN_TICKS = 3   # 10-minute StartInterval, so ~30 minutes
+
+
+def _wiki_recompile_stall():
+    """(consecutive_ticks, hours) when the refresh tick has been a no-op.
+
+    wiki-recompile-tick.sh exits 0 when the container runtime is not ready,
+    deliberately: flipping that to non-zero would put a red launchd record
+    on every ordinary reboot, and a gate that is always red stops being read
+    just as surely as one that is always green. The cost was that a
+    transient and a PERMANENT outage looked identical -- green, forever.
+
+    The tick now counts its consecutive no-ops into a state file. This reads
+    it. Returns None below the threshold so a single reboot tick says
+    nothing, and never raises: an unreadable or malformed file means we do
+    not know, and "we do not know" must not be rendered as "all is well" OR
+    as an alarm.
+    """
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    base = os.environ.get("OSTLER_STATE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".ostler", "state",
+    )
+    path = Path(base) / "wiki-recompile" / "runtime-unready.json"
+    try:
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text())
+        ticks = int(data.get("consecutive", 0))
+        if ticks < _WIKI_STALL_MIN_TICKS:
+            return None
+        first = data.get("first_seen")
+        hours = 0
+        if first:
+            started = datetime.fromisoformat(first.replace("Z", "+00:00"))
+            hours = int(
+                (datetime.now(tz=timezone.utc) - started).total_seconds() // 3600
+            )
+        return ticks, hours
+    except Exception:
+        log.debug("wiki recompile stall marker unreadable", exc_info=True)
+        return None
+
+
+def _wiki_container_name(snapshot: Any) -> str:
+    """Best-effort name of the wiki container, for a fix command.
+
+    Falls back to the canonical productised name rather than to an empty
+    string: a fix command with a hole in it is not a fix command.
+    """
+    for c in getattr(snapshot, "docker_containers", None) or []:
+        if "wiki-site" in c.name:
+            return c.name
+    return f"{detect_ostler_prefix(snapshot)}wiki-site"
+
+
+def _stopped_wiki_container(snapshot: Any):
+    """The wiki container, if the engine can see it and it is not running.
+
+    Returns None when the engine sees no such container at all -- which is
+    a different fact from "it is stopped" and gets different copy.
+    """
+    for c in getattr(snapshot, "docker_containers", None) or []:
+        if "wiki-site" in c.name and c.state != "running":
+            return c
+    return None
 
 
 def check_import_readiness(snapshot: Any) -> list[dict]:
@@ -1873,6 +2256,8 @@ ALL_RULES = [
     check_container_health,
     check_qdrant_health,
     check_oxigraph_health,
+    check_wiki_health,
+    check_engine_supervisor_present,
     check_redis_health,
     check_gateway_health,
     check_import_readiness,

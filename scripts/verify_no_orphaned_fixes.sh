@@ -61,12 +61,70 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEFERRALS_FILE="${OSTLER_CUT_DEFERRALS:-${REPO_ROOT}/cut-deferrals.yaml}"
+
+# This script took no arguments at all until the expiry ratchet was added.
+# Anything unrecognised is a CANNOT-RUN and not a silent success: a typo'd flag
+# that gets ignored produces a run that looks like the one you asked for.
+REGEN_EXPIRED=0
+case "${1:-}" in
+    --regenerate-expired-baseline) REGEN_EXPIRED=1 ;;
+    "")                            REGEN_EXPIRED=0 ;;
+    *)
+        printf 'verify_no_orphaned_fixes: CANNOT-RUN -- unknown argument %s.\n' "'$1'" >&2
+        printf '  Usage: %s [--regenerate-expired-baseline]\n' "${BASH_SOURCE[0]}" >&2
+        exit 2
+        ;;
+esac
+
+# The refs whose until_cut has already passed, this run. Compared against a
+# committed baseline at the end so the debt can shrink and cannot grow.
+#
+# OVERRIDABLE so a SELF-TEST can point the ratchet at its own scratch file.
+# Without this the self-test's synthetic fixture -- `CM044:fix/later`, written
+# `until_cut: v1.0.17` -- is expired against any real cut version, lands in the
+# expired set, is absent from the PRODUCTION baseline, and fires the ratchet.
+# That is not a hypothesis: it is what stopped the v1.0.44 cut at step 7 on
+# 2026-08-24, after `Build, sign, notarise, staple` had been skipped.
+# A gate whose self-test writes into the artefact the gate is judging is an
+# instrument measuring itself.
+EXPIRED_BASELINE="${OSTLER_EXPIRED_BASELINE:-${REPO_ROOT}/tests/expired_deferrals_baseline.txt}"
+
+# 🔴 `mktemp -t <template>` WITHOUT X's IS BSD-ONLY. GNU refuses it outright:
+# "mktemp: too few X's in template". This gate ran `mktemp -t ostler-expired-refs`,
+# so on every GNU host -- which is ubuntu-latest, where preflight runs on every
+# PR -- the command failed, EXPIRED_REFS was EMPTY, and the ratchet compared an
+# empty set against a 430-ref baseline and said nothing.
+#
+# MEASURED 2026-08-24, stubbing exactly that failure into PATH and changing
+# nothing else, same shell, same GITHUB_REF_NAME=v1.0.44:
+#
+#     real mktemp        4 passed, 1 failed   <- ratchet FIRES
+#     mktemp -t fails    5 passed, 0 failed   <- ratchet SILENT
+#
+# So the expiry half of the gate has never measured anything on the surface it
+# runs on most, and fired only on the macOS cut job. Green on one surface, red
+# on the other, identical input.
+#
+# Portable form, and a HARD CANNOT-RUN if the file cannot be made: an expired
+# set that could not be written must never be read as "nothing expired".
+_orphan_gate_tmpfile() {   # _orphan_gate_tmpfile <name> -> prints path, rc 1 on failure
+    mktemp "${TMPDIR:-/tmp}/$1.XXXXXX" 2>/dev/null
+}
+EXPIRED_REFS="$(_orphan_gate_tmpfile ostler-expired-refs)" || {
+    printf 'CANNOT-RUN: could not create the expired-refs scratch file under %s.\n' "${TMPDIR:-/tmp}" >&2
+    printf '  The expiry ratchet has NOT run. That is not a pass -- it is a gate that could not look.\n' >&2
+    exit 2
+}
 # Every ref is_deferred() is asked about, so the end of this run can subtract
 # them from what the file DECLARES and name the deferrals that did nothing.
-CONSULTED_REFS="$(mktemp -t ostler-consulted-refs)"
-trap 'rm -f "$CONSULTED_REFS"' EXIT
+CONSULTED_REFS="$(_orphan_gate_tmpfile ostler-consulted-refs)" || {
+    printf 'CANNOT-RUN: could not create the consulted-refs scratch file under %s.\n' "${TMPDIR:-/tmp}" >&2
+    exit 2
+}
+trap 'rm -f "$CONSULTED_REFS" "$EXPIRED_REFS"' EXIT
 
 red=0
+expiry_ratchet_failed=0
 warn=0
 checked=0
 unchecked=0          # declared unverifiable in THIS environment
@@ -220,11 +278,17 @@ deferral_reason() {
 # v1.0.20" kept deferring at v1.0.21, v1.0.22 and v1.0.23. Every deferral in
 # the file is, in practice, permanent.
 #
-# Reported and not enforced, deliberately. Roughly a hundred rows currently
-# carry an until_cut at or before v1.0.20, so enforcing expiry in the same
-# change would turn every one of them RED and block the cut outright -- fixing
-# the ledger by burning the release. The warning makes the debt visible now;
-# making it blocking is a post-launch change, once the backlog is worked down.
+# Reported and not enforced, deliberately, and the reason still holds -- but the
+# NUMBER in it was an estimate and it was wrong by four times. Measured on a
+# complete run at v1.0.43 (2026-08-24): 426 refs have expired, not "roughly a
+# hundred", and only FOUR of them say v1.0.20 or earlier. Enforcing expiry would
+# turn all 426 RED and block the cut outright, which is fixing the ledger by
+# burning the release, so it stays advisory; making it blocking is a post-launch
+# change once the backlog is worked down.
+#
+# It is no longer UNBOUNDED, which is the part that was actually wrong. See THE
+# EXPIRY RATCHET near the end of this file: the expired set is baselined by ref,
+# a NEW expiry fails, and a disappearing one prints "regenerate and commit".
 deferral_until() {
     local ref="$1"
     awk -v want="$ref" '
@@ -246,6 +310,54 @@ deferral_until() {
 CUT_VERSION="${OSTLER_CUT_VERSION:-${GITHUB_REF_NAME:-}}"
 expired_deferrals=0
 
+# 🔴 WITHOUT A CUT VERSION, NOTHING CAN EXPIRE, AND THAT IS NOT THE SAME AS
+# NOTHING HAVING EXPIRED.
+#
+# Every expiry comparison is `until_cut < CUT_VERSION`. With CUT_VERSION empty
+# the numeric extraction yields nothing and no row can ever be expired, so the
+# expired set is EMPTY BY CONSTRUCTION. The block that reports the ratchet then
+# read that empty set as a measurement and printed
+#
+#     expiry ratchet: 0 expired now, 426 baselined, 6 repo(s) checked
+#     426 baselined ref(s) no longer expire. Re-run with
+#     --regenerate-expired-baseline and commit, so they cannot come back:
+#
+# on a run whose header said `6 repo(s) checked, 0 NOT CHECKED`, which is the
+# most authoritative-looking run this script can produce. Taking that advice
+# would have written a baseline containing nothing, deleted all 426 refs, and
+# retired the ratchet completely -- and the existing regeneration guard would
+# not have stopped it, because it only refuses when a repo went UNCHECKED.
+#
+# MEASURED 2026-08-24, driving the comparison in deferred_note directly with six
+# real until_cut values and changing nothing but this variable:
+#
+#     CUT_VERSION=<empty>   expired 0 of 6
+#     CUT_VERSION=v1.0.45   expired 4 of 6
+#
+# v1.0.27, v1.0.34, v1.0.41 and v1.0.20 expire against v1.0.45; v1.0.45 itself
+# and v1.0.50 do not. So the zero is caused by the missing version and by nothing
+# else, and the denominator is stated so the zero can be read.
+#
+# So: not evaluated is a THIRD state, and it is printed as one.
+#
+# A FUNCTION so it can be exercised without the four-minute six-repo scan, the
+# same reason expiry_ratchet_sets is one. See
+# tests/test_expiry_needs_a_cut_version.sh.
+# expiry_is_evaluable <cut-version-string> -> rc 0 evaluable / 1 not.
+# The brace-on-the-same-line, nothing-after-it shape is load-bearing: the test
+# lifts this function out with a sed range anchored on `^expiry_is_evaluable() {$`.
+expiry_is_evaluable() {
+    local _v
+    _v="$(printf '%s' "${1:-}" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    [[ -n "$_v" ]]
+}
+
+if expiry_is_evaluable "${CUT_VERSION:-}"; then
+    EXPIRY_EVALUABLE=1
+else
+    EXPIRY_EVALUABLE=0
+fi
+
 deferred_note() {
     local ref="$1" why="$2" until_v suffix=""
     until_v="$(deferral_until "$ref")"
@@ -259,6 +371,7 @@ deferred_note() {
         if [[ "$(printf '%s\n%s\n' "${u_num#v}" "${c_num#v}" | sort -V | head -1)" == "${u_num#v}" ]]; then
             suffix="  [EXPIRED: said ${u_num}, cutting ${c_num}]"
             expired_deferrals=$((expired_deferrals + 1))
+            printf '%s\n' "$ref" >> "$EXPIRED_REFS"
         fi
     fi
     note "DEFERRED  ${ref} -- ${why}${suffix}"
@@ -702,11 +815,167 @@ say "== summary: ${checked} repo(s) checked, ${red} orphaned, ${warn} warning(s)
 # A gate that goes quiet about its own coverage gets read as covering
 # everything. Name the unchecked repos every run, not only when something is
 # wrong -- a green line saying "5 repos not checked" is the whole point.
+# ---------------------------------------------------------------------------
+# THE EXPIRY RATCHET
+#
+# Expiry is still not blocking, and the reason is unchanged and correct: the
+# backlog is large enough that switching it on would fail the cut outright,
+# which is fixing the ledger by burning the release.
+#
+# What HAS changed is that "not blocking" used to mean "unbounded". The number
+# could grow every cut and the only signal was a line of advisory output nobody
+# had to act on. A ratchet costs nothing, blocks no cut that was going to pass,
+# and makes the debt monotonic.
+#
+# MEASURED 2026-08-24, cutting v1.0.43, a COMPLETE run: 6 repos checked, 0 NOT
+# CHECKED, 461 deferrals consulted, 426 distinct refs EXPIRED.
+#
+#   326 said v1.0.27   87 said v1.0.34   4 said v1.0.41
+#     4 said v1.0.39    4 said v1.0.18   1 said v1.0.40
+#
+#   daemon 131   CM051 102   CM031 71   CM044 55   CM041 45   CM059 22
+#
+# The old comment above this block said "roughly a hundred rows currently carry
+# an until_cut at or before v1.0.20". Measured: FOUR say v1.0.20 or earlier, and
+# 426 have expired in total. The estimate was low by a factor of four and named
+# the wrong version, which matters because it is the stated reason enforcement
+# is off, and a reason nobody can check is a reason that stops being read.
+#
+# READ THE DENOMINATOR BEFORE QUOTING ANY OF THIS. cut-deferrals.yaml carries
+# 634 until_cut values; the gate only CONSULTS a deferral when it has an orphan
+# to explain, so 461 is the population here, not 634. Both numbers are true of
+# different things and they are not interchangeable.
+#
+# And take the number from a run that FINISHED. This one takes about four
+# minutes because it makes a network call per ref, and a partially written log
+# read mid-flight gave 103 expired against a real 426 -- a four-fold
+# under-count that looked entirely plausible.
+#
+# THE BASELINE IS A LIST, NOT A COUNT. A count cannot see a swap: fix one,
+# add one, and the total is unchanged while a new deferral has quietly gone
+# past its deadline.
 if [[ "$expired_deferrals" -gt 0 ]]; then
     say ""
     say "   ${expired_deferrals} deferral(s) are marked [EXPIRED]: their until_cut named a"
     say "   version older than the one being cut, so they are still deferring past"
     say "   their own stated deadline. Not blocking (yet). Work them down."
+fi
+
+# The comparison, as a function, so it can be tested in a second instead of the
+# four minutes a full run costs. A ratchet that can only be exercised by the
+# thing it lives inside is a ratchet nobody exercises.
+#
+# Usage: expiry_ratchet_sets <current-sorted> <baseline> <out-new> <out-gone>
+# Returns 0 always; the caller decides what a non-empty <out-new> means.
+expiry_ratchet_sets() {
+    local current="$1" baseline="$2" out_new="$3" out_gone="$4"
+    local base_clean="${out_new}.base"
+    if [[ -f "$baseline" ]]; then
+        grep -v '^[[:space:]]*#' "$baseline" 2>/dev/null \
+            | grep -v '^[[:space:]]*$' \
+            | sort -u > "$base_clean" || : > "$base_clean"
+    else
+        : > "$base_clean"
+    fi
+    # comm needs both sides sorted with the same collation. LC_ALL is pinned
+    # because sort -u above and sort -u at the call site must agree, and a
+    # locale difference between them produces a silent phantom diff.
+    LC_ALL=C comm -23 <(LC_ALL=C sort -u "$current") <(LC_ALL=C sort -u "$base_clean") > "$out_new"
+    LC_ALL=C comm -13 <(LC_ALL=C sort -u "$current") <(LC_ALL=C sort -u "$base_clean") > "$out_gone"
+}
+
+sort -u "$EXPIRED_REFS" 2>/dev/null > "${EXPIRED_REFS}.sorted" || : > "${EXPIRED_REFS}.sorted"
+
+if [[ "$REGEN_EXPIRED" -eq 1 ]]; then
+    if [[ "$EXPIRY_EVALUABLE" -eq 0 ]]; then
+        say ""
+        say "REFUSING TO REGENERATE: this run has no cut version, so NOTHING could" >&2
+        say "expire and the expired set is empty BY CONSTRUCTION, not by measurement." >&2
+        say "Writing it as the baseline would delete every ref in it and retire the" >&2
+        say "ratchet, on the run that looks most authoritative because every repo" >&2
+        say "resolved." >&2
+        say "" >&2
+        say "Re-run with the version you are cutting:" >&2
+        say "    OSTLER_CUT_VERSION=v1.0.NN scripts/verify_no_orphaned_fixes.sh --regenerate-expired-baseline" >&2
+        exit 2
+    fi
+    if [[ "$unchecked" -gt 0 ]]; then
+        say ""
+        say "REFUSING TO REGENERATE: ${unchecked} repo(s) were NOT CHECKED in this" >&2
+        say "environment, so this run did not see the whole expired set. Writing it" >&2
+        say "as the baseline would silently DELETE every expired ref those repos" >&2
+        say "would have produced, and the ratchet would then never flag them again." >&2
+        say "Regenerate from the operator run, where all repos resolve." >&2
+        exit 2
+    fi
+    mkdir -p "$(dirname "$EXPIRED_BASELINE")"
+    {
+        printf '%s\n' "# Deferrals whose until_cut has already passed."
+        printf '%s\n' "# Regenerate: scripts/verify_no_orphaned_fixes.sh --regenerate-expired-baseline"
+        printf '%s\n' "# A NEW ref here is a failure. A ref that disappears is progress: re-run"
+        printf '%s\n' "# with --regenerate-expired-baseline and commit, so it cannot come back."
+        cat "${EXPIRED_REFS}.sorted"
+    } > "$EXPIRED_BASELINE"
+    say ""
+    say "wrote $(wc -l < "${EXPIRED_REFS}.sorted" | tr -d ' ') expired ref(s) to ${EXPIRED_BASELINE}"
+fi
+
+if [[ "$EXPIRY_EVALUABLE" -eq 0 ]]; then
+    say ""
+    say "   expiry ratchet: NOT EVALUATED. No cut version was given, so no deferral"
+    say "   can be past its until_cut and the expired set is empty by construction."
+    say "   This run says NOTHING about expiry, in either direction, and in"
+    say "   particular it is not evidence that any baselined ref has stopped"
+    say "   expiring. Set OSTLER_CUT_VERSION=v1.0.NN to evaluate it."
+elif [[ -f "$EXPIRED_BASELINE" ]]; then
+    expiry_ratchet_sets "${EXPIRED_REFS}.sorted" "$EXPIRED_BASELINE" \
+                        "${EXPIRED_REFS}.new" "${EXPIRED_REFS}.gone"
+    new_expired="$(cat "${EXPIRED_REFS}.new")"
+    gone_expired="$(cat "${EXPIRED_REFS}.gone")"
+    base_n="$(wc -l < "${EXPIRED_REFS}.new.base" | tr -d ' ')"
+    now_n="$(wc -l < "${EXPIRED_REFS}.sorted" | tr -d ' ')"
+    say ""
+    say "   expiry ratchet: ${now_n} expired now, ${base_n} baselined, ${checked} repo(s) checked"
+    if [[ "$unchecked" -gt 0 ]]; then
+        say "   ADVISORY THIS RUN: ${unchecked} repo(s) were NOT CHECKED, so a ref that"
+        say "   would be new cannot be seen from here. A clean ratchet in a partial run"
+        say "   is not evidence the set is clean."
+    fi
+    if [[ -n "$gone_expired" ]]; then
+        # grep -c, not ${#var}: ${#var} is the STRING LENGTH in bash, so a
+        # single 40-character ref would have reported itself as 40 refs.
+        gone_n="$(printf '%s\n' "$gone_expired" | grep -c . )"
+        say "   ${gone_n} baselined ref(s) no longer expire. Re-run with"
+        say "   --regenerate-expired-baseline and commit, so they cannot come back:"
+        printf '%s\n' "$gone_expired" | sed 's/^/       /'
+    fi
+    if [[ -n "$new_expired" ]] && [[ "$unchecked" -eq 0 ]]; then
+        {
+            printf '\n'
+            printf 'ERROR: a deferral went past its until_cut and is not in the baseline.\n\n'
+            printf '%s\n' "$new_expired" | sed 's/^/    /'
+            printf '\n'
+            printf 'Expiry is not blocking, but GROWTH is. Either work the deferral\n'
+            printf '(merge it, or re-defer it to a version that has not been cut), or if\n'
+            printf 'it is genuinely new debt, re-run with --regenerate-expired-baseline\n'
+            printf 'and say in the commit why the debt grew.\n'
+        } >&2
+        # NOT red. `red` means "work exists that is not in what you are about
+        # to ship", and the exit block prints exactly that sentence. An expired
+        # deferral is a different fact and deserves a different sentence; using
+        # the same counter would have printed the orphaned-work paragraph for a
+        # bookkeeping failure and sent the reader looking for missing commits.
+        expiry_ratchet_failed=1
+    elif [[ -n "$new_expired" ]]; then
+        new_n="$(printf '%s\n' "$new_expired" | grep -c . )"
+        say "   ${new_n} ref(s) are newly expired but this run is PARTIAL, so this"
+        say "   is reported and not counted. Re-run where every repo resolves."
+    fi
+else
+    say ""
+    say "   expiry ratchet: NO BASELINE at ${EXPIRED_BASELINE}."
+    say "   ${expired_deferrals} deferral(s) expired this run and nothing is bounding that"
+    say "   number. Run --regenerate-expired-baseline on a full run and commit it."
 fi
 
 if [[ "$unchecked" -gt 0 ]]; then
@@ -822,6 +1091,12 @@ fi
 if [[ "$checked" -eq 0 ]]; then
     say "CANNOT VERIFY: no repo checkouts resolved. Failing closed." >&2
     exit 3
+fi
+
+if [[ "$expiry_ratchet_failed" -ne 0 ]]; then
+    say "" >&2
+    say "FAIL: no orphaned work, but the expired-deferral set GREW. See above." >&2
+    exit 1
 fi
 
 if [[ "$unchecked" -gt 0 ]]; then

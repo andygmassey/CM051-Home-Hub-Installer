@@ -110,6 +110,26 @@ jobs:
     # publish. Every gate in this job only reads.
     permissions:
       contents: read
+      # 🔴 ADDED AFTER THE FIRST v1.0.43 TAG WAS REFUSED BY ITS OWN GATE.
+      #
+      # verify_tagged_commit_is_green.sh reads
+      # `gh api repos/<r>/commits/<sha>/check-runs`. A workflow that declares an
+      # explicit `permissions:` block sets every UNLISTED scope to none, so the
+      # job token could not read checks at all and the gate exited 2:
+      #
+      #   CANNOT-RUN: could not read check-runs for 44aab3ca25d1
+      #   Nothing was measured. A cut must not proceed on an unread commit.
+      #
+      # It failed CLOSED, which is right, and it would have failed closed on
+      # EVERY cut forever -- a gate that is always red stops being read. The
+      # gate was wired into cut.yml in #991 and #991 never ran ON the cut path,
+      # because v1.0.42 was tagged 24 minutes before it merged. Read the
+      # `permissions:` of the job you wire a gate into, the same way you read
+      # its `runs-on:`.
+      #
+      # STILL READ-ONLY. This does not widen the blast radius the note above
+      # protects: `checks: read` cannot create a release.
+      checks: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -209,9 +229,65 @@ jobs:
         if: always()
         run: ./tests/test_cut_bom_is_fresh.sh --self-test
 
+      # A CUT MUST NOT START ON A COMMIT WHOSE OWN CHECKS ARE RED.
+      #
+      # 2026-08-23, and this one is not a gate that could not see:
+      #   10:32:44Z  installer-version-consistency  push 42648d92  FAILURE
+      #   10:33:14Z  a tag was pushed at 42648d9, thirty seconds later
+      #   10:35:55Z  the cut refused at `make check-version` -- SAME DEFECT
+      # Between the first two lines sat a completed, red, thirty-second ubuntu
+      # job naming the exact drift. What the cut spent instead: a full macOS
+      # build, a Developer ID signing, an Apple notarisation round trip and a
+      # staple. The information existed, on time, in the obvious place, and the
+      # operator did not look. "The operator should have looked" is not a
+      # mechanism; this is.
+      #
+      # Self-test FIRST: an instrument that cannot demonstrate a NO has a YES
+      # worth nothing, and this one is new. 11 hermetic cases, no network.
+      - name: The commit-checks gate can still fail
+        if: always()
+        run: ./tests/test_tagged_commit_is_green.sh
+
+      # Then the live check on the commit this tag names. It EXCLUDES the cut's
+      # own jobs by name -- the cut cannot gate on itself, and the first version
+      # refused the commit that actually shipped because a duplicate cut run had
+      # been cancelled on it. The count excluded is printed.
+      #
+      # rc=2 is CANNOT-RUN and still blocks: zero check-runs is a statement
+      # about the query, not about the commit.
+      - name: The tagged commit's own checks are not red
+        if: always()
+        # 🔴 GH_TOKEN, and the permissions block above, are BOTH required.
+        #
+        # `checks: read` grants the scope to the job's GITHUB_TOKEN. It does
+        # not put that token anywhere `gh` looks. Without this env the CLI runs
+        # unauthenticated and the gate exits 2 CANNOT-RUN on every cut:
+        #
+        #   CANNOT-RUN: could not read check-runs for <sha>
+        #
+        # Measured twice on 2026-08-23 -- once on the v1.0.43 tag with neither,
+        # and once on a dispatch with the permission and not the token. A
+        # permission the consumer never receives is not a permission.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/verify_tagged_commit_is_green.sh "${GITHUB_SHA}" "${GITHUB_REPOSITORY}"
+
       - name: Vendored BOM is the BOM for this cut
         if: always()
-        run: ./tests/test_cut_bom_is_fresh.sh "${GITHUB_REF_NAME}"
+        # $CUT_VERSION, NOT $GITHUB_REF_NAME. The step above resolves the cut
+        # version for both events and exports it; on a dispatch the ref name is
+        # the BRANCH, so this read "vmain" and failed:
+        #
+        #   FAIL  no vendored BOM for vmain at cuts/vmain/MUST_CONTAIN.tsv
+        #
+        # 🔴 AND NOTE WHICH PATH THE BUG WAS ON. On a tag push the two are the
+        # same string, so this gate was correct on the road that ships and
+        # broken on the road you would use to TEST the road that ships. A dry
+        # run that cannot validate the real run is worse than no dry run,
+        # because its red teaches you to stop dispatching. The same note
+        # already exists at the appcast step below; it was written once and not
+        # carried here.
+        run: ./tests/test_cut_bom_is_fresh.sh "${CUT_VERSION}"
 
       # The orphan gate is the reason the v1.0.15 box-walk findings cannot
       # recur: it fails the cut when a fix EXISTS but is not in it. It runs
@@ -339,6 +415,37 @@ jobs:
       # measured 2026-08-13 (ghcr manifest HTTP 200 with an anonymous token).
       # If that ever changes, a failed pull is now CANNOT-RUN, not a false
       # STALE WIKI IMAGE.
+      # A LAUNCHAGENT MUST NOT BE ABLE TO RUN A PYTHON WITH NO BYTECODE REDIRECT.
+      #
+      # v1.0.45 installed cleanly and BRICKED ANDY'S MAC. Gatekeeper refused the
+      # app because 69 .pyc files had appeared inside the notarised bundle. The
+      # fix was present and correct; it was set on the ONE Process() the GUI
+      # spawns, and launchd is not in that process tree. The CM059 front-page
+      # agent ran the app's own interpreter at RunAtLoad and then hourly with
+      # EnvironmentVariables carrying PATH and nothing else.
+      #
+      # Four agents had worked in that area. Nothing caught it. The only reason
+      # it was found is that a customer's Mac stopped working, and the customer
+      # was Andy.
+      #
+      # PROVEN RED before being wired: run against the pre-fix origin/main it
+      # names all four unguarded agents and exits 1, editor-frontpage included.
+      # It would have refused v1.0.45.
+      #
+      # HERE AND NOT IN `cut`: this reads files, needs no DMG, and wants to fail
+      # before anything is built. python3 + plistlib are stdlib and present on
+      # ubuntu-latest -- deliberately NOT plutil or PlistBuddy, which are
+      # macOS-only and whose absence in this very job blocked the v1.0.40 cut.
+      # No extra token scope: `contents: read` already covers reading the tree.
+      #
+      # --self-test FIRST, same shape as the shipping-ledger gate: a checker
+      # that cannot demonstrate it fires is not evidence of anything.
+      - name: No LaunchAgent runs a python without a bytecode redirect
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_launchagent_pycache_guard.py --self-test
+          python3 scripts/verify_launchagent_pycache_guard.py --root .
+
       - name: Provenance -- wiki image contents (needs docker, hence here)
         env:
           OSTLER_PROVENANCE_ONLY_KINDS: wiki_image_grep,wiki_image_absent
@@ -394,7 +501,9 @@ jobs:
           # GitHub which versions have a release, so it needs GH_TOKEN above;
           # three controls turn an unanswerable probe into CANNOT-RUN rather
           # than a quiet "nothing is owed".
-          CUT_VERSION="${GITHUB_REF_NAME:-}" ./tests/test_appcast_debt_is_collected.sh
+          # CUT_VERSION is already exported by preflight for BOTH events; the
+          # ref name is the branch on a dispatch. Same defect as the BOM step.
+          CUT_VERSION="${CUT_VERSION:-${GITHUB_REF_NAME:-}}" ./tests/test_appcast_debt_is_collected.sh
           # task #359: a workflow_dispatch of THIS file must be incapable of
           # producing or publishing an artefact. The dry run exists so a broken
           # cut-path check stops costing a version number; the moment a

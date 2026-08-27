@@ -1,0 +1,64 @@
+name: launchagent-pycache-guard
+
+# A LaunchAgent must not be able to run a python with no bytecode redirect.
+#
+# v1.0.45 installed cleanly and BRICKED ANDY'S MAC: Gatekeeper refused the app
+# because 69 .pyc files had appeared inside the notarised bundle. The fix was
+# present and correct, and set on the ONE Process() the GUI installer spawns.
+# launchd is not in that process tree. The CM059 front-page agent ran the app's
+# own interpreter at RunAtLoad and then hourly, with EnvironmentVariables
+# carrying PATH and nothing else.
+#
+# Four agents had worked in that area over months. Nothing caught it. The only
+# reason it was found is that a customer's Mac stopped working, and that
+# customer was Andy.
+#
+# WHY HERE AS WELL AS IN cut.yml. cut.yml fires ONLY on a 'v1.0.*' tag, so a
+# gate living only there first speaks at ship time, after review is over and
+# with a cut already in flight. This runs on the pull request, where a bad
+# LaunchAgent is one comment to fix. The cut-time copy stays as the backstop
+# that refuses to ship one.
+#
+# NO paths: FILTER, deliberately. The obvious filter would be launchd/*.plist
+# plus install.sh, and it would MISS the exact shape that caused this: the
+# guard lives in a tick script, and deleting one line from a *.sh nobody
+# thought to list would sail through. The check takes a couple of seconds on
+# a repo this size; a filter is not worth a blind spot.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same PR. NEVER cancels main: a cancelled
+  # main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  guard:
+    name: No LaunchAgent runs a python without a bytecode redirect
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # SELF TEST FIRST, same shape as the shipping-ledger gate. A checker that
+      # cannot demonstrate it fires is not evidence of anything. The self test
+      # builds throwaway trees and asserts the predicate goes RED for an
+      # unguarded agent, GREEN for a guarded one, GREEN for a non-python agent
+      # it must not drag in, CANNOT-RUN for a zero denominator, and RED again
+      # when the guard is only a comment.
+      - name: Self test (prove the predicate fires)
+        run: python3 scripts/verify_launchagent_pycache_guard.py --self-test
+
+      # python3 + plistlib are stdlib and present on ubuntu-latest. Deliberately
+      # NOT plutil or PlistBuddy: both are macOS-only, and a PlistBuddy reader
+      # in an ubuntu job blocked the v1.0.40 cut here. Fix the reader, never the
+      # runner.
+      - name: Audit every LaunchAgent this repo installs
+        run: python3 scripts/verify_launchagent_pycache_guard.py --root .

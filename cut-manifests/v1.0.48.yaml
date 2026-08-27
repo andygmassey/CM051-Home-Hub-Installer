@@ -1,0 +1,215 @@
+# cut-manifests/v1.0.48.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.48.
+#
+# WHY v1.0.48 EXISTS, AND IT IS ONE THING:
+# ---------------------------------------------------------------------------
+# v1.0.47 WAS CUT, PUBLISHED, WALKED, AND REFUSED. Its stated job was to close
+# v1046-D001 and it closed half of it.
+#
+# THE HALF THAT HOLDS, and must not be re-litigated: the STDLIB. v1.0.47 ships
+# 1448 seeded .pyc, all 1448 unchecked-hash, 0 in timestamp mode, and a broad
+# no-env import changes nothing. That was the v1.0.46 brick and it is gone.
+#
+# THE HALF THAT DID NOT. Measured on the published artefact
+# (OstlerInstaller-1.0.47.dmg, 67,180,568 bytes, sha256 12fb6366...a86ff,
+# matches SHA256SUMS, plist 1.0.47 / 4700):
+#
+#     .py in the bundle          1888
+#     .pyc                       1448
+#     .py with NO .pyc            440
+#       outer bundle              353
+#       inside nested Ostler.app   87
+#
+# ORM's walk arm 8b (#1092) imported the smallest unseeded module,
+# Contents/Resources/assistant_api/tests:
+#
+#     .pyc 1448 -> 1449    codesign --verify --deep --strict rc=1
+#     VERDICT NO_GO
+#
+# That is an ADD, not a REWRITE -- v1045-D001's defect, not v1.0.46's,
+# surviving in the compartment the v1.0.46 fix never inspected.
+#
+# ---------------------------------------------------------------------------
+# 🔴 ROOT CAUSE IS AN INSTRUMENT DEFECT, AND IT WAS MINE
+# ---------------------------------------------------------------------------
+# The audit added by #1085 reads `$PYTHON_DIR` -- THE ONE DIRECTORY THAT SAME
+# COMMIT HAD JUST FIXED. It asserted a property over a subset chosen so as to
+# exclude the defect, and it asked only about MODE, never about ABSENCE:
+#
+#     .py with NO .pyc        -> first import ADDS a file      (v1045-D001)
+#     .pyc in timestamp mode  -> first import REWRITES a file  (v1046-D001)
+#
+# Two defects, one colour, and only one of them touches a mode bit. Every
+# count-based and mode-based assertion in v1.0.47 was green while 440 files sat
+# outside the audit's root.
+#
+# This is the same family as v1.0.46's flag-grep, one level up. v1.0.46 asserted
+# THE FLAG instead of the property; v1.0.47 asserted the property over THE WRONG
+# COMPARTMENT. The lesson that generalises is not "read the bytes" -- it is
+# "state the denominator the property is asserted over, and check the defect is
+# inside it".
+#
+# ---------------------------------------------------------------------------
+# HOW THESE PREDICATES WERE CHOSEN
+# ---------------------------------------------------------------------------
+# A predicate both artefacts satisfy proves nothing. Every pattern below was
+# counted against v1.0.47's PINNED SHA (10c24171) and against this tree:
+#
+#     PATTERN (gui/scripts/sign-python-bundle.sh)  v1.0.47  v1.0.48
+#     PRODUCT_ROOT                                       0        3   ACCEPTED
+#     have NO .pyc beside them                           0        1   ACCEPTED
+#     B_PY" -lt 1000                                     0        1   ACCEPTED
+#     inside nested .app EXCLUDED                        0        1   ACCEPTED
+#     compileall                        (control)       13       15
+#     invalidation-mode unchecked-hash  (control)        3        4
+#
+# 🔴 THE CONTROLS ARE NON-ZERO ON BOTH SIDES ON PURPOSE, AND ONE OF THEM EARNED
+# ITS KEEP. An earlier pass of this table returned compileall = 0 for v1.0.47,
+# which is impossible -- v1.0.47 plainly runs compileall. The cause was zsh:
+# `$V47:gui/...` parsed as `${V47:gu}`, the globally-upcase modifier, so
+# `git show` was handed an upper-cased sha with `gu` eaten out of the path and
+# failed rc=128. Braces fixed it (`"${V47}:gui/..."`). WITHOUT THE CONTROL every
+# row would have read 0 -> N off a file that never loaded. An all-zero column is
+# what a broken read looks like, not what a clean diff looks like.
+#
+# ---------------------------------------------------------------------------
+# ⚠️ WHAT THIS MANIFEST CANNOT PROVE, STATED RATHER THAN BURIED
+# ---------------------------------------------------------------------------
+# NONE OF THESE ROWS PROVE THE SEAL HOLDS. They prove the fix is PRESENT in the
+# pinned source and that the installer's identity moved. Presence is not
+# behaviour. The ONLY proof is artefact-level, on a WRITABLE COPY, after the DMG
+# exists -- and it must ask BOTH questions, because v1.0.47 passed the first:
+#
+#   T=$(mktemp -d); ditto "$M/OstlerInstaller.app" "$T/OstlerInstaller.app"
+#   find "$T" -name '*.pyc' | wc -l            # DENOMINATOR, expect ~1801
+#   # ADD limb -- the one that vetoed v1.0.47:
+#   ( cd "$T/OstlerInstaller.app/Contents/Resources" && \
+#     ../.../python3.11 -c 'import sys; sys.path.insert(0,"."); import assistant_api.tests' )
+#   find "$T" -name '*.pyc' | wc -l            # MUST BE UNCHANGED
+#   codesign --verify --deep --strict --verbose=2 "$T/OstlerInstaller.app" 2>&1 \
+#     | grep -cE '^file (added|modified):'     # EXPECT 0 -- CHECK BOTH VERBS
+#
+# 🔴 CANNOT-RUN IS NEITHER FAIL NOR PASS. If the DMG will not mount, if ditto
+# fails, or codesign exits >=2, the row is NOT verified -- say so and REFUSE.
+#
+# 🟠 KNOWN RESIDUAL, IN THE ARTEFACT, NOT FIXED BY THIS CUT: the 87 .py inside
+# Ostler.app. `ship:` runs sparkle-embed -- which seals Ostler.app with
+# `codesign --force --deep` -- TWO STEPS BEFORE sign-python-bundle, so excluding
+# them here was mandatory, not cautious. Their fix belongs at `stage-payload`,
+# before that reseal. Hub lane owns it. If the Hub ever runs an unguarded
+# product python it breaks its own seal exactly as the installer did.
+#
+# 🗿 AND THE RULE THAT OUTRANKS ALL OF THIS: nothing is DONE until someone who
+# did not write it has watched it behave on an INSTALLED BOX. Not merged. Not
+# present in the binary. OBSERVED. I wrote #1093 and am the wrong person to
+# certify it.
+# ============================================================================
+version: v1.0.48
+entries:
+  - id: v1048-a-the-signing-step-seeds-the-product-tree
+    title: compileall covers the product tree, not only the bundled stdlib
+    incident: >-
+      THE REASON THIS CUT EXISTS. v1.0.47 seeded 1448 stdlib .pyc and shipped
+      440 product .py with none at all; ORM's arm 8b imported one and took the
+      bundle to 1449 with codesign rc=1. The signing step now runs the same
+      compileall line over Contents/Resources, excluding /python/ (already done
+      above it) and \.app/ (nested bundles carry their own signature and are
+      sealed earlier by sparkle-embed). VERIFIED ON THE PUBLISHED v1.0.47
+      BUNDLE BEFORE THE PATCH WAS WRITTEN: rc=0, 1448 -> 1801, exactly the 353
+      predicted, and nothing failed to compile -- so the fail-closed path is not
+      a latent build break. Counted 0 at v1.0.47's pinned sha 10c24171 and 3
+      here, so this row tells the two artefacts apart rather than being
+      vacuously satisfiable.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/scripts/sign-python-bundle.sh
+      pattern: 'PRODUCT_ROOT'
+      must_match: true
+  - id: v1048-b-the-audit-refuses-a-py-with-no-pyc
+    title: the audit asks about ABSENCE, not only about MODE
+    incident: >-
+      THE INSTRUMENT DEFECT, FIXED. v1.0.47's audit read $PYTHON_DIR and counted
+      timestamp-mode .pyc. Both facts about it were true and both were reported,
+      and the artefact still bricked, because a .py with NO .pyc is invisible to
+      a mode census and its first import ADDS a file to the seal. The audit is
+      now scoped to the whole outer bundle and refuses if any .py lacks a .pyc.
+      Counted 0 at 10c24171, 1 here. Proved to fire: test arm (h) drives it with
+      353 uncovered and asserts the refusal names the defect; mutation-testing
+      the check (-ne 0 -> -lt 0) fails 3 assertions.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/scripts/sign-python-bundle.sh
+      pattern: 'have NO \.pyc beside them'
+      must_match: true
+  - id: v1048-c-anti-vacuity-on-the-denominator
+    title: a zero over a missing denominator is refused, not read as a pass
+    incident: >-
+      "0 uncovered" is ALSO what an unstaged Resources tree prints. Without a
+      floor the new audit would pass loudest at the moment it can see least --
+      the uniform-zero shape that has cost this project a cut more than once,
+      and which appeared again while building THIS manifest (a zsh :gu modifier
+      silently emptied the comparison file). The audit therefore asserts the .py
+      denominator is >= 1000 before believing any zero. v1.0.47 measured 1801.
+      Counted 0 at 10c24171, 1 here. Proved to fire: test arm (j) feeds a
+      3-file bundle and asserts the message says the audit COULD NOT LOOK rather
+      than that it passed; mutation-testing the floor fails 2 assertions.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/scripts/sign-python-bundle.sh
+      pattern: 'B_PY" -lt 1000'
+      must_match: true
+  - id: v1048-d-the-nested-app-residual-is-printed
+    title: the 87 files this cut does NOT fix are counted out loud
+    incident: >-
+      A residual excluded in silence is a residual nobody tracks. The audit
+      prints the nested-.app .py count alongside its verdict, so the 87 files
+      inside Ostler.app that this cut deliberately does not touch appear in
+      every build log rather than only in a manifest comment. Counted 0 at
+      10c24171, 1 here. Test arm (l) asserts the line is present on a clean run,
+      so the disclosure cannot be dropped without a red.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/scripts/sign-python-bundle.sh
+      pattern: 'inside nested \.app EXCLUDED'
+      must_match: true
+  - id: v1048-installer-version-is-1048
+    title: the Installer says which installer it is
+    incident: >-
+      v1.0.39 shipped a DMG whose plist read 1.0.38, and the first v1.0.43 tag
+      was refused for the same defect with plist 1.0.42. Bumped across all
+      sites -- Info.plist x2, project.yml x4, pbxproj x4, ten substitutions,
+      each with a per-site count assertion that refused to write on any mismatch
+      -- and read back through plutil rather than from the file text.
+      🔴 THE BUMP SURFACE HAS MORE DECOYS THAN REAL SITES, AND THE RATIO GOT
+      WORSE THIS CUT: gui/Makefile carries 4 historical ORM pin notes, and
+      gui/scripts/sign-python-bundle.sh now carries 19 occurrences of 1.0.46 /
+      1.0.47 inside the measurement comments recording what those cuts did wrong
+      -- up from 6, because #1093 added the v1.0.47 evidence. The test harness
+      carries 10 more. Those 33 are EVIDENCE AND HISTORY, not version pins; a
+      naive sed over gui/ rewrites them and destroys the record. Verified
+      untouched after the bump: Makefile 4, signing script 19, tests 10,
+      residual real 1.0.47/4700 pin in the three pin files = 0.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: '1.0.48'
+  - id: v1048-installer-build-number-is-4800
+    title: short version and build number have not drifted apart
+    incident: >-
+      A build number that lags the short version is how two different DMGs claim
+      to be the same install. tests/test_installer_version_consistency.sh passes
+      on this tree: all four version sites and all four build sites agree, and
+      4800 is correctly derived from 1.0.48.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleVersion
+      value: '4800'

@@ -35,7 +35,20 @@ on:
       - 'scripts/verify_commit_parity.sh'
       - 'gui/scripts/sign-python-bundle.sh'
       - 'tests/test_sign_python_bundle_reports_why.sh'
+      - 'tests/test_product_seed_regex_does_not_exclude_the_bundle.sh'
       - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
+      - 'tests/test_provenance_gate_marker_read_is_not_piped.sh'
+      - 'scripts/walk_dmg.sh'
+      - 'tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh'
+      # The marker arms are three-state (0 found / 1 not found / 2 could not
+      # look). The test is watched as well as run: a run: without a matching
+      # path entry is a gate you have read, not a gate you have run.
+      - 'tests/test_marker_grep_is_three_state.sh'
+      # The manifest itself is a trigger. It was not one before, so a PR could
+      # add a row, or edit a #84 LOCK pattern, and no marker test would run on
+      # it: the defect surface and the instrument have to share a trigger.
+      - 'scripts/cut_markers.manifest'
+      - 'tests/test_every_marker_pattern_compiles.sh'
       - 'tests/test_no_gate_execs_a_pinned_image.sh'
       - 'scripts/lib_image_extract.sh'
       - 'scripts/provenance_gate.sh'
@@ -145,6 +158,16 @@ jobs:
         if: always()
         run: bash tests/test_sign_python_bundle_reports_why.sh
 
+      # The seed's own exclusion regex swallowed the tree it was meant to seed.
+      # compileall matches -x with rx.search(FULLNAME), so a bare `\.app/`
+      # matched the OUTER bundle and compiled NOTHING at rc=0. It failed closed
+      # -- the bundle audit refuses to sign -- but the cut stops with an error
+      # describing the symptom in a different compartment from the cause.
+      # This reads the regex OUT of the script, so it cannot drift.
+      - name: the product seed actually seeds the product tree
+        if: always()
+        run: bash tests/test_product_seed_regex_does_not_exclude_the_bundle.sh
+
       # provenance_gate.sh accused three healthy CM044 wiki images of being
       # stale on run 31696154993, because `gh api` prints its error body to
       # stdout on a non-2xx and the old `[[ -z "$out" ]]` test therefore could
@@ -160,6 +183,41 @@ jobs:
       - name: provenance gate -- cannot-run is never reported as stale
         if: always()
         run: bash tests/test_provenance_gate_cannot_run_is_not_stale.sh
+
+      # A marker pattern that cannot RUN must never report the component absent.
+      # The wiki_image_absent rows are the #84 LOCK rows; rc=2 used to print green.
+      # A marker that IS present was reported STALE DAEMON SOURCE, because the
+      # read was `git show | grep -q` under pipefail: grep exits on the first
+      # match, git takes SIGPIPE, and pipefail turns the match into a non-zero
+      # pipeline. Reproduced on a 679,963-byte daemon source file with the
+      # marker on line 1. This test builds its own git repo and proves the
+      # fixture races BEFORE asserting anything, so it cannot pass vacuously.
+      - name: provenance marker read is not piped into grep -q
+        if: always()
+        run: /bin/bash tests/test_provenance_gate_marker_read_is_not_piped.sh
+
+      # Arm 8b is a VETO arm, so over-approximating its hazard BLOCKS A GOOD
+      # CUT. A .pyc is only written for a module that is IMPORTED; CPython
+      # never caches bytecode for a __main__ script. This test proves the arm
+      # forgives only what provably cannot write a .pyc, and mutates every
+      # clause of that exemption -- diffing each mutation first, because a
+      # mutation that did not apply is a broken apparatus, not a pass.
+      - name: arm 8b vetoes on importable, not merely uncovered
+        if: always()
+        run: /bin/bash tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh
+
+      - name: A marker pattern that cannot run is CANNOT-RUN, not 'absent'
+        if: always()
+        run: /bin/bash tests/test_marker_grep_is_three_state.sh
+
+      # Now that the arms run -E, a pattern that does not COMPILE reports
+      # CANNOT-RUN, which is safe and silent: the row has stopped measuring and
+      # nothing says so. -E also makes alternation natural to write, and this
+      # pipe-delimited manifest cannot carry it -- `foo|bar` parses as pattern
+      # `foo`. Both limbs print their denominator and carry a must-fail control.
+      - name: every marker pattern compiles, and none is a truncated alternation
+        if: always()
+        run: /bin/bash tests/test_every_marker_pattern_compiles.sh
 
       # REPO-WIDE, and static, so it runs anywhere and needs no docker.
       # Two tags burned because the same exec-a-pinned-image bug lived in more

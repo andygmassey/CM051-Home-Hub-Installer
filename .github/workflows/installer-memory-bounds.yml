@@ -1,0 +1,77 @@
+name: installer-memory-bounds
+
+# THE INSTALLER RETAINED 4.27 GB AFTER A SUCCESSFUL INSTALL.
+#
+# v1.0.42 upgrade walk, Mac mini, 2026-08-23. macOS raised "your system has
+# run out of application memory" with `Ostler Installer (paused) 4.27 GB`,
+# AFTER the install had completed. Every gate in the estate was green on that
+# artefact -- preflight, orphans, version stamp, walk closure, BOM freshness,
+# manifest 19/0, notarisation, staple, spctl. None of them looks at memory.
+#
+# ROOT CAUSE, MEASURED. InstallerCoordinator accumulated subprocess output in
+# a bare Swift String and drained it only at "\n". Output with no "\n" --
+# `\r`-delimited progress redraws, which docker, brew, pip and ollama all
+# emit -- accumulated one retained byte per byte received, without bound, and
+# was never cleared even when the subprocess exited:
+#
+#     cr,  5 MiB -> lines_parsed=0       retained  5,246,000 chars
+#     cr, 20 MiB -> lines_parsed=0       retained 20,984,000 chars
+#     lf, 20 MiB -> lines_parsed=344,000 retained          0   <-- CONTROL
+#
+# In Swift "\r\n" is ONE Character equal to neither "\r" nor "\n", so CRLF
+# output was a SECOND unbounded path through the same loop. That one was
+# found by this gate going red, not by reading the code.
+#
+# WHY macos: the gate compiles the real shipping type with `swiftc`. It does
+# NOT need the Xcode project, the Safari extension zip, or python-build-
+# standalone, so it runs in seconds where the full swift-tests suite cannot.
+
+on:
+  pull_request:
+    paths:
+      - 'gui/OstlerInstaller/OutputLineBuffer.swift'
+      - 'gui/OstlerInstaller/MemoryCeiling.swift'
+      - 'gui/OstlerInstaller/InstallerCoordinator.swift'
+      - 'tests/test_installer_output_buffer_is_bounded.sh'
+      - 'tests/helpers/output_buffer_driver.swift'
+      # v1042-D002 residual: the bound held and the diagnostic was lost anyway.
+      - 'tests/test_installer_output_keeps_the_tail.sh'
+      - 'tests/helpers/output_buffer_tail_driver.swift'
+      - '.github/workflows/installer-memory-bounds.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # NEVER cancels main or a tag: a cancelled run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  output-buffer-bounds:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # The test compiles the PRE-FIX parser verbatim alongside the shipping
+      # one and REQUIRES the pre-fix one to retain the bytes. If the control
+      # ever reads as bounded the whole run fails rather than reporting green,
+      # because at that point the harness can no longer see the defect it
+      # exists for.
+      - name: The output accumulator is bounded for every input shape
+        run: /bin/bash tests/test_installer_output_buffer_is_bounded.sh
+
+      # The other half of the same defect. #993 bounded the accumulator; this
+      # asserts the bytes it KEEPS are the ones that name the failure. Both
+      # arms of the driver are compiled and every check is run against the
+      # pre-fix truncation as well, which must LOSE the error text -- if the
+      # control ever keeps it the run is a cannot-run, not a pass.
+      - name: An over-long or unterminated line keeps its tail
+        if: always()
+        run: /bin/bash tests/test_installer_output_keeps_the_tail.sh
+
+      - name: MemoryCeiling compiles standalone
+        if: always()
+        run: swiftc -parse -swift-version 5 gui/OstlerInstaller/MemoryCeiling.swift

@@ -158,10 +158,35 @@ run_probe() {
     if [ "${nodes:-0}" -gt 0 ]; then
         probe_note "Contacts cards swallowed: ${cards} (so ${cards} cards share ${nodes} nodes; $((cards - nodes)) people have no node of their own)"
         probe_note "worst single node: ${worst} distinct Contacts cards collapsed into one person"
-        # Node URIs only. NOT display names: this output lands in logs and
-        # support bundles, and the whole defect is that these nodes carry the
-        # names of people who are not each other.
-        probe_note "first offending nodes: $(printf '%s' "$rows" | head -3 | awk '{print $2}' | tr '\n' ' ')"
+        # NOT display names -- this output lands in logs and support bundles,
+        # and the whole defect is that these nodes carry the names of people
+        # who are not each other.
+        #
+        # AND NOT THE RAW URI EITHER, which is where this stopped before and is
+        # a step short. MEASURED on the live box 2026-08-26: of 7111 Person
+        # URIs, 1405 are a full uuid5 -- the output of
+        # ostler_fda/pwg_ingest.py:_person_id_from_identifier, which is
+        #
+        #     uuid5(NAMESPACE_URL, "https://schema.ostler.ai/person/" + identifier)
+        #
+        # over a lowercased email or E.164 phone. Unsalted, with a namespace, a
+        # template and an algorithm that are all in a PUBLIC repo. So the
+        # mapping identifier -> URI is computable by anyone, and a PUBLISHED URI
+        # is a confirmation oracle: guess an address, compute, compare. E.164
+        # for a single country is small enough to enumerate exhaustively.
+        #
+        # Shown with synthetic values rather than by reversing anyone:
+        #     someone@example.com -> person_a4d2c110-9224-541e-8152-533deb73e0e8
+        #     +447700900123       -> person_959abae0-19e7-5984-beec-2ef4e8480246
+        # which is exactly the shape 1405 of the live nodes carry.
+        #
+        # A SHA-256 prefix is stable across runs, correlates with the CM041
+        # reconcile tooling (same scheme), and is not invertible by guessing an
+        # address. An operator who needs the real URIs gets them ON THE BOX,
+        # where the customer's data already lives. A walk record travels; the
+        # graph does not, and the two must not be confused.
+        probe_note "first offending nodes (opaque, sha256 prefix): $(printf '%s' "$rows" | head -3 | awk '{print $2}' | while read -r u; do printf '%s ' "$(printf '%s' "$u" | shasum -a 256 | cut -c1-10)"; done)"
+        probe_note "  the real URIs stay on the box; re-run this query there if you need them"
         probe_fail "${nodes} Person node(s) each carry 2+ distinct icloud_contact_uid, collapsing ${cards} Contacts cards. That is RULE 2 of the ratified dedupe ruleset -- different canonical keys MUST NOT merge -- violated in the live graph (#659)."
     fi
 

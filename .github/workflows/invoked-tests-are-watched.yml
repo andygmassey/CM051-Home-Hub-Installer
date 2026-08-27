@@ -1,0 +1,88 @@
+name: invoked-tests-are-watched
+
+# A workflow must fire on the change that could break it.
+#
+# WHY THIS EXISTS. Measured on origin/main 19bd9a09 on 2026-08-24: of 204
+# script/test files invoked by a pull_request-triggered workflow, TWELVE were
+# dark on self-edit -- every workflow that ran them was blind to a change to
+# them. Editing the test did not trigger the only thing that checks it. Three of
+# the twelve arrived with #995, so the two gates written for the v1.0.38 walk
+# finding (a green install on a Mac with no container engine) could have been
+# edited down to nothing on a PR that went green.
+#
+# WHY THE EXISTING READERS CANNOT SEE IT. tests/TEST_WIRING.tsv records the
+# `run:` step, and that record stays true when nothing triggers.
+# verify_critical_tests_stay_invoked.sh asks whether a test is INVOKED and its
+# predicate deliberately excludes paths: entries, so a watched test and an
+# unwatched one score identically. ci-maskless asks whether an earlier failure
+# can skip the step. All three are facts about the FILE. This is the fact about
+# the EVENT.
+#
+# vendor-integrity.yml says the rule in prose three separate times -- "a path
+# entry alone would only make the workflow TRIGGER; the run step above is what
+# makes it CHECK". A rule written three times by hand in one file is a rule
+# waiting to be a gate.
+#
+# THREE AXES, added in two passes.
+#
+#   1. A file a paths-filtered workflow RUNS must be a path it WATCHES.
+#      Twelve violations on 19bd9a09, fixed in #1009.
+#   2. A paths-filtered workflow must watch ITSELF.
+#   3. A paths entry naming .github/workflows/<name> must name a workflow that
+#      EXISTS.
+#
+# Axes 2 and 3 were measured on 2c583597, after axis 1 landed: of 61 filtered
+# workflows TWO did not watch themselves, and container-runtime-guard.yml
+# listed '.github/workflows/installer-stream-and-runtime-guards.yml' -- its own
+# name before a rename, and a file that had not existed since. It HAD a
+# self-watch. The self-watch pointed at nothing. Nothing said so.
+#
+# NO PATHS FILTER, deliberately, and for this workflow the reason is not
+# rhetorical: a workflow that only ran when its own files changed would be an
+# instance of the defect it exists to catch.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # NEVER cancels main or a tag: a cancelled run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  invoked-tests-are-watched:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+
+      # Controls first. Eleven of the twenty-three assert the gate stays QUIET,
+      # because a checker that flags the innocent is switched off inside a week
+      # and that is the same outcome as never having written it. Five assert
+      # CANNOT-RUN rather than a silent pass.
+      #
+      # Every FIRE fixture is clean on the axes it is not testing. When axis 2
+      # was added, four fixtures started violating two axes at once: the suite
+      # still read 23/0 and two mutants of the gate survived, because rc was 1
+      # for the wrong reason.
+      - name: The gate fires, stays quiet, and refuses to guess (23 controls)
+        run: /bin/bash tests/test_invoked_tests_are_watched_gate.sh
+
+      # if: always() so a failure above cannot silence this one -- the rule
+      # ci-maskless enforces, applied here.
+      - name: No gate is blind to the change that would break it
+        if: always()
+        run: python3 scripts/verify_invoked_tests_are_watched.py .

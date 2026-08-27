@@ -41,6 +41,13 @@ UNINSTALLER="$(mktemp)"
 trap 'rm -f "$UNINSTALLER"' EXIT
 
 awk '
+    # A COMMENT THAT MENTIONS THE HEREDOC IS NOT THE HEREDOC. install.sh:9777
+    # documents this block in prose, so without this line the capture arms
+    # THERE, 6780 lines early, mid-way through an unrelated if-block. The
+    # extraction then began with a bare `fi`, bash exited 2 on a SYNTAX error
+    # before running a single assertion, and the run below discarded the
+    # message that said so. Seven real assertions were dark behind that.
+    /^[[:space:]]*#/           { next }
     /<<'\''UNINSTALLEOF'\''/ { capture = 1; next }
     /^UNINSTALLEOF$/         { capture = 0 }
     capture                  { print }
@@ -88,7 +95,10 @@ run_uninstaller() {
     shift
     HOME="$SANDBOX" \
         PATH="${STUB_BIN}:${PATH}" \
-        bash "$UNINSTALLER" "$@" <<<"$stdin_input" >/dev/null 2>&1
+        # Capture, never discard. A silent non-zero is unclassifiable: a
+        # deliberate CANNOT-RUN and a syntax error print identically when
+        # stderr goes to /dev/null. That is what hid this bug.
+        bash "$UNINSTALLER" "$@" <<<"$stdin_input" >"${SANDBOX}/uninstaller.out" 2>&1
 }
 
 cleanup_sandbox() {

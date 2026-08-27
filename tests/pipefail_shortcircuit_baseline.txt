@@ -6,7 +6,6 @@ bin/redact_selftest.sh
 bin/rollforward_gate.sh
 gui/scripts/sign-python-bundle.sh
 install.sh
-lib/ostler-detect-exports.sh
 scripts/_vendor_lib.sh
 scripts/box_walk_probes/probes/ingest_coverage.sh
 scripts/box_walk_probes/probes/launchd_no_ephemeral_paths.sh
@@ -21,7 +20,6 @@ scripts/tests/test_daemon_fda_case6_controls.sh
 scripts/tests/test_regenerate_divergence_patch.sh
 scripts/verify_appcast_published.sh
 scripts/verify_cut_freshness.sh
-scripts/verify_declared_gates_reachable.sh
 scripts/verify_no_orphaned_fixes.sh
 tests/test_ai_model_env_contract.sh
 tests/test_bootstrap_prelude.sh

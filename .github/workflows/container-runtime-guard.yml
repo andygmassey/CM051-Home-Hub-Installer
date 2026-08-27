@@ -1,0 +1,117 @@
+name: container-runtime-guard
+
+# Two defects from the v1.0.42 upgrade walk on real hardware, 2026-08-23, and
+# the three tests that guard them. Wired here because ALL THREE WERE DARK when
+# they were written -- a `grep -rl` across .github/workflows/ for either test
+# name returned nothing, while the control (zero-payload) returned its
+# workflow. Writing a test and not wiring it is the defect this repo keeps
+# finding in other people's work (#688, #704, #707, #734).
+#
+# ============================================================================
+# WHAT THESE GUARD
+# ============================================================================
+#
+# 1. THE STDOUT ACCUMULATOR. The installer held 4.27 GB after a SUCCESSFUL
+#    install. `stdoutBuffer` drains only on "\n"; `docker pull` writes layer
+#    progress with "\r" and no newline, so during a multi-gigabyte pull the
+#    drain loop never executes once.
+#
+#    🔴 IT IS THE FIRST LINK IN A CHAIN THAT TOOK THE PRODUCT DOWN. That
+#    retention drove macOS into memory pressure -- five JetsamEvent reports on
+#    the box on 2026-08-23 between 16:13:35 and 17:33:51 -- jetsam killed the
+#    4 GB Colima VM, and with it the wiki (8044) and store (7878) for about a
+#    day, while the native services (8000, 8089) stayed up and made it look
+#    like a wiki problem. See also colima-autostart.yml, which guards the
+#    login-time half of the same dependency.
+#
+# 2. THE CONTAINER-RUNTIME GUARD. `command -v docker` decided whether to
+#    install a runtime. That finds the CLIENT; on macOS the engine comes from
+#    Colima, Docker Desktop, OrbStack or Podman, and a box that once had
+#    Docker Desktop keeps the client behind.
+#
+#    ⚠️ SCOPE, STATED SO THE REGISTER DOES NOT INHERIT A WRONG STORY: this
+#    guard did NOT cause the outage above. The engine on the walk box was
+#    installed and correctly linked throughout. It is a real defect found
+#    during that investigation, not the cause of it.
+#
+# ============================================================================
+# WHY A RUNTIME TEST *AND* A SOURCE-TEXT TEST FOR THE SAME DEFECT
+# ============================================================================
+#
+# Because the source-text one does not hold the line, and that was PROVEN
+# rather than assumed. ORM wrote a decoy -- cap declared, cap consulted,
+# buffer reassigned, all guarded by `if stdoutBuffer.isEmpty` which is never
+# true -- and measured:
+#
+#     source-text test:  PASS=6 FAIL=0        <-- blind
+#     runtime test:      PEAK UNBOUNDED       <-- catches it
+#     actual buffer:     4,189,696 bytes retained of 4,189,696 fed
+#
+# The source-text test is kept because it is fast and it pins the SHAPE of the
+# fix; the runtime test is what proves the BEHAVIOUR. Neither is redundant.
+#
+# ============================================================================
+# WHY macos
+# ============================================================================
+#
+# The runtime guard compiles the shipped ingest body with `swiftc`. On a
+# runner without it the test exits 2 (CANNOT-RUN) rather than 0, so a missing
+# toolchain can never be mistaken for a pass -- but it would report nothing,
+# which is why this job runs where the code runs.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_container_runtime_guard_tests_the_engine_not_the_client.sh'
+      - 'tests/TEST_WIRING.tsv'
+      # A gate must trigger on changes to ITSELF, or it can be quietly narrowed
+      # in a pull request that never runs it. This entry named
+      # 'installer-stream-and-runtime-guards.yml' until 2026-08-24: this
+      # workflow's own name before a rename, and a file that has not existed
+      # since. It had a self-watch, the self-watch pointed at nothing, and
+      # nothing said so.
+      - '.github/workflows/container-runtime-guard.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  container-runtime-guard:
+    runs-on: macos-14
+    steps:
+      # fetch-depth 0 and an explicit origin/main: the runtime test builds its
+      # anti-vacuity control FROM origin/main's copy of the same function. On a
+      # shallow clone that read fails and the control reports CANNOT-RUN --
+      # correct, but useless. Fetch what the test needs.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The container-runtime guard tests the ENGINE, not the client
+        run: bash tests/test_container_runtime_guard_tests_the_engine_not_the_client.sh
+
+      # if: always() on every step below. These are independent defects and a
+      # failure in one must not silence the others -- #683 is this repo's own
+      # finding that CI fail-fast made "WIRED" partly illusory by skipping 71
+      # wired tests after a single failure.
+
+
+      # WAS "All three". The two stdout tests were dropped when #993's
+      # OutputLineBuffer superseded this PR's inline cap: both of them extract
+      # the accumulator from InstallerCoordinator.swift anchored on
+      # `stdoutBuffer.append(chunk)`, and #993 DELETES that line. They would
+      # have shipped as a permanent CANNOT-RUN. The runtime bound is covered by
+      # #993's own tests/test_installer_output_buffer_is_bounded.sh, which
+      # drives the type directly and needs no extraction at all.
+      - name: The guard parses under bash 3.2-compatible syntax
+        if: always()
+        run: bash -n tests/test_container_runtime_guard_tests_the_engine_not_the_client.sh

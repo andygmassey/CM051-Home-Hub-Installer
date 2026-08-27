@@ -42,8 +42,75 @@ trap 'rm -rf "$WORK"' EXIT
 # A fake .app whose bundled Python holds one "Mach-O" file. `file` is stubbed
 # too, so no real binary is needed and the test runs identically on any host.
 APP="$WORK/Fake.app"
-mkdir -p "$APP/Contents/Resources/python/lib"
+mkdir -p "$APP/Contents/Resources/python/lib" "$APP/Contents/Resources/python/bin"
 echo "not really a binary" > "$APP/Contents/Resources/python/lib/libfake.dylib"
+
+# A STUB INTERPRETER, because the script now precompiles the stdlib before it
+# signs anything and REFUSES a bundle with no interpreter -- correctly, since
+# shipping one means the customer's first import writes .pyc into the signed
+# bundle and Gatekeeper refuses the app as damaged.
+#
+# It is resolved by absolute path inside the bundle, not via PATH, so it has to
+# exist HERE rather than in $WORK/bin. `-m compileall` seeds a controlled number
+# of .pyc so the harness can drive the seed count from the outside: a normal
+# count for the codesign assertions, a tiny one to prove the anti-vacuity floor
+# fires, and FAIL to prove compileall failure is fatal.
+#
+# The stub also answers the INVALIDATION-MODE AUDIT (`-B -c`), which the script
+# runs after compileall to count timestamp-mode .pyc on disk. Driving that count
+# from the outside is the whole point: a real interpreter here would always
+# report 0 once the fix is in, so the arm proving the gate FIRES could never be
+# executed, and an assertion that has never been seen red is not an assertion.
+#
+# 🔴 THE STUB NOW ANSWERS TWO DIFFERENT AUDITS, AND THEY ARE NOT THE SAME
+# QUESTION. The first is scoped to $PYTHON_DIR and returns ONE count (how many
+# .pyc are timestamp-mode). The second is scoped to $APP_PATH and returns FIVE
+# (.py, .pyc, uncovered, timestamp-mode, nested-app .py). v1.0.47 shipped
+# because only the first existed and its root excluded the defect, so the two
+# are told apart HERE by the path they are handed -- exactly as the script
+# distinguishes them -- rather than by call order, which would silently pass if
+# the calls were ever reordered.
+seed_count()   { echo "$1" > "$WORK/seed"; }
+ts_mode()      { echo "$1" > "$WORK/tsmode"; }
+bundle_audit() { echo "$1" > "$WORK/bundle"; }
+cat >"$APP/Contents/Resources/python/bin/python3.11" <<STUB
+#!/bin/bash
+if [ "\$1" = "-m" ] && [ "\$2" = "compileall" ]; then
+    # Record how compileall was actually invoked, so the test can assert the
+    # command line rather than grepping the script for a string.
+    printf '%s\n' "\$*" > "$WORK/compileall_argv"
+    printf '%s\n' "\${PYTHONDONTWRITEBYTECODE:-UNSET}" > "$WORK/compileall_dwb"
+    n="\$(cat "$WORK/seed" 2>/dev/null || echo 600)"
+    [ "\$n" = "FAIL" ] && { echo "stub: compileall refused" >&2; exit 1; }
+    mkdir -p "$APP/Contents/Resources/python/lib/__pycache__"
+    i=0
+    while [ "\$i" -lt "\$n" ]; do
+        : > "$APP/Contents/Resources/python/lib/__pycache__/m\${i}.cpython-311.pyc"
+        i=\$(( i + 1 ))
+    done
+    exit 0
+fi
+if [ "\$1" = "-B" ]; then
+    for a in "\$@"; do last="\$a"; done
+    case "\$last" in
+      */Contents/Resources/python)
+        m="\$(cat "$WORK/tsmode" 2>/dev/null || echo 0)"
+        [ "\$m" = "CANNOTRUN" ] && { echo "stub: .pyc unreadable" >&2; exit 3; }
+        [ "\$m" = "GARBAGE" ]   && { echo "not-a-number"; exit 0; }
+        echo "\$m"
+        exit 0 ;;
+      *)
+        b="\$(cat "$WORK/bundle" 2>/dev/null || echo '1801 1801 0 0 87')"
+        [ "\$b" = "CANNOTRUN" ] && { echo "stub: bundle unreadable" >&2; exit 3; }
+        echo "\$b"
+        exit 0 ;;
+    esac
+fi
+exit 0
+STUB
+chmod +x "$APP/Contents/Resources/python/bin/python3.11"
+seed_count 600
+ts_mode 0
 
 # The script resolves entitlements relative to ITS OWN directory, so the real
 # repo file is used. Assert it rather than assume it: if it moves, this test
@@ -54,8 +121,15 @@ echo "not really a binary" > "$APP/Contents/Resources/python/lib/libfake.dylib"
 mkdir -p "$WORK/bin"
 cat >"$WORK/bin/file" <<'STUB'
 #!/bin/bash
-# Everything under the fake python dir is a Mach-O shared library.
-echo "Mach-O 64-bit dynamically linked shared library arm64"
+# ONLY .dylib is Mach-O. This used to answer "Mach-O" for EVERYTHING, which was
+# fine when the fixture held exactly one file -- and became wrong the moment the
+# bundle also contained a stub interpreter and 600 seeded .pyc, because the
+# signing walk would then have signed all 601 and the "exactly one codesign
+# call" assertion below would have measured the fixture rather than the script.
+case "$*" in
+  *.dylib) echo "Mach-O 64-bit dynamically linked shared library arm64" ;;
+  *)       echo "ASCII text" ;;
+esac
 STUB
 chmod +x "$WORK/bin/file"
 
@@ -128,6 +202,212 @@ if grep -q "timestamp service is not available" "$WORK/out"; then
 else
     echo "  FAIL  persistent timestamp failure: reason swallowed"; fail=1
 fi
+
+# --- THE PRECOMPILE STEP MUST REFUSE A BUNDLE IT CANNOT SEAL ----------------
+#
+# These three exist because the .pyc seeding is the ONLY part of this script
+# that is invoker-independent, and an invoker-independent fix that silently
+# no-ops is worse than no fix: it looks green while shipping the exact defect.
+# MEASURED on the shipped v1.0.45 artefact 2026-08-26 -- a writable copy, no
+# env, `import secrets,hmac,platform`: .pyc in bundle 0 -> 26 and codesign
+# rc=1 "a sealed resource is missing or invalid". Seeded first: 0 new.
+
+# (a) NO INTERPRETER -> refuse. Cannot precompile, so cannot promise the seal.
+make_codesign ok
+mv "$APP/Contents/Resources/python/bin/python3.11" "$WORK/py.hidden"
+rc="$(run)"
+check "no interpreter: refuses to sign" "1" "$rc"
+if grep -q "bundled interpreter not found" "$WORK/out"; then
+    echo "  PASS  no interpreter: the reason reaches the log"
+else
+    echo "  FAIL  no interpreter: reason swallowed"; fail=1
+fi
+check "no interpreter: nothing was signed" "0" "$(attempts)"
+mv "$WORK/py.hidden" "$APP/Contents/Resources/python/bin/python3.11"
+
+# (b) compileall FAILS -> refuse. A PARTIAL seed is the dangerous state:
+#     whatever failed to compile is what the customer's first import writes.
+make_codesign ok
+seed_count FAIL
+rc="$(run)"
+check "compileall failure: refuses to sign" "1" "$rc"
+if grep -q "compileall failed" "$WORK/out"; then
+    echo "  PASS  compileall failure: the reason reaches the log"
+else
+    echo "  FAIL  compileall failure: reason swallowed"; fail=1
+fi
+
+# (c) THE ANTI-VACUITY FLOOR. A compileall that compiles almost nothing exits 0
+#     and would leave the step green while shipping the defect -- the uniform-
+#     zero-from-a-broken-predicate shape. This arm exists because I could NOT
+#     drive it red by hand: a real interpreter without its stdlib cannot boot,
+#     so compileall failed and limb (b) fired first. That was a CANNOT-RUN, not
+#     a pass, and the floor had never been seen to fire. The stub gives it the
+#     one state reality would not: compileall SUCCEEDS and seeds too few.
+make_codesign ok
+rm -rf "$APP/Contents/Resources/python/lib/__pycache__"
+seed_count 3
+rc="$(run)"
+check "floor: too few .pyc refuses to sign" "1" "$rc"
+if grep -q "only 3 .pyc after compileall" "$WORK/out"; then
+    echo "  PASS  floor: names the count it measured"
+else
+    echo "  FAIL  floor: did not fire, or did not say what it counted"; fail=1
+fi
+check "floor: nothing was signed" "0" "$(attempts)"
+seed_count 600
+
+# (d) THE INVALIDATION MODE IS LOAD-BEARING AND MUST STAY unchecked-hash.
+#
+# The default (timestamp) records source mtime+size and CPython REWRITES any
+# .pyc whose recorded mtime does not match the .py -- a MODIFY inside the signed
+# bundle, which breaks the seal exactly as an add would, WITHOUT CHANGING THE
+# FILE COUNT. Every other assertion here counts files, so none of them can see
+# it. MEASURED on the shipped v1.0.45 app (secrets.cpython-311.pyc, after
+# touching the .py): timestamp ba2e9334 -> 0176fd93 REWRITTEN;
+# unchecked-hash ce2e1e6e -> ce2e1e6e UNCHANGED; count 1448 -> 1448 in both.
+#
+# This asserts the FLAG because the behaviour it buys cannot be observed
+# through the stub interpreter -- and says so, rather than implying it proved
+# the rewrite. The rewrite itself is proved in the commit message's measurement.
+#
+# 🔴 AND THE FLAG ASSERTION ALONE IS NOT ENOUGH -- v1.0.46 PROVED IT.
+# v1.0.46 shipped WITH --invalidation-mode unchecked-hash on this command line
+# and STILL published 45 timestamp-mode .pyc, because the flag governs only what
+# compileall itself compiles: the interpreter's own boot imports are written by
+# the import system in timestamp mode, and compileall then skips them as
+# up-to-date. A test that greps the flag passes in both worlds. So the arms
+# below assert the INVOCATION and then the MEASURED PROPERTY.
+make_codesign ok
+seed_count 600
+ts_mode 0
+rc="$(run)"
+check "clean run with the audit in place still succeeds" "0" "$rc"
+
+argv="$(cat "$WORK/compileall_argv" 2>/dev/null || echo MISSING)"
+dwb="$(cat "$WORK/compileall_dwb" 2>/dev/null || echo MISSING)"
+case "$argv" in
+  *"--invalidation-mode unchecked-hash"*)
+    echo "  PASS  compileall pins unchecked-hash" ;;
+  *)
+    echo "  FAIL  compileall lost --invalidation-mode unchecked-hash -- a .pyc REWRITE can break the seal and the count will not show it"
+    echo "        argv was: $argv"; fail=1 ;;
+esac
+case "$argv" in
+  *" -f "*|*" -f")
+    echo "  PASS  compileall forces recompilation (-f), so a timestamp-mode .pyc already on disk is rewritten rather than skipped" ;;
+  *)
+    echo "  FAIL  compileall lost -f -- boot-import .pyc are skipped as up-to-date and stay in timestamp mode. THIS IS THE v1.0.46 DEFECT."
+    echo "        argv was: $argv"; fail=1 ;;
+esac
+check "compileall runs with PYTHONDONTWRITEBYTECODE=1 (stops boot imports seeding timestamp-mode .pyc)" "1" "$dwb"
+
+# (e) THE AUDIT MUST FIRE. This is the arm that would have caught v1.0.46:
+#     the flag is present, compileall succeeds, the count clears the floor --
+#     and the bytes on disk are still wrong.
+make_codesign ok
+ts_mode 45
+rc="$(run)"
+check "timestamp-mode .pyc present: refuses to sign" "1" "$rc"
+if grep -q "45 of .* seeded .pyc are in TIMESTAMP mode" "$WORK/out"; then
+    echo "  PASS  audit names the count it measured"
+else
+    echo "  FAIL  audit did not fire, or did not say what it counted -- v1.0.46 would ship again"
+    sed 's/^/          /' "$WORK/out"; fail=1
+fi
+check "timestamp-mode .pyc present: nothing was signed" "0" "$(attempts)"
+
+# (f) CANNOT-RUN IS NEITHER FAIL NOR PASS. An audit that could not read the
+#     bundle returns no count; treating that empty string as zero would report
+#     a verified seal from a command that never looked.
+make_codesign ok
+ts_mode CANNOTRUN
+rc="$(run)"
+check "audit CANNOT-RUN: refuses to sign" "1" "$rc"
+if grep -q "could not audit .pyc invalidation modes" "$WORK/out"; then
+    echo "  PASS  audit CANNOT-RUN: says so rather than passing on an empty count"
+else
+    echo "  FAIL  audit CANNOT-RUN: was swallowed"; fail=1
+fi
+check "audit CANNOT-RUN: nothing was signed" "0" "$(attempts)"
+
+# (g) A NON-NUMERIC MEASUREMENT IS NOT A ZERO EITHER.
+make_codesign ok
+ts_mode GARBAGE
+rc="$(run)"
+check "audit returns non-numeric: refuses to sign" "1" "$rc"
+check "audit returns non-numeric: nothing was signed" "0" "$(attempts)"
+ts_mode 0
+bundle_audit "1801 1801 0 0 87"
+
+# ===========================================================================
+# (h)-(k) THE WHOLE-BUNDLE AUDIT -- THE HALF v1.0.47 DID NOT HAVE
+# ===========================================================================
+#
+# v1.0.47 passed every assertion above and still failed its walk. The mode audit
+# is scoped to $PYTHON_DIR, so it could only ever see the compartment that had
+# already been fixed; 440 .py outside it shipped with no .pyc at all, and ORM's
+# arm 8b took the count 1448 -> 1449 with codesign rc=1.
+#
+# These arms drive the two NEW assertions RED, because an assertion never seen
+# red is not an assertion. Each is a state the real bundle was measured in.
+
+# (h) .py WITH NO .pyc -- THE EXACT v1.0.47 RESIDUAL. Measured 440 on the
+#     shipped artefact; here 353 (its outer-bundle share) to keep the numbers
+#     traceable to the measurement rather than invented.
+make_codesign ok
+bundle_audit "1801 1448 353 0 87"
+rc="$(run)"
+check "uncovered .py: refuses to sign" "1" "$rc"
+if grep -q "have NO .pyc beside them" "$WORK/out"; then
+    echo "  PASS  uncovered .py: names the defect that vetoed v1.0.47"
+else
+    echo "  FAIL  uncovered .py: fired without saying what it found"; fail=1
+fi
+check "uncovered .py: nothing was signed" "0" "$(attempts)"
+
+# (i) TIMESTAMP MODE OUTSIDE $PYTHON_DIR. The old audit is blind here by
+#     construction -- its root excludes these files -- so this proves the new
+#     one is not merely a second copy of the old one.
+make_codesign ok
+bundle_audit "1801 1801 0 12 87"
+rc="$(run)"
+check "timestamp-mode outside PYTHON_DIR: refuses to sign" "1" "$rc"
+check "timestamp-mode outside PYTHON_DIR: nothing was signed" "0" "$(attempts)"
+
+# (j) ANTI-VACUITY ON THE DENOMINATOR. "0 uncovered" is also what an unstaged
+#     Resources tree prints. Without this floor the audit passes loudest at the
+#     moment it can see least -- the uniform-zero shape that has cost us a cut
+#     more than once. A control for the CONTROL.
+make_codesign ok
+bundle_audit "3 3 0 0 0"
+rc="$(run)"
+check "empty bundle: refuses rather than passing vacuously" "1" "$rc"
+if grep -q "could not look" "$WORK/out"; then
+    echo "  PASS  empty bundle: says the audit could not look, not that it passed"
+else
+    echo "  FAIL  empty bundle: a zero over no denominator was read as a pass"; fail=1
+fi
+
+# (k) CANNOT-RUN ON THE BUNDLE AUDIT IS NEITHER FAIL NOR PASS.
+make_codesign ok
+bundle_audit CANNOTRUN
+rc="$(run)"
+check "bundle audit CANNOT-RUN: refuses to sign" "1" "$rc"
+check "bundle audit CANNOT-RUN: nothing was signed" "0" "$(attempts)"
+
+# (l) THE CLEAN RUN STILL SUCCEEDS, and the nested-app exclusion is PRINTED.
+#     A residual that is excluded silently is a residual nobody tracks.
+make_codesign ok
+bundle_audit "1801 1801 0 0 87"
+rc="$(run)"
+check "clean whole-bundle audit still signs" "0" "$rc"
+if grep -q "87 .py inside nested .app EXCLUDED" "$WORK/out"; then
+    echo "  PASS  nested-app residual is stated, not silently dropped"
+else
+    echo "  FAIL  nested-app exclusion is invisible -- 87 files dropped in silence"; fail=1
+fi
+bundle_audit "1801 1801 0 0 87"
 
 echo
 if [ "$fail" -eq 0 ]; then echo "sign-python-bundle: all assertions pass"; else echo "sign-python-bundle: FAILURES ABOVE"; fi

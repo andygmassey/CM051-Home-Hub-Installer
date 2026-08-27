@@ -1,0 +1,66 @@
+# osascript sites must be bounded by a shell-side deadline.
+#
+# An Apple Event holds its caller for the whole of the target application's
+# response time. If the target shows a modal, or is TCC-gated with nobody at
+# the keyboard to dismiss the consent sheet, the send NEVER RETURNS. macOS has
+# no timeout(1), and AppleScript's own `with timeout` bounds Apple EVENTS, not
+# the local work -- so neither obvious remedy is a remedy. A shell-side
+# deadline that kills the process is the only thing that bounds it.
+#
+# 🔴 WHAT A GREEN HERE MEANS, AND WHAT IT DOES NOT.
+# This is a RATCHET over a printed denominator. Green means no site LOST its
+# deadline. It does NOT mean every site has one: at the time of writing 5 of
+# 15 are bounded and the other 10 can still wedge an install. The test prints
+# both numbers on every run precisely so the colour cannot stand in for the
+# count. Raise the floor in the test as sites are bounded; never lower it.
+#
+# The test carries its own controls, which is why it is worth running:
+#   * ARM D proves the prose filter is live in BOTH directions -- a file whose
+#     only mentions are `echo "...osascript..."` must count 0, and a real
+#     invocation must count 1. Two independent sweeps of install.sh scored
+#     echoes as code before that filter existed.
+#   * ARM E MUTATES install.sh, deleting one wrap, and demands the bounded
+#     count drop by exactly one while the denominator holds. A mutation that
+#     does not apply is a broken apparatus, not a pass.
+#   * The anti-vacuity check REFUSES (exit 2, CANNOT-RUN) if fewer than 10
+#     sites are found -- "0 of 0 bounded" satisfies any floor.
+name: osascript-deadline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'tests/test_osascript_sites_are_deadlined.sh'
+      - '.github/workflows/osascript-deadline.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_osascript_sites_are_deadlined.sh'
+      - '.github/workflows/osascript-deadline.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # Never cancels main: a cancelled main run is a gate that did not finish,
+  # which reads identically to a gate that passed.
+  group: osascript-deadline-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  deadlined:
+    # ubuntu is correct here: every assertion is over the TEXT of install.sh
+    # plus a python counter. Nothing sends an Apple Event, so nothing needs a
+    # Mac. The behavioural proof of the helper itself was taken on macOS and
+    # is recorded in the PR, not run here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install.sh parses
+        run: bash -n install.sh
+
+      - name: osascript sites are deadlined (ratchet + controls + mutation)
+        run: /bin/bash tests/test_osascript_sites_are_deadlined.sh

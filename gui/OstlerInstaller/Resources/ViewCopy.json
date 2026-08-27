@@ -87,7 +87,8 @@
     "cancel_button": "Cancel",
     "reveal_in_finder_button": "Reveal in Finder",
     "done_button": "Done",
-    "quit_button": "Quit"
+    "quit_button": "Quit",
+    "auto_quit_countdown": "Closing in {time}"
   },
 
   "license_entry": {
@@ -319,7 +320,12 @@
     "status_ok": "OK",
     "status_see_log": "see log",
     "open_ostler_button": "Open Ostler",
-    "open_wiki_button": "Open your Wiki"
+    "open_wiki_button": "Open your Wiki",
+    "auto_quit_note": "This installer closes on its own shortly. Everything above keeps running without it.",
+    "keep_installer_label": "Keep this installer",
+    "keep_installer_help": "Keeping it means you can run it again to repair or update Ostler without downloading anything. Untick to move it to the Trash when this window closes.",
+    "memory_ceiling_label": "Memory",
+    "memory_ceiling_body": "This installer used an unusually large amount of memory. The install itself finished. If your Mac warned you that it had run out of application memory, nothing was lost – re-running the installer is safe."
   },
 
   "tailscale_connect": {

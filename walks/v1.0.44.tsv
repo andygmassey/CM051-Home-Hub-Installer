@@ -1,0 +1,15 @@
+# Ostler walk record -- written by scripts/post_walk_qa.sh
+# Read by scripts/verify_walk_record.sh, which gates the customer download.
+# The box is recorded as a hash: this repo is public.
+# version_source says how the version was obtained. Anything other than
+# measured(...) means the version is an assertion, not an observation.
+version	v1.0.44
+version_source	measured(CFBundleShortVersionString, matches argument)
+walked_at	2026-08-24T10:43:30Z
+box_fp	8bcb9ee329b8bf66
+pass	5
+fail	5
+cannot_run	3
+broken	0
+verdict	FAILED
+qa_exit	1

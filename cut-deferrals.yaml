@@ -33,6 +33,79 @@
 
 pr_exemptions:
 
+  # CM051:#982 -- CANNOT MERGE. It is RED, and that is the whole reason.
+  #
+  # "fix: the gate that opens a wiki image was never run, and passed when it
+  # could not look" -- a fail-open gate fix, exactly the class this cut has
+  # been closing all night, and I WANTED to merge it. Measured 2026-08-26:
+  #
+  #     42 checks pass, 2 FAIL
+  #
+  # Merging a red PR to clear a process gate is the precise move this file
+  # exists to prevent, and the CM041#119 entry above says so in as many words.
+  # So it is exempted rather than merged, and the exemption records that the
+  # blocker is its own CI, not a decision about its merit.
+  #
+  # It touches install.sh 0 times, so it is pin-safe and could have gone in
+  # today if it were green. Fix the two failures and land it in v1.0.47.
+  - ref: "CM051:#982"
+    reason: "RED on 2 checks (42 pass / 2 fail, measured 2026-08-26). A red PR cannot be merged to satisfy a 48h process gate -- that is the move this file exists to prevent. Merit not in question; its own CI is the blocker. Pin-safe (0 install.sh hits). Land in v1.0.47 once green."
+    review_by: "2026-08-28"
+
+  # SAME PR, SAME REASON, THE REF SHAPE check-pr-age ACTUALLY PRINTS.
+  #
+  # The row above says CM051:#982. verify_pr_age.sh builds its ref at line 175 as
+  # `ref="${repo#*/}#${num}"`, i.e. CM051-Home-Hub-Installer#982 -- so it never
+  # matched, and the v1.0.46 cut was RED on a PR that had been consciously
+  # exempted for days, with a reason, in the right section of the right file.
+  #
+  # check-orphans prints CM051:#982. check-pr-age prints the full repo name.
+  # TWO GATES, ONE FILE, TWO CONVENTIONS. Until they agree, an exemption has to
+  # be written twice or it silently covers only one of them.
+  - ref: "CM051-Home-Hub-Installer#982"
+    reason: "RED on 2 checks (42 pass / 2 fail, measured 2026-08-26). A red PR cannot be merged to satisfy a 48h process gate -- that is the move this file exists to prevent. Merit not in question; its own CI is the blocker. Pin-safe (0 install.sh hits). Land in v1.0.47 once green."
+    review_by: "2026-08-28"
+
+  # CM051:#975 -- GREEN, and deferred on RISK rather than merit.
+  #
+  # "feat(ingest): quiet window 01:00-06:00 -> 23:00-07:00 (#789) + the harness
+  # that was proving nothing". 25 checks pass, 0 fail. It is clean and the
+  # defect it fixes (#789) is real and wanted.
+  #
+  # WHAT IT TOUCHES, and this is the deciding fact:
+  #     vendor/email_source/bin/email-bundle-tick.sh
+  #     vendor/imessage_source/bin/imessage-bundle-tick.sh
+  #     vendor/spoken_source/bin/spoken-bundle-tick.sh
+  #     vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh
+  #
+  # FOUR SHIPPED INGEST PIPELINES. That is the identical trade ORM refused for
+  # the stderr-tail fix, in this same file: "landing new code in four shipped
+  # ingest pipelines during the cut that is finally reaching the signing stage
+  # is not a trade worth making". The reasoning does not become weaker because
+  # the change is a quiet window rather than a log tail -- if anything a
+  # scheduling change is harder to walk, because its symptom is an absence at
+  # 3am rather than a message on screen.
+  #
+  # v1.0.46 exists to close the BRICK. Nothing else earns a place in it.
+  # Land it first in v1.0.47, where it can be walked on a box that boots.
+  - ref: "CM051:#975"
+    reason: "Green (25 pass / 0 fail) and deferred on RISK, not merit. Rewrites four SHIPPED vendor ingest tick scripts; same trade ORM refused for the stderr-tail fix in this file. v1.0.46 exists to close the brick and nothing else earns a place in it. Pin-safe (0 install.sh hits). First in v1.0.47, walked on a box."
+    review_by: "2026-08-28"
+
+  # SAME PR, SAME REASON, THE REF SHAPE check-pr-age ACTUALLY PRINTS.
+  #
+  # The row above says CM051:#975. verify_pr_age.sh builds its ref at line 175 as
+  # `ref="${repo#*/}#${num}"`, i.e. CM051-Home-Hub-Installer#975 -- so it never
+  # matched, and the v1.0.46 cut was RED on a PR that had been consciously
+  # exempted for days, with a reason, in the right section of the right file.
+  #
+  # check-orphans prints CM051:#975. check-pr-age prints the full repo name.
+  # TWO GATES, ONE FILE, TWO CONVENTIONS. Until they agree, an exemption has to
+  # be written twice or it silently covers only one of them.
+  - ref: "CM051-Home-Hub-Installer#975"
+    reason: "Green (25 pass / 0 fail) and deferred on RISK, not merit. Rewrites four SHIPPED vendor ingest tick scripts; same trade ORM refused for the stderr-tail fix in this file. v1.0.46 exists to close the brick and nothing else earns a place in it. Pin-safe (0 install.sh hits). First in v1.0.47, walked on a box."
+    review_by: "2026-08-28"
+
   # CM041-People-Graph#119 -- CANNOT MERGE, and that is the point of exempting it.
   #
   # This is NOT a clean PR being parked. Two independent blockers, both measured:
@@ -214,6 +287,155 @@ pr_exemptions:
 
 
 deferrals:
+  - ref: "CM051:#1055"
+    reason: >-
+      THE ROOT FIX for the v1.0.45 brick, and it is HELD ON PURPOSE for a reason
+      that is about ORDER, not doubt. It relocates the bundled interpreter out of
+      the notarised app at INSTALL time, which is strictly better than what this
+      cut ships (#1052 seeds the .pyc inside the seal; #1051/#1053/#1054 redirect
+      the cache for every invoker). Its own PR body asks for a BOX WALK and states
+      that its arms ran "on a mounted artefact and a scratch HOME, never a real
+      install". THERE IS NO BOX TO WALK UNTIL THIS DMG EXISTS. Tagging first is
+      the only order that gets #1055 the proof it asks for, and it explicitly does
+      not make #1051/#1053/#1054 redundant, so deferring costs no coverage. Andy
+      owes the ship-or-hold call and has not given it; deferring is the direction
+      that withholds rather than ships. Measured green: 72 checks pass, 0 fail.
+    until_cut: "v1.0.47"
+  - ref: "daemon:feat/hub-build-info-emitter"
+    reason: >-
+      oa #349, OPEN, MERGEABLE, CLEAN, 14/0 green -- and merging it would BREAK
+      THE PIN THIS CUT IS BUILT ON. Measured: cuts/v1.0.46/cut.env declares
+      DAEMON_COMMIT=509c8333; oa main IS 509c8333ad97764cf85acf0ce36baf4b1c90da29;
+      #349 targets main. Merging moves oa main off the pinned daemon, stales
+      DAEMON_COMMIT, and forces a daemon rebuild -- the exact hub-v0.4.65 ->
+      0.4.66 churn this cut already paid for once when oa #348 landed mid-re-pin.
+      Customer impact of deferring: NONE. It is release tooling (emit the hub-app
+      build-info sidecar instead of hand-writing it), not shipped behaviour.
+    until_cut: "v1.0.47"
+  - ref: "daemon:fix/log-the-401-that-gates-every-api-call"
+    reason: >-
+      🔴 THIS IS NOT ORPHANED WORK. IT ALREADY SHIPPED. oa #345 MERGED
+      2026-08-25T10:21:32Z. This row exists ONLY because the gate cannot see that,
+      and a deferral is the only honest way past a gate whose input is wrong --
+      the alternative is editing the gate, which we do not do. THE MECHANISM,
+      measured: the gate ran `gh pr list` for ostler-ai/ostler-assistant and got
+      "GraphQL: Could not resolve to a Repository" -- a cross-org PRIVATE-repo
+      token scope in CI, NOT a wrong name (gh api repos/ostler-ai/ostler-assistant
+      resolves here, private=true; andygmassey/ostler-assistant is a real 404).
+      Having FAILED TO LOOK, the gate fell through to commit-ancestry and scored
+      the branch [RED] "unmerged". The branch is 3 ahead of main only because
+      ostler-ai/ostler-assistant is REBASE-MERGE-ONLY, which scripts/
+      verify_no_orphaned_fixes.sh:399 already records -- so the tip is not an
+      ancestor even though its content shipped. Control that the predicate CAN
+      say merged: oa #348 and #347 both read MERGED. THE REAL FIX IS THE CI TOKEN
+      SCOPE, not this row, and it is filed as board #842 (which this measurement
+      CONFIRMS and re-scopes: #842 says the auth failure leaves the gate green;
+      it actually marks the branch RED, which is worse -- it fabricates a
+      finding). Retire this row the moment CI can read the daemon repo.
+    until_cut: "v1.0.47"
+  - ref: "CM051:#997"
+    reason: "Engine provenance and install-time disclosure. DEFERRED BECAUSE IT IS NOT A FIX: the four defects v1.0.43 exists for are all merged and nothing in the cut waits on it. It is RED on two counts, both located and both four lines -- install.sh.strings.en-GB.sh:1488 char 235 uses a spaced double hyphen where the em-dash rule requires a spaced en-dash, and tests/test_engine_provenance_never_claims_what_it_did_not_install.sh:232 and :266 pipe into grep -q under pipefail, which the SIGPIPE ratchet correctly refuses. AND IT CARRIES TWO SUBSTANTIVE REVIEW FINDINGS THAT SHOULD NOT BE FIXED AT SPEED. First, the before_seen guard checks a snapshot EXISTENCE and not its VALIDITY, so a zero-byte or truncated .engine-before makes the module claim it installed EVERY engine on the box; reachable because the redirect truncates before it writes, which is exactly what a jetsam-killed installer produces, and that is what happened on 2026-08-23. Second, owner=customer is emitted alongside installed_by_ostler=[colima] whenever both hold, so the two fields contradict each other. Shipping the module with either open would put a wrong provenance claim in front of a customer, which is worse than shipping no claim."
+    until_cut: v1.0.46
+    redeferred: >-
+      2026-08-24 ORM. Was v1.0.44, which is cut, so the expiry ratchet flagged it
+      as past its own deadline. RE-MEASURED BEFORE MOVING IT, not moved because
+      the date passed: the PR is still RED, now on swift-tests, and the two
+      substantive review findings are untouched. The before_seen guard still
+      checks a snapshot's EXISTENCE and not its VALIDITY, so a truncated
+      .engine-before makes the module claim it installed every engine on the box;
+      and owner=customer is still emitted alongside installed_by_ostler=[colima].
+      Moving to v1.0.46 rather than v1.0.45 because nothing is scheduled to fix
+      either finding before v1.0.45, and a deferral that expires again on the
+      next cut teaches the ratchet to be ignored.
+      UNBLOCKING STEP: fix the two findings first, CI second. A wrong provenance
+      claim in front of a customer is worse than no claim.
+  # ------------------------------------------------------------------------
+  # v1.0.42 (2026-08-23 ORM). BOTH SPELLINGS FOR EACH, DELIBERATELY.
+  #
+  # check-orphans enumerates a repo's work by BRANCH NAME in some arms and by
+  # PR NUMBER in others, and a deferral nothing asks about holds nothing. The
+  # row for daemon:fix/settings-preferences-ia in this file already records
+  # that mistake being made twice. So each of these gets the PR-number
+  # spelling the gate printed AND the branch spelling a human searching will
+  # reach for.
+  # ------------------------------------------------------------------------
+  - ref: "CM051:#982"
+    reason: >-
+      Fixes a real defect I filed: tests/test_pinned_wiki_image_has_design_system.sh
+      printed "Skipping is NOT a pass" and then exited 0 without CM044_DIR, so a
+      green run measured nothing. TNM's fix works, verified by execution: rc=2
+      CANNOT-RUN where it was rc=0, rc=0 with the checkout, --presence-only
+      states what it does NOT assert, and run_all_cut_gates.sh:139 still invokes
+      the FULL gate so the byte half is not dark. DEFERRED because the PR is RED
+      twice on its own CI and neither failure is cosmetic. (1) the presence step
+      sits in a job that is runs-on macos-latest, which has no docker, so the
+      gate correctly reports CANNOT-RUN and fails the job -- the wiring chose a
+      runner that cannot satisfy it. (2) its own new test file trips the
+      pipefail-shortcircuit ratchet, 71 against a baseline of 70, with a
+      printf-into-grep-q under pipefail. Shipping a wiki-content gate whose CI
+      cannot go green is worse than shipping v1.0.42 with the gate as it stands,
+      which is what v1.0.41 shipped with. No customer behaviour is withheld.
+    until_cut: "v1.0.46"
+    redeferred: >-
+      2026-08-24 ORM. Was v1.0.43, which is cut, as is v1.0.44. RE-MEASURED:
+      still RED, on appcast-ship-wiring and cut-gate-wrappers. The original
+      reason therefore stands unchanged, and the irony is worth recording rather
+      than smoothing over: this PR fixes a gate that passed when it could not
+      look, which is the same defect class fixed today in the marker arms
+      (#1020), the OS003 capability probe (#143) and the expiry ratchet (#1023).
+      It is the one instance of it still sitting unmerged.
+      UNBLOCKING STEP: move the presence step off runs-on macos-latest, which has
+      no docker and makes the gate correctly report CANNOT-RUN, and replace the
+      printf-into-grep-q under pipefail that trips the SIGPIPE ratchet.
+  - ref: "CM051:fix/false-wired-design-system-gate"
+    reason: >-
+      Branch spelling of CM051:#982. Same deferral, recorded twice on purpose:
+      the gate asks by branch in some arms and by PR number in others.
+      I first wrote this ref as fix/wiki-content-gate-invoked, which I INVENTED
+      from the PR title. The real branch is fix/false-wired-design-system-gate,
+      read from gh pr view --json headRefName. A deferral whose ref names no
+      branch holds nothing, and it would have looked exactly like a correct one.
+      Second fabricated identifier of the day; the other was a 40-hex sha.
+      RESOLVE EVERY IDENTIFIER. NEVER TYPE ONE.
+    until_cut: "v1.0.46"
+    redeferred: "2026-08-24 ORM. Moved with CM051:#982; see that entry."
+  - ref: "CM051:#975"
+    reason: >-
+      Widens the ingest quiet window from 01:00-06:00 to 23:00-07:00 per Andy's
+      #789 call. The change itself is correct and the wrap-midnight trap is
+      handled: the old predicate reused with 23/7 would be true at every hour and
+      the window would have got SMALLER, and both arms are asserted. DEFERRED for
+      a reason the PR's own CI cannot see. It edits four VENDORED trees
+      (email/imessage/whatsapp/spoken_source) and touches no divergence patch,
+      and all four patches ADD the old predicate verbatim -- e.g.
+      vendor/divergences/email_source.patch:90 carries
+      `if [ "$_ostler_hour" -lt 1 ] || [ "$_ostler_hour" -ge 6 ]`. Those trees are
+      verify=full, so after this merges `source@pin + patch` no longer
+      reconstructs the vendored tree, and the freshness gate's own exemption
+      reason -- "Its CONTENT is verified: verify=full reconstructs the vendored
+      tree from source@X + patch" -- becomes false. Invisible on this box:
+      verify_vendor_fresh.sh reports "could not verify ... source repo not found"
+      for all four, so they land in the WARN bucket, and a warn bucket is not a
+      safe bucket. Retire this deferral by regenerating the four divergence
+      patches in the same PR. Customer impact of deferring: the quiet window
+      stays as v1.0.41 shipped it, which is the status quo, not a regression.
+    until_cut: "v1.0.46"
+    redeferred: >-
+      2026-08-24 ORM. Was v1.0.43, which is cut, as is v1.0.44. RE-MEASURED: its
+      own CI is GREEN, 26 checks and none failing, and it is STILL deferred,
+      because the blocker was never its CI. It edits four verify=full vendored
+      trees and touches no divergence patch, so merging it stops
+      source@pin + patch reconstructing those trees, and the freshness gate's own
+      exemption reason becomes false. A green PR whose reason for deferral its CI
+      cannot see is exactly the case where moving the date on autopilot would be
+      wrong.
+      UNBLOCKING STEP unchanged: regenerate the four divergence patches in the
+      same PR, then it merges on its own merits.
+  - ref: "CM051:feat/ingest-quiet-window-789"
+    reason: >-
+      Branch spelling of CM051:#975. Same deferral, recorded twice on purpose.
+    until_cut: "v1.0.46"
+    redeferred: "2026-08-24 ORM. Moved with CM051:#975; see that entry."
   - ref: daemon:fix/vault-state-default-status-none
     reason: >-
       The ONLY RED in check-orphans for v1.0.33. It is a real fix with a real test (1da772e5
@@ -3116,3 +3338,347 @@ deferrals:
       and is not launch-blocking. Merge with the rest immediately after the
       v1.0.41 tag is pushed, so the NEXT daemon build carries them.
     until_cut: "v1.0.41"
+
+  # ==========================================================================
+  # v1.0.45 -- 2026-08-25, TNM. FIFTEEN refs, adjudicated one at a time.
+  # ==========================================================================
+  # These surfaced for the first time on this cut because the orphan gate sits
+  # AFTER the capability matrix in bin/cut.sh, and the capability matrix had
+  # been returning a false RED on every run (it called an unreadable row a
+  # MISSING capability). Fixing that let preflight reach this gate. So the
+  # count is not a sudden pile-up; it is a gate that finally got to speak.
+  #
+  # 🔴 THE ADJUDICATION THAT MATTERS: NONE OF THE FIFTEEN IS A v1.0.44 WALK
+  # FIX. Andy's rule of 2026-08-23 is that the next DMG he walks carries every
+  # fix from the last walk. All six of those (#873 #874 #875 #876 #877 and the
+  # wiki re-pin) are in this cut's BOM at landed=yes. Checked by reading each
+  # of the fifteen, not by assuming.
+  #
+  # The seven CM044/daemon rows share ONE mechanical reason: merging any of
+  # them moves a PINNED input. This cut pins CM044 6b0492d (the tree the wiki
+  # images were built from) and oa c4c5b40b (the tree the Hub was built from).
+  # Moving either forces an image or Hub rebuild plus a re-pin, which is a
+  # different cut, not this one.
+
+  - ref: CM044:#251
+    reason: >-
+      Dependabot: bump python from 2c941e8 to 4fad234 in /docker. Not a walk
+      fix. Merging moves CM044 main off 6b0492d, the commit the shipped wiki
+      site (sha256:4a7c6307) and compiler (sha256:866e2312) images were built
+      from, forcing an image rebuild and re-pin. Belongs with the CM044 dep
+      sweep tracked at board #878 (0 of 13 deps pinned).
+    until_cut: "v1.0.46"
+
+  - ref: CM044:#252
+    reason: >-
+      Dependabot: lxml >=6.1.1 -> >=6.1.2. Same pinned-input reason as #251;
+      not a walk fix. Rides the CM044 dep sweep (#878).
+    until_cut: "v1.0.46"
+
+  - ref: CM044:#253
+    reason: >-
+      Dependabot: playwright >=1.40 -> >=1.62. Same pinned-input reason as
+      #251; not a walk fix. Rides the CM044 dep sweep (#878).
+    until_cut: "v1.0.46"
+
+  - ref: CM044:#254
+    reason: >-
+      Dependabot: pyoxigraph >=0.5 -> >=0.5.9. Same pinned-input reason as
+      #251; not a walk fix. Touches the graph client, so it wants a real
+      compile before it ships rather than a same-night merge. Rides #878.
+    until_cut: "v1.0.46"
+
+  - ref: CM044:#255
+    reason: >-
+      Dependabot: actions/cache 4 -> 6. CI-only, cannot reach the artefact at
+      all, and still moves CM044 main off the pinned 6b0492d. Rides #878.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:#336
+    reason: >-
+      Dependabot: tar 0.4.45 -> 0.4.46. Not a walk fix. Merging moves oa main
+      off c4c5b40b, the commit this cut pins and the Hub was rebuilt from, so
+      it would force a Hub rebuild and a DAEMON_COMMIT re-pin.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:#337
+    reason: >-
+      Dependabot: tauri 2.10.3 -> 2.11.1. A MINOR bump of the framework that
+      builds the shipped Hub app -- the last thing to take unproven into a cut
+      whose Hub artefact is already built and stamp-verified at c4c5b40b.
+      Same pinned-input reason as #336.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:fmt/330-rebase
+    reason: >-
+      'fix(cli): handle ProbeTimedOut in prime-imessage-automation', 2026-08-23,
+      534 insertions across doctor/mod.rs, health/mod.rs, imessage_tcc.rs and
+      main.rs. This is the deadlined Messages Automation probe (board #664) and
+      it is REAL WORK, deferred on two grounds and not on its merits: it moves
+      the pinned oa c4c5b40b, and 534 unreviewed daemon lines are not something
+      to take into a cut on the night it is being made. Review it, then it
+      rides the next daemon build with #336/#337.
+    until_cut: "v1.0.46"
+
+  - ref: CM051:#977
+    reason: >-
+      'fix(#849): mount the licence dir in the SHIPPED compose'. PR is CLOSED;
+      the branch survives, which is why the gate still sees it. The underlying
+      defect is board #849 (the Pro Obsidian vault writer cannot run on any
+      install because ~/.ostler is never mounted into the compiler container).
+      That is a Pro-tier feature, not a v1.0.44 walk finding, and re-opening a
+      closed PR to land a compose change hours before a cut is the wrong
+      order. Re-open, review, land in v1.0.46.
+    until_cut: "v1.0.46"
+
+  - ref: CM051:#992
+    reason: >-
+      'fix(install): the runtime guard asked for a CLIENT and...'. PR is CLOSED
+      AND CONFLICTING with main, so it cannot merge as it stands -- a conflicted
+      PR also produces zero CI runs, so nothing here has been judged by today's
+      gate set. Needs a rebase before it can even be reviewed. Test-harness
+      scope; not a walk fix.
+    until_cut: "v1.0.46"
+
+  - ref: CM051:fix/849-shipped-compose-licence-mount
+    reason: >-
+      Branch-name spelling of CM051 #977 above, which the gate reports
+      separately because it walks branches as well as PRs. Same adjudication,
+      same closing condition -- deferred here so neither spelling goes quiet.
+    until_cut: "v1.0.46"
+
+  - ref: CM051:fix/runtime-guard-tests-engine-not-client
+    reason: >-
+      Branch-name spelling of CM051 #992 above ('a blacklist cannot survive
+      laundering, so constrain...'). Same adjudication: closed, conflicting,
+      test-scope. Recorded under both spellings deliberately.
+    until_cut: "v1.0.46"
+
+  - ref: CM051:integrate/995-over-994
+    reason: >-
+      'fix(test): the colima-shaped check red-flagged a strictly...'. A TEST
+      predicate correction -- it changes what a check reports, not what the
+      installer does, so it cannot alter the v1.0.45 artefact. Real and worth
+      landing, but landing a gate-predicate change during the cut it would
+      judge is the one ordering this estate has repeatedly been burned by.
+    until_cut: "v1.0.46"
+
+  - ref: CM051:integrate/997
+    reason: >-
+      'fix(test): `grep -q` under pipefail can SIGPIPE the producer'. A genuine
+      defect of exactly the class OS003 already fixed in capability_matrix.sh
+      (process substitution instead of a pipe), so the shape is understood and
+      believed. Test-scope: it changes verdicts, not installer behaviour.
+      Deferred for the same during-the-cut ordering reason as 995-over-994.
+    until_cut: "v1.0.46"
+
+  - ref: CM051:pr978b
+    reason: >-
+      'fix(#844): read qa_exit -- ORM found a QA failure being accepted'. PR
+      #978 itself is MERGED; pr978b is a follow-on branch carrying extra
+      commits, which is why the gate still flags it. This is CUT-MECHANISM
+      work (board #844: nothing between gates-green and customer-download is a
+      runtime proof) and it deserves a careful landing, not a rushed one at the
+      moment of a cut it would change the gating of. Land first thing in
+      v1.0.46 and let it gate that cut from the start.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:#342
+    reason: >-
+      'feat(usage): what your Mac did, with a rate table that can go stale and
+      gates that can go red'. Opened 2026-08-25 05:45Z, AFTER the v1.0.45 scope
+      was fixed, and it is a FEATURE, not a v1.0.44 walk fix -- checked against
+      the walk rows (#873-#877) and it claims none of them; #877 is separately
+      closed by oa #341, MERGED at c4c5b40b, which is the exact commit
+      hub-v0.4.64 was built from. 1,981 additions / 733 deletions across 15
+      files including zeroclaw-runtime, zeroclaw-gateway and zeroclaw-config,
+      plus the SPA. Merging it moves oa main off the DAEMON_COMMIT pin, which
+      flips the daemon freshness row to RED STALE and forces a full rebuild,
+      re-sign, re-notarise and five-site re-pin of a daemon that is already
+      published and artefact-verified -- hours before Andy walks this DMG. Its
+      own body states the work is unfinished ('the remaining blocker is the
+      Python producers for ingestion'). Land it first in v1.0.46, on a daemon
+      rebuild it can be gated by from the start.
+    until_cut: "v1.0.46"
+
+  # ------------------------------------------------------------------
+  # Six branch refs the v1.0.45 preflight surfaced. ALL SIX WERE
+  # LOCAL-ONLY -- no remote ref, one `rm -rf` from gone. I PUSHED ALL SIX
+  # BEFORE WRITING THESE ROWS. A deferral records a decision; it does
+  # nothing whatever to protect the commits it defers, and the standing
+  # rule in this file is push-or-delete, never a row instead of either.
+  #
+  # Pushed 2026-08-25, verified by reading the REMOTE (ls-remote = 1 for
+  # each), not by trusting the push command's exit code -- the first
+  # attempt reported five failures because zsh ate the `:r` in
+  # "$b:refs/heads/$b", yielding "...rcefs/heads/...". Braced form fixed
+  # it. Same trap as reference_zsh_colon_modifier_eats_var_paths.
+  # ------------------------------------------------------------------
+
+  - ref: CM051:pr255-review
+    reason: >-
+      SUPERSEDED, NOT LOST. One commit, 0e4dfff8 'fix(install): #644 Tailscale
+      connect robustness (no doomed sign-in wait)'. Its content IS on main:
+      258c62f5 carries the identical fix as the squash-merge of PR #255. This
+      is the squash-orphan mechanism already recorded as board #697 -- the
+      pre-squash commit survives on a branch the merge left behind. 898 behind
+      / 1 ahead. Nothing to merge, nothing at risk; pushed anyway so the ref
+      stops being single-copy. Clear the row in v1.0.46 by deleting the branch.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:candidate/hub-v0.4.33-rc
+    reason: >-
+      A superseded RELEASE CANDIDATE, five weeks and thirty daemon versions
+      stale: hub-v0.4.33 against a cut shipping 0.4.64. 203 behind / 9 ahead,
+      last commit 2026-07-20. Of its nine commits, three are confirmed present
+      on main by equivalent commits -- Check-for-Updates tray (f27339c2),
+      masonry Front Page (ff57be3f + 3fd4dada), ActionBroker v1 (d63eddb6 +
+      8dcc5080). The remaining six are CM061 write-actions work that has never
+      landed anywhere (see the archive rows below). Not a v1.0.44 walk fix; not
+      a v1.0 feature at all.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:archive/stash-0-hub-v0433-rc
+    reason: >-
+      A literal git stash, archived: its tip is 'WIP on
+      candidate/hub-v0.4.33-rc' plus the matching 'index on' commit. Sits on
+      top of the same nine commits as candidate/hub-v0.4.33-rc above and is
+      adjudicated with it. 203 behind / 11 ahead, 2026-07-24. Deliberately
+      named archive/ by a human; deferring is recording that decision, not
+      making a new one.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:archive/stash-1-hub-v0433-rc
+    reason: >-
+      The second archived stash off the same candidate tip, same shape as
+      stash-0 above ('WIP on' + 'index on' over the identical nine commits).
+      203 behind / 11 ahead, 2026-07-23. Same adjudication.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:archive/wt-wt-oa-computer-use
+    reason: >-
+      REAL UNMERGED WORK, deliberately parked. Three commits: ActionBroker v1,
+      'native computer-use v1 scaffold -- the local Operator (CM061 spec)', and
+      'close computer-use safety findings 1-5 (PR #213)'. MEASURED against
+      main: the ActionBroker base IS on main (d63eddb6/8dcc5080); the
+      computer-use scaffold and its safety fixes are NOT on main by any
+      spelling. So this is the CM061 actor family, built on a base that landed
+      while the actors did not. It is a whole feature family beyond v1.0 --
+      not a walk fix, never shipped, and nothing in v1.0.45 depends on it.
+      267 behind / 3 ahead, 2026-07-15. Pushed, so it is safe to leave parked.
+    until_cut: "v1.0.46"
+
+  - ref: daemon:archive/wt-wt-oa-voice-agent
+    reason: >-
+      REAL UNMERGED WORK, deliberately parked -- the sibling of the
+      computer-use branch above. Three commits: the same ActionBroker v1 base
+      (on main), 'outbound voice agent v1 scaffold -- register-and-block (CM061
+      spec)' and a BlockedActor reason test, neither of which is on main.
+      Register-and-block means the actor deliberately refuses to act, so
+      shipping it would add no customer-reachable behaviour even if it landed.
+      Beyond v1.0 scope. 267 behind / 3 ahead, 2026-07-15.
+    until_cut: "v1.0.46"
+
+  # CM051:#1055 -- the ROOT FIX, deferred to v1.0.47 ON PURPOSE, by ORM.
+  #
+  # It relocates the bundled interpreter OUT of the notarised app, which kills
+  # the .pyc-breaks-the-seal class rather than redirecting around it. It is
+  # CLEAN, it is MERGEABLE, and its mechanism is PROVEN -- I measured it myself
+  # on a dittoed WRITABLE copy of a shipped artefact, with a control:
+  #
+  #     import via the APP's interpreter        32 .pyc in app, codesign rc=1
+  #     import via the RELOCATED interpreter     0 .pyc in app, codesign rc=0
+  #                                             32 .pyc in the relocated tree
+  #
+  # The 32/32 symmetry is what rules out "the import did not happen", and the
+  # control is what makes the second row mean anything.
+  #
+  # SO WHY DEFER SOMETHING THAT WORKS. Three reasons, in order of weight:
+  #
+  #  1. THE MITIGATIONS ALREADY PROTECT EVERY BOX, INCLUDING EXISTING ONES.
+  #     install.sh:62 exports PYTHONPYCACHEPREFIX process-wide and the plists at
+  #     17024 and 17290 set it. #1051/#1053/#1054/#1056 merged into this cut.
+  #     Deferring leaves NOBODY unprotected. That is the fact that decided it --
+  #     if deferring left a hole I would have said merge.
+  #  2. It changes interpreter resolution for EVERY venv in the product, adds a
+  #     71 MB copy, and DELETES venvs anchored in a .app on upgrade. That last
+  #     one is a destructive action on a customer machine.
+  #  3. Its own author asks for a box walk -- "It wants a box walk, not just a
+  #     green CI" -- and cut.env records that this cut has no walk record at the
+  #     moment it is made. Merging a root fix whose author requests a walk, into
+  #     a cut that has no walk, hours before a tag, is how a version gets burnt.
+  #
+  # What #1055 buys for v1.0.46 specifically is protection against FUTURE
+  # LaunchAgents. There are 29 on a customer box today and the mitigations cover
+  # them; the next one added is the real exposure, and that is a v1.0.47 problem.
+  #
+  # 🔴 THIS ROW EXISTS BECAUSE DECIDING TO DEFER IS NOT DEFERRING. I made this
+  # call in the channel at 01:26Z and did not record it, so check-orphans
+  # correctly RED-ed the cut on it at 02:02Z. This file's own header says it:
+  # "Nobody chose to defer any of them. They were just forgotten. A deferral
+  # recorded here would have been fine. The silence was not."
+  # ROW REMOVED as a duplicate: this ref is already recorded once, earlier in
+  # this same `deferrals:` list, with a fuller `reason:`. Both rows agreed on
+  # until_cut: v1.0.47, so nothing about the deferral changed -- only the
+  # double-entry did. The reasoning above is kept because it is the detailed
+  # record and the surviving row's `reason:` is the summary of it.
+
+  # daemon:feat/hub-build-info-emitter (oa #349) -- ALREADY a conscious decision,
+  # recorded here because the gate cannot read prose.
+  #
+  # cut.env explains it at length: #349 was still unmerged when the daemon was
+  # rebuilt, so the daemon row is FRESH rather than HELD, and the emitter that
+  # produced the hub-app sidecar is a LOCAL script, not a shipped one. The
+  # discriminator was run before deciding rather than assumed -- does anything in
+  # the v1.0.46 pipeline consume the emitter FROM THE TREE?
+  #
+  #     CM051 origin/main  grep -l 'emit-build-info|emit-hub-build-info' -> 0 files
+  #     OS003 origin/main  same predicate                                -> 0 files
+  #     CONTROL, same repos, 'build-info'                -> 18 and 5 files
+  #
+  # So the predicate is live and the zero is a real absence. Both consumers
+  # (verify_cut_freshness.sh, verify_cut_manifest.py) FETCH the published release
+  # asset over the API; nothing re-derives it.
+  #
+  # 🔴 THE POINT OF THIS ROW: that reasoning lived only in cut.env, which
+  # check-orphans cannot read, so the gate RED-ed the cut on a decision that had
+  # already been taken and written down -- in the wrong place for the reader that
+  # needed it.
+  # ROW REMOVED as a duplicate: this ref is already recorded once, earlier in
+  # this same `deferrals:` list, with a fuller `reason:`. Both rows agreed on
+  # until_cut: v1.0.47, so nothing about the deferral changed -- only the
+  # double-entry did. The reasoning above is kept because it is the detailed
+  # record and the surviving row's `reason:` is the summary of it.
+
+  # daemon:fix/log-the-401-that-gates-every-api-call -- THE FIX ALREADY SHIPPED.
+  # This row exists because the gate could not find that out.
+  #
+  # What the gate printed:
+  #
+  #     [warn] gh pr list failed for ostler-ai/ostler-assistant#fix/log-the-401...:
+  #            GraphQL: Could not resolve...
+  #     [RED]  daemon:fix/log-the-401-that-gates-every-api-call
+  #            unmerged branch, 3 commit(s) not in origin/main
+  #
+  # THE PR QUERY FAILED -- CM051's CI has no ostler-ai token -- so it fell back to
+  # branch ancestry, which is meaningless after a squash merge. A CANNOT-VERIFY
+  # wearing a RED.
+  #
+  # Measured instead on the READABLE SURFACE, which does not care about patch
+  # identity. oa #345 merged 2026-08-25T10:21:32Z; the daemon pin 509c8333 was
+  # committed 15:17:04Z, five hours later. The distinctive string the fix adds:
+  #
+  #     "auth: 401 {path} (no-token ..." present in 509c8333 : 1 file
+  #     CONTROL, a string that must not be there              : 0 files
+  #
+  # So the customer-facing fix IS in the shipped daemon. The 3 commits the gate
+  # counted are the branch tip, and the two beyond the merge are
+  # `test(gateway): record the mutation matrix` and `fix(ci): run doctests` --
+  # neither ships in the binary.
+  #
+  # Clears when the branch is deleted; it is merged work with a stale head.
+  # ROW REMOVED as a duplicate: this ref is already recorded once, earlier in
+  # this same `deferrals:` list, with a fuller `reason:`. Both rows agreed on
+  # until_cut: v1.0.47, so nothing about the deferral changed -- only the
+  # double-entry did. The reasoning above is kept because it is the detailed
+  # record and the surviving row's `reason:` is the summary of it.

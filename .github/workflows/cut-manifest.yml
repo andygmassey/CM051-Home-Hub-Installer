@@ -21,6 +21,11 @@ on:
       - 'scripts/verify_cut_manifest.py'
       - 'scripts/verify_cut_manifest.sh'
       - 'scripts/tests/test_verify_cut_manifest.py'
+      - 'scripts/tests/test_grep_in_source_at_sha_names_files.py'
+      - 'scripts/tests/test_probes_do_not_emit_derivable_person_uris.py'
+      - 'tests/test_grep_row_cannot_be_satisfied_by_its_own_manifest.py'
+      - 'tests/test_cut_deferrals_no_duplicate_keys.sh'
+      - 'cut-deferrals.yaml'
       - 'scripts/box_walk_probes/**'
       - 'scripts/tests/test_people_seed_and_retrieval_probe.sh'
       - 'cut-manifests/**'
@@ -58,7 +63,57 @@ jobs:
 
       - name: Run verify_cut_manifest smoke tests
         run: |
-          python -m pytest scripts/tests/test_verify_cut_manifest.py -v
+          python -m pytest scripts/tests/test_verify_cut_manifest.py scripts/tests/test_grep_in_source_at_sha_names_files.py -v
+
+      # A walk record travels -- logs, support bundles, CI output -- and this
+      # repo is PUBLIC. A Person URI is derivable from an email or phone via
+      # unsalted uuid5 with a namespace and template that are both in this
+      # repo, so publishing one is a confirmation oracle. This asserts no probe
+      # emits one.
+      #
+      # It lives in THIS workflow because this workflow already triggers on
+      # scripts/box_walk_probes/**, which is exactly the set of files it
+      # guards. A gate that does not fire when its subject changes is not a
+      # gate.
+      # `if: always()` is load-bearing, not decoration. Without it this step is
+      # SKIPPED whenever an earlier test in the same job fails -- so the run
+      # that most needs a PII verdict is exactly the run that would not get
+      # one. ci-maskless caught this and it was right.
+      - name: No probe may emit a derivable Person URI
+        if: always()
+        run: |
+          python -m pytest scripts/tests/test_probes_do_not_emit_derivable_person_uris.py -v
+
+      # A grep_in_source_at_sha row must be provable by the SOURCE it names, not
+      # by the manifest text that makes the claim.
+      #
+      # This is not hypothetical. v1.0.46 shipped a BRICKED installer with a
+      # GREEN brick-gate: row v1046-c grepped PYTHONPYCACHEPREFIX across the
+      # whole tree and matched cut-manifests/v1.0.46.yaml five times -- its own
+      # file. The claim was TRUE and UNFALSIFIABLE, which is the worst kind of
+      # green. A row that cites itself proves the row was typed, nothing more.
+      #
+      # if: always() -- if the smoke suite above fails, this is exactly when you
+      # need to know whether self-satisfaction has come back too. A skipped gate
+      # reports nothing.
+      - name: a manifest row cannot be satisfied by its own manifest
+        if: always()
+        run: |
+          python3 tests/test_grep_row_cannot_be_satisfied_by_its_own_manifest.py -v
+
+      # A DUPLICATE KEY IN cut-deferrals.yaml IS SILENT AND HAS COST A CUT.
+      # YAML keeps the LAST duplicate and discards the earlier one without a
+      # word, so a deferral you wrote and can still read in the file is simply
+      # not loaded. tests/test_cut_deferrals_no_duplicate_keys.sh checks that
+      # every written deferral is actually loaded, and carries its own control
+      # (a seeded duplicate must be detected) so it cannot pass vacuously.
+      #
+      # It existed and ran nowhere. This job already installs pyyaml, which the
+      # test needs; the test exits 2 CANNOT-RUN rather than passing if python3
+      # is absent.
+      - name: every written deferral is actually loaded (no silent duplicate key)
+        if: always()
+        run: /bin/bash tests/test_cut_deferrals_no_duplicate_keys.sh
 
   # The box-walk probe body itself. The primitive above only proves the
   # verifier honours a probe's exit code; this job proves the people probe
