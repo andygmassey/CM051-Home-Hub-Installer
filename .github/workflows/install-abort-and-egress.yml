@@ -59,6 +59,14 @@ jobs:
         if: always()
         run: python3 tests/test_inferred_category_never_egresses.py
 
+      # Sits beside the attribution suite because it guards the same probe from
+      # the other side: that one checks it can tell "not ours" from "could not
+      # tell", this one checks its VERDICT does not claim a boundary the walk
+      # path never consults (#1145).
+      - name: The egress verdict may not claim a boundary it never checked
+        if: always()
+        run: /bin/bash tests/test_egress_verdict_claims_only_what_it_checked.sh
+
       # The tripwire on Andy's one ratified cut of deferral. v1.0.36 ships the
       # enrichment agent gated OFF; the cut after it must carry the question
       # that lets the customer decide. This step is green today and turns red
