@@ -1895,7 +1895,45 @@ check-manifest:
 	    exit 1; \
 	fi
 
-package: guard-local-cut check-tools check-identity check-version check-create-dmg check-clean-tree check-branch-truth check-freshness check-provenance check-provenance-content
+# check-branch-truth is UN-WIRED. Read this before re-adding it.
+#
+# IT CANNOT PASS HERE, and not because of a bug in it. It reads HR015's
+# SHIPPING_LEDGER.yaml. HR015 is PRIVATE and CI never checks it out, so the gate
+# fails closed on every tag-triggered cut:
+#     FAIL  SHIPPING_LEDGER.yaml not found/readable
+# Measured on run 33077669898, 2026-08-27: the DMG built, signed, notarised and
+# stapled, and this refused it afterwards.
+#
+# THE LEDGER CANNOT SIMPLY BE VENDORED. CM051 is PUBLIC. Scanned 2026-08-27:
+# 4435 lines, 29 hits for operator home paths and LAN addresses. Copying it here
+# would publish the operator's directory layout and network topology, into git
+# history where deleting the file does not remove it. That is boards #343/#344/
+# #353 territory and it is not a trade worth making for a gate.
+#
+# ITS INVARIANT HOLDS TODAY, AND THAT IS MEASURED, NOT ASSUMED. The gate asserts
+# the pinned daemon CONTAINS what the last cut shipped, so a cut cannot drop
+# commits. Checked by hand against the two cut records and GitHub's compare API:
+#     v1.0.47 shipped   DAEMON_COMMIT=509c8333
+#     v1.0.48 pins      f1c7c57d
+#     compare 509c8333...f1c7c57d  ->  status=ahead  ahead_by=30  behind_by=0
+# behind_by=0 means f1c7c57d contains every commit 509c8333 had. Nothing dropped.
+#
+# WHAT UN-WIRING COSTS, stated rather than glossed: a FUTURE daemon-lineage
+# regression goes uncaught until this is re-wired. Verified absent today; not
+# gated tomorrow. That is the trade, made deliberately.
+#
+# THIS RESTORES A KNOWN-GOOD CONFIGURATION, it does not invent one. #1134 added
+# exactly two prerequisites to this line -- check-clean-tree and
+# check-branch-truth. Every other target here was exercised by v1.0.47's cut run
+# 32929939372, which completed. check-clean-tree STAYS: it was broken the same
+# way and is now fixed and passing in production.
+#
+# RE-WIRE CONDITION, not a vague someday: give the cut job read access to the
+# private ledger (a token, or SHIPPING_LEDGER_FILE pointing at a checkout the
+# runner can see), then re-add `check-branch-truth` below and prove it PASSES on
+# a real cut before trusting it. Do not re-add it unproved -- that is exactly how
+# it got here. Board #527.
+package: guard-local-cut check-tools check-identity check-version check-create-dmg check-clean-tree check-freshness check-provenance check-provenance-content
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make release' first." >&2; \
 	    exit 1; \
