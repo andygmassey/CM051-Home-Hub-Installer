@@ -6,7 +6,8 @@ name: walk-record-gate
 # Every other gate in this repo measures the ARTEFACT: it hashes, it staples,
 # it checks signatures. All of that can pass on a DMG that installs to a broken
 # machine, because none of it has ever been installed. The only runtime proof
-# in the estate is the box walk -- 14 probes with negative controls -- and
+# in the estate is the box walk -- every probe in probes/, each with a negative
+# control -- and
 # measured on origin/main 2026-08-23 NOTHING INVOKED IT:
 #
 #   OS003 bin/ pipeline/ gates/ .github/   post_walk_qa   0 hits
