@@ -55,6 +55,11 @@ on:
       - 'tests/test_pinned_wiki_image_has_design_system.sh'
       - 'scripts/verify_cut_provenance.sh'
       - 'tests/test_wiki_provenance_extracts_without_exec.sh'
+      # The gate this workflow RUNS at the wiki-content step, which it did not
+      # WATCH. That is the one shape invoked-tests-are-watched exists to refuse:
+      # a run: step with no matching path entry is a gate you have read, not a
+      # gate you have run -- editing the test would never have re-run it here.
+      - 'tests/test_wiki_content_gate_is_invoked_and_cannot_run_is_not_pass.sh'
       - '.github/workflows/cut-gate-wrappers.yml'
   push:
     branches: [main]
