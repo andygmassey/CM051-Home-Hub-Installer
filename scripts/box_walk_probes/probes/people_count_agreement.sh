@@ -27,7 +27,29 @@ PROBE_NAME="people_count_agreement"
 PROBE_QUESTION="do Oxigraph and the Doctor API agree on the number of people?"
 
 OXIGRAPH_URL="${OSTLER_OXIGRAPH_URL:-http://127.0.0.1:7878/query}"
-DOCTOR_PEOPLE_URL="${OSTLER_DOCTOR_PEOPLE_URL:-http://127.0.0.1:8089/doctor/api/people/count}"
+# THIS URL HAS NEVER EXISTED. Measured 2026-08-26: /doctor/api/people/count
+# returns 404 on both 8089 and 8090, is absent from the running Doctor's 57
+# advertised routes, and a repo-wide search finds 0 hits in HR015's doctor/ or
+# CM051's vendor/doctor (control: "doctor/api/status" = 3 hits in those same
+# files). So this arm reported "doctor UNAVAILABLE" for its whole life and the
+# walk read that as "the surfaces could not be compared" rather than "the probe
+# is asking for a route nobody wrote".
+#
+# WHY THE PUBLIC HYDRATION ROUTE, NOT /api/v1/people. Both answer and both
+# report the same number (7284 on the box measured). The difference is what
+# happens when auth is broken:
+#
+#     GET /api/v1/hydration/status   200 unauthenticated  <- public by design
+#     GET /api/v1/people             401 unauthenticated  <- CONTROL: auth IS
+#                                                            enforced generally
+#
+# On 2026-08-26 a rotated service token left EVERY authenticated /api/v1 route
+# 401ing for a day. A count probe that needs a token goes UNAVAILABLE in exactly
+# the situation where you most need to know whether the stores agree, and that
+# silence is indistinguishable from "the endpoint is missing". The public route
+# keeps measuring through an auth outage, and there is no token to plumb into a
+# walk log.
+DOCTOR_PEOPLE_URL="${OSTLER_DOCTOR_PEOPLE_URL:-http://127.0.0.1:8090/api/v1/hydration/status}"
 TOLERANCE_PCT="${OSTLER_PEOPLE_TOLERANCE_PCT:-2}"
 
 count_oxigraph() {
@@ -76,6 +98,12 @@ raw=sys.stdin.read().strip()
 if not raw: print("UNAVAILABLE"); sys.exit(0)
 try:
     d=json.loads(raw)
+    # hydration/status shape: {"phases":[{"key":"contacts","count":N},...]}
+    if isinstance(d,dict) and isinstance(d.get("phases"),list):
+        for ph in d["phases"]:
+            if isinstance(ph,dict) and ph.get("key")=="contacts" and isinstance(ph.get("count"),int):
+                print(ph["count"]); sys.exit(0)
+    # flat shapes kept, so a differently-shaped surface still parses
     for k in ("count","people","total","people_count"):
         if isinstance(d,dict) and k in d and isinstance(d[k],int):
             print(d[k]); sys.exit(0)
