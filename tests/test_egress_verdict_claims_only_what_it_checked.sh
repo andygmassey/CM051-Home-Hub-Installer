@@ -100,12 +100,18 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# NOTE ON THE FORM BELOW: `cmd | grep -q` in a CONDITION under `set -o pipefail`
+# INVERTS -- grep -q exits on first match, upstream takes SIGPIPE, and pipefail
+# calls the pipeline failed ON A MATCH. I wrote exactly that here and the
+# ratchet in test_pipefail_shortcircuit_inversion.sh caught it (69 found,
+# baseline 68). Remedy B: count in a substitution, compare the number.
+#
 # (3) The unconsulted-ledger note must survive. It is the only thing telling a
 #     reader of a FAIL that a listed destination may well be declared.
 # ---------------------------------------------------------------------------
 if [[ "${RUN_READS:-0}" -gt 0 ]]; then
     pass "(3) not required: run_probe reads the ledger, so there is nothing to disclaim"
-elif printf '%s\n' "$RUN_BODY" | grep -q 'NOT consulted'; then
+elif [[ "$(printf '%s\n' "$RUN_BODY" | grep -c 'NOT consulted' || true)" -gt 0 ]]; then
     pass "(3) the walk output states that the ledger was not consulted"
 else
     failure "(3) nothing in run_probe's output tells a reader the ledger went unread. A FAIL then reads as undeclared traffic when two of three flagged addresses were declared"
