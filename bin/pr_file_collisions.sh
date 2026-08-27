@@ -51,7 +51,21 @@ collisions_from_tsv() {
     # TSV would never arrive and every run would report COLLISIONS: none.
     # The self-test caught exactly that. Stage the script to a file so stdin
     # stays free for the data.
-    _cft_py="$(mktemp -t collisions_py)"
+    # `mktemp -t NAME` is BSD-ONLY. GNU mktemp (ubuntu-latest, which is where
+    # this workflow runs) rejects it with "too few X's in template", $_cft_py is
+    # then EMPTY, `python3 ""` runs the repo directory, and all four self-test
+    # arms fail with a __main__ error that names nothing real. One bad mktemp
+    # becomes four arm failures and a false cause with a confident face.
+    #
+    # This exact trap is already documented in this repo at
+    # scripts/verify_no_orphaned_fixes.sh:93 -- that gate hit it with
+    # `mktemp -t ostler-expired-refs`. It was on this branch while I wrote the
+    # bug. Third "measure on the host that runs it" of the night.
+    #
+    # The GUARD matters as much as the template: without it an mktemp failure
+    # is silent and reappears downstream as something else.
+    _cft_py="$(mktemp "${TMPDIR:-/tmp}/collisions_py.XXXXXX")"
+    [ -n "$_cft_py" ] || { echo "CANNOT-RUN: mktemp failed"; return 78; }
     cat > "$_cft_py" <<'PY'
 import sys, collections
 rows = [l.rstrip("\n").split("\t") for l in sys.stdin if l.strip()]
@@ -114,7 +128,9 @@ fi
 # stderr is CAPTURED, not discarded: the first version sent it to /dev/null and
 # then blamed "auth? wrong repo?" for what was actually a shell fault in this
 # script. An error message that names the wrong culprit costs more than none.
-_err="$(mktemp -t prlist_err)"
+# Same BSD-only trap as above; same guard, for the same reason.
+_err="$(mktemp "${TMPDIR:-/tmp}/prlist_err.XXXXXX")"
+[ -n "$_err" ] || { echo "CANNOT-RUN: mktemp failed"; exit 78; }
 prs="$(gh pr list ${REPO_ARG[@]+"${REPO_ARG[@]}"} --state open --limit "$LIMIT" \
         --json number,author,headRefName -q '.[] | "\(.number)\t\(.author.login)\t\(.headRefName)"' 2>"$_err")"
 if [ -z "$prs" ]; then
