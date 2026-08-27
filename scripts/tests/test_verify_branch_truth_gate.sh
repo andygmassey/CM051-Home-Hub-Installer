@@ -396,10 +396,31 @@ assert_contains "case 13 refuses to guess" "refusing to guess which cut is newes
 printf '\n=== CASE: gui/Makefile wires check-branch-truth into the cut ===\n'
 mk_hits="$(grep -c 'check-branch-truth' "${MAKEFILE}")"
 printf '  gui/Makefile mentions check-branch-truth %d time(s)\n' "${mk_hits}"
-if [[ "${mk_hits}" -ge 3 ]] && grep -qE '^package:.*check-branch-truth' "${MAKEFILE}"; then
-  printf 'PASS: Makefile wire-in (phony + target + package prereq)\n'; PASS=$((PASS+1))
+# DELIBERATELY UN-WIRED, and this arm asserts that rather than asserting the
+# wire-in it used to. #1179, 2026-08-27: the gate reads HR015's PRIVATE ledger,
+# which CI never checks out, so it failed closed on every tag-triggered cut --
+# AFTER the DMG was built, signed, notarised and stapled. Board #527.
+#
+# THIS IS NOT THE ASSERTION WEAKENED TO PASS. It is inverted and it now catches
+# BOTH failure directions, where the old one caught neither:
+#   * the TARGET AND PHONY MUST STILL EXIST -- if someone DELETES the gate
+#     instead of un-wiring it, this fails. Un-wired is recoverable; deleted is not.
+#   * package: MUST NOT wire it -- if someone re-adds the prerequisite without
+#     first giving CI ledger access, this fails and names #527. That is the
+#     failure mode that put us here.
+if grep -qE '^check-branch-truth:' "${MAKEFILE}" \
+   && grep -q 'check-branch-truth' "${MAKEFILE}" \
+   && ! grep -qE '^package:.*check-branch-truth' "${MAKEFILE}"; then
+  printf 'PASS: gate PRESERVED but deliberately un-wired from package: (#527)\n'; PASS=$((PASS+1))
+elif grep -qE '^package:.*check-branch-truth' "${MAKEFILE}"; then
+  printf 'FAIL: check-branch-truth is wired into package: again -- it CANNOT pass on CI\n' >&2
+  printf '      until the runner can read HR015 SHIPPING_LEDGER. See board #527, and\n' >&2
+  printf '      prove it PASSES on a real cut before re-wiring.\n' >&2
+  FAIL=$((FAIL+1))
 else
-  printf 'FAIL: expected >=3 mentions incl a package: prereq\n' >&2; FAIL=$((FAIL+1))
+  printf 'FAIL: the check-branch-truth TARGET is gone from gui/Makefile -- it was\n' >&2
+  printf '      un-wired, NOT deleted. Restore the target; #527 re-wires it later.\n' >&2
+  FAIL=$((FAIL+1))
 fi
 if grep -q 'verify_branch_truth.sh' "${RELEASE_SH}" && grep -q 'DO_DRY_RUN' "${RELEASE_SH}"; then
   printf 'PASS: release.sh runs the gate as a --dry-run-skippable preflight\n'; PASS=$((PASS+1))
