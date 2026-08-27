@@ -1406,6 +1406,45 @@ seed-installer-app-pyc: guard-local-cut
 	fi
 	@bash "$(CURDIR)/scripts/seed-hub-payload-pyc.sh" \
 	    "$(APP_PATH)" "$(PYTHON_BUNDLE_TARBALL)" "OstlerInstaller.app" 400
+	# 🔴 THE ASSUMPTION ARCHIE REFUSED TO LET ME MAKE, NOW AN ASSERTION.
+	#
+	# `release` copies the ALREADY-SEALED Ostler.app into
+	# $(APP_PATH)/Contents/Resources/. The seeder runs `compileall -f` with NO
+	# -x, so it reaches all ~86 .py inside that nested, already-signed bundle --
+	# and NOTHING reseals it: sign-python-bundle signs the outer $(APP_PATH)
+	# WITHOUT --deep, and its explicit --force calls name only the daemon app.
+	#
+	# The benign case is plausible: codesign hashes CONTENT, and unchecked-hash
+	# .pyc rewritten from identical sources by the same interpreter should be
+	# byte-identical. MEASURED, cpython-311, compileall -f twice over one tree:
+	# corpus digest 39a3ceb2c273... both runs -- IDENTICAL.
+	# ⚠️ That was homebrew 3.11.14, NOT the pinned python-build-standalone
+	# build. Close, not the same binary. So it is evidence, not proof, and a
+	# build must not rest on it.
+	#
+	# BOTH VERBS. v1.0.47 passed an "added" check and still shipped the defect;
+	# a rewritten-in-place file is a MODIFICATION, not an addition.
+	@OA="$(APP_PATH)/Contents/Resources/Ostler.app"; \
+	if [ ! -d "$$OA" ]; then \
+	    echo "CANNOT VERIFY: no nested Ostler.app at $$OA after seeding." >&2; \
+	    echo "  The seed just walked this root. Refusing to report a seal I did not check." >&2; \
+	    exit 1; \
+	fi; \
+	printf '[STEP] Verifying the seed did not disturb the already-sealed nested Ostler.app\n'; \
+	out="$$(codesign --verify --deep --strict --verbose=2 "$$OA" 2>&1)"; rc=$$?; \
+	added="$$(printf '%s\n' "$$out" | grep -c 'file added:')"; \
+	modified="$$(printf '%s\n' "$$out" | grep -c 'file modified:')"; \
+	printf '[OK] nested Ostler.app: codesign rc=%s, file added=%s, file modified=%s\n' \
+	    "$$rc" "$$added" "$$modified"; \
+	if [ "$$rc" -ne 0 ] || [ "$$added" -ne 0 ] || [ "$$modified" -ne 0 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: seeding \$$(APP_PATH) disturbed the nested Ostler.app seal." >&2; \
+	    printf '%s\n' "$$out" | sed 's/^/    /' >&2; \
+	    echo "  REMEDY: pass -x for Contents/Resources/Ostler.app at THIS call site" >&2; \
+	    echo "  only -- arm 1 already seeds that bundle inside its own envelope --" >&2; \
+	    echo "  and state the residual out loud. Do NOT widen the reseal." >&2; \
+	    exit 1; \
+	fi
 
 sign-python-bundle: guard-local-cut
 	$(STEP) "Signing bundled Python Mach-O files with hardened runtime"

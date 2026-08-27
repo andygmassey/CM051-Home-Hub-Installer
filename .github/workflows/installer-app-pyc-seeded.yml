@@ -34,7 +34,7 @@ jobs:
       # CANNOT-RUN (no Makefile) and 1 for FAIL, and a mutant staged in a bare
       # temp dir would exit 2 having checked nothing at all -- a false red that
       # looks like a working control.
-      - name: RED when the seed target is unwired from ship:
+      - name: "RED when the seed target is unwired from ship:"
         run: |
           set -uo pipefail
           W="$(mktemp -d)"; mkdir -p "$W/gui" "$W/tests"
@@ -53,7 +53,7 @@ jobs:
           [ "$rc" -eq 1 ] || { echo "expected rc=1 (FAIL), got $rc" >&2; exit 1; }
           echo "OK: control fired with the right message and the right rc"
 
-      - name: RED when the seeder is pointed at the wrong root
+      - name: "RED when the seeder is pointed at the wrong root"
         run: |
           set -uo pipefail
           W="$(mktemp -d)"; mkdir -p "$W/gui" "$W/tests"
