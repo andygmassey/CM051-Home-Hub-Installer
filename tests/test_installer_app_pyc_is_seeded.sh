@@ -27,7 +27,7 @@
 # reliance on some later --force --deep.
 # =============================================================================
 set -uo pipefail
-MK="$(dirname "${BASH_SOURCE[0]}")/../Makefile"
+MK="$(dirname "${BASH_SOURCE[0]}")/../gui/Makefile"
 fail=0
 ok()   { printf '  ok    %s\n' "$*"; }
 bad()  { printf '  FAIL  %s\n' "$*"; fail=1; }

@@ -144,6 +144,7 @@ stage-payload|EXERCISE|assembles the (B-lite) payload and asserts completeness p
 sparkle-embed|SKIP|embed-sparkle.sh CODESIGNS. Without the identity it takes its "leave the bundle unsigned" branch, so running it here would exercise a path the cut never takes and prove the wrong thing.
 notarise-hub|SKIP|signs and notarises the Hub. Excluded by construction: a dry run reaches no Apple service and produces no signature.
 release|SKIP|builds and Developer-ID signs OstlerInstaller.app. Excluded by construction. Its verification-only prerequisites are exercised in tier 2.
+seed-installer-app-pyc|SKIP|seeds OstlerInstaller.app's bytecode. Excluded because it needs the BUILT .app that `release` produces, and `release` is itself SKIP here. Same hole as check-manifest below: unreachable without building and signing one.
 sign-python-bundle|SKIP|codesigns every nested Mach-O. Excluded by construction.
 check-manifest|SKIP|a CHECK, but it reads the BUILT .app that `release` produces. Unreachable without building and signing one. THIS IS THE LARGEST HOLE IN THIS DRY RUN.
 notarise-app|SKIP|notarises. Excluded by construction.
