@@ -141,7 +141,10 @@ api() {
     if [ "$rc" -eq 0 ]; then API_OUT="$out"; return 0; fi
     API_OUT="$out"
     [ "$rc" -eq 124 ] && return 2            # timeout -> unreachable
-    if printf '%s' "$out" | grep -q '"message"'; then return 1; fi   # reachable HTTP error
+    # grep -c, not grep -q: under `set -o pipefail` a -q consumer exits on the
+    # first match and SIGPIPEs printf, so the pipeline reports FAILURE on a
+    # needle that IS present -- inverting this very verdict.
+    if [ "$(printf '%s' "$out" | grep -c '"message"' || true)" -gt 0 ]; then return 1; fi   # reachable HTTP error
     return 2                                 # non-zero, no body -> transport failure
 }
 

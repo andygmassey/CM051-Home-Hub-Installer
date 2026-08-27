@@ -33,7 +33,7 @@ printf '\n=== CASE: OSTLER_BOX_HOST unset -> SKIP (exit 0) ===\n'
 out="$(env -u OSTLER_BOX_HOST "${PROBE}" 2>&1)"; rc=$?
 printf '%s\n' "${out}" | sed 's/^/  | /'
 if [[ "${rc}" -eq 0 ]]; then ok "unset host -> exit 0 (never fails the cut)"; else bad "unset host gave rc=${rc}, expected 0"; fi
-if printf '%s' "${out}" | grep -qi 'SKIP'; then ok "unset host prints a SKIP line"; else bad "no SKIP line on unset host"; fi
+if [ "$(printf '%s' "${out}" | grep -ci 'SKIP' || true)" -gt 0 ]; then ok "unset host prints a SKIP line"; else bad "no SKIP line on unset host"; fi
 
 # --- 3. manifest entry present + names the probe ---------------------------
 printf '\n=== CASE: cut-manifests/v1.0.13.yaml registers the probe ===\n'

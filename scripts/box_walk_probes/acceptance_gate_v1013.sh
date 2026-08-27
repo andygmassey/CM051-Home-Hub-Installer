@@ -89,7 +89,7 @@ fi
 
 # -- A1 -- hub binary name is brand-neutral (no codename leak) [MAPS: #1] --
 bin_name=$(box "ls /Applications/Ostler.app/Contents/MacOS/ 2>/dev/null | head -1")
-if echo "$bin_name" | grep -qiE 'zeroclaw|gamingrig|andypedia'; then
+if [ "$(echo "$bin_name" | grep -ciE 'zeroclaw|gamingrig|andypedia' || true)" -gt 0 ]; then
   result FAIL A1 "Hub binary name is brand-neutral" "found codename in Contents/MacOS: '$bin_name'"
 else
   result PASS A1 "Hub binary name is brand-neutral" "binary: '$bin_name'"
@@ -98,7 +98,7 @@ fi
 # -- A2 -- unpaired Home frontpage serves welcome cards, not 401 [MAPS: R1] --
 fp_code=$(box "curl -s -o /dev/null -w '%{http_code}' --max-time 5 $DAEMON/api/v1/frontpage/cards")
 fp_body=$(box "curl -s --max-time 5 $DAEMON/api/v1/frontpage/cards")
-if [ "$fp_code" = "200" ] && echo "$fp_body" | grep -q 'welcome-'; then
+if [ "$fp_code" = "200" ] && [ "$(echo "$fp_body" | grep -c 'welcome-' || true)" -gt 0 ]; then
   result PASS A2 "Frontpage cards render pre-pair" "200 + welcome cards present"
 else
   result FAIL A2 "Frontpage cards render pre-pair" "GET /api/v1/frontpage/cards -> $fp_code (want 200+welcome cards; 401 = auth layer blocks handler)"
@@ -109,7 +109,7 @@ a3_bad=""
 for p in /api/v1/pause /api/v1/resume /api/v1/governor-status; do
   ct=$(box "curl -s -o /dev/null -w '%{content_type}' --max-time 4 $DAEMON$p")
   code=$(box "curl -s -o /dev/null -w '%{http_code}' --max-time 4 $DAEMON$p")
-  if [ "$code" = "200" ] && echo "$ct" | grep -qi 'text/html'; then
+  if [ "$code" = "200" ] && [ "$(echo "$ct" | grep -ci 'text/html' || true)" -gt 0 ]; then
     a3_bad="$a3_bad $p(200-html)"
   fi
 done

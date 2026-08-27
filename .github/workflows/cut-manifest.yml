@@ -147,6 +147,24 @@ jobs:
       - name: Confirm we are testing under bash 3.2, as the cut host does
         run: /bin/bash --version | head -1
 
+      # verify_branch_truth reads the shipping ledger with PyYAML and REFUSES to
+      # guess without it -- it returns CANNOT-RUN (rc=3), which is correct and is
+      # why 39 of 46 cases failed here rather than passing vacuously.
+      #
+      # MEASURED, so the cause is not guessed at: a real Mac (the cut-host shape)
+      # has PyYAML on python3, on /usr/bin/python3, AND on the very
+      # /opt/homebrew/opt/python@3.14 the runner selected. The GitHub macos-latest
+      # image does not. This is a RUNNER gap, not a cut-host gap, and installing
+      # it here does not paper over a product defect.
+      - name: Install PyYAML (verify_branch_truth refuses to parse the ledger without it)
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages pyyaml \
+            || python3 -m pip install --quiet pyyaml
+          # Prove it, do not assume the install worked: a silent pip failure would
+          # leave the suite failing for the same reason with a fix in the log.
+          python3 -c 'import yaml; print("PyYAML", yaml.__version__, "importable")'
+
       # The three gate suites ported in #1134. They arrived with no runner at
       # all, which new-tests-wired refused in exactly the right words: a test
       # nobody runs is not coverage, it is a green light with no bulb behind
