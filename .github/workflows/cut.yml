@@ -834,6 +834,39 @@ jobs:
           # back with the SAME token. Off by default so the gate's synthetic
           # fixtures still pass; the cut is where the cross-org hazard lives.
           OSTLER_ORPHAN_GATE_PR_CONTROL: '1'
+          # DECLARED BLINDNESS, PER LABEL, WITH THE EVIDENCE THAT MAKES IT SAFE.
+          #
+          # MEASURED on cut run 33072466043, 2026-08-27, the gate's own words:
+          #   GraphQL: Resource not accessible by personal access token
+          #            (repository.pullRequests)
+          # The error CHANGED from "Could not resolve to a Repository" (#1166),
+          # which proves the per-owner token IS reaching the repo. It sees it
+          # and cannot read its pull requests. .github/SECRETS.md says why in
+          # plain words: CM051_RELEASES_READ "reads release assets from
+          # ostler-ai". It was never scoped for pull requests.
+          #
+          # WHY THIS IS A DECLARATION AND NOT A SILENCING. The gate's own
+          # message says "Fix the credentials, or declare the blindness -- do
+          # not leave it undeclared." The work this limb would have found is
+          # ALREADY ENUMERATED. Measured locally with a token that CAN read
+          # that repo: SEVEN open daemon PRs, and all seven now carry a row in
+          # cut-deferrals.yaml.
+          #   #363 #351  added in #1171
+          #   #282 #260 #246 #185 #95  already deferred
+          # So this hides nothing that is not written down. Compare the CM044 /
+          # CM041 / CM059 / CM031 skips above, which hide populations nobody
+          # has counted.
+          #
+          # PER LABEL, NOT BLANKET. `=1` would silence the open-PR limb for
+          # EVERY repo including CM051 -- the repo the cut is being made FROM.
+          # #1169 made this axis take labels precisely so cut pressure could
+          # not aim the blindness at the repo that matters most.
+          #
+          # THE REAL FIX IS ONE PERMISSION, and it is not in this repo: grant
+          # `Pull requests: read` to the CM051_RELEASES_READ fine-grained PAT
+          # on ostler-ai/ostler-assistant. Delete this line the moment that
+          # lands. Board #523.
+          OSTLER_ORPHAN_GATE_SKIP_PR: daemon
           # Lets the gate flag deferrals whose until_cut has already passed.
           OSTLER_CUT_VERSION: ${{ github.ref_name }}
         run: make -C gui ship
@@ -1271,4 +1304,37 @@ jobs:
           # back with the SAME token. Off by default so the gate's synthetic
           # fixtures still pass; the cut is where the cross-org hazard lives.
           OSTLER_ORPHAN_GATE_PR_CONTROL: '1'
+          # DECLARED BLINDNESS, PER LABEL, WITH THE EVIDENCE THAT MAKES IT SAFE.
+          #
+          # MEASURED on cut run 33072466043, 2026-08-27, the gate's own words:
+          #   GraphQL: Resource not accessible by personal access token
+          #            (repository.pullRequests)
+          # The error CHANGED from "Could not resolve to a Repository" (#1166),
+          # which proves the per-owner token IS reaching the repo. It sees it
+          # and cannot read its pull requests. .github/SECRETS.md says why in
+          # plain words: CM051_RELEASES_READ "reads release assets from
+          # ostler-ai". It was never scoped for pull requests.
+          #
+          # WHY THIS IS A DECLARATION AND NOT A SILENCING. The gate's own
+          # message says "Fix the credentials, or declare the blindness -- do
+          # not leave it undeclared." The work this limb would have found is
+          # ALREADY ENUMERATED. Measured locally with a token that CAN read
+          # that repo: SEVEN open daemon PRs, and all seven now carry a row in
+          # cut-deferrals.yaml.
+          #   #363 #351  added in #1171
+          #   #282 #260 #246 #185 #95  already deferred
+          # So this hides nothing that is not written down. Compare the CM044 /
+          # CM041 / CM059 / CM031 skips above, which hide populations nobody
+          # has counted.
+          #
+          # PER LABEL, NOT BLANKET. `=1` would silence the open-PR limb for
+          # EVERY repo including CM051 -- the repo the cut is being made FROM.
+          # #1169 made this axis take labels precisely so cut pressure could
+          # not aim the blindness at the repo that matters most.
+          #
+          # THE REAL FIX IS ONE PERMISSION, and it is not in this repo: grant
+          # `Pull requests: read` to the CM051_RELEASES_READ fine-grained PAT
+          # on ostler-ai/ostler-assistant. Delete this line the moment that
+          # lands. Board #523.
+          OSTLER_ORPHAN_GATE_SKIP_PR: daemon
         run: bash scripts/dry_run_cut_checks.sh
