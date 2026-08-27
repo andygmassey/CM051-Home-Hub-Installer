@@ -192,6 +192,15 @@ jobs:
         run: |
           bash tests/test_dedupe_deps_reach_the_consumer_venv.sh
 
+      - name: PyYAML, which the helper's real interpreter has and this runner does not
+        # install.sh does not run these helpers under a bare python3 by choice:
+        # it prefers the calendar/email-ingest venv, then the import-pipeline
+        # venv, both of which carry PyYAML, because the identity leg writes
+        # duplicates.yaml. This runner has neither venv, so without this the
+        # tests fail on ModuleNotFoundError for a dependency the customer box
+        # actually has -- a runner-only failure, not a product one.
+        run: python3 -m pip install --quiet pyyaml
+
       - name: End-of-install confirmation helpers (calendars + identity)
         if: always()
         # The confirmation block is deliberately fail-safe: install.sh probes

@@ -262,11 +262,14 @@ targets:
           # failure shape the coverage gate exists to catch.
           cp "${SRCROOT}/../lib/ostler-confirm-calendars.py"     "${DEST}/lib/ostler-confirm-calendars.py"
           cp "${SRCROOT}/../lib/ostler-confirm-identity.py"      "${DEST}/lib/ostler-confirm-identity.py"
-                    "${DEST}/lib/ostler-confirm-calendars.py" "${DEST}/lib/ostler-confirm-identity.py"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
           chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh" "${DEST}/lib/settling_progress.sh"
-          chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py" \
-                    "${DEST}/lib/ostler-confirm-calendars.py" "${DEST}/lib/ostler-confirm-identity.py"
+          chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
+          # Second chmod rather than a continuation of the line above, purely so
+          # this pair is one self-contained command. (Continuations DO survive
+          # into the pbxproj -- the brand-font loop above uses one and encodes
+          # identically.)
+          chmod 644 "${DEST}/lib/ostler-confirm-calendars.py" "${DEST}/lib/ostler-confirm-identity.py"
           # Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app
           # so the customer DMG ships a clean single-app layout (just the
           # installer + drag-to-Applications) yet install.sh's source-
