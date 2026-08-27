@@ -33,6 +33,9 @@ on:
       - 'cut-manifests/**'
       - 'gui/Makefile'
       - '.github/workflows/cut-manifest.yml'
+      - 'scripts/tests/test_verify_branch_truth_gate.sh'
+      - 'scripts/tests/test_verify_clean_tree_gate.sh'
+      - 'scripts/tests/test_acceptance_gate_v1013_probe.sh'
   push:
     branches: [main]
 
@@ -144,7 +147,49 @@ jobs:
       - name: Confirm we are testing under bash 3.2, as the cut host does
         run: /bin/bash --version | head -1
 
+      # verify_branch_truth reads the shipping ledger with PyYAML and REFUSES to
+      # guess without it -- it returns CANNOT-RUN (rc=3), which is correct and is
+      # why 39 of 46 cases failed here rather than passing vacuously.
+      #
+      # MEASURED, so the cause is not guessed at: a real Mac (the cut-host shape)
+      # has PyYAML on python3, on /usr/bin/python3, AND on the very
+      # /opt/homebrew/opt/python@3.14 the runner selected. The GitHub macos-latest
+      # image does not. This is a RUNNER gap, not a cut-host gap, and installing
+      # it here does not paper over a product defect.
+      - name: Install PyYAML (verify_branch_truth refuses to parse the ledger without it)
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages pyyaml \
+            || python3 -m pip install --quiet pyyaml
+          # Prove it, do not assume the install worked: a silent pip failure would
+          # leave the suite failing for the same reason with a fix in the log.
+          python3 -c 'import yaml; print("PyYAML", yaml.__version__, "importable")'
+
+      # The three gate suites ported in #1134. They arrived with no runner at
+      # all, which new-tests-wired refused in exactly the right words: a test
+      # nobody runs is not coverage, it is a green light with no bulb behind
+      # it. Invoked here, and listed in this workflow's paths above, so an
+      # edit to any of them re-runs the job that executes them.
+      - name: branch-truth gate suite
+        run: /bin/bash scripts/tests/test_verify_branch_truth_gate.sh
+
+      - name: clean-tree gate suite
+        # an earlier suite going red is exactly when you need to know whether THIS
+        # one also fails; skipping it turns two defects into one report.
+        if: always()
+        run: /bin/bash scripts/tests/test_verify_clean_tree_gate.sh
+
+      - name: acceptance-gate probe suite
+        # same reason as the step above: a masked suite reports nothing, and a
+        # silent step is indistinguishable from a passing one.
+        if: always()
+        run: /bin/bash scripts/tests/test_acceptance_gate_v1013_probe.sh
+
       - name: Probe must fire (1 green + 11 distinct reds)
+        # this step PREDATES the three suites above. Wiring them in front of it
+        # made it maskable, so the port had to carry its unmasking too --
+        # adding a check can blind the checks already there.
+        if: always()
         run: /bin/bash scripts/tests/test_people_seed_and_retrieval_probe.sh
 
       # The step above is now fast and reliable (task #348 removed a 35s

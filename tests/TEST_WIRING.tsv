@@ -95,6 +95,7 @@ test_daemon_fda_app_bundle_path.sh	WIRED	.github/workflows/consent-data-handling
 test_daemon_pins_agree.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_dead_launchagent_prune.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_dedupe_defer_background.sh	UNWIRED	-
+test_dedupe_deps_reach_the_consumer_venv.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_dedupe_heartbeat.sh	UNWIRED	-
 test_deferral_reachability.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferral_reason_reads_block_scalars.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
@@ -111,6 +112,7 @@ test_doctor_repo_fallback.sh	UNWIRED	-
 test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml
 test_doctor_silent_failure_grafts.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_web_ui_strings_complete.py	WIRED	.github/workflows/vendor-integrity.yml
+test_egress_verdict_claims_only_what_it_checked.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_email_folder_prompt.sh	UNWIRED	-
 test_email_ingest_bootstrap_guard.sh	UNWIRED	-
 test_email_ingest_loud_guard.sh	UNWIRED	-
@@ -128,8 +130,10 @@ test_every_default_source_is_requested.sh	WIRED	.github/workflows/default-source
 test_every_fail_call_has_error_code.sh	UNWIRED	-
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_every_marker_pattern_compiles.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_exemption_ref_form.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_expired_deferral_ratchet.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_expiry_needs_a_cut_version.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
+test_export_detect_large_zip_behaviour.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_fallback_pin_moves_with_the_version.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_fda_assist_ordering.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -147,7 +151,7 @@ test_gdpr_scan_prewarn.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_gen_patch_new_files.sh	UNWIRED	-
 test_governor_pause_throttle.sh	UNWIRED	-
 test_graph_db_pull_retry.sh	UNWIRED	-
-test_grep_c_arith_safety.sh	UNWIRED	-
+test_grep_c_arith_safety.sh	WIRED	.github/workflows/grep-c-arith-safety.yml
 test_grep_row_cannot_be_satisfied_by_its_own_manifest.py	WIRED	.github/workflows/cut-manifest.yml
 test_gui_progress_emitter.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_hub_app_fetch_wired.sh	WIRED	.github/workflows/hub-app-fetch.yml
@@ -197,6 +201,7 @@ test_marker_grep_is_three_state.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_marker_payloads_never_reach_install_log.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_meeting_brief_sender.sh	UNWIRED	-
 test_memory_embeddings_wired.sh	WIRED	.github/workflows/memory-embeddings.yml
+test_mergeable_unknown_is_not_clean.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_migration_marker_guard_fresh_install.py	UNWIRED	-
 test_model_fit.sh	UNWIRED	-
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml

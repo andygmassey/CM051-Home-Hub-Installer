@@ -34,14 +34,42 @@ LOG_PATH="${OSTLER_INSTALL_LOG:-\$HOME/.ostler/logs/install.log}"
 ERROR_PATTERN='ERROR|FATAL|Traceback|command not found|No such file or directory'
 CLEAN_CLAIM_PATTERN='no errors detected|completed without errors|no problems found'
 
+# count_errors_in <path>  -> digits, or the literal NaN
+#
+# THE OLD FORM DOUBLED ITS OWN ANSWER. `grep -c` prints the count AND exits 1
+# when the count is zero, so `grep -c ... || echo 0` emits TWO lines -- "0\n0".
+# That reached `[ "$errs" -gt 0 ]` as a multi-line string, which is not an
+# integer, so `[` exited 2 with "integer expected", the comparison was SKIPPED,
+# and control fell through to probe_pass. Observed on the live box 2026-08-27:
+#
+#     ./install_error_honesty.sh: line 88: [: 0
+#     0: integer expected
+#     VERDICT: PASS
+#
+# It is benign only by luck -- the doubling happens exactly when the count is
+# zero, which is the one case where "skip the comparison" and "compare and find
+# nothing" agree. A probe whose whole job is to distrust a summary should not
+# reach the right verdict by coincidence.
+#
+# `2>/dev/null || echo 0` was the second half of the same fault: it collapsed
+# "could not read the log" into "zero errors found". An unreadable log is not a
+# clean one, and this file's own header says exactly that about summaries.
+#
+# So: capture stderr, take the FIRST line, accept it only if it is entirely
+# digits. Anything else -- an error message, an empty string, a doubled count --
+# is not a measurement, and is reported as NaN for the caller to refuse.
 count_errors_in() {
-    # count_errors_in <path>  -> integer on stdout
-    local path="$1"
+    local path="$1" raw
     if [ "${SELF_TEST_LOCAL:-0}" -eq 0 ]; then
-        box_run "grep -cE '$ERROR_PATTERN' \"$path\" 2>/dev/null || echo 0"
+        raw="$(box_run "grep -cE '$ERROR_PATTERN' \"$path\" 2>&1")"
     else
-        grep -cE "$ERROR_PATTERN" "$path" 2>/dev/null || echo 0
+        raw="$(grep -cE "$ERROR_PATTERN" "$path" 2>&1)"
     fi
+    raw="$(printf '%s' "$raw" | head -1 | tr -d '[:space:]')"
+    case "$raw" in
+        ''|*[!0-9]*) printf 'NaN' ;;
+        *)           printf '%s' "$raw" ;;
+    esac
 }
 
 claims_clean_in() {
@@ -80,7 +108,9 @@ run_probe() {
 
     local errs
     errs="$(count_errors_in "$LOG_PATH")"
-    errs="${errs:-0}"
+    if [ "$errs" = "NaN" ] || [ -z "$errs" ]; then
+        probe_cannot_run "could not obtain an error count from $LOG_PATH -- the counter returned something that is not a number. That is a broken measurement, not a clean log, and this probe will not report honesty it did not verify."
+    fi
     probe_note "errors counted independently: $errs"
 
     if claims_clean_in "$LOG_PATH"; then

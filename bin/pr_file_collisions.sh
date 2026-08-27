@@ -131,6 +131,10 @@ fi
 # Same BSD-only trap as above; same guard, for the same reason.
 _err="$(mktemp "${TMPDIR:-/tmp}/prlist_err.XXXXXX")"
 [ -n "$_err" ] || { echo "CANNOT-RUN: mktemp failed"; exit 78; }
+# The paginated file API needs owner/repo explicitly.
+SLUG="${REPO:-$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)}"
+[ -n "$SLUG" ] || { echo "CANNOT-RUN: could not resolve owner/repo for the files API"; exit 78; }
+
 prs="$(gh pr list ${REPO_ARG[@]+"${REPO_ARG[@]}"} --state open --limit "$LIMIT" \
         --json number,author,headRefName -q '.[] | "\(.number)\t\(.author.login)\t\(.headRefName)"' 2>"$_err")"
 if [ -z "$prs" ]; then
@@ -143,7 +147,32 @@ rm -f "$_err"
 tsv=""
 while IFS=$'\t' read -r n a b; do
     [ -z "$n" ] && continue
-    files="$(gh pr view "$n" ${REPO_ARG[@]+"${REPO_ARG[@]}"} --json files -q '.files[].path' 2>/dev/null)"
+    # `gh pr view --json files` SILENTLY CAPS AT 100 FILES. Measured on
+    # ostler-assistant#246: --json files reports 100, the paginated REST API
+    # reports 617. A 6x under-count with no error and no warning.
+    #
+    # For a COLLISION checker that is the worst possible failure: files past the
+    # cap are invisible, so the tool reports "no collision" on a file two PRs are
+    # both editing. A false zero in the one tool whose job is not producing one.
+    #
+    # CM051's largest open PR is 34 files, so this repo is 66 files from the
+    # cliff and the bug would have arrived silently, on some future big PR,
+    # looking like a clean result. Archie hit it in oa where PRs are larger.
+    #
+    # --paginate with --jq is safe HERE because the output is consumed as LINES.
+    # (`gh api --paginate` without --slurp emits one JSON DOCUMENT PER PAGE, so
+    # anything parsing the concatenation as a single document gets invalid JSON.
+    # This does not, and must not start to.)
+    files="$(gh api "repos/${SLUG}/pulls/${n}/files?per_page=100" --paginate --jq '.[].filename' 2>/dev/null)"
+    # BUILT-IN CONTROL: the capped call is still made, and a disagreement is
+    # REPORTED rather than silently preferred. This is the check that would have
+    # caught the bug in the first place, so it ships.
+    _capped="$(gh pr view "$n" ${REPO_ARG[@]+"${REPO_ARG[@]}"} --json files -q '.files | length' 2>/dev/null)"
+    _full="$(printf '%s' "$files" | grep -c . || true)"
+    if [ -n "$_capped" ] && [ "$_capped" != "$_full" ]; then
+        printf 'NOTE: #%s has %s files; gh --json files reported %s (capped). Using the paginated count.\n' \
+               "$n" "$_full" "$_capped" >&2
+    fi
     while read -r f; do
         [ -z "$f" ] && continue
         tsv="${tsv}${f}	${n}	${a}
@@ -165,6 +194,68 @@ printf '%s' "$tsv" | collisions_from_tsv
 # ---------------------------------------------------------------------------
 if git rev-parse --git-dir >/dev/null 2>&1; then
     echo
+    # --repo governs the API half. It did NOT govern this half, and nothing said
+    # so. Run this from a CM051 checkout with --repo <CM044> and every CM044 PR
+    # is simulated against CM051's main: 28 of 28 CONFLICTING, with the
+    # control line printing "control passed" underneath it. The control proved
+    # the PREDICATE (merge-tree works) and never touched the OPERAND (is this
+    # even the right repo's main). A uniform non-zero is as damning as a uniform
+    # zero, and this one cost a triage pass on 2026-08-27.
+    #
+    # So: prove the checkout and --repo are the same repository, or refuse. A
+    # CANNOT-RUN here is worth more than 28 confident wrong answers.
+    if [ -n "$REPO" ]; then
+        _origin="$(git remote get-url origin 2>/dev/null)"
+        # match owner/name irrespective of ssh|https and a trailing .git
+        # NO sed here. The first version used `[^/]+?` -- a LAZY quantifier,
+        # which BSD sed (the sed on a Mac, which is where this runs) does not
+        # support. The match silently failed, _slug came back EMPTY on both a
+        # matching and a mismatching checkout, and the guard printed the same
+        # "no origin remote" line either way. A guard that returns one answer for
+        # every input is the defect it was written to catch.
+        # Parameter expansion works identically in bash 3.2 and needs no regex.
+        _u="${_origin%.git}"          # drop a trailing .git
+        _name="${_u##*/}"             # repo name
+        _rest="${_u%/*}"              # everything before it
+        _owner="${_rest##*[:/]}"      # owner, after the last : or /
+        _slug="${_owner}/${_name}"
+        [ "$_slug" = "/" ] && _slug=""
+        # HOST TOO. TNM's find: owner/name alone is host-blind, so
+        # https://evil.example/andygmassey/CM044-PWG-Personal-Wiki yields the
+        # exact expected slug and would PASS -- simulating against a mirror's
+        # main. A false MATCH is the dangerous direction; every other wrong
+        # extraction here fails closed, this one failed open.
+        # --repo carries no host (it is always github.com for us), so we do not
+        # compare hosts to each other -- we refuse a remote that is not GitHub.
+        case "$_origin" in
+            *github.com[:/]*) : ;;
+            "")               : ;;   # handled by the empty-slug arm below
+            *) _nonhost="$_origin"; _slug="" ;;
+        esac
+        if [ -n "${_nonhost:-}" ]; then
+            echo "STALE CHECK: CANNOT-RUN -- origin is not a github.com remote, refusing to simulate"
+            echo "  origin  ${_nonhost}"
+            echo "  --repo  ${REPO}"
+            echo "  owner/name alone is host-blind: a mirror can present the same"
+            echo "  slug and would silently pass. Refusing rather than matching."
+            _skip_stale=1
+        elif [ -z "$_slug" ]; then
+            echo "STALE CHECK: CANNOT-RUN -- no origin remote to compare against --repo ${REPO}"
+            echo "  The collision list above is still valid (it is pure API). Only the"
+            echo "  vs-main simulation is refused."
+            _skip_stale=1
+        elif [ "$_slug" != "$REPO" ]; then
+            echo "STALE CHECK: CANNOT-RUN -- checkout/--repo MISMATCH, refusing to simulate"
+            echo "  --repo      ${REPO}"
+            echo "  checkout is ${_slug}   ($(git rev-parse --short HEAD 2>/dev/null))"
+            echo "  Simulating one repo's PRs against another repo's main returns"
+            echo "  CONFLICTING for everything, which reads exactly like a real result."
+            echo "  cd into a ${REPO} checkout and re-run."
+            _skip_stale=1
+        fi
+    fi
+fi
+if [ "${_skip_stale:-0}" -eq 0 ] && git rev-parse --git-dir >/dev/null 2>&1; then
     base="$(git rev-parse origin/main 2>/dev/null)"
     if [ -z "$base" ]; then
         echo "STALE CHECK: CANNOT-RUN -- no origin/main in this checkout"

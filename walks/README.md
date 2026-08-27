@@ -10,7 +10,7 @@ ever been installed.
 ## Who writes these
 
 `scripts/post_walk_qa.sh <box-host> <version>`, automatically, after it has run
-the 14 box-walk probes against a real installed box. Do not hand-write one.
+the box-walk probes against a real installed box. Do not hand-write one.
 
 ## Who reads them
 

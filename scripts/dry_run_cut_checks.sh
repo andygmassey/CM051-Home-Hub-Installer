@@ -184,6 +184,8 @@ check-identity|SKIP|needs the Developer ID in a keychain. This job deliberately 
 check-version|EXERCISE|the three tracked version sources must agree (#171).
 check-pbxproj-sync|EXERCISE|tracked pbxproj must equal xcodegen(project.yml) (#662).
 check-create-dmg|EXERCISE|create-dmg on PATH -- the gap that killed run 31681624343 after every other gate had gone green.
+check-clean-tree|EXERCISE|the cut checkout must be clean and on the expected branch. Network-free, so this job can run it in full.
+check-branch-truth|SKIP|reads the HR015 SHIPPING_LEDGER and resolves daemon tags on GitHub. This job checks out neither, so it would report CANNOT-VERIFY; counting that as exercised would inflate the denominator.
 check-freshness|EXERCISE|every shippable input against live upstream HEAD.
 check-provenance|EXERCISE|named fixes present in this tree and in the pinned daemon tag.
 check-provenance-content|EXERCISE|required fixes actually baked into the pinned artefacts.

@@ -54,6 +54,35 @@ REQUIRED_MODULES="identity_resolver.normalise identity_resolver.resolver"
 # without it, so its absence is silent by design.
 RECONCILE_MODULES="qdrant_client"
 
+# missing_dep <output> -> the module python could not find, or empty
+#
+# WHY THIS EXISTS. This probe used to print `identity_resolver.normalise ->
+# MISSING` and stop there, and MISSING is two completely different faults
+# wearing one word:
+#
+#   No module named 'identity_resolver'   the package was never deployed
+#   No module named 'rapidfuzz'           the package IS deployed; a DEPENDENCY
+#                                         of it is absent from THIS interpreter
+#
+# Measured 2026-08-27: the second one was true on the live box and the first
+# one is what the output implied, so the search went to the install path that
+# copies identity_resolver -- which was working perfectly -- instead of to the
+# venv that holds its dependencies. Five steps to reach a fact the interpreter
+# had stated on line one and this probe had thrown away.
+#
+# No sed: the message is full of single quotes and this string has already
+# survived a bash string, an ssh argument and a python -c by the time it gets
+# here. Parameter expansion cannot be broken by any of them.
+missing_dep() {
+    case "$1" in
+        *"No module named '"*)
+            _md_tail="${1#*No module named \'}"
+            printf '%s' "${_md_tail%%\'*}"
+            ;;
+        *) printf '' ;;
+    esac
+}
+
 # judge_import <module> <output> -> OK|MISSING|ERROR
 # Split out so self_test can adjudicate crafted interpreter output.
 judge_import() {
@@ -89,15 +118,34 @@ run_probe() {
     fi
     probe_note "CONTROL: import json in that interpreter -> OK"
 
-    _checked=0; _missing=0; _missing_names=""
+    _checked=0; _missing=0; _missing_names=""; _dep_names=""
     for _m in $REQUIRED_MODULES $RECONCILE_MODULES; do
         _out="$(box_run "PYTHONPATH='${_pp}' '${_py}' -c 'import ${_m}; print(\"__PROBE_OK__\")' 2>&1")"
         _v="$(judge_import "$_m" "$_out")"
         _checked=$((_checked + 1))
-        probe_note "  ${_m} -> ${_v}"
-        if [ "$_v" != "OK" ]; then
+        if [ "$_v" = "OK" ]; then
+            probe_note "  ${_m} -> ${_v}"
+        else
+            _dep="$(missing_dep "$_out")"
             _missing=$((_missing + 1))
-            _missing_names="${_missing_names}${_missing_names:+ }${_m}"
+            if [ -z "$_dep" ]; then
+                probe_note "  ${_m} -> ${_v}"
+                _missing_names="${_missing_names}${_missing_names:+ }${_m}"
+            elif [ "$_dep" = "$_m" ]; then
+                # The module asked for IS the one not found: not deployed.
+                probe_note "  ${_m} -> ${_v} (the module itself is absent)"
+                _missing_names="${_missing_names}${_missing_names:+ }${_m}"
+            else
+                # Deployed, but a dependency is absent from THIS interpreter.
+                probe_note "  ${_m} -> ${_v} (deployed, but needs '${_dep}', which is absent from this interpreter)"
+                _missing_names="${_missing_names}${_missing_names:+ }${_m}(needs ${_dep})"
+                # Several modules commonly fail on the SAME dependency, and
+                # "[rapidfuzz rapidfuzz]" reads as two faults when it is one.
+                case " ${_dep_names} " in
+                    *" ${_dep} "*) : ;;
+                    *) _dep_names="${_dep_names}${_dep_names:+ }${_dep}" ;;
+                esac
+            fi
         fi
     done
 
@@ -106,11 +154,18 @@ run_probe() {
     if [ "$_missing" -eq 0 ]; then
         probe_pass "the dedupe layer is importable where it runs (${_checked} of ${_checked} modules)"
     fi
+    # The remedy differs by fault, so the verdict must not offer one remedy for
+    # both. A missing PACKAGE is an install-copy problem. A missing DEPENDENCY
+    # is a venv problem, and pointing at the copy step sends the reader to code
+    # that is working.
+    if [ -n "$_dep_names" ]; then
+        probe_fail "${_missing} of ${_checked} modules the dedupe layer needs are NOT importable in the interpreter that runs it: ${_missing_names}. The dedupe code IS deployed and on PYTHONPATH -- what is absent from THIS interpreter is [${_dep_names}]. Do not go looking at whether install.sh copied identity_resolver; it did. Ask which venv the dependencies were installed into versus which venv the consumer runs under (${_py}). The layer is not failing loudly, it is not running at all: lazy imports keep the service starting clean and try/except returns degraded:true at the call sites, so nothing crashes and nothing reports it. See #1137."
+    fi
     probe_fail "${_missing} of ${_checked} modules the dedupe layer needs are NOT importable in the interpreter that runs it: ${_missing_names}. The layer is not failing loudly -- it is not running at all. Lazy imports keep the service starting clean and try/except returns degraded:true at the call sites, so nothing crashes and nothing reports it. Check that install.sh installed EVERY pipeline requirements file, not just the first (see #1115)."
 }
 
 self_test() {
-    probe_examined "4 crafted interpreter outputs" "adjudicated by the live judge (no box touched)"
+    probe_examined "9 crafted interpreter outputs" "adjudicated by the live judge and the dependency extractor (no box touched)"
 
     # 1. THE DEFECT. A ModuleNotFoundError must be MISSING, never ERROR/OK.
     if [ "$(judge_import identity_resolver.resolver "Traceback...
@@ -137,7 +192,36 @@ ModuleNotFoundError: No module named 'rapidfuzz'")" != "MISSING" ]; then
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: empty output adjudicated as a successful import. Silence would have read as health."
     fi
 
-    probe_fail "negative controls fired on all 4 crafted outputs (missing caught, success kept, unrelated error not misread as missing, silence not read as success)"
+    # ── missing_dep: the two faults that MISSING used to hide ────────────
+    # This function is new, so it gets its own controls. A check added without
+    # them does not merely go untested, it can mask the checks already here by
+    # making their output look richer than their coverage.
+    _md_fail() { probe_pass "MISSING_DEP CONTROL FAILED -- $1"; }
+
+    _r="$(missing_dep "Traceback...
+ModuleNotFoundError: No module named 'rapidfuzz'")"
+    [ "$_r" = "rapidfuzz" ] || _md_fail "a dependency failure yielded '${_r}', expected rapidfuzz. The probe would name the wrong package."
+
+    _r="$(missing_dep "Traceback...
+ModuleNotFoundError: No module named 'identity_resolver'")"
+    [ "$_r" = "identity_resolver" ] || _md_fail "a package-absent failure yielded '${_r}', expected identity_resolver."
+
+    _r="$(missing_dep "__PROBE_OK__")"
+    [ -z "$_r" ] || _md_fail "a SUCCESSFUL import yielded a missing dependency '${_r}'. That would report a fault on a healthy module."
+
+    _r="$(missing_dep "ImportError: cannot import name 'x' from 'y'")"
+    [ -z "$_r" ] || _md_fail "a non-ModuleNotFoundError yielded '${_r}'. Only 'No module named' means an absent module."
+
+    # THE DISCRIMINATION THAT MATTERS. Same requested module, two different
+    # interpreter messages, two different remedies. If these collapse, the
+    # verdict sends the reader to the wrong half of the install.
+    _a="$(missing_dep "ModuleNotFoundError: No module named 'rapidfuzz'")"
+    _b="$(missing_dep "ModuleNotFoundError: No module named 'identity_resolver'")"
+    if [ "$_a" = "$_b" ]; then
+        probe_pass "MISSING_DEP IS BLIND: 'dependency absent' and 'package absent' both yield '${_a}'. Those have different remedies -- one is a venv, one is a copy step -- and this probe would name the same one for both."
+    fi
+
+    probe_fail "negative controls fired on all 9 crafted outputs: 4 on the import judge (missing caught, success kept, unrelated error not misread as missing, silence not read as success) and 5 on the dependency extractor (dependency named, package-absent named, healthy import yields nothing, non-ModuleNotFoundError yields nothing, and the two faults do not collapse onto one name)"
 }
 
 probe_main "$@"
