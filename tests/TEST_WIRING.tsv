@@ -220,6 +220,7 @@ test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.
 test_ollama_install_path_contract.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_ollama_user_active.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_orphan_gate_cannot_verify.sh	WIRED	.github/workflows/cut.yml
+test_orphan_gate_pr_skip_is_per_label.sh	WIRED	.github/workflows/cut.yml
 test_osascript_dialogs_activate_system_events.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_osascript_sites_are_deadlined.sh	WIRED	.github/workflows/osascript-deadline.yml
 test_ostler_gui_sudo_gates.sh	UNWIRED	-

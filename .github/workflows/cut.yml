@@ -315,6 +315,7 @@ jobs:
           ./scripts/orphan_gate_selftest.sh
           ./tests/test_no_orphaned_fixes_gate.sh
           ./tests/test_orphan_gate_cannot_verify.sh
+          ./tests/test_orphan_gate_pr_skip_is_per_label.sh
 
       - name: Rollforward claims -- no row may claim a fix with no gate
         run: |
@@ -718,6 +719,7 @@ jobs:
           ./scripts/orphan_gate_selftest.sh
           ./tests/test_no_orphaned_fixes_gate.sh
           ./tests/test_orphan_gate_cannot_verify.sh
+          ./tests/test_orphan_gate_pr_skip_is_per_label.sh
 
       - name: Build, sign, notarise, staple
         env:
@@ -1201,6 +1203,7 @@ jobs:
           ./scripts/orphan_gate_selftest.sh
           ./tests/test_no_orphaned_fixes_gate.sh
           ./tests/test_orphan_gate_cannot_verify.sh
+          ./tests/test_orphan_gate_pr_skip_is_per_label.sh
 
       # OSTLER_CUT_VERSION, derived the same way preflight derives it: the
       # version this tree would stamp. It lets the deferral gate flag rows

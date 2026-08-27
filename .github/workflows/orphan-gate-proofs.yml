@@ -30,6 +30,7 @@ on:
       - 'scripts/orphan_gate_selftest.sh'
       - 'tests/test_no_orphaned_fixes_gate.sh'
       - 'tests/test_orphan_gate_cannot_verify.sh'
+      - 'tests/test_orphan_gate_pr_skip_is_per_label.sh'
       - 'tests/test_deferral_reachability.sh'
       - 'tests/test_deferral_reason_reads_block_scalars.sh'
       # The expiry ratchet: its comparison, and the baseline it compares to.
@@ -82,7 +83,8 @@ jobs:
           for f in scripts/verify_no_orphaned_fixes.sh \
                    scripts/orphan_gate_selftest.sh \
                    tests/test_no_orphaned_fixes_gate.sh \
-                   tests/test_orphan_gate_cannot_verify.sh; do
+                   tests/test_orphan_gate_cannot_verify.sh \
+                   tests/test_orphan_gate_pr_skip_is_per_label.sh; do
             [ -x "$f" ] || { echo "::error::$f missing or not executable" >&2; exit 1; }
             echo "  ok $f"
           done
@@ -163,6 +165,13 @@ jobs:
       - name: Orphan gate cannot-verify semantics
         if: always()
         run: ./tests/test_orphan_gate_cannot_verify.sh
+
+      - name: PR-axis skip is per-label, not a global boolean (#1166)
+        if: always()
+        # Pins BOTH directions: naming one label must skip that label AND leave
+        # the others running. Asserting only the first would still pass on the
+        # global boolean, which is the bug.
+        run: ./tests/test_orphan_gate_pr_skip_is_per_label.sh
 
       - name: Deferral reachability controls
         # The four controls for deferral_reachability_report() in
