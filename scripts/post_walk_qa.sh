@@ -11,7 +11,7 @@
 # "box walk", "acceptance": the only hits are a 2026-05-22 audit doc. What
 # DOES exist is two harnesses that were never joined and were never invoked:
 #
-#   scripts/box_walk_probes/run_box_walk.sh   13 probes, four-count verdict
+#   scripts/box_walk_probes/run_box_walk.sh   every probe in probes/, four-count verdict
 #   scripts/verify_cut_manifest.py            cut rows, --require-runtime-proofs
 #
 # #719: nothing invokes run_box_walk.sh at all. #713: every box_walk_probe
