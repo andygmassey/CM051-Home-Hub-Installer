@@ -187,35 +187,47 @@ fi
 
 # ── 8. DEMONSTRATED RED ───────────────────────────────────────────────────
 # A gate with no proof it can fail is indistinguishable from a gate that always
-# passes. Run assertions 2 and 6 against the version of these files on
-# origin/main and require that they FAIL there. If they pass on main, this file
-# is not testing what its name claims.
+# passes. So assertions 2 and 6 are re-run against DELIBERATELY BROKEN COPIES of
+# their own inputs and required to FAIL there.
 #
-# Braced "${ref}:path" deliberately: unbraced, zsh parses ':path' as a history
-# modifier and git receives a mangled ref, which returns empty for the subject
-# AND for any control -- a uniform zero that looks like a measurement.
-RED_OK=1
-if MAIN_WF="$(git show "origin/main:${WF}" 2>/dev/null)" && [[ -n "$MAIN_WF" ]]; then
-    MAIN_BODY="$(awk '/^jobs:/{f=1} f' <<< "$MAIN_WF")"
-    if grep -qF -- "$GATE" <<< "$MAIN_BODY"; then
-        bad "DEMONSTRATED RED (wiring)" "origin/main ALREADY invokes the gate -- assertion 2 proves nothing"
-        RED_OK=0
-    fi
-    if MAIN_GATE="$(git show "origin/main:${GATE}" 2>/dev/null)" && [[ -n "$MAIN_GATE" ]]; then
-        if ! grep -qE '^\s*skip\(\)' <<< "$MAIN_GATE"; then
-            bad "DEMONSTRATED RED (exit code)" "origin/main has no skip() -- assertion 6 proves nothing"
-            RED_OK=0
-        fi
-    else
-        bad "DEMONSTRATED RED" "could not read the gate at origin/main"
-        RED_OK=0
-    fi
-    [[ $RED_OK -eq 1 ]] && ok "DEMONSTRATED RED: both assertions fail on origin/main and pass here"
+# THIS SECTION USED TO READ LIVE origin/main, AND THAT WAS THE DEFECT.
+# A negative control taken from origin/main works exactly once. The moment the
+# fix this file guards is merged, main CONTAINS the fix, the mutants vanish, and
+# both arms report "proves nothing" -- permanently. Measured: green on PR #1135
+# at 700edbee, red on main three minutes later at a19ff437 (run 33052765715),
+# with no change to the file in between. The subject had overwritten its own
+# control. A control the subject can overwrite is not an independent control.
+#
+# A synthetic mutant cannot be overwritten by merging anything, so these arms
+# stay meaningful for the life of the file.
+#
+# Each arm asserts its MUTATION TOOK EFFECT before asserting the predicate
+# fails on it. Without that, a no-op mutation makes the arm pass vacuously --
+# which is the same "proves nothing" shape one level down.
+
+# Mutant A: the workflow body with the gate's invocation line deleted.
+MUT_WF_BODY="$(grep -vF -- "$GATE" <<< "$WF_BODY")"
+if [[ "$MUT_WF_BODY" == "$WF_BODY" ]]; then
+    bad "DEMONSTRATED RED (wiring): the mutation was a no-op" \
+        "nothing was removed, so the assertion below would pass having tested nothing"
+elif grep -qF -- "$GATE" <<< "$MUT_WF_BODY"; then
+    bad "DEMONSTRATED RED (wiring)" \
+        "assertion 2 still passes on a workflow with the invocation REMOVED -- it proves nothing"
 else
-    # No origin/main (shallow clone, detached CI checkout). Say so rather than
-    # scoring it either way -- an unrunnable control is not a passed control.
-    echo "  ---- DEMONSTRATED RED: CANNOT RUN (no origin/main available)."
-    echo "       Not counted as a pass. Fetch origin/main to enable it."
+    ok "DEMONSTRATED RED (wiring): assertion 2 fails when the invocation is removed"
+fi
+
+# Mutant B: the gate with a skip() put back exactly as it read before the fix.
+MUT_GATE="$(printf 'skip() {\n    echo "(Skipping is NOT a pass.)"\n    exit 0\n}\n')
+$(cat "$GATE")"
+if ! grep -qE '^\s*skip\(\)' <<< "$MUT_GATE"; then
+    bad "DEMONSTRATED RED (exit code): the mutation did not take" \
+        "the injected skip() is invisible to the predicate, so the assertion below is vacuous"
+elif grep -qE '^\s*skip\(\)' <<< "$MUT_GATE"; then
+    ok "DEMONSTRATED RED (exit code): assertion 6 fails when skip() is reintroduced"
+else
+    bad "DEMONSTRATED RED (exit code)" \
+        "a gate carrying skip() still passes assertion 6 -- it proves nothing"
 fi
 
 echo
