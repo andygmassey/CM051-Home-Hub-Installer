@@ -31,6 +31,13 @@
 #
 # and with the SAME 20,001 entries but the signature LAST: 0/5.
 #
+# 🔴 AND ON LINUX 801 ENTRIES INVERTS 0/5. Measured on an ubuntu-latest runner,
+# not reasoned about: the first CI run of this file failed its own positive
+# control and said so. The floor is set by how much of the listing the kernel
+# will absorb before unzip blocks, and that differs between Darwin and Linux.
+# Which is why the size below is a LADDER that climbs until the control fires,
+# and reports CANNOT-RUN if none of the rungs do.
+#
 # SIZE IS NOT THE DISCRIMINATOR. MATCH POSITION IS. A match near the start lets
 # grep exit while unzip is still writing; a match at the end means grep has
 # already consumed everything and there is no reader to lose. That is why the
@@ -58,17 +65,29 @@ command -v zip >/dev/null 2>&1 || { bad "CANNOT-RUN: no zip(1), so no fixture ca
 command -v unzip >/dev/null 2>&1 || { bad "CANNOT-RUN: no unzip(1). This is not a pass."; finish; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-FILLER=800   # comfortably above the measured 501-entry floor, still ~1s to build
+# THE FLOOR IS PLATFORM-DEPENDENT, SO IT IS MEASURED, NOT HARDCODED.
+#
+# A fixed 800 was measured on macOS (floor 501) and PROVED WRONG ON LINUX: the
+# first CI run of this file reported "inverted only 0/5 on 801 entries" and
+# failed rather than banking a green -- which is the file working, not the file
+# broken. The mechanism is the PIPE BUFFER: unzip only takes SIGPIPE if it is
+# still writing when grep exits, so the listing has to exceed what the kernel
+# will absorb, and that size differs between Darwin and Linux.
+#
+# So the ladder escalates until the POSITIVE CONTROL fires, and reports
+# CANNOT-RUN if none of the rungs do. The size that works is then printed --
+# a number nobody has to trust from a comment.
+FILLER_LADDER=(800 8000 30000 80000)
 
 printf '\n=== export detection: a LARGE zip must still be detected ===\n\n'
 
 # --- build ------------------------------------------------------------------
 # `zip` records members in the order it is GIVEN them, so naming the signature
 # first is what puts it at line 1 of the listing.
-build_zip() {  # $1=out  $2=first|last  $3=with-signature|no-signature
-    local out="$1" where="$2" sig="$3" d
+build_zip() {  # $1=out  $2=first|last  $3=with|no-signature  $4=filler count
+    local out="$1" where="$2" sig="$3" n="$4" d
     d="$TMP/src.$$.$RANDOM"; mkdir -p "$d"
-    python3 - "$d" "$FILLER" <<'PY'
+    python3 - "$d" "$n" <<'PY'
 import sys, os
 d, n = sys.argv[1], int(sys.argv[2])
 for i in range(n):
@@ -95,20 +114,28 @@ old_form_inverts() {  # $1=zip -> prints N of 5
     printf '%s' "$inv"
 }
 
+# --- 1. POSITIVE CONTROL ON THE PREMISE, AT A SIZE THAT IS MEASURED ---------
+# Climb until the pre-fix construct actually inverts. A fixture on which it
+# does NOT invert cannot tell the fix from the bug, so limb 2's green would be
+# worthless -- and the whole file exists because a too-small fixture is exactly
+# how tests/test_gdpr_export_detect.sh passed identically before and after the
+# fix it was supposed to be guarding.
 BIG="$TMP/my-linkedin-export.zip"
-build_zip "$BIG" first with-signature
-ENTRIES="$(unzip -Z1 "$BIG" | grep -c '')"
+FILLER=""; INV=0; ENTRIES=0; SIGLINE=0; LADDER_TRIED=""
+for _n in "${FILLER_LADDER[@]}"; do
+    build_zip "$BIG" first with-signature "$_n"
+    ENTRIES="$(unzip -Z1 "$BIG" | grep -c '')"
+    LISTING="$(unzip -Z1 "$BIG" | wc -c | tr -d ' ')"
+    INV="$(old_form_inverts "$BIG")"
+    LADDER_TRIED="${LADDER_TRIED}${LADDER_TRIED:+, }${ENTRIES}e/${LISTING}B->${INV}/5"
+    if [ "$INV" -eq 5 ]; then FILLER="$_n"; break; fi
+done
 SIGLINE="$(unzip -Z1 "$BIG" | grep -n 'Connections\.csv' | cut -d: -f1)"
 
-# --- 1. POSITIVE CONTROL ON THE PREMISE -------------------------------------
-# If the old construct does NOT invert on this fixture, the fixture is too
-# small or the platform behaves differently, and limb 2 proves nothing. Say so
-# instead of banking a green.
-INV="$(old_form_inverts "$BIG")"
-if [ "$INV" -eq 5 ]; then
-    ok "POSITIVE CONTROL: the pre-fix 'unzip -Z1 | grep -q' inverts 5/5 on this fixture (${ENTRIES} entries, signature at line ${SIGLINE})"
+if [ -n "$FILLER" ]; then
+    ok "POSITIVE CONTROL: the pre-fix 'unzip -Z1 | grep -q' inverts 5/5 at ${ENTRIES} entries / ${LISTING} B listing, signature at line ${SIGLINE} [ladder: ${LADDER_TRIED}]"
 else
-    bad "POSITIVE CONTROL: the pre-fix construct inverted only ${INV}/5 on ${ENTRIES} entries. The fixture cannot tell the fix from the bug, so limb 2's green would be worthless. Raise FILLER, or investigate whether this platform's unzip ignores SIGPIPE."
+    bad "CANNOT-RUN: no rung of the ladder made the pre-fix construct invert [${LADDER_TRIED}]. Either this platform's unzip does not die on SIGPIPE, or the pipe buffer swallows even the largest listing. Limb 2 cannot distinguish the fix from the bug here, so its green would be worthless -- this is NOT a pass. Extend FILLER_LADDER, or investigate the platform."
     finish
 fi
 
@@ -126,7 +153,7 @@ fi
 # Guards the FIXTURE. Without this, shrinking or reordering it would silently
 # turn limb 1 into a formality that always passes.
 LAST="$TMP/sig-last.zip"
-build_zip "$LAST" last with-signature
+build_zip "$LAST" last with-signature "$FILLER"
 INV_LAST="$(old_form_inverts "$LAST")"
 if [ "$INV_LAST" -eq 0 ]; then
     ok "DISCRIMINATOR: same size, signature LAST -> the old form does NOT invert (0/5). Position, not size, is the mechanism"
@@ -137,7 +164,7 @@ fi
 # --- 4. NEGATIVE CONTROL ----------------------------------------------------
 # A detector that unzipped everything would pass limb 2 while detecting nothing.
 NOSIG="$TMP/Downloads/holiday-photos.zip"
-build_zip "$NOSIG" first no-signature
+build_zip "$NOSIG" first no-signature "$FILLER"
 bash "$DETECT" "$DL" --unzip >/dev/null 2>&1 || true
 if [ -d "$TMP/Downloads/holiday-photos" ]; then
     bad "NEGATIVE CONTROL: a zip with NO signature was unzipped too, so limb 2 is satisfied by 'unzip everything' and proves nothing about detection."
