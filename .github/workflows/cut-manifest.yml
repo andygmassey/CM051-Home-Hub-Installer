@@ -33,6 +33,9 @@ on:
       - 'cut-manifests/**'
       - 'gui/Makefile'
       - '.github/workflows/cut-manifest.yml'
+      - 'scripts/tests/test_verify_branch_truth_gate.sh'
+      - 'scripts/tests/test_verify_clean_tree_gate.sh'
+      - 'scripts/tests/test_acceptance_gate_v1013_probe.sh'
   push:
     branches: [main]
 
@@ -143,6 +146,20 @@ jobs:
 
       - name: Confirm we are testing under bash 3.2, as the cut host does
         run: /bin/bash --version | head -1
+
+      # The three gate suites ported in #1134. They arrived with no runner at
+      # all, which new-tests-wired refused in exactly the right words: a test
+      # nobody runs is not coverage, it is a green light with no bulb behind
+      # it. Invoked here, and listed in this workflow's paths above, so an
+      # edit to any of them re-runs the job that executes them.
+      - name: branch-truth gate suite
+        run: /bin/bash scripts/tests/test_verify_branch_truth_gate.sh
+
+      - name: clean-tree gate suite
+        run: /bin/bash scripts/tests/test_verify_clean_tree_gate.sh
+
+      - name: acceptance-gate probe suite
+        run: /bin/bash scripts/tests/test_acceptance_gate_v1013_probe.sh
 
       - name: Probe must fire (1 green + 11 distinct reds)
         run: /bin/bash scripts/tests/test_people_seed_and_retrieval_probe.sh
