@@ -182,7 +182,103 @@ run_probe() {
         return
     fi
 
-    probe_pass "seal survives a live import: ${pyc} .pyc all unchecked-hash, corpus byte-identical (${before:0:12}) and codesign still clean after the interpreter ran"
+    # ── ARM 4: THE PRODUCT TREE, WHICH ARMS 1-3 CANNOT SEE ─────────────────
+    # Arm 3's trigger imports 24 STDLIB modules. The stdlib is the compartment
+    # that IS pre-seeded, so arm 3 asks its question over a population chosen
+    # so as to exclude the defect. Measured on the shipped v1.0.47 bundle:
+    #
+    #     .py  in Contents/Resources   1888
+    #     .pyc                         1448
+    #     .py with NO .pyc beside them  440   <- invisible to arms 1-3
+    #
+    # Arms 1-2 ask about MODE (is this .pyc rewritable). Arm 3 asks whether the
+    # corpus MOVED. Neither can see a .py that has no .pyc at all, because its
+    # first import ADDS a file rather than rewriting one -- and an ADD breaks
+    # the seal just as completely. That is v1045-D001, and it survived the
+    # v1.0.46 and v1.0.47 fixes because both were scoped to $PYTHON_DIR.
+    #
+    # 🔴 THIS ARM RUNS ON A COPY, AND THAT IS NOT CAUTION -- IT IS CORRECTNESS.
+    # Arm 3 can safely import into the INSTALLED bundle only because the stdlib
+    # is seeded, so nothing is written. Importing a PRODUCT module into the
+    # installed bundle would break the seal of the very box under test: the
+    # probe would manufacture the defect it reports. ditto to a scratch copy.
+    local tmpapp cp_rc
+    tmpapp=$(box_run "T=\$(mktemp -d) && /usr/bin/ditto '$APP' \"\$T/app\" >/dev/null 2>&1 && echo \"\$T\"")
+    if [ -z "$tmpapp" ]; then
+        probe_cannot_run "could not ditto the bundle to a writable copy, so the product-tree trigger could not run. Arms 1-3 stand; the 440-file compartment is UNMEASURED, which is not a pass."
+        return
+    fi
+
+    # Census of the copy. Excludes python/ (arm 2 owns it) and nested .app
+    # bundles (sealed separately by sparkle-embed, before this ever runs).
+    local prod_py prod_nopyc
+    prod_py=$(box_run "find '$tmpapp/app/Contents/Resources' -name '*.py' -type f 2>/dev/null | /usr/bin/grep -v '/python/' | /usr/bin/grep -v '\\.app/' | /usr/bin/grep -c . || true")
+    prod_py=${prod_py:-0}
+
+    # ANTI-VACUITY FLOOR. "0 uncovered" is also what an unstaged Resources tree
+    # prints, so a zero over a missing denominator would pass loudest at the
+    # moment it can see least.
+    #
+    # 🔴 THE FLOOR IS 100, AND THE FIRST DRAFT OF THIS LINE SAID 1000 -- WRONG,
+    # FOR A REASON WORTH KEEPING. 1888 is the manifest's count of EVERY .py in
+    # the bundle, and roughly 1448 of those are the bundled STDLIB, which this
+    # census deliberately excludes. The product tree measured 353 on v1.0.47,
+    # so a floor of 1000 could never be met and the arm returned CANNOT-RUN on
+    # a bundle it should have FAILED. A number lifted from one population and
+    # applied to another is not a measurement; the floor must be expressed over
+    # the SAME denominator the assertion is made over. 353 measured, 100 floor.
+    if [ "$prod_py" -lt 100 ]; then
+        box_run "rm -rf '$tmpapp'" >/dev/null 2>&1
+        probe_cannot_run "only ${prod_py} product .py found in the copy (floor is 1000). The tree is not staged as expected, so this arm COULD NOT LOOK -- it did not pass."
+        return
+    fi
+
+    prod_nopyc=$(box_run "find '$tmpapp/app/Contents/Resources' -name '*.py' -type f 2>/dev/null | /usr/bin/grep -v '/python/' | /usr/bin/grep -v '\\.app/' | while IFS= read -r f; do d=\$(dirname \"\$f\"); b=\$(basename \"\$f\" .py); ls \"\$d/__pycache__/\$b.\"*.pyc >/dev/null 2>&1 || echo x; done | /usr/bin/grep -c . || true")
+    prod_nopyc=${prod_nopyc:-0}
+    probe_examined "$prod_py" "product .py examined (python/ and nested .app excluded) -- with NO .pyc beside them: ${prod_nopyc}"
+
+    if [ "$prod_nopyc" -gt 0 ]; then
+        box_run "rm -rf '$tmpapp'" >/dev/null 2>&1
+        probe_fail "${prod_nopyc} of ${prod_py} product .py ship with NO .pyc. Their FIRST import ADDS a file inside the signed bundle and macOS then refuses the app as damaged. Arms 1-3 pass on this bundle because they only ever look at the pre-seeded stdlib -- this is v1045-D001, alive in the compartment those arms exclude."
+        return
+    fi
+
+    # The census says every product .py is covered. Now PROVE it behaviourally,
+    # because a .pyc being present is not the same as it being honoured: import
+    # a real product module and require that the copy does not move. Python
+    # picks the module, so this cannot rot when a directory is renamed.
+    local delta seal_out seal_hits
+    delta=$(box_run "cd '$tmpapp/app/Contents/Resources' && B=\$(find . -name '*.pyc' -type f | /usr/bin/grep -c . || true); env -i HOME=\"\$HOME\" PATH=/usr/bin:/bin '$APP/$PY_REL' - <<'PYEOF' >/dev/null 2>&1
+import os, sys, importlib
+sys.path.insert(0, '.')
+for root, dirs, files in os.walk('.'):
+    if '/python/' in root + '/' or '.app/' in root + '/':
+        continue
+    for f in files:
+        if not f.endswith('.py'):
+            continue
+        parts = os.path.relpath(os.path.join(root, f), '.')[:-3].split(os.sep)
+        if parts and parts[-1] == '__init__':
+            parts = parts[:-1]
+        if parts and all(p.isidentifier() for p in parts):
+            try:
+                importlib.import_module('.'.join(parts))
+            except Exception:
+                pass
+PYEOF
+A=\$(find . -name '*.pyc' -type f | /usr/bin/grep -c . || true); echo \$(( A - B ))")
+
+    seal_out=$(box_run "codesign --verify --deep --strict --verbose=2 '$tmpapp/app' 2>&1")
+    seal_hits=$(printf '%s\n' "$seal_out" | /usr/bin/grep -cE '^file (added|modified):' || true)
+    probe_examined "${delta:-?}" ".pyc added to the COPY by importing its own product modules -- codesign add/modify lines: ${seal_hits:-0}"
+    box_run "rm -rf '$tmpapp'" >/dev/null 2>&1
+
+    if [ "${delta:-1}" -ne 0 ] || [ "${seal_hits:-1}" -gt 0 ]; then
+        probe_fail "importing the bundle's OWN product modules wrote ${delta:-?} new .pyc inside it and codesign reports ${seal_hits:-?} added/modified file(s). The .pyc are present but not honoured, so the seal still breaks on first real use."
+        return
+    fi
+
+    probe_pass "seal survives a live import: ${pyc} stdlib .pyc all unchecked-hash, corpus byte-identical (${before:0:12}); and all ${prod_py} product .py are covered -- importing them on a writable copy added 0 files and left codesign clean"
 }
 
 # ---------------------------------------------------------------------------
