@@ -311,6 +311,15 @@ run_probe() {
     assert_detection_capability
 
     probe_note "boundary policy : ${OSTLER_EGRESS_ALLOWED_RE}"
+    # SAY WHICH BOUNDARY. The regex above is the LOCAL-NETWORK boundary --
+    # loopback, RFC1918, link-local, CGNAT. It is the only thing consulted on
+    # this path. egress_hosts.tsv, the contemporaneous dig loop and the live
+    # DERP map are all read by self_test() and by nothing else, so on a walk a
+    # destination the ledger DECLARES is reported exactly like one it does not.
+    # Measured 2026-08-27: two of three flagged addresses were
+    # controlplane.tailscale.com (ledger rows 30/54) and a DERP relay
+    # (derp20c.tailscale.com). See #1145.
+    probe_note "ledger          : NOT consulted on this path -- ${HOSTS_FILE:-egress_hosts.tsv} and the DERP map are read only by self_test (#1145)"
     probe_note "ours (lineage)  : ${OSTLER_OURS_PATH_RE}"
     probe_note "                  Matched against the socket-holder AND its"
     probe_note "                  ancestors. NOTHING is excluded by name."
@@ -386,13 +395,13 @@ run_probe() {
     if [ -n "$outside" ]; then
         probe_note "OUTSIDE THE BOUNDARY:"
         printf '%s' "$outside"
-        probe_fail "$(printf '%s' "$outside" | grep -c .) attributable connection(s) to destinations outside the declared boundary. Each one is either a claim that needs correcting or a defect that needs fixing; neither is resolved by leaving it unreported."
+        probe_fail "$(printf '%s' "$outside" | grep -c .) attributable connection(s) to destinations outside the LOCAL-NETWORK boundary (loopback, RFC1918, link-local, CGNAT). THE DECLARED LEDGER WAS NOT CONSULTED on this path, so a destination egress_hosts.tsv declares is listed here exactly like one it does not -- do not read this list as undeclared traffic (#1145). Each one is a claim to check against the ledger by hand, a claim that needs correcting, or a defect that needs fixing; none is resolved by leaving it unreported."
     fi
 
     # The PASS line CARRIES the blind-spot count. A verdict that states its own
     # denominator and its own unknowns cannot be quoted as "clean" by someone
     # reading only the last line, which is how a floor gets promoted to a proof.
-    probe_pass "all ${ours_n} examined established connections were inside the declared boundary, across ${SAMPLES} samples, with ${unattrib_n} socket(s) unattributable. This is a floor, not a proof of no leak -- see the BLIND TO line above."
+    probe_pass "all ${ours_n} examined established connections were inside the LOCAL-NETWORK boundary, across ${SAMPLES} samples, with ${unattrib_n} socket(s) unattributable. This says nothing about the declared ledger, which is not consulted on this path (#1145): it means no examined connection left the local network at all. A floor, not a proof of no leak -- see the BLIND TO line above."
 }
 
 # ---------------------------------------------------------------------------

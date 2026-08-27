@@ -129,6 +129,38 @@ fetch_journal() {
     fi
 }
 
+# compile_evidence -> "<settling_files> <present|none>"
+#
+# WHY. The absent-journal branch used to say the absence "is what a box looks
+# like BEFORE its first compile". That is an INFERENCE, and this probe never
+# checked it. Measured 2026-08-27 on a box where it was false: the wiki footer
+# read "Last compiled: 2026-08-26 08:08", settling_progress.d carried
+# updated_at 2026-08-27T05:18:04Z across 186,693 messages, and the journal did
+# not exist. Nine declared producers, zero records, and the probe handed the
+# reader a reason to move on.
+#
+# A benign explanation for a real absence is worse than no explanation, because
+# it is acted on. So the two cases are now distinguished by evidence rather than
+# assumed: has this box done work that a producer should have journalled?
+#
+# Deliberately cheap and read-only -- a file count and an existence check. It is
+# not proof that a FULL compile ran, and the verdict text says which signals it
+# used so the claim can be argued with rather than merely believed.
+compile_evidence() {
+    # Default "0 none" -- the FRESH-BOX reading. If the fake is ever unset by
+    # accident the probe falls back to CANNOT-RUN, never to a manufactured FAIL.
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ] || [ "${USAGE_JOURNAL_PROBE_LOCAL:-0}" -eq 1 ]; then
+        printf '%s' "${FAKE_COMPILE_EVIDENCE:-0 none}"; return
+    fi
+    box_run "python3 - <<'OSTLERUJEV'
+import glob, os
+d = os.path.expanduser('~/.ostler/state/settling_progress.d')
+n = len(glob.glob(os.path.join(d, '*.json')))
+w = os.path.expanduser('~/Documents/Ostler/Wiki/index.md')
+print(str(n) + ' ' + ('present' if os.path.exists(w) else 'none'))
+OSTLERUJEV"
+}
+
 run_probe() {
     [ -f "$GATE" ] || probe_cannot_run "the gate is missing at ${GATE}. Nothing adjudicated this box; that is coverage lost, not a pass."
     command -v python3 >/dev/null 2>&1 \
@@ -151,7 +183,13 @@ run_probe() {
         ABSENT*)
             rm -f "$work"
             probe_examined 0 "journal records (the file does not exist on the box)"
-            probe_cannot_run "no journal at ${journal_path} on ${OSTLER_BOX_HOST:-this machine}. No producer has ever written there, which is what a box looks like BEFORE its first compile. Run a full compile, then re-run this probe."
+            _ev="$(compile_evidence)"
+            _nset="${_ev%% *}"; _wiki="${_ev##* }"
+            case "${_nset}" in ''|*[!0-9]*) _nset=0 ;; esac
+            if [ "${_nset}" -gt 0 ] || [ "${_wiki}" = "present" ]; then
+                probe_fail "no journal at ${journal_path} on ${OSTLER_BOX_HOST:-this machine}, and this box has demonstrably done the work: ${_nset} settling_progress.d source file(s), compiled wiki ${_wiki}. Every one of the declared producers owed a record and NONE has written one -- the directory they write into does not exist. This is not a fresh box; it is a journal nothing feeds, and the figure a paying customer is shown is compiled from it. Signals used: settling_progress.d file count and the presence of the compiled wiki index; neither proves a FULL compile ran, so argue with them if they are wrong."
+            fi
+            probe_cannot_run "no journal at ${journal_path} on ${OSTLER_BOX_HOST:-this machine}, and this box shows no sign of having done work yet (${_nset} settling_progress.d file(s), compiled wiki ${_wiki}). With nothing ingested and nothing compiled there is nothing a producer should have written, so this probe has NO opinion. Run a full compile, then re-run."
             ;;
         PRESENT*)
             printf '%s\n' "$raw" | sed '1d' > "$work"
@@ -229,15 +267,45 @@ self_test() {
     # This is the arm the whole framework exists for: a box that has not
     # compiled yet must not look like five simultaneous regressions, and must
     # not look like a clean bill of health either.
-    out="$(USAGE_JOURNAL_PROBE_LOCAL=1 \
+    out="$(USAGE_JOURNAL_PROBE_LOCAL=1 FAKE_COMPILE_EVIDENCE="0 none" \
            OSTLER_USAGE_JOURNAL="${TMPDIR:-/tmp}/ujprobe-there-is-no-journal-$$.jsonl" \
            bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
     if [ "$rc" -ne 78 ]; then
-        printf 'SELF-TEST ARM 3 BROKEN: an absent journal returned rc=%s, expected 78 (CANNOT-RUN)\n' "$rc"
+        printf 'SELF-TEST ARM 3 BROKEN: an absent journal on an UNWORKED box returned rc=%s, expected 78 (CANNOT-RUN)\n' "$rc"
         printf '%s\n' "$out" | sed 's/^/    /'
         fails=$((fails + 1))
     else
-        printf 'arm 3 OK: an absent journal is CANNOT-RUN, not a pass and not five regressions\n'
+        printf 'arm 3 OK: an absent journal on a box that has done nothing is CANNOT-RUN, not five regressions\n'
+    fi
+
+    # ARM 4: the same absent journal on a box that HAS done the work is a FAIL.
+    #
+    # Arm 3 exists so a fresh box does not read as five simultaneous
+    # regressions. It does not follow that an absent journal is unmeasurable.
+    # When the box has ingested and compiled, every declared producer owed a
+    # record and none wrote one -- the denominator comes from the contract, not
+    # from the file, so that is a measured zero, not an unanswerable question.
+    #
+    # Measured 2026-08-27: the old branch called this "what a box looks like
+    # BEFORE its first compile" on a box whose wiki footer read "Last compiled:
+    # 2026-08-26 08:08" and whose settling state had been updated that morning
+    # across 186,693 messages. A benign explanation for a real absence is worse
+    # than none, because it gets acted on. See #1141.
+    out="$(USAGE_JOURNAL_PROBE_LOCAL=1 FAKE_COMPILE_EVIDENCE="4 present" \
+           OSTLER_USAGE_JOURNAL="${TMPDIR:-/tmp}/ujprobe-there-is-no-journal-worked-$$.jsonl" \
+           bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+    if [ "$rc" -ne 1 ]; then
+        printf 'SELF-TEST ARM 4 BROKEN: an absent journal on a WORKED box returned rc=%s, expected 1 (FAIL)\n' "$rc"
+        printf '%s\n' "$out" | sed 's/^/    /'
+        fails=$((fails + 1))
+    else
+        printf 'arm 4 OK: an absent journal on a box that HAS worked is FAIL, not a shrug\n'
+    fi
+
+    # ARM 5: the two must not collapse. If both evidence states give the same
+    # verdict the distinction is decorative and the benign message is back.
+    if [ "$fails" -eq 0 ]; then
+        printf 'arm 5 OK: fresh-box and worked-box absences reach DIFFERENT verdicts (78 vs 1)\n'
     fi
 
     # The convention is INVERTED here and it is deliberate: `--self-test` must
@@ -249,8 +317,8 @@ self_test() {
         probe_examined "$fails" "self-test arm(s) that did NOT behave as required"
         probe_pass "SELF-TEST BROKEN: ${fails} arm(s) failed. This probe cannot demonstrate a FAIL, so its real result must not be trusted."
     fi
-    probe_examined 3 "synthetic journals (negative control: complete / one producer deleted / absent)"
-    probe_fail "negative control behaved correctly on all 3 arms (complete PASSes; a deleted producer FAILs and is named; an absent journal is CANNOT-RUN, not a pass)"
+    probe_examined 5 "self-test arms (complete journal / one producer deleted / absent on a fresh box / absent on a worked box / the two do not collapse)"
+    probe_fail "negative control behaved correctly on all 5 arms: a complete journal PASSes; a deleted producer FAILs and is NAMED; an absent journal on an unworked box is CANNOT-RUN rather than five regressions; the same absence on a box that HAS ingested and compiled is FAIL rather than a shrug; and those two do not collapse onto one verdict"
 }
 
 # A path-resolution passthrough, so tests/test_usage_journal_producer_gate.sh

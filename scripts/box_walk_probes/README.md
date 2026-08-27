@@ -33,7 +33,7 @@ together:
 
 | half | what it checks |
 |---|---|
-| `run_box_walk.sh` | the 13 probes below, each with a negative control first |
+| `run_box_walk.sh` | every probe in `probes/`, each with a negative control first |
 | `verify_cut_manifest.py --require-runtime-proofs` | the cut's manifest rows, re-driven against the real box |
 
 Exit codes, and the middle one is the point:

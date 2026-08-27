@@ -126,7 +126,7 @@ cp "$DMG" "${WORK}/${ASSET_NAME}"
 # Everything above this line measures the ARTEFACT: hashes, staple, spctl. All
 # of it can pass on a DMG that installs to a broken machine, because none of it
 # has ever been installed. #844: nothing between "gates green" and "customer
-# download" was a runtime proof. 14 box-walk probes existed to be that proof
+# download" was a runtime proof. The box-walk probes existed to be that proof
 # and NOTHING INVOKED THEM -- measured on origin/main, OS003's cut dirs score 0
 # for post_walk_qa and run_box_walk against a control (verify_must_contain)
 # that scores bin/cut.sh:368.

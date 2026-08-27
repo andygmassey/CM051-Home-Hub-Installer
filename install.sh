@@ -15457,6 +15457,53 @@ if [[ "$HAS_PIPELINE" == true ]]; then
                 printf '== FAILED: %s (exit %s) ==\n' "$_pipeline_req" "$_pipeline_req_exit" >> "$PIPELINE_PIP_LOG"
             fi
         done
+
+        # ── #1137: THE VENV THAT INSTALLS IS NOT THE VENV THAT IMPORTS ──────
+        #
+        # Everything above installs into "$PIPELINE_DIR/.venv". The code it
+        # installs those dependencies FOR is imported IN-PROCESS by
+        # ical-server.py, which runs under "$OSTLER_VENV": ical-server.py:535
+        # imports identity_resolver.compartment at module level, and :5381
+        # wraps identity_resolver.tidy.TidyEngine, dispatched at :6920.
+        #
+        # Both interpreters get import-pipeline on PYTHONPATH, so the CODE
+        # resolves in both and only the DEPENDENCIES are missing. That shared
+        # code is exactly what hid this: identity_resolver is on disk,
+        # importable, in the right place, and the layer is still dark.
+        #
+        # MEASURED on a live box 2026-08-27, same PYTHONPATH for both:
+        #   import-pipeline/.venv   identity_resolver.resolver -> OK
+        #   .ostler/.venv           identity_resolver.resolver -> ModuleNotFoundError: rapidfuzz
+        #
+        # compartment is stdlib-only so it imports fine; tidy needs rapidfuzz
+        # and fails at CALL time behind try/except into degraded:true. The
+        # service starts clean and nothing anywhere reports a fault.
+        #
+        # #1115 fixed WHICH requirements files get installed. It did not change
+        # WHERE they go, so it does not cover this.
+        #
+        # Same declaration, second installation -- deliberately reusing
+        # PIPELINE_REQS instead of naming rapidfuzz and qdrant-client here. A
+        # hand-written package list drifts from the requirements files the
+        # moment either moves, and a declaration that has drifted from its
+        # installation is this same bug in different clothes.
+        if [[ -x "${OSTLER_VENV}/bin/pip" ]]; then
+            for _pipeline_req in $PIPELINE_REQS; do
+                printf '== %s (into OSTLER_VENV, the consumer) ==\n' "$_pipeline_req" >> "$PIPELINE_PIP_LOG"
+                "${OSTLER_VENV}/bin/pip" install --quiet -r "$_pipeline_req" >> "$PIPELINE_PIP_LOG" 2>&1
+                _consumer_req_exit=$?
+                if [[ $_consumer_req_exit -ne 0 ]]; then
+                    PIPELINE_PIP_EXIT=$_consumer_req_exit
+                    printf '== FAILED: %s into OSTLER_VENV (exit %s) ==\n' "$_pipeline_req" "$_consumer_req_exit" >> "$PIPELINE_PIP_LOG"
+                fi
+            done
+        else
+            # An absence must not read as a success. If the consumer venv is
+            # not there, the dedupe layer WILL be dark, and the log should say
+            # so rather than leave a reader inferring it from silence.
+            printf '== SKIPPED: %s/bin/pip absent, dedupe deps NOT installed for the consumer (see #1137) ==\n' \
+                "${OSTLER_VENV}" >> "$PIPELINE_PIP_LOG"
+        fi
         set -e
         if [[ $PIPELINE_PIP_EXIT -ne 0 ]]; then
             warn "$(printf "$MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT" "$PIPELINE_PIP_EXIT")"
