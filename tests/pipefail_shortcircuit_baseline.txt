@@ -66,6 +66,4 @@ tests/test_whatsapp_channel_block.sh
 tests/test_wiki_baseline_background.sh
 tests/test_wiki_recompile_after_late_hydration.sh
 vendor/cm019_preferences/test_vendor_preferences.sh
-vendor/hub_power/bin/hub-power-actions.sh
-vendor/hub_power/INSTALL_SNIPPET.sh
 vendor/imessage_bridge/test_vendor_import.sh

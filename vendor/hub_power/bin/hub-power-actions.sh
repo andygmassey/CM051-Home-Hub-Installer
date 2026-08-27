@@ -209,7 +209,7 @@ hpa_ollama_start() {
     fi
     # Prefer launchd if the Mac-Mini plist is installed (Ollama-as-launchd
     # pattern). Otherwise spawn in background.
-    if launchctl list 2>/dev/null | grep -q 'com.ostler.ollama\|ai.ollama'; then
+    if [ "$(launchctl list 2>/dev/null | grep -c 'com.ostler.ollama\|ai.ollama')" -gt 0 ]; then
         hpa_run "kickstart ollama via launchd" launchctl kickstart -k "gui/$(id -u)/ai.ollama" || true
     else
         hpa_run "spawn ollama serve" nohup ollama serve >/dev/null 2>&1 &
@@ -329,7 +329,7 @@ hpa_zeroclaw_stop() {
     hps_log "zeroclaw-stop: attempting"
     local uid
     uid="$(id -u)"
-    if launchctl list 2>/dev/null | grep -q "$HPA_ZEROCLAW_LABEL"; then
+    if [ "$(launchctl list 2>/dev/null | grep -c "$HPA_ZEROCLAW_LABEL")" -gt 0 ]; then
         hpa_run "bootout zeroclaw" launchctl bootout "gui/$uid/$HPA_ZEROCLAW_LABEL" || \
             hpa_run "legacy unload zeroclaw" launchctl unload "$HOME/Library/LaunchAgents/$HPA_ZEROCLAW_LABEL.plist" || true
     else
@@ -388,7 +388,7 @@ HPA_ICAL_LABEL="${HPA_ICAL_LABEL:-com.ostler.ical-server}"
 hpa_ical_ensure_up() {
     local uid
     uid="$(id -u)"
-    if launchctl list 2>/dev/null | grep -q "$HPA_ICAL_LABEL"; then
+    if [ "$(launchctl list 2>/dev/null | grep -c "$HPA_ICAL_LABEL")" -gt 0 ]; then
         hps_log "ical-server: running under launchd, leaving alone"
         return 0
     fi
