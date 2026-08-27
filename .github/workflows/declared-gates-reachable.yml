@@ -25,6 +25,8 @@ on:
   pull_request:
     paths:
       - 'scripts/verify_declared_gates_reachable.sh'
+      - 'tests/test_cut_trigger_reachability_axis.sh'
+      - 'scripts/cut_trigger_reachability_baseline.tsv'
       - '.github/workflows/declared-gates-reachable.yml'
   push:
     branches: [main]
@@ -250,3 +252,11 @@ jobs:
             exit 1
           fi
           echo "ok: an impossible floor fails the run (exit $rc)"
+
+      - name: AXIS THREE -- runs on the cut, not merely reachable (#1167)
+        if: always()
+        # Pins BOTH directions on a FIXTURE repo: a gate reached only by a
+        # branch-triggered workflow is in the gap, and one reached by a
+        # tag-triggered workflow is not. Asserting only the first would pass
+        # on the pre-#1167 behaviour, where every workflow counted.
+        run: ./tests/test_cut_trigger_reachability_axis.sh
