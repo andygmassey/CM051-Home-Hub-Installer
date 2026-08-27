@@ -70,6 +70,13 @@ fi
 # regression in either is caught here rather than by the cut host quietly
 # marking the probe BROKEN and reporting one fewer measurement.
 
+# PORTABILITY, DORMANT NOT ABSENT: `mktemp -t NAME` with no X's in the
+# template is BSD-ONLY. GNU mktemp rejects it with "too few X's in
+# template", the variable comes back EMPTY, and whatever consumes it
+# fails somewhere else wearing a cause that is not the real one. This is
+# safe TODAY only because cut-manifest.yml runs people-probe-fires on macos-latest. Move it to ubuntu and it fires.
+# Fix if you move it: mktemp "${TMPDIR:-/tmp}/NAME.XXXXXX" plus an
+# emptiness guard -- the guard matters as much as the template.
 WORK="$(mktemp -d -t peopleprobetest)"
 FAKE="${WORK}/fake_box.py"
 

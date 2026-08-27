@@ -162,6 +162,13 @@ IDS_JSON="[]"
 VEC_NAME=""
 VEC_SIZE=0
 
+# PORTABILITY, DORMANT NOT ABSENT: `mktemp -t NAME` with no X's in the
+# template is BSD-ONLY. GNU mktemp rejects it with "too few X's in
+# template", the variable comes back EMPTY, and whatever consumes it
+# fails somewhere else wearing a cause that is not the real one. This is
+# safe TODAY only because this probe runs on the macOS Hub, and its CI job people-probe-fires is macos-latest. Move it to ubuntu and it fires.
+# Fix if you move it: mktemp "${TMPDIR:-/tmp}/NAME.XXXXXX" plus an
+# emptiness guard -- the guard matters as much as the template.
 TMP="$(mktemp -d -t ostlerprobe)"
 
 fail() {
