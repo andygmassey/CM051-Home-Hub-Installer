@@ -828,7 +828,13 @@ jobs:
           # positive control turns the empty listing into CANNOT-VERIFY and
           # names this variable. It does NOT quietly pass -- which is the whole
           # reason the limb is not simply added to a skip list.
-          OSTLER_ORPHAN_GATE_TOKEN_OSTLER_AI: ${{ secrets.CM051_RELEASES_READ }}
+          # MEASURED 2026-08-27 (Archie): the `andygmassey` identity CAN read
+          # ostler-ai/ostler-assistant pull requests; `creativemachines-ai` cannot.
+          # CM051_RELEASES_READ was the first guess and it was refused --
+          # run 33072466043 got GraphQL: Resource not accessible by personal
+          # access token (repository.pullRequests). A token's NAME is not its
+          # SCOPE, and that one is scoped to release assets, not pull requests.
+          OSTLER_ORPHAN_GATE_TOKEN_OSTLER_AI: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
           # An empty PR listing and a blind token are the same four characters.
           # With this set, a zero is only accepted after the repo metadata reads
           # back with the SAME token. Off by default so the gate's synthetic
@@ -866,7 +872,6 @@ jobs:
           # `Pull requests: read` to the CM051_RELEASES_READ fine-grained PAT
           # on ostler-ai/ostler-assistant. Delete this line the moment that
           # lands. Board #523.
-          OSTLER_ORPHAN_GATE_SKIP_PR: daemon
           # Lets the gate flag deferrals whose until_cut has already passed.
           OSTLER_CUT_VERSION: ${{ github.ref_name }}
         run: make -C gui ship
@@ -1298,7 +1303,13 @@ jobs:
           # positive control turns the empty listing into CANNOT-VERIFY and
           # names this variable. It does NOT quietly pass -- which is the whole
           # reason the limb is not simply added to a skip list.
-          OSTLER_ORPHAN_GATE_TOKEN_OSTLER_AI: ${{ secrets.CM051_RELEASES_READ }}
+          # MEASURED 2026-08-27 (Archie): the `andygmassey` identity CAN read
+          # ostler-ai/ostler-assistant pull requests; `creativemachines-ai` cannot.
+          # CM051_RELEASES_READ was the first guess and it was refused --
+          # run 33072466043 got GraphQL: Resource not accessible by personal
+          # access token (repository.pullRequests). A token's NAME is not its
+          # SCOPE, and that one is scoped to release assets, not pull requests.
+          OSTLER_ORPHAN_GATE_TOKEN_OSTLER_AI: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
           # An empty PR listing and a blind token are the same four characters.
           # With this set, a zero is only accepted after the repo metadata reads
           # back with the SAME token. Off by default so the gate's synthetic
@@ -1336,5 +1347,4 @@ jobs:
           # `Pull requests: read` to the CM051_RELEASES_READ fine-grained PAT
           # on ostler-ai/ostler-assistant. Delete this line the moment that
           # lands. Board #523.
-          OSTLER_ORPHAN_GATE_SKIP_PR: daemon
         run: bash scripts/dry_run_cut_checks.sh
