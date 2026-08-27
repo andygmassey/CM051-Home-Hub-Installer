@@ -159,7 +159,15 @@ if grep -qE '^\s*skip\(\)' "$GATE"; then
 else
     ok "skip() is gone from the gate"
 fi
-if grep -nE 'exit 0' "$GATE" | grep -vE '^\s*[0-9]+:\s*#' | grep -q .; then
+# `| grep -q .` is the exact defect this repo ratchets against, and it was in
+# this file: grep -q exits on the FIRST match, the upstream grep takes SIGPIPE,
+# and under the `set -o pipefail` on line 37 the pipeline reports FAILURE on a
+# needle that IS present -- the verdict comes out inverted, so a gate that still
+# held a bare `exit 0` would have been reported as clean. grep -c cannot
+# short-circuit. It exits 1 on a count of zero, so the capture needs `|| true`
+# or the assignment takes the whole chain down with it.
+n_bare_exit0="$(grep -nE 'exit 0' "$GATE" | grep -vcE '^\s*[0-9]+:\s*#' || true)"
+if [ "${n_bare_exit0:-0}" -gt 0 ]; then
     bad "the gate still contains a bare 'exit 0'" \
         "$(grep -nE 'exit 0' "$GATE" | head -2 | tr '\n' ' ')"
 else
