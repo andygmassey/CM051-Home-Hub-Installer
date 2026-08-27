@@ -36,6 +36,8 @@ on:
       - 'scripts/verify_stapling.sh'
       - 'scripts/verify_commit_parity.sh'
       - 'gui/scripts/sign-python-bundle.sh'
+      - 'gui/scripts/seed-hub-payload-pyc.sh'
+      - 'tests/test_hub_payload_seed_refuses_a_wrong_interpreter.sh'
       - 'tests/test_sign_python_bundle_reports_why.sh'
       - 'tests/test_product_seed_regex_does_not_exclude_the_bundle.sh'
       - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
@@ -202,6 +204,13 @@ jobs:
       - name: the product seed actually seeds the product tree
         if: always()
         run: bash tests/test_product_seed_regex_does_not_exclude_the_bundle.sh
+      # The tag check is the difference between a seed and a decoration: a .pyc
+      # named cpython-314 is invisible to the 3.11 that ships, so it would be
+      # regenerated INTO the seal while compileall, the file count and the exit
+      # code all reported success. Shim tarballs, so this costs nothing in CI.
+      - name: the hub payload seed refuses a wrong interpreter
+        if: always()
+        run: bash tests/test_hub_payload_seed_refuses_a_wrong_interpreter.sh
 
       # provenance_gate.sh accused three healthy CM044 wiki images of being
       # stale on run 31696154993, because `gh api` prints its error body to

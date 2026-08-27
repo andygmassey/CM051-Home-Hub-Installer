@@ -1148,7 +1148,7 @@ stage-daemon: download-daemon
 #   services/knowledge/ <- vendor/cm024_knowledge/
 #   services/cm048/     <- vendor/cm048_pipeline/
 # ---------------------------------------------------------------------------
-stage-payload:
+stage-payload: download-python
 	@if [ ! -d "$(OSTLER_APP_PATH)" ]; then \
 	    echo "" >&2; \
 	    echo "ERROR: OSTLER_APP_PATH is not a directory: $(OSTLER_APP_PATH)" >&2; \
@@ -1275,6 +1275,7 @@ stage-payload:
 	    exit 1; \
 	fi; \
 	printf '[OK] Embedded (B-lite) payload sealed-pending-sparkle at %s\n' "$$PAYLOAD"
+	@bash "$(CURDIR)/scripts/seed-hub-payload-pyc.sh" "$(OSTLER_APP_PATH)" "$(PYTHON_BUNDLE_TARBALL)"
 
 # ---------------------------------------------------------------------------
 # Release build – Developer ID signed, exported to dist/
