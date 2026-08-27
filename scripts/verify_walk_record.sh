@@ -170,6 +170,138 @@ if [[ "$VERDICT" == "CLEAN" && "$QA_EXIT" -ne 0 ]]; then
     exit 1
 fi
 
+# --- the probe NAMES were being written and never read -----------------------
+#
+# Exactly the qa_exit defect above, one field family later, and I shipped it.
+# #1106 (01a7b06c) taught post_walk_qa.sh to record WHICH probes failed, not
+# only how many, and wired a unit test for it. Measured 2026-08-27 on
+# origin/main efab6a59, this script read whole (199 lines):
+#
+#     failed_probe_names_recorded  0   failed_probe        0
+#     not_measured_probe           0   broken_probe        0
+#     CONTROL, same read: verdict 10        <- the read works, the zeros are real
+#
+# So the WRITER emits four name families and this script -- the one that gates
+# the customer download -- consulted none of them. The unit test guards
+# post_walk_qa.sh's SOURCE TEXT. Nothing guarded the RECORD. That is the
+# difference between merged and delivered, and this file is where delivered is
+# decided.
+#
+# WHAT ROT LOOKS LIKE, which is why this is not tidiness. section_names() parses
+# run_box_walk.sh's console sections by header text and indent. Reword a header
+# or change an indent and it returns NOTHING: the record goes back to counts
+# with no names, and it does so SILENTLY, looking exactly like a walk with
+# nothing to report. #1106 anticipated that and wrote the reconciliation line
+# `failed_probe_names_recorded  <n> of <m>` so the mismatch is visible in the
+# file. Visible is not enforced. This block enforces it.
+#
+# THE COUNTS ARE A LEGITIMATE DENOMINATOR, and that was measured rather than
+# assumed. run_box_walk.sh:216-229 emits each section with an unconditional
+# `for b in $X_LIST; do printf '  %s\n' "$b"; done` -- the full list, no cap, no
+# truncation -- so every probe in each class is named. The header is printed
+# only when its list is non-empty, so fail=0 correctly yields no section, no
+# rows, and `0 of 0`. Same log, same population as pass/fail/cannot_run/broken
+# (counts_scope: phase 1 only, for both).
+#
+# ABSENT IS CANNOT-RUN (2), NOT FAIL, for the same reason qa_exit's is: a record
+# written BEFORE its writer cannot carry the field. walks/v1.0.47.tsv is exactly
+# that -- walked 2026-08-26T14:17:14Z, ~15h before #1106 landed at
+# 2026-08-27T05:14:56Z. Retro-failing it would be punishing a record for the
+# date it was taken. Absence of evidence, kept apart from evidence of badness by
+# this script's exit codes.
+count_rows() {
+    # awk, not `grep -c ... | ...`: reads to EOF, so no early-exit SIGPIPE can
+    # turn a FOUND into an error under the pipefail this file sets. Same reason
+    # field() above is written the way it is.
+    awk -F'\t' -v k="$1" '$1 == k { n++ } END { print n + 0 }' "$RECORD"
+}
+
+# 🔴 THE ABSENT BRANCH IS NARROWED ON PURPOSE, AND I GOT THIS WRONG FIRST.
+# The first draft exited 2 whenever the field was missing. Running the test
+# against the LIVE records showed what that actually does: walks/v1.0.44.tsv and
+# walks/v1.0.47.tsv both predate #1106, both carry verdict FAILED, and both went
+# from exiting 1 ("the walk FAILED, real defects were measured") to exiting 2
+# ("CANNOT-RUN"). That is not a stricter gate, it is a LOSS OF SIGNAL: a
+# specific, true, actionable refusal replaced by a generic one. And on a CLEAN
+# pre-#1106 record it would newly block a customer download over a field that
+# could not have existed when the walk was taken.
+#
+# So absence only decides anything where it can change an outcome: a record
+# claiming CLEAN. If the verdict already refuses, the names cannot rescue or
+# worsen it, and the existing exit code is the better answer. Same reasoning the
+# verdict-vs-counts arm at the top of this file uses -- it too only bites a
+# CLEAN claim.
+NAMES_RECONCILED="$(field failed_probe_names_recorded)"
+if [[ -z "$NAMES_RECONCILED" ]]; then
+    if [[ "$VERDICT" == "CLEAN" ]]; then
+        echo "[walk-gate] REFUSED: ${RECORD} claims CLEAN and carries no failed_probe_names_recorded field." >&2
+        echo "            post_walk_qa.sh has written it unconditionally since #1106" >&2
+        echo "            (01a7b06c, 2026-08-27T05:14:56Z). A record without it predates" >&2
+        echo "            that writer or was hand-made, so nothing in it can be checked" >&2
+        echo "            against WHICH probes it says ran. CANNOT-RUN, not a failure." >&2
+        exit 2
+    fi
+    echo "[walk-gate] note: ${RECORD} predates #1106 and carries no probe names." >&2
+    echo "            Not decided here -- the verdict '${VERDICT}' already governs this record." >&2
+elif ! [[ "$NAMES_RECONCILED" =~ ^([0-9]+)\ of\ ([0-9]+)$ ]]; then
+    echo "[walk-gate] REFUSED: ${RECORD} field 'failed_probe_names_recorded' is" >&2
+    echo "            '${NAMES_RECONCILED}', not the '<n> of <m>' shape post_walk_qa.sh writes." >&2
+    exit 2
+fi
+# EVERYTHING BELOW IS GUARDED ON THE FIELD BEING PRESENT, for the same reason.
+# A pre-#1106 record has no name rows AT ALL, so an unguarded row-count check
+# would refuse every one of them -- re-introducing exactly the regression the
+# branch above was narrowed to avoid, one check further down. The guard is the
+# fix, not a synthetic default: manufacturing a consistent-looking value to feed
+# the checks would be fabricating the input rather than measuring it.
+if [[ -n "$NAMES_RECONCILED" ]]; then
+    NAMED="${BASH_REMATCH[1]}"
+    NAMED_OF="${BASH_REMATCH[2]}"
+
+    # The denominator and the `fail` field are BOTH derived from n_fail in
+    # post_walk_qa.sh. If they disagree, the record was edited by hand or the
+    # two derivations have diverged -- and a record nobody can trust to describe
+    # itself cannot vouch for a build. This is the limb with teeth on a CLEAN
+    # claim: fail=0 with a '4 of 4' line is a doctored record.
+    if [[ "$NAMED_OF" -ne "$N_FAIL" ]]; then
+        echo "[walk-gate] REFUSED: ${RECORD} says failed_probe_names_recorded '${NAMES_RECONCILED}'" >&2
+        echo "            but the fail count is ${N_FAIL}. One record, two numbers for one fact." >&2
+        exit 1
+    fi
+
+    # THE ROT DETECTOR. n < m means section_names() stopped matching: the walk
+    # found m failures and the record can name n of them. On a FAILED verdict
+    # this does not change the outcome and is not meant to -- it changes what
+    # SURVIVES the walk, which is #1106's entire point: "a finding with no name
+    # is not actionable, including by its own author a week later."
+    if [[ "$NAMED" -ne "$NAMED_OF" ]]; then
+        echo "[walk-gate] REFUSED: ${RECORD} names ${NAMED} of ${NAMED_OF} failing probes." >&2
+        echo "            section_names() in post_walk_qa.sh has stopped matching" >&2
+        echo "            run_box_walk.sh's output -- a reworded header or a changed indent." >&2
+        echo "            A finding with no name is not actionable, including by its own" >&2
+        echo "            author a week later. Fix the parser, re-run the walk." >&2
+        exit 1
+    fi
+
+    # The reconciliation line and the rows underneath it must also agree: the
+    # line could be right while the rows were lost, which is the same blindness
+    # wearing a correct-looking summary. This also catches the inverse -- rows
+    # present for a class whose count field says zero, i.e. a hand-edited
+    # record claiming a cleaner walk than it recorded.
+    for pair in "failed_probe:${N_FAIL}" "not_measured_probe:${N_CANNOT}" "broken_probe:${N_BROKEN}"; do
+        key="${pair%%:*}"
+        want="${pair##*:}"
+        got="$(count_rows "$key")"
+        if [[ "$got" -ne "$want" ]]; then
+            echo "[walk-gate] REFUSED: ${RECORD} carries ${got} '${key}' row(s) but its own" >&2
+            echo "            count field says ${want}." >&2
+            echo "            run_box_walk.sh names every probe in each class (it loops the" >&2
+            echo "            whole list, uncapped), so these cannot legitimately differ." >&2
+            exit 1
+        fi
+    done
+fi
+
 # --- a walk that measured nothing is not a clean walk ------------------------
 if [[ "$N_PASS" -eq 0 ]]; then
     echo "[walk-gate] REFUSED: ${RECORD} records zero passing probes." >&2

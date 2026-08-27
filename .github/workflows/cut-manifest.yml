@@ -28,6 +28,8 @@ on:
       - 'cut-deferrals.yaml'
       - 'scripts/post_walk_qa.sh'
       - 'tests/test_walk_record_names_the_failing_probes.sh'
+      - 'tests/test_walk_record_names_must_reconcile.sh'
+      - 'scripts/verify_walk_record.sh'
       - 'scripts/box_walk_probes/**'
       - 'scripts/tests/test_people_seed_and_retrieval_probe.sh'
       - 'cut-manifests/**'
@@ -129,6 +131,21 @@ jobs:
       - name: the walk record names the failing probes, and leaks no host
         if: always()
         run: /bin/bash tests/test_walk_record_names_the_failing_probes.sh
+
+      # #1106 landed the WRITER and the test above guards its SOURCE TEXT.
+      # verify_walk_record.sh -- the script that gates the customer download --
+      # read ZERO of the four name families (measured 2026-08-27 on
+      # origin/main efab6a59; control, same read: verdict 10). So section_names()
+      # could rot at runtime, the record would write `0 of 4`, and this gate
+      # would pass it. Merged, wired, unit-tested, consuming path unguarded.
+      # 12 arms. ARM 8 mutates the new block out and requires the rot fixture to
+      # go GREEN, so this cannot pass against a gate that checks nothing. ARM 9
+      # runs the LIVE walks/ records and proves the block ABSTAINS on records
+      # predating #1106 rather than downgrading their specific refusal to a
+      # generic CANNOT-RUN -- a regression the first draft actually had.
+      - name: the walk record's probe names must reconcile with its counts
+        if: always()
+        run: /bin/bash tests/test_walk_record_names_must_reconcile.sh
 
   # The box-walk probe body itself. The primitive above only proves the
   # verifier honours a probe's exit code; this job proves the people probe
