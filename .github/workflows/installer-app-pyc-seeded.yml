@@ -35,7 +35,9 @@ jobs:
       # temp dir would exit 2 having checked nothing at all -- a false red that
       # looks like a working control.
       - name: "RED when the seed target is unwired from ship:"
+        if: always()
         run: |
+          set +e            # GitHub runs `bash -e`; these controls EXPECT a non-zero test
           set -uo pipefail
           W="$(mktemp -d)"; mkdir -p "$W/gui" "$W/tests"
           cp gui/Makefile "$W/gui/Makefile"
@@ -54,7 +56,9 @@ jobs:
           echo "OK: control fired with the right message and the right rc"
 
       - name: "RED when the seeder is pointed at the wrong root"
+        if: always()
         run: |
+          set +e            # GitHub runs `bash -e`; these controls EXPECT a non-zero test
           set -uo pipefail
           W="$(mktemp -d)"; mkdir -p "$W/gui" "$W/tests"
           cp gui/Makefile "$W/gui/Makefile"
