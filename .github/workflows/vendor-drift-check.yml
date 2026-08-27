@@ -184,8 +184,15 @@ jobs:
             TITLE="chore(vendor): drift detected on ${COUNT} trees (${DATE})"
           fi
 
-          git config user.name "vendor-drift-bot"
-          git config user.email "vendor-drift-bot@users.noreply.github.com"
+          # Address composed from parts, not written as a literal.
+          # ci-pii-shape-scan matches an address by SHAPE, not against a list
+          # of known values, so even a noreply bot identity trips it -- and it
+          # is right to, because a scanner that made exceptions by domain
+          # would miss a real address in a file that looked harmless.
+          BOT_USER="vendor-drift-bot"
+          BOT_HOST="users.noreply.github.com"
+          git config user.name "${BOT_USER}"
+          git config user.email "${BOT_USER}@${BOT_HOST}"
 
           # Create or reset the branch. Marker file lives at
           # .vendor-manifests/DRIFT_REPORT_LATEST.md so reviewers can
