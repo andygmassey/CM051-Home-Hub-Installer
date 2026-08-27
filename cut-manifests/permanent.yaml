@@ -751,3 +751,21 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "people_stores_reconcile"
+
+  # ==========================================================================
+  # #1134. Ported from #509 alongside verify_branch_truth and verify_clean_tree.
+  # It arrived on disk carrying no row here, which is precisely the fault this
+  # file exists to refuse: a probe no manifest names is a probe no cut invokes,
+  # so it sits in the tree looking like coverage while measuring nothing. Caught
+  # by test_every_probe_on_disk_is_declared_in_permanent_manifest ON the port
+  # PR rather than afterwards, which is the gate working.
+  # ==========================================================================
+  - id: box-walk-acceptance-gate-v1013
+    title: the acceptance gate must run against a real box and report its own verdict
+    incident: >-
+      ported in #1134 with no manifest row; nothing would have invoked it, and
+      its absence from every cut would have read as silence rather than as a
+      missing check
+    proof:
+      kind: box_walk_probe
+      probe: "acceptance_gate_v1013"
