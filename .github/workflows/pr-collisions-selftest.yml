@@ -1,0 +1,39 @@
+# The collision checker's own negative control.
+#
+# A NEW workflow file on purpose: the obvious home would be cut-manifest.yml,
+# and that file is already contested by three open PRs -- adding a step there to
+# ship a collision CHECKER would have created a collision. Measured, not assumed:
+# bin/pr_file_collisions.sh reports cut-manifest.yml as touched by #1106, #1120
+# and #495.
+name: pr-collisions-selftest
+
+on:
+  pull_request:
+    paths:
+      - 'bin/pr_file_collisions.sh'
+      - '.github/workflows/pr-collisions-selftest.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'bin/pr_file_collisions.sh'
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The checker must PROVE it can report a collision before anyone trusts it
+      # reporting none. Its self-test plants one, plants a disjoint control that
+      # must stay clean, and asserts the denominator exactly.
+      - name: The collision checker must be able to find a collision
+        if: always()
+        run: bash bin/pr_file_collisions.sh --self-test
+
+      # Guards the bash 3.2 trap this script already tripped: "${arr[@]}" on an
+      # empty array is an unbound variable under set -u, and ubuntu's bash 5 does
+      # NOT reproduce it. The cut host is 3.2, so syntax-check is not enough --
+      # but it is what CI can do here, and the self-test above runs the real path.
+      - name: Syntax check
+        if: always()
+        run: bash -n bin/pr_file_collisions.sh
