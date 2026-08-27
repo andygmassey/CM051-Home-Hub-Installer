@@ -1954,7 +1954,8 @@ deferrals:
     until_cut: "v1.0.49"
   - ref: "daemon:#351"
     reason: >-
-      A DRAFT, and a draft is by definition not proposed for merge. 11 crates/ files:
+      A DRAFT, and a draft is by definition not proposed for merge. 18 files, 12 of
+      them under crates/:
       a prompt_injection_mode rename plus deletion of a dead prompt guard. It WOULD
       reach a daemon binary, but not this one -- the pin is f1c7c57d and that artefact
       is already built, signed and notarised, so nothing here is in the DMG.
