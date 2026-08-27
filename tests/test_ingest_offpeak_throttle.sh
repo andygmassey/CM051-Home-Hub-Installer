@@ -133,17 +133,42 @@ LOCK="$TMP/state/ingest.lock.d"
 run_tick() {
     # run_tick <fake_hour> [extra OSTLER_* env assignments...]
     local hour="$1"; shift
-    rm -f "$TMP/out.txt"
+    rm -f "$TMP/out.txt" "$TMP/tick.log"
     env PATH="$TMP/bin:$PATH" \
         FAKE_HOUR="$hour" \
         FAKEPY_OUT="$TMP/out.txt" \
         OSTLER_PYTHON="$TMP/bin/fakepy" \
         OSTLER_SOURCE_DIR="$TMP/src" \
+        OSTLER_USER_ID="test-user" \
         OSTLER_IMESSAGE_SINCE_DAYS=30 \
         OSTLER_INGEST_LOCK="$LOCK" \
         OSTLER_USER_ID="${OSTLER_USER_ID:-orm-test-user}" \
         "$@" \
-        bash "$IMSG" >/dev/null 2>&1 || true
+        bash "$IMSG" >"$TMP/tick.log" 2>&1 || true
+}
+
+# 🔴 THIS HARNESS WAS DARK AND SAID NOTHING. Measured 2026-08-23 on
+# pristine main 5e3b300: 7 FAIL / 3 pass, every DYNAMIC assertion
+# reporting `got ''`. The three that passed were static (grep the wrapper
+# source, lock behaviour), so the file looked like a real regression test
+# and was cited as coverage for the off-peak clamp.
+#
+# Cause: the wrappers gained a scoping guard --
+#   "EX_CONFIG (78) -- OSTLER_USER_ID is empty ... Refusing to run an
+#    unscoped ingest"
+# -- and this harness was never given OSTLER_USER_ID. Every tick exited
+# before writing out.txt. The old `>/dev/null 2>&1 || true` swallowed the
+# message that said so, and since_days_was() returns "" for a missing
+# file, so "the tick refused to start" and "the clamp computed nothing"
+# printed IDENTICALLY. A verdict that cannot distinguish those two is not
+# a test.
+#
+# Two repairs: supply OSTLER_USER_ID above, and capture the tick's output
+# to $TMP/tick.log so the next person gets the reason instead of ''.
+tick_refused() {
+    # True if the tick exited before invoking the pipeline at all. Lets an
+    # assertion say CANNOT-RUN out loud instead of blaming the clamp.
+    [ ! -f "$TMP/out.txt" ] && grep -q 'EX_CONFIG\|Refusing' "$TMP/tick.log" 2>/dev/null
 }
 
 since_days_was() {
@@ -221,11 +246,12 @@ run_tick_marker() {
         OSTLER_PYTHON="$TMP/bin/fakepy" \
         OSTLER_USER_ID="${OSTLER_USER_ID:-orm-test-user}" \
         OSTLER_SOURCE_DIR="$TMP/src" \
+        OSTLER_USER_ID="test-user" \
         OSTLER_IMESSAGE_SINCE_DAYS=30 \
         OSTLER_INGEST_LOCK="$LOCK" \
         OSTLER_INTERACTIVE_MARKER="$IMARKER" \
         "$@" \
-        bash "$IMSG" >/dev/null 2>&1 || true
+        bash "$IMSG" >"$TMP/tick.log" 2>&1 || true
 }
 
 # 2g-i. A FRESH marker (just touched) makes the tick yield -- python never
@@ -317,8 +343,80 @@ done
 [ "$FAILED" -eq 0 ] && pass "the simple-feed lock blocks are byte-identical (no drift)"
 
 # --------------------------------------------------------------------
-if [ "$FAILED" -ne 0 ]; then
-    echo "RESULT: FAIL"
-    exit 1
-fi
-echo "RESULT: PASS"
+# NOTE: the verdict used to be printed HERE, with `exit 1` on failure.
+# Section 4 was appended below it, which would have made every one of
+# its assertions unreachable on a passing run and silently skipped on a
+# failing one -- a whole section of new coverage that never executes,
+# reporting nothing. Verdict moved to the very end of the file.
+
+# --------------------------------------------------------------------
+# 4. THE QUIET WINDOW NOW WRAPS MIDNIGHT (#789, Andy 2026-08-23).
+#
+# Default moved 01:00-06:00 -> 23:00-07:00. The old predicate
+# `hour -lt 1 || hour -ge 6` is NON-WRAPPING: reused with start=23
+# end=7 it is true at EVERY hour, so the clamp would have applied
+# around the clock and the window would have got SMALLER, not larger,
+# silently. Nothing in this file could have caught that, because no
+# assertion had ever been made at 23:00 or 00:00. These are those
+# assertions.
+# --------------------------------------------------------------------
+
+# 4a. 23:00 is now INSIDE the window -- the arm that did not exist.
+#     Under the old 01-06 window this hour clamped to 2.
+run_tick 23
+got="$(since_days_was)"
+[ "$got" = "30" ] && pass "23:00 is inside the wrapped window (drains full 30)" \
+                  || failure "23:00 should drain the full window, got '$got'"
+
+# 4b. Midnight, the other side of the wrap.
+run_tick 00
+got="$(since_days_was)"
+[ "$got" = "30" ] && pass "00:00 is inside the wrapped window (drains full 30)" \
+                  || failure "00:00 should drain the full window, got '$got'"
+
+# 4c. 07:00 is the EXCLUSIVE end -- back to clamped, so the machine is
+#     idle again before the operator wakes. This is the "just before
+#     wake time" half of Andy's instruction; without it the window
+#     would run into the working day.
+run_tick 07
+got="$(since_days_was)"
+[ "$got" = "2" ] && pass "07:00 is outside (exclusive end) -- clamped before wake" \
+                 || failure "07:00 should be clamped, got '$got'"
+
+# 4d. 22:00 is still outside -- the window opens at 23, not earlier.
+run_tick 22
+got="$(since_days_was)"
+[ "$got" = "2" ] && pass "22:00 is outside the window (opens at 23)" \
+                 || failure "22:00 should be clamped, got '$got'"
+
+# 4e. NON-WRAPPING config still works: the old 01-06 shape, explicitly.
+#     Guards against a fix that only ever handles the wrap case.
+run_tick 3 OSTLER_INGEST_QUIET_START=1 OSTLER_INGEST_QUIET_END=6
+got="$(since_days_was)"
+[ "$got" = "30" ] && pass "non-wrapping window (01-06) still drains at 03:00" \
+                  || failure "non-wrapping 01-06 should drain at 03:00, got '$got'"
+
+run_tick 23 OSTLER_INGEST_QUIET_START=1 OSTLER_INGEST_QUIET_END=6
+got="$(since_days_was)"
+[ "$got" = "2" ] && pass "non-wrapping window (01-06) clamps at 23:00" \
+                 || failure "non-wrapping 01-06 should clamp at 23:00, got '$got'"
+
+# 4f. start == end is a ZERO-length window, NOT an always-open one.
+#     The dangerous reading is "the window covers everything"; that
+#     would run the backfill flat out around the clock on a customer's
+#     machine. Assert the safe reading.
+run_tick 3 OSTLER_INGEST_QUIET_START=5 OSTLER_INGEST_QUIET_END=5
+got="$(since_days_was)"
+[ "$got" = "2" ] && pass "start==end is a zero-length window, not always-open" \
+                 || failure "start==end must clamp (zero-length), got '$got'"
+
+# 4g. A malformed bound falls back to the DEFAULT rather than wedging
+#     the clamp on (starves ingest forever) or off (runs hot all day).
+run_tick 3 OSTLER_INGEST_QUIET_START=abc OSTLER_INGEST_QUIET_END=xyz
+got="$(since_days_was)"
+[ "$got" = "30" ] && pass "malformed bounds fall back to the 23-07 default" \
+                  || failure "malformed bounds should fall back to default, got '$got'"
+
+echo
+if [ "$FAILED" -eq 0 ]; then echo "RESULT: PASS"; else echo "RESULT: FAIL"; fi
+exit "$FAILED"
