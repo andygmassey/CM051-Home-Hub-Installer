@@ -1,0 +1,151 @@
+name: pr-branch-staleness
+
+# THE RUNNER FOR permanent-pr-branch-not-stale-vs-main.
+#
+# That manifest row was written on 2026-07-31 to encode
+# feedback_mergeable_api_state_isnt_semantic_safety: `mergeable: MERGEABLE` from
+# the GitHub API does not prove a branch is semantically safe to merge, because
+# a branch that predates a critical recent commit REVERTS it silently. PR #484
+# was the near-miss.
+#
+# The row never ran. Not once. Its primitive reads PR_NUMBER, and no workflow in
+# this repo ever set PR_NUMBER -- measured with `grep -rn PR_NUMBER
+# .github/workflows/`, which returned nothing while the same grep for
+# `pull_request` matched 12 files, so the absence was real and not a broken
+# predicate. Every invocation returned SKIP, and SKIP and PASS both leave the
+# exit code at 0. A row that always skips is indistinguishable from a row that
+# always passes, which is why it survived.
+#
+# THIS FILE IS THE WIRING. It passes PR_NUMBER and --require-kind, so the row
+# either runs or the job ends CANNOT-RUN (exit 3). It can no longer be quietly
+# unreachable.
+#
+# NO `paths:` FILTER, DELIBERATELY. Staleness is a property of the BRANCH, not
+# of the files it touches, so a path filter would skip the gate on exactly the
+# PRs it exists to catch -- and a skipped job renders as a grey tick that reads
+# like a pass. Same reasoning as test-wiring.yml. The job is seconds long.
+#
+# Note on `pull_request`: the run happens against the merge ref, but the
+# primitive asks the API for the PR's own base.sha and compares it to the
+# CURRENT HEAD of the target branch, so the answer is about the branch as it
+# actually stands, not about the ephemeral merge commit.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-staleness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: The wiring discriminates -- unset PR_NUMBER must be CANNOT-RUN, not a pass
+        # POSITIVE CONTROL, and it runs FIRST. If this step ever reports 0 the
+        # gate below has become unfalsifiable again, because a run that cannot
+        # tell "did not run" from "ran and passed" proves nothing either way.
+        # Deliberately clears PR_NUMBER to reproduce the exact broken state.
+        run: |
+          set +e
+          env -u PR_NUMBER python3 scripts/verify_cut_manifest.py \
+            --cm051-dir "$PWD" \
+            --only-kind pr_branch_not_stale_vs_main \
+            --require-kind pr_branch_not_stale_vs_main
+          rc=$?
+          set -e
+          echo "exit code with PR_NUMBER unset: $rc"
+          if [ "$rc" -ne 3 ]; then
+            echo "CONTROL FAILED: expected exit 3 (CANNOT-RUN) with PR_NUMBER unset, got $rc." >&2
+            echo "The silent-skip defect has returned: an unwired row is again reporting" >&2
+            echo "the same exit code as a row that ran and passed." >&2
+            exit 1
+          fi
+          echo "OK: an unwired row exits 3, so the gate below cannot pass by not running."
+
+      - name: The gate discriminates -- a branch that IS stale must come back RED
+        # SECOND CONTROL, and it is the other half. The step above proves the
+        # gate can say CANNOT-RUN. This one proves it can say FAIL.
+        #
+        # Without it the job could go green for the whole of its life on
+        # nothing but fresh branches, and "never observed red" would be
+        # indistinguishable from "cannot go red" -- which is the exact shape
+        # of the defect this whole file exists to close, one level up.
+        #
+        # Synthetic on purpose: a stub `gh` on PATH and a throwaway manifest,
+        # so it needs no network, no real PR, and no token. Pinning a real
+        # stale PR number would rot the day someone updates that branch.
+        run: |
+          set -e
+          d="${RUNNER_TEMP}/staleness-control"
+          mkdir -p "$d/cut-manifests" "$d/bin"
+          cat > "$d/cut-manifests/permanent.yaml" <<'YAML'
+          version: permanent
+          entries:
+            - id: control-pr-branch-not-stale-vs-main
+              title: synthetic control -- a branch 500 behind must FAIL
+              proof:
+                kind: pr_branch_not_stale_vs_main
+                max_commits_behind: 10
+          YAML
+          printf 'version: v0.0.0\nentries: []\n' > "$d/cut-manifests/v0.0.0.yaml"
+          # A base 500 commits behind its target branch. `gh auth token --user`
+          # must fail so the verifier falls through to GH_TOKEN, matching how a
+          # runner without a per-owner login behaves.
+          cat > "$d/bin/gh" <<'SH'
+          #!/bin/sh
+          case "$*" in
+            "auth token --user"*)  exit 1 ;;
+            *"/pulls/"*)           echo '{"base":{"sha":"aaaaaaaa","ref":"main"}}' ;;
+            *"/branches/main")     echo '{"commit":{"sha":"bbbbbbbb"}}' ;;
+            *"/compare/"*)         echo '{"status":"ahead","ahead_by":500,"commits":[{"sha":"c1","commit":{"message":"feat: a change this branch would revert"}}]}' ;;
+            *)                     exit 1 ;;
+          esac
+          SH
+          chmod +x "$d/bin/gh"
+          set +e
+          PATH="$d/bin:$PATH" \
+          PR_NUMBER=1 \
+          GITHUB_REPOSITORY=andygmassey/CM051-Home-Hub-Installer \
+          GH_TOKEN=control-not-a-real-token \
+          python3 scripts/verify_cut_manifest.py \
+            --manifest-dir "$d/cut-manifests" \
+            --only-kind pr_branch_not_stale_vs_main \
+            --require-kind pr_branch_not_stale_vs_main
+          rc=$?
+          set -e
+          echo "exit code against a synthetic 500-behind branch: $rc"
+          if [ "$rc" -ne 1 ]; then
+            echo "CONTROL FAILED: expected exit 1 (FAIL) on a branch 500 commits" >&2
+            echo "behind its target, got $rc. The gate below cannot go red, so a" >&2
+            echo "green result from it means nothing." >&2
+            exit 1
+          fi
+          echo "OK: a stale branch exits 1, so a green below is a measurement, not a silence."
+
+      - name: PR branch must not be stale vs its target branch
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "PR_NUMBER=$PR_NUMBER  GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
+          python3 scripts/verify_cut_manifest.py \
+            --cm051-dir "$PWD" \
+            --only-kind pr_branch_not_stale_vs_main \
+            --require-kind pr_branch_not_stale_vs_main \
+            --verbose
