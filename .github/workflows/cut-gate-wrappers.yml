@@ -353,3 +353,17 @@ jobs:
             echo "::error::the test examined its assertions and FAILED (rc=${rc}) -- see the arms above"
             exit 1
           fi
+
+      - name: pr_exemptions refs are in a form their consumer can generate
+        # if: always() -- like the step above, many test steps precede this one
+        # in the same job, and without it a red anywhere earlier turns this into
+        # a grey tick that reads as a pass. That is the #888 shape applied to
+        # the guard for #839.
+        if: always()
+        run: |
+          set -uo pipefail
+          # SELF-TEST FIRST. A gate that cannot demonstrate a NO has a YES worth
+          # nothing -- and this one's whole subject is a check that was silently
+          # inert, so an inert guard for it would be a joke.
+          bash tests/test_exemption_ref_form.sh --self-test
+          bash tests/test_exemption_ref_form.sh
