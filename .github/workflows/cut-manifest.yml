@@ -22,6 +22,7 @@ on:
       - 'scripts/verify_cut_manifest.sh'
       - 'scripts/tests/test_verify_cut_manifest.py'
       - 'scripts/tests/test_grep_in_source_at_sha_names_files.py'
+      - 'scripts/tests/test_probes_do_not_emit_derivable_person_uris.py'
       - 'tests/test_grep_row_cannot_be_satisfied_by_its_own_manifest.py'
       - 'tests/test_cut_deferrals_no_duplicate_keys.sh'
       - 'cut-deferrals.yaml'
@@ -63,6 +64,25 @@ jobs:
       - name: Run verify_cut_manifest smoke tests
         run: |
           python -m pytest scripts/tests/test_verify_cut_manifest.py scripts/tests/test_grep_in_source_at_sha_names_files.py -v
+
+      # A walk record travels -- logs, support bundles, CI output -- and this
+      # repo is PUBLIC. A Person URI is derivable from an email or phone via
+      # unsalted uuid5 with a namespace and template that are both in this
+      # repo, so publishing one is a confirmation oracle. This asserts no probe
+      # emits one.
+      #
+      # It lives in THIS workflow because this workflow already triggers on
+      # scripts/box_walk_probes/**, which is exactly the set of files it
+      # guards. A gate that does not fire when its subject changes is not a
+      # gate.
+      # `if: always()` is load-bearing, not decoration. Without it this step is
+      # SKIPPED whenever an earlier test in the same job fails -- so the run
+      # that most needs a PII verdict is exactly the run that would not get
+      # one. ci-maskless caught this and it was right.
+      - name: No probe may emit a derivable Person URI
+        if: always()
+        run: |
+          python -m pytest scripts/tests/test_probes_do_not_emit_derivable_person_uris.py -v
 
       # A grep_in_source_at_sha row must be provable by the SOURCE it names, not
       # by the manifest text that makes the claim.
