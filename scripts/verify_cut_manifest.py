@@ -506,6 +506,7 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
                               f"git grep error: {result.stderr.decode('utf-8', 'replace').strip()[:200]}",
                               entry.get("source_pr", ""))
             hits = 0
+            hit_files = []
             for line in result.stdout.decode("utf-8", "replace").splitlines():
                 # format: "<sha>:<path>:<count>"
                 head, _, count = line.rpartition(":")
@@ -516,6 +517,18 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
                     # not evidence that the code carries it.
                     self_described += 1
                     continue
+                # 🔴 NAME THE SURVIVORS. `hits=17` cannot tell a reader that 16
+                # of those 17 are inside the GATE THAT HUNTS THE PATTERN --
+                # verify_launchagent_pycache_guard.py carries
+                # PYTHONPYCACHEPREFIX 16 times as a PATTERN, not as an
+                # implementation. A whole-tree row on a bare identifier can be
+                # satisfied by the tooling that looks for it, and a bare count
+                # is invisible to that. Filenames are not: a reader who knows
+                # nothing about this row sees it in one glance.
+                # ORM's finding on #1091; the path was already computed here
+                # and discarded.
+                if rel not in hit_files:
+                    hit_files.append(rel)
                 try:
                     hits += int(count)
                 except ValueError:
@@ -531,6 +544,12 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
     if self_described:
         detail += (f" ({self_described} match(es) DISCARDED in manifest/ledger surfaces — "
                    f"a row is not evidence of itself)")
+    # Bounded at 8: enough to see WHICH compartment answered, short enough that
+    # a wide row cannot flood a build log. The residue is counted, not hidden.
+    if not path_hint and hit_files:
+        shown = ", ".join(hit_files[:8])
+        more = f" +{len(hit_files) - 8} more" if len(hit_files) > 8 else ""
+        detail += f" in [{shown}{more}]"
     return Result(entry["id"], entry["title"], "grep_in_source_at_sha", status, detail, entry.get("source_pr", ""))
 
 
