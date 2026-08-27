@@ -156,12 +156,22 @@ jobs:
         run: /bin/bash scripts/tests/test_verify_branch_truth_gate.sh
 
       - name: clean-tree gate suite
+        # an earlier suite going red is exactly when you need to know whether THIS
+        # one also fails; skipping it turns two defects into one report.
+        if: always()
         run: /bin/bash scripts/tests/test_verify_clean_tree_gate.sh
 
       - name: acceptance-gate probe suite
+        # same reason as the step above: a masked suite reports nothing, and a
+        # silent step is indistinguishable from a passing one.
+        if: always()
         run: /bin/bash scripts/tests/test_acceptance_gate_v1013_probe.sh
 
       - name: Probe must fire (1 green + 11 distinct reds)
+        # this step PREDATES the three suites above. Wiring them in front of it
+        # made it maskable, so the port had to carry its unmasking too --
+        # adding a check can blind the checks already there.
+        if: always()
         run: /bin/bash scripts/tests/test_people_seed_and_retrieval_probe.sh
 
       # The step above is now fast and reliable (task #348 removed a 35s
