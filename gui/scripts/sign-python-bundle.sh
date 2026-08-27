@@ -234,8 +234,42 @@ fi
 # AND PRINTED by the audit, never silently dropped -- a residual nobody states
 # is a residual nobody fixes. Hub lane owns them.
 #
-# -x is a regex matched against the path: /python/ is the stdlib, already done
-# above; \.app/ is the nested-signature compartment.
+# -x is a regex matched with rx.search() against the FULL path, not a relative
+# one -- and that is the trap. `\.app/` matched the OUTER bundle too, because
+# every path under it contains `OstlerInstaller.app/`, so the exclusion swallowed
+# the entire tree and compileall compiled NOTHING while exiting 0.
+#
+# Measured on a faithful path shape (outer .app, nested .app, stdlib), counting
+# what each regex actually seeds:
+#
+#     -x '(/python/|\.app/)'                    product=0  stdlib=0  nested=0
+#     no -x at all              (control)        product=1  stdlib=1  nested=1
+#     -x '(/python/|/Contents/Resources/.*\.app/)'  product=1  stdlib=0  nested=0
+#
+# The middle row is the control: it proves the tree IS compilable, so the zero
+# in the first row is the regex and not the sources.
+#
+# The anchored form works because the OUTER bundle's `.app` comes BEFORE
+# `/Contents/Resources/`, while every NESTED one appears AFTER it.
+#
+# 🔴 `.*` AND NOT `[^/]+`, AND THAT DISTINCTION IS THE WHOLE CORRECTION.
+# My first attempt used `/Resources/[^/]+\.app/`, which only matches a nested
+# bundle sitting DIRECTLY under Resources. This artefact has FIVE signed
+# bundles, and one of them does not:
+#
+#   Contents/Resources/Ostler.app                                  hub
+#   Contents/Resources/assistant-agent/OstlerAssistant.app         <- one level DOWN
+#   Contents/Resources/Ostler.app/.../assistant-agent/OstlerAssistant.app
+#   Contents/Resources/Ostler.app/.../Sparkle.framework/.../Updater.app
+#
+# `[^/]+` missed the sibling, so compileall would have SEEDED INTO IT -- writing
+# .pyc into a bundle this script does not sign, and which the caller's outer
+# codesign does NOT reseal (it signs without --deep; only the VERIFY is --deep).
+# The build would then have failed at `codesign --verify --deep --strict`, one
+# compartment away from the cause. Measured: importing that bundle's single
+# uncovered .py takes its own codesign 0 -> 1.
+#
+# /python/ is the stdlib, already seeded above.
 #
 # VERIFIED ON THE REAL v1.0.47 BUNDLE BEFORE THIS WAS WRITTEN, not after:
 # rc=0, 1448 -> 1801 (exactly the 353 predicted, nothing failed to compile),
@@ -244,7 +278,7 @@ fi
 PRODUCT_ROOT="${APP_PATH}/Contents/Resources"
 if ! env PYTHONDONTWRITEBYTECODE=1 "$BUNDLED_PY" -m compileall -q -f \
         --invalidation-mode unchecked-hash \
-        -x '(/python/|\.app/)' "$PRODUCT_ROOT"; then
+        -x '(/python/|/Contents/Resources/.*\.app/)' "$PRODUCT_ROOT"; then
     echo "ERROR: compileall failed on the product tree $PRODUCT_ROOT" >&2
     echo "       A PARTIAL seed is worse than none: whatever failed to compile" >&2
     echo "       is exactly what the customer's first import writes into the" >&2

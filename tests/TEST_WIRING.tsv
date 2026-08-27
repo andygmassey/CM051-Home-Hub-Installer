@@ -226,6 +226,7 @@ test_placeholder_strip.sh	UNWIRED	-
 test_pr_age_gate_declares_partial_runs.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pref_noise_source_cap.py	UNWIRED	-
 test_preferences_vendor_wired.sh	UNWIRED	-
+test_product_seed_regex_does_not_exclude_the_bundle.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_provenance_gate_cannot_run_is_not_stale.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_provenance_gate_marker_read_is_not_piped.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_provenance_survives_the_filter_under_execution.py	WIRED	.github/workflows/install-abort-and-egress.yml
