@@ -224,6 +224,30 @@ red()  { RED=$((RED+1));  RED_LINES+=("$1");  printf "  \033[31mRED \033[0m %s\n
 warn() { WARN=$((WARN+1)); WARN_LINES+=("$1"); printf "  \033[33mWARN\033[0m %s\n" "$1"; }
 ok()   { PASS=$((PASS+1)); printf "  \033[32mPASS\033[0m %s\n" "$1"; }
 
+# ---------------------------------------------------------------------------
+# THE MERGEABILITY DECISION, AS A PURE FUNCTION (#888).
+#
+# Pure so it can be exercised directly, with no network, no token and no real
+# PR -- see tests/test_mergeable_unknown_is_not_clean.sh. Three states, and the
+# third is the one that was missing:
+#
+#   conflicting  CONFLICTING or DIRTY   -> a real defect, red
+#   unmeasured   UNKNOWN, empty, null   -> GitHub has not computed it, red,
+#                                          but said differently so a re-run is
+#                                          the remedy rather than a rebase
+#   clean        anything else          -> pass
+#
+# Case-insensitive on purpose: the field is an API enum today, and a predicate
+# that only matches one spelling is how a gate goes quietly inert.
+mergeability_verdict() {  # $1 mergeable  $2 mergeStateStatus -> prints verdict
+  local m s
+  m="$(printf '%s' "${1:-}" | tr '[:lower:]' '[:upper:]')"
+  s="$(printf '%s' "${2:-}" | tr '[:lower:]' '[:upper:]')"
+  if [[ "$m" == "CONFLICTING" || "$s" == "DIRTY" ]]; then printf 'conflicting'; return; fi
+  if [[ -z "$m" || "$m" == "UNKNOWN" || "$m" == "NULL" ]]; then printf 'unmeasured'; return; fi
+  printf 'clean'
+}
+
 in_manifest() {  # $1 repo alias, $2 pr -> 0 if present
   local i
   for i in "${!ROW_REPO[@]}"; do
@@ -303,11 +327,37 @@ while IFS=$'\t' read -r repo pr ebase class note status _rest; do
     continue
   fi
 
-  # ---- (3) not conflicting -----------------------------------------------
-  if [[ "$mergeable" == "CONFLICTING" || "$mstate" == "DIRTY" ]]; then
-    red "$tag CONFLICTING (mergeable=$mergeable mergeState=$mstate)"
-    continue
-  fi
+  # ---- (3) not conflicting -- AND NOT UNMEASURED -------------------------
+  # #888. This tested ONLY for CONFLICTING/DIRTY, so UNKNOWN fell straight
+  # through and the row passed. GitHub computes mergeability LAZILY: for a
+  # window after any push -- to the PR or to its base -- `gh pr view` answers
+  # UNKNOWN, and line 289's `(.mergeable//"")` turns a null into "" which also
+  # falls through. Both read as clean. Measured live on 2026-08-27: the same
+  # three PRs polled seconds apart gave UNKNOWN, then MERGEABLE.
+  #
+  # 🔴 WHY THIS IS WORSE HERE THAN ANYWHERE ELSE. A human who acts on an
+  # UNKNOWN has a backstop: the merge API refuses a real conflict with 405, so
+  # the mistake surfaces. Andy hit exactly that merging #1103 an hour before
+  # this was written and got away with it for that reason. A CUT GATE HAS NO
+  # SUCH BACKSTOP -- nothing downstream re-asks. An UNKNOWN it waves through is
+  # simply never checked by anything, ever.
+  #
+  # CANNOT-RUN, not FAIL and not PASS: the answer is that GitHub had not
+  # computed one yet. The row is refused and NAMED so a re-run resolves it,
+  # rather than being recorded as a defect in the PR.
+  verdict="$(mergeability_verdict "$mergeable" "$mstate")"
+  case "$verdict" in
+    conflicting)
+      red "$tag CONFLICTING (mergeable=$mergeable mergeState=$mstate)"
+      continue ;;
+    unmeasured)
+      red "$tag CANNOT-RUN: mergeability not computed yet (mergeable=${mergeable:-<null>} mergeState=${mstate:-<null>}). GitHub resolves this lazily after a push to the PR or its base. This is NOT a pass -- re-run the gate once it settles. Waving it through is #888."
+      continue ;;
+    clean) : ;;
+    *)
+      red "$tag internal: mergeability_verdict returned '$verdict' for (${mergeable:-<null>}, ${mstate:-<null>})"
+      continue ;;
+  esac
 
   # ---- (4) path-to-artifact class check ----------------------------------
   case "$class" in
