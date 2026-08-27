@@ -682,16 +682,41 @@ check_repo() {
     fi
 
     _timeout=""; command -v gtimeout >/dev/null 2>&1 && _timeout="gtimeout 30"
+    # WHETHER THE FETCH SUCCEEDED DECIDES WHAT THE REFS MEAN, so it is recorded
+    # rather than only mentioned.
+    #
+    # This fetch carries --prune, so on success a branch deleted upstream loses
+    # its remote-tracking ref and cannot be reported as unmerged work. That is
+    # why #526's premise -- "prune before the gate" -- is already satisfied on
+    # the happy path, and why a stale-ref cross-check there would be solving a
+    # problem the fetch has already solved.
+    #
+    # THE HAZARD IS THE FAILURE PATH. When the fetch fails, this used to emit a
+    # note() -- a WARN, which cannot fail the gate -- and then read the stale
+    # cache anyway, reporting its contents as findings. Every remote-branch
+    # verdict below is then derived from refs that may be arbitrarily old:
+    # branches long since merged and deleted still appear as orphans, and
+    # branches created since are invisible. A warn bucket is not a safe bucket.
+    local _fetched=1
     if [[ -n "$_tok" ]]; then
         # base64 wraps at 76 columns on macOS; an embedded newline corrupts the
         # header and the fetch fails in a way that looks like a bad token.
         _auth="$(printf 'x-access-token:%s' "$_tok" | base64 | tr -d '\n')"
         $_timeout git -c "http.extraheader=AUTHORIZATION: basic ${_auth}" \
-            -C "$path" fetch -q origin --prune 2>/dev/null || \
-            note "${label}: fetch failed; results may be stale"
+            -C "$path" fetch -q origin --prune 2>/dev/null || _fetched=0
     else
-        $_timeout git -C "$path" fetch -q origin --prune 2>/dev/null || \
-            note "${label}: fetch failed; results may be stale"
+        $_timeout git -C "$path" fetch -q origin --prune 2>/dev/null || _fetched=0
+    fi
+    if [[ "$_fetched" -eq 0 ]]; then
+        bad "${label}: CANNOT VERIFY -- git fetch --prune FAILED, so refs/remotes/origin is a cache of unknown age"
+        printf '         Every remote-branch verdict for %s would be derived from\n' "$label" >&2
+        printf '         those refs. A branch merged and deleted upstream still looks\n' >&2
+        printf '         unmerged here, and one created since is invisible. This is NOT\n' >&2
+        printf '         a finding of orphaned work and it is NOT a pass.\n' >&2
+        printf '         Fix the network or the credentials and re-run. To proceed with\n' >&2
+        printf '         the blindness DECLARED, name the repo in OSTLER_ORPHAN_GATE_SKIP.\n' >&2
+        unverifiable=$((unverifiable + 1))
+        return
     fi
 
     local ship_sha
