@@ -310,8 +310,12 @@ deferrals:
       other invented helper names and returned 0 on BOTH main and the branch. That
       was a false zero from a guessed pattern, not evidence: uniform zeros across
       subject and control mean a broken predicate. The real symbol is `_ks_bounded`
-      and it was read out of the diff, not imagined. Clears when the branch is
-      deleted; it is merged work with an orphaned head.
+      and it was read out of the diff, not imagined. CLOSING CONDITION, corrected on TNM's
+      refusal: NOT "clears when the branch is deleted". Deleting clears the gate
+      by DESTROYING THE EVIDENCE rather than by landing or rejecting the work.
+      Clears when the content is on main (it is -- all four files verified present
+      by name) or explicitly rejected in writing. The branch may be deleted only
+      after that, and only with a preservation proof.
     until_cut: "v1.0.48"
   - ref: "CM051:fix/f2b-pair-state-readers"
     reason: >-
@@ -329,8 +333,9 @@ deferrals:
       silently revert the better fix. The closing comment records the real failure
       as upstream of both authors -- "two branches rewrote one file in parallel
       because nothing told either author the file was already claimed" -- which is
-      a process defect worth more than either patch. Clears when the branch is
-      deleted.
+      a process defect worth more than either patch. CLOSING CONDITION, same correction: clears when
+      the content is on main or explicitly rejected in writing -- never merely by
+      deleting the branch.
     until_cut: "v1.0.48"
   - ref: "CM051:#1055"
     reason: >-
