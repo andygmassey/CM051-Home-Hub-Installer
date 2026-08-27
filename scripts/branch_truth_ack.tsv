@@ -1,0 +1,24 @@
+# branch_truth_ack.tsv -- DELIBERATE-ROLLBACK acknowledgement ledger.
+# =============================================================================
+# Read by scripts/verify_branch_truth.sh. EMPTY by default.
+#
+# The branch-truth gate HARD-FAILS a cut whose pinned daemon tag is `behind` or
+# `diverged` from the daemon tag the LAST cut shipped (i.e. it would DROP commits
+# that already shipped -- the v1.0.12-class regression). That is almost always a
+# mistake (rebuilt from a diverged main). VERY OCCASIONALLY it is a deliberate,
+# eyes-open rollback. To permit ONE such rollback, add a row here. A matching
+# (this_tag, last_tag) row downgrades the gate's FAIL to a loud WARN.
+#
+# FORMAT: three TAB-separated columns, one row per intentional rollback:
+#   this_tag<TAB>last_tag<TAB>reason
+#     this_tag  = the daemon tag THIS cut pins        (e.g. hub-v0.4.44)
+#     last_tag  = the daemon tag the LAST cut shipped (e.g. hub-v0.4.45)
+#     reason    = why the rollback is intentional + safe (human-readable)
+#
+# Lines starting with `#` and blank lines are ignored. Keep this file EMPTY
+# unless a rollback is genuinely in flight; remove the row once the next
+# forward cut supersedes it. A silenced regression is a loaded gun -- treat a
+# row here as a documented exception, never a convenience.
+#
+# EXAMPLE (commented out -- do NOT leave live):
+# hub-v0.4.44	hub-v0.4.45	Rollback: 0.4.45 R3 wiki-crop regressed pairing; revert to last-good 0.4.44 while fix bakes. HR015 #NNN.
