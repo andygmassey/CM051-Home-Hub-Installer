@@ -1973,6 +1973,196 @@ OSTLER_PRELAUNCH_PROMOTED=false
 # have to re-drop the .json. Walking the staging tree top-level
 # instead keeps the licence intact while still doing one rename
 # per child (atomic per-entry, which is the property we need).
+# Relocate the bundled interpreter OUT of the notarised app, and hand back its
+# new path. THIS IS THE ROOT FIX FOR THE v1.0.45 BRICKING CLASS.
+#
+# THE PROBLEM. Every venv in the product is built by `"$PYTHON3_BIN" -m venv`,
+# and on a customer install PYTHON3_BIN was the interpreter inside
+# OstlerInstaller.app -- there is exactly ONE python3.11 in the artefact and
+# nothing copied it out. So every venv's base_prefix, and therefore its stdlib
+# import root, was inside a SIGNED BUNDLE:
+#
+#   ~/.ostler/.venv/pyvenv.cfg
+#     home = OstlerInstaller.app/Contents/Resources/python/bin
+#
+# CPython writes __pycache__/*.pyc next to the source it imports, so ANY import
+# by ANY of those interpreters broke the app's code seal. Measured on the
+# shipped v1.0.45 app, one ordinary import
+# (json, ssl, sqlite3, urllib.request, email.parser):
+#
+#   guard set   ->  0 .pyc in the bundle, codesign --verify --deep --strict rc=0
+#   guard unset -> 69 .pyc in the bundle, rc=1 "a sealed resource is missing or
+#                  invalid", and spctl REFUSES the app
+#
+# Setting PYTHONPYCACHEPREFIX at each entry point works, and is done, but it is
+# whack-a-mole: there are 29 LaunchAgents on a customer box and the next one
+# added re-bricks the Mac with nothing to catch it.
+#
+# THE FIX. Copy the interpreter to ~/.ostler/python and point PYTHON3_BIN at
+# the copy. Nothing signed is ever an import root again, and all 29 agents and
+# all 8 `-m venv` sites become harmless without being touched.
+#
+# MEASURED before writing this, on the shipped v1.0.45 artefact:
+#   relocated interpreter runs        Python 3.11.15, rc=0
+#   resolves to the NEW prefix        sys.base_prefix = <the copy>, NOT the app
+#                                     (it is a relocatable build)
+#   its own signature stays valid     codesign --verify --strict rc=0
+#   venv from it, guard UNSET, env -i pyc inside the app: 0, codesign rc=0
+#
+# WHY OSTLER_FINAL_DIR AND NOT OSTLER_DIR. `_ostler_set_paths` reassigns
+# OSTLER_DIR mid-install: the prelaunch staging tree first, ~/.ostler after the
+# FDA grant. Relocating into the staging tree would put the interpreter
+# somewhere that is later mv'd and rm -rf'd, leaving every venv's pyvenv.cfg
+# pointing at a deleted python -- the same class
+# _ostler_repair_venv_after_promote already exists to clean up after, except
+# that one repairs SHEBANGS and would not touch pyvenv.cfg. OSTLER_FINAL_DIR is
+# assigned once at top level (line ~1683) and never moves.
+#
+# This is SAFE ACROSS THE PROMOTE because _ostler_promote_prelaunch_tree merges
+# per top-level entry rather than moving the tree wholesale: it mkdir -p's the
+# final dir and mv's each staging entry in, so a pre-existing `python/` there is
+# untouched unless the staging tree also contains one, which it does not.
+#
+# It also fixes a latent failure nobody has reported yet: with the interpreter
+# inside the .app, a customer who ejects the DMG or deletes the installer is
+# left with a venv whose python no longer exists.
+_ostler_relocate_bundled_python() {
+    local bundled="$1"
+    local dest="${OSTLER_FINAL_DIR}/python"
+    local dest_py="${dest}/bin/python3.11"
+    local want have
+
+    # Ask the interpreter to IMPORT something and report its version in the same
+    # breath, rather than running `--version`.
+    #
+    # `--version` is built into the binary and answers correctly on a tree with
+    # NO STANDARD LIBRARY AT ALL. Measured: delete lib/python3.11/json and
+    # lib/python3.11/encodings from a relocated copy and
+    #
+    #     python3.11 --version        rc=0   "Python 3.11.15"
+    #     python3.11 -c 'import json' rc=1
+    #
+    # So a `ditto` interrupted by a full disk, a crash or a kill leaves a
+    # partial tree that the obvious idempotence check KEEPS, and every venv
+    # built from it afterwards fails. The health check has to exercise the
+    # thing that can be missing.
+    _probe_python() {
+        "$1" -c 'import json, ssl, sqlite3, sysconfig; print(sysconfig.get_python_version())' 2>/dev/null
+    }
+
+    want="$(_probe_python "$bundled")"
+    if [[ -z "$want" ]]; then
+        # The interpreter INSIDE the app cannot import its own stdlib. That is
+        # not a relocation problem and copying it would not help.
+        printf '%s' "$bundled"
+        return 0
+    fi
+
+    # Idempotent AND version-aware. A re-run must not pay 71 MB of copy, but an
+    # UPGRADE that ships a new interpreter must not keep the old one, and a
+    # HALF-COPIED tree must not be mistaken for either.
+    if [[ -x "$dest_py" ]]; then
+        have="$(_probe_python "$dest_py")"
+        if [[ -n "$have" && "$have" == "$want" ]]; then
+            printf '%s' "$dest_py"
+            return 0
+        fi
+        rm -rf "$dest"
+    fi
+
+    # Explicit degrade rather than a bare `mkdir -p`.
+    #
+    # HONEST NOTE ON WHY. I first wrote this claiming a bare mkdir would abort
+    # the install: the function is called from a command substitution in an
+    # assignment and install.sh runs under `set -Eeuo pipefail`. THE MUTATION
+    # TEST REFUTED THAT. Restoring the bare form against an unwritable
+    # destination, in the real call shape, under /bin/bash 3.2:
+    #
+    #   MUTANT SURVIVED, rc=0, and it degraded correctly anyway
+    #
+    # `set -e` did not propagate into the command substitution. So this is NOT
+    # fixing a demonstrated abort. It is here because depending on `set -e`
+    # semantics inside `$( )` is fragile and version-dependent, and an explicit
+    # degrade says what happens instead of inferring it. Keeping the reason
+    # accurate matters more than keeping it impressive.
+    mkdir -p "$OSTLER_FINAL_DIR" 2>/dev/null || { printf '%s' "$bundled"; return 0; }
+    if ! ditto "$(dirname "$(dirname "$bundled")")" "$dest" 2>/dev/null; then
+        # Warn, never abort: a failed copy must fall back to the bundled
+        # interpreter rather than leaving the customer with no python at all.
+        # The seal is then at risk again, which the per-entry-point guards
+        # still cover, so this degrades rather than breaks.
+        printf '%s' "$bundled"
+        return 0
+    fi
+    if [[ ! -x "$dest_py" ]]; then
+        printf '%s' "$bundled"
+        return 0
+    fi
+
+    # STRIP THE QUARANTINE XATTR ON THE COPY.
+    #
+    # A customer downloads the DMG in a browser, so the image and everything on
+    # it carries com.apple.quarantine. MEASURED: `ditto` PROPAGATES that
+    # attribute (so does cp), so the relocated tree inherits it -- and the copy
+    # is no longer covered by the ticket stapled to the .app, because it is no
+    # longer inside it.
+    #
+    # It ran fine on the machine this was written on, quarantined, rc=0. That is
+    # NOT evidence it is safe: this Mac has network and a cached Gatekeeper
+    # assessment. install.sh already says why in its own words at the assistant
+    # binary (~12216): "Gatekeeper still verifies the notarisation ticket ONLINE
+    # on first execution". An install behind a captive portal or with no network
+    # is exactly the case that would fail, and the installer's own DMG was
+    # already downloaded before the network went away.
+    #
+    # Same defensive treatment install.sh already applies to the Ollama bundle
+    # (~10351) and the assistant binary. `|| true` because failing to strip an
+    # attribute must never be worse than not relocating at all.
+    xattr -dr com.apple.quarantine "$dest" 2>/dev/null || true
+
+    printf '%s' "$dest_py"
+}
+
+# Nuke any venv whose interpreter still lives inside a .app, so it gets rebuilt
+# against the relocated one.
+#
+# WHY THIS IS NEEDED SEPARATELY. Both venv-creation sites are guarded by
+# `if [[ ! -d "$OSTLER_VENV" ]]`, so on an UPGRADE the existing venv is kept --
+# and an existing venv on a box installed before this change has
+# `home = .../OstlerInstaller.app/...` baked into pyvenv.cfg. It would go on
+# importing out of the signed bundle forever, and the relocation would silently
+# do nothing for exactly the customers who already have the problem.
+#
+# Detection reads pyvenv.cfg rather than guessing from paths, and the match is
+# on `.app/` so it cannot fire on a legitimately relocated venv.
+_ostler_drop_venvs_anchored_in_an_app() {
+    local root="${1:-$OSTLER_FINAL_DIR}"
+    [[ -d "$root" ]] || return 0
+    local cfg venv n=0
+    # FIND them, do not list them.
+    #
+    # The first version of this named three paths: .venv, fda-venv and
+    # doctor/.venv. install.sh has TEN `-m venv` sites, and the seven it missed
+    # -- CM048_VENV, CM019_VENV, KNOWLEDGE_VENV, EMAIL_INGEST_VENV,
+    # _AICONV_VENV, a loop variable, and a relative `.venv` -- would have kept
+    # importing out of the signed bundle for ever on an upgraded box, silently.
+    # A hardcoded list is whack-a-mole, and the next venv added restores the bug
+    # with nothing to catch it.
+    #
+    # Depth is bounded so this cannot walk a customer's whole home if
+    # OSTLER_FINAL_DIR is ever mis-set, and the match is on `.app/` so a
+    # correctly relocated venv is never touched.
+    while IFS= read -r cfg; do
+        [[ -f "$cfg" ]] || continue
+        if /usr/bin/grep -q '^home = .*\.app/' "$cfg" 2>/dev/null; then
+            venv="$(dirname "$cfg")"
+            rm -rf "$venv"
+            n=$((n + 1))
+        fi
+    done < <(find "$root" -maxdepth 4 -name pyvenv.cfg -type f 2>/dev/null)
+    return 0
+}
+
 _ostler_promote_prelaunch_tree() {
     if [[ "$OSTLER_PRELAUNCH_PROMOTED" == "true" ]]; then
         return 0
@@ -6078,7 +6268,14 @@ if [[ -z "${PYTHON3_BIN:-}" ]]; then
     PYTHON3_BIN=""
     BUNDLED_PYTHON="${SCRIPT_DIR}/python/bin/python3.11"
     if [[ -x "$BUNDLED_PYTHON" ]]; then
-        PYTHON3_BIN="$BUNDLED_PYTHON"
+        # Copy it out of the notarised app first. See
+        # _ostler_relocate_bundled_python for the measurement; in short, a venv
+        # built from an interpreter inside a signed bundle makes that bundle an
+        # import root, and CPython writes .pyc next to what it imports.
+        PYTHON3_BIN="$(_ostler_relocate_bundled_python "$BUNDLED_PYTHON")"
+        # Any venv from a PREVIOUS install is still anchored in the .app and
+        # would never be rebuilt (both creation sites are `if [[ ! -d ]]`).
+        _ostler_drop_venvs_anchored_in_an_app "$OSTLER_FINAL_DIR"
         BUNDLED_PY_VERSION=$("$PYTHON3_BIN" --version 2>&1 | cut -d' ' -f2)
         ok "$(printf "$MSG_OK_PYTHON_BUNDLED" "${BUNDLED_PY_VERSION}")"
     else
