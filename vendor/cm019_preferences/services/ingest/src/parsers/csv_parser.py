@@ -4,7 +4,7 @@ import csv
 import logging
 import re
 from pathlib import Path
-from typing import AsyncIterator, Optional, Dict
+from typing import AsyncIterator, Optional, Dict, List, Sequence
 from datetime import datetime
 import aiofiles
 
@@ -12,6 +12,100 @@ from .base import BaseParser, ParsedPreference
 from ..config import settings
 
 logger = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------------
+# EMAIL-EXPORT GUARD
+#
+# WHY THIS EXISTS. `csv` is a FORMAT, not a SOURCE. CSVParser is registered
+# LAST in the pipeline as the catch-all fallback (see pipeline.py), and its
+# subject-column detection is deliberately wide -- "subject" is the very first
+# alias it looks for. An export of EMAIL SUBJECT LINES therefore lands in the
+# fallback, is claimed on its first column, and every row becomes a
+# "preference" with a keyword-guessed category.
+#
+# Five preference categories on a measured box were made ENTIRELY of one such
+# file. That is the mechanism behind recruiter subject lines rendering as
+# films, "Coffee meeting" as food, and a job ad as a place: one unattributed
+# source, scattered by keyword.
+#
+# WHERE THE FIX BELONGS. At the WRITE side. A render-side filter would have to
+# be re-implemented by every present and future consumer of the store (the
+# wiki, the assistant, search, export) and each one is a separate exit. The
+# row must not be written at all.
+#
+# WHAT THIS DOES NOT DO. It does not repair points already in the store --
+# they were written by the previous code and stay until a repair pass deletes
+# them. A green run of this gate is evidence about FUTURE ingests only.
+# --------------------------------------------------------------------------
+
+# Reply/forward prefixes across the locales a mail client is likely to stamp.
+# `Re:` `RE:` `Fw:` `Fwd:` `AW:` (de) `TR:` (fr) `SV:` (da/no/sv) `Antw:` (nl),
+# optionally counted ("Re[2]:"). Anchored: a subject may legitimately CONTAIN
+# "re:" mid-string, only a PREFIX is the mail-client signature.
+_REPLY_PREFIX = re.compile(
+    r"^\s*(?:re|fw|fwd|aw|tr|sv|vs|antw|rif|odp)\s*(?:\[\d+\])?\s*:",
+    re.IGNORECASE,
+)
+
+# Column names that only ever appear in a mail export. "subject" is NOT here
+# and must not be: it is also PWG's own canonical preference column, so it
+# cannot discriminate. These can.
+_EMAIL_ONLY_HEADERS = frozenset({
+    "from", "to", "cc", "bcc", "sender", "recipient", "recipients",
+    "reply-to", "reply_to", "replyto",
+    "message-id", "message_id", "messageid",
+    "in-reply-to", "in_reply_to",
+    "thread-id", "thread_id", "threadid", "x-gm-thrid",
+    "delivered-to", "return-path", "envelope-to",
+    "mailbox", "folder", "labels",
+})
+
+# A genuine preference CSV does not carry reply prefixes. One row might be a
+# coincidence; a twentieth of the file is a mail export.
+_EMAIL_ROW_RATIO = 0.05
+
+# Below this many rows the ratio is noise -- three rows with one "Re:" is 33%
+# and means nothing. Small files are still covered row-by-row by
+# ``_is_reply_subject``; only the whole-FILE verdict needs the floor.
+_EMAIL_RATIO_MIN_ROWS = 20
+
+
+def _is_reply_subject(subject: str) -> bool:
+    """True if this string carries a mail client's reply/forward prefix."""
+    return bool(_REPLY_PREFIX.match(subject or ""))
+
+
+def _email_export_reason(
+    fieldnames: Sequence[str],
+    subjects: Sequence[str],
+) -> Optional[str]:
+    """Return why this CSV is a mail export, or None if it may be ingested.
+
+    The reason names the EVIDENCE and never quotes a subject back. It goes
+    into the operator's ingest log, and a log is another surface -- the whole
+    point of this gate is that these strings are other people's mail.
+    """
+    headers = {(f or "").strip().lower() for f in fieldnames}
+    hit = sorted(headers & _EMAIL_ONLY_HEADERS)
+    if hit:
+        return (
+            "carries mail-export columns "
+            f"({', '.join(hit)}): an email is not a preference"
+        )
+
+    n = len(subjects)
+    if n >= _EMAIL_RATIO_MIN_ROWS:
+        replies = sum(1 for s in subjects if _is_reply_subject(s))
+        ratio = replies / n
+        if ratio >= _EMAIL_ROW_RATIO:
+            return (
+                f"{replies} of {n} rows ({ratio:.1%}) carry a reply/forward "
+                f"prefix, over the {_EMAIL_ROW_RATIO:.0%} threshold: "
+                "this is an email subject-line export, not preference data"
+            )
+
+    return None
 
 
 class CSVParser(BaseParser):
@@ -156,9 +250,10 @@ class CSVParser(BaseParser):
 
         # Parse CSV
         reader = csv.DictReader(content.splitlines())
+        fieldnames = reader.fieldnames or []
 
         # Map actual columns to standard names
-        column_map = self._map_columns(reader.fieldnames or [])
+        column_map = self._map_columns(fieldnames)
 
         if "subject" not in column_map:
             # Not an error: the generic CSV parser is the fallback for arbitrary
@@ -174,9 +269,40 @@ class CSVParser(BaseParser):
             )
             return
 
+        # EMAIL-EXPORT GUARD (see module header). The whole file is already in
+        # memory above, so materialising the rows to reach a file-level verdict
+        # costs nothing extra -- and the verdict genuinely needs the whole file:
+        # the reply-prefix ratio is a property of the FILE, not of any one row.
+        rows: List[Dict[str, str]] = list(reader)
+        subject_col = column_map["subject"]
+        subjects = [(r.get(subject_col) or "").strip() for r in rows]
+
+        reason = _email_export_reason(fieldnames, subjects)
+        if reason is not None:
+            logger.warning(
+                "REFUSED %s: %s. Ingested 0 of %d rows. "
+                "`csv` is a format, not a source -- a file that reaches the "
+                "generic CSV fallback has no declared provenance, and mail "
+                "subject lines keyword-matched into preference categories are "
+                "what put recruiter subjects under Films & TV.",
+                file_path,
+                reason,
+                len(rows),
+            )
+            return
+
         row_count = 0
-        for row in reader:
+        reply_rows = 0
+        for row in rows:
             try:
+                # Row-level backstop. A file can pass the whole-file verdict and
+                # still contain mail -- a mixed export, or a mail export too
+                # short for the ratio floor to speak. A reply prefix is the mail
+                # client's own stamp; it is never part of a preference.
+                if _is_reply_subject((row.get(subject_col) or "").strip()):
+                    reply_rows += 1
+                    continue
+
                 pref = self._parse_row(row, column_map, default_compartment, default_category)
                 if pref:
                     row_count += 1
@@ -184,6 +310,15 @@ class CSVParser(BaseParser):
             except Exception as e:
                 logger.warning(f"Failed to parse row: {e}")
                 continue
+
+        if reply_rows:
+            logger.warning(
+                "Dropped %d of %d rows from %s: reply/forward prefix "
+                "(mail, not preference data)",
+                reply_rows,
+                len(rows),
+                file_path,
+            )
 
         logger.info(f"Parsed {row_count} preferences from {file_path}")
 
