@@ -279,6 +279,59 @@ pr_exemptions:
 
 
 deferrals:
+  # ── The two v1.0.48 orphan REDs. BOTH ARE SUPERSEDED-BY-CONTENT, NOT KILLED. ──
+  #
+  # These two RED the orphan gate for the SHA, not for the work. The branches
+  # still exist with commits that are not ancestors of main, but the FIXES they
+  # carry are already in main by a different sha. That is a real distinction and
+  # it is why each row below names an INVARIANT that was measured in main, not
+  # just a PR number that was asserted.
+  #
+  # HOW THE CLOSES READ, and why that mattered: both PRs were closed by the login
+  # `andygmassey`. Andy confirmed 2026-08-27 that he never closes anything by
+  # hand -- every agent acts under that credential. So the actor field cannot
+  # tell a human decision from an agent one, and #1099 carried NO closing comment
+  # at all. A prohibition whose grounds nobody wrote down can only be obeyed, not
+  # audited. Rather than infer intent from a close event, both were resolved by
+  # measuring whether the content had landed. It had.
+  - ref: "CM051:fix/all-kickstart-sites-bounded-509"
+    reason: >-
+      SUPERSEDED BY CONTENT via #1102, which is MERGED (2026-08-27T03:29:19Z)
+      under the identical title. The branch is PR #1099, closed 2026-08-26T09:27:35Z
+      with no comment. 12 commits, none an ancestor of main by sha, merges clean --
+      so the gate is right to see it. NOT MERGED HERE because the work is already
+      shipping. Verified in main on FOUR independent invariants, each with the
+      branch as a control, and all four agree exactly: `_ks_bounded` helper 8 in
+      main / 8 on branch; the #507 fire-and-forget wedge fix 10/10; the dead
+      LaunchAgent prune ("program no longer exists") 1/1; the --check-without-a-tty
+      fix 1/1. TNM named those last three as the discriminators precisely because
+      losing any one of them would be a real residual, and none is missing. NOTE
+      ON METHOD -- an earlier check of mine grepped for `kickstart_bounded` and two
+      other invented helper names and returned 0 on BOTH main and the branch. That
+      was a false zero from a guessed pattern, not evidence: uniform zeros across
+      subject and control mean a broken predicate. The real symbol is `_ks_bounded`
+      and it was read out of the diff, not imagined. Clears when the branch is
+      deleted; it is merged work with an orphaned head.
+    until_cut: "v1.0.48"
+  - ref: "CM051:fix/f2b-pair-state-readers"
+    reason: >-
+      SUPERSEDED BY CONTENT via #1103, which is MERGED (2026-08-27T05:13:56Z). The
+      branch is PR #1114, and unlike #1099 this one WAS closed with a full written
+      reason, which is the standard the other should have met. One commit
+      (729f9466) fixing "pair_state_agreement read 0 of 3 signals and lied
+      affirmative on one". #1103 carries four commits on the same file and its
+      FIRST commit (fbec512f, 37 minutes earlier) fixes the same defect, then goes
+      further: the dead device registry, a devices.db the daemon never writes
+      (there are TWO on a real box and the probe was pointed at the stale one), and
+      a bucket that adjudicated "is a device paired" and "is pairing required" as
+      one question. #1114 is a strict SUBSET and merge-tree reports conflicts
+      across five regions of the same file, so merging it now would conflict or
+      silently revert the better fix. The closing comment records the real failure
+      as upstream of both authors -- "two branches rewrote one file in parallel
+      because nothing told either author the file was already claimed" -- which is
+      a process defect worth more than either patch. Clears when the branch is
+      deleted.
+    until_cut: "v1.0.48"
   - ref: "CM051:#1055"
     reason: >-
       THE ROOT FIX for the v1.0.45 brick, and it is HELD ON PURPOSE for a reason
