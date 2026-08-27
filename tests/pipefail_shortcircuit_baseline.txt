@@ -6,7 +6,6 @@ bin/redact_selftest.sh
 bin/rollforward_gate.sh
 gui/scripts/sign-python-bundle.sh
 install.sh
-lib/ostler-detect-exports.sh
 scripts/_vendor_lib.sh
 scripts/box_walk_probes/probes/ingest_coverage.sh
 scripts/box_walk_probes/probes/launchd_no_ephemeral_paths.sh
