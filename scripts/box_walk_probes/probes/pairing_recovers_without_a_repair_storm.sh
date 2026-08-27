@@ -156,24 +156,31 @@ self_test() {
         exit "$PROBE_EX_FAIL"
     fi
 
-    printf 'VERDICT: SELF-TEST PASS -- counted 34 single-line tokens as a storm, cleared a 3-token box.\n'
-    # POLARITY. run_box_walk.sh PHASE 1 requires a self-test to exit 1:
-    #     "each probe must be able to FAIL", so exit 1 means "this probe CAN go
-    #     red on known-bad input" and anything else is reported BROKEN.
+    # A SELF-TEST SIGNALS SUCCESS BY GOING RED. See the sibling note in
+    # app_signature_survives_first_run.sh -- these two probes were the only 2 of
+    # 17 exiting 0 here, which made both BROKEN in phase 1 and therefore SKIPPED
+    # in phase 2. This one guards the re-pair storm; the box currently carries 35
+    # unrevoked bearer tokens and this probe was not watching.
     #
-    # This exited 0 on success, so the walk marked the probe BROKEN and DID NOT
-    # TRUST ITS MEASUREMENT -- while its own output said SELF-TEST PASS. Measured
-    # on a real walk 2026-08-26: 2 of 17 probes dark for exactly this reason.
+    # POLARITY, stated once: run_box_walk.sh PHASE 1 drives every probe with
+    # --self-test on KNOWN-BAD input and requires rc=1 -- "each probe must be
+    # able to FAIL". Anything else is reported BROKEN. The failure branches above
+    # print the literal "VERDICT: BROKEN", which phase 1 greps for BEFORE it reads
+    # any exit code, precisely so a probe cannot vouch for itself with an exit
+    # status.
     #
-    # The failure branches above are already correct and are NOT being changed:
-    # they print the literal "VERDICT: BROKEN", which phase 1 greps for BEFORE it
-    # reads any exit code, precisely so a probe cannot vouch for itself with an
-    # exit status.
-    #
-    # (It also read ${PROBE_EX_OK:-0}, and PROBE_EX_OK is defined NOWHERE in
-    # lib/probe.sh -- the lib defines PROBE_EX_PASS. The :- default silently
-    # supplied 0, so the wrong name never surfaced as an error.)
-    exit "$PROBE_EX_FAIL"
+    # SECOND DEFECT, found independently by Archie2 in #1121 and folded in here:
+    # this also read ${PROBE_EX_OK:-0}, and PROBE_EX_OK is defined NOWHERE in
+    # lib/probe.sh -- the lib defines PROBE_EX_PASS. The `:-` default silently
+    # supplied 0, so the wrong NAME never surfaced as an error. Two bugs wearing
+    # one line.
+    probe_examined 2 "synthetic token sets (negative control): a 34-token storm and a clean 3-token box"
+    probe_fail "negative control behaved correctly -- counted 34 single-line tokens as a storm, cleared a 3-token box"
+    # NOTHING BELOW probe_fail. The `exit "${PROBE_EX_OK:-0}"` that used to sit
+    # here is deleted, not merely bypassed: it is unreachable while probe_fail
+    # exits, and it would silently RESURRECT this defect the day probe_fail
+    # returned instead. The working probes (daemon_is_listening and the other 14)
+    # carry no PROBE_EX_OK at all -- measured, zero occurrences.
 }
 
 probe_main "$@"

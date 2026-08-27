@@ -51,10 +51,51 @@ declare -a RESULTS=()
 c_red=$'\033[31m'; c_grn=$'\033[32m'; c_yel=$'\033[33m'; c_off=$'\033[0m'
 
 # run <label> <what it proves> <command...>
+# 🔴 A GATE THAT DIED AND EXITED 0 IS NOT A PASS.
+#
+# MEASURED 2026-08-26. scripts/verify_must_contain.sh used `declare -A`, a bash
+# 4 builtin. Under /bin/bash 3.2 -- which is every Mac, and this host whenever
+# PATH bash is not Homebrew's -- it printed:
+#
+#     declare: -A: invalid option
+#     line 68: what: unbound variable
+#
+# and EXITED 0. On the real cuts/v1.0.47 BOM the true answer is rc=1: there are
+# unlanded rows. run() saw rc=0 and printed
+#
+#     PASS  MUST_CONTAIN BOM  every promised capability landed
+#
+# The gate that decides whether the promised capabilities landed certified a
+# cut it never read. It is not enough to fix that one file: the NEXT gate to
+# acquire a bash-4 builtin, a typo'd variable under `set -u`, or a syntax error
+# in a branch nobody exercises will do exactly the same thing, silently.
+#
+# run() captures stderr already (2>&1) and then throws it away when rc=0. So
+# the evidence was always here; nothing looked at it.
+#
+# THE DISCRIMINATOR: bash prefixes its OWN diagnostics with "<script>: line N:".
+# A gate's deliberate output does not look like that. Anchoring on that shape
+# rather than on words like "error" or "not found" avoids flagging a gate that
+# legitimately reports "image not found" as a finding.
+#
+# rc != 0 is already RED, so this only ever converts a would-be GREEN.
+_interpreter_died() {
+    printf '%s\n' "$1" | /usr/bin/grep -qE '^[^:]*: line [0-9]+: '
+}
+
 run() {
     local label="$1" proves="$2"; shift 2
     local out rc
     out="$("$@" 2>&1)"; rc=$?
+    if [[ $rc -eq 0 ]] && _interpreter_died "$out"; then
+        RED=$((RED+1))
+        printf '%s  RED %s  %-46s %s\n' "$c_red" "$c_off" "$label" "EXITED 0 AFTER DYING -- not a pass"
+        printf '          The interpreter reported an error and the gate still exited 0.\n'
+        printf '          That is a gate certifying something it never measured.\n'
+        printf '%s\n' "$out" | /usr/bin/grep -E '^[^:]*: line [0-9]+: ' | head -3 | sed 's/^/          /'
+        RESULTS+=("RED|$label|exited 0 after an interpreter error")
+        return
+    fi
     if [[ $rc -eq 0 ]]; then
         GREEN=$((GREEN+1))
         printf '%s  PASS%s  %-46s %s\n' "$c_grn" "$c_off" "$label" "$proves"

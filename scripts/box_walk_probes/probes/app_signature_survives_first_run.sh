@@ -247,24 +247,43 @@ self_test() {
         exit "$PROBE_EX_FAIL"
     fi
 
-    printf 'VERDICT: SELF-TEST PASS -- caught timestamp-mode, cleared unchecked-hash, saw a rewrite-in-place.\n'
-    # POLARITY. run_box_walk.sh PHASE 1 requires a self-test to exit 1:
-    #     "each probe must be able to FAIL", so exit 1 means "this probe CAN go
-    #     red on known-bad input" and anything else is reported BROKEN.
+    # A SELF-TEST SIGNALS SUCCESS BY GOING RED. It does not exit 0.
     #
-    # This exited 0 on success, so the walk marked the probe BROKEN and DID NOT
-    # TRUST ITS MEASUREMENT -- while its own output said SELF-TEST PASS. Measured
-    # on a real walk 2026-08-26: 2 of 17 probes dark for exactly this reason.
+    # This used to be `printf 'VERDICT: SELF-TEST PASS...'; exit "${PROBE_EX_OK:-0}"`
+    # and it made this probe BROKEN in every walk since it was written.
     #
-    # The failure branches above are already correct and are NOT being changed:
-    # they print the literal "VERDICT: BROKEN", which phase 1 greps for BEFORE it
-    # reads any exit code, precisely so a probe cannot vouch for itself with an
-    # exit status.
+    # run_box_walk.sh phase 1 drives every probe with --self-test on KNOWN-BAD
+    # input and requires rc=1: "each probe must be able to FAIL". A probe that
+    # exits 0 there has not demonstrated it can go red, so the runner marks it
+    # BROKEN and PHASE 2 SKIPS IT ENTIRELY. This probe guards the installer
+    # breaking its own signature during install (#422) -- and it has been
+    # guarding nothing.
     #
-    # (It also read ${PROBE_EX_OK:-0}, and PROBE_EX_OK is defined NOWHERE in
-    # lib/probe.sh -- the lib defines PROBE_EX_PASS. The :- default silently
-    # supplied 0, so the wrong name never surfaced as an error.)
-    exit "$PROBE_EX_FAIL"
+    # MEASURED 2026-08-26 across all 17 registered probes:
+    #     15 exit 1 and print VERDICT: FAIL   <- the contract
+    #      2 exit 0 and print SELF-TEST PASS  <- this one and
+    #                                            pairing_recovers_without_a_repair_storm
+    # A private convention held by 2 of 17 is not a convention, it is a bug.
+    #
+    #
+    # POLARITY, stated once: run_box_walk.sh PHASE 1 drives every probe with
+    # --self-test on KNOWN-BAD input and requires rc=1 -- "each probe must be
+    # able to FAIL". Anything else is reported BROKEN. The failure branches above
+    # print the literal "VERDICT: BROKEN", which phase 1 greps for BEFORE it reads
+    # any exit code, precisely so a probe cannot vouch for itself with an exit
+    # status.
+    #
+    # SECOND DEFECT, found independently by Archie2 in #1121 and folded in here:
+    # this also read ${PROBE_EX_OK:-0}, and PROBE_EX_OK is defined NOWHERE in
+    # lib/probe.sh -- the lib defines PROBE_EX_PASS. The `:-` default silently
+    # supplied 0, so the wrong NAME never surfaced as an error. Two bugs wearing
+    # one line.
+    # probe_examined is REQUIRED before any verdict: the contract refuses a
+    # verdict with no denominator, printing "VERDICT: BROKEN -- reported a
+    # verdict without calling probe_examined", which phase 1 also catches. The
+    # working probes (e.g. daemon_is_listening) do exactly this pair.
+    probe_examined 3 "synthetic bundles (negative control): timestamp-mode, unchecked-hash, rewrite-in-place"
+    probe_fail "negative control behaved correctly on all 3 synthetic bundles -- caught timestamp-mode, cleared unchecked-hash, saw a rewrite-in-place"
 }
 
 probe_main "$@"

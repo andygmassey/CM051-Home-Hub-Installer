@@ -54,7 +54,16 @@ if ! curl -s --max-time 10 -o /dev/null https://ghcr.io/v2/ 2>/dev/null; then
 fi
 
 # Collect every `image: <host>/<path>@sha256:<digest>` pin.
-mapfile -t PINS < <(grep -oE 'image:[[:space:]]+ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}' "$INSTALL" \
+# 🔴 NO mapfile -- bash 4 builtin, and /bin/bash is 3.2 on every Mac.
+# MEASURED 2026-08-26: bash 5 rc=0, /bin/bash 3.2 rc=1 "mapfile: command not
+# found". The count feeds a zero-guard AND the reported total ("found N
+# digest-pinned image(s)"), so the conversion is verified by diffing full
+# output before and after, not by eye.
+PINS=()
+while IFS= read -r _pin; do
+    [ -n "$_pin" ] || continue
+    PINS+=("$_pin")
+done < <(grep -oE 'image:[[:space:]]+ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}' "$INSTALL" \
                     | sed -E 's/^image:[[:space:]]+//' | sort -u)
 
 if [[ "${#PINS[@]}" -eq 0 ]]; then

@@ -87,7 +87,29 @@ is_exempt() { # is_exempt <path> -> 0 if listed
 
 # Shipping files only. Tests are excluded BY PATH and that is the one thing a
 # reader should check hardest: widening this filter is how the gate goes blind.
-mapfile -t FILES < <(git ls-files \
+# 🔴 NO mapfile. IT IS A BASH 4 BUILTIN AND THIS RUNS UNDER /bin/bash 3.2.
+#
+# MEASURED 2026-08-26: this file passed under bash 5 (rc=0) and FAILED under
+# /bin/bash 3.2 (rc=1, "mapfile: command not found"). Two of its siblings did
+# the same; a third died rc=127. /bin/bash is 3.2.57 on every Mac, which is
+# what a customer runs and what the cut host runs when invoked as /bin/bash.
+#
+# It survives today only because callers happen to invoke it via PATH `bash`,
+# which on this developer's Mac is Homebrew 5.x. That is an accident of one
+# machine's PATH, not a property of the gate.
+#
+# A read loop is portable and preserves the count exactly -- and the count
+# matters twice here: the CANNOT-RUN guard below, and the printed denominator
+# ("scanned N shipping files"). A conversion that silently changed either
+# would turn this into a gate that reports a number it did not measure.
+#
+# `declare -a` and `arr+=()` are fine in 3.2; only `declare -A` (associative)
+# is bash 4.
+FILES=()
+while IFS= read -r _f; do
+    [ -n "$_f" ] || continue
+    FILES+=("$_f")
+done < <(git ls-files \
     | grep -E '\.(sh|swift|py|rs)$' \
     | grep -vE '(^|/)tests?/' \
     | grep -vE 'Tests?\.swift$' \

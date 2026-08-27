@@ -1,8 +1,10 @@
 name: cut-gate-wrappers
 
-# Guards the SIX cut-gate wrappers in gui/Makefile -- the recipes that sit
-# between a gate script and the operator and decide what to say about its exit
-# code.
+# Guards the cut-gate WRAPPERS -- the code that sits between a gate script and
+# the operator and decides what to say about its exit code. Two files hold
+# wrappers of that shape: the recipes in gui/Makefile, and run() in
+# scripts/run_all_cut_gates.sh. Both are in scope here; the title says
+# "wrappers", not "Makefile", for that reason.
 #
 # The gate scripts have their own suites. Nothing tested the wrappers, and the
 # wrappers were where the reporting broke: `script || { echo "ERROR: <specific
@@ -55,6 +57,16 @@ on:
       - 'tests/test_pinned_wiki_image_has_design_system.sh'
       - 'scripts/verify_cut_provenance.sh'
       - 'tests/test_wiki_provenance_extracts_without_exec.sh'
+      # THE SECOND WRAPPER FILE. run() in run_all_cut_gates.sh reports on every
+      # gate's exit code and, until 2026-08-26, discarded the stderr it had
+      # already captured whenever rc==0. verify_must_contain.sh used `declare
+      # -A`, a bash 4 builtin; under /bin/bash 3.2.57 it printed "line 68: what:
+      # unbound variable" and EXITED 0, and run() reported "PASS MUST_CONTAIN
+      # BOM  every promised capability landed" for a BOM it had never parsed.
+      # Both the wrapper and its test are triggers: the defect surface and the
+      # instrument have to share one, same rule as the marker manifest above.
+      - 'scripts/run_all_cut_gates.sh'
+      - 'tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh'
       - '.github/workflows/cut-gate-wrappers.yml'
   push:
     branches: [main]
@@ -95,6 +107,28 @@ jobs:
 
       - name: Wrapper trichotomy self-test (stubbed gate scripts)
         run: /bin/bash tests/test_cut_gate_wrappers.sh
+
+      # THE OTHER WRAPPER. run() must not report a gate that died as a pass.
+      #
+      # /bin/bash DELIBERATELY, not `bash`. This is the shape the defect had:
+      # verify_must_contain.sh was green under Homebrew bash 5 on a developer's
+      # PATH and dead under /bin/bash 3.2.57, which is what the cut host and
+      # every customer Mac actually run. Testing it under 5 would reproduce the
+      # accident that hid it.
+      #
+      # The suite prefers the REAL pre-fix gate out of `git show
+      # origin/main:scripts/verify_must_contain.sh` as its specimen and falls
+      # back to a synthetic one only where history is unavailable -- and once
+      # this branch merges, origin/main carries the FIXED file, so the fallback
+      # is the steady state. It PRINTS which specimen it used; a green here is
+      # never silently the weaker claim.
+      #
+      # Exit 2 is CANNOT-RUN (the predicate was renamed or removed) and fails
+      # this step, deliberately. A gate whose self-test can no longer find it
+      # is not a gate that passed.
+      - name: run() cannot report a gate that died as a pass
+        if: always()
+        run: /bin/bash tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh
 
       - name: Test parses under /bin/bash 3.2 (the cut host's shell)
         if: always()
