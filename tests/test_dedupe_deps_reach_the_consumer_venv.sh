@@ -92,8 +92,13 @@ fi
 # (3) THE SHAPE THAT MATTERS. Driven by PIPELINE_REQS, the same declaration the
 #     pipeline venv uses. One declaration, two installations.
 # ---------------------------------------------------------------------------
-if grep -A4 '"${OSTLER_VENV}/bin/pip" install' "$INSTALL" | grep -q 'PIPELINE_REQS' \
-   || grep -B6 '"${OSTLER_VENV}/bin/pip" install' "$INSTALL" | grep -q 'for _pipeline_req in \$PIPELINE_REQS'; then
+# `cmd | grep -q` in a CONDITION under `set -o pipefail` INVERTS: grep -q exits
+# on first match, the upstream grep takes SIGPIPE, and pipefail reports the
+# whole pipeline as failed -- on a match. tests/test_pipefail_shortcircuit_
+# inversion.sh ratchets against exactly this and caught it here. Remedy B:
+# count in a substitution, compare the number.
+REQS_DRIVEN="$(grep -B6 -A4 '"${OSTLER_VENV}/bin/pip" install' "$INSTALL" | grep -c 'PIPELINE_REQS' || true)"
+if [[ "${REQS_DRIVEN:-0}" -ge 1 ]]; then
     pass "(3) the consumer install is driven by PIPELINE_REQS, so it cannot drift from the requirements files"
 else
     failure "(3) the consumer install is NOT driven by PIPELINE_REQS. A separate list drifts the moment either side moves"
@@ -115,7 +120,8 @@ fi
 #     installing into the pipeline venv. Shipping the layer dark silently is
 #     the entire defect; a fix that fails quietly reproduces it.
 # ---------------------------------------------------------------------------
-if grep -A8 '"${OSTLER_VENV}/bin/pip" install' "$INSTALL" | grep -q 'PIPELINE_PIP_EXIT='; then
+EXIT_WIRED="$(grep -A8 '"${OSTLER_VENV}/bin/pip" install' "$INSTALL" | grep -c 'PIPELINE_PIP_EXIT=' || true)"
+if [[ "${EXIT_WIRED:-0}" -ge 1 ]]; then
     pass "(5) a consumer-venv pip failure sets PIPELINE_PIP_EXIT, so it reaches the same warn-and-fail path"
 else
     failure "(5) a consumer-venv pip failure is swallowed. The layer would ship dark exactly as it does today"

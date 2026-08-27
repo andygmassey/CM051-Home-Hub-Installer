@@ -181,6 +181,10 @@ jobs:
           set -euo pipefail
           bash tests/test_install_log_follows_promotion.sh
 
+      - name: Dedupe deps must reach the venv that imports them (#1137)
+        run: |
+          bash tests/test_dedupe_deps_reach_the_consumer_venv.sh
+
       - name: Run app-bundle byte-by-byte regression
         if: always()
         # Per locked memory feedback_silent_bail_regression_test_shape.
