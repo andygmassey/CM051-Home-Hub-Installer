@@ -740,8 +740,32 @@ check_repo() {
     done < <(git -C "$path" for-each-ref --format='%(refname:short)' refs/remotes/origin 2>/dev/null)
 
     # -- 1. OPEN PRs, drafts included ---------------------------------------
-    if [[ -n "${OSTLER_ORPHAN_GATE_SKIP_PR:-}" ]]; then
-        note "${label}: PR check SKIPPED (OSTLER_ORPHAN_GATE_SKIP_PR set)"
+    # PER-LABEL, same grammar as OSTLER_ORPHAN_GATE_SKIP above.
+    #
+    # It used to be `[[ -n ... ]]` -- a global boolean -- while its sibling on
+    # the CHECKOUT axis took a comma list of labels. So "skip the daemon" was
+    # expressible on one axis and not the other, and an operator facing the
+    # daemon's cross-org CANNOT VERIFY had two choices: leave it undeclared and
+    # keep a red cut, or set the boolean and silence the open-PR limb for EVERY
+    # repo -- including the one the cut is being made FROM. That is the option
+    # someone reaches for under cut pressure, and it aims the blindness at the
+    # repo that matters most. See #1166.
+    #
+    # The three legacy blanket values still work, because tests and habits
+    # depend on them, but they now NAME what they silenced instead of doing it
+    # quietly. Anything else is read as a comma-separated label list.
+    local _pr_skip="" _pr_skip_why=""
+    if [[ ",${OSTLER_ORPHAN_GATE_SKIP_PR:-}," == *",${label},"* ]]; then
+        _pr_skip=1; _pr_skip_why="declared for ${label} in OSTLER_ORPHAN_GATE_SKIP_PR"
+    else
+        case "${OSTLER_ORPHAN_GATE_SKIP_PR:-}" in
+            1|true|all)
+                _pr_skip=1
+                _pr_skip_why="BLANKET (OSTLER_ORPHAN_GATE_SKIP_PR=${OSTLER_ORPHAN_GATE_SKIP_PR}) -- this silences the open-PR limb for EVERY repo, including ${label}. Name labels instead: OSTLER_ORPHAN_GATE_SKIP_PR=${label}" ;;
+        esac
+    fi
+    if [[ -n "$_pr_skip" ]]; then
+        note "${label}: PR check SKIPPED -- ${_pr_skip_why}"
     elif [[ -n "$gh_repo" ]] && command -v gh >/dev/null 2>&1; then
         local prs pr_rc pr_err
         # GH_TOKEN for the repo's OWNER, not whichever account `gh auth switch`
