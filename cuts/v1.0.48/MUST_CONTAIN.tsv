@@ -1,0 +1,30 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.48.
+#
+# ===========================================================================
+# WHY v1.0.48 EXISTS
+# ===========================================================================
+# v1.0.47 was cut, published, walked and REFUSED. Its own BOM row (the brick
+# fix, c196c1e0, capability installer_refuses_timestamp_mode_pyc) LANDED and
+# its capability is GREEN -- and the artefact still failed the walk. That is
+# not a contradiction, it is the finding: the row was true and the outcome was
+# not achieved, because the capability guarded MODE and the surviving defect
+# was ABSENCE.
+#
+#   v1.0.47 measured: 1888 .py, 1448 .pyc, 440 with NO .pyc.
+#   ORM arm 8b (#1092) imported one -> 1448 -> 1449, codesign rc=1, NO_GO.
+#
+# 🔴 THE DISPOSITION OF v1.0.47's ROWS, STATED NOT ASSUMED:
+#   * CM051 c196c1e0 (brick fix, stdlib limb)  -- LANDED AND HELD. Not carried.
+#     Its capability stays required in the manifest as a regression guard. The
+#     stdlib half is genuinely closed: 1448 seeded, 0 timestamp-mode, broad
+#     no-env import changes nothing. Do not re-litigate it.
+#   * HR015 email-ingest jetsam risk           -- CARRIED, still open, and its
+#     own text still says NOT A CUT BLOCKER. Unchanged, TBD ref, capability
+#     none. It is carried honestly rather than quietly dropped.
+#
+# A row with capability_id=none is UNGUARDED and can silently regress. The
+# carried row is the one such row here and it is named as such.
+# ===========================================================================
+what	repo	ref	landed	capability_id	verify	ticket
+🟠 NOT A CUT BLOCKER, BUT A JETSAM RISK ON THE MINIMUM-SPEC BOX. email-ingest holds ~11.5 GB for a ~14-minute tick, every ~70 minutes (StartInterval 3600; measured starts 06:27 07:36 08:45 09:56 11:06 12:19), on a 16 GB Mac mini -- and the 12:19 tick emitted ZERO messages while doing it. Observed live at 11.49 GB with 11.21 GB swap in use, minutes before the v1.0.43 walk. No jetsam fired this time (the five JetsamEvent reports on file are all 23 Aug) but it is the same precondition that killed the Colima VM. ALSO REOPENS #870: an email-ingest tick started 15:42:55 on 23 Aug and never logged a finish, 31 minutes before the first jetsam at 16:13:35, and the jetsam report's own largestProcess is VTDecoderXPCService -- so the recorded chain (installer buffer -> jetsam -> Colima) is at best incomplete. backfill_days=1825.	HR015	TBD	no	none	TBD	TNM 2026-08-24
+🔴 THE HALF v1.0.47 DID NOT CONTAIN. v1.0.47 closed the stdlib limb (1448 seeded, 0 timestamp-mode) and shipped 440 product .py with NO .pyc at all -- 353 in the outer bundle, 87 inside nested Ostler.app. ORM arm 8b (#1092) imported Contents/Resources/assistant_api/tests and took the bundle 1448 -> 1449 with codesign --verify --deep --strict rc=1, VERDICT NO_GO. That is an ADD (v1045-D001's defect), not a REWRITE (v1046-D001's), and the v1.0.47 audit could not see it because its root was $PYTHON_DIR -- the one directory the same commit had just fixed -- and it asked only about MODE. FIX (CM051 #1093, 7857e00c): compileall over Contents/Resources excluding /python/ and \.app/, plus a WHOLE-BUNDLE audit asking BOTH questions with an anti-vacuity floor on the .py DENOMINATOR. VERIFIED ON THE PUBLISHED v1.0.47 BUNDLE BEFORE THE PATCH WAS WRITTEN: rc=0, 1448 -> 1801 (exactly the 353 predicted, nothing failed to compile), uncovered 0, timestamp 0, and re-running arm 8b's own import leaves 1801 -> 1801. 41 test assertions; both new predicates mutation-tested (neutering the uncovered check fails 3, the floor fails 2). 🟠 RESIDUAL: the 87 inside Ostler.app are NOT fixed -- sparkle-embed seals that bundle two ship steps earlier, so their fix belongs at stage-payload. Hub lane.	cm051	7857e00c	yes	installer_refuses_py_with_no_pyc	TBD	A2 2026-08-26 / board #883

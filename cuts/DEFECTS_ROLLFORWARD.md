@@ -96,6 +96,7 @@ walk_horizon: v1.0.41
 | v1.0.44 | 2026-08-24 | closed | Andy (walked on hardware; run header 2026-08-24T10:10:59Z) | v1044-D001 v1044-D002 v1044-D003 v1044-D004 v1044-D005 v1044-D006 |
 | v1.0.45 |  | not_walked | A2 (ARTEFACT MEASURED 2026-08-26, NEVER INSTALLED. Not walked because it CANNOT be: the DMG bricks on first run, v1045-D001. There is no walks/v1.0.45.tsv and there should not be one -- no walker got past Gatekeeper.) | v1045-D001 |
 | v1.0.46 | 2026-08-26 | deferred | ORM walked the artefact 2026-08-26T03:08Z with scripts/walk_dmg.sh: PASS 5, FAIL 2, CANNOT-RUN 1, VERDICT NO_GO. Deferred (not closed) by A1 under Andy's standing instruction to drive to a cut: the root cause is FIXED on CM051 main c196c1e0 and rides v1.0.47, but it is in NO artefact, so closing would be true about the repo and false about the DMG. | v1046-D001 v1046-D002 v1046-D003 |
+| v1.0.47 | 2026-08-26 | deferred | Archie (ORM walked the INSTALLED box 2026-08-26T14:17:14Z; walks/v1.0.47.tsv records pass 7, fail 4, cannot_run 4, broken 0, verdict FAILED, qa_exit 1, box_fp 38abe713e160f279. Deferred, not closed: the cut-blocking root cause v1047-D001 is FIXED on CM051 main by #1093 and #1095 and rides v1.0.48, but it is in NO artefact, so closing would be true about the repo and false about the DMG -- the same reasoning as the v1.0.46 row above. The other 3 fails and 4 cannot-runs are STANDING defects that predate v1.0.47 and carry their own ids; they are not v1047 findings and are deliberately not listed here.) | v1047-D001 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -3372,6 +3373,59 @@ timestamp-mode count is 0. Gate: capability installer_refuses_timestamp_mode_pyc
 (OS003 #157), counted 0 at d297cc59 and 1 on c196c1e0.
 
 CARRIED into v1.0.47 -- BOM row, landed=no until an artefact contains it.
+
+
+### v1047-D001 -- v1.0.47 seals only the STDLIB: 440 product .py ship with NO .pyc
+
+**v1.0.47 existed to close v1046-D001 and it closed half of it.**
+
+THE HALF THAT HOLDS, and must not be re-litigated: the STDLIB. v1.0.47 ships
+1448 seeded .pyc, all unchecked-hash, 0 in timestamp mode, and a broad no-env
+import changes nothing. That was the v1.0.46 brick and it is gone.
+
+THE HALF THAT DID NOT. Measured on the published artefact
+(OstlerInstaller-1.0.47.dmg, 67,180,568 bytes, sha256 12fb6366...a86ff,
+matching SHA256SUMS, plist 1.0.47 / 4700):
+
+    .py in the bundle          1888
+    .pyc                       1448
+    .py with NO .pyc            440
+      outer bundle              353
+      inside nested Ostler.app   87
+
+ORM's walk arm 8b (#1092) imported the smallest unseeded module,
+Contents/Resources/assistant_api/tests:
+
+    .pyc 1448 -> 1449    codesign --verify --deep --strict rc=1
+    VERDICT NO_GO
+
+That is an ADD, not a REWRITE -- v1045-D001's defect, not v1.0.46's, surviving
+in the compartment the v1.0.46 fix never inspected. Two defects, one colour, and
+only one of them touches a mode bit:
+
+    .py with NO .pyc        -> first import ADDS a file      (v1045-D001)
+    .pyc in timestamp mode  -> first import REWRITES a file  (v1046-D001)
+
+ROOT CAUSE IS AN INSTRUMENT DEFECT. The audit added by #1085 reads $PYTHON_DIR
+-- the one directory that same commit had just fixed. It asserted a property
+over a subset chosen so as to exclude the defect, and asked only about MODE,
+never about ABSENCE. Every count-based and mode-based assertion in v1.0.47 was
+green while 440 files sat outside the audit's root.
+
+FIXED FOR v1.0.48, at two layers:
+  #1093/#1095  the signing step now runs compileall over the PRODUCT tree, the
+               audit refuses a .py with no .pyc, and an anti-vacuity floor
+               refuses a zero over a missing denominator.
+  #1155        the BOX-WALK PROBE that guards the seal was itself blind: its
+               trigger imported 24 stdlib modules only, so it returned PASS on
+               this very artefact. Now proved RED against v1.0.47: "353 of 353
+               product .py ship with NO .pyc". Without this the v1.0.48 walk
+               would have certified the defect it exists to close.
+
+NOT CLOSED BY THE ABOVE, recorded so silence is not read as a pass: the 87 .py
+inside the nested Ostler.app. `ship:` runs sparkle-embed, which seals Ostler.app
+with `codesign --force --deep`, TWO STEPS BEFORE sign-python-bundle -- so
+excluding them was mandatory, not cautious. The Hub lane owns that fix.
 
 ### v1046-D002 -- walk arm 5 is CANNOT-RUN, and that is not a pass
 
