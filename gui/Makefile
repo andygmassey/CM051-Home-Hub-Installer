@@ -1370,6 +1370,82 @@ release: guard-local-cut check-tools check-identity check-version check-pbxproj-
 # Re-signs the outer .app at the end so the outer signature seals
 # the new inner signatures.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Seed OstlerInstaller.app's bytecode  (ARM 8)
+#
+# 🔴 TWO ROOTS EXIST AND ONLY ONE WAS EVER SEEDED. stage-payload seeds
+# $(OSTLER_APP_PATH) -- the SOURCE Ostler.app. NOTHING has ever seeded
+# $(APP_PATH), the staged OstlerInstaller.app, so every .py under it shipped
+# without a .pyc beside it. MEASURED on the shipped v1.0.47 artefact:
+#
+#   OstlerInstaller.app (whole)                          1888 .py, 440 uncovered
+#     +- Resources/assistant-agent/OstlerAssistant.app      1 .py,   1 uncovered
+#     +- Resources/email-ingest/bin                         1 .py,   1 uncovered
+#
+# The first nested copy is the one arm 8 named. The email-ingest copy is NOT
+# inside any nested .app and was invisible to every framing used to hunt it.
+# Seeding the WHOLE root covers all three and clears the seeder's anti-vacuity
+# floor by construction -- the 1-file nested app cannot, which is why the
+# obvious "seed the fourth copy" fix would have died on its own guard.
+#
+# WHY THIS SLOT, AND NOT stage-payload: $(APP_PATH) DOES NOT EXIST until
+# `release` builds it. And it is safe HERE because sign-python-bundle -- the
+# very next step -- runs `codesign --force` over the nested daemon app and then
+# the outer app. The reseal is one named step away in this same file, not a
+# reliance on a later --force --deep somewhere else.
+#
+# NOT in sign-python-bundle.sh: that script refuses to seed by design, because
+# it signs without --deep and would leave .pyc outside any seal.
+# ---------------------------------------------------------------------------
+seed-installer-app-pyc: guard-local-cut
+	$(STEP) "Seeding OstlerInstaller.app bytecode before sign-python-bundle reseals it"
+	@if [ ! -d "$(APP_PATH)" ]; then \
+	    echo "ERROR: $(APP_PATH) is not a directory -- the 'release' target must run first." >&2; \
+	    echo "  Seeding a root that does not exist would report success over nothing." >&2; \
+	    exit 1; \
+	fi
+	@bash "$(CURDIR)/scripts/seed-hub-payload-pyc.sh" \
+	    "$(APP_PATH)" "$(PYTHON_BUNDLE_TARBALL)" "OstlerInstaller.app" 400
+	# 🔴 THE ASSUMPTION ARCHIE REFUSED TO LET ME MAKE, NOW AN ASSERTION.
+	#
+	# `release` copies the ALREADY-SEALED Ostler.app into
+	# $(APP_PATH)/Contents/Resources/. The seeder runs `compileall -f` with NO
+	# -x, so it reaches all ~86 .py inside that nested, already-signed bundle --
+	# and NOTHING reseals it: sign-python-bundle signs the outer $(APP_PATH)
+	# WITHOUT --deep, and its explicit --force calls name only the daemon app.
+	#
+	# The benign case is plausible: codesign hashes CONTENT, and unchecked-hash
+	# .pyc rewritten from identical sources by the same interpreter should be
+	# byte-identical. MEASURED, cpython-311, compileall -f twice over one tree:
+	# corpus digest 39a3ceb2c273... both runs -- IDENTICAL.
+	# ⚠️ That was homebrew 3.11.14, NOT the pinned python-build-standalone
+	# build. Close, not the same binary. So it is evidence, not proof, and a
+	# build must not rest on it.
+	#
+	# BOTH VERBS. v1.0.47 passed an "added" check and still shipped the defect;
+	# a rewritten-in-place file is a MODIFICATION, not an addition.
+	@OA="$(APP_PATH)/Contents/Resources/Ostler.app"; \
+	if [ ! -d "$$OA" ]; then \
+	    echo "CANNOT VERIFY: no nested Ostler.app at $$OA after seeding." >&2; \
+	    echo "  The seed just walked this root. Refusing to report a seal I did not check." >&2; \
+	    exit 1; \
+	fi; \
+	printf '[STEP] Verifying the seed did not disturb the already-sealed nested Ostler.app\n'; \
+	out="$$(codesign --verify --deep --strict --verbose=2 "$$OA" 2>&1)"; rc=$$?; \
+	added="$$(printf '%s\n' "$$out" | grep -c 'file added:')"; \
+	modified="$$(printf '%s\n' "$$out" | grep -c 'file modified:')"; \
+	printf '[OK] nested Ostler.app: codesign rc=%s, file added=%s, file modified=%s\n' \
+	    "$$rc" "$$added" "$$modified"; \
+	if [ "$$rc" -ne 0 ] || [ "$$added" -ne 0 ] || [ "$$modified" -ne 0 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: seeding \$$(APP_PATH) disturbed the nested Ostler.app seal." >&2; \
+	    printf '%s\n' "$$out" | sed 's/^/    /' >&2; \
+	    echo "  REMEDY: pass -x for Contents/Resources/Ostler.app at THIS call site" >&2; \
+	    echo "  only -- arm 1 already seeds that bundle inside its own envelope --" >&2; \
+	    echo "  and state the residual out loud. Do NOT widen the reseal." >&2; \
+	    exit 1; \
+	fi
+
 sign-python-bundle: guard-local-cut
 	$(STEP) "Signing bundled Python Mach-O files with hardened runtime"
 	@bash scripts/sign-python-bundle.sh "$(APP_PATH)" "$(CODESIGN_ID)"
@@ -2973,7 +3049,7 @@ verify-appcast:
 # failure at the end destroyed the finished DMG (v1.0.34). It now runs from
 # cut.yml after the artefact is uploaded. See the publish-appcast block above.
 # ---------------------------------------------------------------------------
-ship: guard-local-cut check-orphans check-pr-age download-hub-app check-ostler-app download-safari-extension download-python stage-daemon stage-payload sparkle-embed notarise-hub release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
+ship: guard-local-cut check-orphans check-pr-age download-hub-app check-ostler-app download-safari-extension download-python stage-daemon stage-payload sparkle-embed notarise-hub release seed-installer-app-pyc sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"

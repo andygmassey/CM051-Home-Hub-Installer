@@ -45,11 +45,27 @@ set -uo pipefail
 
 APP="${1:-}"
 TARBALL="${2:-}"
+# SUBJECT LABEL and ANTI-VACUITY FLOOR are per-root, because this script now
+# seeds TWO roots and they have different populations.
+#
+# 🔴 NAME THE SUBJECT, NOT THE INSTRUMENT. Before this, the [OK] lines below
+# printed the literal string "Ostler.app" regardless of what $APP actually was.
+# Pointed at a second root that would have reported a TRUE COUNT UNDER A FALSE
+# SUBJECT -- the precise failure this estate has paid for repeatedly.
+#
+# The floor cannot be shared either: Ostler.app carries ~86 .py and
+# OstlerInstaller.app ~1888, but the nested daemon app carries ONE, so a single
+# hardcoded >=20 is either vacuous for the big roots or a false "did not stage"
+# for a small one. Defaults reproduce the previous behaviour EXACTLY for the
+# existing arm-1 call site, which passes neither argument.
+LABEL="${3:-Ostler.app}"
+MIN_PY="${4:-20}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-[ -n "$APP" ]     || die "usage: seed-hub-payload-pyc.sh <OSTLER_APP_PATH> <PYTHON_BUNDLE_TARBALL>"
-[ -n "$TARBALL" ] || die "usage: seed-hub-payload-pyc.sh <OSTLER_APP_PATH> <PYTHON_BUNDLE_TARBALL>"
+[ -n "$APP" ]     || die "usage: seed-hub-payload-pyc.sh <APP_ROOT> <PYTHON_BUNDLE_TARBALL> [SUBJECT_LABEL] [MIN_PY]"
+[ -n "$TARBALL" ] || die "usage: seed-hub-payload-pyc.sh <APP_ROOT> <PYTHON_BUNDLE_TARBALL> [SUBJECT_LABEL] [MIN_PY]"
+case "$MIN_PY" in ''|*[!0-9]*) die "MIN_PY must be a non-negative integer, got '$MIN_PY'";; esac
 [ -d "$APP" ]     || die "not a directory: $APP"
 [ -f "$TARBALL" ] || die "python bundle tarball not found: $TARBALL
        download-python (step 7) produces it; this runs at stage-payload (step 9)."
@@ -57,7 +73,7 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/hubseed.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
-printf '[STEP] Seeding Ostler.app bytecode before the Sparkle seal\n'
+printf '[STEP] Seeding %s bytecode before its seal\n' "$LABEL"
 
 # ---- the interpreter ------------------------------------------------------
 # Resolve by find rather than hardcoding python/bin/python3.11: the layout is
@@ -124,13 +140,13 @@ print("%d %d %d %d" % (py, pyc, uncovered, wrongmode))
 set -- $AUDIT
 [ "$#" -eq 4 ] || die "audit returned '$AUDIT', not four counts."
 A_PY="$1"; A_PYC="$2"; A_UNCOVERED="$3"; A_WRONGMODE="$4"
-printf '[OK] Ostler.app: %s .py / %s .pyc -- uncovered %s, wrong-mode %s\n' \
-       "$A_PY" "$A_PYC" "$A_UNCOVERED" "$A_WRONGMODE"
+printf '[OK] %s: %s .py / %s .pyc -- uncovered %s, wrong-mode %s\n' \
+       "$LABEL" "$A_PY" "$A_PYC" "$A_UNCOVERED" "$A_WRONGMODE"
 
 # ANTI-VACUITY. A zero numerator over a missing denominator is not a pass: if
 # the payload failed to stage, every count is 0 and this would "succeed" while
 # sealing nothing. v1.0.47 measured 86 .py inside Ostler.app.
-[ "$A_PY" -ge 20 ] || die "only $A_PY .py inside $APP -- expected >=20 (v1.0.47: 86).
+[ "$A_PY" -ge "$MIN_PY" ] || die "only $A_PY .py inside $APP ($LABEL) -- expected >=$MIN_PY.
        The payload did not stage, so this audit could not look."
 [ "$A_UNCOVERED" -eq 0 ] || die "$A_UNCOVERED of $A_PY .py have NO .pyc beside them.
        The customer's first import writes each one into the bundle Sparkle is
@@ -139,4 +155,4 @@ printf '[OK] Ostler.app: %s .py / %s .pyc -- uncovered %s, wrong-mode %s\n' \
        Any other mode can be invalidated and rewritten in place, which breaks
        the seal without changing a single count."
 
-printf '[OK] Ostler.app bytecode sealed-pending-sparkle (%s .pyc, all unchecked-hash)\n' "$A_PYC"
+printf '[OK] %s bytecode sealed-pending-seal (%s .pyc, all unchecked-hash)\n' "$LABEL" "$A_PYC"
