@@ -194,6 +194,49 @@ printf '%s' "$tsv" | collisions_from_tsv
 # ---------------------------------------------------------------------------
 if git rev-parse --git-dir >/dev/null 2>&1; then
     echo
+    # --repo governs the API half. It did NOT govern this half, and nothing said
+    # so. Run this from a CM051 checkout with --repo <CM044> and every CM044 PR
+    # is simulated against CM051's main: 28 of 28 CONFLICTING, with the
+    # control line printing "control passed" underneath it. The control proved
+    # the PREDICATE (merge-tree works) and never touched the OPERAND (is this
+    # even the right repo's main). A uniform non-zero is as damning as a uniform
+    # zero, and this one cost a triage pass on 2026-08-27.
+    #
+    # So: prove the checkout and --repo are the same repository, or refuse. A
+    # CANNOT-RUN here is worth more than 28 confident wrong answers.
+    if [ -n "$REPO" ]; then
+        _origin="$(git remote get-url origin 2>/dev/null)"
+        # match owner/name irrespective of ssh|https and a trailing .git
+        # NO sed here. The first version used `[^/]+?` -- a LAZY quantifier,
+        # which BSD sed (the sed on a Mac, which is where this runs) does not
+        # support. The match silently failed, _slug came back EMPTY on both a
+        # matching and a mismatching checkout, and the guard printed the same
+        # "no origin remote" line either way. A guard that returns one answer for
+        # every input is the defect it was written to catch.
+        # Parameter expansion works identically in bash 3.2 and needs no regex.
+        _u="${_origin%.git}"          # drop a trailing .git
+        _name="${_u##*/}"             # repo name
+        _rest="${_u%/*}"              # everything before it
+        _owner="${_rest##*[:/]}"      # owner, after the last : or /
+        _slug="${_owner}/${_name}"
+        [ "$_slug" = "/" ] && _slug=""
+        if [ -z "$_slug" ]; then
+            echo "STALE CHECK: CANNOT-RUN -- no origin remote to compare against --repo ${REPO}"
+            echo "  The collision list above is still valid (it is pure API). Only the"
+            echo "  vs-main simulation is refused."
+            _skip_stale=1
+        elif [ "$_slug" != "$REPO" ]; then
+            echo "STALE CHECK: CANNOT-RUN -- checkout/--repo MISMATCH, refusing to simulate"
+            echo "  --repo      ${REPO}"
+            echo "  checkout is ${_slug}   ($(git rev-parse --short HEAD 2>/dev/null))"
+            echo "  Simulating one repo's PRs against another repo's main returns"
+            echo "  CONFLICTING for everything, which reads exactly like a real result."
+            echo "  cd into a ${REPO} checkout and re-run."
+            _skip_stale=1
+        fi
+    fi
+fi
+if [ "${_skip_stale:-0}" -eq 0 ] && git rev-parse --git-dir >/dev/null 2>&1; then
     base="$(git rev-parse origin/main 2>/dev/null)"
     if [ -z "$base" ]; then
         echo "STALE CHECK: CANNOT-RUN -- no origin/main in this checkout"
