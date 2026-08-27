@@ -58,6 +58,8 @@ test_codename_sweep_sees_an_early_leak.sh	WIRED	.github/workflows/appcast-ship-w
 test_colima_autostart_mechanism.sh	WIRED	.github/workflows/colima-autostart.yml
 test_colima_start_retry.sh	WIRED	.github/workflows/colima-autostart.yml
 test_composite_cleanup.sh	UNWIRED	-
+test_confirm_calendars_helper.py	WIRED	.github/workflows/install-gui-contract.yml
+test_confirm_identity_helper.py	WIRED	.github/workflows/install-gui-contract.yml
 test_consent_a7_a8.sh	WIRED	.github/workflows/consent-contract.yml
 test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
 test_contact_card_prefill.sh	UNWIRED	-
@@ -118,6 +120,7 @@ test_email_ingest_bootstrap_guard.sh	UNWIRED	-
 test_email_ingest_loud_guard.sh	UNWIRED	-
 test_email_ingest_venv_wired.sh	UNWIRED	-
 test_email_settling_numerator_is_messages.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_end_of_install_confirmation.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_engine_provenance_never_claims_what_it_did_not_install.sh	WIRED	.github/workflows/engine-provenance.yml
 test_enrich_budget.sh	WIRED	.github/workflows/enrich-budget.yml
 test_enrich_kickstart_cannot_block_ingest.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml

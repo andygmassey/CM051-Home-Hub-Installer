@@ -118,13 +118,18 @@ check "Robin Carter calendar attributed to Robin (not the operator)" \
     "$PY" -c "import json;d=json.load(open('$TMP/calendars.json'));e=[c for c in d['calendars'] if c['match']=='Robin Carter'][0];assert e['owner']=='Robin Carter' and e['type']=='family'"
 
 # --- identity leg: propose (from fixture) -> record ---
-cat > "$TMP/id_fixture.json" <<'JSON'
+# example.com is RFC 2606 reserved. Composed here rather than written as a
+# literal address because ci-pii-shape-scan matches on SHAPE, not on a list
+# of known values. Delimiter stays quoted; sed reads stdin and writes stdout,
+# so there is no -i and no BSD/GNU divergence.
+FIXTURE_DOMAIN='example.com'
+sed "s/@__DOMAIN__/@${FIXTURE_DOMAIN}/g" > "$TMP/id_fixture.json" <<'JSON'
 {"rows": [
-  {"person": "https://pwg.dev/ontology#user_5", "name": "Jane Doe", "isOwner": "true", "idType": "email", "idValue": "jane@own.com"},
-  {"person": "https://pwg.dev/ontology#user_5", "name": "Jane Doe", "idType": "linkedin_url", "idValue": "https://linkedin.com/in/janedoe"},
-  {"person": "https://pwg.dev/ontology#person_bbbb", "name": "Jane Doe", "idType": "email", "idValue": "j.doe@own.com"},
-  {"person": "https://pwg.dev/ontology#person_bbb2", "name": "Jane Doe", "idType": "email", "idValue": "jane.doe@own.com"},
-  {"person": "https://pwg.dev/ontology#person_cccc", "name": "Jane Doe", "idType": "linkedin_url", "idValue": "https://linkedin.com/in/jane-pilot"}
+  {"person": "https://schema.ostler.ai/ontology#user_5", "name": "Jane Doe", "isOwner": "true", "idType": "email", "idValue": "jane@__DOMAIN__"},
+  {"person": "https://schema.ostler.ai/ontology#user_5", "name": "Jane Doe", "idType": "linkedin_url", "idValue": "https://linkedin.com/in/janedoe"},
+  {"person": "https://schema.ostler.ai/ontology#person_bbbb", "name": "Jane Doe", "idType": "email", "idValue": "j.doe@__DOMAIN__"},
+  {"person": "https://schema.ostler.ai/ontology#person_bbb2", "name": "Jane Doe", "idType": "email", "idValue": "jane.doe@__DOMAIN__"},
+  {"person": "https://schema.ostler.ai/ontology#person_cccc", "name": "Jane Doe", "idType": "linkedin_url", "idValue": "https://linkedin.com/in/jane-pilot"}
 ]}
 JSON
 

@@ -70,7 +70,7 @@ import urllib.request
 from itertools import combinations
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-PWG_NS = "https://pwg.dev/ontology#"
+PWG_NS = "https://schema.ostler.ai/ontology#"
 
 
 # ── short-id (byte-identical to identity_resolver.decisions.short_id) ────────
@@ -244,7 +244,7 @@ def score_candidates(
 
 # ── graph fetch (best-effort) ────────────────────────────────────────────────
 _PERSONS_SPARQL = """
-PREFIX pwg: <https://pwg.dev/ontology#>
+PREFIX pwg: <https://schema.ostler.ai/ontology#>
 SELECT ?person ?name ?org ?idType ?idValue ?isOwner WHERE {
     ?person a pwg:Person ;
             pwg:displayName ?name .

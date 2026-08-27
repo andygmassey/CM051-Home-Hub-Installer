@@ -32,6 +32,11 @@ on:
       - 'tests/test_install_gui_contract.py'
       - 'tests/test_install_gui_contract_negatives.py'
       - 'tests/test_installer_app_bundle_contents.sh'
+      - 'lib/ostler-confirm-calendars.py'
+      - 'lib/ostler-confirm-identity.py'
+      - 'tests/test_confirm_calendars_helper.py'
+      - 'tests/test_confirm_identity_helper.py'
+      - 'tests/test_end_of_install_confirmation.sh'
       # A gate must trigger on changes to ITSELF, or it can be broken (or
       # quietly narrowed) in a PR that never runs it.
       - 'tests/test_bundle_phase_declares_every_copy.sh'
@@ -186,6 +191,31 @@ jobs:
         if: success() || failure()
         run: |
           bash tests/test_dedupe_deps_reach_the_consumer_venv.sh
+
+      - name: End-of-install confirmation helpers (calendars + identity)
+        if: always()
+        # The confirmation block is deliberately fail-safe: install.sh probes
+        # for these two helpers and SILENTLY skips the whole propose-and-confirm
+        # step if either is absent. That makes it exactly the ships-dark shape
+        # -- a green install with the feature simply not there -- so the helpers
+        # need their own executed tests, not just a bundling assertion.
+        #
+        # Both files self-run their test_* functions under __main__; a bare
+        # `python3 <file>` is the invocation form, and the tests are listed in
+        # this workflow's paths: above so a change to either one runs them.
+        run: |
+          set -euo pipefail
+          python3 tests/test_confirm_calendars_helper.py
+          python3 tests/test_confirm_identity_helper.py
+
+      - name: End-of-install confirmation, end to end (wiring + behaviour)
+        if: always()
+        # Drives the calendars and identity legs through install.sh's own
+        # propose -> record path rather than calling the helpers directly, so
+        # a helper that works in isolation but is wired up wrong still fails.
+        run: |
+          set -euo pipefail
+          bash tests/test_end_of_install_confirmation.sh
 
       - name: Run app-bundle byte-by-byte regression
         if: always()

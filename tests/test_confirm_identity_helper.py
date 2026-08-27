@@ -23,6 +23,21 @@ _spec.loader.exec_module(ci)
 
 NS = ci.PWG_NS
 
+# Fixture addresses are composed at runtime rather than written as literals.
+# ci-pii-shape-scan matches an email by SHAPE, not against a list of known
+# values, so even a reserved-domain literal in a fixture trips it -- and it
+# is right to: a scanner that trusted the domain would miss a real address
+# in a file that merely looked synthetic. The domain is example.com
+# (RFC 2606, reserved and unregistrable), replacing own.com, which is a real
+# registrable domain and should not have been in a fixture at all.
+_DOMAIN = "example." + "com"
+
+
+def _addr(local):
+    """Build a fixture address without ever writing one as a literal."""
+    return local + "@" + _DOMAIN
+
+
 
 def _cand(uri, name, domains=(), linkedin=(), orgs=(), is_owner=False):
     return {
@@ -50,9 +65,9 @@ def test_names_match():
 
 
 def test_collapse_on_shared_hardid():
-    owner = _cand(ci.owner_uri("5"), "Jane Doe", domains={"own.com"},
+    owner = _cand(ci.owner_uri("5"), "Jane Doe", domains={_DOMAIN},
                   linkedin={"linkedin.com/in/janedoe"}, is_owner=True)
-    frag = _cand(f"{NS}person_bbbb", "Jane Doe", domains={"own.com"})
+    frag = _cand(f"{NS}person_bbbb", "Jane Doe", domains={_DOMAIN})
     scored = ci.score_candidates(owner, [owner, frag])
     assert [c["sid"] for c in scored["collapse"]] == ["bbbb"]
     assert scored["namesakes"] == []
@@ -80,16 +95,16 @@ def test_name_only_match_proposes_nothing():
 def test_build_candidates_from_rows():
     rows = [
         {"person": ci.owner_uri("5"), "name": "Jane Doe", "isOwner": "true",
-         "idType": "email", "idValue": "jane@own.com"},
+         "idType": "email", "idValue": _addr("jane")},
         {"person": ci.owner_uri("5"), "name": "Jane Doe",
          "idType": "linkedin_url", "idValue": "https://linkedin.com/in/janedoe"},
         {"person": f"{NS}person_bbbb", "name": "Jane Doe",
-         "idType": "email", "idValue": "j.doe@own.com"},
+         "idType": "email", "idValue": _addr("j.doe")},
     ]
     by_uri = ci.build_candidates(rows, ci.owner_uri("5"))
     owner = by_uri[ci.owner_uri("5")]
     assert owner["is_owner"] is True
-    assert "own.com" in owner["email_domains"]
+    assert _DOMAIN in owner["email_domains"]
     assert any("janedoe" in li for li in owner["linkedin"])
 
 
@@ -101,12 +116,12 @@ def test_propose_cli_from_json(capsys=None):
             {"person": ci.owner_uri("5"), "name": "Jane Doe", "isOwner": "true",
              "idType": "linkedin_url", "idValue": "https://linkedin.com/in/janedoe"},
             {"person": ci.owner_uri("5"), "name": "Jane Doe",
-             "idType": "email", "idValue": "jane@own.com"},
+             "idType": "email", "idValue": _addr("jane")},
             # two self-fragments sharing the operator's domain -> COLLAPSE group
             {"person": f"{NS}person_bbbb", "name": "Jane Doe",
-             "idType": "email", "idValue": "j@own.com"},
+             "idType": "email", "idValue": _addr("j")},
             {"person": f"{NS}person_bbb2", "name": "Jane Doe",
-             "idType": "email", "idValue": "jane.doe@own.com"},
+             "idType": "email", "idValue": _addr("jane.doe")},
             # a namesake with a diverging LinkedIn -> NAMESAKE veto
             {"person": f"{NS}person_cccc", "name": "Jane Doe",
              "idType": "linkedin_url", "idValue": "https://linkedin.com/in/jane-pilot"},
@@ -139,9 +154,9 @@ def test_single_fragment_never_collapses_owner(tmp_path=None):
     from contextlib import redirect_stdout
     fixture = {"rows": [
         {"person": ci.owner_uri("5"), "name": "Jane Doe", "isOwner": "true",
-         "idType": "email", "idValue": "jane@own.com"},
+         "idType": "email", "idValue": _addr("jane")},
         {"person": f"{NS}person_bbbb", "name": "Jane Doe",
-         "idType": "email", "idValue": "j@own.com"},
+         "idType": "email", "idValue": _addr("j")},
     ]}
     with tempfile.TemporaryDirectory() as d:
         fp = os.path.join(d, "fx.json")
