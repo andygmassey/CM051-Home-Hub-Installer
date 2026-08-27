@@ -1069,6 +1069,15 @@ def _merge_oxigraph(
         f"}}"
     )
 
+    # 6b. The SURVIVOR must be a live Person. See the long note at the
+    #     matching site in resolver.py: nothing in either merge path ever
+    #     asserts this, only step 7 below deletes it, so a merge into an
+    #     untyped keep produced a person-shaped node with no rdf:type.
+    #     Idempotent -- INSERT DATA of an existing triple is a no-op.
+    _sparql_update(url, client,
+        f"INSERT DATA {{ <{keep_uri}> a <{PWG}Person> }}"
+    )
+
     # 7. Remove discard's type triple (no longer a live Person)
     _sparql_update(url, client,
         f"DELETE DATA {{ <{discard_uri}> a <{PWG}Person> }}"
@@ -1126,13 +1135,37 @@ def _canonicalise_display_name_oxigraph(
 
 def _merge_qdrant(
     qdrant_url: str, collection: str, keep_uri: str, discard_uri: str,
-) -> None:
-    """Merge Qdrant points: update canonical payload, delete duplicate point."""
+) -> bool:
+    """Merge Qdrant points: update canonical payload, delete duplicate point.
+
+    Returns True when the vector side is consistent with the graph side after
+    this call -- either because the merge happened, or because there was
+    genuinely nothing to merge. Returns False when it COULD NOT be done.
+
+    IT USED TO RETURN None AND THE CALLER COULD NOT TELL THE DIFFERENCE.
+    The graph half is merged by _merge_oxigraph immediately above the call site,
+    and `action.executed = True` was set unconditionally after it. So when this
+    function bailed, the person was deleted from Oxigraph, kept in Qdrant, and
+    the action recorded itself as done. The two stores then diverge by exactly
+    one person per merge, permanently, with nothing reporting a fault.
+
+    MEASURED on a live box 2026-08-26: Qdrant people points 7284, Oxigraph
+    Person nodes 7111 -- a 173 gap. people/search reads Qdrant, so an orphan
+    point means search can return a person who no longer exists as a node.
+
+    "Skipping" is not a neutral word here. Returning False makes the skip
+    VISIBLE to the caller instead of indistinguishable from success.
+    """
     try:
         from qdrant_client import QdrantClient
     except ImportError:
-        logger.warning("qdrant-client not installed — skipping Qdrant merge")
-        return
+        logger.warning(
+            "qdrant-client not installed: CANNOT reconcile Qdrant for %s -> %s. "
+            "The graph merge has already happened, so the two stores are now "
+            "out of step by one person until a reconcile runs.",
+            discard_uri, keep_uri,
+        )
+        return False
 
     client = QdrantClient(url=qdrant_url, timeout=30)
     keep_point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, keep_uri))
@@ -1146,12 +1179,18 @@ def _merge_qdrant(
             collection_name=collection, ids=[discard_point_id], with_payload=True,
         )
     except Exception as exc:
-        logger.warning("Qdrant retrieve failed: %s", exc)
-        return
+        logger.warning(
+            "Qdrant retrieve failed for %s -> %s: %s. CANNOT reconcile; the "
+            "graph merge has already happened.", discard_uri, keep_uri, exc,
+        )
+        return False
 
     if not discard_points:
+        # Legitimately consistent: there is no vector for the discarded person,
+        # so nothing is left orphaned. This is the one early return that is NOT
+        # a failure, and it returns True for exactly that reason.
         logger.info("Qdrant: discard point %s not found, nothing to merge", discard_point_id)
-        return
+        return True
 
     discard_payload = discard_points[0].payload or {}
 
@@ -1185,6 +1224,23 @@ def _merge_qdrant(
         points_selector=[discard_point_id],
     )
     logger.info("Qdrant merge: %s → %s (deleted %s)", discard_point_id, keep_point_id, discard_point_id)
+    # CM051 CORRECTION TO UPSTREAM #129 (CM041 100a3afb), deliberately NOT a
+    # verbatim graft. Upstream annotates this function `-> bool` and adds three
+    # returns -- False, False, True -- but the SUCCESSFUL merge path, the one
+    # ending here, falls off the end and returns None. None is falsy, so the
+    # caller's `if not _qdrant_ok` fires on every merge that WORKED: each one
+    # increments _qdrant_unreconciled and logs "UNRECONCILED MERGE". That is
+    # the exact false alarm #129's own docstring says it must not raise ("a fix
+    # that reported failure there would cry wolf ... and get ignored"), and it
+    # inverts the signal the commit exists to create.
+    #
+    # Verified by AST on source@origin/main: the only Return nodes in this
+    # function are at 1168 (False), 1186 (False) and 1193 (True); the last
+    # statement of the body is an Expr, not a Return.
+    #
+    # Grafting it verbatim would have shipped that. Returning True here is what
+    # makes the annotation honest and the counter mean what it says.
+    return True
 
 
 # ── Same-person_uri reconcile (collapse over-split vectors) ───────────────────
@@ -1515,11 +1571,24 @@ class BatchResolver:
                 self.oxigraph_url, self._client,
                 action.keep_uri, action.discard_uri,
             )
-            _merge_qdrant(
+            _qdrant_ok = _merge_qdrant(
                 self.qdrant_url, self.qdrant_collection,
                 action.keep_uri, action.discard_uri,
             )
+            # executed stays True: the GRAPH merge above really did happen and
+            # is not undone by a vector-side failure. What must not happen is
+            # that failure passing silently -- an unreconciled merge is a
+            # permanent one-person divergence between the two stores, and the
+            # only previous evidence was a warning nobody aggregates.
             action.executed = True
+            if not _qdrant_ok:
+                self._qdrant_unreconciled = getattr(self, "_qdrant_unreconciled", 0) + 1
+                logger.warning(
+                    "UNRECONCILED MERGE %s -> %s: Oxigraph updated, Qdrant NOT. "
+                    "Running total this pass: %d",
+                    action.discard_uri, action.keep_uri,
+                    self._qdrant_unreconciled,
+                )
 
         # Safety-net sweep: a node merge can leave the Qdrant collection with
         # more than one point carrying the surviving person_uri (see

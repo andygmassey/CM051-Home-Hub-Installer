@@ -215,20 +215,42 @@ class IdentityResolver:
                 # same identity finds a single node and falls into the branch
                 # above.
                 keep_uri = uris[0]
+                merged = 0
+                refused = 0
                 for discard_uri in uris[1:]:
+                    # RULE 2 veto, applied per PAIR. Checked before every
+                    # merge_persons() call, because the conflict can sit on a
+                    # different identifier from the one that produced the match.
+                    # The record-vs-node guard in _identifier_match_trustworthy
+                    # cannot catch this case -- see _canonical_keys_conflict.
+                    conflict = self._canonical_keys_conflict(keep_uri, discard_uri)
+                    if conflict is not None:
+                        refused += 1
+                        # Log the TYPE and the nodes, never the values:
+                        # canonical keys are per-person identifiers and this
+                        # line reaches install logs and support bundles.
+                        logger.info(
+                            "RULE 2: refusing to merge %s into %s -- they carry "
+                            "different %s (canonical keys must not merge)",
+                            discard_uri, keep_uri, conflict,
+                        )
+                        continue
                     self.merge_persons(keep_uri, discard_uri)
+                    merged += 1
                 logger.info(
-                    "Ingest-time merge: collapsed %d nodes sharing exact "
-                    "identifiers into %s",
-                    len(uris), keep_uri,
+                    "Ingest-time merge: collapsed %d of %d nodes sharing exact "
+                    "identifiers into %s (%d refused by RULE 2)",
+                    merged, len(uris) - 1, keep_uri, refused,
                 )
                 return MatchResult(
                     person_uri=keep_uri,
                     match_type="exact_identifier_merged",
                     confidence=1.0,
                     details=(
-                        f"Merged {len(uris)} nodes sharing exact identifiers "
-                        f"into {keep_uri}"
+                        f"Merged {merged + 1} of {len(uris)} nodes sharing "
+                        f"exact identifiers into {keep_uri}"
+                        + (f"; {refused} refused by RULE 2 (different "
+                           f"canonical keys)" if refused else "")
                     ),
                 )
             # Read-only mode: surface the conflict without mutating the graph.
@@ -503,6 +525,26 @@ class IdentityResolver:
             f"}}"
         )
 
+        # 5b. The SURVIVOR must be a live Person.
+        #
+        # Nothing else in either merge path ever ASSERTS this type -- step 7 of
+        # the batch path deletes the discard's, and the scalar_props copy above
+        # moves displayName/givenName/organization onto keep but never rdf:type.
+        # So merging into a URI that was not already a live Person produced a
+        # node that ACQUIRED every person property and never acquired the type:
+        # person-shaped, untyped, and invisible to every `?p a pwg:Person` count.
+        #
+        # Measured on the live graph 2026-08-26: 106 terminal merge survivors in
+        # exactly that state -- 102 of them carrying displayName, 0 typed as
+        # anything else -- which is the single largest contributor to the
+        # people_count_agreement gap.
+        #
+        # INSERT DATA of an existing triple is a no-op, so this is idempotent and
+        # cannot corrupt a healthy merge.
+        self._sparql_update(
+            f"INSERT DATA {{ <{keep_uri}> a <{PWG}Person> }}"
+        )
+
         # 6. Collapse any accumulated displayName values on the kept node to a
         #    single canonical value. Step 4 copies every displayName from the
         #    discard when keep has none, so a merge can leave the node with
@@ -656,6 +698,44 @@ class IdentityResolver:
             existing = self._person_identifier_values(matched_uri, id_type)
             if existing and id_value not in existing:
                 return (id_type, id_value, sorted(existing)[0])
+        return None
+
+    def _canonical_keys_conflict(
+        self, uri_a: str, uri_b: str
+    ) -> Optional[str]:
+        """The id_type on which two EXISTING NODES provably describe different
+        people. Returns the conflicting canonical id_type, or None.
+
+        THIS IS THE NODE-TO-NODE FORM AND IT IS NOT THE SAME GUARD AS
+        _canonical_key_conflict ABOVE. That one compares an INCOMING RECORD
+        against ONE matched node and runs inside _identifier_match_trustworthy,
+        so it decides which nodes are allowed to ENTER found_uris. It cannot see
+        a conflict between two nodes that BOTH passed it, and that is exactly
+        the merge that over-merges:
+
+            an incoming record carries a SHAREABLE identifier (a reused family
+            email, an office switchboard number) matching node A, and another
+            matching node B. If the record carries no canonical key of its own,
+            the record-vs-node guard has nothing to compare and returns None for
+            both. found_uris then holds A and B, and the RULE 1 collapse folds B
+            into A even though A and B carry different Contacts cards.
+
+        Grafted from CM041 af74324776cf (#131). MEASURED on the live graph
+        2026-08-26: 2259 icloud_contact_uid identifiers examined, 130 over-merged
+        Person nodes, 268 Contacts cards swallowed, worst single node 5 distinct
+        cards.
+
+        ABSENCE IS NOT A CONFLICT. A node with no Contacts card yet is the
+        ordinary case of enrichment and must still merge -- that is what keeps
+        RULE 1 working. Only two PRESENT and DISJOINT value sets refuse.
+        """
+        for id_type in sorted(self._CANONICAL_ID_TYPES):
+            values_a = self._person_identifier_values(uri_a, id_type)
+            if not values_a:
+                continue
+            values_b = self._person_identifier_values(uri_b, id_type)
+            if values_b and not (values_a & values_b):
+                return id_type
         return None
 
     @staticmethod
