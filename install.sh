@@ -6721,7 +6721,7 @@ done
 if [[ "$DO_UNZIP" == "1" ]]; then
     while IFS= read -r z; do
         [[ -f "$z" ]] || continue
-        if unzip -Z1 "$z" 2>/dev/null | grep -qiE "(${_zip_re})"; then
+        if [ "$(unzip -Z1 "$z" 2>/dev/null | grep -ciE "(${_zip_re})")" -gt 0 ]; then
             dest="${z%.zip}"
             # Only extract once; never clobber an already-unzipped folder.
             if [[ ! -d "$dest" ]]; then
