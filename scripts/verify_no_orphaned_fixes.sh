@@ -743,11 +743,63 @@ check_repo() {
     if [[ -n "${OSTLER_ORPHAN_GATE_SKIP_PR:-}" ]]; then
         note "${label}: PR check SKIPPED (OSTLER_ORPHAN_GATE_SKIP_PR set)"
     elif [[ -n "$gh_repo" ]] && command -v gh >/dev/null 2>&1; then
-        local prs
+        local prs pr_rc pr_err
         # GH_TOKEN for the repo's OWNER, not whichever account `gh auth switch`
         # last left active -- see the fetch block above for why that matters.
+        #
+        # 🔴 NO `2>/dev/null`, AND THE EXIT CODE IS KEPT. Until 2026-08-27 this
+        # read `... 2>/dev/null) || prs=""`, which did three harmful things at
+        # once:
+        #
+        #   1. THREW AWAY THE ERROR. The branch below could then only GUESS at
+        #      the cause -- its message literally said "(auth/billing?)". The
+        #      one string that would have named it was discarded on the way.
+        #   2. COLLAPSED FAILURE INTO ABSENCE. A cross-org 404, an expired
+        #      token, a billing stop and a repo with genuinely zero open PRs
+        #      all produced the same empty string. "Found nothing" and "could
+        #      not look" printed identically, which is the whole family of
+        #      defect this gate exists to close.
+        #   3. FED note(), NOT bad(). note() increments `warn`, and `warn` is
+        #      NEVER CONSULTED in the exit block -- measured: exit reads
+        #      `red`, `checked`, `expiry_ratchet_failed` and `unchecked`, and
+        #      nothing else. So the gate printed a [warn], carried on, and --
+        #      because `red` had not moved -- ended the repo with
+        #      `ok "<label>: nothing orphaned"` and the run with
+        #      "GREEN: every written fix is either shipping or consciously
+        #      deferred." It ASSERTED a clean result for a repo whose open PRs
+        #      it had never listed.
+        #
+        # This file already states the correct rule 190 lines up: "An
+        # unverifiable repo is a FAILURE, not a note." The PR limb was the one
+        # place that did not follow it. Routing to bad() + `unverifiable` also
+        # suppresses the per-repo "nothing orphaned" line for free, because
+        # that line is guarded on `red` not having moved.
+        #
+        # DELIBERATE ESCAPE HATCH, ALREADY PRESENT: a runner that genuinely
+        # cannot authenticate sets OSTLER_ORPHAN_GATE_SKIP_PR and gets the
+        # SKIP branch above. That is a DECLARED blindness, which is honest.
+        # An undeclared one is not.
+        pr_err="$(mktemp)"
         prs="$(gh_as "${_tok:-}" pr list --repo "$gh_repo" --state open --limit 100 \
-                 --json number,title,headRefName,isDraft 2>/dev/null)" || prs=""
+                 --json number,title,headRefName,isDraft 2>"$pr_err")"; pr_rc=$?
+        if [[ "$pr_rc" -ne 0 ]]; then
+            bad "${label}: CANNOT VERIFY -- listing open PRs for ${gh_repo} FAILED (exit ${pr_rc})"
+            printf '         This is NOT a finding of orphaned work, and it is NOT a pass.\n' >&2
+            printf '         The open-PR limb did not run, so nothing here says whether\n' >&2
+            printf '         %s has unmerged work outside this cut.\n' "$gh_repo" >&2
+            printf '         gh said:\n' >&2
+            sed 's/^/           /' "$pr_err" >&2
+            printf '         Fix the credentials, or declare the blindness with\n' >&2
+            printf '         OSTLER_ORPHAN_GATE_SKIP_PR=1 -- do not leave it undeclared.\n' >&2
+            unverifiable=$((unverifiable + 1))
+            rm -f "$pr_err"
+            return
+        fi
+        rm -f "$pr_err"
+        # `[]` is a SUCCESSFUL listing of zero open PRs -- a real measurement,
+        # and distinguishable from the failure above only because the exit
+        # code is now kept. It falls through to the loop, which does nothing,
+        # which is correct.
         if [[ -n "$prs" ]]; then
             local line
             while IFS=$'\t' read -r num title head draft; do
@@ -764,11 +816,15 @@ for p in json.load(sys.stdin):
     print("\t".join([str(p["number"]), p["title"].replace("\t"," "),
                      p["headRefName"], str(p["isDraft"]).lower()]))
 ' 2>/dev/null)
-        else
-            note "${label}: could not list PRs (auth/billing?) -- PR check NOT performed"
         fi
     elif [[ -n "$gh_repo" ]]; then
-        note "${label}: gh not installed -- PR check NOT performed"
+        # Same reasoning as the auth failure above: a missing `gh` means the
+        # limb DID NOT RUN. It was a note(), and note() cannot fail the gate.
+        bad "${label}: CANNOT VERIFY -- gh is not installed, open-PR limb NOT run"
+        printf '         Nothing was measured about unmerged PRs in %s.\n' "$gh_repo" >&2
+        printf '         Install gh, or declare it with OSTLER_ORPHAN_GATE_SKIP_PR=1.\n' >&2
+        unverifiable=$((unverifiable + 1))
+        return
     fi
 
     # -- 4. dirty tree -------------------------------------------------------
