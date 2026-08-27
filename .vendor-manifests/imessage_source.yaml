@@ -1,0 +1,10 @@
+name: imessage_source
+github:
+  owner: "<UNKNOWN -- retrofit needed>"
+  repo: "<UNKNOWN -- retrofit needed>"
+  branch: main
+  path: "."
+notes: |
+  verify_exempt=true in VENDOR_MANIFEST.toml: source path removed/relocated
+  off HR015 main since af4ae65; no live path to compare against. PROVENANCE-
+  RECOVERY DEBT.

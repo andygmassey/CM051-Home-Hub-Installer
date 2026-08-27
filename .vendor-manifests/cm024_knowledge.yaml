@@ -1,0 +1,14 @@
+name: cm024_knowledge
+github:
+  owner: andygmassey
+  repo: evernote-knowledge
+  branch: main
+  # Package was RENAMED across the vendor boundary: source src/ maps to
+  # vendored ostler_knowledge/. Drift check pings the src path; the pin's
+  # verify_exempt reason (see VENDOR_MANIFEST.toml) explains why the content
+  # gate is off until the rename is encoded structurally.
+  path: src
+notes: |
+  Content gate is verify_exempt today (rename debt). Drift check still runs so
+  a source-side commit is flagged for the maintainer even before the structural
+  remap lands.

@@ -1,0 +1,9 @@
+name: LICENSES
+github:
+  owner: andygmassey
+  repo: HR015-Gaming-PC
+  branch: main
+  path: LICENSES
+notes: |
+  Content gate + divergence patch details live in vendor/VENDOR_MANIFEST.toml
+  [[tree]] name="LICENSES". Byte-identical to source; no divergence patch.
