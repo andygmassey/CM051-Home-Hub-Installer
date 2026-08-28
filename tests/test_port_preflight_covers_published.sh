@@ -22,10 +22,14 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/.." && pwd)"
 INSTALL_SH="${REPO}/install.sh"
 
-PASS=0; FAIL=0
+PASS=0; FAIL=0; SKIP=0
 ok()   { printf '  [PASS] %s\n' "$*"; PASS=$((PASS+1)); }
 bad()  { printf '  [FAIL] %s\n' "$*"; FAIL=$((FAIL+1)); }
 cant() { printf '  [CANNOT-RUN] %s\n' "$*"; FAIL=$((FAIL+1)); }
+# SKIP is for an arm whose SUBJECT cannot exist in this environment (no
+# cross-uid listener on a hosted runner). It does NOT fail, and it is
+# printed in the summary so a skipped arm can never read as a pass.
+skip() { printf '  [SKIP] %s\n' "$*"; SKIP=$((SKIP+1)); }
 
 [ -r "${INSTALL_SH}" ] || { cant "install.sh unreadable at ${INSTALL_SH}"; echo "== 0 pass / 1 fail =="; exit 2; }
 
@@ -82,9 +86,25 @@ fi
 
 # ---------------------------------------------------------------- arm 4
 # A detected collision must FAIL, not warn-and-continue.
-PF_BLOCK="$(/usr/bin/awk '/^PORT_CONFLICT=false/{f=1} f{print} f&&/^fi$/{n++; if(n>=2) exit}' <<< "${CODE_ONLY}")"
+#
+# 🔴 THIS PREDICATE WAS BRITTLE AND IT COST A FALSE RED, 2026-08-28.
+# It used to lift from PORT_CONFLICT=false to the SECOND `^fi$`. Adding
+# the interpreter-availability guard above the loop introduced a third
+# `fi`, so the lift stopped BEFORE the `fail` it was looking for and
+# reported "install continues over a clash" while the code was correct.
+# Counting block keywords is counting layout, not meaning.
+#
+# Now anchored on a SEMANTIC terminator (the compose heredoc that
+# immediately follows), plus an anti-vacuity check: the lifted block
+# must contain BOTH the set and the test of PORT_CONFLICT. A truncated
+# lift therefore declares itself CANNOT-RUN instead of scoring a verdict
+# about code it never read.
+PF_BLOCK="$(/usr/bin/awk '/^PORT_CONFLICT=false/{f=1} f{print} f&&index($0,"docker-compose.yml"){exit}' <<< "${CODE_ONLY}")"
 if [ -z "${PF_BLOCK}" ]; then
     cant "arm 4: could not isolate the preflight block -- predicate broken, not the code"
+elif ! /usr/bin/grep -qE 'PORT_CONFLICT=true' <<< "${PF_BLOCK}" \
+  || ! /usr/bin/grep -qE 'if \[\[ "\$PORT_CONFLICT" == true \]\]' <<< "${PF_BLOCK}"; then
+    cant "arm 4: lifted block is missing the set or the test of PORT_CONFLICT -- lift is truncated, predicate broken"
 elif /usr/bin/grep -qE '^[[:space:]]*fail ' <<< "${PF_BLOCK}"; then
     ok "arm 4: a detected collision calls fail (aborts), not warn"
 else
@@ -182,5 +202,113 @@ else
 fi
 rm -f "${MUT}"
 
-printf '\n== %d pass / %d fail ==\n' "${PASS}" "${FAIL}"
+# ---------------------------------------------------------------- arm 8
+# THE DECIDER MUST BE A REAL BIND. netstat is a report; a bind is the
+# thing docker actually does. Structural half first.
+if /usr/bin/grep -qE '_port_bind_probe\(\)' <<< "${CODE_ONLY}"; then
+    ok "arm 8: a _port_bind_probe helper exists"
+else
+    bad "arm 8: no bind probe -- the decider is still only a report"
+fi
+
+# ---------------------------------------------------------------- arm 9
+# 🔴 THE FALSE-GREEN VECTOR. On BSD, SO_REUSEADDR or SO_REUSEPORT let a
+# bind succeed ALONGSIDE an existing socket. Either one silently
+# recreates the exact defect this file guards. This arm is narrow on
+# purpose: it fails on the OPTION, not on any mention.
+BIND_FN="$(/usr/bin/sed -n '/^_port_bind_probe() {/,/^    }$/p' "${INSTALL_SH}")"
+if [ -z "${BIND_FN}" ]; then
+    cant "arm 9: could not lift _port_bind_probe out of install.sh"
+elif /usr/bin/grep -qE 'SO_REUSE(ADDR|PORT)' <<< "${BIND_FN}"; then
+    bad "arm 9: the bind probe sets SO_REUSEADDR/SO_REUSEPORT -- that is a FALSE GREEN on BSD"
+else
+    ok "arm 9: the bind probe sets neither SO_REUSEADDR nor SO_REUSEPORT"
+fi
+
+# --------------------------------------------------------------- arm 10
+# BEHAVIOURAL, and the arm that makes the bind half non-vacuous: lift
+# the real helper and run it against a socket we genuinely bind.
+if [ -z "${BIND_FN}" ]; then
+    cant "arm 10: no bind probe to exercise"
+else
+    eval "${BIND_FN}" 2>/dev/null || true
+    if ! command -v _port_bind_probe >/dev/null 2>&1; then
+        cant "arm 10: lifted helper did not define _port_bind_probe"
+    else
+        BP_PY="$(command -v python3 2>/dev/null || true)"
+        if [ -z "${BP_PY}" ]; then
+            cant "arm 10: no python3 to drive the bind probe"
+        else
+            BFREE=""
+            for _c in 59981 59982 59983 59984; do
+                if [ "$(_port_bind_probe "${_c}" "${BP_PY}")" = "free" ]; then BFREE="${_c}"; break; fi
+            done
+            if [ -z "${BFREE}" ]; then
+                cant "arm 10a: could not find a free port for the negative control"
+            else
+                ok "arm 10a: NEGATIVE control -- bind probe reports 'free' on ${BFREE}"
+                "${BP_PY}" -c "
+import socket,time,sys
+s=socket.socket(); s.bind(('127.0.0.1',${BFREE})); s.listen(1)
+sys.stderr.write('up\n'); sys.stderr.flush(); time.sleep(8)
+" 2>/dev/null &
+                BLPID=$!
+                for _i in 1 2 3 4 5 6 7 8 9 10; do
+                    [ "$(_port_bind_probe "${BFREE}" "${BP_PY}")" = "held" ] && break
+                    /bin/sleep 0.3
+                done
+                BSEEN="$(_port_bind_probe "${BFREE}" "${BP_PY}")"
+                if [ "${BSEEN}" = "held" ]; then
+                    ok "arm 10b: POSITIVE control -- a real listener on ${BFREE} reports 'held'"
+                else
+                    bad "arm 10b: bound a real socket on ${BFREE} and the bind probe said '${BSEEN}'"
+                fi
+                kill "${BLPID}" 2>/dev/null || true
+                wait "${BLPID}" 2>/dev/null || true
+            fi
+
+            # CANNOT-RUN must be reachable: no interpreter -> 'cant', never 'free'.
+            if [ "$(_port_bind_probe 59985 "")" = "cant" ]; then
+                ok "arm 10c: CANNOT-RUN reachable -- absent interpreter gives 'cant', not 'free'"
+            else
+                bad "arm 10c: absent interpreter does not yield 'cant' -- a missing probe reads as free"
+            fi
+        fi
+    fi
+fi
+
+# --------------------------------------------------------------- arm 11
+# 🔴 THE ACTUAL DEFECT, measured rather than argued: a listener owned by
+# ANOTHER uid. lsof cannot see one; the bind probe must. Found
+# dynamically -- any port netstat calls LISTEN that lsof will not name.
+#
+# SKIPs (does not fail) when the environment has no such listener, which
+# is the normal case on a hosted runner. Proven separately by arm 10b,
+# so a skip here loses a demonstration, not the guarantee.
+if ! command -v _port_bind_probe >/dev/null 2>&1 || [ -z "${BP_PY:-}" ]; then
+    skip "arm 11: no usable bind probe in this environment"
+else
+    XUID_PORT=""
+    while read -r _lp; do
+        [ -n "${_lp}" ] || continue
+        if [ -z "$(/usr/sbin/lsof -t -i ":${_lp}" -sTCP:LISTEN 2>/dev/null)" ]; then
+            XUID_PORT="${_lp}"; break
+        fi
+    done <<< "$(/usr/sbin/netstat -an -p tcp -f inet 2>/dev/null \
+        | /usr/bin/awk '$NF=="LISTEN"{n=split($4,a,"."); print a[n]}' | sort -un | head -40)"
+
+    if [ -z "${XUID_PORT}" ]; then
+        skip "arm 11: no cross-uid listener on this host -- nothing to demonstrate against"
+    else
+        XSEEN="$(_port_bind_probe "${XUID_PORT}" "${BP_PY}")"
+        if [ "${XSEEN}" = "held" ]; then
+            ok "arm 11: CROSS-UID -- port ${XUID_PORT} is invisible to lsof and the bind probe still says 'held'"
+        else
+            bad "arm 11: port ${XUID_PORT} is LISTEN, invisible to lsof, and the bind probe said '${XSEEN}' -- THE ORIGINAL DEFECT"
+        fi
+    fi
+fi
+
+printf '\n== %d pass / %d fail / %d skip ==\n' "${PASS}" "${FAIL}" "${SKIP}"
+[ "${SKIP}" -eq 0 ] || printf '   NOTE: %d arm(s) skipped -- see [SKIP] above. A skip is not a pass.\n' "${SKIP}"
 [ "${FAIL}" -eq 0 ] || exit 1

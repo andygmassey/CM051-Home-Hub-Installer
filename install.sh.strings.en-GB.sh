@@ -797,6 +797,7 @@ MSG_ERR_SOME_PORTS_ARE_HELD_CANNOT_START="Ostler cannot start its databases beca
 MSG_ERR_STOP_CONFLICTING_SERVICES_OR_USE_ONE_ACCOUNT="Stop whatever is using the ports listed above, then run the installer again."
 MSG_WARN_PORT_CHECK_COULD_NOT_RUN="Could not check whether port %s is free. This is not the same as the port being free."
 MSG_WARN_PORT_PREFLIGHT_INCOMPLETE="One or more port checks could not run, so a clash with another program cannot be ruled out."
+MSG_WARN_PORT_BIND_PROBE_UNAVAILABLE="Could not run the most reliable port check on this Mac, so the checks below are less thorough than usual."
 MSG_WARN_STALE_COLIMA_LAUNCHAGENT_NOT_REMOVED="Could not remove a stale Colima start-up item. Your wiki may not load after a restart; contact support."
 MSG_WARN_STOP_CONFLICTING_SERVICES_CHANGE_PORTS_DOCKER="Stop the conflicting services or change the ports in docker-compose.yml"
 MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN="Tailscale didn't sign in within 3 minutes. You can come back to this later from Settings."
