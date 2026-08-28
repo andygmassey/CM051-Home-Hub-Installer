@@ -2979,7 +2979,7 @@ else
     # caller already restricted permissions). Still try /tmp so we
     # have SOMETHING on disk. Mention the fallback in the
     # customer log so support sees it.
-    INSTALL_LOG="/tmp/ostler-install-$(date +%s).log"
+    INSTALL_LOG="${OSTLER_DIAG_DIR}/install-$(date +%s).log"
     # Opt this run out of the _ostler_set_paths rebind. LOGS_DIR is not
     # writeable, so re-deriving INSTALL_LOG from it at promotion would
     # undo this fallback and send the trace back to a directory we have
@@ -9467,7 +9467,7 @@ composite_cleanup() {
        && -d "$OSTLER_PRELAUNCH_DIR" ]]; then
         if [[ -f "${OSTLER_PRELAUNCH_DIR}/logs/install.log" ]]; then
             cp "${OSTLER_PRELAUNCH_DIR}/logs/install.log" \
-               "/tmp/ostler-install-failsafe-$$.log" 2>/dev/null || true
+               "${OSTLER_DIAG_DIR}/install-failsafe-$$.log" 2>/dev/null || true
         fi
         rm -rf "$OSTLER_PRELAUNCH_DIR" 2>/dev/null || true
     fi
@@ -18653,7 +18653,7 @@ _install_conversation_feed() {
         mkdir -p "$base"
         "$PYTHON3_BIN" -m venv "$venv"
         "$venv/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
-        local pip_log="/tmp/ostler-${feed_key}-source-pip.log"
+        local pip_log="${OSTLER_DIAG_DIR}/${feed_key}-source-pip.log"
         local pip_ok=1
         if [[ "${#pip_args[@]}" -gt 0 ]]; then
             "$venv/bin/pip" install --quiet "${pip_args[@]}" 2>"$pip_log" || pip_ok=0
@@ -23798,7 +23798,7 @@ except Exception:
     print(0)" 2>/dev/null || true)"
     _landed="${_landed:-0}"
     if [[ "$_landed" -eq 0 ]]; then
-        warn "Conversation-ingest guard: ${_label} extraction emitted ${_n} conversation(s) but ZERO ${_label} chat-identity facts reached the graph. The ${_label} leg landed nothing -- this is a structural break, not 'no data'. See /tmp/ostler-hydrate-${_label}.log."
+        warn "Conversation-ingest guard: ${_label} extraction emitted ${_n} conversation(s) but ZERO ${_label} chat-identity facts reached the graph. The ${_label} leg landed nothing -- this is a structural break, not 'no data'. See ${OSTLER_DIAG_DIR}/hydrate-${_label}.log."
     else
         info "Conversation-ingest guard: ${_label} ${_landed} chat-identity fact(s) in the graph (extract had ${_n})."
     fi

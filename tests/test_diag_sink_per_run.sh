@@ -43,16 +43,53 @@ trap 'chmod -R u+w "$SANDBOX" 2>/dev/null; rm -rf "$SANDBOX"' EXIT
 
 echo "== install.sh diagnostic sink: private + per-run (#910) =="
 
-# -- ARM 1: no fixed /tmp sink survives anywhere in install.sh ---------------
-# Counts PATHS, not redirect sites, because a read-back or a warn string that
-# still names /tmp/ostler-*.log is just as wrong as a redirect: it would tell
-# the customer to go and read a file we no longer write.
-n_fixed="$(/usr/bin/grep -cE '/tmp/ostler-[a-z0-9.-]+\.log' "$INSTALL_SH")"
-if [ "$n_fixed" -eq 0 ]; then
-    ok "arm 1: zero fixed /tmp/ostler-*.log paths remain (denominator: whole file)"
+# Comments are stripped ONCE, here, and every arm that scores install.sh uses
+# this. Scoring raw text makes a warning ABOUT the bug read as the bug — see
+# the note on arm 3, and boards #757/#688/#808.
+CODE_ONLY="$(/usr/bin/sed -e 's/[[:space:]]*#.*$//' "$INSTALL_SH")"
+
+# -- ARM 1: no diagnostic .log under a shared /tmp path ----------------------
+# Counts PATHS, not redirect sites: a read-back or a warn string that still
+# names such a file is as wrong as a redirect, because it sends the customer to
+# read a file we no longer write.
+#
+# 🔴 THIS ARM ONCE REPORTED ZERO WHILE FOUR SITES EXISTED, AND THE SWEEP THAT
+# CREATED IT SHARED THE FAULT. Both used `/tmp/ostler-[a-z0-9.-]+\.log`, whose
+# character class matches LITERAL segments only. Every path built with a
+# variable or a command substitution was invisible to the sed sweep AND to this
+# guard — one blind spot, counted twice, certified as zero. Archie found it by
+# watching a live walk, not by reading the diff. Missed:
+#     INSTALL_LOG="/tmp/ostler-install-$(date +%s).log"
+#     local pip_log="/tmp/ostler-${feed_key}-source-pip.log"     <- a PIP log
+#     warn "... See /tmp/ostler-hydrate-${_label}.log."          <- a read-back
+#     "/tmp/ostler-install-failsafe-$$.log"
+# A fixture that encodes the FLAG (one spelling) instead of the PROPERTY (a
+# .log under shared /tmp) will bless whatever it cannot spell.
+#
+# So: take EVERY code line naming /tmp/ostler-, then score the ones that also
+# name a .log. Non-.log survivors (the per-PID prelaunch staging tree, and the
+# .yaml/.json data artefacts) are a different class and are listed, not scored
+# — deliberately, so the number here is never quietly widened to hide them.
+# NOTE: no `mapfile`. It is bash 4+, and this repo's shell is /bin/bash 3.2.57
+# — the same constraint install.sh itself lives under. Using it here would make
+# the arm CANNOT-RUN on the customer's own shell while passing on a runner.
+_tmp_lines=()
+while IFS= read -r _l; do
+    [ -n "$_l" ] && _tmp_lines+=("$_l")
+done < <(/usr/bin/grep -nE '/tmp/ostler-' <<< "$CODE_ONLY")
+n_scope=0; n_other=0
+for _l in "${_tmp_lines[@]}"; do
+    case "$_l" in
+        *.log*) n_scope=$((n_scope+1)) ;;
+        *)      n_other=$((n_other+1)) ;;
+    esac
+done
+if [ "$n_scope" -eq 0 ]; then
+    ok "arm 1: zero /tmp/ostler-*.log paths in CODE (denominator: ${#_tmp_lines[@]} code lines naming /tmp/ostler-; ${n_other} non-.log, out of scope, listed below)"
+    for _l in "${_tmp_lines[@]}"; do printf '         out-of-scope: %s\n' "$_l"; done
 else
-    bad "arm 1: ${n_fixed} fixed /tmp/ostler-*.log path(s) still present"
-    /usr/bin/grep -nE '/tmp/ostler-[a-z0-9.-]+\.log' "$INSTALL_SH" | head -5 >&2
+    bad "arm 1: ${n_scope} /tmp/ostler-*.log path(s) still in CODE (of ${#_tmp_lines[@]} /tmp/ostler- lines)"
+    for _l in "${_tmp_lines[@]}"; do case "$_l" in *.log*) printf '    %s\n' "$_l" >&2 ;; esac; done
 fi
 
 # -- ARM 2: the sink is created by mktemp -d with an EXPLICIT template -------
