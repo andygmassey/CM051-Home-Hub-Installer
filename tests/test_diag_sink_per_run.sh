@@ -90,7 +90,7 @@ else
 fi
 
 # -- ARM 4: creation failure REFUSES, it does not fall back to /tmp ----------
-blk="$(/usr/bin/sed -n '/^if ! OSTLER_DIAG_DIR=/,/^fi$/p' "$INSTALL_SH")"
+blk="$(/usr/bin/sed -n '/^OSTLER_DIAG_DIR="\$(mktemp/,/^}$/p' "$INSTALL_SH")"
 if [ -z "$blk" ]; then
     bad "arm 4: could not locate the OSTLER_DIAG_DIR creation block"
 elif /usr/bin/grep -q 'exit 1' <<< "$blk" \
@@ -102,7 +102,7 @@ fi
 
 # -- ARM 5 (BEHAVIOURAL): run the real block; per-run and private ------------
 # Extract the shipped block and execute it, twice, rather than re-typing it.
-extract_block() { /usr/bin/sed -n '/^if ! OSTLER_DIAG_DIR=/,/^export OSTLER_DIAG_DIR$/p' "$INSTALL_SH"; }
+extract_block() { /usr/bin/sed -n '/^OSTLER_DIAG_DIR="\$(mktemp/,/^export OSTLER_DIAG_DIR$/p' "$INSTALL_SH"; }
 BLOCK="$(extract_block)"
 if [ -z "$BLOCK" ]; then
     cant "arm 5: could not extract the OSTLER_DIAG_DIR block from install.sh"
