@@ -17,6 +17,29 @@
 # See cut-manifests/README.md for schema.
 # ============================================================================
 
+# 🔴 THIS IMPORT IS LMAD-CRITICAL, NOT COSMETIC. Do not remove it.
+#
+# This module annotates with `str | None` (PEP 604) in 18 places. That syntax
+# PARSES on 3.9 but is EVALUATED when each `def` executes at import time, so on
+# 3.9 the module dies with:
+#
+#     TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+#
+# ...at line 219, having examined NOTHING. `from __future__ import annotations`
+# makes every annotation a lazy string, so the module imports cleanly on 3.9.
+#
+# WHY THIS MATTERS MORE THAN A COMPATIBILITY NICETY. The shebang is
+# `#!/usr/bin/env python3` and the wrapper `exec python3`, so THE INTERPRETER IS
+# WHATEVER PATH SAYS. macOS ships 3.9.6 at /usr/bin/python3. Any caller with a
+# tidied PATH that puts /usr/bin first selects it. The traceback exits 1, and
+# gui/Makefile reads exit 1 as "a required fix is missing from the built .app".
+#
+# So the gate accused the PRODUCT of a defect that was entirely in the caller's
+# shell -- after a full build, sign and notarise cycle. Measured 2026-08-29:
+#     /usr/bin/python3       3.9.6   -> TypeError at import, rc=1, 0 rows read
+#     /opt/homebrew/bin/python3 3.14.4 -> runs
+from __future__ import annotations
+
 import argparse
 import fnmatch
 import hashlib
@@ -2315,4 +2338,40 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # 🔴 A CRASH IS "COULD NOT LOOK". IT IS NOT "I LOOKED AND FOUND A DEFECT".
+    #
+    # An unhandled exception exits 1. gui/Makefile keys its accusation --
+    # "a required fix is missing from the built .app" -- on any non-zero that
+    # is not 2. So before this handler existed, ANY crash in this gate was
+    # reported to the operator as a product defect, complete with an
+    # instruction to go re-pin the daemon and re-cut.
+    #
+    # That is not hypothetical. On 2026-08-29 a caller's PATH selected python
+    # 3.9, the module died at import on a PEP 604 annotation, and the operator
+    # was told a fix was missing from the .app. There were no RED rows. There
+    # were no rows at all.
+    #
+    # Exit 2 is this repo's established CANNOT-RUN code -- the same one the
+    # wrapper already uses for "python3 absent" and "PyYAML uninstallable", and
+    # the one gui/Makefile already routes to "COULD NOT RUN ... It has NOT
+    # found a fix missing -- it failed to look."
+    #
+    # SystemExit is re-raised untouched: main()'s own 0/1/3 contract is not
+    # this handler's business to reinterpret.
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except BaseException:
+        import traceback
+        print("", file=sys.stderr)
+        print("CANNOT-RUN: the cut-manifest gate crashed before it finished.",
+              file=sys.stderr)
+        print("            It has NOT found a fix missing from the artefact --", file=sys.stderr)
+        print("            it failed to look. Nothing below is a statement", file=sys.stderr)
+        print("            about the .app.", file=sys.stderr)
+        print(f"            interpreter: {sys.executable}", file=sys.stderr)
+        print(f"            version    : {sys.version.split()[0]}", file=sys.stderr)
+        print("", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(2)
