@@ -3911,13 +3911,15 @@ deferrals:
   # rev-parse on both -> GONE. Bundle still holds them for recovery.
   - ref: "CM051:archive/orm-session-wt-1018"
     reason: >-
-      WEAKER PROOF, archived ORM session worktree, 2 commits dated 2026-08-24.
-      Its artefacts are PRESENT on origin/main
-      (tests/test_launchagent_success_requires_verification.sh,
-      .github/workflows/launchagent-success-verification.yml). PRESENCE IS NOT
-      PROOF the specific edit landed, and I did not prove it individually.
-      Deferred as archived session debris, NOT as a judgement that its content is
-      redundant. Bundled for recovery. Re-adjudicate before v1.0.51.
+      UPGRADED FROM PRESENCE TO A SPECIFIC MATCH, 2026-08-29. @TNM measured with
+      `gh pr list --state all` (positive control #1228 found, negative control no
+      hallucination) that this branch NEVER had a pull request -- open, closed or
+      merged. So it is NOT the squash-blind class the first two were; the gate is
+      RIGHT that it never went through review. I then tested the CONTENT rather
+      than the filename: eff367b1's distinctive comment text ("fallback, a
+      trailing ...") is PRESENT on origin/main's install.sh. The work reached main
+      by another route. Deferred, not deleted -- deletion of a branch I created,
+      when a deferral already unblocks, is needless risk. Bundled for recovery.
     until_cut: "v1.0.51"
   - ref: "CM051:archive/orm-session-wt-974merge"
     reason: >-
@@ -3929,11 +3931,13 @@ deferrals:
     until_cut: "v1.0.51"
   - ref: "CM051:archive/orm-session-wt-bom23"
     reason: >-
-      WEAKER PROOF, archived ORM session worktree, 4 commits dated 2026-08-23,
-      overlapping wt-974merge (both carry 7838bb18). Artefacts PRESENT on
-      origin/main including tests/test_runtime_ready_invariant.sh. Presence is not
-      proof of the specific edit. Bundled for recovery. Re-adjudicate before
-      v1.0.51.
+      UPGRADED FROM PRESENCE TO A SPECIFIC MATCH, 2026-08-29. Never had a PR
+      (@TNM, controlled). Two of its four commits tested individually against
+      origin/main: 3f4ee61e's `if: always()` on the BOM steps is on main VERBATIM,
+      comment text included, at cut.yml:222/229/276; and for 5ecc8d41 main's
+      tests/test_runtime_ready_invariant.sh is +28/-1 AHEAD of this branch's
+      version, i.e. superseded rather than missing. Content reached main by
+      another route. Deferred, not deleted. Bundled for recovery.
     until_cut: "v1.0.51"
   - ref: "CM051:archive/orm-session-wt-nav"
     reason: >-
