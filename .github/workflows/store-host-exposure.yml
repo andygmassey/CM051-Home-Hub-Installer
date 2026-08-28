@@ -1,0 +1,80 @@
+# store-host-exposure.yml
+#
+# #550 -- THE STORES MUST NOT BE REACHABLE BY ANOTHER LOCAL ACCOUNT.
+#
+# On 2026-08-28 an unprivileged second macOS account read the owner's entire
+# knowledge graph with a single curl, no credential and no attack:
+#
+#     curl -s -H 'Host: localhost' \
+#       'http://127.0.0.1:7878/query?query=SELECT (COUNT(*) AS ?n) WHERE {?s ?p ?o}'
+#
+# Qdrant's gRPC port was published to host loopback with the store running
+# keyless, which was the same exposure by a shorter path. The justification
+# written above that port in install.sh said it was "not browser-DNS-
+# rebindable". True, and the wrong test: a published loopback port is
+# reachable by EVERY LOCAL USER ACCOUNT, not only by a browser.
+#
+# This gate exists so that publish cannot come back silently.
+#
+# ── TRIGGERS: deliberately wider than this gate's own files ──────────
+# #536 and #1189 are both instances of a gate that could not fire on the event
+# that ships -- a `paths:` filter naming only its own files, and a
+# `push: branches:` block that A TAG PUSH DOES NOT MATCH. A CUT IS A TAG PUSH.
+# So this runs on pull_request, on main, and on v1.* tags.
+
+name: store-host-exposure
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_qdrant_publishes_no_host_port.sh'
+      - 'tests/test_qdrant_guard_fires.sh'
+      # A gate must trigger on changes to ITSELF, or it can be quietly
+      # narrowed in a PR that never runs it.
+      - '.github/workflows/store-host-exposure.yml'
+  push:
+    branches: [main]
+    tags:
+      - 'v1.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qdrant-publishes-no-host-port:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `continue-on-error`, no `|| true`, no `2>/dev/null`. A security
+      # gate that cannot fail the run is not a gate.
+      # Caught by scripts/verify_ci_steps_are_maskless.py.
+      - name: qdrant publishes no host port (#550)
+        run: bash tests/test_qdrant_publishes_no_host_port.sh
+
+      # THE PROOF OF LIFE. The step above passing proves nothing on its own:
+      # it would pass identically if its predicate were broken. This arm
+      # reintroduces the exact defect and requires the guard to REJECT it,
+      # then restores the tree and requires green again.
+      #
+      # It is a TEST FILE, not inline YAML, so it can be run locally. Logic
+      # buried in a `run:` block is only ever exercised by the CI it exists
+      # to validate, which is how a mutation arm rots unnoticed.
+      - name: MUTATION -- prove the guard actually fires
+        run: bash tests/test_qdrant_guard_fires.sh
+
+      # Belt and braces: the mutation arm restores install.sh itself and
+      # checks its own restore, but assert it here too. A later step reading
+      # a mutated install.sh would be reporting on the wrong artefact.
+      - name: the working tree is unmodified
+        run: |
+          if ! git diff --quiet; then
+              echo "::error::install.sh was left modified. The mutation arm's"
+              echo "::error::restore did not take, so any downstream reading of"
+              echo "::error::install.sh is against the wrong artefact."
+              git diff --stat
+              exit 1
+          fi
+          echo "ok: tree clean"
