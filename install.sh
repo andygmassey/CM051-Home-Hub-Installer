@@ -11398,11 +11398,12 @@ else
             -e '/^QDRANT_API_KEY=/d' \
             "$_sa_env" 2>/dev/null && rm -f "${_sa_env}.bak"
     done
-    # Ensure clients still find a (keyless) REDIS_URL if the credentialled
-    # form was scrubbed from config/.env.
-    if [[ -f "${CONFIG_DIR}/.env" ]] && ! grep -q '^REDIS_URL=' "${CONFIG_DIR}/.env" 2>/dev/null; then
-        printf 'REDIS_URL=%s\n' "redis://localhost:6379" >> "${CONFIG_DIR}/.env"
-    fi
+    # The keyless REDIS_URL fallback that used to sit here has MOVED into the
+    # Redis block above, which now owns that variable in both directions. Left
+    # here it would be dead code carrying a live-looking comment: harmless
+    # today only because the grep finds the credentialled form the Redis block
+    # just wrote, and actively misleading to the next reader about which block
+    # decides Redis's state.
     unset _sa_env
     # Was an info() until 2026-08-20, so every customer read a note written for
     # us: it named an internal project number, an unshipped set of PRs, and an
