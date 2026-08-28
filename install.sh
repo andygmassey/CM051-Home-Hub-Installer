@@ -6535,6 +6535,70 @@ if ! _ostler_seed_store_auth_shim; then
     warn "  venvs created after this point reach the data stores with no credential."
 fi
 
+# ── and now the half that makes the shim RUN (#550) ───────────────────
+#
+# ⚠️ THE SEEDER ABOVE ONLY PUTS THE FILE ON DISK. NOTHING IMPORTS IT.
+#
+# Measured 2026-08-28: `ostler_store_auth` appeared 4 times in this file, all
+# four inside the seeder -- one `cp` and one `chmod`. A copied module that no
+# interpreter loads patches nothing, and every client keeps reaching the stores
+# bare. 📌 MERGED is not DELIVERED is not RUN, and this was stuck on the third
+# gate while looking finished on the second.
+#
+# A `.pth` in a venv's site-packages is the one hook that fires with no
+# cooperation from the client: CPython's `site` module execs any line beginning
+# with `import` at interpreter startup, before user code. That is what makes
+# this work for CM041 / CM024 / CM052 / doctor WITHOUT four separate client PRs
+# -- which is exactly the prerequisite `OSTLER_STORE_AUTH_ENFORCE` names in its
+# own warn text at :11427 as the reason it cannot be flipped on.
+#
+# FAILURE MODE, MEASURED NOT ASSUMED (2026-08-28, python3.14 venv):
+#   shim present  -> module loads, interpreter runs
+#   shim DELETED  -> site.addpackage catches it, prints the traceback to
+#                    stderr, says "Remainder of file ignored", and the
+#                    interpreter STILL EXITS 0.
+# A broken .pth is therefore loud but not fatal. That mattered enough to test
+# before shipping it: a .pth that aborted the interpreter would brick every
+# Python in the venv, which is a far worse failure than the one being fixed.
+#
+# The lib path is written ABSOLUTE at install time rather than as `~`, because
+# OSTLER_DIR is not always ${HOME}/.ostler and a tilde would silently resolve
+# to a different directory for a differently-rooted install.
+_ostler_wire_store_auth_pth() {
+    local _venv="$1"
+    local _root="${2:-${OSTLER_DIR:-${HOME}/.ostler}}"
+    [[ -n "$_venv" && -x "${_venv}/bin/python3" ]] || return 1
+    local _sp
+    # Ask the interpreter, never guess "lib/pythonX.Y/site-packages": the
+    # version component moves under us and a guessed path writes a .pth that
+    # nothing ever reads -- silently reproducing the very defect above.
+    _sp="$("${_venv}/bin/python3" -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null)" || return 2
+    [[ -n "$_sp" && -d "$_sp" ]] || return 2
+    # ⚠️ PIN BOTH HALVES, not just the module path.
+    #
+    # The shim resolves its secrets from OSTLER_SECRETS_DIR, defaulting to
+    # ~/.ostler/secrets. This installer's OSTLER_DIR is CONFIGURABLE. So on any
+    # box where OSTLER_DIR is not ~/.ostler, a .pth that set only sys.path would
+    # load the shim from the right place and send it looking for credentials in
+    # the wrong one -- it would find nothing, add no header, and every store call
+    # would go out bare. Loudly loaded, silently useless.
+    #
+    # Found by measurement, not by reading: the first behavioural run set
+    # OSTLER_DIR (which the shim ignores) and reported "no credential attached".
+    # That looked exactly like a broken shim. It was a broken TEST. The shim
+    # attaches the credential correctly once pointed at the right directory
+    # (positive control: hand-sent header echoed; negative control: absent).
+    #
+    # 📌 Two artefacts, one consumer. Setting only one of them is the failure,
+    # and it cannot be caught by a control that varies the same variable twice.
+    # `setdefault`, never assignment: a caller that has deliberately exported
+    # OSTLER_SECRETS_DIR keeps its own value.
+    printf 'import sys, os; sys.path.append(%s); os.environ.setdefault("OSTLER_SECRETS_DIR", %s); __import__("ostler_store_auth")\n' \
+        "\"${_root}/lib\"" "\"${_root}/secrets\"" > "${_sp}/ostler_store_auth.pth" || return 3
+    chmod 0644 "${_sp}/ostler_store_auth.pth" 2>/dev/null || true
+    return 0
+}
+
 # ── store credential for SHELL callers (#550) ─────────────────────────
 # The Python shim above is a Python mechanism, so every `curl` in this file is
 # outside it BY CONSTRUCTION. Measured on this branch: 6 curl callers dial a
