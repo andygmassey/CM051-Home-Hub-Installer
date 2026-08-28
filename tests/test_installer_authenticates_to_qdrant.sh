@@ -152,13 +152,33 @@ fi
 # ARM 5: MODE -- 0600. A credential file another account can read is the
 # #550 threat model with the secret as the payload.
 # ─────────────────────────────────────────────────────────────────────
+#
+# 🔴 THE GNU FORM MUST BE TRIED FIRST, AND THAT IS NOT ARBITRARY.
+#    `stat -f` means two different things:
+#        BSD  (macOS)  -f FORMAT   -> the file's mode.        What we want.
+#        GNU  (Linux)  -f          -> FILESYSTEM status.      SUCCEEDS, and
+#                                     prints "Type: ext2/ext3 / Block size: …"
+#    So `stat -f … || stat -c …` never reaches the fallback on Linux: the
+#    first arm exits 0 with the wrong answer. This test shipped that way and
+#    went RED on ubuntu-latest while passing on macOS -- measure on the host
+#    that runs it. `-c` is rejected outright by BSD stat, so GNU-first is the
+#    only ordering that is unambiguous on both.
 if [ -f "${CONF}" ]; then
-    mode="$(/usr/bin/stat -f '%Lp' "${CONF}" 2>/dev/null || /usr/bin/stat -c '%a' "${CONF}" 2>/dev/null)"
-    if [ "${mode}" = "600" ]; then
-        pass "arm5: conf mode is 600"
-    else
-        fail "arm5: conf mode is ${mode}, expected 600"
-    fi
+    mode="$(/usr/bin/stat -c '%a' "${CONF}" 2>/dev/null || /usr/bin/stat -f '%Lp' "${CONF}" 2>/dev/null)"
+    case "${mode}" in
+        [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7])
+            if [ "${mode}" = "600" ]; then
+                pass "arm5: conf mode is 600"
+            else
+                fail "arm5: conf mode is ${mode}, expected 600"
+            fi
+            ;;
+        *)
+            # Neither form yielded an octal mode. That is CANNOT-RUN, and it
+            # must not read as a pass.
+            fail "arm5: CANNOT-RUN -- no octal mode from either stat form (got: ${mode})"
+            ;;
+    esac
 else
     fail "arm5: CANNOT-RUN, no conf to stat"
 fi
