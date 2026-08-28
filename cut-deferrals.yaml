@@ -1955,6 +1955,29 @@ deferrals:
       Clears when the content is on main, or is explicitly rejected in writing. Never
       by deleting the branch.
     until_cut: "v1.0.49"
+  - ref: "daemon:#368"
+    reason: >-
+      fix(pairing): rotation revokes paired devices, spares the admin token (oa #898).
+      DRAFT, opened 2026-08-28T03:45Z. ONE file, crates/zeroclaw-config/src/pairing.rs.
+      This is PRODUCT CODE, not CI, and it is the fix for a defect measured this
+      session: handle_pair never touches the device registry, so a box can hold live
+      bearer tokens against a registry with zero rows.
+      DEFERRED BY ORM 2026-08-28T04:28Z, on four stated reasons:
+      (1) it is a DRAFT, held deliberately by its author, who said so;
+      (2) its own checks are RED, fail=2 pass=6, and merging a red PR to green a gate
+      is the exact habit this gate exists to stop;
+      (3) it cannot reach this DMG -- cut.env pins DAEMON_COMMIT=f1c7c57d, an artefact
+      already built, signed, notarised and published;
+      (4) it touches a SECURITY surface, pairing rotation versus the admin token, and
+      the analysis on file shows the obvious one-line fix is WORSE than the bug: it
+      would mass-revoke every paired device AND the admin token, written through to
+      config.toml, merely from viewing the Doctor pairing panel.
+      THIS ROW IS NOT A CLAIM THAT THE DEFECT IS MINOR. v1.0.49 ships with the
+      pairing-registry defect present. That was decided deliberately rather than by
+      omission, and it earns a real review rather than a cut-pressure merge.
+      Clears when it leaves draft and goes green, or is explicitly rejected in
+      writing. NEVER by deleting the branch.
+    until_cut: "v1.0.50"
   - ref: "daemon:#351"
     reason: >-
       A DRAFT, and a draft is by definition not proposed for merge. 18 files, 12 of
