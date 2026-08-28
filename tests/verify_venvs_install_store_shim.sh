@@ -80,6 +80,23 @@ rc_pass=0; rc_fail=1; rc_cannot=2
 #   15 measured on main 36085632, 2026-08-28, by @TNM and @ARCHIE independently
 #   473 496 530 2529 6495 6638 12189 15582 15761 16157 17698 18228 18478
 #   18737 25822
+#
+# ⛔ AND IT IS TWO FLOORS, NOT ONE. @TNM, same day:
+#
+#   "a single 15 would go green while the limb was empty"
+#
+# He is right and this is the partial-denominator shape one level up. The 15
+# decompose 3 + 12: three sites are the Sparkle UPGRADE path (473 496 530,
+# which dial `$_py` from _upg_resolve_python3) and twelve are the main install.
+# An AGGREGATE floor of 15 is satisfied by 0 + 15 or by 15 + 0. It cannot see a
+# compartment emptying, and the compartment most likely to empty silently is
+# the upgrade limb -- which is the entire population this work exists for.
+#
+# So each compartment carries its own floor and each is asserted separately.
+# The discriminator is the interpreter token, because that is what actually
+# differs: the upgrade leg has no PYTHON3_BIN in scope.
+OSTLER_VENV_FLOOR_UPGRADE="${OSTLER_VENV_FLOOR_UPGRADE:-3}"
+OSTLER_VENV_FLOOR_MAIN="${OSTLER_VENV_FLOOR_MAIN:-12}"
 OSTLER_VENV_SITE_FLOOR="${OSTLER_VENV_SITE_FLOOR:-15}"
 
 # Lines that CREATE a venv, comments stripped.
@@ -117,12 +134,26 @@ verify() {
         printf '  pattern stopped matching, not that the property holds.\n'
         return $rc_cannot
     fi
-    if [ "$total" -lt "$OSTLER_VENV_SITE_FLOOR" ]; then
-        printf 'CANNOT_RUN: found %s venv-creating invocations, floor is %s\n' \
+    # PER-COMPARTMENT first, aggregate second. The aggregate alone is satisfied
+    # by 0 + 15, so it cannot see the upgrade limb empty.
+    local n_upg n_main
+    n_upg="$(printf '%s\n' "$sites" | grep -c '\$_py' || true)"
+    n_main=$(( total - ${n_upg:-0} ))
+    printf 'population: %s upgrade-leg (\$_py) + %s main = %s\n' \
+        "${n_upg:-0}" "$n_main" "$total"
+    if [ "${n_upg:-0}" -lt "$OSTLER_VENV_FLOOR_UPGRADE" ] \
+       || [ "$n_main" -lt "$OSTLER_VENV_FLOOR_MAIN" ] \
+       || [ "$total" -lt "$OSTLER_VENV_SITE_FLOOR" ]; then
+        printf 'CANNOT_RUN: population below a floor (upgrade %s/%s, main %s/%s, total %s/%s)\n' \
+            "${n_upg:-0}" "$OSTLER_VENV_FLOOR_UPGRADE" \
+            "$n_main" "$OSTLER_VENV_FLOOR_MAIN" \
             "$total" "$OSTLER_VENV_SITE_FLOOR"
         printf '  A NON-ZERO UNDERCOUNT IS AS DAMNING AS A ZERO and it reads as an\n'
-        printf '  answer. If sites were legitimately deleted, lower the floor in\n'
-        printf '  the same PR and name them. Do not assume the shortfall is real.\n'
+        printf '  answer. The compartments are checked SEPARATELY because an\n'
+        printf '  aggregate of 15 is satisfied by 0 upgrade + 15 main, and the\n'
+        printf '  upgrade leg is the population this gate exists for.\n'
+        printf '  If sites were legitimately deleted, lower THAT floor in the same\n'
+        printf '  PR and name them. Do not assume the shortfall is real.\n'
         return $rc_cannot
     fi
 
@@ -195,6 +226,8 @@ self_test() {
     # The floor gets its own arm below, against a fixture built to trip it.
     local real_floor="$OSTLER_VENV_SITE_FLOOR"
     OSTLER_VENV_SITE_FLOOR=0
+    OSTLER_VENV_FLOOR_UPGRADE=0
+    OSTLER_VENV_FLOOR_MAIN=0
 
     : > "$d/empty"
     printf 'no venv here at all\n' > "$d/no_sites"
@@ -319,8 +352,19 @@ FIXTURE
     # zero-check waves through. Compliant on purpose: without the floor it would
     # PASS, so any rc other than CANNOT_RUN means the floor is not firing.
     OSTLER_VENV_SITE_FLOOR="$real_floor"
+    OSTLER_VENV_FLOOR_UPGRADE=3
+    OSTLER_VENV_FLOOR_MAIN=12
     check "FLOOR trips on a plausible undercount" $rc_cannot "$d/multiline_good"
-    OSTLER_VENV_SITE_FLOOR=0
+
+    # @TNM's catch, as an arm. 15 sites, ALL main leg, upgrade leg EMPTY.
+    # The aggregate floor of 15 is satisfied. Only the per-compartment floor
+    # sees that the population this gate exists for has vanished.
+    {   printf '_ostler_make_venv() {\n    "$PYTHON3_BIN" -m venv "$1"\n}\n'
+        i=0; while [ "$i" -lt 15 ]; do
+            printf '"$PYTHON3_BIN" -m venv /main/%s\n' "$i"; i=$((i+1)); done
+    } > "$d/aggregate_hides_empty_limb"
+    check "SPLIT FLOOR sees an empty upgrade limb" $rc_cannot "$d/aggregate_hides_empty_limb"
+    OSTLER_VENV_SITE_FLOOR=0; OSTLER_VENV_FLOOR_UPGRADE=0; OSTLER_VENV_FLOOR_MAIN=0
 
     printf '  self-test failures: %s\n' "$fails"
     rm -rf "$d"
