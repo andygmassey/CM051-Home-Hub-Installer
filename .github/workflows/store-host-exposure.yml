@@ -67,6 +67,15 @@ jobs:
       # that is the one moment it is needed. A red guard is when you must
       # tell a real regression from a broken predicate, and the mutation arm
       # is the only thing that discriminates between them. TNM's #1209 review.
+      # #550's OTHER half. Qdrant has a native API key; Oxigraph 0.4.6
+      # has none, so its credential can only live in the store-proxy.
+      # This asserts the token never enters the 644 conf -- a shared
+      # secret in a world-readable file is readable by exactly the
+      # second local account #550 is about.
+      - name: oxigraph proxy credential (#550)
+        if: always()
+        run: bash tests/test_oxigraph_proxy_credential.sh
+
       - name: MUTATION -- prove the guard actually fires
         if: always()
         run: bash tests/test_stores_guard_fires.sh
