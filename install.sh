@@ -25659,6 +25659,37 @@ fi
 # the CM048 POST.
 OSTLER_AI_CONVERSATIONS_ENABLED="${OSTLER_AI_CONVERSATIONS_ENABLED:-true}"
 
+# ── The diagnostic sink must heal itself HERE ──────────────────────────────
+#
+# install.sh creates OSTLER_DIAG_DIR once, near the top. This leg does not
+# always arrive by that route: tests/test_aiconv_hydrate_honesty.sh:79 lifts
+# it out VERBATIM --
+#     sed -n '/^OSTLER_AI_CONVERSATIONS_ENABLED=/,/^# (disabled path/p'
+# -- and runs it standalone under `set -uo pipefail`. With no initialiser in
+# scope the leg died at its first redirect, taking 34 of 50 assertions with
+# it. A leg that can be executed on its own must be able to stand on its own.
+#
+# `:=` assigns ONLY when unset, so a real install reuses the one directory it
+# already made -- this is not a second sink, and not a per-expansion mktemp.
+#
+# 🔴 THE EMPTINESS CHECK IS LOAD-BEARING, DO NOT "SIMPLIFY" IT AWAY. If
+# mktemp fails, the command substitution yields "", `:=` assigns "", and
+# `set -u` is then perfectly satisfied -- the redirect target silently becomes
+# a bare "/hydrate-aiconv.log", which cannot be opened, which aborts the
+# command it is attached to and reports a step that never ran as a step that
+# failed. That is precisely the #910 defect this whole change removes, so an
+# unusable sink is CANNOT-RUN and we refuse. No column-0 block keyword here
+# either: a bare `fi` above a line-anchored window retargets it (see the note
+# at the initialiser, and board #839).
+: "${OSTLER_DIAG_DIR:=$(mktemp -d "${TMPDIR:-/tmp}/ostler-diag-XXXXXX")}"
+[ -n "${OSTLER_DIAG_DIR}" ] && [ -d "${OSTLER_DIAG_DIR}" ] || {
+    printf 'FATAL: no private diagnostics directory under %s; refusing to run\n' "${TMPDIR:-/tmp}" >&2
+    printf '       the AI-conversations step rather than write diagnostics to a\n' >&2
+    printf '       shared path another user can pre-create.\n' >&2
+    exit 1
+}
+export OSTLER_DIAG_DIR
+
 if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
     _AICONV_DIR="${OSTLER_DIR}/services/cm052"
     _AICONV_VENV="${_AICONV_DIR}/.venv"
