@@ -23,6 +23,7 @@ on:
       - 'tests/test_enrichment_identity_and_disclosure.sh'
       - 'vendor/cm019_preferences/services/enrich/**'
       - 'tests/test_assistant_config_no_tmp.sh'
+      - 'tests/test_diag_sink_per_run.sh'
       - 'tests/test_export_scan_plist_bootstrap_race_217.sh'
       - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
       - 'tests/test_laptop_hub_power_copy_fires_on_laptops_only.sh'
@@ -75,6 +76,20 @@ jobs:
       - name: Assert no shipped assistant-config value resolves under /tmp
         if: always()
         run: bash tests/test_assistant_config_no_tmp.sh
+
+      # Same disease as #177, a different organ. #177 was fixed, shared /tmp
+      # paths baked into plists; #910 is fixed, shared /tmp paths used as
+      # DIAGNOSTIC SINKS -- and there the consequence is worse than a dead
+      # log. bash ABORTS a command whose redirection cannot be opened, so a
+      # sink another user already owns turns a step that never ran into a step
+      # reported as failed, and then prints that other user's error text to
+      # our customer. That is what killed the first ever walk of install.sh,
+      # in three minutes, on 2026-08-28.
+      #
+      # `if: always()` for the same reason as every step here (CM051 #656).
+      - name: Assert diagnostics go to a private per-run dir, never a fixed /tmp path (#910)
+        if: always()
+        run: bash tests/test_diag_sink_per_run.sh
 
       # What Ostler announces itself as to third parties, and whether the
       # installer's disclosure names the set it actually contacts. 23 shipped

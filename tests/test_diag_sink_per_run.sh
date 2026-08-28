@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+# =============================================================================
+# install.sh diagnostics must go to a PRIVATE, PER-RUN directory (board #910)
+# =============================================================================
+#
+# WHAT BROKE. Andy's first-ever walk of install.sh died in three minutes and
+# showed him a different session's pip error. One root cause, two defects,
+# both measured on /bin/bash 3.2.57 -- the shell that runs install.sh:
+#
+#   1. BASH ABORTS A COMMAND WHOSE REDIRECTION CANNOT BE OPENED. With a fixed
+#      sink at /tmp/ostler-pip-install.log owned by someone else,
+#          if pip install ... 2>/tmp/ostler-pip-install.log; then
+#      takes the ELSE branch for a pip run THAT NEVER EXECUTED, and the
+#      installer says "the package failed to install".
+#
+#   2. The else branch then seds that path to the screen. The failed redirect
+#      never truncated it, so the customer reads the previous owner's text.
+#
+# WHY THIS FILE IS SHAPED THE WAY IT IS. Arm 7 deliberately re-creates the OLD
+# shape and proves it still misbehaves. That is not redundant: it is the
+# control for arms 5 and 6. Without it, a future change that made the whole
+# mechanism impossible to trigger would leave arms 5/6 passing vacuously and
+# nobody would know the test had stopped testing anything.
+#
+# Usage:  bash tests/test_diag_sink_per_run.sh
+# Exit:   0 all arms pass · 1 an arm failed · 2 CANNOT-RUN (never a pass)
+# =============================================================================
+
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+INSTALL_SH="${REPO_ROOT}/install.sh"
+
+pass=0; fail=0
+ok()   { printf '  [PASS] %s\n' "$*"; pass=$((pass+1)); }
+bad()  { printf '  [FAIL] %s\n' "$*" >&2; fail=$((fail+1)); }
+cant() { printf '  [CANNOT-RUN] %s\n' "$*" >&2; exit 2; }
+
+[ -r "$INSTALL_SH" ] || cant "install.sh not readable at ${INSTALL_SH}"
+
+SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/diagsink-test-XXXXXX")" || cant "could not create sandbox"
+trap 'chmod -R u+w "$SANDBOX" 2>/dev/null; rm -rf "$SANDBOX"' EXIT
+
+echo "== install.sh diagnostic sink: private + per-run (#910) =="
+
+# Comments are stripped ONCE, here, and every arm that scores install.sh uses
+# this. Scoring raw text makes a warning ABOUT the bug read as the bug — see
+# the note on arm 3, and boards #757/#688/#808.
+CODE_ONLY="$(/usr/bin/sed -e 's/[[:space:]]*#.*$//' "$INSTALL_SH")"
+
+# -- ARM 1: no diagnostic .log under a shared /tmp path ----------------------
+# Counts PATHS, not redirect sites: a read-back or a warn string that still
+# names such a file is as wrong as a redirect, because it sends the customer to
+# read a file we no longer write.
+#
+# 🔴 THIS ARM ONCE REPORTED ZERO WHILE FOUR SITES EXISTED, AND THE SWEEP THAT
+# CREATED IT SHARED THE FAULT. Both used `/tmp/ostler-[a-z0-9.-]+\.log`, whose
+# character class matches LITERAL segments only. Every path built with a
+# variable or a command substitution was invisible to the sed sweep AND to this
+# guard — one blind spot, counted twice, certified as zero. Archie found it by
+# watching a live walk, not by reading the diff. Missed:
+#     INSTALL_LOG="/tmp/ostler-install-$(date +%s).log"
+#     local pip_log="/tmp/ostler-${feed_key}-source-pip.log"     <- a PIP log
+#     warn "... See /tmp/ostler-hydrate-${_label}.log."          <- a read-back
+#     "/tmp/ostler-install-failsafe-$$.log"
+# A fixture that encodes the FLAG (one spelling) instead of the PROPERTY (a
+# .log under shared /tmp) will bless whatever it cannot spell.
+#
+# So: take EVERY code line naming /tmp/ostler-, then score the ones that also
+# name a .log. Non-.log survivors (the per-PID prelaunch staging tree, and the
+# .yaml/.json data artefacts) are a different class and are listed, not scored
+# — deliberately, so the number here is never quietly widened to hide them.
+# NOTE: no `mapfile`. It is bash 4+, and this repo's shell is /bin/bash 3.2.57
+# — the same constraint install.sh itself lives under. Using it here would make
+# the arm CANNOT-RUN on the customer's own shell while passing on a runner.
+_tmp_lines=()
+while IFS= read -r _l; do
+    [ -n "$_l" ] && _tmp_lines+=("$_l")
+done < <(/usr/bin/grep -nE '/tmp/ostler-' <<< "$CODE_ONLY")
+n_scope=0; n_other=0
+for _l in "${_tmp_lines[@]}"; do
+    case "$_l" in
+        *.log*) n_scope=$((n_scope+1)) ;;
+        *)      n_other=$((n_other+1)) ;;
+    esac
+done
+if [ "$n_scope" -eq 0 ]; then
+    ok "arm 1: zero /tmp/ostler-*.log paths in CODE (denominator: ${#_tmp_lines[@]} code lines naming /tmp/ostler-; ${n_other} non-.log, out of scope, listed below)"
+    for _l in "${_tmp_lines[@]}"; do printf '         out-of-scope: %s\n' "$_l"; done
+else
+    bad "arm 1: ${n_scope} /tmp/ostler-*.log path(s) still in CODE (of ${#_tmp_lines[@]} /tmp/ostler- lines)"
+    for _l in "${_tmp_lines[@]}"; do case "$_l" in *.log*) printf '    %s\n' "$_l" >&2 ;; esac; done
+fi
+
+# -- ARM 2: the sink is created by mktemp -d with an EXPLICIT template -------
+if /usr/bin/grep -qE 'OSTLER_DIAG_DIR="\$\(mktemp -d "\$\{TMPDIR:-/tmp\}/ostler-diag-XXXXXX"\)"' "$INSTALL_SH"; then
+    ok "arm 2: OSTLER_DIAG_DIR uses mktemp -d with an explicit \${TMPDIR:-/tmp} template"
+else
+    bad "arm 2: no mktemp -d with an explicit \${TMPDIR:-/tmp} template found"
+fi
+
+# -- ARM 3: NOT `mktemp -t` --------------------------------------------------
+# BSD mktemp -t IGNORES TMPDIR and always uses the system default, so -t would
+# put the sink straight back into the shared /tmp this change exists to leave.
+# install.sh:2388 already carries that measurement; this arm keeps it true.
+#
+# 🔴 COMMENTS ARE STRIPPED FIRST, AND THAT IS NOT COSMETIC. The first version
+# of this arm grepped the raw file and FAILED -- on the comment in install.sh
+# that says DO NOT simplify this to `mktemp -d -t`. The warning against the
+# bug scored as the bug. That is boards #757/#688/#808 (a predicate that
+# counts MENTIONS instead of INVOCATIONS), reproduced inside the very suite
+# meant to guard this change. Strip comments, then score code.
+# 🔴 AND THE OPERAND IS A HERE-STRING, NOT A PIPE. `printf "%s" "$BIG" |
+# grep -q ...` is INERT under `set -o pipefail`, which this file sets: grep
+# exits 0 on the FIRST match and closes the pipe, printf dies of SIGPIPE
+# (141), and pipefail returns the rightmost NON-ZERO status -- so the `if`
+# sees 141 and takes the else branch. MEASURED here: PIPESTATUS was
+# `141 0` and the arm reported PASS against a file that DID contain the
+# forbidden form. It is size-dependent, which is what makes it vicious:
+# with a small operand printf finishes before grep exits and the same code
+# works. install.sh is 563 KB, so this arm was silently unable to fail.
+CODE_ONLY="$(/usr/bin/sed -e 's/[[:space:]]*#.*$//' "$INSTALL_SH")"
+if /usr/bin/grep -qE 'mktemp -d -t .*ostler-diag' <<< "$CODE_ONLY"; then
+    bad "arm 3: OSTLER_DIAG_DIR uses 'mktemp -d -t', which ignores TMPDIR on BSD"
+else
+    ok "arm 3: no 'mktemp -d -t' INVOCATION for the diag dir (comments stripped first)"
+fi
+
+# -- ARM 4: creation failure REFUSES, it does not fall back to /tmp ----------
+blk="$(/usr/bin/sed -n '/^OSTLER_DIAG_DIR="\$(mktemp/,/^}$/p' "$INSTALL_SH")"
+if [ -z "$blk" ]; then
+    bad "arm 4: could not locate the OSTLER_DIAG_DIR creation block"
+elif /usr/bin/grep -q 'exit 1' <<< "$blk" \
+     && ! /usr/bin/grep -qE 'OSTLER_DIAG_DIR=.*(/tmp|/var/tmp)"?$' <<< "$blk"; then
+    ok "arm 4: creation failure exits rather than falling back to a shared path"
+else
+    bad "arm 4: creation-failure path does not refuse, or falls back to a shared dir"
+fi
+
+# -- ARM 5 (BEHAVIOURAL): run the real block; per-run and private ------------
+# Extract the shipped block and execute it, twice, rather than re-typing it.
+extract_block() { /usr/bin/sed -n '/^OSTLER_DIAG_DIR="\$(mktemp/,/^export OSTLER_DIAG_DIR$/p' "$INSTALL_SH"; }
+BLOCK="$(extract_block)"
+if [ -z "$BLOCK" ]; then
+    cant "arm 5: could not extract the OSTLER_DIAG_DIR block from install.sh"
+fi
+
+d1="$(TMPDIR="$SANDBOX" /bin/bash -c "$BLOCK"'; printf "%s" "$OSTLER_DIAG_DIR"')" || d1=""
+d2="$(TMPDIR="$SANDBOX" /bin/bash -c "$BLOCK"'; printf "%s" "$OSTLER_DIAG_DIR"')" || d2=""
+
+if [ -n "$d1" ] && [ -n "$d2" ] && [ "$d1" != "$d2" ]; then
+    ok "arm 5a: two runs get DIFFERENT directories (${d1##*/} vs ${d2##*/})"
+else
+    bad "arm 5a: runs did not get distinct directories (d1='${d1}' d2='${d2}')"
+fi
+
+case "$d1" in
+    "$SANDBOX"/*) ok "arm 5b: the sink honours TMPDIR (landed under the sandbox)" ;;
+    *)            bad "arm 5b: sink ignored TMPDIR — landed at '${d1}', not under ${SANDBOX}" ;;
+esac
+
+if [ -d "$d1" ]; then
+    # 🔴 `stat` IS NOT PORTABLE AND THE WRONG FORM EXITS 0.
+    # This arm first shipped as BSD-only `stat -f '%Lp'`, verified on macOS,
+    # and wired into a workflow that runs on ubuntu-latest. On GNU coreutils
+    # `-f` means "file SYSTEM status", so it did not error into the `|| echo '?'`
+    # fallback -- it SUCCEEDED and returned a block of filesystem facts
+    # ("Namelen: 255  Type: ext2/ext3"), which then failed the string compare
+    # with an unreadable multi-line message. A wrong-platform command that
+    # exits 0 is worse than one that fails: the fallback never fires.
+    # Try GNU first, then BSD, and if neither yields octal digits say
+    # CANNOT-RUN rather than inventing a verdict.
+    perms=""
+    if p="$(stat -c '%a' "$d1" 2>/dev/null)" && [ -n "$p" ]; then
+        perms="$p"                       # GNU coreutils (ubuntu runners)
+    elif p="$(stat -f '%Lp' "$d1" 2>/dev/null)" && [ -n "$p" ]; then
+        perms="$p"                       # BSD (macOS, the customer's host)
+    fi
+    case "$perms" in
+        700)
+            ok "arm 5c: sink is mode 700 — another user cannot pre-create our log files" ;;
+        ''|*[!0-7]*)
+            cant "arm 5c: no portable stat on this host (tried GNU -c and BSD -f); mode UNMEASURED for ${d1}" ;;
+        *)
+            bad "arm 5c: sink is mode ${perms}, expected 700 (subject: ${d1})" ;;
+    esac
+else
+    bad "arm 5c: sink directory '${d1}' does not exist"
+fi
+
+# -- ARM 6 (THE CONTROL ARCHIE REQUIRED): a GENUINE failure still reports RED
+# A fix that silenced real failures would be worse than the bug. Under the new
+# scheme the sink is writable, so the command RUNS; when it fails on its own
+# merits we must take the else branch AND show ITS OWN stderr.
+sink="${d1}/genuine.log"
+verdict="$( /bin/bash -c '
+    if /bin/sh -c "printf \"pip: could not resolve dependency zzz\n\" >&2; exit 1" 2>"'"$sink"'"; then
+        echo THEN
+    else
+        echo ELSE
+    fi' )"
+saw="$(cat "$sink" 2>/dev/null)"
+if [ "$verdict" = "ELSE" ] && /usr/bin/grep -q 'could not resolve dependency zzz' <<< "$saw"; then
+    ok "arm 6: a genuine failure STILL reports RED, and shows its OWN stderr"
+else
+    bad "arm 6: genuine failure not reported correctly (verdict=${verdict}, sink content='${saw}')"
+fi
+
+# -- ARM 7 (ANTI-VACUITY CONTROL): the old shape still misbehaves ------------
+# Proves the mechanism arms 5/6 defend against is real and reachable on THIS
+# host and THIS shell. If this arm ever passes-by-not-failing, arms 5 and 6
+# have stopped meaning anything and this file must be re-thought.
+oldsink="${SANDBOX}/fixed-shared.log"
+printf 'ERROR: a different session left this here\n' > "$oldsink"
+chmod 0444 "$oldsink"
+marker="${SANDBOX}/old-shape-ran.marker"
+rm -f "$marker"
+oldverdict="$( /bin/bash -c '
+    if /usr/bin/touch "'"$marker"'" 2>"'"$oldsink"'"; then echo THEN; else echo ELSE; fi' 2>/dev/null )"
+if [ "$oldverdict" = "ELSE" ] && [ ! -e "$marker" ]; then
+    ok "arm 7: old fixed-path shape still fails closed on this host (control is live)"
+else
+    bad "arm 7: CONTROL DID NOT REPRODUCE — the redirect-abort mechanism did not fire here, so arms 5/6 may be vacuous (verdict=${oldverdict}, marker exists=$([ -e "$marker" ] && echo yes || echo no))"
+fi
+chmod 0644 "$oldsink" 2>/dev/null
+
+echo
+printf '== %s pass / %s fail ==\n' "$pass" "$fail"
+[ "$fail" -eq 0 ] || exit 1
+exit 0
