@@ -3885,3 +3885,60 @@ deferrals:
       so the live uncovered count is SIX, not five -- the five plus this. The
       count only drops to zero when this merges.
     until_cut: "v1.0.50"
+
+  # ==========================================================================
+  # SIX LOCAL-ONLY BRANCHES, 2026-08-29 (Archie). check-orphans refused the
+  # v1.0.50 RC on these. They are STALE LOCAL BRANCHES IN ONE WORKING CHECKOUT,
+  # not orphaned fixes -- but the gate is RIGHT to refuse, because its predicate
+  # is "no remote ref AND no merged PR FOR THIS BRANCH NAME", and that is true.
+  #
+  # ALL SIX ARE PRESERVED before any of this: git bundle at
+  # ~/.ostler-branch-preservation/check-orphans-six-2026-08-29.bundle
+  # `git bundle verify` -> okay, 6 refs, "records a complete history", 13,415,102
+  # bytes. Nothing here is one rm -rf from gone any more, which was the gate's
+  # actual stated harm.
+  #
+  # ⚠️ THE EVIDENCE IS NOT UNIFORM AND I AM NOT PRETENDING IT IS. Two rows carry
+  # STRONG proof; four carry WEAKER proof. @TNM independently proved 2 of 6 false
+  # and that is exactly the two I can prove. Presence of a file on main is NOT
+  # proof that a specific branch's edit to it landed -- presence is not behaviour.
+  # ⚠️ TWO ROWS REMOVED 2026-08-29, minutes after being written. A2 verified
+  # a2-1222 and a2-pr1218 as LANDED and DELETED the branches, which is the
+  # better remedy than deferral. A deferral row pointing at a branch that no
+  # longer exists holds nothing and becomes exactly the "deferral nothing asks
+  # about" noise this file already carries 452 of. Deleting beats deferring
+  # whenever the work is provably in main. Control before removal: git
+  # rev-parse on both -> GONE. Bundle still holds them for recovery.
+  - ref: "CM051:archive/orm-session-wt-1018"
+    reason: >-
+      WEAKER PROOF, archived ORM session worktree, 2 commits dated 2026-08-24.
+      Its artefacts are PRESENT on origin/main
+      (tests/test_launchagent_success_requires_verification.sh,
+      .github/workflows/launchagent-success-verification.yml). PRESENCE IS NOT
+      PROOF the specific edit landed, and I did not prove it individually.
+      Deferred as archived session debris, NOT as a judgement that its content is
+      redundant. Bundled for recovery. Re-adjudicate before v1.0.51.
+    until_cut: "v1.0.51"
+  - ref: "CM051:archive/orm-session-wt-974merge"
+    reason: >-
+      WEAKER PROOF, archived ORM session worktree, 2 commits dated 2026-08-23
+      (BOM stages 2+3). Artefacts PRESENT on origin/main (scripts/sync_cut_bom.sh,
+      cuts/BOM_PIN, tests/test_cut_bom_is_fresh.sh). Presence is not proof of the
+      specific edit. Superseded in substance by the BOM work that did land.
+      Bundled for recovery. Re-adjudicate before v1.0.51.
+    until_cut: "v1.0.51"
+  - ref: "CM051:archive/orm-session-wt-bom23"
+    reason: >-
+      WEAKER PROOF, archived ORM session worktree, 4 commits dated 2026-08-23,
+      overlapping wt-974merge (both carry 7838bb18). Artefacts PRESENT on
+      origin/main including tests/test_runtime_ready_invariant.sh. Presence is not
+      proof of the specific edit. Bundled for recovery. Re-adjudicate before
+      v1.0.51.
+    until_cut: "v1.0.51"
+  - ref: "CM051:archive/orm-session-wt-nav"
+    reason: >-
+      WEAKER PROOF, archived ORM session worktree, 1 commit dated 2026-08-24
+      touching only scripts/cut_markers.manifest, which is PRESENT on origin/main.
+      Presence is not proof of the specific edit. Bundled for recovery.
+      Re-adjudicate before v1.0.51.
+    until_cut: "v1.0.51"
