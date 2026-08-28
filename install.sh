@@ -151,13 +151,27 @@ done
 #
 # A failure to create the directory is CANNOT-RUN and we refuse. Falling
 # back to /tmp would silently restore the exact defect being fixed.
-if ! OSTLER_DIAG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ostler-diag-XXXXXX")"; then
+#
+# 🔴 DO NOT REWRITE THIS AS `if ! …; then … fi`. It was that shape until
+# 2026-08-28 and it broke tests/test_upgrade_repairs_the_fda_venv.sh, which
+# computes its search window as the FIRST COLUMN-0 `fi` at or after line 122:
+#
+#     BLOCK_END="$(awk 'NR>=122 && /^fi$/{print NR; exit}' "$INSTALL_SH")"
+#
+# A bare `fi` here is above that anchor, so BLOCK_END collapsed 750 -> 160,
+# the window no longer reached the _upg_repair_fda_venv call at 699, and the
+# test reported a HR015 #595 regression that had not happened. The test's own
+# premise guard could not catch it: it refuses only when BLOCK_END is EMPTY,
+# and ours was non-empty and wrong. A false anchor, not a missing one --
+# the same family as board #839. Keep this block free of column-0 block
+# keywords so it cannot retarget a line-anchored search again.
+OSTLER_DIAG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ostler-diag-XXXXXX")" || {
     printf 'FATAL: could not create a private diagnostics directory under %s\n' "${TMPDIR:-/tmp}" >&2
     printf '       Falling back to a shared path would let another user pre-create\n' >&2
     printf '       our log files, which makes pip runs that never happened look like\n' >&2
     printf '       failures and prints their text to you. Refusing to continue.\n' >&2
     exit 1
-fi
+}
 export OSTLER_DIAG_DIR
 
 # ── Upgrade / rollback mode (B-lite delivery mechanism, v1.0.12) ────
