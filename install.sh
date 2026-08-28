@@ -471,6 +471,8 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
             local _py; _py="$(_upg_resolve_python3)" || { _upg_log "WARN: no python3 for doctor venv"; return 0; }
             if [[ ! -d "${_dir}/.venv" ]]; then
                 "$_py" -m venv "${_dir}/.venv" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || { _upg_log "WARN: doctor venv create failed"; return 0; }
+                _ostler_wire_store_auth_pth "${_dir}/.venv" "${_UPG_OSTLER_DIR:-${HOME}/.ostler}" \
+                    || warn "store-auth .pth not wired into "${_dir}/.venv" -- that venv reaches the data stores with NO credential"
             fi
             "${_dir}/.venv/bin/pip" install --quiet -r "${_dir}/requirements.txt" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
                 && _upg_log "doctor deps installed" || _upg_log "WARN: doctor pip failed (non-fatal)"
@@ -494,6 +496,8 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         mkdir -p "$_dir"
         cp -R "${_src}/." "$_dir/" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" || { _upg_log "WARN: knowledge cp failed"; return 0; }
         "$_py" -m venv "${_dir}/.venv" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || { _upg_log "WARN: knowledge venv create failed"; return 0; }
+        _ostler_wire_store_auth_pth "${_dir}/.venv" "${_UPG_OSTLER_DIR:-${HOME}/.ostler}" \
+            || warn "store-auth .pth not wired into "${_dir}/.venv" -- that venv reaches the data stores with NO credential"
         "${_dir}/.venv/bin/pip" install --quiet --upgrade pip >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || true
         "${_dir}/.venv/bin/pip" install --quiet "$_dir" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
             && _upg_log "knowledge installed into venv" || _upg_log "WARN: knowledge pip failed (non-fatal)"
@@ -528,6 +532,8 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         mkdir -p "$_dir"
         cp -R "${_src}/." "$_dir/" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" || { _upg_log "WARN: cm048 cp failed"; return 0; }
         "$_py" -m venv "${_dir}/.venv" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || { _upg_log "WARN: cm048 venv create failed"; return 0; }
+        _ostler_wire_store_auth_pth "${_dir}/.venv" "${_UPG_OSTLER_DIR:-${HOME}/.ostler}" \
+            || warn "store-auth .pth not wired into "${_dir}/.venv" -- that venv reaches the data stores with NO credential"
         "${_dir}/.venv/bin/pip" install --quiet --upgrade pip >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || true
         "${_dir}/.venv/bin/pip" install --quiet "$_sec" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
             || _upg_log "WARN: ostler_security install into cm048 venv failed"
@@ -2531,6 +2537,13 @@ _ostler_repair_venv_after_promote() {
         # surfaces the failure visibly via its own error path.
         return 0
     fi
+    # #550: wired AFTER the failure branch, not beside the create. This is the
+    # only one of the 15 sites whose creation is an `if !` condition, so an
+    # inserted-on-the-next-line call would have run on the FAILURE path too,
+    # against a venv that does not exist. Same reason the automated pass left
+    # this one alone and it was done by hand.
+    _ostler_wire_store_auth_pth "$venv_dir" \
+        || warn "store-auth .pth not wired into $venv_dir -- that venv reaches the data stores with NO credential"
 
     # Reinstall the packages that Phase 2 + Phase 3.6 put into the
     # pre-promote venv, so post-promote import sites + deployed
@@ -6652,6 +6665,8 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
     OSTLER_VENV="${OSTLER_DIR}/.venv"
     if [[ ! -d "$OSTLER_VENV" ]]; then
         "$PYTHON3_BIN" -m venv "$OSTLER_VENV"
+        _ostler_wire_store_auth_pth "$OSTLER_VENV" \
+            || warn "store-auth .pth not wired into "$OSTLER_VENV" -- that venv reaches the data stores with NO credential"
     fi
     OSTLER_PIP="${OSTLER_VENV}/bin/pip"
     OSTLER_PYTHON="${OSTLER_VENV}/bin/python3"
@@ -6795,6 +6810,8 @@ if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
     FDA_VENV="${OSTLER_DIR}/.venv"
     if [[ ! -d "$FDA_VENV" ]]; then
         "$PYTHON3_BIN" -m venv "$FDA_VENV"
+        _ostler_wire_store_auth_pth "$FDA_VENV" \
+            || warn "store-auth .pth not wired into "$FDA_VENV" -- that venv reaches the data stores with NO credential"
     fi
     FDA_VENV_PIP="${FDA_VENV}/bin/pip"
     FDA_VENV_PYTHON="${FDA_VENV}/bin/python3"
@@ -12347,6 +12364,8 @@ fi
 OSTLER_VENV="${OSTLER_DIR}/.venv"
 if [[ ! -d "$OSTLER_VENV" ]]; then
     "$PYTHON3_BIN" -m venv "$OSTLER_VENV"
+    _ostler_wire_store_auth_pth "$OSTLER_VENV" \
+        || warn "store-auth .pth not wired into "$OSTLER_VENV" -- that venv reaches the data stores with NO credential"
 fi
 OSTLER_PIP="${OSTLER_VENV}/bin/pip"
 OSTLER_PYTHON="${OSTLER_VENV}/bin/python3"
@@ -15748,6 +15767,8 @@ if [[ "$HAS_PIPELINE" == true ]]; then
     if [[ -n "$PIPELINE_REQS" ]]; then
         if [[ ! -d ".venv" ]]; then
             "$PYTHON3_BIN" -m venv .venv
+            _ostler_wire_store_auth_pth .venv \
+                || warn "store-auth .pth not wired into .venv -- that venv reaches the data stores with NO credential"
         fi
         # CX-31 (2026-05-24): capture pip install output to a log so a
         # cryptography / wheel / network failure surfaces a real error
@@ -15927,6 +15948,8 @@ fi
 if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
     info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$CM048_VENV")"
     "$PYTHON3_BIN" -m venv "$CM048_VENV"
+    _ostler_wire_store_auth_pth "$CM048_VENV" \
+        || warn "store-auth .pth not wired into "$CM048_VENV" -- that venv reaches the data stores with NO credential"
 
     info "$MSG_INFO_INSTALLING_CM048_PIPELINE_INTO_VENV"
     "$CM048_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
@@ -16323,6 +16346,8 @@ if [[ -d "$CM019_BUNDLE" && -f "$CM019_BUNDLE/requirements.txt" ]]; then
         mkdir -p "$CM019_DIR"
         cp -R "${CM019_BUNDLE}/" "$CM019_DIR/"
         "$PYTHON3_BIN" -m venv "$CM019_VENV"
+        _ostler_wire_store_auth_pth "$CM019_VENV" \
+            || warn "store-auth .pth not wired into "$CM019_VENV" -- that venv reaches the data stores with NO credential"
         "$CM019_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
         if "$CM019_VENV/bin/pip" install --quiet -r "${CM019_DIR}/requirements.txt" 2>/tmp/ostler-cm019-pip.log; then
             ok "$MSG_CM019_SETUP_DONE"
@@ -17864,6 +17889,8 @@ fi
 if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     if [[ ! -d "${DOCTOR_DIR}/.venv" ]]; then
         "$PYTHON3_BIN" -m venv "${DOCTOR_DIR}/.venv"
+        _ostler_wire_store_auth_pth "${DOCTOR_DIR}/.venv" \
+            || warn "store-auth .pth not wired into "${DOCTOR_DIR}/.venv" -- that venv reaches the data stores with NO credential"
     fi
     # CX-32 (2026-05-24): mirror CX-31 -- capture pip install output to a
     # log and surface tail via warn() per-line on failure. Pre-CX-32 a
@@ -18394,6 +18421,8 @@ fi
 if [[ -n "$KNOWLEDGE_SOURCE" && -f "$KNOWLEDGE_DIR/pyproject.toml" ]]; then
     info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$KNOWLEDGE_VENV")"
     "$PYTHON3_BIN" -m venv "$KNOWLEDGE_VENV"
+    _ostler_wire_store_auth_pth "$KNOWLEDGE_VENV" \
+        || warn "store-auth .pth not wired into "$KNOWLEDGE_VENV" -- that venv reaches the data stores with NO credential"
 
     info "$MSG_INFO_INSTALLING_OSTLER_KNOWLEDGE_INTO_VENV"
     "$KNOWLEDGE_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
@@ -18644,6 +18673,8 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
     info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$EMAIL_INGEST_VENV")"
     mkdir -p "$EMAIL_INGEST_VENV_DIR"
     "$PYTHON3_BIN" -m venv "$EMAIL_INGEST_VENV"
+    _ostler_wire_store_auth_pth "$EMAIL_INGEST_VENV" \
+        || warn "store-auth .pth not wired into "$EMAIL_INGEST_VENV" -- that venv reaches the data stores with NO credential"
 
     info "$MSG_INFO_INSTALLING_OSTLER_FDA_INTO_VENV"
     "$EMAIL_INGEST_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
@@ -18903,6 +18934,8 @@ _install_conversation_feed() {
         info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$venv")"
         mkdir -p "$base"
         "$PYTHON3_BIN" -m venv "$venv"
+        _ostler_wire_store_auth_pth "$venv" \
+            || warn "store-auth .pth not wired into "$venv" -- that venv reaches the data stores with NO credential"
         "$venv/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
         local pip_log="/tmp/ostler-${feed_key}-source-pip.log"
         local pip_ok=1
@@ -25996,6 +26029,8 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
         if [[ ! -x "$_AICONV_BIN" ]]; then
             mkdir -p "$_AICONV_DIR"
             "$PYTHON3_BIN" -m venv "$_AICONV_VENV" >>"$_AICONV_LOG" 2>&1 || true
+            _ostler_wire_store_auth_pth "$_AICONV_VENV" \
+                || warn "store-auth .pth not wired into "$_AICONV_VENV" -- that venv reaches the data stores with NO credential"
             "$_AICONV_VENV/bin/pip" install --quiet --upgrade pip >>"$_AICONV_LOG" 2>&1 || true
             "$_AICONV_VENV/bin/pip" install --quiet "$_AICONV_SRC" >>"$_AICONV_LOG" 2>&1 || true
         fi
