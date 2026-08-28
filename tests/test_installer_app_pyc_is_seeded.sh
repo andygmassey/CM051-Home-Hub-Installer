@@ -95,4 +95,24 @@ case "${CALL}" in
   *)  bad "the seeder invocation's root is not \$(APP_PATH) -- got: ${CALL}" ;;
 esac
 
+# --- and it must pass an EXCLUSION for the nested Ostler.app ----------------
+#
+# 🔴 WHY. v1.0.49 attempt 4 (run 33142445217) died because this call had no
+# -x: compileall reached into the nested, ALREADY-SEALED Ostler.app and
+# rewrote 86 .pyc that nothing reseals, because sign-python-bundle signs this
+# root WITHOUT --deep. codesign rc=1, file modified=86.
+#
+# The seeder itself refuses an exclusion that matches nothing, so a WRONG
+# pattern cannot pass silently. What that in-build probe cannot see is an
+# exclusion that was DELETED -- with no 5th argument there is nothing to probe
+# and the build walks straight back into the defect. That is this assertion.
+case "${CALL}" in
+  *'Contents/Resources/Ostler'*'app'*)
+      ok "the seeder invocation excludes the nested Ostler.app" ;;
+  *)  bad "the seeder invocation passes NO exclusion for the nested Ostler.app.
+      Without it, seeding rewrites .pyc inside a bundle this root's signing
+      step does not reseal (it signs without --deep), and the DMG ships a
+      broken nested seal. Got: ${CALL}" ;;
+esac
+
 [ "${fail}" -eq 0 ] && { echo "PASS"; exit 0; } || { echo "FAIL"; exit 1; }
