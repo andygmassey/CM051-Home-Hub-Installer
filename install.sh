@@ -111,6 +111,69 @@ for arg in "$@"; do
     esac
 done
 
+# ── Diagnostic sink: ONE PRIVATE, PER-RUN DIRECTORY ────────────────
+#
+# Until 2026-08-28, sixteen redirects sent diagnostics to fixed, shared,
+# predictable paths under the system temp dir -- one per component, named
+# after it, identical on every machine and for every user.
+#
+# 🔴 THE HISTORICAL PATHS ARE DELIBERATELY NOT SPELT OUT HERE. Writing them
+# would put the exact strings this change removes back into the file, where
+# the guard test counts them. The first draft DID spell them out, the bulk
+# rewrite then "fixed" the prose along with the code, and this comment ended
+# up naming the CURE as the DISEASE. See tests/test_diag_sink_per_run.sh.
+# ONE root cause, TWO defects, both MEASURED on /bin/bash 3.2.57 -- the
+# shell that actually runs this script, not zsh:
+#
+#   1. BASH ABORTS A COMMAND WHOSE REDIRECTION CANNOT BE OPENED. If the
+#      fixed path already exists owned by another user, then
+#          if pip install ... 2>SOME-FIXED-SHARED-PATH; then
+#      takes the ELSE branch for a pip run THAT NEVER EXECUTED, and we
+#      tell the customer "the package failed to install". Proved with a
+#      marker file: sink writable -> marker exists; sink unwritable ->
+#      marker ABSENT, the command never ran.
+#
+#   2. THE DIAGNOSTIC THEN PRINTS SOMEONE ELSE'S TEXT. The else branch
+#      seds that same path to the screen. The failed redirect never
+#      opened it, so it was never truncated -- what the customer reads is
+#      whatever the previous owner left behind. Six of the sixteen used
+#      `>>`, which never truncates even on success, so those accumulated
+#      across runs and across users by construction.
+#
+# Andy's first-ever walk of install.sh died in three minutes on defect 1
+# and displayed a different session's pip error. Board #910.
+#
+# The idiom below is the one already used by the pipsrc stage and the
+# bootstrap tmpdir. DO NOT "simplify" it to `mktemp -d -t ostler-diag`:
+# BSD mktemp -t IGNORES TMPDIR (measured on macOS 2026-08-16 -- see the
+# note above the pipsrc stage), which would put us straight back into the
+# shared /tmp this block exists to leave.
+#
+# A failure to create the directory is CANNOT-RUN and we refuse. Falling
+# back to /tmp would silently restore the exact defect being fixed.
+#
+# 🔴 DO NOT REWRITE THIS AS `if ! …; then … fi`. It was that shape until
+# 2026-08-28 and it broke tests/test_upgrade_repairs_the_fda_venv.sh, which
+# computes its search window as the FIRST COLUMN-0 `fi` at or after line 122:
+#
+#     BLOCK_END="$(awk 'NR>=122 && /^fi$/{print NR; exit}' "$INSTALL_SH")"
+#
+# A bare `fi` here is above that anchor, so BLOCK_END collapsed 750 -> 160,
+# the window no longer reached the _upg_repair_fda_venv call at 699, and the
+# test reported a HR015 #595 regression that had not happened. The test's own
+# premise guard could not catch it: it refuses only when BLOCK_END is EMPTY,
+# and ours was non-empty and wrong. A false anchor, not a missing one --
+# the same family as board #839. Keep this block free of column-0 block
+# keywords so it cannot retarget a line-anchored search again.
+OSTLER_DIAG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ostler-diag-XXXXXX")" || {
+    printf 'FATAL: could not create a private diagnostics directory under %s\n' "${TMPDIR:-/tmp}" >&2
+    printf '       Falling back to a shared path would let another user pre-create\n' >&2
+    printf '       our log files, which makes pip runs that never happened look like\n' >&2
+    printf '       failures and prints their text to you. Refusing to continue.\n' >&2
+    exit 1
+}
+export OSTLER_DIAG_DIR
+
 # ── Upgrade / rollback mode (B-lite delivery mechanism, v1.0.12) ────
 #
 # Two NON-INTERACTIVE modes the Hub invokes to reconcile the pieces of
@@ -2413,7 +2476,7 @@ _ostler_promote_prelaunch_tree() {
 # A file write cannot be silenced by a caller's stderr redirect, so the record
 # survives regardless of how the call site is written. stderr is kept too, for
 # the sites that do show it.
-_OSTLER_PIP_STAGE_LOG="${_OSTLER_PIP_STAGE_LOG:-/tmp/ostler-pip-stage.log}"
+_OSTLER_PIP_STAGE_LOG="${_OSTLER_PIP_STAGE_LOG:-"${OSTLER_DIAG_DIR}/pip-stage.log"}"
 
 _ostler_pip_stage_note() {
     printf '%s _ostler_pip_install_pkg: %s\n' \
@@ -2504,7 +2567,7 @@ _ostler_pip_install_pkg() {
 # on a fresh install it does not exist and calling it here would be a diagnostic
 # that reports nothing on the exact path where #805 bit. Same class of mistake as
 # the defect below. A file write survives any caller's stderr redirect.
-_OSTLER_PROMOTE_VENV_LOG="${_OSTLER_PROMOTE_VENV_LOG:-/tmp/ostler-promote-venv.log}"
+_OSTLER_PROMOTE_VENV_LOG="${_OSTLER_PROMOTE_VENV_LOG:-"${OSTLER_DIAG_DIR}/promote-venv.log"}"
 
 _ostler_promote_venv_note() {
     printf '%s repair_venv_after_promote: %s\n' \
@@ -2630,7 +2693,7 @@ _ostler_repair_venv_after_promote() {
     #
     # MEASURED on the v1.0.38 fresh-box install, 2026-08-21:
     #
-    #   /tmp/ostler-fda-deps.log names the pip that ran:
+    #   "${OSTLER_DIAG_DIR}/fda-deps.log" names the pip that ran:
     #     /tmp/ostler-prelaunch-4507/.venv/bin/python3.11 -m pip ...
     #   ~/.ostler/.venv/lib/python3.11/site-packages/ afterwards contains:
     #     ostler_legal-0.1.0.dist-info  ostler_security  ostler_security-0.1.0.dist-info
@@ -2971,7 +3034,7 @@ else
     # caller already restricted permissions). Still try /tmp so we
     # have SOMETHING on disk. Mention the fallback in the
     # customer log so support sees it.
-    INSTALL_LOG="/tmp/ostler-install-$(date +%s).log"
+    INSTALL_LOG="${OSTLER_DIAG_DIR}/install-$(date +%s).log"
     # Opt this run out of the _ostler_set_paths rebind. LOGS_DIR is not
     # writeable, so re-deriving INSTALL_LOG from it at promotion would
     # undo this fallback and send the trace back to a directory we have
@@ -6735,7 +6798,7 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
     # tools that read non-Python assets (e.g. setup wizard reading
     # bip39_english.txt from a known on-disk path) still work; the
     # package_data inclusion in the wheel covers the import path.
-    if _ostler_pip_install_pkg "$OSTLER_PIP" "${SCRIPT_DIR}/ostler_security" --quiet 2>/tmp/ostler-pip-install.log; then
+    if _ostler_pip_install_pkg "$OSTLER_PIP" "${SCRIPT_DIR}/ostler_security" --quiet 2>"${OSTLER_DIAG_DIR}/pip-install.log"; then
         HAS_SECURITY_MODULE=true
         # Mirror the source for diagnostic / read-the-file flows.
         mkdir -p "$SECURITY_DIR"
@@ -6769,21 +6832,21 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
             warn "$MSG_WARN_COULD_NOT_INSTALL_OSTLER_SECURITY_INTO"
             warn "$MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK"
             warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
-            if [[ -s /tmp/ostler-pip-install.log ]]; then
+            if [[ -s "${OSTLER_DIAG_DIR}/pip-install.log" ]]; then
                 warn "$MSG_WARN_PIP_SAID"
-                sed -e 's/^/    /' /tmp/ostler-pip-install.log | head -5
+                sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/pip-install.log" | head -5
             fi
-            rm -f /tmp/ostler-pip-install.log
+            rm -f "${OSTLER_DIAG_DIR}/pip-install.log"
         else
             echo ""
             warn "$MSG_WARN_COULD_NOT_INSTALL_OSTLER_SECURITY_INTO"
             warn "$MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK_2"
             warn "$MSG_WARN_THE_DEPLOYED_SERVICES_REFUSE_START_WITHOUT"
-            if [[ -s /tmp/ostler-pip-install.log ]]; then
+            if [[ -s "${OSTLER_DIAG_DIR}/pip-install.log" ]]; then
                 warn "$MSG_WARN_PIP_SAID"
-                sed -e 's/^/    /' /tmp/ostler-pip-install.log | head -5
+                sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/pip-install.log" | head -5
             fi
-            rm -f /tmp/ostler-pip-install.log
+            rm -f "${OSTLER_DIAG_DIR}/pip-install.log"
             fail_with_code "ERR-09-OSTLER-SECURITY-PIP" "$MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN"
         fi
     fi
@@ -6877,7 +6940,7 @@ if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
 
     info "$MSG_INFO_INSTALLING_FDA_DEPENDENCIES"
     "$FDA_VENV_PIP" install --quiet -e "${FDA_DIR}/ostler_fda" \
-        >/tmp/ostler-fda-deps.log 2>&1 || true
+        >"${OSTLER_DIAG_DIR}/fda-deps.log" 2>&1 || true
 
     # ── THE CONTROL: IMPORT, DO NOT READ ─────────────────────────────
     #
@@ -6898,8 +6961,8 @@ if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
         FDA_IMPORT_ERR="$("$FDA_VENV_PYTHON" -c 'import ostler_fda.identifier_quality' 2>&1 | tail -1)"
         warn "$MSG_WARN_FDA_DEPENDENCIES_NOT_IMPORTABLE"
         warn "    ${FDA_IMPORT_ERR}"
-        if [[ -s /tmp/ostler-fda-deps.log ]]; then
-            sed -e 's/^/    /' /tmp/ostler-fda-deps.log | tail -5
+        if [[ -s "${OSTLER_DIAG_DIR}/fda-deps.log" ]]; then
+            sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/fda-deps.log" | tail -5
         fi
         # Hard-fail, mirroring the missing-module branch below. A module that
         # is present but cannot load is not better than an absent one -- it is
@@ -9639,7 +9702,7 @@ composite_cleanup() {
        && -d "$OSTLER_PRELAUNCH_DIR" ]]; then
         if [[ -f "${OSTLER_PRELAUNCH_DIR}/logs/install.log" ]]; then
             cp "${OSTLER_PRELAUNCH_DIR}/logs/install.log" \
-               "/tmp/ostler-install-failsafe-$$.log" 2>/dev/null || true
+               "${OSTLER_DIAG_DIR}/install-failsafe-$$.log" 2>/dev/null || true
         fi
         rm -rf "$OSTLER_PRELAUNCH_DIR" 2>/dev/null || true
     fi
@@ -10100,7 +10163,7 @@ else
     # zero diagnostic info. Capture stderr+stdout to a log file so
     # any failure surfaces a real error message in the customer log
     # (and in the failure banner mailto via the log Reference line).
-    BREW_INSTALL_LOG="/tmp/ostler-brew-install.log"
+    BREW_INSTALL_LOG="${OSTLER_DIAG_DIR}/brew-install.log"
     rm -f "$BREW_INSTALL_LOG"
 
     # Pre-probe state that affects Homebrew installer behaviour, so
@@ -10220,7 +10283,7 @@ fi
 # from looking hung.
 if ! command -v gtimeout &>/dev/null; then
     info "$MSG_INFO_INSTALLING_COREUTILS_GTIMEOUT"
-    brew install coreutils >/tmp/ostler-coreutils-install.log 2>&1 || true
+    brew install coreutils >"${OSTLER_DIAG_DIR}/coreutils-install.log" 2>&1 || true
     if [[ -x /opt/homebrew/bin/brew ]]; then
         eval "$(/opt/homebrew/bin/brew shellenv)"
     fi
@@ -15962,7 +16025,7 @@ if [[ "$HAS_PIPELINE" == true ]]; then
         # failure here died invisible (audit ref: Studio retest #20
         # diagnosis CX-30 trail). Surface tail via warn() per-line so
         # the GUI prefix-aware parser actually renders the body.
-        PIPELINE_PIP_LOG="/tmp/ostler-pipeline-pip.log"
+        PIPELINE_PIP_LOG="${OSTLER_DIAG_DIR}/pipeline-pip.log"
         # One pip call per file, not one call with many -r flags: a failure
         # then names the file that caused it in the log, instead of leaving the
         # operator to guess which of three packages broke.
@@ -16151,22 +16214,22 @@ if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
     # and the wiki /Conversations/ section ships permanently empty.
     if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/pyproject.toml" ]]; then
         info "$MSG_INFO_INSTALLING_OSTLER_SECURITY_INTO_CM048_VENV"
-        if ! _ostler_pip_install_pkg "$CM048_VENV/bin/pip" "${SCRIPT_DIR}/ostler_security" --quiet 2>/tmp/ostler-cm048-security-pip.log; then
+        if ! _ostler_pip_install_pkg "$CM048_VENV/bin/pip" "${SCRIPT_DIR}/ostler_security" --quiet 2>"${OSTLER_DIAG_DIR}/cm048-security-pip.log"; then
             warn "$MSG_WARN_OSTLER_SECURITY_INSTALL_FAILED_CM048"
-            if [[ -s /tmp/ostler-cm048-security-pip.log ]]; then
-                sed -e 's/^/    /' /tmp/ostler-cm048-security-pip.log | tail -5
+            if [[ -s "${OSTLER_DIAG_DIR}/cm048-security-pip.log" ]]; then
+                sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/cm048-security-pip.log" | tail -5
             fi
         fi
     else
         warn "$MSG_WARN_OSTLER_SECURITY_SOURCE_MISSING_CM048"
     fi
 
-    if "$CM048_VENV/bin/pip" install --quiet "$CM048_DIR" 2>/tmp/ostler-cm048-pip.log; then
+    if "$CM048_VENV/bin/pip" install --quiet "$CM048_DIR" 2>"${OSTLER_DIAG_DIR}/cm048-pip.log"; then
         info "$MSG_INFO_CM048_PIPELINE_INSTALLED_VENV"
     else
         warn "$MSG_WARN_PIP_INSTALL_FAILED_CM048_PIPELINE_WILL"
-        if [[ -s /tmp/ostler-cm048-pip.log ]]; then
-            sed -e 's/^/    /' /tmp/ostler-cm048-pip.log | tail -5
+        if [[ -s "${OSTLER_DIAG_DIR}/cm048-pip.log" ]]; then
+            sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/cm048-pip.log" | tail -5
         fi
     fi
 
@@ -16198,12 +16261,12 @@ if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
         #      (every conversation bundle then exhausting at step 07).
         #      This second gate makes a missing dependency FAIL the step.
         if "$CM048_SYMLINK" --help >/dev/null 2>&1 \
-           && "$CM048_VENV/bin/python3" -c 'import src.ingest' >/tmp/ostler-cm048-import.log 2>&1; then
+           && "$CM048_VENV/bin/python3" -c 'import src.ingest' >"${OSTLER_DIAG_DIR}/cm048-import.log" 2>&1; then
             ok "$MSG_OK_CM048_PIPELINE_READY"
         else
             warn "$MSG_WARN_HEALTH_CHECK_FAILED_PWG_CONVO_HELP"
-            if [[ -s /tmp/ostler-cm048-import.log ]]; then
-                sed -e 's/^/    /' /tmp/ostler-cm048-import.log | tail -5
+            if [[ -s "${OSTLER_DIAG_DIR}/cm048-import.log" ]]; then
+                sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/cm048-import.log" | tail -5
             fi
         fi
     else
@@ -16535,12 +16598,12 @@ if [[ -d "$CM019_BUNDLE" && -f "$CM019_BUNDLE/requirements.txt" ]]; then
         _ostler_wire_store_auth_pth "$CM019_VENV" \
             || warn "store-auth .pth not wired into "$CM019_VENV" -- that venv reaches the data stores with NO credential"
         "$CM019_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
-        if "$CM019_VENV/bin/pip" install --quiet -r "${CM019_DIR}/requirements.txt" 2>/tmp/ostler-cm019-pip.log; then
+        if "$CM019_VENV/bin/pip" install --quiet -r "${CM019_DIR}/requirements.txt" 2>"${OSTLER_DIAG_DIR}/cm019-pip.log"; then
             ok "$MSG_CM019_SETUP_DONE"
         else
             warn "$MSG_CM019_SETUP_FAILED"
-            if [[ -s /tmp/ostler-cm019-pip.log ]]; then
-                sed -e 's/^/    /' /tmp/ostler-cm019-pip.log | tail -5
+            if [[ -s "${OSTLER_DIAG_DIR}/cm019-pip.log" ]]; then
+                sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/cm019-pip.log" | tail -5
             fi
         fi
     else
@@ -18081,7 +18144,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     # CX-32 (2026-05-24): mirror CX-31 -- capture pip install output to a
     # log and surface tail via warn() per-line on failure. Pre-CX-32 a
     # doctor-pip failure died invisible (same axis as CX-30 / CX-31).
-    DOCTOR_PIP_LOG="/tmp/ostler-doctor-pip.log"
+    DOCTOR_PIP_LOG="${OSTLER_DIAG_DIR}/doctor-pip.log"
     set +e
     "${DOCTOR_DIR}/.venv/bin/pip" install --quiet -r "${DOCTOR_DIR}/requirements.txt" > "$DOCTOR_PIP_LOG" 2>&1
     DOCTOR_PIP_EXIT=$?
@@ -18612,12 +18675,12 @@ if [[ -n "$KNOWLEDGE_SOURCE" && -f "$KNOWLEDGE_DIR/pyproject.toml" ]]; then
 
     info "$MSG_INFO_INSTALLING_OSTLER_KNOWLEDGE_INTO_VENV"
     "$KNOWLEDGE_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
-    if "$KNOWLEDGE_VENV/bin/pip" install --quiet "$KNOWLEDGE_DIR" 2>/tmp/ostler-knowledge-pip.log; then
+    if "$KNOWLEDGE_VENV/bin/pip" install --quiet "$KNOWLEDGE_DIR" 2>"${OSTLER_DIAG_DIR}/knowledge-pip.log"; then
         info "$MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV"
     else
         warn "$MSG_WARN_PIP_INSTALL_FAILED_OSTLER_KNOWLEDGE_WILL"
-        if [[ -s /tmp/ostler-knowledge-pip.log ]]; then
-            sed -e 's/^/    /' /tmp/ostler-knowledge-pip.log | tail -5
+        if [[ -s "${OSTLER_DIAG_DIR}/knowledge-pip.log" ]]; then
+            sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/knowledge-pip.log" | tail -5
         fi
     fi
 
@@ -18882,12 +18945,12 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
     # consumer, the email-ingest venv, went straight at SCRIPT_DIR and nobody
     # noticed because the comment asserted otherwise. A docstring is not a
     # measurement.
-    if _ostler_pip_install_pkg "$EMAIL_INGEST_VENV/bin/pip" "$OSTLER_FDA_SRC" --quiet 2>/tmp/ostler-fda-pip.log; then
+    if _ostler_pip_install_pkg "$EMAIL_INGEST_VENV/bin/pip" "$OSTLER_FDA_SRC" --quiet 2>"${OSTLER_DIAG_DIR}/fda-pip.log"; then
         ok "$MSG_OK_OSTLER_FDA_INSTALLED_VENV"
     else
         warn "$MSG_WARN_PIP_INSTALL_FAILED_OSTLER_FDA_WILL"
-        if [[ -s /tmp/ostler-fda-pip.log ]]; then
-            sed -e 's/^/    /' /tmp/ostler-fda-pip.log | tail -5
+        if [[ -s "${OSTLER_DIAG_DIR}/fda-pip.log" ]]; then
+            sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/fda-pip.log" | tail -5
         fi
         EMAIL_INGEST_VENV_PYTHON=""
     fi
@@ -18930,7 +18993,7 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
             #     6  cm021/pwg_email_intelligence.egg-info
             # and the same DMG mounted from ostler.ai verifies CLEAN, so those
             # files are written at install time, not shipped.
-            if _ostler_pip_install_pkg "$EMAIL_INGEST_VENV/bin/pip" "$CM021_SRC" --quiet 2>/tmp/ostler-cm021-pip.log; then
+            if _ostler_pip_install_pkg "$EMAIL_INGEST_VENV/bin/pip" "$CM021_SRC" --quiet 2>"${OSTLER_DIAG_DIR}/cm021-pip.log"; then
                 ok "$MSG_OK_PWG_EMAIL_INGEST_INSTALLED"
                 # CM021's [project.scripts] entry point lands the console
                 # script here. Record the absolute path so the snippet can
@@ -18942,8 +19005,8 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
                 fi
             else
                 warn "$MSG_WARN_PIP_INSTALL_FAILED_PWG_EMAIL_INGEST"
-                if [[ -s /tmp/ostler-cm021-pip.log ]]; then
-                    sed -e 's/^/    /' /tmp/ostler-cm021-pip.log | tail -5
+                if [[ -s "${OSTLER_DIAG_DIR}/cm021-pip.log" ]]; then
+                    sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/cm021-pip.log" | tail -5
                 fi
                 # Don't unset EMAIL_INGEST_VENV_PYTHON -- the
                 # LaunchAgent still gets the ostler_fda emitter,
@@ -19123,7 +19186,7 @@ _install_conversation_feed() {
         _ostler_wire_store_auth_pth "$venv" \
             || warn "store-auth .pth not wired into "$venv" -- that venv reaches the data stores with NO credential"
         "$venv/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
-        local pip_log="/tmp/ostler-${feed_key}-source-pip.log"
+        local pip_log="${OSTLER_DIAG_DIR}/${feed_key}-source-pip.log"
         local pip_ok=1
         if [[ "${#pip_args[@]}" -gt 0 ]]; then
             "$venv/bin/pip" install --quiet "${pip_args[@]}" 2>"$pip_log" || pip_ok=0
@@ -22068,7 +22131,7 @@ if [[ -r "$_ns_migrate_script" ]]; then
     _ns_rc=0
     python3 "$_ns_migrate_script" local --apply \
         --backup-path "${OSTLER_DIR:-$PWD}/ostler-graph-premigration.nq" \
-        >>/tmp/ostler-ns-migration.log 2>&1 || _ns_rc=$?
+        >>"${OSTLER_DIAG_DIR}/ns-migration.log" 2>&1 || _ns_rc=$?
     case "$_ns_rc" in
         0) ok "Graph identifiers are current" ;;  # i18n-exempt
         2) : ;;  # nothing to migrate on a fresh box; the log says which
@@ -22081,9 +22144,9 @@ if [[ -r "$_ns_migrate_script" ]]; then
         # as untouched, is how a customer gets talked out of the one thing
         # that would have saved them: stopping and looking. Archie's F4.
         124|137)
-           warn "Identifier namespace migration was KILLED part-way (rc=$_ns_rc). The store may be HALF-MIGRATED. Do not rebuild the wiki from it. Your pre-migration backup is at ${OSTLER_DIR:-$PWD}/ostler-graph-premigration.nq. See /tmp/ostler-ns-migration.log"  # i18n-exempt
+           warn "Identifier namespace migration was KILLED part-way (rc=$_ns_rc). The store may be HALF-MIGRATED. Do not rebuild the wiki from it. Your pre-migration backup is at ${OSTLER_DIR:-$PWD}/ostler-graph-premigration.nq. See "${OSTLER_DIAG_DIR}/ns-migration.log""  # i18n-exempt
            ;;
-        *) warn "Identifier namespace migration did not complete (rc=$_ns_rc). Some identifiers may already have been rewritten, so the store may be part-migrated -- it is NOT known to be unchanged. Your pre-migration backup is at ${OSTLER_DIR:-$PWD}/ostler-graph-premigration.nq. See /tmp/ostler-ns-migration.log"  # i18n-exempt
+        *) warn "Identifier namespace migration did not complete (rc=$_ns_rc). Some identifiers may already have been rewritten, so the store may be part-migrated -- it is NOT known to be unchanged. Your pre-migration backup is at ${OSTLER_DIR:-$PWD}/ostler-graph-premigration.nq. See "${OSTLER_DIAG_DIR}/ns-migration.log""  # i18n-exempt
            ;;
     esac
     unset _ns_rc
@@ -22906,7 +22969,7 @@ if [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
         cd "$PIPELINE_DIR" && \
         "$_HYDRATE_PIPELINE_PY" -m contact_syncer.syncer \
             --vcf "$_HYDRATE_FORCE_ABCDDB_VCF" \
-            --graph-endpoint "$_HYDRATE_OXIGRAPH" 2>>/tmp/ostler-hydrate-contacts.log \
+            --graph-endpoint "$_HYDRATE_OXIGRAPH" 2>>"${OSTLER_DIAG_DIR}/hydrate-contacts.log" \
         | tail -n 1
     )" || _HYDRATE_CONTACTS_JSON=""
     _HYDRATE_CONTACTS_COUNT="$(
@@ -23240,7 +23303,7 @@ if [[ -x "$_HYDRATE_CALENDAR_PY" ]]; then
     # narrowing it back down. See the CX-92 note at the window defaults.
     _hydrate_heartbeat_start "$MSG_HYDRATE_CALENDAR_HEARTBEAT"
     _HYDRATE_CALENDAR_EXTRACT="$(OSTLER_FDA_OUTPUT_DIR="${OSTLER_DIR}/imports/fda" \
-    "$_HYDRATE_CALENDAR_PY" - <<EOF 2>>/tmp/ostler-hydrate-calendar.log
+    "$_HYDRATE_CALENDAR_PY" - <<EOF 2>>"${OSTLER_DIAG_DIR}/hydrate-calendar.log"
 import json, os, sys
 from pathlib import Path
 out_dir = Path(os.environ["OSTLER_FDA_OUTPUT_DIR"])
@@ -23267,7 +23330,7 @@ EOF
     # per attendee. The return dict has {events_processed,
     # unique_attendees} which we surface as "Imported %s events".
     _HYDRATE_CALENDAR_JSON="$(
-        "$_HYDRATE_CALENDAR_PY" - <<EOF 2>>/tmp/ostler-hydrate-calendar.log
+        "$_HYDRATE_CALENDAR_PY" - <<EOF 2>>"${OSTLER_DIAG_DIR}/hydrate-calendar.log"
 import json, os, sys
 from pathlib import Path
 os.environ.setdefault("OXIGRAPH_URL", "$_HYDRATE_OXIGRAPH")
@@ -23418,7 +23481,7 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
     mkdir -p "$_HYDRATE_EMAIL_MBOX_DIR"
     _HYDRATE_EMAIL_MBOX="${_HYDRATE_EMAIL_MBOX_DIR}/install-time-$(date +%Y%m%dT%H%M%S).mbox.txt"
     _HYDRATE_EMAIL_TIMED_OUT=false
-    _HYDRATE_EMAIL_LOG=/tmp/ostler-hydrate-email.log
+    _HYDRATE_EMAIL_LOG="${OSTLER_DIAG_DIR}/hydrate-email.log"
     # #848. The drain's rc and the arm this block finishes in, kept in named
     # variables so the sentinel at the bottom is written from what HAPPENED
     # rather than from what the last `info` line said. `0` and `unset` are the
@@ -23627,7 +23690,7 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
         _HYDRATE_WHATSAPP_TIMEOUT_WRAP="timeout 90"
     fi
 
-    _HYDRATE_WHATSAPP_LOG=/tmp/ostler-hydrate-whatsapp.log
+    _HYDRATE_WHATSAPP_LOG="${OSTLER_DIAG_DIR}/hydrate-whatsapp.log"
     _HYDRATE_WHATSAPP_TIMED_OUT=false
 
     # Step 1: extract + classify. Writes whatsapp_conversations.json
@@ -23784,7 +23847,7 @@ elif [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
         _HYDRATE_BROWSING_TIMEOUT_WRAP="timeout 90"
     fi
 
-    _HYDRATE_BROWSING_LOG=/tmp/ostler-hydrate-browsing.log
+    _HYDRATE_BROWSING_LOG="${OSTLER_DIAG_DIR}/hydrate-browsing.log"
     _HYDRATE_BROWSING_TIMED_OUT=false
 
     # Stream the JSON through ingest_browser_history. Inline python
@@ -23983,7 +24046,7 @@ else
         _HYDRATE_EMAILPREFS_TIMEOUT_WRAP="timeout $_HYDRATE_EMAILPREFS_CAP"
     fi
 
-    _HYDRATE_EMAILPREFS_LOG=/tmp/ostler-hydrate-email-preferences.log
+    _HYDRATE_EMAILPREFS_LOG="${OSTLER_DIAG_DIR}/hydrate-email-preferences.log"
     _HYDRATE_EMAILPREFS_TIMED_OUT=false
 
     _hydrate_heartbeat_start "$MSG_HYDRATE_EMAIL_PREFERENCES_HEARTBEAT"
@@ -24111,7 +24174,7 @@ elif [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]
         _HYDRATE_IMESSAGE_TIMEOUT_WRAP="timeout 90"
     fi
 
-    _HYDRATE_IMESSAGE_LOG=/tmp/ostler-hydrate-imessage.log
+    _HYDRATE_IMESSAGE_LOG="${OSTLER_DIAG_DIR}/hydrate-imessage.log"
     _HYDRATE_IMESSAGE_TIMED_OUT=false
 
     # Inline python so we only run ingest_imessage and don't
@@ -24295,7 +24358,7 @@ except Exception:
     print(0)" 2>/dev/null || true)"
     _landed="${_landed:-0}"
     if [[ "$_landed" -eq 0 ]]; then
-        warn "Conversation-ingest guard: ${_label} extraction emitted ${_n} conversation(s) but ZERO ${_label} chat-identity facts reached the graph. The ${_label} leg landed nothing -- this is a structural break, not 'no data'. See /tmp/ostler-hydrate-${_label}.log."
+        warn "Conversation-ingest guard: ${_label} extraction emitted ${_n} conversation(s) but ZERO ${_label} chat-identity facts reached the graph. The ${_label} leg landed nothing -- this is a structural break, not 'no data'. See ${OSTLER_DIAG_DIR}/hydrate-${_label}.log."
     else
         info "Conversation-ingest guard: ${_label} ${_landed} chat-identity fact(s) in the graph (extract had ${_n})."
     fi
@@ -24342,7 +24405,7 @@ unset _CONV_GUARD_FDA_DIR _CONV_GUARD_OX
 # OSTLER_DEDUPE_INSTALL_BUDGET_S (default 300s / 5 min).
 if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
     info "Merging duplicate contacts across your sources"
-    _DEDUPE_LOG=/tmp/ostler-hydrate-dedupe.log
+    _DEDUPE_LOG="${OSTLER_DIAG_DIR}/hydrate-dedupe.log"
     _DEDUPE_BUDGET_S="${OSTLER_DEDUPE_INSTALL_BUDGET_S:-300}"
     _DEDUPE_DONE_MARKER="${OSTLER_DIR}/state/dedupe-converge.done"
     mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
@@ -24513,7 +24576,7 @@ elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_APPLENOTE
         _HYDRATE_APPLENOTES_TIMEOUT_WRAP="timeout $_HYDRATE_APPLENOTES_CAP"
     fi
 
-    _HYDRATE_APPLENOTES_LOG=/tmp/ostler-hydrate-apple-notes.log
+    _HYDRATE_APPLENOTES_LOG="${OSTLER_DIAG_DIR}/hydrate-apple-notes.log"
     _HYDRATE_APPLENOTES_TIMED_OUT=false
     mkdir -p "$_HYDRATE_APPLENOTES_STAGING" "$(dirname "$_HYDRATE_APPLENOTES_DBPATH")"
 
@@ -24675,7 +24738,7 @@ elif [[ -x "$_HYDRATE_PEOPLE_PY" ]]; then
     # sentinel and still refuse to suppress the retry.
     _HYDRATE_PEOPLE_TIMEOUT_WRAP=""
 
-    _HYDRATE_PEOPLE_LOG=/tmp/ostler-hydrate-people.log
+    _HYDRATE_PEOPLE_LOG="${OSTLER_DIAG_DIR}/hydrate-people.log"
     _HYDRATE_PEOPLE_TIMED_OUT=false
 
     # Inline python so we call ingest_people_to_qdrant directly: it reads
@@ -24789,7 +24852,7 @@ _INITIAL_HYDRATE_QDRANT="${QDRANT_URL:-http://localhost:6333}"
 _INITIAL_HYDRATE_FDA_DIR="${OSTLER_DIR}/imports/fda"
 _INITIAL_HYDRATE_VENV="${OSTLER_DIR}/services/email-ingest/.venv"
 _INITIAL_HYDRATE_PY="${_INITIAL_HYDRATE_VENV}/bin/python"
-_INITIAL_HYDRATE_LOG=/tmp/ostler-initial-hydrate.log
+_INITIAL_HYDRATE_LOG="${OSTLER_DIAG_DIR}/initial-hydrate.log"
 : >"$_INITIAL_HYDRATE_LOG"
 
 # Probe Qdrant collections count. The /collections endpoint returns
@@ -25004,10 +25067,10 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
            EMBED_MODEL="$_PLACES_EMBED_MODEL" \
            $_PLACES_TIMEOUT_WRAP \
            .venv/bin/python -m contact_syncer.places_ingest --verbose
-    ) >>/tmp/ostler-places-ingest.log 2>&1 || _places_rc=$?
+    ) >>"${OSTLER_DIAG_DIR}/places-ingest.log" 2>&1 || _places_rc=$?
     # The log is appended across runs (>>); only this run's tail is relevant,
     # so scope the signature greps to the tail rather than the whole file.
-    _places_log_tail="$(tail -n 40 /tmp/ostler-places-ingest.log 2>/dev/null)"
+    _places_log_tail="$(tail -n 40 "${OSTLER_DIAG_DIR}/places-ingest.log" 2>/dev/null)"
     if [[ "$_places_rc" -eq 0 ]]; then
         # Success. Distinguish "built some Places" from the genuinely benign
         # "no location signals yet" case (module prints "0 meeting locations
@@ -25076,13 +25139,13 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
         && OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
            DEFAULT_PRIVACY_LEVEL="${DEFAULT_PRIVACY_LEVEL:-L2}" \
            .venv/bin/python -m contact_syncer.backfill_privacy --apply
-    ) >>/tmp/ostler-privacy-backfill.log 2>&1 || _privacy_rc=$?
+    ) >>"${OSTLER_DIAG_DIR}/privacy-backfill.log" 2>&1 || _privacy_rc=$?
     if [[ "$_privacy_rc" -eq 0 ]]; then
         ok "Privacy levels tagged"  # i18n-exempt
     else
         # Non-fatal: readers stay fail-closed (safe), and the ical-server
         # startup hook retries on the next boot. Surface it, do not abort.
-        warn "Privacy backfill did not complete (rc=$_privacy_rc); readers stay fail-closed. See /tmp/ostler-privacy-backfill.log"  # i18n-exempt
+        warn "Privacy backfill did not complete (rc=$_privacy_rc); readers stay fail-closed. See "${OSTLER_DIAG_DIR}/privacy-backfill.log""  # i18n-exempt
     fi
     # #712: the rc was already captured AND already printed in the warn above,
     # and then thrown away at the sentinel -- the failure was visible to the
@@ -26215,11 +26278,42 @@ fi
 # the CM048 POST.
 OSTLER_AI_CONVERSATIONS_ENABLED="${OSTLER_AI_CONVERSATIONS_ENABLED:-true}"
 
+# ── The diagnostic sink must heal itself HERE ──────────────────────────────
+#
+# install.sh creates OSTLER_DIAG_DIR once, near the top. This leg does not
+# always arrive by that route: tests/test_aiconv_hydrate_honesty.sh:79 lifts
+# it out VERBATIM --
+#     sed -n '/^OSTLER_AI_CONVERSATIONS_ENABLED=/,/^# (disabled path/p'
+# -- and runs it standalone under `set -uo pipefail`. With no initialiser in
+# scope the leg died at its first redirect, taking 34 of 50 assertions with
+# it. A leg that can be executed on its own must be able to stand on its own.
+#
+# `:=` assigns ONLY when unset, so a real install reuses the one directory it
+# already made -- this is not a second sink, and not a per-expansion mktemp.
+#
+# 🔴 THE EMPTINESS CHECK IS LOAD-BEARING, DO NOT "SIMPLIFY" IT AWAY. If
+# mktemp fails, the command substitution yields "", `:=` assigns "", and
+# `set -u` is then perfectly satisfied -- the redirect target silently becomes
+# a bare "/hydrate-aiconv.log", which cannot be opened, which aborts the
+# command it is attached to and reports a step that never ran as a step that
+# failed. That is precisely the #910 defect this whole change removes, so an
+# unusable sink is CANNOT-RUN and we refuse. No column-0 block keyword here
+# either: a bare `fi` above a line-anchored window retargets it (see the note
+# at the initialiser, and board #839).
+: "${OSTLER_DIAG_DIR:=$(mktemp -d "${TMPDIR:-/tmp}/ostler-diag-XXXXXX")}"
+[ -n "${OSTLER_DIAG_DIR}" ] && [ -d "${OSTLER_DIAG_DIR}" ] || {
+    printf 'FATAL: no private diagnostics directory under %s; refusing to run\n' "${TMPDIR:-/tmp}" >&2
+    printf '       the AI-conversations step rather than write diagnostics to a\n' >&2
+    printf '       shared path another user can pre-create.\n' >&2
+    exit 1
+}
+export OSTLER_DIAG_DIR
+
 if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
     _AICONV_DIR="${OSTLER_DIR}/services/cm052"
     _AICONV_VENV="${_AICONV_DIR}/.venv"
     _AICONV_BIN="${_AICONV_VENV}/bin/pwg-ai-convo"
-    _AICONV_LOG=/tmp/ostler-hydrate-aiconv.log
+    _AICONV_LOG="${OSTLER_DIAG_DIR}/hydrate-aiconv.log"
 
     # Discover the vendored package: .app bundle layout first
     # (SCRIPT_DIR is Contents/Resources), then the dev-tree layout.
