@@ -97,6 +97,7 @@ walk_horizon: v1.0.41
 | v1.0.45 |  | not_walked | A2 (ARTEFACT MEASURED 2026-08-26, NEVER INSTALLED. Not walked because it CANNOT be: the DMG bricks on first run, v1045-D001. There is no walks/v1.0.45.tsv and there should not be one -- no walker got past Gatekeeper.) | v1045-D001 |
 | v1.0.46 | 2026-08-26 | deferred | ORM walked the artefact 2026-08-26T03:08Z with scripts/walk_dmg.sh: PASS 5, FAIL 2, CANNOT-RUN 1, VERDICT NO_GO. Deferred (not closed) by A1 under Andy's standing instruction to drive to a cut: the root cause is FIXED on CM051 main c196c1e0 and rides v1.0.47, but it is in NO artefact, so closing would be true about the repo and false about the DMG. | v1046-D001 v1046-D002 v1046-D003 |
 | v1.0.47 | 2026-08-26 | deferred | ORM walked the artefact 2026-08-26 with scripts/walk_dmg.sh; arm 8b (#1092) imports an UNSEEDED product module and takes .pyc 1448 -> 1449 with codesign rc=1, VERDICT NO_GO. Deferred (not closed) by A2 under Andy's standing instruction to drive to a cut: the root cause is FIXED on CM051 main 7857e00c (#1093) and rides v1.0.48, but it is in NO artefact, so closing would be true about the repo and false about the DMG. | v1047-D001 |
+| v1.0.48 | 2026-08-27 | deferred | Archie walked the artefact on the walk box (box_fp 9b6a0022a46780ac), record at walks/v1.0.48.tsv, version_source measured(CFBundleShortVersionString) 1.0.48 / 4800 read via plutil ON THE BOX. VERDICT FAILED, qa_exit 1: phase 1 10 pass / 8 fail / 2 cannot-run of 20, phase 2 cut manifest 27 pass / 9 fail / 4 skip of 42. THE CUT'S OWN JOB PASSED: app_signature_survives_first_run is GREEN on the artefact, 1887 .pyc all unchecked-hash, corpus byte-identical 8644c1b53ca5, 353 product .py with 0 uncovered, live-trigger control fired (1 .pyc written OUTSIDE the bundle), 0 files added to a writable copy by importing its own product modules, codesign clean on BOTH verbs. That closes v1047-D001's ADD limb, measured on the artefact rather than in the source. DEFERRED (not closed) BECAUSE OF WHAT THE WALK COULD NOT SEE, NOT BECAUSE OF THE EIGHT FAILURES: the walk drag-copies the .app and never launches it, so install.sh did not run and the eight phase-1 failures describe an AUG 25 install of Ostler 0.7.1, not this DMG (see v1048-D001). Re-attribution independently confirmed by A2 via version strings and by mtimes with a control that moved. | v1048-D001 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -3519,3 +3520,77 @@ it breaks its own seal exactly as the installer did.
 DEFERRED, NOT CLOSED: the fix is on CM051 main and in NO artefact. v1.0.47 is
 published, prerelease, and installed by nobody; ostler.ai/install.dmg still
 serves v1.0.41. Closing this would be true about the repo and false about the DMG.
+
+### v1048-D001 -- v1.0.48's install path is UNMEASURED, because no walk has ever run install.sh
+
+**This is a CANNOT-RUN, not a FAIL, and the distinction is the whole finding.**
+v1.0.48 is not known to be broken. It is not known to work either, on the one
+surface a customer actually touches.
+
+**WHAT THE WALK ACTUALLY DID.** `walk_stage2_install_and_walk.sh` mounts the DMG
+and drag-copies `OstlerInstaller.app` into `/Applications`. It never launches it.
+Measured with a control that moved:
+
+    /Applications/OstlerInstaller.app                     Aug 28 01:07  <- CONTROL
+    ~/.ostler/logs/install.log                            Aug 25 16:23
+    ~/.ostler/config.toml                                 Aug 25 16:23
+    ~/Library/LaunchAgents/com.ostler.ical-server.plist   Aug 25 16:02
+    ~/.ostler/.venv                                       Aug 24 12:42
+
+The control moved; nothing `install.sh` writes moved. Corroborated by a second
+instrument: `/tmp/ostler-pipeline-pip.log` is dated Aug 25, holds 3 lines, and
+carries ZERO of the `== <req> ==` headers this version of install.sh writes, and
+that block opens with `: > $LOG`, so a run would have truncated it. A2 confirmed
+independently by version strings: `/Applications/Ostler.app` reads **0.7.1**, and
+the install log mentions "1.0.4" zero times, so it predates the whole 1.0.4x line.
+
+**CONSEQUENCE, AND IT IS THE REASON THIS ROW IS DEFERRED RATHER THAN CLOSED.**
+The box runs an Aug 25 install of 0.7.1 with the v1.0.48 installer sitting beside
+it unused. Every probe downstream of install.sh described 0.7.1. The eight phase-1
+failures are therefore NOT this cut's:
+
+    identity_layer_is_importable          the #1139 fix for this IS IN v1.0.48
+                                          (d44bba7c, ancestor of the tag: TRUE) and
+                                          has never executed. Proved sound in an
+                                          isolated venv: rapidfuzz 3.14.5, all three
+                                          identity_resolver modules import, consumer
+                                          venv left untouched so the box still shows
+                                          the defect.
+    no_person_holds_two_contact_cards     damage dated 2026-08-21..24, ZERO merges
+    people_count_agreement                since install, control 1128 mergedAt
+    people_stores_reconcile               triples so the zero is real
+    pairing_recovers_without_a_repair_storm  pre-existing per #505, measured BEFORE
+                                          this cut
+    usage_journal_producers               designed pipeline shipping dark (#482)
+    no_unexpected_egress                  all three destinations Tailscale-owned and
+                                          declared by wildcard; NOT a leak
+    assistant_answers_grounded            1 of 3 questions did not reach the graph;
+                                          n=3 is too small to size
+
+**IT ALSO PRODUCED A FALSE PASS IN THE WALK'S OWN OUTPUT, and that is the part
+worth keeping.** The walk printed `#520 PRECONDITION, RE-CHECKED AFTER INSTALL
+(install regenerates config.toml) -> companion_enabled = true`. config.toml was
+NOT regenerated; it is Aug 25's, and the value was already true. The probe passed
+for a reason its subject cannot support. That is task #520's exact shape, and it
+means a green from that probe carries no information about any install.
+
+**WHY IT IS NOT SIMPLY FIXABLE, stated so the next reader does not re-derive it.**
+install.sh REFUSES to run headless by design: line 771 requires a TTY unless
+`--check`, `--help` or `--licenses`, or `OSTLER_GUI=1`. A real run calls `sudo -v`
+(72 sudo sites), 44 `osascript` calls, and 22 `launchctl kickstart -k` (#509's
+documented hang). An agent cannot supply a password and must not try. So this is a
+CANNOT-RUN at the level of the harness, not a probe that happened to fail.
+
+**THIS EXPLAINS A LONG-RUNNING PATTERN.** Andy's manual walks keep finding
+installer defects our automated walks score green. It was never that we kept
+missing them; the automated walk is structurally incapable of seeing them.
+
+**RIDES FORWARD AS:** #531, which offers an honest floor that costs nothing
+(rename the driver and record `install_path_exercised=false`) and a real fix that
+does not (a GUI session or an `OSTLER_GUI=1` arm with the osascript and kickstart
+hazards handled). Neither is in v1.0.49's scope, which is arm 8 and nothing else.
+
+**DEFERRED, NOT CLOSED:** closing would assert that v1.0.48 was walked. It was
+walked as an ARTEFACT and that half is genuinely green. The install half has not
+been walked by anyone, and saying otherwise would be true about the DMG's bytes
+and false about the DMG's behaviour.

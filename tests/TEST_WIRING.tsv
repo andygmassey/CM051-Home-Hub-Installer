@@ -180,6 +180,7 @@ test_install_log_reads_like_a_product.sh	WIRED	.github/workflows/install-log-hyg
 test_install_sh_no_call_before_definition.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_install_sh_prefers_bundled_python.sh	UNWIRED	-
 test_installer_app_bundle_contents.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_installer_app_pyc_is_seeded.sh	WIRED	.github/workflows/installer-app-pyc-seeded.yml
 test_installer_installs_every_pipeline_requirements_file.sh	WIRED	.github/workflows/fda-deps-installed.yml
 test_installer_output_buffer_is_bounded.sh	WIRED	.github/workflows/installer-memory-bounds.yml
 test_installer_output_keeps_the_tail.sh	WIRED	.github/workflows/installer-memory-bounds.yml
@@ -222,6 +223,7 @@ test_ollama_install_path_contract.sh	WIRED	.github/workflows/consent-data-handli
 test_ollama_user_active.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_orphan_gate_cannot_verify.sh	WIRED	.github/workflows/cut.yml
 test_orphan_gate_empty_pr_list_needs_a_control.sh	WIRED	.github/workflows/cut.yml
+test_orphan_gate_failed_fetch_is_not_truth.sh	WIRED	.github/workflows/cut.yml
 test_orphan_gate_pr_skip_is_per_label.sh	WIRED	.github/workflows/cut.yml
 test_osascript_dialogs_activate_system_events.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_osascript_sites_are_deadlined.sh	WIRED	.github/workflows/osascript-deadline.yml
@@ -244,6 +246,8 @@ test_product_seed_regex_does_not_exclude_the_bundle.sh	WIRED	.github/workflows/c
 test_provenance_gate_cannot_run_is_not_stale.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_provenance_gate_marker_read_is_not_piped.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_provenance_survives_the_filter_under_execution.py	WIRED	.github/workflows/install-abort-and-egress.yml
+test_pyc_bytes_depend_on_compile_path.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_pyc_seed_excludes_nested_ostler_app.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_readonly_flags_need_no_tty.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_repair_overmerged_contact_cards.py	WIRED	.github/workflows/contact-card-repair.yml
 test_repin_wiki_images_refuses_a_typed_sha.sh	WIRED	.github/workflows/cut-freshness.yml

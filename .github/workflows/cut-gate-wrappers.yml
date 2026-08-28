@@ -38,6 +38,11 @@ on:
       - 'gui/scripts/sign-python-bundle.sh'
       - 'gui/scripts/seed-hub-payload-pyc.sh'
       - 'tests/test_hub_payload_seed_refuses_a_wrong_interpreter.sh'
+      # Watched as well as run -- same rule as the marker manifest below. The
+      # defect surface (gui/Makefile, the seeder) and both instruments have to
+      # share a trigger, or editing one of these tests would never re-run it.
+      - 'tests/test_pyc_seed_excludes_nested_ostler_app.sh'
+      - 'tests/test_pyc_bytes_depend_on_compile_path.sh'
       - 'tests/test_sign_python_bundle_reports_why.sh'
       - 'tests/test_product_seed_regex_does_not_exclude_the_bundle.sh'
       - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
@@ -226,6 +231,33 @@ jobs:
       - name: the hub payload seed refuses a wrong interpreter
         if: always()
         run: bash tests/test_hub_payload_seed_refuses_a_wrong_interpreter.sh
+
+      # v1.0.49 attempt 4 (run 33142445217) died at arm 8 with
+      # "codesign rc=1, file added=0, file modified=86" -- the seed rewrote
+      # every .pyc inside the already-sealed nested Ostler.app. #1200 fixed it
+      # and shipped two guards: the recipe PASSES an exclusion (structural) and
+      # the pattern MATCHES at least one .py (in-build probe).
+      #
+      # Neither answers the question the cut failed on: after a real seeding
+      # run, are the nested .pyc still the same BYTES? A pattern can be passed,
+      # match files, and still match the wrong ones. The first test below runs
+      # the real seeder over a build-shaped fixture and compares digests, with
+      # a mutation arm that drops the argument and must go RED, a control
+      # proving the outer tree was seeded in the same run, and an arm refusing
+      # an over-broad pattern -- which would satisfy every other assertion
+      # while seeding nothing at all.
+      #
+      # The second pins the REASON. `compileall` embeds the absolute source
+      # path as co_filename, which is why the same interpreter over the same
+      # bytes at two paths emits two different .pyc. Without it the next reader
+      # takes the interpreter caveat at face value, pins the interpreter,
+      # measures no difference, and deletes the exclusion.
+      - name: the pyc seed leaves the sealed nested Ostler.app byte-identical
+        if: always()
+        run: bash tests/test_pyc_seed_excludes_nested_ostler_app.sh
+      - name: pyc bytes depend on the compile path (the reason for the above)
+        if: always()
+        run: bash tests/test_pyc_bytes_depend_on_compile_path.sh
 
       # provenance_gate.sh accused three healthy CM044 wiki images of being
       # stale on run 31696154993, because `gh api` prints its error body to

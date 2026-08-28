@@ -1,0 +1,81 @@
+name: installer-app-pyc-seeded
+
+# ARM 8. Asserts that the ship chain seeds $(APP_PATH) -- the staged
+# OstlerInstaller.app -- between `release` and `sign-python-bundle`.
+#
+# WHY A GATE AND NOT JUST A TEST FILE: the seeding pass ran on
+# $(OSTLER_APP_PATH) only, and nothing noticed for the life of the repo,
+# because "no seed pass names OstlerInstaller.app" is a silence. A test that
+# nothing invokes would reproduce exactly that failure one level up -- which
+# is what `new-tests-wired` caught me doing on the first push of this branch.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  installer-app-pyc-seeded:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The ship chain seeds OstlerInstaller.app
+        run: bash tests/test_installer_app_pyc_is_seeded.sh
+
+      # PROVE THE TEST CAN FAIL, ON EVERY RUN. A guard only ever watched
+      # passing is not known to be able to fail. Mutations are applied to a
+      # COPY of gui/Makefile; the tracked file is never touched.
+      #
+      # 🔴 ASSERT ON THE MESSAGE, NOT ONLY ON rc. The test exits 2 for
+      # CANNOT-RUN (no Makefile) and 1 for FAIL, and a mutant staged in a bare
+      # temp dir would exit 2 having checked nothing at all -- a false red that
+      # looks like a working control.
+      - name: "RED when the seed target is unwired from ship:"
+        if: always()
+        run: |
+          set +e            # GitHub runs `bash -e`; these controls EXPECT a non-zero test
+          set -uo pipefail
+          W="$(mktemp -d)"; mkdir -p "$W/gui" "$W/tests"
+          cp gui/Makefile "$W/gui/Makefile"
+          cp tests/test_installer_app_pyc_is_seeded.sh "$W/tests/"
+          sed -i'' -e 's/release seed-installer-app-pyc sign-python-bundle/release sign-python-bundle/' "$W/gui/Makefile"
+          if diff -q gui/Makefile "$W/gui/Makefile" >/dev/null; then
+            echo "MUTATION DID NOT APPLY -- this control proves nothing." >&2; exit 1
+          fi
+          out="$(bash "$W/tests/test_installer_app_pyc_is_seeded.sh" 2>&1)"; rc=$?
+          printf '%s\n' "$out"
+          case "$out" in
+            *"is NOT invoked by ship:"*) ;;
+            *) echo "WRONG FAILURE: expected the unwired message, got rc=$rc" >&2; exit 1 ;;
+          esac
+          [ "$rc" -eq 1 ] || { echo "expected rc=1 (FAIL), got $rc" >&2; exit 1; }
+          echo "OK: control fired with the right message and the right rc"
+
+      - name: "RED when the seeder is pointed at the wrong root"
+        if: always()
+        run: |
+          set +e            # GitHub runs `bash -e`; these controls EXPECT a non-zero test
+          set -uo pipefail
+          W="$(mktemp -d)"; mkdir -p "$W/gui" "$W/tests"
+          cp gui/Makefile "$W/gui/Makefile"
+          cp tests/test_installer_app_pyc_is_seeded.sh "$W/tests/"
+          sed -i'' -e 's/"$(APP_PATH)" "$(PYTHON_BUNDLE_TARBALL)" "OstlerInstaller.app" 400/"$(OSTLER_APP_PATH)" "$(PYTHON_BUNDLE_TARBALL)" "OstlerInstaller.app" 400/' "$W/gui/Makefile"
+          if diff -q gui/Makefile "$W/gui/Makefile" >/dev/null; then
+            echo "MUTATION DID NOT APPLY -- this control proves nothing." >&2; exit 1
+          fi
+          out="$(bash "$W/tests/test_installer_app_pyc_is_seeded.sh" 2>&1)"; rc=$?
+          printf '%s\n' "$out"
+          case "$out" in
+            *"root is not \$(APP_PATH)"*) ;;
+            *) echo "WRONG FAILURE: expected the wrong-root message, got rc=$rc" >&2; exit 1 ;;
+          esac
+          [ "$rc" -eq 1 ] || { echo "expected rc=1 (FAIL), got $rc" >&2; exit 1; }
+          echo "OK: control fired with the right message and the right rc"
+
+      - name: Parses under /bin/bash 3.2 semantics
+        if: always()
+        run: bash -n tests/test_installer_app_pyc_is_seeded.sh

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# seed-hub-payload-pyc.sh <OSTLER_APP_PATH> <PYTHON_BUNDLE_TARBALL>
+# seed-hub-payload-pyc.sh <APP_ROOT> <PYTHON_BUNDLE_TARBALL>
+#                         [SUBJECT_LABEL] [MIN_PY] [EXCLUDE_RX]
 #
 # Seed every .py inside Ostler.app with an unchecked-hash .pyc, so the customer's
 # first import cannot write into the bundle and void its signature.
@@ -45,11 +46,47 @@ set -uo pipefail
 
 APP="${1:-}"
 TARBALL="${2:-}"
+# SUBJECT LABEL and ANTI-VACUITY FLOOR are per-root, because this script now
+# seeds TWO roots and they have different populations.
+#
+# 🔴 NAME THE SUBJECT, NOT THE INSTRUMENT. Before this, the [OK] lines below
+# printed the literal string "Ostler.app" regardless of what $APP actually was.
+# Pointed at a second root that would have reported a TRUE COUNT UNDER A FALSE
+# SUBJECT -- the precise failure this estate has paid for repeatedly.
+#
+# The floor cannot be shared either: Ostler.app carries ~86 .py and
+# OstlerInstaller.app ~1888, but the nested daemon app carries ONE, so a single
+# hardcoded >=20 is either vacuous for the big roots or a false "did not stage"
+# for a small one. Defaults reproduce the previous behaviour EXACTLY for the
+# existing arm-1 call site, which passes neither argument.
+LABEL="${3:-Ostler.app}"
+MIN_PY="${4:-20}"
+# EXCLUDE_RX -- paths compileall must NOT WRITE TO. Default empty, so arm 1's
+# call site (which passes neither this nor the two before it) behaves EXACTLY
+# as before.
+#
+# 🔴 WHY THIS ARGUMENT EXISTS. It is not a tidy-up. v1.0.49 attempt 4 died
+# here, and the guard below the seed at the arm-8 call site is what caught it:
+#
+#     [OK] nested Ostler.app: codesign rc=1, file added=0, file modified=86
+#     ERROR: seeding $(APP_PATH) disturbed the nested Ostler.app seal.
+#
+# The comment at the seed itself said "-x is unnecessary, nested bundles are
+# resealed by the SAME codesign --force --deep that seals this root". That was
+# TRUE of the root it was written for (arm 1 = the source Ostler.app) and FALSE
+# of the root arm 8 later pointed it at (OstlerInstaller.app, which
+# sign-python-bundle signs WITHOUT --deep). The sentence did not change; the
+# subject underneath it did. A reseal claim is only ever true of ONE root.
+#
+# So the exclusion is per-CALL-SITE, never global: the correct answer differs
+# between the two roots, and hardcoding either one is wrong for the other.
+EXCLUDE_RX="${5:-}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-[ -n "$APP" ]     || die "usage: seed-hub-payload-pyc.sh <OSTLER_APP_PATH> <PYTHON_BUNDLE_TARBALL>"
-[ -n "$TARBALL" ] || die "usage: seed-hub-payload-pyc.sh <OSTLER_APP_PATH> <PYTHON_BUNDLE_TARBALL>"
+[ -n "$APP" ]     || die "usage: seed-hub-payload-pyc.sh <APP_ROOT> <PYTHON_BUNDLE_TARBALL> [SUBJECT_LABEL] [MIN_PY] [EXCLUDE_RX]"
+[ -n "$TARBALL" ] || die "usage: seed-hub-payload-pyc.sh <APP_ROOT> <PYTHON_BUNDLE_TARBALL> [SUBJECT_LABEL] [MIN_PY] [EXCLUDE_RX]"
+case "$MIN_PY" in ''|*[!0-9]*) die "MIN_PY must be a non-negative integer, got '$MIN_PY'";; esac
 [ -d "$APP" ]     || die "not a directory: $APP"
 [ -f "$TARBALL" ] || die "python bundle tarball not found: $TARBALL
        download-python (step 7) produces it; this runs at stage-payload (step 9)."
@@ -57,7 +94,7 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/hubseed.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
-printf '[STEP] Seeding Ostler.app bytecode before the Sparkle seal\n'
+printf '[STEP] Seeding %s bytecode before its seal\n' "$LABEL"
 
 # ---- the interpreter ------------------------------------------------------
 # Resolve by find rather than hardcoding python/bin/python3.11: the layout is
@@ -78,11 +115,62 @@ TAG="$("$PY" -c 'import sys; print(sys.implementation.cache_tag)' 2>/dev/null)" 
 printf '[OK] seeding interpreter: %s (cache_tag %s)\n' "$("$PY" -c 'import sys;print(sys.version.split()[0])')" "$TAG"
 
 # ---- the seed -------------------------------------------------------------
-# No -x. Nested bundles inside Ostler.app (the agent app, Sparkle's Updater)
-# are resealed by the SAME `codesign --force --deep` that seals Ostler.app, so
-# seeding them is safe here in a way it is NOT in sign-python-bundle.sh.
-if ! env PYTHONDONTWRITEBYTECODE=1 "$PY" -m compileall -q -f \
-        --invalidation-mode unchecked-hash "$APP"; then
+# Nested bundles inside this root are seeded too, EXCEPT where the caller names
+# an exclusion. Whether seeding a nested bundle is safe is a property of THE
+# ROOT, not of this script: safe wherever a later `codesign --force --deep`
+# reseals the whole root (arm 1 over the source Ostler.app), unsafe wherever the
+# root is signed WITHOUT --deep (arm 8 over OstlerInstaller.app). That is why
+# the exclusion is an argument and not a constant. See EXCLUDE_RX above.
+CA=(-m compileall -q -f --invalidation-mode unchecked-hash)
+if [ -n "$EXCLUDE_RX" ]; then
+    # 🔴 PROVE THE EXCLUSION FIRES BEFORE TRUSTING IT.
+    # A regex that matches nothing is a silent no-op: compileall still exits 0,
+    # every count printed below is identical, and the log reads exactly like a
+    # correct run while the seal this exclusion exists to defend breaks again
+    # downstream. An exclusion nobody has watched exclude something is a comment.
+    HITS="$("$PY" -B -c '
+import os, re, sys
+try:
+    rx = re.compile(sys.argv[2])
+except re.error as exc:
+    sys.stderr.write("not a valid regular expression: %s\n" % exc)
+    sys.exit(2)
+n = 0
+for dirpath, dirnames, filenames in os.walk(sys.argv[1]):
+    for fn in filenames:
+        if fn.endswith(".py") and rx.search(os.path.join(dirpath, fn)):
+            n += 1
+print(n)
+' "$APP" "$EXCLUDE_RX")" || die "could not evaluate the exclusion against $APP.
+       CANNOT-RUN is neither pass nor fail, and an unevaluated exclusion is not
+       an applied one."
+    case "$HITS" in
+        ''|*[!0-9]*) die "the exclusion probe returned '$HITS', which is not a count." ;;
+    esac
+    [ "$HITS" -gt 0 ] || die "the exclusion matches ZERO .py under $APP.
+       An exclusion that excludes nothing is a no-op that READS AS PROTECTION.
+       Either the nested bundle moved or the pattern is wrong, and both mean the
+       seal this defends is about to break exactly as it did in v1.0.49."
+    CA+=(-x "$EXCLUDE_RX")
+    printf '[OK] excluding %s .py from the WRITE (pattern: %s)\n' "$HITS" "$EXCLUDE_RX"
+    printf '[--] THIS COUNT IS THE POSITIVE CONTROL, and it is the ONLY line that\n'
+    printf '[--] tells you whether the exclusion applied. It must equal the .py\n'
+    printf '[--] count reported by the arm that OWNS that bundle. In v1.0.49 both\n'
+    printf '[--] were 86: arm 1 at stage-payload said "86 .py / 86 .pyc", and arm 8\n'
+    printf '[--] broke exactly 86. 86 == 86 is the proof that excluding loses NO\n'
+    printf '[--] coverage -- arm 8 was never covering those files, it was REWRITING\n'
+    printf '[--] files arm 1 had already covered, and breaking the seal to do it.\n'
+    printf '[--] RESIDUAL, STATED OUT LOUD: this arm does NOT seed those %s files.\n' "$HITS"
+    printf '[--] The audit below still WALKS them, so any uncovered one fails here.\n'
+    printf '[--] 🔴 THE AUDIT TOTAL BELOW DOES *NOT* DROP BY %s, AND MUST NOT.\n' "$HITS"
+    printf '[--] It is os.walk over the WHOLE root and is deliberately blind to -x.\n'
+    printf '[--] It printed 1888 before the exclusion and it prints 1888 after.\n'
+    printf '[--] A reviewer predicted 1802 and would have read a HEALTHY build as a\n'
+    printf '[--] failed exclusion. Worse, the obvious "fix" -- teaching the audit to\n'
+    printf '[--] skip the excluded subtree -- deletes the only thing keeping this\n'
+    printf '[--] safe: that an uncovered or wrong-mode .py in there still fails HERE.\n'
+fi
+if ! env PYTHONDONTWRITEBYTECODE=1 "$PY" "${CA[@]}" "$APP"; then
     die "compileall failed inside $APP.
        A PARTIAL seed is worse than none: whatever failed to compile is exactly
        what the customer's first import writes into the signed bundle."
@@ -124,13 +212,13 @@ print("%d %d %d %d" % (py, pyc, uncovered, wrongmode))
 set -- $AUDIT
 [ "$#" -eq 4 ] || die "audit returned '$AUDIT', not four counts."
 A_PY="$1"; A_PYC="$2"; A_UNCOVERED="$3"; A_WRONGMODE="$4"
-printf '[OK] Ostler.app: %s .py / %s .pyc -- uncovered %s, wrong-mode %s\n' \
-       "$A_PY" "$A_PYC" "$A_UNCOVERED" "$A_WRONGMODE"
+printf '[OK] %s: %s .py / %s .pyc -- uncovered %s, wrong-mode %s\n' \
+       "$LABEL" "$A_PY" "$A_PYC" "$A_UNCOVERED" "$A_WRONGMODE"
 
 # ANTI-VACUITY. A zero numerator over a missing denominator is not a pass: if
 # the payload failed to stage, every count is 0 and this would "succeed" while
 # sealing nothing. v1.0.47 measured 86 .py inside Ostler.app.
-[ "$A_PY" -ge 20 ] || die "only $A_PY .py inside $APP -- expected >=20 (v1.0.47: 86).
+[ "$A_PY" -ge "$MIN_PY" ] || die "only $A_PY .py inside $APP ($LABEL) -- expected >=$MIN_PY.
        The payload did not stage, so this audit could not look."
 [ "$A_UNCOVERED" -eq 0 ] || die "$A_UNCOVERED of $A_PY .py have NO .pyc beside them.
        The customer's first import writes each one into the bundle Sparkle is
@@ -139,4 +227,4 @@ printf '[OK] Ostler.app: %s .py / %s .pyc -- uncovered %s, wrong-mode %s\n' \
        Any other mode can be invalidated and rewritten in place, which breaks
        the seal without changing a single count."
 
-printf '[OK] Ostler.app bytecode sealed-pending-sparkle (%s .pyc, all unchecked-hash)\n' "$A_PYC"
+printf '[OK] %s bytecode sealed-pending-seal (%s .pyc, all unchecked-hash)\n' "$LABEL" "$A_PYC"

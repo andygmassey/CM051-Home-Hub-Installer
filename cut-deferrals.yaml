@@ -1345,6 +1345,9 @@ deferrals:
   - ref: "CM051:#495"
     reason: "Pre-rule open PR from the 2026-08-06 sweep backlog (the 48h merge rule took effect that day). Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Work into v1.0.17 via the phased sweep, not by widening a gate."
     until_cut: "v1.0.27"
+  - ref: "CM051:#1189"
+    reason: "AXIS THREE trigger-reachability gate (#1167). DEFERRED ON PROCESS, NOT ON MERIT: its own declared-gates-self-test is RED (run 33092446147), and the 00:20Z ship-window bar says no new gates during a cut. The PR axis takes ALL open CM051 PRs at tag time regardless of prefix or draft status, so an un-deferred open PR reds the re-tag. Chasing the self-test green inside the ship window was explicitly declined by ORM; the measurement it carries (10 of 22 declarers fire under a tag push, so 12 gates declaring themselves cut-blocking never run on the path that cuts a DMG) lands AFTER the DMG exists. Branch is archie/1167-cut-trigger-reachability, which the BRANCH axis does not select (it takes only fix/ hotfix/ feat/ feature/), so no branch-spelling row is needed and one would be noise. No pr-age row either: the PR is under an hour old and that gate flags stale PRs."
+    until_cut: "v1.0.49"
   - ref: "CM051:#496"
     reason: "Pre-rule open PR from the 2026-08-06 sweep backlog (the 48h merge rule took effect that day). Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Work into v1.0.17 via the phased sweep, not by widening a gate."
     until_cut: "v1.0.27"
@@ -1952,6 +1955,29 @@ deferrals:
       Clears when the content is on main, or is explicitly rejected in writing. Never
       by deleting the branch.
     until_cut: "v1.0.49"
+  - ref: "daemon:#368"
+    reason: >-
+      fix(pairing): rotation revokes paired devices, spares the admin token (oa #898).
+      DRAFT, opened 2026-08-28T03:45Z. ONE file, crates/zeroclaw-config/src/pairing.rs.
+      This is PRODUCT CODE, not CI, and it is the fix for a defect measured this
+      session: handle_pair never touches the device registry, so a box can hold live
+      bearer tokens against a registry with zero rows.
+      DEFERRED BY ORM 2026-08-28T04:28Z, on four stated reasons:
+      (1) it is a DRAFT, held deliberately by its author, who said so;
+      (2) its own checks are RED, fail=2 pass=6, and merging a red PR to green a gate
+      is the exact habit this gate exists to stop;
+      (3) it cannot reach this DMG -- cut.env pins DAEMON_COMMIT=f1c7c57d, an artefact
+      already built, signed, notarised and published;
+      (4) it touches a SECURITY surface, pairing rotation versus the admin token, and
+      the analysis on file shows the obvious one-line fix is WORSE than the bug: it
+      would mass-revoke every paired device AND the admin token, written through to
+      config.toml, merely from viewing the Doctor pairing panel.
+      THIS ROW IS NOT A CLAIM THAT THE DEFECT IS MINOR. v1.0.49 ships with the
+      pairing-registry defect present. That was decided deliberately rather than by
+      omission, and it earns a real review rather than a cut-pressure merge.
+      Clears when it leaves draft and goes green, or is explicitly rejected in
+      writing. NEVER by deleting the branch.
+    until_cut: "v1.0.50"
   - ref: "daemon:#351"
     reason: >-
       A DRAFT, and a draft is by definition not proposed for merge. 18 files, 12 of

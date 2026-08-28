@@ -175,7 +175,7 @@ entries:
       # customer behaviour. v1.0.14 will cut from a fresh main so this
       # hold_ack becomes harmless (diverging set empty).
       hold_ack:
-        reason: "v1.0.13.2 hotfix from hub-v0.4.45 (c638a6d7); 23 crates/** commits on oa/main are v1.1 candidates or CI-only, intentionally not in this hotfix. Full list below. v1.0.14 will re-baseline off fresh main."
+        reason: "TWO EPOCHS, both listed below. (1) v1.0.13.2 hotfix from hub-v0.4.45 (c638a6d7); 23 crates/** commits on oa/main are v1.1 candidates or CI-only, intentionally not in this hotfix. (2) v1.0.49, 2026-08-28: oa #366's two commits (3464215ba5, d9ea32dd18), merged mid-cut, held rather than rebuilt because BOTH are confined to `#[cfg(test)] mod tests` (mod.rs lines 6193..12765 encloses all four changed hunks) plus a tokio test-util feature added under [dev-dependencies] only. Neither is compiled or linked into a release binary, so a new daemon release would be behaviourally identical. hub-v0.4.67 is the newest published tag and points at the pinned f1c7c57d, so no existing release covers them. This is NOT a claim the pin is fresh: v1.0.49 ships without these two commits, decided on that measurement rather than by omission."
         shas:
           - cf82dab8ef  # fix(doctor): clippy field_reassign_with_default in probe-path tests (#173)
           - ab20c46333  # style: cargo fmt (wrap long closure in doctor no-routes test)
@@ -200,6 +200,40 @@ entries:
           - aa6f34890d  # fix(ci): correct doc list-item indentation
           - 2943840b04  # fix(ci): apply cargo fmt to clear Quality Gate lint failures
           - 66975b1472  # feat(settings): user-configurable daily-brief schedule (morning + evening)
+          # ---- v1.0.49 addition (2026-08-28, Archie). oa #366, merged by me
+          # DURING the v1.0.49 cut, which is what made the pin stale. Held, not
+          # rebuilt, because BOTH commits are provably unable to change the
+          # shipped binary. MEASURED, not inferred from the commit titles:
+          #
+          #   3464215ba5  1 file: crates/zeroclaw-channels/src/orchestrator/mod.rs
+          #               hunk @8907
+          #   d9ea32dd18  2 files: .../orchestrator/mod.rs  hunks @8806, @8903
+          #                        crates/zeroclaw-channels/Cargo.toml
+          #
+          #   mod.rs on d9ea32dd is 13009 lines. Its top-level cfg(test) blocks:
+          #       #[cfg(test)] mod tests {              lines 6193..12765
+          #       #[cfg(test)] mod cron_delivery_tests { lines 12778..13009
+          #   ALL FOUR changed hunks (8806/8903/8907/8957) fall inside
+          #   `mod tests`, so none of it is compiled into a release build.
+          #
+          #   The Cargo.toml change adds tokio feature "test-util" under
+          #   [dev-dependencies] ONLY. Verified at source: the [dependencies]
+          #   tokio entry does NOT carry test-util, so it is not linked into
+          #   the shipped binary either.
+          #
+          # A new daemon release would therefore produce a behaviourally
+          # identical artefact. hub-v0.4.67 is the newest published tag and
+          # points at f1c7c57d, exactly what is pinned; d9ea32dd is "ahead" of
+          # every published tag, so no existing release covers these two and
+          # this ack is not papering over shipped work.
+          #
+          # 🔴 THIS IS NOT A CLAIM THE PIN IS FRESH. v1.0.49 ships daemon
+          # v0.4.67 (@f1c7c57d) and these two commits are NOT in it. That was
+          # decided deliberately, on the measurement above, rather than by
+          # omission. The ack is sha-scoped: any THIRD crates/** commit
+          # re-reds this gate, which is the property that makes it safe.
+          - 3464215ba5  # fix(channels): parallel-dispatch deadline sat below the fixture's own floor [cfg(test) only]
+          - d9ea32dd18  # fix(channels): put the parallel-dispatch test on a paused clock [cfg(test) + dev-dependencies only]
 
   - id: permanent-remotecapture-freshness
     title: pinned RemoteCapture app must contain all merged source changes on its default branch
