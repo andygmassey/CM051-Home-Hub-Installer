@@ -6648,15 +6648,44 @@ fi
 #    NOT STYLE. Measured on /bin/bash 3.2.57 (what `#!/usr/bin/env bash`
 #    resolves to on a stock Mac) under this file's own `set -Eeuo pipefail`:
 #        a=(); printf '%s' "${a[@]}"   ->  a[@]: unbound variable, ABORT
-#    Enforcement is default-OFF today, so the array is EMPTY on every current
-#    install. A naive "${arr[@]}" would abort every one of them.
+#    The array is still EMPTY for the first ~4,800 lines of every install --
+#    the writer's first call runs before any secret is seeded -- so a naive
+#    "${arr[@]}" would abort every call site in that window. (Until 2026-08-28
+#    this comment said "enforcement is default-OFF, so the array is empty on
+#    every current install". #1222 flipped that default; the guard is still
+#    required, for the ordering reason above rather than the flag reason.)
 _OSTLER_STORE_CURL_ARGS=()
 
+# 🔴 TWO STORES, TWO CREDENTIALS, AND THEY ARE NOT INTERCHANGEABLE (2026-08-28).
+#    Until today this wrote ONLY the Oxigraph bearer, and every shell caller
+#    presented that bearer to BOTH stores. Oxigraph accepted it; Qdrant did not,
+#    because Qdrant's credential is `qdrant_api_key` -- an INDEPENDENT
+#    `openssl rand -hex 32` seeded at the same place (see _seed_store_secret).
+#    Two different secrets, one header.
+#
+#    DEMONSTRATED against the pinned image (qdrant/qdrant v1.12.1) with
+#    QDRANT__SERVICE__API_KEY set, i.e. the post-#1222 default:
+#        /readyz       bare                          200   <- readiness PASSES
+#        /collections  Bearer <oxigraph token>       401   <- and then this
+#        /collections  bare                          401
+#        /collections  api-key: <qdrant key>         200   <- control
+#        /collections  bare, against a KEYLESS qdrant 200  <- control
+#    install.sh's own probe at the "database" step treats that 401 as evidence
+#    of a credential LEAK and calls fail_with_code ERR-06-STORE-AUTH-LEAK, which
+#    routes through fail() -> exit 1. So the installer terminated itself on the
+#    default path, on every fresh install and every upgrade.
+#
+#    Sending both headers is safe and was measured, not assumed: a WRONG
+#    Authorization bearer sitting alongside a CORRECT api-key still returns 200
+#    from Qdrant, and the Oxigraph nginx include tests `$http_authorization`
+#    only, so the extra api-key line is inert there.
 _ostler_write_store_curl_config() {
     local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     local _tok_file="${OSTLER_DIR}/secrets/oxigraph_token" _tok
+    local _key_file="${OSTLER_DIR}/secrets/qdrant_api_key" _key
     _tok="$(cat "$_tok_file" 2>/dev/null)" || _tok=""
-    if [ -z "$_tok" ]; then
+    _key="$(cat "$_key_file" 2>/dev/null)" || _key=""
+    if [ -z "$_tok" ] && [ -z "$_key" ]; then
         # FAIL CLOSED, and delete any STALE config: a credential file that
         # outlives its token is worse than none, because callers keep
         # presenting a secret the store no longer honours.
@@ -6665,10 +6694,27 @@ _ostler_write_store_curl_config() {
         return 1
     fi
     mkdir -p "${OSTLER_DIR}/secrets" 2>/dev/null || true
-    ( umask 0077; printf 'header = "Authorization: Bearer %s"\n' "$_tok" > "$_conf" ) || return 2
+    # umask FIRST, and truncate INSIDE the subshell, so the file is never
+    # briefly world-readable with a secret already in it.
+    (
+        umask 0077
+        : > "$_conf"
+        if [ -n "$_tok" ]; then
+            printf 'header = "Authorization: Bearer %s"\n' "$_tok" >> "$_conf"
+        fi
+        if [ -n "$_key" ]; then
+            printf 'header = "api-key: %s"\n' "$_key" >> "$_conf"
+        fi
+    ) || return 2
     _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
     return 0
 }
+# ⚠️ THIS FIRST CALL RUNS BEFORE EITHER SECRET EXISTS, AND THAT IS NOT A BUG --
+#    it is why the SECOND call, immediately after _seed_store_secret, is
+#    load-bearing. On a genuinely fresh install ${OSTLER_DIR}/secrets is empty
+#    here, so this call fails closed and leaves the array EMPTY; without the
+#    later re-invocation every shell store caller would go out bare for the
+#    whole run. Both calls are top-level, so source order is execution order.
 _ostler_write_store_curl_config || true
 
 HAS_SECURITY_MODULE=false
@@ -11511,6 +11557,15 @@ _seed_store_secret "qdrant_api_key" QDRANT_API_KEY
 _seed_store_secret "redis_password" REDIS_PASSWORD
 _seed_store_secret "oxigraph_token" OXIGRAPH_TOKEN
 ok "Generated per-install data-store auth secrets under ${SECRETS_DIR} (qdrant_api_key, redis_password, oxigraph_token)."
+
+# 🔴 RE-WRITE THE SHELL CURL CREDENTIAL NOW THAT BOTH SECRETS EXIST (#550).
+# The first call sits ~4,800 lines above, BEFORE _seed_store_secret has run, so
+# on a fresh install it found no secrets, failed closed, and left
+# _OSTLER_STORE_CURL_ARGS empty for the rest of the script. Every shell caller
+# would then dial the now-enforcing stores bare. Re-invoking here is what
+# actually arms them; `|| true` because a store-auth config we cannot write
+# must not abort the install -- the enforce block below is the gate for that.
+_ostler_write_store_curl_config || true
 
 # Enforcement plumbing. When OSTLER_STORE_AUTH_ENFORCE=1, thread the
 # secrets into the compose .env (the docker-compose heredoc
