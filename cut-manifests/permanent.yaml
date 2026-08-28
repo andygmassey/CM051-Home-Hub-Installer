@@ -840,3 +840,31 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "acceptance_gate_v1013"
+
+  # ==========================================================================
+  # #550/#551. THE SHIP GATE FOR THE MULTI-ACCOUNT DEFECT.
+  #
+  # Andy demonstrated the defect from an ordinary second account with one
+  # unauthenticated curl against 127.0.0.1:7878 and got a valid SPARQL result
+  # over the owner's whole graph. #551 made "that curl must fail, and so must
+  # every other published store and UI port" the gate on the cut. That gate
+  # lived in prose on the relay board; this row is the half that runs.
+  #
+  # WHY THIS IS A BOX PROBE AND NOT A CI GATE. The property is about a running
+  # machine's listening sockets. At cut time there is no machine, and a CI
+  # runner's port table says nothing about a customer's Mac.
+  #
+  # EXPECTED RED until the topology fix lands. The ports are open today; that
+  # is the defect. It is registered here so the red is attributable rather
+  # than a probe nobody declared.
+  # ==========================================================================
+  - id: box-walk-no-store-port-is-tcp-reachable
+    title: no Ostler store or UI port accepts a TCP connection, so no second account can read the graph
+    incident: >-
+      #550: from an unprivileged second account on the owner's Mac, one curl
+      to 127.0.0.1:7878 returned a valid SPARQL count over the entire
+      knowledge graph. The Host and Origin allowlists in front of it are
+      browser controls and a curl satisfies both. The launch was held.
+    proof:
+      kind: box_walk_probe
+      probe: "no_store_port_is_tcp_reachable"
