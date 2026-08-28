@@ -1,0 +1,43 @@
+name: upgrade-store-auth-wiring
+
+# #550 regression gate. The Sparkle upgrade path (OSTLER_UPGRADE_MODE) rebuilds
+# the knowledge and cm048 venvs and then calls _ostler_wire_store_auth_pth to
+# install the store-auth .pth. If that function is defined AFTER the upgrade
+# block (as it was on 38c57e18, at :6580 vs an exit at ~:755), the call hits
+# `command not found`, the venv is left unshimmed, and once
+# OSTLER_STORE_AUTH_ENFORCE defaults on (#1222) those clients 401 against the
+# enforcing stores -- the exact hydration/ingest 401 the default-OFF comment
+# warned about. This gate fails if the definition is ever again ordered after an
+# upgrade-block call site. Pure bash/grep/awk; no box, no docker.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      # Listed AND run below: a path entry makes the workflow TRIGGER; the run
+      # step is what makes it CHECK. The gate must fire on changes to itself.
+      - 'tests/test_upgrade_path_can_wire_store_auth.sh'
+      - '.github/workflows/upgrade-store-auth-wiring.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  upgrade-store-auth-wiring:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # exit 3 (CANNOT-RUN) fails this job, deliberately: it means the predicate
+      # could not find the upgrade block or the calls, which is a gate that did
+      # not report, not a pass. `bash -e` fails on any non-zero; this note exists
+      # so nobody later adds `|| true`.
+      - name: Upgrade path can wire the store-auth shim
+        run: bash tests/test_upgrade_path_can_wire_store_auth.sh install.sh
