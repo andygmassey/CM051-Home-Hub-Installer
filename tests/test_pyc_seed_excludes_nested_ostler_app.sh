@@ -57,8 +57,28 @@ HOST_PY="$(command -v python3 || true)"
 # THE PATTERN UNDER TEST IS READ OUT OF THE MAKEFILE, never retyped here. A
 # copy would drift, and this suite would then prove a pattern the build does
 # not use -- the instrument measuring a surface the defect has left.
-RX="$(awk '/^seed-installer-app-pyc:/{f=1} f&&/Contents\/Resources\/Ostler/{print; exit}' "$MK" \
-      | sed -e "s/^[[:space:]]*'//" -e "s/'[[:space:]]*$//")"
+#
+# 🔴 READ THE INVOCATION, NEVER A MENTION. The first version of this matched the
+# first line under the target containing "Contents/Resources/Ostler" -- and the
+# moment #1202 added a COMMENT naming both nested bundles, that line won:
+#
+#     [i] exclusion under test: "#   Contents/Resources/Ostler.app   EXCLUDED"
+#
+# which as a regex matches nothing recognisable, so the seeder excluded
+# everything and seeded ZERO files. It was caught only because the control arm
+# below reports the outer count (0 -> 0) instead of trusting arm 1 alone -- the
+# same class as the estate's gate-inventory defect, in my own instrument, on the
+# same night I wrote the lesson down. Comment lines are STRIPPED first, then
+# continuations joined, then the quoted argument taken from the real recipe line.
+RECIPE_CODE="$(awk '
+    /^seed-installer-app-pyc:/ { inrec = 1; next }
+    inrec && /^[a-zA-Z0-9_.-]+:/ { exit }
+    !inrec { next }
+    { line = $0; sub(/^[ \t]+/, "", line) }
+    line ~ /^#/ { next }                        # a comment is not an invocation
+    { sub(/\\$/, "", line); printf "%s ", line }  # join continuations
+    ' "$MK")"
+RX="$(printf '%s\n' "$RECIPE_CODE" | sed -n "s/.*seed-hub-payload-pyc\.sh[^']*'\([^']*\)'.*/\1/p")"
 if [[ -z "$RX" ]]; then
     echo "FAIL [no-pattern]: could not read the exclusion out of the seed-installer-app-pyc recipe." >&2
     echo "  Refusing to substitute one of my own: that would test a pattern the build does not run." >&2
