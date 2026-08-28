@@ -269,8 +269,10 @@ is_entry_point() {
 #   push: {tags: [...]}      -> tags.                                     YES
 #   push: {branches: [...]}  -> branches ONLY. A tag push does NOT fire.  NO
 # The third is the one that looks like coverage and is not. Measured on this
-# repo: 94 workflows are entry points on the any-trigger axis; ONE fires on a
-# cut tag.
+# repo: 94 workflows are entry points on the any-trigger axis, and until
+# 2026-08-28 exactly ONE fired on a cut tag. It is TWO now, because this
+# gate's own workflow was the seventeenth instance of the defect it detects
+# and has been fixed. The third cut-tag entry point is the Makefile, below.
 # The operator and the ORM run `make` by hand at cut time, so a Makefile is an
 # entry point on BOTH axes. Split out of is_entry_point so axis three can take
 # the Makefile half without the every-workflow half.

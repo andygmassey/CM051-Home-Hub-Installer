@@ -1,5 +1,10 @@
 # cut_trigger_reachability_baseline.tsv
 #
+# 2026-08-28: the two rows for this gate's OWN workflow and script were
+# removed, not edited, because the gap they recorded is CLOSED -- the
+# workflow now carries `tags: ['v1.*']`. Leaving them would let a revert of
+# that trigger hide behind its own baseline, which is the one thing a
+# baseline must never do.
 # AXIS THREE of scripts/verify_declared_gates_reachable.sh. Each row is a file
 # that declares itself cut-blocking, IS reachable on axis one, and is NOT
 # reachable from any entry point that fires on a v1.0.* tag push.
@@ -26,11 +31,9 @@
 #
 # path	status	note
 .github/workflows/customer-download-path.yml	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
-.github/workflows/declared-gates-reachable.yml	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
 scripts/box_walk_probes/probes/pair_state_agreement.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
 scripts/tests/test_verify_clean_tree_gate.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
 scripts/verify_customer_download_path.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
-scripts/verify_declared_gates_reachable.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
 tests/test_context_refresh_wired.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
 tests/test_cut_freshness_gate.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
 tests/test_every_default_source_is_requested.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
