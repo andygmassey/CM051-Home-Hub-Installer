@@ -306,7 +306,15 @@ jobs:
         if: always()
         run: /bin/bash tests/test_walk_arms_distinguish_cannot_run_from_fail.sh
       - name: CANNOT-RUN is not a missing fix (manifest gate + its caller)
-        run: /bin/bash tests/test_manifest_gate_cannot_run_is_not_a_missing_fix.sh
+        if: always()
+        run: |
+          # PyYAML must be present or arms A-C are VACUOUS: verify_cut_manifest.py
+          # imports yaml at line ~34, BEFORE the PEP 604 annotations at 219+, so a
+          # missing yaml exits 2 having never reached the thing arm A measures.
+          /usr/bin/python3 -m pip install --user --quiet pyyaml 2>/dev/null || true
+          python3 -m pip install --user --quiet pyyaml 2>/dev/null \
+            || python3 -m pip install --break-system-packages --quiet pyyaml 2>/dev/null || true
+          /bin/bash tests/test_manifest_gate_cannot_run_is_not_a_missing_fix.sh
 
       - name: A marker pattern that cannot run is CANNOT-RUN, not 'absent'
         if: always()

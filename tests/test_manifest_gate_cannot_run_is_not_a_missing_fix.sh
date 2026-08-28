@@ -57,9 +57,24 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="${REPO_ROOT}/scripts/verify_cut_manifest.py"
 MAKEFILE="${REPO_ROOT}/gui/Makefile"
 
-pass=0; fail=0
+pass=0; fail=0; cannot=0
 ok()   { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 bad()  { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+
+# 🔴 THIS FILE COMMITTED THE DEFECT IT TESTS FOR, AND ONLY CI COULD SEE IT.
+# The macOS runner has no PyYAML, so verify_cut_manifest.py exits 2 -- ITS OWN
+# CANNOT-RUN code, printing "PyYAML not installed" -- with ZERO TypeErrors.
+# Arms A, B and C asserted rc==0 and recorded three FAILs against a script that
+# was behaving correctly. Locally: 9 PASS 0 FAIL. On the runner: 6 PASS 3 FAIL.
+# MEASURE ON THE HOST THAT RUNS IT -- a green local run is not evidence about CI.
+cant() { printf '  CANNOT-RUN  %s\n' "$1"; cannot=$((cannot+1)); }
+
+# yaml is imported at verify_cut_manifest.py:~34, BEFORE the PEP 604 annotations
+# at 219+. Without PyYAML the module exits 2 having NEVER REACHED the construct
+# arm A measures, so the arm is VACUOUS rather than passing or failing. The
+# workflow installs PyYAML first so these arms genuinely run; this guard is the
+# backstop for when that install fails.
+has_yaml() { "$1" -c 'import yaml' >/dev/null 2>&1; }
 
 for f in "${PY}" "${MAKEFILE}"; do
     [ -f "${f}" ] || { echo "CANNOT-RUN: missing ${f}"; exit 78; }
@@ -86,7 +101,10 @@ echo
 # --- ARM A -------------------------------------------------------------------
 echo "=== ARM A: imports under macOS system python 3.9 ==="
 if [ ! -x "${PY39}" ]; then
-    echo "  CANNOT-RUN  ${PY39} absent on this host. NOT counted as a pass."
+    cant "${PY39} absent on this host. NOT counted as a pass."
+elif ! has_yaml "${PY39}"; then
+    cant "${PY39} has no PyYAML: the module exits 2 at the yaml import and never"
+    echo "              reaches the PEP 604 annotations. VACUOUS, not passing."
 else
     a_out="$("${PY39}" "${PY}" --help 2>&1)"; a_rc=$?
     if [ "${a_rc}" -eq 0 ] && ! grep -q 'TypeError' <<< "${a_out}"; then
@@ -100,11 +118,15 @@ echo
 
 # --- ARM B -------------------------------------------------------------------
 echo "=== ARM B: no regression on a modern python ==="
-b_out="$("${PY_MODERN}" "${PY}" --help 2>&1)"; b_rc=$?
-if [ "${b_rc}" -eq 0 ] && grep -q 'usage:' <<< "${b_out}"; then
-    ok "modern python rc=0 and prints usage (control: the run really happened)"
+if ! has_yaml "${PY_MODERN}"; then
+    cant "${PY_MODERN} has no PyYAML -- arm B measures nothing without it"
 else
-    bad "modern python rc=${b_rc}, usage line missing"
+    b_out="$("${PY_MODERN}" "${PY}" --help 2>&1)"; b_rc=$?
+    if [ "${b_rc}" -eq 0 ] && grep -q 'usage:' <<< "${b_out}"; then
+        ok "modern python rc=0 and prints usage (control: the run really happened)"
+    else
+        bad "modern python rc=${b_rc}, usage line missing"
+    fi
 fi
 echo
 
@@ -122,8 +144,11 @@ pathlib.Path(sys.argv[2]).write_text(
     + '    raise RuntimeError("MUTATION: deliberate crash inside main()")\n'
     + src[j+1:])
 INJECT
-if [ ! -s "${WORK}/mutant.py" ]; then
-    bad "could not build the mutant -- arm C did not run"
+if ! has_yaml "${PY_MODERN}"; then
+    cant "no PyYAML: the mutant exits 2 at the yaml import, never reaching main()"
+elif [ ! -s "${WORK}/mutant.py" ]; then
+    # not a FAIL: failing to BUILD the specimen says nothing about the subject
+    cant "could not build the mutant -- arm C did not run"
 else
     c_out="$("${PY_MODERN}" "${WORK}/mutant.py" --help 2>&1)"; c_rc=$?
     if [ "${c_rc}" -eq 2 ]; then
@@ -220,17 +245,19 @@ fi
 
 echo
 echo "=============================================================="
-echo " ${pass} PASS   ${fail} FAIL   arm-D-could-not-run: ${cannot_run_armd}"
+echo " ${pass} PASS   ${fail} FAIL   ${cannot} CANNOT-RUN   arm-D-could-not-run: ${cannot_run_armd}"
 echo "=============================================================="
 
 # THREE OUTCOMES, THREE EXIT CODES. A recorded FAIL outranks a CANNOT-RUN:
 # something was measured and it was wrong, which is a stronger statement than
-# something else being unmeasurable.
+# something else being unmeasurable. And a CANNOT-RUN is never a pass -- if any
+# arm could not run, this script must not report success, because the arms that
+# did run are not the arms that were asked for.
 if [ "${fail}" -ne 0 ]; then
     echo " VERDICT: FAIL"
     exit 1
-elif [ "${cannot_run_armd}" -ne 0 ]; then
-    echo " VERDICT: CANNOT-RUN -- arm D never ran. This is NOT a pass."
+elif [ "${cannot}" -ne 0 ] || [ "${cannot_run_armd}" -ne 0 ]; then
+    echo " VERDICT: CANNOT-RUN -- ${cannot} arm(s) blocked, arm-D:${cannot_run_armd}. NOT a pass."
     exit 78
 fi
 echo " VERDICT: PASS"
