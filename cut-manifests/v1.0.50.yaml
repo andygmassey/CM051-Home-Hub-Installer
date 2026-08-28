@@ -1,0 +1,124 @@
+# cut-manifests/v1.0.50.yaml
+#
+# 🔴 WHY THIS FILE EXISTS AND WHY IT WAS MISSING. ship6 refused at
+# check-manifest with FileNotFoundError on this exact path. v1.0.50 had a
+# cut.env and a MUST_CONTAIN.tsv but no cut manifest -- I authored two of the
+# three cut inputs and did not notice the third. The gate was right to stop.
+#
+# ⚠️ THE GATE'S MESSAGE WAS WRONG ABOUT THE CAUSE, and that is tracked
+# separately. On a missing manifest it printed "a required fix is missing from
+# the built .app. Read the RED rows above" -- but it threw before examining
+# anything and there were NO red rows. That is CANNOT-RUN reported as FAIL,
+# the same class as v1018-D017. The file being absent is my defect; the gate
+# blaming the .app for it is the gate's.
+#
+# EVERY ROW BELOW IS MUTATION-TESTED AGAINST A REAL PRE-FIX COMMIT, never
+# against a line deleted by hand, and every pair carries a readable-file
+# control so a zero cannot be blindness. Measured 2026-08-29.
+#
+#   pattern                        fixed  pre-fix arm            discriminates
+#   ostler-diag-XXXXXX               2    0  (9b9ce8c4~1)        yes
+#   /tmp/ostler-pip-install.log      0    7  (9b9ce8c4~1)        yes (absence)
+#   - QDRANT_API_KEY=                1    0  (67b142e8~1)        yes
+#   OSTLER_STORE_AUTH_ENFORCE:-1     3    0  (38c57e18~1)        yes
+#   OSTLER_STORE_AUTH_ENFORCE:-0     0    3  (38c57e18~1)        yes (absence)
+#   zqx4m7v-not-a-real-token         0    0  all arms            control: reader can return 0
+#
+# 🔴 ONE ROW I ALMOST WROTE VACUOUSLY. My first four arms for the enforce flip
+# were origin/main, 67b142e8~1, 9b9ce8c4~1 and 66eae1e7~1 -- and the pattern
+# scored 3 in ALL FOUR, because every one of those refs POSTDATES #1222. A row
+# written on that evidence would have been satisfied by any artefact and proved
+# nothing. The pre-flip arm 38c57e18~1 is what makes it a real row.
+
+version: v1.0.50
+entries:
+  - id: v1050-a-diagnostics-sink-is-private-per-run
+    title: install.sh writes diagnostics to a private per-run sink, not a fixed shared path
+    incident: >-
+      THE DEFECT THAT KILLED THE FIRST EVER BOX WALK, IN UNDER THREE MINUTES.
+      install.sh wrote diagnostics to fixed /tmp paths. On a fresh second
+      account another user already owned them, bash could not open the
+      redirect, and the handler printed THAT user\'s three-day-old pip log as
+      the cause. Pip never ran. Fixed by CM051 #1230 with a mktemp -d sink plus
+      a self-healing default in the aiconv leg, which runs standalone under
+      set -u and cannot inherit the export. The heal does not stop at ":=":
+      if mktemp fails the substitution yields empty, ":=" assigns empty, set -u
+      is satisfied and the redirect target silently becomes a bare path, so a
+      non-empty AND is-a-directory check refuses to run instead.
+      MEASURED: 2 here, 0 at 9b9ce8c4~1.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'ostler-diag-XXXXXX'
+      must_match: true
+
+  - id: v1050-b-the-shared-pip-sink-is-gone
+    title: the fixed shared pip sink that produced the false cause is absent
+    incident: >-
+      The ABSENCE half of the row above, and the one that actually reads a
+      customer another user\'s error text. A presence check alone would pass on
+      an artefact that added the private sink and kept the shared one.
+      MEASURED: 0 here, 7 at 9b9ce8c4~1 -- so this row tells the two artefacts
+      apart in the direction a presence check cannot.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: '/tmp/ostler-pip-install.log'
+      must_match: false
+
+  - id: v1050-c-store-auth-enforce-defaults-on
+    title: store-auth enforcement defaults ON, so a fresh install threads credentials
+    incident: >-
+      THE REASON THIS CUT EXISTS: the #550 multi-account store exposure
+      reaching an artefact for the first time. On real hardware 2026-08-28 an
+      unprivileged second account read the knowledge graph with one curl and no
+      credential. #1222 is the flip. ⛔ landed here means the code is IN THIS
+      ARTEFACT, which is the first of three gates and not the third. The
+      exposure is shut when the curl is re-run from a second account on a box
+      carrying THIS DMG and returns refused. MEASURED with a TRUE pre-flip arm:
+      3 here, 0 at 38c57e18~1. My first attempt used four post-flip arms and
+      scored 3 on all of them, which would have been a vacuous row.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'OSTLER_STORE_AUTH_ENFORCE:-1'
+      must_match: true
+
+  - id: v1050-d-the-keyless-default-is-gone
+    title: the default-OFF spelling of the same variable is absent
+    incident: >-
+      The complementary absence for the flip. A ":-1" present check passes on
+      an artefact that contains BOTH spellings on different branches of the
+      same file; this row is what makes the flip a flip rather than an
+      addition. MEASURED: 0 here, 3 at 38c57e18~1 -- the exact mirror of the
+      row above, same file, same arms.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'OSTLER_STORE_AUTH_ENFORCE:-0'
+      must_match: false
+
+  - id: v1050-e-wiki-compiler-receives-the-qdrant-key
+    title: the wiki-compiler service is handed the Qdrant credential
+    incident: >-
+      TNM found this missing from the BOM and it is COUPLED to the row above:
+      with enforce ON and no key the compiler 401s on every Qdrant read, and
+      the failure is SILENT. load_conversations raises and renders a stub, but
+      the people, preference and browsing loaders fall back to empty and render
+      SUCCESSFULLY, so the wiki comes out THIN and is indistinguishable from a
+      customer with little data. Placement verified by walking compose service
+      boundaries, not by proximity: the matched line sits inside the
+      wiki-compiler: block. PATTERN CHOICE IS DELIBERATE -- the literal source
+      text is QDRANT_API_KEY=${QDRANT_API_KEY:-}, which scores 1 under grep -F
+      and BRE but ZERO under grep -E, because BSD grep reads $ as an anchor
+      mid-pattern. MEASURED: 1 here, 0 at 67b142e8~1.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: '- QDRANT_API_KEY='
+      must_match: true
