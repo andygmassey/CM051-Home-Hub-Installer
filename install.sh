@@ -11327,13 +11327,55 @@ _store_auth_upsert_env() {
     fi
     printf '%s=%s\n' "$_k" "$_v" >> "$_f"
 }
-if [[ "${OSTLER_STORE_AUTH_ENFORCE:-0}" == "1" ]]; then
-    warn "OSTLER_STORE_AUTH_ENFORCE=1: enabling native auth on Qdrant + Redis. This REQUIRES the matching client-side PRs (CM041/CM024/CM052/doctor); without them, ingest + Doctor status will fail."
-    _store_auth_upsert_env "$OSTLER_ENV_FILE" "QDRANT_API_KEY" "$QDRANT_API_KEY"
+# ── REDIS IS ENFORCED BY DEFAULT (#550) ──────────────────────────────
+#
+# Split out of OSTLER_STORE_AUTH_ENFORCE because Redis is the one store whose
+# client fleet is COUNTABLE and already fixed. Measured on this base:
+#
+#   clients that talk to Redis on a customer Hub:  TWO, and only two
+#     1. vendor/doctor/agent/status_collector.py  _check_redis
+#        -- parses a credentialled URL and sends AUTH before PING (this branch)
+#     2. install.sh's own health probe, ~600 lines below
+#        -- fixed in the same commit
+#
+#   vendored python importing a redis/valkey client :  0
+#   requirements naming one                          :  0
+#   XADD / lpush / setex / hset / publish under vendor/ : 0
+#
+# So nothing shipped WRITES to Redis; it is an empty datastore whose only
+# callers are two health checks. Qdrant and Oxigraph keep the combined flag
+# because their client fleet is not countable in the same way.
+#
+# DEFAULT-ON IS ENFORCED, NOT MERELY "WRITTEN", for the mirror image of the
+# reason the keyless branch below is enforced: $OSTLER_ENV_FILE is PRESERVED
+# across installs, so a box whose history left it keyless must be credentialled
+# on this run rather than left as it was found. _store_auth_upsert_env is
+# replace-or-append, so both directions converge.
+if [[ "${OSTLER_REDIS_AUTH_ENFORCE:-1}" == "1" ]]; then
     _store_auth_upsert_env "$OSTLER_ENV_FILE" "REDIS_AUTH_ARGS" "--requirepass ${REDIS_PASSWORD}"
-    _store_auth_upsert_env "${CONFIG_DIR}/.env" "QDRANT_API_KEY" "$QDRANT_API_KEY"
     _store_auth_upsert_env "${CONFIG_DIR}/.env" "REDIS_URL" "redis://:${REDIS_PASSWORD}@localhost:6379"
-    ok "Store auth ENFORCED: Qdrant API key + Redis requirepass threaded into compose + client env."
+    dbg "Redis auth ENFORCED: requirepass threaded into compose + a credentialled REDIS_URL for the two clients. Set OSTLER_REDIS_AUTH_ENFORCE=0 to boot it keyless."
+else
+    # The escape hatch, and it has to SCRUB rather than skip, for the same
+    # preserved-.env reason as above.
+    for _ra_env in "$OSTLER_ENV_FILE" "${CONFIG_DIR}/.env"; do
+        [[ -f "$_ra_env" ]] || continue
+        sed -i.bak -e '/^REDIS_AUTH_ARGS=/d' -e '/^REDIS_URL=redis:\/\/:/d' \
+            "$_ra_env" 2>/dev/null && rm -f "${_ra_env}.bak"
+    done
+    if [[ -f "${CONFIG_DIR}/.env" ]] && ! grep -q '^REDIS_URL=' "${CONFIG_DIR}/.env" 2>/dev/null; then
+        printf 'REDIS_URL=%s\n' "redis://localhost:6379" >> "${CONFIG_DIR}/.env"
+    fi
+    unset _ra_env
+    dbg "OSTLER_REDIS_AUTH_ENFORCE=0: Redis boots keyless. Any previously-threaded Redis credential has been scrubbed so the clients and the store agree."
+fi
+
+# ── Qdrant + Oxigraph: still DEFAULT-OFF, unchanged by #550's Redis half ──
+if [[ "${OSTLER_STORE_AUTH_ENFORCE:-0}" == "1" ]]; then
+    warn "OSTLER_STORE_AUTH_ENFORCE=1: enabling native auth on Qdrant. This REQUIRES the matching client-side PRs (CM041/CM024/CM052/doctor); without them, ingest + Doctor status will fail."
+    _store_auth_upsert_env "$OSTLER_ENV_FILE" "QDRANT_API_KEY" "$QDRANT_API_KEY"
+    _store_auth_upsert_env "${CONFIG_DIR}/.env" "QDRANT_API_KEY" "$QDRANT_API_KEY"
+    ok "Store auth ENFORCED: Qdrant API key threaded into compose + client env."
 else
     # v1.0.10 install-abort fix: default-OFF must be an ENFORCED keyless
     # state, not merely "not written". The compose project .env
@@ -11347,10 +11389,13 @@ else
     # client fleet regardless of box history.
     for _sa_env in "$OSTLER_ENV_FILE" "${CONFIG_DIR}/.env"; do
         [[ -f "$_sa_env" ]] || continue
+        # QDRANT ONLY. The Redis lines are scrubbed by the Redis block above
+        # when its own switch is off; scrubbing them here as well would undo
+        # the default-ON flip on every single install, silently, and the box
+        # would read as fixed because the compose file still SAYS
+        # ${REDIS_AUTH_ARGS}.
         sed -i.bak \
             -e '/^QDRANT_API_KEY=/d' \
-            -e '/^REDIS_AUTH_ARGS=/d' \
-            -e '/^REDIS_URL=redis:\/\/:/d' \
             "$_sa_env" 2>/dev/null && rm -f "${_sa_env}.bak"
     done
     # Ensure clients still find a (keyless) REDIS_URL if the credentialled
@@ -24969,7 +25014,40 @@ else
     HEALTHY=false
 fi
 
-if docker exec ostler-redis redis-cli ping 2>/dev/null | grep -q PONG; then
+# #550: this probe is the SECOND of Redis's only two clients (the other is the
+# Doctor's _check_redis), and it is not curl-shaped, so the store-caller gate
+# cannot see it. With requirepass on it was answered
+#     NOAUTH Authentication required.
+# which fails `grep -q PONG` and reports a perfectly healthy store as down --
+# and InstallCompleteView.swift:63 greps this log for "Redis healthy", so the
+# customer's completion screen would show a warning on a working install.
+#
+# PROBE THEN ESCALATE, rather than reading a variable. Sending AUTH to a store
+# with NO password configured is an ERROR, not a no-op:
+#     ERR AUTH <password> called without any password configured for the
+#     default user
+# so an unconditional credential breaks every box that has not flipped, a
+# rollback included. Trying keyless FIRST means a credential is only ever sent
+# to a store that has just asked for one, and the check needs no knowledge of
+# which switch is set.
+#
+# THE CREDENTIAL GOES OVER STDIN, NEVER ARGV. Measured: `redis-cli -a "$PW"`
+# and `docker exec -e REDISCLI_AUTH="$PW"` both work and both put a per-install
+# store secret into the DOCKER CLI's argv, which `ps -axww` publishes to every
+# account on the Mac -- the same hole inside the fix for the hole.
+_ostler_redis_ping() {
+    local _r
+    _r="$(docker exec ostler-redis redis-cli ping 2>/dev/null | head -1)"
+    if [[ "$_r" == *PONG* ]]; then printf 'PONG\n'; return 0; fi
+    if [[ "$_r" == *NOAUTH* ]]; then
+        [[ -n "${REDIS_PASSWORD:-}" ]] || return 1
+        printf '%s' "$REDIS_PASSWORD" | docker exec -i ostler-redis \
+            sh -c 'REDISCLI_AUTH="$(cat)" exec redis-cli ping' 2>/dev/null | head -1
+        return 0
+    fi
+    return 1
+}
+if _ostler_redis_ping | grep -q PONG; then
     ok "$MSG_OK_REDIS_HEALTHY"
 else
     warn "$MSG_WARN_REDIS_NOT_RESPONDING"
