@@ -405,6 +405,45 @@ FIXTURE
     check "SPLIT FLOOR sees an empty upgrade limb" $rc_cannot "$d/aggregate_hides_empty_limb"
     _floors_off
 
+    # ORDERING arms. @A2's refutation of my first placement, as a test.
+    # The BAD fixture is the shape #1218 actually shipped: seeder defined after
+    # a main-path venv site. It must FAIL.
+    cat > "$d/order_bad" <<'FIXTURE'
+"$PYTHON3_BIN" -m venv "$OSTLER_VENV"
+_ostler_seed_store_auth_shim() {
+    cp shim "$1"
+}
+if ! _ostler_seed_store_auth_shim; then
+    warn "no shim"
+fi
+FIXTURE
+    cat > "$d/order_good" <<'FIXTURE'
+_ostler_seed_store_auth_shim() {
+    cp shim "$1"
+}
+if ! _ostler_seed_store_auth_shim; then
+    warn "no shim"
+fi
+"$PYTHON3_BIN" -m venv "$OSTLER_VENV"
+FIXTURE
+    # Upgrade leg above the seeder is EXEMPT: separate context, own root.
+    cat > "$d/order_upgrade_exempt" <<'FIXTURE'
+"$_py" -m venv "${_dir}/.venv"
+_ostler_seed_store_auth_shim() {
+    cp shim "$1"
+}
+if ! _ostler_seed_store_auth_shim; then
+    warn "no shim"
+fi
+FIXTURE
+    ocheck() { verify_seeder_ordering "$3" >/dev/null 2>&1; rc=$?
+        if [ "$rc" -eq "$2" ]; then printf '  ok   %-38s rc=%s\n' "$1" "$rc"
+        else printf '  FAIL %-38s rc=%s want=%s\n' "$1" "$rc" "$2"; fails=$((fails+1)); fi; }
+    ocheck "ORDER main-path venv before seeder" $rc_fail   "$d/order_bad"
+    ocheck "ORDER seeder before main-path venv" $rc_pass   "$d/order_good"
+    ocheck "ORDER upgrade leg above is exempt"  $rc_pass   "$d/order_upgrade_exempt"
+    ocheck "ORDER seeder absent is CANNOT_RUN"  $rc_cannot "$d/multiline_good"
+
     printf '  self-test failures: %s\n' "$fails"
     rm -rf "$d"
     return $((fails > 0))
@@ -429,10 +468,61 @@ FIXTURE
 # hoists the sites. Not before, and never to silence a failure.
 OSTLER_VENV_EXPECT="${OSTLER_VENV_EXPECT:-fail}"
 
+# ── ORDERING: no MAIN-PATH venv site may precede the seeder ───────────
+#
+# @A2 found this by EXECUTING the shape rather than reading it. My first
+# placement put the seeder beside the other lib/ copies at ~10275, and its own
+# comment claimed four venv sites lived above it. Six did, and two (:6495
+# $OSTLER_VENV, :6638 $FDA_VENV) were ordinary main-path code ~3,800 lines
+# earlier. A shell function does not exist until its definition is reached, so
+# those two hit "command not found", then a failed cp, then a hard abort.
+#
+# 📌 A COMMENT STATING A DENOMINATOR IS NOT A CHECK OF IT. Mine was short by
+# two and read as authoritative. So the ordering is asserted here.
+#
+# The upgrade leg ($_py) is exempt BY CONSTRUCTION, not by convenience: it runs
+# in a separate execution context with its own _UPG_OSTLER_DIR and calls the
+# seeder with its own root. The fn-local site (:2529) is exempt because its
+# contract is documented-soft. Everything else must come after.
+verify_seeder_ordering() {
+    local f="$1" def call sites offenders
+    def="$(grep -nE '^_ostler_seed_store_auth_shim\(\)' "$f" | cut -d: -f1 | head -1)"
+    call="$(grep -nE '^if ! _ostler_seed_store_auth_shim' "$f" | cut -d: -f1 | head -1)"
+    if [ -z "$def" ] || [ -z "$call" ]; then
+        printf 'CANNOT_RUN: seeder definition or call not found; ordering unprovable\n'
+        return $rc_cannot
+    fi
+    if [ "$def" -gt "$call" ]; then
+        printf 'FAIL: seeder is CALLED at %s but DEFINED at %s -- command not found\n' \
+            "$call" "$def"
+        return $rc_fail
+    fi
+    sites="$(venv_sites "$f")"
+    offenders="$(printf '%s\n' "$sites" \
+        | awk -F: -v c="$call" '$1 < c' \
+        | grep -v '\$_py' | grep -v '\$python_bin' || true)"
+    local n_off; n_off="$(printf '%s\n' "$offenders" | grep -c . || true)"
+    if [ "${n_off:-0}" -gt 0 ]; then
+        printf 'FAIL: %s main-path venv site(s) run BEFORE the seeder at line %s\n' \
+            "$n_off" "$call"
+        printf '%s\n' "$offenders" | sed 's/^/  /'
+        printf '  Those venvs are built before the shim module exists on disk.\n'
+        return $rc_fail
+    fi
+    printf 'ok: seeder defined %s, called %s; no main-path venv site precedes it\n' \
+        "$def" "$call"
+    return $rc_pass
+}
+
 ci_mode() {
     local rc want
     printf '== self-test ==\n'
     self_test || { printf 'CANNOT_RUN: the gate does not pass its own self-test\n' >&2; return 2; }
+    printf '\n== seeder ordering: %s ==\n' "$INSTALL"
+    verify_seeder_ordering "$INSTALL" || {
+        printf 'GATE BROKEN: the shim seeder runs after a venv that needs it.\n' >&2
+        return 1
+    }
     printf '\n== %s ==\n' "$INSTALL"
     verify "$INSTALL"; rc=$?
     case "$OSTLER_VENV_EXPECT" in
