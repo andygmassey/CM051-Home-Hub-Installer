@@ -123,12 +123,30 @@ case "$d1" in
 esac
 
 if [ -d "$d1" ]; then
-    perms="$(/usr/bin/stat -f '%Lp' "$d1" 2>/dev/null || echo '?')"
-    if [ "$perms" = "700" ]; then
-        ok "arm 5c: sink is mode 700 — another user cannot pre-create our log files"
-    else
-        bad "arm 5c: sink is mode ${perms}, expected 700"
+    # 🔴 `stat` IS NOT PORTABLE AND THE WRONG FORM EXITS 0.
+    # This arm first shipped as BSD-only `stat -f '%Lp'`, verified on macOS,
+    # and wired into a workflow that runs on ubuntu-latest. On GNU coreutils
+    # `-f` means "file SYSTEM status", so it did not error into the `|| echo '?'`
+    # fallback -- it SUCCEEDED and returned a block of filesystem facts
+    # ("Namelen: 255  Type: ext2/ext3"), which then failed the string compare
+    # with an unreadable multi-line message. A wrong-platform command that
+    # exits 0 is worse than one that fails: the fallback never fires.
+    # Try GNU first, then BSD, and if neither yields octal digits say
+    # CANNOT-RUN rather than inventing a verdict.
+    perms=""
+    if p="$(stat -c '%a' "$d1" 2>/dev/null)" && [ -n "$p" ]; then
+        perms="$p"                       # GNU coreutils (ubuntu runners)
+    elif p="$(stat -f '%Lp' "$d1" 2>/dev/null)" && [ -n "$p" ]; then
+        perms="$p"                       # BSD (macOS, the customer's host)
     fi
+    case "$perms" in
+        700)
+            ok "arm 5c: sink is mode 700 — another user cannot pre-create our log files" ;;
+        ''|*[!0-7]*)
+            cant "arm 5c: no portable stat on this host (tried GNU -c and BSD -f); mode UNMEASURED for ${d1}" ;;
+        *)
+            bad "arm 5c: sink is mode ${perms}, expected 700 (subject: ${d1})" ;;
+    esac
 else
     bad "arm 5c: sink directory '${d1}' does not exist"
 fi
