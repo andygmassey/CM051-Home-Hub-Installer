@@ -120,9 +120,19 @@ pr_exemptions:
   # Clears when the fixtures are de-identified AND a call site for
   # is_non_identifying lands. Not blocking v1.0.27: CM041 is a feature repo and
   # vendor/ carries no cm041 path that this PR touches.
+  # RE-DECIDED 2026-08-29 (Archie), not re-dated as bookkeeping. The gate said
+  # "EXEMPTION EXPIRED -- re-decide it" at 419h and that is the marker doing its
+  # job. MEASURED TODAY rather than assumed: state OPEN, mergeable MERGEABLE,
+  # checks {"FAILURE": 2}. So it CANNOT merge, and the reason is unchanged from
+  # the original entry -- merging a red PR to clear a process gate is the exact
+  # move this file exists to prevent. NOTE MY OWN ERROR while checking it: I
+  # queried andygmassey/CM041-PWG-People-Graph and got "Could not resolve to a
+  # Repository", which reads as "the repo is gone". The real name is
+  # CM041-People-Graph and the gate had printed it correctly all along. A
+  # resolution failure from a name I typed is not evidence about the subject.
   - ref: "CM041-People-Graph#119"
     reason: "Introduces real-person tokens into its own test fixtures (guard green on main, red with it merged); and its new gate reds main until a call site exists. Cannot merge without publishing PII or breaking main."
-    review_by: "2026-08-22"
+    review_by: "2026-09-12"
 
   # The daemon's four Dependabot bumps in web/. All four are RED on Lint, so
   # merging them to clear this gate would be shipping a failing PR to satisfy a
@@ -209,9 +219,14 @@ pr_exemptions:
   # these can reach v1.0.26 whatever happens to them. CM031 main has also not
   # moved since 2026-08-12. The two CLEAN CM031 PRs (#165, #164) are NOT
   # exempted here; they are merge decisions.
+  # RE-DECIDED 2026-08-29 (Archie) at 524h. MEASURED: state OPEN, mergeable
+  # CONFLICTING. It cannot merge even if we wanted it to, and iOS is not a DMG
+  # input, so it blocks nothing this cut needs. Held, not abandoned: it is the
+  # paywall/QR-pairing/design-parity work and it re-opens when the CM031 lane
+  # does, after the Hub ships.
   - ref: "CM031-PWG-Companion#158"
     reason: "Conflicts with CM031 main. 1191/-133 across 23 files, and it overlaps #159 on 8 of them, so the two cannot both be rebased blind. Touches the paywall and QR pairing. Cannot reach the DMG (no vendor/cm031). Needs a real device test run, not a conflict resolution. RE-READ 2026-08-22, NOT RUBBER-STAMPED: re-measured as still OPEN, still +1191/-133 across 23 files, still overlapping #159. The blockers named above are unchanged, so this is renewed rather than cleared. FIRST renewal, and the thing that ends it is a deliberate rebase plus a real-device test run, not another date. If it needs a second renewal, that is the signal to split it: the paywall fix and the QR pairing fix are separable and only one of them is launch-shaped."
-    review_by: "2026-08-26"
+    review_by: "2026-09-12"
   - ref: "CM031-PWG-Companion#159"
     reason: "Conflicts with CM031 main. Rewrites SyncKeyVault (keychain, 40-byte wrapped DEK) and HubTrust (certificate pinning) across 30 files, and overlaps #158. A security surface that must be rebased deliberately and device-tested. Cannot reach the DMG (no vendor/cm031). RE-READ 2026-08-22, NOT RUBBER-STAMPED: re-measured as still OPEN, still +861/-44 across 30 files, still overlapping #158. A keychain and certificate-pinning surface must not be conflict-resolved blind, so the hold stands on merit. FIRST renewal. Ends with a deliberate rebase and a device test, in that order, after #158 so the 8 shared files move once."
     review_by: "2026-08-26"
@@ -273,10 +288,68 @@ pr_exemptions:
   - ref: "ostler-assistant#315"
     reason: "The settings screen shipped our TODO list as customer copy: literal strings naming an internal env var, an internal config filename and an unbuilt internal API. Confirmed COPY not values, zero interpolation, so no operator data is rendered and this is cosmetic rather than an exposure. Held by the same cut-pin mechanism. Merge with #312 and #313."
     review_by: "2026-08-24"
-
-
-
-
+  # ---------------------------------------------------------------------------
+  # ADDED 2026-08-29 (Archie) for the v1.0.50 RC assembly. check-pr-age listed
+  # SEVEN over-age PRs. I tried to MERGE rather than exempt wherever possible --
+  # an exemption is the fallback, not the first move -- and every one of the
+  # seven turned out to be unmergeable on its own merits, measured today:
+  #
+  #     CM041-People-Graph#119   MERGEABLE but checks {"FAILURE": 2}
+  #     CM031-PWG-Companion#158  CONFLICTING
+  #     CM031-PWG-Companion#168  CONFLICTING
+  #     HR015-Gaming-PC#708      "the merge commit cannot be cleanly created"
+  #     HR015-Gaming-PC#530      checks {"FAILURE": 1}
+  #     HR015-Gaming-PC#353      green, but it is a FEATURE, not cut content
+  #     ostler-assistant#351     DRAFT
+  #
+  # So all seven are exempted with a reason and a real review date. None is
+  # exempted because it was inconvenient.
+  # ---------------------------------------------------------------------------
+  - ref: "CM031-PWG-Companion#168"
+    reason: >-
+      iOS is not a DMG input, and it is CONFLICTING so it could not merge today
+      regardless. NOT stale backlog: it is the live fix for the CM031 dark
+      population (board #495), and the direction is PIN DOWN to llama.swift
+      2.10360.0, because upstream dropped the iOS simulator slice between b10360
+      and b10472. Also deferred on the branch axis in this same file -- the two
+      gates see the same work through different lenses and both need a row.
+    review_by: "2026-09-12"
+  - ref: "HR015-Gaming-PC#708"
+    reason: >-
+      A LEDGER RECORD, and I tried to merge it precisely because of that: an
+      unmerged ledger entry is the silently-lost-cut shape (board #501), and this
+      one records that v1.0.46's tag was pushed, preflight FAILED, and NOTHING was
+      signed, notarised, stapled or published. That is the honesty the ledger
+      mandate exists for. It refused: "the merge commit cannot be cleanly
+      created" -- the ledger has moved a long way underneath it since. Rebase and
+      land it after the RC walk; do not close it, the record is owed.
+    review_by: "2026-09-05"
+  - ref: "HR015-Gaming-PC#530"
+    reason: >-
+      checks {"FAILURE": 1}. Not merged for the reason this file gives everywhere
+      else -- merging a red PR to clear a process gate is the move the gate exists
+      to stop. It is a docs/scorecard change and blocks nothing in the payload.
+      Fix the red, then land it.
+    review_by: "2026-09-12"
+  - ref: "HR015-Gaming-PC#353"
+    reason: >-
+      THE ONLY GREEN ONE OF THE SEVEN, and still not merged, deliberately. It is a
+      FEATURE -- an FDA contactType vocabulary that can say "not a person", plus
+      calendar items typed as events -- and it is the fix for board #346 (the type
+      system cannot express "not a person", so brands become People and dedupe
+      asks the customer to merge a shop with itself). Landing a feature into the
+      tree an RC is being assembled from is how a cut acquires a defect nobody
+      predicted. Green is a reason to land it EARLY IN THE NEXT CYCLE, not to land
+      it now.
+    review_by: "2026-09-05"
+  - ref: "ostler-assistant#351"
+    reason: >-
+      DRAFT. A draft is work the author has explicitly said is not ready, so the
+      48h clock is measuring the wrong thing here. Security refactor (rename
+      prompt_injection_mode, delete the dead prompt guard); daemon-side and not a
+      v1.0 payload change. Either finish it or close it -- a permanent draft is
+      the same invisibility the 176-PR backlog was made of.
+    review_by: "2026-09-12"
 
 deferrals:
   # ── The two v1.0.48 orphan REDs. BOTH ARE SUPERSEDED-BY-CONTENT, NOT KILLED. ──
