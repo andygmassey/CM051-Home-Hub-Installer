@@ -1,0 +1,221 @@
+# cut-manifests/v1.0.49.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.49.
+#
+# WHY v1.0.49 EXISTS, AND IT IS ONE THING: ARM 8.
+# ---------------------------------------------------------------------------
+# v1.0.48 CLOSED THE ADD LIMB THAT VETOED v1.0.47, AND IT IS PROVED ON THE
+# ARTEFACT, NOT IN THE SOURCE. Measured on the walk box (box_fp
+# 9b6a0022a46780ac), walks/v1.0.48.tsv:
+#
+#     1887 .pyc, all unchecked-hash, corpus byte-identical 8644c1b53ca5
+#     353 product .py, 0 uncovered
+#     live-trigger control FIRED (1 .pyc written OUTSIDE the bundle), so an
+#       unchanged bundle means something
+#     0 files added to a writable copy by importing its own product modules
+#     codesign clean on BOTH verbs
+#
+# WHAT IT DID NOT CLOSE, and v1.0.48's own manifest said so out loud: the
+# residual inside the nested app. TWO ROOTS EXISTED AND ONLY ONE WAS EVER
+# SEEDED. stage-payload seeds $(OSTLER_APP_PATH); NOTHING has ever seeded
+# $(APP_PATH), the staged OstlerInstaller.app. Measured on the shipped v1.0.47:
+#
+#     ROOT                                                  .py   uncovered
+#     OstlerInstaller.app (whole)                          1888         440
+#       +- Resources/assistant-agent/OstlerAssistant.app      1           1
+#       +- Resources/email-ingest (not a bundle)              1           1
+#
+# 🔴 THE THIRD COPY WAS INVISIBLE TO EVERY FRAMING USED TO HUNT ARM 8.
+# email-ingest/bin/mark_first_ingest.py is not inside any nested .app, so a
+# search shaped around "nested bundles" could not see it. It was found only by
+# seeding the WHOLE root and reading what the audit then covered.
+#
+# 🔴 AND THE OBVIOUS FIX WOULD HAVE DIED ON ITS OWN GUARD. Seeding the 1-file
+# nested app hits seed-hub-payload-pyc.sh's anti-vacuity floor
+# (`[ "$A_PY" -ge 20 ] || die "the payload did not stage"`) and reports
+# "could not look" for a root that staged perfectly. $(APP_PATH) has ~1888 .py
+# and clears that floor BY CONSTRUCTION.
+#
+# ---------------------------------------------------------------------------
+# HOW THESE PREDICATES WERE CHOSEN
+# ---------------------------------------------------------------------------
+# A predicate both artefacts satisfy proves nothing. Every pattern below was
+# counted at v1.0.48's tagged commit (5b8005d5) and at this tree (c1bd50ff):
+#
+#     PATTERN                                        v1.0.48  v1.0.49
+#     seed-installer-app-pyc         gui/Makefile          0        2  ACCEPTED
+#     release seed-installer-app-pyc sign-python-bundle    0        1  ACCEPTED
+#     LABEL="${3:-Ostler.app}"       seed-hub-payload      0        1  ACCEPTED
+#     MIN_PY="${4:-20}"              seed-hub-payload      0        1  ACCEPTED
+#     sign-python-bundle  (CONTROL)  gui/Makefile          8       12
+#     compileall          (CONTROL)  seed-hub-payload      2        2
+#
+# 🔴 READ THE CONTROLS THE RIGHT WAY ROUND. A SUBJECT that scores the same on
+# both sides is vacuous. A CONTROL that scores the same on both sides is
+# WORKING -- it proves the file loaded and the pattern engine ran. compileall
+# 2/2 is the healthy case, not a defect; sign-python-bundle 8 -> 12 is also
+# fine because arm 8 adds lines near it. An ALL-ZERO column is what a broken
+# read looks like, and neither column is all-zero.
+#
+# ⚠️ A MEASUREMENT NOTE THAT COST ME A CONFUSING TABLE: `grep -c` prints 0 AND
+# EXITS 1 when there are no matches, so `n=$(grep -c ... || echo 0)` yields
+# "0\n0". Same family as the pipe-eats-the-exit class that hit this estate four
+# times on 2026-08-27. Count with `|| true`, never `|| echo 0`.
+#
+# ---------------------------------------------------------------------------
+# ⚠️ WHAT THIS MANIFEST CANNOT PROVE, STATED RATHER THAN BURIED
+# ---------------------------------------------------------------------------
+# NONE OF THESE ROWS PROVE THE SEAL SURVIVES. They prove the fix is PRESENT in
+# the pinned source and that the installer's identity moved. Presence is not
+# behaviour. The seal proof is artefact-level, on a WRITABLE COPY, after the
+# DMG exists, and it must ask BOTH questions because v1.0.47 passed the first:
+#
+#   T=$(mktemp -d); ditto "$M/OstlerInstaller.app" "$T/OstlerInstaller.app"
+#   find "$T" -name '*.pyc' | wc -l          # DENOMINATOR, expect >= 1801
+#   ( cd "$T/OstlerInstaller.app/Contents/Resources" && \
+#     ../.../python3.11 -c 'import sys; sys.path.insert(0,"."); import assistant_api.tests' )
+#   find "$T" -name '*.pyc' | wc -l          # MUST BE UNCHANGED
+#   codesign --verify --deep --strict --verbose=2 "$T/OstlerInstaller.app" 2>&1 \
+#     | grep -cE '^file (added|modified):'   # EXPECT 0 -- CHECK BOTH VERBS
+#
+# 🔴 CANNOT-RUN IS NEITHER FAIL NOR PASS. If the DMG will not mount, if ditto
+# fails, or codesign exits >= 2, the row is NOT verified. Say so and REFUSE.
+#
+# 🟠 THE ADD-vs-REWRITE DISTINCTION IS LOAD-BEARING AND ARM 8 DEPENDS ON IT.
+# Seeding $(APP_PATH) walks INTO Contents/Resources/Ostler.app, which
+# sparkle-embed sealed three steps earlier and which nothing reseals
+# (gui/Makefile:1386-1392 covers only the daemon app; :1450 and :2245 sign
+# $(APP_PATH) WITHOUT --deep). That is safe ONLY because the rewrite is
+# byte-identical. MEASURED, Python 3.11.15, with a live control:
+#     run 1  compileall -q -f --invalidation-mode unchecked-hash
+#            digest ea193087592d48f058b5035c74a4f1d1
+#     run 2  SAME COMMAND over the already-compiled tree
+#            digest ea193087592d48f058b5035c74a4f1d1   IDENTICAL
+#     CONTROL  change one return value, recompile
+#            digest -> d9ba8bd1f7a2253f64d4d897ffe5df04  MOVED
+# codesign hashes CONTENT, so an identical rewrite changes no hash. AN ADD
+# WOULD STILL BREAK IT -- that is literally what vetoed v1.0.47 (1448 -> 1449,
+# rc=1). Arm 8 never adds ONLY because arm 1 asserts A_UNCOVERED -eq 0 and dies
+# otherwise. THREE LINKS: arm-1 guarantee, same bundled interpreter,
+# deterministic rewrite. Break one and the seal breaks with it.
+#
+# 🗿 AND THE RULE THAT OUTRANKS ALL OF THIS: nothing is DONE until someone who
+# did not write it has watched it behave on an INSTALLED BOX. v1.0.48 proved
+# this the hard way -- see v1048-D001: no walk has ever run install.sh, so the
+# install path of every DMG we have cut is UNMEASURED, not passing.
+# ============================================================================
+version: v1.0.49
+entries:
+  - id: v1049-a-the-ship-chain-seeds-the-installer-app
+    title: the outer bundle is seeded, between release and the reseal that covers it
+    incident: >-
+      THE REASON THIS CUT EXISTS. Two roots existed and only one was ever
+      seeded. seed-installer-app-pyc is now a ship: prerequisite positioned
+      AFTER `release` (which builds $(APP_PATH); it does not exist before that)
+      and BEFORE `sign-python-bundle`, whose FIRST ACT re-signs the nested
+      daemon app and whose last re-signs the outer app. The reseal is one named
+      step away in the same file, not a reliance on a later --force --deep and
+      not a reliance on Xcode's cp -R propagating a seed from a source tree
+      (project.yml:994 would propagate it, but that phase declares
+      inputFiles/outputFiles at :1005/:1007, so an INCREMENTAL build can skip it
+      and the seed would be inert while reporting success -- #895's shape).
+      Counted 0 at v1.0.48's 5b8005d5 and 2 here, so this row tells the two
+      artefacts apart rather than being vacuously satisfiable.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/Makefile
+      pattern: 'release seed-installer-app-pyc sign-python-bundle'
+      must_match: true
+  - id: v1049-b-the-seeder-names-its-subject
+    title: a true count can no longer print under a false subject
+    incident: >-
+      seed-hub-payload-pyc.sh printed the LITERAL string "Ostler.app" in its
+      [STEP], [OK] and sealed-pending lines regardless of which root it was
+      given. Pointed at a second root it would have reported a TRUE COUNT UNDER
+      A FALSE SUBJECT, which is the precise failure this estate has paid for
+      repeatedly and which the standing rule forbids. The label is now the third
+      positional argument, defaulting to "Ostler.app" so the existing arm-1 call
+      site -- which passes neither new argument -- reproduces its previous output
+      EXACTLY. Counted 0 at 5b8005d5, 1 here.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/scripts/seed-hub-payload-pyc.sh
+      pattern: 'LABEL="\$\{3:-Ostler\.app\}"'
+      must_match: true
+  - id: v1049-c-the-anti-vacuity-floor-is-per-root
+    title: one hardcoded floor cannot serve roots of 1, 86 and 1888 files
+    incident: >-
+      The floor exists so "0 uncovered" over an unstaged tree cannot read as a
+      pass. A SINGLE hardcoded `>= 20` is either vacuous for the big roots or a
+      false "the payload did not stage" for the 1-file nested daemon app -- and
+      that false negative is exactly what would have killed the obvious
+      seed-the-fourth-copy fix. MIN_PY is now the fourth positional argument,
+      validated as a non-negative integer before use, defaulting to 20 so arm 1
+      is untouched. $(APP_PATH) is called with 400 against a measured population
+      of ~1888. Counted 0 at 5b8005d5, 1 here.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/scripts/seed-hub-payload-pyc.sh
+      pattern: 'MIN_PY="\$\{4:-20\}"'
+      must_match: true
+  - id: v1049-d-the-nested-seal-is-asserted-not-argued
+    title: the build re-proves the byte-identity the seal depends on
+    incident: >-
+      Archie blocked this PR on the nested-seal question: seeding $(APP_PATH)
+      rewrites 86 .pyc inside a Resources/Ostler.app that sparkle-embed sealed
+      three steps earlier and that nothing reseals. It was answered by
+      MEASUREMENT (compileall -f is byte-deterministic in unchecked-hash mode,
+      digest identical across a forced recompile, with a control that moved when
+      a return value changed) and then converted by TNM into a BUILD-TIME
+      ASSERTION rather than left as an argument in a comment. After seeding,
+      codesign --verify --deep --strict --verbose=2 runs on
+      $(APP_PATH)/Contents/Resources/Ostler.app and REFUSES unless rc=0 AND
+      `file added:` = 0 AND `file modified:` = 0. BOTH VERBS, because v1.0.47
+      passed an added-only check and shipped the defect anyway, and a
+      rewritten-in-place .pyc is a MODIFICATION. Absence of the nested app is
+      CANNOT-VERIFY and also refuses: the seed just walked that root, and a
+      silent skip would report a seal nobody looked at.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/Makefile
+      pattern: 'verify --deep --strict'
+      must_match: true
+  - id: v1049-installer-version-is-1049
+    title: the Installer says which installer it is
+    incident: >-
+      v1.0.39 shipped a DMG whose plist read 1.0.38, and the first v1.0.43 tag
+      was refused for the same defect with plist 1.0.42. IT HAPPENED AGAIN ON
+      THIS CUT: the first v1.0.49 tag (run 33102355979) died at preflight step
+      18 with "CFBundleShortVersionString is 1.0.48 but the cut is 1.0.49",
+      because Archie tagged without bumping. The gate caught it in 34 seconds,
+      before any signing. Bumped across all sites and read back through plutil
+      rather than from file text. 🔴 THE BUMP SURFACE HAS MORE DECOYS THAN REAL
+      SITES: gui/Makefile carries historical ORM pin notes and
+      sign-python-bundle.sh carries measurement comments recording what earlier
+      cuts did wrong. Those are EVIDENCE AND HISTORY, not version pins; a naive
+      sed over gui/ rewrites them and destroys the record.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: '1.0.49'
+  - id: v1049-installer-build-number-is-4900
+    title: short version and build number have not drifted apart
+    incident: >-
+      A build number that lags the short version is how two different DMGs claim
+      to be the same install. The preflight gate derives the expected build from
+      the cut version and proves the derivation against three shipped cuts
+      (1.0.36 -> 3600, 1.0.37 -> 3700, 1.0.38 -> 3800) plus a control showing
+      the same comparison does NOT match 0.0.0, so a match is meaningful rather
+      than a tautology.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleVersion
+      value: '4900'
