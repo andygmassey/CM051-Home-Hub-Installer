@@ -212,6 +212,48 @@ _ks_bounded() {
     return 0
 }
 
+# ── store-auth .pth wiring, HOISTED (#550, 2026-08-28) ────────────────
+# Defined here, before the upgrade block below, because the Sparkle upgrade
+# path (OSTLER_UPGRADE_MODE) calls it and then exits -- it can never reach a
+# definition further down the file. On the main install path this is simply
+# an earlier definition of the same function; every call site is unchanged.
+# The body reads nothing at definition time; at call time it takes the venv
+# and root as arguments, so hoisting introduces no unset-variable read.
+_ostler_wire_store_auth_pth() {
+    local _venv="$1"
+    local _root="${2:-${OSTLER_DIR:-${HOME}/.ostler}}"
+    [[ -n "$_venv" && -x "${_venv}/bin/python3" ]] || return 1
+    local _sp
+    # Ask the interpreter, never guess "lib/pythonX.Y/site-packages": the
+    # version component moves under us and a guessed path writes a .pth that
+    # nothing ever reads -- silently reproducing the very defect above.
+    _sp="$("${_venv}/bin/python3" -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null)" || return 2
+    [[ -n "$_sp" && -d "$_sp" ]] || return 2
+    # ⚠️ PIN BOTH HALVES, not just the module path.
+    #
+    # The shim resolves its secrets from OSTLER_SECRETS_DIR, defaulting to
+    # ~/.ostler/secrets. This installer's OSTLER_DIR is CONFIGURABLE. So on any
+    # box where OSTLER_DIR is not ~/.ostler, a .pth that set only sys.path would
+    # load the shim from the right place and send it looking for credentials in
+    # the wrong one -- it would find nothing, add no header, and every store call
+    # would go out bare. Loudly loaded, silently useless.
+    #
+    # Found by measurement, not by reading: the first behavioural run set
+    # OSTLER_DIR (which the shim ignores) and reported "no credential attached".
+    # That looked exactly like a broken shim. It was a broken TEST. The shim
+    # attaches the credential correctly once pointed at the right directory
+    # (positive control: hand-sent header echoed; negative control: absent).
+    #
+    # 📌 Two artefacts, one consumer. Setting only one of them is the failure,
+    # and it cannot be caught by a control that varies the same variable twice.
+    # `setdefault`, never assignment: a caller that has deliberately exported
+    # OSTLER_SECRETS_DIR keeps its own value.
+    printf 'import sys, os; sys.path.append(%s); os.environ.setdefault("OSTLER_SECRETS_DIR", %s); __import__("ostler_store_auth")\n' \
+        "\"${_root}/lib\"" "\"${_root}/secrets\"" > "${_sp}/ostler_store_auth.pth" || return 3
+    chmod 0644 "${_sp}/ostler_store_auth.pth" 2>/dev/null || true
+    return 0
+}
+
 if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "1" ]]; then
 
     # Own the error handling from here: manage exit codes explicitly so
@@ -6577,40 +6619,11 @@ fi
 # The lib path is written ABSOLUTE at install time rather than as `~`, because
 # OSTLER_DIR is not always ${HOME}/.ostler and a tilde would silently resolve
 # to a different directory for a differently-rooted install.
-_ostler_wire_store_auth_pth() {
-    local _venv="$1"
-    local _root="${2:-${OSTLER_DIR:-${HOME}/.ostler}}"
-    [[ -n "$_venv" && -x "${_venv}/bin/python3" ]] || return 1
-    local _sp
-    # Ask the interpreter, never guess "lib/pythonX.Y/site-packages": the
-    # version component moves under us and a guessed path writes a .pth that
-    # nothing ever reads -- silently reproducing the very defect above.
-    _sp="$("${_venv}/bin/python3" -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null)" || return 2
-    [[ -n "$_sp" && -d "$_sp" ]] || return 2
-    # ⚠️ PIN BOTH HALVES, not just the module path.
-    #
-    # The shim resolves its secrets from OSTLER_SECRETS_DIR, defaulting to
-    # ~/.ostler/secrets. This installer's OSTLER_DIR is CONFIGURABLE. So on any
-    # box where OSTLER_DIR is not ~/.ostler, a .pth that set only sys.path would
-    # load the shim from the right place and send it looking for credentials in
-    # the wrong one -- it would find nothing, add no header, and every store call
-    # would go out bare. Loudly loaded, silently useless.
-    #
-    # Found by measurement, not by reading: the first behavioural run set
-    # OSTLER_DIR (which the shim ignores) and reported "no credential attached".
-    # That looked exactly like a broken shim. It was a broken TEST. The shim
-    # attaches the credential correctly once pointed at the right directory
-    # (positive control: hand-sent header echoed; negative control: absent).
-    #
-    # 📌 Two artefacts, one consumer. Setting only one of them is the failure,
-    # and it cannot be caught by a control that varies the same variable twice.
-    # `setdefault`, never assignment: a caller that has deliberately exported
-    # OSTLER_SECRETS_DIR keeps its own value.
-    printf 'import sys, os; sys.path.append(%s); os.environ.setdefault("OSTLER_SECRETS_DIR", %s); __import__("ostler_store_auth")\n' \
-        "\"${_root}/lib\"" "\"${_root}/secrets\"" > "${_sp}/ostler_store_auth.pth" || return 3
-    chmod 0644 "${_sp}/ostler_store_auth.pth" 2>/dev/null || true
-    return 0
-}
+# _ostler_wire_store_auth_pth was DEFINED here until 2026-08-28. It is now
+# hoisted to before the upgrade block (~line 215) because the upgrade path
+# calls it and would otherwise hit an undefined function on every upgrade
+# (#550: unshimmed knowledge/cm048 venvs -> 401 against the enforcing stores).
+# Definition-order in a straight-line script is an interface, not a detail.
 
 # ── store credential for SHELL callers (#550) ─────────────────────────
 # The Python shim above is a Python mechanism, so every `curl` in this file is
