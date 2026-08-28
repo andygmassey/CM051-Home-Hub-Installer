@@ -229,6 +229,7 @@ test_orphan_gate_pr_skip_is_per_label.sh	WIRED	.github/workflows/cut.yml
 test_osascript_dialogs_activate_system_events.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_osascript_sites_are_deadlined.sh	WIRED	.github/workflows/osascript-deadline.yml
 test_ostler_gui_sudo_gates.sh	UNWIRED	-
+test_oxigraph_proxy_credential.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_parser_claims_do_not_cross_services.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
 test_pii_shape_scan_scope.sh	WIRED	.github/workflows/operator-pii-scan.yml
