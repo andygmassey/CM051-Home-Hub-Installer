@@ -259,6 +259,8 @@ test_runtime_ready_invariant.sh	WIRED	.github/workflows/consent-data-handling.ym
 test_scheduled_agent_failure_is_loud.sh	WIRED	.github/workflows/scheduled-agent-failure-is-loud.yml
 test_secrets_are_documented.sh	WIRED	.github/workflows/secrets-are-documented.yml
 test_section_contract.sh	WIRED	.github/workflows/section-contract.yml
+test_sensitive_artefacts_guard_fires.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
+test_sensitive_artefacts_not_world_readable.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
 test_settling_progress_writer.sh	UNWIRED	-
 test_ship_prereqs_are_a_superset.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_shipped_compose_licence_mount.sh	WIRED	.github/workflows/licence-gate.yml

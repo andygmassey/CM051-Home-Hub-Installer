@@ -106,9 +106,16 @@ pass "control: install.sh is the real file (${BYTES} bytes)"
 # error ships too: a gate that scores a COMMENT as code passes when the
 # code is gone but the comment stays.
 #
-# CODE below is install.sh with whole-line comments removed. Trailing
-# comments after real code are NOT stripped; no assertion here depends on
-# that, and saying so is cheaper than a predicate nobody can audit.
+# CODE below is install.sh with WHOLE-LINE comments removed. Trailing
+# comments after real code are NOT stripped.
+#
+# 🔴 An earlier version of this note said "no assertion here depends on
+# that". THAT WAS FALSE, and the mutation arm proved it: two assertions
+# in the heredoc limb were substring searches that a trailing comment
+# satisfied. They are now anchored at line start so the needle must be a
+# COMMAND. The stated bound and the actual bound have to be the same
+# thing, or the note is worse than no note -- it tells the next reader
+# not to look.
 CODE="$(/usr/bin/sed -e 's/^[[:space:]]*#.*$//' "$INSTALL_SH")"
 
 RAW_TMP="$(count_in "$CODE" -E "/tmp/ostler-")"
@@ -190,11 +197,15 @@ if [ "$(count_in "$HELPER_BODY" -F "/tmp")" -gt 0 ]; then
 else
     pass "the helper has no /tmp fallback"
 fi
-for needle in 'chmod 700' '700'; do
-    if [ "$(count_in "$HELPER_BODY" -F "$needle")" -lt 1 ]; then
-        failure "_ostler_private_artefact does not enforce ${needle}"
-    fi
-done
+# ANCHORED AT LINE START, so the needle has to be a COMMAND and not a
+# mention. See the note above assertion 5 -- a substring search for
+# 'chmod 700' is satisfied by a line that only TALKS about chmod 700.
+if [ "$(count_in "$HELPER_BODY" -E '^[[:space:]]*chmod 700 ')" -lt 1 ]; then
+    failure "_ostler_private_artefact does not RUN chmod 700 (a mention is not a call)"
+fi
+if [ "$(count_in "$HELPER_BODY" -E '^[[:space:]]*\[ "\$\{?_mode' )" -lt 1 ]; then
+    failure "_ostler_private_artefact does not verify the resulting mode"
+fi
 pass "the helper creates its directory 0700 and verifies the mode"
 
 # ── ASSERTION 4: THE TWO REACHABLE SITES CALL THE HELPER ─────────────
@@ -252,11 +263,33 @@ if [ "$(count_in "$HD_BODY" -F "_ostler_private_artefact")" -gt 0 ]; then
 else
     pass "the wrapper does not call the helper (which would be inert there)"
 fi
-for needle in 'chmod 700' 'REFUSING'; do
-    if [ "$(count_in "$HD_BODY" -F "$needle")" -lt 1 ]; then
-        failure "the DCUEOF wrapper is missing its own '${needle}' logic"
-    fi
-done
+# 🔴 ANCHORED AT LINE START, AND THE REASON IS A HOLE THIS TEST HAD.
+#
+# These were substring searches. The mutation arm that replaces
+#
+#     chmod 700 "$PRIVATE_DIR"
+# with
+#     :  # chmod 700 "$PRIVATE_DIR"
+#
+# left the guard GREEN: the comment-strip above removes WHOLE-LINE
+# comments only, so the needle survived as a TRAILING comment on a line
+# that does nothing. The wrapper would have shipped with no 0700
+# enforcement at all and this file would have said it was fine.
+#
+# It was caught by tests/test_sensitive_artefacts_guard_fires.sh arm 5,
+# which is the entire argument for having a mutation arm per defect
+# rather than one that only exercises the assertion you were thinking
+# about when you wrote it.
+#
+# Anchoring makes the needle a COMMAND rather than a mention. That is
+# the general repair for this class: do not ask whether the text is
+# present, ask whether it is in a position where the shell would run it.
+if [ "$(count_in "$HD_BODY" -E '^[[:space:]]*chmod 700 ')" -lt 1 ]; then
+    failure "the DCUEOF wrapper does not RUN chmod 700 (a mention is not a call)"
+fi
+if [ "$(count_in "$HD_BODY" -E '^[[:space:]]*log "REFUSING')" -lt 1 ]; then
+    failure "the DCUEOF wrapper does not refuse when its directory is not 0700"
+fi
 if [ "$(count_in "$HD_BODY" -E '/tmp/[A-Za-z0-9._-]*\.(yaml|yml|json)')" -gt 0 ]; then
     failure "the DCUEOF wrapper still writes a data artefact under /tmp (#912)"
 else
