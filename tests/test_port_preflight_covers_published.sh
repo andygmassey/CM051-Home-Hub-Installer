@@ -183,21 +183,36 @@ fi
 # list and assert arm 1's comparison stops matching. Abort unless the
 # substitution really applied -- a sed that silently does nothing has
 # scored a pass for me before (#910).
+# 🔴 THE MUTANT IS DERIVED, NOT HARDCODED -- AND THIS ARM ROTTED ONCE ALREADY.
+# It used to sed a literal seven-port string. #1209 (2a886bd5) unpublished
+# qdrant gRPC 6334, the declared list legitimately became six, and the literal
+# stopped matching. The APPLIED guard did its job -- CANNOT-RUN, not a false
+# pass -- but the arm was INERT until a human read the output. A mutation
+# fixture that names TODAY'S value stops mutating the moment that value is
+# allowed to change, and it goes quiet exactly when the code is in flux.
+# Derive the mutant from whatever is declared NOW; then it cannot rot.
 MUT="$(mktemp "${TMPDIR:-/tmp}/pfmut-XXXXXX")"
-/usr/bin/sed -E 's/^OSTLER_PREFLIGHT_PORTS="3000 6333 6334 6379 7878 8044 8144"/OSTLER_PREFLIGHT_PORTS="3000 6333 6379 7878"/' \
-    "${INSTALL_SH}" > "${MUT}"
-APPLIED="$(/usr/bin/grep -cE '^OSTLER_PREFLIGHT_PORTS="3000 6333 6379 7878"$' "${MUT}")"
-if [ "${APPLIED}" != "1" ]; then
-    cant "arm 7: mutation did NOT apply (${APPLIED} hits) -- scoring it would be a false pass"
+DROPPED="$(printf '%s' "${DECLARED}" | tr ' ' '\n' | /usr/bin/tail -1)"
+MUT_LIST="$(printf '%s' "${DECLARED}" | tr ' ' '\n' | /usr/bin/sed '$d' \
+    | tr '\n' ' ' | /usr/bin/sed 's/ *$//')"
+if [ -z "${MUT_LIST}" ] || [ "${MUT_LIST}" = "${DECLARED}" ]; then
+    cant "arm 7: could not derive a SMALLER list from '${DECLARED}' -- mutation impossible"
 else
-    MUT_DECLARED="$(/usr/bin/sed -e 's/[[:space:]]*#.*$//' "${MUT}" \
-        | /usr/bin/grep -E '^OSTLER_PREFLIGHT_PORTS=' \
-        | /usr/bin/sed -E 's/^OSTLER_PREFLIGHT_PORTS="?([^"]*)"?.*/\1/' \
-        | tr ' ' '\n' | sort -u | tr '\n' ' ' | /usr/bin/sed 's/ *$//')"
-    if [ "${MUT_DECLARED}" = "${PUBLISHED}" ]; then
-        bad "arm 7: arm 1's predicate still matches after dropping 3 ports -- it cannot fail"
+    /usr/bin/sed -E "s/^OSTLER_PREFLIGHT_PORTS=\"[^\"]*\"/OSTLER_PREFLIGHT_PORTS=\"${MUT_LIST}\"/" \
+        "${INSTALL_SH}" > "${MUT}"
+    APPLIED="$(/usr/bin/grep -cE "^OSTLER_PREFLIGHT_PORTS=\"${MUT_LIST}\"\$" "${MUT}")"
+    if [ "${APPLIED}" != "1" ]; then
+        cant "arm 7: mutation did NOT apply (${APPLIED} hits) -- scoring it would be a false pass"
     else
-        ok "arm 7: MUTATION PROVED -- dropping 6334/8044/8144 makes arm 1 mismatch"
+        MUT_DECLARED="$(/usr/bin/sed -e 's/[[:space:]]*#.*$//' "${MUT}" \
+            | /usr/bin/grep -E '^OSTLER_PREFLIGHT_PORTS=' \
+            | /usr/bin/sed -E 's/^OSTLER_PREFLIGHT_PORTS="?([^"]*)"?.*/\1/' \
+            | tr ' ' '\n' | sort -u | tr '\n' ' ' | /usr/bin/sed 's/ *$//')"
+        if [ "${MUT_DECLARED}" = "${PUBLISHED}" ]; then
+            bad "arm 7: arm 1's predicate still matches after dropping ${DROPPED} -- it cannot fail"
+        else
+            ok "arm 7: MUTATION PROVED -- dropping ${DROPPED} makes arm 1 mismatch"
+        fi
     fi
 fi
 rm -f "${MUT}"

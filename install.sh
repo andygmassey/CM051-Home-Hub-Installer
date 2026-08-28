@@ -14704,12 +14704,21 @@ _check_port() {
     }
 
 # EVERY port this install publishes on the host, not a hand-picked
-# subset. The old list carried 4 of 7; 6334, 8144 and 8044 were absent,
-# and 8044 is the wiki. tests/test_port_preflight_covers_published.sh
-# asserts this list equals the ports published by the compose heredocs
-# below, so a new service cannot be added without the preflight
-# following it.
-OSTLER_PREFLIGHT_PORTS="3000 6333 6334 6379 7878 8044 8144"
+# subset. The old list carried 4; 8144 and 8044 were absent, and 8044 is
+# the wiki. tests/test_port_preflight_covers_published.sh asserts this
+# list EQUALS the ports published by the compose heredocs below, so a new
+# service cannot be added without the preflight following it.
+#
+# 🔴 THE EQUALITY RUNS IN BOTH DIRECTIONS, AND THAT IS WHY 6334 IS NOT HERE.
+# This list named 6334 while the branch was open. #1209 (2a886bd5)
+# UNPUBLISHED the qdrant gRPC port -- "any local account could read the
+# vector store (#550)" -- so the correct resolution was to drop it HERE,
+# never to re-publish it there. Both are ways to make the two sides equal
+# and only one of them is right, which the gate cannot tell you: it
+# compares a branch against ITSELF and is blind to main having moved.
+# If a future edit makes this list disagree with the compose block, check
+# WHICH SIDE CHANGED before you make them match.
+OSTLER_PREFLIGHT_PORTS="3000 6333 6379 7878 8044 8144"
 
 PORT_CONFLICT=false
 PORT_UNMEASURED=false
