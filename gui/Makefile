@@ -1999,8 +1999,30 @@ check-manifest:
 	    echo "" >&2; \
 	    echo "ERROR: the cut-manifest gate COULD NOT RUN. It has NOT found a fix" >&2; \
 	    echo "       missing -- it failed to look. See the reason above (usually:" >&2; \
-	    echo "       python3 absent, or PyYAML uninstallable on this machine)." >&2; \
+	    echo "       python3 absent, PyYAML uninstallable, or the gate itself" >&2; \
+	    echo "       crashed before finishing)." >&2; \
 	    echo "       Resolve it and re-run. DO NOT SHIP." >&2; \
+	    exit 2; \
+	elif [ "$${rc:-0}" -eq 3 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: the cut-manifest gate COULD NOT RUN a REQUIRED KIND of proof." >&2; \
+	    echo "       Exit 3 is the script's own CANNOT-RUN code: a --require-kind" >&2; \
+	    echo "       was declared and either NO entries of that kind exist, or" >&2; \
+	    echo "       every one of them SKIPPED. Read the CANNOT-RUN lines above:" >&2; \
+	    echo "       they name the kind and the reason each row did not run." >&2; \
+	    echo "" >&2; \
+	    echo "       This is NOT a missing fix. Nothing was measured, so nothing" >&2; \
+	    echo "       was proven -- and an unproven cut must not ship either." >&2; \
+	    echo "       DO NOT SHIP." >&2; \
+	    exit 3; \
+	elif [ "$${rc:-0}" -ne 0 ] && [ "$${rc:-0}" -ne 1 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: the cut-manifest gate exited $${rc} -- a code it does not" >&2; \
+	    echo "       define. Its contract is 0=pass 1=RED rows 2=could-not-run" >&2; \
+	    echo "       3=required-kind-never-ran. An undefined code means the gate" >&2; \
+	    echo "       did not complete, so it has NOT cleared the artefact and it" >&2; \
+	    echo "       has NOT accused it either. Treat as COULD NOT RUN." >&2; \
+	    echo "       DO NOT SHIP." >&2; \
 	    exit 2; \
 	elif [ "$${rc:-0}" -ne 0 ]; then \
 	    echo "" >&2; \
