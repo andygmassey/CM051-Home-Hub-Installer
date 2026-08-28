@@ -6535,6 +6535,52 @@ if ! _ostler_seed_store_auth_shim; then
     warn "  venvs created after this point reach the data stores with no credential."
 fi
 
+# ── store credential for SHELL callers (#550) ─────────────────────────
+# The Python shim above is a Python mechanism, so every `curl` in this file is
+# outside it BY CONSTRUCTION. Measured on this branch: 6 curl callers dial a
+# store port and NONE carries a credential (`curl.*api-key` = 0 repo-wide, so
+# that zero is real rather than a broken predicate).
+#
+# 🔴 WHY A -K FILE AND NOT `-H "Authorization: Bearer $TOK"`.
+#    argv is world-readable. `ps -axww` shows a -H value to EVERY local
+#    account, which is precisely the attacker #550 is about. @A2 measured both
+#    forms against a stalled listener so curl was observable:
+#        curl -H "...$TOK"   token_in_argv=1   LEAKS
+#        curl -K <file>      token_in_argv=0   clean
+#    `-K`'s argument is a PATH, which is harmless to expose.
+#
+# 🔴 WHY umask AND NOT chmod AFTER.
+#    `printf > f; chmod 600 f` leaves the file 644 WITH THE TOKEN ALREADY ON
+#    DISK for the interval between the two. A loop by a second account reads it
+#    in that window. The umask subshell means it is never briefly readable.
+#
+# ⚠️ THE ARRAY IS EXPANDED WITH THE `+` GUARD AT EVERY CALL SITE, AND THAT IS
+#    NOT STYLE. Measured on /bin/bash 3.2.57 (what `#!/usr/bin/env bash`
+#    resolves to on a stock Mac) under this file's own `set -Eeuo pipefail`:
+#        a=(); printf '%s' "${a[@]}"   ->  a[@]: unbound variable, ABORT
+#    Enforcement is default-OFF today, so the array is EMPTY on every current
+#    install. A naive "${arr[@]}" would abort every one of them.
+_OSTLER_STORE_CURL_ARGS=()
+
+_ostler_write_store_curl_config() {
+    local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    local _tok_file="${OSTLER_DIR}/secrets/oxigraph_token" _tok
+    _tok="$(cat "$_tok_file" 2>/dev/null)" || _tok=""
+    if [ -z "$_tok" ]; then
+        # FAIL CLOSED, and delete any STALE config: a credential file that
+        # outlives its token is worse than none, because callers keep
+        # presenting a secret the store no longer honours.
+        rm -f "$_conf" 2>/dev/null || true
+        _OSTLER_STORE_CURL_ARGS=()
+        return 1
+    fi
+    mkdir -p "${OSTLER_DIR}/secrets" 2>/dev/null || true
+    ( umask 0077; printf 'header = "Authorization: Bearer %s"\n' "$_tok" > "$_conf" ) || return 2
+    _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    return 0
+}
+_ostler_write_store_curl_config || true
+
 HAS_SECURITY_MODULE=false
 if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/pyproject.toml" ]]; then
     # macOS Sonoma+ blocks pip3 install to system Python, so use a venv.
@@ -16499,7 +16545,7 @@ if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
     # the whole install at the bare assignment. `|| printf '0'` keeps the
     # command-substitution exit 0 so it degrades to its designed warn path.
     _PREFS_POINTS="$(
-        curl -sf -m 5 "${QDRANT_URL:-http://localhost:6333}/collections/preferences" 2>/dev/null \
+        curl -sf -m 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" "${QDRANT_URL:-http://localhost:6333}/collections/preferences" 2>/dev/null \
         | python3 -c 'import json,sys
 try:
     d=json.loads(sys.stdin.read())
@@ -16587,7 +16633,7 @@ except Exception:
         # no item content leaves the process; non-fatal (warn, never abort).
         _cat_count() {
             # Count points whose payload.category == $1. Empty/!ready -> 0.
-            curl -sf -m 5 -H 'Content-Type: application/json' \
+            curl -sf -m 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -H 'Content-Type: application/json' \
                 -X POST "${QDRANT_URL:-http://localhost:6333}/collections/preferences/points/count" \
                 -d "{\"exact\":true,\"filter\":{\"must\":[{\"key\":\"category\",\"match\":{\"value\":\"$1\"}}]}}" \
                 2>/dev/null \
@@ -16606,7 +16652,7 @@ except Exception:
         # Count points with no category at all (orphans that reach no Topic
         # page). Qdrant `is_empty` matches null/absent payload keys.
         _UNCAT_POINTS="$(
-            curl -sf -m 5 -H 'Content-Type: application/json' \
+            curl -sf -m 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -H 'Content-Type: application/json' \
                 -X POST "${QDRANT_URL:-http://localhost:6333}/collections/preferences/points/count" \
                 -d '{"exact":true,"filter":{"must":[{"is_empty":{"key":"category"}}]}}' \
                 2>/dev/null \
@@ -22149,7 +22195,7 @@ _hydrate_sentinel_record_cannot_run() {
 _hydrate_qdrant_points() {
     local collection="$1"
     local raw count
-    raw="$(curl -sf --noproxy '*' --max-time 5 \
+    raw="$(curl -sf --noproxy '*' --max-time 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
         "${QDRANT_URL:-http://localhost:6333}/collections/${collection}" \
         2>/dev/null || true)"
     if [[ -z "$raw" ]]; then
@@ -25005,6 +25051,14 @@ gui_step_begin "health_check" "$MSG_STEP_RUNNING_HEALTH_CHECK" 3 "$CURRENT_STEP"
 # Phase 4 probes below can still only ever make things worse, never better.
 : "${HEALTHY:=true}"
 
+# ⚠️ DELIBERATELY BARE, and it is the ONLY bare store dial left in this file.
+# Qdrant's /healthz sits OUTSIDE the api-key by the vendor's own design, so a
+# credential here would be inert rather than protective. Contrast :7878 just
+# below: our Oxigraph check lives on `location /` and has NO exempt path, so a
+# bare liveness probe there 401s and reports a WORKING store as DOWN. That is
+# why that one is credentialled and this one is not -- the asymmetry is the
+# vendors', not ours. If Qdrant ever moves /healthz behind the key, this line
+# changes with it.
 if curl -sf http://localhost:6333/healthz &>/dev/null; then
     ok "$MSG_OK_QDRANT_HEALTHY"
 else
@@ -25012,7 +25066,7 @@ else
     HEALTHY=false
 fi
 
-if curl -sf http://localhost:7878/ &>/dev/null; then
+if curl -sf "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" http://localhost:7878/ &>/dev/null; then
     ok "$MSG_OK_OXIGRAPH_HEALTHY"
 else
     warn "$MSG_WARN_OXIGRAPH_NOT_RESPONDING"
