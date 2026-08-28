@@ -14544,23 +14544,62 @@ progress "Starting your knowledge graph databases" "graph_db_start"
 #     53379   rc=0 busy -> RED  right   LISTEN present   <- positive control, ours
 #     59999   rc=1 free -> GREEN right  absent           <- negative control
 #
-# So the probe below is netstat, which is owner-blind, is part of macOS
-# (unlike python3, which on a dev box is Homebrew's and on a fresh
-# customer Mac may not exist at this point in the install), needs no
-# privilege, and cannot hang. lsof is kept for ATTRIBUTION ONLY: if it
-# names a pid the holder is ours and we can say so; if it names nothing
-# while netstat says the port is held, the holder belongs to another
-# account and we say THAT instead.
+# THE DECIDER IS A REAL BIND, NOT A REPORT ABOUT ONE.
 #
-# Three outcomes, never two. A port we could not measure is NOT reported
-# free -- see _port_listeners returning `cant`.
+# netstat is owner-blind and fixes the original defect, but it is still
+# a REPORT: it tells you what the kernel is describing, not what our
+# containers will actually GET. The authoritative instrument is to
+# attempt the exact bind docker will attempt and catch EADDRINUSE. That
+# is what this block does now, with netstat demoted to corroboration.
+#
+# ATTACK SECTION -- every way a bind probe can lie, and what is done:
+#
+#   SO_REUSEADDR / SO_REUSEPORT. On BSD both let a bind succeed
+#     ALONGSIDE an existing socket. Setting either would manufacture
+#     exactly the false GREEN this block exists to prevent, so the
+#     probe sets NEITHER. Cost: a port in TIME_WAIT reads as held --
+#     handled below as a disagreement, never as a pass.
+#
+#   WILDCARD VS SPECIFIC ADDRESS. A listener on 0.0.0.0:P owned by
+#     another account must not be missed. With no SO_REUSEADDR, binding
+#     127.0.0.1:P against an existing 0.0.0.0:P returns EADDRINUSE on
+#     BSD, so the cross-account case is caught. MEASURED on real
+#     hardware 2026-08-28: port 5900 is a root-owned `*.5900` listener;
+#     lsof as uid 501 reports it FREE (rc=1, empty stderr) and the bind
+#     probe returns EADDRINUSE. That is the shipped defect and its fix,
+#     in one measurement. This is the reason the probe binds 127.0.0.1
+#     specifically: it is byte-for-byte what `127.0.0.1:P:P` in the
+#     compose below asks the kernel for.
+#
+#   ADDRESS FAMILY. The compose publishes IPv4. netstat is therefore
+#     scoped `-f inet` so both instruments look at the same family and
+#     an IPv6-only listener cannot manufacture a phantom disagreement.
+#
+#   TOCTOU. Between our close() and docker's bind() the port is free
+#     for anyone. Unfixable by construction; a preflight is a check,
+#     not a reservation. Stated rather than papered over.
+#
+#   NO PYTHON. The bind needs an interpreter. On the licensed path
+#     there is always one -- _ostler_licence_python() hard-fails the
+#     install ~12,700 lines above this if it cannot find one. On
+#     OSTLER_DEV=1 / --allow-unlicensed that gate is skipped, so the
+#     bind arm can be unavailable, and it then reports `cant` and lets
+#     netstat decide ALONE rather than silently passing.
+#
+# lsof is kept for ATTRIBUTION ONLY: if it names a pid the holder is
+# reachable from this account and we say so; if it names nothing while
+# the port is demonstrably held, the holder belongs to ANOTHER account
+# and we say THAT instead. It never decides.
+#
+# Three outcomes, never two. A port we could not measure is NOT
+# reported free -- see `cant` throughout.
 _port_listeners() {
     # Echoes the LISTEN row count for a port, or the literal `cant` when
     # the instrument itself could not run. Must never echo 0 for a
     # failed measurement -- that is the false-clean this whole block
     # exists to prevent.
     local _p="$1" _out _rc
-    _out="$(/usr/sbin/netstat -an -p tcp 2>/dev/null)"
+    _out="$(/usr/sbin/netstat -an -p tcp -f inet 2>/dev/null)"
     _rc=$?
     if [ "${_rc}" -ne 0 ] || [ -z "${_out}" ]; then
         printf 'cant\n'
@@ -14570,17 +14609,90 @@ _port_listeners() {
         | /usr/bin/awk -v p="${_p}" '$NF=="LISTEN"{n=split($4,a,"."); if(a[n]==p){c++}} END{print c+0}'
     }
 
+# Resolve an interpreter for the bind probe ONCE, not per port. Reuses
+# the licence verifier's resolver so the DMG's bundled python wins over
+# a stray Homebrew one, then re-tests the imports THIS probe needs
+# rather than assuming the licence check's imports imply them.
+_ostler_bind_python() {
+    local _cand
+    for _cand in "$(_ostler_licence_python 2>/dev/null || true)" \
+                 "$(command -v python3 2>/dev/null || true)"; do
+        [ -n "${_cand}" ] && [ -x "${_cand}" ] || continue
+        if "${_cand}" -c 'import errno, socket, sys' >/dev/null 2>&1; then
+            printf '%s' "${_cand}"
+            return 0
+        fi
+    done
+    return 1
+    }
+
+# THE AUTHORITATIVE INSTRUMENT. Attempts the exact bind the compose
+# below asks for and reports free | held | cant. Never reports free on
+# a failed measurement.
+_port_bind_probe() {
+    local _p="$1" _py="${2:-}" _out
+    if [ -z "${_py}" ]; then
+        printf 'cant\n'
+        return 0
+    fi
+    _out="$("${_py}" -c 'import errno, socket, sys
+p = int(sys.argv[1])
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    s.bind(("127.0.0.1", p))
+except OSError as e:
+    sys.stdout.write("held\n" if e.errno in (errno.EADDRINUSE, errno.EACCES) else "cant\n")
+    sys.exit(0)
+finally:
+    s.close()
+sys.stdout.write("free\n")' "${_p}" 2>/dev/null)"
+    case "${_out}" in
+        free|held) printf '%s\n' "${_out}" ;;
+        *)         printf 'cant\n' ;;
+    esac
+    }
+
 _check_port() {
     # 0 = free, 1 = held (hard failure), 2 = could not measure.
-    local _p="$1" _n _pid _proc
+    #
+    # Two instruments, and DISAGREEMENT IS NOT A COIN TOSS -- it is
+    # CANNOT-RUN. The adjudication is written as a table because the
+    # interesting cases are the ones that are neither clean pass nor
+    # clean fail:
+    #
+    #   bind   netstat LISTEN   verdict   why
+    #   free   0                FREE      both agree
+    #   held   >=1              HELD      both agree: the real collision
+    #   held   0                CANT      bind blocked with no listener --
+    #                                     TIME_WAIT or similar. Docker sets
+    #                                     SO_REUSEADDR and may well survive
+    #                                     it, so calling this a collision
+    #                                     would block a working install.
+    #   free   >=1              CANT      a listener our bind did not hit.
+    #                                     Cannot adjudicate; refuse to guess.
+    #   held   cant             HELD      bind DEMONSTRATED the failure;
+    #                                     netstat was only corroboration.
+    #   cant   0                CANT      no authoritative instrument ran.
+    #   cant   >=1              HELD      netstat alone, still owner-blind,
+    #                                     and a listener is a listener.
+    local _p="$1" _py="${2:-}" _bind _n _pid _proc
+    _bind="$(_port_bind_probe "${_p}" "${_py}")"
     _n="$(_port_listeners "${_p}")"
-    if [ "${_n}" = "cant" ]; then
+
+    if [ "${_bind}" = "free" ] && [ "${_n}" = "0" ]; then
+        return 0
+    fi
+    if [ "${_bind}" = "held" ] && [ "${_n}" = "cant" ]; then
+        :
+    elif [ "${_bind}" = "cant" ] && [ "${_n}" != "cant" ] && [ "${_n}" != "0" ]; then
+        :
+    elif [ "${_bind}" = "held" ] && [ "${_n}" != "cant" ] && [ "${_n}" != "0" ]; then
+        :
+    else
         warn "$(printf "$MSG_WARN_PORT_CHECK_COULD_NOT_RUN" "${_p}")"
         return 2
     fi
-    if [ "${_n}" -eq 0 ]; then
-        return 0
-    fi
+
     _pid="$(/usr/sbin/lsof -t -i ":${_p}" -sTCP:LISTEN 2>/dev/null | head -1)"
     if [ -n "${_pid}" ]; then
         _proc="$(ps -p "${_pid}" -o comm= 2>/dev/null || echo "unknown")"
@@ -14601,14 +14713,20 @@ OSTLER_PREFLIGHT_PORTS="3000 6333 6334 6379 7878 8044 8144"
 
 PORT_CONFLICT=false
 PORT_UNMEASURED=false
+# Resolved ONCE. Seven ports x a python startup each is a needless
+# couple of seconds on a step the customer is watching.
+_PF_PY="$(_ostler_bind_python 2>/dev/null || true)"
+if [ -z "${_PF_PY}" ]; then
+    warn "$MSG_WARN_PORT_BIND_PROBE_UNAVAILABLE"
+fi
 for _pf_port in ${OSTLER_PREFLIGHT_PORTS}; do
-    _check_port "${_pf_port}"
+    _check_port "${_pf_port}" "${_PF_PY}"
     case $? in
         1) PORT_CONFLICT=true ;;
         2) PORT_UNMEASURED=true ;;
     esac
 done
-unset _pf_port
+unset _pf_port _PF_PY
 
 if [[ "$PORT_UNMEASURED" == true ]]; then
     warn "$MSG_WARN_PORT_PREFLIGHT_INCOMPLETE"
