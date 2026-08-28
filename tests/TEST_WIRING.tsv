@@ -195,6 +195,7 @@ test_launchagent_success_requires_verification.sh	WIRED	.github/workflows/launch
 test_launchd_plist_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
 test_linkedin_export_detect.sh	UNWIRED	-
+test_loopback_property_fires.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_mail_content_probe.sh	UNWIRED	-
 test_mail_onboarding_259_260.sh	UNWIRED	-
 test_mailbox_ingest_leg_wired.sh	UNWIRED	-
@@ -304,7 +305,7 @@ test_v1010_ical_doctor_service_auth.sh	WIRED	.github/workflows/launchagent-succe
 test_v1010_ingest_reroute_plists.sh	UNWIRED	-
 test_v1010_redteam3_supply_chain_pins.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_v1010_redteam3_teamid_pin.sh	WIRED	.github/workflows/supply-chain-pins.yml
-test_v1010_store_auth_loopback.sh	UNWIRED	-
+test_v1010_store_auth_loopback.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_v1010_store_front_proxy.sh	UNWIRED	-
 test_v1010_wiki_not_tailscale_served.sh	UNWIRED	-
 test_v1_sweep_install_gating.sh	WIRED	(via test_codename_sweep_sees_an_early_leak.sh)
