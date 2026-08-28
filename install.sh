@@ -14232,24 +14232,49 @@ services:
     # v1.0.10 security lockdown: the REST port (6333) is NO LONGER
     # published to the host directly -- it is fronted by store-proxy
     # (below), a loopback nginx that validates the Host header to
-    # defeat DNS-rebind before passing through. Only the gRPC port
-    # (6334) stays on the host loopback (not browser-DNS-rebindable;
-    # covered by the v1.0.1 token-auth project). QDRANT__SERVICE__
-    # API_KEY is the staged (default-OFF) native-auth scaffolding for
-    # v1.0.1. IMPORTANT (verified on-device): Qdrant treats a PRESENT-but-
-    # empty QDRANT__SERVICE__API_KEY as auth-ENABLED (empty => 401, absent
-    # => 200) -- the original "EMPTY => no auth" assumption was WRONG and was
-    # the ERR-99-INSTALL-ABORT-L9858 box-walk failure. So when store-auth is
-    # default-OFF the installer REMOVES the API_KEY line from this block
-    # after generating the compose (see "empty-api-key quirk" below),
-    # leaving QDRANT__LOG_LEVEL as the sole entry so the block stays valid
-    # YAML and Qdrant runs keyless -- matching the pinned vendored clients
-    # that send no api key.
+    # defeat DNS-rebind before passing through.
+    #
+    # 2026-08-28 (#550): THE gRPC PORT (6334) IS NO LONGER PUBLISHED EITHER.
+    # It used to be, and the justification written here said it was "not
+    # browser-DNS-rebindable". That was true and it was the wrong test. A
+    # published loopback port is reachable by EVERY LOCAL USER ACCOUNT, not
+    # only by a browser, and Qdrant runs keyless by default (see below), so
+    # a second account on the same Mac could read and write the entire
+    # vector store with no credential. DEMONSTRATED on 2026-08-28: a second
+    # unprivileged account read the owner's knowledge graph through the
+    # sibling Oxigraph route with a single curl. This block was the same
+    # exposure with a shorter path.
+    #
+    # Nothing shipped consumes Qdrant over gRPC. Measured across all three
+    # populations at origin/main, each with a positive control proving the
+    # predicate matches:
+    #   355 bundled .py   -> 0 gRPC clients (control: 6333 found in 15 files)
+    #   759 .rs in oa     -> 0; the daemon uses reqwest REST on 6333.
+    #                        `6334` appears once in 1,560 files, inside a
+    #                        Cargo.lock checksum; every `tonic` hit is
+    #                        "monotonic" and tonic is a direct dependency of
+    #                        0 of 27 Cargo.toml.
+    #   144 .ts/.tsx/.js  -> 0; the Tauri frontend talks to ical-server on
+    #                        8089 (control: 14 of the 144 do reference some
+    #                        localhost:<port>, so the shape matches).
+    # Host clients reach Qdrant through store-proxy on 6333, unchanged.
+    # In-VM compose clients reach it as qdrant:6334 on the docker network,
+    # which does not require a host publish.
+    #
+    # QDRANT__SERVICE__API_KEY is the staged (default-OFF) native-auth
+    # scaffolding for v1.0.1. IMPORTANT (verified on-device): Qdrant treats
+    # a PRESENT-but-empty QDRANT__SERVICE__API_KEY as auth-ENABLED (empty
+    # => 401, absent => 200) -- the original "EMPTY => no auth" assumption
+    # was WRONG and was the ERR-99-INSTALL-ABORT-L9858 box-walk failure. So
+    # when store-auth is default-OFF the installer REMOVES the API_KEY line
+    # from this block after generating the compose (see "empty-api-key
+    # quirk" below), leaving QDRANT__LOG_LEVEL as the sole entry so the
+    # block stays valid YAML and Qdrant runs keyless -- matching the pinned
+    # vendored clients that send no api key. That keyless default is
+    # precisely why no port of this container may be published.
     environment:
       QDRANT__LOG_LEVEL: "INFO"
       QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY:-}"
-    ports:
-      - "127.0.0.1:6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
     restart: unless-stopped
