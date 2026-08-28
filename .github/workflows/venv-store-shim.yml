@@ -32,6 +32,7 @@ on:
       - 'tests/test_venvs_install_store_shim.sh'
       - 'tests/test_store_callers_authenticate.sh'
       - 'tests/test_installer_authenticates_to_qdrant.sh'
+      - 'tests/test_wiki_compiler_gets_the_qdrant_key.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the same PR that narrows it.
       - '.github/workflows/venv-store-shim.yml'
@@ -134,3 +135,26 @@ jobs:
       - name: the gate itself parses
         if: always()
         run: /bin/bash -n tests/test_installer_authenticates_to_qdrant.sh
+
+  # ── #550: the wiki COMPILER is a container, and the shim cannot reach it ──
+  #
+  # The store-auth .pth covers host venvs. The wiki-compiler runs in a pinned
+  # image on the compose network and dials qdrant:6333 directly, so the shim
+  # reaches it by neither route. Its credential has to arrive as service env.
+  #
+  # The failure is silent: CM044's people/preference/browsing loaders fall back
+  # to empty and render SUCCESSFULLY, so a 401 shows up as a THIN wiki rather
+  # than an error -- indistinguishable from a customer with little data.
+  wiki-compiler-gets-the-qdrant-key:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: the wiki compiler is given Qdrant's credential, and only Qdrant's
+        run: /bin/bash tests/test_wiki_compiler_gets_the_qdrant_key.sh
+
+      - name: the gate itself parses
+        if: always()
+        run: /bin/bash -n tests/test_wiki_compiler_gets_the_qdrant_key.sh
