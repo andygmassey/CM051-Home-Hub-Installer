@@ -79,7 +79,11 @@ def _port_of(scheme, port):
 # beside the secrets dir (so it follows a non-default OSTLER_DIR) at 0600, and
 # every step is itself wrapped: a shim that crashed while reporting a crash
 # would be worse than the silence it replaces.
-STATUS = {"httpx": "not-attempted", "urllib": "not-attempted"}
+STATUS = {
+    "httpx": "not-attempted",
+    "urllib": "not-attempted",
+    "aiohttp": "not-attempted",
+}
 
 
 def _record(arm, exc):
@@ -161,3 +165,46 @@ try:
     STATUS["urllib"] = "patched"
 except Exception as _e:
     _record("urllib", _e)
+
+# ---- aiohttp: cm019 analyzer.py (@A2, 2026-08-28) --------------------
+#
+# THE ONE CLIENT THE OTHER TWO ARMS CANNOT REACH. @A2 measured the shipped
+# fleet against the enforce flip: 5 of 6 clients go through httpx or urllib
+# and are covered above. cm019's analyzer.py uses aiohttp, which is neither,
+# so on the flip it would have 401'd against a store it is entitled to read.
+#
+# 📌 Same shape as every other miss today: the first two arms were written
+# against the clients I knew, and a client of a THIRD kind was outside the
+# denominator entirely. I did not find this. @A2 did, by enumerating the
+# fleet rather than trusting the arms.
+#
+# ClientSession._request is the single choke point -- every get/post/put on a
+# session funnels through it, so one patch covers the whole surface without
+# touching call sites. `headers` may be absent, None, a dict, or a
+# CIMultiDict; normalise to a plain dict and use setdefault so an explicit
+# caller header always wins.
+try:
+    import aiohttp as _ah
+
+    if not getattr(_ah.ClientSession._request, "_ostler_shim", False):
+        _orig_req = _ah.ClientSession._request
+
+        async def _request(self, method, str_or_url, *a, **kw):
+            try:
+                u = _ah.client.URL(str_or_url)
+                cred = _credential_for(u.host, _port_of(u.scheme, u.port))
+                if cred:
+                    h = dict(kw.get("headers") or {})
+                    h.setdefault(cred[0], cred[1])
+                    kw["headers"] = h
+            except Exception:
+                # A URL we cannot parse is not a reason to break the call.
+                # It goes out unchanged, exactly as it would without the shim.
+                pass
+            return await _orig_req(self, method, str_or_url, *a, **kw)
+
+        _request._ostler_shim = True
+        _ah.ClientSession._request = _request
+    STATUS["aiohttp"] = "patched"
+except Exception as _e:
+    _record("aiohttp", _e)
