@@ -21,13 +21,33 @@ name: declared-gates-reachable
 # gate's ability to DISCRIMINATE. Seventeen controls, including a green one
 # and both directions of the proved-red ratchet.
 
+# 🔴 THIS BLOCK WAS INSTANCE 17 OF THE CLASS BELOW IT. Fixed 2026-08-28.
+#
+# Until now it read `push: branches: [main]` with a `paths:` filter naming its
+# own four files. Both halves were wrong, and in the most embarrassing possible
+# way: THE GATE THAT MEASURES WHICH GATES FIRE ON A TAG PUSH DID NOT FIRE ON A
+# TAG PUSH. `branches:` does not match `refs/tags/*`, so a cut ran the whole
+# pipeline without ever consulting this file, exactly like the 12 declarers it
+# reports on. Caught in review by Archie, not by me and not by CI.
+#
+#   `tags:` -- cut.yml triggers on 'v1.0.*'. This is deliberately the WIDER
+#   'v1.*' so that if the cut tag shape ever widens within v1, this gate does
+#   not silently go dark again. Measured on main 2026-08-28: of 95 workflows,
+#   cut.yml is the ONLY one with a tag trigger and none uses a bare `on: push`,
+#   so this is the entire tag surface of the repo.
+#
+#   `paths:` -- DELETED, not widened. The sweep is a whole-tree fixpoint over
+#   every workflow and every script, so ANY change anywhere can change its
+#   answer. Scoping it to four files meant a PR adding a can't-fire gate
+#   somewhere else would never run the check that exists to catch exactly that.
+#   A path filter on a whole-tree analysis is a false economy: it makes the
+#   gate cheap and blind at the same time.
 on:
   pull_request:
-    paths:
-      - 'scripts/verify_declared_gates_reachable.sh'
-      - '.github/workflows/declared-gates-reachable.yml'
   push:
     branches: [main]
+    tags:
+      - 'v1.*'
 
 permissions:
   contents: read
@@ -250,3 +270,11 @@ jobs:
             exit 1
           fi
           echo "ok: an impossible floor fails the run (exit $rc)"
+
+      - name: AXIS THREE -- runs on the cut, not merely reachable (#1167)
+        if: always()
+        # Pins BOTH directions on a FIXTURE repo: a gate reached only by a
+        # branch-triggered workflow is in the gap, and one reached by a
+        # tag-triggered workflow is not. Asserting only the first would pass
+        # on the pre-#1167 behaviour, where every workflow counted.
+        run: ./tests/test_cut_trigger_reachability_axis.sh

@@ -1,0 +1,42 @@
+# cut_trigger_reachability_baseline.tsv
+#
+# 2026-08-28: the two rows for this gate's OWN workflow and script were
+# removed, not edited, because the gap they recorded is CLOSED -- the
+# workflow now carries `tags: ['v1.*']`. Leaving them would let a revert of
+# that trigger hide behind its own baseline, which is the one thing a
+# baseline must never do.
+# AXIS THREE of scripts/verify_declared_gates_reachable.sh. Each row is a file
+# that declares itself cut-blocking, IS reachable on axis one, and is NOT
+# reachable from any entry point that fires on a v1.0.* tag push.
+#
+# WHY THIS FILE EXISTS RATHER THAN A FLIP. Re-seeding the existing verdict with
+# tag-aware entry points would turn every row below into an orphan at once and
+# block every cut. A gate that does that gets commented out, which lands its
+# population right back where it started. So the state on 2026-08-27 is
+# RECORDED here and only GROWTH fails. The baseline may SHRINK freely.
+#
+# A ROW IS NOT AN EXCUSE. It is a note that nobody has decided yet. Every row
+# is UNREVIEWED because I measured the gap, not the intent -- inventing twelve
+# justifications would have made the file look settled when it is not.
+#
+# TO CLEAR A ROW, do one of:
+#   (a) wire the gate to a runner that fires on a v1.0.* tag, then delete the
+#       row -- this is the outcome the axis exists to produce; or
+#   (b) replace UNREVIEWED with a real reason, and sign it.
+#
+# Two of these were MEASURED executing zero times at the commit v1.0.48 was cut
+# from (#1167): customer-download-path.yml and default-sources-requested.yml,
+# whose workflows carry a `paths:` filter ON TOP of a branch-only trigger, so
+# even the "it ran on main at that SHA" defence does not hold for them.
+#
+# path	status	note
+.github/workflows/customer-download-path.yml	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
+scripts/box_walk_probes/probes/pair_state_agreement.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
+scripts/tests/test_verify_clean_tree_gate.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
+scripts/verify_customer_download_path.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
+tests/test_context_refresh_wired.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
+tests/test_cut_freshness_gate.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
+tests/test_every_default_source_is_requested.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
+tests/test_fda_deps_are_installed_not_just_copied.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
+tests/test_provenance_gate_marker_read_is_not_piped.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
+tests/test_status_ok_with_zero_payload_is_not_ok.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut

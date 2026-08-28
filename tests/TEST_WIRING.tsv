@@ -78,6 +78,7 @@ test_cut_deferrals_no_duplicate_keys.sh	WIRED	.github/workflows/cut-manifest.yml
 test_cut_dispatch_is_dry.sh	WIRED	.github/workflows/cut.yml
 test_cut_freshness_gate.sh	WIRED	.github/workflows/cut-freshness.yml
 test_cut_gate_wrappers.sh	WIRED	.github/workflows/cut-freshness.yml
+test_cut_trigger_reachability_axis.sh	WIRED	.github/workflows/declared-gates-reachable.yml
 test_cx100_mail_accounts_detection.sh	UNWIRED	-
 test_cx101_calendar_hydrate_path.sh	WIRED	.github/workflows/calendar-backfill-multiyear.yml
 test_cx101_prelaunch_gate_population.sh	UNWIRED	-

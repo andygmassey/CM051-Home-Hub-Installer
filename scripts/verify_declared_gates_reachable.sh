@@ -259,6 +259,61 @@ is_entry_point() {
     return 1
 }
 
+# Does this workflow fire on the event that MAKES A CUT -- a push of a v1.0.*
+# tag? `is_entry_point` above says yes to every workflow, which is right for
+# "can the cut reach this file at all" and wrong for "does this run when the
+# cut runs". Both questions are worth asking; AXIS THREE asks the second.
+#
+# THE THREE `push:` SHAPES, and getting this wrong is easy:
+#   push:                    -> bare. Fires on branches AND tags.        YES
+#   push: {tags: [...]}      -> tags.                                     YES
+#   push: {branches: [...]}  -> branches ONLY. A tag push does NOT fire.  NO
+# The third is the one that looks like coverage and is not. Measured on this
+# repo: 94 workflows are entry points on the any-trigger axis, and until
+# 2026-08-28 exactly ONE fired on a cut tag. It is TWO now, because this
+# gate's own workflow was the seventeenth instance of the defect it detects
+# and has been fixed. The third cut-tag entry point is the Makefile, below.
+# The operator and the ORM run `make` by hand at cut time, so a Makefile is an
+# entry point on BOTH axes. Split out of is_entry_point so axis three can take
+# the Makefile half without the every-workflow half.
+is_makefile_entry() {
+    case "$1" in
+        Makefile|makefile|GNUmakefile|*/Makefile|*/makefile|*.mk) return 0 ;;
+    esac
+    return 1
+}
+
+fires_on_cut_tag() {
+    case "$1" in .github/workflows/*) ;; *) return 1 ;; esac
+    python3 - "$1" <<'CUTTAGPY'
+import sys, yaml
+try:
+    d = yaml.safe_load(open(sys.argv[1])) or {}
+except Exception:
+    sys.exit(1)                      # unparseable is NOT "fires"; it is unknown
+on = d.get(True, d.get("on"))
+# `on:` has THREE legal shapes and only one is a mapping. YAML gives back a
+# STRING for `on: push` and a LIST for `on: [push, pull_request]`, so a bare
+# isinstance(on, dict) test silently scores both as "does not fire on a tag"
+# -- the exact opposite of this file's own finding that an unfiltered push
+# fires on branches AND tags. Measured on this repo: 0 of 95 workflows use the
+# scalar or list form, so the estate number is unaffected; the TEST FIXTURE
+# uses `on: push` and was mis-scored, which is how this was found.
+if isinstance(on, str):
+    sys.exit(0 if on == "push" else 1)
+if isinstance(on, list):
+    sys.exit(0 if "push" in on else 1)
+if not isinstance(on, dict) or "push" not in on:
+    sys.exit(1)
+push = on["push"]
+if push is None:                     sys.exit(0)   # bare push: branches AND tags
+if not isinstance(push, dict):       sys.exit(1)
+if "tags" in push:                   sys.exit(0)
+if "branches" in push:               sys.exit(1)   # branches only -> no tags
+sys.exit(0)
+CUTTAGPY
+}
+
 DECLARE_RE='BLOCK THE CUT|BLOCKS THE CUT|CUT BLOCKER|blocks? the release|MUST NOT SHIP|DO NOT ASSEMBLE'
 
 # ===========================================================================
@@ -934,6 +989,114 @@ if [ "${OSTLER_REQUIRE_PROVED_RED:-0}" = "1" ] && [ "$unproved_n" -gt 0 ]; then
     axis_two_fail=1
 fi
 
+# --- AXIS THREE: reachable is not the same as RUNS ON THE CUT --------------
+#
+# Axis one seeds the fixpoint with EVERY workflow, so "reachable from the cut"
+# means "reachable from something that runs sometime". A gate invoked only by a
+# workflow that never fires on a tag push is reachable and does not run on the
+# cut. #1167 measured two of those executing ZERO times at the commit v1.0.48
+# was cut from, while axis one reported full coverage.
+#
+# THIS IS A RATCHET, NOT A FLIP. Re-seeding the existing verdict would turn
+# seven declarers orphan at once and block every cut, which is how a gate gets
+# commented out. So the current state is RECORDED in a baseline and only
+# GROWTH fails. Shrinking the baseline is always allowed.
+axis_three_fail=0
+A3_BASELINE="${OSTLER_CUT_TRIGGER_BASELINE:-$REPO_ROOT/scripts/cut_trigger_reachability_baseline.tsv}"
+
+: > "$TMP/reach3"
+while IFS= read -r f; do
+    if fires_on_cut_tag "$f" || is_makefile_entry "$f"; then echo "$f" >> "$TMP/reach3"; fi
+done < "$TMP/nodes"
+IFS=':' read -r -a _a3_extra <<< "${OSTLER_CUT_ENTRYPOINTS:-}"
+for _e in "${_a3_extra[@]:-}"; do
+    [ -n "$_e" ] && grep -qxF "$_e" "$TMP/nodes" && echo "$_e" >> "$TMP/reach3"
+done
+sort -u "$TMP/reach3" -o "$TMP/reach3"
+a3_seeds="$(wc -l < "$TMP/reach3" | tr -d ' ')"   # SEEDS, counted before the BFS grows the set
+
+if [ ! -s "$TMP/reach3" ]; then
+    # Nothing fires on a tag. That is not "everything is fine"; it is a broken
+    # probe, and it must not print a clean axis.
+    echo >&2
+    echo "  AXIS THREE CANNOT RUN: no workflow fires on a cut tag, so the" >&2
+    echo "  cut-trigger reachable set is empty and every gate would look" >&2
+    echo "  unreachable. Not reporting this axis, and FAILING rather than" >&2
+    echo "  passing: a probe that cannot see is not a clean result." >&2
+    echo "  (If you are looking at a minimal fixture, check fires_on_cut_tag" >&2
+    echo "   handles its \`on:\` shape before assuming the repo is at fault.)" >&2
+    axis_three_fail=1
+else
+    cp "$TMP/reach3" "$TMP/frontier3"
+    while [ -s "$TMP/frontier3" ]; do
+        : > "$TMP/next3"
+        while IFS= read -r r; do
+            n="$(cat "$TMP/id/$(esc "$r")" 2>/dev/null)"
+            [ -n "$n" ] || continue
+            grep -oFf "$TMP/basenames" "$TMP/code/$n.txt" 2>/dev/null | sort -u \
+            | while IFS= read -r b; do [ -f "$TMP/bn/$b" ] && cat "$TMP/bn/$b"; done \
+            | sort -u \
+            | while IFS= read -r cand; do
+                [ "$cand" = "$r" ] && continue
+                grep -qxF "$cand" "$TMP/reach3" && continue
+                echo "$cand" >> "$TMP/next3"
+              done
+        done < "$TMP/frontier3"
+        if [ -s "$TMP/next3" ]; then
+            sort -u "$TMP/next3" -o "$TMP/next3"
+            : > "$TMP/next3b"
+            while IFS= read -r c; do
+                grep -qxF "$c" "$TMP/reach3" || { echo "$c" >> "$TMP/reach3"; echo "$c" >> "$TMP/next3b"; }
+            done < "$TMP/next3"
+            mv "$TMP/next3b" "$TMP/frontier3"
+        else
+            : > "$TMP/frontier3"
+        fi
+    done
+
+    : > "$TMP/a3_dark"
+    a3_reach=0
+    while IFS= read -r f; do
+        if grep -qxF "$f" "$TMP/reach3"; then
+            a3_reach=$((a3_reach + 1))
+        elif grep -qxF "$f" "$TMP/reach"; then
+            # reachable on axis one, NOT under the cut trigger -- the gap
+            echo "$f" >> "$TMP/a3_dark"
+        fi
+    done < "$TMP/decl_exec"
+
+    a3_dark_n="$(wc -l < "$TMP/a3_dark" | tr -d ' ')"
+    echo
+    echo "  AXIS THREE -- runs on the cut, not merely reachable:"
+    echo "    ${a3_reach} of ${exec_total} declarers are reachable from a CUT-TAG entry point"
+    echo "    (${a3_seeds} such entry point(s); axis one seeded ${entries})."
+
+    : > "$TMP/a3_new"
+    if [ -r "$A3_BASELINE" ]; then
+        while IFS= read -r d; do
+            grep -qxF "$d" <(grep -vE '^#|^$' "$A3_BASELINE" | cut -f1) || echo "$d" >> "$TMP/a3_new"
+        done < "$TMP/a3_dark"
+    else
+        cp "$TMP/a3_dark" "$TMP/a3_new"
+        [ -s "$TMP/a3_new" ] && echo "    (no baseline at ${A3_BASELINE}; every gap below is NEW)"
+    fi
+
+    if [ "$a3_dark_n" -gt 0 ]; then
+        echo "    ${a3_dark_n} declare cut-blocking, are reachable, and do NOT run on a tag push:"
+        while IFS= read -r d; do echo "      ${d}"; done < "$TMP/a3_dark"
+    fi
+    if [ -s "$TMP/a3_new" ]; then
+        echo >&2
+        echo "  NEW on axis three -- not in ${A3_BASELINE##*/}:" >&2
+        while IFS= read -r d; do echo "    ${d}" >&2; done < "$TMP/a3_new"
+        echo >&2
+        echo "  Either wire it to a runner that fires on a v1.0.* tag, or add a row" >&2
+        echo "  to the baseline WITH A REASON. The baseline may shrink freely; it" >&2
+        echo "  may only grow by someone writing down why." >&2
+        axis_three_fail=1
+    fi
+fi
+
 if [ "$other_total" -gt 0 ]; then
     echo
     echo "  NOT MEASURED ON THIS AXIS: ${other_total} non-executable file(s) also declare a"
@@ -962,4 +1125,5 @@ fi
 echo
 echo "  no orphans."
 [ "$axis_two_fail" -eq 1 ] && exit 1
+[ "${axis_three_fail:-0}" -eq 1 ] && exit 1
 exit 0
