@@ -1,0 +1,53 @@
+name: redis-health-probe
+
+# #550 regression gate. Redis has exactly TWO clients on a customer Hub -- the
+# Doctor's _check_redis, and install.sh's own health probe -- and this pins the
+# second, which is `docker exec ... redis-cli ping` and therefore INVISIBLE to
+# the curl-shaped store-caller gate.
+#
+# Under requirepass the probe was answered "NOAUTH Authentication required.",
+# `grep -q PONG` failed, and a perfectly healthy store reported as down. That
+# string is what gui/OstlerInstaller/Views/InstallCompleteView.swift:63 greps
+# the install log for, so the customer's completion screen would carry a
+# warning on a working install.
+#
+# The trap the test pins: sending AUTH to a store with NO password configured
+# is an ERROR, not a no-op, so "always authenticate" breaks every box that has
+# not flipped and every rollback. The probe tries keyless first.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      # Listed AND run below. A path entry only makes the workflow TRIGGER; the
+      # run step is what makes it CHECK. The gate must fire on changes to
+      # itself, not only on changes to install.sh.
+      - 'tests/test_redis_health_probe_authenticates.sh'
+      - '.github/workflows/redis-health-probe.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  redis-health-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The test starts two valkey containers at the digest install.sh pins --
+      # read FROM install.sh, not copied, so it cannot drift off what ships.
+      #
+      # EXIT 3 IS CANNOT-RUN AND IT FAILS THIS JOB. ubuntu-latest ships docker,
+      # so a 3 means the runner image changed or the pinned digest went away.
+      # Either is a gate that did not report, and a gate that did not report
+      # must not be green. `bash -e` already fails on any non-zero; this step
+      # exists to say WHY a 3 is not tolerated, so nobody later adds `|| true`.
+      - name: Redis health probe authenticates in both store states
+        run: bash tests/test_redis_health_probe_authenticates.sh

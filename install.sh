@@ -10978,8 +10978,12 @@ TIMEZONE="${USER_TZ}"
 # REDIS_URL IS REWRITTEN LATER AND THE ORDER IS LOAD-BEARING. This block
 # TRUNCATES config/.env, and the Redis auth block further down replaces this
 # line with the credentialled form (#550). It only works because that block
-# runs AFTER this one; move either and a `cat >` silently wipes a credential
-# that the Doctor and the install health probe both need.
+# runs AFTER this one; move either and the truncation silently wipes a
+# credential that the Doctor and the install health probe both need.
+# (No backticks in this body: it is an UNQUOTED heredoc, so a backtick pair
+# would run at install time and its output would land in the customer's .env.
+# tests/test_no_live_command_substitution_in_heredocs.sh caught exactly that
+# in the first draft of this very comment.)
 # tests/test_redis_health_probe_authenticates.sh asserts the ordering.
 OXIGRAPH_URL=http://localhost:7878
 QDRANT_URL=http://localhost:6333
