@@ -10272,6 +10272,39 @@ if [[ -f "${SCRIPT_DIR}/lib/ostler-container-engine.sh" ]]; then
     cp "${SCRIPT_DIR}/lib/ostler-container-engine.sh" "${OSTLER_DIR}/lib/"
     chmod +x "${OSTLER_DIR}/lib/ostler-container-engine.sh"
 fi
+
+# ── store-auth shim (#550) ────────────────────────────────────────────
+# The module every Ostler venv needs on its sys.path so its clients present
+# a credential to Qdrant and Oxigraph. Without it a client reaches the store
+# bare, which is the exact hole a second local account walked through.
+#
+# ⚠️ SEEDED AS A FUNCTION, NOT A BARE cp, BECAUSE THE ORDERING BITES.
+# This block sits at line ~10275, and FOUR venv-creating sites live above it
+# (473, 496, 530, 2529). Three of those are the Sparkle UPGRADE path, which
+# is a separate execution context with its own _UPG_OSTLER_DIR. A bare copy
+# here would be correct for the eleven sites below and silently absent for
+# the four above -- and the upgrade path is precisely the population that
+# motivated the fix, so that would fix everything EXCEPT the thing asked for.
+#
+# So: an idempotent seeder any caller may invoke before it needs the module,
+# whatever OSTLER_DIR means in that caller's context. It is called here for
+# the main path; the venv helper calls it for its own.
+_ostler_seed_store_auth_shim() {
+    local _dest_root="${1:-${OSTLER_DIR:-${HOME}/.ostler}}"
+    local _src="${SCRIPT_DIR}/lib/ostler_store_auth.py"
+    [[ -f "$_src" ]] || return 1
+    mkdir -p "${_dest_root}/lib" 2>/dev/null || return 1
+    cp "$_src" "${_dest_root}/lib/ostler_store_auth.py" || return 1
+    # 0644 deliberately: this file holds NO secret. It READS one at runtime
+    # from ~/.ostler/secrets (0600). Shipping it world-readable is correct;
+    # shipping the secret inside it would be the #912 class with a credential.
+    chmod 0644 "${_dest_root}/lib/ostler_store_auth.py" 2>/dev/null || true
+    return 0
+}
+if ! _ostler_seed_store_auth_shim; then
+    warn "store-auth shim not staged from ${SCRIPT_DIR}/lib/ostler_store_auth.py"
+    warn "  venvs created after this point reach the data stores with no credential."
+fi
 if [[ -f "${SCRIPT_DIR}/bin/ostler-engine-supervisor.sh" ]]; then
     cp "${SCRIPT_DIR}/bin/ostler-engine-supervisor.sh" "${OSTLER_DIR}/bin/"
     chmod +x "${OSTLER_DIR}/bin/ostler-engine-supervisor.sh"
