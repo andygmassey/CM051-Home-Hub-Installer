@@ -3866,3 +3866,22 @@ deferrals:
       owns it. Recorded here so its absence from v1.0.49 is a decision on the
       record rather than a silence, which is the whole point of this file.
     until_cut: "v1.0.50"
+
+  # ⚠️ THE SELF-ROW. @TNM caught that the PR adding five deferral rows had no
+  # row for ITSELF -- so at cut time it is the sixth orphan, and the artefact
+  # that exists to prevent silence was silent about its own absence.
+  #
+  # This is not circular. A deferral row is not an ARGUMENT that a PR should be
+  # out of a cut; it is a STATEMENT that it is, with a reason. That statement is
+  # as true of this PR as of any other, and the gate that flags orphans does not
+  # exempt bookkeeping.
+  - ref: "CM051:#1216"
+    reason: >-
+      'chore(cut): record the five #551-hold PRs as conscious deferrals'. The PR
+      that writes the five rows above. Data-only -- no product code, no gate
+      logic, five additive rows. Not in v1.0.49 because v1.0.49 is frozen under
+      Andy's #551 hold, which is the same reason as the five it records.
+      Caught by @TNM: while this PR is OPEN the rows are written but NOT landed,
+      so the live uncovered count is SIX, not five -- the five plus this. The
+      count only drops to zero when this merges.
+    until_cut: "v1.0.50"
