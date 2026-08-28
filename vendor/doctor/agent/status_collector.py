@@ -533,20 +533,62 @@ def collect_service_health() -> list[ServiceHealthInfo]:
 
 
 def _check_redis() -> ServiceHealthInfo:
-    """Check Redis connectivity via TCP. Does NOT read any keys."""
-    import socket
+    """Check Redis connectivity via TCP.
 
-    # Parse host/port from REDIS_URL
-    url = REDIS_URL.replace("redis://", "")
-    host, _, port_str = url.partition(":")
-    port = int(port_str) if port_str else 6379
+    Sends AUTH when REDIS_URL carries a credential, then PING. Does NOT read
+    any keys and does not log, return or expose the credential.
+    """
+    import socket
+    from urllib.parse import unquote, urlsplit
+
+    # REDIS_URL is parsed with a real URL parser. Under
+    # OSTLER_STORE_AUTH_ENFORCE=1 the installer threads the credentialled
+    # form redis://:<password>@localhost:6379 (install.sh), and the previous
+    # str.replace()+partition() split handed "<password>@localhost:6379" to
+    # int(), raising an uncaught ValueError on every status collection.
+    try:
+        parts = urlsplit(REDIS_URL)
+        host = parts.hostname or "localhost"
+        port = parts.port or 6379
+        username = unquote(parts.username) if parts.username else ""
+        password = unquote(parts.password) if parts.password else ""
+    except ValueError:
+        return ServiceHealthInfo(
+            name="redis",
+            status="unreachable",
+            status_code=None,
+        )
+
+    def _resp(*args: str) -> bytes:
+        out = [b"*%d\r\n" % len(args)]
+        for arg in args:
+            raw = arg.encode()
+            out.append(b"$%d\r\n%s\r\n" % (len(raw), raw))
+        return b"".join(out)
 
     try:
         sock = socket.create_connection((host, port), timeout=3)
-        # Send PING, expect PONG (standard Redis health check, no data access)
-        sock.sendall(b"PING\r\n")
-        response = sock.recv(64).decode()
-        sock.close()
+        try:
+            # AUTH before PING. With requirepass on, an unauthenticated PING
+            # is answered "-NOAUTH Authentication required." and a perfectly
+            # healthy store would be reported unhealthy.
+            if password:
+                sock.sendall(
+                    _resp("AUTH", username, password) if username
+                    else _resp("AUTH", password)
+                )
+                auth_reply = sock.recv(256).decode(errors="replace")
+                if not auth_reply.startswith("+OK"):
+                    return ServiceHealthInfo(
+                        name="redis",
+                        status="unhealthy",
+                        status_code=500,
+                    )
+            # Send PING, expect PONG (standard Redis health check, no data access)
+            sock.sendall(b"PING\r\n")
+            response = sock.recv(64).decode(errors="replace")
+        finally:
+            sock.close()
         is_healthy = "PONG" in response
         return ServiceHealthInfo(
             name="redis",
