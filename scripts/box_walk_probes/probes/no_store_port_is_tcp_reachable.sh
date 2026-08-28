@@ -99,6 +99,32 @@ PROBE_QUESTION="can any local account open a TCP connection to an Ostler store o
 #                                        over a local connection (see above)
 MUST_BE_CLOSED="6333 7878 6334 6379 8044 3000 8144"
 
+# ── ⚠️ 8144: EXPECTED RED, AND DO NOT "FIX" IT BY UNPUBLISHING THE PORT ──────
+#
+# 8144 belongs in the list: its two identity limbs are request headers, and a
+# local client that never traverses tailscaled supplies them itself. That is
+# real and it is why the port is here.
+#
+# But it CANNOT be closed the way 6334 and 6379 were, and the reason is
+# measured rather than assumed:
+#
+#     install.sh:21269
+#       "$TS_CLI" --socket="$TS_SOCK" serve --bg --https=443 "http://127.0.0.1:8144"
+#
+# **tailscaled reaches the gate by connecting to 127.0.0.1:8144 from the host.**
+# So whatever can reach it for tailscaled can be reached by any local account:
+# they are the same loopback. Unpublish the port and `tailscale serve` has
+# nothing to proxy to, and the tailnet wiki path dies silently.
+#
+# So this row is expected RED until the HAND-OFF changes, not until somebody
+# deletes a compose line. The open question that decides the shape of that fix:
+# can `tailscale serve` be pointed at anything other than a host TCP port?
+# If yes, 8144 is a topology fix like the stores. If no, it joins 8044 and
+# 3000 and is solved by whatever solves those.
+#
+# A red that carries its own reason is a gate. A red that invites a wrong fix
+# is a trap. This comment is the difference.
+
 # Must be OPEN, or we cannot tell "closed" from "cannot look".
 CONTROL_PORT="${OSTLER_GATEWAY_PORT:-8000}"
 
