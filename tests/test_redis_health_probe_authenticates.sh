@@ -89,6 +89,22 @@ else
     ok "no Redis credential on any argv (stdin only)"
 fi
 
+# ORDERING, asserted statically. config/.env is TRUNCATED by a `cat >` that
+# writes a keyless REDIS_URL; the Redis auth block replaces that line. If the
+# two are ever reordered the credential is silently wiped and both clients fall
+# back to keyless against a store that now demands a password -- a working
+# install reporting itself broken, with no error naming the cause.
+_trunc="$(grep -n 'cat > "${CONFIG_DIR}/.env"' "$HERE/install.sh" | head -1 | cut -d: -f1)"
+_auth="$(grep -n 'OSTLER_REDIS_AUTH_ENFORCE:-1' "$HERE/install.sh" | head -1 | cut -d: -f1)"
+if [ -z "$_trunc" ] || [ -z "$_auth" ]; then
+    echo "CANNOT-RUN: could not locate both the config/.env truncation and the Redis auth block"
+    exit 3
+elif [ "$_auth" -gt "$_trunc" ]; then
+    ok "the Redis auth block runs AFTER config/.env is truncated (:$_trunc -> :$_auth)"
+else
+    no "the Redis auth block runs BEFORE the config/.env truncation (:$_auth then :$_trunc) -- the credential is wiped"
+fi
+
 echo
 echo "  $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ] || exit 1

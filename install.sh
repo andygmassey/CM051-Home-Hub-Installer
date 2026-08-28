@@ -10974,6 +10974,13 @@ ASSISTANT_NAME="${ASSISTANT_NAME}"
 TIMEZONE="${USER_TZ}"
 
 # Storage services (Docker containers on localhost)
+#
+# REDIS_URL IS REWRITTEN LATER AND THE ORDER IS LOAD-BEARING. This block
+# TRUNCATES config/.env, and the Redis auth block further down replaces this
+# line with the credentialled form (#550). It only works because that block
+# runs AFTER this one; move either and a `cat >` silently wipes a credential
+# that the Doctor and the install health probe both need.
+# tests/test_redis_health_probe_authenticates.sh asserts the ordering.
 OXIGRAPH_URL=http://localhost:7878
 QDRANT_URL=http://localhost:6333
 REDIS_URL=redis://localhost:6379
