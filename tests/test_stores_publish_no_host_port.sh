@@ -175,7 +175,16 @@ for entry in "${MUST_NOT_PUBLISH[@]}"; do
     pass "control: the ${svc} block extracted non-empty"
 
     # THE ASSERTION
-    if printf '%s\n' "$BLOCK" | grep -qE "$PUBLISH_RE"; then
+    #
+    # `grep -c`, NOT `grep -q`. Under `set -o pipefail` (line 62) a `grep -q`
+    # exits on its FIRST match, SIGPIPEs the producer, and the pipeline then
+    # reports FAILURE for a needle that IS PRESENT. This `if` would take the
+    # else-branch and print "publishes NO host port" at exactly the moment a
+    # host port appeared -- the assertion inverts on the only input it exists
+    # to catch. `grep -c` must read to EOF, so it cannot short-circuit.
+    # Caught by tests/test_pipefail_shortcircuit_inversion.sh, whose own
+    # positive control demonstrates the inversion rather than asserting it.
+    if [ "$(printf '%s\n' "$BLOCK" | grep -cE "$PUBLISH_RE")" -gt 0 ]; then
         failure "the ${svc} service PUBLISHES a host port. #550: a published"
         echo "      loopback port is reachable by every local account." >&2
         echo "      Offending line(s):" >&2
