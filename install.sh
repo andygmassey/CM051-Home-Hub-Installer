@@ -14728,15 +14728,39 @@ for _pf_port in ${OSTLER_PREFLIGHT_PORTS}; do
 done
 unset _pf_port _PF_PY
 
-if [[ "$PORT_UNMEASURED" == true ]]; then
-    warn "$MSG_WARN_PORT_PREFLIGHT_INCOMPLETE"
-fi
-
 # FAIL, not warn (#1208). Continuing past a known collision is what put
 # another account's services behind our containers.
+#
+# CONFLICT is reported before UNMEASURED because it is the more specific
+# diagnosis: if we positively saw a collision, that is what the customer
+# needs to read, not "some checks did not run".
 if [[ "$PORT_CONFLICT" == true ]]; then
     err "$MSG_ERR_SOME_PORTS_ARE_HELD_CANNOT_START"
     fail "$MSG_ERR_STOP_CONFLICTING_SERVICES_OR_USE_ONE_ACCOUNT"
+fi
+
+# 🔴 CANNOT-RUN ABORTS TOO (@ARCHIE's review of #1211, and he is right).
+#
+# This block used to `warn` and continue. That is the exact defect the
+# rest of this code exists to prevent, committed one level up: the probe
+# grew a scrupulous third outcome, and then the CALLER collapsed it back
+# into two by treating "could not measure" as good enough to proceed.
+# A port we could not measure has NOT been shown free, so the install
+# must not start containers over it.
+#
+# Andy's rule, first line of the discipline: CANNOT-RUN is not FAIL and
+# is not PASS. Three outcomes, three branches -- and the branch for
+# "could not measure" is refuse, not shrug.
+#
+# The cost of failing here is measured, not assumed: on the licensed
+# path _ostler_licence_python() has already hard-failed the install
+# ~12,700 lines earlier if no interpreter exists, so a customer install
+# that reaches this line always has one. Reaching this branch means the
+# instrument broke on a box that had it, which is a real anomaly and
+# worth stopping for.
+if [[ "$PORT_UNMEASURED" == true ]]; then
+    err "$MSG_WARN_PORT_PREFLIGHT_INCOMPLETE"
+    fail "$MSG_ERR_PORT_PREFLIGHT_CANNOT_RUN_ABORT"
 fi
 
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'

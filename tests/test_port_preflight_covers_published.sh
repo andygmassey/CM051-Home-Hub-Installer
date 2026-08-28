@@ -309,6 +309,29 @@ else
     fi
 fi
 
+# --------------------------------------------------------------- arm 12
+# 🔴 CANNOT-RUN MUST ABORT, NOT WARN (@ARCHIE's review of #1211).
+#
+# The probe grew a scrupulous third outcome and the CALLER collapsed it
+# back into two: PORT_UNMEASURED used to `warn` and continue, so a box
+# where every check failed to run printed a caution and started the
+# containers anyway. That is the defect this file guards, committed one
+# level up. Andy's first rule: CANNOT-RUN is not FAIL and is not PASS.
+#
+# Same PF_BLOCK lift as arm 4, so it inherits arm 4's anti-vacuity check.
+if [ -z "${PF_BLOCK}" ]; then
+    cant "arm 12: no preflight block to inspect"
+else
+    UNMEAS="$(/usr/bin/awk '/PORT_UNMEASURED.*==.*true/{f=1} f{print} f&&/^fi$/{exit}' <<< "${PF_BLOCK}")"
+    if [ -z "${UNMEAS}" ]; then
+        bad "arm 12: no PORT_UNMEASURED branch at all -- an unmeasured port is silently free"
+    elif /usr/bin/grep -qE '^[[:space:]]*fail ' <<< "${UNMEAS}"; then
+        ok "arm 12: CANNOT-RUN aborts the install (calls fail), it does not warn-and-continue"
+    else
+        bad "arm 12: PORT_UNMEASURED warns and continues -- CANNOT-RUN is being treated as PASS"
+    fi
+fi
+
 printf '\n== %d pass / %d fail / %d skip ==\n' "${PASS}" "${FAIL}" "${SKIP}"
 [ "${SKIP}" -eq 0 ] || printf '   NOTE: %d arm(s) skipped -- see [SKIP] above. A skip is not a pass.\n' "${SKIP}"
 [ "${FAIL}" -eq 0 ] || exit 1
