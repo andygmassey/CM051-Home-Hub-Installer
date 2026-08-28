@@ -551,7 +551,7 @@ def _check_redis() -> ServiceHealthInfo:
         host = parts.hostname or "localhost"
         port = parts.port or 6379
         username = unquote(parts.username) if parts.username else ""
-        password = unquote(parts.password) if parts.password else ""
+        credential = unquote(parts.password) if parts.password else ""
     except ValueError:
         return ServiceHealthInfo(
             name="redis",
@@ -572,10 +572,10 @@ def _check_redis() -> ServiceHealthInfo:
             # AUTH before PING. With requirepass on, an unauthenticated PING
             # is answered "-NOAUTH Authentication required." and a perfectly
             # healthy store would be reported unhealthy.
-            if password:
+            if credential:
                 sock.sendall(
-                    _resp("AUTH", username, password) if username
-                    else _resp("AUTH", password)
+                    _resp("AUTH", username, credential) if username
+                    else _resp("AUTH", credential)
                 )
                 auth_reply = sock.recv(256).decode(errors="replace")
                 if not auth_reply.startswith("+OK"):
