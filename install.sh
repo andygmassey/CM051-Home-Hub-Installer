@@ -14827,6 +14827,33 @@ services:
       # gateway.
       - OXIGRAPH_URL=http://oxigraph:7878
       - QDRANT_URL=http://qdrant:6333
+      # 🔴 THE COMPILER NEEDS QDRANT'S CREDENTIAL, AND IT IS OUTSIDE THE SHIM.
+      #
+      # Since #1222 flipped OSTLER_STORE_AUTH_ENFORCE to default-ON, qdrant
+      # boots with QDRANT__SERVICE__API_KEY set and 401s any uncredentialled
+      # read. Every host-side Python client is covered by the store-auth .pth
+      # shim -- but this is a CONTAINER, and the shim reaches it by neither
+      # route: the .pth is seeded into venv site-packages (never into a pinned
+      # image), and lib/ostler_store_auth.py's allow-list is loopback-only, so
+      # it would not fire for the hostname `qdrant` even if it were baked in.
+      #
+      # ⚠️ THE FAILURE IS SILENT, WHICH IS WHY IT NEEDS A COMMENT AND NOT JUST
+      #    A LINE. CM044's load_conversations RAISES and renders a
+      #    section-failure stub, but the people/preference/browsing loaders
+      #    fall back to empty and render SUCCESSFULLY. The wiki comes out THIN
+      #    -- People and Topics quietly short -- which looks exactly like a
+      #    customer who has little data. A healthy graph reads as an empty one.
+      #
+      # Interpolated by compose from ~/.ostler/.env, the same file and the same
+      # mechanism as the qdrant service's own QDRANT__SERVICE__API_KEY. Empty
+      # when ENFORCE=0, and CM044 sends no header at all in that case, so the
+      # keyless path is unchanged.
+      #
+      # NOTE there is deliberately no OXIGRAPH credential here. Oxigraph 0.4.6
+      # has no native auth; its bearer lives in the store-proxy and compose
+      # peers reach oxigraph:7878 directly. Handing this container an Oxigraph
+      # secret would repeat ERR-06 -- the wrong credential at the wrong store.
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - OLLAMA_URL=http://host.docker.internal:11434
       # #259: pin the compiler's Ollama model to the SAME model the installer
       # pulled for this box's RAM tier (AI_MODEL, set ~install.sh:4685). Without
