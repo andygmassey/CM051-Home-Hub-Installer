@@ -3946,3 +3946,32 @@ deferrals:
       Presence is not proof of the specific edit. Bundled for recovery.
       Re-adjudicate before v1.0.51.
     until_cut: "v1.0.51"
+
+  # ==========================================================================
+  # rb450 -- the ONE of @A2's five that is NOT the squash class, 2026-08-29.
+  # @A2 measured the rb*/pr* subset and correctly refused to lump this with the
+  # other four. I deleted those four after verifying them on my OWN instrument
+  # (PRs #1209/#1214/#1096 all MERGED: 2a886bd5 / c8047ea2 / 62f0c2ec; and for
+  # rb1098 a test-merge into origin/main produces a tree BYTE-IDENTICAL to main,
+  # so it adds nothing).
+  #
+  # ⚠️ MY INSTRUMENT AND @A2's DISAGREED ON rb1098 AND @A2 WAS RIGHT. My
+  # reverse-apply said "does not reverse-apply"; it failed on
+  # tests/TEST_WIRING.tsv, a churn-heavy file where context drifts. Their
+  # test-merge asks the RIGHT question ("would merging add anything?") where
+  # mine asks a narrower one ("is this patch byte-present?"). Resolved by
+  # running THEIR test myself rather than picking a favourite.
+  - ref: "CM051:rb450"
+    reason: >-
+      NOT the squash-blind class, and deliberately NOT deleted with the other
+      four. PR #450 is OPEN (not merged, not closed), head
+      fix/v1011-gui-blank-step-title, and that head EXISTS ON ORIGIN at
+      55772bb5 -- so this work has a durable remote home and the local rb450
+      (d1c12f03) is a stale rebase copy, not the only copy. Deleting a local
+      copy of IN-FLIGHT work is a different act from deleting a copy of landed
+      work, and only the second is safe. Deferred until #450 resolves: when it
+      merges this becomes the squash class and can be deleted; if it closes
+      unmerged, re-adjudicate the content. Bundled at
+      ~/.ostler-branch-preservation/check-orphans-rbpr-five-2026-08-29.bundle
+      (git bundle verify -> okay, 5 refs, complete history).
+    until_cut: "v1.0.51"
