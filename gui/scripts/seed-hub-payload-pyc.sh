@@ -153,9 +153,22 @@ print(n)
        seal this defends is about to break exactly as it did in v1.0.49."
     CA+=(-x "$EXCLUDE_RX")
     printf '[OK] excluding %s .py from the WRITE (pattern: %s)\n' "$HITS" "$EXCLUDE_RX"
+    printf '[--] THIS COUNT IS THE POSITIVE CONTROL, and it is the ONLY line that\n'
+    printf '[--] tells you whether the exclusion applied. It must equal the .py\n'
+    printf '[--] count reported by the arm that OWNS that bundle. In v1.0.49 both\n'
+    printf '[--] were 86: arm 1 at stage-payload said "86 .py / 86 .pyc", and arm 8\n'
+    printf '[--] broke exactly 86. 86 == 86 is the proof that excluding loses NO\n'
+    printf '[--] coverage -- arm 8 was never covering those files, it was REWRITING\n'
+    printf '[--] files arm 1 had already covered, and breaking the seal to do it.\n'
     printf '[--] RESIDUAL, STATED OUT LOUD: this arm does NOT seed those %s files.\n' "$HITS"
-    printf '[--] They must already carry .pyc from the arm that owns their bundle.\n'
     printf '[--] The audit below still WALKS them, so any uncovered one fails here.\n'
+    printf '[--] 🔴 THE AUDIT TOTAL BELOW DOES *NOT* DROP BY %s, AND MUST NOT.\n' "$HITS"
+    printf '[--] It is os.walk over the WHOLE root and is deliberately blind to -x.\n'
+    printf '[--] It printed 1888 before the exclusion and it prints 1888 after.\n'
+    printf '[--] A reviewer predicted 1802 and would have read a HEALTHY build as a\n'
+    printf '[--] failed exclusion. Worse, the obvious "fix" -- teaching the audit to\n'
+    printf '[--] skip the excluded subtree -- deletes the only thing keeping this\n'
+    printf '[--] safe: that an uncovered or wrong-mode .py in there still fails HERE.\n'
 fi
 if ! env PYTHONDONTWRITEBYTECODE=1 "$PY" "${CA[@]}" "$APP"; then
     die "compileall failed inside $APP.
