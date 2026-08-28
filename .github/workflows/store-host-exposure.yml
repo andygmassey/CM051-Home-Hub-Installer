@@ -62,13 +62,23 @@ jobs:
       # It is a TEST FILE, not inline YAML, so it can be run locally. Logic
       # buried in a `run:` block is only ever exercised by the CI it exists
       # to validate, which is how a mutation arm rots unnoticed.
+      # `if: always()` because a step defaults to `if: success()`, so without
+      # it this step is SKIPPED exactly when the guard above went red -- and
+      # that is the one moment it is needed. A red guard is when you must
+      # tell a real regression from a broken predicate, and the mutation arm
+      # is the only thing that discriminates between them. TNM's #1209 review.
       - name: MUTATION -- prove the guard actually fires
+        if: always()
         run: bash tests/test_stores_guard_fires.sh
 
       # Belt and braces: the mutation arm restores install.sh itself and
       # checks its own restore, but assert it here too. A later step reading
       # a mutated install.sh would be reporting on the wrong artefact.
+      # Also `if: always()`: if the mutation arm dies part-way through, that
+      # is PRECISELY when install.sh may be left mutated, and precisely when
+      # a skipped check would let the dirty tree reach a later step.
       - name: the working tree is unmodified
+        if: always()
         run: |
           if ! git diff --quiet; then
               echo "::error::install.sh was left modified. The mutation arm's"

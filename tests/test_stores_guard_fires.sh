@@ -68,25 +68,14 @@ trap cleanup EXIT INT TERM
 
 cp "$INSTALL_SH" "$BACKUP"
 
-# ── ARM 1: the tree as committed. The guard must PASS. ───────────────
-if ! bash "$GUARD" >/dev/null 2>&1; then
-    echo "FAIL: the guard is RED on the committed tree." >&2
-    echo "      Either a store publishes a port (the defect is live) or the" >&2
-    echo "      guard is broken. Run it directly for the detail." >&2
-    exit 1
-fi
-echo "ok: arm 1 -- guard PASSES on the committed tree"
-
-# ── ARM 2..N: one mutation per protected service. ────────────────────
-arm=1
-for entry in "${SERVICES[@]}"; do
-    svc="${entry%%:*}"
-    port="${entry##*:}"
-    arm=$((arm + 1))
-
-    cp "$BACKUP" "$INSTALL_SH"
-
-    python3 - "$INSTALL_SH" "$svc" "$port" <<'PY'
+# apply_mutation <service> <port-to-publish>
+#
+# Inserts a `ports:` publish of <port-to-publish> into <service>'s compose
+# block. The port is a PARAMETER, not the service's own port, because the
+# arms below need to mutate with a port that is NOT in any named list --
+# see THE ISOLATING ARM.
+apply_mutation() {
+    python3 - "$INSTALL_SH" "$1" "$2" <<'PY'
 import sys
 
 path, svc, port = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -133,6 +122,27 @@ if target is None:
 lines[target:target] = ["    ports:", f'      - "127.0.0.1:{port}:{port}"']
 open(path, "w").write("\n".join(lines))
 PY
+}
+
+# ── ARM 1: the tree as committed. The guard must PASS. ───────────────
+if ! bash "$GUARD" >/dev/null 2>&1; then
+    echo "FAIL: the guard is RED on the committed tree." >&2
+    echo "      Either a store publishes a port (the defect is live) or the" >&2
+    echo "      guard is broken. Run it directly for the detail." >&2
+    exit 1
+fi
+echo "ok: arm 1 -- guard PASSES on the committed tree"
+
+# ── ARM 2..N: one mutation per protected service. ────────────────────
+arm=1
+for entry in "${SERVICES[@]}"; do
+    svc="${entry%%:*}"
+    port="${entry##*:}"
+    arm=$((arm + 1))
+
+    cp "$BACKUP" "$INSTALL_SH"
+
+    apply_mutation "$svc" "$port"
     rc=$?
     if [ "$rc" -ne 0 ]; then
         echo "FAIL: could not apply the ${svc} mutation (rc=${rc})" >&2
@@ -149,6 +159,60 @@ PY
     fi
     echo "ok: arm ${arm} -- guard REJECTS the reintroduced ${svc} ${port} publish"
 done
+
+# ── THE ISOLATING ARM: prove the GENERIC assertion is the one firing ──
+#
+# TNM's #1209 review, and it is the finding that matters most about this
+# file.
+#
+# The arms above insert the service's OWN protected port, and the guard has
+# TWO independent ways to reject that input: the generic pattern assertion,
+# and an unpiped belt-and-braces grep for that port BY NAME. The second
+# fires regardless of the first. So those arms prove THE FILE rejects the
+# port; they do NOT prove THE GENERIC ASSERTION does. With the generic
+# assertion completely broken they would still pass -- and effectively did:
+# the `printf | grep -q` inversion in that assertion was caught by the
+# pipefail ratchet, never by this harness.
+#
+# 📌 A control that can be satisfied by a mechanism OTHER than the one under
+# test is not a control for that mechanism. That is the same error this
+# whole #550 family is made of, and it was sitting in the proof-of-life.
+#
+# This arm publishes a port that appears in NO named list, so the by-name
+# grep cannot fire and ONLY the generic assertion can. That assertion is the
+# one whose entire stated purpose is to catch the SEVENTH instance: a port
+# nobody has enumerated yet.
+DECOY_PORT=65533
+
+# The isolation is a PREMISE, so check it rather than trusting it. If the
+# decoy ever appears in the guard, this arm silently stops isolating and
+# quietly becomes a duplicate of the arms above.
+if grep -q "$DECOY_PORT" "$GUARD"; then
+    echo "FAIL: decoy port ${DECOY_PORT} now appears in the guard, so this arm" >&2
+    echo "      no longer isolates the generic assertion -- a by-name check" >&2
+    echo "      could satisfy it. Pick a different decoy." >&2
+    echo "      CANNOT-RUN, not a pass." >&2
+    exit 1
+fi
+
+arm=$((arm + 1))
+cp "$BACKUP" "$INSTALL_SH"
+apply_mutation "${SERVICES[0]%%:*}" "$DECOY_PORT"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+    echo "FAIL: could not apply the decoy mutation (rc=${rc}) -- CANNOT-RUN" >&2
+    exit 1
+fi
+
+if bash "$GUARD" >/dev/null 2>&1; then
+    echo "FAIL: THE GUARD PASSED ON AN UNNAMED PUBLISHED PORT (${DECOY_PORT})." >&2
+    echo "      No by-name check covers it, so this proves the GENERIC" >&2
+    echo "      assertion is not working. That assertion is the only thing" >&2
+    echo "      standing between us and the seventh instance -- a port that" >&2
+    echo "      nobody has enumerated. The guard is decorative without it." >&2
+    exit 1
+fi
+echo "ok: arm ${arm} -- guard REJECTS an UNNAMED published port (generic assertion is live)"
 
 # ── FINAL ARM: restore, and prove the restore worked. ────────────────
 cp "$BACKUP" "$INSTALL_SH"
