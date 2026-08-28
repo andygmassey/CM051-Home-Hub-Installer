@@ -225,13 +225,37 @@ else
     pass "the shipped pattern leaves all 25 outer .py seeded -- it is narrow as well as effective"
 fi
 
+# ---- the structural arms read CODE ONLY ----------------------------------
+# 🔴 THE FIRST VERSION OF ARMS 7 AND 8 WAS SATISFIED BY COMMENTS. Archie caught
+# it after merge and I re-derived it by mutation: delete all 30 code lines from
+# the recipe and keep only its 57 comment lines, and every predicate still
+# passed --
+#     Contents/Resources/Ostler   comments-only 1   code-only 3
+#     file modified               comments-only 1   code-only 2
+#     file added                  comments-only 1   code-only 2
+# because #1200's and #1202's comments quote the very strings the arms look for
+# ("[OK] nested Ostler.app: codesign rc=1, file added=0, file modified=86").
+#
+# I had ALREADY stripped comments to build RECIPE_CODE for the pattern
+# extractor, then used the raw body two lines later. Same file, same defect
+# class, twice in one night. A GATE THAT SCORES A COMMENT MEASURES
+# DOCUMENTATION, NOT CODE.
+[[ -n "$RECIPE_CODE" ]] || fail "no-recipe-code" "seed-installer-app-pyc has no non-comment lines in $MK"
+
+# The comments-only body is kept as a LIVE NEGATIVE CONTROL: whatever these arms
+# assert must be FALSE of it, or they are blind again and nobody will notice.
+RECIPE_COMMENTS="$(awk '
+    /^seed-installer-app-pyc:/ { inrec = 1; next }
+    inrec && /^[a-zA-Z0-9_.-]+:/ { exit }
+    !inrec { next }
+    { line = $0; sub(/^[ \t]+/, "", line) }
+    line ~ /^#/ { printf "%s ", line }
+    ' "$MK")"
+
 # ---- 7. the arm-8 CALL SITE still asks for it ----------------------------
 # Behaviour proves the script CAN exclude. This proves the ship chain DOES ask.
-BODY="$(awk '/^seed-installer-app-pyc:/{f=1;next} f&&/^[a-zA-Z0-9_.-]+:/{exit} f{print}' "$MK")"
-if [[ -z "$BODY" ]]; then
-    fail "no-recipe" "seed-installer-app-pyc has no recipe body in $MK"
-elif ! grep -q 'Contents/Resources/Ostler' <<< "$BODY"; then
-    fail "call-site-has-no-exclusion" "the recipe passes no exclusion for the nested Ostler.app -- v1.0.49's failure returns verbatim"
+if ! grep -q 'Contents/Resources/Ostler' <<< "$RECIPE_CODE"; then
+    fail "call-site-has-no-exclusion" "the recipe's CODE passes no exclusion for the nested Ostler.app -- v1.0.49's failure returns verbatim"
 else
     pass "the arm-8 recipe passes an exclusion for the nested Ostler.app"
 fi
@@ -239,12 +263,54 @@ fi
 # ---- 8. the assertion that CAUGHT this must still be in the recipe -------
 # The temptation after a fix is to relax the check that found it. BOTH VERBS:
 # v1.0.47 passed an added-only check and shipped the defect anyway.
-if ! grep -q 'file modified' <<< "$BODY"; then
-    fail "assertion-weakened" "the recipe no longer counts 'file modified'. A rewritten-in-place file is a MODIFICATION, not an addition, and that is exactly how this defect presents"
-elif ! grep -q 'file added' <<< "$BODY"; then
-    fail "assertion-weakened" "the recipe no longer counts 'file added'"
+#
+# 🔴 THE SUBJECT IS THE COUNT, NOT THE WORDS. Moving this arm off the comments
+# was NOT enough -- I mutation-tested my own fix and it still passed. Deleting
+# the two counting lines leaves the REPORT line behind, and it says the words:
+#
+#   18  added="$$(... | grep -c 'file added:')"          <- the subject
+#   19  modified="$$(... | grep -c 'file modified:')"    <- the subject
+#   20  printf '... file added=%s, file modified=%s\n'   <- satisfies a loose grep
+#
+# So the predicate must name the COUNT (`grep -c 'file added:'`, with codesign's
+# trailing colon) AND the comparison that acts on it. Counting without comparing
+# is inert; the pair is the guard. Mutation-proved: delete 18-19 and this arm
+# goes RED, where the loose version stayed green.
+A8=1
+grep -q "grep -c 'file added:'"    <<< "$RECIPE_CODE" || { A8=0; MISS="counts 'file added:'"; }
+grep -q "grep -c 'file modified:'" <<< "$RECIPE_CODE" || { A8=0; MISS="counts 'file modified:'"; }
+grep -q 'added" -ne 0'             <<< "$RECIPE_CODE" || { A8=0; MISS="compares \$added against 0"; }
+grep -q 'modified" -ne 0'          <<< "$RECIPE_CODE" || { A8=0; MISS="compares \$modified against 0"; }
+if [[ "$A8" -eq 0 ]]; then
+    fail "assertion-weakened" "the recipe's CODE no longer $MISS. That is the assertion that caught v1.0.49's 86-file seal break; a rewritten-in-place file is a MODIFICATION, not an addition, and without BOTH the count and the comparison the step reports and continues"
 else
-    pass "the post-seed assertion still counts BOTH added and modified"
+    pass "the post-seed assertion still COUNTS both added and modified AND refuses on either"
+fi
+
+# ---- 9. CONTROL: prove the loose predicate WOULD have been blind ---------
+# This arm exists because two weaker versions of arms 7-8 shipped: the first
+# scored COMMENTS, the second scored the report line. Both looked right. The
+# control demonstrates, on the live recipe, that the loose form is satisfiable
+# where the tight form is not -- so nobody "simplifies" arm 8 back.
+LOOSE_IN_COMMENTS=0; TIGHT_IN_COMMENTS=0
+grep -q 'file added'             <<< "$RECIPE_COMMENTS" && LOOSE_IN_COMMENTS=1
+grep -q "grep -c 'file added:'"  <<< "$RECIPE_COMMENTS" && TIGHT_IN_COMMENTS=1
+if [[ "$LOOSE_IN_COMMENTS" -eq 0 ]]; then
+    fail "control-vacuous" "the recipe's comments do not quote 'file added' at all, so this control cannot show the loose predicate is blind. It would pass for the wrong reason"
+elif [[ "$TIGHT_IN_COMMENTS" -eq 1 ]]; then
+    fail "tight-predicate-also-in-comments" "the comments now quote the counting expression verbatim, so arm 8 is comment-satisfiable again. Tighten it further or stop quoting it"
+else
+    pass "control: 'file added' IS in the comments (loose form would be blind); the counting expression is NOT (arm 8 reads code only)"
+fi
+
+# ---- 10. CONTROL: arm 7 must be blind to the comments too ----------------
+if grep -q 'Contents/Resources/Ostler' <<< "$RECIPE_COMMENTS" \
+   && ! grep -q 'Contents/Resources/Ostler' <<< "$RECIPE_CODE"; then
+    fail "arm7-satisfied-by-comment" "'Contents/Resources/Ostler' is present ONLY in the comments -- arm 7 would pass over a deleted argument"
+elif ! grep -q 'Contents/Resources/Ostler' <<< "$RECIPE_COMMENTS"; then
+    pass "control: arm 7's string is not in the comments (nothing to be fooled by)"
+else
+    pass "control: the comments mention it AND the code does too -- arm 7 reads code only"
 fi
 
 if [[ "$FAILED" -ne 0 ]]; then exit 1; fi
