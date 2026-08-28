@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# verify_walk_record.sh <version>
+# verify_walk_record.sh <version> <expected-artefact-sha256>
 #
 # #844 -- NOTHING BETWEEN "GATES GREEN" AND "CUSTOMER DOWNLOAD" IS A RUNTIME
 # PROOF. Measured 2026-08-23 on origin/main, with a control:
@@ -26,9 +26,13 @@
 #
 # WHAT THIS GATE ASSERTS
 #   1. a walk record exists for EXACTLY the version being published
-#   2. it says CLEAN -- not PARTIAL, not FAILED
-#   3. its own counts agree with that verdict (a record claiming CLEAN with
+#   2. it was taken on EXACTLY the artefact being published, by sha256 (#931)
+#   3. it says CLEAN -- not PARTIAL, not FAILED
+#   4. its own counts agree with that verdict (a record claiming CLEAN with
 #      fail>0 is a corrupt record, and is refused as loudly as a failure)
+#   5. the version and the artefact sha were MEASURED off the box, not
+#      asserted -- the record's own *_source fields say which, and until #931
+#      nothing read them
 #
 # EXIT CODES -- CANNOT-RUN IS NOT A PASS AND NOT A FAIL
 #   0  a clean walk of this exact version is on record
@@ -47,9 +51,31 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WALK_DIR="${OSTLER_WALK_RECORD_DIR:-${REPO_ROOT}/walks}"
 VERSION="${1:-}"
+EXPECTED_SHA="${2:-}"
 
-if [[ -z "$VERSION" ]]; then
-    echo "usage: scripts/verify_walk_record.sh <version e.g. v1.0.42>" >&2
+# Lowercase without ${var,,}: this runs on the CUT HOST, which is macOS, and
+# macOS ships bash 3.2 where that expansion is a syntax error. #1103 was an
+# evening spent on exactly that class.
+lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
+if [[ -z "$VERSION" || -z "$EXPECTED_SHA" ]]; then
+    cat >&2 <<'MSG'
+usage: scripts/verify_walk_record.sh <version e.g. v1.0.42> <artefact-sha256>
+
+  The sha256 is REQUIRED and it is the sha of the artefact about to be
+  published. It is not optional because an optional expected-sha lets a caller
+  silently downgrade this gate back to a version-only check -- which is the
+  defect (#931) this argument exists to close, one level up.
+MSG
+    exit 3
+fi
+
+# A malformed EXPECTED_SHA is the CALLER's defect, not the record's, so it is a
+# usage error (3) and never a refusal (2). Getting this wrong would send an
+# operator to re-walk a box because publish_release.sh passed an empty string.
+if ! [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    echo "[walk-gate] USAGE: expected-artefact-sha256 is '${EXPECTED_SHA}', not 64 hex characters." >&2
+    echo "            This is the caller's argument, not the walk record. Nothing was measured." >&2
     exit 3
 fi
 
@@ -96,6 +122,7 @@ if [[ "$REC_VERSION" != "$VERSION" ]]; then
     echo "            A record proves something about the build it was taken on. Walk ${VERSION}." >&2
     exit 2
 fi
+
 
 # --- a malformed record is not a pass ----------------------------------------
 for f in verdict pass fail cannot_run broken; do
@@ -175,6 +202,149 @@ if [[ "$N_PASS" -eq 0 ]]; then
     echo "[walk-gate] REFUSED: ${RECORD} records zero passing probes." >&2
     echo "            Nothing was measured. An empty walk and a clean walk print the same verdict; they are not the same thing." >&2
     exit 2
+fi
+
+# ── THE CHECKS BELOW APPLY ONLY TO A *CLEAN* CLAIM (#931) ────────────────────
+#
+# Scoping matters here and getting it wrong LOSES SIGNAL. Both records in
+# walks/ today are FAILED and neither carries an artefact_sha256. Run
+# unscoped, the absent-field check fires first and they go 1 -> 2: a walk that
+# MEASURED four real defects would start reporting "nothing is known". Evidence
+# of badness must outrank absence of evidence, so a FAILED or PARTIAL record
+# keeps its own exit code and only a CLEAN claim has to prove which build it is
+# talking about. This mirrors the qa_exit and counts checks above, both of which
+# are already conditioned on CLEAN.
+#
+# The body is deliberately NOT indented: it contains here-documents, and an
+# indented terminator does not close a <<MSG heredoc.
+if [[ "$VERDICT" == "CLEAN" ]]; then
+# --- ...AND A VERSION IS NOT AN IDENTIFIER OF A BUILD (#931) ------------------
+#
+# The check above is necessary and it is NOT sufficient. CFBundleShortVersionString
+# read "1.0.50" for ELEVEN distinct assemblies of that cut, and CFBundleVersion
+# was frozen at 2500 for seven cuts (#703). So the DMG that was walked and the
+# DMG about to be handed to a customer can differ in every byte and still agree
+# on every version string in the tree.
+#
+# post_walk_qa.sh already measures the version off the box with real care --
+# the right bundle out of three, two named decoys, a refusal on mismatch. That
+# is rigour applied to a quantity that cannot discriminate between builds.
+# Measuring the wrong quantity harder buys epistemic status, not discrimination.
+#
+# A content hash can discriminate, and this is the only pair of values in the
+# gate where both sides are one: the sha256 the walk recorded, against the
+# sha256 publish_release.sh computed from the file it is about to upload.
+#
+# Absent field is CANNOT-RUN (2), not FAIL -- the qa_exit precedent below, for
+# the same reason: a record predating the field is not evidence of badness, it
+# is absence of evidence.
+ARTEFACT_SHA="$(field artefact_sha256)"
+if [[ -z "$ARTEFACT_SHA" ]]; then
+    cat >&2 <<MSG
+[walk-gate] REFUSED: ${RECORD} carries no artefact_sha256 field.
+
+  This is CANNOT-RUN, not a failure. The record says a box running ${VERSION}
+  was walked; it does not say WHICH BUILD of ${VERSION}, and version strings do
+  not distinguish builds of one cut. post_walk_qa.sh has written this field
+  since #931. A record without it predates the format.
+
+  Re-walk with a post-#931 scripts/post_walk_qa.sh and commit the new record.
+MSG
+    exit 2
+fi
+# --- ...AND THE SHA MUST BE A MEASUREMENT (#931) ------------------------------
+#
+# An operator-supplied hash compared against the file it was copied from is a
+# value checked against itself. The writer records HOW it got the number, and a
+# non-measured source is refused here rather than trusted to be noticed.
+#
+# THIS IS CHECKED BEFORE THE VALUE IS PARSED, DELIBERATELY. When the writer
+# could not measure, it records the reason in this field and the value reads
+# `unavailable`. Validating the value first would answer a record that says
+# "no DMG was on the box" with "that is not 64 hex characters" -- true, useless,
+# and pointing at the wrong thing. CANNOT-RUN and ABSENT must not share a
+# message, and two different CANNOT-RUNs must not share one either.
+ARTEFACT_SHA_SOURCE="$(field artefact_sha256_source)"
+if [[ -z "$ARTEFACT_SHA_SOURCE" ]]; then
+    echo "[walk-gate] REFUSED: ${RECORD} has artefact_sha256 but no artefact_sha256_source." >&2
+    echo "            A hash with no stated provenance cannot be told from one typed in by hand." >&2
+    exit 2
+fi
+case "$ARTEFACT_SHA_SOURCE" in
+    measured\(*) : ;;
+    *)
+        cat >&2 <<MSG
+[walk-gate] REFUSED: ${RECORD} says artefact_sha256_source ${ARTEFACT_SHA_SOURCE}.
+
+  Anything that is not measured(...) means the hash is an ASSERTION about the
+  walked artefact, not an observation of it -- and an asserted hash compared
+  against the artefact it was asserted from always agrees. CANNOT-RUN.
+MSG
+        exit 2
+        ;;
+esac
+
+if ! [[ "$ARTEFACT_SHA" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    echo "[walk-gate] REFUSED: ${RECORD} field 'artefact_sha256' is '${ARTEFACT_SHA}', not 64 hex characters." >&2
+    echo "            The source field claims it was measured, so this is a corrupt record," >&2
+    echo "            not an unmeasured one. An unparseable hash is not a hash." >&2
+    exit 2
+fi
+if [[ "$(lc "$ARTEFACT_SHA")" != "$(lc "$EXPECTED_SHA")" ]]; then
+    cat >&2 <<MSG
+[walk-gate] REFUSED: ${RECORD} was taken on a DIFFERENT BUILD of ${VERSION}.
+
+  the record was walked on : ${ARTEFACT_SHA}
+  about to be published    : ${EXPECTED_SHA}
+
+  Same version, different artefact. This is the version-mismatch refusal above
+  one level down: a record proves something about the build it was taken on,
+  and this is not that build. Walk the artefact being published.
+MSG
+    exit 2
+fi
+
+# --- AND THE SAME TEST THE VERSION ITSELF HAS NEVER BEEN GIVEN ----------------
+#
+# 🔴 SEPARABLE HUNK -- this block closes a different, live instance of the same
+# defect and can be dropped without affecting the sha binding above.
+#
+# post_walk_qa.sh has recorded version_source since 2026-08-24. Its own header
+# comment tells a reader that anything other than measured(...) means the
+# version is an assertion, and it prints "a reader must NOT treat this record's
+# version as measured" to the terminal. Measured on this file before the change:
+#
+#     version_source in verify_walk_record.sh   0
+#     CONTROL qa_exit, same file, same shape    7
+#
+# So the no-installer-on-the-box branch wrote asserted-unverifiable(...) into
+# the record and the only automated reader could not tell it from a measured
+# one. That is walks/v1.0.42.tsv -- real measurements filed against a version
+# the box never ran -- with the writer's guard in place and the reader's absent.
+# It is qa_exit's defect exactly, still live, in the field #931 was about to
+# imitate; adding artefact_sha256_source next to an unread version_source would
+# have established that *_source fields are advisory.
+VERSION_SOURCE="$(field version_source)"
+if [[ -z "$VERSION_SOURCE" ]]; then
+    echo "[walk-gate] REFUSED: ${RECORD} carries no version_source field." >&2
+    echo "            Written since 2026-08-24. A record without it predates the format; whether" >&2
+    echo "            the box was ever asked its version is unknown. CANNOT-RUN." >&2
+    exit 2
+fi
+case "$VERSION_SOURCE" in
+    measured\(*) : ;;
+    *)
+        cat >&2 <<MSG
+[walk-gate] REFUSED: ${RECORD} says version_source ${VERSION_SOURCE}.
+
+  The version in this record was not read off the box. Real probe results are
+  filed here against a version nothing confirmed the box was running, which is
+  precisely walks/v1.0.42.tsv. Not a failure of the walk -- an unattributable
+  one. CANNOT-RUN.
+MSG
+        exit 2
+        ;;
+esac
 fi
 
 case "$VERDICT" in
