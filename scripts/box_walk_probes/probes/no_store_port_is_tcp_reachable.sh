@@ -53,14 +53,29 @@
 # where the whole stack is down must not be reported as a security property.
 #
 # ---------------------------------------------------------------------------
-# 8144 IS DELIBERATELY NOT IN THE LIST
+# 8144 IS IN THE LIST, AND MY FIRST DRAFT EXCLUDED IT ON THE ROOT-CAUSE PREMISE
 #
-# The wiki tailnet gate binds 127.0.0.1:8144 and demands identity headers that
-# tailscaled stamps and a tailnet peer cannot forge. It is defended by CONTENT,
-# not by topology, and it ships fail-closed with no listener until an owner
-# identity is resolved. Asserting it closed would red on a correctly configured
-# box; asserting it open would red on a fail-closed one. Out of scope, stated
-# rather than silently dropped.
+# I excluded the wiki tailnet gate because it is "defended by content -- the
+# identity headers tailscaled stamps, which a peer cannot forge". The generator
+# says exactly that, and the scope is in the sentence:
+#
+#     # Tailscale stamps this header ... so A TAILNET PEER cannot forge it.
+#     map $http_tailscale_user_login $ostler_wiki_user_ok { default 0; "<owner>" 1; }
+#     map $http_tailscale_funnel_request $ostler_wiki_not_funnel { default 0; "" 1; }
+#     server { listen 8144; ... if either map is 0 -> 403 ... }
+#
+# `$http_tailscale_user_login` is a REQUEST HEADER. The deletion that makes it
+# trustworthy happens inside tailscaled. A local client connecting straight to
+# 127.0.0.1:8144 never traverses tailscaled, so nothing deletes anything and the
+# client supplies both values itself. Omitting the funnel header satisfies limb
+# one; sending the owner's email -- an address, not a secret -- satisfies limb
+# two. 8144 IS published: install.sh has - "127.0.0.1:8144:8144".
+#
+# So it is very likely a seventh route to the same graph, and my exclusion
+# inherited the premise this probe exists to kill: a control aimed at the only
+# attacker its model contained, and an exclusion that adopted the same model.
+# Included. If it turns out to be genuinely defended, the right answer is to
+# prove that and remove it, not to assume it.
 #
 # BASH 3.2. No associative arrays, no mapfile.
 # ============================================================================
@@ -80,15 +95,39 @@ PROBE_QUESTION="can any local account open a TCP connection to an Ostler store o
 #                                          consumer was a health probe)
 #   8044  wiki-site                     -> served in-app over the socket
 #   3000  vane                          -> served in-app or gated
-MUST_BE_CLOSED="6333 7878 6334 6379 8044 3000"
+#   8144  wiki tailnet gate            -> its identity check is client-supplied
+#                                        over a local connection (see above)
+MUST_BE_CLOSED="6333 7878 6334 6379 8044 3000 8144"
 
 # Must be OPEN, or we cannot tell "closed" from "cannot look".
 CONTROL_PORT="${OSTLER_GATEWAY_PORT:-8000}"
 
-port_open() {
-    # 0 = something is listening. Uses lsof for the listener rather than a
-    # connect, so a half-open or filtered state cannot read as closed.
-    box_run "lsof -nP -iTCP:$1 -sTCP:LISTEN 2>/dev/null | tail -n +2 | wc -l | tr -d ' '"
+# THE SENSOR IS A CONNECT, NOT A LISTENER LOOKUP.
+#
+# The first draft used `lsof -nP -iTCP:<port> -sTCP:LISTEN`. That is the defect
+# of #549 reproduced inside the gate built to close it: **lsof is
+# permission-scoped**, so a listener owned by ANOTHER account is invisible and
+# reads as closed. A positive control does not save it, because the control is
+# read through the same permission scope: on a box where the gateway is owned by
+# the running account and the stores are owned by another (which is the exact
+# topology of the 2026-08-28 walk box), the control PASSES and every store port
+# reads closed. The gate would have printed PASS on the machine that produced
+# the demonstration.
+#
+# A connect is what the attacker does. It is not permission-scoped, and on
+# loopback there is no filtering to confuse it.
+#
+# And no `2>/dev/null` on the decisive read: a swallowed error becomes a zero
+# and a zero reads as closed.
+#
+#   prints: open | closed | error:<rc>
+port_state() {
+    _rc="$(box_run "nc -z -w 2 127.0.0.1 $1 >/dev/null 2>&1; echo \$?")"
+    case "$_rc" in
+        0) printf 'open\n' ;;
+        1) printf 'closed\n' ;;
+        *) printf 'error:%s\n' "$_rc" ;;
+    esac
 }
 
 # ---------------------------------------------------------------------------
@@ -114,25 +153,26 @@ classify() {
 run_probe() {
     n_checked=0; open_list=""
 
-    c="$(port_open "$CONTROL_PORT")"
+    c_state="$(port_state "$CONTROL_PORT")"
+    case "$c_state" in open) c=1 ;; closed) c=0 ;; *) c="" ;; esac
     case "$(classify "$c" "")" in
         CANNOT_RUN)
             probe_examined 0 "store/UI ports"
-            probe_cannot_run "control port ${CONTROL_PORT} reported '${c}' listeners. A closed or unreadable control cannot be told apart from a closed store port, so this run proves nothing about #550."
+            probe_cannot_run "control port ${CONTROL_PORT} is ${c_state}. A closed or unreadable control cannot be told apart from a closed store port, so this run proves nothing about #550."
             ;;
     esac
     probe_note "positive control: ${CONTROL_PORT} has a listener, so this probe can see an open port"
 
     for p in $MUST_BE_CLOSED; do
         n_checked=$((n_checked + 1))
-        o="$(port_open "$p")"
-        case "$o" in
-            ''|*[!0-9]*)
+        st="$(port_state "$p")"
+        case "$st" in
+            error:*)
                 probe_examined "$n_checked" "store/UI ports"
-                probe_cannot_run "lsof returned '${o}' for port ${p}; cannot adjudicate."
+                probe_cannot_run "connect to ${p} returned ${st}; neither open nor refused, so it cannot be adjudicated."
                 ;;
+            open) open_list="${open_list} ${p}" ;;
         esac
-        [ "$o" -ne 0 ] && open_list="${open_list} ${p}"
     done
 
     probe_examined "$n_checked" "store/UI ports (control ${CONTROL_PORT} confirmed open)"
