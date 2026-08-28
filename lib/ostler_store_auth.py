@@ -59,6 +59,52 @@ def _port_of(scheme, port):
     return port or (443 if scheme == "https" else 80)
 
 
+# ---- failure breadcrumb (#550, @TNM 2026-08-28) --------------------------
+#
+# Every arm below swallows its exception, and it MUST: this module is imported
+# by a .pth before user code, so raising here would break every interpreter in
+# the venv. But SWALLOW WITHOUT RECORDING means a broken shim is undetectable
+# on a customer box -- the process runs, the calls go out bare, and nothing
+# anywhere says so.
+#
+# 📌 That is the exact defect this shim was written to fix, one layer up: the
+# seeder's own ok() message made "copied but never imported" read as finished.
+# A silent failure arm would reproduce it inside the fix.
+#
+# Records FAILURE ONLY. Success is the common path and gets no I/O -- a
+# breadcrumb per arm per process would be thousands of writes a day to say
+# "fine". The rare case is the one nobody can currently see.
+#
+# NEVER records a credential, only WHICH arm failed and why. The log sits
+# beside the secrets dir (so it follows a non-default OSTLER_DIR) at 0600, and
+# every step is itself wrapped: a shim that crashed while reporting a crash
+# would be worse than the silence it replaces.
+STATUS = {"httpx": "not-attempted", "urllib": "not-attempted"}
+
+
+def _record(arm, exc):
+    """Note that an arm failed. Cannot raise, by construction."""
+    STATUS[arm] = "FAILED: %s: %s" % (type(exc).__name__, exc)
+    try:
+        d = os.path.join(os.path.dirname(_SECRETS_DIR.rstrip(os.sep)), "logs")
+        os.makedirs(d, exist_ok=True)
+        fd = os.open(os.path.join(d, "store-auth-shim.log"),
+                     os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            # One line, one write: O_APPEND makes a short write atomic, so
+            # concurrent interpreters cannot interleave halves of a line.
+            os.write(fd, ("pid=%d arm=%s %s\n"
+                          % (os.getpid(), arm, STATUS[arm])).encode(
+                              "utf-8", "replace"))
+        finally:
+            os.close(fd)
+    except Exception:
+        # Disk full, read-only home, secrets dir absent. STATUS is still set,
+        # so an in-process reader (the Doctor imports this module) can report
+        # it even when the durable breadcrumb could not be written.
+        pass
+
+
 # ---- httpx: qdrant_client SDK + doctor + pwg_ingest + 6 others ----
 try:
     import httpx
@@ -87,8 +133,9 @@ try:
         httpx.Client.send = _wrap(httpx.Client.send)
     if not getattr(httpx.AsyncClient.send, "_ostler_shim", False):
         httpx.AsyncClient.send = _wrap_async(httpx.AsyncClient.send)
-except Exception:
-    pass
+    STATUS["httpx"] = "patched"
+except Exception as _e:
+    _record("httpx", _e)
 
 # ---- urllib.request: ical-server + hygiene + repair scripts ----
 try:
@@ -111,5 +158,6 @@ try:
 
         urlopen._ostler_shim = True
         _ur.urlopen = urlopen
-except Exception:
-    pass
+    STATUS["urllib"] = "patched"
+except Exception as _e:
+    _record("urllib", _e)
