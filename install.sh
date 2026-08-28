@@ -14524,26 +14524,101 @@ ok "At-rest hardening applied: ${OSTLER_DIR}, ${USER_FACING_ROOT} and ${HOME}/.c
 
 progress "Starting your knowledge graph databases" "graph_db_start"
 
-# Check for port conflicts before starting containers
-_check_port() {
-    if lsof -i ":$1" -sTCP:LISTEN &>/dev/null; then
-        local PID=$(lsof -t -i ":$1" -sTCP:LISTEN 2>/dev/null | head -1)
-        local PROC=$(ps -p "$PID" -o comm= 2>/dev/null || echo "unknown")
-        warn "$(printf "$MSG_WARN_PORT_1_ALREADY_USE_PID" "${PROC}" "${PID}")"
-        return 1
+# Check for port conflicts before starting containers.
+#
+# 🔴 THE INSTRUMENT USED TO BE BLIND (#1208, measured 2026-08-28). This
+# block used `lsof -i :PORT -sTCP:LISTEN`, and lsof run by a NON-ROOT user
+# cannot see a listener owned by a DIFFERENT uid. It does not error --
+# stderr is empty and rc=1 -- which the old code read as "port is free".
+#
+# On a two-account Mac (Andy's stack under uid 501, an installer running
+# as another account) EVERY port therefore preflighted GREEN, and the
+# containers then bound over, or failed against, services belonging to a
+# different human. That is how a wiki on :8044 served one account's data
+# to another.
+#
+# Measured on real hardware, uid 501, with both controls:
+#
+#     port    old lsof predicate        netstat (owner-blind)
+#     5900    rc=1 free -> GREEN WRONG  LISTEN present   <- root-owned, >1024
+#     53379   rc=0 busy -> RED  right   LISTEN present   <- positive control, ours
+#     59999   rc=1 free -> GREEN right  absent           <- negative control
+#
+# So the probe below is netstat, which is owner-blind, is part of macOS
+# (unlike python3, which on a dev box is Homebrew's and on a fresh
+# customer Mac may not exist at this point in the install), needs no
+# privilege, and cannot hang. lsof is kept for ATTRIBUTION ONLY: if it
+# names a pid the holder is ours and we can say so; if it names nothing
+# while netstat says the port is held, the holder belongs to another
+# account and we say THAT instead.
+#
+# Three outcomes, never two. A port we could not measure is NOT reported
+# free -- see _port_listeners returning `cant`.
+_port_listeners() {
+    # Echoes the LISTEN row count for a port, or the literal `cant` when
+    # the instrument itself could not run. Must never echo 0 for a
+    # failed measurement -- that is the false-clean this whole block
+    # exists to prevent.
+    local _p="$1" _out _rc
+    _out="$(/usr/sbin/netstat -an -p tcp 2>/dev/null)"
+    _rc=$?
+    if [ "${_rc}" -ne 0 ] || [ -z "${_out}" ]; then
+        printf 'cant\n'
+        return 0
     fi
-    return 0
-}
+    printf '%s\n' "${_out}" \
+        | /usr/bin/awk -v p="${_p}" '$NF=="LISTEN"{n=split($4,a,"."); if(a[n]==p){c++}} END{print c+0}'
+    }
+
+_check_port() {
+    # 0 = free, 1 = held (hard failure), 2 = could not measure.
+    local _p="$1" _n _pid _proc
+    _n="$(_port_listeners "${_p}")"
+    if [ "${_n}" = "cant" ]; then
+        warn "$(printf "$MSG_WARN_PORT_CHECK_COULD_NOT_RUN" "${_p}")"
+        return 2
+    fi
+    if [ "${_n}" -eq 0 ]; then
+        return 0
+    fi
+    _pid="$(/usr/sbin/lsof -t -i ":${_p}" -sTCP:LISTEN 2>/dev/null | head -1)"
+    if [ -n "${_pid}" ]; then
+        _proc="$(ps -p "${_pid}" -o comm= 2>/dev/null || echo "unknown")"
+        err "$(printf "$MSG_ERR_PORT_HELD_BY_OUR_PROCESS" "${_p}" "${_proc}" "${_pid}")"
+    else
+        err "$(printf "$MSG_ERR_PORT_HELD_BY_ANOTHER_ACCOUNT" "${_p}")"
+    fi
+    return 1
+    }
+
+# EVERY port this install publishes on the host, not a hand-picked
+# subset. The old list carried 4 of 7; 6334, 8144 and 8044 were absent,
+# and 8044 is the wiki. tests/test_port_preflight_covers_published.sh
+# asserts this list equals the ports published by the compose heredocs
+# below, so a new service cannot be added without the preflight
+# following it.
+OSTLER_PREFLIGHT_PORTS="3000 6333 6334 6379 7878 8044 8144"
 
 PORT_CONFLICT=false
-_check_port 6333 || PORT_CONFLICT=true  # Qdrant
-_check_port 7878 || PORT_CONFLICT=true  # Oxigraph
-_check_port 6379 || PORT_CONFLICT=true  # Redis
-_check_port 3000 || PORT_CONFLICT=true  # Vane (local web search)
+PORT_UNMEASURED=false
+for _pf_port in ${OSTLER_PREFLIGHT_PORTS}; do
+    _check_port "${_pf_port}"
+    case $? in
+        1) PORT_CONFLICT=true ;;
+        2) PORT_UNMEASURED=true ;;
+    esac
+done
+unset _pf_port
 
+if [[ "$PORT_UNMEASURED" == true ]]; then
+    warn "$MSG_WARN_PORT_PREFLIGHT_INCOMPLETE"
+fi
+
+# FAIL, not warn (#1208). Continuing past a known collision is what put
+# another account's services behind our containers.
 if [[ "$PORT_CONFLICT" == true ]]; then
-    warn "$MSG_WARN_SOME_PORTS_ARE_USE_DOCKER_CONTAINERS"
-    warn "$MSG_WARN_STOP_CONFLICTING_SERVICES_CHANGE_PORTS_DOCKER"
+    err "$MSG_ERR_SOME_PORTS_ARE_HELD_CANNOT_START"
+    fail "$MSG_ERR_STOP_CONFLICTING_SERVICES_OR_USE_ONE_ACCOUNT"
 fi
 
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'

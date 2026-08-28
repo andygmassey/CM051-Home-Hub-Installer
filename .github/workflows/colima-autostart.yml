@@ -87,6 +87,9 @@ on:
       # matching path entry means editing this file does not trigger
       # the only workflow that checks it.
       - 'tests/test_colima_start_retry.sh'
+      # Same reason. #1208's guard covers the port preflight that runs
+      # immediately before these same containers start.
+      - 'tests/test_port_preflight_covers_published.sh'
   push:
     branches: [main]
 
@@ -117,10 +120,28 @@ jobs:
         if: always()
         run: bash tests/test_colima_start_retry.sh
 
+      # #1208. The port preflight runs immediately before these containers
+      # start, and it was blind by construction: `lsof -i :PORT` run by a
+      # non-root user cannot see a listener owned by another uid, so on a
+      # two-account Mac every port read GREEN while another human's services
+      # held them. It also only checked 4 of the 7 ports the compose
+      # publishes -- 8044, the wiki, was one of the three it never looked at.
+      #
+      # macos-14 matters here: the probe is netstat/lsof, and BSD and GNU
+      # disagree. A gate for this that ran on ubuntu would be measuring a
+      # different operating system from the one the customer installs on.
+      #
+      # `if: always()` for the same reason as the steps above (CM051 #656):
+      # an earlier limb's failure must not delete this measurement.
+      - name: Assert the port preflight is owner-blind and covers every published port (#1208)
+        if: always()
+        run: bash tests/test_port_preflight_covers_published.sh
+
       - name: Both parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_colima_autostart_mechanism.sh
           bash -n tests/test_colima_start_retry.sh
+          bash -n tests/test_port_preflight_covers_published.sh
           bash -n install.sh
           bash -n install.sh.strings.en-GB.sh
