@@ -348,6 +348,78 @@ if [[ -n "$CUT_VERSION" ]]; then
         exit 3
     fi
 
+    # ── 🔴 ...AND A VERSION IS NOT AN IDENTIFIER OF A BUILD (#931) ────────
+    #
+    # Everything above measures the version harder. It cannot measure it more
+    # USEFULLY, because the version does not distinguish builds of one cut:
+    # CFBundleShortVersionString read "1.0.50" for eleven distinct assemblies,
+    # and CFBundleVersion was frozen at 2500 for seven cuts (#703). Rigour
+    # applied to the wrong quantity buys epistemic status, not discrimination.
+    #
+    # So record a CONTENT HASH of the artefact this box was walked with, and
+    # let verify_walk_record.sh compare it to the sha256 of the file about to
+    # be published. That is the only pair of values in the gate where both
+    # sides are content.
+    #
+    # 🔴 STATE THE RESIDUAL, DO NOT BURY IT. The strongest thing reachable from
+    # here is "a DMG named for this version is present on the walked box and
+    # hashes to X". That is NOT proof it is the DMG that was opened: a file in
+    # ~/Downloads may never have been mounted. What it does do -- and what the
+    # version field cannot -- is discriminate between builds. An operator who
+    # downloads a second build of the same version onto the box makes the field
+    # ambiguous, and ambiguity is recorded as ambiguity below, never guessed.
+    #
+    # The value is written on every path so a reader is never left inferring
+    # from an absent field; artefact_sha256_source says which path was taken,
+    # and the gate refuses anything that is not measured(...).
+    ARTEFACT_SHA="unavailable"
+    ARTEFACT_SHA_SOURCE="asserted-unverifiable(not attempted)"
+
+    _dmg_err="$(mktemp)"
+    _dmg_list="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
+        'for d in "$HOME/Downloads" "$HOME/Desktop" "$HOME"; do
+             [ -d "$d" ] && find "$d" -maxdepth 1 -type f -name "OstlerInstaller-*.dmg" -print
+         done' 2>"$_dmg_err")"
+    _dmg_rc=$?
+    _dmg_stderr="$(cat "$_dmg_err")"
+    rm -f "$_dmg_err"
+
+    # A non-zero rc here is CANNOT-MEASURE, and its stderr is a diagnostic, not
+    # a file list. Reading it as one is how rc=127 becomes a body.
+    if [[ "$_dmg_rc" -ne 0 ]]; then
+        ARTEFACT_SHA_SOURCE="asserted-unverifiable(box unreachable or find failed, rc=${_dmg_rc})"
+        echo "  ⚠️  could not look for the walked DMG on ${BOX} (rc=${_dmg_rc})."
+        [[ -n "$_dmg_stderr" ]] && echo "      ${_dmg_stderr}"
+    else
+        _want="OstlerInstaller-${CUT_VERSION#v}.dmg"
+        # grep -F: the pattern is a literal filename. -c is not used for the
+        # decision because the empty-list case must count 0, not error.
+        _matched="$(printf '%s\n' "$_dmg_list" | /usr/bin/grep -F -- "/${_want}")"
+        _n_matched="$(printf '%s' "$_matched" | /usr/bin/grep -c .)"
+        [[ -z "$_matched" ]] && _n_matched=0
+
+        if [[ "$_n_matched" -eq 1 ]]; then
+            _hash="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
+                "shasum -a 256 -- '${_matched}'" | awk '{print $1}')"
+            if [[ "$_hash" =~ ^[0-9a-fA-F]{64}$ ]]; then
+                ARTEFACT_SHA="$_hash"
+                ARTEFACT_SHA_SOURCE="measured(shasum -a 256 of ${_want} on the walked box; presence, not proof of mount)"
+                echo "  artefact hashed on the box: ${_hash}"
+            else
+                ARTEFACT_SHA_SOURCE="asserted-unverifiable(shasum on the box returned no usable digest)"
+                echo "  ⚠️  ${_want} is on ${BOX} but shasum returned nothing usable."
+            fi
+        elif [[ "$_n_matched" -eq 0 ]]; then
+            ARTEFACT_SHA_SOURCE="asserted-unverifiable(no ${_want} on the box)"
+            echo "  ⚠️  no ${_want} found on ${BOX}. The walk is real; which BUILD it"
+            echo "      walked cannot be established from here."
+        else
+            ARTEFACT_SHA_SOURCE="asserted-unverifiable(${_n_matched} copies of ${_want} on the box, cannot tell which was installed)"
+            echo "  ⚠️  ${_n_matched} copies of ${_want} on ${BOX}. Ambiguous, so recorded"
+            echo "      as ambiguous rather than guessed."
+        fi
+    fi
+
     # Counts are the ones already parsed from the single probe run above --
     # the suite is deliberately not re-invoked. See the note at that call.
     # WHICH PROBES FAILED, NOT JUST HOW MANY.
@@ -384,6 +456,12 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf '# version_source says how the version was obtained. Anything other than\n'
         printf '# measured(...) means the version is an assertion, not an observation.\n'
         printf '#\n'
+        printf '# artefact_sha256 is the build this box was walked with. A version does\n'
+        printf '# NOT identify a build -- "1.0.50" named eleven distinct assemblies -- so\n'
+        printf '# this is the field the publish gate binds on. artefact_sha256_source\n'
+        printf '# reads measured(...) only when the DMG was found on the box and hashed\n'
+        printf '# there; that establishes WHICH BUILD, not that it was the one mounted.\n'
+        printf '#\n'
         printf '# counts_scope says WHICH population pass/fail/cannot_run/broken describe.\n'
         printf '# They are phase 1 ONLY -- parsed from run_box_walk.sh. Phase 2 (the cut\n'
         printf '# manifest runtime proofs) contributes to verdict and qa_exit but emits no\n'
@@ -395,6 +473,8 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf '# along, because these keys were unqualified.\n'
         printf 'version\t%s\n'        "$RECORDED_VERSION"
         printf 'version_source\t%s\n' "$VERSION_SOURCE"
+        printf 'artefact_sha256\t%s\n'        "$ARTEFACT_SHA"
+        printf 'artefact_sha256_source\t%s\n' "$ARTEFACT_SHA_SOURCE"
         printf 'walked_at\t%s\n'   "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'box_fp\t%s\n'      "$BOX_FP"
         printf 'counts_scope\tbox_walk_probes_only(phase1); verdict+qa_exit cover all phases\n'
