@@ -1,0 +1,75 @@
+# wired-paths-tracked.yml
+#
+# A GUARD THE PIPELINE CALLS MUST ACTUALLY BE IN THE REPO.
+#
+# Two recorded instances of a guard script being silently dropped by an
+# unanchored .gitignore pattern:
+#
+#   2026-08-10  bin/require_signing_credentials.sh  vs  *credentials*
+#               skipped by `git add -A`, pushed absent, and cut.yml was
+#               left calling a file that was not in the repo
+#   2026-08-28  a #912 guard named test_private_artefacts_*  vs  *_private*
+#               refused by `git add`, caught only because a human looked
+#
+# The patterns match on NAME; the hazard is CONTENT. This gate asserts
+# TRACKING rather than ignoring, so `git add -f` cannot defeat it -- a
+# force-added file is tracked and passes honestly.
+#
+# ⚠️ ZERO IMPACT TODAY: 361/361 wired paths are tracked. This recovers
+# nothing now. Its value is the next occurrence, and the class leaves no
+# trace in the repo by construction, so today's zero is not evidence of
+# absence.
+#
+# ── TRIGGERS ─────────────────────────────────────────────────────────
+# A CUT IS A TAG PUSH, which a `push: branches:` block does not match
+# (#536/#1189). So: pull_request, main, and v1.* tags.
+
+name: wired-paths-tracked
+
+on:
+  pull_request:
+    paths:
+      - 'tests/TEST_WIRING.tsv'
+      - 'scripts/verify_wired_paths_are_tracked.sh'
+      - '.gitignore'
+      # A gate must trigger on changes to ITSELF.
+      - '.github/workflows/wired-paths-tracked.yml'
+  push:
+    branches: [main]
+    tags:
+      - 'v1.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wired-paths-are-tracked:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: every wired path is tracked
+        run: bash scripts/verify_wired_paths_are_tracked.sh
+
+      # `if: always()` because the self-test is what distinguishes "a
+      # real untracked file" from "the gate's predicate broke", and that
+      # distinction is needed exactly when the step above is red.
+      # Defaulting to if: success() throws it away at the worst moment.
+      - name: SELF-TEST -- prove the gate discriminates (8 controls)
+        if: always()
+        run: bash scripts/verify_wired_paths_are_tracked.sh --self-test
+
+      # The self-test plants and removes a probe file. Assert it cleaned
+      # up: a leftover probe would be a new untracked file, which is the
+      # very thing this gate is about.
+      - name: the working tree is unmodified
+        if: always()
+        run: |
+          if ! git status --porcelain | grep -q .; then
+              echo "ok: tree clean"
+              exit 0
+          fi
+          echo "::error::the self-test left the tree dirty:"
+          git status --porcelain
+          exit 1
