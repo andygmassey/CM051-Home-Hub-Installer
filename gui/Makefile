@@ -1404,26 +1404,49 @@ seed-installer-app-pyc: guard-local-cut
 	    echo "  Seeding a root that does not exist would report success over nothing." >&2; \
 	    exit 1; \
 	fi
+	# The 5th argument is the EXCLUSION, and it is the whole point of this call.
+	# See the block below for the measurement that put it there.
 	@bash "$(CURDIR)/scripts/seed-hub-payload-pyc.sh" \
-	    "$(APP_PATH)" "$(PYTHON_BUNDLE_TARBALL)" "OstlerInstaller.app" 400
-	# 🔴 THE ASSUMPTION ARCHIE REFUSED TO LET ME MAKE, NOW AN ASSERTION.
+	    "$(APP_PATH)" "$(PYTHON_BUNDLE_TARBALL)" "OstlerInstaller.app" 400 \
+	    '/Contents/Resources/Ostler\.app/'
+	# 🔴 THE ASSUMPTION ARCHIE REFUSED TO LET ME MAKE. THE BUILD REFUTED IT.
 	#
 	# `release` copies the ALREADY-SEALED Ostler.app into
-	# $(APP_PATH)/Contents/Resources/. The seeder runs `compileall -f` with NO
-	# -x, so it reaches all ~86 .py inside that nested, already-signed bundle --
+	# $(APP_PATH)/Contents/Resources/. The seeder ran `compileall -f` with NO
+	# -x, so it reached the .py inside that nested, already-signed bundle --
 	# and NOTHING reseals it: sign-python-bundle signs the outer $(APP_PATH)
 	# WITHOUT --deep, and its explicit --force calls name only the daemon app.
 	#
-	# The benign case is plausible: codesign hashes CONTENT, and unchecked-hash
+	# The benign case was plausible: codesign hashes CONTENT, and unchecked-hash
 	# .pyc rewritten from identical sources by the same interpreter should be
 	# byte-identical. MEASURED, cpython-311, compileall -f twice over one tree:
-	# corpus digest 39a3ceb2c273... both runs -- IDENTICAL.
-	# ⚠️ That was homebrew 3.11.14, NOT the pinned python-build-standalone
-	# build. Close, not the same binary. So it is evidence, not proof, and a
-	# build must not rest on it.
+	# corpus digest 39a3ceb2c273... both runs -- IDENTICAL. But that was
+	# homebrew 3.11.14, NOT the pinned python-build-standalone build, so it was
+	# evidence and never proof -- which is exactly why this ran as an assertion
+	# rather than a comment.
+	#
+	# 🔴 THE ASSERTION FIRED. v1.0.49 attempt 4, run 33142445217, 2026-08-28:
+	#
+	#     [OK] nested Ostler.app: codesign rc=1, file added=0, file modified=86
+	#     ERROR: seeding $(APP_PATH) disturbed the nested Ostler.app seal.
+	#
+	# So the rewrite is NOT byte-identical under the interpreter we actually
+	# ship, and the plausible case was wrong. Had this been a comment instead of
+	# an assertion, the DMG would have carried a nested bundle whose seal was
+	# broken by our own build. The remedy is the -x above, at THIS call site
+	# only: arm 1 (stage-payload, Makefile line ~1279) already seeds that same
+	# bundle inside its own envelope, where a --force --deep reseal follows.
+	# Do NOT widen the reseal, and do NOT move the exclusion into the script.
+	#
+	# RESIDUAL, STATED OUT LOUD: the .py inside the nested Ostler.app are seeded
+	# by arm 1 and not by this arm. That is not a coverage gap -- the audit
+	# inside the seeder still WALKS them (os.walk over the whole root, blind to
+	# -x), so if arm 1 ever leaves one uncovered or in the wrong invalidation
+	# mode, THIS step fails loudly rather than shipping it.
 	#
 	# BOTH VERBS. v1.0.47 passed an "added" check and still shipped the defect;
-	# a rewritten-in-place file is a MODIFICATION, not an addition.
+	# a rewritten-in-place file is a MODIFICATION, not an addition. Keep the
+	# assertion below. It has now earned its place twice.
 	@OA="$(APP_PATH)/Contents/Resources/Ostler.app"; \
 	if [ ! -d "$$OA" ]; then \
 	    echo "CANNOT VERIFY: no nested Ostler.app at $$OA after seeding." >&2; \
