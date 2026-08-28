@@ -3975,3 +3975,45 @@ deferrals:
       ~/.ostler-branch-preservation/check-orphans-rbpr-five-2026-08-29.bundle
       (git bundle verify -> okay, 5 refs, complete history).
     until_cut: "v1.0.51"
+  - ref: "CM031:#168"
+    reason: >-
+      iOS is not a DMG input, which is the same reason CM031 #158/#152/#144/#114/#33
+      are already deferred here. This one is NOT stale backlog though, and the row says
+      so rather than filing it with the others: it is the fix for the CM031 dark
+      population (board #495), and the fix direction is PIN DOWN, not up -- upstream
+      llama.cpp dropped the iOS simulator slice between b10360 and b10472, so #168 pins
+      llama.swift to 2.10360.0 exactly to restore it. Deferring it does not make the
+      simulator slice any more broken than it already is, and merging it cannot change
+      one byte of the macOS DMG. Retire this row when the CM031 lane reopens after the
+      Hub ships; it is a real fix waiting on the right cut, not abandoned work.
+    until_cut: "v1.0.52"
+  - ref: "daemon:archie/219-v2"
+    reason: >-
+      CM061 Pro write-actions work (actor family v1, calendar-writer + comms-drafter,
+      durable idempotency ledger, per-kind manifest confirm floor). Six commits, mine,
+      and it is NOT v1.0 scope -- write actions are a Pro surface and nothing in this
+      cut consumes them. DEFERRED RATHER THAN DELETED, AND THE DATA-LOSS SHAPE IS NOW
+      CLOSED: the gate was right that this was LOCAL-ONLY with no remote ref, i.e. one
+      rm -rf from gone, exactly the condition the archive/wt-oa-credentials-vault-wt row
+      already warns about. It now has a durable remote home at
+      preservation/2026-08-29/archie-219-v2 (tip 508d7385), verified by ls-remote with a
+      negative control. I ALSO RETRACT MY OWN DIAGNOSIS HERE: I suspected both daemon
+      REDs were gate fabrications from the cross-org token scope. @TNM refuted that with
+      a one-command discriminator -- every gh-limb site increments `unverifiable` and is
+      disclosed in the run's CANNOT-VERIFY note, and that note is ABSENT from this run.
+      These say "LOCAL-ONLY branch, no remote ref", which is not the ancestry-fallthrough
+      path at all. The gate was right and I was wrong. Land it via a PR when the Pro lane
+      opens.
+    until_cut: "v1.0.52"
+  - ref: "daemon:archie/write-actions-actor-family-219"
+    reason: >-
+      SUPERSET ALREADY PRESERVED: all four of this branch's commits are ALREADY APPLIED
+      in archie/219-v2 by patch-id -- `git cherry archie/219-v2
+      archie/write-actions-actor-family-219` returns four `-` lines, meaning every patch
+      is present in the superset. So this is one lineage, not two, and 219-v2 is the tip
+      to keep. Preserved anyway rather than deleted, because deleting the only local copy
+      of unlanded work to make a gate quiet is the habit this gate exists to stop, and a
+      patch-id match is not a byte-identity proof. Durable remote home at
+      preservation/2026-08-29/archie-write-actions-actor-family-219 (tip 40dec17b),
+      verified by ls-remote with a negative control. Retire together with the 219-v2 row.
+    until_cut: "v1.0.52"
