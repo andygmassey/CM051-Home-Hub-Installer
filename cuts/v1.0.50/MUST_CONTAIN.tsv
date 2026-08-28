@@ -1,0 +1,76 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.50.
+#
+# ===========================================================================
+# WHY v1.0.50 EXISTS
+# ===========================================================================
+# v1.0.49 was TAGGED (d38f3320 -> a612a480) AND NEVER INSTALLED. Zero of the
+# seven #550 merges are ancestors of that tag, and the public download is still
+# v1.0.41 from 2026-08-22. So this is not an increment on a walked build; it is
+# the first artefact that can carry the multi-account store-auth work to a box.
+#
+# WHAT FORCED IT BEYOND THAT, and it is the reason this cut is not optional:
+# the FIRST EVER box walk of install.sh, on a fresh macOS user account on
+# 2026-08-28, DIED IN UNDER THREE MINUTES. It wrote its diagnostics to a fixed
+# /tmp path, could not open the redirect because another account already owned
+# it, and then printed THAT account's three-day-old pip error to the operator as
+# the cause. Pip never ran. bash aborts a command whose redirection cannot be
+# opened, so a step that never executed was reported as a step that FAILED.
+#
+# THE DISPOSITION OF v1.0.49's ROWS, STATED NOT ASSUMED:
+#   * cm051 c1bd50ff (installer_app_bytecode_seeded_before_reseal) -- LANDED
+#     AND HELD. Not carried. Its capability stays required in the manifest as a
+#     regression guard.
+#   * cm051 installer_version_is_the_cut -- 🔴 NOT CARRIED FORWARD AS `yes`,
+#     AND THE DISTINCTION IS THE WHOLE POINT. v1.0.49's row says landed=no and
+#     it STAYS no: the capability is "the installer plist version IS the tag
+#     being cut", the plist now reads 1.0.50, so `yes` would be FALSE for
+#     v1.0.49. Retro-flipping it would launder a version that never shipped
+#     into one that did. v1.0.50 gets its OWN row below, which is a genuinely
+#     different claim and is genuinely `yes`.
+#   * HR015 email-ingest jetsam risk -- CARRIED, unchanged, still NOT A CUT
+#     BLOCKER by its own text, still capability_id=none and therefore still
+#     UNGUARDED. Its status was NOT re-measured for this cut and nobody should
+#     read its presence here as a fresh observation. Carried honestly rather
+#     than quietly dropped, because a fresh BOM that omits an open row is
+#     laundering with extra steps.
+#
+# 🔴 THE SOURCE THIS BOM WAS AUTHORED FROM WAS ALMOST THE WRONG ONE.
+# scripts/sync_cut_bom.sh reads a LOCAL OS003 checkout and verifies only that it
+# is ON `main` -- never that `main` is CURRENT. The operator checkout was at
+# d8bda24 with cuts/ stopping at v1.0.46, and 1,626 of its files were iCloud
+# DATALESS placeholders. Its refusal message is identical for "the BOM does not
+# exist" and "your checkout is behind", so both were read as one fact and this
+# BOM was one step from being authored against a source three cuts stale.
+# Caught by @TNM, who read the REMOTE: v1.0.47/48/49 MUST_CONTAIN.tsv are 4401,
+# 3851 and 6627 bytes on origin/main c100f169. Re-measured independently, byte
+# counts agree, and v1.0.50 genuinely 404s with a negative control that also
+# 404s. Authored from a fresh clone: 0 dataless files, all five cut dirs.
+# FOLLOW-UP OWED (not during assembly): sync_cut_bom.sh needs a freshness limb
+# emitting a DISTINCT CANNOT-RUN, so a stale checkout can never again be
+# reported as a missing BOM.
+#
+# 🟠 A STALE STRING THIS CUT DOES NOT FIX, NAMED SO THE WALK IS NOT A SURPRISE.
+# install.sh:11711 now reads `${OSTLER_STORE_AUTH_ENFORCE:-1}` -- the #1222 flip
+# landed, enforcement defaults ON. But install.sh:11751, the else-branch message,
+# still says "staged but DEFAULT-OFF ... Set OSTLER_STORE_AUTH_ENFORCE=1 once
+# the client-side auth PRs land." The operative default is correct; only the
+# explanatory string describes the world before the flip. Same class as the
+# v1.0.49 daemon ack that named the wrong cause. Not a cut blocker: it fires
+# only when someone sets ENFORCE=0 deliberately.
+#
+# 🟢 THE TWO NEW CAPABILITY ROWS LAND IN THIS SAME CHANGE, which bom_add.sh
+# explicitly calls a legitimate order of work, and BOTH were mutation-tested
+# against the unfixed file before being written:
+#     install_diagnostics_are_private_per_run  present  2 here / 0 unfixed
+#     install_has_no_shared_tmp_pip_sink       absent   0 here / 7 unfixed
+# TWO SURFACES, AND NEITHER IS CLAIMED TO BE THE OTHER. Presence cannot catch a
+# regression that ADDS a shared sink back while leaving the mktemp line; absence
+# of one pattern cannot prove all 34 are gone. The COUNT half is
+# tests/test_diag_sink_per_run.sh arm 1, wired into CM051 CI, whose own arm 7 is
+# a live control proving the old shape still fails closed on the runner.
+# ===========================================================================
+what	repo	ref	landed	capability_id	verify	ticket
+🔴 THE DEFECT THAT KILLED THE FIRST EVER BOX WALK, IN UNDER THREE MINUTES. install.sh wrote diagnostics to 34 distinct FIXED /tmp paths. On a fresh second account another user already owned them, bash could not open the redirect, and the handler printed THAT user's three-day-old pip log as the cause. Pip never ran. FIX (CM051 #1230): a private per-run mktemp -d sink, plus a self-healing default inside the aiconv leg which runs standalone under `set -u` and so cannot inherit the export. The heal does NOT stop at `:=` -- if mktemp fails the substitution yields empty, `:=` assigns empty, `set -u` is then perfectly satisfied and the redirect target silently becomes a bare path, so a non-empty AND is-a-directory check refuses to run instead. MEASURED ABSENT FROM MAIN THE DAY THIS WAS AUTHORED, with the predicate derived from the diff rather than invented: 34 sinks, ALL present, 60+ occurrences, counts varying 1/2/3/4/7 so the predicate discriminates; positive control 17 shebangs / 1407 OSTLER on the same file. After the merge 60+ -> 1, and the 1 is a comment. 🟢 THE PR REVIVES ORPHAN #1207, WHICH WAS CLOSED WITH NO SUCCESSOR -- `gh pr list --state all --search "910 in:title"` returns exactly one row, itself -- so this fix sat on one disk while the walk it would have saved failed. I blocked #1207 myself; both my blocking findings were cleared by RUNNING them: the aiconv honesty guard went 34 failures -> `checks run: 50, failures: 0`, both G: assertions passing for the right reason, `unbound variable` count 0.	cm051	c49dfb07	yes	install_diagnostics_are_private_per_run	TBD	Archie 2026-08-29 / CM051 #1230 / board #910 #538 #531
+🔴 THE REASON THIS CUT EXISTS AT ALL: the #550 multi-account store exposure reaching an artefact for the FIRST TIME. On real hardware 2026-08-28 an unprivileged second account read the knowledge graph with one curl and no credential. The client+server halves landed across CM051 #1214 #1218 #1220 #1219 #1221 #1222 #1223, and #1222 is the flip: `${OSTLER_STORE_AUTH_ENFORCE:-1}` at install.sh:11711, default ON. ⛔ SOURCE-COMPLETE IS NOT DEMONSTRATED AND THIS ROW MUST NOT BE READ AS CLOSURE. `landed=yes` here means the code is IN THIS ARTEFACT, which is the first of the three gates and not the third. The exposure is shut when the curl is re-run from a second account on a box carrying THIS DMG and returns refused -- same box, same probe, same account, both sides. Until that walk happens the mechanism is proven and the artefact is not. That walk is what this cut is FOR.	cm051	c49dfb07	yes	store_auth_enforce_defaults_on	TBD	Archie 2026-08-29 / board #550 #551
+🟠 THE INSTALLER MUST BE ABLE TO NAME ITSELF, and for v1.0.50 it can. v1.0.49's row for this capability is landed=no and STAYS no -- see the header; retro-flipping it would launder a version that never shipped. This is a NEW claim about a NEW version. VERIFIED THROUGH THE PARSER, NEVER FROM FILE TEXT, because that is the whole lesson of the v1.0.39/v1.0.43/v1.0.49 refusals: `plutil -extract CFBundleShortVersionString raw` returns 1.0.50 and `CFBundleVersion` returns 5000. CONTROL THAT THE HISTORICAL RECORD SURVIVED: `1.0.49` still appears in 2 files under gui/ (the ORM pin notes and measurement comments a naive sed over gui/ would have destroyed), against `1.0.50` in 3.	cm051	c49dfb07	yes	installer_version_is_the_cut	TBD	Archie 2026-08-29
+🟠 NOT A CUT BLOCKER, BUT A JETSAM RISK ON THE MINIMUM-SPEC BOX. CARRIED UNCHANGED FROM v1.0.48 AND v1.0.49 AND NOT RE-MEASURED FOR THIS CUT. email-ingest holds ~11.5 GB for a ~14-minute tick, every ~70 minutes, on a 16 GB Mac mini, and one observed tick emitted ZERO messages while doing it. Same precondition that killed the Colima VM. Also reopens #870: a tick started 15:42:55 on 23 Aug never logged a finish, 31 minutes before the first jetsam, and that jetsam report's own largestProcess is VTDecoderXPCService, so the recorded chain (installer buffer -> jetsam -> Colima) is at best incomplete. STILL capability_id=none, therefore STILL UNGUARDED and able to regress silently. It is carried because dropping an open row from a fresh BOM is laundering with extra steps.	HR015	TBD	no	none	TBD	TNM 2026-08-24
