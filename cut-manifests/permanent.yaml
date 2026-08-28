@@ -200,10 +200,21 @@ entries:
           - aa6f34890d  # fix(ci): correct doc list-item indentation
           - 2943840b04  # fix(ci): apply cargo fmt to clear Quality Gate lint failures
           - 66975b1472  # feat(settings): user-configurable daily-brief schedule (morning + evening)
-          # ---- v1.0.49 addition (2026-08-28, Archie). oa #366, merged by me
-          # DURING the v1.0.49 cut, which is what made the pin stale. Held, not
-          # rebuilt, because BOTH commits are provably unable to change the
-          # shipped binary. MEASURED, not inferred from the commit titles:
+          # ---- v1.0.49 addition (2026-08-28, Archie). TWO crates/ commits
+          # landed on oa/main DURING the v1.0.49 cut and staled the pin. The
+          # first was 3464215b at 03:26:02Z.
+          #
+          # 🔴 oa #366 IS *NOT* IMPLICATED, despite an earlier reading here and
+          # in two channel posts. #366 = 5a059be5, merged 02:22:30Z, touches
+          # scripts/ci/ ONLY, and at its merge point the gate would still have
+          # PASSED -- 63 minutes before the first crates/ commit existed:
+          #     git rev-list --count f1c7c57d..5a059be5    -- crates/  = 0
+          #     git rev-list --count f1c7c57d..origin/main -- crates/  = 2
+          # Naming the wrong commit in a permanent register sends the next
+          # reader to a CI-only change and leaves the two real ones unrecorded.
+          #
+          # Held, not rebuilt, because BOTH commits are provably unable to
+          # change the shipped binary. MEASURED, not inferred from the titles:
           #
           #   3464215ba5  1 file: crates/zeroclaw-channels/src/orchestrator/mod.rs
           #               hunk @8907
