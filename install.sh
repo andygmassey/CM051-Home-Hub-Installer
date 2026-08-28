@@ -15125,7 +15125,7 @@ fi
 # failure in this product. No item content is read or logged.
 enriched_count() {
     [ -n "$ENRICH_NS" ] || { printf '%s' -1; return 0; }
-    curl -sf -m 5 \
+    curl -sf -m 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
         -H 'Content-Type: application/sparql-query' \
         -H 'Accept: application/sparql-results+json' \
         --data-binary "PREFIX pwg: <${ENRICH_NS}>
@@ -16571,7 +16571,7 @@ except Exception:
         # counts-only, non-fatal shape as the readback above: a SPARQL
         # error degrades to 0 and prints nothing rather than aborting.
         _PREFS_ENRICHED="$(
-            curl -sf -m 5 \
+            curl -sf -m 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
                 -H 'Content-Type: application/sparql-query' \
                 -H 'Accept: application/sparql-results+json' \
                 --data-binary 'PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
