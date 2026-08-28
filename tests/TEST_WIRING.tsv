@@ -251,6 +251,7 @@ test_provenance_survives_the_filter_under_execution.py	WIRED	.github/workflows/i
 test_pyc_bytes_depend_on_compile_path.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pyc_seed_excludes_nested_ostler_app.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_readonly_flags_need_no_tty.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
+test_redis_health_probe_authenticates.sh	WIRED	.github/workflows/redis-health-probe.yml
 test_repair_overmerged_contact_cards.py	WIRED	.github/workflows/contact-card-repair.yml
 test_repin_wiki_images_refuses_a_typed_sha.sh	WIRED	.github/workflows/cut-freshness.yml
 test_resolver_robustness.py	UNWIRED	-
