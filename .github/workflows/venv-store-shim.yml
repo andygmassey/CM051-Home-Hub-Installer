@@ -31,6 +31,7 @@ on:
       - 'lib/ostler_store_auth.py'
       - 'tests/test_venvs_install_store_shim.sh'
       - 'tests/test_store_callers_authenticate.sh'
+      - 'tests/test_installer_authenticates_to_qdrant.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the same PR that narrows it.
       - '.github/workflows/venv-store-shim.yml'
@@ -110,3 +111,26 @@ jobs:
       - name: the gate itself parses
         if: always()
         run: /bin/bash -n tests/test_store_callers_authenticate.sh
+
+  # ── #550: the shell credential must be the RIGHT one, PER STORE ───────
+  #
+  # store-callers-authenticate above asks "does this call carry a credential".
+  # That is presence, and presence passed on the tree where the installer was
+  # handing Qdrant the OXIGRAPH bearer -- a credential Qdrant rejects. It
+  # returned 401, install.sh read that as a leak, and aborted with
+  # ERR-06-STORE-AUTH-LEAK. This job asks the question the other one cannot:
+  # is the credential CORRECT FOR THE STORE IT IS SENT TO, and is it written
+  # after the secrets that populate it exist.
+  installer-authenticates-to-qdrant:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: the installer can authenticate to Qdrant, not just Oxigraph
+        run: /bin/bash tests/test_installer_authenticates_to_qdrant.sh
+
+      - name: the gate itself parses
+        if: always()
+        run: /bin/bash -n tests/test_installer_authenticates_to_qdrant.sh
