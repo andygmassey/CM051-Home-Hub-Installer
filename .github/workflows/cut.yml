@@ -7,10 +7,31 @@
 # rollforward gate. That is the whole point: for five months every gate was
 # advisory because `make ship` could always be run by hand.
 #
-# TRIGGER IS A TAG PUSH, AND NOTHING ELSE.
-# There is deliberately no `workflow_dispatch`. A manually-fired pipeline is a
-# hand-cut wearing a costume: same "I'll just run it" pressure, same bypass of
-# the tag that pins what was cut. If you want a cut, write the tag down.
+# ONLY A TAG PUSH CAN CUT. A dispatch CAN run this file, but it cannot reach
+# the cutting job.
+#
+# 🔴 THIS PARAGRAPH USED TO SAY "There is deliberately no `workflow_dispatch`"
+# AND THAT WAS FALSE. One is declared at the `workflow_dispatch:` line below.
+# The sentence was true when written and nobody updated it when the dry-run
+# job was added, so the file's own header contradicted its own triggers.
+#
+# THE SAFETY PROPERTY IS THE JOB GUARD, NOT THE TRIGGER LIST, and it holds.
+# Measured 2026-08-29 on this file:
+#
+#     workflow_dispatch:  declared          (1 occurrence)
+#     cut:                if: github.event_name == 'push'
+#     dry-run:            if: github.event_name == 'workflow_dispatch'
+#
+# So a dispatch runs the CHECKS and stops. It cannot produce an artefact and
+# cannot bypass the tag that pins what was cut. That is exactly the argument
+# the comment ~40 lines above already makes, and it is the right one: reading
+# the trigger list alone gives the wrong answer in BOTH directions -- it calls
+# this file unsafe when it is safe, and it would call a file safe that
+# declared no dispatch while leaving its cut job unguarded.
+#
+# A manually-fired CUT would still be a hand-cut wearing a costume: same
+# "I'll just run it" pressure, same bypass of the tag. That is why `cut:` is
+# push-only. If you want a cut, write the tag down.
 #
 # ---------------------------------------------------------------------------
 # THE PARAGRAPH ABOVE IS RATIFIED AND STILL BINDING. It is kept verbatim.
