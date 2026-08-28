@@ -87,16 +87,51 @@ PROBE_NAME="no_store_port_is_tcp_reachable"
 PROBE_QUESTION="can any local account open a TCP connection to an Ostler store or UI without a credential?"
 
 # The ports that MUST NOT answer after the fix, and why each is here.
-#   6333  qdrant REST via store-proxy   -> unix socket
-#   7878  oxigraph SPARQL via store-proxy -> unix socket   (#550 was demonstrated here)
+#
+# 2026-08-28: THREE OF THESE ROWS USED TO SAY "-> unix socket". That remedy is
+# NOT AVAILABLE and the rows are corrected below. Measured with a control: a
+# unix socket created INSIDE a container crosses a colima bind-mount as a FILE
+# and NOT as a connection -- the host sees a real socket inode (`-S` passes) and
+# `curl --unix-socket` against it fails, while the identical curl against a
+# host-created socket succeeds. Connectability belongs to the kernel that owns
+# the socket, which is the VM's. Every service below runs in that VM, so no
+# UDS route exists for any of them. Measured on mountType=virtiofs / vm-type=vz
+# (colima's default, and install.sh:10116 does not pin it); sshfs and 9p
+# unmeasured.
+#
+# The ASSERTION is unchanged and still correct: none of these may answer. Only
+# the stated route to that state was wrong, and a wrong route in the file that
+# explains the hold sends the next reader to build something that cannot work.
+#
+#   6333  qdrant REST via store-proxy   -> UNRESOLVED. MUST_STILL_PUBLISH pins
+#                                          it today: host clients have no other
+#                                          route. Needs the native api key
+#                                          (scaffolding exists, default-OFF).
+#   7878  oxigraph SPARQL via store-proxy -> proxy bearer credential (#1214,
+#                                          merged, default-OFF). #550 was
+#                                          demonstrated here.
 #   6334  qdrant gRPC, direct           -> unpublished (#1209; 0 consumers in
 #                                          355 .py, 759 .rs, 144 ts)
-#   6379  redis/valkey, direct          -> unpublished (0 clients; the only
-#                                          consumer was a health probe)
-#   8044  wiki-site                     -> served in-app over the socket
-#   3000  vane                          -> served in-app or gated
+#   6379  redis/valkey, direct          -> requirepass, BUT the Doctor's probe
+#                                          sends PING and needs PONG, so it
+#                                          reports UNHEALTHY under auth
+#                                          (-NOAUTH). Upstream + re-vendor.
+#   8044  wiki-site                     -> 🔴 UNRESOLVED AND THE WORST SURFACE.
+#                                          Serves the whole personal wiki with
+#                                          no auth. Its consumer is the
+#                                          CUSTOMER'S BROWSER, so it can take
+#                                          no bearer; and a cookie gives no
+#                                          port isolation (RFC 6265), so a
+#                                          second local account's web server
+#                                          receives it. No agreed answer.
+#   3000  vane                          -> same class as 8044: a browser UI, so
+#                                          no bearer. Not solved.
 #   8144  wiki tailnet gate            -> its identity check is client-supplied
-#                                        over a local connection (see above)
+#                                        over a local connection (see above).
+#                                        Its ONLY consumer is `tailscale serve`
+#                                        on the host, so it must stay a TCP
+#                                        port; the UDS alternative is dead per
+#                                        the measurement above.
 MUST_BE_CLOSED="6333 7878 6334 6379 8044 3000 8144"
 
 # ── ⚠️ 8144: EXPECTED RED, AND DO NOT "FIX" IT BY UNPUBLISHING THE PORT ──────
