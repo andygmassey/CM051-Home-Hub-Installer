@@ -218,12 +218,38 @@ self_test() {
 }
 
 # ── UNMEASURED, AND NAMED RATHER THAN CLEARED ─────────────────────────
-# A caller this cannot see BY CONSTRUCTION:
+#
+# 🔴 THE BIGGEST GAP IS THAT THIS GATE IS CURL-SHAPED (widened 2026-08-28).
+#
+# A STORE CLIENT THAT IS NOT CURL AT ALL. This predicate keys on the token
+# `curl`, so a caller that reaches a store by any other means is outside the
+# denominator entirely -- not missed, INVISIBLE.
+#
+# Not hypothetical. @A2 found `install.sh:24972`:
+#     docker exec ostler-redis redis-cli ping
+# a real store client, in the shipped installer, feeding the customer's
+# completion screen via a log-string contract. This gate scored 19 calls with
+# three independent instruments agreeing, and all three agreed WITHIN THE SAME
+# BLIND SPOT, because all three were looking for curl.
+#
+# 📌 My original list below enumerated three ways the predicate could miss a
+# caller -- and every one of them is still a curl. I was careful about the
+# spelling and never questioned the noun. That is the same error as pinning a
+# denominator: precision inside a boundary you did not check.
+#
+# @A2's sweep for the other shapes (`docker exec` into a store container, `nc`,
+# `python -c`) found :24972 and nothing else, so that inventory is closed AS OF
+# 2026-08-28 -- by their measurement, not by this gate, which still cannot see
+# any of them.
+#
+# The narrower curl-shaped gaps, still true:
 #   * curl invoked through a variable        ("$CURL_BIN" ...)
 #   * curl inside a heredoc that writes a helper script -- a real caller in the
 #     GENERATED script, invisible as install.sh's own execution
 #   * curl behind a wrapper function
-# Three instruments agreeing bounds the RISK; it does not prove COVERAGE.
+#
+# Three instruments agreeing bounds the RISK; it does not prove COVERAGE. And
+# agreeing instruments that share a shape do not even bound it.
 
 case "$MODE" in
     --self-test) self_test; exit $? ;;
