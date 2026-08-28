@@ -383,3 +383,4 @@ gui/OstlerInstallerTests/StringsCatalogueEmDashTest.swift	WIRED	.github/workflow
 gui/OstlerInstallerTests/StringsCatalogueYNSuffixTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
+test_store_callers_authenticate.sh	WIRED	.github/workflows/venv-store-shim.yml

@@ -30,6 +30,7 @@ on:
       - 'install.sh'
       - 'lib/ostler_store_auth.py'
       - 'tests/test_venvs_install_store_shim.sh'
+      - 'tests/test_store_callers_authenticate.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the same PR that narrows it.
       - '.github/workflows/venv-store-shim.yml'
@@ -82,3 +83,30 @@ jobs:
       - name: the shim payload parses
         if: always()
         run: python3 -c "import ast,sys; ast.parse(open('lib/ostler_store_auth.py').read()); print('lib/ostler_store_auth.py parses')"
+
+  # The Python shim covers Python callers. install.sh's own `curl` calls are
+  # outside it BY CONSTRUCTION -- a Python import hook cannot reach a shell
+  # process. This is that other half, and it is a SEPARATE job so its verdict
+  # cannot be hidden by the venv job's deliberate red (OSTLER_VENV_EXPECT=fail).
+  #
+  # Unlike the venv job, this one is EXPECTED GREEN and enforces from merge:
+  # 19 calls, 17 credentialled, 2 measured exemptions, 0 bare. Population
+  # corroborated by three independent instruments (@ARCHIE, @A2, @TNM) before
+  # the floor was pinned.
+  store-callers-authenticate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: the gate passes its own suite
+        run: /bin/bash tests/test_store_callers_authenticate.sh --self-test
+
+      - name: every shell store call carries a credential
+        if: always()
+        run: /bin/bash tests/test_store_callers_authenticate.sh install.sh
+
+      - name: the gate itself parses
+        if: always()
+        run: /bin/bash -n tests/test_store_callers_authenticate.sh
