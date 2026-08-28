@@ -1406,6 +1406,23 @@ seed-installer-app-pyc: guard-local-cut
 	fi
 	# The 5th argument is the EXCLUSION, and it is the whole point of this call.
 	# See the block below for the measurement that put it there.
+	#
+	# 🔴 THE TWO NESTED BUNDLES GET OPPOSITE TREATMENT, ON PURPOSE.
+	#   Contents/Resources/Ostler.app                          EXCLUDED
+	#   Contents/Resources/assistant-agent/OstlerAssistant.app NOT excluded
+	# That asymmetry looks like an oversight and is not. sign-python-bundle's
+	# explicit `codesign --force` calls NAME the daemon app, so seeding it IS
+	# resealed. Nothing names Ostler.app, so seeding it is NOT. The reason lives
+	# in a different file from this call, which is exactly why it is written here:
+	# a future tidy-up that "makes them consistent" by adding the second exclusion
+	# would silently ship the daemon app UNSEEDED, and every count printed by this
+	# step would still look correct. (A2's catch, 2026-08-28.)
+	#
+	# The regex separates them: "Ostler\.app" cannot match "OstlerAssistant.app"
+	# because the literal dot must follow "Ostler", and the /Contents/Resources/
+	# prefix keeps it out of the assistant-agent path. Checked against all four
+	# real .py populations: Ostler.app excluded; assistant-agent, email-ingest and
+	# assistant_api all still seeded.
 	@bash "$(CURDIR)/scripts/seed-hub-payload-pyc.sh" \
 	    "$(APP_PATH)" "$(PYTHON_BUNDLE_TARBALL)" "OstlerInstaller.app" 400 \
 	    '/Contents/Resources/Ostler\.app/'
