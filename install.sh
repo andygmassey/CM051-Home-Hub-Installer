@@ -15365,7 +15365,7 @@ ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 _qdrant_url="${QDRANT_URL:-http://localhost:6333}"
 _qdrant_ready=false
 for _ in $(seq 1 30); do
-    if curl -sf -m 2 "${_qdrant_url}/readyz" &>/dev/null \
+    if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 2 "${_qdrant_url}/readyz" &>/dev/null \
        || curl -sf -m 2 "${_qdrant_url}/collections" &>/dev/null; then
         _qdrant_ready=true
         break
@@ -15382,18 +15382,18 @@ if [[ "$_qdrant_ready" == true ]]; then
     # clear named error at the database step rather than a mystery ERR-99
     # abort at "Importing your data" ~30 min later. One retry distinguishes
     # a persistent 401 (leak) from a one-off blip.
-    if ! curl -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
+    if ! curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
         sleep 2
-        if ! curl -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
+        if ! curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
             fail_with_code "ERR-06-STORE-AUTH-LEAK" "$MSG_FAIL_STORE_AUTH_LEAK"
         fi
     fi
     for _coll in people conversations preferences evernote_knowledge; do
         # Already present? Leave it untouched (never clobber real data).
-        if curl -sf -m 5 "${_qdrant_url}/collections/${_coll}" &>/dev/null; then
+        if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_qdrant_url}/collections/${_coll}" &>/dev/null; then
             continue
         fi
-        if curl -sf -m 10 -X PUT "${_qdrant_url}/collections/${_coll}" \
+        if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 10 -X PUT "${_qdrant_url}/collections/${_coll}" \
             -H 'Content-Type: application/json' \
             -d '{"vectors": {"size": 768, "distance": "Cosine"}}' &>/dev/null; then
             info "$(printf "$MSG_INFO_QDRANT_COLLECTION_PRECREATED" "${_coll}")"
@@ -22680,10 +22680,10 @@ except Exception:
             local q_phone q_email phones emails
             q_phone='PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierType "phone" }'
             q_email='PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierType "email" }'
-            phones="$(curl -s --max-time 15 --data-urlencode "query=${q_phone}" \
+            phones="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -s --max-time 15 --data-urlencode "query=${q_phone}" \
                 -H "Accept: text/csv" "${_HYDRATE_OXIGRAPH}/query" 2>/dev/null \
                 | tail -n 1 | tr -dc '0-9' || true)"
-            emails="$(curl -s --max-time 15 --data-urlencode "query=${q_email}" \
+            emails="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -s --max-time 15 --data-urlencode "query=${q_email}" \
                 -H "Accept: text/csv" "${_HYDRATE_OXIGRAPH}/query" 2>/dev/null \
                 | tail -n 1 | tr -dc '0-9' || true)"
             phones="${phones:-0}"
@@ -23992,7 +23992,7 @@ except Exception:
     # How many chat-identifier facts landed in Oxigraph for this channel?
     local _q _landed
     _q="PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(?id) AS ?c) WHERE { ?id a pwg:PersonIdentifier ; pwg:identifierLabel \"${_idlabel}\" . }"
-    _landed="$(curl -s --get "${_CONV_GUARD_OX}/query" \
+    _landed="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -s --get "${_CONV_GUARD_OX}/query" \
         --data-urlencode "query=${_q}" \
         -H 'Accept: application/sparql-results+json' 2>/dev/null \
         | python3 -c "
@@ -24011,7 +24011,7 @@ except Exception:
 }
 # Only meaningful when Oxigraph is reachable; a down graph is reported
 # elsewhere and must not double-fire here.
-if curl -s -o /dev/null --max-time 5 "${_CONV_GUARD_OX}/" 2>/dev/null; then
+if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -s -o /dev/null --max-time 5 "${_CONV_GUARD_OX}/" 2>/dev/null; then
     _conv_guard_check whatsapp whatsapp_conversations.json WHATSAPP
     _conv_guard_check imessage imessage_conversations.json IMESSAGE
 fi
@@ -24506,7 +24506,7 @@ _INITIAL_HYDRATE_LOG=/tmp/ostler-initial-hydrate.log
 # Counts-only -- no name leakage off-machine.
 _initial_hydrate_qdrant_count() {
     local raw count
-    raw="$(curl -sf -m 5 "${_INITIAL_HYDRATE_QDRANT}/collections" 2>/dev/null || true)"
+    raw="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_INITIAL_HYDRATE_QDRANT}/collections" 2>/dev/null || true)"
     if [[ -z "$raw" ]]; then
         printf '0'
         return 0
