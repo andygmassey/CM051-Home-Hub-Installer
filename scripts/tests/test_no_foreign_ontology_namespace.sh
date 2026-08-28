@@ -322,6 +322,55 @@ else
     ok "all $n_excl exclusion pathspecs name files that exist"
 fi
 
+# ---------------------------------------------------------------------------
+# A DIFF'S SIGN IS ITS MEANING. A `-` line in a patch is evidence the string was
+# REMOVED, and counting it as an occurrence reads ABSENCE AS PRESENCE.
+#
+# Measured 2026-08-28 on CM051 #1219, which regenerated vendor/divergences/
+# doctor.patch and recorded that the vendoring strips pwg.dev out of upstream:
+#     doctor.patch:5249:-    @prefix pwg: <https://pwg.dev/ontology#> .
+#     doctor.patch:5258:-PWG_PREFIX_URL = "https://pwg.dev/ontology#"
+#     doctor.patch:5267:-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+# occurrences=3 declared=0, gate RED -- on the commit that DOCUMENTS compliance.
+# Control at the time: `git grep -c pwg.dev -- vendor/doctor/` returned ZERO
+# files, with a must-be-present control (ServiceHealthInfo, 10 hits) proving the
+# search worked. The shipped tree was clean.
+#
+# TWO ARMS, because the fix must not become a hiding place. The patch is
+# generated as `diff source@pinned_sha -> vendored tree`
+# (scripts/regenerate_divergence_patch.sh:298), so a `+` line is a line the
+# VENDORED tree carries and MUST still count.
+# ---------------------------------------------------------------------------
+mkpatchrepo() {
+    local d="$1" sign="$2"
+    rm -rf "$d"; mkdir -p "$d/scripts" "$d/vendor/divergences"
+    git -C "$d" init -q 2>/dev/null
+    {
+        printf -- '--- a/agent/x.py\n+++ b/agent/x.py\n@@ -1,3 +1,3 @@\n'
+        printf -- '%sPWG_PREFIX_URL = "https://pwg.dev/ontology#"\n' "$sign"
+        printf -- ' unchanged_line\n'
+    } > "$d/vendor/divergences/doctor.patch"
+    printf '# declared\n0\n' > "$d/scripts/.foreign-ontology-namespace-count"
+    git -C "$d" add -A 2>/dev/null
+    git -C "$d" -c user.email=t@t -c user.name=t commit -qm x 2>/dev/null
+}
+
+mkpatchrepo "$TMP/patchdel" "-"
+rc="$(run "$TMP/patchdel")"
+if [ "$rc" != 0 ]; then
+    no "a patch containing only a DELETION of pwg.dev was counted as an occurrence (rc=$rc) -- absence read as presence" "$(cat "$TMP/out")"
+else
+    ok "a '-' line in a divergence patch is a REMOVAL and is not counted"
+fi
+
+mkpatchrepo "$TMP/patchadd" "+"
+rc="$(run "$TMP/patchadd")"
+if [ "$rc" != 1 ]; then
+    no "a patch ADDING pwg.dev was NOT caught (rc=$rc) -- the diff-aware count became a hiding place" "$(cat "$TMP/out")"
+else
+    ok "PROVED RED: a '+' line in a divergence patch still counts"
+fi
+
 echo
 echo "  $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ] || exit 1
