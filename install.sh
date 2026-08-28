@@ -114,13 +114,20 @@ done
 # ── Diagnostic sink: ONE PRIVATE, PER-RUN DIRECTORY ────────────────
 #
 # Until 2026-08-28, sixteen redirects sent diagnostics to fixed, shared,
-# predictable paths under /tmp ("${OSTLER_DIAG_DIR}/pip-install.log" and friends).
+# predictable paths under the system temp dir -- one per component, named
+# after it, identical on every machine and for every user.
+#
+# 🔴 THE HISTORICAL PATHS ARE DELIBERATELY NOT SPELT OUT HERE. Writing them
+# would put the exact strings this change removes back into the file, where
+# the guard test counts them. The first draft DID spell them out, the bulk
+# rewrite then "fixed" the prose along with the code, and this comment ended
+# up naming the CURE as the DISEASE. See tests/test_diag_sink_per_run.sh.
 # ONE root cause, TWO defects, both MEASURED on /bin/bash 3.2.57 -- the
 # shell that actually runs this script, not zsh:
 #
 #   1. BASH ABORTS A COMMAND WHOSE REDIRECTION CANNOT BE OPENED. If the
 #      fixed path already exists owned by another user, then
-#          if pip install ... 2>"${OSTLER_DIAG_DIR}/pip-install.log"; then
+#          if pip install ... 2>SOME-FIXED-SHARED-PATH; then
 #      takes the ELSE branch for a pip run THAT NEVER EXECUTED, and we
 #      tell the customer "the package failed to install". Proved with a
 #      marker file: sink writable -> marker exists; sink unwritable ->
