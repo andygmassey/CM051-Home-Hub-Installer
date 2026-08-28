@@ -290,6 +290,17 @@ try:
 except Exception:
     sys.exit(1)                      # unparseable is NOT "fires"; it is unknown
 on = d.get(True, d.get("on"))
+# `on:` has THREE legal shapes and only one is a mapping. YAML gives back a
+# STRING for `on: push` and a LIST for `on: [push, pull_request]`, so a bare
+# isinstance(on, dict) test silently scores both as "does not fire on a tag"
+# -- the exact opposite of this file's own finding that an unfiltered push
+# fires on branches AND tags. Measured on this repo: 0 of 95 workflows use the
+# scalar or list form, so the estate number is unaffected; the TEST FIXTURE
+# uses `on: push` and was mis-scored, which is how this was found.
+if isinstance(on, str):
+    sys.exit(0 if on == "push" else 1)
+if isinstance(on, list):
+    sys.exit(0 if "push" in on else 1)
 if not isinstance(on, dict) or "push" not in on:
     sys.exit(1)
 push = on["push"]
@@ -1008,7 +1019,10 @@ if [ ! -s "$TMP/reach3" ]; then
     echo >&2
     echo "  AXIS THREE CANNOT RUN: no workflow fires on a cut tag, so the" >&2
     echo "  cut-trigger reachable set is empty and every gate would look" >&2
-    echo "  unreachable. Refusing to report this axis." >&2
+    echo "  unreachable. Not reporting this axis, and FAILING rather than" >&2
+    echo "  passing: a probe that cannot see is not a clean result." >&2
+    echo "  (If you are looking at a minimal fixture, check fires_on_cut_tag" >&2
+    echo "   handles its \`on:\` shape before assuming the repo is at fault.)" >&2
     axis_three_fail=1
 else
     cp "$TMP/reach3" "$TMP/frontier3"
