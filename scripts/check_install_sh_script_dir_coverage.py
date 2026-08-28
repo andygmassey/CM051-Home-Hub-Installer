@@ -162,6 +162,30 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # above. The needle asserts the bundling reference, so removing the cp line
     # goes red instead of shipping a silent no-op.
     "lib/settling_progress.sh": ["lib/settling_progress.sh"],
+    # #550 (2026-08-28): the store-auth shim. install.sh:6523 seeds it from
+    # ${SCRIPT_DIR}/lib/ostler_store_auth.py into ${OSTLER_DIR}/lib, and a .pth
+    # in every venv imports it so the pinned Python clients authenticate to
+    # Qdrant/Oxigraph without four separate client PRs.
+    #
+    # 📌 THIS GATE FOUND A REAL GAP, NOT A FALSE FLAG. When the seeder landed,
+    # nothing in gui/project.yml copied the file into Resources. SCRIPT_DIR is
+    # Contents/Resources at install time, so on a customer box the seeder's
+    # [[ -f "$_src" ]] would have failed, it would have returned 1, and every
+    # venv would have reached the data stores with NO credential -- silently,
+    # on exactly the machines the fix exists for. The cp line was added in the
+    # same commit as this needle.
+    #
+    # ⚠️ THE NEEDLE IS THE cp DESTINATION, NOT THE BARE PATH, and that is
+    # load-bearing. The first needle written here was "lib/ostler_store_auth.py",
+    # which ALSO appears in the explanatory comment directly above the cp line
+    # in gui/project.yml. Deleting the cp line would have left the COMMENT
+    # satisfying the needle and the gate reporting covered -- a gate whose
+    # positive control carries the very thing it hunts. Mutation-proved:
+    # with the cp line deleted the gate now exits 1.
+    #
+    # "${DEST}/lib/..." appears only in the copy itself, because the prose
+    # describes the destination as ${OSTLER_DIR}/lib.
+    "lib/ostler_store_auth.py": ['${DEST}/lib/ostler_store_auth.py'],
     "THIRD_PARTY_NOTICES.md": ["vendor/THIRD_PARTY_NOTICES.md"],
     "LICENSES": ["vendor/LICENSES"],
     "Ostler.app": ["OSTLER_APP_PATH"],
