@@ -105,21 +105,43 @@ n="$(count '^[[:space:]]*-[[:space:]]*"7878:7878"' "$INSTALL")"
 check "7878 bare map (binds all interfaces)" FAIL "bare lines now ${n}" "$([ "$n" -gt 0 ] && echo 1 || echo 0)"
 
 restore
-sub "$INSTALL" 's|OSTLER_STORE_AUTH_ENFORCE:-0|OSTLER_STORE_AUTH_ENFORCE|g'
+# DEFAULT-AGNOSTIC ON PURPOSE. This arm used to mutate the literal `:-0`, which
+# silently stopped applying the moment the committed default became `:-1`
+# (2026-08-28, the #550 flip). It did NOT read as a pass -- the harness caught
+# it and reported MUTATION DID NOT APPLY / CANNOT-RUN, which is the whole
+# reason that check exists. But a mutation arm that is one edit away from
+# testing nothing is a trap, so it now matches EITHER default.
+#
+# The property under test was never "the default is 0". It is "the expansion
+# is DEFAULTED AT ALL" -- a bare $OSTLER_STORE_AUTH_ENFORCE under `set -u` is
+# an unbound-variable abort, and without `set -u` it is an empty string that
+# silently takes the else-branch. Both are the gate's business; neither
+# depends on which default is committed.
+sub "$INSTALL" 's|OSTLER_STORE_AUTH_ENFORCE:-[01]|OSTLER_STORE_AUTH_ENFORCE|g'
 n="$(count 'OSTLER_STORE_AUTH_ENFORCE:-[01]' "$INSTALL")"
 check "enforcement switch default deleted" FAIL "defaulted expansions now ${n}" "$([ "$n" -eq 0 ] && echo 1 || echo 0)"
 
 echo ""
-echo "── MONOTONICITY: the #550 direction must NOT red the gate ───────"
+echo "── MONOTONICITY: an enforce-state change must NOT red the gate ──"
 echo "   (this is what the 2026-08-28 rewrite bought; the pre-rewrite"
 echo "    form FAILED both of the next two arms)"
 
 restore
-sub "$INSTALL" 's|OSTLER_STORE_AUTH_ENFORCE:-0|OSTLER_STORE_AUTH_ENFORCE:-1|g'
+# INVERTED 2026-08-28, and the inversion is the point. This arm used to mutate
+# :-0 -> :-1 and assert PASS: "enforcement flipped ON (the actual #550 plan)".
+# Once the flip LANDED, that mutation became a no-op on the committed tree --
+# the arm still reported PASS, but it was passing on a tree it had not changed.
+# A vacuous green is worse than a red: nothing reports it.
+#
+# So it now travels the only direction that is still a real edit: OFF, the
+# opt-out. The assertion is unchanged in spirit -- a legitimate change of the
+# enforcement state must not make this gate red, because this gate is about
+# LOOPBACK PUBLICATION and not about who holds a credential.
+sub "$INSTALL" 's|OSTLER_STORE_AUTH_ENFORCE:-1|OSTLER_STORE_AUTH_ENFORCE:-0|g'
 n0="$(count 'OSTLER_STORE_AUTH_ENFORCE:-0' "$INSTALL")"
 n1="$(count 'OSTLER_STORE_AUTH_ENFORCE:-1' "$INSTALL")"
-check "enforcement flipped ON (the actual #550 plan)" PASS \
-      ":-0 now ${n0}, :-1 now ${n1}" "$([ "$n0" -eq 0 ] && [ "$n1" -gt 0 ] && echo 1 || echo 0)"
+check "enforcement flipped OFF (the opt-out escape hatch)" PASS \
+      ":-1 now ${n1}, :-0 now ${n0}" "$([ "$n1" -eq 0 ] && [ "$n0" -gt 0 ] && echo 1 || echo 0)"
 
 restore
 sub "$INSTALL"  '/^[[:space:]]*-[[:space:]]*"127\.0\.0\.1:7878:7878"$/d'
