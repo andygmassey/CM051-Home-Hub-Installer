@@ -95,8 +95,30 @@ rc_pass=0; rc_fail=1; rc_cannot=2
 # So each compartment carries its own floor and each is asserted separately.
 # The discriminator is the interpreter token, because that is what actually
 # differs: the upgrade leg has no PYTHON3_BIN in scope.
-OSTLER_VENV_FLOOR_UPGRADE="${OSTLER_VENV_FLOOR_UPGRADE:-3}"
-OSTLER_VENV_FLOOR_MAIN="${OSTLER_VENV_FLOOR_MAIN:-12}"
+# ⛔ AND IT IS FOUR COMPARTMENTS, NOT TWO. @A2 measured a third axis and @TNM
+# drew the conclusion: my 3/12 split was keyed on the INTERPRETER VARIABLE,
+# which tells you which execution path a site is on. It does not tell you the
+# site's FAILURE CONTRACT, and the contract is what the fix has to respect.
+#
+#   "The interpreter variable told me about the path; only the failure
+#    operator tells you about the contract."   -- @TNM
+#
+# Two of the twelve "main" sites carry documented non-fatal decisions:
+#   :25822  `|| true`, and :25819 says "NEVER A HARD FAIL" in as many words
+#   :2529   catches its own failure and returns 0
+# A uniform fatal seed would abort the install at a line whose own comment
+# forbids exactly that. So the design treats them differently (fatal at 10,
+# not-ready at 2), and A GATE WHOSE PARTITION DOES NOT MATCH THE DESIGN'S
+# PARTITION CANNOT SEE A SITE MOVE BETWEEN CONTRACTS. A floor of 12 stays
+# green if the aiconv site vanishes and an eleventh fatal-safe site appears.
+#
+# Counting SITES, not venvs, throughout: :18737 is one site that makes FOUR
+# venvs (called at 18873/18886/18899/18913) and 6495/6638/12189 are three
+# sites making ONE (all ${OSTLER_DIR}/.venv). A venv floor is unpinnable.
+OSTLER_VENV_FLOOR_UPGRADE="${OSTLER_VENV_FLOOR_UPGRADE:-3}"    # $_py, Sparkle leg
+OSTLER_VENV_FLOOR_FNLOCAL="${OSTLER_VENV_FLOOR_FNLOCAL:-1}"    # $python_bin, :2529
+OSTLER_VENV_FLOOR_SOFT="${OSTLER_VENV_FLOOR_SOFT:-1}"          # `|| true`, :25822
+OSTLER_VENV_FLOOR_FATALSAFE="${OSTLER_VENV_FLOOR_FATALSAFE:-10}"
 OSTLER_VENV_SITE_FLOOR="${OSTLER_VENV_SITE_FLOOR:-15}"
 
 # Lines that CREATE a venv, comments stripped.
@@ -136,24 +158,35 @@ verify() {
     fi
     # PER-COMPARTMENT first, aggregate second. The aggregate alone is satisfied
     # by 0 + 15, so it cannot see the upgrade limb empty.
-    local n_upg n_main
+    # Partition by FAILURE CONTRACT, because that is what the fix distinguishes.
+    # Order matters: upgrade leg first (it is the execution path), then the two
+    # documented soft contracts, then whatever remains is fatal-safe.
+    local n_upg n_fnlocal n_soft n_fatal rest
     n_upg="$(printf '%s\n' "$sites" | grep -c '\$_py' || true)"
-    n_main=$(( total - ${n_upg:-0} ))
-    printf 'population: %s upgrade-leg (\$_py) + %s main = %s\n' \
-        "${n_upg:-0}" "$n_main" "$total"
-    if [ "${n_upg:-0}" -lt "$OSTLER_VENV_FLOOR_UPGRADE" ] \
-       || [ "$n_main" -lt "$OSTLER_VENV_FLOOR_MAIN" ] \
-       || [ "$total" -lt "$OSTLER_VENV_SITE_FLOOR" ]; then
-        printf 'CANNOT_RUN: population below a floor (upgrade %s/%s, main %s/%s, total %s/%s)\n' \
+    rest="$(printf '%s\n' "$sites" | grep -v '\$_py' || true)"
+    n_fnlocal="$(printf '%s\n' "$rest" | grep -c '\$python_bin' || true)"
+    n_soft="$(printf '%s\n' "$rest" | grep -v '\$python_bin' | grep -c '|| true' || true)"
+    n_fatal=$(( total - ${n_upg:-0} - ${n_fnlocal:-0} - ${n_soft:-0} ))
+    printf 'population by CONTRACT: %s fatal-safe + %s upgrade + %s fn-local + %s soft = %s\n' \
+        "$n_fatal" "${n_upg:-0}" "${n_fnlocal:-0}" "${n_soft:-0}" "$total"
+    if [ "$n_fatal"        -lt "$OSTLER_VENV_FLOOR_FATALSAFE" ] \
+       || [ "${n_upg:-0}"     -lt "$OSTLER_VENV_FLOOR_UPGRADE" ] \
+       || [ "${n_fnlocal:-0}" -lt "$OSTLER_VENV_FLOOR_FNLOCAL" ] \
+       || [ "${n_soft:-0}"    -lt "$OSTLER_VENV_FLOOR_SOFT" ] \
+       || [ "$total"          -lt "$OSTLER_VENV_SITE_FLOOR" ]; then
+        printf 'CANNOT_RUN: a contract compartment is below its floor\n'
+        printf '  fatal-safe %s/%s · upgrade %s/%s · fn-local %s/%s · soft %s/%s · total %s/%s\n' \
+            "$n_fatal" "$OSTLER_VENV_FLOOR_FATALSAFE" \
             "${n_upg:-0}" "$OSTLER_VENV_FLOOR_UPGRADE" \
-            "$n_main" "$OSTLER_VENV_FLOOR_MAIN" \
+            "${n_fnlocal:-0}" "$OSTLER_VENV_FLOOR_FNLOCAL" \
+            "${n_soft:-0}" "$OSTLER_VENV_FLOOR_SOFT" \
             "$total" "$OSTLER_VENV_SITE_FLOOR"
         printf '  A NON-ZERO UNDERCOUNT IS AS DAMNING AS A ZERO and it reads as an\n'
-        printf '  answer. The compartments are checked SEPARATELY because an\n'
-        printf '  aggregate of 15 is satisfied by 0 upgrade + 15 main, and the\n'
-        printf '  upgrade leg is the population this gate exists for.\n'
-        printf '  If sites were legitimately deleted, lower THAT floor in the same\n'
-        printf '  PR and name them. Do not assume the shortfall is real.\n'
+        printf '  answer. Compartments are FAILURE CONTRACTS, not code paths: the\n'
+        printf '  fix treats them differently (fatal at 10, not-ready at 2), so a\n'
+        printf '  gate partitioned any other way cannot see a site change contract.\n'
+        printf '  If a site was legitimately deleted, lower THAT floor in the same\n'
+        printf '  PR and name it. Do not assume the shortfall is real.\n'
         return $rc_cannot
     fi
 
@@ -225,9 +258,17 @@ self_test() {
     # Fixtures are a handful of lines; the install.sh floor cannot apply to them.
     # The floor gets its own arm below, against a fixture built to trip it.
     local real_floor="$OSTLER_VENV_SITE_FLOOR"
-    OSTLER_VENV_SITE_FLOOR=0
-    OSTLER_VENV_FLOOR_UPGRADE=0
-    OSTLER_VENV_FLOOR_MAIN=0
+    local real_upg="$OSTLER_VENV_FLOOR_UPGRADE" real_fnl="$OSTLER_VENV_FLOOR_FNLOCAL"
+    local real_soft="$OSTLER_VENV_FLOOR_SOFT" real_fatal="$OSTLER_VENV_FLOOR_FATALSAFE"
+    _floors_off() { OSTLER_VENV_SITE_FLOOR=0; OSTLER_VENV_FLOOR_UPGRADE=0
+                    OSTLER_VENV_FLOOR_FNLOCAL=0; OSTLER_VENV_FLOOR_SOFT=0
+                    OSTLER_VENV_FLOOR_FATALSAFE=0; }
+    _floors_on()  { OSTLER_VENV_SITE_FLOOR="$real_floor"
+                    OSTLER_VENV_FLOOR_UPGRADE="$real_upg"
+                    OSTLER_VENV_FLOOR_FNLOCAL="$real_fnl"
+                    OSTLER_VENV_FLOOR_SOFT="$real_soft"
+                    OSTLER_VENV_FLOOR_FATALSAFE="$real_fatal"; }
+    _floors_off
 
     : > "$d/empty"
     printf 'no venv here at all\n' > "$d/no_sites"
@@ -351,9 +392,7 @@ FIXTURE
     # 3 looks like an answer. This proves the floor catches an undercount that a
     # zero-check waves through. Compliant on purpose: without the floor it would
     # PASS, so any rc other than CANNOT_RUN means the floor is not firing.
-    OSTLER_VENV_SITE_FLOOR="$real_floor"
-    OSTLER_VENV_FLOOR_UPGRADE=3
-    OSTLER_VENV_FLOOR_MAIN=12
+    _floors_on
     check "FLOOR trips on a plausible undercount" $rc_cannot "$d/multiline_good"
 
     # @TNM's catch, as an arm. 15 sites, ALL main leg, upgrade leg EMPTY.
@@ -364,7 +403,7 @@ FIXTURE
             printf '"$PYTHON3_BIN" -m venv /main/%s\n' "$i"; i=$((i+1)); done
     } > "$d/aggregate_hides_empty_limb"
     check "SPLIT FLOOR sees an empty upgrade limb" $rc_cannot "$d/aggregate_hides_empty_limb"
-    OSTLER_VENV_SITE_FLOOR=0; OSTLER_VENV_FLOOR_UPGRADE=0; OSTLER_VENV_FLOOR_MAIN=0
+    _floors_off
 
     printf '  self-test failures: %s\n' "$fails"
     rm -rf "$d"
