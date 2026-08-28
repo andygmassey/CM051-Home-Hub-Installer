@@ -30,6 +30,7 @@ on:
       - 'install.sh'
       - 'tests/test_stores_publish_no_host_port.sh'
       - 'tests/test_stores_guard_fires.sh'
+      - 'tests/test_oxigraph_proxy_credential.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in a PR that never runs it.
       - '.github/workflows/store-host-exposure.yml'

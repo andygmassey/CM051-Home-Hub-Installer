@@ -106,11 +106,24 @@ for state in 0 1; do
         fail "enforce=${state}: no credential file was written at all"
         continue
     fi
-    mode="$(stat -f '%Sp' "$conf")"
-    if [ "$mode" = "-rw-------" ]; then
-        pass "enforce=${state}: credential file is 0600 (${mode})"
+    # PORTABLE STAT, and this bit me: `stat -f '%Sp'` is BSD. This suite
+    # runs on ubuntu-latest, where -f means --file-system and the format
+    # is not understood, so the assertion compared against garbage. GNU
+    # first, BSD fallback, and compare OCTAL rather than the symbolic
+    # string so neither platform's rendering is load-bearing.
+    # (The estate already carries this class: gates asserting on
+    # install.sh run GNU tools on Linux while install.sh only ever runs
+    # under BSD on macOS.)
+    mode="$(stat -c '%a' "$conf" 2>/dev/null || stat -f '%Lp' "$conf" 2>/dev/null)"
+    if [ -z "$mode" ]; then
+        fail "enforce=${state}: could not read the file mode with either
+      GNU or BSD stat -- CANNOT-RUN, not a pass"
+        continue
+    fi
+    if [ "$mode" = "600" ]; then
+        pass "enforce=${state}: credential file is 0600 (mode ${mode})"
     else
-        fail "enforce=${state}: credential file is ${mode}, not 0600. Any
+        fail "enforce=${state}: credential file is mode ${mode}, not 600. Any
       local account can read the token."
     fi
 

@@ -155,7 +155,14 @@ awk '/ostler-wiki-gate.conf" <<'\''NGINXWIKIEOF'\''/{c=1;next} /^NGINXWIKIEOF$/{
 [[ -s "$WORK/ostler-wiki-gate.conf" ]] \
     || fail "wiki-gate heredoc (NGINXWIKIEOF) not found in install.sh -- the store-proxy conf includes it, so the proxy cannot boot without it"
 
-printf 'FROM nginx:1.27-alpine\nCOPY nginx.conf /etc/nginx/nginx.conf\nCOPY ostler-wiki-gate.conf /etc/nginx/ostler-wiki-gate.conf\n' > "$WORK/Dockerfile"
+# #550: same fail-closed reason as the wiki gate directly above -- the
+# conf now also includes a 0600 Oxigraph credential file, and nginx will
+# not start without it.
+cat > "$WORK/ostler-store-auth.conf" <<'AUTHEOF'
+# Ostler store credential -- comment-only placeholder, matching the
+# installer's DEFAULT-OFF state. See install.sh.
+AUTHEOF
+printf 'FROM nginx:1.27-alpine\nCOPY nginx.conf /etc/nginx/nginx.conf\nCOPY ostler-wiki-gate.conf /etc/nginx/ostler-wiki-gate.conf\nCOPY ostler-store-auth.conf /etc/nginx/ostler-store-auth.conf\n' > "$WORK/Dockerfile"
 docker build -q -t "$IMG" "$WORK" >/dev/null 2>&1 || { echo "SKIP [behaviour]: docker build failed (offline?)."; exit 0; }
 
 docker network create "$NET" >/dev/null 2>&1

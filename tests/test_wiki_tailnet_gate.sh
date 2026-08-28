@@ -65,6 +65,17 @@ export OSTLER_DIR
 source "$TMP/gate_fn.sh"
 GATE="$TMP/ostler-wiki-gate.conf"
 
+# #550: the store-proxy conf now ALSO includes a 0600 credential file for
+# Oxigraph (the only store with no native auth). The include is
+# deliberately FAIL-CLOSED -- nginx refuses to start if it is missing --
+# so this harness has to stage it exactly as install.sh does, for the
+# same reason it already stages the wiki gate above.
+AUTH="$TMP/ostler-store-auth.conf"
+cat > "$AUTH" <<'AUTHEOF'
+# Ostler store credential -- comment-only placeholder, matching the
+# installer's DEFAULT-OFF state. See install.sh.
+AUTHEOF
+
 # ── 1. Fail-closed with no owner ───────────────────────────────────
 if write_wiki_tailnet_gate ""; then
     fail "write_wiki_tailnet_gate accepted an empty owner (must return non-zero)"
@@ -128,6 +139,7 @@ else
     if ! docker run --rm \
             -v "$TMP/nginx.conf:/etc/nginx/nginx.conf:ro" \
             -v "$GATE:/etc/nginx/ostler-wiki-gate.conf:ro" \
+            -v "$AUTH:/etc/nginx/ostler-store-auth.conf:ro" \
             "$NGINX_IMAGE" nginx -t >"$TMP/nginx-t.log" 2>&1; then
         cat "$TMP/nginx-t.log" >&2
         fail "pinned nginx rejected the generated config"
@@ -139,6 +151,7 @@ else
     if docker run --rm \
             -v "$TMP/nginx.conf:/etc/nginx/nginx.conf:ro" \
             -v "$TMP/broken-gate.conf:/etc/nginx/ostler-wiki-gate.conf:ro" \
+            -v "$AUTH:/etc/nginx/ostler-store-auth.conf:ro" \
             "$NGINX_IMAGE" nginx -t >/dev/null 2>&1; then
         fail "nginx -t accepted a deliberately broken gate -- this check proves nothing"
     fi
@@ -150,6 +163,7 @@ else
     if ! docker run --rm \
             -v "$TMP/nginx.conf:/etc/nginx/nginx.conf:ro" \
             -v "$GATE:/etc/nginx/ostler-wiki-gate.conf:ro" \
+            -v "$AUTH:/etc/nginx/ostler-store-auth.conf:ro" \
             "$NGINX_IMAGE" nginx -t >"$TMP/nginx-t-closed.log" 2>&1; then
         cat "$TMP/nginx-t-closed.log" >&2
         fail "the fail-closed placeholder is not valid nginx -- store-proxy would not start"
@@ -191,6 +205,7 @@ STUBEOF
     docker run -d --name "$GATEC" --network "$NET" -p 18144:8144 \
         -v "$TMP/nginx.conf:/etc/nginx/nginx.conf:ro" \
         -v "$GATE:/etc/nginx/ostler-wiki-gate.conf:ro" \
+            -v "$AUTH:/etc/nginx/ostler-store-auth.conf:ro" \
         "$NGINX_IMAGE" >/dev/null
 
     # Wait for the listener rather than sleeping blind.
