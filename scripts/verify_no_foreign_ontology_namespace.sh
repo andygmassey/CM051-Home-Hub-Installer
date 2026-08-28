@@ -210,8 +210,42 @@ SELF=(
   # green. A test that cannot name the thing it polices is not a test.
   ":(exclude)scripts/test_migrate_graph_namespace.py"
 )
-actual="$(git grep -ohE "$FOREIGN_RE" -- . "${SELF[@]}" 2>/dev/null | grep -c . || true)"
-files="$(git grep -lE "$FOREIGN_RE" -- . "${SELF[@]}" 2>/dev/null | grep -c . || true)"
+# ── Diff files are read as diffs, NOT excluded ───────────────────────────
+#
+# A `.patch` under vendor/divergences/ is a DIFF, and a leading '-' means the
+# line was REMOVED. Counting a deletion as an occurrence reads ABSENCE AS
+# PRESENCE -- the gate fails the very commit that records the namespace being
+# stripped out.
+#
+# Measured 2026-08-28 on CM051 #1219, which regenerated doctor.patch:
+#     vendor/divergences/doctor.patch:5249:-    @prefix pwg: <https://pwg.dev/ontology#> .
+#     vendor/divergences/doctor.patch:5258:-PWG_PREFIX_URL = "https://pwg.dev/ontology#"
+#     vendor/divergences/doctor.patch:5267:-        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+# occurrences=3, declared=0, gate RED. All three are '-' lines, and the control
+# is decisive: `git grep -c pwg.dev -- vendor/doctor/` returns ZERO files, with
+# a must-be-present control (ServiceHealthInfo, 10 hits) proving the search
+# works. The shipped tree is clean; the patch is the RECORD of it being cleaned.
+#
+# NOT an entry in SELF, deliberately. This file's own doctrine is that an
+# exclusion is "somewhere a real occurrence can hide later", and that is right:
+# a '+' line in a divergence patch is a line the VENDORED tree carries, and it
+# still counts here. The patch is generated as `diff source@pinned_sha ->
+# vendored tree` (scripts/regenerate_divergence_patch.sh:298), so the sign is
+# not a convention, it is definitional. Read the sign; do not look away.
+# NOTE the files counter below reads the WORKING TREE, the same bytes
+# `git grep` reads with no ref. An earlier draft read `git show HEAD:` and
+# reported occurrences=1 files=0 on an uncommitted addition -- a true count
+# beside a false one, which is worse than either being wrong on its own.
+PATCH_GLOB="vendor/divergences/*.patch"
+_src_hits="$(git grep -ohE "$FOREIGN_RE" -- . "${SELF[@]}" ":(exclude)${PATCH_GLOB}" 2>/dev/null | grep -c . || true)"
+_patch_hits="$(git grep -hE "$FOREIGN_RE" -- "${PATCH_GLOB}" 2>/dev/null \
+                 | grep -E '^\+' | grep -ohE "$FOREIGN_RE" | grep -c . || true)"
+actual=$(( _src_hits + _patch_hits ))
+_src_files="$(git grep -lE "$FOREIGN_RE" -- . "${SELF[@]}" ":(exclude)${PATCH_GLOB}" 2>/dev/null | grep -c . || true)"
+_patch_files="$(for _p in $(git grep -lE "$FOREIGN_RE" -- "${PATCH_GLOB}" 2>/dev/null); do
+                  grep -qE "^\+.*${FOREIGN_RE}" "$_p" 2>/dev/null && echo "$_p"
+                done | grep -c . || true)"
+files=$(( _src_files + _patch_files ))
 
 echo "foreign ontology namespace: occurrences=${actual} files=${files} declared=${declared}"
 
