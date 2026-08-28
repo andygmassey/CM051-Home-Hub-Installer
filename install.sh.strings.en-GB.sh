@@ -787,6 +787,18 @@ MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_TRY_VERSION="Skipping LaunchAgent install.
 MSG_WARN_SKIPPING_WIKI_RECOMPILE_LAUNCHAGENT_INSTALL="Skipping wiki-recompile LaunchAgent install."
 MSG_WARN_SOME_FEATURES_MAY_NOT_WORK_CORRECTLY="Some features may not work correctly on older versions."
 MSG_WARN_SOME_PORTS_ARE_USE_DOCKER_CONTAINERS="Some ports are in use. Docker containers may fail to start."
+# #1208 port preflight. MSG_WARN_PORT_1_ALREADY_USE_PID above is RETIRED,
+# not reused: it declares three %s but every call site only ever passed
+# two, so it rendered the process name in the port's slot and left the
+# PID blank. The replacements below name their arguments in order.
+MSG_ERR_PORT_HELD_BY_OUR_PROCESS="Port %s is already in use by %s (PID %s), which belongs to this account. Quit it and run the installer again."
+MSG_ERR_PORT_HELD_BY_ANOTHER_ACCOUNT="Port %s is already in use by a program belonging to a DIFFERENT user account on this Mac. Ostler cannot share it, and starting anyway could mix up the two accounts' data. Log the other account out, or install Ostler on a Mac where it is the only account using this port."
+MSG_ERR_SOME_PORTS_ARE_HELD_CANNOT_START="Ostler cannot start its databases because ports it needs are already taken."
+MSG_ERR_STOP_CONFLICTING_SERVICES_OR_USE_ONE_ACCOUNT="Stop whatever is using the ports listed above, then run the installer again."
+MSG_WARN_PORT_CHECK_COULD_NOT_RUN="Could not check whether port %s is free. This is not the same as the port being free."
+MSG_WARN_PORT_PREFLIGHT_INCOMPLETE="One or more port checks could not run, so a clash with another program cannot be ruled out."
+MSG_WARN_PORT_BIND_PROBE_UNAVAILABLE="Could not run the most reliable port check on this Mac, so the checks below are less thorough than usual."
+MSG_ERR_PORT_PREFLIGHT_CANNOT_RUN_ABORT="Ostler could not confirm those ports are free, and it will not start its databases on a port it has not checked. Please contact support with your install log."
 MSG_WARN_STALE_COLIMA_LAUNCHAGENT_NOT_REMOVED="Could not remove a stale Colima start-up item. Your wiki may not load after a restart; contact support."
 MSG_WARN_STOP_CONFLICTING_SERVICES_CHANGE_PORTS_DOCKER="Stop the conflicting services or change the ports in docker-compose.yml"
 MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN="Tailscale didn't sign in within 3 minutes. You can come back to this later from Settings."

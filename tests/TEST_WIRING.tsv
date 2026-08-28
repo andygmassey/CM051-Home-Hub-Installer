@@ -242,6 +242,7 @@ test_pinterest_parser.py	UNWIRED	-
 test_pip_stage_outside_bundle.sh	WIRED	.github/workflows/pip-stage.yml
 test_pipefail_shortcircuit_inversion.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_placeholder_strip.sh	UNWIRED	-
+test_port_preflight_covers_published.sh	WIRED	.github/workflows/colima-autostart.yml
 test_pr_age_gate_declares_partial_runs.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pref_noise_source_cap.py	UNWIRED	-
 test_preferences_vendor_wired.sh	UNWIRED	-
