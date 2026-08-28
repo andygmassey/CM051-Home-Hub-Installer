@@ -1,0 +1,79 @@
+# sensitive-artefact-exposure.yml
+#
+# #912 -- THE INSTALLER MUST NOT WRITE THE OPERATOR'S DATA WHERE ANOTHER
+# LOCAL ACCOUNT CAN READ IT.
+#
+# install.sh wrote two data artefacts to fixed paths under /tmp: the
+# identity-resolver's converge report (every duplicate pair it
+# considered -- the whole address book, with names, emails and phone
+# numbers) and the AI-conversations drain summary. /tmp is /private/tmp,
+# which is drwxrwxrwt; umask 022 makes the files 0644. Any other local
+# account read them with `cat`.
+#
+# That is #550's threat model by a SHORTER path than #550 itself: no
+# port, no socket, no protocol. This gate exists so it cannot come back.
+#
+# ── TRIGGERS: WIDER THAN THIS GATE'S OWN FILES ───────────────────────
+# #536 and #1189 are both instances of a gate that could not fire on the
+# event that ships. A CUT IS A TAG PUSH, and a `push: branches:` block
+# does not match one. So: pull_request, main, and v1.* tags.
+
+name: sensitive-artefact-exposure
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_sensitive_artefacts_not_world_readable.sh'
+      - 'tests/test_sensitive_artefacts_guard_fires.sh'
+      # A gate must trigger on changes to ITSELF, or it can be quietly
+      # narrowed in a PR that never runs it.
+      - '.github/workflows/sensitive-artefact-exposure.yml'
+  push:
+    branches: [main]
+    tags:
+      - 'v1.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sensitive-artefacts-not-world-readable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `continue-on-error`, no `|| true`, no `2>/dev/null`.
+      # Caught by scripts/verify_ci_steps_are_maskless.py.
+      - name: sensitive artefacts are not world-readable (#912)
+        run: bash tests/test_sensitive_artefacts_not_world_readable.sh
+
+      # ── `if: always()` IS LOAD-BEARING, NOT TIDINESS ──────────────
+      # Steps default to `if: success()`. Without this, the arm that
+      # proves the guard WORKS is skipped exactly when the guard goes
+      # red -- which is the one moment you need it, because it is what
+      # separates "a real regression" from "the predicate broke".
+      # Losing it there is CANNOT-RUN wearing FAIL's colours.
+      #
+      # I found this defect in CM051 #1209 an hour before writing this
+      # file. Applying it here rather than shipping it and being told.
+      - name: MUTATION -- prove the guard actually fires
+        if: always()
+        run: bash tests/test_sensitive_artefacts_guard_fires.sh
+
+      # The mutation arm restores install.sh and checks its own restore,
+      # but assert it here too. `if: always()` matters MORE on this step:
+      # a mutation arm that dies mid-way is precisely when the tree is
+      # left dirty, and that is when you want to be told.
+      - name: the working tree is unmodified
+        if: always()
+        run: |
+          if ! git diff --quiet; then
+              echo "::error::install.sh was left modified. The mutation arm's"
+              echo "::error::restore did not take, so anything reading it"
+              echo "::error::downstream is against the wrong artefact."
+              git diff --stat
+              exit 1
+          fi
+          echo "ok: tree clean"

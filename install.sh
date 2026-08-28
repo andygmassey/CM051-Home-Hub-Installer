@@ -14869,6 +14869,68 @@ set -uo pipefail
 OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"
 LOGS_DIR="${OSTLER_DIR}/logs"
 STATE_DIR="${OSTLER_DIR}/state"
+
+# ── #912: a private home for artefacts that CONTAIN CUSTOMER DATA ──────
+#
+# 🔴 THE DEFECT THIS REPLACES. Three sites wrote customer-derived
+# artefacts to a FIXED, world-readable /tmp path:
+#
+#   install.sh:22143  --output /tmp/ostler-dedupe-report.yaml
+#   install.sh:23805  --output /tmp/ostler-dedupe-report.yaml
+#   install.sh:25650  mktemp ... || _AICONV_OUT=/tmp/ostler-aiconv-summary.json
+#
+# /private/tmp is drwxrwxrwt. The sticky bit stops another account
+# DELETING the file; it does nothing about READING it. At the default
+# umask 022 those files land 0644, so any local account on the machine
+# can `cat` a report derived from the customer's contacts.
+#
+# 🎯 THAT IS #550's THREAT MODEL WITH A CHEAPER ATTACK. #550 needs a
+# listening socket; this needs `cat`. Closing the sockets and leaving
+# the file would be correcting the artefact and not the class.
+#
+# 🔴 THE THIRD SITE IS THE INSTRUCTIVE ONE and it is why this helper
+# exists rather than three inline edits. It FAILED OPEN:
+#
+#   _AICONV_OUT="$(mktemp -t ...)" || _AICONV_OUT=/tmp/ostler-aiconv-summary.json
+#
+# It does the right thing, and on any mktemp failure silently lands on
+# the predictable world-readable path. A reader auditing for `mktemp`
+# sees a correct call and moves on. The FALLBACK was the defect, and it
+# was invisible to the obvious predicate. There is no fallback here: if
+# a private directory cannot be established we FAIL, because a
+# customer-data artefact with nowhere safe to go must not be written to
+# somewhere unsafe instead.
+#
+# ⚠️ DELIBERATELY NOT REUSING THE EXISTING 0700 DIRECTORIES:
+#   OSTLER_PRELAUNCH_DIR  is `rm -rf`'d at :2270 and :9409, so it is
+#                         GONE by the time these sites run. Writing
+#                         there would ship a fix that silently does
+#                         nothing.
+#   OSTLER_FINAL_DIR      is chmod 700 at :2242 -- but with
+#                         `2>/dev/null || true`, so a failed chmod is
+#                         indistinguishable from a successful one. A
+#                         PII fix must not rest on a mode nobody
+#                         checked.
+#   SECRETS_DIR           wrong semantic home; a dedupe report is not a
+#                         secret, it is customer data.
+#
+# So this asserts its own mode rather than inheriting an unverified one.
+OSTLER_PRIVATE_ARTEFACTS_DIR="${STATE_DIR}/private"
+
+_ostler_private_artefact() {
+    # Echo an absolute path inside a directory THIS FUNCTION HAS
+    # VERIFIED is 0700. Returns non-zero if it cannot, and the caller
+    # must treat that as fatal -- never as "use /tmp instead".
+    local _name="$1" _d="${OSTLER_PRIVATE_ARTEFACTS_DIR}" _mode
+    mkdir -p "${_d}" 2>/dev/null || return 1
+    chmod 700 "${_d}" 2>/dev/null || return 1
+    # VERIFY, do not assume. `chmod` can exit 0 on some filesystems
+    # without the mode sticking, and :2242's `|| true` is exactly the
+    # habit that hides it.
+    _mode="$(/usr/bin/stat -f '%Lp' "${_d}" 2>/dev/null)" || return 1
+    [ "${_mode}" = "700" ] || return 1
+    printf '%s/%s' "${_d}" "${_name}"
+    }
 CM019_DIR="${OSTLER_CM019_DIR:-${OSTLER_DIR}/services/cm019}"
 CM019_PY="${CM019_DIR}/.venv/bin/python3"
 ENRICH_USER="${OSTLER_ENRICH_USER:-ostler}"
@@ -22086,6 +22148,33 @@ mkdir -p "$LOGS_DIR" "$STATE_DIR"
 
 log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
 
+# ── #912 ───────────────────────────────────────────────────────────────
+# The dedupe report is derived from the customer's CONTACTS. It used to
+# go to /tmp/ostler-dedupe-report.yaml -- a fixed path under a
+# drwxrwxrwt directory, landing 0644 at the default umask, readable by
+# any other account on this Mac. That is #550's premise with `cat` as
+# the attack instead of a socket.
+#
+# 🔴 THIS DUPLICATES install.sh's _ostler_private_artefact ON PURPOSE,
+# AND THE DUPLICATION IS THE POINT. This file is written from a
+# SINGLE-QUOTED heredoc, so it is a standalone script that resolves
+# everything in ITS OWN shell. install.sh's functions do not exist
+# here. A fix that called _ostler_private_artefact would be INERT --
+# present in the diff, absent at runtime, green in every review. That
+# is the #1207 blocker-1 shape exactly, and it cost 34 failures then.
+#
+# `set -euo pipefail` is in force above, so a failing mkdir or chmod
+# aborts rather than falling through to somewhere world-readable.
+PRIVATE_DIR="${STATE_DIR}/private"
+mkdir -p "$PRIVATE_DIR"
+chmod 700 "$PRIVATE_DIR"
+# VERIFY the mode; do not trust chmod's exit code.
+if [ "$(/usr/bin/stat -f '%Lp' "$PRIVATE_DIR" 2>/dev/null)" != "700" ]; then
+    log "REFUSING to write the dedupe report: ${PRIVATE_DIR} is not 0700"
+    exit 1
+fi
+DEDUPE_REPORT="${PRIVATE_DIR}/dedupe-report.yaml"
+
 remove_self() {
     launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || \
         launchctl unload "$PLIST" 2>/dev/null || true
@@ -22165,7 +22254,7 @@ if ( cd "$PIPELINE_DIR" && \
      QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
      .venv/bin/python3 -m identity_resolver.batch_resolver \
          --execute --converge \
-         --output /tmp/ostler-dedupe-report.yaml \
+         --output "$DEDUPE_REPORT" \
    ) >>"$LOG_FILE" 2>&1; then
     log "converge completed cleanly; marking done + triggering wiki recompile"
     : >"$DONE_MARKER"
@@ -23813,6 +23902,20 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
     mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
     rm -f "$_DEDUPE_DONE_MARKER" 2>/dev/null || true
 
+    # #912: the converge report names every duplicate pair the resolver
+    # considered -- real names, emails and phone numbers of the operator's
+    # whole address book. It used to be written to a FIXED path under the
+    # world-readable /private/tmp (drwxrwxrwt, umask 022 -> 0644), so any
+    # other local account could read it with `cat`. It now goes into a
+    # 0700 directory owned by the installing user, and if that directory
+    # cannot be secured we do NOT run the pass at all -- there is
+    # deliberately no fallback path, because every fallback is a
+    # world-readable one.
+    _DEDUPE_REPORT="$(_ostler_private_artefact dedupe-report.yaml)" || _DEDUPE_REPORT=""
+    if [[ -z "$_DEDUPE_REPORT" ]]; then
+        warn "Skipping duplicate-contact merging: ${OSTLER_PRIVATE_ARTEFACTS_DIR} could not be created at mode 0700, and the report names every contact"
+    fi
+
     # Run the converge pass in the BACKGROUND so we can (a) emit a liveness
     # heartbeat while it works and (b) enforce a hard time cap. The pass
     # writes all stdout to $_DEDUPE_LOG, so without a heartbeat the GUI
@@ -23822,12 +23925,16 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
     # or the non-fatal posture; the cap just bounds how long the customer
     # waits before the rest is finished in the background.
     (
+        [ -n "$_DEDUPE_REPORT" ] || {
+            echo "REFUSING to run the converge pass: no 0700 directory for the report" >&2
+            exit 1
+        }
         cd "$PIPELINE_DIR" && \
         OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
         QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
         .venv/bin/python3 -m identity_resolver.batch_resolver \
             --execute --converge \
-            --output /tmp/ostler-dedupe-report.yaml \
+            --output "$_DEDUPE_REPORT" \
         && touch "$_DEDUPE_DONE_MARKER"
     ) >>"$_DEDUPE_LOG" 2>&1 &
     _DEDUPE_PID=$!
@@ -25672,7 +25779,17 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
             fi
 
             _AICONV_TIMED_OUT=false
-            _AICONV_OUT="$(mktemp -t ostler-aiconv.XXXXXX)" || _AICONV_OUT=/tmp/ostler-aiconv-summary.json
+            # #912: this used to FAIL OPEN. When mktemp failed the summary
+            # silently landed on a FIXED path under the world-readable
+            # /private/tmp (drwxrwxrwt, umask 022 -> 0644) -- a fallback
+            # invisible to anyone grepping the file for `mktemp`, and one
+            # that only fires on the boxes where something is already
+            # wrong. The fallback is now the same 0700 private directory
+            # the dedupe report uses, and if neither can be secured we do
+            # not run the drain at all.
+            _AICONV_OUT="$(mktemp -t ostler-aiconv.XXXXXX)" \
+                || _AICONV_OUT="$(_ostler_private_artefact aiconv-summary.json)" \
+                || _AICONV_OUT=""
 
             # Producer invocation per the v1.0.3 contract (CM052
             # docs/VENDOR_CM051.md). CM052_USER_EMAIL is the me-card
@@ -25680,6 +25797,10 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
             # counts-only JSON summary.
             _hydrate_heartbeat_start "$MSG_HYDRATE_AICONV_HEARTBEAT"
             _aiconv_rc=0
+            if [[ -z "$_AICONV_OUT" ]]; then
+                warn "Skipping the AI-conversations drain: no private directory could be secured for its summary"
+                _aiconv_rc=1
+            else
             CM052_USER_EMAIL="${USER_EMAIL:-}" \
             OSTLER_AI_CONVERSATIONS_DIR="${HOME}/Documents/Ostler/AI Conversations" \
             OSTLER_AI_CONV_TRANSCRIPT_PRIVACY="${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L2}" \
@@ -25687,6 +25808,7 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
             $_AICONV_TIMEOUT_WRAP "$_AICONV_BIN" \
                 --source all --since-days 365 --json \
                 >"$_AICONV_OUT" 2>>"$_AICONV_LOG" || _aiconv_rc=$?
+            fi
             _hydrate_heartbeat_stop
             # gtimeout returns 124 (SIGTERM) / 137 (SIGKILL) on cap.
             if [[ "$_aiconv_rc" -eq 124 ]] || [[ "$_aiconv_rc" -eq 137 ]]; then
