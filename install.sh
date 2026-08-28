@@ -15365,8 +15365,16 @@ ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 _qdrant_url="${QDRANT_URL:-http://localhost:6333}"
 _qdrant_ready=false
 for _ in $(seq 1 30); do
-    if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 2 "${_qdrant_url}/readyz" &>/dev/null \
-       || curl -sf -m 2 "${_qdrant_url}/collections" &>/dev/null; then
+    # ⚠️ TWO CALLS, ONE COMMAND, AND THE ARMS NEED DIFFERENT THINGS (@A2).
+    # /readyz is exempt by measurement against the pinned image (200 keyless),
+    # so arm 1 stays BARE. /collections is behind the api-key and 401s, so
+    # arm 2 CARRIES the credential. I had these the wrong way round: my
+    # predicate scored the whole COMMAND as authenticated because one of its
+    # two calls held the array, which is per-command reasoning applied to a
+    # per-call fact. Arm 1 would have succeeded, masking a permanently-401
+    # fallback -- a degraded probe reading as a healthy one.
+    if curl -sf -m 2 "${_qdrant_url}/readyz" &>/dev/null \
+       || curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 2 "${_qdrant_url}/collections" &>/dev/null; then
         _qdrant_ready=true
         break
     fi
