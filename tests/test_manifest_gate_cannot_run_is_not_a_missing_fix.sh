@@ -45,6 +45,12 @@
 # arm runs. If the block moves, the control fails loudly rather than the test
 # passing on an empty string.
 # ============================================================================
+# 🔴 NO `printf ... | grep -q` IN THIS FILE. It INVERTS a successful match.
+# Under `pipefail`, `grep -q` exits the moment it finds the needle, the writer
+# takes SIGPIPE, and the PIPELINE reports FAILURE on a match that succeeded.
+# The first version of this file had five of them and CI's
+# appcast-ship-wiring gate caught every one. Herestrings throughout: no pipe,
+# no inversion, and `grep -c` where a count is wanted.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -83,7 +89,7 @@ if [ ! -x "${PY39}" ]; then
     echo "  CANNOT-RUN  ${PY39} absent on this host. NOT counted as a pass."
 else
     a_out="$("${PY39}" "${PY}" --help 2>&1)"; a_rc=$?
-    if [ "${a_rc}" -eq 0 ] && ! printf '%s' "${a_out}" | grep -q 'TypeError'; then
+    if [ "${a_rc}" -eq 0 ] && ! grep -q 'TypeError' <<< "${a_out}"; then
         ok "3.9 imports and runs (rc=0, no TypeError)"
     else
         bad "3.9 rc=${a_rc}; TypeError present: $(printf '%s' "${a_out}" | grep -c 'TypeError')"
@@ -95,7 +101,7 @@ echo
 # --- ARM B -------------------------------------------------------------------
 echo "=== ARM B: no regression on a modern python ==="
 b_out="$("${PY_MODERN}" "${PY}" --help 2>&1)"; b_rc=$?
-if [ "${b_rc}" -eq 0 ] && printf '%s' "${b_out}" | grep -q 'usage:'; then
+if [ "${b_rc}" -eq 0 ] && grep -q 'usage:' <<< "${b_out}"; then
     ok "modern python rc=0 and prints usage (control: the run really happened)"
 else
     bad "modern python rc=${b_rc}, usage line missing"
@@ -125,7 +131,7 @@ else
     else
         bad "crash -> rc=${c_rc}; MUST be 2 or the Makefile blames the .app"
     fi
-    if printf '%s' "${c_out}" | grep -q 'it failed to look'; then
+    if grep -q 'it failed to look' <<< "${c_out}"; then
         ok "crash message says it failed to look, not that a fix is missing"
     else
         bad "crash message does not disclaim having examined the artefact"
@@ -194,10 +200,10 @@ run_arm() {
     local out; out="$(bash "${WORK}/branch.sh" "${rc}" 2>&1)"; local got=$?
     local why=""
     [ "${got}" -eq "${want_exit}" ] || why="exit ${got} != ${want_exit}"
-    if [ -n "${want_text}" ] && ! printf '%s' "${out}" | grep -q -- "${want_text}"; then
+    if [ -n "${want_text}" ] && ! grep -q -- "${want_text}" <<< "${out}"; then
         why="${why}; did not say '${want_text}'"
     fi
-    if [ -n "${forbid_text}" ] && printf '%s' "${out}" | grep -q -- "${forbid_text}"; then
+    if [ -n "${forbid_text}" ] && grep -q -- "${forbid_text}" <<< "${out}"; then
         why="${why}; WRONGLY said '${forbid_text}'"
     fi
     if [ -z "${why}" ]; then ok "rc=${rc} -> exit ${want_exit}, correct verdict"

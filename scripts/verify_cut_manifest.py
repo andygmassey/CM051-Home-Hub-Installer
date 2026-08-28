@@ -17,28 +17,32 @@
 # See cut-manifests/README.md for schema.
 # ============================================================================
 
-# 🔴 THIS IMPORT IS LMAD-CRITICAL, NOT COSMETIC. Do not remove it.
+# 🔴 PEP 604 (`str | None`) IS BANNED IN THIS FILE. USE Optional[...].
 #
-# This module annotates with `str | None` (PEP 604) in 18 places. That syntax
-# PARSES on 3.9 but is EVALUATED when each `def` executes at import time, so on
-# 3.9 the module dies with:
+# The shebang is `#!/usr/bin/env python3` and the wrapper `exec python3`, so THE
+# INTERPRETER IS WHATEVER PATH SAYS. macOS ships 3.9.6 at /usr/bin/python3, and
+# any caller with a tidied PATH selects it. On 3.9 a `str | None` in a def
+# signature is EVALUATED at import and raises:
 #
 #     TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
 #
-# ...at line 219, having examined NOTHING. `from __future__ import annotations`
-# makes every annotation a lazy string, so the module imports cleanly on 3.9.
+# ...at the first such def, having examined NOTHING. The traceback exits 1, and
+# gui/Makefile read exit 1 as "a required fix is missing from the built .app".
+# The gate accused the PRODUCT of a defect that was entirely in the caller's
+# shell, after a full build, sign and notarise cycle (2026-08-29).
 #
-# WHY THIS MATTERS MORE THAN A COMPATIBILITY NICETY. The shebang is
-# `#!/usr/bin/env python3` and the wrapper `exec python3`, so THE INTERPRETER IS
-# WHATEVER PATH SAYS. macOS ships 3.9.6 at /usr/bin/python3. Any caller with a
-# tidied PATH that puts /usr/bin first selects it. The traceback exits 1, and
-# gui/Makefile reads exit 1 as "a required fix is missing from the built .app".
+# 🔴 AND `from __future__ import annotations` IS NOT THE FIX HERE. It was tried
+# and it BROKE THE DATACLASS. That import stringifies every annotation, and
+# `dataclasses._is_type` then tries to resolve the string `'str'` against the
+# defining module -- which fails when the module was loaded via
+# `importlib.util.module_from_spec` WITHOUT being registered in `sys.modules`,
+# exactly how scripts/tests/test_verify_cut_manifest.py loads it. Measured on
+# CI, python 3.11.16: 20+ tests failed at `@dataclass` on line 178, none of
+# which had anything to do with the change. Optional[...] costs nothing and
+# touches no other machinery.
 #
-# So the gate accused the PRODUCT of a defect that was entirely in the caller's
-# shell -- after a full build, sign and notarise cycle. Measured 2026-08-29:
-#     /usr/bin/python3       3.9.6   -> TypeError at import, rc=1, 0 rows read
-#     /opt/homebrew/bin/python3 3.14.4 -> runs
-from __future__ import annotations
+#     /usr/bin/python3            3.9.6    <- what a tidied PATH selects
+#     /opt/homebrew/bin/python3   3.14.4   <- what the build wants
 
 import argparse
 import fnmatch
@@ -51,7 +55,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Optional, Union
 
 try:
     import yaml
@@ -239,7 +243,7 @@ def _grep_file(path: Path, pattern: str) -> int:
         return 0
 
 
-def _grep_tree(root: Path, pattern: str, only_path: str | None) -> int:
+def _grep_tree(root: Path, pattern: str, only_path: Optional[str]) -> int:
     if only_path:
         return _grep_file(root / only_path, pattern)
     if root.is_file():
@@ -1138,7 +1142,7 @@ def _repo_owner(source_repo: str) -> str:
     return source_repo.split("/", 1)[0]
 
 
-def _gh_token_for(owner: str) -> str | None:
+def _gh_token_for(owner: str) -> Optional[str]:
     """Resolve a gh token for `owner`, from the environment or `gh auth`.
 
     ENVIRONMENT FIRST, AND THAT ORDER IS THE FIX. `gh auth token --user X`
@@ -1184,7 +1188,7 @@ def _gh_token_for(owner: str) -> str | None:
     return tok or None
 
 
-def _gh_api_json(path: str, token: str | None) -> tuple[dict | list | None, str]:
+def _gh_api_json(path: str, token: Optional[str]) -> tuple[Optional[Union[dict, list]], str]:
     """Invoke `gh api {path}` and return (parsed_json, error_string).
 
     On any failure returns (None, "why"). Fail-closed by design.
@@ -1211,7 +1215,7 @@ def _gh_api_json(path: str, token: str | None) -> tuple[dict | list | None, str]
         return None, f"gh api {path} returned invalid JSON: {e}"
 
 
-def _matches_source_path(filename: str, patterns: list[str]) -> str | None:
+def _matches_source_path(filename: str, patterns: list[str]) -> Optional[str]:
     """Return the first glob in `patterns` that matches `filename`, else None.
 
     Uses fnmatch semantics extended so `**` spans directory separators (which
@@ -1229,7 +1233,7 @@ def _matches_source_path(filename: str, patterns: list[str]) -> str | None:
     return None
 
 
-def _extract_pinned_version(cm051_dir: Path, source: dict) -> tuple[str | None, str]:
+def _extract_pinned_version(cm051_dir: Path, source: dict) -> tuple[Optional[str], str]:
     """Extract the pinned version from `pinned_version_source`.
 
     Returns (version_or_None, error). Supports one shape today:
@@ -1254,7 +1258,7 @@ def _extract_pinned_version(cm051_dir: Path, source: dict) -> tuple[str | None, 
     return m.group(1), ""
 
 
-def _repo_is_readable(source_repo: str, token: str | None) -> tuple[bool, str]:
+def _repo_is_readable(source_repo: str, token: Optional[str]) -> tuple[bool, str]:
     """Can this token READ `source_repo` at all?
 
     The GitHub API answers 404 for a private repository the caller cannot
@@ -1302,7 +1306,7 @@ def _repo_is_readable(source_repo: str, token: str | None) -> tuple[bool, str]:
     return True, ""
 
 
-def _resolve_pin_commit(source_repo: str, tag: str, token: str | None) -> tuple[str | None, str]:
+def _resolve_pin_commit(source_repo: str, tag: str, token: Optional[str]) -> tuple[Optional[str], str]:
     """Resolve a tag to a commit SHA in `source_repo`.
 
     Handles both annotated tags (object.type == "tag" -> one hop through
@@ -1364,7 +1368,7 @@ GH_ASSET_DOWNLOAD_TIMEOUT_SECONDS = 300
 UNKNOWN_MARKER_PREFIX = "<UNKNOWN"
 
 
-def _fetch_asset_content(source_repo: str, asset_id: int, token: str | None,
+def _fetch_asset_content(source_repo: str, asset_id: int, token: Optional[str],
                          timeout: int = GH_API_TIMEOUT_SECONDS) -> tuple[bytes, str]:
     """Fetch a release asset's raw bytes via `gh api` with the octet-stream Accept
     header. Returns (bytes, error_string). On any failure returns (b"", "why")."""
@@ -1404,9 +1408,9 @@ def _resolve_local_sidecar_dir(cm051_dir: Path, raw: str) -> Path:
 
 
 def _fetch_build_info_sidecar(source_repo: str, tag: str, ctx: dict,
-                              local_sidecar_dir: str | None,
-                              token: str | None,
-                              ) -> tuple[dict | None, str, str]:
+                              local_sidecar_dir: Optional[str],
+                              token: Optional[str],
+                              ) -> tuple[Optional[dict], str, str]:
     """Locate + parse a build-info sidecar for `tag`.
 
     Search order:
@@ -1467,8 +1471,8 @@ def _fetch_build_info_sidecar(source_repo: str, tag: str, ctx: dict,
     return data, f"release:{sidecar_asset.get('name')}", ""
 
 
-def _find_tarball_asset(source_repo: str, tag: str, token: str | None,
-                        ) -> tuple[dict | None, str]:
+def _find_tarball_asset(source_repo: str, tag: str, token: Optional[str],
+                        ) -> tuple[Optional[dict], str]:
     """Locate the `.tar.gz` release asset for `tag` (excluding sidecars)."""
     release, err = _gh_api_json(f"repos/{source_repo}/releases/tags/{tag}", token)
     if err:
@@ -1485,7 +1489,7 @@ def _find_tarball_asset(source_repo: str, tag: str, token: str | None,
 
 
 def _compute_release_tarball_sha256(source_repo: str, tag: str,
-                                    token: str | None) -> tuple[str | None, str]:
+                                    token: Optional[str]) -> tuple[Optional[str], str]:
     """Download the tarball asset for `tag` and return its SHA-256 hex digest."""
     tarball, err = _find_tarball_asset(source_repo, tag, token)
     if err:
@@ -1509,7 +1513,7 @@ class _SidecarCheck:
 
 
 def _verify_sidecar_matches_pin(source_repo: str, tag: str, pin_sha: str,
-                                proof: dict, ctx: dict, token: str | None,
+                                proof: dict, ctx: dict, token: Optional[str],
                                 ) -> _SidecarCheck:
     """Perform the sidecar cross-check inside a `pinned_artefact_freshness` entry.
 
