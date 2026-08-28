@@ -3797,3 +3797,72 @@ deferrals:
   # until_cut: v1.0.47, so nothing about the deferral changed -- only the
   # double-entry did. The reasoning above is kept because it is the detailed
   # record and the surviving row's `reason:` is the summary of it.
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # #551 LAUNCH HOLD -- the five open PRs of the #550 store-exposure fix stack.
+  #
+  # Andy held the launch on 2026-08-28 over #550: an unprivileged second macOS
+  # account read the knowledge graph with one curl and no credential. v1.0.49
+  # is frozen as a prerelease -- no tag, no cut, no promote -- so by definition
+  # none of this work is in it.
+  #
+  # ⚠️ THE until_cut BELOW IS A PREDICTION, NOT A BLESSED VERSION. No version
+  # after v1.0.49 has been chosen; Andy blesses cuts and has not. v1.0.50 is
+  # written because this field is PARSED and compared for expiry (`until_cut
+  # sorts strictly BEFORE the version being cut` -> EXPIRED), so a prose value
+  # here would sort unpredictably and read as a false expiry. It means "the
+  # first cut after the hold discharges", whatever that ends up being called.
+  #
+  # Recorded because the header of this file is right: you are allowed to decide
+  # something is not for this cut, you are NOT allowed to decide it silently.
+  # These five were open with no row, which is the silence, not the decision.
+  # ────────────────────────────────────────────────────────────────────────────
+  - ref: "CM051:#1215"
+    reason: >-
+      'test(security): make the store loopback gate monotone with #550, and
+      wire it'. Test-only, no product code, closes no port. Lights a security
+      assertion that had run NOWHERE since v1.0.10 and rewrites two assertions
+      that were pinned to the old spelling of the remedy and would have blocked
+      the #550 fix. Not in v1.0.49 because v1.0.49 is frozen under the hold.
+    until_cut: "v1.0.50"
+
+  - ref: "CM051:#1214"
+    reason: >-
+      'feat(security): Oxigraph proxy credential -- the store with no native
+      auth (#550)'. Oxigraph 0.4.6 has no API key, so its credential can only
+      live in the store-proxy; this adds a 0600 include so the token never
+      enters the world-readable 644 nginx conf. DEMONSTRATED on live containers
+      2026-08-28: Andy's exact attack curl returns 401 while an authenticated
+      SPARQL query returns 200. Default-OFF behind OSTLER_STORE_AUTH_ENFORCE,
+      so it changes nothing until that flag is flipped -- and the flag must not
+      be flipped until every store's client half is demonstrated.
+    until_cut: "v1.0.50"
+
+  - ref: "CM051:#1213"
+    reason: >-
+      'gate(ci): a guard the pipeline calls must actually be in the repo'.
+      CI tooling only, no shipped payload. Catches a register row pointing at a
+      missing or untracked file. Reviewed 2026-08-28; both its own failure modes
+      fire on injected mutations. One non-blocking finding recorded on the PR:
+      its population is the REGISTER, not the workflows, so the failure mode its
+      title names is not covered -- scope, not a defect.
+    until_cut: "v1.0.50"
+
+  - ref: "CM051:#1211"
+    reason: >-
+      'fix(install): port preflight decides by a real bind, not an owner-scoped
+      report (#1208)'. Fixes the lsof blindness that let every port preflight
+      GREEN on a two-account Mac -- the same class as #550 and the mitigation
+      the Oxigraph and Qdrant credentials both rely on for first-use safety.
+      Touches install.sh, so it is shipping behaviour. Reviewed 2026-08-28:
+      16/16 arms, and the coverage assertion caught an injected published port
+      absent from the preflight list.
+    until_cut: "v1.0.50"
+
+  - ref: "CM051:#1207"
+    reason: >-
+      'fix(install): private per-run diagnostics dir, not fixed /tmp path'.
+      Touches install.sh. Not reviewed by Archie at the time of writing; TNM
+      owns it. Recorded here so its absence from v1.0.49 is a decision on the
+      record rather than a silence, which is the whole point of this file.
+    until_cut: "v1.0.50"
