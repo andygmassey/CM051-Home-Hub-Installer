@@ -1,0 +1,74 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.49.
+#
+# ===========================================================================
+# WHY v1.0.49 EXISTS
+# ===========================================================================
+# v1.0.48 was cut, signed, notarised and published. It is not a failed cut.
+# v1.0.49 exists because v1.0.48's OWN BOM declared a residual and left it
+# open, in writing:
+#
+#   "RESIDUAL: the 87 inside Ostler.app are NOT fixed -- sparkle-embed seals
+#    that bundle two ship steps earlier, so their fix belongs at stage-payload."
+#
+# That residual is what v1.0.49 closes. The previous cut named the gap it was
+# shipping with; this cut is that gap being closed. That is the BOM working as
+# intended and it should be said plainly rather than treated as a defect.
+#
+# THE DISPOSITION OF v1.0.48's ROWS, STATED NOT ASSUMED:
+#   * cm051 7857e00c (whole-bundle pyc audit)  -- LANDED AND HELD. Not carried.
+#     Its capability installer_refuses_py_with_no_pyc stays required in the
+#     manifest as a regression guard. Only its RESIDUAL is carried, and it is
+#     carried as a NEW row below rather than by reopening the old one, because
+#     the fix is a different change in a different ship step.
+#   * HR015 email-ingest jetsam risk           -- CARRIED, unchanged, and its
+#     own text still says NOT A CUT BLOCKER. Carried honestly rather than
+#     quietly dropped. Its status was NOT re-measured for this cut; nobody
+#     should read its presence here as a fresh observation.
+#
+# 🟢 THE ARM-8 ROW IS GUARDED, AND THE GUARD IS ANCHORED TO INVOCATION.
+# No capability covered arm 8 when this BOM was first written. 76 ids were read;
+# two apparent matches were checked and BOTH were false positives (one matched
+# "OstlerInstaller" inside stdout_accumulator_is_bounded, one was a comment
+# line). Rather than ship the cut's most important fix with capability_id=none,
+# the manifest row was written in this same change --
+# installer_app_bytecode_seeded_before_reseal -- which bom_add.sh explicitly calls a
+# legitimate order of work.
+#
+# 🔴 THE PATTERN GUARDS ORDER, NOT MERE MEMBERSHIP, AND THAT DISTINCTION WAS
+# SETTLED BY MUTATION RATHER THAN BY ARGUMENT. gui/Makefile mentions
+# seed-installer-app-pyc TWICE: defining the target, and in the ship: chain. A
+# pattern matching the bare name cannot tell those apart, and a pattern merely
+# anchored to ship: cannot tell WHERE in the chain it sits. Position is the
+# correctness property here: the target must run AFTER `release` builds the
+# .app (it does not exist before that) and BEFORE sign-python-bundle reseals it
+# (or the .pyc land outside the seal).
+#
+# Two candidates were mutation-tested against the real Makefile:
+#
+#                                        real   A: unwired   B: moved early
+#   release seed-installer-app-pyc          1        0             0
+#     sign-python-bundle          (CHOSEN)
+#   ^ship:.*seed-installer-app-pyc          1        0             1  BLIND
+#
+#   mutation A control  'release sign-python-bundle'   0 -> 1, so A landed
+#
+# Mutation B moves the target before `release`, which BREAKS THE FIX while
+# leaving it in the ship chain. The anchored-membership pattern still passes.
+# The chosen pattern catches it. That is the whole argument, and it was the
+# proposer of the losing pattern who ran the mutation that killed it.
+#
+# STATED LIMIT, because a guard whose reach is oversold is worse than none:
+# method=source proves the fix is IN THE SOURCE THAT GETS PACKAGED. It does NOT
+# open the artefact and count .pyc. That half is CM051's CI gate
+# installer-app-pyc-seeded, whose two mutation controls fired RED with rc=1 on
+# the runner. Two instruments, two surfaces, and neither is claimed to be the
+# other.
+#
+# A row with capability_id=none is UNGUARDED and can silently regress. ONE such
+# row remains here: the carried HR015 jetsam row, which was also unguarded in
+# v1.0.48 and is not a cut blocker by its own text.
+# ===========================================================================
+what	repo	ref	landed	capability_id	verify	ticket
+🔴 THE RESIDUAL v1.0.48 DECLARED AND DID NOT CLOSE. v1.0.48 fixed the outer bundle (1448 -> 1801 .pyc, uncovered 0) and left 87 product .py with no .pyc INSIDE the nested Ostler.app, because sparkle-embed seals that bundle two ship steps before the seeder ran. TWO BYTECODE ROOTS EXISTED AND ONLY ONE WAS SEEDED. FIX (CM051 #1193): seed OstlerInstaller.app's bytecode at the point in the ship chain where the bundle is still writable. CI verdict on the fix branch: 64 checks pass, 0 fail, 0 pending, 1 skipping; merge-base identical to origin/main so the green ran against today's tree, not a stale fork point. The gate installer-app-pyc-seeded passed and BOTH its mutation controls fired RED with the right message and rc=1 on the runner in that same run, so the gate is known to be able to fail. 🟢 GUARDED by installer_app_bytecode_seeded_before_reseal, whose pattern pins the target BETWEEN release and sign-python-bundle and is mutation-tested in both directions; the manifest row lands in this same change.	cm051	c1bd50ff	yes	installer_app_bytecode_seeded_before_reseal	TBD	A2 2026-08-27 / CM051 #1193
+🟠 THE INSTALLER MUST BE ABLE TO NAME ITSELF. The v1.0.49 preflight refused at step 18 because the installer plist still read short=1.0.48 build=4800 while the cut was 1.0.49. This is the v1.0.39 defect (a DMG that cannot tell you which installer it is) and the first v1.0.43 tag was refused for it too, so it has now blocked three cuts. FIX (CM051 #1194): bump the ten real substitution sites (Info.plist x2, project.yml x4, pbxproj x4) to 1.0.49 / 4900. The hazard is the 33 HISTORICAL version strings that must NOT be rewritten (gui/Makefile ORM pin notes, sign-python-bundle.sh measurement comments, the test harness): a naive sed over gui/ destroys the record. Read the result back through plutil, never from file text.	cm051	TBD	no	installer_version_is_the_cut	TBD	TNM 2026-08-27 / CM051 #1194
+🟠 NOT A CUT BLOCKER, BUT A JETSAM RISK ON THE MINIMUM-SPEC BOX. CARRIED UNCHANGED FROM v1.0.48 AND NOT RE-MEASURED FOR THIS CUT. email-ingest holds ~11.5 GB for a ~14-minute tick, every ~70 minutes, on a 16 GB Mac mini, and one observed tick emitted ZERO messages while doing it. Same precondition that killed the Colima VM. Also reopens #870: a tick started 15:42:55 on 23 Aug never logged a finish, 31 minutes before the first jetsam, and that jetsam report's own largestProcess is VTDecoderXPCService, so the recorded chain (installer buffer -> jetsam -> Colima) is at best incomplete.	HR015	TBD	no	none	TBD	TNM 2026-08-24
