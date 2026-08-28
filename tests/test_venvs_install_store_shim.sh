@@ -162,8 +162,8 @@ verify() {
     # Order matters: upgrade leg first (it is the execution path), then the two
     # documented soft contracts, then whatever remains is fatal-safe.
     local n_upg n_fnlocal n_soft n_fatal rest
-    n_upg="$(printf '%s\n' "$sites" | grep -c '\$_py' || true)"
-    rest="$(printf '%s\n' "$sites" | grep -v '\$_py' || true)"
+    n_upg="$(printf '%s\n' "$sites" | _upgrade_leg "$f" | grep -c . || true)"
+    rest="$(printf '%s\n' "$sites" | _upgrade_leg "$f" --invert || true)"
     n_fnlocal="$(printf '%s\n' "$rest" | grep -c '\$python_bin' || true)"
     n_soft="$(printf '%s\n' "$rest" | grep -v '\$python_bin' | grep -c '|| true' || true)"
     n_fatal=$(( total - ${n_upg:-0} - ${n_fnlocal:-0} - ${n_soft:-0} ))
@@ -427,8 +427,26 @@ fi
 "$PYTHON3_BIN" -m venv "$OSTLER_VENV"
 FIXTURE
     # Upgrade leg above the seeder is EXEMPT: separate context, own root.
+    # Note the site is INSIDE a _upg_* function -- that membership is the key,
+    # not the interpreter variable.
     cat > "$d/order_upgrade_exempt" <<'FIXTURE'
-"$_py" -m venv "${_dir}/.venv"
+_upg_refresh_doctor() {
+    "$_py" -m venv "${_dir}/.venv"
+}
+_ostler_seed_store_auth_shim() {
+    cp shim "$1"
+}
+if ! _ostler_seed_store_auth_shim; then
+    warn "no shim"
+fi
+FIXTURE
+
+    # @TNM's SPOOF, as an arm. A main-path venv above the seeder, spelled
+    # `$_py` but NOT inside any _upg_* function. The old spelling key exempted
+    # this and went green with a bare main-path venv above the seeder --
+    # @A2's proven defect re-admitted through a variable name.
+    cat > "$d/order_spoofed_spelling" <<'FIXTURE'
+"$_py" -m venv "$OSTLER_VENV"
 _ostler_seed_store_auth_shim() {
     cp shim "$1"
 }
@@ -443,6 +461,8 @@ FIXTURE
     ocheck "ORDER seeder before main-path venv" $rc_pass   "$d/order_good"
     ocheck "ORDER upgrade leg above is exempt"  $rc_pass   "$d/order_upgrade_exempt"
     ocheck "ORDER seeder absent is CANNOT_RUN"  $rc_cannot "$d/multiline_good"
+    # The one that matters: spelling alone must NOT buy the exemption.
+    ocheck "ORDER \$_py outside _upg_ is NOT exempt" $rc_fail "$d/order_spoofed_spelling"
 
     printf '  self-test failures: %s\n' "$fails"
     rm -rf "$d"
@@ -467,6 +487,65 @@ FIXTURE
 # ⚠️ FLIP TRIGGER: change to "pass" in the PR that lands _ostler_make_venv and
 # hoists the sites. Not before, and never to silence a failure.
 OSTLER_VENV_EXPECT="${OSTLER_VENV_EXPECT:-fail}"
+
+# ── THE UPGRADE-LEG DISCRIMINATOR ─────────────────────────────────────
+#
+# ⛔ @TNM, on the version that keyed this off `$_py`:
+#
+#   "one predicate consulted twice, not two guards ... add a MAIN-PATH site
+#    spelled $_py -> n_upg 3->4 (floor met), n_fatal still 10 (floor met), and
+#    the ordering check exempts it too -> GREEN with a bare main-path venv
+#    above the seeder"
+#
+# He is right, and it is worse than a weak key: it was the SAME key doing the
+# ordering exemption AND the floor partition, so a single spelling defeated
+# both at once. Neither could catch the other's miss. That re-admits @A2's
+# proven defect through nothing but a variable name.
+#
+# 📌 A DISCRIMINATOR MUST NOT BE A SPELLING. The upgrade leg is not "code that
+# says \$_py"; it is code that lives INSIDE the Sparkle upgrade functions. So
+# the key is now TWO INDEPENDENT STRUCTURAL FACTS, both required:
+#
+#   1. the site's enclosing function is named `_upg_*`
+#   2. the site is inside the pinned upgrade REGION (line < the ceiling below)
+#
+# Renaming an interpreter variable now changes nothing. Smuggling a main-path
+# venv into the exemption needs a function literally named `_upg_*` wrapped
+# around it AND placed in the first thousand lines -- which is not an accident,
+# it is a deliberate act visible in the diff.
+#
+# ⚠️ THE REGION CEILING IS A PINNED ROW, same contract as the floors: the three
+# upgrade sites measured at 473, 496, 530 on main 36085632. Raise it only when
+# the Sparkle leg genuinely grows, in the PR that grows it, and say so.
+OSTLER_VENV_UPGRADE_REGION_END="${OSTLER_VENV_UPGRADE_REGION_END:-1000}"
+
+# Reads "N:line" rows on stdin, emits those in (or NOT in, with --invert) the
+# upgrade leg. $1 = the file the line numbers refer to.
+_upgrade_leg() {
+    local f="$1" invert="${2:-}"
+    awk -F: -v file="$f" -v ceiling="$OSTLER_VENV_UPGRADE_REGION_END" \
+        -v invert="$invert" '
+        BEGIN {
+            # Map every line to its nearest preceding function definition.
+            n = 0
+            while ((getline l < file) > 0) {
+                n++
+                if (match(l, /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*\(\)[[:space:]]*\{/)) {
+                    match(l, /[A-Za-z_][A-Za-z0-9_]*\(\)/)
+                    fn[n] = substr(l, RSTART, RLENGTH - 2)
+                }
+            }
+            close(file)
+            cur = ""
+            for (i = 1; i <= n; i++) { if (i in fn) cur = fn[i]; encl[i] = cur }
+        }
+        {
+            ln = $1 + 0
+            is_upg = (ln < ceiling && encl[ln] ~ /^_upg_/) ? 1 : 0
+            if (invert == "--invert") { if (!is_upg) print }
+            else                      { if ( is_upg) print }
+        }'
+}
 
 # ── ORDERING: no MAIN-PATH venv site may precede the seeder ───────────
 #
@@ -498,9 +577,13 @@ verify_seeder_ordering() {
         return $rc_fail
     fi
     sites="$(venv_sites "$f")"
+    # Structural key, not a spelling -- see _upgrade_leg. @TNM: keying this off
+    # `$_py` made the ordering exemption and the floor partition the SAME
+    # predicate, so one rename defeated both and re-admitted @A2's defect.
     offenders="$(printf '%s\n' "$sites" \
         | awk -F: -v c="$call" '$1 < c' \
-        | grep -v '\$_py' | grep -v '\$python_bin' || true)"
+        | _upgrade_leg "$f" --invert \
+        | grep -v '\$python_bin' || true)"
     local n_off; n_off="$(printf '%s\n' "$offenders" | grep -c . || true)"
     if [ "${n_off:-0}" -gt 0 ]; then
         printf 'FAIL: %s main-path venv site(s) run BEFORE the seeder at line %s\n' \
