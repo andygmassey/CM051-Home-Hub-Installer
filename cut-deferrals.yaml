@@ -3885,3 +3885,135 @@ deferrals:
       so the live uncovered count is SIX, not five -- the five plus this. The
       count only drops to zero when this merges.
     until_cut: "v1.0.50"
+
+  # ==========================================================================
+  # SIX LOCAL-ONLY BRANCHES, 2026-08-29 (Archie). check-orphans refused the
+  # v1.0.50 RC on these. They are STALE LOCAL BRANCHES IN ONE WORKING CHECKOUT,
+  # not orphaned fixes -- but the gate is RIGHT to refuse, because its predicate
+  # is "no remote ref AND no merged PR FOR THIS BRANCH NAME", and that is true.
+  #
+  # ALL SIX ARE PRESERVED before any of this: git bundle at
+  # ~/.ostler-branch-preservation/check-orphans-six-2026-08-29.bundle
+  # `git bundle verify` -> okay, 6 refs, "records a complete history", 13,415,102
+  # bytes. Nothing here is one rm -rf from gone any more, which was the gate's
+  # actual stated harm.
+  #
+  # ⚠️ THE EVIDENCE IS NOT UNIFORM AND I AM NOT PRETENDING IT IS. Two rows carry
+  # STRONG proof; four carry WEAKER proof. @TNM independently proved 2 of 6 false
+  # and that is exactly the two I can prove. Presence of a file on main is NOT
+  # proof that a specific branch's edit to it landed -- presence is not behaviour.
+  # ⚠️ TWO ROWS REMOVED 2026-08-29, minutes after being written. A2 verified
+  # a2-1222 and a2-pr1218 as LANDED and DELETED the branches, which is the
+  # better remedy than deferral. A deferral row pointing at a branch that no
+  # longer exists holds nothing and becomes exactly the "deferral nothing asks
+  # about" noise this file already carries 452 of. Deleting beats deferring
+  # whenever the work is provably in main. Control before removal: git
+  # rev-parse on both -> GONE. Bundle still holds them for recovery.
+  - ref: "CM051:archive/orm-session-wt-1018"
+    reason: >-
+      UPGRADED FROM PRESENCE TO A SPECIFIC MATCH, 2026-08-29. @TNM measured with
+      `gh pr list --state all` (positive control #1228 found, negative control no
+      hallucination) that this branch NEVER had a pull request -- open, closed or
+      merged. So it is NOT the squash-blind class the first two were; the gate is
+      RIGHT that it never went through review. I then tested the CONTENT rather
+      than the filename: eff367b1's distinctive comment text ("fallback, a
+      trailing ...") is PRESENT on origin/main's install.sh. The work reached main
+      by another route. Deferred, not deleted -- deletion of a branch I created,
+      when a deferral already unblocks, is needless risk. Bundled for recovery.
+    until_cut: "v1.0.51"
+  - ref: "CM051:archive/orm-session-wt-974merge"
+    reason: >-
+      WEAKER PROOF, archived ORM session worktree, 2 commits dated 2026-08-23
+      (BOM stages 2+3). Artefacts PRESENT on origin/main (scripts/sync_cut_bom.sh,
+      cuts/BOM_PIN, tests/test_cut_bom_is_fresh.sh). Presence is not proof of the
+      specific edit. Superseded in substance by the BOM work that did land.
+      Bundled for recovery. Re-adjudicate before v1.0.51.
+    until_cut: "v1.0.51"
+  - ref: "CM051:archive/orm-session-wt-bom23"
+    reason: >-
+      UPGRADED FROM PRESENCE TO A SPECIFIC MATCH, 2026-08-29. Never had a PR
+      (@TNM, controlled). Two of its four commits tested individually against
+      origin/main: 3f4ee61e's `if: always()` on the BOM steps is on main VERBATIM,
+      comment text included, at cut.yml:222/229/276; and for 5ecc8d41 main's
+      tests/test_runtime_ready_invariant.sh is +28/-1 AHEAD of this branch's
+      version, i.e. superseded rather than missing. Content reached main by
+      another route. Deferred, not deleted. Bundled for recovery.
+    until_cut: "v1.0.51"
+  - ref: "CM051:archive/orm-session-wt-nav"
+    reason: >-
+      WEAKER PROOF, archived ORM session worktree, 1 commit dated 2026-08-24
+      touching only scripts/cut_markers.manifest, which is PRESENT on origin/main.
+      Presence is not proof of the specific edit. Bundled for recovery.
+      Re-adjudicate before v1.0.51.
+    until_cut: "v1.0.51"
+
+  # ==========================================================================
+  # rb450 -- the ONE of @A2's five that is NOT the squash class, 2026-08-29.
+  # @A2 measured the rb*/pr* subset and correctly refused to lump this with the
+  # other four. I deleted those four after verifying them on my OWN instrument
+  # (PRs #1209/#1214/#1096 all MERGED: 2a886bd5 / c8047ea2 / 62f0c2ec; and for
+  # rb1098 a test-merge into origin/main produces a tree BYTE-IDENTICAL to main,
+  # so it adds nothing).
+  #
+  # ⚠️ MY INSTRUMENT AND @A2's DISAGREED ON rb1098 AND @A2 WAS RIGHT. My
+  # reverse-apply said "does not reverse-apply"; it failed on
+  # tests/TEST_WIRING.tsv, a churn-heavy file where context drifts. Their
+  # test-merge asks the RIGHT question ("would merging add anything?") where
+  # mine asks a narrower one ("is this patch byte-present?"). Resolved by
+  # running THEIR test myself rather than picking a favourite.
+  - ref: "CM051:rb450"
+    reason: >-
+      NOT the squash-blind class, and deliberately NOT deleted with the other
+      four. PR #450 is OPEN (not merged, not closed), head
+      fix/v1011-gui-blank-step-title, and that head EXISTS ON ORIGIN at
+      55772bb5 -- so this work has a durable remote home and the local rb450
+      (d1c12f03) is a stale rebase copy, not the only copy. Deleting a local
+      copy of IN-FLIGHT work is a different act from deleting a copy of landed
+      work, and only the second is safe. Deferred until #450 resolves: when it
+      merges this becomes the squash class and can be deleted; if it closes
+      unmerged, re-adjudicate the content. Bundled at
+      ~/.ostler-branch-preservation/check-orphans-rbpr-five-2026-08-29.bundle
+      (git bundle verify -> okay, 5 refs, complete history).
+    until_cut: "v1.0.51"
+  - ref: "CM031:#168"
+    reason: >-
+      iOS is not a DMG input, which is the same reason CM031 #158/#152/#144/#114/#33
+      are already deferred here. This one is NOT stale backlog though, and the row says
+      so rather than filing it with the others: it is the fix for the CM031 dark
+      population (board #495), and the fix direction is PIN DOWN, not up -- upstream
+      llama.cpp dropped the iOS simulator slice between b10360 and b10472, so #168 pins
+      llama.swift to 2.10360.0 exactly to restore it. Deferring it does not make the
+      simulator slice any more broken than it already is, and merging it cannot change
+      one byte of the macOS DMG. Retire this row when the CM031 lane reopens after the
+      Hub ships; it is a real fix waiting on the right cut, not abandoned work.
+    until_cut: "v1.0.52"
+  - ref: "daemon:archie/219-v2"
+    reason: >-
+      CM061 Pro write-actions work (actor family v1, calendar-writer + comms-drafter,
+      durable idempotency ledger, per-kind manifest confirm floor). Six commits, mine,
+      and it is NOT v1.0 scope -- write actions are a Pro surface and nothing in this
+      cut consumes them. DEFERRED RATHER THAN DELETED, AND THE DATA-LOSS SHAPE IS NOW
+      CLOSED: the gate was right that this was LOCAL-ONLY with no remote ref, i.e. one
+      rm -rf from gone, exactly the condition the archive/wt-oa-credentials-vault-wt row
+      already warns about. It now has a durable remote home at
+      preservation/2026-08-29/archie-219-v2 (tip 508d7385), verified by ls-remote with a
+      negative control. I ALSO RETRACT MY OWN DIAGNOSIS HERE: I suspected both daemon
+      REDs were gate fabrications from the cross-org token scope. @TNM refuted that with
+      a one-command discriminator -- every gh-limb site increments `unverifiable` and is
+      disclosed in the run's CANNOT-VERIFY note, and that note is ABSENT from this run.
+      These say "LOCAL-ONLY branch, no remote ref", which is not the ancestry-fallthrough
+      path at all. The gate was right and I was wrong. Land it via a PR when the Pro lane
+      opens.
+    until_cut: "v1.0.52"
+  - ref: "daemon:archie/write-actions-actor-family-219"
+    reason: >-
+      SUPERSET ALREADY PRESERVED: all four of this branch's commits are ALREADY APPLIED
+      in archie/219-v2 by patch-id -- `git cherry archie/219-v2
+      archie/write-actions-actor-family-219` returns four `-` lines, meaning every patch
+      is present in the superset. So this is one lineage, not two, and 219-v2 is the tip
+      to keep. Preserved anyway rather than deleted, because deleting the only local copy
+      of unlanded work to make a gate quiet is the habit this gate exists to stop, and a
+      patch-id match is not a byte-identity proof. Durable remote home at
+      preservation/2026-08-29/archie-write-actions-actor-family-219 (tip 40dec17b),
+      verified by ls-remote with a negative control. Retire together with the 219-v2 row.
+    until_cut: "v1.0.52"
