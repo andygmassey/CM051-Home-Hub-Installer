@@ -471,6 +471,8 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
             local _py; _py="$(_upg_resolve_python3)" || { _upg_log "WARN: no python3 for doctor venv"; return 0; }
             if [[ ! -d "${_dir}/.venv" ]]; then
                 "$_py" -m venv "${_dir}/.venv" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || { _upg_log "WARN: doctor venv create failed"; return 0; }
+                _ostler_wire_store_auth_pth "${_dir}/.venv" "${_UPG_OSTLER_DIR:-${HOME}/.ostler}" \
+                    || warn "store-auth .pth not wired into "${_dir}/.venv" -- that venv reaches the data stores with NO credential"
             fi
             "${_dir}/.venv/bin/pip" install --quiet -r "${_dir}/requirements.txt" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
                 && _upg_log "doctor deps installed" || _upg_log "WARN: doctor pip failed (non-fatal)"
@@ -494,6 +496,8 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         mkdir -p "$_dir"
         cp -R "${_src}/." "$_dir/" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" || { _upg_log "WARN: knowledge cp failed"; return 0; }
         "$_py" -m venv "${_dir}/.venv" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || { _upg_log "WARN: knowledge venv create failed"; return 0; }
+        _ostler_wire_store_auth_pth "${_dir}/.venv" "${_UPG_OSTLER_DIR:-${HOME}/.ostler}" \
+            || warn "store-auth .pth not wired into "${_dir}/.venv" -- that venv reaches the data stores with NO credential"
         "${_dir}/.venv/bin/pip" install --quiet --upgrade pip >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || true
         "${_dir}/.venv/bin/pip" install --quiet "$_dir" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
             && _upg_log "knowledge installed into venv" || _upg_log "WARN: knowledge pip failed (non-fatal)"
@@ -528,6 +532,8 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         mkdir -p "$_dir"
         cp -R "${_src}/." "$_dir/" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" || { _upg_log "WARN: cm048 cp failed"; return 0; }
         "$_py" -m venv "${_dir}/.venv" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || { _upg_log "WARN: cm048 venv create failed"; return 0; }
+        _ostler_wire_store_auth_pth "${_dir}/.venv" "${_UPG_OSTLER_DIR:-${HOME}/.ostler}" \
+            || warn "store-auth .pth not wired into "${_dir}/.venv" -- that venv reaches the data stores with NO credential"
         "${_dir}/.venv/bin/pip" install --quiet --upgrade pip >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || true
         "${_dir}/.venv/bin/pip" install --quiet "$_sec" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
             || _upg_log "WARN: ostler_security install into cm048 venv failed"
@@ -2531,6 +2537,13 @@ _ostler_repair_venv_after_promote() {
         # surfaces the failure visibly via its own error path.
         return 0
     fi
+    # #550: wired AFTER the failure branch, not beside the create. This is the
+    # only one of the 15 sites whose creation is an `if !` condition, so an
+    # inserted-on-the-next-line call would have run on the FAILURE path too,
+    # against a venv that does not exist. Same reason the automated pass left
+    # this one alone and it was done by hand.
+    _ostler_wire_store_auth_pth "$venv_dir" \
+        || warn "store-auth .pth not wired into $venv_dir -- that venv reaches the data stores with NO credential"
 
     # Reinstall the packages that Phase 2 + Phase 3.6 put into the
     # pre-promote venv, so post-promote import sites + deployed
@@ -6486,6 +6499,165 @@ if [[ -z "${PYTHON3_BIN:-}" ]]; then
     export PYTHON3_BIN
 fi
 
+# ── store-auth shim (#550) ────────────────────────────────────────────
+# The module every Ostler venv needs on its sys.path so its clients present
+# a credential to Qdrant and Oxigraph. Without it a client reaches the store
+# bare, which is the exact hole a second local account walked through.
+#
+# ⚠️ SEEDED AS A FUNCTION, NOT A BARE cp, BECAUSE THE ORDERING BITES -- AND
+# ⚠️ SEEDED HERE, NOT BESIDE THE OTHER lib/ COPIES AT ~10275.
+#
+# My first placement put this next to ostler-container-engine.sh and its own
+# comment claimed FOUR venv sites lived above it. @A2 measured SIX, and the
+# two I missed are MAIN PATH:
+#
+#     :473 :496 :530   upgrade leg   (I had these)
+#     :2529            fn-local      (I had this)
+#     :6495            $OSTLER_VENV  ⬅ MISSED, ordinary top-level main path
+#     :6638            $FDA_VENV     ⬅ MISSED, ordinary top-level main path
+#
+# He proved the consequence by executing the shape rather than reasoning about
+# it: the seeder does not EXIST as a function until its definition is reached,
+# so a venv built ~3,800 lines earlier gets "command not found", then a failed
+# cp, then ERR-06-STORE-SHIM-SEED. That is the same hard abort I warned about
+# an hour earlier, moved one layer in. `|| true` on the call does not save it;
+# the missing FILE is what aborts.
+#
+# So it is defined and called HERE, above the first main-path venv site
+# (:6495, the ostler_security block immediately below). Both dependencies are
+# already bound: SCRIPT_DIR at :2982/:2985, OSTLER_DIR via _ostler_set_paths
+# at :1872 and rebound at :2274, with no further rebind after that point.
+#
+# It stays a FUNCTION rather than a bare cp because the upgrade leg has its
+# own root: any caller may invoke it for its own context before it needs the
+# module.
+_ostler_seed_store_auth_shim() {
+    local _dest_root="${1:-${OSTLER_DIR:-${HOME}/.ostler}}"
+    local _src="${SCRIPT_DIR}/lib/ostler_store_auth.py"
+    [[ -f "$_src" ]] || return 1
+    mkdir -p "${_dest_root}/lib" 2>/dev/null || return 1
+    cp "$_src" "${_dest_root}/lib/ostler_store_auth.py" || return 1
+    # 0644 deliberately: this file holds NO secret. It READS one at runtime
+    # from ~/.ostler/secrets (0600). Shipping it world-readable is correct;
+    # shipping the secret inside it would be the #912 class with a credential.
+    chmod 0644 "${_dest_root}/lib/ostler_store_auth.py" 2>/dev/null || true
+    return 0
+}
+if ! _ostler_seed_store_auth_shim; then
+    warn "store-auth shim not staged from ${SCRIPT_DIR}/lib/ostler_store_auth.py"
+    warn "  venvs created after this point reach the data stores with no credential."
+fi
+
+# ── and now the half that makes the shim RUN (#550) ───────────────────
+#
+# ⚠️ THE SEEDER ABOVE ONLY PUTS THE FILE ON DISK. NOTHING IMPORTS IT.
+#
+# Measured 2026-08-28: `ostler_store_auth` appeared 4 times in this file, all
+# four inside the seeder -- one `cp` and one `chmod`. A copied module that no
+# interpreter loads patches nothing, and every client keeps reaching the stores
+# bare. 📌 MERGED is not DELIVERED is not RUN, and this was stuck on the third
+# gate while looking finished on the second.
+#
+# A `.pth` in a venv's site-packages is the one hook that fires with no
+# cooperation from the client: CPython's `site` module execs any line beginning
+# with `import` at interpreter startup, before user code. That is what makes
+# this work for CM041 / CM024 / CM052 / doctor WITHOUT four separate client PRs
+# -- which is exactly the prerequisite `OSTLER_STORE_AUTH_ENFORCE` names in its
+# own warn text at :11427 as the reason it cannot be flipped on.
+#
+# FAILURE MODE, MEASURED NOT ASSUMED (2026-08-28, python3.14 venv):
+#   shim present  -> module loads, interpreter runs
+#   shim DELETED  -> site.addpackage catches it, prints the traceback to
+#                    stderr, says "Remainder of file ignored", and the
+#                    interpreter STILL EXITS 0.
+# A broken .pth is therefore loud but not fatal. That mattered enough to test
+# before shipping it: a .pth that aborted the interpreter would brick every
+# Python in the venv, which is a far worse failure than the one being fixed.
+#
+# The lib path is written ABSOLUTE at install time rather than as `~`, because
+# OSTLER_DIR is not always ${HOME}/.ostler and a tilde would silently resolve
+# to a different directory for a differently-rooted install.
+_ostler_wire_store_auth_pth() {
+    local _venv="$1"
+    local _root="${2:-${OSTLER_DIR:-${HOME}/.ostler}}"
+    [[ -n "$_venv" && -x "${_venv}/bin/python3" ]] || return 1
+    local _sp
+    # Ask the interpreter, never guess "lib/pythonX.Y/site-packages": the
+    # version component moves under us and a guessed path writes a .pth that
+    # nothing ever reads -- silently reproducing the very defect above.
+    _sp="$("${_venv}/bin/python3" -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null)" || return 2
+    [[ -n "$_sp" && -d "$_sp" ]] || return 2
+    # ⚠️ PIN BOTH HALVES, not just the module path.
+    #
+    # The shim resolves its secrets from OSTLER_SECRETS_DIR, defaulting to
+    # ~/.ostler/secrets. This installer's OSTLER_DIR is CONFIGURABLE. So on any
+    # box where OSTLER_DIR is not ~/.ostler, a .pth that set only sys.path would
+    # load the shim from the right place and send it looking for credentials in
+    # the wrong one -- it would find nothing, add no header, and every store call
+    # would go out bare. Loudly loaded, silently useless.
+    #
+    # Found by measurement, not by reading: the first behavioural run set
+    # OSTLER_DIR (which the shim ignores) and reported "no credential attached".
+    # That looked exactly like a broken shim. It was a broken TEST. The shim
+    # attaches the credential correctly once pointed at the right directory
+    # (positive control: hand-sent header echoed; negative control: absent).
+    #
+    # 📌 Two artefacts, one consumer. Setting only one of them is the failure,
+    # and it cannot be caught by a control that varies the same variable twice.
+    # `setdefault`, never assignment: a caller that has deliberately exported
+    # OSTLER_SECRETS_DIR keeps its own value.
+    printf 'import sys, os; sys.path.append(%s); os.environ.setdefault("OSTLER_SECRETS_DIR", %s); __import__("ostler_store_auth")\n' \
+        "\"${_root}/lib\"" "\"${_root}/secrets\"" > "${_sp}/ostler_store_auth.pth" || return 3
+    chmod 0644 "${_sp}/ostler_store_auth.pth" 2>/dev/null || true
+    return 0
+}
+
+# ── store credential for SHELL callers (#550) ─────────────────────────
+# The Python shim above is a Python mechanism, so every `curl` in this file is
+# outside it BY CONSTRUCTION. Measured on this branch: 6 curl callers dial a
+# store port and NONE carries a credential (`curl.*api-key` = 0 repo-wide, so
+# that zero is real rather than a broken predicate).
+#
+# 🔴 WHY A -K FILE AND NOT `-H "Authorization: Bearer $TOK"`.
+#    argv is world-readable. `ps -axww` shows a -H value to EVERY local
+#    account, which is precisely the attacker #550 is about. @A2 measured both
+#    forms against a stalled listener so curl was observable:
+#        curl -H "...$TOK"   token_in_argv=1   LEAKS
+#        curl -K <file>      token_in_argv=0   clean
+#    `-K`'s argument is a PATH, which is harmless to expose.
+#
+# 🔴 WHY umask AND NOT chmod AFTER.
+#    `printf > f; chmod 600 f` leaves the file 644 WITH THE TOKEN ALREADY ON
+#    DISK for the interval between the two. A loop by a second account reads it
+#    in that window. The umask subshell means it is never briefly readable.
+#
+# ⚠️ THE ARRAY IS EXPANDED WITH THE `+` GUARD AT EVERY CALL SITE, AND THAT IS
+#    NOT STYLE. Measured on /bin/bash 3.2.57 (what `#!/usr/bin/env bash`
+#    resolves to on a stock Mac) under this file's own `set -Eeuo pipefail`:
+#        a=(); printf '%s' "${a[@]}"   ->  a[@]: unbound variable, ABORT
+#    Enforcement is default-OFF today, so the array is EMPTY on every current
+#    install. A naive "${arr[@]}" would abort every one of them.
+_OSTLER_STORE_CURL_ARGS=()
+
+_ostler_write_store_curl_config() {
+    local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    local _tok_file="${OSTLER_DIR}/secrets/oxigraph_token" _tok
+    _tok="$(cat "$_tok_file" 2>/dev/null)" || _tok=""
+    if [ -z "$_tok" ]; then
+        # FAIL CLOSED, and delete any STALE config: a credential file that
+        # outlives its token is worse than none, because callers keep
+        # presenting a secret the store no longer honours.
+        rm -f "$_conf" 2>/dev/null || true
+        _OSTLER_STORE_CURL_ARGS=()
+        return 1
+    fi
+    mkdir -p "${OSTLER_DIR}/secrets" 2>/dev/null || true
+    ( umask 0077; printf 'header = "Authorization: Bearer %s"\n' "$_tok" > "$_conf" ) || return 2
+    _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    return 0
+}
+_ostler_write_store_curl_config || true
+
 HAS_SECURITY_MODULE=false
 if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/pyproject.toml" ]]; then
     # macOS Sonoma+ blocks pip3 install to system Python, so use a venv.
@@ -6493,6 +6665,8 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
     OSTLER_VENV="${OSTLER_DIR}/.venv"
     if [[ ! -d "$OSTLER_VENV" ]]; then
         "$PYTHON3_BIN" -m venv "$OSTLER_VENV"
+        _ostler_wire_store_auth_pth "$OSTLER_VENV" \
+            || warn "store-auth .pth not wired into "$OSTLER_VENV" -- that venv reaches the data stores with NO credential"
     fi
     OSTLER_PIP="${OSTLER_VENV}/bin/pip"
     OSTLER_PYTHON="${OSTLER_VENV}/bin/python3"
@@ -6636,6 +6810,8 @@ if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
     FDA_VENV="${OSTLER_DIR}/.venv"
     if [[ ! -d "$FDA_VENV" ]]; then
         "$PYTHON3_BIN" -m venv "$FDA_VENV"
+        _ostler_wire_store_auth_pth "$FDA_VENV" \
+            || warn "store-auth .pth not wired into "$FDA_VENV" -- that venv reaches the data stores with NO credential"
     fi
     FDA_VENV_PIP="${FDA_VENV}/bin/pip"
     FDA_VENV_PYTHON="${FDA_VENV}/bin/python3"
@@ -10272,6 +10448,7 @@ if [[ -f "${SCRIPT_DIR}/lib/ostler-container-engine.sh" ]]; then
     cp "${SCRIPT_DIR}/lib/ostler-container-engine.sh" "${OSTLER_DIR}/lib/"
     chmod +x "${OSTLER_DIR}/lib/ostler-container-engine.sh"
 fi
+
 if [[ -f "${SCRIPT_DIR}/bin/ostler-engine-supervisor.sh" ]]; then
     cp "${SCRIPT_DIR}/bin/ostler-engine-supervisor.sh" "${OSTLER_DIR}/bin/"
     chmod +x "${OSTLER_DIR}/bin/ostler-engine-supervisor.sh"
@@ -12244,6 +12421,8 @@ fi
 OSTLER_VENV="${OSTLER_DIR}/.venv"
 if [[ ! -d "$OSTLER_VENV" ]]; then
     "$PYTHON3_BIN" -m venv "$OSTLER_VENV"
+    _ostler_wire_store_auth_pth "$OSTLER_VENV" \
+        || warn "store-auth .pth not wired into "$OSTLER_VENV" -- that venv reaches the data stores with NO credential"
 fi
 OSTLER_PIP="${OSTLER_VENV}/bin/pip"
 OSTLER_PYTHON="${OSTLER_VENV}/bin/python3"
@@ -15086,7 +15265,7 @@ fi
 # failure in this product. No item content is read or logged.
 enriched_count() {
     [ -n "$ENRICH_NS" ] || { printf '%s' -1; return 0; }
-    curl -sf -m 5 \
+    curl -sf -m 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
         -H 'Content-Type: application/sparql-query' \
         -H 'Accept: application/sparql-results+json' \
         --data-binary "PREFIX pwg: <${ENRICH_NS}>
@@ -15326,8 +15505,16 @@ ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 _qdrant_url="${QDRANT_URL:-http://localhost:6333}"
 _qdrant_ready=false
 for _ in $(seq 1 30); do
+    # ⚠️ TWO CALLS, ONE COMMAND, AND THE ARMS NEED DIFFERENT THINGS (@A2).
+    # /readyz is exempt by measurement against the pinned image (200 keyless),
+    # so arm 1 stays BARE. /collections is behind the api-key and 401s, so
+    # arm 2 CARRIES the credential. I had these the wrong way round: my
+    # predicate scored the whole COMMAND as authenticated because one of its
+    # two calls held the array, which is per-command reasoning applied to a
+    # per-call fact. Arm 1 would have succeeded, masking a permanently-401
+    # fallback -- a degraded probe reading as a healthy one.
     if curl -sf -m 2 "${_qdrant_url}/readyz" &>/dev/null \
-       || curl -sf -m 2 "${_qdrant_url}/collections" &>/dev/null; then
+       || curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 2 "${_qdrant_url}/collections" &>/dev/null; then
         _qdrant_ready=true
         break
     fi
@@ -15343,18 +15530,18 @@ if [[ "$_qdrant_ready" == true ]]; then
     # clear named error at the database step rather than a mystery ERR-99
     # abort at "Importing your data" ~30 min later. One retry distinguishes
     # a persistent 401 (leak) from a one-off blip.
-    if ! curl -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
+    if ! curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
         sleep 2
-        if ! curl -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
+        if ! curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
             fail_with_code "ERR-06-STORE-AUTH-LEAK" "$MSG_FAIL_STORE_AUTH_LEAK"
         fi
     fi
     for _coll in people conversations preferences evernote_knowledge; do
         # Already present? Leave it untouched (never clobber real data).
-        if curl -sf -m 5 "${_qdrant_url}/collections/${_coll}" &>/dev/null; then
+        if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_qdrant_url}/collections/${_coll}" &>/dev/null; then
             continue
         fi
-        if curl -sf -m 10 -X PUT "${_qdrant_url}/collections/${_coll}" \
+        if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 10 -X PUT "${_qdrant_url}/collections/${_coll}" \
             -H 'Content-Type: application/json' \
             -d '{"vectors": {"size": 768, "distance": "Cosine"}}' &>/dev/null; then
             info "$(printf "$MSG_INFO_QDRANT_COLLECTION_PRECREATED" "${_coll}")"
@@ -15637,6 +15824,8 @@ if [[ "$HAS_PIPELINE" == true ]]; then
     if [[ -n "$PIPELINE_REQS" ]]; then
         if [[ ! -d ".venv" ]]; then
             "$PYTHON3_BIN" -m venv .venv
+            _ostler_wire_store_auth_pth .venv \
+                || warn "store-auth .pth not wired into .venv -- that venv reaches the data stores with NO credential"
         fi
         # CX-31 (2026-05-24): capture pip install output to a log so a
         # cryptography / wheel / network failure surfaces a real error
@@ -15816,6 +16005,8 @@ fi
 if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
     info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$CM048_VENV")"
     "$PYTHON3_BIN" -m venv "$CM048_VENV"
+    _ostler_wire_store_auth_pth "$CM048_VENV" \
+        || warn "store-auth .pth not wired into "$CM048_VENV" -- that venv reaches the data stores with NO credential"
 
     info "$MSG_INFO_INSTALLING_CM048_PIPELINE_INTO_VENV"
     "$CM048_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
@@ -16212,6 +16403,8 @@ if [[ -d "$CM019_BUNDLE" && -f "$CM019_BUNDLE/requirements.txt" ]]; then
         mkdir -p "$CM019_DIR"
         cp -R "${CM019_BUNDLE}/" "$CM019_DIR/"
         "$PYTHON3_BIN" -m venv "$CM019_VENV"
+        _ostler_wire_store_auth_pth "$CM019_VENV" \
+            || warn "store-auth .pth not wired into "$CM019_VENV" -- that venv reaches the data stores with NO credential"
         "$CM019_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
         if "$CM019_VENV/bin/pip" install --quiet -r "${CM019_DIR}/requirements.txt" 2>/tmp/ostler-cm019-pip.log; then
             ok "$MSG_CM019_SETUP_DONE"
@@ -16506,7 +16699,7 @@ if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
     # the whole install at the bare assignment. `|| printf '0'` keeps the
     # command-substitution exit 0 so it degrades to its designed warn path.
     _PREFS_POINTS="$(
-        curl -sf -m 5 "${QDRANT_URL:-http://localhost:6333}/collections/preferences" 2>/dev/null \
+        curl -sf -m 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" "${QDRANT_URL:-http://localhost:6333}/collections/preferences" 2>/dev/null \
         | python3 -c 'import json,sys
 try:
     d=json.loads(sys.stdin.read())
@@ -16532,7 +16725,7 @@ except Exception:
         # counts-only, non-fatal shape as the readback above: a SPARQL
         # error degrades to 0 and prints nothing rather than aborting.
         _PREFS_ENRICHED="$(
-            curl -sf -m 5 \
+            curl -sf -m 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
                 -H 'Content-Type: application/sparql-query' \
                 -H 'Accept: application/sparql-results+json' \
                 --data-binary 'PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
@@ -16594,7 +16787,7 @@ except Exception:
         # no item content leaves the process; non-fatal (warn, never abort).
         _cat_count() {
             # Count points whose payload.category == $1. Empty/!ready -> 0.
-            curl -sf -m 5 -H 'Content-Type: application/json' \
+            curl -sf -m 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -H 'Content-Type: application/json' \
                 -X POST "${QDRANT_URL:-http://localhost:6333}/collections/preferences/points/count" \
                 -d "{\"exact\":true,\"filter\":{\"must\":[{\"key\":\"category\",\"match\":{\"value\":\"$1\"}}]}}" \
                 2>/dev/null \
@@ -16613,7 +16806,7 @@ except Exception:
         # Count points with no category at all (orphans that reach no Topic
         # page). Qdrant `is_empty` matches null/absent payload keys.
         _UNCAT_POINTS="$(
-            curl -sf -m 5 -H 'Content-Type: application/json' \
+            curl -sf -m 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -H 'Content-Type: application/json' \
                 -X POST "${QDRANT_URL:-http://localhost:6333}/collections/preferences/points/count" \
                 -d '{"exact":true,"filter":{"must":[{"is_empty":{"key":"category"}}]}}' \
                 2>/dev/null \
@@ -17753,6 +17946,8 @@ fi
 if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     if [[ ! -d "${DOCTOR_DIR}/.venv" ]]; then
         "$PYTHON3_BIN" -m venv "${DOCTOR_DIR}/.venv"
+        _ostler_wire_store_auth_pth "${DOCTOR_DIR}/.venv" \
+            || warn "store-auth .pth not wired into "${DOCTOR_DIR}/.venv" -- that venv reaches the data stores with NO credential"
     fi
     # CX-32 (2026-05-24): mirror CX-31 -- capture pip install output to a
     # log and surface tail via warn() per-line on failure. Pre-CX-32 a
@@ -18283,6 +18478,8 @@ fi
 if [[ -n "$KNOWLEDGE_SOURCE" && -f "$KNOWLEDGE_DIR/pyproject.toml" ]]; then
     info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$KNOWLEDGE_VENV")"
     "$PYTHON3_BIN" -m venv "$KNOWLEDGE_VENV"
+    _ostler_wire_store_auth_pth "$KNOWLEDGE_VENV" \
+        || warn "store-auth .pth not wired into "$KNOWLEDGE_VENV" -- that venv reaches the data stores with NO credential"
 
     info "$MSG_INFO_INSTALLING_OSTLER_KNOWLEDGE_INTO_VENV"
     "$KNOWLEDGE_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
@@ -18533,6 +18730,8 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
     info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$EMAIL_INGEST_VENV")"
     mkdir -p "$EMAIL_INGEST_VENV_DIR"
     "$PYTHON3_BIN" -m venv "$EMAIL_INGEST_VENV"
+    _ostler_wire_store_auth_pth "$EMAIL_INGEST_VENV" \
+        || warn "store-auth .pth not wired into "$EMAIL_INGEST_VENV" -- that venv reaches the data stores with NO credential"
 
     info "$MSG_INFO_INSTALLING_OSTLER_FDA_INTO_VENV"
     "$EMAIL_INGEST_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
@@ -18792,6 +18991,8 @@ _install_conversation_feed() {
         info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$venv")"
         mkdir -p "$base"
         "$PYTHON3_BIN" -m venv "$venv"
+        _ostler_wire_store_auth_pth "$venv" \
+            || warn "store-auth .pth not wired into "$venv" -- that venv reaches the data stores with NO credential"
         "$venv/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
         local pip_log="/tmp/ostler-${feed_key}-source-pip.log"
         local pip_ok=1
@@ -22156,7 +22357,7 @@ _hydrate_sentinel_record_cannot_run() {
 _hydrate_qdrant_points() {
     local collection="$1"
     local raw count
-    raw="$(curl -sf --noproxy '*' --max-time 5 \
+    raw="$(curl -sf --noproxy '*' --max-time 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
         "${QDRANT_URL:-http://localhost:6333}/collections/${collection}" \
         2>/dev/null || true)"
     if [[ -z "$raw" ]]; then
@@ -22641,10 +22842,10 @@ except Exception:
             local q_phone q_email phones emails
             q_phone='PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierType "phone" }'
             q_email='PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierType "email" }'
-            phones="$(curl -s --max-time 15 --data-urlencode "query=${q_phone}" \
+            phones="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -s --max-time 15 --data-urlencode "query=${q_phone}" \
                 -H "Accept: text/csv" "${_HYDRATE_OXIGRAPH}/query" 2>/dev/null \
                 | tail -n 1 | tr -dc '0-9' || true)"
-            emails="$(curl -s --max-time 15 --data-urlencode "query=${q_email}" \
+            emails="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -s --max-time 15 --data-urlencode "query=${q_email}" \
                 -H "Accept: text/csv" "${_HYDRATE_OXIGRAPH}/query" 2>/dev/null \
                 | tail -n 1 | tr -dc '0-9' || true)"
             phones="${phones:-0}"
@@ -23953,7 +24154,7 @@ except Exception:
     # How many chat-identifier facts landed in Oxigraph for this channel?
     local _q _landed
     _q="PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(?id) AS ?c) WHERE { ?id a pwg:PersonIdentifier ; pwg:identifierLabel \"${_idlabel}\" . }"
-    _landed="$(curl -s --get "${_CONV_GUARD_OX}/query" \
+    _landed="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -s --get "${_CONV_GUARD_OX}/query" \
         --data-urlencode "query=${_q}" \
         -H 'Accept: application/sparql-results+json' 2>/dev/null \
         | python3 -c "
@@ -23972,7 +24173,7 @@ except Exception:
 }
 # Only meaningful when Oxigraph is reachable; a down graph is reported
 # elsewhere and must not double-fire here.
-if curl -s -o /dev/null --max-time 5 "${_CONV_GUARD_OX}/" 2>/dev/null; then
+if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -s -o /dev/null --max-time 5 "${_CONV_GUARD_OX}/" 2>/dev/null; then
     _conv_guard_check whatsapp whatsapp_conversations.json WHATSAPP
     _conv_guard_check imessage imessage_conversations.json IMESSAGE
 fi
@@ -24467,7 +24668,7 @@ _INITIAL_HYDRATE_LOG=/tmp/ostler-initial-hydrate.log
 # Counts-only -- no name leakage off-machine.
 _initial_hydrate_qdrant_count() {
     local raw count
-    raw="$(curl -sf -m 5 "${_INITIAL_HYDRATE_QDRANT}/collections" 2>/dev/null || true)"
+    raw="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_INITIAL_HYDRATE_QDRANT}/collections" 2>/dev/null || true)"
     if [[ -z "$raw" ]]; then
         printf '0'
         return 0
@@ -25012,6 +25213,14 @@ gui_step_begin "health_check" "$MSG_STEP_RUNNING_HEALTH_CHECK" 3 "$CURRENT_STEP"
 # Phase 4 probes below can still only ever make things worse, never better.
 : "${HEALTHY:=true}"
 
+# ⚠️ DELIBERATELY BARE, and it is the ONLY bare store dial left in this file.
+# Qdrant's /healthz sits OUTSIDE the api-key by the vendor's own design, so a
+# credential here would be inert rather than protective. Contrast :7878 just
+# below: our Oxigraph check lives on `location /` and has NO exempt path, so a
+# bare liveness probe there 401s and reports a WORKING store as DOWN. That is
+# why that one is credentialled and this one is not -- the asymmetry is the
+# vendors', not ours. If Qdrant ever moves /healthz behind the key, this line
+# changes with it.
 if curl -sf http://localhost:6333/healthz &>/dev/null; then
     ok "$MSG_OK_QDRANT_HEALTHY"
 else
@@ -25019,7 +25228,7 @@ else
     HEALTHY=false
 fi
 
-if curl -sf http://localhost:7878/ &>/dev/null; then
+if curl -sf "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" http://localhost:7878/ &>/dev/null; then
     ok "$MSG_OK_OXIGRAPH_HEALTHY"
 else
     warn "$MSG_WARN_OXIGRAPH_NOT_RESPONDING"
@@ -25910,6 +26119,8 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
         if [[ ! -x "$_AICONV_BIN" ]]; then
             mkdir -p "$_AICONV_DIR"
             "$PYTHON3_BIN" -m venv "$_AICONV_VENV" >>"$_AICONV_LOG" 2>&1 || true
+            _ostler_wire_store_auth_pth "$_AICONV_VENV" \
+                || warn "store-auth .pth not wired into "$_AICONV_VENV" -- that venv reaches the data stores with NO credential"
             "$_AICONV_VENV/bin/pip" install --quiet --upgrade pip >>"$_AICONV_LOG" 2>&1 || true
             "$_AICONV_VENV/bin/pip" install --quiet "$_AICONV_SRC" >>"$_AICONV_LOG" 2>&1 || true
         fi

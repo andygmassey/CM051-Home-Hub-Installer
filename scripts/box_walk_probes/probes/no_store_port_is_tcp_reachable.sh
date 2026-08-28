@@ -32,9 +32,19 @@
 #     port the neighbour binds receives it
 #
 # So the assertion is topological: after the fix there is no TCP endpoint to
-# connect to, from ANY account including the owner's. The owner reaches the
-# stores over a unix socket in a 0700 directory, where the kernel does the
-# authorising and there is no credential in existence to steal.
+# connect to, from ANY account including the owner's.
+#
+# ⚠️ THE ROUTE THAT WOULD DELIVER THAT STATE IS DEAD, AND THIS BLOCK USED TO
+# NAME IT ANYWAY. It said the owner reaches the stores "over a unix socket in a
+# 0700 directory, where the kernel does the authorising". The measurement at
+# MUST_BE_CLOSED below kills that: a UDS created inside the colima VM crosses
+# the bind-mount as a FILE, not as a connection, so there is no UDS route for
+# ANY of these services. Every one of them runs in that VM.
+#
+# The assertion above is unchanged and still correct. What is gone is the means.
+# Leaving the dead means written here as though it were the plan is how the
+# ledger sends the next reader to build something that cannot work, so it is
+# struck rather than quietly deleted -- somebody has already tried it once.
 #
 # That is also why this probe does NOT need a second account. Before the fix
 # the ports answer everyone; after it they answer no one. One account can tell
@@ -243,7 +253,14 @@ run_probe() {
             probe_fail "TCP-reachable on loopback, therefore readable by every account on this Mac:${open_list}. #550 was demonstrated against 7878 with one unauthenticated curl."
             ;;
         PASS)
-            probe_pass "none of the ${n_checked} store/UI ports accepts a TCP connection; the stores are reachable only over the unix socket, where the 0700 directory is the authorisation"
+            # States ONLY what was measured. The previous wording explained the
+            # pass by saying the stores were "reachable only over the unix
+            # socket, where the 0700 directory is the authorisation" -- a route
+            # this same file measures as UNAVAILABLE (a UDS inside the colima VM
+            # crosses the bind-mount as a file, not a connection). A green
+            # verdict that hands the reader a false mechanism is worse than a
+            # terse one: it is the sentence that gets quoted into a ship note.
+            probe_pass "none of the ${n_checked} store/UI ports accepts a TCP connection from this account, with ${CONTROL_PORT} confirmed open in the same run so this is a measured refusal and not a blind probe. HOW they became unreachable is NOT asserted here -- read the per-port table in this file for the route each one actually took"
             ;;
         *)
             probe_cannot_run "adjudication was inconclusive for control='${c}' open='${open_list}'"

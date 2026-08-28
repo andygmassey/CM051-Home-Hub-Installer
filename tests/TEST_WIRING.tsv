@@ -276,6 +276,7 @@ test_status_ok_with_zero_payload_is_not_ok.sh	WIRED	.github/workflows/zero-paylo
 test_stay_awake_agent_survives_installer_exit.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_stderr_tail.sh	WIRED	.github/workflows/stderr-tail.yml
 test_step_end_does_not_report_a_timed_out_step_as_ok.sh	WIRED	.github/workflows/step-end-status-honesty.yml
+test_store_callers_authenticate.sh	WIRED	.github/workflows/venv-store-shim.yml
 test_stores_guard_fires.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_stores_publish_no_host_port.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_subscription_activation_path.sh	UNWIRED	-
@@ -324,6 +325,7 @@ test_vendor_pair_drift.py	WIRED	scripts/run_all_cut_gates.sh
 test_vendor_src_placeholder_unset.sh	WIRED	.github/workflows/cut.yml
 test_vendor_symbol_resolution.py	WIRED	.github/workflows/cut.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_venvs_install_store_shim.sh	WIRED	.github/workflows/venv-store-shim.yml
 test_verify_appcast_published.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_verify_ci_steps_are_maskless.sh	WIRED	.github/workflows/ci-maskless.yml
 test_verify_no_symbol_regression.sh	WIRED	.github/workflows/symbol-regression.yml

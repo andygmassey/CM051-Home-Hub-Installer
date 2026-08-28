@@ -1,0 +1,112 @@
+name: venv-store-shim
+
+# #550: every venv that ships must carry the store-auth shim, and the shim
+# must be seeded before anything that needs it.
+#
+# ⚠️ THIS FILE EXISTS BECAUSE THE GATE WITHOUT IT GATES NOTHING.
+#
+# tests/test_venvs_install_store_shim.sh was written with a pinned
+# expectation so it would "enforce from merge", and its own header cites @TNM
+# losing a gate to exactly this class -- scripts/verify_wired_paths_are_tracked.sh
+# is 0 bytes on main because it lives on an unmerged PR. I then shipped the
+# script with NO WORKFLOW, which is the same defect one step later: merged, but
+# never invoked. @TNM caught it on the PR within minutes.
+#
+# 📌 MERGED is not DELIVERED is not RUN. The script being correct, reviewed and
+# on main would still have proved nothing about install.sh, because nothing
+# would ever have executed it.
+#
+# Runs on ubuntu, and that is a KNOWN asymmetry rather than an oversight: the
+# gate asserts about install.sh, which only ever executes under BSD on macOS.
+# The gate is therefore written in POSIX-only constructs (no grep -P, no \b)
+# and was measured green under BOTH toolchains before landing -- BSD via
+# /usr/bin on macOS, GNU grep 3.11 in an ubuntu container. If a future edit
+# reaches for a GNU-only flag, the macOS half of that pair is the thing that
+# silently stops being true.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'lib/ostler_store_auth.py'
+      - 'tests/test_venvs_install_store_shim.sh'
+      - 'tests/test_store_callers_authenticate.sh'
+      # A gate must trigger on changes to ITSELF, or it can be quietly
+      # narrowed in the same PR that narrows it.
+      - '.github/workflows/venv-store-shim.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  venv-store-shim:
+    runs-on: ubuntu-latest
+    # Pure text analysis of one file. Seconds. The cap turns a runaway into a
+    # failed job rather than a 6-hour runner.
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --ci runs three things and fails if any disagrees:
+      #   1. the self-test (21 arms) -- the gate must pass its own suite
+      #   2. seeder ordering -- no main-path venv site may precede the seeder
+      #   3. the verdict against the PINNED expectation
+      #
+      # ⚠️ (3) IS CURRENTLY EXPECT=fail AND THAT IS DELIBERATE. install.sh
+      # still creates 15 venvs with no shim. The gate asserts that redness so
+      # it cannot be mistaken for protection, and so a 16th bare site turns
+      # this job red. When the hoist lands, this job goes red until
+      # OSTLER_VENV_EXPECT is flipped to "pass" IN THAT PR -- which is the
+      # point: progress has to be a deliberate act, not a silent one.
+      - name: every venv routes through the store-auth helper
+        run: /bin/bash tests/test_venvs_install_store_shim.sh --ci
+
+      # `if: always()` because this step is SKIPPED otherwise when the step
+      # above it fails, and ci-maskless catches exactly that shape. A syntax
+      # check that only runs while the gate is already green goes dark at the
+      # moment the gate is in trouble.
+      - name: the gate itself parses
+        if: always()
+        run: /bin/bash -n tests/test_venvs_install_store_shim.sh
+
+      # The payload is not shell, so `bash -n` says nothing about it. A shim
+      # that does not import is a venv that reaches the stores bare.
+      - name: the shim payload parses
+        if: always()
+        run: python3 -c "import ast,sys; ast.parse(open('lib/ostler_store_auth.py').read()); print('lib/ostler_store_auth.py parses')"
+
+  # The Python shim covers Python callers. install.sh's own `curl` calls are
+  # outside it BY CONSTRUCTION -- a Python import hook cannot reach a shell
+  # process. This is that other half, and it is a SEPARATE job so its verdict
+  # cannot be hidden by the venv job's deliberate red (OSTLER_VENV_EXPECT=fail).
+  #
+  # Unlike the venv job, this one is EXPECTED GREEN and enforces from merge:
+  # 19 calls, 17 credentialled, 2 measured exemptions, 0 bare. Population
+  # corroborated by three independent instruments (@ARCHIE, @A2, @TNM) before
+  # the floor was pinned.
+  store-callers-authenticate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: the gate passes its own suite
+        run: /bin/bash tests/test_store_callers_authenticate.sh --self-test
+
+      - name: every shell store call carries a credential
+        if: always()
+        run: /bin/bash tests/test_store_callers_authenticate.sh install.sh
+
+      - name: the gate itself parses
+        if: always()
+        run: /bin/bash -n tests/test_store_callers_authenticate.sh

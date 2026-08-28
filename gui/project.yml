@@ -215,6 +215,27 @@ targets:
           # Must be bundled flat alongside install.sh in Resources.
           cp "${SRCROOT}/../install.sh"                          "${DEST}/install.sh"
           cp "${SRCROOT}/../lib/progress_emitter.sh"             "${DEST}/lib/progress_emitter.sh"
+          # #550 (2026-08-28): ostler_store_auth.py is the store-auth shim.
+          # install.sh:6523 seeds it from "${SCRIPT_DIR}/lib/ostler_store_auth.py"
+          # into ${OSTLER_DIR}/lib, and a .pth in every venv imports it so the
+          # pinned Python clients authenticate to Qdrant/Oxigraph without four
+          # separate client PRs.
+          #
+          # ⚠️ WITHOUT THIS LINE THE WHOLE CHAIN IS INERT ON A CUSTOMER BOX.
+          # SCRIPT_DIR is Contents/Resources at install time, so an unbundled
+          # shim means the seeder's [[ -f "$_src" ]] fails, it returns 1, the
+          # caller warns, and EVERY venv reaches the data stores with NO
+          # credential -- silently, on exactly the machines the fix is for.
+          # The `contract` gate (scripts/check_install_sh_script_dir_coverage.py)
+          # caught this: it demands every ${SCRIPT_DIR}/X probe have a matching
+          # bundling line or a justified EXCEPTION. It was right and the gap
+          # was real.
+          #
+          # 📌 Same lib/ subfolder rule as progress_emitter.sh above, and the
+          # same class as the CX-34 note below: the file existed in the repo,
+          # the code that reads it was correct, and it never reached the
+          # artefact. MERGED is not DELIVERED is not RUN.
+          cp "${SRCROOT}/../lib/ostler_store_auth.py"            "${DEST}/lib/ostler_store_auth.py"
           # CX-34 (2026-05-24, Studio retest #21): write_pipeline_signals.py is
           # invoked by install.sh:6220 (Mail content probe) to write
           # ~/.ostler/state/pipeline_signals.json. Pre-CX-34 it was missing from
@@ -292,6 +313,7 @@ targets:
         inputFiles:
           - $(SRCROOT)/../install.sh
           - $(SRCROOT)/../lib/progress_emitter.sh
+          - $(SRCROOT)/../lib/ostler_store_auth.py
           - $(SRCROOT)/../lib/write_pipeline_signals.py
           - $(SRCROOT)/../lib/ostler-model-fit.sh
           - $(SRCROOT)/../lib/settling_progress.sh
@@ -301,6 +323,7 @@ targets:
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler_store_auth.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh
