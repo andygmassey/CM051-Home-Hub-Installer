@@ -1,0 +1,81 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.51.
+#
+# ===========================================================================
+# WHY v1.0.51 EXISTS
+# ===========================================================================
+# v1.0.50 WAS BUILT, WAS INSTALLED, AND WAS WALKED -- the first fresh-account
+# walk to get past the three-minute mark and reach real ingest. Its record
+# (walks/v1.0.50.tsv) reads verdict FAILED, fail 7. This cut carries the fixes
+# for what that walk found.
+#
+# WHY 51 AND NOT 50-POINT-SOMETHING. `git ls-remote --tags origin
+# 'refs/tags/v1.0.5*'` is EMPTY -- no v1.0.50 tag was ever pushed, the DMG was
+# cut by hand. But the IDENTIFIER is spent: the walked artefact reports 1.0.50
+# and walks/v1.0.50.tsv pins its sha256. Reusing it would put two different
+# binaries behind one version string, which is the #931 shape.
+#
+# 🔴 THE COUNT IS 7 RECORDED / 3 PREDICTED TO CLEAR / 0 MEASURED, AND THOSE
+# ARE THREE DIFFERENT WORDS. A merge cannot clear a row in a frozen record.
+# walks/v1.0.50.tsv will read fail 7 forever; it is a record of an artefact,
+# not of a repository. Nothing below is closure. Every row here is a PRESENCE
+# claim about this artefact -- gate one of three (merged / delivered / run) --
+# and the third gate is a fresh-account walk that has not happened.
+#
+# ⚠️ THE 7 ALSO OVER-COUNTS PRODUCT DEFECTS, MEASURED (board #574): two of the
+# seven failures share ONE cause, and one was not a product defect at all -- it
+# was the people probe calling Qdrant with no credential, getting 401, and
+# reporting "collection missing or unreadable" about a collection that
+# demonstrably exists. A probe accusing the product of the probe's own missing
+# credential. So the real product-defect count behind "fail 7" was lower than
+# the headline before any fix landed, and saying so is not softening the
+# record -- it is reading it correctly.
+#
+# ===========================================================================
+# WHAT IS DELIBERATELY *NOT* A ROW HERE, AND HOW THAT WAS MEASURED
+# ===========================================================================
+# CM051 #1268 (fa250743) fixed the uncredentialled people probe described
+# above. It is REAL work and it is on main, but it is NOT in this BOM, because
+# a BOM is a claim about what the DMG CONTAINS and that fix does not reach the
+# DMG. Measured, not assumed: `grep -c box_walk_probes gui/Makefile` returns 0
+# with rc=1, against a control (`install.sh`) returning 29 with rc=0 on the
+# same file -- so the predicate can see content there and the zero is real
+# absence. #1268 touched only scripts/box_walk_probes/ and scripts/tests/.
+#
+# ⚠️ AND THE FIRST TIME I RAN THAT CHECK IT WAS VOID. I grepped `gui/Makefile
+# Makefile 2>/dev/null` -- there is no root Makefile, and the 2>/dev/null ate
+# the error, so a read of ONE file that half-failed looked like a clean zero
+# across two. Same turn, `git log --merges` over the same range returned
+# nothing and I nearly read that as "no commits": these are SQUASH merges, so
+# --merges is a predicate that could not have returned non-zero. Two uniform
+# zeros, two broken predicates, neither of them absence.
+#
+# ===========================================================================
+# THE THREE CAPABILITY ROWS ARE NEW AND LAND IN THIS SAME CHANGE
+# ===========================================================================
+# bom_add.sh calls that a legitimate order of work, and warns at the write site
+# rather than refusing. All three were MUTATION-TESTED against their own
+# pre-fix parent commit before being written -- never against a line deleted by
+# hand -- with a control marker (OSTLER_FINAL_DIR) that must be non-zero in
+# BOTH arms so a zero cannot come from an unreadable file:
+#
+#   install_cm052_pip_stage_outside_bundle     present  fixed=1 unfixed=0
+#   fda_listed_never_synthesised_from_nudge    absent   fixed=0 unfixed=1
+#   engine_supervisor_plist_roots_at_final_dir present  fixed=2 unfixed=0
+#   control OSTLER_FINAL_DIR                            fixed=45 unfixed=38
+#
+# The FDA pattern is written WITHOUT quote characters (`_fda_listed=.listed.`)
+# even though the literal form discriminates identically. A pattern that must
+# survive shell quoting on its way to grep should not depend on it. The
+# quote-free form was measured to give the same fixed=0 / unfixed=1.
+#
+# 🟠 CARRIED, NOT RE-MEASURED, AND SAID SO. The HR015 email-ingest jetsam row
+# comes forward from v1.0.48/49/50 unchanged. It is STILL capability_id=none
+# and therefore STILL unguarded. Nobody re-measured it for this cut and its
+# presence here is not a fresh observation. It is carried because dropping an
+# open row from a fresh BOM is laundering with extra steps.
+# ===========================================================================
+what	repo	ref	landed	capability_id	verify	ticket
+🔴 THE INSTALLER BREAKS ITS OWN CODE SEAL DURING THE INSTALL, AND TCC MAKES THAT PERMANENT. _AICONV_SRC is "${SCRIPT_DIR}/cm052_ai_conversations" and in the .app layout SCRIPT_DIR is Contents/Resources, so a bare `pip install` of it builds IN PLACE and writes into the notarised bundle. MEASURED on the v1.0.50 fresh-account walk: codesign reported a sealed resource missing or invalid and named exactly 22 added files, 6 under cm052.egg-info/ and 16 under build/lib/src/cm052/, all inside Contents/Resources/cm052_ai_conversations. This matters beyond tidiness because TCC pins identifier+team: a grant the customer gave the bundle does not survive the bundle changing underneath it. FIX (#1266): route through _ostler_pip_install_pkg, which stages outside the bundle. This was the LAST unrouted bundle-rooted pip install -- the helper's own docstring records the v1.0.32 measurement of 346 unsealed files, so this is the remainder of that fix, not a new regression.	cm051	d4ee9de2	yes	install_cm052_pip_stage_outside_bundle	TBD	Archie 2026-08-30 / CM051 #1266 / board #422
+🔴 THE INSTALL TOLD THE CUSTOMER FULL DISK ACCESS WAS ALREADY GRANTED WHEN IT WAS NOT. The old code tested whether the FDA register-nudge had RUN and then assigned listed-ness from that -- it synthesised a fact it had not observed. REFUTED ON A LIVE FRESH-ACCOUNT WALK of v1.0.50: the nudge ran, logged success, and OstlerAssistant was absent from the Full Disk Access list. One invented boolean drove THREE customer-facing branches the wrong way -- it suppressed the `open -R` so the Finder drag-in route was never offered, printed "already listed, just switch it on" at a customer looking at a list without it, and dropped the drag instruction from the modal. The one route that might have worked was withheld BECAUSE the code had convinced itself the customer did not need it. The honest state is CANNOT-VERIFY, not PASS: the real probe reads TCC.db via sudo and `sudo -n` is unavailable on exactly the fresh install this fires on. Three states collapsed into two, same class as #558 and #574. FIX (#1267): delete the synthesis, log the nudge as an attempt, offer the route when we do not know. ⚠ A DELIBERATE COST: BW6 added the synthesis to stop a redundant Finder window stacking with the Tailscale sign-in, and that annoyance returns. A duplicate window is cosmetic; a customer who cannot grant FDA at all is a broken install.	cm051	d4ee9de2	yes	fda_listed_never_synthesised_from_nudge	TBD	Archie 2026-08-30 / CM051 #1267 / board #571
+🔴 A LAUNCHAGENT BAKED A /tmp STAGING PATH AND DIED AT THE CUSTOMER'S FIRST REBOOT. The com.ostler.engine-supervisor plist is written ABOVE the promote boundary and interpolated ${OSTLER_DIR}/${LOGS_DIR}, which on a fresh install still hold /tmp/ostler-prelaunch-<pid> -- every earlier promote call is conditional, and the earliest fires only on the SKIP_PHASE2 RE-RUN path. So on a re-run the promote HAD fired and the plist came out correct: THE DEFECT WAS INVISIBLE TO EXACTLY THE PERSON TESTING IT. Measured on the v1.0.50 fresh-account box. FIX (#1269): root at OSTLER_FINAL_DIR, which is bound once at the top of the file and never rebound, plus mkdir the logs dir because launchd resolves StandardOutPath at spawn and a missing directory is a spawn failure. 🟢 THE GUARD WAS THE REAL FINDING. #177 fixed this class for the two ollama agents and its gate's PASS message claimed "no shipped com.*ostler*.plist path resolves under /tmp" while its denominator was TWO PLISTS, HAND-TYPED. It now DISCOVERS all 14 with an anti-vacuity floor and a CANNOT-RUN arm. SCOPE, MEASURED, AND SMALLER THAN MY OWN FILING IMPLIED: 14 plists, 4 above the boundary, 2 already fixed by #177, 1 a quoted heredoc -- engine-supervisor was the only live one. A class of one remaining, not a sweep.	cm051	d4ee9de2	yes	engine_supervisor_plist_roots_at_final_dir	TBD	Archie 2026-08-30 / CM051 #1269 / board #573 #177
+🟠 NOT A CUT BLOCKER, BUT A JETSAM RISK ON THE MINIMUM-SPEC BOX. CARRIED UNCHANGED FROM v1.0.48/49/50 AND NOT RE-MEASURED FOR THIS CUT. email-ingest holds ~11.5 GB for a ~14-minute tick, every ~70 minutes, on a 16 GB Mac mini, and one observed tick emitted ZERO messages while doing it. Same precondition that killed the Colima VM. Also reopens #870: a tick started 15:42:55 on 23 Aug never logged a finish, 31 minutes before the first jetsam, and that jetsam report's own largestProcess is VTDecoderXPCService, so the recorded chain (installer buffer -> jetsam -> Colima) is at best incomplete. STILL capability_id=none, therefore STILL UNGUARDED and able to regress silently. Carried because dropping an open row from a fresh BOM is laundering with extra steps.	HR015	TBD	no	none	TBD	TNM 2026-08-24
