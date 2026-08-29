@@ -99,6 +99,7 @@ walk_horizon: v1.0.41
 | v1.0.47 | 2026-08-26 | deferred | ORM walked the artefact 2026-08-26 with scripts/walk_dmg.sh; arm 8b (#1092) imports an UNSEEDED product module and takes .pyc 1448 -> 1449 with codesign rc=1, VERDICT NO_GO. Deferred (not closed) by A2 under Andy's standing instruction to drive to a cut: the root cause is FIXED on CM051 main 7857e00c (#1093) and rides v1.0.48, but it is in NO artefact, so closing would be true about the repo and false about the DMG. | v1047-D001 |
 | v1.0.48 | 2026-08-27 | deferred | Archie walked the artefact on the walk box (box_fp 9b6a0022a46780ac), record at walks/v1.0.48.tsv, version_source measured(CFBundleShortVersionString) 1.0.48 / 4800 read via plutil ON THE BOX. VERDICT FAILED, qa_exit 1: phase 1 10 pass / 8 fail / 2 cannot-run of 20, phase 2 cut manifest 27 pass / 9 fail / 4 skip of 42. THE CUT'S OWN JOB PASSED: app_signature_survives_first_run is GREEN on the artefact, 1887 .pyc all unchecked-hash, corpus byte-identical 8644c1b53ca5, 353 product .py with 0 uncovered, live-trigger control fired (1 .pyc written OUTSIDE the bundle), 0 files added to a writable copy by importing its own product modules, codesign clean on BOTH verbs. That closes v1047-D001's ADD limb, measured on the artefact rather than in the source. DEFERRED (not closed) BECAUSE OF WHAT THE WALK COULD NOT SEE, NOT BECAUSE OF THE EIGHT FAILURES: the walk drag-copies the .app and never launches it, so install.sh did not run and the eight phase-1 failures describe an AUG 25 install of Ostler 0.7.1, not this DMG (see v1048-D001). Re-attribution independently confirmed by A2 via version strings and by mtimes with a control that moved. | v1048-D001 |
 | v1.0.49 |  | not_walked | Archie (2026-08-28). TAGGED d38f3320 -> a612a480 and NEVER INSTALLED BY ANYONE. Not walked, and deliberately not walked. Andy's launch hold (#551) landed over the #550 multi-account store exposure before any walker reached it, and the public download is still v1.0.41 (unchanged since 2026-08-22), so no customer and no operator has run this artefact. MEASURED: zero of the seven #550 merges are ancestors of a612a480. Walking it would therefore measure a tree that PREDATES every fix it would be walked to demonstrate -- a real walk producing a true result about the wrong subject, which is worse than no walk because it would read as evidence. There is no walks/v1.0.49.tsv and there should not be one. SUPERSEDED BY v1.0.50, which carries the ERR-06 Qdrant credential fix (#1226), the wiki-compiler Qdrant key (#1228), and the CM044 v0.1.28 image re-pin (#1229). The walk that matters is v1.0.50's and it has not happened either. | none |
+| v1.0.50 | 2026-08-29 | deferred | Archie 2026-08-30. Walk record walks/v1.0.50.tsv exists with verdict FAILED and qa_exit 1, so the rules table above admits closed or deferred and REFUSES not_walked. DEFERRED, not closed: four of the eight findings are fixed on CM051 main (d4ee9de2) and ride v1.0.51, but they are in NO artefact, so closing would be true about the repo and false about the DMG. The other four are open. THE HEADLINE COUNT OVER-STATES PRODUCT DEFECTS, measured not softened: fail 7 contains TWO probes with ONE cause (app_signature_survives_first_run and installed_bundle_seal_intact are both the cm052 pip build-in-place breaking the code seal) and ONE probe that was not measuring the product at all (people_seed_and_retrieval called Qdrant with no credential, got 401, and reported a collection missing that demonstrably exists). So seven recorded failures describe five distinct subjects, one of which is the instrument. Nothing here is measured closure: 7 recorded, 4 predicted to clear, 0 measured. A merge cannot clear a row in a frozen record, and walks/v1.0.50.tsv will read fail 7 permanently. The next walk is of a DIFFERENT artefact with a different sha256, which is #931 working as designed. | v1050-D001 v1050-D002 v1050-D003 v1050-D004 v1050-D005 v1050-D006 v1050-D007 v1050-D008 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -3595,3 +3596,170 @@ hazards handled). Neither is in v1.0.49's scope, which is arm 8 and nothing else
 walked as an ARTEFACT and that half is genuinely green. The install half has not
 been walked by anyone, and saying otherwise would be true about the DMG's bytes
 and false about the DMG's behaviour.
+
+
+### v1050-D001 -- the installer breaks its own code seal during the install, and TCC makes that permanent
+
+**TWO PROBES, ONE CAUSE.** `app_signature_survives_first_run` and
+`installed_bundle_seal_intact` both failed, and they are not two findings. Any
+count that reads `fail 7` as seven product defects is over-stating by at least
+one here.
+
+`_AICONV_SRC` is `${SCRIPT_DIR}/cm052_ai_conversations`, and in the `.app`
+layout `SCRIPT_DIR` is `Contents/Resources`. A bare `pip install` of a
+bundle-rooted source directory therefore builds IN PLACE and writes into the
+notarised bundle. Measured on the walk: `codesign` reported a sealed resource
+missing or invalid and named exactly **22 added files**, 6 under
+`cm052.egg-info/` and 16 under `build/lib/src/cm052/`, all inside
+`Contents/Resources/cm052_ai_conversations`.
+
+**WHY THIS IS WORSE THAN AN UNTIDY BUNDLE.** TCC pins identifier AND team, so a
+permission the customer granted does not survive the bundle changing underneath
+it. The customer grants Full Disk Access to a bundle that then stops being the
+bundle they granted it to.
+
+**FIXED ON MAIN, NOT IN AN ARTEFACT.** CM051 #1266 routes the call through
+`_ostler_pip_install_pkg`, which stages outside the bundle. This was the LAST
+unrouted bundle-rooted pip install: the helper's own docstring records the
+v1.0.32 measurement of 346 unsealed files, so this is the remainder of that
+fix, not a new regression. Guarded by capability
+`install_cm052_pip_stage_outside_bundle` (present, mutation-tested fixed=1 /
+unfixed=0).
+
+### v1050-D002 -- a LaunchAgent baked a /tmp staging path and dies at the customer's first reboot
+
+Probe `launchd_no_ephemeral_paths`. The `com.ostler.engine-supervisor` plist is
+written ABOVE the promote boundary and interpolated `${OSTLER_DIR}` and
+`${LOGS_DIR}`, which on a fresh install still hold
+`/tmp/ostler-prelaunch-<pid>`. `/tmp` is wiped at reboot, so the supervisor dies
+the first time the customer restarts.
+
+**THE DEFECT WAS INVISIBLE TO EXACTLY THE PERSON TESTING IT.** Every promote
+call earlier in the file is conditional, and the earliest fires only on the
+`SKIP_PHASE2` RE-RUN path. On a re-run the promote HAD fired, so the plist came
+out correct. Only a genuinely fresh install reaches that line with staging
+values still bound -- which is why this survived two cuts.
+
+**THE GUARD WAS THE SECOND FINDING.** #177 fixed this same class for the two
+ollama agents, and its gate's PASS message claimed "no shipped
+`com.*ostler*.plist` path resolves under /tmp" while its denominator was TWO
+PLISTS, HAND-TYPED. True of that incident, never true of the class.
+
+**SCOPE, MEASURED, AND SMALLER THAN MY OWN FILING IMPLIED:** 14 plist heredocs
+discovered, 4 above the boundary, 2 already fixed by #177, 1 a quoted heredoc
+that does not interpolate. `engine-supervisor` was the only live one. A class of
+ONE remaining, not the sweep I first described.
+
+**FIXED ON MAIN, NOT IN AN ARTEFACT.** CM051 #1269 roots at `OSTLER_FINAL_DIR`
+(bound once at the top of the file, never rebound), creates the logs directory
+because launchd resolves `StandardOutPath` at spawn so a missing directory is a
+spawn failure, and emits a `dbg` line recording the path actually baked -- the
+write used to emit nothing, and that silence is why a dead path survived. The
+guard now DISCOVERS all 14 with an anti-vacuity floor and a CANNOT-RUN arm.
+Guarded by `engine_supervisor_plist_roots_at_final_dir` (present, fixed=2 /
+unfixed=0).
+
+### v1050-D003 -- this failure was the INSTRUMENT, not the product
+
+Probe `people_seed_and_retrieval`. It called Qdrant with no credential, received
+**401**, and reported "collection missing or unreadable" about a collection that
+demonstrably exists. Store auth has been mandatory since #550/#1222, so the
+probe was accusing the product of the probe's own missing credential.
+
+**A 401 IS NOT A 404 AND NEITHER IS A MEASUREMENT OF THE PRODUCT WHEN YOU
+BROUGHT NO KEY.** The probe collapsed three states into two, which is the same
+class as #558 and #574. It now presents the install's OWN curl config via
+`-K`, so no secret is ever read, echoed or interpolated by the probe, and it
+adjudicates three ways:
+
+    401 + credential presented  -> FAIL        (a key the store refuses is real)
+    401 + no credential         -> CANNOT-RUN  (nothing was measured; accuse nobody)
+    404                         -> FAIL        (genuinely absent: real)
+
+**THIS ROW DOES NOT CLEAR A PRODUCT DEFECT, BECAUSE THERE WAS NOT ONE.** It
+corrects the record. CM051 #1268 fixed the probe, and deliberately has NO BOM
+row for v1.0.51: it touches only `scripts/box_walk_probes/` and
+`scripts/tests/`, which the DMG does not carry (`grep -c box_walk_probes
+gui/Makefile` = 0 rc=1, control `install.sh` = 29 rc=0 on the same file). An
+instrument fix that never reaches the artefact does not belong in a bill of
+materials for the artefact.
+
+The harness also gained EXACT-CODE expectations, because its `fail` meant "any
+non-zero" and could not tell 1 from 78 -- the same two-state reading of a
+three-state contract that caused the defect it was guarding.
+
+### v1050-D004 -- the install told the customer Full Disk Access was already granted when it was not
+
+Not attributable to a named failing probe: this was observed on the live
+fresh-account walk narrative, and saying so matters because a reader
+reconciling this section against `failed_probe` lines will otherwise look for
+one that is not there.
+
+The old code tested whether the FDA register-nudge had RUN and then assigned
+listed-ness from that. It synthesised a fact it had not observed. **REFUTED ON
+THE WALK:** the nudge ran, logged success, and OstlerAssistant was absent from
+the Full Disk Access list.
+
+**ONE INVENTED BOOLEAN DROVE THREE CUSTOMER-FACING BRANCHES, ALL THE WRONG
+WAY.** It suppressed the `open -R` so the Finder drag-in route was never
+offered; it printed "already listed, just switch it on" at a customer looking
+at a list that did not contain it; and it dropped the drag instruction from the
+modal. The one route that might have worked was withheld BECAUSE the code had
+convinced itself the customer did not need it.
+
+**AND VERIFYING INSTEAD IS STRUCTURALLY IMPOSSIBLE HERE.** The real probe reads
+TCC.db via sudo, and `sudo -n` is unavailable on exactly the fresh install this
+fires on. So the honest state is CANNOT-VERIFY, and the previous code answered
+a CANNOT-VERIFY with a PASS.
+
+**FIXED ON MAIN, NOT IN AN ARTEFACT.** CM051 #1267 deletes the synthesis, logs
+the nudge as an attempt rather than a confirmation, and offers the route when we
+do not know. **A DELIBERATE COST, STATED:** BW6 added the synthesis to stop a
+redundant Finder window stacking with the Tailscale sign-in, and that annoyance
+returns. A duplicate window is cosmetic; a customer who cannot grant Full Disk
+Access at all is a broken install. Guarded by
+`fda_listed_never_synthesised_from_nudge` (absent, fixed=0 / unfixed=1).
+
+### v1050-D005 -- the store-port probe reported BROKEN, and its self-test adjudicated its own red as a pass
+
+`broken_probe no_store_port_is_tcp_reachable`. BROKEN is a fourth state and it
+is not a pass: the probe could not reach a verdict about its subject.
+
+The probe's `--self-test` mode ended on `probe_pass`. A self-test whose purpose
+is to DEMONSTRATE the negative control fires must not terminate green, because
+then a genuinely broken adjudication and a working one print identically.
+CM051 #1269 changes the terminal to `probe_fail` with an explicit BROKEN arm,
+so the red it emits is labelled as the expected result of `--self-test` and
+cannot be mistaken for a finding.
+
+**Fixed on main, not in an artefact.** No capability row: the probe does not
+ship in the DMG, same reasoning as v1050-D003.
+
+### v1050-D006 -- assistant_answers_grounded: OPEN, unfixed, and not carried by v1.0.51
+
+Probe `assistant_answers_grounded` failed and **nothing in v1.0.51 addresses
+it.** Recording it as open rather than quietly omitting it, because a
+rollforward row that lists only the findings that were fixed is a status report
+dressed as a record.
+
+Related open board rows: #339 (assistant refuses benign input on the default
+16 GB model), #510 (the grounding measurement itself was taken at temp=0.0
+while the daemon ships temp=0.7, so the earlier 7/9-vs-9/9 figure was measuring
+the wrong configuration). The second is the reason this row does not yet carry
+a defensible pass/fail threshold: the harness is a controlled dimension and it
+was not controlled.
+
+### v1050-D007 -- freshness_panel_has_dates: OPEN, unfixed, and not carried by v1.0.51
+
+Probe `freshness_panel_has_dates` failed. Board #514 and #349: the panel has NO
+per-source date surface anywhere, and the earlier wrong-clock symptom was
+REPLACED rather than resolved -- Meetings and Contact now read "unknown" instead
+of a wrong date, which is more honest and still not a date. Nothing in v1.0.51
+touches it.
+
+### v1050-D008 -- usage_journal_producers: OPEN, unfixed, and blocked on something outside CM051
+
+Probe `usage_journal_producers` failed. Board #482 and #487: the ingestion
+producer landed, the ENRICHMENT producer has not, and it has two blockers of its
+own (the writer is absent from the wiki-compiler image, and a bind mount). Not
+addressed by v1.0.51 and not addressable inside CM051 alone.
