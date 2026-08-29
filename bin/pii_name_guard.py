@@ -578,8 +578,26 @@ def main() -> int:
         seen["PAIR"] += n
         if is_self:
             self_files += 1
+        # `and not is_self` is LOAD-BEARING and it is a FIX, not a widening.
+        # The selfcheck comment above says "PAIR arm only ... running the TOKEN
+        # and SHAPE arms over them turns the proof-of-detection into a finding".
+        # The code did not do that: TOKEN ran whenever a file was strict, and
+        # selfcheck was consulted ONLY for the PAIR baseline. MEASURED 2026-08-29,
+        # and one of the two pre-existing selfcheck rows was already half-dead:
+        #   bin/pii_name_guard.py                       selfcheck, NOT strict -> TOKEN skipped, comment held
+        #   vendor/ostler_fda/tests/test_no_unknown...  selfcheck AND strict  -> TOKEN ran, comment did NOT hold
+        # strict-membership is the discriminator, which is why one worked and
+        # one did not. The PAIR arm still runs over selfcheck files with NO
+        # baseline (see baseline_ok above), so a genuinely new name in a control
+        # corpus is still caught -- that is the protection that matters here.
         if is_strict:
+            # Counted on MEMBERSHIP, not on whether the TOKEN arm ran. Moving
+            # this inside the guard below would have made the DENOMINATOR print
+            # "STRICT tier 11" for a registry that matches 12 files -- a gate
+            # under-reporting its own scope is the failure this file exists to
+            # prevent, and I introduced it in this very commit.
             strict_files += 1
+        if is_strict and not is_self:
             tbad, tn = token_offenders(payload, reg, lexicon)
             ibad, imail, iphone = identifier_offenders(payload)
             seen["TOKEN"] += tn
