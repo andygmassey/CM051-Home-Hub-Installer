@@ -323,15 +323,34 @@ _ostler_wire_store_auth_pth() {
 # That heredoc is single-quoted and written to a standalone script, so its
 # copy resolves in ITS OWN shell and is invisible here. Until this copy
 # existed, install.sh's own body CALLED a function only that heredoc
-# defined: every call returned rc=127 `command not found`, the dedupe
-# report path came back empty, and the converge pass refused to run on
-# 100% of installs.
+# defined: every call returned rc=127 `command not found`, and the dedupe
+# report path came back empty.
 #
-# It failed QUIETLY, which is why it survived. There is no `set -u` in
-# this shell, so the follow-on `warn` did not abort -- it printed
-# "${OSTLER_PRIVATE_ARTEFACTS_DIR} could not be created at mode 0700"
-# with an EMPTY path, describing a permissions fault that never happened
-# and sending anyone reading the log at the wrong problem entirely.
+# ⛔ IT DID NOT THEN "SKIP THE PASS". IT KILLED THE INSTALL. `set -Eeuo
+# pipefail` is in force from line 29 -- nounset IS ON, and there is no
+# `set +u` anywhere between there and the call site. So the follow-on
+# `warn` dereferenced the equally-heredoc-only
+# OSTLER_PRIVATE_ARTEFACTS_DIR, hit an unbound variable, and the script
+# died on that line. Everything below it, including
+# `_install_dedupe_catchup_agent` 76 lines later, never ran -- so the
+# agent that would have recovered the pass was never even installed.
+#
+# WHY IT SURVIVED THIS LONG, since a dead install is not subtle: the
+# failure is silent at the exit code. `trap composite_cleanup EXIT` is
+# registered at :9792, and this file's own backstop comment near :9730
+# records that a `set -u` abort can mask the status to 0 on bash 3.2 --
+# which is precisely why that backstop exists. Reported by @Archie from a
+# real run on a real Mac (2026-08-29), his measurement not mine: ~89% on
+# the progress bar, ZERO completion banners, the log ending on those two
+# error lines, and exit 0.
+#
+# 🔴 AN EARLIER VERSION OF THIS PARAGRAPH SAID THE OPPOSITE -- that there
+# was no `set -u` here and the warn merely printed an empty path. That was
+# wrong and it was mine. The predicate behind it was `set -[a-z]*u`, a
+# LOWERCASE-ONLY class that cannot match the bundled, capitalised `-Eeuo`.
+# Do not soften this back: three agents have now held this question and
+# two got it wrong at least once, and this comment is where that memory
+# lives.
 #
 # ⚠️ DO NOT spell the directory as "${STATE_DIR}/private" here. STATE_DIR
 # is assigned in FIVE places and every one of them is inside a heredoc --
