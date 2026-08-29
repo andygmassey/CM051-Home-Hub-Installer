@@ -18053,6 +18053,32 @@ cat > "${OSTLER_DIR}/bin/ostler-uninstall" <<'UNINSTALLEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ── An abort must SAY SO (#563; the shape #1249 gave install.sh) ──
+#
+# This script runs `set -euo pipefail` and, until #563, carried ZERO trap
+# lines. Any unhandled non-zero status therefore killed it MUTE: rc=1,
+# nothing on stderr, nothing removed. That is exactly how #563 presented --
+# the customer saw the banner, saw no error, concluded the uninstall had
+# worked, and kept the containers, the LaunchAgents and both .apps.
+#
+# ${BASH_COMMAND} is the UNEXPANDED source text of the failing command, so a
+# command that references a secret renders the VARIABLE NAME and never its
+# value. It cannot leak one.
+#
+# BOUND, STATED RATHER THAN IMPLIED: `set -E` is deliberately NOT set, so
+# this does not fire inside function bodies or subshells. It covers the
+# TOP-LEVEL statements, which is where every removal action lives -- and
+# where the #563 site itself was: the failure happened in a subshell, but
+# the top-level assignment that consumed its status is what this reports.
+_ostler_uninstall_on_err() {
+    local rc="$1" line="$2" cmd="$3"
+    printf '\n  Uninstall FAILED at line %s (exit %s): %s\n' "$line" "$rc" "$cmd" >&2
+    printf '  The uninstall did not finish. Some components are still installed.\n' >&2
+    printf '  Please report the two lines above.\n' >&2
+    exit "$rc"
+}
+trap '_ostler_uninstall_on_err $? $LINENO "$BASH_COMMAND"' ERR
+
 # ── Argument parsing ───────────────────────────────────────────
 # Default: prompt the customer interactively. Two non-interactive
 # overrides are supported for scripted use (CI, beta-onboarding
@@ -18140,30 +18166,103 @@ fi
 # that mounts the same Documents folder) finds the wiki + the
 # transcripts intact.
 if [[ -d "$USER_FACING_ROOT" ]]; then
-    # File counts per subdir, shown before prompting so the
-    # customer sees what is at stake. Counts are best-effort:
-    # a permission error or an empty subdir reports 0.
+    # ── THE COUNT IS DECORATION. IT MUST NEVER STOP THE UNINSTALL. ──
+    #
+    # #563: it did. This block sits ABOVE every removal action -- above
+    # "Stopping services", above the LaunchAgent teardown, above both
+    # .app removals, above the ~/.ostler delete -- and every one of
+    # those is guarded with `|| true`. This was the one unguarded spot,
+    # so a failure here removed NOTHING, and did it in silence.
+    #
+    # THE OLD CODE CONTRADICTED ITS OWN COMMENT, which is why it
+    # survived review. The comment said
+    #     Counts are best-effort: a permission error or an empty
+    #     subdir reports 0.
+    # and the code was
+    #     find "$d" -type f 2>/dev/null | wc -l | tr -d ' '
+    # `2>/dev/null` hides find's MESSAGE, not its EXIT STATUS.
+    # ~/Documents is TCC-protected and a default Terminal has no Full
+    # Disk Access, so find exits non-zero; `pipefail` carries that out
+    # of the pipe, the command substitution inherits it, and `set -e`
+    # kills the script. A reader who trusts the comment never checks
+    # the status.
+    #
+    # `|| true` IS NOT THE FIX. It would turn a directory we could not
+    # read into a confident "Wiki: 0 pages" for a customer holding
+    # thousands -- a silent zero in place of a silent abort. There are
+    # THREE states here, not two: counted, genuinely empty, and
+    # could-not-look. The third is never rendered as a number.
+    #
+    # The function is deliberately SELF-CONTAINED: no helper calls, no
+    # names from the enclosing scope. Under `set -u` an unbound name
+    # would abort it, and tests lift it out and drive it alone.
     count_dir() {
         local d="$1"
-        if [[ -d "$d" ]]; then
-            find "$d" -type f 2>/dev/null | wc -l | tr -d ' '
-        else
-            echo 0
+        local listing
+        if [[ ! -d "$d" ]]; then
+            printf '0\n'
+            return 0
         fi
+        # The `if` captures find's status, so it can never escape into
+        # the caller. NOTE the split declaration above: writing
+        # `local listing="$(...)"` would mask that status behind
+        # `local`'s own 0 -- the same class of mistake as the one this
+        # block exists to fix.
+        if listing="$(find "$d" -type f -print 2>/dev/null)"; then
+            if [[ -z "$listing" ]]; then
+                printf '0\n'
+            else
+                printf '%s\n' "$listing" | wc -l | tr -d ' '
+            fi
+            return 0
+        fi
+        # find could not complete -- no permission on the directory, or
+        # a subdirectory it could not descend into. A partial count is
+        # not a count, and must not be shown as one.
+        printf 'unreadable\n'
+        return 0
     }
+
+    # A count that could not be taken is a STATE, not a number. This
+    # matches on "not all digits" rather than on one agreed token, so
+    # the two halves cannot drift apart: whatever the counter prints
+    # for a directory it could not read, it is not printed as a
+    # quantity.
+    render_count() {
+        case "$1" in
+            ''|*[!0-9]*) printf 'could not be read (needs Full Disk Access)\n' ;;
+            *)           printf '%s %s\n' "$1" "$2" ;;
+        esac
+    }
+
     WIKI_COUNT="$(count_dir "$USER_FACING_ROOT/Wiki")"
     TRANSCRIPTS_COUNT="$(count_dir "$USER_FACING_ROOT/Transcripts")"
     BRIEFS_COUNT="$(count_dir "$USER_FACING_ROOT/Daily-Briefs")"
     CAPTURES_COUNT="$(count_dir "$USER_FACING_ROOT/Captures")"
     EXPORTS_COUNT="$(count_dir "$USER_FACING_ROOT/Exports")"
 
+    COUNTS_INCOMPLETE=0
+    for _count in "$WIKI_COUNT" "$TRANSCRIPTS_COUNT" "$BRIEFS_COUNT" \
+                  "$CAPTURES_COUNT" "$EXPORTS_COUNT"; do
+        case "$_count" in
+            ''|*[!0-9]*) COUNTS_INCOMPLETE=1 ;;
+        esac
+    done
+    unset _count
+
     echo ""
     echo "  Your generated content at ${USER_FACING_ROOT}/:"
-    echo "    Wiki:          ${WIKI_COUNT} pages"
-    echo "    Transcripts:   ${TRANSCRIPTS_COUNT} files"
-    echo "    Daily briefs:  ${BRIEFS_COUNT} entries"
-    echo "    Captures:      ${CAPTURES_COUNT} items"
-    echo "    Exports:       ${EXPORTS_COUNT} items"
+    echo "    Wiki:          $(render_count "$WIKI_COUNT" pages)"
+    echo "    Transcripts:   $(render_count "$TRANSCRIPTS_COUNT" files)"
+    echo "    Daily briefs:  $(render_count "$BRIEFS_COUNT" entries)"
+    echo "    Captures:      $(render_count "$CAPTURES_COUNT" items)"
+    echo "    Exports:       $(render_count "$EXPORTS_COUNT" items)"
+    if [[ "$COUNTS_INCOMPLETE" -eq 1 ]]; then
+        echo ""
+        echo "  Some counts above could not be taken. That is this Terminal"
+        echo "  lacking Full Disk Access to ~/Documents, NOT an empty folder."
+        echo "  The uninstall itself is unaffected; only the numbers are."
+    fi
     echo ""
 
     if [[ -z "$KEEP_CONTENT_DECISION" ]]; then
