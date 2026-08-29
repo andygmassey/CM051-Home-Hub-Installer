@@ -26,6 +26,12 @@ on:
       - 'install.sh'
       - 'tests/test_sensitive_artefacts_not_world_readable.sh'
       - 'tests/test_sensitive_artefacts_guard_fires.sh'
+      # #568. Same rule as the line below, and I broke it on the PR that
+      # added this gate: the workflow RAN the test but had no paths entry
+      # for it, so a PR editing the test would never have triggered the
+      # workflow that runs it. `verify_invoked_tests_are_watched.py`
+      # caught it and called it DARK ON SELF-EDIT, which is the right name.
+      - 'tests/test_no_main_body_call_to_a_heredoc_only_symbol.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in a PR that never runs it.
       - '.github/workflows/sensitive-artefact-exposure.yml'
