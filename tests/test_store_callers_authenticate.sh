@@ -56,8 +56,41 @@ rc_pass=0; rc_fail=1; rc_cannot=2
 # fixed-point closure) and @TNM (a third instrument). If a caller is
 # legitimately DELETED, lower these in the same PR and name it. Never raise one
 # to silence a failure.
-OSTLER_STORE_CALL_FLOOR="${OSTLER_STORE_CALL_FLOOR:-19}"
-OSTLER_STORE_EXEMPT_EXPECT="${OSTLER_STORE_EXEMPT_EXPECT:-2}"
+# 🔴 FLOOR 19 -> 16 ON 2026-08-29, AND THIS IS A RATCHET-DOWN, NOT A WIDENING.
+#
+# The gate's own refusal message is right: "a shortfall means the predicate
+# broke, not that callers left". So the burden is on the change to prove the
+# population genuinely shrank. It did, by exactly three, all deliberate, all
+# in the #566 readiness fix:
+#
+#   -2  the ERR-06 double-probe (two credentialed /collections curls) was
+#       DELETED. Reaching it meant a credentialed GET had returned 200 a
+#       second earlier; it could only add a flake, and its answer to a flake
+#       was exit 1 on a customer's machine.
+#   -1  the readiness loop went from TWO curls (bare /readyz || credentialed
+#       /collections) to ONE credentialed /collections. The bare arm was dead
+#       code: `A || B` never evaluated B because /readyz answers 200 keyless.
+#
+# ⚠️ THE PREDICATE IS PROVED INTACT, WHICH IS WHAT MAKES THIS SAFE TO LOWER.
+# On the failing run the gate reported `calls 16  AUTH 15  EXEMPT 1  BARE 0`:
+# it still FOUND and CLASSIFIED every remaining call, and found ZERO bare
+# ones. A broken predicate loses calls silently; this one accounted for all
+# 16. The floor was measuring a population that legitimately got smaller.
+#
+# 🔴 IF THIS NUMBER EVER DROPS AGAIN, DO NOT EDIT IT WITHOUT THE SAME PROOF:
+# enumerate which calls went and why, and show BARE is still 0. A floor
+# lowered without that enumeration is exactly the "edit a gate to pass"
+# failure this repo keeps finding in other people's work.
+OSTLER_STORE_CALL_FLOOR="${OSTLER_STORE_CALL_FLOOR:-16}"
+# 🔴 EXEMPT 2 -> 1 ON 2026-08-29, AND AN EXEMPTION IS A MEASURED HOLE.
+# The gate is right that changing this count changes what is unprotected, so
+# the change has to name the hole that closed. It is the BARE /readyz arm of
+# the Qdrant readiness loop: exempt precisely because /readyz answers 200
+# with no credential. The #566 fix DELETED that arm -- it was dead code, the
+# `||` meant it always won and the credentialed arm beside it never ran.
+# So this is one FEWER uncredentialed store call on the customer path, not a
+# hole being widened. The surviving exemption is unchanged.
+OSTLER_STORE_EXEMPT_EXPECT="${OSTLER_STORE_EXEMPT_EXPECT:-1}"
 
 analyse() {
     python3 - "$1" <<'PY'
