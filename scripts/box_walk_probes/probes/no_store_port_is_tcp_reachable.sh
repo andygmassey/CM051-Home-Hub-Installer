@@ -291,10 +291,38 @@ self_test() {
     [ "$(classify 0 ' 6333')" = "CANNOT_RUN" ] || fails="${fails} down-control-with-open-port-adjudicated"
 
     probe_examined 5 "adjudication cases"
+
+    # ── THE RUNNER'S CONTRACT, WHICH THIS FUNCTION USED TO BREAK ──────────
+    #
+    # run_box_walk.sh phase 1 invokes every probe with --self-test and reads:
+    #     output contains 'VERDICT: BROKEN'  -> BROKEN
+    #     else rc == 1                       -> ok, "goes red on known-bad input"
+    #     else                               -> BROKEN, "returned N, expected 1"
+    #
+    # A --self-test is a NEGATIVE CONTROL: its job is to prove the probe CAN
+    # return red. Ending the healthy path in probe_pass exits 0, so the runner
+    # took the third branch and marked this probe BROKEN -- which is exactly
+    # what the v1.0.50 walk recorded, and why its store-port verdict was
+    # discarded rather than counted.
+    #
+    # The measurement was never wrong. The probe was reporting "my logic is
+    # correct" in a slot that asks "prove you can fail", and the runner was
+    # right to refuse it.
+    #
+    # THE TWO OUTCOMES STAY DISTINGUISHABLE, which is the whole point:
+    #   cases misbehave -> emit VERDICT: BROKEN, runner reports BROKEN
+    #   cases behave    -> probe_fail, exit 1, no BROKEN string, runner ok
+    # Both exit 1; the RUNNER discriminates on the string, not the code. A
+    # single exit code carrying two meanings is the defect class this whole
+    # suite exists to refuse, so the discriminator is made explicit here.
     if [ -n "$fails" ]; then
-        probe_fail "SELF-TEST FAILED:${fails}. This probe cannot be trusted to detect #550."
+        printf 'VERDICT: BROKEN -- %s self-test adjudication is wrong:%s\n' \
+            "${PROBE_NAME:-no_store_port_is_tcp_reachable}" "$fails"
+        printf '%s: BROKEN -- classify() misadjudicated%s, so this probe cannot be trusted to detect #550\n' \
+            "${PROBE_NAME:-no_store_port_is_tcp_reachable}" "$fails"
+        exit 1
     fi
-    probe_pass "classify() returns FAIL on an open store port, PASS only with the control up and nothing open, and CANNOT_RUN on a stopped or unreadable control in both directions"
+    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL on a fabricated open store port, PASS only with the control up and nothing open, and CANNOT_RUN on a stopped or unreadable control in both directions. 5 of 5 adjudication cases behaved."
 }
 
 probe_main "$@"

@@ -10715,6 +10715,33 @@ fi
 if [[ -x "${OSTLER_DIR}/bin/ostler-engine-supervisor.sh" \
    && -f "${OSTLER_DIR}/lib/ostler-container-engine.sh" ]]; then
     ENGINE_SUP_PLIST="${HOME}/Library/LaunchAgents/com.ostler.engine-supervisor.plist"
+    # #573 (2026-08-30). THIS BLOCK IS ABOVE THE PROMOTE BOUNDARY.
+    # (Deliberately worded without the sentinel token: the gate requires
+    # EXACTLY ONE occurrence of it, and a second mention here would make the
+    # gate refuse to run. It caught exactly that on the first draft of this
+    # comment, which is the anti-ambiguity arm doing its job.)
+    #
+    # It used to interpolate ${OSTLER_DIR} and ${LOGS_DIR}. On a fresh
+    # install those are still /tmp/ostler-prelaunch-<pid> here -- the only
+    # earlier promote is the SKIP_PHASE2 re-run path, which does not fire.
+    # So the plist baked a staging path, /tmp was wiped at reboot, and the
+    # supervisor died on the customer's first restart. Measured on the
+    # v1.0.50 fresh-account walk.
+    #
+    # #177 fixed the same defect for the two ollama agents and its gate
+    # named them as "the only ones tainted" -- true of that incident, never
+    # true of the class. This one was written after, and nothing looked.
+    #
+    # OSTLER_FINAL_DIR is bound once at the top of the file and is never
+    # rebound by _ostler_set_paths, so it is correct on both sides of the
+    # promote. The logs dir is created here because launchd resolves
+    # StandardOutPath at spawn: a missing directory is a spawn failure, and
+    # the promote that would have created it has not run yet.
+    mkdir -p "${OSTLER_FINAL_DIR}/logs" 2>/dev/null || true
+    # The write used to emit NOTHING. That silence is why a dead path
+    # survived two cuts: there was no line in any install log to contradict
+    # it. Record the path actually baked, so the next walk can read it.
+    dbg "engine-supervisor plist: baking canonical paths under ${OSTLER_FINAL_DIR} (OSTLER_DIR is '${OSTLER_DIR}' at this point, promoted=${OSTLER_PRELAUNCH_PROMOTED:-false})"
     cat > "$ENGINE_SUP_PLIST" <<ESPEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -10725,7 +10752,7 @@ if [[ -x "${OSTLER_DIR}/bin/ostler-engine-supervisor.sh" \
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>${OSTLER_DIR}/bin/ostler-engine-supervisor.sh</string>
+        <string>${OSTLER_FINAL_DIR}/bin/ostler-engine-supervisor.sh</string>
     </array>
     <key>StartInterval</key>
     <integer>300</integer>
@@ -10734,9 +10761,9 @@ if [[ -x "${OSTLER_DIR}/bin/ostler-engine-supervisor.sh" \
     <key>ProcessType</key>
     <string>Background</string>
     <key>StandardOutPath</key>
-    <string>${LOGS_DIR}/engine-supervisor.log</string>
+    <string>${OSTLER_FINAL_DIR}/logs/engine-supervisor.log</string>
     <key>StandardErrorPath</key>
-    <string>${LOGS_DIR}/engine-supervisor.err</string>
+    <string>${OSTLER_FINAL_DIR}/logs/engine-supervisor.err</string>
 </dict>
 </plist>
 ESPEOF
@@ -14358,6 +14385,23 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     # we promote even on the TTY-no-GUI path and on any future
     # branch that skips the inner promote. The function returns
     # immediately if OSTLER_PRELAUNCH_PROMOTED is already true.
+    #
+    # OSTLER-PROMOTE-BOUNDARY (#573, 2026-08-30)
+    # ------------------------------------------
+    # THIS LINE IS THE CONTRACT. Above it, OSTLER_DIR and LOGS_DIR may
+    # still point at /tmp/ostler-prelaunch-<pid>: every earlier promote
+    # call is conditional (the SKIP_PHASE2 re-run path, and two branch
+    # happy-paths), so a FRESH install reaches this point with the
+    # staging values still bound. Below it, both are canonical.
+    #
+    # Any LaunchAgent plist written ABOVE this line must therefore root
+    # its paths at OSTLER_FINAL_DIR, never OSTLER_DIR/LOGS_DIR -- a plist
+    # is a DURABLE artefact and /tmp is wiped at reboot, so the agent
+    # dies on the customer's first restart.
+    #
+    # tests/test_launchd_plist_no_tmp.sh greps for the marker string
+    # above to locate this boundary, and refuses to run (exit 2) rather
+    # than guess if it is missing or duplicated. Do not reword it.
     _ostler_promote_prelaunch_tree
     if [[ "$FDA_GRANTED" == true ]]; then
         info "$MSG_INFO_FULL_DISK_ACCESS_DETECTED_FULL_EXTRACTION"
