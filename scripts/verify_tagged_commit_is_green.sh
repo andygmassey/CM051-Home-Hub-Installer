@@ -109,6 +109,20 @@ bad = [r for r in completed if r.get("conclusion") in BLOCKING]
 if total == 0:
     print(f"CANNOT-RUN\t0\t0\tthe commit has ZERO check-runs outside the cut's own {excluded} job(s)")
     raise SystemExit(0)
+if not completed:
+    # A GREEN OVER ZERO COMPLETED CHECKS IS A GREEN OVER NOTHING. Measured on
+    # a fresh merge commit 2026-08-29: "EXAMINED 97 check-run(s), 0 completed"
+    # -> TAGGED COMMIT GREEN, because total>0 defeats the arm above and no
+    # COMPLETED run is failing when none has finished. Honest in its own text
+    # ("NOT PROVEN HERE: that every check has FINISHED") and useless as a cut
+    # prerequisite: tag a second after merging and this passes vacuously,
+    # which is the 2026-08-23 shape it exists to refuse.
+    #
+    # No override. The remedy is to WAIT, which costs minutes, and an env
+    # bypass here would be the first thing reached for at 3am.
+    print(f"CANNOT-RUN\t{total}\t0\t{total} check-run(s) exist but NONE has finished -- "
+          f"nothing was measured. Wait for them, then re-run.")
+    raise SystemExit(0)
 if bad:
     names = "; ".join(f"{r.get('name')}={r.get('conclusion')}" for r in bad)
     print(f"RED\t{total}\t{len(completed)}\t{names}  [excluded {excluded} of the cut's own job(s)]")
@@ -206,6 +220,17 @@ if [ "${1:-}" = "--self-test" ]; then
     run_case 0 "a SLURPED multi-page payload parses and passes" slurped
     run_case 1 "a failure on the SECOND page still refuses -- pages are MERGED, not truncated" slurpred
     run_case 2 "the OLD concatenated shape is CANNOT-RUN, never a silent pass" concat
+
+    # A GREEN OVER ZERO COMPLETED CHECKS. Both directions, because the fix must
+    # refuse the vacuous case WITHOUT also refusing the legitimate one: a cut
+    # normally runs while its OWN job is in flight, and `running` above already
+    # pins that a partially-finished commit with one real completed check still
+    # passes. These two say the difference is the COMPLETED COUNT, not the
+    # presence of in-flight runs.
+    mk nonedone '{"check_runs":[{"name":"a","status":"in_progress","conclusion":null},{"name":"b","status":"queued","conclusion":null}]}'
+    mk onedone  '{"check_runs":[{"name":"a","status":"in_progress","conclusion":null},{"name":"b","status":"completed","conclusion":"success"}]}'
+    run_case 2 "checks exist but NONE has finished is CANNOT-RUN, not GREEN" nonedone
+    run_case 0 "CONTROL: one finished check among unfinished ones still passes" onedone
 
     # The self-exclusion. Broad exclusions are how a gate quietly stops
     # looking, so both directions are asserted: it drops the cut's OWN jobs,
