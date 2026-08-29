@@ -40,6 +40,13 @@ on:
       # the step without this line and verify_invoked_tests_are_watched.py
       # caught it: "1 file(s) are DARK ON SELF-EDIT".
       - 'tests/test_post_walk_qa_measures_the_artefact.sh'
+      # The walk DRIVER and its three suites. Same self-edit rule as above:
+      # the driver is the thing that decides whether a walk passed, so a
+      # change to it must run the suites that judge it.
+      - 'scripts/walk_drive.py'
+      - 'tests/test_walk_driver_does_not_inherit_a_stale_result.sh'
+      - 'tests/test_walk_driver_requires_a_completion_marker.sh'
+      - 'tests/test_walk_driver_takes_ports_from_the_declared_field.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
       - '.github/workflows/walk-record-gate.yml'
@@ -97,6 +104,55 @@ jobs:
           rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The writer harness could not locate its anchors in scripts/post_walk_qa.sh. NOTHING about the writer has been measured. Do not debug post_walk_qa.sh on the strength of this line -- re-point the anchors in tests/test_post_walk_qa_measures_the_artefact.sh, and do not delete the arms."
+          fi
+          exit "$rc"
+
+      # ── THE WALK DRIVER ────────────────────────────────────────────────
+      #
+      # Everything above judges the RECORD. These judge the thing that
+      # produces it. The driver was promoted into this repo on 2026-08-29
+      # from a single copy on one machine; each suite guards one of the
+      # three defects found on the way in, and each was proved RED against
+      # the original 283-line file before the fix went in.
+      #
+      # Every suite ends in an ANTI-VACUITY arm that mutates the driver to
+      # remove the fix and requires the defect to come back. If an anchor
+      # moves, that arm exits 2 and says so rather than passing quietly --
+      # so re-point the anchor, never delete the arm.
+      #
+      # `if: always()` throughout, for the reason given at the arms above: a
+      # suite skipped because an earlier one went red tells you nothing, and
+      # these three are independent of each other.
+      - name: A dead walk must not publish the previous walk's verdict
+        if: always()
+        run: |
+          set -uo pipefail
+          bash tests/test_walk_driver_does_not_inherit_a_stale_result.sh
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The stale-result harness could not set itself up or its mutation anchor has moved. NOTHING about the driver has been measured."
+          fi
+          exit "$rc"
+
+      - name: PASS requires positive evidence of completion, never rc=0
+        if: always()
+        run: |
+          set -uo pipefail
+          bash tests/test_walk_driver_requires_a_completion_marker.sh
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The completion-marker harness could not set itself up or its mutation anchor has moved. NOTHING about the driver has been measured."
+          fi
+          exit "$rc"
+
+      - name: The port list comes from the declared field, and empty refuses
+        if: always()
+        run: |
+          set -uo pipefail
+          bash tests/test_walk_driver_takes_ports_from_the_declared_field.sh
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The declared-port harness could not set itself up or its mutation anchor has moved. NOTHING about the driver has been measured."
           fi
           exit "$rc"
 
