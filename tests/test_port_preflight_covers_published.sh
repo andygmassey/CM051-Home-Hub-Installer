@@ -22,16 +22,21 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/.." && pwd)"
 INSTALL_SH="${REPO}/install.sh"
 
-PASS=0; FAIL=0; SKIP=0
+PASS=0; FAIL=0; SKIP=0; CANT=0
 ok()   { printf '  [PASS] %s\n' "$*"; PASS=$((PASS+1)); }
 bad()  { printf '  [FAIL] %s\n' "$*"; FAIL=$((FAIL+1)); }
-cant() { printf '  [CANNOT-RUN] %s\n' "$*"; FAIL=$((FAIL+1)); }
+# CANNOT-RUN is neither PASS nor FAIL: three outcomes, three branches (#1239).
+# It still REFUSES -- a check that could not run has not passed -- but it must
+# never be tallied as the product failing, because that is a false accusation
+# and it sends whoever reads the summary hunting a defect that is not there.
+# Counted separately and given its own exit code so the two are tellable apart.
+cant() { printf '  [CANNOT-RUN] %s\n' "$*"; CANT=$((CANT+1)); }
 # SKIP is for an arm whose SUBJECT cannot exist in this environment (no
 # cross-uid listener on a hosted runner). It does NOT fail, and it is
 # printed in the summary so a skipped arm can never read as a pass.
 skip() { printf '  [SKIP] %s\n' "$*"; SKIP=$((SKIP+1)); }
 
-[ -r "${INSTALL_SH}" ] || { cant "install.sh unreadable at ${INSTALL_SH}"; echo "== 0 pass / 1 fail =="; exit 2; }
+[ -r "${INSTALL_SH}" ] || { cant "install.sh unreadable at ${INSTALL_SH}"; echo "== 0 pass / 0 fail / 1 cannot-run / 0 skip =="; exit 2; }
 
 # Comments stripped FIRST throughout: a shipping gate that scores comments
 # as code measures documentation, not behaviour (board #757, #808).
@@ -262,24 +267,58 @@ else
                 cant "arm 10a: could not find a free port for the negative control"
             else
                 ok "arm 10a: NEGATIVE control -- bind probe reports 'free' on ${BFREE}"
+
+                # 🔴 THIS ARM USED TO RACE ITSELF, and it was RED on main twice
+                # in eight runs (b6f91851, d472a981) accusing the product code
+                # of a defect the test itself caused.
+                #
+                # THE OLD SHAPE: background the listener, then immediately poll
+                # with `_port_bind_probe`, which ITSELF binds the port. Two
+                # processes reaching for one port, and neither is guaranteed to
+                # win. When the listener lost it took EADDRINUSE and DIED -- and
+                # `2>/dev/null` on it meant nobody ever saw why. From then on
+                # there genuinely was no listener, so every later probe honestly
+                # answered 'free' and the arm reported the PROBE as broken.
+                # A positive control that intermittently fails is worse than no
+                # control: it trains you to discount the one signal that matters.
+                #
+                # THE FIX IS TO STOP RACING, NOT TO RETRY HARDER. The listener
+                # signals readiness through a file; we do not probe at all until
+                # it says it is up. Its stderr goes to a FILE, never /dev/null,
+                # so a failed bind is readable. And a listener that never comes
+                # up is CANNOT-RUN, not FAIL: the apparatus broke, which says
+                # nothing about the subject.
+                BL_DIR="$(mktemp -d "${TMPDIR:-/tmp}/portprobe-XXXXXX")"
+                BL_READY="${BL_DIR}/ready"
+                BL_ERR="${BL_DIR}/err"
                 "${BP_PY}" -c "
-import socket,time,sys
+import socket,sys,time
 s=socket.socket(); s.bind(('127.0.0.1',${BFREE})); s.listen(1)
-sys.stderr.write('up\n'); sys.stderr.flush(); time.sleep(8)
-" 2>/dev/null &
+open('${BL_READY}','w').write('up')
+time.sleep(30)
+" >"${BL_ERR}" 2>&1 &
                 BLPID=$!
-                for _i in 1 2 3 4 5 6 7 8 9 10; do
-                    [ "$(_port_bind_probe "${BFREE}" "${BP_PY}")" = "held" ] && break
-                    /bin/sleep 0.3
+
+                BL_UP=0
+                for _i in $(seq 1 60); do
+                    [ -s "${BL_READY}" ] && { BL_UP=1; break; }
+                    kill -0 "${BLPID}" 2>/dev/null || break   # it died; stop waiting
+                    /bin/sleep 0.25
                 done
-                BSEEN="$(_port_bind_probe "${BFREE}" "${BP_PY}")"
-                if [ "${BSEEN}" = "held" ]; then
-                    ok "arm 10b: POSITIVE control -- a real listener on ${BFREE} reports 'held'"
+
+                if [ "${BL_UP}" != "1" ]; then
+                    cant "arm 10b: the listener never bound ${BFREE}, so there is nothing to detect -- $(tr '\n' ' ' < "${BL_ERR}" | /usr/bin/sed 's/  */ /g')"
                 else
-                    bad "arm 10b: bound a real socket on ${BFREE} and the bind probe said '${BSEEN}'"
+                    BSEEN="$(_port_bind_probe "${BFREE}" "${BP_PY}")"
+                    if [ "${BSEEN}" = "held" ]; then
+                        ok "arm 10b: POSITIVE control -- a real listener on ${BFREE} reports 'held'"
+                    else
+                        bad "arm 10b: bound a real socket on ${BFREE} and the bind probe said '${BSEEN}'"
+                    fi
                 fi
                 kill "${BLPID}" 2>/dev/null || true
                 wait "${BLPID}" 2>/dev/null || true
+                rm -rf "${BL_DIR}"
             fi
 
             # CANNOT-RUN must be reachable: no interpreter -> 'cant', never 'free'.
@@ -347,6 +386,11 @@ else
     fi
 fi
 
-printf '\n== %d pass / %d fail / %d skip ==\n' "${PASS}" "${FAIL}" "${SKIP}"
+printf '\n== %d pass / %d fail / %d cannot-run / %d skip ==\n' \
+    "${PASS}" "${FAIL}" "${CANT}" "${SKIP}"
 [ "${SKIP}" -eq 0 ] || printf '   NOTE: %d arm(s) skipped -- see [SKIP] above. A skip is not a pass.\n' "${SKIP}"
+[ "${CANT}" -eq 0 ] || printf '   NOTE: %d arm(s) COULD NOT RUN -- see [CANNOT-RUN] above. That is not a\n         product failure and it is not a pass. The apparatus needs fixing.\n' "${CANT}"
+# Order matters: a real FAIL outranks a CANNOT-RUN, so a genuine defect is
+# never downgraded to "we could not look".
 [ "${FAIL}" -eq 0 ] || exit 1
+[ "${CANT}" -eq 0 ] || exit 2
