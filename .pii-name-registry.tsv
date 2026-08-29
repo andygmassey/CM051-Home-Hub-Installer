@@ -2024,3 +2024,138 @@ baseline	a75cf0c3f820bb8c	UNREVIEWED-legacy: present before the 2026-08-15 name 
 baseline	8a2465a1c6800978	UNREVIEWED-legacy: present before the 2026-08-15 name sweep; first seen in vendor/whatsapp_source/INSTALL_HANDOFF_SPEC.md
 baseline	0ee5ad1771f04f3b	UNREVIEWED-legacy: present before the 2026-08-15 name sweep; first seen in vendor/whatsapp_source/tests/test_whatsapp_source.py
 baseline	01be984c77a56ced	UNREVIEWED-legacy: present before the 2026-08-15 name sweep; first seen in vendor/whatsapp_source/tests/test_whatsapp_source.py
+
+# ---------------------------------------------------------------------------
+# 2026-08-29  ARCHIE.  486 commits of drift, triaged one pair at a time.
+#
+# The registry was last touched 2026-08-15 and made green by baselining 1654
+# digests. 486 commits since then added 89 NEW distinct capitalised pairs and
+# nothing triaged them, so the guard has been RED that whole time. It went
+# unnoticed because its only executor is run_all_cut_gates.sh, which runs on a
+# CUT-TAG push -- and no tag has been pushed since 2026-08-22.
+#
+# These are NOT baseline rows. Baselining them would have grown the bootstrap
+# escape hatch to 1743 digests and repeated the 2026-08-15 mistake: the guard
+# would go green having examined the same bytes, and would be permanently blind
+# to a real name hidden among them.
+#
+# MEASURED across all 89: not one is a private individual, and not one is a
+# contact of the operator. Three classes only -- product/technical bigrams,
+# deliberately synthetic fixtures, and public figures in the enrichment tests.
+# ---------------------------------------------------------------------------
+phrase	google chrome	browser product name; install.sh opens a URL with it
+phrase	chrome user	prose for the Chrome profile directory, not a person
+phrase	swift string	Swift standard-library type name
+phrase	little snitch	network-monitor product, named in EGRESS_INVENTORY as a comparison
+phrase	pro obsidian	the Pro-tier Obsidian vault writer; product noun
+phrase	server version	an HTTP/docker response header field name
+phrase	apple retail	an Apple business unit inside a synthetic purchase fixture
+phrase	apple silicon extra	product noun placeholder
+phrase	modern system	prose: 'Modern System Settings deep-link'
+phrase	context digest	the name of a CI job, quoted in VENDOR.md
+phrase	managing director	a job title in a synthetic contact fixture
+phrase	chief technology	a job title fragment (Chief Technology Officer)
+phrase	background ollama	prose about the background Ollama process
+phrase	netflix ratings	the name of an export file kind
+phrase	customer macs	prose plural, not a person
+phrase	installed hubs	prose plural, product noun
+phrase	bought ostler	sentence-initial verb followed by the product name
+phrase	adding gatekeeper	prose followed by the macOS component name
+phrase	pairing code	product noun
+phrase	unnotarized developer	verbatim Gatekeeper error text
+phrase	clean tree	the name of a cut gate
+phrase	business cloud	an egress-host category label
+phrase	zipping sparkle	Makefile step prose plus the framework name
+phrase	intel homebrew	the Intel Homebrew prefix, an architecture not a person
+phrase	cn cu	two SPARQL variable names (?cn ?cu) adjacent in a query
+phrase	dark side	an album title in a music-enrichment fixture
+phrase	animal farm	a book title in an enrichment fixture
+phrase	oxigraph person	an RDF class name in probe prose
+phrase	ostler user	product noun
+phrase	ostler canary	the name of a canary token used by a marker-redaction test
+phrase	watched synthetic	prose immediately before a synthetic fixture name
+phrase	review title	a capitalised export FIELD/heading name in a parser fixture, not a person
+phrase	review text	a capitalised export FIELD/heading name in a parser fixture, not a person
+phrase	submission date	a capitalised export FIELD/heading name in a parser fixture, not a person
+phrase	member age	a capitalised export FIELD/heading name in a parser fixture, not a person
+phrase	media link	a capitalised export FIELD/heading name in a parser fixture, not a person
+phrase	product type	a capitalised export FIELD/heading name in a parser fixture, not a person
+phrase	bookmark position	a capitalised export FIELD/heading name in a parser fixture, not a person
+phrase	customer creation	a capitalised export FIELD/heading name in a parser fixture, not a person
+phrase	video browsing	a capitalised export FIELD/heading name in a parser fixture, not a person
+phrase	services reviews	a capitalised export FIELD/heading name in a parser fixture, not a person
+phrase	skill alpha	a capitalised export FIELD/heading name in a parser fixture, not a person
+phrase	widget tester	a capitalised export FIELD/heading name in a parser fixture, not a person
+phrase	synthetic person	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	synthetic track	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	synthetic group	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	synthetic holdings	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	synthetic artist	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	synthetic coffee	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	synthetic episode	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	synthetic app	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	synthetic page	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	synthetic topic	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	synthetic thread	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	synthetic community	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	synthetic channel	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	synthetic server	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	fixture person	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	fixture industries	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	fenwick trust	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	fuel espresso	SYNTHETIC fixture entity; the word 'synthetic'/'fixture' is in the name by design
+phrase	wilhelmina quibbleforth	invented name, marker-redaction fixture; no such person
+phrase	perpetua ravensmere	invented name, marker-redaction fixture; no such person
+phrase	standup ravensmere	invented name, marker-redaction fixture; no such person
+phrase	barnabas threddlewick	invented name, marker-redaction fixture; no such person
+phrase	wendy testperson	invented name; the surname is literally 'Testperson'
+phrase	rhodri fixture	invented name; the surname is literally 'Fixture'
+phrase	mum okonjo	SYNTHETIC. 'Mum' is a KINSHIP WORD and is deliberately NOT added to cast (task #302: a kinship word must never be a name)
+phrase	fenella okonjo	invented name in the FDA ingest fixture; no such person
+phrase	douglas adams	PUBLIC FIGURE, deliberate. This is a fixture for the Wikidata/MusicBrainz/OpenLibrary enrichment clients, and a public-figure lookup client cannot be tested without naming a public figure. NOT customer data, NOT a contact of the operator.
+phrase	george orwell	PUBLIC FIGURE, deliberate. This is a fixture for the Wikidata/MusicBrainz/OpenLibrary enrichment clients, and a public-figure lookup client cannot be tested without naming a public figure. NOT customer data, NOT a contact of the operator.
+phrase	nan goldin	PUBLIC FIGURE whose name BEGINS WITH A KINSHIP WORD. It is the NEGATIVE CONTROL for task #302 (a kinship word must never be a name): test_provisional_display_name.py asserts these are NOT kinship-composed labels. Removing it would blind that control.
+phrase	ma rainey	PUBLIC FIGURE whose name BEGINS WITH A KINSHIP WORD. It is the NEGATIVE CONTROL for task #302 (a kinship word must never be a name): test_provisional_display_name.py asserts these are NOT kinship-composed labels. Removing it would blind that control.
+phrase	boy george	PUBLIC FIGURE whose name BEGINS WITH A KINSHIP WORD. It is the NEGATIVE CONTROL for task #302 (a kinship word must never be a name): test_provisional_display_name.py asserts these are NOT kinship-composed labels. Removing it would blind that control.
+phrase	bryan cranston	PUBLIC FIGURE, deliberate. This is a fixture for the Wikidata/MusicBrainz/OpenLibrary enrichment clients, and a public-figure lookup client cannot be tested without naming a public figure. NOT customer data, NOT a contact of the operator.
+phrase	vince gilligan	PUBLIC FIGURE, deliberate. This is a fixture for the Wikidata/MusicBrainz/OpenLibrary enrichment clients, and a public-figure lookup client cannot be tested without naming a public figure. NOT customer data, NOT a contact of the operator.
+phrase	karey kirkpatrick	PUBLIC FIGURE, deliberate. This is a fixture for the Wikidata/MusicBrainz/OpenLibrary enrichment clients, and a public-figure lookup client cannot be tested without naming a public figure. NOT customer data, NOT a contact of the operator.
+phrase	robert walters	PUBLIC FIGURE, deliberate. This is a fixture for the Wikidata/MusicBrainz/OpenLibrary enrichment clients, and a public-figure lookup client cannot be tested without naming a public figure. NOT customer data, NOT a contact of the operator.
+
+# --- 2026-08-29 ARCHIE, second pass -----------------------------------------
+# The residue after the first pass was 45 findings in 2 files, 44 of them in
+# vendor/ostler_fda/tests/test_provisional_display_name.py. That file is the
+# CONTROL CORPUS for task #302 (a kinship word must never be a name), so it
+# carries kinship labels and near-miss real names ON PURPOSE. Permitting it is
+# not laundering; DELETING those labels would blind the #302 control.
+#
+# CORRECTION, same turn: my first pass permitted 'Nan Goldin', 'Ma Rainey' and
+# 'Boy George' with the reason 'enrichment client fixture'. That was WRONG.
+# They are the #302 NEGATIVE control -- public figures whose names BEGIN with a
+# kinship word. Reasons are the whole point of this file, so the rows are
+# rewritten rather than left to read plausibly and mislead the next reader.
+# --------------------------------------------------------------------------
+phrase	dad smith	KINSHIP-COMPOSED LABEL, invented. It is a POSITIVE fixture for task #302: the resolver must treat it as a placeholder, not a name. No such person.
+phrase	mummy jones	KINSHIP-COMPOSED LABEL, invented. It is a POSITIVE fixture for task #302: the resolver must treat it as a placeholder, not a name. No such person.
+phrase	grandad brown	KINSHIP-COMPOSED LABEL, invented. It is a POSITIVE fixture for task #302: the resolver must treat it as a placeholder, not a name. No such person.
+phrase	auntie pat	KINSHIP-COMPOSED LABEL, invented. It is a POSITIVE fixture for task #302: the resolver must treat it as a placeholder, not a name. No such person.
+phrase	uncle bob	KINSHIP-COMPOSED LABEL, invented. It is a POSITIVE fixture for task #302: the resolver must treat it as a placeholder, not a name. No such person.
+phrase	stepdad clarke	KINSHIP-COMPOSED LABEL, invented. It is a POSITIVE fixture for task #302: the resolver must treat it as a placeholder, not a name. No such person.
+phrase	godmother clare	KINSHIP-COMPOSED LABEL, invented. It is a POSITIVE fixture for task #302: the resolver must treat it as a placeholder, not a name. No such person.
+phrase	hubby wilson	KINSHIP-COMPOSED LABEL, invented. It is a POSITIVE fixture for task #302: the resolver must treat it as a placeholder, not a name. No such person.
+phrase	auntie emma	KINSHIP-COMPOSED LABEL, invented. It is a POSITIVE fixture for task #302: the resolver must treat it as a placeholder, not a name. No such person.
+phrase	mum zhang	KINSHIP-COMPOSED LABEL, invented. It is a POSITIVE fixture for task #302: the resolver must treat it as a placeholder, not a name. No such person.
+phrase	papa okonkwo	KINSHIP-COMPOSED LABEL, invented. It is a POSITIVE fixture for task #302: the resolver must treat it as a placeholder, not a name. No such person.
+phrase	grandma o'rourke	KINSHIP-COMPOSED LABEL, invented. It is a POSITIVE fixture for task #302: the resolver must treat it as a placeholder, not a name. No such person.
+phrase	pop smith	NEGATIVE CONTROL for task #302: a label beginning with a kinship word that is NOT a kinship placeholder (a real person, a band or a character). The kinship detector must leave it alone.
+phrase	sis jones	NEGATIVE CONTROL for task #302: a label beginning with a kinship word that is NOT a kinship placeholder (a real person, a band or a character). The kinship detector must leave it alone.
+phrase	aunt sally	NEGATIVE CONTROL for task #302: a label beginning with a kinship word that is NOT a kinship placeholder (a real person, a band or a character). The kinship detector must leave it alone.
+phrase	son volt	NEGATIVE CONTROL for task #302: a label beginning with a kinship word that is NOT a kinship placeholder (a real person, a band or a character). The kinship detector must leave it alone.
+phrase	house wilson	NEGATIVE CONTROL for task #302: a label beginning with a kinship word that is NOT a kinship placeholder (a real person, a band or a character). The kinship detector must leave it alone.
+phrase	zhang wei	ORDINARY-NAME control in test_provisional_display_name.py: an invented, deliberately non-Anglocentric name asserted NOT to be provisional. Chosen for script/diacritic coverage, not from any real contact.
+phrase	marta ilves	ORDINARY-NAME control in test_provisional_display_name.py: an invented, deliberately non-Anglocentric name asserted NOT to be provisional. Chosen for script/diacritic coverage, not from any real contact.
+phrase	ciaran o'rourke	ORDINARY-NAME control in test_provisional_display_name.py: an invented, deliberately non-Anglocentric name asserted NOT to be provisional. Chosen for script/diacritic coverage, not from any real contact.
+phrase	sam wang	ORDINARY-NAME control in test_provisional_display_name.py: an invented, deliberately non-Anglocentric name asserted NOT to be provisional. Chosen for script/diacritic coverage, not from any real contact.
+phrase	auntie emma placeholder	prose in the comment at line 52 explaining what the tier must NOT delete
+phrase	search history	the literal Google Takeout filename "Search History.json", quoted in a parser comment
+selfcheck	vendor/ostler_fda/tests/test_provisional_display_name.py	CONTROL CORPUS for task #302. It carries kinship labels and near-miss real names BY DESIGN, so the TOKEN and SHAPE arms turn its proof-of-detection into findings. The PAIR arm still runs over it with NO baseline (registry rule), which is what keeps a genuinely new name in this file visible.
