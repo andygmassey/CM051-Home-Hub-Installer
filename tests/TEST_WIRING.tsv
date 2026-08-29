@@ -221,6 +221,7 @@ test_no_internal_codenames_in_customer_strings.sh	WIRED	.github/workflows/rule-0
 test_no_literal_backslash_n_in_strings.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_no_live_command_substitution_in_heredocs.sh	WIRED	.github/workflows/install-heredoc-honesty.yml
 test_no_local_cuts.sh	WIRED	.github/workflows/cut.yml
+test_no_main_body_call_to_a_heredoc_only_symbol.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
 test_no_orphaned_fixes_gate.sh	WIRED	.github/workflows/cut.yml
 test_no_unbounded_enrich_invocation.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_no_undefined_msg_refs_in_install_sh.sh	WIRED	.github/workflows/container-runtime-precondition.yml
