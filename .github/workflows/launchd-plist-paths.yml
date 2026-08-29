@@ -32,6 +32,7 @@ on:
       # it could be narrowed, or gutted, in the very PR that narrows it.
       - 'tests/test_uninstaller_counts_do_not_abort_on_an_unreadable_dir.sh'
       - 'tests/test_err06_states_what_it_measured.sh'
+      - 'tests/test_qdrant_readiness_tests_the_authenticated_surface.sh'
       - 'tests/test_launchagent_bootstrap_after_staging.py'
       - 'tests/test_launchagent_homebrew_path.sh'
       - '**/launchd/*.plist'
@@ -216,6 +217,27 @@ jobs:
           rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The #566 harness could not obtain a verdict -- its anchors moved, or its runtime-synthesised line-spanning control could not be built or proved. NOTHING about the ERR-06 guard has been measured. Do not debug install.sh on the strength of this line."
+          fi
+          exit "$rc"
+
+      # #566, THE OTHER HALF: the guard's HONESTY was the step above; this is
+      # its FAILURE POSTURE. The readiness loop used `curl /readyz || curl
+      # <credentialed> /collections`, and /readyz answers 200 with no
+      # credential (measured independently by @A2 on the pinned image), so the
+      # credentialed arm was DEAD CODE and readiness was decided by a surface
+      # that cannot observe an auth failure. A store that 401s was therefore
+      # declared ready and then killed, while a store that never arrived at
+      # all was survivable.
+      #
+      # rc=2 is CANNOT-RUN per #1239 and is annotated, never silently passed.
+      - name: Assert Qdrant readiness tests the surface the next statement uses
+        if: always()
+        run: |
+          set -uo pipefail
+          bash tests/test_qdrant_readiness_tests_the_authenticated_surface.sh
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The readiness-surface harness could not obtain a verdict -- the '_qdrant_ready=false' anchor is missing or ambiguous, so the region under test could not be identified. NOTHING about the readiness loop has been measured, and in particular this is NOT evidence that the credentialed arm executes."
           fi
           exit "$rc"
 
