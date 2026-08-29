@@ -67,6 +67,33 @@ jobs:
         if: always()
         run: bash tests/test_probe_absence_is_not_an_answer.sh
 
+      # #931 -- THE WRITER HALF. The gate above refuses a record that does not
+      # name the build it was taken on. It is only as good as the writer that
+      # feeds it: if post_walk_qa.sh cannot produce a measured artefact_sha256,
+      # every future walk records asserted-unverifiable, the reader returns 2,
+      # PROMOTE=0, and a human has burned a box walk for nothing.
+      #
+      # The measured path talks to a box over ssh and a box only exists after a
+      # DMG is published, which is why the branch shipped unproven. `ssh` is
+      # resolved through the shell, so the test shadows it with a function and
+      # every branch becomes reachable here with no box and no credentials.
+      #
+      # rc=2 IS NOT rc=1. 2 means the harness could not locate its anchors and
+      # measured nothing; 1 means the writer misbehaved. #1239 exists because a
+      # gate reported a shell problem as a product defect and sent someone to
+      # debug the product. Both are red; they must not read the same.
+      # `if: always()` for the same reason as the arms around it.
+      - name: The walk record must MEASURE the artefact, not assert it
+        if: always()
+        run: |
+          set -uo pipefail
+          bash tests/test_post_walk_qa_measures_the_artefact.sh
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The writer harness could not locate its anchors in scripts/post_walk_qa.sh. NOTHING about the writer has been measured. Do not debug post_walk_qa.sh on the strength of this line -- re-point the anchors in tests/test_post_walk_qa_measures_the_artefact.sh, and do not delete the arms."
+          fi
+          exit "$rc"
+
       # The suite above proves the gate REFUSES correctly. This proves it can
       # still say yes on the real script, from the real repo root, with no
       # fixture directory override -- a gate that only ever refuses would pass
