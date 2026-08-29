@@ -69,6 +69,11 @@ export OSTLER_DIR="${TMP}/.ostler"; mkdir -p "${OSTLER_DIR}/secrets"
 printf 'header = "api-key: testkey"\n' > "${OSTLER_DIR}/secrets/store-curl.conf"
 export HOME="${TMP}/home"; mkdir -p "${HOME}/.colima/_lima/colima"
 OUR_ARGV="ssh: ${HOME}/.colima/_lima/colima/ssh.sock [mux]"
+# A SECOND account is modelled as a DIFFERENT $HOME, a sibling of ours under
+# ${TMP} (NOT a hardcoded user-home literal -- that shape trips the PII scanner,
+# and a synthetic home under TMP exercises the same branch: its argv cannot
+# contain OUR ${HOME}/.colima/, so signal 1 rejects it).
+OTHER_ARGV="ssh: ${TMP}/other-account/.colima/_lima/colima/ssh.sock [mux]"
 export OSTLER_STORE_AUTH_ENFORCE=1   # the shipped default; arm 6 flips it to 0
 
 # controllable stub state (read inside the stubs / subshells)
@@ -163,7 +168,7 @@ rc="$(run_check 8044)"
 # does NOT model #549, whose foreign holder is INVISIBLE to an unprivileged
 # reader (lsof returns no pid), so signal 1 is never even reached; #549 stays
 # OPEN and is out of B1's scope. See install.sh's signal-1 comment and the PR.
-STUB_ARGV="ssh: /Users/someone-else/.colima/_lima/colima/ssh.sock [mux]"; STUB_CURL_RC=0
+STUB_ARGV="${OTHER_ARGV}"; STUB_CURL_RC=0
 rc="$(run_check 8044)"
 [ "${rc}" = "1" ] \
     && ok  "arm 8: 8044 held by a VISIBLE foreign forward (another account's \$HOME) -> HELD (signal 1 required; B1 never waves through a visible cross-account forward)" \
