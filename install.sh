@@ -27042,13 +27042,27 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
         # (CM052 CLAUDE.md install-time gotcha 2), so plain
         # `pip install <dir>` it is. Failures degrade to the
         # "not ready" skip below -- never a hard fail.
+        #
+        # ROUTED THROUGH _ostler_pip_install_pkg, and it must stay routed.
+        # _AICONV_SRC is "${SCRIPT_DIR}/cm052_ai_conversations", and in the
+        # .app layout SCRIPT_DIR is Contents/Resources. A bare
+        # `pip install "$_AICONV_SRC"` therefore builds IN PLACE and writes
+        # cm052.egg-info/ and build/lib/ INSIDE the notarised bundle, breaking
+        # its code seal. MEASURED on the fresh-account walk of v1.0.50,
+        # 2026-08-29: codesign reported "a sealed resource is missing or
+        # invalid" and named exactly 22 added files, all of them under
+        # Contents/Resources/cm052_ai_conversations -- 6 in cm052.egg-info/
+        # and 16 under build/lib/src/cm052/. This was the LAST unrouted
+        # bundle-rooted pip install; the helper's own docstring records the
+        # v1.0.32 measurement of 346 unsealed files, so this is the remainder
+        # of that fix, not a new regression.
         if [[ ! -x "$_AICONV_BIN" ]]; then
             mkdir -p "$_AICONV_DIR"
             "$PYTHON3_BIN" -m venv "$_AICONV_VENV" >>"$_AICONV_LOG" 2>&1 || true
             _ostler_wire_store_auth_pth "$_AICONV_VENV" \
                 || warn "store-auth .pth not wired into "$_AICONV_VENV" -- that venv reaches the data stores with NO credential"
             "$_AICONV_VENV/bin/pip" install --quiet --upgrade pip >>"$_AICONV_LOG" 2>&1 || true
-            "$_AICONV_VENV/bin/pip" install --quiet "$_AICONV_SRC" >>"$_AICONV_LOG" 2>&1 || true
+            _ostler_pip_install_pkg "$_AICONV_VENV/bin/pip" "$_AICONV_SRC" --quiet >>"$_AICONV_LOG" 2>&1 || true
         fi
 
         if [[ ! -x "$_AICONV_BIN" ]]; then
