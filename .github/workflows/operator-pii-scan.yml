@@ -233,3 +233,48 @@ jobs:
               exit "$status"
           fi
           echo "operator-pii-scan: clean (${{ steps.stage.outputs.count }} files scanned against a real inventory)"
+
+      # ── The person-name guard, which was DARK until 2026-08-29 ──────────
+      #
+      # CM051 #1242 landed bin/pii_name_guard.py and closed 189 findings.
+      # Nothing ran it. Measured on main: named in ZERO workflows, ZERO git
+      # hooks, ZERO rows of TEST_WIRING.tsv. Its only invoker anywhere in the
+      # repo was scripts/run_all_cut_gates.sh -- and that runner is itself
+      # invoked by nothing (#449, settled by TNM). So a guard that took 189
+      # findings to zero has never once run in CI, and its clean verdict has
+      # been a claim rather than a measurement since the day it merged.
+      #
+      # HOW THAT MEASUREMENT WAS TAKEN, because my first attempt was wrong.
+      # An "is it executed" grep shaped like `(python3|bash) <name>` returned 0
+      # for this guard -- but it ALSO returned 0 for operator-pii-scan, which
+      # demonstrably runs in the step above. A predicate that scores its own
+      # control at zero cannot support a DARK verdict, so it was discarded.
+      # The surviving instrument is "named anywhere in .github/workflows",
+      # which scores the control 9 and this guard 0. That one discriminates.
+      #
+      # WHY HERE. This job already runs on EVERY pull request with no paths
+      # filter, so nothing about what stops a launch changes: a guard is added
+      # to a workflow that already gates. And this guard is WHOLE-TREE, not
+      # diff-scoped, so unlike ci-pii-shape-scan it can see what is already on
+      # main (the #362 blind spot) rather than only what this PR touched.
+      #
+      # if: always() so a failure in the steps above cannot delete this
+      # measurement (#656). CANNOT-RUN is reported as itself, never as clean.
+      - name: Person-name guard, whole tree (#1242, wired #449)
+        if: always()
+        run: |
+          if ! command -v python3 >/dev/null 2>&1; then
+              echo "::error::pii-name-guard CANNOT RUN: no python3 on this runner." >&2
+              echo "  That is not a clean result. It examined nothing." >&2
+              exit 2
+          fi
+          set +e
+          python3 bin/pii_name_guard.py --root .
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+              echo "pii-name-guard: clean, and it actually ran."
+              exit 0
+          fi
+          echo "::error::pii-name-guard failed (exit $status). See the counts above." >&2
+          exit "$status"
