@@ -91,33 +91,122 @@ echo
 [[ -r "$STRINGS" ]]        || cannot_run "the en-GB string catalogue is not readable at ${STRINGS}"
 
 # ── LOCATE BY ANCHOR, NEVER BY LINE NUMBER ──────────────────────────────────
-CALL_ANCHOR='fail_with_code "ERR-06-STORE-AUTH-LEAK"'
-n_call="$(grep -cF -- "$CALL_ANCHOR" "$INSTALL_SCRIPT")"
-[[ "$n_call" -eq 1 ]] || cannot_run "the ERR-06 call site matched ${n_call} times, expected exactly 1"
+#
+# 🔴 THE ORIGINAL ANCHOR WAS `fail_with_code "ERR-06-STORE-AUTH-LEAK"` AND THIS
+# PR DELETES IT ON PURPOSE. The self-termination is the defect being fixed, so
+# anchoring on it made the harness permanently CANNOT-RUN the moment the fix
+# landed -- a guard that can never obtain a verdict is a dark guard, and it
+# refused correctly rather than passing, which is #1239's rule working.
+#
+# The ERR-06 estate did not disappear; it changed shape. It is now bounded by
+# the readiness state variable at the top and the tidy-up `unset` at the
+# bottom, and it still contains the probe, the comment block and the
+# diagnostic. Both bounds are asserted unique below, so a rename cannot let
+# this file silently measure the wrong region.
+START_ANCHOR='_qdrant_ready=false'
+END_ANCHOR='unset _qdrant_url _qdrant_ready'
 
-CALL_LINE="$(grep -nF -- "$CALL_ANCHOR" "$INSTALL_SCRIPT" | cut -d: -f1)"
+n_start="$(grep -cF -- "$START_ANCHOR" "$INSTALL_SCRIPT")"
+[[ "$n_start" -eq 1 ]] || cannot_run "the ERR-06 region START anchor matched ${n_start} times, expected exactly 1"
+n_end="$(grep -cF -- "$END_ANCHOR" "$INSTALL_SCRIPT")"
+[[ "$n_end" -eq 1 ]] || cannot_run "the ERR-06 region END anchor matched ${n_end} times, expected exactly 1"
+
+START_LINE="$(grep -nF -- "$START_ANCHOR" "$INSTALL_SCRIPT" | cut -d: -f1)"
+END_LINE="$(grep -nF -- "$END_ANCHOR" "$INSTALL_SCRIPT" | cut -d: -f1)"
+[[ "$START_LINE" -lt "$END_LINE" ]] \
+    || cannot_run "the ERR-06 region bounds are inverted (start ${START_LINE}, end ${END_LINE}); the region cannot be extracted"
 
 n_msg="$(grep -cE '^MSG_FAIL_STORE_AUTH_LEAK=' "$STRINGS")"
 [[ "$n_msg" -eq 1 ]] || cannot_run "MSG_FAIL_STORE_AUTH_LEAK is defined ${n_msg} times in the catalogue, expected exactly 1"
 
-# The guard region: the comment block plus the probe, above the call site.
-# 30 lines is generous enough to hold the whole block and tight enough that it
-# cannot wander into a neighbouring step.
-REGION="$(awk -v e="$CALL_LINE" 'NR>=e-30 && NR<=e' "$INSTALL_SCRIPT")"
-[[ "$(printf '%s\n' "$REGION" | grep -cF '/collections')" -gt 0 ]] \
-    || cannot_run "the extracted ERR-06 region does not mention /collections; wrong region"
-ok "CANNOT-RUN checks: ERR-06 call site and message key are each unique, region is the right one"
+REGION="$(awk -v s="$START_LINE" -v e="$END_LINE" 'NR>=s && NR<=e' "$INSTALL_SCRIPT")"
 
-# ── ARM 1: STRUCTURAL. The probe carries the credential. ────────────────────
+# Three independent facts must be inside the region, or it is the wrong one.
+# Any single one of these could be true of a neighbouring block; all three
+# together can only be the ERR-06 estate.
+[[ "$(printf '%s\n' "$REGION" | grep -cF '/collections')" -gt 0 ]] \
+    || cannot_run "the extracted region does not mention /collections; wrong region"
+[[ "$(printf '%s\n' "$REGION" | grep -cF 'ERR-06-STORE-AUTH-LEAK')" -gt 0 ]] \
+    || cannot_run "the extracted region does not mention ERR-06-STORE-AUTH-LEAK; wrong region, or the greppable support token has been deleted"
+[[ "$(printf '%s\n' "$REGION" | grep -cF '_OSTLER_STORE_CURL_ARGS')" -gt 0 ]] \
+    || cannot_run "the extracted region contains no credentialed curl at all; wrong region"
+ok "CANNOT-RUN checks: both ERR-06 region bounds are unique, the message key is unique, region is the right one"
+
+# ── ARM 1: STRUCTURAL. The READINESS probe carries the credential. ──────────
 # Everything below rests on this. It is also the fact that inverted the
 # premise: a credentialed probe's 401 is not evidence of a leak.
-PROBE_LINES="$(printf '%s\n' "$REGION" | grep -F '/collections' | grep -F 'curl')"
+#
+# 🔴 TWO TRAPS HERE, BOTH LIVE, AND THE FIRST ONE WOULD HAVE PASSED SILENTLY.
+#
+#  (a) SCOPE. The region now also contains the collection-CREATION curls in
+#      the ready branch, and those carry the credential too. A predicate that
+#      searched the whole region would have gone green while measuring the
+#      wrong statement entirely: the readiness probe could go bare and this
+#      arm would never notice. So arm 1 is scoped to the READINESS LOOP BODY,
+#      not the region.
+#
+#  (b) LINE WRAPPING. The probe is now a `\`-continued statement: `curl` and
+#      `_OSTLER_STORE_CURL_ARGS` sit on one line, the `/collections` URL on
+#      the next. The old line-oriented `grep -F /collections | grep -F curl`
+#      scored ZERO on it -- the same defect arm 2 already documents for the
+#      comment, arriving from the other direction. Continuations are joined
+#      first, and the join is PROVED by a control below.
+LOOP_START="$(printf '%s\n' "$REGION" | grep -nF 'for _qdrant_attempt in' | cut -d: -f1)"
+LOOP_END="$(printf '%s\n' "$REGION" | grep -nxF 'done' | head -1 | cut -d: -f1)"
+if [[ -z "$LOOP_START" || -z "$LOOP_END" || "$LOOP_START" -ge "$LOOP_END" ]]; then
+    cannot_run "could not bound the readiness loop inside the region (start '${LOOP_START}', end '${LOOP_END}'). Arm 1 has no subject."
+fi
+LOOP_BODY="$(printf '%s\n' "$REGION" | awk -v s="$LOOP_START" -v e="$LOOP_END" 'NR>=s && NR<=e')"
+
+join_continuations() {
+    awk '{
+        line = $0
+        while (line ~ /\\$/) {
+            sub(/\\$/, "", line)
+            if ((getline nxt) <= 0) break
+            sub(/^[[:space:]]*/, "", nxt)
+            line = line " " nxt
+        }
+        print line
+    }'
+}
+LOOP_JOINED="$(printf '%s\n' "$LOOP_BODY" | join_continuations)"
+
+# CONTROL FOR THE JOIN -- SYNTHETIC, NOT DERIVED FROM install.sh.
+#
+# ⚠️ MY FIRST CONTROL HERE WAS WRONG AND I CAUGHT IT BEFORE PUSHING. It asserted
+# the probe was NOT findable without joining -- i.e. that the join was
+# NECESSARY. But necessity is a property of how install.sh happens to be
+# formatted today: un-wrap that curl onto one line, a perfectly good edit, and
+# the harness would have refused with CANNOT-RUN over a change that broke
+# nothing. A control must prove the MECHANISM works, not that the subject still
+# needs it.
+#
+# So the join is proved against a fixture this file builds itself. It holds in
+# every direction and no edit to install.sh can invalidate it.
+_JOIN_FIXTURE="$(printf 'curl --arg \\\n    "http://x/collections" 2>/dev/null\nunrelated\n')"
+_join_probe_raw="$(printf '%s\n' "$_JOIN_FIXTURE" | grep -F 'curl' | grep -cF '/collections')"
+_join_probe_out="$(printf '%s\n' "$_JOIN_FIXTURE" | join_continuations | grep -F 'curl' | grep -cF '/collections')"
+if [[ "$_join_probe_raw" -ne 0 ]]; then
+    cannot_run "the synthetic join fixture is findable line-by-line BEFORE joining, so it cannot prove the join does anything. Arm 1 is unproven."
+fi
+if [[ "$_join_probe_out" -ne 1 ]]; then
+    cannot_run "join_continuations did NOT join the synthetic fixture (${_join_probe_out} single-line matches, expected 1). The line-continuation join is broken, so arm 1 could report a bare probe on a credentialed one. No verdict."
+fi
+
+# ...and, separately, arm 1 must actually have a subject to measure.
+n_joined_probe="$(printf '%s\n' "$LOOP_JOINED" | grep -F 'curl' | grep -cF '/collections')"
+if [[ "$n_joined_probe" -lt 1 ]]; then
+    cannot_run "the readiness loop holds no curl to /collections even after joining continuations. The probe has moved; arm 1 has nothing to measure."
+fi
+
+PROBE_LINES="$(printf '%s\n' "$LOOP_JOINED" | grep -F '/collections' | grep -F 'curl')"
 n_probe_cred="$(printf '%s\n' "$PROBE_LINES" | grep -cF '_OSTLER_STORE_CURL_ARGS')"
 n_probe_total="$(printf '%s\n' "$PROBE_LINES" | grep -cF 'curl')"
 if [[ "$n_probe_total" -ge 1 && "$n_probe_cred" -ge 1 ]]; then
-    ok "ARM 1 the ERR-06 probe CARRIES the credential (${n_probe_cred} of ${n_probe_total} /collections curls)"
+    ok "ARM 1 the READINESS probe CARRIES the credential (${n_probe_cred} of ${n_probe_total} /collections curls in the loop body, continuations joined)"
 else
-    bad "ARM 1 the ERR-06 probe does NOT carry the credential (${n_probe_cred} of ${n_probe_total}).
+    bad "ARM 1 the READINESS probe does NOT carry the credential (${n_probe_cred} of ${n_probe_total}).
       If that is deliberate, the comment and the message both have to change
       with it: a BARE probe's 401 means something different from a
       CREDENTIALED probe's 401, and this guard's whole reasoning turns on

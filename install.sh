@@ -15989,22 +15989,63 @@ ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 # (CM044's reader is being hardened to tolerate a 404 in parallel).
 _qdrant_url="${QDRANT_URL:-http://localhost:6333}"
 _qdrant_ready=false
-for _ in $(seq 1 30); do
-    # ⚠️ TWO CALLS, ONE COMMAND, AND THE ARMS NEED DIFFERENT THINGS (@A2).
-    # /readyz is exempt by measurement against the pinned image (200 keyless),
-    # so arm 1 stays BARE. /collections is behind the api-key and 401s, so
-    # arm 2 CARRIES the credential. I had these the wrong way round: my
-    # predicate scored the whole COMMAND as authenticated because one of its
-    # two calls held the array, which is per-command reasoning applied to a
-    # per-call fact. Arm 1 would have succeeded, masking a permanently-401
-    # fallback -- a degraded probe reading as a healthy one.
-    if curl -sf -m 2 "${_qdrant_url}/readyz" &>/dev/null \
-       || curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 2 "${_qdrant_url}/collections" &>/dev/null; then
+_qdrant_last_status=""
+_qdrant_wait_s=0
+# 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
+#
+# THIS LOOP USED TO READ:
+#     curl -sf /readyz || curl <credentialed> /collections
+# and `A || B` EVALUATES B ONLY WHEN A FAILS. `/readyz` answers 200 with no
+# credential -- recorded in the comment this replaces, and re-measured
+# independently by @A2 2026-08-29 against the pinned image
+# (qdrant v1.12.1, QDRANT__SERVICE__API_KEY set): readyz bare 200,
+# collections bare 401, collections api-key 200, collections WRONG key 401
+# (that last one is his sole-tenancy control -- a keyless store would have
+# 200'd a wrong key). So arm 1 ALWAYS won and ARM 2 NEVER EXECUTED. The
+# credentialed probe in this loop was DEAD CODE on every install.
+#
+# The comment that stood here diagnosed exactly this -- "Arm 1 would have
+# succeeded, masking a permanently-401 fallback" -- and then changed arm 2's
+# HEADERS while leaving the `||`, so the masking it named stayed open. The
+# reasoning landed and the code did not: the #563 / #566 shape again.
+#
+# ⚠️ WHY THAT WAS FATAL, WHICH IS THE WHOLE POINT. Readiness was satisfied by
+# a surface that cannot see an auth failure, while the statements after the
+# loop REQUIRE an authenticated surface. So:
+#     store never arrives  -> not ready -> block skipped -> install CONTINUES
+#     store arrives, 401s  -> "ready" via the bare arm -> exit 1
+# A dead store was survivable and an almost-ready one was fatal. Backwards at
+# any window size, including zero -- which is why @ARCHIE's readiness-race
+# measurements (delta 0.00s warm AND cold) could refute a race and leave the
+# failure completely unexplained.
+#
+# So: one arm, and it is the credentialed one. A store that never serves its
+# AUTHENTICATED surface now lands in the same branch as a store that never
+# arrived at all, because they are the same fact about usability.
+#
+# ⚠️ THIS DOES TURN A FATAL INTO A NON-FATAL, DELIBERATELY, AND IT IS NOT
+# "widen the guard until it goes green". The guard is not being weakened, it
+# is being pointed at the right surface: nothing downstream is now protected
+# any less than it was, because the fatal branch was protecting a case its own
+# readiness check had already mis-declared safe. What replaces the abort is a
+# LOUDER signal, not a quieter one -- see the diagnostic below.
+#
+# ⚠️ -sf DISCARDS THE STATUS. Four days of "it failed" with no number came
+# from that. `-o /dev/null -w '%{http_code}'` keeps it; `|| printf '000'`
+# turns a transport failure (no listener, DNS, timeout) into a distinguishable
+# 000 rather than an empty string.
+for _qdrant_attempt in $(seq 1 30); do
+    _qdrant_last_status="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+        -s -o /dev/null -w '%{http_code}' -m 2 "${_qdrant_url}/collections" 2>/dev/null || printf '000')"
+    if [ "$_qdrant_last_status" = "200" ]; then
         _qdrant_ready=true
+        _qdrant_wait_s="$_qdrant_attempt"
         break
     fi
+    _qdrant_wait_s="$_qdrant_attempt"
     sleep 1
 done
+unset _qdrant_attempt
 
 if [[ "$_qdrant_ready" == true ]]; then
     # ⚠️ THIS PROBE IS CREDENTIALED. Read the curl below before the prose.
@@ -16036,12 +16077,18 @@ if [[ "$_qdrant_ready" == true ]]; then
     # The message must therefore report the OBSERVATION, not a diagnosis.
     # See MSG_FAIL_STORE_AUTH_LEAK; the error CODE is kept as-is because it is
     # support-greppable and appears in logs customers have already sent us.
-    if ! curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
-        sleep 2
-        if ! curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
-            fail_with_code "ERR-06-STORE-AUTH-LEAK" "$MSG_FAIL_STORE_AUTH_LEAK"
-        fi
-    fi
+    # THE DOUBLE-PROBE THAT STOOD HERE IS GONE, AND NOT BECAUSE IT WAS NOISY.
+    # It re-asked, on exactly the surface the readiness loop above now tests,
+    # a question that loop has already answered 200. Reaching this line MEANS
+    # a credentialed GET of this URL returned 200 within the last second. A
+    # second probe of the same surface could only add a flake, and its answer
+    # to that flake was to exit 1 on a customer's machine.
+    #
+    # ⚠️ THE ERR-06-STORE-AUTH-LEAK CODE STILL EXISTS -- see the diagnostic on
+    # the not-ready path below. It is deliberately kept as a greppable token:
+    # it appears in install logs customers have already sent us, and in
+    # @ARCHIE's live traces. The code survives; only the SELF-TERMINATION on
+    # it is gone.
     for _coll in people conversations preferences evernote_knowledge; do
         # Already present? Leave it untouched (never clobber real data).
         if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_qdrant_url}/collections/${_coll}" &>/dev/null; then
@@ -16058,8 +16105,63 @@ if [[ "$_qdrant_ready" == true ]]; then
     unset _coll
 else
     warn "$MSG_WARN_QDRANT_NOT_READY_COLLECTIONS_SKIPPED"
+
+    # 🔴 INSTRUMENT, DO NOT MERELY DOWNGRADE (#566).
+    #
+    # Making ERR-06 non-fatal is only safe if the thing we still do not
+    # understand gets LOUDER, not quieter. An unexplained 401 that becomes a
+    # warn nobody reads is how a mechanism stays open forever. So this line
+    # carries the five facts that were reconstructed BY HAND off a live box at
+    # 05:00 on 2026-08-29, each of which killed or could have killed one of
+    # the three mechanisms proposed and retracted that night.
+    #
+    # ⛔ HEADER **NAMES** ONLY, NEVER VALUES. CM051 IS A PUBLIC REPO and this
+    # string lands in an install log customers e-mail us. The sed below
+    # captures only the token before the first `:` and the character class is
+    # deliberately [A-Za-z0-9-] so a malformed conf cannot smuggle a secret
+    # into the capture group.
+    #
+    # ⚠️ THE CONTAINER TIME IS PRINTED RAW, NOT AS A DELTA, ON PURPOSE. macOS
+    # ships BSD `date`, which cannot parse RFC3339Nano without `-j -f` and a
+    # format string that breaks on the fractional seconds Docker emits. A
+    # delta computed with a fragile parse would be a number that is sometimes
+    # silently wrong, which is worse than a raw stamp the reader can diff.
+    # `waited` is the loop's own count and needs no parsing at all.
+    _e6_conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    _e6_headers="none"
+    _e6_conf_age="conf-absent"
+    if [ -f "$_e6_conf" ]; then
+        _e6_headers="$(sed -n 's/^header = "\([A-Za-z0-9-]*\):.*/\1/p' "$_e6_conf" 2>/dev/null \
+            | tr '\n' ',' | sed 's/,$//')"
+        [ -n "$_e6_headers" ] || _e6_headers="none-parsed"
+        _e6_mtime="$(stat -f %m "$_e6_conf" 2>/dev/null || printf '')"
+        if [ -n "$_e6_mtime" ]; then
+            _e6_conf_age="$(( $(date +%s) - _e6_mtime ))s"
+        else
+            _e6_conf_age="unknown"
+        fi
+    fi
+    _e6_started="$(docker inspect -f '{{.State.StartedAt}}' \
+        "$(docker compose ps -q qdrant 2>/dev/null)" 2>/dev/null || printf '')"
+    [ -n "$_e6_started" ] || _e6_started="unknown"
+
+    # i18n-exempt: a support diagnostic of key=value pairs, not customer prose.
+    # It is greppable by the ERR-06 code that install logs already carry.
+    warn "ERR-06-STORE-AUTH-LEAK diagnostic (non-fatal): status=${_qdrant_last_status:-none} headers_sent=${_e6_headers} waited=${_qdrant_wait_s:-0}s conf=${_e6_conf} conf_written=${_e6_conf_age} qdrant_started_at=${_e6_started}"
+
+    # ⚠️ ONE-HEADER CONF IS ITS OWN DEFECT, AND THE LINE ABOVE MAKES IT VISIBLE.
+    # _ostler_write_store_curl_config fails closed ONLY when BOTH secrets are
+    # empty (`[ -z "$_tok" ] && [ -z "$_key" ]`). With exactly one present it
+    # returns 0 and writes a conf holding one header. Against an enforcing
+    # Qdrant, a conf carrying only `Authorization` is a guaranteed 401 with no
+    # timing component -- which fits every delta-0.00s measurement taken so
+    # far. If headers_sent above shows `Authorization` without `api-key`, that
+    # is this defect and not a mystery. Filed as its own row; NOT fixed here,
+    # because a fix that silently synthesises a missing credential would hide
+    # the very thing this line exists to reveal.
+    unset _e6_conf _e6_headers _e6_conf_age _e6_mtime _e6_started
 fi
-unset _qdrant_url _qdrant_ready
+unset _qdrant_url _qdrant_ready _qdrant_last_status _qdrant_wait_s
 
 # ── 3.8b Local web search (Vane) ──────────────────────────────────
 #
