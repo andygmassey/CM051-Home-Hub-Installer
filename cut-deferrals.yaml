@@ -50,7 +50,7 @@ pr_exemptions:
       it. CUSTOMER IMPACT: none, it is CI wiring. REVIEW DATE: land it in the
       daemon repo's own next cycle, once no CM051 cut is in flight. NOT cleared by
       closing the PR: it is wanted, it is simply not this cut's to merge.
-    until_cut: "v1.0.51"
+    review_by: "2026-09-12"
 
   # CM051:#982 -- CANNOT MERGE. It is RED, and that is the whole reason.
   #
