@@ -238,7 +238,7 @@ test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
 test_pii_shape_scan_scope.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_pinned_images_are_pullable.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_pinned_wiki_image_has_design_system.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
-test_pinned_wiki_images_are_arm64_only.sh	WIRED	scripts/run_all_cut_gates.sh
+test_pinned_wiki_images_are_arm64_only.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pinterest_parser.py	UNWIRED	-
 test_pip_stage_outside_bundle.sh	WIRED	.github/workflows/pip-stage.yml
 test_pipefail_shortcircuit_inversion.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
