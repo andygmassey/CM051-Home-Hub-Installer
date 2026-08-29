@@ -77,7 +77,13 @@ cleanup() {
         if ! hdiutil detach "$MP" -quiet 2>/dev/null; then
             [ -n "$DEV" ] && hdiutil detach "$DEV" -force >/dev/null 2>&1 || true
         fi
-        if hdiutil info 2>/dev/null | grep -qF -- "$DMG"; then
+        # `grep -c`, NOT `grep -q`. This file sets `set -uo pipefail`, and
+        # `producer | grep -q` exits on first match, SIGPIPEs the producer and
+        # inverts the verdict. tests/test_pipefail_shortcircuit_inversion.sh
+        # caught this exact line as the 67th instance against a baseline of 66
+        # -- my own new defect, of the class I was fixing. grep -c must read to
+        # EOF, so it cannot short-circuit, and it is POSIX rather than a bashism.
+        if [ "$(hdiutil info 2>/dev/null | grep -cF -- "$DMG")" -gt 0 ]; then
             echo "WARNING: ${DMG} is STILL ATTACHED after cleanup." >&2
             echo "         The next step that mounts it will fail with 'Resource busy'." >&2
         fi
