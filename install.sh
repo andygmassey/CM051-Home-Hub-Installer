@@ -16007,14 +16007,35 @@ for _ in $(seq 1 30); do
 done
 
 if [[ "$_qdrant_ready" == true ]]; then
-    # v1.0.10 install-abort fix (regression gate): the shipped client fleet
-    # is keyless, so an AUTH-REQUIRING Qdrant endpoint MUST answer WITHOUT a
-    # credential here. The readiness loop above uses /readyz which is
-    # unauthenticated, so it cannot catch a store-auth leak; /collections
-    # can. If a leaked API key ever re-arms Qdrant auth, fail NOW with a
-    # clear named error at the database step rather than a mystery ERR-99
-    # abort at "Importing your data" ~30 min later. One retry distinguishes
-    # a persistent 401 (leak) from a one-off blip.
+    # ⚠️ THIS PROBE IS CREDENTIALED. Read the curl below before the prose.
+    #
+    # It was born in v1.0.10 as a BARE probe, and the comment here reasoned
+    # from that: the shipped client fleet was keyless, so an auth-requiring
+    # Qdrant answering a credential-free request meant a leaked key had
+    # re-armed auth, and failing fast at the database step beat a mystery
+    # ERR-99 at "Importing your data" thirty minutes later. That reasoning
+    # was correct for a bare probe.
+    #
+    # CM051 #1222 FLIPPED STORE-AUTH ENFORCEMENT TO DEFAULT ON. The fleet is
+    # no longer keyless and this call now CARRIES the credential -- and the
+    # comment kept describing the old probe for four days. A reader who
+    # trusted it never checked what the curl actually sends. That is #563's
+    # shape, one file over.
+    #
+    # SO BE PRECISE ABOUT WHAT A FAILURE HERE MEANS. It means: an
+    # AUTHENTICATED request to /collections did not succeed, twice, two
+    # seconds apart. A leaked credential is ONE cause. Others we have seen or
+    # cannot yet exclude: the store not yet serving its authenticated surface,
+    # a credential that is valid but not the one Qdrant wants, and whatever
+    # made a fresh 2026-08-29 install fail here on a box where the very same
+    # probe, replayed by hand minutes later with the very same -K file,
+    # returned 200. THAT CAUSE IS STILL UNKNOWN (board #566): a race between
+    # readiness and the authenticated surface was proposed and then REFUTED by
+    # measurement, warm and cold, delta 0.00s both times.
+    #
+    # The message must therefore report the OBSERVATION, not a diagnosis.
+    # See MSG_FAIL_STORE_AUTH_LEAK; the error CODE is kept as-is because it is
+    # support-greppable and appears in logs customers have already sent us.
     if ! curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
         sleep 2
         if ! curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then

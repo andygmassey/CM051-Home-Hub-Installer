@@ -128,6 +128,7 @@ test_enrichment_has_a_recurring_invoker.sh	WIRED	.github/workflows/enrichment-in
 test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_enrichment_optin_is_owed_after_v1_0_36.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_enrichment_reaches_the_corpus.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
+test_err06_states_what_it_measured.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_err_trap_emits_done_fail.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_every_default_source_is_requested.sh	WIRED	.github/workflows/default-sources-requested.yml
 test_every_fail_call_has_error_code.sh	UNWIRED	-
