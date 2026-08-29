@@ -77,7 +77,24 @@ try:
 except Exception as exc:                       # noqa: BLE001
     print(f"CANNOT-RUN\t0\t0\tunreadable check-run payload: {exc}")
     raise SystemExit(0)
-runs = doc.get("check_runs", doc if isinstance(doc, list) else [])
+# `gh api --paginate --slurp` returns an ARRAY OF PAGE OBJECTS, not one
+# object, so the reader must MERGE across pages. Without --slurp gh
+# concatenates one JSON object per page and json.load cannot read it at all:
+# that is the v1.0.51 cut blocker, "Extra data: line 1 column 312659",
+# refusing run 33267872883 on a commit whose checks were entirely green. The
+# gate was only ever going to work while a commit had fewer check-runs than
+# one page holds, so it was guaranteed to start refusing as CI grew, and it
+# did. Reading page 1 alone would be worse than the crash: it would return
+# GREEN over a failure on page 2. The self-test asserts exactly that case.
+if isinstance(doc, list):
+    runs = []
+    for page in doc:
+        if isinstance(page, dict):
+            runs.extend(page.get("check_runs") or [])
+        else:
+            runs.append(page)          # a bare list of runs (fixture shape)
+else:
+    runs = doc.get("check_runs") or []
 # The cut's own jobs. Overridable so a workflow rename does not silently
 # re-include them, and so the self-test can prove the exclusion is BY NAME.
 import os
@@ -106,11 +123,16 @@ run_check() {  # run_check <sha> <repo>
     if [ -n "${OSTLER_CHECKRUNS_JSON:-}" ]; then
         cp "$OSTLER_CHECKRUNS_JSON" "$tmp" 2>/dev/null || {
             red "CANNOT-RUN: OSTLER_CHECKRUNS_JSON is unreadable"; rm -f "$tmp"; return 2; }
-    elif ! gh api "repos/$repo/commits/$sha/check-runs" --paginate > "$tmp" 2>/dev/null; then
+    elif ! gh api "repos/$repo/commits/$sha/check-runs" --paginate --slurp > "$tmp" 2>"$tmp.err"; then
         red "CANNOT-RUN: could not read check-runs for $sha in $repo."
         dim "Nothing was measured. A cut must not proceed on an unread commit."
-        rm -f "$tmp"; return 2
+        # gh's stderr is PRINTED, not swallowed. `2>/dev/null` on a probe turns
+        # a usage error, an auth failure and a real absence into the same
+        # silent sentence, and then the operator debugs the wrong thing.
+        [ -s "$tmp.err" ] && dim "  gh said: $(tr '\n' ' ' < "$tmp.err" | cut -c1-300)"
+        rm -f "$tmp" "$tmp.err"; return 2
     fi
+    rm -f "$tmp.err"
 
     IFS=$'\t' read -r verdict total completed detail < <(evaluate "$tmp")
     rm -f "$tmp"
@@ -170,6 +192,20 @@ if [ "${1:-}" = "--self-test" ]; then
     run_case 1 "a CANCELLED check refuses -- a gate that did not report is not a pass" cancel
     run_case 0 "a NEUTRAL conclusion is not a failure" neutral
     run_case 2 "an unreadable payload is CANNOT-RUN, not green" garbage
+
+    # THE v1.0.51 BLOCKER, asserted in all three directions. This is a
+    # REGRESSION TEST ON A DEFECT THAT ACTUALLY FIRED: run 33267872883 refused
+    # to cut a commit whose checks were all green, because the fetch used
+    # --paginate WITHOUT --slurp and json.load died at the first page boundary.
+    # `slurpred` is the one that matters: reading only page 1 would report
+    # GREEN over a failure on page 2, which is strictly worse than the crash
+    # was, so the fix is not allowed to pass by truncating.
+    mk slurped  '[{"check_runs":[{"name":"a","status":"completed","conclusion":"success"}]},{"check_runs":[{"name":"b","status":"completed","conclusion":"success"}]}]'
+    mk slurpred '[{"check_runs":[{"name":"a","status":"completed","conclusion":"success"}]},{"check_runs":[{"name":"z","status":"completed","conclusion":"failure"}]}]'
+    mk concat   '{"check_runs":[{"name":"a","status":"completed","conclusion":"success"}]}{"check_runs":[{"name":"b","status":"completed","conclusion":"success"}]}'
+    run_case 0 "a SLURPED multi-page payload parses and passes" slurped
+    run_case 1 "a failure on the SECOND page still refuses -- pages are MERGED, not truncated" slurpred
+    run_case 2 "the OLD concatenated shape is CANNOT-RUN, never a silent pass" concat
 
     # The self-exclusion. Broad exclusions are how a gate quietly stops
     # looking, so both directions are asserted: it drops the cut's OWN jobs,
