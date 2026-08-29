@@ -124,8 +124,28 @@ run_arm "the wrapper calling the helper from inside the quoted heredoc (INERT)" 
     'DEDUPE_REPORT="${PRIVATE_DIR}/dedupe-report.yaml"' 'DEDUPE_REPORT="$(_ostler_private_artefact dedupe-report.yaml)"'
 
 # 6. The helper grows a fallback. Every fallback is a world-readable one.
-run_arm "a /tmp fallback added to the helper" \
-    '    mkdir -p "${_d}" 2>/dev/null || return 1' '    mkdir -p "${_d}" 2>/dev/null || { printf "/tmp/%s" "${_name}"; return 0; }'
+#
+# ⚠️ THERE ARE NOW TWO COPIES OF THIS HELPER (#568: the main body needed
+# its own, because the heredoc copy resolves only in the generated
+# script's shell). A single-line anchor on the mkdir matches BOTH, and
+# the mutator correctly refused it as ambiguous rather than picking one.
+#
+# 🔴 DO NOT "fix" that by replacing all occurrences at once. Mutating
+# both copies together only proves the guard catches AT LEAST ONE of
+# them -- a guard blind to either copy would still go red and look
+# healthy. One arm per copy, disambiguated by the line above the mkdir,
+# is the version that can tell those two worlds apart.
+run_arm "a /tmp fallback added to the helper (MAIN-BODY copy)" \
+    '    _d="${OSTLER_PRIVATE_ARTEFACTS_DIR:-${OSTLER_DIR:-${HOME}/.ostler}/state/private}"
+    mkdir -p "${_d}" 2>/dev/null || return 1' \
+    '    _d="${OSTLER_PRIVATE_ARTEFACTS_DIR:-${OSTLER_DIR:-${HOME}/.ostler}/state/private}"
+    mkdir -p "${_d}" 2>/dev/null || { printf "/tmp/%s" "${_name}"; return 0; }'
+
+run_arm "a /tmp fallback added to the helper (QUOTED-HEREDOC copy)" \
+    '    local _name="$1" _d="${OSTLER_PRIVATE_ARTEFACTS_DIR}" _mode
+    mkdir -p "${_d}" 2>/dev/null || return 1' \
+    '    local _name="$1" _d="${OSTLER_PRIVATE_ARTEFACTS_DIR}" _mode
+    mkdir -p "${_d}" 2>/dev/null || { printf "/tmp/%s" "${_name}"; return 0; }'
 
 # ── FINAL ARM: RESTORE, AND PROVE THE RESTORE WORKED ─────────────────
 cp "$BACKUP" "$INSTALL_SH"

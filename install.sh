@@ -317,6 +317,72 @@ _ostler_wire_store_auth_pth() {
     return 0
 }
 
+# ── private-artefact helper, MAIN-BODY COPY (#568, 2026-08-29) ────────
+# 🔴 THIS FUNCTION ALSO EXISTS INSIDE THE `ENRTICKEOF` HEREDOC BELOW, AND
+# THE DUPLICATION IS DELIBERATE -- SAME REASON THE `DCUEOF` COPY GIVES.
+# That heredoc is single-quoted and written to a standalone script, so its
+# copy resolves in ITS OWN shell and is invisible here. Until this copy
+# existed, install.sh's own body CALLED a function only that heredoc
+# defined: every call returned rc=127 `command not found`, and the dedupe
+# report path came back empty.
+#
+# ⛔ IT DID NOT THEN "SKIP THE PASS". IT KILLED THE INSTALL. `set -Eeuo
+# pipefail` is in force from line 29 -- nounset IS ON, and there is no
+# `set +u` anywhere between there and the call site. So the follow-on
+# `warn` dereferenced the equally-heredoc-only
+# OSTLER_PRIVATE_ARTEFACTS_DIR, hit an unbound variable, and the script
+# died on that line. Everything below it, including
+# `_install_dedupe_catchup_agent` 76 lines later, never ran -- so the
+# agent that would have recovered the pass was never even installed.
+#
+# WHY IT SURVIVED THIS LONG, since a dead install is not subtle: the
+# failure is silent at the exit code. `trap composite_cleanup EXIT` is
+# registered at :9792, and this file's own backstop comment near :9730
+# records that a `set -u` abort can mask the status to 0 on bash 3.2 --
+# which is precisely why that backstop exists. Reported by @Archie from a
+# real run on a real Mac (2026-08-29), his measurement not mine: ~89% on
+# the progress bar, ZERO completion banners, the log ending on those two
+# error lines, and exit 0.
+#
+# 🔴 AN EARLIER VERSION OF THIS PARAGRAPH SAID THE OPPOSITE -- that there
+# was no `set -u` here and the warn merely printed an empty path. That was
+# wrong and it was mine. The predicate behind it was `set -[a-z]*u`, a
+# LOWERCASE-ONLY class that cannot match the bundled, capitalised `-Eeuo`.
+# Do not soften this back: three agents have now held this question and
+# two got it wrong at least once, and this comment is where that memory
+# lives.
+#
+# ⚠️ DO NOT spell the directory as "${STATE_DIR}/private" here. STATE_DIR
+# is assigned in FIVE places and every one of them is inside a heredoc --
+# it is unset in this shell. That spelling expands to "/private", which
+# exists, is root-owned, and fails the chmod instead of the mkdir. The
+# function would still return 1, the pass would still be skipped, and the
+# fix would look applied while changing nothing. Resolve from OSTLER_DIR,
+# the way the dedupe block two lines above its own call site already does.
+#
+# Late-bound on purpose: the body reads nothing at definition time, so
+# this can sit above the point where OSTLER_DIR is settled.
+#
+# ⚠️ THIS FUNCTION CANNOT PUBLISH THE DIRECTORY NAME TO ITS CALLER, and a
+# fix that relies on it doing so is inert. Every call site is a command
+# substitution -- `$(_ostler_private_artefact …)` -- which runs in a
+# SUBSHELL, so any global it assigns dies with that subshell. Caught by
+# the fix's own positive test: the path came back correct and rc=0 while
+# the exported name came back EMPTY. That is why the caller below sets
+# OSTLER_PRIVATE_ARTEFACTS_DIR in the parent shell before calling, and
+# the `:-` default here only covers callers that do not.
+_ostler_private_artefact() {
+    local _name="$1" _mode _d
+    _d="${OSTLER_PRIVATE_ARTEFACTS_DIR:-${OSTLER_DIR:-${HOME}/.ostler}/state/private}"
+    mkdir -p "${_d}" 2>/dev/null || return 1
+    chmod 700 "${_d}" 2>/dev/null || return 1
+    # VERIFY, do not assume -- `chmod` can exit 0 on some filesystems
+    # without the mode sticking. Same check the heredoc copy makes.
+    _mode="$(/usr/bin/stat -f '%Lp' "${_d}" 2>/dev/null)" || return 1
+    [ "${_mode}" = "700" ] || return 1
+    printf '%s/%s' "${_d}" "${_name}"
+}
+
 if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "1" ]]; then
 
     # Own the error handling from here: manage exit codes explicitly so
@@ -25024,6 +25090,16 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
     # cannot be secured we do NOT run the pass at all -- there is
     # deliberately no fallback path, because every fallback is a
     # world-readable one.
+    # #568: set this in the PARENT shell, not inside the helper. The call
+    # below is a command substitution, so anything the helper assigns dies
+    # with its subshell -- and the `warn` on the failure path reads this
+    # name directly. Unset here, under the file's `set -Eeuo pipefail`
+    # (:29), that read is an unbound-variable ABORT, not an empty string:
+    # the install dies at this line, and `_install_dedupe_catchup_agent`
+    # 76 lines below never runs, so the agent that would have recovered
+    # the pass is never even installed. Assigning it here is what keeps
+    # the failure path a WARNING.
+    OSTLER_PRIVATE_ARTEFACTS_DIR="${OSTLER_PRIVATE_ARTEFACTS_DIR:-${OSTLER_DIR:-${HOME}/.ostler}/state/private}"
     _DEDUPE_REPORT="$(_ostler_private_artefact dedupe-report.yaml)" || _DEDUPE_REPORT=""
     if [[ -z "$_DEDUPE_REPORT" ]]; then
         warn "Skipping duplicate-contact merging: ${OSTLER_PRIVATE_ARTEFACTS_DIR} could not be created at mode 0700, and the report names every contact"

@@ -180,17 +180,44 @@ pass "control: _ostler_private_artefact is defined"
 # The whole point is that there is NO second-choice path. Any /tmp inside
 # the helper body would be a fallback, and every fallback is a
 # world-readable one.
-HELPER_BODY="$(printf '%s\n' "$CODE" | /usr/bin/awk '
-    /^_ostler_private_artefact\(\) \{/ { inb = 1 }
-    inb                                { print }
-    inb && /^    \}$/                  { exit }
+# 🔴 EVERY copy, not the first. This used to `exit` at the end of the
+# first body, which was safe only while exactly one helper existed. #568
+# added a SECOND copy in the main body (the heredoc copy resolves only in
+# the generated script's shell), and because the new one sorts EARLIER in
+# the file the old range stopped there -- leaving the original,
+# heredoc-resident helper completely uninspected. A clean first copy
+# SATISFIED this assertion on behalf of a defective second one.
+#
+# Proved, not reasoned: with the old range, the mutation arm that adds a
+# /tmp fallback to the HEREDOC copy passed the guard. A guard that reads
+# "there exists a good helper" cannot answer "are all helpers good".
+#
+# The terminator also has to tolerate both brace indentations -- the
+# heredoc copy closes on '    }' and the main-body copy on '}'.
+HELPER_DEFS="$(count_in "$CODE" -F "_ostler_private_artefact() {")"
+HELPER_SCAN="$(printf '%s\n' "$CODE" | /usr/bin/awk '
+    /^_ostler_private_artefact\(\) \{/    { inb = 1; bodies++ }
+    inb                                   { print }
+    inb && /^[[:space:]]*\}[[:space:]]*$/ { inb = 0 }
+    END                                   { printf "###BODIES=%d\n", bodies + 0 }
 ')"
+HELPER_BODIES="$(printf '%s\n' "$HELPER_SCAN" | /usr/bin/sed -n 's/^###BODIES=//p')"
+HELPER_BODY="$(printf '%s\n' "$HELPER_SCAN" | /usr/bin/grep -vF '###BODIES=')"
 if [ -z "$HELPER_BODY" ]; then
     echo "FAIL: the helper body extracted EMPTY -- the awk range is wrong, so" >&2
     echo "      the assertions below would be vacuous. CANNOT-RUN." >&2
     exit 1
 fi
-pass "control: the helper body extracted non-empty"
+# CONTROL: one extracted body per definition. If a future copy lands
+# somewhere this range cannot close, the counts diverge and we refuse
+# rather than silently inspecting a subset.
+if [ "${HELPER_BODIES:-0}" != "${HELPER_DEFS}" ]; then
+    echo "FAIL: ${HELPER_DEFS} helper definitions but ${HELPER_BODIES:-0} bodies" >&2
+    echo "      extracted. The range missed one, so any verdict below would" >&2
+    echo "      cover a SUBSET of the helpers. CANNOT-RUN, not a pass." >&2
+    exit 1
+fi
+pass "control: ${HELPER_BODIES} helper body/bodies extracted, one per definition"
 
 if [ "$(count_in "$HELPER_BODY" -F "/tmp")" -gt 0 ]; then
     failure "_ostler_private_artefact mentions /tmp in its body -- it has a fallback"
