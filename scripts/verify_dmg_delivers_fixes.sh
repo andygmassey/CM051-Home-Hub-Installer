@@ -43,8 +43,45 @@ FIX_INV=(  "sudo already available without a password"    "Install aborted at li
 
 MP="$(mktemp -d)"
 DEV=""
+ATTACHED=0
 cleanup() {
-    [ -n "$DEV" ] && hdiutil detach "$DEV" >/dev/null 2>&1 || true
+    # A DETACH WHOSE FAILURE IS INVISIBLE IS NOT A DETACH.
+    #
+    # THIS LEAKED THE IMAGE AND COST THE v1.0.51 CUT TWO GATES. The old body was
+    #     [ -n "$DEV" ] && hdiutil detach "$DEV" >/dev/null 2>&1 || true
+    # which discards stdout, stderr AND the return code. If the detach fails --
+    # a busy volume moments after traversing it with find is the ordinary case
+    # on a CI runner -- the script still exits 0 with the image ATTACHED, and
+    # says nothing. The next consumer of the same DMG then dies with
+    # "hdiutil: attach failed - Resource busy / This image is ALREADY ATTACHED".
+    #
+    # THE EVIDENCE IS ORDERING, and it is decisive (@TNM, run 33268357529):
+    #     18:37:46.166  this script prints "install.sh copies in the DMG: 2"
+    #                   <- which REQUIRES a successful mount, so the image was FREE
+    #     18:37:46.239  this script exits 0
+    #     18:37:46.587  the next step attaches -> Resource busy
+    # The image was free when we took it and busy 0.35s later. The only mount
+    # alive in that window was ours, and the only thing that ran in between was
+    # this trap.
+    #
+    # ⚠️ A LOCAL RUN CANNOT EXCLUDE THIS. Running the pre-fix script on a Mac
+    # gives rc=0, attached=no -- I did exactly that and wrongly read it as
+    # exclusion. It proves the happy path. The failure path was unobservable by
+    # construction, because the rc was thrown away. A control that cannot fail
+    # for the reason the subject fails is not a control.
+    #
+    # So: detach by the MOUNTPOINT we created (never a parsed device node, which
+    # is a second thing that can silently be empty), READ the return code, and
+    # if the image is still attached SAY SO with the consequence named.
+    if [ "$ATTACHED" -eq 1 ]; then
+        if ! hdiutil detach "$MP" -quiet 2>/dev/null; then
+            [ -n "$DEV" ] && hdiutil detach "$DEV" -force >/dev/null 2>&1 || true
+        fi
+        if hdiutil info 2>/dev/null | grep -qF -- "$DMG"; then
+            echo "WARNING: ${DMG} is STILL ATTACHED after cleanup." >&2
+            echo "         The next step that mounts it will fail with 'Resource busy'." >&2
+        fi
+    fi
     [ -d "$MP" ] && rmdir "$MP" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -55,7 +92,9 @@ if [ "$rc" -ne 0 ]; then
     printf '%s\n' "$attach_out" >&2
     exit 2
 fi
-DEV="$(printf '%s\n' "$attach_out" | awk '/GUID_partition_scheme|Apple_HFS/{print $1; exit}')"
+ATTACHED=1   # set the INSTANT the attach succeeds. NOT after the parse below:
+             # a cleanup gated on a parse does not run when the parse is what broke.
+DEV="$(printf '%s\n' "$attach_out" | awk '/GUID_partition_scheme|Apple_HFS|Apple_APFS/{print $1; exit}')"
 
 # Enumerate, bash 3.2-safe (no mapfile on a stock Mac shell).
 INSTALLS=()
