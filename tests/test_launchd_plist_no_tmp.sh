@@ -133,6 +133,137 @@ fi
 assert_plist_clean "com.ostler.ollama"           OLLAMAPLIST    OLLAMA_LOG_DIR
 assert_plist_clean "com.ostler.ollama-logrotate" OLLAMAROTPLIST _ollama_rot_logs
 
+# ===========================================================================
+# #573: THE TWO RENDERS ABOVE ARE A HAND-PICKED DENOMINATOR
+# ===========================================================================
+#
+# The line above used to end this file, and its comment called those two "the
+# only ones tainted by #177". That was true OF THAT INCIDENT and was never true
+# OF THE CLASS -- but the final PASS message claims the general property, "no
+# shipped com.*ostler*.plist path resolves under /tmp". A check of two made a
+# claim about all of them.
+#
+# com.ostler.engine-supervisor was written above the promote boundary,
+# interpolated ${OSTLER_DIR} and ${LOGS_DIR}, baked
+# /tmp/ostler-prelaunch-<pid> into a durable LaunchAgent, and died at the
+# customer's first reboot. This gate was green throughout. It never looked.
+#
+# So the list is now DISCOVERED, not typed. Adding a fifteenth plist cannot
+# quietly escape the rule, and if discovery ever returns nothing the gate
+# exits 2 CANNOT-RUN rather than printing a green zero.
+#
+# WHY A SOURCE RULE HERE AND NOT A RENDER: rendering needs each plist's own
+# local variable derivations, so a generic renderer would fail for reasons
+# that have nothing to do with taint -- and a gate that errors for the wrong
+# reason gets weakened. The property IS decidable from source: above the
+# boundary, do not name a staging-bound variable. The two renders above stay
+# as the stronger evidence they are for the plists they cover.
+
+echo ""
+echo "  -- #573 whole-class sweep: every plist above the promote boundary --"
+
+python3 - "$INSTALL_SH" <<'PYEOF'
+import re, sys
+
+path = sys.argv[1]
+lines = open(path, encoding="utf-8").read().split("\n")
+
+# The boundary is an explicit marker in install.sh, not a line number and not
+# an inference from indentation. If it is missing or duplicated the contract
+# has moved and this gate REFUSES rather than guessing: a wrong boundary would
+# silently check the wrong set.
+marker = [i for i, l in enumerate(lines, 1) if "OSTLER-PROMOTE-BOUNDARY" in l and l.lstrip().startswith("#")]
+if len(marker) != 1:
+    print(f"CANNOT-RUN: expected exactly 1 OSTLER-PROMOTE-BOUNDARY marker in install.sh, found {len(marker)}", file=sys.stderr)
+    print("            install.sh's promote contract moved; this gate will not guess which plists are at risk.", file=sys.stderr)
+    sys.exit(2)
+boundary = marker[0]
+
+# Discover every LaunchAgent plist heredoc: VAR="...LaunchAgents/x.plist"
+# followed later by `cat > "$VAR" <<TAG`.
+plistvars = {}
+for i, l in enumerate(lines, 1):
+    m = re.match(r'\s*([A-Z_][A-Z0-9_]*)="\$\{HOME\}/Library/LaunchAgents/([^"]+)"', l)
+    if m:
+        plistvars.setdefault(m.group(1), m.group(2))
+
+found = []
+for i, l in enumerate(lines, 1):
+    m = re.search(r'cat\s*>\s*"\$(?:\{)?([A-Z_][A-Z0-9_]*)(?:\})?"', l)
+    if not m or m.group(1) not in plistvars:
+        continue
+    h = re.search(r"<<-?('?)([A-Za-z_][A-Za-z0-9_]*)\1", l)
+    if not h:
+        continue
+    tag = h.group(2)
+    quoted = ("<<'" in l) or ('<<"' in l)
+    body = []
+    for j in range(i, len(lines)):
+        if lines[j].strip() == tag:
+            break
+        body.append((j + 1, lines[j]))
+    found.append((i, plistvars[m.group(1)], quoted, body))
+
+# ANTI-VACUITY. A discovery bug and a clean tree print identically; only a
+# floor tells them apart. 14 plists exist today, so 10 leaves room for
+# deliberate removals while still refusing a collapsed match.
+FLOOR = 10
+if len(found) < FLOOR:
+    print(f"CANNOT-RUN: discovered only {len(found)} LaunchAgent plist heredocs (floor {FLOOR}).", file=sys.stderr)
+    print("            The discovery pattern broke; a green result here would mean nothing.", file=sys.stderr)
+    sys.exit(2)
+
+pre = [f for f in found if f[0] < boundary]
+if not pre:
+    print(f"CANNOT-RUN: no plist found above the boundary at line {boundary} -- discovery or boundary is wrong.", file=sys.stderr)
+    sys.exit(2)
+
+STAGING = re.compile(r'\$\{?(OSTLER_DIR|LOGS_DIR)\b')
+failures = 0
+for line_no, name, quoted, body in pre:
+    if quoted:
+        print(f"  ok: {name} (line {line_no}) heredoc is quoted -- no expansion, safe by construction")
+        continue
+    hits = [(n, t.strip()) for n, t in body if STAGING.search(t)]
+    if hits:
+        failures += 1
+        print(f"FAIL: {name} (line {line_no}) is ABOVE the promote boundary (line {boundary}) and names a staging-bound variable.", file=sys.stderr)
+        print(f"      On a fresh install OSTLER_DIR/LOGS_DIR are still /tmp/ostler-prelaunch-<pid> here.", file=sys.stderr)
+        print(f"      A plist is durable and /tmp is wiped at reboot, so this agent dies on first restart.", file=sys.stderr)
+        print(f"      Use OSTLER_FINAL_DIR instead. Offending lines:", file=sys.stderr)
+        for n, t in hits:
+            print(f"        {n}: {t}", file=sys.stderr)
+    else:
+        print(f"  ok: {name} (line {line_no}) above boundary, no staging-bound variable")
+
+print(f"  EXAMINED: {len(found)} plist heredocs discovered, {len(pre)} above the boundary at line {boundary}, {len(pre)} checked, {failures} tainted")
+sys.exit(1 if failures else 0)
+PYEOF
+_sweep_rc=$?
+if [[ "$_sweep_rc" -eq 2 ]]; then
+    echo "test_launchd_plist_no_tmp: CANNOT-RUN (whole-class sweep could not establish its own scope)" >&2
+    exit 2
+elif [[ "$_sweep_rc" -ne 0 ]]; then
+    FAILED=1
+fi
+
+# CONTROL for the sweep itself. The rule above must FIRE on a plist that names
+# a staging-bound variable above the boundary -- otherwise "0 tainted" and
+# "the predicate is blind" print identically, and only one of them is a gate.
+_ctrl="$(python3 - <<'PYEOF'
+import re
+STAGING = re.compile(r'\$\{?(OSTLER_DIR|LOGS_DIR)\b')
+specimen = '    <string>${LOGS_DIR}/engine-supervisor.log</string>'
+clean    = '    <string>${OSTLER_FINAL_DIR}/logs/engine-supervisor.log</string>'
+print("FIRES" if STAGING.search(specimen) and not STAGING.search(clean) else "BLIND")
+PYEOF
+)"
+if [[ "$_ctrl" != "FIRES" ]]; then
+    failure "sweep control: the staging-bound predicate does not discriminate (got '${_ctrl}') -- the sweep's zero proves nothing"
+else
+    echo "  ok: sweep control -- the predicate fires on a staging-bound path and ignores the canonical one"
+fi
+
 if [[ "$FAILED" -ne 0 ]]; then
     echo "test_launchd_plist_no_tmp: FAILED" >&2
     exit 1
