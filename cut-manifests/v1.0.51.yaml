@@ -1,0 +1,143 @@
+# cut-manifests/v1.0.51.yaml
+#
+# 🔴 WHY THIS FILE EXISTS. The v1.0.51 preflight refused with
+# "No cut manifest at cut-manifests/v1.0.51.yaml." That is the FOURTH distinct
+# cut input, after the version stamp, the OS003 BOM and the walk-closure row.
+# Exactly the shape of the v1.0.50 note below it: I authored the other inputs
+# and did not notice this one. The gate was right to stop, and this time it
+# named its cause correctly on the first line.
+#
+# ⚠️ THE THREE EARLIER REFUSALS WERE NOT THIS ONE, AND THAT MATTERS FOR
+# READING THE RUN HISTORY. Run 33264673982 died on version + BOM + walk
+# closure. Run 33266057815 got PAST all three and died here. Four blockers,
+# discovered one at a time, because preflight stops at the first failing step
+# rather than reporting the set. Not a defect - a fail-fast gate - but it means
+# "the preflight is green" can only ever be claimed about a run that reached
+# the end, never inferred from having fixed what the last run named.
+#
+# 🟢 PATTERN SEMANTICS, MEASURED RATHER THAN ASSUMED. With `path_hint` set,
+# verify_cut_manifest.py does NOT shell out to grep: it calls
+# _pattern_hits_bytes, which is `re.findall` on a permissively-decoded string.
+# These are PYTHON regexes, not BRE, not ERE, not fixed strings. The v1.0.50
+# header records the opposite hazard for the whole-tree path (`$` read as an
+# anchor by BSD grep), so the two paths in this same file have DIFFERENT
+# pattern languages. Every row below was validated by importing
+# verify_cut_manifest and calling _pattern_hits_bytes directly - the real
+# function, not a reimplementation of it.
+#
+# EVERY ROW IS MUTATION-TESTED AGAINST ITS OWN PRE-FIX PARENT, never against a
+# line deleted by hand. Measured 2026-08-30:
+#
+#   pattern                                       fixed  pre-fix arm       discriminates
+#   _ostler_pip_install_pkg .*_AICONV_VENV          1    0  (43f8070e~1)   yes
+#   _fda_listed=.listed.                            0    1  (4459d435~1)   yes (absence)
+#   OSTLER_FINAL_DIR\}/logs/engine-supervisor       2    0  (c93e0f83~1)   yes
+#   zqx4m7v-not-a-real-token                        0    0  all arms       control: reader CAN return 0
+#   OSTLER_FINAL_DIR                               45   38  all arms       control: reader CAN read both blobs
+#
+# The two controls are not decoration. Without the first, a row scoring 0 could
+# mean "absent" or "the reader is broken". Without the second, a row scoring 0
+# on BOTH arms could mean the blob never loaded. Both are needed because the
+# absence rows below are satisfied BY a zero.
+#
+# ⛔ WHAT NO ROW HERE CLAIMS. Every entry is a PRESENCE claim about source at
+# this sha - gate one of three (merged / delivered / run). None of them says
+# the fix works on a box. The v1.0.50 walk record reads `fail 7` and will read
+# `fail 7` permanently; this cut is the first artefact that can carry these
+# four fixes to a walker. 7 recorded, 4 predicted to clear, 0 measured.
+
+version: v1.0.51
+entries:
+  - id: v1051-a-cm052-pip-stages-outside-the-notarised-bundle
+    title: the cm052 pip install is routed through the staging helper, so it cannot build inside the .app
+    incident: >-
+      THE INSTALLER BROKE ITS OWN CODE SEAL DURING THE INSTALL, AND TCC MADE
+      THAT PERMANENT. _AICONV_SRC is the cm052 source dir under SCRIPT_DIR, and
+      in the .app layout SCRIPT_DIR is Contents/Resources, so a bare pip install
+      of it builds IN PLACE and writes into the notarised bundle. MEASURED on
+      the v1.0.50 fresh-account walk: codesign reported a sealed resource
+      missing or invalid and named exactly 22 added files, 6 under
+      cm052.egg-info/ and 16 under build/lib/src/cm052/. This is worse than an
+      untidy bundle because TCC pins identifier AND team: a permission the
+      customer granted does not survive the bundle changing underneath it.
+      Fixed by CM051 #1266, which routes the call through
+      _ostler_pip_install_pkg. It was the LAST unrouted bundle-rooted pip
+      install - the helper's own docstring records the v1.0.32 measurement of
+      346 unsealed files, so this is the remainder of that fix and not a new
+      regression. MEASURED: 1 here, 0 at 43f8070e~1.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: '_ostler_pip_install_pkg .*_AICONV_VENV'
+      must_match: true
+
+  - id: v1051-b-fda-listedness-is-never-synthesised-from-the-nudge
+    title: the install never assigns Full Disk Access listed-ness from the register-nudge having run
+    incident: >-
+      THE INSTALL TOLD THE CUSTOMER FULL DISK ACCESS WAS ALREADY GRANTED WHEN
+      IT WAS NOT. The old code tested whether the nudge had RUN and then
+      assigned listed-ness from that, synthesising a fact it had not observed.
+      REFUTED ON THE LIVE FRESH-ACCOUNT WALK: the nudge ran, logged success,
+      and OstlerAssistant was absent from the list. One invented boolean drove
+      THREE customer-facing branches the wrong way - it suppressed the Finder
+      open -R so the drag-in route was never offered, printed "already listed"
+      at a customer looking at a list without it, and dropped the drag
+      instruction from the modal. Verifying instead is structurally impossible
+      here: the real probe needs sudo -n, unavailable on exactly the fresh
+      install this fires on, so the honest state is CANNOT-VERIFY and the old
+      code answered a CANNOT-VERIFY with a PASS. Fixed by CM051 #1267.
+      THIS IS AN ABSENCE ROW BY NECESSITY: the fix is a DELETION, and a
+      presence check cannot see a deletion. MEASURED: 0 here, 1 at 4459d435~1.
+      The pattern uses dots rather than quote characters so it does not depend
+      on how quoting survives on its way to the reader.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: '_fda_listed=.listed.'
+      must_match: false
+
+  - id: v1051-c-engine-supervisor-plist-roots-at-the-final-dir
+    title: the engine-supervisor LaunchAgent roots its program and log paths at OSTLER_FINAL_DIR
+    incident: >-
+      A LAUNCHAGENT BAKED A /tmp STAGING PATH AND DIED AT THE CUSTOMER'S FIRST
+      REBOOT. The com.ostler.engine-supervisor plist is written ABOVE the
+      promote boundary and interpolated OSTLER_DIR and LOGS_DIR, which on a
+      fresh install still hold the prelaunch staging directory. /tmp is wiped at
+      reboot, so the supervisor died the first time the customer restarted.
+      THE DEFECT WAS INVISIBLE TO EXACTLY THE PERSON TESTING IT: every earlier
+      promote call is conditional and the earliest fires only on the SKIP_PHASE2
+      RE-RUN path, so on a re-run the promote HAD fired and the plist came out
+      correct. Only a genuinely fresh install reaches that line with staging
+      values still bound, which is why it survived two cuts. Fixed by CM051
+      #1269, which also creates the logs directory because launchd resolves
+      StandardOutPath at spawn and a missing directory is a spawn failure.
+      SCOPE, MEASURED AND SMALLER THAN THE ORIGINAL FILING IMPLIED: 14 plist
+      heredocs discovered, 4 above the boundary, 2 already fixed by #177, 1 a
+      quoted heredoc that does not interpolate - engine-supervisor was the only
+      live one. A class of ONE remaining, not a sweep. MEASURED: 2 here, 0 at
+      c93e0f83~1. The pattern escapes the closing brace because this path is
+      read by Python re, not by grep.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'OSTLER_FINAL_DIR\}/logs/engine-supervisor'
+      must_match: true
+
+  - id: v1051-d-the-staging-rooted-supervisor-paths-are-gone
+    title: the engine-supervisor plist no longer resolves its log paths through LOGS_DIR
+    incident: >-
+      The ABSENCE half of the row above, and the one that tells the two
+      artefacts apart in the direction a presence check cannot. A build that
+      ADDED the OSTLER_FINAL_DIR lines while leaving the old LOGS_DIR ones on
+      another branch of the same heredoc would satisfy row (c) and still ship a
+      plist that dies at reboot. This row refuses that build. Same file, same
+      arms as (c). MEASURED: 0 here, 2 at c93e0f83~1.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'LOGS_DIR\}/engine-supervisor'
+      must_match: false
