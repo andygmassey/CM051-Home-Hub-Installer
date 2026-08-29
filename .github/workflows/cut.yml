@@ -968,6 +968,48 @@ jobs:
           fi
           bash scripts/verify_dmg_delivers_fixes.sh "$DMG"
 
+      # ── THE ARTEFACT WALK ITSELF (#719 successor) ───────────────────────
+      # scripts/walk_dmg.sh is 498 lines of eight-arm artefact walk and it has
+      # had ZERO INVOCATIONS since it was written. Its only reference anywhere
+      # in .github was a `paths:` trigger, and A TRIGGER IS NOT AN EXECUTION.
+      # Meanwhile the step directly above already runs a script against $DMG,
+      # so the cut has had the artefact in hand this whole time and has not
+      # walked it.
+      #
+      # WHY THIS IS NOT DECORATION. Arm 8 exists BECAUSE SEVEN ARMS SAID GO ON
+      # v1.0.45 AND v1.0.45 BRICKED. Every one of the seven inspects the
+      # artefact as shipped; the defect only appears once the thing is RUN.
+      # Its veto branch is not theoretical -- measured on real specimens:
+      # v1.0.35 vetoes 3/3, v1.0.47 vetoes 2/3 with the FIRST sub-check
+      # passing, so a veto that fires late is still a veto that fires.
+      #
+      # rc=2 IS CANNOT-RUN, NOT FAIL, AND NEITHER IS A PASS. walk_dmg.sh
+      # already speaks this (7 CANNOT-RUN sites, 4 `exit 2`). We surface WHICH
+      # one happened rather than collapsing both into a red, because "could not
+      # look" and "looked and it is bad" need different responses from whoever
+      # reads this log at 3am.
+      - name: Walk the DMG (eight arms, arm 8 has the veto)
+        id: walk_dmg
+        if: always()
+        run: |
+          set -uo pipefail
+          DMG="$(ls dist/*.dmg 2>/dev/null | head -1)"
+          if [ -z "$DMG" ]; then
+              echo "::error title=No DMG to walk::The artefact walk found no dist/*.dmg. It has NOT walked anything -- it failed to look. DO NOT SHIP."
+              exit 1
+          fi
+          bash scripts/walk_dmg.sh "$DMG"
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
+              echo "walk_dmg: all arms PASS on ${DMG##*/}"
+          elif [ "$rc" -eq 2 ]; then
+              echo "::error title=Artefact walk CANNOT-RUN::walk_dmg.sh exited 2 -- a prerequisite was missing, so the artefact has NOT been walked. This is not a pass and not a product failure. Read the arm that said so."
+              exit 2
+          else
+              echo "::error title=Artefact walk FAILED (rc=${rc})::walk_dmg.sh vetoed this artefact. Arm 8 exists because seven arms passed the build that bricked. DO NOT SHIP."
+              exit "$rc"
+          fi
+
       - name: The artefact's content IS the tag being cut
         id: artefact_content
         if: always()
