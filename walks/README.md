@@ -52,8 +52,38 @@ probe filenames are written, and anything else on those lines is dropped.
 Before this, the record kept the four counts and nothing else. The gate that
 decides whether customers get a build said `fail 5` and could not say which
 five: `run_box_walk.sh` printed the names into a `mktemp` log that
-`post_walk_qa.sh` deleted on exit. `walks/v1.0.44.tsv` is the only record that
-has ever existed and that is exactly what it says.
+`post_walk_qa.sh` deleted on exit. `walks/v1.0.44.tsv` is exactly what that
+looks like.
+
+## What is actually in here, as of v1.0.50
+
+Two records, and **both are `FAILED`**:
+
+| record | pass | fail | cannot_run | verdict | `artefact_sha256` |
+|---|---|---|---|---|---|
+| `v1.0.44.tsv` | 5 | 5 | 3 | FAILED | absent |
+| `v1.0.47.tsv` | 7 | 4 | 4 | FAILED | absent |
+
+Both predate #931, so neither names the build it was taken on. That is not a
+problem for the gate: it refuses them at the **verdict** check, before it ever
+reaches the artefact fields. The artefact checks are deliberately scoped to
+`CLEAN` records for exactly this reason — run unscoped, the absent-field check
+would fire first and these two would be reported as CANNOT-RUN when they are in
+fact a measured, legible FAILED. Losing that distinction would be signal loss.
+
+**There has never been a `CLEAN` record for any version.** Every release since
+v1.0.41 is therefore a prerelease, which is the walk gate working as designed
+rather than publishing being broken: no clean walk → `PROMOTE=0` → the customer
+keeps the last build that *was* walked.
+
+⚠️ **"Walked" is used for two different things and only one of them is this
+file.** A DMG can be *artefact-verified* — hashed, signature checked, stapled,
+contents mounted and read — with none of it ever having been installed. That is
+not a walk and it does not produce a record here. A **box walk** means the thing
+was installed on a real machine and the probes ran against it. `#844` exists
+because everything between "gates green" and "customer download" is the first
+kind. When a report says a build is "walked N/N", check which kind it means, and
+check `walks/` before believing it is this one.
 
 ## Why four counts and not one
 
