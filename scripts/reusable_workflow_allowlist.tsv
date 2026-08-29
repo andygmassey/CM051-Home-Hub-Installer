@@ -1,0 +1,22 @@
+# reusable_workflow_allowlist.tsv
+#
+# Source repos this repo is permitted to call a reusable workflow from.
+# Format:  <owner>/<repo><TAB><reason>
+#
+# EMPTY BY DEFAULT, AND THAT IS THE POINT. A cross-repo reusable-workflow call
+# whose source cannot be resolved fails the calling workflow at STARTUP, which
+# produces a run with ZERO jobs and therefore ZERO check-runs. The gate is not
+# red, it is ABSENT, and absent is indistinguishable from passing on the PR
+# merge box and to every branch-protection rule.
+#
+# CM051 shipped exactly that: enforce-ledger-write.yml called
+# andygmassey/HR015-Gaming-PC, which is PRIVATE with actions access_level
+# "none", so run 32220337769 on PR #493 finished with conclusion=failure,
+# 0 jobs and 0 check-runs. Nobody saw it.
+#
+# BEFORE ADDING A ROW: measure, do not assume.
+#   gh api repos/<owner>/<repo> --jq .private          # must be false
+#   gh api repos/<owner>/<repo>/actions/permissions/access
+# scripts/verify_no_invisible_reusable_workflows.sh re-measures every
+# allowlisted repo whenever a token is present, and fails the row if the repo
+# is private -- the allowlist is a declaration, never the evidence.

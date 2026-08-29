@@ -1,0 +1,122 @@
+name: enforce-ledger-write
+
+# SHIPPING_LEDGER.yaml write discipline, enforced from inside this repo.
+#
+# On every PR: if the PR touches shipping-adjacent files (cut-manifests/,
+# release/build-binary.sh, gui/Makefile DAEMON_VERSION|DAEMON_SHA256 lines,
+# install.sh OSTLER_ASSISTANT_VERSION|DEFAULT_ASSISTANT_TARBALL_SHA256 lines,
+# or **/vendor/) the PR body MUST contain one of:
+#
+#   [ledger-entry: <URL to HR015 SHIPPING_LEDGER.yaml PR or commit>]
+#   [skip-ledger-enforce: <reason>]
+#
+# Source: memory/feedback_shipping_ledger_after_every_write.md
+#
+# ---------------------------------------------------------------------------
+# THIS FILE USED TO PRODUCE NOTHING AT ALL.
+#
+# From 2026-07-31 it was three lines calling a reusable workflow in HR015:
+#
+#     jobs:
+#       ledger-pr:
+#         uses: andygmassey/HR015-Gaming-PC/.github/workflows/reusable-enforce-ledger-write.yml@main
+#
+# Measured 2026-08-19 on PR #493 head 16503a83, run 32220337769:
+#   conclusion = failure, jobs = 0, check-runs named `ledger-pr` = 0.
+# The run's display name was the FILE PATH rather than the declared
+# `name: enforce-ledger-write`, which is what GitHub shows when it never
+# parsed the file into a run definition. `gh run view` said "This run likely
+# failed because of a workflow file issue."
+#
+# Root cause, measured not assumed:
+#   gh api repos/andygmassey/HR015-Gaming-PC --jq .private          -> true
+#   gh api repos/andygmassey/HR015-Gaming-PC/actions/permissions/access
+#                                                    -> {"access_level":"none"}
+# HR015 is private and shares its Actions with nothing; CM051 is public. The
+# `uses:` could not resolve, so the workflow failed at STARTUP, and a startup
+# failure produces zero jobs and therefore zero check-runs. The gate was never
+# red. It was ABSENT, and on a merge box absent is indistinguishable from green.
+#
+# Ruled out first: the referenced file DOES exist on HR015 main (7428 bytes,
+# sha 65002eee) and `mode` IS a declared workflow_call input. Neither a bad
+# path nor a bad input.
+#
+# The 2026-07-31 draft note in this very file named this fallback. It is now
+# taken: the enforcement is vendored into scripts/enforce_ledger_write.sh,
+# which runs on this repo's own runner and cannot fail to materialise. Kept as
+# a script, not inline YAML, because inline workflow YAML cannot be tested on
+# a laptop -- see scripts/tests/test_enforce_ledger_write.sh.
+#
+# NO `paths:` FILTER. Which files a PR touches is the very thing being
+# measured, so a path filter would decide the answer before the gate ran, and
+# a skipped job renders as a grey tick that reads like a pass.
+# ---------------------------------------------------------------------------
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ledger-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Write the PR body to a file
+        # Through a file, never through the shell. A PR body is attacker-
+        # controlled text and interpolating it into a run: block is a command
+        # injection.
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s' "$PR_BODY" > "${RUNNER_TEMP}/pr_body.txt"
+          echo "PR body written: $(wc -c < "${RUNNER_TEMP}/pr_body.txt") bytes"
+
+      - name: SHIPPING_LEDGER write discipline
+        run: |
+          # Explicit refspec. `git fetch origin main` only moves FETCH_HEAD on
+          # some configurations, and the gate resolves `origin/<base>` by name,
+          # so ask for exactly that remote-tracking ref. The gate exits 3
+          # (CANNOT-RUN), never 0, if the ref still is not there.
+          git fetch --no-tags origin \
+            "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" || true
+          /bin/bash scripts/enforce_ledger_write.sh \
+            --base-ref "origin/${{ github.base_ref }}" \
+            --head-sha "${{ github.event.pull_request.head.sha }}" \
+            --pr-body-file "${RUNNER_TEMP}/pr_body.txt"
+
+      - name: The gate's own self-test discriminates
+        # Positive control, and it runs even when the step above fails. A gate
+        # that only ever reports PASS proves as little as one that never runs,
+        # so CI watches it fire on a synthetic violation every time.
+        if: always()
+        run: /bin/bash scripts/tests/test_enforce_ledger_write.sh
+
+  no-invisible-workflows:
+    # The class guard. The defect above was not "the ledger rule was wrong", it
+    # was "a workflow can reference something unresolvable and then produce no
+    # check-run at all". This job fails on any cross-repo reusable-workflow call
+    # that is not allowlisted as publicly resolvable, so the class cannot come
+    # back silently. It is defined LOCALLY, so it always materialises.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: "No workflow here can go invisible on an unresolvable `uses:`"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: /bin/bash scripts/verify_no_invisible_reusable_workflows.sh
+
+      - name: That guard discriminates (fires on a planted violation)
+        if: always()
+        run: /bin/bash scripts/tests/test_no_invisible_reusable_workflows.sh
