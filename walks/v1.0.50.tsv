@@ -1,0 +1,49 @@
+# Ostler walk record -- written by scripts/post_walk_qa.sh
+# Read by scripts/verify_walk_record.sh, which gates the customer download.
+# The box is recorded as a hash: this repo is public.
+# version_source says how the version was obtained. Anything other than
+# measured(...) means the version is an assertion, not an observation.
+#
+# artefact_sha256 is the build this box was walked with. A version does
+# NOT identify a build -- "1.0.50" named eleven distinct assemblies -- so
+# this is the field the publish gate binds on. artefact_sha256_source
+# reads measured(...) only when the DMG was found on the box and hashed
+# there; that establishes WHICH BUILD, not that it was the one mounted.
+#
+# counts_scope says WHICH population pass/fail/cannot_run/broken describe.
+# They are phase 1 ONLY -- parsed from run_box_walk.sh. Phase 2 (the cut
+# manifest runtime proofs) contributes to verdict and qa_exit but emits no
+# counts, so it is deliberately absent from these four numbers.
+# READ verdict AND qa_exit FOR THE WHOLE-SUITE RESULT. The four counts are
+# a subset and summing them will not reconcile against the console tally --
+# 2026-08-24 that mismatch (13 here vs 33 on console) was carried for hours
+# as an unexplained discrepancy in a v1.0.44 verdict that was correct all
+# along, because these keys were unqualified.
+version	v1.0.50
+version_source	measured(CFBundleShortVersionString, matches argument)
+artefact_sha256	734232bf9148fe8a2bf0ac291ad63bbd90eb71a1d02993ac877e5308c1a05dc3
+artefact_sha256_source	measured(shasum -a 256 of OstlerInstaller-1.0.50.dmg on the walked box; presence, not proof of mount)
+walked_at	2026-08-29T15:42:18Z
+box_fp	7157f54f0f557e84
+counts_scope	box_walk_probes_only(phase1); verdict+qa_exit cover all phases
+pass	7
+fail	7
+cannot_run	6
+broken	1
+verdict	FAILED
+qa_exit	1
+failed_probe_names_recorded	7 of 7
+failed_probe	app_signature_survives_first_run
+failed_probe	assistant_answers_grounded
+failed_probe	freshness_panel_has_dates
+failed_probe	installed_bundle_seal_intact
+failed_probe	launchd_no_ephemeral_paths
+failed_probe	people_seed_and_retrieval
+failed_probe	usage_journal_producers
+not_measured_probe	ingest_coverage
+not_measured_probe	launchagents_resolve_their_tools
+not_measured_probe	no_person_holds_two_contact_cards
+not_measured_probe	pair_state_agreement
+not_measured_probe	people_count_agreement
+not_measured_probe	people_stores_reconcile
+broken_probe	no_store_port_is_tcp_reachable
