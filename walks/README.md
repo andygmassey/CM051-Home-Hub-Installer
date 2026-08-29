@@ -38,6 +38,7 @@ Tab-separated `key<TAB>value`. Lines beginning `#` are comments.
 | `walked_at` | UTC timestamp |
 | `box_fp` | first 16 hex of `sha256(ssh target)`. **A hash, never the host.** This repo is public and the box argument is routinely `user@address`. The hash still distinguishes two walks on one box from one walk on each of two. |
 | `pass` / `fail` / `cannot_run` / `broken` | the four counts from `run_box_walk.sh` |
+| `counts_scope` | **which population those four counts describe.** The writer emits `box_walk_probes_only(phase1); verdict+qa_exit cover all phases` — so the counts are NOT the whole suite, and reading them as a total understates what ran. `verdict` and `qa_exit` are the whole-suite result. This field was emitted by `post_walk_qa.sh` and undocumented here until 2026-08-29; a field table that omits a field the writer emits is worse than no table, because it reads as complete. |
 | `verdict` | `CLEAN`, `FAILED` or `PARTIAL` |
 | `qa_exit` | exit code of the QA run |
 | `failed_probe_names_recorded` | `<n> of <count>`. Reconciles the named probes against the `fail` count IN THE FILE. If the parser that reads the names ever stops matching, this reads `0 of 5` instead of silently returning the record to counts-with-no-names. |
@@ -52,8 +53,71 @@ probe filenames are written, and anything else on those lines is dropped.
 Before this, the record kept the four counts and nothing else. The gate that
 decides whether customers get a build said `fail 5` and could not say which
 five: `run_box_walk.sh` printed the names into a `mktemp` log that
-`post_walk_qa.sh` deleted on exit. `walks/v1.0.44.tsv` is the only record that
-has ever existed and that is exactly what it says.
+`post_walk_qa.sh` deleted on exit. `walks/v1.0.44.tsv` is exactly what that
+looks like.
+
+## What is actually in here, as of v1.0.50
+
+Two records, and **both are `FAILED`**:
+
+| record | pass | fail | cannot_run | verdict | `artefact_sha256` |
+|---|---|---|---|---|---|
+| `v1.0.44.tsv` | 5 | 5 | 3 | FAILED | absent |
+| `v1.0.47.tsv` | 7 | 4 | 4 | FAILED | absent |
+
+Both predate #931, so neither names the build it was taken on. That is not a
+problem for the gate: it refuses them at the **verdict** check, before it ever
+reaches the artefact fields. The artefact checks are deliberately scoped to
+`CLEAN` records for exactly this reason — run unscoped, the absent-field check
+would fire first and these two would be reported as CANNOT-RUN when they are in
+fact a measured, legible FAILED. Losing that distinction would be signal loss.
+
+**There has never been a `CLEAN` record for any version.** Every release since
+v1.0.41 is therefore a prerelease, which is the walk gate working as designed
+rather than publishing being broken: no clean walk → `PROMOTE=0` → the customer
+keeps the last build that *was* walked.
+
+## What the record cannot tell you: how DEEP the walk went
+
+No field here records the walk's **depth**, and there is a real difference. A
+*thin* walk runs on an empty account — no Address Book, no messages, no mail. It
+proves `install.sh` completes. It proves nothing about the data paths. A *full*
+walk runs against a populated box.
+
+**Both produce a record with the same shape, and a `CLEAN` from either is
+identical to the gate and to whoever reads the file next month.** `counts_scope`
+says which *probes* the counts cover; nothing says which *box* they ran against.
+
+This matters most for the probes that need data to mean anything. Measured
+2026-08-29, CANNOT-RUN vocabulary per probe:
+
+| probe | has a "could not look" path |
+|---|---|
+| `ingest_coverage` | yes |
+| `people_seed_and_retrieval` | yes |
+| `no_person_holds_two_contact_cards` | yes |
+| `people_count_agreement` | yes |
+| `assistant_answers_grounded` | **no** |
+
+`assistant_answers_grounded` is the probe whose own header says it is the one
+that *would have caught v1.0.38* — the release where every layer was green and
+the assistant still answered "I don't know" to all four opening questions. On an
+empty account it has no way to report that it could not look. Its result on a
+thin walk is therefore uninformative in **both** directions: a pass is not
+evidence the assistant works, and a failure is not evidence of a defect.
+
+Until the record carries depth, **a walk's scope lives only in whatever the
+operator wrote down elsewhere** — and that is exactly the kind of caveat that
+does not survive into the artefact.
+
+⚠️ **"Walked" is used for two different things and only one of them is this
+file.** A DMG can be *artefact-verified* — hashed, signature checked, stapled,
+contents mounted and read — with none of it ever having been installed. That is
+not a walk and it does not produce a record here. A **box walk** means the thing
+was installed on a real machine and the probes ran against it. `#844` exists
+because everything between "gates green" and "customer download" is the first
+kind. When a report says a build is "walked N/N", check which kind it means, and
+check `walks/` before believing it is this one.
 
 ## Why four counts and not one
 
