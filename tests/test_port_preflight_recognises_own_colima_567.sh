@@ -53,8 +53,11 @@ CHK_FN="$(lift_fn _check_port | sed 's#/usr/sbin/lsof#lsof#g')"
 
 # A lift that silently returned nothing would let every arm pass on an empty
 # function. Assert both bodies carry their load-bearing tokens before trusting.
-if ! printf '%s' "${OWN_FN}" | grep -q 'store-curl.conf' \
-   || ! printf '%s' "${CHK_FN}" | grep -q '_port_is_our_own_forward'; then
+# grep -c, never a pipe into a short-circuiting consumer: that SIGPIPEs the
+# producer under pipefail and can invert the verdict (the repo's own ratchet).
+# grep -c reads to EOF, so no SIGPIPE, and it stays POSIX (no herestring bashism).
+if [ "$(printf '%s' "${OWN_FN}" | grep -c 'store-curl.conf')" -eq 0 ] \
+   || [ "$(printf '%s' "${CHK_FN}" | grep -c '_port_is_our_own_forward')" -eq 0 ]; then
     cant "arm 0: lift failed -- _port_is_our_own_forward absent, or _check_port does not call it (predicate broken, or the fix is missing)"
     echo "== ${PASS} pass / ${FAIL} fail / $((CANT+1)) cannot-run =="; exit 2
 fi
