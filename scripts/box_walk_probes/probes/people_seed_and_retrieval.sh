@@ -136,6 +136,21 @@ COLLECTION="${OSTLER_PROBE_COLLECTION:-people}"
 HTTP_TIMEOUT="${OSTLER_PROBE_HTTP_TIMEOUT:-15}"
 EMBED_TIMEOUT="${OSTLER_PROBE_EMBED_TIMEOUT:-30}"
 
+# THE STORE CREDENTIAL (#574). Since #550/#1222 the stores REQUIRE auth: Qdrant
+# answers 401 to a keyless request by default on every fresh install. This probe
+# used to call Qdrant bare, so it read that 401 as "the people collection is
+# missing or unreadable" and reported FAIL -- a probe accusing the product of a
+# defect that was the probe's own missing credential. The collection exists;
+# with the key it returns 200.
+#
+# The credential is presented via install.sh's own curl config
+# (_ostler_write_store_curl_config, install.sh:6811) rather than by reading the
+# secret here. curl consumes the file with -K, so the probe never loads, echoes
+# or interpolates a secret value, and there is no code path on which one can
+# reach a log. The path is left unexpanded so it resolves as the BOX user under
+# ssh, exactly like TOKEN_PATH above.
+STORE_CURL_CONF="${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-curl.conf}"
+
 # Counters. A gate that does not say what it EXAMINED cannot be told apart from
 # a gate that examined nothing.
 CONTROLS_RUN=0
@@ -152,6 +167,7 @@ FIRST_FAILURE=""
 # `set -u` turns a phase that exits early into an unbound-variable crash with
 # no verdict line at all -- the one outcome this suite refuses to produce.
 TOKEN=""
+STORE_AUTH=""      # "conf" once the box is known to carry a store curl config
 A_SLUG=""
 A_REAL_SLUG=""
 A_URI=""
@@ -257,7 +273,13 @@ box_exec() {
 # --noproxy '*' is mandatory: the operator shell routinely carries HTTP_PROXY,
 # and a proxy will intercept even a 127.0.0.1 request and answer with its own
 # error, which reads exactly like the service being down.
-# args: <method> <url> <auth|noauth> <outfile> [bodyfile] [timeout]
+# args: <method> <url> <auth|store|noauth> <outfile> [bodyfile] [timeout]
+#
+#   auth    Assistant API bearer, inlined (see the quoting note below).
+#   store   Qdrant/Oxigraph credential, presented by pointing curl at the
+#           install's own -K config. The secret is never read by this probe.
+#   noauth  Genuinely credential-free. Correct for Ollama, which has no key,
+#           and for any deliberate keyless negative control.
 box_http() {
     local method="$1" url="$2" want_auth="$3" outfile="$4"
     local bodyfile="${5:-}" tmo="${6:-$HTTP_TIMEOUT}"
@@ -270,6 +292,13 @@ box_http() {
     # the quoting.
     if [ "$want_auth" = "auth" ]; then
         hdr="-H 'Authorization: Bearer ${TOKEN}'"
+    fi
+    # A `store` request with no resolved config goes out BARE and will 401.
+    # That is deliberate and not a silent downgrade: phase0 has already set
+    # STORE_AUTH, and phase4 turns a bare 401 into CANNOT-RUN rather than
+    # letting it read as a product FAIL.
+    if [ "$want_auth" = "store" ] && [ "$STORE_AUTH" = "conf" ]; then
+        hdr="${hdr} -K '${STORE_CURL_CONF}'"
     fi
     if [ -n "$bodyfile" ]; then
         datapart="-H \"Content-Type: application/json\" --data-binary @-"
@@ -691,6 +720,28 @@ phase0_reach_box_and_token() {
             verdict_cannot_run "service token contains a single quote; refusing to inline it into a shell command, so nothing was examined" ;;
     esac
     pass "service token resolved (${#TOKEN} chars; value never printed)"
+
+    # ---- store credential (#574) -----------------------------------------
+    # Resolved by COUNTING header lines in the install's curl config, never by
+    # reading one. `grep -c` on an absent file prints nothing and returns 2, so
+    # the count is defaulted rather than trusted -- an empty string here would
+    # otherwise reach `-gt` and kill the phase with no verdict.
+    #
+    # An EXISTING file with ZERO header lines is the dangerous middle case: it
+    # looks present, presents nothing, and would 401 exactly like the bare
+    # request this fix exists to stop. It is treated as absent.
+    _sc_hdrs="$(box_exec "/usr/bin/grep -c '^header = ' ${STORE_CURL_CONF} 2>/dev/null" 2>/dev/null | tr -d '\r\n ')"
+    case "$_sc_hdrs" in
+        ''|*[!0-9]*) _sc_hdrs=0 ;;
+    esac
+    if [ "$_sc_hdrs" -gt 0 ]; then
+        STORE_AUTH="conf"
+        CONTROLS_RUN=$((CONTROLS_RUN + 1))
+        pass "store credential available: ${STORE_CURL_CONF} carries ${_sc_hdrs} header line(s), presented to curl via -K (never read here)"
+    else
+        STORE_AUTH=""
+        note "no usable store curl config at ${STORE_CURL_CONF} on ${BOX_LABEL} (${_sc_hdrs} header lines); Qdrant legs will report CANNOT-RUN rather than blaming the product"
+    fi
     echo ""
 }
 
@@ -843,7 +894,7 @@ qdrant_delete() {
     local out="${TMP}/del_${label}.out"
     printf '{"points": %s}' "$IDS_JSON" > "$body"
     box_http POST "${QDRANT_BASE}/collections/${COLLECTION}/points/delete?wait=true" \
-        noauth "$out" "$body"
+        store "$out" "$body"
     http_code_of "$out"
 }
 
@@ -860,13 +911,30 @@ phase4_leg_b() {
     IDS_JSON="[\"${BID}\"]"
 
     out="${TMP}/coll.out"
-    box_http GET "${QDRANT_BASE}/collections/${COLLECTION}" noauth "$out"
+    box_http GET "${QDRANT_BASE}/collections/${COLLECTION}" store "$out"
     code="$(http_code_of "$out")"
     spec="$(judge_vector_spec "${out}.body")"
     VEC_NAME="$(printf '%s' "$spec" | awk '{print $1}')"
     VEC_SIZE="$(printf '%s' "$spec" | awk '{print $2}')"
     LEG_B_OK=0
-    if [ "$code" = "200" ] && [ "$VEC_NAME" != "ERR" ] && [ "${VEC_SIZE:-0}" -gt 0 ] 2>/dev/null; then
+
+    # #574. THREE OUTCOMES, NOT TWO. Since #550/#1222 the stores require auth,
+    # so a keyless GET returns 401 -- and this branch used to read that as
+    # "collection missing or unreadable" and report a PRODUCT FAIL. The
+    # collection was there the whole time; the probe simply had no key. The
+    # walk record's "fail 7" carried that false accusation.
+    #
+    # 401/403 WITHOUT a credential is CANNOT-RUN: nothing about the people
+    # collection was measured, and an unmeasured thing is not a broken thing.
+    # 401/403 WITH one presented is a genuine FAIL -- a credential the store
+    # refuses is a real install defect, and must not hide behind CANNOT-RUN.
+    if [ "$code" = "401" ] || [ "$code" = "403" ]; then
+        if [ "$STORE_AUTH" = "conf" ]; then
+            fail "qdrant returned HTTP ${code} to collection '${COLLECTION}' WITH the install's own store credential presented (-K ${STORE_CURL_CONF}) -- the credential on disk is not the one the store honours"
+        else
+            verdict_cannot_run "qdrant requires auth (HTTP ${code} on collection '${COLLECTION}') and this run had no store credential to present: ${STORE_CURL_CONF} carried no header lines. Store auth has been ENFORCED since #550/#1222, so a keyless probe cannot see the collection whether or not it exists. NOTHING about people retrieval was measured -- this is not evidence the collection is missing."
+        fi
+    elif [ "$code" = "200" ] && [ "$VEC_NAME" != "ERR" ] && [ "${VEC_SIZE:-0}" -gt 0 ] 2>/dev/null; then
         pass "qdrant collection '${COLLECTION}' present (vector=${VEC_NAME}, size=${VEC_SIZE})"
         LEG_B_OK=1
     else
@@ -916,7 +984,7 @@ PY
 
     if [ "$LEG_B_OK" = "1" ]; then
         out="${TMP}/up.out"
-        box_http PUT "${QDRANT_BASE}/collections/${COLLECTION}/points?wait=true" noauth "$out" "${TMP}/up.json"
+        box_http PUT "${QDRANT_BASE}/collections/${COLLECTION}/points?wait=true" store "$out" "${TMP}/up.json"
         code="$(http_code_of "$out")"
         if [ "$code" = "200" ]; then
             SEEDED=$((SEEDED + 1))
