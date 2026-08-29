@@ -139,7 +139,7 @@ struct OnboardingQuestionView: View {
             // Sticky top: super-title header + question title.
             header(q)
 
-            Text(q.prompt.title)
+            Text(q.prompt.displayTitle)
                 .font(.ostlerH1)
                 .tracking(-0.4)
                 .foregroundStyle(Color.ostlerInk)
