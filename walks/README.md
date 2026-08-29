@@ -32,6 +32,9 @@ Tab-separated `key<TAB>value`. Lines beginning `#` are comments.
 | field | meaning |
 |---|---|
 | `version` | the version walked. Checked against the version being published — a record's filename is not evidence, its contents are. |
+| `version_source` | how the version was obtained. `measured(...)` means it was read off the box; anything else means it is an assertion. **Read by the gate since #931** — before that it was written on every run and consumed by nothing, so a record that openly said the version was unverifiable cleared the gate identically to one that measured it. |
+| `artefact_sha256` | sha256 of the DMG the box was walked with. **A version does not identify a build**: `CFBundleShortVersionString` read `1.0.50` for eleven distinct assemblies of that cut, so without this field a walk of any build of a version cleared the gate for every build of it. `publish_release.sh` passes the sha of the file it is about to upload and the gate compares the two — both sides are content hashes. |
+| `artefact_sha256_source` | as `version_source`. `measured(...)` only when the DMG was found on the walked box and hashed **there**. That establishes *which build*, not that it was the one mounted — a DMG in `~/Downloads` may never have been opened. Two copies of the same version on the box is recorded as ambiguity, never resolved by guessing. An asserted hash is refused: a value checked against the file it was copied from always agrees. |
 | `walked_at` | UTC timestamp |
 | `box_fp` | first 16 hex of `sha256(ssh target)`. **A hash, never the host.** This repo is public and the box argument is routinely `user@address`. The hash still distinguishes two walks on one box from one walk on each of two. |
 | `pass` / `fail` / `cannot_run` / `broken` | the four counts from `run_box_walk.sh` |

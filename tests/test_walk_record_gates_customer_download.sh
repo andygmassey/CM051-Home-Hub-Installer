@@ -31,9 +31,21 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 export OSTLER_WALK_RECORD_DIR="$TMP"
 
+# #931: the expected-sha is DERIVED from a real file, never written as a
+# constant. Two hardcoded constants matching each other is a value checked
+# against itself -- the exact vacuity this argument exists to close.
+printf 'ostler walk-record fixture artefact\n' > "${TMP}/fixture-artefact.bin"
+FIXTURE_SHA="$(shasum -a 256 "${TMP}/fixture-artefact.bin" | awk '{print $1}')"
+FIXTURE_SHA_SOURCE="measured(shasum -a 256 of the fixture artefact)"
+FIXTURE_VERSION_SOURCE="measured(CFBundleShortVersionString, matches argument)"
+
 write_record() {
     # write_record <file> <version> <verdict> <pass> <fail> <cannot> <broken>
+    #              [artefact_sha] [artefact_sha_source] [version_source]
     { printf 'version\t%s\n'    "$2"
+      printf 'version_source\t%s\n'          "${10:-$FIXTURE_VERSION_SOURCE}"
+      printf 'artefact_sha256\t%s\n'         "${8:-$FIXTURE_SHA}"
+      printf 'artefact_sha256_source\t%s\n'  "${9:-$FIXTURE_SHA_SOURCE}"
       printf 'walked_at\t%s\n'  "2026-08-23T09:00:00Z"
       printf 'box_fp\t%s\n'     "3f8a1c9d2e4b6071"
       printf 'pass\t%s\n'       "$4"
@@ -45,7 +57,15 @@ write_record() {
     } > "${TMP}/$1"
 }
 
-run_gate() { "$GATE" "$@" >/dev/null 2>&1; echo $?; }
+run_gate() {
+    # One argument means "the record should match the artefact being published",
+    # which is the ordinary case; the #931 arms below pass their own sha.
+    if [[ $# -eq 1 ]]; then
+        "$GATE" "$1" "$FIXTURE_SHA" >/dev/null 2>&1; echo $?
+    else
+        "$GATE" "$@" >/dev/null 2>&1; echo $?
+    fi
+}
 
 echo
 echo "=== #844: a walk record gates the customer download ==="
@@ -182,6 +202,12 @@ fi
 write_record_qa() {
     # write_record_qa <verdict> <qa_exit|omit>
     { printf 'version\tv1.0.42\n'
+      # #931 identity fields. Present and valid on BOTH arms so this pair
+      # isolates qa_exit: a fixture that differs in two places cannot say
+      # which one the gate reacted to.
+      printf 'version_source\t%s\n'         "$FIXTURE_VERSION_SOURCE"
+      printf 'artefact_sha256\t%s\n'        "$FIXTURE_SHA"
+      printf 'artefact_sha256_source\t%s\n' "$FIXTURE_SHA_SOURCE"
       printf 'walked_at\t2026-08-23T09:00:00Z\n'
       printf 'box_fp\t3f8a1c9d2e4b6071\n'
       printf 'pass\t14\nfail\t0\ncannot_run\t0\nbroken\t0\n'
@@ -369,6 +395,129 @@ else
         rm -f "$_log"
     fi
 fi
+
+# ── #931: A VERSION IS NOT AN IDENTIFIER OF A BUILD ─────────────────────────
+#
+# Everything above binds the record to a VERSION. CFBundleShortVersionString
+# read "1.0.50" for eleven distinct assemblies of that cut and CFBundleVersion
+# was frozen at 2500 for seven cuts, so before this section a record walked on
+# ANY build of v1.0.50 cleared the gate for EVERY build of v1.0.50.
+#
+# THE VACUITY THESE ARMS EXIST TO CATCH: `[[ "$a" == "$b" ]]` on a field the
+# record does not carry compares two empty strings and PASSES. Both records in
+# walks/ today are pre-#931 and carry no sha at all, so the naive fix would
+# have been green on the whole live corpus while proving nothing. Arm 931-1 is
+# written first and deliberately: it is the anti-vacuity arm.
+echo
+echo "=== #931: the record must name the BUILD, not just the version ==="
+
+# Source assertions below are COMMENTS-STRIPPED before counting: this change
+# ADDS comments that name the very constructs being counted, and a predicate
+# that greps a file whose comments describe the construct counts its own
+# documentation. Counts are also taken with `grep -c` and compared numerically
+# rather than piped into `grep -q`, which under this file's pipefail can take
+# SIGPIPE and fail on a SUCCESSFUL match.
+write_no_sha() { # a pre-#931 record: version fields present, artefact fields absent
+    { printf 'version\t%s\n' "$1"
+      printf 'version_source\t%s\n' "$FIXTURE_VERSION_SOURCE"
+      printf 'walked_at\t2026-08-23T09:00:00Z\n'
+      printf 'box_fp\t3f8a1c9d2e4b6071\n'
+      printf 'pass\t14\n';  printf 'fail\t0\n'
+      printf 'cannot_run\t0\n'; printf 'broken\t0\n'
+      printf 'verdict\tCLEAN\n'; printf 'qa_exit\t0\n'
+    } > "${TMP}/$1.tsv"
+}
+
+write_no_sha "v9.3.1"
+rc="$(run_gate v9.3.1)"
+[[ "$rc" == "2" ]] && ok "931-1 ANTI-VACUITY: a CLEAN record with NO artefact_sha256 is CANNOT-RUN, not a pass" \
+                   || bad "931-1 a record carrying no artefact sha returned rc=${rc}, expected 2 -- the comparison is vacuous"
+
+OTHER_SHA="$(printf 'a different build of the same version\n' | shasum -a 256 | awk '{print $1}')"
+write_record "v9.3.2.tsv" "v9.3.2" "CLEAN" 14 0 0 0 "$OTHER_SHA"
+rc="$(run_gate v9.3.2)"
+[[ "$rc" == "2" ]] && ok "931-2 a record walked on a DIFFERENT build of this version is REFUSED" \
+                   || bad "931-2 sha mismatch gave rc=${rc}, expected 2"
+
+write_record "v9.3.3.tsv" "v9.3.3" "CLEAN" 14 0 0 0 "" "asserted-unverifiable(no DMG on the box)"
+rc="$(run_gate v9.3.3)"
+[[ "$rc" == "2" ]] && ok "931-3 an ASSERTED sha is refused -- a value checked against itself always agrees" \
+                   || bad "931-3 asserted-unverifiable sha gave rc=${rc}, expected 2"
+
+write_record "v9.3.4.tsv" "v9.3.4" "CLEAN" 14 0 0 0 "not-a-hash"
+rc="$(run_gate v9.3.4)"
+[[ "$rc" == "2" ]] && ok "931-4 a sha that is not 64 hex is refused (an unparseable hash is not a hash)" \
+                   || bad "931-4 malformed sha gave rc=${rc}, expected 2"
+
+# version_source has been WRITTEN since 2026-08-24 and was read by nothing. The
+# writer prints "a reader must NOT treat this record's version as measured" to a
+# terminal; the only automated reader could not tell the two apart. That is
+# walks/v1.0.42.tsv -- real probe results filed against a version the box never
+# ran -- with the writer's guard in place and the reader's absent.
+write_record "v9.3.5.tsv" "v9.3.5" "CLEAN" 14 0 0 0 "" "" "asserted-unverifiable(no Ostler.app on box)"
+rc="$(run_gate v9.3.5)"
+[[ "$rc" == "2" ]] && ok "931-5 an UNMEASURED version_source is refused -- the walks/v1.0.42.tsv shape" \
+                   || bad "931-5 asserted version_source gave rc=${rc}, expected 2"
+
+# THE CALLER'S ARGUMENT IS THE CALLER'S DEFECT. 3, never 2: an operator sent to
+# re-walk a box because publish_release.sh passed an empty string is a wasted
+# walk and a wrong diagnosis.
+rc="$("$GATE" v9.3.2 >/dev/null 2>&1; echo $?)"
+[[ "$rc" == "3" ]] && ok "931-6 omitting the expected-sha is a USAGE error (3), not a refusal (2)" \
+                   || bad "931-6 missing arg 2 gave rc=${rc}, expected 3"
+rc="$("$GATE" v9.3.2 "deadbeef" >/dev/null 2>&1; echo $?)"
+[[ "$rc" == "3" ]] && ok "931-7 a malformed expected-sha is a USAGE error (3), not a refusal (2)" \
+                   || bad "931-7 short arg 2 gave rc=${rc}, expected 3"
+
+# CONTROL: the section must be able to say YES, and on a value that is not
+# byte-identical to the argument -- otherwise the comparison could be a string
+# equality that never normalises.
+write_record "v9.3.8.tsv" "v9.3.8" "CLEAN" 14 0 0 0 "$(printf '%s' "$FIXTURE_SHA" | tr 'a-f' 'A-F')"
+rc="$(run_gate v9.3.8)"
+[[ "$rc" == "0" ]] && ok "931-8 CONTROL: an UPPERCASE recorded sha still matches (and the section can pass)" \
+                   || bad "931-8 CONTROL FAILED: a case-different but equal sha was refused (rc=${rc}) -- every refusal above is now suspect"
+
+# ANTI-SIGNAL-LOSS. Scoping these checks to CLEAN is load-bearing: both live
+# records are FAILED and carry no artefact sha, so an unscoped check would move
+# them 1 -> 2 and a walk that MEASURED four real defects would start reporting
+# that nothing is known. Evidence of badness outranks absence of evidence.
+LIVE_DIR="${REPO_ROOT}/walks"
+for lv in v1.0.44 v1.0.47; do
+    if [[ ! -f "${LIVE_DIR}/${lv}.tsv" ]]; then
+        ok "931-9 ${lv}: no live record present, arm not applicable"
+        continue
+    fi
+    rc="$(OSTLER_WALK_RECORD_DIR="$LIVE_DIR" "$GATE" "$lv" "$FIXTURE_SHA" >/dev/null 2>&1; echo $?)"
+    [[ "$rc" == "1" ]] && ok "931-9 live walks/${lv}.tsv still reports rc=1 (FAILED), not downgraded to CANNOT-RUN" \
+                       || bad "931-9 live walks/${lv}.tsv now returns rc=${rc}, was 1 -- a measured failure has been turned into absence of evidence"
+done
+# CONTROL for the arm above: prove that directory is genuinely being read.
+rc="$(OSTLER_WALK_RECORD_DIR="$LIVE_DIR" "$GATE" v0.0.0-not-a-real-walk "$FIXTURE_SHA" >/dev/null 2>&1; echo $?)"
+[[ "$rc" == "2" ]] && ok "931-9 CONTROL: the live walks dir is really being consulted (absent version -> 2)" \
+                   || bad "931-9 CONTROL FAILED: rc=${rc} for a version that dir does not have"
+
+# THE WIRING. publish_release.sh must hand over the sha it computed from the
+# DMG it is about to upload -- not a manifest value, not a literal. Asserted on
+# the source because driving the real call needs a notarised DMG and a token.
+PUB_CODE="$(sed 's/[[:space:]]*#.*$//' "$PUBLISH")"
+n="$(printf '%s\n' "$PUB_CODE" | grep -cF 'verify_walk_record.sh" "$VERSION" "$SHA"')"
+[[ "$n" -ge 1 ]] && ok "931-10 publish_release.sh passes \$SHA (computed from the DMG) to the gate" \
+                 || bad "931-10 publish_release.sh does not pass the artefact sha -- the gate is back to version-only"
+n="$(printf '%s\n' "$PUB_CODE" | grep -cF 'SHA="$(shasum -a 256 "$DMG"')"
+[[ "$n" -ge 1 ]] && ok "931-10 ...and \$SHA is hashed from \$DMG here, not read from a manifest" \
+                 || bad "931-10 \$SHA is no longer computed from the DMG -- both sides of the comparison may be the same assertion"
+
+# The WRITER must produce both fields, or every record from here is CANNOT-RUN.
+for fld in 'artefact_sha256' 'artefact_sha256_source'; do
+    # The \t is load-bearing: without it 'artefact_sha256' also matches the
+    # 'artefact_sha256_source' line and the count reads 2 for one writer.
+    n="$(sed 's/[[:space:]]*#.*$//' "$QA" | grep -cF "printf '${fld}\t")"
+    [[ "$n" -ge 1 ]] && ok "931-11 post_walk_qa.sh writes ${fld} (${n} site, comments-stripped)" \
+                     || bad "931-11 post_walk_qa.sh does not write ${fld} -- the reader would refuse every future record"
+done
+n="$(grep -cF 'measured(shasum -a 256' "$QA")"
+[[ "$n" -ge 1 ]] && ok "931-11 ...and it can record a MEASURED source, not only an asserted one" \
+                 || bad "931-11 the writer has no measured(...) path for the sha -- the gate could never pass"
 
 echo
 echo "${PASS} passed, ${FAIL} failed"

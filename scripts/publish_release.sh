@@ -156,7 +156,11 @@ if [[ -n "${PUBLISH_RELEASE_ALLOW_UNWALKED:-}" ]]; then
 
 ⚠️ Published without a clean box walk. Reason given: ${PUBLISH_RELEASE_ALLOW_UNWALKED}"
 elif [[ -x "${BASH_SOURCE[0]%/*}/verify_walk_record.sh" ]]; then
-    "${BASH_SOURCE[0]%/*}/verify_walk_record.sh" "$VERSION"
+    # $SHA is computed at the top of this script from the DMG about to be
+    # uploaded -- not read from a manifest, not passed in. Handing it to the
+    # gate is what turns "a v1.0.50 box was walked" into "THIS BUILD of v1.0.50
+    # was walked" (#931). Both sides of that comparison are content hashes.
+    "${BASH_SOURCE[0]%/*}/verify_walk_record.sh" "$VERSION" "$SHA"
     case $? in
         0) WALK_NOTE="
 

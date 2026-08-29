@@ -80,7 +80,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p walks
+          # The sha is DERIVED from a real file rather than typed, so this
+          # control cannot pass by two hardcoded constants matching each other.
+          # It is the positive-control analogue of #931 itself: a value checked
+          # against itself always agrees.
+          printf 'ostler citest artefact\n' > /tmp/citest-artefact.bin
+          CITEST_SHA="$(sha256sum /tmp/citest-artefact.bin | awk '{print $1}')"
           printf 'version\tv0.0.0-citest\n'      >  walks/v0.0.0-citest.tsv
+          printf 'version_source\tmeasured(CFBundleShortVersionString, matches argument)\n' >> walks/v0.0.0-citest.tsv
+          printf 'artefact_sha256\t%s\n' "$CITEST_SHA" >> walks/v0.0.0-citest.tsv
+          printf 'artefact_sha256_source\tmeasured(shasum -a 256 of the citest artefact)\n' >> walks/v0.0.0-citest.tsv
           printf 'walked_at\t2026-01-01T00:00:00Z\n' >> walks/v0.0.0-citest.tsv
           printf 'box_fp\tcitestcitest0000\n'    >> walks/v0.0.0-citest.tsv
           printf 'pass\t14\n'                    >> walks/v0.0.0-citest.tsv
@@ -89,5 +98,5 @@ jobs:
           printf 'broken\t0\n'                   >> walks/v0.0.0-citest.tsv
           printf 'verdict\tCLEAN\n'              >> walks/v0.0.0-citest.tsv
           printf 'qa_exit\t0\n'                  >> walks/v0.0.0-citest.tsv
-          bash scripts/verify_walk_record.sh v0.0.0-citest
-          rm -f walks/v0.0.0-citest.tsv
+          bash scripts/verify_walk_record.sh v0.0.0-citest "$CITEST_SHA"
+          rm -f walks/v0.0.0-citest.tsv /tmp/citest-artefact.bin
