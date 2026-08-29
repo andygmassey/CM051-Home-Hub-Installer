@@ -104,7 +104,7 @@ n_msg="$(grep -cE '^MSG_FAIL_STORE_AUTH_LEAK=' "$STRINGS")"
 # 30 lines is generous enough to hold the whole block and tight enough that it
 # cannot wander into a neighbouring step.
 REGION="$(awk -v e="$CALL_LINE" 'NR>=e-30 && NR<=e' "$INSTALL_SCRIPT")"
-printf '%s\n' "$REGION" | grep -qF '/collections' \
+[[ "$(printf '%s\n' "$REGION" | grep -cF '/collections')" -gt 0 ]] \
     || cannot_run "the extracted ERR-06 region does not mention /collections; wrong region"
 ok "CANNOT-RUN checks: ERR-06 call site and message key are each unique, region is the right one"
 
@@ -159,12 +159,12 @@ FLATTEN_CONTROL="$(printf '%s\n' "$REGION" \
 if [[ -z "$FLATTEN_CONTROL" ]]; then
     cannot_run "could not synthesise a line-spanning control from the ERR-06 region. Arm 2's flattening is unproven, so no verdict on the comment is available."
 fi
-if ! printf '%s\n' "$REGION_FLAT" | grep -qF -- "$FLATTEN_CONTROL"; then
+if [[ "$(printf '%s\n' "$REGION_FLAT" | grep -cF -- "$FLATTEN_CONTROL")" -eq 0 ]]; then
     cannot_run "the synthesised line-spanning control is NOT findable in the flattened region. The flattening is broken, so arm 2 cannot discriminate and no verdict on the comment is available."
 fi
 # ...and the same phrase must NOT be findable line-by-line, or the "control"
 # proves nothing about flattening -- it would pass on an unflattened region too.
-if printf '%s\n' "$REGION" | grep -qF -- "$FLATTEN_CONTROL"; then
+if [[ "$(printf '%s\n' "$REGION" | grep -cF -- "$FLATTEN_CONTROL")" -gt 0 ]]; then
     cannot_run "the synthesised control is findable WITHOUT flattening, so it does not prove the flattening works. Arm 2 is unproven."
 fi
 
@@ -187,7 +187,7 @@ MSG_VALUE="$(grep -E '^MSG_FAIL_STORE_AUTH_LEAK=' "$STRINGS" | cut -d= -f2-)"
 forbidden_hits=0
 while IFS= read -r frag; do
     [[ -z "$frag" ]] && continue
-    if printf '%s\n' "$MSG_VALUE" | grep -qF -- "$frag"; then
+    if [[ "$(printf '%s\n' "$MSG_VALUE" | grep -cF -- "$frag")" -gt 0 ]]; then
         bad "ARM 3 the message still asserts a cause it cannot establish: \"${frag}\".
       What the probe knows is that an AUTHENTICATED request did not succeed.
       A stale credential is ONE cause. Archie measured the credential on the
@@ -209,7 +209,9 @@ PINNED
 mutation_caught=0
 while IFS= read -r frag; do
     [[ -z "$frag" ]] && continue
-    printf '%s\n' "$PRE_FIX_MSG" | grep -qF -- "$frag" && mutation_caught=$((mutation_caught+1))
+    if [[ "$(printf '%s\n' "$PRE_FIX_MSG" | grep -cF -- "$frag")" -gt 0 ]]; then
+        mutation_caught=$((mutation_caught+1))
+    fi
 done <<'FORBIDDEN'
 which means a store credential from an earlier setup was left active
 it now clears any stale store credentials automatically
