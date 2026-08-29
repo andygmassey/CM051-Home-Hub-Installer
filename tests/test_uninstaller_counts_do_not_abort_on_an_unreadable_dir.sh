@@ -57,7 +57,14 @@
 #                           own diagnostics and prove nothing about our
 #                           handler. MEASURED 2026-08-29 on this shape:
 #                           with trap 247 bytes of stderr, without trap ZERO.
-#   7  DIAGNOSTIC ONLY   -> same unreadable dir without pipefail
+#   7  RENDER            -> the surface the CUSTOMER actually reads. count_dir
+#                           returning a state is only half the fix; if the
+#                           renderer printed it as a quantity the customer
+#                           would still be told a number. Asserts BEHAVIOUR
+#                           (a non-numeric count is never rendered as a
+#                           quantity), never the wording -- a test that pins
+#                           prose rots on the first copy edit.
+#   8  DIAGNOSTIC ONLY   -> same unreadable dir without pipefail
 #
 # Arms 4 and 6 are what make this a test rather than an assertion. Arm 7 is
 # labelled a diagnostic on purpose: it demonstrates the carrier, and a green
@@ -311,7 +318,58 @@ else
 fi
 fi
 
-# ── ARM 7: DIAGNOSTIC ONLY -- not a product assertion ───────────────────────
+# ── ARM 7: THE RENDERER -- WHAT THE CUSTOMER ACTUALLY READS ─────────────────
+# count_dir returning "unreadable" is only half the fix. The customer never
+# sees count_dir's output; they see render_count's. A renderer that printed
+# the state as a quantity would put "unreadable pages" -- or worse, a number
+# -- in front of someone deciding whether to delete their wiki.
+#
+# This asserts BEHAVIOUR, not wording: digits render as "<n> <noun>", and
+# anything that is not all digits never renders as a quantity. The exact
+# sentence is deliberately NOT pinned; a test that asserts prose fails on the
+# first copy edit and teaches people to update tests to match the code.
+n_render="$(grep -cE '[[:space:]]*render_count\(\)[[:space:]]*\{' "$HEREDOC_F")"
+if [[ "$n_render" -ne 1 ]]; then
+    cannot_run "render_count() definition matched ${n_render} times inside the heredoc, expected exactly 1"
+fi
+RENDER="$(awk '/[[:space:]]*render_count\(\)[[:space:]]*\{/{f=1} f{print; if (/^[[:space:]]*\}[[:space:]]*$/) exit}' "$HEREDOC_F")"
+printf '%s\n' "$RENDER" | grep -qF 'case' \
+    || cannot_run "the extracted render_count does not contain a case statement; wrong region"
+
+render() { # render <value> <noun>
+    { echo '#!/usr/bin/env bash'
+      echo 'set -euo pipefail'
+      printf '%s\n' "$RENDER"
+      echo "render_count \"\$1\" \"\$2\""
+    } > "$WORK/render.sh"
+    bash "$WORK/render.sh" "$1" "$2" 2>/dev/null
+}
+
+render_ok=1
+for pair in '42:42 pages' '0:0 pages'; do
+    got="$(render "${pair%%:*}" pages)" || true
+    if [[ "$got" != "${pair#*:}" ]]; then
+        bad "ARM 7 RENDER -> a plain count '${pair%%:*}' rendered as '${got}', expected '${pair#*:}'"
+        render_ok=0
+    fi
+done
+# The load-bearing half: a state must never come out looking like a quantity.
+for state in 'unreadable' ''; do
+    got="$(render "$state" pages)" || true
+    label="${state:-<empty>}"
+    if [[ -z "$got" ]]; then
+        bad "ARM 7 RENDER -> the non-numeric count '${label}' rendered as NOTHING; the customer is shown a blank where a state belongs"
+        render_ok=0
+    elif [[ "$got" =~ ^[0-9] ]]; then
+        bad "ARM 7 RENDER -> the non-numeric count '${label}' rendered as '${got}', which STARTS WITH A DIGIT.
+      A directory we could not read is being presented to the customer as a
+      quantity. That is the silent zero arriving one layer later."
+        render_ok=0
+    fi
+done
+[[ "$render_ok" -eq 1 ]] && ok "ARM 7 RENDER -> digits render as a quantity; a state never does (4 inputs)"
+
+# ── ARM 8: DIAGNOSTIC ONLY -- not a product assertion ───────────────────────
 # Demonstrates that pipefail is the carrier: same directory, same permission,
 # one flag different. A green here is NOT a passing product -- it is the
 # failure mode we are refusing to ship.
