@@ -1037,7 +1037,30 @@ jobs:
           fi
           rc=0
           bash tests/test_artefact_content_matches_the_tag.sh "$MNT" "${CUT_VERSION}" || rc=$?
-          hdiutil detach "$MNT" -quiet 2>/dev/null || true
+          # ── A DETACH WHOSE FAILURE IS INVISIBLE IS NOT A DETACH ──────────
+          # This is the THIRD mounter in this job. The first two leaked and cost
+          # v1.0.51 its publish: step #10 discarded its detach rc, so #11 and #12
+          # both died on "Resource busy" and #14 was SKIPPED in consequence.
+          # Fixed in #1277 (walk_dmg.sh) and #1278 (the delivery gate).
+          #
+          # ⚠️ WHY THIS ONE WAS LEFT UNTIL AFTER THE CUT, AND WHY IT IS STILL
+          # WORTH FIXING. It mounts LAST -- measured, 0 hdiutil calls anywhere
+          # after this step -- so a leak here cannot bite today, and it was not
+          # worth touching cut.yml mid-assembly to close it. But "cannot bite
+          # today" is a property of the CURRENT step order, not of the code. The
+          # first step anyone adds after this one inherits the exact v1.0.51
+          # failure, and it will be invisible for the same reason it was
+          # invisible in #10: the rc was thrown away, so a busy detach on a
+          # runner and a clean one print identically.
+          if ! hdiutil detach "$MNT" -quiet 2>/dev/null; then
+              hdiutil detach "$MNT" -force -quiet 2>/dev/null || true
+              # `grep -c`, NOT `grep -q`. `set -uo pipefail` is in force above,
+              # and `producer | grep -q` exits on first match, SIGPIPEs the
+              # producer and inverts the verdict. grep -c must read to EOF.
+              if [ "$(hdiutil info 2>/dev/null | grep -cF -- "$DMG")" -gt 0 ]; then
+                  echo "::warning title=DMG still attached after the artefact-content gate::${DMG} survived cleanup. NOTHING after this step mounts it today, so THIS run is unaffected -- but any step added after this one will fail with 'hdiutil: attach failed - Resource busy'. That is the v1.0.51 failure, and this warning exists so it is never silent again."
+              fi
+          fi
           exit "$rc"
 
       # Paired with the condition on the staging step above -- both, or neither
