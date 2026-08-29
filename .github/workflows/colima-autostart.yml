@@ -137,11 +137,28 @@ jobs:
         if: always()
         run: bash tests/test_port_preflight_covers_published.sh
 
+      # The sudo pre-flight must accept a Mac where sudo already works without
+      # a password, and still refuse one where it does not work at all. Found
+      # on the 2026-08-29 box walk: a bare `sudo -v` refused an account whose
+      # every privileged call was already passwordless, so the install died on
+      # ERR-04-SUDO-DENIED having never attempted the thing it wanted to do.
+      #
+      # macos-14 matters, for the same reason the port preflight above needs
+      # it: sudo's `-v` semantics are what is under test, and the customer only
+      # ever meets them on macOS.
+      #
+      # `if: always()` so an earlier limb's failure cannot delete this
+      # measurement (CM051 #656).
+      - name: Assert the sudo gate accepts passwordless sudo (#1247)
+        if: always()
+        run: bash tests/test_sudo_gate_accepts_passwordless_sudo.sh
+
       - name: Both parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_colima_autostart_mechanism.sh
           bash -n tests/test_colima_start_retry.sh
           bash -n tests/test_port_preflight_covers_published.sh
+          bash -n tests/test_sudo_gate_accepts_passwordless_sudo.sh
           bash -n install.sh
           bash -n install.sh.strings.en-GB.sh
