@@ -4090,3 +4090,42 @@ deferrals:
       preservation/2026-08-29/archie-write-actions-actor-family-219 (tip 40dec17b),
       verified by ls-remote with a negative control. Retire together with the 219-v2 row.
     until_cut: "v1.0.52"
+
+  # ── #1258: the one orphan RED on the walk-only cut, 2026-08-29 (Archie). ──
+  # Recorded in BOTH spellings on purpose. verify_no_orphaned_fixes.sh walks
+  # BRANCHES and PRs in separate arms, and this file already records an instance
+  # (CM051:#982) where a single spelling silently covered only one arm and the
+  # cut went red on a PR that had been consciously exempted for days.
+
+  - ref: "CM051:#1258"
+    reason: >-
+      DRAFT PR, and the only [RED] in check-orphans for the walk-only cut. The B1 mechanism
+      is CORRECT and wanted -- it closes the four residual preflight ports (six -> four ->
+      closed). It is deferred for merge-readiness, not for merit. TWO reasons, both stated
+      so neither goes quiet: (1) the PR is DRAFT and was held pending a premise adjudication
+      which Archie posted 2026-08-29T10:26:22Z, and the reword it calls for has not yet been
+      made; (2) the agent that owns it could not be reloaded -- the session subagent pool is
+      exhausted at 200/200 -- so nobody is currently able to finish it. THE PREMISE CALL,
+      recorded here so the correction survives even if the PR does not: the claim '#549 is
+      closed by $HOME' is FALSE as written. $HOME correctly identifies OSTLER'S OWN colima
+      port-forward, which is #567/B1, a different defect. #549 is that lsof is
+      PERMISSION-SCOPED: a FOREIGN-OWNED listener returns ZERO ROWS to an unprivileged
+      reader, so the branch that would consult $HOME is never reached, and the real outcome
+      of a cross-account collision is 'READS AS FREE' -- the port looks unheld and the
+      preflight walks into the collision. Two defects on one surface; the fix for one is
+      structurally blind to the other. #549 STAYS OPEN and is not addressed by this PR.
+      CUSTOMER IMPACT OF DEFERRING: none. The preflight behaves exactly as v1.0.50 shipped
+      it, so this is the status quo, not a regression. CLOSING CONDITION: clears when (a)
+      the '#549 is closed by $HOME' claim is reworded to the scoping above, (b) arm 8's
+      fixture is MEASURED to establish whether it models a VISIBLE foreign holder (lsof
+      returns a row owned by another user) or an INVISIBLE one (lsof returns zero rows) --
+      if it models the visible case it passes for a reason its subject cannot -- and (c) the
+      PR goes green and merges. NOT cleared by deleting the branch: deletion clears the gate
+      by destroying the evidence rather than by landing or rejecting the work.
+    until_cut: "v1.0.51"
+  - ref: "CM051:a2/close-residual-preflight-ports-567"
+    reason: >-
+      Branch spelling of CM051:#1258 above. Same deferral, same adjudication, same closing
+      condition -- recorded twice on purpose so neither the branch arm nor the PR arm of the
+      gate goes quiet.
+    until_cut: "v1.0.51"
