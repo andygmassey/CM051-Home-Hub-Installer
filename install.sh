@@ -14815,11 +14815,23 @@ sys.stdout.write("free\n")' "${_p}" 2>/dev/null)"
 # ⛔ RESIDUAL (#567): signal 2 exists ONLY for the credentialed stores 6333
 # (qdrant /collections) and 7878 (oxigraph /query). For 3000/6379/8044/8144
 # there is no identity probe, so ownership is UNPROVABLE and this returns 1 --
-# the caller keeps the port HELD. A PARTIAL fix by design: a re-run may then
-# abort on 6379 instead of 6333. That is the residual working, not a regression.
+# the caller keeps the port HELD. This covers 2 of the 6 preflight ports, so it
+# NARROWS the #566/#567 customer dead-end from six ports to four; it does NOT
+# close it. Measured @ARCHIE 2026-08-29: a torn-down Studio still aborted on
+# 8044 (the wiki, one of the four), because the installer starts colima itself,
+# the containers carry restart=unless-stopped, and Lima republishes their ports
+# before the preflight. 8044/3000/8144 have no per-install credential; 6379
+# (redis) could take a two-signal probe (argv + AUTH REDIS_PASSWORD) in a follow-up.
 _port_is_our_own_forward() {
     local _p="$1" _pid="$2" _argv _url
     local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+
+    # §2 (#567 review, @ARCHIE): signal 2 is an IDENTITY check only while store
+    # auth is ENFORCED. With OSTLER_STORE_AUTH_ENFORCE=0 the stores boot keyless
+    # and 200 EVERY request, so a credentialed 200 no longer tells our store
+    # from a foreign one on a shared port -- signal 2 goes vacuous and signal 1
+    # alone is the #549 multi-tenant hole. So: not enforced -> unprovable -> HELD.
+    [ "${OSTLER_STORE_AUTH_ENFORCE:-1}" = "1" ] || return 1
 
     case "${_p}" in
         6333) _url="http://127.0.0.1:6333/collections" ;;

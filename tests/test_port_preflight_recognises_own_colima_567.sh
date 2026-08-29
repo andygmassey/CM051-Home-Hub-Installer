@@ -69,6 +69,7 @@ export OSTLER_DIR="${TMP}/.ostler"; mkdir -p "${OSTLER_DIR}/secrets"
 printf 'header = "api-key: testkey"\n' > "${OSTLER_DIR}/secrets/store-curl.conf"
 export HOME="${TMP}/home"; mkdir -p "${HOME}/.colima/_lima/colima"
 OUR_ARGV="ssh: ${HOME}/.colima/_lima/colima/ssh.sock [mux]"
+export OSTLER_STORE_AUTH_ENFORCE=1   # the shipped default; arm 6 flips it to 0
 
 # controllable stub state (read inside the stubs / subshells)
 STUB_ARGV=""      # what `ps -o command=` reports for the holder
@@ -132,6 +133,16 @@ rc="$(run_check 6379)"
 [ "${rc}" = "1" ] \
     && ok  "arm 5: 6379 has no identity probe -> HELD (residual pinned; ownership unprovable)" \
     || bad "arm 5: 6379 proceeded (rc=${rc}) -- ownership claimed on a port it cannot prove"
+
+# ---------------------------------------------------------------- arm 6  (§2, matters)
+# store auth OFF: a keyless store 200s ANY request, so signal 2 goes vacuous.
+# Both apparent signals on 6333, but enforce=0 -> HELD, never "ours". Run in an
+# explicit subshell so the override does not leak into the summary.
+STUB_ARGV="${OUR_ARGV}"; STUB_CURL_RC=0
+rc="$( export OSTLER_STORE_AUTH_ENFORCE=0; _check_port 6333 /usr/bin/true >/dev/null 2>&1; echo $? )"
+[ "${rc}" = "1" ] \
+    && ok  "arm 6: OSTLER_STORE_AUTH_ENFORCE=0 -> signal 2 vacuous -> HELD (a keyless store cannot prove ownership)" \
+    || bad "arm 6: enforce=0 accepted (rc=${rc}) -- a keyless foreign forward would pass"
 
 echo "== ${PASS} pass / ${FAIL} fail / ${CANT} cannot-run =="
 [ "${FAIL}" -gt 0 ] && exit 1
