@@ -80,6 +80,10 @@ on:
       # Both the wrapper and its test are triggers: the defect surface and the
       # instrument have to share one, same rule as the marker manifest above.
       - 'scripts/run_all_cut_gates.sh'
+      # Watched because the step below RUNS it (#1244). A run: without a
+      # matching paths: entry is a gate you can edit freely and never trigger,
+      # which is how a test rots while reporting green on every unrelated push.
+      - 'tests/test_pinned_wiki_images_are_arm64_only.sh'
       - 'tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh'
       - 'scripts/cut_hygiene_gate.sh'
       - 'tests/test_mergeable_unknown_is_not_clean.sh'
