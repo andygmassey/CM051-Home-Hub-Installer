@@ -948,6 +948,26 @@ jobs:
       # preflight writes CUT_VERSION to $GITHUB_ENV, and GITHUB_ENV DOES NOT
       # CROSS JOBS. `cut` only ever runs on a tag push, so github.ref_name IS
       # the tag and is the honest source here.
+      - name: The artefact DELIVERS the required fixes (#565)
+        # COMPLEMENTARY TO THE TAG-MATCH GATE ABOVE, NOT A DUPLICATE. That one
+        # proves the DMG's install.sh IS the tree being cut. This one proves
+        # that tree actually CARRIES the fixes we said shipped. v1.0.50 passes
+        # the first and fails this one -- which is exactly #565: three fixes on
+        # main, none in the artefact, and nothing that could tell the difference.
+        #
+        # Same `ls dist/*.dmg` idiom as the gate above and the publish step, so
+        # all three read the SAME artefact. The empty-check is not decoration:
+        # a missing DMG must read as "failed to look", never as a pass.
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          DMG="$(ls dist/*.dmg 2>/dev/null | head -1)"
+          if [ -z "$DMG" ]; then
+              echo "::error title=No DMG to inspect::The delivery gate found no dist/*.dmg. It has NOT verified delivery -- it failed to look. DO NOT SHIP."
+              exit 1
+          fi
+          bash scripts/verify_dmg_delivers_fixes.sh "$DMG"
+
       - name: The artefact's content IS the tag being cut
         id: artefact_content
         if: always()

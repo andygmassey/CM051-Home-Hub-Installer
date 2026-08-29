@@ -341,6 +341,7 @@ test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_venvs_install_store_shim.sh	WIRED	.github/workflows/venv-store-shim.yml
 test_verify_appcast_published.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_verify_ci_steps_are_maskless.sh	WIRED	.github/workflows/ci-maskless.yml
+test_verify_dmg_delivers_fixes.sh	WIRED	.github/workflows/dmg-delivery-gate.yml
 test_verify_no_symbol_regression.sh	WIRED	.github/workflows/symbol-regression.yml
 test_verify_test_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_voice_consent_matches_catalogue.sh	WIRED	.github/workflows/consent-data-handling.yml

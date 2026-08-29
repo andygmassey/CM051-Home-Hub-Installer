@@ -1,0 +1,34 @@
+# The #565 delivery gate: verify_dmg_delivers_fixes.sh reads a built DMG and
+# asserts each required fix's invariant is present in every install.sh it ships.
+# This workflow runs the gate's TEST (fixture DMGs built with hdiutil), so the
+# gate's logic is proven on every change. The gate ITSELF runs at cut time
+# against the real DMG -- see the step to add to cut.yml's `cut` job in
+# scripts/verify_dmg_delivers_fixes.sh's header and PR #565.
+#
+# macos runner because hdiutil is macOS-only (the gate mounts a real DMG).
+name: dmg-delivery-gate
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_dmg_delivers_fixes.sh'
+      - 'tests/test_verify_dmg_delivers_fixes.sh'
+      - '.github/workflows/dmg-delivery-gate.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/verify_dmg_delivers_fixes.sh'
+      - 'tests/test_verify_dmg_delivers_fixes.sh'
+permissions:
+  contents: read
+jobs:
+  delivery-gate:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: The delivery gate passes a good DMG, fails a missing or partial one
+        run: bash tests/test_verify_dmg_delivers_fixes.sh
+      - name: Both parse under bash 3.2, the customer's shell
+        if: always()
+        run: |
+          bash -n scripts/verify_dmg_delivers_fixes.sh
+          bash -n tests/test_verify_dmg_delivers_fixes.sh
