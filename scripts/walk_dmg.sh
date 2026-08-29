@@ -58,7 +58,31 @@ DMG="${1:?usage: walk_dmg.sh <path-to.dmg>}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/walk.XXXXXX")"
 MP="$WORK/mnt"
 mkdir -p "$MP"
-cleanup() { /sbin/umount "$MP" 2>/dev/null || /usr/bin/hdiutil detach "$MP" -quiet 2>/dev/null || true; }
+cleanup() {
+    # DETACH, DO NOT MERELY UNMOUNT -- AND NEVER CHAIN THEM WITH `||`.
+    #
+    # THIS LEAKED THE IMAGE AND KILLED THE v1.0.51 CUT. The old line was
+    #     /sbin/umount "$MP" || /usr/bin/hdiutil detach "$MP" -quiet || true
+    # and `umount` SUCCEEDS, so `||` short-circuits and the detach NEVER RUNS.
+    # The filesystem is unmounted while the image stays ATTACHED as a /dev/disk.
+    # It is invisible in /Volumes, so it looks clean, and the next thing that
+    # mounts the same DMG gets "hdiutil: attach failed - Resource busy /
+    # This image is ALREADY ATTACHED".
+    #
+    # MEASURED on this machine against the real v1.0.51 artefact:
+    #   pre-fix   walk_dmg.sh -> rc=0, still attached=YES  (umount won the ||)
+    #   post-fix  walk_dmg.sh -> rc=0, still attached=no
+    # In the cut that is the artefact-content gate, which runs immediately
+    # after the walk and died with "could not mount the DMG".
+    #
+    # `hdiutil detach` unmounts AND detaches, so it is the whole operation in
+    # one call. umount is kept only as a fallback for a busy filesystem, and it
+    # is FOLLOWED by a forced detach rather than substituting for one.
+    if ! /usr/bin/hdiutil detach "$MP" -quiet 2>/dev/null; then
+        /sbin/umount "$MP" 2>/dev/null || true
+        /usr/bin/hdiutil detach "$MP" -force -quiet 2>/dev/null || true
+    fi
+}
 trap cleanup EXIT INT TERM
 
 pass=0; fail=0; cannot=0
