@@ -287,6 +287,132 @@ else
     fail "(7b) coverage went BACKWARDS: $routed routed, floor is 5"
 fi
 
+# --- (7d) INDIRECTION. Rule (7) greps the pip line for a literal SCRIPT_DIR,
+#     so ONE HOP THROUGH A VARIABLE defeats it entirely, and (7c) cannot reveal
+#     that because its fixture contains a literal "${SCRIPT_DIR}/some_pkg" --
+#     a fixture encoding the shape the code already handles.
+#
+#     MEASURED on the v1.0.50 fresh-account walk, 2026-08-29. install.sh:27051
+#     read `"$_AICONV_VENV/bin/pip" install --quiet "$_AICONV_SRC"`, where
+#     _AICONV_SRC is set from a for-loop over "${SCRIPT_DIR}/cm052_ai_conversations".
+#     TWO hops, no literal on the line, rule (7) green. codesign on the walked
+#     box: "a sealed resource is missing or invalid", 22 added files, all under
+#     Contents/Resources/cm052_ai_conversations.
+#
+#     So resolve to a FIXPOINT: any variable that can hold a SCRIPT_DIR-rooted
+#     path, however many assignments away, and then require every pip install of
+#     such a variable to be routed through the helper.
+CHECKS=$((CHECKS + 1))
+_indirect_out="$(python3 - "$INSTALL" <<'PYEOF'
+import re, sys
+src = open(sys.argv[1], encoding="utf-8", errors="replace").read().split("\n")
+# code only: drop whole-line comments (a comment naming a call site is not one)
+code = [(i + 1, l) for i, l in enumerate(src) if not l.lstrip().startswith("#")]
+
+tainted = set()
+assign = re.compile(r'^\s*(?:local\s+|export\s+)?([A-Za-z_][A-Za-z_0-9]*)=(.*)$')
+forloop = re.compile(r'^\s*for\s+([A-Za-z_][A-Za-z_0-9]*)\s+in\s+(.*)$')
+ref = re.compile(r'\$\{?([A-Za-z_][A-Za-z_0-9]*)')
+
+# fixpoint: SCRIPT_DIR itself, anything assigned from it, anything assigned
+# from anything already tainted. Loop until nothing new appears.
+for _ in range(12):
+    before = len(tainted)
+    for _n, l in code:
+        for pat in (assign, forloop):
+            m = pat.match(l)
+            if not m:
+                continue
+            var, rhs = m.group(1), m.group(2)
+            if "SCRIPT_DIR" in rhs or any(r in tainted for r in ref.findall(rhs)):
+                tainted.add(var)
+    if len(tainted) == before:
+        break
+
+pipline = re.compile(r'pip"?\s+install\b')
+bad = []
+for n, l in code:
+    if not pipline.search(l):
+        continue
+    if "_ostler_pip_install_pkg" in l:
+        continue
+    if any(v in tainted for v in ref.findall(l)) or "SCRIPT_DIR" in l:
+        bad.append((n, l.strip()))
+
+print("TAINTED=%d" % len(tainted))
+for n, l in bad:
+    print("HIT\t%d\t%s" % (n, l[:120]))
+PYEOF
+)" || _indirect_out="PYFAIL"
+
+if [[ "$_indirect_out" == "PYFAIL" || -z "$_indirect_out" ]]; then
+    fail "(7d) CANNOT-RUN: the indirection resolver did not produce output. A zero from it would mean nothing."
+else
+    _indirect_hits=$(printf '%s\n' "$_indirect_out" | grep -c '^HIT' || true)
+    _tainted=$(printf '%s\n' "$_indirect_out" | sed -n 's/^TAINTED=//p')
+    if [[ "${_tainted:-0}" -lt 2 ]]; then
+        fail "(7d) CANNOT-RUN: only ${_tainted:-0} SCRIPT_DIR-rooted variable(s) resolved. The resolver is not seeing the file; a zero is vacuous."
+    elif [[ "$_indirect_hits" -eq 0 ]]; then
+        pass "(7d) no pip install reaches a SCRIPT_DIR-rooted path, directly or through ${_tainted} resolved variables"
+    else
+        fail "(7d) ${_indirect_hits} pip install site(s) install a BUNDLE-ROOTED path without _ostler_pip_install_pkg"
+        printf '%s\n' "$_indirect_out" | grep '^HIT' | sed 's/^HIT\t/        line /' | sed 's/\t/: /'
+    fi
+fi
+
+# (7e) ANTI-VACUITY for (7d). Feed the resolver a fixture carrying the EXACT
+#      two-hop shape that defeated rule (7), and require it to be caught. If
+#      this ever passes with 0 hits, (7d) has been blinded and its green above
+#      is worthless.
+CHECKS=$((CHECKS + 1))
+_IND_CTRL="$(mktemp)"
+cat > "$_IND_CTRL" <<'FIXEOF'
+# a comment mentioning SCRIPT_DIR and pip install must NOT count
+SOME_ROOT="${SCRIPT_DIR}/vendor"
+for _cand in "${SCRIPT_DIR}/pkg_a" "${SOME_ROOT}/pkg_b"; do
+    _CHOSEN="$_cand"
+done
+"$MY_VENV/bin/pip" install --quiet "$_CHOSEN"
+"$MY_VENV/bin/pip" install --quiet --upgrade pip
+_ostler_pip_install_pkg "$MY_VENV/bin/pip" "$_CHOSEN" --quiet
+FIXEOF
+_ctrl_out="$(python3 - "$_IND_CTRL" <<'PYEOF'
+import re, sys
+src = open(sys.argv[1], encoding="utf-8", errors="replace").read().split("\n")
+code = [(i + 1, l) for i, l in enumerate(src) if not l.lstrip().startswith("#")]
+tainted = set()
+assign = re.compile(r'^\s*(?:local\s+|export\s+)?([A-Za-z_][A-Za-z_0-9]*)=(.*)$')
+forloop = re.compile(r'^\s*for\s+([A-Za-z_][A-Za-z_0-9]*)\s+in\s+(.*)$')
+ref = re.compile(r'\$\{?([A-Za-z_][A-Za-z_0-9]*)')
+for _ in range(12):
+    before = len(tainted)
+    for _n, l in code:
+        for pat in (assign, forloop):
+            m = pat.match(l)
+            if not m:
+                continue
+            var, rhs = m.group(1), m.group(2)
+            if "SCRIPT_DIR" in rhs or any(r in tainted for r in ref.findall(rhs)):
+                tainted.add(var)
+    if len(tainted) == before:
+        break
+pipline = re.compile(r'pip"?\s+install\b')
+bad = 0
+for n, l in code:
+    if not pipline.search(l) or "_ostler_pip_install_pkg" in l:
+        continue
+    if any(v in tainted for v in ref.findall(l)) or "SCRIPT_DIR" in l:
+        bad += 1
+print(bad)
+PYEOF
+)" || _ctrl_out="PYFAIL"
+rm -f "$_IND_CTRL"
+if [[ "$_ctrl_out" == "1" ]]; then
+    pass "(7e) the resolver catches the two-hop shape, ignores a comment, and does not flag --upgrade pip or a routed call"
+else
+    fail "(7e) THE RESOLVER IS BLIND: fixture has exactly 1 unrouted two-hop install, got '${_ctrl_out}'. (7d) above proves nothing."
+fi
+
 echo
 echo "=== $((CHECKS - FAILURES)) passed / $FAILURES failed ==="
 [[ "$FAILURES" -eq 0 ]]
