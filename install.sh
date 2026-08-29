@@ -9591,7 +9591,35 @@ else
     echo -e "  ${YELLOW}sleep during the install (and to install Homebrew if missing).${NC}"
     echo -e "  ${YELLOW}After this, the install runs unattended.${NC}"
     echo ""
-    sudo -v || fail_with_code "ERR-04-SUDO-DENIED" "$MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL"
+    # ASK FOR WHAT WE ACTUALLY NEED, NOT FOR A CREDENTIAL WE WILL NEVER SPEND.
+    #
+    # This used to be a bare `sudo -v`, and it REFUSES A MAC WHERE SUDO ALREADY
+    # WORKS WITHOUT A PASSWORD. Measured on the 2026-08-29 box walk, sudo
+    # 1.9.17p2, on an admin account with a NOPASSWD grant in /etc/sudoers.d:
+    #
+    #   User may run:  (ALL) ALL           <- admin group, needs a password
+    #                  (ALL) NOPASSWD: ALL <- the operator's grant
+    #
+    #   sudo -n true       rc=0    the commands we run are passwordless
+    #   sudo -n pmset -g   rc=0    the ACTUAL privileged call below is fine
+    #   sudo -n -v         rc=1    "sudo: a password is required"
+    #
+    # `sudo -v` asks a BROADER question than we need: "would this user ever
+    # have to authenticate for anything". With both entries present the answer
+    # is yes, so it prompts, three attempts fail, and the install dies on
+    # ERR-04-SUDO-DENIED having never tried the one thing it wanted to do.
+    # The gate refused an environment that was strictly MORE permissive than
+    # the one it accepts. That is a probe measuring the wrong property.
+    #
+    # So try the real capability first, non-interactively, and keep `sudo -v`
+    # as the fallback that prompts a normal customer exactly once, as before.
+    # `sudo -n true` is the same shape as every privileged call in Phase 3, so
+    # it cannot pass where those would fail.
+    if sudo -n true 2>/dev/null; then
+        info "sudo already available without a password prompt"  # i18n-exempt
+    else
+        sudo -v || fail_with_code "ERR-04-SUDO-DENIED" "$MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL"
+    fi
 fi
 
 # ── Composite cleanup ─────────────────────────────────────────────
