@@ -90,6 +90,10 @@ on:
       # Same reason. #1208's guard covers the port preflight that runs
       # immediately before these same containers start.
       - 'tests/test_port_preflight_covers_published.sh'
+      # Same reason again. Editing the sudo-gate test must trigger the only
+      # workflow that runs it, or the test can rot unnoticed while reporting
+      # green on every push that does not happen to touch install.sh.
+      - 'tests/test_sudo_gate_accepts_passwordless_sudo.sh'
   push:
     branches: [main]
 
