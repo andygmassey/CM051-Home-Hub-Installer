@@ -14782,6 +14782,67 @@ sys.stdout.write("free\n")' "${_p}" 2>/dev/null)"
     esac
     }
 
+# ── #567: is an occupied store port OUR OWN colima forward, or a real clash? ──
+# Lima publishes each container port through its own ssh control-master, so the
+# holder of a live store port is ALWAYS `ssh` and the HELD branch below fired
+# MSG_ERR_PORT_HELD_BY_OUR_PROCESS on our own knowledge graph, telling the
+# customer to quit it. On a re-run after #566 left colima up, that traps the
+# customer: #566 says "re-run", the re-run hits this, this says "quit it".
+#
+# ⛔ SOLE-TENANCY BOUND -- READ BEFORE GENERALISING (@A2, #567). "ours" is
+# returned ONLY under the single-machine product invariant: exactly one Ostler
+# stack on this Mac (one account, one colima VM, one store per port; see
+# OSTLER_ARCHITECTURE.md). It is NOT sound on a multi-tenant Mac -- both signals
+# below can be met by ANOTHER account's forward, and waving that through
+# re-opens #549 (an account reading another account's store) from the opposite
+# direction. Do not extend this to a shared box without a per-instance identity
+# that neither signal provides.
+#
+# Requires BOTH signals; either alone is a demonstrated trap:
+#   1. the holder's FULL argv names THIS user's colima ($HOME/.colima/). Signal
+#      1 alone waves through another tenant's colima. `ps -o comm=` shows only
+#      "ssh"; the socket path lives in `ps -o command=`, which is why the old
+#      check never had a chance of seeing what it was looking at.
+#   2. the port answers 200 to OUR per-install store credential, read from the
+#      on-disk store-curl.conf a prior run seeded (the in-memory
+#      _OSTLER_STORE_CURL_ARGS is still empty this early in the run). This is an
+#      IDENTITY check, not a liveness one, only because store auth is ENFORCED
+#      by default (OSTLER_STORE_AUTH_ENFORCE:-1 since #1222): a foreign install
+#      carries DIFFERENT secrets and 401s our config. Against a keyless store it
+#      would 200 anything -- which is exactly why signal 1 and the bound above
+#      are required alongside it.
+#
+# ⛔ RESIDUAL (#567): signal 2 exists ONLY for the credentialed stores 6333
+# (qdrant /collections) and 7878 (oxigraph /query). For 3000/6379/8044/8144
+# there is no identity probe, so ownership is UNPROVABLE and this returns 1 --
+# the caller keeps the port HELD. A PARTIAL fix by design: a re-run may then
+# abort on 6379 instead of 6333. That is the residual working, not a regression.
+_port_is_our_own_forward() {
+    local _p="$1" _pid="$2" _argv _url
+    local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+
+    case "${_p}" in
+        6333) _url="http://127.0.0.1:6333/collections" ;;
+        7878) _url="http://127.0.0.1:7878/query?query=ASK%7B%7D" ;;
+        *)    return 1 ;;   # residual: no credentialed identity probe for this port
+    esac
+
+    # signal 1: the holder's FULL argv names this user's colima port-forward
+    _argv="$(ps -p "${_pid}" -o command= 2>/dev/null || true)"
+    case "${_argv}" in
+        *"${HOME}/.colima/"*) : ;;
+        *) return 1 ;;
+    esac
+
+    # signal 2: the port answers 200 to OUR per-install credential. curl -f
+    # exits non-zero on the 401 a foreign store returns, so a wrong or absent
+    # credential falls through to HELD. store-curl.conf absent -> not provable.
+    [ -r "${_conf}" ] || return 1
+    curl -K "${_conf}" -sf -m 5 -o /dev/null "${_url}" 2>/dev/null || return 1
+
+    return 0
+    }
+
 _check_port() {
     # 0 = free, 1 = held (hard failure), 2 = could not measure.
     #
@@ -14825,6 +14886,12 @@ _check_port() {
 
     _pid="$(/usr/sbin/lsof -t -i ":${_p}" -sTCP:LISTEN 2>/dev/null | head -1)"
     if [ -n "${_pid}" ]; then
+        # #567: a store port held by our OWN colima forward is not a collision.
+        # Both ownership signals under the sole-tenancy bound -> continue.
+        if _port_is_our_own_forward "${_p}" "${_pid}"; then
+            dbg "#567: port ${_p} held by this account's own colima store forward (pid ${_pid}); both ownership signals present, continuing."
+            return 0
+        fi
         _proc="$(ps -p "${_pid}" -o comm= 2>/dev/null || echo "unknown")"
         err "$(printf "$MSG_ERR_PORT_HELD_BY_OUR_PROCESS" "${_p}" "${_proc}" "${_pid}")"
     else
