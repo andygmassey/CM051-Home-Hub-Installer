@@ -28,6 +28,9 @@ on:
       - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
       - 'tests/test_laptop_hub_power_copy_fires_on_laptops_only.sh'
       - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
+      # A suite this workflow RUNS but does not WATCH is dark on self-edit --
+      # it could be narrowed, or gutted, in the very PR that narrows it.
+      - 'tests/test_uninstaller_counts_do_not_abort_on_an_unreadable_dir.sh'
       - 'tests/test_launchagent_bootstrap_after_staging.py'
       - 'tests/test_launchagent_homebrew_path.sh'
       - '**/launchd/*.plist'
@@ -149,6 +152,37 @@ jobs:
       - name: Assert uninstall removes every LaunchAgent plist, not just the job
         if: always()
         run: bash tests/test_uninstall_removes_every_launchagent_plist.sh
+
+      # #563 -- AND THE STEP ABOVE CANNOT SEE IT. That test seeds a sandboxed
+      # HOME and runs the TEARDOWN region; this defect is 50 lines EARLIER, in
+      # the content count, and it stops the script before the teardown is ever
+      # reached. A teardown test that starts at the teardown passes on an
+      # uninstaller that never gets there.
+      #
+      #     find "$d" -type f 2>/dev/null | wc -l | tr -d ' '
+      #
+      # ~/Documents is TCC-protected, a default Terminal has no Full Disk
+      # Access, `2>/dev/null` hides find's MESSAGE and not its EXIT STATUS, and
+      # the script is `set -euo pipefail` with zero traps. So the customer saw
+      # the banner, saw no error, and kept the containers, the LaunchAgents and
+      # both .apps. The file asserts the count no longer aborts AND that an
+      # abort now speaks, each with its own mutation control.
+      #
+      # rc=2 IS NOT rc=1. Arm 2 needs a directory this process genuinely cannot
+      # read; `chmod 000` does not stop root, so under a root runner the arm
+      # would be vacuous and the harness refuses a verdict instead of printing
+      # a green. A permission test that runs as root is a test that cannot
+      # fail. Both are red; they must not read the same (#1239).
+      - name: Assert the uninstaller's content count cannot abort the uninstall
+        if: always()
+        run: |
+          set -uo pipefail
+          bash tests/test_uninstaller_counts_do_not_abort_on_an_unreadable_dir.sh
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The #563 harness could not obtain a verdict -- either its anchors no longer match install.sh, or this runner can read a chmod 000 directory (running as root), which would make the load-bearing arm vacuous. NOTHING about the uninstaller has been measured. Do not debug install.sh on the strength of this line."
+          fi
+          exit "$rc"
 
       # The ORDERING half of the same fault the step above gates by guard.
       # A real install log showed step 19 of 39 reaching the email-ingest
