@@ -21215,9 +21215,44 @@ else
                 # was the daemon's own Automation prompt, now prevented by the
                 # capability-gate + hard-kill above keeping the daemon from
                 # running pre-FDA.
+                # WALK-1050 (2026-08-30, Archie): the block that used to live here
+                # SYNTHESISED listed-ness from the nudge merely having RUN: it tested
+                # the nudge flag and then ASSIGNED the listed state to the flag
+                # variable. The old code is deliberately NOT quoted here -- a comment
+                # containing an assignment-shaped string is exactly the hazard that
+                # makes a grep-based guard count a comment as a call site.
+                #
+                # REFUTED ON A LIVE FRESH-ACCOUNT WALK of v1.0.50. The nudge ran,
+                # logged success, and OstlerAssistant was NOT in the Full Disk Access
+                # list. So "if the nudge ran the row exists" is false on a real install.
+                #
+                # WHY IT WAS WORSE THAN A WRONG LOG LINE. One invented boolean drove
+                # THREE customer-facing branches, all of them the wrong way:
+                #   :21305  suppressed `open -R` -- no Finder window, so the drag-in
+                #           route was never offered
+                #   :21312  printed "already listed" at a customer looking at a list
+                #           that did not contain it
+                #   :21342  dropped LINE3, the drag instruction, from the modal
+                # The one route that might have worked was withheld BECAUSE the code
+                # had convinced itself the customer did not need it.
+                #
+                # WHY WE CANNOT JUST VERIFY INSTEAD. The real probe
+                # (_imessage_daemon_fda_listed) reads TCC.db via sudo, and on a genuine
+                # fresh install `sudo -n` is unavailable -- the very case this fires in.
+                # So verification is structurally CANNOT-VERIFY here, and the previous
+                # code answered a CANNOT-VERIFY with a PASS. Three states collapsed
+                # into two, which is the same class as #558 and #574.
+                #
+                # WHAT WE GIVE UP, DELIBERATELY. BW6 added the synthesis to stop a
+                # redundant Finder window stacking with the Tailscale sign-in. That
+                # annoyance returns. A duplicate window is a cosmetic cost; a customer
+                # who cannot grant Full Disk Access at all is a broken install. When
+                # we do not know, we offer the route.
+                #
+                # The nudge outcome is still worth RECORDING -- it just must not steer
+                # the UI. Log it as what it is: an attempt, not a confirmation.
                 if [[ "$_fda_listed" != "listed" && "${_fda_nudge_registered:-false}" == true ]]; then
-                    _fda_listed="listed"
-                    gui_log info "Daemon FDA register-nudge succeeded; treating OstlerAssistant as listed (suppressing the redundant Finder drag-in window)."
+                    gui_log info "Daemon FDA register-nudge ran, but the TCC row is UNCONFIRMED (sudo -n is normally unavailable on a fresh install). Treating as NOT-LISTED and offering the drag-in route -- an attempt is not a confirmation."
                 fi
                 # BW5 nit (Archie 2026-07-26): a "not listed" result can mean the
                 # row is genuinely absent OR the nudge was skipped (mystery

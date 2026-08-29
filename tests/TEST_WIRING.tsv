@@ -143,6 +143,7 @@ test_fallback_pin_moves_with_the_version.sh	WIRED	.github/workflows/supply-chain
 test_fda_assist_ordering.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_fda_deps_are_installed_not_just_copied.sh	WIRED	.github/workflows/fda-deps-installed.yml
 test_fda_dialog_tells_the_truth.sh	WIRED	.github/workflows/fda-dialog-truth.yml
+test_fda_listed_has_one_writer.sh	WIRED	.github/workflows/fda-listed.yml
 test_fda_module_reachable.sh	WIRED	.github/workflows/fda-reachable.yml
 test_fda_prewarm_no_early_messages_popup.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
