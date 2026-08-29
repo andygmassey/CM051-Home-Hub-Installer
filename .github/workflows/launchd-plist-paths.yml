@@ -31,6 +31,7 @@ on:
       # A suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in the very PR that narrows it.
       - 'tests/test_uninstaller_counts_do_not_abort_on_an_unreadable_dir.sh'
+      - 'tests/test_err06_states_what_it_measured.sh'
       - 'tests/test_launchagent_bootstrap_after_staging.py'
       - 'tests/test_launchagent_homebrew_path.sh'
       - '**/launchd/*.plist'
@@ -181,6 +182,40 @@ jobs:
           rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The #563 harness could not obtain a verdict -- either its anchors no longer match install.sh, or this runner can read a chmod 000 directory (running as root), which would make the load-bearing arm vacuous. NOTHING about the uninstaller has been measured. Do not debug install.sh on the strength of this line."
+          fi
+          exit "$rc"
+
+      # #566 -- ERR-06-STORE-AUTH-LEAK ASSERTED A CAUSE IT CANNOT ESTABLISH.
+      # The probe was born BARE in v1.0.10, when a 401 really did mean a leaked
+      # key had re-armed Qdrant auth. CM051 #1222 flipped store-auth
+      # enforcement to default ON: the probe now CARRIES the credential, and
+      # its comment went on describing the old one. A credentialed 401 means
+      # "the authenticated request did not succeed" -- several causes, one of
+      # which is a leak -- and the message picked that one, stated it as fact,
+      # and told the customer to clear a credential MEASURED on the failing box
+      # to be correct and complete.
+      #
+      # ⚠️ THIS DOES NOT FIX THE ABORT. Fresh installs still fail here and the
+      # cause is OPEN: a readiness/auth race was proposed and then REFUTED by
+      # measurement, warm and cold, delta 0.00s both times with live controls.
+      # What this guards is that the installer stops telling the customer
+      # something it does not know.
+      #
+      # The arms are structural, not spelling: the probe must carry the
+      # credential; the comment must not contradict that; and the message must
+      # not REASSERT the specific false claim that shipped. It forbids the old
+      # sentence rather than pinning a new one, so the copy can be reworded
+      # freely -- the lie just cannot come back.
+      #
+      # `if: always()` for the same reason as every step above.
+      - name: Assert ERR-06 states what it measured, not a cause it cannot establish
+        if: always()
+        run: |
+          set -uo pipefail
+          bash tests/test_err06_states_what_it_measured.sh
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The #566 harness could not obtain a verdict -- its anchors moved, or its runtime-synthesised line-spanning control could not be built or proved. NOTHING about the ERR-06 guard has been measured. Do not debug install.sh on the strength of this line."
           fi
           exit "$rc"
 
