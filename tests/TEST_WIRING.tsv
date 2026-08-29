@@ -27,6 +27,7 @@ test_ai_model_env_contract.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_aiconv_hydrate_honesty.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_amazon_extracted_dir_parse.py	UNWIRED	-
 test_an_abort_inside_a_step_is_counted.sh	WIRED	.github/workflows/step-end-status-honesty.yml
+test_an_abort_speaks_on_a_terminal_install.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_app_binary_agents_bootstrap.sh	UNWIRED	-
 test_appcast_debt_is_collected.sh	WIRED	.github/workflows/cut.yml
 test_appcast_publish_cannot_destroy_the_dmg.sh	WIRED	.github/workflows/appcast-ship-wiring.yml

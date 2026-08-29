@@ -9694,6 +9694,13 @@ composite_cleanup() {
         OSTLER_LAST_ERROR_CODE="ERR-99-INSTALL-ABORT-${__OSTLER_STEP_ID}"
         export OSTLER_LAST_ERROR_CODE
         gui_log error "Install aborted before completion during step '${__OSTLER_STEP_ID}' with no completion marker (likely a set -u unbound-variable abort)."
+        # #561: the TTY half, for the same reason spelled out in full at
+        # _ostler_on_err. gui_log is a no-op whenever OSTLER_GUI != 1, so on
+        # a terminal install this backstop -- the thing that exists PRECISELY
+        # to speak when everything else has failed to -- was itself mute.
+        # A backstop that cannot be heard is not a backstop.
+        gui_active || printf '%b[fail]%b  [%s] Install aborted during step %s. No completion marker was emitted (likely a set -u unbound-variable abort).\n' \
+            "${RED:-}" "${NC:-}" "${OSTLER_LAST_ERROR_CODE}" "${__OSTLER_STEP_ID}" >&2
         # #873: hand the real exit status to the step gui_done is about to
         # close, so the STEP_END carries a measured rc wherever bash left
         # us one. See the capture at the top of this function.
@@ -9794,6 +9801,38 @@ _ostler_on_err() {
     # code only, via the DONE marker below.
     local step="${__OSTLER_STEP_ID:-}"
     gui_log error "Install aborted unexpectedly at line ${line}${step:+ (step ${step})}: ${cmd}"
+    # ── THE TTY HALF (#561, found on the 2026-08-29 v1.0.50 box walk) ──
+    #
+    # EVERY LINE ABOVE THIS ONE IS INVISIBLE ON A TERMINAL INSTALL, and it
+    # took a box walk to notice. gui_log and gui_done are both hard no-ops
+    # whenever OSTLER_GUI != 1: lib/progress_emitter.sh gui_emit() and
+    # gui_log() each open with `[[ "${OSTLER_GUI:-0}" != "1" ]] && return 0`,
+    # and gui_done reaches nothing but gui_emit. When the emitter is not on
+    # disk at all, the TTY arm of the sourcing block redefines the same three
+    # as literal `{ :; }`. Both arms converge on silence.
+    #
+    # So of this installer's three abort paths, only fail() ever spoke on a
+    # terminal. This one and the EXIT backstop died mute. MEASURED: the
+    # v1.0.50 walk exited rc=1 at 24% inside the #1208 port preflight having
+    # printed NOTHING -- no [fail], no ERR- code -- on the pty and in
+    # ~/.ostler/logs/install.log alike. On the documented `curl | bash` path
+    # a customer watches the progress stop and is told nothing whatsoever.
+    #
+    # This is the `gui_active ||` idiom fail() already uses, so the GUI is
+    # byte-identical: gui_active is true there and this prints only on a
+    # terminal, leaving the DONE marker as the GUI's single source of truth.
+    #
+    # ${cmd} is $BASH_COMMAND, the UNEXPANDED source text of the failing
+    # command, so a command that references a secret renders the VARIABLE
+    # NAME and never its value. It cannot leak one.
+    #
+    # Colours are ${RED:-}-guarded, not bare: this block gets lifted out and
+    # executed by tests, and an unbound colour var under `set -u` would abort
+    # the handler before it could speak -- silencing the very report this
+    # exists to make, and only in the negative control.
+    gui_active || printf '%b[fail]%b  [%s] Install aborted at line %s%s: %s\n' \
+        "${RED:-}" "${NC:-}" "${OSTLER_LAST_ERROR_CODE}" "${line}" \
+        "${step:+ (step ${step})}" "${cmd}" >&2
     # #873: gui_done closes the still-open step so the terminal
     # failed_steps count includes the step we died in. It has no way to
     # know the exit code, and falls back to the convention rc=1. WE know
