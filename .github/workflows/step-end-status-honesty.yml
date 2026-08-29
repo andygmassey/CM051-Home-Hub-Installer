@@ -40,6 +40,9 @@ on:
       - 'lib/progress_emitter.sh'
       - 'tests/test_step_end_does_not_report_a_timed_out_step_as_ok.sh'
       - 'tests/test_an_abort_inside_a_step_is_counted.sh'
+      # #561. Watched because the steps below RUN it. A run: with no
+      # matching paths entry is a gate you can edit freely and never fire.
+      - 'tests/test_an_abort_speaks_on_a_terminal_install.sh'
       - 'tests/test_err_trap_emits_done_fail.sh'
       - 'tests/test_gui_progress_emitter.sh'
       - '.github/workflows/step-end-status-honesty.yml'
@@ -91,6 +94,28 @@ jobs:
         if: always()
         run: /bin/bash tests/test_an_abort_inside_a_step_is_counted.sh
 
+      # #561 -- THE THIRD HALF, and the one a CUSTOMER meets.
+      #
+      # Both gates above assert on MARKERS, and markers only exist when
+      # OSTLER_GUI=1. Every harness in this workflow sets it. So the entire
+      # abort-honesty estate was measuring the GUI path exclusively, and the
+      # terminal path -- the documented `curl | bash` install -- was never
+      # under test at all.
+      #
+      # It was also broken. gui_log and gui_done both return 0 immediately
+      # when OSTLER_GUI != 1, so _ostler_on_err and the EXIT backstop, which
+      # speak through nothing else, died mute. MEASURED on the 2026-08-29
+      # v1.0.50 box walk: install.sh exited rc=1 at 24% inside the #1208 port
+      # preflight having printed NOTHING, on the pty and in the durable log
+      # alike. A customer watches the bar stop and is told nothing.
+      #
+      # This test runs with OSTLER_GUI UNSET and carries a mutation arm, so
+      # it fails if the fix is removed rather than merely asserting it is
+      # present. It exits 2 for CANNOT-RUN, which is neither pass nor fail.
+      - name: An abort must SAY SO on a terminal install (#561)
+        if: always()
+        run: /bin/bash tests/test_an_abort_speaks_on_a_terminal_install.sh
+
       # Kept beside its intersection partner so a change that breaks the
       # stub set in one is caught with the other, in the same run.
       - name: A mid-script death still emits exactly one DONE-fail (CX-454)
@@ -110,6 +135,7 @@ jobs:
           /bin/bash --version | head -1
           /bin/bash -n tests/test_step_end_does_not_report_a_timed_out_step_as_ok.sh
           /bin/bash -n tests/test_an_abort_inside_a_step_is_counted.sh
+          /bin/bash -n tests/test_an_abort_speaks_on_a_terminal_install.sh
           /bin/bash -n lib/progress_emitter.sh
           /bin/bash -n install.sh
           echo "OK: parses under the shell the cut actually uses"
@@ -134,3 +160,8 @@ jobs:
             *) echo "CANNOT-RUN: the shim did not put bash 3.2 on PATH; this step measured the wrong shell." >&2; exit 1 ;;
           esac
           /bin/bash tests/test_an_abort_inside_a_step_is_counted.sh
+          # #561 under 3.2 for the same reason: the TTY diagnostic uses
+          # printf %b and a ${var:+ ...} expansion inside the argument list,
+          # and 3.2 is the shell the customer's installer actually runs
+          # under. Verified locally on /bin/bash 3.2.57 before landing.
+          /bin/bash tests/test_an_abort_speaks_on_a_terminal_install.sh
