@@ -1031,8 +1031,29 @@ if [ -z "$OA_REF" ] || [ -z "$CM051_REF" ]; then
 fi
 echo "subject: $OA_REPO@$OA_REF + $CM051_REPO@$CM051_REF"
 
-inst=$(gh_owner "$CM051_REPO" api "repos/$CM051_REPO/contents/install.sh?ref=$CM051_REF" --jq '.content' 2>/dev/null | base64 -d)
-[ -n "$inst" ] || { echo "FAIL: could not read install.sh -- cannot derive the shipped channel set"; exit 1; }
+# 🔴 RAW, NOT contents+base64, AND CANNOT-RUN, NOT FAIL.
+# The contents API returns an EMPTY .content for any blob over 1 MB and does
+# NOT error. install.sh is 1,369,788 bytes, so this read returned empty on
+# EVERY run, the 2>/dev/null hid anything stderr might have said, and the gate
+# reported a FAIL -- a finding about the product -- for a measurement it never
+# made. Eight lines above, this same gate exits 97 for exactly this situation.
+# MEASURED 2026-08-29, with a positive control through the SAME api/ref/token:
+#   contents .content length   install.sh (1,369,788 B) -> 1      (empty)
+#                              cuts/BOM_PIN (623 B)     -> 847    (real)
+#   raw accept header          install.sh               -> 1,369,788 bytes,
+#                              carrying all 4 `echo "[channels.` markers.
+# It does NOT trade a false FAIL for a false PASS: a path that does not exist
+# still 404s loudly under the raw header (negative control run).
+inst=$(gh_owner "$CM051_REPO" api "repos/$CM051_REPO/contents/install.sh?ref=$CM051_REF" -H "Accept: application/vnd.github.raw")
+inst_n=$(printf '%s' "$inst" | wc -c | tr -d ' ')
+echo "read install.sh: ${inst_n} bytes"
+# Anti-vacuity FLOOR, not just a non-empty test. This is the control the two
+# sibling reads in this registry already carry and this one did not: D017's
+# channel loop has an `unread` bucket + a `checked > 0` floor, and D038 asserts
+# loop_.rs reads > 100000 bytes. A TRUNCATED read passes `[ -n ]` and then
+# reports absent-marker FAILs about a file it only half-saw. install.sh was
+# 1,369,788 bytes at v1.0.50; 1000000 leaves room to shrink without a false red.
+[ "${inst_n:-0}" -gt 1000000 ] || { echo "CANNOT-RUN: install.sh read as ${inst_n} bytes; it is ~1.37M. The read failed or truncated. Nothing was measured; this is NOT a finding about the product."; exit 97; }
 
 shipped=$(printf '%s\n' "$inst" \
   | grep -A1 'echo "\[channels\.' \
@@ -1819,8 +1840,36 @@ done
 [ -n "$cut_wf" ] || { echo "FAIL: no workflow is triggered by a v1.0.* tag push -- there is no gate-enforced cut pipeline (v1018-D026)"; exit 1; }
 echo "cut pipeline: $cut_wf"
 body=$(sed 's/#.*//' "$cut_wf")
-printf '%s\n' "$body" | grep -qE '^[[:space:]]*workflow_dispatch[[:space:]]*:' && {
-  echo "FAIL: $cut_wf accepts workflow_dispatch -- a hand-cut in a costume (v1018-D026)"; exit 1; }
+# 🔴 THE TRIGGER LIST IS NOT THE SAFETY PROPERTY. THE JOB GUARD IS.
+# This limb used to FAIL any cut workflow that merely DECLARED a
+# workflow_dispatch. CM051's cut.yml declares one deliberately, for a DRY-RUN
+# job that runs the checks and stops. What must never happen is a dispatch
+# REACHING the cutting job, and that is decided by the job's `if:`.
+#
+# Reading the trigger list alone is wrong in BOTH directions: it calls a safe
+# file unsafe, and it would call a file SAFE that declared no dispatch while
+# leaving its cut job unguarded.
+#
+# NOT "every job must be guarded" either -- that is a third wrong predicate.
+# cut.yml's `preflight` job legitimately carries no guard because running the
+# checks on either trigger is correct and harmless. The dangerous shape is a
+# file with two triggers and NO discrimination anywhere.
+#
+# MUTATION-TESTED 2026-08-29 on the real CM051 cut.yml, three arms:
+#   real file                      -> PASS   (guard present)
+#   guard line deleted             -> FAIL   (mutation verified applied, 1 -> 0)
+#   workflow_dispatch line deleted -> PASS   (no dispatch, old behaviour kept)
+#
+# AND THE COMMENT-STRIP WAS VERIFIED, NOT ASSUMED. cut.yml's prose now
+# discusses this guard, so the raw file matches the guard text 4 times. After
+# `sed 's/#.*//'` exactly 1 survives, and it is the real `if:`. Prose about a
+# guard therefore cannot manufacture a pass. That check matters because this
+# gate's own post-mortem records comment-matching as a defect it already had.
+if printf '%s\n' "$body" | grep -qE '^[[:space:]]*workflow_dispatch[[:space:]]*:'; then
+  printf '%s\n' "$body" | grep -qE "^[[:space:]]*if:.*github\\.event_name[[:space:]]*==[[:space:]]*'push'" || {
+    echo "FAIL: $cut_wf declares workflow_dispatch and NO job is gated on github.event_name == 'push' -- a manual run could reach the cutting job (v1018-D026)"; exit 1; }
+  echo "workflow_dispatch is declared, and a push-only job guard discriminates it"
+fi
 printf '%s\n' "$body" | grep -q 'rollforward' || {
   echo "FAIL: $cut_wf never runs the rollforward gate (v1018-D026)"; exit 1; }
 echo "tag-triggered, no manual dispatch, runs the rollforward gate"
@@ -3596,7 +3645,6 @@ hazards handled). Neither is in v1.0.49's scope, which is arm 8 and nothing else
 walked as an ARTEFACT and that half is genuinely green. The install half has not
 been walked by anyone, and saying otherwise would be true about the DMG's bytes
 and false about the DMG's behaviour.
-
 
 ### v1050-D001 -- the installer breaks its own code seal during the install, and TCC makes that permanent
 
