@@ -1,0 +1,67 @@
+name: fda-listed
+
+# Full Disk Access listed-ness must never be SYNTHESISED.
+#
+# ============================================================================
+# WHAT WENT WRONG, MEASURED ON A REAL WALK
+# ============================================================================
+#
+# install.sh set _fda_listed to the listed state whenever the FDA register-nudge
+# had merely RUN. It never confirmed a TCC row. Its own comment argued "if the
+# nudge ran the row exists" -- and the v1.0.50 fresh-account walk refuted it: the
+# nudge ran, logged success, and OstlerAssistant was absent from the Full Disk
+# Access list. Andy hit it live, then could not add it by hand either.
+#
+# One invented boolean drove three customer-facing branches, all the wrong way:
+# it suppressed the Finder reveal, printed "already listed" at a customer looking
+# at a list without it, and dropped the drag instruction from the modal. The one
+# route that might have worked was withheld BECAUSE the code had decided the
+# customer did not need it.
+#
+# ============================================================================
+# WHY A STATIC GATE, WHEN THE BOX WALK ALREADY PROBES FDA
+# ============================================================================
+#
+# The runtime truth lives in the SYSTEM TCC database, which needs root and does
+# not exist on a runner. A CI job cannot ask macOS whether a grant was made, and
+# a job that pretended to would be the same failure mode as the defect.
+#
+# So this gate asserts the STRUCTURAL property instead, which is fully decidable
+# from source: _fda_listed has exactly ONE writer, and that writer is the probe.
+# A synthesis cannot exist without a second writer. That is a stronger guarantee
+# than a runtime check would give, because it holds on every install rather than
+# on the one the runner happened to observe.
+#
+# ============================================================================
+# macos-14, DELIBERATELY
+# ============================================================================
+#
+# install.sh ships under /bin/bash 3.2. A test that only parses under 5.x is a
+# test that never ran, so the parse check below uses the customer's interpreter
+# rather than whatever Homebrew put on PATH.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_fda_listed_has_one_writer.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/fda-listed.yml'
+  push:
+    branches: [main]
+
+jobs:
+  fda-listed-has-one-writer:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # Carries its own anti-vacuity floor: if comment-stripping ever ate the
+      # file, it exits 2 CANNOT-RUN rather than reporting a green zero.
+      - name: FDA listed-ness must have exactly one writer, and it must be the probe (#571)
+        run: bash tests/test_fda_listed_has_one_writer.sh
+
+      # The shell install.sh actually ships under.
+      - name: The test parses under bash 3.2, the customer's shell
+        if: always()
+        run: /bin/bash -n tests/test_fda_listed_has_one_writer.sh

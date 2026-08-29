@@ -403,3 +403,4 @@ gui/OstlerInstallerTests/StringsCatalogueEmDashTest.swift	WIRED	.github/workflow
 gui/OstlerInstallerTests/StringsCatalogueYNSuffixTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
+test_fda_listed_has_one_writer.sh	WIRED	.github/workflows/fda-listed.yml
