@@ -75,7 +75,11 @@ run_box() {  # run_box <driver> <home> -> "rc<TAB>output"
 }
 
 check() {  # check <label> <want-rc> <want-substring> <got-rc> <got-out>
-    if [ "$4" = "$2" ] && printf '%s' "$5" | grep -qF "$3"; then
+    # `grep -c`, never `grep -q`, under the pipefail this file sets: grep -q
+    # exits on the first match and SIGPIPEs the producer, so the pipeline can
+    # report failure on a needle that IS present -- inverting the verdict of
+    # every arm below. grep -c must read to EOF and the COUNT is the test.
+    if [ "$4" = "$2" ] && [ "$(printf '%s' "$5" | grep -cF "$3")" -gt 0 ]; then
         pass "$1 (rc=$4)"
     else
         fail "$1" "expected rc=$2 containing '$3'; got rc=$4. Output: $5"

@@ -93,7 +93,12 @@ touch -t 202601010000 "${STALE_H}/.walk-rc"
 printf '2026-01-02T00:00:00Z\n' > "${STALE_H}/.walk-run-start"   # run started AFTER
 OUT="$( HOME="${STALE_H}" python3 "${DRIVER}" --read-result 2>&1 )"
 RC=$?
-if [ "${RC}" -eq 2 ] && printf '%s' "${OUT}" | grep -q 'STALE'; then
+# `grep -c`, never `grep -q`, because this file sets pipefail: grep -q exits on
+# the FIRST match and SIGPIPEs the producer, so the pipeline can report failure
+# on a needle that IS present. grep -c must read to EOF, and the count is what
+# is tested rather than the pipeline's status. Caught by
+# tests/test_pipefail_shortcircuit_inversion.sh on the PR that added this file.
+if [ "${RC}" -eq 2 ] && [ "$(printf '%s' "${OUT}" | grep -c 'STALE')" -gt 0 ]; then
     pass "--read-result refuses (rc=2) a result that predates its run"
 else
     fail "stale-read-accepted" \
