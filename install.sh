@@ -18228,9 +18228,17 @@ if [[ -d "$USER_FACING_ROOT" ]]; then
     # the two halves cannot drift apart: whatever the counter prints
     # for a directory it could not read, it is not printed as a
     # quantity.
+    #
+    # IT REPORTS THE STATUS, NOT A CAUSE. All we measured is that find
+    # exited non-zero. Full Disk Access is the dominant reason and is
+    # named below as a likelihood, but a symlink loop or a subdirectory
+    # the customer chmodded produces the identical status, and telling
+    # those customers to grant FDA sends them to fix the wrong thing.
+    # Asserting a cause from a status is how #874 shipped a dialog
+    # claiming System Settings was open when it was not.
     render_count() {
         case "$1" in
-            ''|*[!0-9]*) printf 'could not be read (needs Full Disk Access)\n' ;;
+            ''|*[!0-9]*) printf 'could not be read\n' ;;
             *)           printf '%s %s\n' "$1" "$2" ;;
         esac
     }
@@ -18259,8 +18267,10 @@ if [[ -d "$USER_FACING_ROOT" ]]; then
     echo "    Exports:       $(render_count "$EXPORTS_COUNT" items)"
     if [[ "$COUNTS_INCOMPLETE" -eq 1 ]]; then
         echo ""
-        echo "  Some counts above could not be taken. That is this Terminal"
-        echo "  lacking Full Disk Access to ~/Documents, NOT an empty folder."
+        echo "  Some counts above could not be taken. That is a read that"
+        echo "  failed, NOT an empty folder. Most often this Terminal lacks"
+        echo "  Full Disk Access to ~/Documents; an unreadable subfolder does"
+        echo "  the same thing."
         echo "  The uninstall itself is unaffected; only the numbers are."
     fi
     echo ""
