@@ -80,6 +80,10 @@ on:
       # Both the wrapper and its test are triggers: the defect surface and the
       # instrument have to share one, same rule as the marker manifest above.
       - 'scripts/run_all_cut_gates.sh'
+      # Watched because the step below RUNS it (#1244). A run: without a
+      # matching paths: entry is a gate you can edit freely and never trigger,
+      # which is how a test rots while reporting green on every unrelated push.
+      - 'tests/test_pinned_wiki_images_are_arm64_only.sh'
       - 'tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh'
       - 'scripts/cut_hygiene_gate.sh'
       - 'tests/test_mergeable_unknown_is_not_clean.sh'
@@ -411,6 +415,26 @@ jobs:
         # the guard for #888.
         if: always()
         run: bash tests/test_mergeable_unknown_is_not_clean.sh
+
+      # LIGHTING A DARK GATE. tests/TEST_WIRING.tsv marked this WIRED with runner
+      # scripts/run_all_cut_gates.sh -- which is invoked by NOTHING (see #449:
+      # every mention of it is a paths-filter entry, an @echo in Makefile help
+      # text, prose, or a test reading it as data). So the arm64-only assertion
+      # has never executed, and task #355 was CLOSED on the strength of it.
+      #
+      # No --self-test call is needed here, and that is not an omission: this
+      # gate runs its positive control INLINE and unconditionally, against a
+      # permanently multi-arch published digest. If that control cannot be read
+      # it exits 2, and if it fails to fire it exits 1. A gate that cannot
+      # demonstrate a NO does not get to publish a YES.
+      #
+      # Needs network, NOT docker. MEASURED 2026-08-29 before wiring: both
+      # pinned manifests return HTTP 200 to an ANONYMOUS ghcr.io token, and a
+      # bogus digest on the same path returns 404 -- so the probe discriminates
+      # and no registry credential is required on the runner.
+      - name: pinned wiki images are arm64-only
+        if: always()
+        run: bash tests/test_pinned_wiki_images_are_arm64_only.sh
 
   wiki-provenance-extract:
     runs-on: ubuntu-latest
