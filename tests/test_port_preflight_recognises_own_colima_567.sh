@@ -154,15 +154,20 @@ rc="$(run_check 8044)"
     && ok  "arm 7: 8044 (wiki) held by our colima -> PROCEED (the port that fired on real hardware)" \
     || bad "arm 7: 8044 stayed HELD (rc=${rc}) -- the measured real-box abort is not closed"
 
-# ---------------------------------------------------------------- arm 8  (B1: #549, matters most)
-# A credential-less port held by ANOTHER ACCOUNT's colima (a DIFFERENT $HOME) must
-# stay HELD: signal 1 is required on every port, so the sole-tenancy path can NEVER
-# wave through a second account's forward. This is the whole safety of B1.
+# ---------------------------------------------------------------- arm 8  (B1: VISIBLE cross-account guard, matters most)
+# A credential-less port held by a VISIBLE forward whose argv names ANOTHER
+# account's colima (a DIFFERENT $HOME) must stay HELD: signal 1 is REQUIRED on
+# every port, so B1's sole-tenancy proceed-path can NEVER wave through a second
+# account's forward that we CAN see. This is the VISIBLE case -- the shared
+# stubs make the holder detectable (lsof pid, bind=held, ps argv readable). It
+# does NOT model #549, whose foreign holder is INVISIBLE to an unprivileged
+# reader (lsof returns no pid), so signal 1 is never even reached; #549 stays
+# OPEN and is out of B1's scope. See install.sh's signal-1 comment and the PR.
 STUB_ARGV="ssh: /Users/someone-else/.colima/_lima/colima/ssh.sock [mux]"; STUB_CURL_RC=0
 rc="$(run_check 8044)"
 [ "${rc}" = "1" ] \
-    && ok  "arm 8: 8044 held by ANOTHER account's colima (foreign \$HOME) -> HELD (#549 stays closed on the credential-less path)" \
-    || bad "arm 8: a foreign account's colima on 8044 was waved through (rc=${rc}) -- B1 would re-open #549"
+    && ok  "arm 8: 8044 held by a VISIBLE foreign forward (another account's \$HOME) -> HELD (signal 1 required; B1 never waves through a visible cross-account forward)" \
+    || bad "arm 8: a visible foreign forward on 8044 was waved through (rc=${rc}) -- B1's required-signal-1 guard failed"
 
 # ---------------------------------------------------------------- arm 9  (B1: enforce-independent)
 # The credential-less ports do not depend on store-auth enforcement: enforce=0

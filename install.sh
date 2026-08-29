@@ -14895,12 +14895,16 @@ _port_is_our_own_forward() {
 
     # SIGNAL 1, required for EVERY port (#567 B1): the holder's FULL argv names
     # THIS user's colima ($HOME/.colima/). `ps -o comm=` shows only "ssh"; the
-    # socket path is in `ps -o command=`. This alone already refuses a SECOND
-    # ACCOUNT's forward (#549): another account's colima lives under a DIFFERENT
-    # $HOME, so its argv -- shown in full or emptied by the kernel -- cannot
-    # contain ours. What signal 1 does NOT establish is that the service behind
-    # the port is the OSTLER one and not some OTHER colima service THIS user
-    # runs; signal 2 (stores) or the sole-tenancy bound (below) add that.
+    # socket path is in `ps -o command=`. A VISIBLE foreign forward is refused
+    # here: its argv cannot name our $HOME (or the kernel emptied it), so it
+    # falls to HELD. This does NOT close #549: signal 1 is only consulted AFTER
+    # _check_port has detected the port as held AND read a pid via lsof, and an
+    # unprivileged lsof returns no pid for a foreign-owned holder -- so on a
+    # genuine cross-account collision this branch is never reached. #549's
+    # outcome is not adjudicated here; it stays OPEN and is tracked separately.
+    # What signal 1 also does NOT establish is that the service is the OSTLER
+    # one and not some OTHER colima service THIS user runs; signal 2 (stores)
+    # or the sole-tenancy bound (below) add that.
     _argv="$(ps -p "${_pid}" -o command= 2>/dev/null || true)"
     case "${_argv}" in
         *"${HOME}/.colima/"*) : ;;
@@ -14916,9 +14920,11 @@ _port_is_our_own_forward() {
             # the wiki (8044) and 8144 have no per-install HTTP credential to
             # probe, so ownership rests on signal 1 + the single-machine
             # invariant: on a one-Ostler-stack Mac, this user's colima forward
-            # on this port IS our service. #549 stays closed by signal 1
-            # ($HOME); the residual risk is this user running a DIFFERENT colima
-            # service on this exact port, which the invariant excludes. Closing
+            # on this port IS our service. #549 (a cross-account holder an
+            # unprivileged reader cannot attribute) is a SEPARATE, still-OPEN
+            # defect that signal 1 does not close; the residual risk THIS bound
+            # covers is this user running a DIFFERENT colima service on this
+            # exact port, which the invariant excludes. Closing
             # these four is what turns #1253's "narrows six to four" into a
             # closed dead-end. 6379 COULD be hardened to argv + redis AUTH under
             # OSTLER_REDIS_AUTH_ENFORCE -- filed as a defence-in-depth follow-up.
