@@ -296,6 +296,17 @@ class Handler(BaseHTTPRequestHandler):
             if MODE == "no_collection":
                 self._send(404, {"status": {"error": "Not found"}})
                 return
+            # #574. Store auth has been ENFORCED since #550/#1222, so a keyless
+            # Qdrant GET returns 401 on every real install. 404 (absent) and
+            # 401 (present but not shown a key) are DIFFERENT FACTS and the
+            # probe must not collapse them: 404 is a product defect, 401
+            # without a credential is the probe's own blindness.
+            #
+            # Both modes answer 401. They differ only in whether the probe was
+            # given a curl config to present, which is set by the harness.
+            if MODE in ("qdrant_401", "qdrant_401_credentialled"):
+                self._send(401, {"status": {"error": "Unauthorized"}})
+                return
             self._send(200, {"result": {"config": {"params": {"vectors": {
                 "size": VECTOR_SIZE, "distance": "Cosine"}}}}})
             return
@@ -509,12 +520,22 @@ run_case() {
         return
     fi
 
+    # STORE CURL CONFIG, ALWAYS SET EXPLICITLY (#574).
+    # Never allowed to default to $HOME: the operator running this suite may
+    # have a real Ostler install, and then the probe would present a real
+    # credential here while CI presents none. The suite would pass on one
+    # machine and fail on the other for a reason nothing printed. Modes that
+    # want a credential set STORE_CONF before calling; everyone else gets a
+    # path that provably does not exist.
+    local store_conf="${STORE_CONF:-${WORK}/no-such-store-curl.conf}"
+
     OSTLER_BOX_HOST="127.0.0.1" \
     OSTLER_PROBE_FORCE_LOCAL=1 \
     OSTLER_SERVICE_TOKEN="probe-test-token" \
     OSTLER_PROBE_API_BASE="http://127.0.0.1:${port}/api" \
     OSTLER_PROBE_QDRANT_BASE="http://127.0.0.1:${port}/qdrant" \
     OSTLER_PROBE_EMBED_BASE="http://127.0.0.1:${port}/ollama" \
+    OSTLER_PROBE_STORE_CURL_CONF="${store_conf}" \
         /bin/bash "$PROBE" > "$outfile" 2>&1
     local rc=$?
 
@@ -523,6 +544,16 @@ run_case() {
     local ok=0
     if [ "$expect" = "pass" ] && [ "$rc" -eq 0 ]; then ok=1; fi
     if [ "$expect" = "fail" ] && [ "$rc" -ne 0 ]; then ok=1; fi
+    # EXACT-CODE EXPECTATIONS (#574). `fail` above means "any non-zero", which
+    # cannot tell 1 (the product is broken) from 78 (the probe could not look).
+    # That is the same two-state reading of a three-state contract that put a
+    # false product FAIL in the v1.0.50 walk record. A numeric expectation
+    # pins the exact outcome, and the cases below use it wherever the
+    # difference between 1 and 78 is the whole point of the scenario.
+    case "$expect" in
+        ''|*[!0-9]*) ;;
+        *) if [ "$rc" -eq "$expect" ]; then ok=1; else ok=0; fi ;;
+    esac
 
     if [ "$ok" = "1" ]; then
         echo "PASS [${mode}] ${label} (exit ${rc})"
@@ -555,7 +586,33 @@ run_case seed_503         fail "RED: memory/assert refuses to mint (user_id not 
 run_case no_auth          fail "RED: API answers without a token, so no result proves the authed path"
 run_case blanket_200      fail "RED: box answers every authenticated path with a valid-looking payload"
 run_case deps_down        fail "RED: dependency health reports the stores down"
-run_case no_collection    fail "RED: qdrant people collection absent on a fresh install"
+run_case no_collection    1    "RED: qdrant people collection absent on a fresh install (404 -- a REAL product defect, exit 1)"
+
+# ---- #574: 401 is not 404, and CANNOT-RUN is not FAIL ---------------------
+# The v1.0.50 walk recorded people_seed_and_retrieval as a product FAIL. It was
+# not. Store auth became mandatory in #550/#1222, this probe called Qdrant
+# bare, and the resulting 401 was read as "collection missing or unreadable".
+# The collection was there the whole time and returns 200 with the key.
+#
+# These two cases are the discrimination, and BOTH are needed. The first alone
+# could be satisfied by a probe that simply never fails on 401 -- which would
+# bury a genuinely wrong credential. The second proves the CANNOT-RUN arm is
+# earned by the ABSENCE of a credential, not by the status code.
+#
+# The credentialled fixture carries a marker header, not a secret: the point
+# is that SOMETHING was presented and refused. Nothing here is a token, so
+# nothing here can leak one.
+_present_conf="${WORK}/store-curl-present.conf"
+printf 'header = "X-Ostler-Probe-Fixture: present"\n' > "$_present_conf"
+# The credentialled case is scoped with a PREFIX assignment and STORE_CONF is
+# then explicitly unset. A plain `STORE_CONF=...` here would stay set for the
+# rest of the file, hand a credential to the case below, and turn its 78 into
+# a 1 -- a green suite proving the opposite of what it claims.
+STORE_CONF="$_present_conf" \
+    run_case qdrant_401_credentialled 1 \
+    "RED: qdrant 401s WITH a credential presented -- a wrong key is a real defect (exit 1, NOT 78)"
+unset STORE_CONF
+run_case qdrant_401       78   "CANNOT-RUN: qdrant 401s and the probe had no credential -- nothing measured, so the product is NOT accused (exit 78)"
 run_case search_empty     fail "RED: fallback route returns nothing for a seeded person"
 run_case leak             fail "RED: cleanup accepted but the fixture is still retrievable"
 # The control for the identity check itself. Without it, the probe could stop
@@ -596,20 +653,20 @@ echo ""
 # scenarios=13 out of 12, and a harness failure adds neither. Print the
 # denominator that was actually driven, plus every bucket, so a run that
 # examined less than it should cannot read as a clean one.
-echo "EXAMINED: scenarios=${CASES}/14 passed=${PASSES} failed=${FAILS} harness_failures=${HARNESS_FAILS} selftest=${SELFTEST}"
+echo "EXAMINED: scenarios=${CASES}/16 passed=${PASSES} failed=${FAILS} harness_failures=${HARNESS_FAILS} selftest=${SELFTEST}"
 if [ "$HARNESS_FAILS" -gt 0 ]; then
     echo "test_people_seed_and_retrieval_probe: FAIL (${HARNESS_FAILS} harness failures --"
     echo "  the fake box never became ready, so the probe was never exercised on those"
     echo "  scenarios; this is NOT evidence about the probe either way)"
     exit 2
 fi
-if [ "$CASES" -ne 14 ]; then
-    echo "test_people_seed_and_retrieval_probe: FAIL (drove ${CASES} scenarios, expected 14)"
+if [ "$CASES" -ne 16 ]; then
+    echo "test_people_seed_and_retrieval_probe: FAIL (drove ${CASES} scenarios, expected 16)"
     exit 2
 fi
 if [ "$FAILS" -gt 0 ]; then
     echo "test_people_seed_and_retrieval_probe: FAIL (${FAILS} expectations missed)"
     exit 1
 fi
-echo "test_people_seed_and_retrieval_probe: PASS (gate proven to fire on 13 distinct breaks, and its own --self-test proven to go red)"
+echo "test_people_seed_and_retrieval_probe: PASS (gate proven to fire on 15 distinct scenarios (13 breaks + 2 auth-state discriminations), and its own --self-test proven to go red)"
 exit 0
