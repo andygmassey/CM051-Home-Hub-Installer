@@ -180,12 +180,23 @@ def build_table():
     return [
         # -- no default offered; Enter would not advance ---------------------
         ("Ready to continue?",                          "y"),
-        # Provably not a real person: "Walker Testcase" is not a name anyone
-        # holds, and saying so is the point. The handed-over table spent three
-        # comment lines proving its phone number fictional and none proving the
-        # same of its person name, which invites the next reader to assume the
-        # unjustified one is real. Justify both or neither.
-        ("Full name",                                   "Walker Testcase"),
+        # BOTH TOKENS ARE IN THE APPROVED CAST -- see .pii-name-registry.tsv,
+        # which CM051 shares verbatim with CM041 so the repos converge on one
+        # cast rather than each inventing its own. That is a MACHINE-READABLE
+        # declaration that this is not a person, which is strictly stronger
+        # than a comment asserting it.
+        #
+        # The handed-over table spent three comment lines proving its phone
+        # number fictional and none proving the same of its person name, which
+        # invites the next reader to assume the unjustified one is real.
+        # Justify both or neither.
+        #
+        # 🔴 My first attempt here invented a name and asserted in prose that
+        # it was fictional. bin/pii_name_guard.py blocked it -- correctly, it
+        # is a first+last pair like any other -- and the registry's own header
+        # says the fix for that is to RENAME, never to add a cast row to turn a
+        # red green. Renaming into the existing cast is the move it wants.
+        ("Full name",                                   "Sam Doe"),
         # iMessage refuses an empty list and re-asks forever. The value is the
         # installer's OWN documented example, and +447700900000 is inside Ofcom's
         # reserved drama range (07700 900000-900999), so it is provably fictional
