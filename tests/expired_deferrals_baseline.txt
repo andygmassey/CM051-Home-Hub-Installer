@@ -197,7 +197,6 @@ CM051:feat/cx14-e-midinstall-banner-2026-05-23
 CM051:feat/cx81-b8b-dialog-icon-2026-05-26
 CM051:feat/end-of-install-confirm-ui
 CM051:feat/end-of-install-confirmation
-CM051:feat/enforce-ledger-write-adopt-2026-07-31
 CM051:feat/i18n-installer-strings-4locales
 CM051:feat/inline-onboarding-questions-2026-05-17
 CM051:feat/install-permission-glut-and-editor-hook
@@ -264,7 +263,6 @@ CM051:fix/scheduled-writer-tick-probe
 CM051:fix/string-regressions-2026-05-22
 CM051:fix/v1010-bw3-spoken-transcription-copy
 CM051:fix/v1011-context-md-vendored-twin
-CM051:fix/v1011-gui-blank-step-title
 CM051:fix/v1011-install-gui-contract-coverage
 CM051:fix/v1012-assistant-plist-pwg-token
 CM051:fix/v1018-d031-stderr-tail
