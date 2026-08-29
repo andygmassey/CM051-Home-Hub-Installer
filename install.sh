@@ -14878,43 +14878,66 @@ sys.stdout.write("free\n")' "${_p}" 2>/dev/null)"
 #      would 200 anything -- which is exactly why signal 1 and the bound above
 #      are required alongside it.
 #
-# ⛔ RESIDUAL (#567): signal 2 exists ONLY for the credentialed stores 6333
-# (qdrant /collections) and 7878 (oxigraph /query). For 3000/6379/8044/8144
-# there is no identity probe, so ownership is UNPROVABLE and this returns 1 --
-# the caller keeps the port HELD. This covers 2 of the 6 preflight ports, so it
-# NARROWS the #566/#567 customer dead-end from six ports to four; it does NOT
-# close it. Measured @ARCHIE 2026-08-29: a torn-down Studio still aborted on
-# 8044 (the wiki, one of the four), because the installer starts colima itself,
-# the containers carry restart=unless-stopped, and Lima republishes their ports
-# before the preflight. 8044/3000/8144 have no per-install credential; 6379
-# (redis) could take a two-signal probe (argv + AUTH REDIS_PASSWORD) in a follow-up.
+# COVERAGE (#567 B1): all six preflight ports are now recognised when held by
+# THIS user's colima forward. The two credentialed stores (6333 qdrant, 7878
+# oxigraph) require BOTH signals -- argv + a credentialed 200 under enforced
+# store auth. The four without a per-install HTTP credential (3000 vane, 6379
+# redis, 8044 wiki, 8144) rest on signal 1 + the sole-tenancy bound stated in
+# the function. This CLOSES the #566/#567 customer dead-end that #1253 could
+# only narrow (six ports to four); @ARCHIE measured 8044 -- one of those four --
+# aborting a torn-down Studio, because the installer starts colima itself and
+# Lima republishes the restart=unless-stopped containers' ports before the
+# preflight. 6379 could be hardened to argv + redis AUTH (a defence-in-depth
+# follow-up); signal 1 + the bound already closes the abort for it today.
 _port_is_our_own_forward() {
     local _p="$1" _pid="$2" _argv _url
     local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
 
-    # §2 (#567 review, @ARCHIE): signal 2 is an IDENTITY check only while store
-    # auth is ENFORCED. With OSTLER_STORE_AUTH_ENFORCE=0 the stores boot keyless
-    # and 200 EVERY request, so a credentialed 200 no longer tells our store
-    # from a foreign one on a shared port -- signal 2 goes vacuous and signal 1
-    # alone is the #549 multi-tenant hole. So: not enforced -> unprovable -> HELD.
-    [ "${OSTLER_STORE_AUTH_ENFORCE:-1}" = "1" ] || return 1
-
-    case "${_p}" in
-        6333) _url="http://127.0.0.1:6333/collections" ;;
-        7878) _url="http://127.0.0.1:7878/query?query=ASK%7B%7D" ;;
-        *)    return 1 ;;   # residual: no credentialed identity probe for this port
-    esac
-
-    # signal 1: the holder's FULL argv names this user's colima port-forward
+    # SIGNAL 1, required for EVERY port (#567 B1): the holder's FULL argv names
+    # THIS user's colima ($HOME/.colima/). `ps -o comm=` shows only "ssh"; the
+    # socket path is in `ps -o command=`. A VISIBLE foreign forward is refused
+    # here: its argv cannot name our $HOME (or the kernel emptied it), so it
+    # falls to HELD. This does NOT close #549: signal 1 is only consulted AFTER
+    # _check_port has detected the port as held AND read a pid via lsof, and an
+    # unprivileged lsof returns no pid for a foreign-owned holder -- so on a
+    # genuine cross-account collision this branch is never reached. #549's
+    # outcome is not adjudicated here; it stays OPEN and is tracked separately.
+    # What signal 1 also does NOT establish is that the service is the OSTLER
+    # one and not some OTHER colima service THIS user runs; signal 2 (stores)
+    # or the sole-tenancy bound (below) add that.
     _argv="$(ps -p "${_pid}" -o command= 2>/dev/null || true)"
     case "${_argv}" in
         *"${HOME}/.colima/"*) : ;;
         *) return 1 ;;
     esac
 
-    # signal 2: the port answers 200 to OUR per-install credential. curl -f
-    # exits non-zero on the 401 a foreign store returns, so a wrong or absent
-    # credential falls through to HELD. store-curl.conf absent -> not provable.
+    case "${_p}" in
+        6333) _url="http://127.0.0.1:6333/collections" ;;
+        7878) _url="http://127.0.0.1:7878/query?query=ASK%7B%7D" ;;
+        3000|6379|8044|8144)
+            # ⛔ SOLE-TENANCY BOUND for the credential-less ports (#567 B1,
+            # @ARCHIE cleared "narrows -> closes"). vane (3000), redis (6379),
+            # the wiki (8044) and 8144 have no per-install HTTP credential to
+            # probe, so ownership rests on signal 1 + the single-machine
+            # invariant: on a one-Ostler-stack Mac, this user's colima forward
+            # on this port IS our service. #549 (a cross-account holder an
+            # unprivileged reader cannot attribute) is a SEPARATE, still-OPEN
+            # defect that signal 1 does not close; the residual risk THIS bound
+            # covers is this user running a DIFFERENT colima service on this
+            # exact port, which the invariant excludes. Closing
+            # these four is what turns #1253's "narrows six to four" into a
+            # closed dead-end. 6379 COULD be hardened to argv + redis AUTH under
+            # OSTLER_REDIS_AUTH_ENFORCE -- filed as a defence-in-depth follow-up.
+            return 0 ;;
+        *) return 1 ;;   # unknown port: unprovable -> HELD
+    esac
+
+    # SIGNAL 2, credentialed stores only: the port answers 200 to OUR per-install
+    # credential, confirming the service is our STORE (not just our colima).
+    # Sound only while store auth is ENFORCED -- a keyless store 200s any
+    # request, so signal 2 is vacuous under OSTLER_STORE_AUTH_ENFORCE=0 and the
+    # store is HELD rather than claimed (kept from #1253's §2, unchanged).
+    [ "${OSTLER_STORE_AUTH_ENFORCE:-1}" = "1" ] || return 1
     [ -r "${_conf}" ] || return 1
     curl -K "${_conf}" -sf -m 5 -o /dev/null "${_url}" 2>/dev/null || return 1
 
