@@ -126,13 +126,15 @@ rc="$(run_check 6333)"
     && ok  "arm 4: our colima argv but store 401 (signal 2 absent) -> HELD, never 'ours' (no-auth-store trap closed)" \
     || bad "arm 4: signal 1 alone was accepted (rc=${rc}) -- a keyless/foreign store would pass"
 
-# ---------------------------------------------------------------- arm 5  (residual)
-# a port with no credentialed identity probe (6379): both apparent signals, still HELD
-STUB_ARGV="${OUR_ARGV}"; STUB_CURL_RC=0
+# ---------------------------------------------------------------- arm 5  (B1: coverage)
+# 6379 (redis) has no HTTP credential probe: signal 1 + sole-tenancy -> PROCEED.
+# Was HELD before B1 -- that HELD was the residual that kept the dead-end open.
+# STUB_CURL_RC=22 proves the credential-less path never consults signal 2.
+STUB_ARGV="${OUR_ARGV}"; STUB_CURL_RC=22
 rc="$(run_check 6379)"
-[ "${rc}" = "1" ] \
-    && ok  "arm 5: 6379 has no identity probe -> HELD (residual pinned; ownership unprovable)" \
-    || bad "arm 5: 6379 proceeded (rc=${rc}) -- ownership claimed on a port it cannot prove"
+[ "${rc}" = "0" ] \
+    && ok  "arm 5: 6379 held by our colima -> PROCEED (signal 1 + sole-tenancy; residual closed, no curl consulted)" \
+    || bad "arm 5: 6379 stayed HELD (rc=${rc}) -- the dead-end still fires on it"
 
 # ---------------------------------------------------------------- arm 6  (§2, matters)
 # store auth OFF: a keyless store 200s ANY request, so signal 2 goes vacuous.
@@ -143,6 +145,41 @@ rc="$( export OSTLER_STORE_AUTH_ENFORCE=0; _check_port 6333 /usr/bin/true >/dev/
 [ "${rc}" = "1" ] \
     && ok  "arm 6: OSTLER_STORE_AUTH_ENFORCE=0 -> signal 2 vacuous -> HELD (a keyless store cannot prove ownership)" \
     || bad "arm 6: enforce=0 accepted (rc=${rc}) -- a keyless foreign forward would pass"
+
+# ---------------------------------------------------------------- arm 7  (B1: 8044 fired)
+# 8044 is the wiki -- the port @ARCHIE measured aborting a torn-down Studio.
+STUB_ARGV="${OUR_ARGV}"; STUB_CURL_RC=22
+rc="$(run_check 8044)"
+[ "${rc}" = "0" ] \
+    && ok  "arm 7: 8044 (wiki) held by our colima -> PROCEED (the port that fired on real hardware)" \
+    || bad "arm 7: 8044 stayed HELD (rc=${rc}) -- the measured real-box abort is not closed"
+
+# ---------------------------------------------------------------- arm 8  (B1: #549, matters most)
+# A credential-less port held by ANOTHER ACCOUNT's colima (a DIFFERENT $HOME) must
+# stay HELD: signal 1 is required on every port, so the sole-tenancy path can NEVER
+# wave through a second account's forward. This is the whole safety of B1.
+STUB_ARGV="ssh: /Users/someone-else/.colima/_lima/colima/ssh.sock [mux]"; STUB_CURL_RC=0
+rc="$(run_check 8044)"
+[ "${rc}" = "1" ] \
+    && ok  "arm 8: 8044 held by ANOTHER account's colima (foreign \$HOME) -> HELD (#549 stays closed on the credential-less path)" \
+    || bad "arm 8: a foreign account's colima on 8044 was waved through (rc=${rc}) -- B1 would re-open #549"
+
+# ---------------------------------------------------------------- arm 9  (B1: enforce-independent)
+# The credential-less ports do not depend on store-auth enforcement: enforce=0
+# must NOT change 8044's verdict (unlike a store, where enforce=0 -> HELD).
+STUB_ARGV="${OUR_ARGV}"; STUB_CURL_RC=0
+rc="$( export OSTLER_STORE_AUTH_ENFORCE=0; _check_port 8044 /usr/bin/true >/dev/null 2>&1; echo $? )"
+[ "${rc}" = "0" ] \
+    && ok  "arm 9: enforce=0 leaves 8044 -> PROCEED (a non-store port does not turn on store auth)" \
+    || bad "arm 9: enforce=0 changed 8044's verdict (rc=${rc}) -- the store guard leaked onto a non-store port"
+
+# ---------------------------------------------------------------- arm 10 (B1: unknown port)
+# A port not in the preflight set is unprovable -> HELD, never proceed by default.
+STUB_ARGV="${OUR_ARGV}"; STUB_CURL_RC=0
+rc="$(run_check 9999)"
+[ "${rc}" = "1" ] \
+    && ok  "arm 10: an unknown port (9999) -> HELD (no default-proceed)" \
+    || bad "arm 10: an unknown port proceeded (rc=${rc})"
 
 echo "== ${PASS} pass / ${FAIL} fail / ${CANT} cannot-run =="
 [ "${FAIL}" -gt 0 ] && exit 1
