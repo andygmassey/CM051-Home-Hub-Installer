@@ -62,6 +62,25 @@ jobs:
         if: always()
         run: bash tests/test_sensitive_artefacts_guard_fires.sh
 
+      # ── HEREDOC-SCOPE GATE (#568, wired 2026-08-29) ──────────────────
+      # A main-body call site must not reference a function whose ONLY
+      # definition sits between a heredoc open and its terminator. That
+      # is rc=127 at runtime, and under this file's `set -Eeuo pipefail`
+      # the follow-on unbound variable KILLS the install.
+      #
+      # Self-test FIRST and separately: a gate whose red branch has never
+      # been demonstrated is decoration, and this repo has shipped that
+      # mistake before. The self-test proves BOTH directions -- it
+      # rejects the defect AND accepts the remedy (symbol defined in the
+      # body as well as the heredoc), so it cannot forbid its own fix.
+      - name: SELF-TEST -- prove the heredoc-scope gate can fail
+        if: always()
+        run: bash tests/test_no_main_body_call_to_a_heredoc_only_symbol.sh --self-test
+
+      - name: a main-body call must not target a heredoc-only symbol (#568)
+        if: always()
+        run: bash tests/test_no_main_body_call_to_a_heredoc_only_symbol.sh
+
       # The mutation arm restores install.sh and checks its own restore,
       # but assert it here too. `if: always()` matters MORE on this step:
       # a mutation arm that dies mid-way is precisely when the tree is
