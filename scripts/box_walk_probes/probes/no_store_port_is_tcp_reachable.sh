@@ -144,6 +144,64 @@ PROBE_QUESTION="can any local account open a TCP connection to an Ostler store o
 #                                        the measurement above.
 MUST_BE_CLOSED="6333 7878 6334 6379 8044 3000 8144"
 
+# ── PORTS WHOSE OPENNESS IS ADJUDICATED BY AUTH, NOT BY TOPOLOGY ────────────
+#
+# These three carry a credential requirement that was DEMONSTRATED on real
+# hardware 2026-08-29, with controls: keyless 6333 and 7878 both returned 401,
+# and the credential was unreadable by any other account. Andy closed the
+# finding on that evidence and scoped the closure to the STORES; the wiki and
+# vane were explicitly left open as a separate call.
+#
+# For these, "is the socket open" is the WRONG QUESTION and answering it was
+# making this probe's verdict uninformative. The question the closure actually
+# rests on is: CAN A LOCAL ACCOUNT WITH NO CREDENTIAL READ THE DATA. That is
+# what keyless_answer() asks.
+#
+# 8044, 3000, 8144 and 6334 are deliberately NOT here. 8044 and 3000 serve a
+# browser and can carry no bearer, so for them open really does mean readable
+# and the old topology rule is the correct rule. 6334 is unpublished. 8144's
+# identity is client-supplied, so a keyless probe would be answering a question
+# it cannot adjudicate -- and a probe that cannot adjudicate must not score.
+AUTH_EXPECTED="6333 7878 6379"
+
+# Does an UNCREDENTIALLED caller get served? -> refused | served | <reason>
+#
+# ⚠️ THE `-q` IS LOAD-BEARING AND IS THE WHOLE CORRECTNESS ARGUMENT.
+# install.sh writes a curl config carrying the store credentials
+# (_ostler_write_store_curl_config). curl reads ~/.curlrc BY DEFAULT. Without
+# `-q` this probe would authenticate itself, receive 200, and report the store
+# as WORLD-READABLE -- the exact opposite of the truth, on the one question the
+# probe exists to answer. `-q` must stay the FIRST argument; it is ignored
+# anywhere else. `--noproxy '*'` for the same class of reason: a local proxy
+# can answer for every host probed and manufacture a uniform result.
+keyless_answer() {
+    _p="$1"
+    case "$_p" in
+        6379)
+            # Redis speaks RESP, not HTTP. Under requirepass an uncredentialled
+            # PING returns -NOAUTH; without it, +PONG.
+            _r="$(printf 'PING\r\n' | nc -w 3 127.0.0.1 "$_p" 2>/dev/null | tr -d '\r\n')"
+            case "$_r" in
+                *NOAUTH*|*WRONGPASS*|*"no password"*) printf 'refused\n' ;;
+                *PONG*)                              printf 'served\n'  ;;
+                "")                                  printf 'empty-response\n' ;;
+                *)                                   printf 'unrecognised:%s\n' "$_r" ;;
+            esac
+            ;;
+        *)
+            _code="$(curl -q -s -o /dev/null -w '%{http_code}' \
+                          --noproxy '*' --max-time 5 \
+                          "http://127.0.0.1:${_p}/" 2>/dev/null)"
+            case "$_code" in
+                401|403)     printf 'refused\n' ;;
+                200|204|301|302) printf 'served\n' ;;
+                000)         printf 'no-http-response\n' ;;
+                *)           printf 'http-%s\n' "$_code" ;;
+            esac
+            ;;
+    esac
+}
+
 # ── ⚠️ 8144: EXPECTED RED, AND DO NOT "FIX" IT BY UNPUBLISHING THE PORT ──────
 #
 # 8144 belongs in the list: its two identity limbs are request headers, and a
@@ -222,7 +280,7 @@ classify() {
 }
 
 run_probe() {
-    n_checked=0; open_list=""
+    n_checked=0; open_list=""; authed_list=""
 
     c_state="$(port_state "$CONTROL_PORT")"
     case "$c_state" in open) c=1 ;; closed) c=0 ;; *) c="" ;; esac
@@ -242,7 +300,41 @@ run_probe() {
                 probe_examined "$n_checked" "store/UI ports"
                 probe_cannot_run "connect to ${p} returned ${st}; neither open nor refused, so it cannot be adjudicated."
                 ;;
-            open) open_list="${open_list} ${p}" ;;
+            open)
+                # AN OPEN SOCKET IS NOT THE DEFECT. READABILITY IS.
+                #
+                # This probe's FAIL string used to read "TCP-reachable on
+                # loopback, THEREFORE readable by every account on this Mac".
+                # That "therefore" is false and we measured it false: on real
+                # hardware 2026-08-29, keyless 6333 and 7878 both returned 401
+                # and gRPC 6334 was REFUSED. Andy closed the finding on that
+                # evidence, scoping it to the stores and leaving the wiki and
+                # vane open as a separate call.
+                #
+                # So a pure connect() cannot distinguish the two states the
+                # decision turns on:
+                #     open + authenticated   -> not readable, not the defect
+                #     open + unauthenticated -> readable by any local account
+                # It called both FAIL, which makes its FAIL carry no
+                # information -- and, worse, means it CANNOT DETECT auth being
+                # switched off, because it already fails either way. Splitting
+                # the verdict makes this probe STRICTER, not weaker: the
+                # regression it now catches is one it was previously blind to.
+                case " $AUTH_EXPECTED " in
+                    *" $p "*)
+                        ka="$(keyless_answer "$p")"
+                        case "$ka" in
+                            refused)  authed_list="${authed_list} ${p}" ;;
+                            served)   open_list="${open_list} ${p}" ;;
+                            *)
+                                probe_examined "$n_checked" "store/UI ports"
+                                probe_cannot_run "port ${p} is open and carries a credential requirement, but the keyless probe returned '${ka}' -- neither a refusal nor a served response. An unadjudicated auth check must not be scored either way."
+                                ;;
+                        esac
+                        ;;
+                    *) open_list="${open_list} ${p}" ;;
+                esac
+                ;;
         esac
     done
 
@@ -250,7 +342,7 @@ run_probe() {
 
     case "$(classify "$c" "$open_list")" in
         FAIL)
-            probe_fail "TCP-reachable on loopback, therefore readable by every account on this Mac:${open_list}. #550 was demonstrated against 7878 with one unauthenticated curl."
+            probe_fail "READABLE by every account on this Mac with no credential:${open_list}. Each was reached over loopback and, where it carries a credential requirement, an UNCREDENTIALLED request was SERVED rather than refused. The store-exposure finding was demonstrated against 7878 with one unauthenticated curl, and this is that same read succeeding.${authed_list:+ Reachable but correctly REFUSING keyless callers, which is not this defect:${authed_list}.}"
             ;;
         PASS)
             # States ONLY what was measured. The previous wording explained the
