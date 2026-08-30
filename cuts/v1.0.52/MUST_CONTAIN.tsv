@@ -1,0 +1,67 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.52.
+#
+# ===========================================================================
+# WHY v1.0.52 EXISTS, AND WHY THIS BOM IS SHORT
+# ===========================================================================
+# v1.0.51 WAS BUILT, INSTALLED BY ANDY ON HARDWARE, AND WALKED. Its record
+# (walks/v1.0.51.tsv) is the FIRST in this project's history whose
+# artefact_sha256_source is measured(...) rather than asserted -- 82a621e0...,
+# shasum of OstlerInstaller-1.0.51.dmg taken on the walked box. verdict FAILED,
+# qa_exit 1, pass 12 / fail 4 / cannot_run 5 / broken 0 of 21 measured.
+#
+# 🔴 THIRTEEN COMMITS LANDED BETWEEN v1.0.51 AND THIS CUT. ONLY TWO OF THEM
+# REACH THE DMG, AND THIS BOM HAS TWO ROWS BECAUSE OF IT, NOT BECAUSE THE
+# OTHER ELEVEN WERE FORGOTTEN.
+#
+# A BOM is a claim about what the ARTEFACT CONTAINS. The v1.0.51 BOM already
+# established the discipline and the measurement: CM051 #1268 was real work on
+# main and was deliberately NOT a row, because `grep -c box_walk_probes
+# gui/Makefile` returns 0 against a control (`install.sh`) returning 29 on the
+# same file. I RE-RAN THAT EXACT CHECK ON TODAY'S main (cef9c20c) RATHER THAN
+# CARRYING THE CLAIM FORWARD: box_walk_probes 0, install.sh 29. The zero is
+# real absence and the predicate demonstrably reads that file.
+#
+# MEASURED, per commit, over v1.0.51^{commit}..cef9c20c -- files matching
+# ^(install\.sh|install\.sh\.strings|gui/|vendor/|assistant-agent/):
+#
+#     ac4aad4f  ship=0   cut: third mount leak
+#     1b518be3  ship=0   docs(rollforward): disposition the cannot_run bucket
+#     6ba237b5  ship=0   fix(walk): CANNOT-RUN must name its prerequisite
+#     fae8746e  ship=0   fix(walk): record states how many probes MEASURED
+#     cce32b41  ship=2   fix(install): warn before the 3.5GB vane pull    <-- ROW 1
+#     ea724af7  ship=0   fix(probe): -K path single-quoted
+#     63943390  ship=0   fix(probe): transport failure is CANNOT-RUN everywhere
+#     935a1305  ship=0   fix(probe): $HOME expanded on the CONTROLLER
+#     cf5dcad9  ship=0   docs(probe): mention count 23 -> 5
+#     e5d83b1c  ship=0   walk(record): v1.0.51 record
+#     fd31ef8d  ship=0   fix(probe): four keyless store probes present -K
+#     19fd3931  ship=1   fix(install): secrets DIRECTORY needs 0700       <-- ROW 2
+#     cef9c20c  ship=0   fix(rollforward): walk closure RED on two counts
+#
+#     CONTROL: install.sh touches across the whole range = 2, so the
+#     ship-predicate is not uniformly zero and can distinguish the two.
+#
+# ⇒ ELEVEN of thirteen are probe, CI, walk-record and registry work. They are
+# real and they are merged; they are not IN THE DMG. Writing them as rows
+# would claim the artefact contains them, and every one would sit permanently
+# at landed=no because no walk can ever find them there. That is the #1268
+# lesson applied rather than quoted.
+#
+# ===========================================================================
+# 🟠 BOTH ROWS ARE capability_id=none, AND THAT IS A REAL GAP, NOT A FORMALITY
+# ===========================================================================
+# manifest/capability_manifest.tsv declares 84 capability ids (control: the
+# v1.0.51 row id `install_cm052_pip_stage_outside_bundle` resolves, so the
+# lookup works). NEITHER shipping change has one. Both rows are therefore
+# UNGUARDED: nothing in gates/capability_matrix.sh can prove them present in
+# the artefact, and either can silently regress.
+#
+# I did NOT invent capability ids for changes I did not write. @ARCHIE owns
+# both fixes and should name them; bom_add.sh explicitly calls "naming a
+# capability whose manifest row lands in the same change" a legitimate order
+# of work. Flagged here rather than papered over, because a row that reads
+# GUARDED while nothing checks it is worse than one honestly marked none.
+# ===========================================================================
+what	repo	ref	landed	capability_id	verify	ticket
+🟠 THE 3.5 GB VANE PULL WENT SILENT, AND THE COMMENT ABOVE IT SAID IT DID NOT. install.sh pulls the vane image with no progress surface, so a customer on a slow link sees an installer that has apparently stopped for several minutes during the single largest download of the install. The in-file comment asserted the opposite -- that the step already warned -- which is the documentation-not-behaviour class: the comment was the only thing anyone had checked. FIX (#1283): warn before the pull, and correct the comment so the file no longer states something false about itself. Ships because it is install.sh plus its en-GB strings, the two files in this range that reach the artefact.	cm051	cce32b41	no	none	TBD	Archie 2026-08-30 / CM051 #1283
+🔴 THE SECRETS DIRECTORY WAS NOT 0700, AND THE OBVIOUS ONE-LINER WOULD NOT HAVE FIXED IT. The store credential file is written 0600 owner-only (umask 0077 before the truncate), but the DIRECTORY holding it took the ambient umask -- so the file was protected and its container was not. `mkdir -p -m 700` would not have closed it either, because -m applies only when mkdir actually creates the directory and is a no-op on a pre-existing one, which is exactly the upgrade case. FIX (#1289): set the mode explicitly rather than relying on creation-time flags. Directly adjacent to #549/#550, the multi-account store-exposure lane: a 0600 file inside a 0755 directory still leaks its existence and its metadata to every local account.	cm051	19fd3931	no	none	TBD	Archie 2026-08-30 / CM051 #1289 / board #549 #550
