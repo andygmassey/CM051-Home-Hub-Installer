@@ -365,8 +365,21 @@ box_http() {
 # expiring, any future curl argument error. Each still becomes a product
 # accusation in a durable walk record. @TNM named the shape 2026-08-30.
 #
-# CONTROL THAT THE MECHANISM WAS AVAILABLE ALL ALONG: 401 is special-cased in
-# this file 23 times. Singling out a code was never the hard part.
+# CONTROL THAT THE MECHANISM WAS AVAILABLE ALL ALONG: 401 is special-cased at
+# FIVE statement positions -- 2 shell comparisons plus 3 python
+# `code in ("401","403")` judges. Singling out a code was never the hard part.
+#
+# ⚠️ THAT NUMBER SAID "23" UNTIL @TNM CLASSIFIED IT, 2026-08-30, AND 23 WAS A
+# MENTION COUNT. `grep -c 401` returns 23 at ea724af7 -- but 12 of the 23 are
+# COMMENT lines, our own prose about 401, including the paragraph just above
+# explaining why 401 matters. The conclusion survived (5 > 0, so the mechanism
+# was demonstrably available, which is the whole job that control had). The
+# number did not, and it reached a merged commit message before he caught it.
+#
+# THE RULE, because this file keeps re-learning it: A GREP COUNT IS A MENTION
+# COUNT UNTIL IT IS CLASSIFIED BY POSITION. Counting occurrences of a token
+# answers "how often is this word written", never "how often does the program
+# act on it" -- and the two diverge MOST in a well-commented file, i.e. here.
 #
 # DELIBERATELY NOT APPLIED IN PHASE 5. By cleanup time a fixture may already
 # be in the graph, and exiting CANNOT-RUN there would drop the "probe leaked a
