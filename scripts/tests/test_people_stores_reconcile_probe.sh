@@ -53,14 +53,14 @@ start_fake "$OK_PORT" 401
 OUT="$(run_probe_capture "http://127.0.0.1:${OK_PORT}/query" "${WORK}/conf_auth" auth)"; stop_fake
 V="$(verdict_of "$OUT")"
 if [ "$V" != "VERDICT: FAIL" ]; then fail arm1 "401+cred got '${V}', expected FAIL. tail: $(printf '%s' "$OUT"|tail -1)"
-elif ! printf '%s' "$OUT" | grep -q 'store credential presented'; then fail arm1-reason "FAIL but reason does not name presented key"
+elif [ "$(printf '%s' "$OUT" | grep -cF 'store credential presented')" -eq 0 ]; then fail arm1-reason "FAIL but reason does not name presented key"
 else note "arm1 401+cred -> AUTHFAIL -> FAIL ✅"; fi
 
 start_fake "$OK_PORT" 401
 OUT="$(run_probe_capture "http://127.0.0.1:${OK_PORT}/query" "${WORK}/conf_noauth" noauth)"; stop_fake
 V="$(verdict_of "$OUT")"
 if [ "$V" != "VERDICT: CANNOT-RUN" ]; then fail arm2 "401+nocred got '${V}', expected CANNOT-RUN"
-elif ! printf '%s' "$OUT" | grep -q 'NO store credential'; then fail arm2-reason "reason does not say credential absent"
+elif [ "$(printf '%s' "$OUT" | grep -cF 'NO store credential')" -eq 0 ]; then fail arm2-reason "reason does not say credential absent"
 else note "arm2 401+nocred -> KEYLESS -> CANNOT-RUN ✅"; fi
 
 OUT="$(run_probe_capture "http://127.0.0.1:${CLOSED_PORT}/query" "${WORK}/conf_auth" auth)"

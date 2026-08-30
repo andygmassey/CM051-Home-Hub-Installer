@@ -98,7 +98,7 @@ stop_fake
 V="$(verdict_of "$OUT")"
 if [ "$V" != "VERDICT: FAIL" ]; then
     fail arm1-401-cred-not-FAIL "got '${V}', expected FAIL. output: $(printf '%s' "$OUT" | tail -1)"
-elif ! printf '%s' "$OUT" | grep -q 'store credential presented'; then
+elif [ "$(printf '%s' "$OUT" | grep -cF 'store credential presented')" -eq 0 ]; then
     fail arm1-reason "FAIL but reason does not name the presented credential -- an exit-code-only pass"
 else
     note "arm1 401+cred -> FAIL, reason names the presented key ✅"
@@ -111,7 +111,7 @@ stop_fake
 V="$(verdict_of "$OUT")"
 if [ "$V" != "VERDICT: CANNOT-RUN" ]; then
     fail arm2-401-nocred-not-CANNOTRUN "got '${V}', expected CANNOT-RUN"
-elif ! printf '%s' "$OUT" | grep -q 'NO store credential'; then
+elif [ "$(printf '%s' "$OUT" | grep -cF 'NO store credential')" -eq 0 ]; then
     fail arm2-reason "CANNOT-RUN but reason does not say the credential was absent"
 else
     note "arm2 401+nocred -> CANNOT-RUN, reason = keyless nothing measured ✅"
@@ -122,7 +122,7 @@ OUT="$(run_probe_capture "http://127.0.0.1:${CLOSED_PORT}/query" "${WORK}/conf_a
 V="$(verdict_of "$OUT")"
 if [ "$V" != "VERDICT: CANNOT-RUN" ]; then
     fail arm3-000-not-CANNOTRUN "got '${V}', expected CANNOT-RUN"
-elif ! printf '%s' "$OUT" | grep -q 'no HTTP response'; then
+elif [ "$(printf '%s' "$OUT" | grep -cF 'no HTTP response')" -eq 0 ]; then
     fail arm3-reason "CANNOT-RUN but reason does not name a transport failure"
 else
     note "arm3 000 transport -> CANNOT-RUN, reason = no HTTP response ✅"
