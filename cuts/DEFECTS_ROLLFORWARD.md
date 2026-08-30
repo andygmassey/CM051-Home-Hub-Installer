@@ -99,7 +99,8 @@ walk_horizon: v1.0.41
 | v1.0.47 | 2026-08-26 | deferred | ORM walked the artefact 2026-08-26 with scripts/walk_dmg.sh; arm 8b (#1092) imports an UNSEEDED product module and takes .pyc 1448 -> 1449 with codesign rc=1, VERDICT NO_GO. Deferred (not closed) by A2 under Andy's standing instruction to drive to a cut: the root cause is FIXED on CM051 main 7857e00c (#1093) and rides v1.0.48, but it is in NO artefact, so closing would be true about the repo and false about the DMG. | v1047-D001 |
 | v1.0.48 | 2026-08-27 | deferred | Archie walked the artefact on the walk box (box_fp 9b6a0022a46780ac), record at walks/v1.0.48.tsv, version_source measured(CFBundleShortVersionString) 1.0.48 / 4800 read via plutil ON THE BOX. VERDICT FAILED, qa_exit 1: phase 1 10 pass / 8 fail / 2 cannot-run of 20, phase 2 cut manifest 27 pass / 9 fail / 4 skip of 42. THE CUT'S OWN JOB PASSED: app_signature_survives_first_run is GREEN on the artefact, 1887 .pyc all unchecked-hash, corpus byte-identical 8644c1b53ca5, 353 product .py with 0 uncovered, live-trigger control fired (1 .pyc written OUTSIDE the bundle), 0 files added to a writable copy by importing its own product modules, codesign clean on BOTH verbs. That closes v1047-D001's ADD limb, measured on the artefact rather than in the source. DEFERRED (not closed) BECAUSE OF WHAT THE WALK COULD NOT SEE, NOT BECAUSE OF THE EIGHT FAILURES: the walk drag-copies the .app and never launches it, so install.sh did not run and the eight phase-1 failures describe an AUG 25 install of Ostler 0.7.1, not this DMG (see v1048-D001). Re-attribution independently confirmed by A2 via version strings and by mtimes with a control that moved. | v1048-D001 |
 | v1.0.49 |  | not_walked | Archie (2026-08-28). TAGGED d38f3320 -> a612a480 and NEVER INSTALLED BY ANYONE. Not walked, and deliberately not walked. Andy's launch hold (#551) landed over the #550 multi-account store exposure before any walker reached it, and the public download is still v1.0.41 (unchanged since 2026-08-22), so no customer and no operator has run this artefact. MEASURED: zero of the seven #550 merges are ancestors of a612a480. Walking it would therefore measure a tree that PREDATES every fix it would be walked to demonstrate -- a real walk producing a true result about the wrong subject, which is worse than no walk because it would read as evidence. There is no walks/v1.0.49.tsv and there should not be one. SUPERSEDED BY v1.0.50, which carries the ERR-06 Qdrant credential fix (#1226), the wiki-compiler Qdrant key (#1228), and the CM044 v0.1.28 image re-pin (#1229). The walk that matters is v1.0.50's and it has not happened either. | none |
-| v1.0.50 | 2026-08-29 | deferred | Archie 2026-08-30. Walk record walks/v1.0.50.tsv exists with verdict FAILED and qa_exit 1, so the rules table above admits closed or deferred and REFUSES not_walked. DEFERRED, not closed: four of the eight findings are fixed on CM051 main (d4ee9de2) and ride v1.0.51, but they are in NO artefact, so closing would be true about the repo and false about the DMG. The other four are open. THE HEADLINE COUNT OVER-STATES PRODUCT DEFECTS, measured not softened: fail 7 contains TWO probes with ONE cause (app_signature_survives_first_run and installed_bundle_seal_intact are both the cm052 pip build-in-place breaking the code seal) and ONE probe that was not measuring the product at all (people_seed_and_retrieval called Qdrant with no credential, got 401, and reported a collection missing that demonstrably exists). So seven recorded failures describe five distinct subjects, one of which is the instrument. Nothing here is measured closure: 7 recorded, 4 predicted to clear, 0 measured. A merge cannot clear a row in a frozen record, and walks/v1.0.50.tsv will read fail 7 permanently. The next walk is of a DIFFERENT artefact with a different sha256, which is #931 working as designed. | v1050-D001 v1050-D002 v1050-D003 v1050-D004 v1050-D005 v1050-D006 v1050-D007 v1050-D008 |
+| v1.0.50 | 2026-08-29 | deferred | Archie 2026-08-30. Walk record walks/v1.0.50.tsv exists with verdict FAILED and qa_exit 1, so the rules table above admits closed or deferred and REFUSES not_walked. DEFERRED, not closed: four of the eight findings are fixed on CM051 main (d4ee9de2) and ride v1.0.51, but they are in NO artefact, so closing would be true about the repo and false about the DMG. The other four are open. THE HEADLINE COUNT OVER-STATES PRODUCT DEFECTS, measured not softened: fail 7 contains TWO probes with ONE cause (app_signature_survives_first_run and installed_bundle_seal_intact are both the cm052 pip build-in-place breaking the code seal) and ONE probe that was not measuring the product at all (people_seed_and_retrieval called Qdrant with no credential, got 401, and reported a collection missing that demonstrably exists). So seven recorded failures describe five distinct subjects, one of which is the instrument. Nothing here is measured closure: 7 recorded, 4 predicted to clear, 0 measured. A merge cannot clear a row in a frozen record, and walks/v1.0.50.tsv will read fail 7 permanently. The next walk is of a DIFFERENT artefact with a different sha256, which is #931 working as designed. THE ROW NOW LISTS NINE IDs WHILE THE PROSE ABOVE SAYS EIGHT, AND BOTH ARE CORRECT: v1050-D001 through D008 disposition the **fail** bucket, and v1050-D009 dispositions the **cannot_run** bucket, which nothing in this file had ever adjudicated. The row previously omitted D009 while the finding section existed, so the registry and the row disagreed by exactly one finding and walk closure went RED -- caught by the gates-only dry run 33299809685 rather than by spending a version on a tag. | v1050-D001 v1050-D002 v1050-D003 v1050-D004 v1050-D005 v1050-D006 v1050-D007 v1050-D008 v1050-D009 |
+| v1.0.51 | 2026-08-29 | deferred | Archie 2026-08-30. Walk record walks/v1.0.51.tsv exists with verdict FAILED and qa_exit 1, so the rules table above admits closed or deferred and REFUSES not_walked. It is the FIRST record in this project's history whose artefact_sha256_source is measured(...) rather than asserted -- shasum of OstlerInstaller-1.0.51.dmg taken on the walked box -- so for the first time a walk record can bind a version to a build rather than to a claim. Andy installed this artefact on hardware (OstlerInstaller.app 1.0.51, ~/.ostler 1.1 GB) and 12 of 21 probes pass. DEFERRED, not closed, and the four failures are FOUR DIFFERENT KINDS OF THING, which is why none of them is being called a product regression without saying which: D001 is a real customer-visible defect whose fix cannot reach a customer without a wiki-image rebuild that TNM measured is NOT in the v1.0 path; D002 is an EXPECTED red that Andy explicitly decided to defer to v1.0.1; D003's recorded `broken` was my own packaging and is cleared on the box, while its customer-visible half survives with MY explanation of it refuted by its own decisive test; D004 I did not investigate at all and it is recorded as unexamined rather than dispositioned. ZERO of these four are measured closure. The next walk is of a DIFFERENT artefact with a different sha256, which is #931 working as designed. | v1051-D001 v1051-D002 v1051-D003 v1051-D004 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -3859,3 +3860,97 @@ they caused the v1.0.50 cannot_runs is a PREDICTION -- strong, because D003 is t
 same pattern with the 401 already observed -- and it is unprovable after the fact
 because the record discards the cannot_run reason. That gap is the second half of
 the queue above.
+
+### v1051-D001 -- the freshness panel reports INSTALL-TIME sentinels forever, and its source list disagrees with the sentinel directory
+
+Measured on the walk box 2026-08-30, both artefacts side by side. The panel does NOT
+read `settling_progress.d`; it reads `~/.ostler/state/hydrate/<source>.done`, written by
+install.sh's recorder call sites.
+
+    hydrate/imessage.done                      recorded_at 2026-08-30T04:52:43Z  status=no_data
+    settling_progress.d/messages.imessage.json updated_at  2026-08-30T06:33:15Z
+
+**100 minutes apart.** At 04:52 the installer asked iMessage and correctly got nothing.
+iMessage then ingested. Nothing rewrites the sentinel, so the panel reports `no_data`
+permanently for the largest corpus on the box. It is an install-completion panel wearing
+a freshness label.
+
+SECOND, INDEPENDENT DEFECT -- the list and the directory disagree:
+
+    on disk (11)   apple_notes browsing calendar contacts dedupe email imessage
+                   people places privacy_backfill whatsapp
+    panel list (9) imessage whatsapp email_preferences browsing apple_notes
+                   people places privacy_backfill ai_conversations
+
+`calendar.done` (status=ok, events=72) and `contacts.done` (status=ok) are NOT in
+`KNOWN_HYDRATE_SOURCES`, so those rows never render -- two healthy sources invisible on the
+one panel built to show the customer things are working. `email.done` exists but the panel
+looks up `email_preferences.done`, so it renders "never" with a real sentinel beside it.
+The list's own comment anticipates drift in one direction only; the failure is the other
+direction, where a sentinel with no list entry vanishes silently. Class (g), #532.
+
+DISPOSITION: DEFERRED to v1.0.1, and this is a SCOPE CALL, not an oversight. The renderer is
+CM044 `compiler/hydration.py`, which ships as a PINNED IMAGE, so no fix reaches a customer
+without an image rebuild + re-pin + re-cut. @TNM measured the prerequisite and the answer is
+**no wiki-image rebuild is in the v1.0 path**, so this is not a free ride on work already
+happening. Archie's call: a wrong label on a diagnostic panel does not justify adding an
+image-rebuild pipeline to the launch critical path. It is not data loss and not a security
+defect. ANDY MAY OVERRIDE.
+
+🔻 MY OWN FIRST FILING OF THIS WAS WRONG and the measurement corrected it. I filed it as a
+key-vs-filename mismatch INSIDE `settling_progress.d` ("the bridge sits unused in the filename
+messages.imessage.json"). The panel never reads that directory at all. I compared two artefacts
+that were never connected, then found the real consumer by reading the code that emits the row.
+
+### v1051-D002 -- no_store_port_is_tcp_reachable is an EXPECTED red for 8044/3000, deferred by Andy
+
+Not a regression and not a new defect. Andy decided 2026-08-30, asked once and answered once:
+ship v1.0 with 8044 open and close it properly in v1.0.1. His words, relayed verbatim: "I guess,
+yes... But not happy about it." @TNM measured that NO cookie/session concept exists anywhere in
+the daemon (6 mechanisms searched, 6 zeros, control `Authorization` = 122 files), so the close is
+a BUILD, not a wiring job.
+
+Measured blast radius, so the deferral is not a shrug: all three ports are already loopback-only
+in install.sh (127.0.0.1:8044, :8144, :3000; control 127.0.0.1:6333 also present). Unauthenticated
+from the owning account 8044 -> 200 and 3000 -> 200, while the demonstrably-closed stores 6333 and
+7878 both -> 401 on the identical request.
+
+⚠️ NOT MEASURED, DO NOT HARDEN: whether a SECOND account on the same Mac can read it -- the
+#549/#550 threat model -- was CANNOT-RUN (no passwordless sudo on the walk box). It is INFERRED
+FROM TOPOLOGY, NOT DEMONSTRATED. Any row or release note stating it as measured got that from
+inference, not from a measurement anyone took.
+
+### v1051-D003 -- usage_journal_producers, and a mechanism of MINE that the decisive test refuted
+
+The recorded `broken 1` was MY PACKAGING (3 files missing, not 1) and is cleared on the box:
+5 of 5 arms OK, verified rather than predicted.
+
+The customer-visible half is the Bursar: the nav entry exists, `/api/cost` is registered (401
+keyless; a nonsense sibling 404s), the writer is in the shipped binary, and
+`~/.ostler/workspace/state/` never exists so the journal is never written.
+
+🔻 MY EXPLANATION WAS "START ORDER" AND ITS OWN DECISIVE TEST KILLED IT. I claimed the daemon
+booted before the installer enabled cost tracking, caching "disabled" in a once-only global.
+Measured on the box:
+
+    config.toml mtime   Aug 30 12:53:49   (enabled = true present)
+    daemon started      Aug 30 12:54:51   (62 seconds LATER)
+
+The daemon booted WITH `enabled = true` already on disk, and `state/` still does not exist. The
+start-order mechanism is dead. The remaining candidate -- unverified, explicitly not a conclusion
+-- is that the directory is created on the first recorded cost and nothing has recorded one.
+
+⛔ DO NOT "FIX" THIS BY CREATING THE DIRECTORY. That converts a loud absence into a quiet zero,
+which is the failure mode this register exists to prevent.
+
+### v1051-D004 -- assistant_answers_grounded failed and I DID NOT INVESTIGATE IT
+
+Recorded in `walks/v1.0.51.tsv` as one of four `failed_probe` rows. I investigated the other
+three and did not reach this one before the cut.
+
+This section exists so the count is honest. It is NOT a disposition, NOT a severity assessment,
+and NOT a claim that the probe is the instrument rather than the product -- three things I have
+wrongly assumed about a red today and been corrected on. Unexamined, and recorded as unexamined,
+because a walk-closure row that quietly omitted it would read as coverage this cut does not have.
+
+OWNER: unassigned. Next walker or next lane picks it up.
