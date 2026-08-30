@@ -492,6 +492,26 @@ if [[ -n "$CUT_VERSION" ]]; then
         # line makes that visible to anyone reading the record.
         printf 'failed_probe_names_recorded\t%s of %s\n' "${n_failed_named:-0}" "${n_fail:-0}"
         printf '%s\n' "$FAILED_NAMES"  | while IFS= read -r _n; do [ -n "$_n" ] && printf 'failed_probe\t%s\n' "$_n"; done
+        # THE REASONS ARE WITHHELD, AND THE RECORD SAYS SO RATHER THAN LEAVING
+        # A READER TO CONCLUDE NONE EXIST.
+        #
+        # run_box_walk.sh now prints the missing prerequisite for every
+        # CANNOT-RUN, because lib/probe.sh requires probe_cannot_run() to name
+        # it. Those strings are NOT published here: measured across the 90
+        # probe_cannot_run call sites in 21 of 21 probes, they interpolate
+        # ${OSTLER_BOX_HOST}, $LOG_PATH, ~/.ostler/... and in one case raw ssh
+        # stderr. walks/ is committed to a PUBLIC repo, which is the same
+        # reason box_fp is a hash and the reason section_names() above accepts
+        # bare probe names and nothing else.
+        #
+        # Redacting 90 free-prose sites would fail open on the first one that
+        # gained a new path, so the reasons stay on the console and this row
+        # says where to look. A reader who sees not_measured_probe rows and no
+        # explanation would otherwise reasonably infer the reason was never
+        # captured -- which was true until 2026-08-30 and is now not.
+        if [ -n "$NOTMEAS_NAMES" ]; then
+            printf 'not_measured_reasons\twithheld(public repo); run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"\n'
+        fi
         printf '%s\n' "$NOTMEAS_NAMES" | while IFS= read -r _n; do [ -n "$_n" ] && printf 'not_measured_probe\t%s\n' "$_n"; done
         printf '%s\n' "$BROKEN_NAMES"  | while IFS= read -r _n; do [ -n "$_n" ] && printf 'broken_probe\t%s\n' "$_n"; done
     } > "$RECORD"

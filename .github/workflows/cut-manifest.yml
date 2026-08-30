@@ -28,6 +28,7 @@ on:
       - 'cut-deferrals.yaml'
       - 'scripts/post_walk_qa.sh'
       - 'tests/test_walk_record_names_the_failing_probes.sh'
+      - 'tests/test_cannot_run_names_its_prerequisite.sh'
       - 'scripts/box_walk_probes/**'
       - 'scripts/tests/test_people_seed_and_retrieval_probe.sh'
       - 'cut-manifests/**'
@@ -146,6 +147,25 @@ jobs:
 
       - name: Confirm we are testing under bash 3.2, as the cut host does
         run: /bin/bash --version | head -1
+
+      # HERE, NOT IN manifest-tests, for the reason this job exists at all: the
+      # change under test is in run_box_walk.sh, which the cut host executes
+      # under /bin/bash 3.2. On ubuntu-latest /bin/bash is 5, which accepts
+      # 3.2-invalid syntax and would green-light a runner that dies on the box.
+      #
+      # THE DEFECT: probe_cannot_run() names the missing prerequisite and
+      # run_box_walk.sh's header promises to print it. It did not -- only the
+      # basename was kept -- so walks/v1.0.50.tsv records six probes that did
+      # not run and no reason for any of them.
+      #
+      # The reasons stay on the CONSOLE. They interpolate box paths and
+      # hostnames, and walks/ is committed to a PUBLIC repo. The load-bearing
+      # assertion is the regression guard: the record's parser stops at the
+      # first line that is not a bare probe name, so a reason printed beneath a
+      # name would silently cut walks/<version>.tsv down to a single row.
+      - name: a CANNOT-RUN names its prerequisite, without leaking it into the record
+        if: always()
+        run: /bin/bash tests/test_cannot_run_names_its_prerequisite.sh
 
       # verify_branch_truth reads the shipping ledger with PyYAML and REFUSES to
       # guess without it -- it returns CANNOT-RUN (rc=3), which is correct and is
