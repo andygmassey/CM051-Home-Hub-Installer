@@ -285,12 +285,45 @@ _ks_bounded() {
 _ostler_wire_store_auth_pth() {
     local _venv="$1"
     local _root="${2:-${OSTLER_DIR:-${HOME}/.ostler}}"
-    [[ -n "$_venv" && -x "${_venv}/bin/python3" ]] || return 1
+    # ⚠️ #595 -- THIS FUNCTION'S POPULATION WAS ITS DEFECT, NOT ITS COVERAGE.
+    #
+    # Until 2026-08-31 the only accepted shape was a venv root, and the guard
+    # was `-x "${_venv}/bin/python3"`. That is 100% correct for venvs and
+    # BLIND BY CONSTRUCTION to anything that is not one -- so the BUNDLED
+    # interpreter at ${OSTLER_FINAL_DIR}/python was never wired, and every
+    # service without its own venv reached the stores with no credential.
+    # Measured on .231: cm059-editor, ical-server and ostler_hygiene have no
+    # venv; the editor's tick script runs the bundled interpreter directly and
+    # 401'd against Oxigraph on every one of its three ticks, then EXITED 0.
+    # Customer symptom: the Front Page could never populate, on any install.
+    #
+    # The relocated tree is referenced everywhere as `bin/python3.11` -- 6
+    # occurrences in this file, and `python/bin/python3` (exact) scores ZERO,
+    # with `ln -s .*python3` also zero, so no `python3` alias is created. A
+    # caller passing that tree as a venv root would fail the old guard and,
+    # with the `|| warn` call convention, warn into exactly the same silence.
+    #
+    # So accept BOTH shapes: an explicit interpreter (a file) or a venv root
+    # (a directory). Resolving the interpreter is the whole job -- everything
+    # below already asks that interpreter where its own site-packages are,
+    # which is what makes this correct for a relocated tree it has never seen.
+    local _py=""
+    if [[ -n "$_venv" && -f "$_venv" && -x "$_venv" ]]; then
+        # An interpreter was named directly.
+        _py="$_venv"
+    elif [[ -n "$_venv" && -x "${_venv}/bin/python3" ]]; then
+        _py="${_venv}/bin/python3"
+    elif [[ -n "$_venv" && -x "${_venv}/bin/python3.11" ]]; then
+        # The bundled/relocated tree. NOT a venv, and it ships no `python3`.
+        _py="${_venv}/bin/python3.11"
+    else
+        return 1
+    fi
     local _sp
     # Ask the interpreter, never guess "lib/pythonX.Y/site-packages": the
     # version component moves under us and a guessed path writes a .pth that
     # nothing ever reads -- silently reproducing the very defect above.
-    _sp="$("${_venv}/bin/python3" -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null)" || return 2
+    _sp="$("$_py" -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null)" || return 2
     [[ -n "$_sp" && -d "$_sp" ]] || return 2
     # ⚠️ PIN BOTH HALVES, not just the module path.
     #
@@ -6717,6 +6750,36 @@ _ostler_seed_store_auth_shim() {
 if ! _ostler_seed_store_auth_shim; then
     warn "store-auth shim not staged from ${SCRIPT_DIR}/lib/ostler_store_auth.py"
     warn "  venvs created after this point reach the data stores with no credential."
+fi
+
+# ── the BUNDLED interpreter, which is not a venv and was never wired (#595) ──
+#
+# 🔴 EVERY OTHER CALL IN THIS FILE PASSES A `.venv`. That is the whole defect:
+# the wiring had 100% coverage OF VENVS, and three services do not have one.
+# Measured on .231 2026-08-31 -- 12 services, 9 with a venv, and
+# cm059-editor / ical-server / ostler_hygiene without. The editor's tick
+# script bakes an ABSOLUTE PYTHON_BIN of <root>/python/bin/python3.11 and runs
+# the bundled interpreter directly, so it inherited no credential, 401'd
+# against Oxigraph on all three of its ticks, and EXITED 0 each time. launchd
+# saw success. The customer saw "Your Front Page is still settling in",
+# permanently, on every install ever shipped.
+#
+# 📌 A GATE CAN HAVE FULL COVERAGE OF THE WRONG POPULATION. That is not a weak
+# gate; it is a gate answering a different question, and it stays green.
+#
+# Wired HERE, immediately after the seeder, because the .pth this writes
+# appends ${_root}/lib and imports the module the seeder just staged --
+# ordering the two the other way round writes a .pth naming a directory that
+# does not exist yet. The existing venv calls all sit after the seeder for the
+# same reason; this one keeps that convention rather than inventing a new one.
+#
+# SAFE AGAINST DOUBLE-LOADING, measured not assumed: `--system-site-packages`
+# scores ZERO in this file against a live control of 20 `-m venv` invocations,
+# so no venv inherits this interpreter's site-packages and no interpreter can
+# load the shim twice.
+if [[ -n "${PYTHON3_BIN:-}" && "${PYTHON3_BIN}" == "${OSTLER_FINAL_DIR}/python/"* ]]; then
+    _ostler_wire_store_auth_pth "$PYTHON3_BIN" "${OSTLER_DIR:-${HOME}/.ostler}" \
+        || warn "store-auth .pth not wired into the bundled interpreter -- every service WITHOUT its own venv (cm059-editor, ical-server, ostler_hygiene) reaches the data stores with NO credential (#595/#210)"
 fi
 
 # ── and now the half that makes the shim RUN (#550) ───────────────────
