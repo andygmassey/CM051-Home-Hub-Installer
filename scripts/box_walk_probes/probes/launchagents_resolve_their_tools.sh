@@ -85,7 +85,35 @@ run_probe() {
         probe_cannot_run "the box at '${OSTLER_BOX_HOST}' did not answer over ssh, so no plist could be read. Not a pass."
     fi
 
-    _dir="$HOME/Library/LaunchAgents"
+    # 🔴 $HOME MUST EXPAND ON THE BOX, NOT HERE. This line used to read
+    #     _dir="$HOME/Library/LaunchAgents"
+    # in plain double quotes, so it expanded in the CONTROLLER's shell and the
+    # probe then listed the OPERATOR'S OWN LaunchAgents directory over ssh.
+    #
+    # MEASURED 2026-08-30, on the first walk driven over ssh rather than run on
+    # the box itself: the CANNOT-RUN message named the CONTROLLER account's home
+    # directory, while the box account was a different user entirely. A PASS on
+    # 18 plists became a false CANNOT-RUN, and the record recorded coverage lost
+    # that was never lost. It was invisible for as long as the walk ran LOCALLY
+    # on the box, because there the two homes are the same directory.
+    #
+    # SAME CLASS AS #1284's -K path: a value expanded on the wrong side of the
+    # transport. Classified across the suite the same day: 11 probes mention
+    # $HOME, 4 hand it to a remote command, and 3 of those 4 already escape it
+    # (`\$HOME`) or single-quote it, so they were always correct. This was the
+    # only genuine instance -- but a mention count would have said 11.
+    #
+    # Resolve ONCE on the box and use the absolute result everywhere, so the
+    # operator-facing message names the directory that was really examined.
+    _dir="$(box_run 'printf "%s" "$HOME/Library/LaunchAgents"')"
+    if [ -z "$_dir" ]; then
+        probe_cannot_run "could not resolve \$HOME on the box, so no LaunchAgents directory could be named -- nothing was examined and this is not a pass."
+    fi
+    case "$_dir" in
+        /*) : ;;
+        *)  probe_cannot_run "the box resolved its LaunchAgents directory to '${_dir}', which is not an absolute path. Refusing to list it rather than examine an unknown location." ;;
+    esac
+
     _listing="$(box_run "ls ${_dir}/*ostler*.plist 2>/dev/null")"
     if [ -z "$_listing" ]; then
         probe_cannot_run "no *ostler*.plist under ${_dir} on the box. Nothing was examined, which is not the same as nothing being wrong."
