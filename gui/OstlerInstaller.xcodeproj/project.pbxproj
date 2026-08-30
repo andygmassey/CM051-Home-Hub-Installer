@@ -42,6 +42,7 @@
 		66A0343A50F3D01C5CF42933 /* IBMPlexSans-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 38CF88E41D08067999FC9583 /* IBMPlexSans-Regular.ttf */; };
 		673333837843D135C3E79E65 /* OnboardingQuestionXOfYTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */; };
 		6746C4CED2FFC5217A1EF6FF /* HintPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92A90F0ED1636988B7278FB /* HintPanelView.swift */; };
+		67BCAF5995DA253F2E483897 /* AdminPromptFinderPreAnnounceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E47E1D1D7D32CF1BFB8863 /* AdminPromptFinderPreAnnounceTests.swift */; };
 		68C7099E8A4A66062A1D907C /* MemoryCeiling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C611D155502B912580B643B /* MemoryCeiling.swift */; };
 		698E66B03812406B6625AD73 /* JetBrainsMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1E50EE8CD2AF7059E753EEE6 /* JetBrainsMono-Regular.ttf */; };
 		6C2CC1B327BAB163D14B84F7 /* HintCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 648CD2F16A53E31F71B7BD82 /* HintCopy.json */; };
@@ -176,6 +177,7 @@
 		A7BB29D9449120BC392EE586 /* JetBrainsMono-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMono-Medium.ttf"; sourceTree = "<group>"; };
 		AA415C1B21A151B849E39CE1 /* ViewCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewCopy.swift; sourceTree = "<group>"; };
 		AAF575ABE11CBC6AF2FC1D3F /* InstallerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallerCoordinator.swift; sourceTree = "<group>"; };
+		B2E47E1D1D7D32CF1BFB8863 /* AdminPromptFinderPreAnnounceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminPromptFinderPreAnnounceTests.swift; sourceTree = "<group>"; };
 		B6BE908E9E4B90F6733DD6FD /* LogRedactorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogRedactorTests.swift; sourceTree = "<group>"; };
 		B80328BFAF8BCE4ABBC78465 /* TerminationExitCodeReconcileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationExitCodeReconcileTests.swift; sourceTree = "<group>"; };
 		BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingQRAutoShowTest.swift; sourceTree = "<group>"; };
@@ -276,6 +278,7 @@
 			children = (
 				BE7BB0EE47E5A189ADD4D75C /* .test-count-floor */,
 				40241AAA50AAB3FC5CE4B5A8 /* AdminAuthorizationGateTests.swift */,
+				B2E47E1D1D7D32CF1BFB8863 /* AdminPromptFinderPreAnnounceTests.swift */,
 				919D01DA21E65C7EBA26F7FA /* AutoQuitAndKeepInstallerTests.swift */,
 				FA2DD4BFA9AD7B98DECA06C0 /* BiometricProbeTests.swift */,
 				FF043F37481F3CACC3130494 /* DeviceLimitReachedViewSnapshotTests.swift */,
@@ -1169,6 +1172,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				32EE05F704A2FC1663C79FBB /* AdminAuthorizationGateTests.swift in Sources */,
+				67BCAF5995DA253F2E483897 /* AdminPromptFinderPreAnnounceTests.swift in Sources */,
 				5DC7A9A8DF64004EE1102DC8 /* AutoQuitAndKeepInstallerTests.swift in Sources */,
 				A2AF7698B580747649FC9363 /* BiometricProbeTests.swift in Sources */,
 				297DB80C29C941936F57FD6A /* DeviceLimitReachedViewSnapshotTests.swift in Sources */,
