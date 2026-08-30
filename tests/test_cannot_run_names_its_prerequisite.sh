@@ -161,14 +161,14 @@ fi
 SUMMARY="$(awk '/^PREREQUISITES THAT WERE ABSENT/{f=1; next} f' "$OUT")"
 if [ -z "$SUMMARY" ]; then
     fail "no-block" "run_box_walk.sh printed no 'PREREQUISITES THAT WERE ABSENT' block, so the reasons are still discarded at the summary."
-elif printf '%s' "$SUMMARY" | grep -Fq -- "$REASON_PATH"; then
+elif [ "$(printf '%s' "$SUMMARY" | grep -Fc -- "$REASON_PATH")" -gt 0 ]; then
     pass "the missing prerequisite is named in the summary block"
 else
     fail "reason-dropped" "the summary block does not carry the probe's stated prerequisite. Got: $(printf '%s' "$SUMMARY" | tr '\n' ' ')"
 fi
 
 # ---- 2. a bypassed contract is announced, never blank --------------------
-if printf '%s' "$SUMMARY" | grep -q 'UNRECORDED'; then
+if [ "$(printf '%s' "$SUMMARY" | grep -c 'UNRECORDED')" -gt 0 ]; then
     pass "a probe that exited 78 without probe_cannot_run is announced as UNRECORDED"
 else
     fail "silent-blank" "bbb_cannot_without_marker bypassed probe_cannot_run and the summary does not say so. A blank reason reads as 'none given' when it means 'contract bypassed'."
@@ -192,9 +192,9 @@ else
 fi
 
 # ---- 4. PUBLIC REPO: the reason must not reach the record ----------------
-if printf '%s' "$names" | grep -Fq -- "$REASON_PATH"; then
+if [ "$(printf '%s' "$names" | grep -Fc -- "$REASON_PATH")" -gt 0 ]; then
     fail "leak" "a reason carrying an operator path reached what the record writer publishes. walks/ is committed to a PUBLIC repo."
-elif printf '%s' "$names" | grep -q '/'; then
+elif [ "$(printf '%s' "$names" | grep -c '/')" -gt 0 ]; then
     fail "leak-shape" "what the record writer publishes contains a path separator: '$names'"
 else
     pass "the path-bearing reason stays on the console and does not reach the record"
