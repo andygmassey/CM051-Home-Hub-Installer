@@ -1,0 +1,47 @@
+# Ostler walk record -- written by scripts/post_walk_qa.sh
+# Read by scripts/verify_walk_record.sh, which gates the customer download.
+# The box is recorded as a hash: this repo is public.
+# version_source says how the version was obtained. Anything other than
+# measured(...) means the version is an assertion, not an observation.
+#
+# artefact_sha256 is the build this box was walked with. A version does
+# NOT identify a build -- "1.0.50" named eleven distinct assemblies -- so
+# this is the field the publish gate binds on. artefact_sha256_source
+# reads measured(...) only when the DMG was found on the box and hashed
+# there; that establishes WHICH BUILD, not that it was the one mounted.
+#
+# counts_scope says WHICH population pass/fail/cannot_run/broken describe.
+# They are phase 1 ONLY -- parsed from run_box_walk.sh. Phase 2 (the cut
+# manifest runtime proofs) contributes to verdict and qa_exit but emits no
+# counts, so it is deliberately absent from these four numbers.
+# READ verdict AND qa_exit FOR THE WHOLE-SUITE RESULT. The four counts are
+# a subset and summing them will not reconcile against the console tally --
+# 2026-08-24 that mismatch (13 here vs 33 on console) was carried for hours
+# as an unexplained discrepancy in a v1.0.44 verdict that was correct all
+# along, because these keys were unqualified.
+version	v1.0.51
+version_source	measured(CFBundleShortVersionString, matches argument)
+artefact_sha256	unavailable
+artefact_sha256_source	asserted-unverifiable(no OstlerInstaller-1.0.51.dmg on the box)
+walked_at	2026-08-30T06:13:05Z
+box_fp	49cff40b0a7b6eee
+counts_scope	box_walk_probes_only(phase1); verdict+qa_exit cover all phases
+pass	11
+fail	4
+cannot_run	6
+broken	0
+measured	21 of 21 (pass+fail+cannot_run; a broken probe is SKIPPED in phase 2 and measures nothing) -- buckets partition the suite
+verdict	FAILED
+qa_exit	1
+failed_probe_names_recorded	4 of 4
+failed_probe	assistant_answers_grounded
+failed_probe	freshness_panel_has_dates
+failed_probe	no_store_port_is_tcp_reachable
+failed_probe	usage_journal_producers
+not_measured_reasons	withheld(public repo); run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"
+not_measured_probe	ingest_coverage
+not_measured_probe	launchagents_resolve_their_tools
+not_measured_probe	no_person_holds_two_contact_cards
+not_measured_probe	pair_state_agreement
+not_measured_probe	people_count_agreement
+not_measured_probe	people_stores_reconcile
