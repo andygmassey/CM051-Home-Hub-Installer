@@ -300,6 +300,164 @@ assert_detection_capability() {
     probe_note "detection proved: planted socket on :${port} observed by this run's own sampler"
 }
 
+# ---------------------------------------------------------------------------
+# DECLARED-LEDGER ATTRIBUTION on the walk path (#1145).
+#
+# Until this existed, a walk consulted ONLY the local-network boundary, so a
+# destination egress_hosts.tsv DECLARES was reported exactly like one nobody
+# had ever declared. The --inventory mode below has always resolved the ledger
+# and the live DERP map; the walk simply never called it.
+#
+# MEASURED on the v1.0.52 clean-machine walk, 2026-08-30: all three flagged
+# addresses were tailscaled -- two controlplane.tailscale.com, one DERP relay.
+# The probe failed on infrastructure the ledger names, in rows it never opened.
+# The comment this replaces had already PREDICTED that exact result on
+# 2026-08-27 and the probe went on failing for three days anyway.
+#
+# THE FIX IS NOT AN EXCLUSION BY NAME. attribution_of() above defends the
+# invariant that nothing is excluded by name, and that invariant is why this
+# probe is worth having; adding a tailscaled arm would have quietly destroyed
+# it. What follows consults the SAME declaration on the SAME contemporaneous
+# basis --inventory uses: resolve the declared hosts ON THE BOX, in the same
+# remote call, plus the DERP map the client itself fetched.
+#
+# THREE OUTCOMES, NOT TWO. "Undeclared" and "could not check the declaration"
+# are different findings and must never print the same string. A destination
+# that fails to attribute while the apparatus was healthy is a FAIL. One that
+# fails to attribute while the ledger was unreadable, DNS was down, or the
+# DERP map did not parse is a CANNOT-RUN -- it is not evidence of anything.
+# A ledger consult that degrades to "clean" when it cannot read the ledger is
+# strictly worse than not consulting one at all, because it launders a blind
+# spot into a pass.
+# ---------------------------------------------------------------------------
+DECLARED_RESOLVED=""      # HOST\t<host>\t<ip>, resolved on the box
+DECLARED_DERPS=""         # DERP\t<name>\t<ip>, from the live map
+DECLARED_STATUS=""        # "ok", or the reason attribution could not be done
+DECLARED_DERP_OK=0        # 1 only when the DERP map actually parsed
+DECLARED_TOTAL_N=0        # ledger rows read
+DECLARED_EXCLUDED_N=0     # rows set aside as not-a-resolvable-hostname
+
+load_declared_map() {
+    local all_rows resolvable excluded n_all n_res n_exc hosts_b64 joint
+    HOSTS_FILE="${HOSTS_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/egress_hosts.tsv}"
+
+    if [ ! -f "$HOSTS_FILE" ]; then
+        DECLARED_STATUS="no declared-host ledger at '${HOSTS_FILE}'"
+        return 1
+    fi
+
+    all_rows="$(grep -vE '^[[:space:]]*(#|$)' "$HOSTS_FILE" | cut -f1)"
+    n_all="$(printf '%s\n' "$all_rows" | grep -c . || true)"
+
+    # NOT EVERY LEDGER ROW IS A RESOLVABLE HOSTNAME, and treating them alike
+    # is what broke this. MEASURED 2026-08-30: of 46 rows, two are not
+    # hostnames -- a glob (the DERP relay family, which the live map below
+    # covers properly) and a placeholder standing for the enrichment agent's
+    # unbounded destination. The old code interpolated all 46 straight into a
+    # remote `for h in ...` loop; the remote login shell is zsh, it read the
+    # placeholder's angle bracket as a REDIRECTION, and the whole command died
+    # with a parse error at line 2. Every one of the 46 resolutions was lost
+    # and the caller saw a uniform zero -- which is exactly the shape that
+    # reads as "nothing is declared" rather than "the command never ran".
+    #
+    # Two consequences, and the second matters more than the first:
+    #   1. Filter to rows that are actually resolvable, and SAY how many were
+    #      set aside, so the denominator is visible rather than implied.
+    #   2. The unbounded placeholder MUST NEVER attribute anything. A ledger
+    #      row that matches every destination would turn this probe into a
+    #      rubber stamp -- the single worst outcome available to it. It is
+    #      excluded here by shape, not by name.
+    resolvable="$(printf '%s\n' "$all_rows" | grep -E '^[A-Za-z0-9._-]+$' || true)"
+    excluded="$(printf '%s\n' "$all_rows" | grep -vE '^[A-Za-z0-9._-]+$' || true)"
+    n_res="$(printf '%s\n' "$resolvable" | grep -c . || true)"
+    n_exc="$(printf '%s\n' "$excluded" | grep -c . || true)"
+    DECLARED_EXCLUDED_N="$n_exc"
+    DECLARED_TOTAL_N="$n_all"
+
+    if [ "${n_res:-0}" -eq 0 ]; then
+        DECLARED_STATUS="the ledger at '${HOSTS_FILE}' has ${n_all} row(s) but none is a resolvable hostname"
+        return 1
+    fi
+
+    # THE HOST LIST NEVER TOUCHES A SHELL PARSER AGAIN. base64 is inert: its
+    # alphabet cannot contain a redirection, a glob, a quote or a command
+    # substitution, so no ledger row -- however it is edited later -- can
+    # break the command or inject into it. python3 is already a hard
+    # requirement of this probe (the sampler uses it), and getaddrinfo needs
+    # no external resolver binary.
+    hosts_b64="$(printf '%s\n' "$resolvable" | base64 | tr -d '\n')"
+
+    # ONE remote call: the DERP map and every declared-host resolution in the
+    # same instant as the socket read. A resolution taken minutes later is a
+    # different measurement -- CDN and anycast addresses move, and a stale
+    # answer would attribute the wrong thing or fail to attribute the right one.
+    joint="$(box_run "
+        curl -fsS --max-time 8 https://controlplane.tailscale.com/derpmap/default 2>/dev/null \
+          | python3 -c \"
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(0)
+for rid,r in (d.get('Regions') or {}).items():
+    for n in (r.get('Nodes') or []):
+        ip=n.get('IPv4')
+        if ip: print('DERP\\t%s\\t%s' % (n.get('HostName') or 'derp', ip))
+\" 2>/dev/null
+        python3 -c \"
+import base64, socket
+for h in base64.b64decode('${hosts_b64}').decode('utf-8').split():
+    try:
+        seen=set()
+        for info in socket.getaddrinfo(h, None, socket.AF_INET):
+            ip=info[4][0]
+            if ip not in seen:
+                seen.add(ip)
+                print('HOST\\t%s\\t%s' % (h, ip))
+    except Exception:
+        pass
+\" 2>/dev/null
+    ")"
+
+    DECLARED_RESOLVED="$(printf '%s\n' "$joint" | grep '^HOST	' || true)"
+    DECLARED_DERPS="$(printf '%s\n' "$joint" | grep '^DERP	' || true)"
+    # An if-block, not `[ -n ... ] && VAR=1`: as the last statement before a
+    # return the && form yields the test's exit status, so an empty DERP map
+    # would make this function report failure for a condition it tolerates.
+    if [ -n "$DECLARED_DERPS" ]; then
+        DECLARED_DERP_OK=1
+    fi
+
+    # A ledger that resolved to NOTHING is a broken instrument, not an empty
+    # declaration: the file names real public hosts, so zero resolutions means
+    # DNS did not work where the sampler runs. Comparing against an empty set
+    # would mark every destination undeclared -- a uniform accusation, which is
+    # the same shape of lie as a uniform zero.
+    if [ -z "$DECLARED_RESOLVED" ]; then
+        DECLARED_STATUS="the box resolved NONE of the ${n_res} resolvable declared hosts (of ${n_all} ledger rows), so there was nothing to compare against. That is a broken resolver or a broken command, not an empty ledger -- a uniform zero across hosts this file says are real public names cannot be a true reading."
+        return 1
+    fi
+
+    DECLARED_STATUS=ok
+    return 0
+}
+
+# $1 = bare ip. Prints "<label>\t<purpose>" and returns 0 when the address is
+# declared or is a live relay; returns 1 when it is not.
+declared_attribution_for() {
+    local ip="$1" host derp purpose
+    host="$(printf '%s\n' "$DECLARED_RESOLVED" | awk -F'\t' -v ip="$ip" '$3==ip {print $2; exit}')"
+    if [ -n "$host" ]; then
+        purpose="$(grep -E "^${host}	" "$HOSTS_FILE" | cut -f2 | head -1)"
+        printf '%s\t%s\n' "$host" "${purpose:-declared, no purpose recorded}"
+        return 0
+    fi
+    derp="$(printf '%s\n' "$DECLARED_DERPS" | awk -F'\t' -v ip="$ip" '$3==ip {print $2; exit}')"
+    if [ -n "$derp" ]; then
+        printf '%s\ttailnet: encrypted relay when no direct path exists (live DERP map, served not declarable)\n' "$derp"
+        return 0
+    fi
+    return 1
+}
+
 run_probe() {
     if ! box_reachable; then
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; nothing inspected"
@@ -312,14 +470,20 @@ run_probe() {
 
     probe_note "boundary policy : ${OSTLER_EGRESS_ALLOWED_RE}"
     # SAY WHICH BOUNDARY. The regex above is the LOCAL-NETWORK boundary --
-    # loopback, RFC1918, link-local, CGNAT. It is the only thing consulted on
-    # this path. egress_hosts.tsv, the contemporaneous dig loop and the live
-    # DERP map are all read by self_test() and by nothing else, so on a walk a
-    # destination the ledger DECLARES is reported exactly like one it does not.
-    # Measured 2026-08-27: two of three flagged addresses were
-    # controlplane.tailscale.com (ledger rows 30/54) and a DERP relay
-    # (derp20c.tailscale.com). See #1145.
-    probe_note "ledger          : NOT consulted on this path -- ${HOSTS_FILE:-egress_hosts.tsv} and the DERP map are read only by self_test (#1145)"
+    # loopback, RFC1918, link-local, CGNAT. Crossing it is not by itself a
+    # finding: the ledger below says which crossings are declared. Before
+    # #1145 that second question was never asked on this path.
+    load_declared_map || true
+    if [ "$DECLARED_STATUS" = ok ]; then
+        probe_note "ledger          : ${HOSTS_FILE} -- ${DECLARED_TOTAL_N} row(s), ${DECLARED_EXCLUDED_N} set aside as not-a-resolvable-hostname (globs and the unbounded-destination placeholder, which must never attribute anything)"
+        probe_note "                  $(printf '%s\n' "$DECLARED_RESOLVED" | grep -c .) addresses resolved; DERP map $( [ "$DECLARED_DERP_OK" = 1 ] && printf '%s node(s), fetched live' "$(printf '%s\n' "$DECLARED_DERPS" | grep -c .)" || printf 'UNAVAILABLE (relays cannot be attributed this run)' )"
+        probe_note "                  NOT PROOF: a shared CDN address serves many tenants, so a"
+        probe_note "                  match is 'consistent with', never 'was'. Content is never read."
+    else
+        probe_note "ledger          : COULD NOT BE CONSULTED -- ${DECLARED_STATUS}"
+        probe_note "                  Any outside-boundary connection below is therefore UNCHECKED,"
+        probe_note "                  which is CANNOT-RUN and is not the same as undeclared."
+    fi
     probe_note "ours (lineage)  : ${OSTLER_OURS_PATH_RE}"
     probe_note "                  Matched against the socket-holder AND its"
     probe_note "                  ancestors. NOTHING is excluded by name."
@@ -328,6 +492,8 @@ run_probe() {
     probe_note "                  proxied requests, and all payload content."
 
     local all ours total_sockets ours_n outside
+    local declared_lines undeclared_lines unchecked_lines
+    local declared_n undeclared_n unchecked_n
     all="$(collect)"
     total_sockets="$(printf '%s' "$all" | grep -c . )"
 
@@ -383,25 +549,88 @@ run_probe() {
         probe_cannot_run "more sockets were UNATTRIBUTABLE (${unattrib_n}) than were attributable to Ostler (${ours_n}). The examined set is not a floor worth reporting: the processes that race the ps-walk are disproportionately short-lived ones like ours. Re-run when the box is quieter, or raise OSTLER_EGRESS_SAMPLES."
     fi
 
-    outside=""
-    while IFS=$'\t' read -r cmd pid remote; do
+    # THREE BUCKETS, because there are three answers. Declared: the ledger or
+    # the live relay map names this destination. Undeclared: the apparatus was
+    # healthy and still could not name it, which is the finding this probe
+    # exists to make. Unchecked: the apparatus could not answer, which proves
+    # nothing in either direction and must never be filed under either.
+    declared_lines=""; undeclared_lines=""; unchecked_lines=""
+    # READ ALL FOUR FIELDS. `ours` rows are cmd\tpid\tremote\tpath, and `read`
+    # puts every leftover field into the LAST variable named -- so reading only
+    # three leaves remote holding "1.2.3.4:443<TAB>/path/to/binary". The old
+    # code got away with that because is_outside_boundary only anchors at the
+    # start of the string. Address extraction does not: ${remote%:*} strips to
+    # the last colon, which lands inside the PATH, and the resulting "IP" then
+    # matches nothing. MEASURED 2026-08-30: that silently turned
+    # derp20c.tailscale.com -- a relay present in the live map under its own
+    # IPv4 -- into an UNDECLARED destination. A false accusation, and a worse
+    # failure than the one this whole change exists to fix, because it accuses
+    # rather than merely omits.
+    while IFS=$'\t' read -r cmd pid remote path; do
         [ -n "${remote:-}" ] || continue
-        if is_outside_boundary "$remote"; then
-            outside="${outside}    ${cmd} (pid ${pid}) -> ${remote}
+        is_outside_boundary "$remote" || continue
+        local ip attribution label purpose
+        # Shortest suffix from the end, so IPv6's own colons survive:
+        # "1.2.3.4:443" -> "1.2.3.4", "[fe80::1]:443" -> "[fe80::1]".
+        ip="${remote%:*}"
+
+        if [ "$DECLARED_STATUS" != ok ]; then
+            unchecked_lines="${unchecked_lines}    ${cmd} (pid ${pid}) -> ${remote}
+"
+            continue
+        fi
+
+        if attribution="$(declared_attribution_for "$ip")"; then
+            label="${attribution%%	*}"
+            purpose="${attribution#*	}"
+            declared_lines="${declared_lines}    ${cmd} (pid ${pid}) -> ${remote}  [${label}]
+                purpose : ${purpose}
+"
+        elif [ "$DECLARED_DERP_OK" != 1 ]; then
+            # It matched no declared host, but the relay map was unavailable,
+            # so "not a relay" was never established. Calling this undeclared
+            # would be an accusation resting on an instrument that did not run.
+            unchecked_lines="${unchecked_lines}    ${cmd} (pid ${pid}) -> ${remote}  [no declared host resolved to this address, and the DERP map was unavailable, so a relay could not be ruled out]
+"
+        else
+            undeclared_lines="${undeclared_lines}    ${cmd} (pid ${pid}) -> ${remote}  [no declared host and no live relay resolved to this address]
 "
         fi
     done <<< "$ours"
 
-    if [ -n "$outside" ]; then
-        probe_note "OUTSIDE THE BOUNDARY:"
-        printf '%s' "$outside"
-        probe_fail "$(printf '%s' "$outside" | grep -c .) attributable connection(s) to destinations outside the LOCAL-NETWORK boundary (loopback, RFC1918, link-local, CGNAT). THE DECLARED LEDGER WAS NOT CONSULTED on this path, so a destination egress_hosts.tsv declares is listed here exactly like one it does not -- do not read this list as undeclared traffic (#1145). Each one is a claim to check against the ledger by hand, a claim that needs correcting, or a defect that needs fixing; none is resolved by leaving it unreported."
+    # Count the CONNECTION lines, not every line: a declared entry emits a
+    # second "purpose :" line which also begins with spaces, so an indentation
+    # match would report double. ' -> ' appears on the connection line only.
+    declared_n="$(printf '%s' "$declared_lines" | grep -c ' -> ' || true)"
+    undeclared_n="$(printf '%s' "$undeclared_lines" | grep -c . || true)"
+    unchecked_n="$(printf '%s' "$unchecked_lines" | grep -c . || true)"
+
+    if [ "${declared_n:-0}" -gt 0 ]; then
+        probe_note "OUTSIDE THE BOUNDARY, DECLARED (${declared_n}):"
+        printf '%s' "$declared_lines"
+    fi
+    if [ "${unchecked_n:-0}" -gt 0 ]; then
+        probe_note "OUTSIDE THE BOUNDARY, UNCHECKED (${unchecked_n}):"
+        printf '%s' "$unchecked_lines"
+    fi
+    if [ "${undeclared_n:-0}" -gt 0 ]; then
+        probe_note "OUTSIDE THE BOUNDARY, UNDECLARED (${undeclared_n}):"
+        printf '%s' "$undeclared_lines"
+    fi
+
+    # UNDECLARED first: a real finding outranks an unreadable instrument, and
+    # if both are present the finding is still true.
+    if [ "${undeclared_n:-0}" -gt 0 ]; then
+        probe_fail "${undeclared_n} connection(s) attributable to Ostler reached a destination outside the LOCAL-NETWORK boundary that the declared ledger does NOT name, and that the live DERP map does not explain. ${declared_n} further outside-boundary connection(s) WERE declared and are not counted here. Each undeclared one is either a ledger that needs a row or a defect that needs fixing."
+    fi
+    if [ "${unchecked_n:-0}" -gt 0 ]; then
+        probe_cannot_run "${unchecked_n} outside-boundary connection(s) could not be checked against the declared ledger: ${DECLARED_STATUS}. This run cannot say whether they were declared or not, and a pass would be a guess. ${declared_n} other outside-boundary connection(s) did attribute cleanly."
     fi
 
     # The PASS line CARRIES the blind-spot count. A verdict that states its own
     # denominator and its own unknowns cannot be quoted as "clean" by someone
     # reading only the last line, which is how a floor gets promoted to a proof.
-    probe_pass "all ${ours_n} examined established connections were inside the LOCAL-NETWORK boundary, across ${SAMPLES} samples, with ${unattrib_n} socket(s) unattributable. This says nothing about the declared ledger, which is not consulted on this path (#1145): it means no examined connection left the local network at all. A floor, not a proof of no leak -- see the BLIND TO line above."
+    probe_pass "of ${ours_n} examined established connections across ${SAMPLES} samples, every one either stayed inside the LOCAL-NETWORK boundary or matched a destination the ledger declares (${declared_n} declared crossing(s)), with ${unattrib_n} socket(s) unattributable. Since #1145 this DOES consult ${HOSTS_FILE}, resolved on the box in the same call as the socket read. Still a floor, not a proof of no leak: a shared address serves many tenants so a match is 'consistent with' and never 'was', content is never read, and the BLIND TO line above bounds the rest."
 }
 
 # ---------------------------------------------------------------------------
