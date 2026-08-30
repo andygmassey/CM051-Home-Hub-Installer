@@ -291,6 +291,7 @@ MSG_INFO_TRIGGERING_ICLOUD_SYNC_SILENT_FIRST_RUN="Triggering iCloud sync for %s 
 MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL="      (UK GDPR Article 9 - required for special-category data)."
 MSG_INFO_UPDATING_EXISTING_PIPELINE="Updating existing pipeline..."
 MSG_INFO_USER_FACING_TREE_ALREADY_ANNOUNCED_SENTINEL="User-facing tree already announced (sentinel present); skipping"
+MSG_INFO_VANE_LARGE_DOWNLOAD_NO_PROGRESS="Downloading the local web search engine (about 3.5 GB). On a first install this is the longest step and can take up to an hour. There is no progress bar for it, so a long silence here is expected and does not mean the install has stalled."
 MSG_INFO_VANE_NOT_RESPONDING_OPTIONAL_SEE_PHASE="Vane not responding (optional; see Phase 3.8b warnings)"
 MSG_INFO_VIEW_ANY_TIME_WITH_BASH_INSTALL="View any time with: bash install.sh --licenses"
 MSG_INFO_VOICE_RECOGNITION_WILL_STAY_OFF_YOU="Voice recognition will stay off. You can enable later in Settings."
