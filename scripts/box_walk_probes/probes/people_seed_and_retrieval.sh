@@ -149,6 +149,28 @@ EMBED_TIMEOUT="${OSTLER_PROBE_EMBED_TIMEOUT:-30}"
 # or interpolates a secret value, and there is no code path on which one can
 # reach a log. The path is left unexpanded so it resolves as the BOX user under
 # ssh, exactly like TOKEN_PATH above.
+#
+# ...AND THAT UNEXPANDED FORM IS A TRAP, WHICH IT SPRANG ON THE v1.0.51 WALK.
+# The literal is safe only while every consumer expands it the same way, and two
+# consumers did not:
+#
+#   COUNT site   grep -c ... ${STORE_CURL_CONF}     UNQUOTED -> $HOME expands
+#   USE site     curl ... -K '${STORE_CURL_CONF}'   QUOTED   -> $HOME does NOT
+#
+# So the probe counted 2 header lines in a file it could read, announced "store
+# credential available", then handed curl a path containing a literal '$HOME'.
+# curl exits 26 ("error encountered when reading a file") BEFORE issuing any
+# request, %{http_code} is never written, and the probe read the resulting 000
+# as "qdrant collection 'people' missing or unreadable" -- a FAIL against the
+# product, caused entirely by a quoting difference between two lines of this
+# file. That was 1 of the 4 failures on the v1.0.51 walk record.
+#
+# Measured, with a control: single-quoted-literal -> rc=26 config unread;
+# unquoted -> rc=7 config read; absolute path -> rc=7 config read.
+#
+# THE FIX IS TO EXPAND ONCE, ON THE BOX, AND USE THE RESULT EVERYWHERE. An
+# absolute path can then be quoted safely (which the literal never could), so
+# a home directory containing a space stops being a second latent bug.
 STORE_CURL_CONF="${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-curl.conf}"
 
 # Counters. A gate that does not say what it EXAMINED cannot be told apart from
@@ -168,6 +190,8 @@ FIRST_FAILURE=""
 # no verdict line at all -- the one outcome this suite refuses to produce.
 TOKEN=""
 STORE_AUTH=""      # "conf" once the box is known to carry a store curl config
+STORE_CONF_PATH="" # STORE_CURL_CONF with $HOME expanded ON THE BOX. Every
+                   # consumer reads THIS, never the unexpanded literal.
 A_SLUG=""
 A_REAL_SLUG=""
 A_URI=""
@@ -297,8 +321,13 @@ box_http() {
     # That is deliberate and not a silent downgrade: phase0 has already set
     # STORE_AUTH, and phase4 turns a bare 401 into CANNOT-RUN rather than
     # letting it read as a product FAIL.
+    # STORE_CONF_PATH, never STORE_CURL_CONF. The literal carries an unexpanded
+    # $HOME and single-quoting it here hands curl a path it cannot open (rc=26,
+    # no request issued, no http_code, and the caller reads 000 as the store
+    # being broken). phase0 resolves the path on the box and proves it readable
+    # before STORE_AUTH is ever set to "conf", so quoting is safe here.
     if [ "$want_auth" = "store" ] && [ "$STORE_AUTH" = "conf" ]; then
-        hdr="${hdr} -K '${STORE_CURL_CONF}'"
+        hdr="${hdr} -K '${STORE_CONF_PATH}'"
     fi
     if [ -n "$bodyfile" ]; then
         datapart="-H \"Content-Type: application/json\" --data-binary @-"
@@ -730,17 +759,52 @@ phase0_reach_box_and_token() {
     # An EXISTING file with ZERO header lines is the dangerous middle case: it
     # looks present, presents nothing, and would 401 exactly like the bare
     # request this fix exists to stop. It is treated as absent.
-    _sc_hdrs="$(box_exec "/usr/bin/grep -c '^header = ' ${STORE_CURL_CONF} 2>/dev/null" 2>/dev/null | tr -d '\r\n ')"
-    case "$_sc_hdrs" in
-        ''|*[!0-9]*) _sc_hdrs=0 ;;
+    # STEP 1. Expand $HOME on the box, once. Double quotes on the REMOTE side so
+    # a home directory containing a space survives; the local single quotes stop
+    # this shell expanding anything.
+    STORE_CONF_PATH="$(box_exec "printf '%s' \"${STORE_CURL_CONF}\"" 2>/dev/null | tr -d '\r\n')"
+
+    # A resolved path carrying a single quote cannot be safely inlined into the
+    # command string box_http builds. Same guard, same reason, as TOKEN above.
+    case "$STORE_CONF_PATH" in
+        *"'"*) STORE_CONF_PATH="" ;;
     esac
+
+    # STEP 2. THE CONTROL PAIR, and it exists because a mis-expanded path is
+    # EXACTLY what shipped. These two must disagree, or the expansion did
+    # nothing and the -K argument is about to be unreadable again:
+    #
+    #   MUST-HIT   the resolved path is readable on the box
+    #   MUST-MISS  the UNEXPANDED literal is NOT readable
+    #
+    # If must-miss ever hits, some box really does own a directory called
+    # '$HOME' and the whole premise needs re-reading rather than trusting.
+    _sc_hit=""; _sc_miss=""
+    if [ -n "$STORE_CONF_PATH" ]; then
+        _sc_hit="$(box_exec "[ -r '${STORE_CONF_PATH}' ] && printf yes || printf no" 2>/dev/null | tr -d '\r\n ')"
+        _sc_miss="$(box_exec "[ -r '${STORE_CURL_CONF}' ] && printf yes || printf no" 2>/dev/null | tr -d '\r\n ')"
+    fi
+
+    _sc_hdrs=0
+    if [ "$_sc_hit" = "yes" ]; then
+        _sc_hdrs="$(box_exec "/usr/bin/grep -c '^header = ' '${STORE_CONF_PATH}'" 2>/dev/null | tr -d '\r\n ')"
+        case "$_sc_hdrs" in
+            ''|*[!0-9]*) _sc_hdrs=0 ;;
+        esac
+    fi
+
+    if [ "$_sc_miss" = "yes" ]; then
+        note "CONTROL ANOMALY: the unexpanded literal '${STORE_CURL_CONF}' is itself readable on ${BOX_LABEL}. The must-miss control HIT, so the two paths are not distinguishable and this credential's provenance is not established."
+    fi
+
     if [ "$_sc_hdrs" -gt 0 ]; then
         STORE_AUTH="conf"
-        CONTROLS_RUN=$((CONTROLS_RUN + 1))
-        pass "store credential available: ${STORE_CURL_CONF} carries ${_sc_hdrs} header line(s), presented to curl via -K (never read here)"
+        CONTROLS_RUN=$((CONTROLS_RUN + 2))
+        pass "store credential available: ${STORE_CONF_PATH} carries ${_sc_hdrs} header line(s), presented to curl via -K (never read here)"
+        pass "credential path controls: resolved path readable=yes, unexpanded literal readable=${_sc_miss:-no} -- so -K receives a path curl can actually open"
     else
         STORE_AUTH=""
-        note "no usable store curl config at ${STORE_CURL_CONF} on ${BOX_LABEL} (${_sc_hdrs} header lines); Qdrant legs will report CANNOT-RUN rather than blaming the product"
+        note "no usable store curl config on ${BOX_LABEL}: literal='${STORE_CURL_CONF}' resolved='${STORE_CONF_PATH:-<unresolved>}' readable='${_sc_hit:-no}' header-lines=${_sc_hdrs}; Qdrant legs will report CANNOT-RUN rather than blaming the product"
     fi
     echo ""
 }
@@ -930,9 +994,9 @@ phase4_leg_b() {
     # refuses is a real install defect, and must not hide behind CANNOT-RUN.
     if [ "$code" = "401" ] || [ "$code" = "403" ]; then
         if [ "$STORE_AUTH" = "conf" ]; then
-            fail "qdrant returned HTTP ${code} to collection '${COLLECTION}' WITH the install's own store credential presented (-K ${STORE_CURL_CONF}) -- the credential on disk is not the one the store honours"
+            fail "qdrant returned HTTP ${code} to collection '${COLLECTION}' WITH the install's own store credential presented (-K ${STORE_CONF_PATH}) -- the credential on disk is not the one the store honours"
         else
-            verdict_cannot_run "qdrant requires auth (HTTP ${code} on collection '${COLLECTION}') and this run had no store credential to present: ${STORE_CURL_CONF} carried no header lines. Store auth has been ENFORCED since #550/#1222, so a keyless probe cannot see the collection whether or not it exists. NOTHING about people retrieval was measured -- this is not evidence the collection is missing."
+            verdict_cannot_run "qdrant requires auth (HTTP ${code} on collection '${COLLECTION}') and this run had no store credential to present: ${STORE_CONF_PATH:-${STORE_CURL_CONF} (unresolved)} carried no header lines. Store auth has been ENFORCED since #550/#1222, so a keyless probe cannot see the collection whether or not it exists. NOTHING about people retrieval was measured -- this is not evidence the collection is missing."
         fi
     elif [ "$code" = "200" ] && [ "$VEC_NAME" != "ERR" ] && [ "${VEC_SIZE:-0}" -gt 0 ] 2>/dev/null; then
         pass "qdrant collection '${COLLECTION}' present (vector=${VEC_NAME}, size=${VEC_SIZE})"

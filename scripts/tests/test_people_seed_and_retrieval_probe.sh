@@ -304,7 +304,8 @@ class Handler(BaseHTTPRequestHandler):
             #
             # Both modes answer 401. They differ only in whether the probe was
             # given a curl config to present, which is set by the harness.
-            if MODE in ("qdrant_401", "qdrant_401_credentialled"):
+            if MODE in ("qdrant_401", "qdrant_401_credentialled",
+                        "qdrant_401_cred_unexpanded"):
                 self._send(401, {"status": {"error": "Unauthorized"}})
                 return
             self._send(200, {"result": {"config": {"params": {"vectors": {
@@ -612,6 +613,59 @@ STORE_CONF="$_present_conf" \
     run_case qdrant_401_credentialled 1 \
     "RED: qdrant 401s WITH a credential presented -- a wrong key is a real defect (exit 1, NOT 78)"
 unset STORE_CONF
+
+# THE ARM THAT WAS MISSING, AND ITS ABSENCE COST THE v1.0.51 WALK A FALSE FAIL.
+#
+# Every case above hands the probe an ALREADY-ABSOLUTE path (${WORK}/...), so
+# no case ever exercised the expansion -- and the shipping default is not
+# absolute, it is the literal string '$HOME/.ostler/secrets/store-curl.conf'.
+# The probe counted header lines with the path UNQUOTED (so $HOME expanded and
+# the count succeeded) and then handed curl the path SINGLE-QUOTED (so $HOME
+# did not expand, curl exited 26 without issuing a request, and %{http_code}
+# came back 000). The probe read that 000 as "qdrant collection 'people'
+# missing or unreadable" and FAILED the product.
+#
+# THE FIXTURE ENCODED THE SHAPE THE CODE HANDLED. An absolute path is immune to
+# the defect, so 16 green scenarios said nothing about the one path that ships.
+#
+# This case passes an UNEXPANDED variable reference and requires exit 1: the
+# probe must resolve it, present the credential, and call a refusal a defect.
+# If the expansion regresses, phase0 cannot read the file, STORE_AUTH is never
+# set, and the same scenario returns 78 -- so 1-vs-78 is the discriminator.
+#
+# $HOME is deliberately NOT used: the operator may have a real Ostler install
+# and the suite must never present a real credential. A dedicated variable
+# keeps the test inside WORK, per the note on store_conf above.
+export OSTLER_TEST_CONF_DIR="$WORK"
+STORE_CONF='$OSTLER_TEST_CONF_DIR/store-curl-present.conf' \
+    run_case qdrant_401_cred_unexpanded 1 \
+    "RED: the conf path arrives UNEXPANDED and must still be presented (exit 1)"
+unset STORE_CONF
+
+# THE EXIT CODE ALONE DOES NOT DISCRIMINATE, AND THE FIRST DRAFT OF THIS ARM
+# DID NOT NOTICE. Both outcomes exit 1:
+#
+#   presented + refused   -> HTTP 401 -> fail(... WITH the credential ...)   1
+#   never presented       -> curl 26  -> HTTP 000 -> fail(... missing ...)   1
+#
+# The second is the defect, and it wears the first's exit code. Caught by
+# mutation-testing this very arm: reinstating the old quoting left it GREEN.
+# So the assertion has to be on the REASON. Must-hit 401, must-miss 000.
+_unexp_out="${WORK}/out.qdrant_401_cred_unexpanded"
+if [ ! -s "$_unexp_out" ]; then
+    echo "FAIL [qdrant_401_cred_unexpanded/reason] no output captured -- nothing was adjudicated"
+    FAILS=$((FAILS + 1))
+elif grep -q 'HTTP 000' "$_unexp_out"; then
+    echo "FAIL [qdrant_401_cred_unexpanded/reason] HTTP 000: curl never issued the request, so the conf path reached it UNEXPANDED"
+    FAILS=$((FAILS + 1))
+elif ! grep -q 'HTTP 401' "$_unexp_out"; then
+    echo "FAIL [qdrant_401_cred_unexpanded/reason] expected a 401 refusal of a PRESENTED credential; found neither 401 nor 000"
+    FAILS=$((FAILS + 1))
+else
+    echo "PASS [qdrant_401_cred_unexpanded/reason] 401 present, 000 absent -- the unexpanded path was resolved and the credential really was presented"
+    PASSES=$((PASSES + 1))
+fi
+
 run_case qdrant_401       78   "CANNOT-RUN: qdrant 401s and the probe had no credential -- nothing measured, so the product is NOT accused (exit 78)"
 run_case search_empty     fail "RED: fallback route returns nothing for a seeded person"
 run_case leak             fail "RED: cleanup accepted but the fixture is still retrievable"
@@ -653,15 +707,15 @@ echo ""
 # scenarios=13 out of 12, and a harness failure adds neither. Print the
 # denominator that was actually driven, plus every bucket, so a run that
 # examined less than it should cannot read as a clean one.
-echo "EXAMINED: scenarios=${CASES}/16 passed=${PASSES} failed=${FAILS} harness_failures=${HARNESS_FAILS} selftest=${SELFTEST}"
+echo "EXAMINED: scenarios=${CASES}/17 passed=${PASSES} failed=${FAILS} harness_failures=${HARNESS_FAILS} selftest=${SELFTEST}"
 if [ "$HARNESS_FAILS" -gt 0 ]; then
     echo "test_people_seed_and_retrieval_probe: FAIL (${HARNESS_FAILS} harness failures --"
     echo "  the fake box never became ready, so the probe was never exercised on those"
     echo "  scenarios; this is NOT evidence about the probe either way)"
     exit 2
 fi
-if [ "$CASES" -ne 16 ]; then
-    echo "test_people_seed_and_retrieval_probe: FAIL (drove ${CASES} scenarios, expected 16)"
+if [ "$CASES" -ne 17 ]; then
+    echo "test_people_seed_and_retrieval_probe: FAIL (drove ${CASES} scenarios, expected 17)"
     exit 2
 fi
 if [ "$FAILS" -gt 0 ]; then
