@@ -90,12 +90,12 @@ run_probe() {
     # in plain double quotes, so it expanded in the CONTROLLER's shell and the
     # probe then listed the OPERATOR'S OWN LaunchAgents directory over ssh.
     #
-    # MEASURED 2026-08-30, first ssh-driven walk (archie3@the Studio):
-    #     "no *ostler*.plist under /Users/andy/Library/LaunchAgents"
-    # -- /Users/andy, while the box account is archie3. A PASS on 18 plists
-    # became a false CANNOT-RUN, and the record recorded coverage lost that was
-    # never lost. It was invisible for as long as the walk ran LOCALLY on the
-    # box, because there the two homes are the same directory.
+    # MEASURED 2026-08-30, on the first walk driven over ssh rather than run on
+    # the box itself: the CANNOT-RUN message named the CONTROLLER account's home
+    # directory, while the box account was a different user entirely. A PASS on
+    # 18 plists became a false CANNOT-RUN, and the record recorded coverage lost
+    # that was never lost. It was invisible for as long as the walk ran LOCALLY
+    # on the box, because there the two homes are the same directory.
     #
     # SAME CLASS AS #1284's -K path: a value expanded on the wrong side of the
     # transport. Classified across the suite the same day: 11 probes mention
