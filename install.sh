@@ -16387,14 +16387,34 @@ unset _qdrant_url _qdrant_ready _qdrant_last_status _qdrant_wait_s
 # First-pull cost: ~3.6 GB (full variant bundles SearXNG). On a
 # fresh install this is the second-largest download after the
 # Ollama conversation model -- the 60s timeout below covers the
-# image-already-pulled case; first-time pulls happen during the
-# `up -d` step's own progress output before we get here.
+# image-already-pulled case.
+#
+# ⚠️ THIS COMMENT USED TO END: "first-time pulls happen during the
+# `up -d` step's own progress output before we get here." THAT IS
+# FALSE, and it is false because of the line below it. `docker
+# compose up -d vane` is piped into `tail -3`, so docker's pull
+# progress goes into a pipe that tail holds until the command
+# EXITS. The customer sees nothing at all for the whole download,
+# then three lines at the end.
+#
+# Measured on a fresh-account install 2026-08-30: this is the
+# longest silent stretch in the entire installer. A customer with
+# no progress bar and no explanation reasonably concludes it has
+# hung, and the only honest thing we can do cheaply is SAY SO
+# BEFORE IT HAPPENS. Restoring real progress output is the better
+# fix and is a separate change: docker's pull renderer emits TTY
+# control sequences that the gui-marker parser has never been fed,
+# so that needs its own test rather than a hopeful pipe removal.
 #
 # Failure mode: warn-only. The customer keeps their working
 # wiki + assistant + graph; only the web-search tool surface
 # is unavailable until they re-run `docker compose up -d vane`.
 
 progress "Starting local web search (Vane)" "vane_install"
+
+# Warn BEFORE the pipe swallows the pull, not after. info() routes to
+# gui_log, so this reaches the installer window as well as the console.
+info "$MSG_INFO_VANE_LARGE_DOWNLOAD_NO_PROGRESS"
 
 VANE_OK=false
 if docker compose up -d vane 2>&1 | tail -3; then
