@@ -6822,7 +6822,26 @@ _ostler_write_store_curl_config() {
         _OSTLER_STORE_CURL_ARGS=()
         return 1
     fi
-    mkdir -p "${OSTLER_DIR}/secrets" 2>/dev/null || true
+    # THE DIRECTORY NEEDS ITS OWN MODE, SEPARATELY. The umask below is scoped
+    # to the subshell and governs the FILE only; this mkdir sits outside it and
+    # would otherwise take the ambient umask -- typically a 0755 directory
+    # holding a 0600 secret. No credential leaks that way, but the filenames
+    # and their existence do, and on a shared Mac that is exactly the class
+    # #549/#550 exist to close.
+    #
+    # chmod is SEPARATE from mkdir, and `mkdir -p -m 700` would fix NOTHING
+    # here. -m applies only to components mkdir actually CREATES, and this
+    # mkdir creates none on any reachable path: the function reads the token
+    # files out of secrets/ above and returns 1 when both are empty, so
+    # reaching this line PROVES the directory already exists. The mkdir is a
+    # no-op kept only as a guard; the chmod is the entire fix.
+    #
+    # The rc is no longer swallowed. The old `2>/dev/null || true` discarded
+    # both the failure and the reason for it; the write below would then fail
+    # into `|| return 2` anyway, so the only thing the suppression bought was
+    # losing the stderr that says why.
+    mkdir -p "${OSTLER_DIR}/secrets" || return 2
+    chmod 700 "${OSTLER_DIR}/secrets" || return 2
     # umask FIRST, and truncate INSIDE the subshell, so the file is never
     # briefly world-readable with a secret already in it.
     (
