@@ -164,6 +164,26 @@ jobs:
       # suite above fails and this is skipped, you cannot tell "the gate is
       # correctly refusing" from "the gate refuses everything", which is the
       # exact ambiguity the control exists to remove.
+      # ── WHAT DID THE WALKING ────────────────────────────────────────────
+      #
+      # artefact_sha256 binds what was walked. This suite binds the harness
+      # that produced the verdicts. It carries its own CONTROL (a clean
+      # record must PASS with the check silent) and its own ANTI-VACUITY arm
+      # (neutralise the record-read and the refusal must disappear), so a
+      # green here is not "the gate refuses everything".
+      #
+      # `if: always()` for the reason given at the arms above.
+      - name: A CLEAN record must identify its harness, not just its artefact
+        if: always()
+        run: |
+          set -uo pipefail
+          bash tests/test_walk_record_binds_the_harness.sh
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The anti-vacuity anchor in tests/test_walk_record_binds_the_harness.sh no longer matches scripts/verify_walk_record.sh. NOTHING about harness_commit has been proved by this run. RE-POINT THE ANCHOR, do not delete the arm -- without it, the two refusal arms are unproven."
+          fi
+          exit "$rc"
+
       - name: POSITIVE CONTROL -- the gate accepts a genuine clean record
         if: always()
         run: |
@@ -179,6 +199,15 @@ jobs:
           printf 'version_source\tmeasured(CFBundleShortVersionString, matches argument)\n' >> walks/v0.0.0-citest.tsv
           printf 'artefact_sha256\t%s\n' "$CITEST_SHA" >> walks/v0.0.0-citest.tsv
           printf 'artefact_sha256_source\tmeasured(shasum -a 256 of the citest artefact)\n' >> walks/v0.0.0-citest.tsv
+          # WHAT DID THE WALKING. This control record is CLEAN, and a CLEAN record
+          # must now identify its harness as well as its artefact -- see the
+          # harness_commit block in verify_walk_record.sh. This step FAILED when
+          # the field was first required, which is the control behaving correctly:
+          # it is the only CLEAN record in the repo, so it is the only one the
+          # CLEAN-guarded check can reach. All five real records are FAILED and
+          # were unaffected.
+          printf 'harness_commit\t%s\n' "$(git rev-parse HEAD)" >> walks/v0.0.0-citest.tsv
+          printf 'harness_commit_source\tmeasured(git rev-parse HEAD, harness paths clean)\n' >> walks/v0.0.0-citest.tsv
           printf 'walked_at\t2026-01-01T00:00:00Z\n' >> walks/v0.0.0-citest.tsv
           printf 'box_fp\tcitestcitest0000\n'    >> walks/v0.0.0-citest.tsv
           printf 'pass\t14\n'                    >> walks/v0.0.0-citest.tsv
