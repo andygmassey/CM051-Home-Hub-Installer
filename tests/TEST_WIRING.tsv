@@ -279,6 +279,7 @@ test_sensitive_artefacts_not_world_readable.sh	WIRED	.github/workflows/sensitive
 test_settling_progress_writer.sh	UNWIRED	-
 test_ship_prereqs_are_a_superset.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_shipped_compose_licence_mount.sh	WIRED	.github/workflows/licence-gate.yml
+test_shipped_compose_usage_journal_mount.sh	WIRED	.github/workflows/usage-journal-gate.yml
 test_sign_python_bundle_reports_why.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_signing_credential_guard.sh	WIRED	.github/workflows/cut.yml
 test_skills_lockdown_config.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
