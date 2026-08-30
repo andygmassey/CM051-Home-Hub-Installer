@@ -508,7 +508,8 @@ if [[ -n "$CUT_VERSION" ]]; then
         # MEASUREMENT. On walks/v1.0.50.tsv it read 7+7+6+1 = 21 = the probe
         # count, as cleanly as if all 21 had run. Twenty had. The store-port
         # probe was broken, phase 2 stepped over it, and that walk took NO
-        # store-port measurement at all -- on the question closed as #551.
+        # store-port measurement at all -- on #550, the finding this probe
+        # exists to detect. The probe names #550 five times and #551 never.
         #
         # The number that carries coverage is pass+fail+cannot_run, and it is
         # stated here rather than left to be derived, because a rising `broken`
