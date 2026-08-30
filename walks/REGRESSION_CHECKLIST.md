@@ -61,7 +61,19 @@ in the GUI section below is currently invisible to automation.
   settings" linking to "Open advanced settings". Fix in oa #369: the card is gone and
   its two controls moved onto Preferences, so nothing is lost. Do NOT tick this from
   the PR.
-- **A4** — `~/.ostler/workspace/state` is ABSENT; `~/.ostler/state` exists.
+- **A4** — 🔴 I CALLED THIS FIXED ON 2026-08-31 AND IT IS NOT. CM051 #1301 landed the mount,
+  and I let "merged" become "fixed" in a summary table. TNM refuted it before anyone acted.
+  `usage_journal_producers` asserts a ROSTER of five required producers and TWO HAVE NO
+  PRODUCER AT ALL: cm041 and cm048. Measured at each repo's origin/main with live controls,
+  so the zeros are real (CM041 @507deebc and CM048 @fd876519: costs.jsonl 0, usage_journal 0,
+  record_usage 0, against import controls of 178 and 87 files). Both repos CALL MODELS
+  (ollama in 30 and 31 files), so they spend real model time and meter none of it — which is
+  why the probe is CORRECTLY RED and not a roster that overreaches. Demoting those rows to
+  `dormant` to buy a green is LAUNDERING and is refused; the floor lives in a separate file
+  precisely so shrinking the roster costs two edits. **This row is the proof that the rule at
+  the top of this file binds its own author.**
+  The original measurement stands underneath it:
+  `~/.ostler/workspace/state` is ABSENT; `~/.ostler/state` exists.
   Control fired: 53,103 files under `~/.ostler`, 463 `*.json`, **0** `*.jsonl`.
   Two state directories; the journal writes to the one never created. This is
   #325 (OSTLER_HOME carries two meanings) surfacing as real data loss.
