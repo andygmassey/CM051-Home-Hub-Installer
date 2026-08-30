@@ -134,9 +134,18 @@ final class AdminPromptFinderPreAnnounceTests: XCTestCase {
             """
         )
 
-        // Naming Finder is not enough on its own -- a string could
+        // It is not enough to name Finder on its own -- a string could
         // mention Finder and still leave the documents-and-data
         // accusation unanswered. The copy has to actually rebut it.
+        //
+        // (This comment is worded to avoid a capitalised word landing
+        // directly before "Finder": the whole-tree person-name guard
+        // reads that shape as a first-name/surname PAIR. The earlier
+        // wording, a gerund followed by the product name, was a real
+        // BLOCK on this very PR. Same class as the registry's
+        // verb-before-product-name entries -- and rewording is the
+        // right fix, because widening a denylist to accommodate one's
+        // own prose degrades it for every future leak.)
         let lower = reassurance.lowercased()
         XCTAssertTrue(
             lower.contains("does not read your files")
