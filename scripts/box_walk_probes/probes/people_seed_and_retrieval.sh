@@ -344,6 +344,44 @@ box_http() {
     http_code_of "$outfile" >/dev/null
 }
 
+# ---------------------------------------------------------------------------
+# 000 IS NOT A STATUS, AND EVERY SITE HAS TO KNOW THAT -- NOT JUST PHASE 0.
+#
+# `000` is what http_code_of prints when curl produced no status line at all:
+# refused connection, DNS failure, timeout, an intercepting proxy, or a bad
+# curl argument. It is the transport saying "I never got an answer". It is not
+# an HTTP response and it is not evidence about the product.
+#
+# phase0 has known this since #566 and turns 000 into CANNOT-RUN naming the
+# unanswered URL. NO OTHER SITE IN THIS FILE DID. Every one of them compared
+# the code against the value it wanted, missed, and fell into a terminal
+# `else` that names a product capability as broken.
+#
+# #1284 IS THE PROOF, AND IT IS WHY THIS EXISTS. An unreadable -K config made
+# curl exit 26 without issuing a request; leg B read the resulting 000 and
+# reported "qdrant collection 'people' missing or unreadable -- semantic
+# people search cannot work on this install". #1284 removed THAT 000. It did
+# nothing about the next one: colima paused, the VM restarting, --max-time
+# expiring, any future curl argument error. Each still becomes a product
+# accusation in a durable walk record. @TNM named the shape 2026-08-30.
+#
+# CONTROL THAT THE MECHANISM WAS AVAILABLE ALL ALONG: 401 is special-cased in
+# this file 23 times. Singling out a code was never the hard part.
+#
+# DELIBERATELY NOT APPLIED IN PHASE 5. By cleanup time a fixture may already
+# be in the graph, and exiting CANNOT-RUN there would drop the "probe leaked a
+# fixture" warning on the floor. A cleanup that cannot reach the box must stay
+# loud, so those sites keep their existing arms.
+guard_transport() {
+    # guard_transport <code> <url> <what-was-being-measured>
+    # Exits CANNOT-RUN when curl never got an answer; returns 0 otherwise, so
+    # it is safe as a bare statement even if this file ever gains `set -e`.
+    if [ "$1" = "000" ]; then
+        verdict_cannot_run "no HTTP response from ${2} on ${BOX_LABEL} -- curl reported no answer at all, which is a TRANSPORT failure (refused, timed out, proxied, or a bad curl argument), not a status. ${3} was NOT measured, so nothing here is evidence about the product."
+    fi
+    return 0
+}
+
 # Split a box_http output file into <file>.body and echo the HTTP code.
 http_code_of() {
     python3 - "$1" <<'PY'
@@ -824,6 +862,7 @@ phase1_positive_controls() {
     out="${TMP}/noauth.out"
     box_http GET "${API_BASE}/api/v1/people/context?name=control" noauth "$out"
     code="$(http_code_of "$out")"; CONTROLS_RUN=$((CONTROLS_RUN + 1))
+    guard_transport "$code" "${API_BASE}/api/v1/people/context" "C2, whether auth is enforced on the route under test,"
     if [ "$code" = "401" ]; then
         pass "C2 unauthenticated /people/context refused (HTTP 401) -- the token is load-bearing"
     else
@@ -836,6 +875,11 @@ phase1_positive_controls() {
     out="${TMP}/nonsense.out"
     box_http GET "${API_BASE}/api/v1/people/context-no-such-route-probe" auth "$out"
     code="$(http_code_of "$out")"; CONTROLS_RUN=$((CONTROLS_RUN + 1))
+    # C3 needs this MORE than the others, not less: with no answer at all the
+    # payload trivially "does not satisfy the predicate" and the control would
+    # PASS having discriminated nothing -- a control passing for a reason its
+    # subject could never supply.
+    guard_transport "$code" "${API_BASE}/api/v1/people/context-no-such-route-probe" "C3, whether the predicate can discriminate a nonsense route,"
     looks_valid="$(judge_people_payload_shape "${out}.body")"
     if [ "$looks_valid" = "no" ]; then
         pass "C3 nonsense route does not satisfy the predicate (HTTP ${code}) -- a blanket 200 cannot fake a pass"
@@ -848,6 +892,7 @@ phase1_positive_controls() {
     out="${TMP}/deep.out"
     box_http GET "${API_BASE}/health?detailed=1" auth "$out"
     code="$(http_code_of "$out")"; CONTROLS_RUN=$((CONTROLS_RUN + 1))
+    guard_transport "$code" "${API_BASE}/health?detailed=1" "C4, whether the stores are up,"
     deps="$(judge_dep_health "${out}.body")"
     case "$deps" in
         ok:*) pass "C4 dependency health reports every store up (${deps#ok:} checks, HTTP ${code})" ;;
@@ -889,6 +934,7 @@ PY
     box_http POST "${API_BASE}/api/v1/memory/assert" auth "$out" "$req"
     code="$(http_code_of "$out")"
     ASSERTIONS=$((ASSERTIONS + 1))
+    guard_transport "$code" "${API_BASE}/api/v1/memory/assert" "LEG A seeding"
     seed_info="$(judge_seed "${out}.body" "$code")"
     SEED_STATUS="$(printf '%s' "$seed_info" | cut -d'|' -f1)"
     A_REAL_SLUG="$(printf '%s' "$seed_info" | cut -d'|' -f2)"
@@ -906,6 +952,7 @@ PY
         box_http GET "${API_BASE}/api/v1/people/context?name=${q}" auth "$out"
         code="$(http_code_of "$out")"
         QUERIES=$((QUERIES + 1)); ASSERTIONS=$((ASSERTIONS + 1))
+        guard_transport "$code" "${API_BASE}/api/v1/people/context" "LEG A retrieval of the seeded person"
         verdict="$(judge_context "${out}.body" "$code" "$A_NAME" "$A_URI")"
         st="$(printf '%s' "$verdict" | cut -d'|' -f1)"
         n="$(printf '%s' "$verdict" | cut -d'|' -f2)"
@@ -937,6 +984,9 @@ phase3_absence() {
     box_http GET "${API_BASE}/api/v1/people/context?name=${q}" auth "$out"
     code="$(http_code_of "$out")"
     QUERIES=$((QUERIES + 1)); ASSERTIONS=$((ASSERTIONS + 1))
+    # An ABSENCE assertion is the one that must never run on a dead transport:
+    # "nothing came back" is exactly what a refused connection looks like.
+    guard_transport "$code" "${API_BASE}/api/v1/people/context" "the never-seeded absence control"
     abs="$(judge_absence "${out}.body" "$code")"
     abs_st="$(printf '%s' "$abs" | cut -d'|' -f1)"
     abs_msg="$(printf '%s' "$abs" | cut -d'|' -f2-)"
@@ -977,6 +1027,10 @@ phase4_leg_b() {
     out="${TMP}/coll.out"
     box_http GET "${QDRANT_BASE}/collections/${COLLECTION}" store "$out"
     code="$(http_code_of "$out")"
+    # THE SITE THAT PRODUCED THE v1.0.51 FALSE FAIL. Without this, a 000 falls
+    # past the 401 arm and the 200 arm into the terminal else, which says
+    # "semantic people search cannot work on this install".
+    guard_transport "$code" "${QDRANT_BASE}/collections/${COLLECTION}" "the qdrant people collection"
     spec="$(judge_vector_spec "${out}.body")"
     VEC_NAME="$(printf '%s' "$spec" | awk '{print $1}')"
     VEC_SIZE="$(printf '%s' "$spec" | awk '{print $2}')"
@@ -1016,6 +1070,7 @@ PY
         out="${TMP}/emb.out"
         box_http POST "${EMBED_BASE}/api/embed" noauth "$out" "$req" "$EMBED_TIMEOUT"
         code="$(http_code_of "$out")"
+        guard_transport "$code" "${EMBED_BASE}/api/embed" "the embedder"
         if [ "$code" != "200" ]; then
             fail "embedding call returned HTTP ${code} -- retrieval is semantic, so a dead embedder means the customer cannot find anyone"
             LEG_B_OK=0
@@ -1050,6 +1105,7 @@ PY
         out="${TMP}/up.out"
         box_http PUT "${QDRANT_BASE}/collections/${COLLECTION}/points?wait=true" store "$out" "${TMP}/up.json"
         code="$(http_code_of "$out")"
+        guard_transport "$code" "${QDRANT_BASE}/collections/${COLLECTION}/points" "the qdrant seed write"
         if [ "$code" = "200" ]; then
             SEEDED=$((SEEDED + 1))
             pass "seeded ${B_NAME} into qdrant '${COLLECTION}'"
@@ -1065,6 +1121,7 @@ PY
         box_http GET "${API_BASE}/api/v1/people/search?q=${q}" auth "$out"
         code="$(http_code_of "$out")"
         QUERIES=$((QUERIES + 1)); ASSERTIONS=$((ASSERTIONS + 1))
+        guard_transport "$code" "${API_BASE}/api/v1/people/search" "LEG B retrieval"
         v="$(judge_search "${out}.body" "$code" "$B_NAME" "$B_URI")"
         st="$(printf '%s' "$v" | cut -d'|' -f1)"
         n="$(printf '%s' "$v" | cut -d'|' -f2)"
