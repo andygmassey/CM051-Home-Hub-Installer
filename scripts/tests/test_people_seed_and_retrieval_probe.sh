@@ -534,7 +534,7 @@ run_case() {
     OSTLER_PROBE_FORCE_LOCAL=1 \
     OSTLER_SERVICE_TOKEN="probe-test-token" \
     OSTLER_PROBE_API_BASE="http://127.0.0.1:${port}/api" \
-    OSTLER_PROBE_QDRANT_BASE="http://127.0.0.1:${port}/qdrant" \
+    OSTLER_PROBE_QDRANT_BASE="${QDRANT_BASE_OVERRIDE:-http://127.0.0.1:${port}/qdrant}" \
     OSTLER_PROBE_EMBED_BASE="http://127.0.0.1:${port}/ollama" \
     OSTLER_PROBE_STORE_CURL_CONF="${store_conf}" \
         /bin/bash "$PROBE" > "$outfile" 2>&1
@@ -588,6 +588,48 @@ run_case no_auth          fail "RED: API answers without a token, so no result p
 run_case blanket_200      fail "RED: box answers every authenticated path with a valid-looking payload"
 run_case deps_down        fail "RED: dependency health reports the stores down"
 run_case no_collection    1    "RED: qdrant people collection absent on a fresh install (404 -- a REAL product defect, exit 1)"
+
+# ---------------------------------------------------------------------------
+# THE 000 CLASS -- @TNM's finding, 2026-08-30. #1284 fixed the CAUSE of one
+# 000 (an unreadable -K config). It did nothing about the CLASS: leg B had no
+# 000 branch at all, so ANY transport failure -- colima paused, VM restarting,
+# --max-time expiring, a future curl argument error -- fell into the terminal
+# else and was reported as "qdrant collection 'people' missing or unreadable
+# -- semantic people search cannot work on this install". A durable product
+# accusation, written from a request that was never answered.
+#
+# THIS PAIR IS THE WHOLE POINT, AND NEITHER HALF IS OPTIONAL:
+#
+#   MUST-HIT   dead qdrant port -> 000 -> CANNOT-RUN (78), and the output must
+#              NOT contain the accusation string.
+#   MUST-MISS  `no_collection` above -- a REAL 404 must STILL exit 1.
+#
+# Without the must-miss, a guard that swallowed every qdrant fault would pass
+# this file. That is the trap the guard itself could become.
+#
+# Port 9 is discard: reserved, never listening, so curl fails to connect and
+# writes no status. The API/embed bases stay on the live fake box, so phases
+# 0-3 pass normally and the run reaches leg B with everything else healthy --
+# which is what makes this a transport test rather than a dead-box test.
+QDRANT_BASE_OVERRIDE="http://127.0.0.1:9/qdrant" \
+    run_case qdrant_transport_dead 78 \
+    "CANNOT-RUN: qdrant refuses the connection so curl returns no status (000) -- a transport failure is not evidence the collection is missing (exit 78, NOT 1)"
+unset QDRANT_BASE_OVERRIDE
+
+_dead_out="${WORK}/out.qdrant_transport_dead"
+if [ ! -s "$_dead_out" ]; then
+    echo "FAIL [qdrant_transport_dead/reason] no output captured -- nothing was adjudicated"
+    FAILS=$((FAILS + 1))
+elif grep -q 'missing or unreadable' "$_dead_out"; then
+    echo "FAIL [qdrant_transport_dead/reason] the product accusation survived a transport failure -- the guard did not fire"
+    FAILS=$((FAILS + 1))
+elif ! grep -q 'TRANSPORT failure' "$_dead_out"; then
+    echo "FAIL [qdrant_transport_dead/reason] exited 78 but never named the cause as transport -- an unexplained CANNOT-RUN is the thing #1281 exists to stop"
+    FAILS=$((FAILS + 1))
+else
+    echo "PASS [qdrant_transport_dead/reason] named as a TRANSPORT failure, and the product accusation is absent"
+    PASSES=$((PASSES + 1))
+fi
 
 # ---- #574: 401 is not 404, and CANNOT-RUN is not FAIL ---------------------
 # The v1.0.50 walk recorded people_seed_and_retrieval as a product FAIL. It was
@@ -707,15 +749,15 @@ echo ""
 # scenarios=13 out of 12, and a harness failure adds neither. Print the
 # denominator that was actually driven, plus every bucket, so a run that
 # examined less than it should cannot read as a clean one.
-echo "EXAMINED: scenarios=${CASES}/17 passed=${PASSES} failed=${FAILS} harness_failures=${HARNESS_FAILS} selftest=${SELFTEST}"
+echo "EXAMINED: scenarios=${CASES}/18 passed=${PASSES} failed=${FAILS} harness_failures=${HARNESS_FAILS} selftest=${SELFTEST}"
 if [ "$HARNESS_FAILS" -gt 0 ]; then
     echo "test_people_seed_and_retrieval_probe: FAIL (${HARNESS_FAILS} harness failures --"
     echo "  the fake box never became ready, so the probe was never exercised on those"
     echo "  scenarios; this is NOT evidence about the probe either way)"
     exit 2
 fi
-if [ "$CASES" -ne 17 ]; then
-    echo "test_people_seed_and_retrieval_probe: FAIL (drove ${CASES} scenarios, expected 17)"
+if [ "$CASES" -ne 18 ]; then
+    echo "test_people_seed_and_retrieval_probe: FAIL (drove ${CASES} scenarios, expected 18)"
     exit 2
 fi
 if [ "$FAILS" -gt 0 ]; then
