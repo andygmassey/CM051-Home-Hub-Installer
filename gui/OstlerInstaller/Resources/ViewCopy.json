@@ -44,13 +44,13 @@
   "admin_access_required": {
     "heading": "Administrator access required",
     "prompt_reason": "Ostler needs administrator access to install required software and keep your Mac awake during setup.",
-    "reassurance": "Your password stays on this Mac, never sent anywhere. macOS will ask for it on the next screen.",
+    "reassurance": "Your password stays on this Mac and is never sent anywhere. macOS words the next dialog oddly: it will say Ostler wants to control Finder, and it will mention documents and data. That sentence is macOS's own, not ours. It is how macOS asks any app for an administrator password, and Ostler does not read your files through it.",
     "retry_message": "Administrator access required. Click Retry.",
     "continue_button": "Continue and enter your password",
     "retry_button": "Retry",
     "quit_button": "Quit installer",
     "osascript_prompt": "Ostler Installer needs administrator access to install required software and keep your Mac awake during setup.",
-    "requesting_status": "Requesting administrator access. A macOS password dialog will appear in a moment."
+    "requesting_status": "Requesting administrator access. The macOS dialog mentions controlling Finder; that is its wording for a password request, not a request for your files."
   },
 
   "install_cancelled": {
