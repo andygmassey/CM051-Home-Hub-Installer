@@ -82,6 +82,58 @@ OXIGRAPH_URL="${OSTLER_OXIGRAPH_URL:-http://127.0.0.1:7878/query}"
 DOCTOR_PEOPLE_URL="${OSTLER_DOCTOR_PEOPLE_URL:-http://127.0.0.1:8089/api/v1/hydration/status}"
 TOLERANCE_PCT="${OSTLER_PEOPLE_TOLERANCE_PCT:-2}"
 
+# STORE CREDENTIAL for the OXIGRAPH surface only (the Doctor surface at :8089 is
+# a different auth and is left untouched). Oxigraph 401s to a keyless request on
+# every enforce-ON install (#550/#1222); count_oxigraph used to read that 401 as
+# UNAVAILABLE, which then adjudicated as INSUFFICIENT ("1 of 2 surfaces
+# readable") -- true but silent about WHY. It now presents the install's -K
+# config (STORE_CONF_PATH, $HOME-expanded on the box, never the literal
+# STORE_CURL_CONF -- that is the #1284 bug) and names the auth/transport reason.
+STORE_CURL_CONF="${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-curl.conf}"
+STORE_CONF_PATH=""
+STORE_AUTH=""
+_OX_CODE_FILE=""
+
+_store_resolve() {
+    STORE_CONF_PATH="$(box_run "printf '%s' \"${STORE_CURL_CONF}\"" | tr -d '\r\n')"
+    local _h
+    _h="$(box_run "/usr/bin/grep -c '^header = ' '${STORE_CONF_PATH}' 2>/dev/null" | tr -d '\r\n ')"
+    case "$_h" in ''|*[!0-9]*) _h=0 ;; esac
+    if [ "$_h" -gt 0 ]; then STORE_AUTH="conf"; else STORE_AUTH=""; fi
+}
+
+# Query Oxigraph with the store credential; record the HTTP code in
+# $_OX_CODE_FILE for the MAIN shell to adjudicate (this runs inside $()); echo
+# the body. STORE_CONF_PATH is already $HOME-expanded so single-quoting the -K
+# path is safe (the #1284 correction).
+_ox_curl() {
+    local _q="$1" _k="" _out
+    [ "$STORE_AUTH" = "conf" ] && _k="-K '${STORE_CONF_PATH}'"
+    _out="$(box_run "curl -sS --noproxy '*' -m 10 -G ${_k} '$OXIGRAPH_URL' --data-urlencode 'query=${_q}' -H 'Accept: application/sparql-results+json' -w '\n%{http_code}'")"
+    printf '%s\n' "$_out" | tail -n1 > "$_OX_CODE_FILE" 2>/dev/null
+    printf '%s' "$_out" | sed '$d'
+}
+
+# Adjudicate the oxigraph transport/auth outcome. MAIN shell only (it exits).
+_ox_adjudicate() {
+    local _what="$1" _code
+    _code="$(cat "$_OX_CODE_FILE" 2>/dev/null | tr -d '\r\n ')"
+    case "$_code" in
+        401|403)
+            probe_examined 0 "people-count surfaces"
+            if [ "$STORE_AUTH" = "conf" ]; then
+                probe_fail "Oxigraph returned HTTP ${_code} on the ${_what} WITH the install's store credential presented (-K, ${STORE_CONF_PATH}). A key the store refuses is a real fault, not a missing probe credential."
+            else
+                probe_cannot_run "Oxigraph returned HTTP ${_code} on the ${_what} and this run presented NO store credential (${STORE_CONF_PATH:-<unresolved>} carried no header lines). Store auth is ENFORCED since #550/#1222, so a keyless probe cannot read the count whether or not people exist -- the count was not measured."
+            fi
+            ;;
+        000|'')
+            probe_examined 0 "people-count surfaces"
+            probe_cannot_run "no HTTP response from ${OXIGRAPH_URL} on the ${_what} -- curl reported no status at all (refused, timed out, proxied, or a bad argument): a TRANSPORT failure, not a result. Nothing was measured."
+            ;;
+    esac
+}
+
 count_oxigraph() {
     if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_OXI:-UNAVAILABLE}"; return; fi
     local q out
@@ -105,7 +157,7 @@ count_oxigraph() {
     # the false zero to the other population. COUNT(DISTINCT ?p) makes a node
     # carrying both types count once.
     q='SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { { ?p a <https://schema.ostler.ai/ontology#Person> } UNION { ?p a <http://xmlns.com/foaf/0.1/Person> } }'
-    out="$(box_run "curl -sS -m 10 -G '$OXIGRAPH_URL' --data-urlencode 'query=$q' -H 'Accept: application/sparql-results+json' 2>/dev/null")"
+    out="$(_ox_curl "$q")"
     printf '%s' "$out" | python3 -c '
 import json,sys
 raw=sys.stdin.read().strip()
@@ -218,8 +270,15 @@ run_probe() {
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; no counts read"
     fi
 
+    _OX_CODE_FILE="$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/pca_ox_code.$$")"
+    _store_resolve
+
     local oxi doc
     oxi="$(count_oxigraph)"
+    # Name the oxigraph auth/transport reason BEFORE the count comparison, so a
+    # keyless 401 reads as "enforced, no key, not measured" and not as a vague
+    # "1 of 2 surfaces readable". Exits on 000/401.
+    _ox_adjudicate "oxigraph people count"
     doc="$(count_doctor)"
     probe_note "oxigraph SPARQL count : $oxi"
     probe_note "doctor api count      : $doc"

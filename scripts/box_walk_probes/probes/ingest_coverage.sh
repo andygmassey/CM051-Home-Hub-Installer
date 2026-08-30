@@ -75,6 +75,28 @@ PROBE_QUESTION="of the nine ingest sources, how many have landed data, and is an
 QDRANT_URL="${OSTLER_QDRANT_URL:-http://127.0.0.1:6333}"
 BASELINE_FILE="${OSTLER_INGEST_BASELINE:-${HOME}/.ostler/state/ingest_coverage_baseline.tsv}"
 
+# STORE CREDENTIAL. Qdrant answers 401 to a keyless request on every enforce-ON
+# install (#550/#1222). count_store used to query BARE and read that 401 as
+# UNAVAILABLE -> "not one of the stores answered", which cannot tell "the probe
+# brought no key" from "the store is down". So it now presents the install's own
+# -K config, exactly as people_seed_and_retrieval does (#1268/#1284/#1285).
+# STORE_CONF_PATH, never the literal STORE_CURL_CONF: the literal single-quoted
+# at a -K site carries an unexpanded $HOME, curl exits 26, no request, and the
+# caller reads 000 (#1284). STORE_CONF_PATH is $HOME expanded on the box.
+STORE_CURL_CONF="${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-curl.conf}"
+STORE_CONF_PATH=""   # STORE_CURL_CONF with $HOME expanded on the box
+STORE_AUTH=""        # "conf" once the box is proven to carry a usable config
+
+# Resolve the store curl config ON THE BOX ($HOME expands there) and decide
+# whether a usable credential exists. Called once at the top of run_probe.
+_store_resolve() {
+    STORE_CONF_PATH="$(box_run "printf '%s' \"${STORE_CURL_CONF}\"" | tr -d '\r\n')"
+    local _h
+    _h="$(box_run "/usr/bin/grep -c '^header = ' '${STORE_CONF_PATH}' 2>/dev/null" | tr -d '\r\n ')"
+    case "$_h" in ''|*[!0-9]*) _h=0 ;; esac
+    if [ "$_h" -gt 0 ]; then STORE_AUTH="conf"; else STORE_AUTH=""; fi
+}
+
 # The four stores, and which of the nine sources feed each. The mapping is the
 # reason this probe can talk about SOURCES rather than only collections.
 STORES="conversations people safari_history preferences"
@@ -99,8 +121,19 @@ count_store() {
         eval "printf '%s' \"\${$var:-UNAVAILABLE}\""
         return
     fi
-    local out
-    out="$(box_run "curl -sS -m 10 '${QDRANT_URL}/collections/${name}' 2>/dev/null")"
+    local out code khdr=""
+    [ "$STORE_AUTH" = "conf" ] && khdr="-K '${STORE_CONF_PATH}'"
+    # Present the store credential (STORE_CONF_PATH, already $HOME-expanded) and
+    # capture the HTTP code. A 401/403 and a 000 are NOT "UNAVAILABLE": they are
+    # an auth or transport fact the caller must adjudicate with the right reason,
+    # never collapse into "the store did not answer".
+    out="$(box_run "curl -sS --noproxy '*' -m 10 ${khdr} '${QDRANT_URL}/collections/${name}' -w '\n%{http_code}'")"
+    code="$(printf '%s\n' "$out" | tail -n1)"
+    out="$(printf '%s' "$out" | sed '$d')"
+    case "$code" in
+        401|403) printf 'AUTH'; return ;;
+        000|'') printf 'TRANSPORT'; return ;;
+    esac
     printf '%s' "$out" | python3 -c '
 import json,sys
 raw=sys.stdin.read().strip()
@@ -128,7 +161,10 @@ run_probe() {
         probe_cannot_run "box ${OSTLER_BOX_HOST:-<local>} is not reachable over ssh. Nothing was measured; this is not a pass."
     fi
 
+    _store_resolve
+
     local total_stores=0 reachable=0 empty=0 moved=0 flat=0
+    local auth_seen=0 transport_seen=0
     local unavailable_list="" empty_list="" flat_list="" moved_list=""
     local sources_evidenced=0
     local now
@@ -143,6 +179,12 @@ run_probe() {
     for s in $STORES; do
         total_stores=$((total_stores + 1))
         count="$(count_store "$s")"
+        # An auth or transport fact is recorded so the aggregate verdict below
+        # names the RIGHT reason; the store still counts as not-measured here.
+        case "$count" in
+            AUTH)      auth_seen=1;      count="UNAVAILABLE" ;;
+            TRANSPORT) transport_seen=1; count="UNAVAILABLE" ;;
+        esac
 
         if [ "$count" = "UNAVAILABLE" ]; then
             unavailable_list="${unavailable_list} ${s}"
@@ -198,6 +240,22 @@ run_probe() {
             || probe_note "baseline NOT written (unwritable): $BASELINE_FILE"
     elif [ "$reachable" -ne "$total_stores" ]; then
         probe_note "baseline NOT rewritten: only ${reachable} of ${total_stores} stores answered, and a partial baseline destroys the next run's deltas."
+    fi
+
+    # Transport and auth are adjudicated BEFORE the reachability verdicts below,
+    # so a keyless 401 reads as "store auth is enforced and this run brought no
+    # key" and a 000 as a transport failure -- not as "the store did not answer",
+    # which is the pre-#550 reason that conflated a missing credential with a
+    # down store.
+    if [ "$transport_seen" -eq 1 ]; then
+        probe_cannot_run "at least one store gave no HTTP response at ${QDRANT_URL} -- a transport failure (refused, timed out, proxied, or a bad curl argument), not a result. Coverage was not measured; nothing here is evidence about ingest."
+    fi
+    if [ "$auth_seen" -eq 1 ]; then
+        if [ "$STORE_AUTH" = "conf" ]; then
+            probe_fail "Qdrant returned HTTP 401/403 WITH the install's store credential presented (-K, ${STORE_CONF_PATH}) at ${QDRANT_URL}. A key the store refuses is a real fault, not a missing probe credential."
+        else
+            probe_cannot_run "Qdrant returned HTTP 401/403 and this run presented NO store credential (${STORE_CONF_PATH:-<unresolved>} carried no header lines). Store auth is ENFORCED since #550/#1222, so a keyless probe cannot read the collections whether or not data exists -- ingest coverage was not measured."
+        fi
     fi
 
     # A zero denominator is the thing most likely to be misread as clean.
