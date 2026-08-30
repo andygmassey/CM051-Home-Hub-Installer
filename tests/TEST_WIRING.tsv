@@ -288,6 +288,7 @@ test_status_ok_with_zero_payload_is_not_ok.sh	WIRED	.github/workflows/zero-paylo
 test_stay_awake_agent_survives_installer_exit.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_stderr_tail.sh	WIRED	.github/workflows/stderr-tail.yml
 test_step_end_does_not_report_a_timed_out_step_as_ok.sh	WIRED	.github/workflows/step-end-status-honesty.yml
+test_store_auth_covers_every_interpreter.sh	WIRED	.github/workflows/store-auth-coverage-gate.yml
 test_store_callers_authenticate.sh	WIRED	.github/workflows/venv-store-shim.yml
 test_stores_guard_fires.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_stores_publish_no_host_port.sh	WIRED	.github/workflows/store-host-exposure.yml

@@ -1,0 +1,53 @@
+name: store-auth-coverage-gate
+
+# Every interpreter that reaches the data stores must carry the credential.
+#
+# #595 / #210 -- the Front Page could never populate on any install. The
+# store-auth wiring enumerates `.venv` directories and had 100% coverage of
+# them: 12 venvs, 12 *auth*.pth. But three services under ~/.ostler/services
+# have no venv at all (cm059-editor, ical-server, ostler_hygiene), and the
+# editor's tick script runs the BUNDLED interpreter directly. That
+# interpreter was never wired, so it 401'd against the locked-down Oxigraph,
+# fail-closed, emitted a settling-only feed, and EXITED 0 on every tick.
+# launchd saw success. Nothing anywhere went red.
+#
+# The wiring was not leaky. Its POPULATION was wrong -- and a gate with full
+# coverage of the wrong population stays green through every instance.
+#
+# This gate asserts the shipping installer wires the bundled interpreter as
+# well as the venvs, and carries a call-site FLOOR so a shrinking denominator
+# is a red rather than a quiet pass.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_store_auth_covers_every_interpreter.sh'
+      # A gate must trigger on changes to ITSELF, or it can be quietly
+      # narrowed in a PR that never runs it.
+      - '.github/workflows/store-auth-coverage-gate.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  store-auth-coverage-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Refuses to run (exit 1, not 0) if the wiring function is absent, so a
+      # refactor cannot turn this gate into a silent pass. Its control is
+      # asserted before any of its counts are trusted.
+      - name: every interpreter the installer creates carries the store credential
+        run: bash tests/test_store_auth_covers_every_interpreter.sh
