@@ -353,6 +353,7 @@ test_walk_driver_requires_a_completion_marker.sh	WIRED	.github/workflows/walk-re
 test_walk_driver_takes_ports_from_the_declared_field.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_record_gates_customer_download.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_record_names_the_failing_probes.sh	WIRED	.github/workflows/cut-manifest.yml
+test_walk_record_states_measured_count.sh	WIRED	.github/workflows/cut-manifest.yml
 test_walkaway_no_phase2_input_leak.sh	UNWIRED	-
 test_whatsapp_channel_block.sh	UNWIRED	-
 test_whatsapp_parser_does_not_claim_meta_messages.py	WIRED	.github/workflows/parser-claim-separation.yml

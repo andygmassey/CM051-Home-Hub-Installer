@@ -29,6 +29,7 @@ on:
       - 'scripts/post_walk_qa.sh'
       - 'tests/test_walk_record_names_the_failing_probes.sh'
       - 'tests/test_cannot_run_names_its_prerequisite.sh'
+      - 'tests/test_walk_record_states_measured_count.sh'
       - 'scripts/box_walk_probes/**'
       - 'scripts/tests/test_people_seed_and_retrieval_probe.sh'
       - 'cut-manifests/**'
@@ -266,6 +267,15 @@ jobs:
       - name: a CANNOT-RUN names its prerequisite, without leaking it into the record
         if: always()
         run: /bin/bash tests/test_cannot_run_names_its_prerequisite.sh
+
+      # The four counts partition the suite whether or not anything was
+      # measured: a BROKEN probe is counted in `broken` and then SKIPPED at
+      # run_box_walk.sh:201-204, so pass+fail+cannot_run+broken reaches the
+      # probe count either way. walks/v1.0.50.tsv summed to a perfect 21 while
+      # twenty probes had run. The record now states coverage explicitly.
+      - name: the walk record states how many probes MEASURED, not just how they bucketed
+        if: always()
+        run: /bin/bash tests/test_walk_record_states_measured_count.sh
 
   manifest-parse:
     runs-on: ubuntu-latest

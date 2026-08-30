@@ -199,6 +199,20 @@ for v in n_pass n_fail n_cannot n_broken; do
     [[ "${!v}" =~ ^[0-9]+$ ]] || printf -v "$v" '%s' ""
 done
 
+# THE DENOMINATOR, WHICH count_of CANNOT REACH.
+#
+# The runner closes with
+#     of          21 probes
+# which is THREE fields, so the NF==2 anchor above skips it by construction. It
+# needs its own shape anchor rather than a loosened one: widening count_of to
+# NF>=2 would let a per-probe line back in, which is the exact defect the NF==2
+# rule was added to kill.
+#
+# Empty is left empty. A fabricated denominator is worse than an absent one --
+# it would let the coverage line below state a ratio nobody measured.
+n_probes="$(awk '$1 == "of" && NF == 3 && $2 ~ /^[0-9]+$/ && $3 == "probes" { print $2; exit }' "$PROBE_LOG")"
+[[ "$n_probes" =~ ^[0-9]+$ ]] || n_probes=""
+
 if [[ -z "$n_pass$n_fail$n_cannot$n_broken" ]]; then
     # The summary block could not be parsed at all. That is CANNOT-RUN for
     # this script, not a pass for the box: fall back to the rc and say so.
@@ -482,6 +496,40 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf 'fail\t%s\n'        "${n_fail:-0}"
         printf 'cannot_run\t%s\n'  "${n_cannot:-0}"
         printf 'broken\t%s\n'      "${n_broken:-0}"
+        # COVERAGE, WHICH THE FOUR COUNTS ABOVE DO NOT CARRY.
+        #
+        # A BROKEN probe is counted in `broken` and then SKIPPED in phase 2 --
+        # run_box_walk.sh:201-204 `case " $BROKEN_LIST " in ... continue`. It
+        # therefore lands in exactly one bucket whether or not it measured
+        # anything, so pass+fail+cannot_run+broken reaches the probe count
+        # EITHER WAY.
+        #
+        # ⇒ that sum is a completeness check on ACCOUNTING and a bad one on
+        # MEASUREMENT. On walks/v1.0.50.tsv it read 7+7+6+1 = 21 = the probe
+        # count, as cleanly as if all 21 had run. Twenty had. The store-port
+        # probe was broken, phase 2 stepped over it, and that walk took NO
+        # store-port measurement at all -- on the question closed as #551.
+        #
+        # The number that carries coverage is pass+fail+cannot_run, and it is
+        # stated here rather than left to be derived, because a rising `broken`
+        # silently converts measurements into non-measurements while the sum
+        # stays perfect. Found by TNM 2026-08-30, sharpening my own reading of
+        # the same reconciliation.
+        _measured=$(( ${n_pass:-0} + ${n_fail:-0} + ${n_cannot:-0} ))
+        if [ -n "$n_probes" ]; then
+            # Reconcile IN THE FILE. If the buckets ever stop partitioning the
+            # suite, the record says so instead of a reader assuming they did.
+            if [ "$(( _measured + ${n_broken:-0} ))" -eq "$n_probes" ]; then
+                _recon="buckets partition the suite"
+            else
+                _recon="DOES NOT RECONCILE -- $(( _measured + ${n_broken:-0} )) bucketed vs ${n_probes} probes"
+            fi
+            printf 'measured\t%s of %s (pass+fail+cannot_run; a broken probe is SKIPPED in phase 2 and measures nothing) -- %s\n' \
+                   "$_measured" "$n_probes" "$_recon"
+        else
+            printf 'measured\t%s of UNKNOWN (probe total not parseable from the run log, so coverage cannot be stated -- this is not a claim that coverage was full)\n' \
+                   "$_measured"
+        fi
         printf 'verdict\t%s\n'     "$VERDICT"
         printf 'qa_exit\t%s\n'     "$overall"
         # RECONCILE THE NAMES AGAINST THE COUNT, IN THE FILE.
