@@ -324,6 +324,58 @@ fi
 # It is qa_exit's defect exactly, still live, in the field #931 was about to
 # imitate; adding artefact_sha256_source next to an unread version_source would
 # have established that *_source fields are advisory.
+# --- AND THE SAME TEST THE INSTRUMENT HAS NEVER BEEN GIVEN -------------------
+#
+# 🔴 SEPARABLE HUNK -- closes the third instance of this defect. Drop it and
+# the two bindings above are unaffected.
+#
+# artefact_sha256 answers WHAT WAS WALKED. Until harness_commit, nothing
+# answered WHAT DID THE WALKING, and on 2026-08-30 that paid out in 17m57s:
+# walks/v1.0.52.tsv merged recording no_unexpected_egress as FAILED, and
+# #1299 then rewrote that probe (+246 -17, one file). A re-walk of the SAME
+# DMG that now passes it would be indistinguishable from a product fix,
+# because both records carry an identical artefact_sha256.
+#
+# This is the version_source argument above, one level up, and the reason it
+# is READ here and not merely written: a *_source field that no reader
+# consumes teaches the estate that *_source fields are advisory. TNM flagged
+# exactly that risk. (Their note that version_source is currently unread is
+# STALE -- the block below reads and enforces it; the comment above it
+# describes the pre-wiring measurement, which is what they read.)
+HARNESS_COMMIT="$(field harness_commit)"
+if [[ -z "$HARNESS_COMMIT" ]]; then
+    echo "[walk-gate] REFUSED: ${RECORD} carries no harness_commit field." >&2
+    echo "            Which probe set produced these verdicts is unknown, so a verdict change" >&2
+    echo "            against another record cannot be attributed to the product rather than" >&2
+    echo "            to the instrument. CANNOT-RUN." >&2
+    exit 2
+fi
+HARNESS_COMMIT_SOURCE="$(field harness_commit_source)"
+if [[ -z "$HARNESS_COMMIT_SOURCE" ]]; then
+    echo "[walk-gate] REFUSED: ${RECORD} has harness_commit but no harness_commit_source." >&2
+    echo "            A sha with no provenance cannot distinguish a clean checkout from a" >&2
+    echo "            dirty one, and only the first is reproducible. CANNOT-RUN." >&2
+    exit 2
+fi
+case "$HARNESS_COMMIT_SOURCE" in
+    measured\(*) : ;;
+    *)
+        cat >&2 <<MSG
+[walk-gate] REFUSED: ${RECORD} says harness_commit_source ${HARNESS_COMMIT_SOURCE}.
+
+  The walk harness was not a clean commit when it ran, so nobody can re-run
+  the instrument that produced these verdicts. Real probe results filed
+  against an unreproducible instrument are unattributable, not wrong.
+  CANNOT-RUN.
+MSG
+        exit 2
+        ;;
+esac
+if [[ ! "$HARNESS_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "[walk-gate] REFUSED: ${RECORD} field 'harness_commit' is '${HARNESS_COMMIT}', not 40 hex characters." >&2
+    exit 2
+fi
+
 VERSION_SOURCE="$(field version_source)"
 if [[ -z "$VERSION_SOURCE" ]]; then
     echo "[walk-gate] REFUSED: ${RECORD} carries no version_source field." >&2

@@ -463,10 +463,53 @@ if [[ -n "$CUT_VERSION" ]]; then
     BROKEN_NAMES="$(section_names 'BROKEN (')"
     n_failed_named="$(printf '%s' "$FAILED_NAMES" | grep -c . || true)"
 
+    # --- WHAT DID THE WALKING (#1145 follow-up, TNM 2026-08-30) ------------------
+    #
+    # artefact_sha256 binds WHAT WAS WALKED. Nothing bound WHAT DID THE WALKING,
+    # and that gap paid out inside eighteen minutes on 2026-08-30: the v1.0.52
+    # record was merged saying no_unexpected_egress FAILED, and 17m57s later
+    # #1299 rewrote that probe (+246 -17). The record and main's instrument
+    # already disagree.
+    #
+    # THE CONSEQUENCE IS THE ONE THAT BITES: if a re-walk of that same DMG now
+    # passes the probe, nothing in either record can distinguish "the product
+    # was fixed" from "the instrument was changed" -- both carry an identical
+    # artefact_sha256.
+    #
+    # This is the SAME argument this file's own header already makes one level
+    # down: a version does not identify a build, so the gate binds on a sha.
+    # By identical logic a probe NAME does not identify a probe. The probe set
+    # is at exactly the stage the version label was at.
+    #
+    # Recorded as a sha, with its own _source field, because "the harness was
+    # dirty at walk time" and "the harness was a clean commit" are different
+    # claims and must not print the same. A dirty tree gets dirty(<sha>) and
+    # the gate refuses it: a walk run from uncommitted probe edits is not
+    # reproducible by anyone else, which is the whole point of recording it.
+    HARNESS_COMMIT=""
+    HARNESS_COMMIT_SOURCE=""
+    if _hc="$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse HEAD 2>/dev/null)"; then
+        if [ -n "$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." status --porcelain \
+                    -- scripts/box_walk_probes scripts/run_box_walk.sh scripts/post_walk_qa.sh 2>/dev/null)" ]; then
+            HARNESS_COMMIT="$_hc"
+            HARNESS_COMMIT_SOURCE="dirty(walk harness had uncommitted changes; this sha does NOT describe what ran)"
+        else
+            HARNESS_COMMIT="$_hc"
+            HARNESS_COMMIT_SOURCE="measured(git rev-parse HEAD, harness paths clean)"
+        fi
+    else
+        HARNESS_COMMIT="unavailable"
+        HARNESS_COMMIT_SOURCE="unavailable(not a git checkout; what ran cannot be identified)"
+    fi
+
     {
         printf '# Ostler walk record -- written by scripts/post_walk_qa.sh\n'
         printf '# Read by scripts/verify_walk_record.sh, which gates the customer download.\n'
         printf '# The box is recorded as a hash: this repo is public.\n'
+        printf '# harness_commit is WHAT DID THE WALKING. artefact_sha256 below is what was\n'
+        printf '# walked; without both, a verdict change between two records cannot be\n'
+        printf '# attributed to the product rather than to the instrument. A probe NAME is\n'
+        printf '# not content-bearing, exactly as a version string is not.\n'
         printf '# version_source says how the version was obtained. Anything other than\n'
         printf '# measured(...) means the version is an assertion, not an observation.\n'
         printf '#\n'
@@ -489,6 +532,8 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf 'version_source\t%s\n' "$VERSION_SOURCE"
         printf 'artefact_sha256\t%s\n'        "$ARTEFACT_SHA"
         printf 'artefact_sha256_source\t%s\n' "$ARTEFACT_SHA_SOURCE"
+        printf 'harness_commit\t%s\n'         "$HARNESS_COMMIT"
+        printf 'harness_commit_source\t%s\n'  "$HARNESS_COMMIT_SOURCE"
         printf 'walked_at\t%s\n'   "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'box_fp\t%s\n'      "$BOX_FP"
         printf 'counts_scope\tbox_walk_probes_only(phase1); verdict+qa_exit cover all phases\n'
