@@ -54,7 +54,12 @@ run_probe_capture() { # $1 qdrant url  $2 conf path  $3 auth|noauth  $4 probe
     local url="$1" confpath="$2" mode="$3" probe="${4:-$PROBE}" realconf
     realconf="$(HOME="$WORK" bash -lc "printf '%s' \"$confpath\"")"
     mkdir -p "$(dirname "$realconf")"
-    if [ "$mode" = "auth" ]; then printf 'header = "Authorization: Bearer t"\n' > "$realconf"; else : > "$realconf"; fi
+    case "$mode" in
+        auth)       printf 'header = "Authorization: Bearer t"\n' > "$realconf" ;;
+        unreadable) printf 'header = "Authorization: Bearer t"\n' > "$realconf"; chmod 000 "$realconf" ;;
+        absent)     rm -f "$realconf" ;;
+        *)          : > "$realconf" ;;
+    esac
     HOME="$WORK" OSTLER_QDRANT_URL="$url" OSTLER_PROBE_STORE_CURL_CONF="$confpath" \
         OSTLER_INGEST_BASELINE="${WORK}/baseline.tsv" OSTLER_BOX_HOST="" bash "$probe" 2>&1
 }
@@ -95,6 +100,26 @@ V="$(verdict_of "$OUT")"
 if [ "$V" = "VERDICT: FAIL" ]; then fail arm4b-mutant-FAIL "#1284 mutant produced FAIL -- literal-\$HOME -K not caught"
 elif [ "$V" != "VERDICT: CANNOT-RUN" ]; then fail arm4b "#1284 mutant got '${V}', expected CANNOT-RUN"
 else note "arm4b #1284 mutant -> CANNOT-RUN (transport), not a false FAIL ✅"; fi
+
+
+# ARM 5: ABSENT conf -> keyless -> CANNOT-RUN that NAMES absence, not "empty".
+start_fake "$OK_PORT" 401
+OUT="$(run_probe_capture "http://127.0.0.1:${OK_PORT}" "${WORK}/conf_absent" absent)"; stop_fake
+V="$(verdict_of "$OUT")"
+if [ "$V" != "VERDICT: CANNOT-RUN" ]; then fail arm5-absent "got '${V}', expected CANNOT-RUN"
+elif [ "$(printf '%s' "$OUT" | grep -cF 'does not exist')" -eq 0 ]; then fail arm5-absent-reason "absent conf reported as something other than absence -- residual-a collapse"
+else note "arm5 absent conf -> CANNOT-RUN, reason names absence ✅"; fi
+
+# ARM 6: POPULATED-but-UNREADABLE conf (0600 owner-only, wrong account) -> must
+# read as a PERMISSION problem, never as "empty". This is the #549/#550 misread
+# TNM named: a probe running as a second account gets denied on a file full of
+# headers, and the walk record must not tell a tired human the credential is empty.
+start_fake "$OK_PORT" 401
+OUT="$(run_probe_capture "http://127.0.0.1:${OK_PORT}" "${WORK}/conf_noread" unreadable)"; stop_fake
+V="$(verdict_of "$OUT")"
+if [ "$V" != "VERDICT: CANNOT-RUN" ]; then fail arm6-unreadable "got '${V}', expected CANNOT-RUN"
+elif [ "$(printf '%s' "$OUT" | grep -cF 'not readable')" -eq 0 ]; then fail arm6-unreadable-reason "populated unreadable conf reported as empty, not as denied -- the exact residual-a defect"
+else note "arm6 unreadable populated conf -> CANNOT-RUN, reason names permission not emptiness ✅"; fi
 
 echo
 [ -n "$FAILURES" ] && { printf 'RESULT: FAILURES ->%s\n' "$FAILURES"; exit 1; }

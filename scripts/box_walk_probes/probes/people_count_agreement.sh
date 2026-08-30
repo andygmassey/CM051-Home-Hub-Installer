@@ -92,14 +92,24 @@ TOLERANCE_PCT="${OSTLER_PEOPLE_TOLERANCE_PCT:-2}"
 STORE_CURL_CONF="${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-curl.conf}"
 STORE_CONF_PATH=""
 STORE_AUTH=""
+STORE_AUTH_REASON="" # when STORE_AUTH!="conf": WHY (absent / unreadable / empty config)
 _OX_CODE_FILE=""
 
 _store_resolve() {
     STORE_CONF_PATH="$(box_run "printf '%s' \"${STORE_CURL_CONF}\"" | tr -d '\r\n')"
-    local _h
-    _h="$(box_run "/usr/bin/grep -c '^header = ' '${STORE_CONF_PATH}' 2>/dev/null" | tr -d '\r\n ')"
-    case "$_h" in ''|*[!0-9]*) _h=0 ;; esac
-    if [ "$_h" -gt 0 ]; then STORE_AUTH="conf"; else STORE_AUTH=""; fi
+    # Classify the config ON THE BOX so the walk record can name WHY a read is
+    # keyless instead of collapsing three causes into one message. The config is
+    # written 0600 owner-only (#549/#550), so a probe running as another account
+    # gets permission-denied on a file that may be full of headers -- printing
+    # that as "carried no header lines" tells a tired human the opposite of true.
+    local _state
+    _state="$(box_run "if [ ! -e '${STORE_CONF_PATH}' ]; then printf ABSENT; elif [ ! -r '${STORE_CONF_PATH}' ]; then printf UNREADABLE; elif [ \"\$(/usr/bin/grep -c '^header = ' '${STORE_CONF_PATH}' 2>/dev/null)\" -gt 0 ]; then printf HEADERS; else printf EMPTY; fi" | tr -d '\r\n ')"
+    case "$_state" in
+        HEADERS)    STORE_AUTH="conf"; STORE_AUTH_REASON="" ;;
+        ABSENT)     STORE_AUTH="";     STORE_AUTH_REASON="the store curl config ${STORE_CONF_PATH:-<unresolved>} does not exist on the box" ;;
+        UNREADABLE) STORE_AUTH="";     STORE_AUTH_REASON="the store curl config ${STORE_CONF_PATH} exists but is not readable by this probe's account -- it is written 0600 owner-only, so a probe running as a different user cannot read a config that may be full of headers; this is NOT evidence the credential is absent" ;;
+        *)          STORE_AUTH="";     STORE_AUTH_REASON="the store curl config ${STORE_CONF_PATH} is readable but carries no 'header = ' lines" ;;
+    esac
 }
 
 # Query Oxigraph with the store credential; record the HTTP code in
@@ -124,7 +134,7 @@ _ox_adjudicate() {
             if [ "$STORE_AUTH" = "conf" ]; then
                 probe_fail "Oxigraph returned HTTP ${_code} on the ${_what} WITH the install's store credential presented (-K, ${STORE_CONF_PATH}). A key the store refuses is a real fault, not a missing probe credential."
             else
-                probe_cannot_run "Oxigraph returned HTTP ${_code} on the ${_what} and this run presented NO store credential (${STORE_CONF_PATH:-<unresolved>} carried no header lines). Store auth is ENFORCED since #550/#1222, so a keyless probe cannot read the count whether or not people exist -- the count was not measured."
+                probe_cannot_run "Oxigraph returned HTTP ${_code} on the ${_what} and this run presented NO store credential -- ${STORE_AUTH_REASON:-no usable store credential was resolved}. Store auth is ENFORCED since #550/#1222, so a keyless probe cannot read the count whether or not people exist -- the count was not measured."
             fi
             ;;
         000|'')

@@ -105,7 +105,7 @@ _store_resolve() {
 # -- so the join runs in python3 on the box. Single-quoted below and free of
 # "$" and backticks so nothing expands on the way through box_run.
 read -r -d '' RECONCILE_PY <<'PYPAYLOAD'
-import json, sys
+import json, os, sys
 try:
     import urllib.request, urllib.error
 except Exception as exc:
@@ -121,7 +121,17 @@ SKOS= "http://www.w3.org/2004/02/skos/core#prefLabel"
 # also decides whether a 401 is a refused key (AUTHFAIL) or a keyless probe
 # (KEYLESS). No shell metacharacters here -- this payload must stay literal.
 STORE_HEADERS = {}
-if CONF:
+CRED_REASON = ""
+if not CONF:
+    CRED_REASON = "no store curl config path was provided to the probe"
+elif not os.path.exists(CONF):
+    CRED_REASON = "the store curl config " + CONF + " does not exist on the box"
+elif not os.access(CONF, os.R_OK):
+    CRED_REASON = ("the store curl config " + CONF + " exists but is not readable by "
+                   "this probe's account -- it is written 0600 owner-only, so a probe "
+                   "running as a different user cannot read a config that may be full of "
+                   "headers; this is NOT evidence the credential is absent")
+else:
     try:
         for line in open(CONF, encoding="utf-8"):
             line = line.strip()
@@ -130,8 +140,12 @@ if CONF:
                 if ":" in val:
                     k, v = val.split(":", 1)
                     STORE_HEADERS[k.strip()] = v.strip()
-    except Exception:
-        pass
+    except Exception as exc:
+        CRED_REASON = ("the store curl config " + CONF
+                       + " could not be read: " + type(exc).__name__)
+    if not STORE_HEADERS and not CRED_REASON:
+        CRED_REASON = ("the store curl config " + CONF
+                       + " is readable but carries no 'header = ' lines")
 HAVE_CRED = bool(STORE_HEADERS)
 
 # Bypass any operator proxy (HTTP_PROXY / http_proxy) -- the python analogue of
@@ -144,13 +158,21 @@ def sparql(q):
          "Accept": "application/sparql-results+json"}
     h.update(STORE_HEADERS)
     req = urllib.request.Request(OXI, data=q.encode(), headers=h)
-    return json.load(urllib.request.urlopen(req, timeout=120))["results"]["bindings"]
+    try:
+        return json.load(urllib.request.urlopen(req, timeout=120))["results"]["bindings"]
+    except urllib.error.HTTPError as exc:
+        exc._store = "Oxigraph (SPARQL) at " + OXI
+        raise
 
 def qpost(path, body):
     h = {"Content-Type": "application/json"}
     h.update(STORE_HEADERS)
     req = urllib.request.Request(QD + path, data=json.dumps(body).encode(), headers=h)
-    return json.load(urllib.request.urlopen(req, timeout=60))
+    try:
+        return json.load(urllib.request.urlopen(req, timeout=60))
+    except urllib.error.HTTPError as exc:
+        exc._store = "Qdrant (vector store) at " + QD
+        raise
 
 try:
     # Control FIRST: a store that answers 0 triples is a store we cannot read,
@@ -211,10 +233,14 @@ try:
     print("OK %d %d %d %d %d %d %d" % (
         len(graph), len(vec), a, b_orphan, c_named, c_unnamed, len(vec & graph)))
 except urllib.error.HTTPError as exc:
+    store = getattr(exc, "_store", "an unidentified store")
     if exc.code in (401, 403):
-        print(("AUTHFAIL %d" % exc.code) if HAVE_CRED else ("KEYLESS %d" % exc.code))
+        if HAVE_CRED:
+            print("AUTHFAIL %d %s" % (exc.code, store))
+        else:
+            print("KEYLESS %d %s" % (exc.code, CRED_REASON))
     else:
-        print("CANNOTRUN HTTPError " + str(exc.code))
+        print("CANNOTRUN HTTPError %d from %s" % (exc.code, store))
 except Exception as exc:
     print("CANNOTRUN " + type(exc).__name__ + " " + str(exc)[:120])
 PYPAYLOAD
@@ -254,17 +280,19 @@ run_probe() {
 
     _store_resolve
 
-    local out
+    local out _af _kl
     out="$(read_result)"
 
     case "$out" in
         OK\ *) : ;;
         AUTHFAIL\ *)
+            _af="${out#AUTHFAIL }"
             probe_examined 0 "person records across two stores"
-            probe_fail "a store returned HTTP ${out#AUTHFAIL } WITH the install's store credential presented (from ${STORE_CONF_PATH}); a key the store refuses is a real fault, not a missing probe credential." ;;
+            probe_fail "${_af#* } returned HTTP ${_af%% *} WITH the install's store credential presented (from ${STORE_CONF_PATH}); a key the store refuses is a real fault, not a missing probe credential." ;;
         KEYLESS\ *)
+            _kl="${out#KEYLESS }"
             probe_examined 0 "person records across two stores"
-            probe_cannot_run "a store returned HTTP ${out#KEYLESS } and this run presented NO store credential (${STORE_CONF_PATH:-<unresolved>} carried no header lines). Store auth is ENFORCED since #550/#1222, so a keyless probe cannot read the two sets -- nothing was measured." ;;
+            probe_cannot_run "a store returned HTTP ${_kl%% *} and this run presented NO store credential -- ${_kl#* }. Store auth is ENFORCED since #550/#1222, so a keyless probe cannot read the two sets -- nothing was measured." ;;
         CANNOTRUN\ *)
             probe_cannot_run "reconciliation could not run: ${out#CANNOTRUN }" ;;
         "")
