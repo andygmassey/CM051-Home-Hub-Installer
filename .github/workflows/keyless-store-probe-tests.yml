@@ -48,13 +48,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: no_person_holds_two_contact_cards credential + 401/000 adjudication
+        if: always()
         run: /bin/bash scripts/tests/test_no_person_holds_two_contact_cards_probe.sh
 
       - name: ingest_coverage credential + 401/000 adjudication
+        if: always()
         run: /bin/bash scripts/tests/test_ingest_coverage_probe.sh
 
       - name: people_count_agreement oxigraph credential + 401/000 adjudication
+        if: always()
         run: /bin/bash scripts/tests/test_people_count_agreement_probe.sh
 
       - name: people_stores_reconcile urllib credential + 401/KEYLESS adjudication
+        if: always()
         run: /bin/bash scripts/tests/test_people_stores_reconcile_probe.sh
