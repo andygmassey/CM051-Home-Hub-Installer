@@ -3811,3 +3811,51 @@ Probe `usage_journal_producers` failed. Board #482 and #487: the ingestion
 producer landed, the ENRICHMENT producer has not, and it has two blockers of its
 own (the writer is absent from the wiki-compiler image, and a bind mount). Not
 addressed by v1.0.51 and not addressable inside CM051 alone.
+
+### v1050-D009 -- the cannot_run bucket was never adjudicated, and four of its six rows are the instrument
+
+The eight findings above cover the **fail** bucket. `walks/v1.0.50.tsv` also records
+**6 `not_measured_probe` rows**, and nothing in this document has ever dispositioned
+them. That omission is why the fourth instance of v1050-D003 went unnoticed for a
+day: D003 named one keyless probe, and this file never asked whether it had
+siblings.
+
+Measured at `v1.0.51^{commit}` by @A2 and @TNM, credential mechanism
+(`STORE_CURL_CONF|curl -K|Bearer|api-key`), whole file, with the D003-fixed probe as
+a must-hit control:
+
+    probe                              cred  queries   verdict
+    ingest_coverage                      0    6333     D003 class -- keyless
+    no_person_holds_two_contact_cards    0    7878     D003 class -- keyless
+    people_count_agreement               0    7878     D003 class -- keyless
+    people_stores_reconcile              0    7878+6333  D003 class -- keyless
+    launchagents_resolve_their_tools     0    none     correctly outside the class
+    pair_state_agreement                 1    :8000    correctly outside -- admin Bearer, not a store
+    ---- CONTROL ----
+    people_seed_and_retrieval            9    6333     D003-FIXED, so cred=0 above is real absence
+
+Store auth is enforce-ON and mandatory since #550/#1222. A keyless call to these
+stores returns 401, so **all four cannot_run for an instrument reason on any
+conforming box, whatever the product state.** `verify_walk_record` requires
+`cannot_run==0` for CLEAN, so these four block a clean walk exactly as D005 did from
+the broken column.
+
+`ingest_coverage` is the worst of the four and deserves its own sentence: it carries
+**no auth-aware branch at all** (auth-string count 0, against 50 in the fixed
+probe), so a 401 does not land in an auth arm -- there isn't one. It lands in
+*"not one of the stores answered"*, which names the store as unresponsive when the
+store in fact answered *who are you*. It is also the probe closest to "did the
+product ingest anything", so the instrument bug blinds the most load-bearing
+question in the suite.
+
+**DISPOSITION: instrument fix, not a product defect, and NOT a decision for the
+cut owner.** The remedy is D003's: give each the store curl config. Queue is
+2 changes / 6 files -- these 4 probes, plus the cannot_run reason capture in
+`run_box_walk.sh` and `post_walk_qa.sh`. Both gated on a sole-tenant box, because
+neither can be exercised end-to-end while another account holds the store ports.
+
+⚠️ BOUND: the keyless query and the missing auth branch are MEASURED in source. That
+they caused the v1.0.50 cannot_runs is a PREDICTION -- strong, because D003 is the
+same pattern with the 401 already observed -- and it is unprovable after the fact
+because the record discards the cannot_run reason. That gap is the second half of
+the queue above.
