@@ -77,9 +77,28 @@ in the GUI section below is currently invisible to automation.
   Control fired: 53,103 files under `~/.ostler`, 463 `*.json`, **0** `*.jsonl`.
   Two state directories; the journal writes to the one never created. This is
   #325 (OSTLER_HOME carries two meanings) surfacing as real data loss.
-- **A6** — the SAME graph simultaneously OVER-merges: 136 Person nodes each carry
-  2+ distinct `icloud_contact_uid`, swallowing 281 Contacts cards, worst case 5
-  cards in one node. A single threshold change makes one half worse.
+- **A6** — the SAME graph simultaneously OVER-merges, but **the size of that half was
+  over-stated by ~4.5x and A2 corrected their own figure on 2026-08-31.** The row used
+  to read "136 Person nodes swallowing 281 Contacts cards". Measured on .231 by
+  distinct `givenName` inside each over-merged node:
+
+        1 distinct given name  -> 106 nodes   LEGITIMATE dedup (duplicate iCloud cards, one person)
+        2 distinct given names ->  28 nodes   REAL over-merge
+        3 distinct given names ->   2 nodes
+        by surname: 115 share one surname, 12 carry TWO surnames (unambiguous different people)
+
+  ⇒ roughly **30 genuine over-merges, not 136**. Counting 2+ `icloud_contact_uid` as
+  damage counts correct consolidation as damage. A2 also RETRACTED the mechanism:
+  it is NOT `detect_phone_matches` / `phone_name_similarity_threshold` (that threshold
+  looks vestigial). `names_agree()` already sends same-surname/different-given-name to
+  "unsure" at 0.6, below the 0.8 auto-merge floor, so the phone path is guarded. The ~30
+  therefore merged via a strategy that never calls `names_agree` -- email-exact,
+  exact-name, or linkedin-exact. **That is the surface to fix; the phone guard is not.**
+  📌 KNOCK-ON, and it must be settled before anyone fixes to the walk's FAIL: A2's own
+  `no_person` probe asserts "0 nodes with 2+ icloud_contact_uid", so it flags the 106
+  legitimate merges as violations and its FAIL is inflated by correct behaviour. If the
+  intent is over-merge detection the invariant must key on 2+ distinct GIVEN NAMES.
+  A single threshold change still makes one half worse.
   `Delganycolm` and `Emmaj Oneill` are handle-shaped, not name-shaped, so check
   the display-name picker before the merge logic.
 
