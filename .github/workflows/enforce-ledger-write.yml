@@ -54,6 +54,25 @@ name: enforce-ledger-write
 
 on:
   pull_request:
+    # `edited` IS REQUIRED, and its absence made this gate's own printed remedy
+    # unreachable. Found 2026-08-31 on PR #1303 by being caught by the gate.
+    #
+    # The failure message says, correctly: "Add ONE of these to the PR
+    # description: [ledger-entry: ...] / [skip-ledger-enforce: ...]". But with
+    # no `types:` filter GitHub defaults to opened + synchronize + reopened.
+    # `edited` is NOT among them, so editing the PR body fires NOTHING, and
+    # `gh run rerun` replays the ORIGINAL event payload -- which carries the
+    # PRE-EDIT body. The author is left with a red gate, a correct fix applied,
+    # and no way to prove it except pushing an unrelated commit to force a
+    # `synchronize`. That is a gate whose remedy cannot clear it.
+    #
+    # The body is read from the event payload (see the pr_body.txt step), so
+    # the gate is only as fresh as the event that delivered it. Listing the
+    # three defaults explicitly as well: once `types:` is present it REPLACES
+    # the default set rather than adding to it, so omitting them here would
+    # silently stop the gate running on new and updated PRs -- a far worse
+    # failure than the one being fixed, and invisible because it fails OPEN.
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
