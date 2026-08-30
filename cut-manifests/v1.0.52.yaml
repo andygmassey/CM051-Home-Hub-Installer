@@ -1,0 +1,130 @@
+# cut-manifests/v1.0.52.yaml
+#
+# 🔴 WHAT THIS CUT ACTUALLY IS, MEASURED BEFORE IT WAS DESCRIBED.
+# Thirteen commits landed between v1.0.51 and cef9c20c. TWO of them reach the
+# customer. @TNM measured it per-commit against the ship-path regex
+# ^(install\.sh|install\.sh\.strings|gui/|vendor/|assistant-agent/):
+#
+#     cce32b41  ship=2   the 3.5GB vane-pull warning
+#     19fd3931  ship=1   the secrets DIRECTORY is 0700, not just the file in it
+#     the other ELEVEN: ship=0 -- probe, CI, walk-record, registry
+#     CONTROL: install.sh touches across the whole range = 2, so the predicate
+#              is not uniformly zero and can tell the two populations apart
+#
+# So this manifest has TWO rows, and that is the honest number. The other
+# eleven commits are real and merged and improved the MEASUREMENT rather than
+# the product. Writing them as rows would claim the artefact contains them and
+# park each at landed=no permanently -- the #1268 lesson.
+#
+# 🟢 PATTERN SEMANTICS. With `path_hint` set, verify_cut_manifest.py does NOT
+# shell out to grep: it calls _pattern_hits_bytes, which is `re.findall` on a
+# permissively-decoded string. These are PYTHON regexes -- not BRE, not ERE,
+# not fixed strings. Both rows below were validated by IMPORTING
+# verify_cut_manifest and calling _pattern_hits_bytes directly, on real blobs
+# read with `git show <ref>:install.sh`. Not a reimplementation of the reader,
+# and not grep standing in for it.
+#
+# ⚠️ BOTH PATTERNS TARGET CODE, NOT COMMENT PROSE. Each of these commits is
+# mostly comment -- cce32b41 adds ~18 comment lines and ONE statement. A
+# pattern anchored on the prose would go green on a reworded comment and red
+# on a rename that kept the behaviour, which is backwards. Row A matches the
+# message identifier the statement passes to info(); row B matches the chmod
+# itself.
+#
+# EVERY ROW MUTATION-TESTED AGAINST ITS OWN PRE-FIX PARENT, never against a
+# hand-deleted line. Measured 2026-08-30 with the real reader:
+#
+#   pattern                                     main  cce32b41~1  19fd3931~1
+#   MSG_INFO_VANE_LARGE_DOWNLOAD_NO_PROGRESS       1           0           1
+#   chmod 700 .*OSTLER_DIR.*secrets                1           0           0
+#   zqx4m7v-not-a-real-token                       0           0           0   <- control
+#   OSTLER_DIR                                   355         354         354   <- control
+#
+# THE TWO CONTROLS ARE LOAD-BEARING, not decoration. Without the nonsense
+# token, a row scoring 0 could mean "absent" OR "the reader is broken". Without
+# OSTLER_DIR, a 0 on every arm could mean the blob never loaded at all. Row B
+# reads 0 at cce32b41~1 as well as at its own parent, which is correct and not
+# a second discriminator: cce32b41 simply predates 19fd3931.
+#
+# 🟠 NO ABSENCE ROW, AND HERE IS WHY RATHER THAN BY OMISSION. v1.0.51 needed
+# absence rows because one of its fixes was a DELETION and a presence check
+# cannot see a deletion. Neither change here is a deletion. Row B's pre-fix
+# line was `mkdir -p "${OSTLER_DIR}/secrets" 2>/dev/null || true`; a build that
+# kept that line AND added the chmod would satisfy row B and would still be
+# CORRECT, because the chmod is what sets the mode. There is no build that
+# passes these rows and ships the defect, so an absence row would assert
+# something true rather than guard something.
+#
+# 🔻 BOTH BOM ROWS FOR THIS CUT CARRY capability_id=none. @TNM correctly
+# refused to invent capability ids for changes they did not write, and both
+# changes are mine (#1283, #1289). verify_must_contain.sh treats capability=none
+# as reported-not-fatal, so it will not red this cut -- which is exactly why it
+# is written down here rather than left to be discovered later. These two
+# shipping changes are UNGUARDED by capability_matrix.sh and can regress
+# silently. Naming them is owed and is tracked, not waived.
+
+# SCHEMA NOTE, learned by the gate refusing rather than by reading it first:
+# the top-level key is `entries`, not `rows`, and the pins live in
+# cuts/v1.0.52/cut.env rather than here. My first draft used `rows` and added
+# cm051_sha/daemon_commit, and verify_cut_manifest.py answered CANNOT-RUN with
+# "It has NOT found a fix missing from the artefact -- it failed to look."
+# That is the gate behaving correctly: a schema error is not a verdict about
+# the .app, and it refused to let one read as the other.
+
+version: v1.0.52
+entries:
+
+  - id: v1052-a-the-vane-pull-warns-before-the-pipe-swallows-it
+    title: the installer says the 3.5GB vane download is coming, BEFORE the pipe hides it
+    incident: >-
+      THE LONGEST SILENT STRETCH IN THE ENTIRE INSTALLER, measured on a
+      fresh-account install 2026-08-30. `docker compose up -d vane` is piped
+      into `tail -3`, and a pipe holds the producer's output until the command
+      EXITS -- so docker's pull progress goes nowhere the customer can see, and
+      then three lines appear at the end. For a 3.43GB image that is roughly
+      52 minutes of a window that looks hung. A customer with no progress bar
+      and no explanation reasonably concludes it has crashed.
+      THE OLD COMMENT ASSERTED THE OPPOSITE and was false because of the line
+      directly beneath it: it claimed first-time pulls surface during the
+      `up -d` step's own progress output. They do not; the pipe eats them.
+      Fixed by CM051 #1283, which warns BEFORE the pull rather than explaining
+      afterwards. info() routes through gui_log, so the warning reaches the
+      installer window and not only the console.
+      RESTORING REAL PROGRESS IS THE BETTER FIX AND IS DELIBERATELY NOT THIS
+      ONE: docker's pull renderer emits TTY control sequences the gui-marker
+      parser has never been fed, so that needs its own test rather than a
+      hopeful pipe removal. Saying so honestly is what was cheap and correct
+      today. MEASURED: 1 here, 0 at cce32b41~1.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'MSG_INFO_VANE_LARGE_DOWNLOAD_NO_PROGRESS'
+      must_match: true
+
+  - id: v1052-b-the-secrets-directory-carries-its-own-0700
+    title: the store-credential directory is 0700, not merely a 0600 file inside a 0755 directory
+    incident: >-
+      THE FILE WAS ALWAYS RIGHT AND THE DIRECTORY WAS NOT. _ostler_write_store_curl_config
+      sets `umask 0077` before the truncate, INSIDE the subshell, so the
+      credential file is never briefly world-readable with a secret already in
+      it -- that half was correct and @TNM verified it. The mkdir sat OUTSIDE
+      that subshell with no mode, so secrets/ kept whatever mode it was born
+      with, typically 0755 holding a 0600 file. No credential leaks that way.
+      The filenames and their existence do, and on a shared Mac that is the
+      same class #549/#550 exist to close.
+      `mkdir -p -m 700` WOULD HAVE FIXED NOTHING, which is the part worth
+      recording: -m applies only to components mkdir actually CREATES, and this
+      mkdir creates none on any reachable path. The function reads the token
+      files out of secrets/ above and returns 1 when both are empty, so
+      reaching that line PROVES the directory already exists. The chmod is the
+      entire fix. Fixed by CM051 #1289, whose test pins that reachability claim
+      in a third arm so nobody later "simplifies" the chmod back into a flag.
+      MEASURED: 1 here, 0 at 19fd3931~1. Also 0 at cce32b41~1, which is correct
+      and not a second discriminator -- that commit simply predates this one.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'chmod 700 .*OSTLER_DIR.*secrets'
+      must_match: true
