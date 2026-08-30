@@ -28,6 +28,7 @@ on:
       - 'cut-deferrals.yaml'
       - 'scripts/post_walk_qa.sh'
       - 'tests/test_walk_record_names_the_failing_probes.sh'
+      - 'tests/test_cannot_run_names_its_prerequisite.sh'
       - 'scripts/box_walk_probes/**'
       - 'scripts/tests/test_people_seed_and_retrieval_probe.sh'
       - 'cut-manifests/**'
@@ -238,6 +239,33 @@ jobs:
             exit 1
           fi
           echo "negative control OK: stub probe -> exit 1, harness healthy"
+
+      # LAST IN THIS JOB, ON PURPOSE -- and in THIS job rather than
+      # manifest-tests, for the reason the job exists: the change under test is
+      # in run_box_walk.sh, which the cut host executes under /bin/bash 3.2. On
+      # ubuntu-latest /bin/bash is 5, and bash 5 accepts 3.2-invalid syntax, so
+      # an ubuntu runner would green-light a runner that dies on the box.
+      #
+      # WHY LAST. `branch-truth gate suite` above deliberately has no
+      # `if: always()`: it genuinely depends on the PyYAML install step
+      # immediately before it, which is the escape hatch verify_ci_steps_are_
+      # maskless.py itself names. Inserting this step ABOVE it made that step
+      # maskable and turned ci-maskless red -- correctly. Appending here masks
+      # nothing, and needs no change to a step this PR does not own.
+      #
+      # THE DEFECT: probe_cannot_run() names the missing prerequisite and
+      # run_box_walk.sh's header promises to print it. It did not -- only the
+      # basename was kept -- so walks/v1.0.50.tsv records six probes that did
+      # not run and no reason for any of them.
+      #
+      # The reasons stay on the CONSOLE: they interpolate box paths and
+      # hostnames, and walks/ is committed to a PUBLIC repo. The load-bearing
+      # assertion is the regression guard -- the record's parser stops at the
+      # first line that is not a bare probe name, so a reason printed beneath a
+      # name would silently cut walks/<version>.tsv down to a single row.
+      - name: a CANNOT-RUN names its prerequisite, without leaking it into the record
+        if: always()
+        run: /bin/bash tests/test_cannot_run_names_its_prerequisite.sh
 
   manifest-parse:
     runs-on: ubuntu-latest

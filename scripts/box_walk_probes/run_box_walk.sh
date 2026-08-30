@@ -176,6 +176,25 @@ CANNOT=0
 FAIL_LIST=""
 CANNOT_LIST=""
 
+# WHY A PROBE DID NOT RUN, NOT ONLY WHICH ONE DID NOT.
+#
+# lib/probe.sh's probe_cannot_run() prints
+#     VERDICT: CANNOT-RUN -- <the missing prerequisite>
+# and its own comment says it MUST name that prerequisite "so the operator can
+# fix it rather than guess". The header of THIS file promises the same thing:
+# "CANNOT-RUN is printed in its own block with the missing prerequisite named,
+# every time". It was not. Only the basename reached CANNOT_LIST, and the
+# reason was discarded here.
+#
+# MEASURED 2026-08-29 on walks/v1.0.50.tsv: 6 probes did not run, and no
+# reason for any of them is recoverable -- not from the record, not from the
+# summary. Dispositioning those six took a hand audit of four probe sources.
+#
+# bash 3.2 (macOS system bash) has no associative arrays, so the name/reason
+# pairs go to a file rather than a map.
+CANNOT_REASONS="$(mktemp)"
+trap 'rm -f "$CANNOT_REASONS"' EXIT
+
 for p in $PROBES; do
     b="$(basename "$p" .sh)"
 
@@ -195,6 +214,19 @@ for p in $PROBES; do
         PASS=$((PASS + 1))
     elif [ "$rc" -eq "$EX_CANNOT_RUN" ]; then
         CANNOT=$((CANNOT + 1)); CANNOT_LIST="$CANNOT_LIST $b"
+        # Everything from the marker to the END of the probe's output is the
+        # reason: probe_cannot_run() prints it last and exits immediately. A
+        # reason can span lines ($detail is passed whole by several probes),
+        # so this takes the tail rather than one line, then flattens it.
+        _why="$(printf '%s\n' "$out" \
+                | awk '/^VERDICT: CANNOT-RUN -- /{sub(/^VERDICT: CANNOT-RUN -- /, ""); f=1} f' \
+                | tr '\n' ' ' | sed 's/  */ /g; s/ *$//')"
+        # An unparseable reason is ANNOUNCED, never left blank. A blank here
+        # would read as "no reason was given" when what it means is "this
+        # probe exited 78 without going through probe_cannot_run", which is a
+        # contract breach and a different problem entirely.
+        [ -n "$_why" ] || _why="UNRECORDED -- exited ${EX_CANNOT_RUN} with no 'VERDICT: CANNOT-RUN --' line, so it bypassed probe_cannot_run and named no prerequisite"
+        printf '%s\t%s\n' "$b" "$_why" >> "$CANNOT_REASONS"
     else
         FAIL=$((FAIL + 1)); FAIL_LIST="$FAIL_LIST $b"
     fi
@@ -221,6 +253,31 @@ fi
 if [ -n "$CANNOT_LIST" ]; then
     printf '\nNOT MEASURED (prerequisite absent -- this is coverage lost, not a pass):\n'
     for b in $CANNOT_LIST; do printf '  %s\n' "$b"; done
+
+    # A SEPARATE BLOCK, AND THAT IS DELIBERATE -- DO NOT FOLD IT INTO THE ONE
+    # ABOVE.
+    #
+    # post_walk_qa.sh parses the block above with an awk that accepts only
+    # `^  [A-Za-z0-9._-]+$` and EXITS on the first line that is not a bare
+    # probe name. Printing a reason underneath each name would end that parse
+    # at the first one, so walks/<version>.tsv would carry a single
+    # not_measured_probe row and silently drop the rest -- the exact blindness
+    # this estate exists to prevent, reintroduced by the fix for it. The blank
+    # line printf'd below terminates that parse before this block begins, and
+    # this header does not contain the string it keys on.
+    #
+    # CONSOLE ONLY. These strings interpolate ${OSTLER_BOX_HOST}, $LOG_PATH,
+    # ~/.ostler/... and in one case raw transport stderr. walks/ is committed
+    # to a PUBLIC repo -- which is why box_fp is a hash and why the record
+    # carries names and never probe output. Measured across the 90
+    # probe_cannot_run call sites in 21 of 21 probes: the reasons are
+    # saturated with operator paths and private addresses. They belong in
+    # front of the operator running the walk, and nowhere else.
+    printf '\nPREREQUISITES THAT WERE ABSENT (console only -- never written to walks/):\n'
+    while IFS="$(printf '\t')" read -r _b _why; do
+        [ -n "$_b" ] || continue
+        printf '  %s\n      %s\n' "$_b" "$_why"
+    done < "$CANNOT_REASONS"
 fi
 
 if [ -n "$BROKEN_LIST" ]; then
