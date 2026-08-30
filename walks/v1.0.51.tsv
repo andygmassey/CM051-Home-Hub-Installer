@@ -21,14 +21,14 @@
 # along, because these keys were unqualified.
 version	v1.0.51
 version_source	measured(CFBundleShortVersionString, matches argument)
-artefact_sha256	unavailable
-artefact_sha256_source	asserted-unverifiable(no OstlerInstaller-1.0.51.dmg on the box)
-walked_at	2026-08-30T06:13:05Z
+artefact_sha256	82a621e06d4fe6118e1d85d66ca74bd6eef853ae81dbb058cb800b7c22108cde
+artefact_sha256_source	measured(shasum -a 256 of OstlerInstaller-1.0.51.dmg on the walked box; presence, not proof of mount)
+walked_at	2026-08-30T06:51:25Z
 box_fp	49cff40b0a7b6eee
 counts_scope	box_walk_probes_only(phase1); verdict+qa_exit cover all phases
-pass	11
+pass	12
 fail	4
-cannot_run	6
+cannot_run	5
 broken	0
 measured	21 of 21 (pass+fail+cannot_run; a broken probe is SKIPPED in phase 2 and measures nothing) -- buckets partition the suite
 verdict	FAILED
@@ -40,7 +40,6 @@ failed_probe	no_store_port_is_tcp_reachable
 failed_probe	usage_journal_producers
 not_measured_reasons	withheld(public repo); run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"
 not_measured_probe	ingest_coverage
-not_measured_probe	launchagents_resolve_their_tools
 not_measured_probe	no_person_holds_two_contact_cards
 not_measured_probe	pair_state_agreement
 not_measured_probe	people_count_agreement
