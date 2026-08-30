@@ -85,6 +85,21 @@ OXIGRAPH_URL="${OSTLER_OXIGRAPH_URL:-http://127.0.0.1:7878/query}"
 QDRANT_URL="${OSTLER_QDRANT_URL:-http://127.0.0.1:6333}"
 QDRANT_COLLECTION="${OSTLER_QDRANT_PEOPLE_COLLECTION:-people}"
 
+# STORE CREDENTIAL. Both stores 401 to a keyless request on every enforce-ON
+# install (#550/#1222). This probe reads them via python urllib, not curl, so
+# the credential is parsed from the install's own curl config and injected as
+# request headers -- and a 401 is split three ways INSIDE the payload:
+# AUTHFAIL (credential presented and refused -> FAIL) vs KEYLESS (no credential
+# presented -> CANNOT-RUN). STORE_CONF_PATH is $HOME expanded on the box (never
+# the literal STORE_CURL_CONF, whose unexpanded $HOME the box python could not
+# open -- the urllib analogue of the #1284 curl bug).
+STORE_CURL_CONF="${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-curl.conf}"
+STORE_CONF_PATH=""
+
+_store_resolve() {
+    STORE_CONF_PATH="$(box_run "printf '%s' \"${STORE_CURL_CONF}\"" | tr -d '\r\n')"
+}
+
 # The reconciliation is set arithmetic over ~7k URIs from two stores. bash 3.2
 # has no associative arrays -- and /bin/bash is 3.2.57 here AND on the cut host
 # -- so the join runs in python3 on the box. Single-quoted below and free of
@@ -92,23 +107,49 @@ QDRANT_COLLECTION="${OSTLER_QDRANT_PEOPLE_COLLECTION:-people}"
 read -r -d '' RECONCILE_PY <<'PYPAYLOAD'
 import json, sys
 try:
-    import urllib.request
+    import urllib.request, urllib.error
 except Exception as exc:
     print("CANNOTRUN urllib " + str(exc)); sys.exit(0)
 
 OXI = sys.argv[1]; QD = sys.argv[2]; COLL = sys.argv[3]
+CONF = sys.argv[4] if len(sys.argv) > 4 else ""
 P   = "https://schema.ostler.ai/ontology#"
 SKOS= "http://www.w3.org/2004/02/skos/core#prefLabel"
 
+# The install store credential, parsed from its curl config header lines and
+# presented on every store request so an enforce-ON store answers. Its presence
+# also decides whether a 401 is a refused key (AUTHFAIL) or a keyless probe
+# (KEYLESS). No shell metacharacters here -- this payload must stay literal.
+STORE_HEADERS = {}
+if CONF:
+    try:
+        for line in open(CONF, encoding="utf-8"):
+            line = line.strip()
+            if line.startswith("header") and "=" in line:
+                val = line.split("=", 1)[1].strip().strip('"')
+                if ":" in val:
+                    k, v = val.split(":", 1)
+                    STORE_HEADERS[k.strip()] = v.strip()
+    except Exception:
+        pass
+HAVE_CRED = bool(STORE_HEADERS)
+
+# Bypass any operator proxy (HTTP_PROXY / http_proxy) -- the python analogue of
+# curl --noproxy '*'. Without it a local proxy answers for 127.0.0.1 with its own
+# 5xx, masking the store's real 401 and reading as the store being down.
+urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
+
 def sparql(q):
-    req = urllib.request.Request(OXI, data=q.encode(), headers={
-        "Content-Type": "application/sparql-query",
-        "Accept": "application/sparql-results+json"})
+    h = {"Content-Type": "application/sparql-query",
+         "Accept": "application/sparql-results+json"}
+    h.update(STORE_HEADERS)
+    req = urllib.request.Request(OXI, data=q.encode(), headers=h)
     return json.load(urllib.request.urlopen(req, timeout=120))["results"]["bindings"]
 
 def qpost(path, body):
-    req = urllib.request.Request(QD + path, data=json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"})
+    h = {"Content-Type": "application/json"}
+    h.update(STORE_HEADERS)
+    req = urllib.request.Request(QD + path, data=json.dumps(body).encode(), headers=h)
     return json.load(urllib.request.urlopen(req, timeout=60))
 
 try:
@@ -169,6 +210,11 @@ try:
 
     print("OK %d %d %d %d %d %d %d" % (
         len(graph), len(vec), a, b_orphan, c_named, c_unnamed, len(vec & graph)))
+except urllib.error.HTTPError as exc:
+    if exc.code in (401, 403):
+        print(("AUTHFAIL %d" % exc.code) if HAVE_CRED else ("KEYLESS %d" % exc.code))
+    else:
+        print("CANNOTRUN HTTPError " + str(exc.code))
 except Exception as exc:
     print("CANNOTRUN " + type(exc).__name__ + " " + str(exc)[:120])
 PYPAYLOAD
@@ -196,7 +242,7 @@ OSTLERTILE"
 
 read_result() {
     if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_RECONCILE:-CANNOTRUN self-test-unset}"; return; fi
-    box_run "python3 - '${OXIGRAPH_URL}' '${QDRANT_URL}' '${QDRANT_COLLECTION}' <<'PYPAYLOAD'
+    box_run "python3 - '${OXIGRAPH_URL}' '${QDRANT_URL}' '${QDRANT_COLLECTION}' '${STORE_CONF_PATH}' <<'PYPAYLOAD'
 ${RECONCILE_PY}
 PYPAYLOAD"
 }
@@ -206,11 +252,19 @@ run_probe() {
         probe_cannot_run "box ${OSTLER_BOX_HOST:-localhost} is not reachable over ssh; nothing was measured"
     fi
 
+    _store_resolve
+
     local out
     out="$(read_result)"
 
     case "$out" in
         OK\ *) : ;;
+        AUTHFAIL\ *)
+            probe_examined 0 "person records across two stores"
+            probe_fail "a store returned HTTP ${out#AUTHFAIL } WITH the install's store credential presented (from ${STORE_CONF_PATH}); a key the store refuses is a real fault, not a missing probe credential." ;;
+        KEYLESS\ *)
+            probe_examined 0 "person records across two stores"
+            probe_cannot_run "a store returned HTTP ${out#KEYLESS } and this run presented NO store credential (${STORE_CONF_PATH:-<unresolved>} carried no header lines). Store auth is ENFORCED since #550/#1222, so a keyless probe cannot read the two sets -- nothing was measured." ;;
         CANNOTRUN\ *)
             probe_cannot_run "reconciliation could not run: ${out#CANNOTRUN }" ;;
         "")

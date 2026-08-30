@@ -1,0 +1,64 @@
+# The four box-walk store probes now present the install's -K credential and
+# adjudicate the reply (401 refused -> FAIL, keyless 401 -> CANNOT-RUN, transport
+# 000 -> CANNOT-RUN) instead of reading a keyless 401 as "the store is down".
+# These tests drive each probe against a python3 fake store on loopback and
+# assert the VERDICT REASON, and each carries a #1284 mutation arm.
+#
+# runs-on macos-latest, DELIBERATELY, on what the tests READ: the probes shell
+# out through box_run to BSD /usr/bin/grep and to `curl -K`, and ship to a
+# macOS/bash-3.2 box. ubuntu would exercise a different shell and toolset than
+# the artefact -- green for the wrong reason. This mirrors the runner the sibling
+# probe test (test_people_seed_and_retrieval_probe.sh) already uses in
+# cut-manifest.yml.
+name: keyless-store-probe-tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/box_walk_probes/probes/no_person_holds_two_contact_cards.sh'
+      - 'scripts/box_walk_probes/probes/ingest_coverage.sh'
+      - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
+      - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
+      - 'scripts/tests/test_no_person_holds_two_contact_cards_probe.sh'
+      - 'scripts/tests/test_ingest_coverage_probe.sh'
+      - 'scripts/tests/test_people_count_agreement_probe.sh'
+      - 'scripts/tests/test_people_stores_reconcile_probe.sh'
+      - '.github/workflows/keyless-store-probe-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/box_walk_probes/probes/no_person_holds_two_contact_cards.sh'
+      - 'scripts/box_walk_probes/probes/ingest_coverage.sh'
+      - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
+      - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
+      - 'scripts/tests/test_no_person_holds_two_contact_cards_probe.sh'
+      - 'scripts/tests/test_ingest_coverage_probe.sh'
+      - 'scripts/tests/test_people_count_agreement_probe.sh'
+      - 'scripts/tests/test_people_stores_reconcile_probe.sh'
+      - '.github/workflows/keyless-store-probe-tests.yml'
+
+concurrency:
+  group: keyless-store-probe-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe-tests:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: no_person_holds_two_contact_cards credential + 401/000 adjudication
+        if: always()
+        run: /bin/bash scripts/tests/test_no_person_holds_two_contact_cards_probe.sh
+
+      - name: ingest_coverage credential + 401/000 adjudication
+        if: always()
+        run: /bin/bash scripts/tests/test_ingest_coverage_probe.sh
+
+      - name: people_count_agreement oxigraph credential + 401/000 adjudication
+        if: always()
+        run: /bin/bash scripts/tests/test_people_count_agreement_probe.sh
+
+      - name: people_stores_reconcile urllib credential + 401/KEYLESS adjudication
+        if: always()
+        run: /bin/bash scripts/tests/test_people_stores_reconcile_probe.sh

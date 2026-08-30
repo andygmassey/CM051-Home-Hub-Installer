@@ -56,6 +56,24 @@ PROBE_QUESTION="has any Person node swallowed more than one Contacts card (2+ di
 OXIGRAPH_URL="${OSTLER_OXIGRAPH_URL:-http://127.0.0.1:7878/query}"
 ONTO="https://schema.ostler.ai/ontology#"
 
+# STORE CREDENTIAL. Oxigraph is behind the store-proxy and answers 401 to a
+# keyless request on every enforce-ON install (#550/#1222). A bare query here
+# used to read that 401 as an empty body -> "UNAVAILABLE" -> CANNOT-RUN blaming
+# the store, which cannot tell "the probe brought no key" from "the store is
+# down". So the probe now presents the install's OWN curl config, exactly as
+# people_seed_and_retrieval does after #1268/#1284/#1285.
+#
+# STORE_CONF_PATH, never the literal STORE_CURL_CONF: the literal carries an
+# unexpanded $HOME and single-quoting THAT at a -K site hands curl a path it
+# cannot open (rc=26, no request, no http_code, caller reads 000). #1284 is the
+# proof. STORE_CONF_PATH is $HOME expanded ON THE BOX (see _store_resolve), and
+# every -K use reads it.
+STORE_CURL_CONF="${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-curl.conf}"
+STORE_CONF_PATH=""   # STORE_CURL_CONF with $HOME expanded on the box
+STORE_AUTH=""        # "conf" once the box is proven to carry a usable config
+_OX_CODE_FILE=""     # _ox_curl writes the last HTTP code here so the MAIN shell
+                     # can adjudicate after the command-substitution subshell
+
 # The violation query. GROUP BY person, keep only those with >1 distinct uid.
 _Q_VIOLATIONS="PREFIX p: <${ONTO}>
 SELECT ?person (COUNT(DISTINCT ?v) AS ?uids) WHERE {
@@ -73,8 +91,55 @@ SELECT ?person (COUNT(DISTINCT ?v) AS ?uids) WHERE {
 _Q_CONTROL="PREFIX p: <${ONTO}>
 SELECT (COUNT(DISTINCT ?i) AS ?n) WHERE { ?i p:identifierType \"icloud_contact_uid\" }"
 
+# Resolve the store curl config path ON THE BOX ($HOME expands there) and decide
+# whether a usable credential exists. Called once at the top of run_probe.
+_store_resolve() {
+    STORE_CONF_PATH="$(box_run "printf '%s' \"${STORE_CURL_CONF}\"" | tr -d '\r\n')"
+    local _h
+    _h="$(box_run "/usr/bin/grep -c '^header = ' '${STORE_CONF_PATH}' 2>/dev/null" | tr -d '\r\n ')"
+    case "$_h" in ''|*[!0-9]*) _h=0 ;; esac
+    if [ "$_h" -gt 0 ]; then STORE_AUTH="conf"; else STORE_AUTH=""; fi
+}
+
+# Run a SPARQL query, presenting the store credential when one is usable, and
+# record the HTTP code in $_OX_CODE_FILE for the MAIN shell to adjudicate -- this
+# runs inside command substitution, so a verdict-exit here would only kill the
+# subshell. Echoes the response body. STORE_CONF_PATH is already $HOME-expanded,
+# so single-quoting it at the -K site is safe (this is the #1284 correction).
+_ox_curl() {
+    local _q="$1" _k="" _out
+    [ "$STORE_AUTH" = "conf" ] && _k="-K '${STORE_CONF_PATH}'"
+    _out="$(box_run "curl -sS --noproxy '*' -m 20 -G ${_k} '$OXIGRAPH_URL' --data-urlencode 'query=${_q}' -H 'Accept: application/sparql-results+json' -w '\n%{http_code}'")"
+    printf '%s\n' "$_out" | tail -n1 > "$_OX_CODE_FILE" 2>/dev/null
+    printf '%s' "$_out" | sed '$d'
+}
+
+# Adjudicate the transport/auth outcome of the last _ox_curl. MUST run in the
+# main shell (it exits with a verdict). 000 (no status at all) is a transport
+# failure -> CANNOT-RUN; a 401/403 splits on whether a credential was actually
+# presented: refused-with-key is a real FAIL, refused-without-key is CANNOT-RUN
+# because store auth is enforced and nothing was measured.
+_ox_adjudicate() {
+    local _what="$1" _code
+    _code="$(cat "$_OX_CODE_FILE" 2>/dev/null | tr -d '\r\n ')"
+    case "$_code" in
+        401|403)
+            probe_examined 0 "icloud_contact_uid identifiers"
+            if [ "$STORE_AUTH" = "conf" ]; then
+                probe_fail "Oxigraph returned HTTP ${_code} on the ${_what} WITH the install's store credential presented (-K, ${STORE_CONF_PATH}). A key the store refuses is a real fault, not a missing probe credential."
+            else
+                probe_cannot_run "Oxigraph returned HTTP ${_code} on the ${_what} and this run presented NO store credential (${STORE_CONF_PATH:-<unresolved>} carried no header lines). Store auth is ENFORCED since #550/#1222, so a keyless probe cannot read the graph whether or not the data exists -- nothing about the contact-card invariant was measured."
+            fi
+            ;;
+        000|'')
+            probe_examined 0 "icloud_contact_uid identifiers"
+            probe_cannot_run "no HTTP response from ${OXIGRAPH_URL} on the ${_what} -- curl reported no status at all (refused, timed out, proxied, or a bad argument): a TRANSPORT failure, not a result. Nothing was measured."
+            ;;
+    esac
+}
+
 _sparql_scalar() {
-    box_run "curl -sS -m 20 -G '$OXIGRAPH_URL' --data-urlencode 'query=$1' -H 'Accept: application/sparql-results+json'" \
+    _ox_curl "$1" \
     | python3 -c '
 import json,sys
 raw=sys.stdin.read().strip()
@@ -90,7 +155,7 @@ except Exception:
 # Returns the violation rows as "<uids> <person>" lines, or UNAVAILABLE.
 _fetch_violations() {
     if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_VIOLATIONS:-}"; return; fi
-    box_run "curl -sS -m 20 -G '$OXIGRAPH_URL' --data-urlencode 'query=$_Q_VIOLATIONS' -H 'Accept: application/sparql-results+json'" \
+    _ox_curl "$_Q_VIOLATIONS" \
     | python3 -c '
 import json,sys
 raw=sys.stdin.read().strip()
@@ -124,10 +189,17 @@ run_probe() {
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)}; the graph was not queried"
     fi
 
+    _OX_CODE_FILE="$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/ox_code.$$")"
+    _store_resolve
+
     # CONTROL FIRST. Deliberately before the violation query, so a broken or
     # empty store can never be reported as a clean graph.
     local control
     control="$(_sparql_scalar "$_Q_CONTROL")"
+    # Transport/auth is adjudicated BEFORE the "not a number" check below, so a
+    # 401 (no key) reads as "keyless, nothing measured" and not as "the ontology
+    # namespace moved". _ox_adjudicate exits with the verdict on 000/401.
+    _ox_adjudicate "control query"
     case "$control" in
         ''|*[!0-9]*)
             probe_examined 0 "Person nodes"
@@ -141,6 +213,7 @@ run_probe() {
 
     local rows
     rows="$(_fetch_violations)"
+    _ox_adjudicate "violation query"
     if [ "$rows" = "UNAVAILABLE" ]; then
         probe_examined 0 "Person nodes"
         probe_cannot_run "violation query failed against $OXIGRAPH_URL"
