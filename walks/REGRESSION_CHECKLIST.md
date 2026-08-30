@@ -36,8 +36,8 @@ in the GUI section below is currently invisible to automation.
 
 | # | Surface | Defect | Register | Status |
 |---|---|---|---|---|
-| A1 | Home tab | Front Page content does not render; shows "Your Front Page is still settling in" | **#210 was COMPLETED** | OPEN |
-| A2 | Settings | "Advanced" section still present; Andy and Archie agreed it would not exist | **#454 was COMPLETED, text says NOT box-walked** | OPEN |
+| A1 | Home tab | Front Page never populates. ROOT CAUSE FOUND on the box, see below | **#210 was COMPLETED**, mechanism now #595 | OPEN, cause known |
+| A2 | Settings | "Advanced" section still present; Andy and Archie agreed it would not exist | **#454 was COMPLETED, text says NOT box-walked** | OPEN, fix PR'd oa #369 |
 | A3 | Wiki Front Page | "Still getting to know you" panel is a raw table: "Could not tell", "Not started yet", "Nothing found to read yet" | **#218 was COMPLETED** | OPEN |
 | A4 | Bursar | "You're not on the meter" on a box that has installed and compiled a wiki | #482 pending | OPEN |
 | A5 | People / duplicates | "Duplicate review is available on the Hub Mac only." rendered ON the Hub Mac, beside working buttons | not previously filed | OPEN |
@@ -45,6 +45,22 @@ in the GUI section below is currently invisible to automation.
 
 ### What is MEASURED behind these, so nobody re-discovers it
 
+- **A1** — SOLVED 2026-08-31 on .231, and it is a REGRESSION WE SHIPPED, not a render
+  bug. The card Andy sees IS the feed: "Your Front Page is still settling in" is the
+  literal `title` of the one system card in `~/.ostler/editor/front_page.json`. The
+  producer ticks hourly and EXITS 0, but every tick 401s against Oxigraph 7878 and
+  fail-closes to the settling stub. It has no credential because the interpreter it
+  runs under, `~/.ostler/python`, is missing `ostler_store_auth.pth`.
+  POSITIVE CONTROL: 12 such `.pth` exist in sibling venvs, so the shim is real and
+  widely installed and this is a COVERAGE GAP, not a false zero. Closing 7878 was
+  correct (#554); wiring this venv was missed. Full evidence in #595; this is #570
+  paying out. **The Front Page can never populate on any customer install** — it is
+  not slow, it is dead. TNM owns the wire.
+- **A2** — the shipped v1.0.52 bundle has `v1_show_advanced_config:!1`, so the raw-TOML
+  toggle never rendered. What Andy saw was a note-box on **Preferences** headed "More
+  settings" linking to "Open advanced settings". Fix in oa #369: the card is gone and
+  its two controls moved onto Preferences, so nothing is lost. Do NOT tick this from
+  the PR.
 - **A4** — `~/.ostler/workspace/state` is ABSENT; `~/.ostler/state` exists.
   Control fired: 53,103 files under `~/.ostler`, 463 `*.json`, **0** `*.jsonl`.
   Two state directories; the journal writes to the one never created. This is
