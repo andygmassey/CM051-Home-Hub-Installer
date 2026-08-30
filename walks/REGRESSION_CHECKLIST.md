@@ -94,10 +94,35 @@ in the GUI section below is currently invisible to automation.
   "unsure" at 0.6, below the 0.8 auto-merge floor, so the phone path is guarded. The ~30
   therefore merged via a strategy that never calls `names_agree` -- email-exact,
   exact-name, or linkedin-exact. **That is the surface to fix; the phone guard is not.**
-  📌 KNOCK-ON, and it must be settled before anyone fixes to the walk's FAIL: A2's own
-  `no_person` probe asserts "0 nodes with 2+ icloud_contact_uid", so it flags the 106
-  legitimate merges as violations and its FAIL is inflated by correct behaviour. If the
-  intent is over-merge detection the invariant must key on 2+ distinct GIVEN NAMES.
+  📌 KNOCK-ON, SETTLED BY TNM THE SAME HOUR AGAINST THE RATIFIED RULESET (Andy, 2026-06-09,
+  refined 2026-06-22) — and my first write-up of this knock-on was WRONG, so read the
+  correction not the sentence it replaced. A2's `no_person` probe asserts "0 nodes with 2+
+  `icloud_contact_uid`". `icloud_uid` is a **canonical UNIQUE** identifier (vs the SHAREABLE
+  email/phone; `vendor/cm041/identity_resolver/resolver.py:627/761/788` at CM051 `6d71a220`).
+  RULE 1 says two nodes sharing any one canonical key ARE the same person, *ignore display
+  names*. So the probe's invariant **forbids the consolidation the ruleset requires** — the
+  106 are the system working, not noise to tolerate.
+  ⛔ AND THE OBVIOUS REPLACEMENT IS ALSO WRONG. I wrote here that the invariant "must key on
+  2+ distinct GIVEN NAMES". RULE 2 says *a shared name alone is never a merge signal*, and for
+  unique ids the resolver never consults names at all. Keying the VIOLATION on given-name
+  divergence re-installs names as an authority, inverted: `Rob` + `Robert` on two iCloud
+  cards, or a card predating a legal name change, becomes a permanent uncleaable "over-merge"
+  on a node whose merge was correct. **Do not implement my sentence; it is retracted.**
+  ✅ THE RATIFIED BAR ALREADY NAMES THE PREDICATE: *"Exact-ID collisions (email + phone) MUST
+  = 0"* — the SHAREABLE ids, which is exactly where the ~30 came through. Diagnosis lands on
+  the bar; the proposed invariant did not.
+  🔬 SUSPECTS NARROWED 3 -> 2: `linkedin-exact` is a UNIQUE id, always-merge is CORRECT BY
+  DESIGN — EXCLUDE it from the hunt. `email-exact` must have name agreement (2026-06-22), so
+  a merge without one IS the defect. `exact-name` is a flat RULE 2 violation and is worse.
+  🔴 THE DISCRIMINATOR NOBODY HAS RUN, and it decides whether there is a code defect at all:
+  the shareable-id name guard landed in v1.0.1 (BW-1 / #276, cb25132). `.231`'s graph is not
+  fresh, so the ~30 are either (a) merged by an OLDER resolver = historical damage needing a
+  REPAIR pass (#659 already records "resolver + repair NOT done"), or (b) reproducible by the
+  CURRENT resolver = live defect. Settle it with a TEST against the shipping resolver — two
+  records sharing one email, different given names, assert it declines — NOT another SPARQL
+  count on the box. ⚠️ Fixing "to the FAIL" without that discriminator risks re-opening the
+  under-merge side the guard protects: *"better to under-merge two real people than over-merge
+  a family."*
   A single threshold change still makes one half worse.
   `Delganycolm` and `Emmaj Oneill` are handle-shaped, not name-shaped, so check
   the display-name picker before the merge logic.
