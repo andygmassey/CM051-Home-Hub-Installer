@@ -16,12 +16,17 @@
 # MEASURED on walks/v1.0.50.tsv: 7+7+6+1 = 21 = the probe count, as cleanly as
 # if all 21 had run. Twenty had. `no_store_port_is_tcp_reachable` was BROKEN,
 # phase 2 stepped over it, and that walk took NO store-port measurement at all
-# -- the probe for #550, the store-exposure finding it exists to detect. A
-# security finding whose guard never executed.
+# -- the probe for the STORE-EXPOSURE FINDING it exists to detect. A security
+# finding whose guard never executed.
 #
-# OBJECT PRECISION, because I got this wrong first: the probe names #550 five
-# times and #551 zero times. #551 is a different object. Cite the finding the
-# probe guards, not the row that discusses it.
+# OBJECT PRECISION, and I got this wrong TWICE. First I cited the wrong number.
+# Then I cited the right number without its namespace, which in THIS repo is
+# worse: a bare "#550" is auto-linked by GitHub to CM051 PR #550, "a kinship
+# word is never a name" -- an unrelated object. Measured, all three collide:
+#     CM051 #550 = kinship-word fix      #551 = pii-scan fix
+#     CM051 #554 = wiki image re-pin
+# none of which are the objects those integers name in the agent register.
+# So: name the object in words. The integer is ambiguous by construction.
 #
 # So the reconciliation is a good COMPLETENESS check and a bad COVERAGE check.
 # The number that carries coverage is pass+fail+cannot_run, and the record now

@@ -508,8 +508,17 @@ if [[ -n "$CUT_VERSION" ]]; then
         # MEASUREMENT. On walks/v1.0.50.tsv it read 7+7+6+1 = 21 = the probe
         # count, as cleanly as if all 21 had run. Twenty had. The store-port
         # probe was broken, phase 2 stepped over it, and that walk took NO
-        # store-port measurement at all -- on #550, the finding this probe
-        # exists to detect. The probe names #550 five times and #551 never.
+        # store-port measurement at all -- on the STORE-EXPOSURE FINDING that
+        # this probe exists to detect.
+        #
+        # DELIBERATELY NOT WRITTEN AS A BARE "#550". That integer means three
+        # different things in three namespaces, and this file lives in the one
+        # where GitHub turns it into a link:
+        #     CM051 PR #550   "a kinship word is never a name"   <- what a
+        #                      reader of this repo is sent to
+        #     agent register  the store-exposure finding          <- what is meant
+        # The probe's own header says "#550" five times and means the register.
+        # Name the object, not the integer.
         #
         # The number that carries coverage is pass+fail+cannot_run, and it is
         # stated here rather than left to be derived, because a rising `broken`
