@@ -48,8 +48,8 @@ targets:
         CFBundleName: OstlerInstaller
         CFBundleDisplayName: Ostler Installer
         CFBundleIdentifier: ai.ostler.installer
-        CFBundleShortVersionString: "1.0.54"
-        CFBundleVersion: "5400"
+        CFBundleShortVersionString: "1.0.55"
+        CFBundleVersion: "5500"
         CFBundlePackageType: APPL
         CFBundleExecutable: $(EXECUTABLE_NAME)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
