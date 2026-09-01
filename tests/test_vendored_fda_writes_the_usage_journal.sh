@@ -118,9 +118,34 @@ out=$(cd "$VENDOR" && "$PY" - "$want_prefix" "$want_purpose" <<'PY' 2>&1
 import json, pathlib, sys, tempfile
 want_prefix, want_purpose = sys.argv[1], sys.argv[2]
 sys.path.insert(0, ".")
+
+# ⚠️ TWO IMPORT FAILURES THAT LOOK IDENTICAL AND MEAN OPPOSITE THINGS.
+#
+# `usage_journal` absent  -> THE DEFECT. The producer is dark. FAIL.
+# `httpx` absent          -> the RUNNER lacks a third-party dep. The module is
+#                            fine; we could not look. CANNOT-RUN, never FAIL.
+#
+# The first version of this test collapsed both into FAIL and went red on
+# ubuntu and macos-14 for a missing httpx -- reporting a product defect that
+# did not exist, which is the CANNOT-RUN != FAIL rule broken inside the very
+# harness written to enforce it. The runner now installs httpx; this
+# discrimination is what stops the NEXT dep change from doing it again.
+_OWN = {"usage_journal", "ostler_fda.usage_journal"}
 try:
     from ostler_fda import usage_journal, pwg_ingest
-except Exception as exc:                      # import failure is a REAL result
+except ModuleNotFoundError as exc:
+    name = getattr(exc, "name", "") or ""
+    if name.split(".")[-1] in {"usage_journal"} or name in _OWN:
+        print(f"IMPORT_FAILED {type(exc).__name__}: {exc}")
+    else:
+        print(f"DEP_MISSING {name}")
+    raise SystemExit(0)
+except ImportError as exc:
+    # `cannot import name 'usage_journal' from 'ostler_fda'` -- the module
+    # directory exists but the file does not. THIS IS THE DEFECT.
+    print(f"IMPORT_FAILED {type(exc).__name__}: {exc}")
+    raise SystemExit(0)
+except Exception as exc:
     print(f"IMPORT_FAILED {type(exc).__name__}: {exc}")
     raise SystemExit(0)
 
@@ -150,17 +175,31 @@ print("UNMEASURED_SILENT" if before == after else f"UNMEASURED_WROTE {before}->{
 PY
 )
 
-case "$out" in
-    *IMPORT_FAILED*) bad "the vendored module does not import: $(printf '%s' "$out" | head -1)" ;;
-esac
+# CANNOT-RUN FIRST, and it EXITS. Falling through would print four failures
+# whose messages assert things the run never observed -- e.g. "an unmeasured
+# response WROTE a record" when nothing was written because nothing imported.
+# A harness that describes what it did not see is worse than one that refuses.
+if grep -q 'DEP_MISSING' <<<"$out"; then
+    dep=$(grep -o 'DEP_MISSING.*' <<<"$out" | head -1 | awk '{print $2}')
+    echo "  CANNOT-RUN: the runner has no '${dep}'. The vendored module is not"
+    echo "              at fault and NOTHING below was measured. Install the"
+    echo "              dependency in the workflow; do not read this as a"
+    echo "              product defect. CANNOT-RUN is not FAIL and is not PASS."
+    exit 2
+fi
+
+if grep -q 'IMPORT_FAILED' <<<"$out"; then
+    bad "the vendored module does not import: $(printf '%s' "$out" | head -1)"
+    echo "     ^ this IS the defect class -- usage_journal absent from the vendor tree"
+fi
 grep -q 'WROTE 1'           <<<"$out" && ok "RUNNING the vendored producer writes a record" \
                                       || bad "the vendored producer wrote NOTHING on a measured response"
 grep -q 'PREFIX_OK'         <<<"$out" && ok "session_id carries the prefix the roster matches on" \
                                       || bad "session_id prefix does NOT match the roster: $(grep -o 'PREFIX_BAD.*' <<<"$out")"
 grep -q 'PURPOSE_OK'        <<<"$out" && ok "purpose is the one the roster declares" \
-                                      || bad "purpose does NOT match the roster: $(grep -o 'PURPOSE_BAD.*' <<<"$out")"
+                                      || bad "purpose is not the roster's, or was never observed: $(grep -o 'PURPOSE_BAD.*' <<<"$out")"
 grep -q 'UNMEASURED_SILENT' <<<"$out" && ok "MUST-MISS: an unmeasured response writes nothing (no invented numbers)" \
-                                      || bad "an unmeasured response WROTE a record -- estimated, not measured"
+                                      || bad "the must-miss arm did not pass (a record was written for an unmeasured response, or the arm never ran)"
 
 echo
 echo "  passed ${pass}, failed ${fail}"

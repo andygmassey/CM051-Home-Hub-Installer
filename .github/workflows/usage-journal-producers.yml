@@ -112,6 +112,14 @@ jobs:
       - name: Every declared producer, or a red -- 15 mutation arms
         run: /bin/bash tests/test_usage_journal_producer_gate.sh
 
+      # The vendored ostler_fda imports httpx at module scope. Without it the
+      # behavioural step below cannot import the module at all -- which is
+      # CANNOT-RUN, not a product defect, and the test now says so and exits 2.
+      # Installing it here is what makes the assertion actually EXECUTE rather
+      # than politely refuse on every run.
+      - name: Dependency the vendored module needs to be importable
+        run: python3 -m pip install --quiet --disable-pip-version-check httpx
+
       # THE ROSTER SAYS THIS ONE IS MEASURED. It was -- on the SOURCE.
       #
       # Everything above adjudicates a journal that already exists. Nothing
@@ -281,6 +289,14 @@ jobs:
 
       - name: Same 15 arms, on bash 3.2 + BSD userland
         run: /bin/bash tests/test_usage_journal_producer_gate.sh
+
+      # The vendored ostler_fda imports httpx at module scope. Without it the
+      # behavioural step below cannot import the module at all -- which is
+      # CANNOT-RUN, not a product defect, and the test now says so and exits 2.
+      # Installing it here is what makes the assertion actually EXECUTE rather
+      # than politely refuse on every run.
+      - name: Dependency the vendored module needs to be importable
+        run: python3 -m pip install --quiet --disable-pip-version-check httpx
 
       # The shipping producer runs on the CUSTOMER'S Mac, so its guard must be
       # exercised on bash 3.2 + BSD userland too. `grep -c`, `cut -f` and the
