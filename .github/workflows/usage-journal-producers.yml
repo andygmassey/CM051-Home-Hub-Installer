@@ -71,6 +71,13 @@ on:
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'tests/test_usage_journal_producer_gate.sh'
       - 'tests/fixtures/usage_journal/costs_full.jsonl'
+      # The SHIPPING producer itself. The roster names cm051_ostler_fda_ingest
+      # as its one MEASURED row -- measured on HR015 source, which is not what
+      # ships. The vendored copy carried no writer at all until 2026-09-01, so
+      # these two files are exactly where that row's truth lives.
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/usage_journal.py'
+      - 'tests/test_vendored_fda_writes_the_usage_journal.sh'
       - 'cut-manifests/permanent.yaml'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
@@ -104,6 +111,24 @@ jobs:
       # resolvers are pinned against the contract and against each other.
       - name: Every declared producer, or a red -- 15 mutation arms
         run: /bin/bash tests/test_usage_journal_producer_gate.sh
+
+      # THE ROSTER SAYS THIS ONE IS MEASURED. It was -- on the SOURCE.
+      #
+      # Everything above adjudicates a journal that already exists. Nothing
+      # above asks whether the SHIPPING code can write one. The vendored
+      # ostler_fda carried no journal writer at all (0 hits against a live
+      # control of 57 in the same file, and usage_journal.py absent from the
+      # vendor tree entirely), so cm051_ostler_fda_ingest -- the roster's one
+      # row whose provenance reads "measured" -- had never written a record on
+      # any customer install.
+      #
+      # This step RUNS the vendored module and requires a record, with the
+      # prefix and purpose read out of the roster rather than restated here.
+      # An import line would not have caught it: the import was absent AND its
+      # target module was absent, and either alone is enough to go dark.
+      - name: The SHIPPING ostler_fda actually writes a record (not just imports one)
+        if: always()
+        run: /bin/bash tests/test_vendored_fda_writes_the_usage_journal.sh
 
       # The three exit codes, asserted at the top level rather than only inside
       # the harness. CANNOT-RUN collapsing into PASS or FAIL is the exact
@@ -256,6 +281,14 @@ jobs:
 
       - name: Same 15 arms, on bash 3.2 + BSD userland
         run: /bin/bash tests/test_usage_journal_producer_gate.sh
+
+      # The shipping producer runs on the CUSTOMER'S Mac, so its guard must be
+      # exercised on bash 3.2 + BSD userland too. `grep -c`, `cut -f` and the
+      # heredoc all behave differently enough between GNU and BSD that an
+      # ubuntu-only green says nothing about the machine this ships to.
+      - name: The SHIPPING ostler_fda writes a record, on bash 3.2 + BSD
+        if: always()
+        run: /bin/bash tests/test_vendored_fda_writes_the_usage_journal.sh
 
       # THE PROBE'S OWN NEGATIVE CONTROL, driven exactly as run_box_walk.sh
       # phase 1 drives it: rc must be 1 AND the output must not say BROKEN.
