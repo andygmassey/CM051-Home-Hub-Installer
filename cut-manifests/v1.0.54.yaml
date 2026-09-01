@@ -1,0 +1,206 @@
+# cut-manifests/v1.0.54.yaml
+#
+# ===========================================================================
+# 🔴 THIS FILE IS A CUT PREREQUISITE AND NOBODY HAD IT ON THE LIST
+# ===========================================================================
+# cut.yml:185 "The cut record for this version must exist" is the FIRST gate
+# preflight runs, before the pin check, before the vendored gates, before
+# anything is built:
+#
+#     MANIFEST="cut-manifests/${TAG}.yaml"
+#     [ -f "$MANIFEST" ] || die "A tag without a manifest is a cut nobody
+#                                wrote down."
+#
+# Four prerequisites were tracked for v1.0.54 (cut.env, the version bump, the
+# BOM, the rollforward row). This was a FIFTH, and it would have killed the
+# tag in exactly the way v1.0.53 died -- refused at preflight, unsatisfiable
+# without a new commit, and therefore unsatisfiable for ever.
+#
+# ⚠️ AND THE PIN TEST CANNOT CATCH IT. tests/test_rollforward_registry_pin.sh
+# asserts "newest manifest has a resolvable cuts/<v>/cut.env" -- it reads the
+# NEWEST MANIFEST PRESENT, so with v1.0.52 the newest it reported PASS on
+# v1.0.52 while cuts/v1.0.54/ already existed beside it. A gate that inspects
+# the newest of what exists cannot notice that the one you are about to need
+# does not. Found by reading cut.yml rather than by trusting the green.
+#
+# ===========================================================================
+# WHAT THIS CUT CARRIES: FOUR ROWS, AND THE DENOMINATOR IS SIX
+# ===========================================================================
+# v1.0.52 derefs to 6b5a5f45. `git log 6b5a5f45..8f66b632` is SIX commits,
+# classified by @TNM against the ship path BY FILE LIST, not by subject:
+#
+#     ad72c63a  #1297  ViewCopy.json + pbxproj + test      SHIPS
+#     6fa2e4f4  #1299  scripts/box_walk_probes/probes/     no
+#     ddd2dfe9  #1298  walks/v1.0.52.tsv                   no
+#     876695da  #1301  install.sh + CI + test              SHIPS
+#     6d71a220  #1302  install.sh + CI + test              SHIPS
+#     8f66b632  #1303  gui/Makefile + install.sh + CI      SHIPS
+#
+# The two non-rows are correct as non-rows: probe and walk-record work is not
+# bundled, so writing them here would claim the artefact contains them and
+# park each at landed=no permanently, which no walk could ever clear.
+#
+# ⚠️ A SHIP PREDICATE IS PER FILE CLASS, NOT PER REPO, and this cut is the
+# case that proves it. `grep -c ViewCopy gui/Makefile` is 0 and ViewCopy.json
+# SHIPS ANYWAY: GUI resources are bundled by gui/project.yml `resources:`,
+# never by the Makefile. Applying the Makefile grep to every class would have
+# dropped row A as "not in the artefact" while it is compiled into the .app.
+#
+# ===========================================================================
+# 🟢 EVERY PATTERN MEASURED TWICE, BY TWO DIFFERENT INSTRUMENTS
+# ===========================================================================
+# @TNM proved all four on both arms through the BOM pipeline. They were then
+# re-measured HERE by IMPORTING scripts/verify_cut_manifest.py and calling
+# _pattern_hits_bytes directly on blobs read with `git show <ref>:<path>` --
+# the reader this file is actually parsed by, not a reimplementation of it and
+# not grep standing in for it. Two instruments on one number is the strongest
+# evidence available, and both agree to the digit:
+#
+#   pattern                                 main  v1.0.52  verdict
+#   macOS words the next dialog oddly          1        0  guards
+#   state:/workspace/state                     1        0  guards
+#   wire_store_auth_pth .+PYTHON3_BIN          1        0  guards
+#   e680396893fadd78                           1        0  guards
+#   CONTROL OSTLER_FINAL_DIR   install.sh     47       45  reader sees the file
+#   CONTROL DAEMON_SHA256      gui/Makefile    5        5  reader sees the file
+#   CONTROL reassurance        ViewCopy.json   1        1  reader sees the file
+#   NEGATIVE CONTROL, never present            0        0  no false positives
+#
+# THE THREE LIVE CONTROLS ARE LOAD-BEARING. Without them a row scoring 0 on
+# the old tree could mean "absent" or "the blob never loaded", and those print
+# identically. The negative control answers the other direction: that a 1 is a
+# real hit and not the matcher firing on anything.
+#
+# 🔵 gui/Makefile IS 177013 BYTES ON BOTH TREES and that is expected, not a
+# red flag: swapping one 64-hex digest for another and 0.4.67 for 0.4.69 both
+# preserve length. FILE SIZE IS NOT EVIDENCE OF CHANGE HERE. The pattern is.
+#
+# 🔴 TWO CANDIDATE PATTERNS DIED ON THE MUST-MISS ARM and are recorded so
+# nobody re-proposes them: `local _py=` scores 2 on main and 1 at v1.0.52;
+# `bin/python3.11" ]]` scores 6 and 5. Both are COUNT CHANGES, not presence
+# predicates, and either would report the capability PRESENT in an artefact
+# built before the fix existed. A third died for being a COMMENT -- keying a
+# row on a fix's own header prose guards the documentation, not the behaviour,
+# which is the #808/#815 class. Row C keys on the call site instead.
+#
+# ===========================================================================
+# WHAT THIS CUT DOES NOT CARRY
+# ===========================================================================
+# Five of Andy's six v1.0.52 walk findings. They are dispositioned in
+# cuts/DEFECTS_ROLLFORWARD.md as v1052-D001..D011, status deferred, and the
+# walk of this artefact should expect them. The usage-journal producer roster
+# is separately OPEN: row B ships the MOUNT, so records the compiler writes
+# can now reach the panel, but three of five required producers still write
+# nothing on any install. A manifest states what the artefact CONTAINS, and
+# the mount genuinely is in it; the roster is filed against the cut.
+
+version: v1.0.54
+entries:
+  - id: v1054-a-the-installer-speaks-before-macos-does
+    title: the installer pre-announces the admin-password dialog, in its own voice, before macOS words it alarmingly
+    incident: >-
+      THE INSTALLER LET macOS SPEAK FIRST AND macOS SAYS SOMETHING ALARMING.
+      The administrator-password dialog is worded by macOS as a request to
+      control Finder, and it mentions documents and data. A customer
+      reasonably reads that as the installer asking to read their files, and
+      nothing prepared them for it. Observed on a live launch walk.
+      FIX (#1297): pre-announce the wording in the installer's own voice
+      before the dialog appears, and say plainly that the sentence belongs to
+      macOS and is how macOS asks any application for an administrator
+      password. Reassurance placed BEFORE the alarm rather than after it,
+      which is the only ordering that helps.
+      SHIPS AS A BUNDLED GUI RESOURCE. ViewCopy.json is compiled into
+      OstlerInstaller.app by gui/project.yml `resources:`, which excludes only
+      Fonts/**. gui/Makefile never names the file, so a Makefile-based ship
+      predicate scores it 0 and is WRONG about it. MEASURED: 1 on main, 0 at
+      v1.0.52, with a live control of 1/1 on the same file proving both blobs
+      were read.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/OstlerInstaller/Resources/ViewCopy.json
+      pattern: 'macOS words the next dialog oddly'
+      must_match: true
+
+  - id: v1054-b-the-bursar-can-finally-see-what-the-compiler-wrote
+    title: the wiki compiler's usage records reach the host journal instead of dying with the container
+    incident: >-
+      THE BURSAR COULD NOT SEE WHAT THE COMPILER PRODUCED. The wiki compiler
+      writes usage records into its container's /workspace/state, and no bind
+      mount connected that path to the host journal the cost panel reads. Every
+      record the compiler has ever written was discarded when the container
+      exited. The panel then showed a smaller number, which reads to a customer
+      as a quiet month rather than as a severed pipe -- a silent wrong answer,
+      not an error.
+      FIX (#1301): mount the host workspace state directory at
+      /workspace/state and set OSTLER_WORKSPACE explicitly, so the writer and
+      the mount cannot drift apart later. Scoped to state/ deliberately: the
+      whole workspace is not the cost panel's business.
+      ⚠️ THIS ROW IS THE MOUNT, NOT THE ROSTER. Three of the five required
+      usage-journal producers still write nothing on any install, and one of
+      those three is recorded in the roster as MEASURED while being absent from
+      the shipping tree. That is open, it is not fixed by this cut, and it must
+      not be read as closed because this row is green. MEASURED: 1 on main, 0
+      at v1.0.52, live control 47/45 on the same file.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'state:/workspace/state'
+      must_match: true
+
+  - id: v1054-c-store-auth-reaches-the-bundled-interpreter
+    title: the store-credential wiring covers the bundled interpreter, not only the venvs
+    incident: >-
+      100% COVERAGE OF THE WRONG POPULATION. Every call site was correct and
+      every one passed a venv root, because the guard only ever accepted an
+      executable at a venv's own bin/python3. THE BUNDLED INTERPRETER IS NOT A
+      VENV and ships no python3 alias, so the three services without their own
+      venv -- cm059-editor, ical-server, ostler_hygiene -- reached Oxigraph and
+      Qdrant with no credential, 401'd, and EXITED 0. The customer symptom was
+      Andy's A1: the Front Page never populated, on any install, for ever,
+      because its producer fail-closed to the settling stub every hour.
+      FIX (#1302): resolve the interpreter from a named executable, a venv
+      root, or a relocated tree's bin/python3.11, then ask THAT interpreter for
+      its own site-packages; and add the fifteenth call site for the bundled
+      tree. THE DEFECT WAS THE DEFINITION OF THE POPULATION, not a missing
+      call, which is why counting call sites could never have found it.
+      ⚠️ THE ROW KEYS ON THE CALL SITE, NOT THE PROSE. The most distinctive new
+      text in this commit is its own header comment; keying there would guard
+      the documentation of the fix rather than the fix, and any tidy-up could
+      delete it without touching behaviour. MEASURED: 1 on main, 0 at v1.0.52.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'wire_store_auth_pth .+PYTHON3_BIN'
+      must_match: true
+
+  - id: v1054-d-the-daemon-pin-names-the-build-that-carries-the-fix
+    title: all five pins name hub-v0.4.69, the build that actually contains Andy's Settings fix
+    incident: >-
+      THE PIN NAMED A BUILD THAT DID NOT CARRY THE FIX. gui/Makefile pinned
+      0.4.67 while the daemon fix for Andy's #454 landed at c6fc48c0, so the
+      install path would have shipped a binary without it while the cut
+      described itself as carrying it. Five sites were moved together:
+      DAEMON_VERSION, DAEMON_SHA256, HUB_APP_SHA256, OSTLER_ASSISTANT_VERSION
+      and DEFAULT_ASSISTANT_TARBALL_SHA256.
+      🔴 TWO REPOS, ONE TAG. DAEMON_REPO (ostler-releases) serves the daemon
+      and HUB_APP_REPO (ostler-assistant) serves the hub app, and BOTH are
+      fetched at the same DAEMON_RELEASE_TAG. Publishing one half leaves the
+      cut 404ing on the other -- and the hub-app fetch path is never taken on
+      an operator's Mac, so a missing half is invisible locally and fails in a
+      clean room. Both halves were verified published with a 404 control on
+      each repository, and both digests matched their published .sha256
+      sidecars byte for byte.
+      THE PATTERN IS THE DAEMON DIGEST ITSELF, which is the one string that
+      cannot be true of the previous build. Note gui/Makefile is the SAME BYTE
+      LENGTH on both trees: a digest swap preserves length, so size proves
+      nothing here and the pattern is the whole evidence. MEASURED: 1 on main,
+      0 at v1.0.52, live control 5/5 on the same file.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/Makefile
+      pattern: 'e680396893fadd78'
+      must_match: true
