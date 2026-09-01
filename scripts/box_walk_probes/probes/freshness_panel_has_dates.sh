@@ -186,14 +186,19 @@ if found:
 # Machine-readable rows. No regex: single string ops only, so nothing here
 # depends on shell or python escaping surviving three levels of quoting.
 pairs = []
-for seg in text.split('<tr ')[1:]:
-    seg = seg.split('</tr>')[0]
-    cls = seg.split('class=\"', 1)[1].split('\"', 1)[0] if 'class=\"' in seg else ''
+# Element-agnostic: the freshness rows moved from <tr> to <li> (CM044 #218, to
+# match the sibling channel list) and could move again. Key on the class +
+# data-source that mark a machine-readable source row, NEVER the element name.
+# Split on the tag opener and read only the opening tag's attributes, so a
+# <span> inside the row is skipped and nothing depends on a closing tag.
+for seg in text.split('<')[1:]:
+    head = seg.split('>', 1)[0]
+    if 'data-source=\"' not in head:
+        continue
+    cls = head.split('class=\"', 1)[1].split('\"', 1)[0] if 'class=\"' in head else ''
     if 'pwg-source' not in cls:
         continue
-    if 'data-source=\"' not in seg:
-        continue
-    key = seg.split('data-source=\"', 1)[1].split('\"', 1)[0]
+    key = head.split('data-source=\"', 1)[1].split('\"', 1)[0]
     status = ''
     for tok in cls.split():
         if tok.startswith('pwg-source--'):
