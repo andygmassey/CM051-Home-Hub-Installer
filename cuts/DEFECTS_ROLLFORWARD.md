@@ -101,6 +101,7 @@ walk_horizon: v1.0.41
 | v1.0.49 |  | not_walked | Archie (2026-08-28). TAGGED d38f3320 -> a612a480 and NEVER INSTALLED BY ANYONE. Not walked, and deliberately not walked. Andy's launch hold (#551) landed over the #550 multi-account store exposure before any walker reached it, and the public download is still v1.0.41 (unchanged since 2026-08-22), so no customer and no operator has run this artefact. MEASURED: zero of the seven #550 merges are ancestors of a612a480. Walking it would therefore measure a tree that PREDATES every fix it would be walked to demonstrate -- a real walk producing a true result about the wrong subject, which is worse than no walk because it would read as evidence. There is no walks/v1.0.49.tsv and there should not be one. SUPERSEDED BY v1.0.50, which carries the ERR-06 Qdrant credential fix (#1226), the wiki-compiler Qdrant key (#1228), and the CM044 v0.1.28 image re-pin (#1229). The walk that matters is v1.0.50's and it has not happened either. | none |
 | v1.0.50 | 2026-08-29 | deferred | Archie 2026-08-30. Walk record walks/v1.0.50.tsv exists with verdict FAILED and qa_exit 1, so the rules table above admits closed or deferred and REFUSES not_walked. DEFERRED, not closed: four of the eight findings are fixed on CM051 main (d4ee9de2) and ride v1.0.51, but they are in NO artefact, so closing would be true about the repo and false about the DMG. The other four are open. THE HEADLINE COUNT OVER-STATES PRODUCT DEFECTS, measured not softened: fail 7 contains TWO probes with ONE cause (app_signature_survives_first_run and installed_bundle_seal_intact are both the cm052 pip build-in-place breaking the code seal) and ONE probe that was not measuring the product at all (people_seed_and_retrieval called Qdrant with no credential, got 401, and reported a collection missing that demonstrably exists). So seven recorded failures describe five distinct subjects, one of which is the instrument. Nothing here is measured closure: 7 recorded, 4 predicted to clear, 0 measured. A merge cannot clear a row in a frozen record, and walks/v1.0.50.tsv will read fail 7 permanently. The next walk is of a DIFFERENT artefact with a different sha256, which is #931 working as designed. THE ROW NOW LISTS NINE IDs WHILE THE PROSE ABOVE SAYS EIGHT, AND BOTH ARE CORRECT: v1050-D001 through D008 disposition the **fail** bucket, and v1050-D009 dispositions the **cannot_run** bucket, which nothing in this file had ever adjudicated. The row previously omitted D009 while the finding section existed, so the registry and the row disagreed by exactly one finding and walk closure went RED -- caught by the gates-only dry run 33299809685 rather than by spending a version on a tag. | v1050-D001 v1050-D002 v1050-D003 v1050-D004 v1050-D005 v1050-D006 v1050-D007 v1050-D008 v1050-D009 |
 | v1.0.51 | 2026-08-29 | deferred | Archie 2026-08-30. Walk record walks/v1.0.51.tsv exists with verdict FAILED and qa_exit 1, so the rules table above admits closed or deferred and REFUSES not_walked. It is the FIRST record in this project's history whose artefact_sha256_source is measured(...) rather than asserted -- shasum of OstlerInstaller-1.0.51.dmg taken on the walked box -- so for the first time a walk record can bind a version to a build rather than to a claim. Andy installed this artefact on hardware (OstlerInstaller.app 1.0.51, ~/.ostler 1.1 GB) and 12 of 21 probes pass. DEFERRED, not closed, and the four failures are FOUR DIFFERENT KINDS OF THING, which is why none of them is being called a product regression without saying which: D001 is a real customer-visible defect whose fix cannot reach a customer without a wiki-image rebuild that TNM measured is NOT in the v1.0 path; D002 is an EXPECTED red that Andy explicitly decided to defer to v1.0.1; D003's recorded `broken` was my own packaging and is cleared on the box, while its customer-visible half survives with MY explanation of it refuted by its own decisive test; D004 I did not investigate at all and it is recorded as unexamined rather than dispositioned. ZERO of these four are measured closure. The next walk is of a DIFFERENT artefact with a different sha256, which is #931 working as designed. | v1051-D001 v1051-D002 v1051-D003 v1051-D004 |
+| v1.0.52 | 2026-08-30 | deferred | Archie 2026-09-01 (UTC; the record's walked_at is 2026-08-30T15:22:57Z). Walk record walks/v1.0.52.tsv exists with verdict FAILED and qa_exit 1, so the rules table above admits closed or deferred and REFUSES not_walked. artefact_sha256_source reads measured(...), so this is the second record in this project's history that binds a version to a BUILD rather than to a claim. DEFERRED, not closed. THIS ROW CARRIES TWO POPULATIONS AND THEY MUST NOT BE CONFLATED: the 21-probe machine walk (12 pass / 7 fail / 2 cannot-run) and ANDY'S OWN HAND WALK of the same artefact, which found six customer-visible defects the probe suite does not measure at all. D001-D006 are Andy's six; D007-D010 are the recorded failed probes his six do not already disposition; D011 dispositions the cannot_run bucket, which nothing would otherwise adjudicate. FAIL WENT 4 -> 7 AND THAT IS NOT THREE NEW DEFECTS. Measured against walks/v1.0.51.tsv: two of the three (no_person_holds_two_contact_cards, people_stores_reconcile) were CANNOT-RUN on v1.0.51 and merely became measurable, while exactly ONE (no_unexpected_egress) moved pass -> fail and is a genuine new red. THE ARITHMETIC CLOSES AS A CONTROL: people_count_agreement moved cannot_run -> pass (+1) against no_unexpected_egress's pass -> fail (-1), which is why pass reads 12 on BOTH records -- had my reading of the delta been wrong, that number would not have reconciled. THREE OF ANDY'S SIX WERE MARKED COMPLETED IN THE TASK REGISTER WHILE BROKEN and he found them still broken on the box; closing this row would be the third statement of the same false claim, which is precisely why the status is deferred. ONE of the eleven (D002) has a fix verified inside a signed artefact, and even that is not walked. ZERO are measured closure. | v1052-D001 v1052-D002 v1052-D003 v1052-D004 v1052-D005 v1052-D006 v1052-D007 v1052-D008 v1052-D009 v1052-D010 v1052-D011 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -3954,3 +3955,188 @@ wrongly assumed about a red today and been corrected on. Unexamined, and recorde
 because a walk-closure row that quietly omitted it would read as coverage this cut does not have.
 
 OWNER: unassigned. Next walker or next lane picks it up.
+### v1052-D001 -- A1: the Front Page never populates, and the store-auth shim is why
+
+Andy's hand walk of v1.0.52, 2026-08-31. Home shows the settling stub on a box that has ingested.
+
+ROOT CAUSE, measured at source: the store-auth shim wires a credential into interpreters by
+ENUMERATING `.venv` DIRECTORIES. `cm059-editor` has no venv, so its Front Page producer starts with
+no credential, 401s against Oxigraph on every hourly run, and fail-closes to the settling stub. The
+panel is not empty because there is nothing to say. It is empty because the producer cannot read the
+store, and it will stay empty for ever on every install.
+
+Fix merged as CM051 #1302. NOT WALKED -- it is in no artefact any human has installed.
+
+This defect was marked COMPLETED in the task register while broken, and Andy found it still broken on
+the box. That is why this row reads deferred: calling it closed here would restate the false claim.
+
+### v1052-D002 -- A2: Settings still carries the "Advanced" section that was agreed removed
+
+Andy's hand walk, 2026-08-31: "we agreed that there wouldn't be this 'Advanced' section".
+
+This is the ONE finding of the six that v1.0.54 carries a fix for. oa #369 removes the Advanced
+surface and remounts its two customer-facing controls -- the daily-brief schedule and the iMessage
+message prefix -- on Preferences. Deleting the link alone would have re-created the earlier defect
+where those two controls were orphaned with no route to them.
+
+VERIFIED INSIDE THE SIGNED DAEMON, two-sided with a predicate control: two Advanced strings absent,
+three control strings present, one never-present token absent. That verification is OF THE ARTEFACT.
+It is not a walk, and it is not evidence that a customer sees the change.
+
+Also marked COMPLETED in the task register while broken -- on a task whose own title recorded that it
+had not been box-walked.
+
+### v1052-D003 -- A3: the "Still getting to know you" panel is unstyled, not merely untidy
+
+Andy's hand walk, 2026-08-31.
+
+MEASURED IN CM044: the renderer emits four classes that have ZERO matching rules anywhere in the
+stylesheet -- `pwg-settling-sources-h`, `pwg-source`, `pwg-source--*`, `pwg-settling-wiki-age` -- and
+`.pwg-settling-sources`, whose only rule set is written for a `<ul>`, is applied to a `<table>`. This
+is unstyled markup reaching a customer, not a layout tuning problem.
+
+Andy chose the list idiom over a styled table, which makes the fix TWO REPOS rather than
+self-contained CM044. Held by A2. Whatever lands still has to reach an artefact through a wiki-image
+rebuild and re-pin, the same delivery constraint as D005 and D008.
+
+Also marked COMPLETED in the task register while broken.
+
+### v1052-D004 -- A4: the Bursar says "You're not on the meter", and two of five required producers do not exist
+
+Andy's hand walk, 2026-08-31. This section also dispositions the machine probe
+`usage_journal_producers`, so the probe is not counted twice.
+
+THIS IS ANDY'S SCOPE CALL AND IT IS DELIBERATELY NOT BEING CODED AROUND. Five usage-journal producers
+are required before the Bursar has a denominator. Two of them, in cm041 and cm048, DO NOT EXIST --
+and both of those repos call models, so the meter is missing exactly where spend happens.
+
+Two moves are legal: BUILD the two producers, or SHRINK the required roster deliberately and say so on
+the page. Demoting the roster to obtain a green has been proposed twice and refused twice, because it
+converts a true "we are not measuring this" into a false "everything is measured".
+
+DO NOT clear the probe by creating the journal directory. v1051-D003 already recorded why: it turns a
+loud absence into a quiet zero, which is the failure mode this register exists to prevent.
+
+OWNER: Andy, one decision. Nothing else on this row waits on it.
+
+### v1052-D005 -- A5: "Duplicate review is available on the Hub Mac only." rendered ON the Hub Mac
+
+Andy's hand walk, 2026-08-31. He had reported this before and I had never filed it, which is why it
+appears here as a new id rather than as a recurrence.
+
+CM044 #262 is merged. It is in NO ARTEFACT: the renderer ships as a pinned image, so the fix reaches a
+customer only through a wiki-image rebuild and a re-pin in CM051. That prerequisite is the same one
+v1051-D001 was deferred on and it is still not in the v1.0 path.
+
+Carried by v1.0.54: NO. Merged is not delivered.
+
+### v1052-D006 -- A6: dedupe asks the customer to merge real people, and the deciding test has not been run
+
+Andy's hand walk, 2026-08-31. This section also dispositions the machine probes
+`no_person_holds_two_contact_cards` and `people_stores_reconcile`. BOTH WERE CANNOT-RUN ON v1.0.51 AND
+BECAME MEASURABLE ON THIS WALK -- they are not new defects, they are newly visible ones, and the row
+above says so with the arithmetic.
+
+MEASURED: approximately 30 genuine over-merges, through the shareable-id path. NOT 136 -- A2 corrected
+their own first figure, and TNM then refuted A2's replacement invariant against the ratified ruleset.
+Two successive statements of this number were wrong before the third stood, so treat the ~30 as the
+current best measurement rather than a settled one. Suspects are narrowed to the email-exact and
+exact-name rules. `linkedin-exact` IS CORRECT BY DESIGN and must be excluded from any repair pass.
+
+THE DECIDING TEST HAS NOT BEEN RUN. Feed the shipping resolver two records that share one email
+address and carry different given names, and assert it declines to merge.
+
+    declines  ->  ~30 over-merges are HISTORICAL DAMAGE, and the work is a one-off repair pass
+    merges    ->  this is a LIVE CODE DEFECT and every future install reproduces it
+
+Those two dispositions have nothing in common. No repair should be written before the test says which
+one this is, and no severity should be assigned either.
+
+OWNER: unassigned.
+
+### v1052-D007 -- assistant_answers_grounded failed for the SECOND consecutive walk and was investigated on neither
+
+Recorded in `walks/v1.0.52.tsv`, and in `walks/v1.0.51.tsv` before it, where v1051-D004 says in as
+many words that I did not investigate it.
+
+This section exists so the count stays honest across two cuts rather than one. It is NOT a
+disposition, NOT a severity assessment, and NOT a claim that the probe is the instrument rather than
+the product. What has changed since v1051-D004 is only that the omission is now a pattern: a probe
+that fails on every walk and is examined on none is indistinguishable, inside this register, from a
+probe nobody has ever run.
+
+OWNER: unassigned, and it should stop being unassigned.
+
+### v1052-D008 -- freshness_panel_has_dates: the same defect as v1051-D001, unchanged, for the reason v1051-D001 named
+
+Recorded in `walks/v1.0.52.tsv`. v1051-D001 root-caused it on the box: the panel reads install-time
+`hydrate/<source>.done` sentinels that nothing rewrites, so the largest corpus on the box reports
+`no_data` permanently; and the panel's source list disagrees with the sentinel directory in both
+directions, hiding two healthy sources behind a list that anticipated drift the other way.
+
+Nothing has changed and nothing was expected to. The renderer ships as a pinned image and the
+deferral was explicitly a scope call about not adding an image rebuild to the launch critical path.
+
+⚠️ NOTE THE COUPLING, WHICH WAS NOT VISIBLE WHEN v1051-D001 WAS WRITTEN. D003, D005 and D008 now ALL
+wait on the same wiki-image rebuild and re-pin. Three deferrals resting on one absent prerequisite is
+a different economic argument from one deferral, and it deserves re-deciding as a group rather than
+inheriting three separate "not worth it on its own" verdicts. Whoever re-decides it should price the
+rebuild ONCE, against three findings, before concluding anything.
+
+### v1052-D009 -- no_store_port_is_tcp_reachable, and TWO RECORDED DISPOSITIONS THAT CONTRADICT EACH OTHER
+
+Recorded in `walks/v1.0.52.tsv`. The subject is the wiki port and the search port, both loopback-bound
+and both answering unauthenticated from the owning account, while the demonstrably-closed stores
+return 401 on the identical request.
+
+⚠️ THE DISPOSITION IS UNRESOLVED AND THIS SECTION DOES NOT RESOLVE IT. Two records disagree:
+
+    v1051-D001..D004 era, in THIS file   Andy DEFERRED the close to v1.0.1
+    task register, later entry           Andy decided to CLOSE these ports, re-confirmed
+
+I did not witness the second, and a disposition read back from a register I wrote myself is not the
+same kind of evidence as one taken from Andy. ONE LINE TO HIM SETTLES IT. Until it is settled the
+status here is DEFERRED WITH THE CONFLICT NAMED, which is the only statement true of both records.
+Do not let a later reader collapse this into whichever of the two they find first.
+
+⚠️ STILL NOT MEASURED, unchanged from v1051-D002: whether a SECOND account on the same Mac can reach
+these ports was CANNOT-RUN. It is inferred from topology, not demonstrated. Any row or release note
+stating it as closed took that from inference.
+
+### v1052-D010 -- no_unexpected_egress is the ONLY genuine new red on this walk, and its cause is undetermined
+
+Recorded in `walks/v1.0.52.tsv`. MEASURED against `walks/v1.0.51.tsv`: this probe PASSED on v1.0.51 and
+FAILS on v1.0.52. Of the three probes that appear to be new failures, this is the only one for which
+"regression" is the right word -- the other two merely left CANNOT-RUN.
+
+I DID NOT DETERMINE THE CAUSE. Two candidates are already on file and NEITHER IS ADOPTED HERE:
+
+  - an enrichment path that is gated off, but whose one-shot pass has previously been shown not to
+    honour the consent answer;
+  - the assistant's web-fetch tool, which is on by default and unbounded by host.
+
+Neither has been tested against this probe. Writing either into a fix, a release note or a code
+comment before a discriminator runs would harden a hedged cause into a fact.
+
+⚠️ SEVERITY IS UNASSIGNED, DELIBERATELY. On a product whose central claim is that the data does not
+leave the Mac, an egress red is either the most serious finding on this row or an artefact of the
+probe, and nobody has looked. Those two possibilities are three orders of magnitude apart and a guess
+between them helps no one.
+
+OWNER: unassigned. On this product, an unexamined egress red outranks everything else unclaimed here.
+
+### v1052-D011 -- the cannot_run bucket: two probes, and the record does not say why
+
+Recorded in `walks/v1.0.52.tsv`: `ingest_coverage` and `pair_state_agreement` were NOT MEASURED.
+CANNOT-RUN is neither PASS nor FAIL, and this section exists so that neither is quietly assumed of
+them. Two of 21 unmeasured is the honest denominator for every other claim on this row.
+
+⚠️ THE REASONS ARE NOT RECOVERABLE FROM THE RECORD. The file says the reasons are withheld because
+this repo is public and that `run_box_walk.sh` prints them under "PREREQUISITES THAT WERE ABSENT" --
+that is, the reason existed on a console at walk time and the DURABLE artefact kept only the probe
+names. So a reader here cannot distinguish an absent prerequisite from a broken probe, which is the
+same gap v1050-D009 named and it has not closed.
+
+WITHHOLDING the reason is correct for a public repo. DISCARDING it is not, and the two are separable:
+a redacted reason CODE in the record costs nothing and preserves the distinction. That is the
+improvement this section asks for, and it is not a product defect.
