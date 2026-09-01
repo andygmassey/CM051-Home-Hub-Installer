@@ -77,33 +77,6 @@ pr_exemptions:
   # check-orphans prints CM051:#982. check-pr-age prints the full repo name.
   # TWO GATES, ONE FILE, TWO CONVENTIONS. Until they agree, an exemption has to
   # be written twice or it silently covers only one of them.
-  - ref: "CM051:#1305"
-    reason: >-
-      TNM's usage-journal producer for the SHIPPING vendored ostler_fda (#949).
-      Deferred out of v1.0.55 on READINESS, not merit -- it is real and wanted
-      work, and it is the fix that would make the shipping ostler_fda write a
-      usage record at all. MEASURED on a latest-check-run-per-name conclusion
-      histogram, not asserted: 2 failing of 66 checks (appcast-ship-wiring,
-      ledger-pr). Merging a red PR to clear a ship gate is exactly the move this
-      file exists to prevent, and it has been refused here before. It killed the
-      v1.0.54 cut at make check-orphans AFTER preflight had passed, which is how
-      it came to need a row at all. CONSEQUENCE STATED PLAINLY SO NOBODY READS
-      THIS AS CLOSURE: three of the five required usage-journal producers still
-      write nothing on any install, so the Bursar has no denominator and Andy's
-      A4 stays open. Land it in v1.0.56 once its own two checks are green; it
-      needs no other prerequisite.
-  - ref: "CM051:#1300"
-    reason: >-
-      Walk-record harness_commit binding -- records WHAT DID THE WALKING, not
-      merely what was walked. Mine. Deferred on readiness: 4 failing of 36
-      checks (walk-record-gate, test-wiring, invoked-tests-are-watched, scan),
-      and one of those is the very gate the PR introduces, so the change does
-      not yet satisfy its own contract. CUSTOMER-INVISIBLE by construction --
-      it touches scripts/, tests/, a workflow and a checklist, and nothing in
-      it reaches the DMG, so deferring it costs the artefact nothing. Land it in
-      v1.0.56 after its own gate goes green; until then walk records continue to
-      bind the artefact without binding the harness, which is the status quo and
-      not a regression.
   - ref: "CM051-Home-Hub-Installer#982"
     reason: "RED on 2 checks (42 pass / 2 fail, measured 2026-08-26). A red PR cannot be merged to satisfy a 48h process gate -- that is the move this file exists to prevent. Merit not in question; its own CI is the blocker. Pin-safe (0 install.sh hits). Land in v1.0.47 once green."
     review_by: "2026-08-28"
@@ -398,6 +371,33 @@ pr_exemptions:
     review_by: "2026-09-12"
 
 deferrals:
+  - ref: "CM051:#1305"
+    reason: >-
+      TNM's usage-journal producer for the SHIPPING vendored ostler_fda (#949).
+      Deferred out of v1.0.55 on READINESS, not merit -- it is real and wanted
+      work, and it is the fix that would make the shipping ostler_fda write a
+      usage record at all. MEASURED on a latest-check-run-per-name conclusion
+      histogram, not asserted: 2 failing of 66 checks (appcast-ship-wiring,
+      ledger-pr). Merging a red PR to clear a ship gate is exactly the move this
+      file exists to prevent, and it has been refused here before. It killed the
+      v1.0.54 cut at make check-orphans AFTER preflight had passed, which is how
+      it came to need a row at all. CONSEQUENCE STATED PLAINLY SO NOBODY READS
+      THIS AS CLOSURE: three of the five required usage-journal producers still
+      write nothing on any install, so the Bursar has no denominator and Andy's
+      A4 stays open. Land it in v1.0.56 once its own two checks are green; it
+      needs no other prerequisite.
+  - ref: "CM051:#1300"
+    reason: >-
+      Walk-record harness_commit binding -- records WHAT DID THE WALKING, not
+      merely what was walked. Mine. Deferred on readiness: 4 failing of 36
+      checks (walk-record-gate, test-wiring, invoked-tests-are-watched, scan),
+      and one of those is the very gate the PR introduces, so the change does
+      not yet satisfy its own contract. CUSTOMER-INVISIBLE by construction --
+      it touches scripts/, tests/, a workflow and a checklist, and nothing in
+      it reaches the DMG, so deferring it costs the artefact nothing. Land it in
+      v1.0.56 after its own gate goes green; until then walk records continue to
+      bind the artefact without binding the harness, which is the status quo and
+      not a regression.
   # ── The two v1.0.48 orphan REDs. BOTH ARE SUPERSEDED-BY-CONTENT, NOT KILLED. ──
   #
   # These two RED the orphan gate for the SHA, not for the work. The branches
