@@ -1,0 +1,157 @@
+# cut-manifests/v1.0.55.yaml
+#
+# ===========================================================================
+# THE FOUR ENTRIES ARE v1.0.54's, UNCHANGED. THE VERSION MOVED; THE CUT DID NOT.
+# ===========================================================================
+# v1.0.54 was tagged at 42464845 -- main's own head -- at 17:46:14Z. Its
+# PREFLIGHT PASSED, which is what separates it from v1.0.53, and the cut job
+# then failed at 17:48:16Z inside the build:
+#
+#     [RED]  CM051:#1305   'the SHIPPING ostler_fda has never written a record'
+#     [RED]  CM051:#1300   'bind WHAT DID THE WALKING (harness_commit)'
+#     make: *** [check-orphans] Error 1
+#
+# main never moved, so v1.0.55's tree is v1.0.54 plus two written deferrals,
+# its own cut records, and a version string. Nothing a customer receives has
+# changed, and no entry here is new. Re-proving the four patterns would answer
+# the same question about the same four blobs.
+#
+# ⚠️ check-orphans IS NOT A PREFLIGHT GATE. It runs inside the build, after
+# signing has begun, and it reads LIVE GitHub PR state plus origin/main. A
+# preflight-green tag can therefore still die to a PR opened in the meantime.
+# Sweep open PRs in CM051 and the daemon repo immediately before tagging.
+#
+# 🔴 A GREEN WAS AVAILABLE HERE AND WAS REFUSED. The gate resolves its shipping
+# ref as `origin/main`, so merging those two PRs would have turned it green on
+# a re-run of the v1.0.54 tag -- while the DMG, built from that tag, still did
+# not contain them. That is the gate passing on the premise "origin/main is
+# what we ship", false for any tag that is not main's head. Deferral was taken
+# instead, and neither PR was ready anyway: #1305 is 2 failing of 66 checks,
+# #1300 is 4 failing of 36, measured on a latest-check-run-per-name histogram.
+#
+# ===========================================================================
+# WHAT THIS CUT CARRIES, AND WHAT IT DOES NOT
+# ===========================================================================
+# ONE of Andy's six v1.0.52 hand-walk findings has a fix in this artefact: A2,
+# the Settings "Advanced" section, via the daemon at hub-v0.4.69. The other
+# five are dispositioned in cuts/DEFECTS_ROLLFORWARD.md as v1052-D001..D006 and
+# the walk of this DMG should expect them.
+#
+# THE BURSAR ROSTER IS NOW SHORTER THAN IT WAS. Row B ships the MOUNT, so
+# records the wiki compiler writes can reach the panel -- but #1305, which
+# would have made the SHIPPING ostler_fda write a usage record at all, is
+# deferred out of this cut. Three of five required producers still write
+# nothing on any install. A4 remains Andy's scope call: build the producers or
+# shrink the roster deliberately. Demoting the roster to obtain a green has
+# been proposed and refused twice.
+#
+version: v1.0.55
+entries:
+  - id: v1054-a-the-installer-speaks-before-macos-does
+    title: the installer pre-announces the admin-password dialog, in its own voice, before macOS words it alarmingly
+    incident: >-
+      THE INSTALLER LET macOS SPEAK FIRST AND macOS SAYS SOMETHING ALARMING.
+      The administrator-password dialog is worded by macOS as a request to
+      control Finder, and it mentions documents and data. A customer
+      reasonably reads that as the installer asking to read their files, and
+      nothing prepared them for it. Observed on a live launch walk.
+      FIX (#1297): pre-announce the wording in the installer's own voice
+      before the dialog appears, and say plainly that the sentence belongs to
+      macOS and is how macOS asks any application for an administrator
+      password. Reassurance placed BEFORE the alarm rather than after it,
+      which is the only ordering that helps.
+      SHIPS AS A BUNDLED GUI RESOURCE. ViewCopy.json is compiled into
+      OstlerInstaller.app by gui/project.yml `resources:`, which excludes only
+      Fonts/**. gui/Makefile never names the file, so a Makefile-based ship
+      predicate scores it 0 and is WRONG about it. MEASURED: 1 on main, 0 at
+      v1.0.52, with a live control of 1/1 on the same file proving both blobs
+      were read.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/OstlerInstaller/Resources/ViewCopy.json
+      pattern: 'macOS words the next dialog oddly'
+      must_match: true
+
+  - id: v1054-b-the-bursar-can-finally-see-what-the-compiler-wrote
+    title: the wiki compiler's usage records reach the host journal instead of dying with the container
+    incident: >-
+      THE BURSAR COULD NOT SEE WHAT THE COMPILER PRODUCED. The wiki compiler
+      writes usage records into its container's /workspace/state, and no bind
+      mount connected that path to the host journal the cost panel reads. Every
+      record the compiler has ever written was discarded when the container
+      exited. The panel then showed a smaller number, which reads to a customer
+      as a quiet month rather than as a severed pipe -- a silent wrong answer,
+      not an error.
+      FIX (#1301): mount the host workspace state directory at
+      /workspace/state and set OSTLER_WORKSPACE explicitly, so the writer and
+      the mount cannot drift apart later. Scoped to state/ deliberately: the
+      whole workspace is not the cost panel's business.
+      ⚠️ THIS ROW IS THE MOUNT, NOT THE ROSTER. Three of the five required
+      usage-journal producers still write nothing on any install, and one of
+      those three is recorded in the roster as MEASURED while being absent from
+      the shipping tree. That is open, it is not fixed by this cut, and it must
+      not be read as closed because this row is green. MEASURED: 1 on main, 0
+      at v1.0.52, live control 47/45 on the same file.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'state:/workspace/state'
+      must_match: true
+
+  - id: v1054-c-store-auth-reaches-the-bundled-interpreter
+    title: the store-credential wiring covers the bundled interpreter, not only the venvs
+    incident: >-
+      100% COVERAGE OF THE WRONG POPULATION. Every call site was correct and
+      every one passed a venv root, because the guard only ever accepted an
+      executable at a venv's own bin/python3. THE BUNDLED INTERPRETER IS NOT A
+      VENV and ships no python3 alias, so the three services without their own
+      venv -- cm059-editor, ical-server, ostler_hygiene -- reached Oxigraph and
+      Qdrant with no credential, 401'd, and EXITED 0. The customer symptom was
+      Andy's A1: the Front Page never populated, on any install, for ever,
+      because its producer fail-closed to the settling stub every hour.
+      FIX (#1302): resolve the interpreter from a named executable, a venv
+      root, or a relocated tree's bin/python3.11, then ask THAT interpreter for
+      its own site-packages; and add the fifteenth call site for the bundled
+      tree. THE DEFECT WAS THE DEFINITION OF THE POPULATION, not a missing
+      call, which is why counting call sites could never have found it.
+      ⚠️ THE ROW KEYS ON THE CALL SITE, NOT THE PROSE. The most distinctive new
+      text in this commit is its own header comment; keying there would guard
+      the documentation of the fix rather than the fix, and any tidy-up could
+      delete it without touching behaviour. MEASURED: 1 on main, 0 at v1.0.52.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'wire_store_auth_pth .+PYTHON3_BIN'
+      must_match: true
+
+  - id: v1054-d-the-daemon-pin-names-the-build-that-carries-the-fix
+    title: all five pins name hub-v0.4.69, the build that actually contains Andy's Settings fix
+    incident: >-
+      THE PIN NAMED A BUILD THAT DID NOT CARRY THE FIX. gui/Makefile pinned
+      0.4.67 while the daemon fix for Andy's #454 landed at c6fc48c0, so the
+      install path would have shipped a binary without it while the cut
+      described itself as carrying it. Five sites were moved together:
+      DAEMON_VERSION, DAEMON_SHA256, HUB_APP_SHA256, OSTLER_ASSISTANT_VERSION
+      and DEFAULT_ASSISTANT_TARBALL_SHA256.
+      🔴 TWO REPOS, ONE TAG. DAEMON_REPO (ostler-releases) serves the daemon
+      and HUB_APP_REPO (ostler-assistant) serves the hub app, and BOTH are
+      fetched at the same DAEMON_RELEASE_TAG. Publishing one half leaves the
+      cut 404ing on the other -- and the hub-app fetch path is never taken on
+      an operator's Mac, so a missing half is invisible locally and fails in a
+      clean room. Both halves were verified published with a 404 control on
+      each repository, and both digests matched their published .sha256
+      sidecars byte for byte.
+      THE PATTERN IS THE DAEMON DIGEST ITSELF, which is the one string that
+      cannot be true of the previous build. Note gui/Makefile is the SAME BYTE
+      LENGTH on both trees: a digest swap preserves length, so size proves
+      nothing here and the pattern is the whole evidence. MEASURED: 1 on main,
+      0 at v1.0.52, live control 5/5 on the same file.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/Makefile
+      pattern: 'e680396893fadd78'
+      must_match: true

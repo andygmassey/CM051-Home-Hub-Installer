@@ -1,0 +1,96 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.55.
+#
+# ===========================================================================
+# THE PAYLOAD IS IDENTICAL TO v1.0.54's. THAT IS THE POINT, NOT AN OVERSIGHT.
+# ===========================================================================
+# The four rows below are byte-for-byte the four rows of the v1.0.54 BOM, at
+# the same four refs. Nothing about what the customer receives has changed.
+#
+# v1.0.54 was tagged at 42464845 -- which WAS main's head -- and never built.
+# Its preflight PASSED, which is the difference from v1.0.53 and the reason
+# this is a fresh version rather than a re-run. The cut job then failed inside
+# the build at `make check-orphans`, on two OPEN CM051 PRs that were neither
+# merged nor deferred: #1305 (usage-journal producer for the shipping
+# ostler_fda) and #1300 (walk-record harness_commit binding).
+#
+# Because main was AT the tag when it died, v1.0.55's tree is v1.0.54 plus
+# exactly three things, none of which reaches the DMG as a customer-visible
+# capability:
+#
+#     cut-deferrals.yaml     two written deferrals, with reasons
+#     cuts/v1.0.55/          this BOM and its cut.env
+#     cut-manifests/         the v1.0.55 manifest
+#     gui/project.yml        MARKETING_VERSION 1.0.54 -> 1.0.55
+#
+# ⚠️ SO THE DENOMINATOR QUESTION IS ANSWERED DIFFERENTLY FROM A NORMAL CUT.
+# The usual method is `git log <prev-tag>..<head>` classified by file list. Run
+# from v1.0.52 that range now includes the v1.0.54 prerequisite commits as well
+# as the six originally classified, but every one of the additions is a cut
+# RECORD -- a deferral row, a BOM, a manifest, a version string. None of them
+# is a fix, none is customer-visible, and none earns a capability row. Adding
+# rows for them would claim the artefact delivers something to a customer when
+# what it delivers is bookkeeping about itself.
+#
+# ===========================================================================
+# WHY NOT MERGE THE TWO PRs INSTEAD, WHICH THE ORPHAN GATE PREFERS
+# ===========================================================================
+# Because neither is ready, MEASURED on a latest-check-run-per-name conclusion
+# histogram rather than asserted:
+#
+#     CM051 #1305    2 failing of 66 checks   (appcast-ship-wiring, ledger-pr)
+#     CM051 #1300    4 failing of 36 checks   (walk-record-gate, test-wiring,
+#                                              invoked-tests-are-watched, scan)
+#
+# A red PR merged to satisfy a ship gate is the move cut-deferrals.yaml exists
+# to prevent, and this file has refused it before (see the #982 row there).
+#
+# 🔴 AND THERE WAS A GREEN AVAILABLE THAT WAS DELIBERATELY NOT TAKEN. The
+# orphan gate resolves its shipping ref as `origin/main` and reads live PR
+# state at BUILD time, so merging those two PRs would have turned it green
+# while the DMG -- built from the TAG -- still did not contain them. That is
+# the gate passing on a premise ("origin/main is what we ship") which is false
+# for any tag that is not main's head. It is recorded here so that the next
+# reader who finds that shortcut knows it was seen and refused, not missed.
+#
+# ===========================================================================
+# THE FOUR ROWS, AND THE EVIDENCE BEHIND THEM
+# ===========================================================================
+# Every pattern below was proved on BOTH arms for v1.0.54 -- against main (must
+# hit) and against the v1.0.52 tree (must miss) -- with live controls proving
+# both trees were read:
+#
+#   pattern                                  main   v1.0.52
+#   macOS words the next dialog oddly          1        0
+#   state:/workspace/state                     1        0
+#   wire_store_auth_pth .+PYTHON3_BIN          1        0
+#   e680396893fadd78                           1        0
+#   CONTROL OSTLER_FINAL_DIR (install.sh)     47       45
+#   CONTROL DAEMON_SHA256   (gui/Makefile)     5        5
+#   CONTROL reassurance     (ViewCopy.json)    1        1
+#
+# Those measurements are inherited deliberately and not re-run: the four refs
+# are unchanged, so re-measuring the same blobs would answer the same question
+# about the same bytes. What DID change is the tree they sit in, and that is
+# checked by the manifest gate at cut time rather than restated here.
+#
+# ⚠️ A SHIP PREDICATE IS PER FILE CLASS, NOT PER REPO. `grep -c ViewCopy
+# gui/Makefile` is 0 and ViewCopy.json SHIPS ANYWAY -- GUI resources are
+# bundled by gui/project.yml `resources:`, never by the Makefile. Applying the
+# Makefile grep to every class would drop row 1 as "not in the artefact" while
+# it is compiled into the .app.
+#
+# ===========================================================================
+# WHAT THIS CUT DOES NOT CARRY
+# ===========================================================================
+# Five of Andy's six v1.0.52 hand-walk findings, dispositioned in
+# DEFECTS_ROLLFORWARD.md as v1052-D001..D011. The usage-journal producer roster
+# remains OPEN and is now doubly so: row 2 ships the MOUNT, and #1305 -- which
+# would have made the shipping ostler_fda write a record at all -- is DEFERRED
+# out of this cut. Three of five required producers still write nothing on any
+# install. That is filed against the cut, not against this BOM.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+🟠 THE INSTALLER LET macOS SPEAK FIRST, AND macOS SAYS SOMETHING ALARMING. The admin-password dialog is worded by macOS as "Ostler wants to control Finder", and mentions documents and data -- a sentence a customer reasonably reads as the installer asking to read their files. Nothing prepared them for it. FIX (#1297): pre-announce the wording in the installer's own voice before the dialog appears, and say plainly that the sentence is macOS's own and is how macOS asks any app for an administrator password. Ships as a bundled GUI resource (ViewCopy.json), compiled into OstlerInstaller.app via gui/project.yml resources -- NOT via gui/Makefile, which never names it.	cm051	ad72c63a	no	install_finder_prompt_pre_announced	TBD	Archie 2026-08-30 / CM051 #1297 / #361
+🔴 THE BURSAR COULD NOT SEE WHAT THE COMPILER PRODUCED. The wiki compiler writes usage records into its container's /workspace/state, and no bind mount connected that to the host journal the cost panel reads -- so every record the compiler has ever written was discarded when the container exited. The panel then showed a smaller number, which reads as a quiet month rather than a severed pipe. FIX (#1301): mount the host workspace state directory at /workspace/state and set OSTLER_WORKSPACE explicitly so the writer and the mount cannot drift apart. Scoped to state/ deliberately -- the whole workspace is not the panel's business.	cm051	876695da	no	usage_journal_mount_reaches_compiler	TBD	TNM 2026-08-31 / CM051 #1301 / #482
+🔴 THE STORE-CREDENTIAL WIRING HAD 100% COVERAGE OF THE WRONG POPULATION. Every call site was correct and every one passed a venv root, because the guard only ever accepted `-x "${_venv}/bin/python3"`. The BUNDLED interpreter is not a venv and ships no python3 alias, so the three services without their own venv -- cm059-editor, ical-server, ostler_hygiene -- reached Oxigraph and Qdrant with no credential, 401'd, and exited 0. Customer symptom: the Front Page never populated, on any install. FIX (#1302): resolve the interpreter from a named executable, a venv root, or a relocated tree's bin/python3.11, then ask THAT interpreter for its own site-packages -- and add the fifteenth call site for the bundled tree. The defect was the definition of the population, not a missing call.	cm051	6d71a220	no	store_auth_wires_bundled_interpreter	TBD	TNM 2026-08-31 / CM051 #1302 / #595 / #210
+🔴 THE DAEMON PIN NAMED A BUILD THAT DID NOT CARRY ANDY'S FIX. gui/Makefile pinned 0.4.67 while the fix for #454 landed in the daemon at c6fc48c0, so the install path shipped a binary without it. FIX (#1303): move all five pins to hub-v0.4.69. TWO REPOS, ONE TAG -- DAEMON_REPO (ostler-releases) serves the daemon and HUB_APP_REPO (ostler-assistant) serves the hub app, both fetched at the same DAEMON_RELEASE_TAG, so publishing one half leaves the cut 404ing on the other. Both halves were verified published with a 404 control on each repo, and both digests matched the published .sha256 sidecars byte for byte. The row's pattern is the daemon digest itself, which is the one string that cannot be true of the previous build.	cm051	8f66b632	no	daemon_pinned_at_hub_v0469	TBD	TNM 2026-08-31 / CM051 #1303 / #951

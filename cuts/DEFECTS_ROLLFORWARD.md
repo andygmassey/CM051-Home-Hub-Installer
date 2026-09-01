@@ -102,6 +102,7 @@ walk_horizon: v1.0.41
 | v1.0.50 | 2026-08-29 | deferred | Archie 2026-08-30. Walk record walks/v1.0.50.tsv exists with verdict FAILED and qa_exit 1, so the rules table above admits closed or deferred and REFUSES not_walked. DEFERRED, not closed: four of the eight findings are fixed on CM051 main (d4ee9de2) and ride v1.0.51, but they are in NO artefact, so closing would be true about the repo and false about the DMG. The other four are open. THE HEADLINE COUNT OVER-STATES PRODUCT DEFECTS, measured not softened: fail 7 contains TWO probes with ONE cause (app_signature_survives_first_run and installed_bundle_seal_intact are both the cm052 pip build-in-place breaking the code seal) and ONE probe that was not measuring the product at all (people_seed_and_retrieval called Qdrant with no credential, got 401, and reported a collection missing that demonstrably exists). So seven recorded failures describe five distinct subjects, one of which is the instrument. Nothing here is measured closure: 7 recorded, 4 predicted to clear, 0 measured. A merge cannot clear a row in a frozen record, and walks/v1.0.50.tsv will read fail 7 permanently. The next walk is of a DIFFERENT artefact with a different sha256, which is #931 working as designed. THE ROW NOW LISTS NINE IDs WHILE THE PROSE ABOVE SAYS EIGHT, AND BOTH ARE CORRECT: v1050-D001 through D008 disposition the **fail** bucket, and v1050-D009 dispositions the **cannot_run** bucket, which nothing in this file had ever adjudicated. The row previously omitted D009 while the finding section existed, so the registry and the row disagreed by exactly one finding and walk closure went RED -- caught by the gates-only dry run 33299809685 rather than by spending a version on a tag. | v1050-D001 v1050-D002 v1050-D003 v1050-D004 v1050-D005 v1050-D006 v1050-D007 v1050-D008 v1050-D009 |
 | v1.0.51 | 2026-08-29 | deferred | Archie 2026-08-30. Walk record walks/v1.0.51.tsv exists with verdict FAILED and qa_exit 1, so the rules table above admits closed or deferred and REFUSES not_walked. It is the FIRST record in this project's history whose artefact_sha256_source is measured(...) rather than asserted -- shasum of OstlerInstaller-1.0.51.dmg taken on the walked box -- so for the first time a walk record can bind a version to a build rather than to a claim. Andy installed this artefact on hardware (OstlerInstaller.app 1.0.51, ~/.ostler 1.1 GB) and 12 of 21 probes pass. DEFERRED, not closed, and the four failures are FOUR DIFFERENT KINDS OF THING, which is why none of them is being called a product regression without saying which: D001 is a real customer-visible defect whose fix cannot reach a customer without a wiki-image rebuild that TNM measured is NOT in the v1.0 path; D002 is an EXPECTED red that Andy explicitly decided to defer to v1.0.1; D003's recorded `broken` was my own packaging and is cleared on the box, while its customer-visible half survives with MY explanation of it refuted by its own decisive test; D004 I did not investigate at all and it is recorded as unexamined rather than dispositioned. ZERO of these four are measured closure. The next walk is of a DIFFERENT artefact with a different sha256, which is #931 working as designed. | v1051-D001 v1051-D002 v1051-D003 v1051-D004 |
 | v1.0.52 | 2026-08-30 | deferred | Archie 2026-09-01 (UTC; the record's walked_at is 2026-08-30T15:22:57Z). Walk record walks/v1.0.52.tsv exists with verdict FAILED and qa_exit 1, so the rules table above admits closed or deferred and REFUSES not_walked. artefact_sha256_source reads measured(...), so this is the second record in this project's history that binds a version to a BUILD rather than to a claim. DEFERRED, not closed. THIS ROW CARRIES TWO POPULATIONS AND THEY MUST NOT BE CONFLATED: the 21-probe machine walk (12 pass / 7 fail / 2 cannot-run) and ANDY'S OWN HAND WALK of the same artefact, which found six customer-visible defects the probe suite does not measure at all. D001-D006 are Andy's six; D007-D010 are the recorded failed probes his six do not already disposition; D011 dispositions the cannot_run bucket, which nothing would otherwise adjudicate. FAIL WENT 4 -> 7 AND THAT IS NOT THREE NEW DEFECTS. Measured against walks/v1.0.51.tsv: two of the three (no_person_holds_two_contact_cards, people_stores_reconcile) were CANNOT-RUN on v1.0.51 and merely became measurable, while exactly ONE (no_unexpected_egress) moved pass -> fail and is a genuine new red. THE ARITHMETIC CLOSES AS A CONTROL: people_count_agreement moved cannot_run -> pass (+1) against no_unexpected_egress's pass -> fail (-1), which is why pass reads 12 on BOTH records -- had my reading of the delta been wrong, that number would not have reconciled. THREE OF ANDY'S SIX WERE MARKED COMPLETED IN THE TASK REGISTER WHILE BROKEN and he found them still broken on the box; closing this row would be the third statement of the same false claim, which is precisely why the status is deferred. ONE of the eleven (D002) has a fix verified inside a signed artefact, and even that is not walked. ZERO are measured closure. | v1052-D001 v1052-D002 v1052-D003 v1052-D004 v1052-D005 v1052-D006 v1052-D007 v1052-D008 v1052-D009 v1052-D010 v1052-D011 |
+| v1.0.54 |  | not_walked | Archie 2026-09-01. TAGGED fbdbf00e -> 42464845 at 17:46:14Z and NEVER BUILT. There is no artefact, so there is no walks/v1.0.54.tsv and there should not be one. THIS IS A DIFFERENT DEATH FROM v1.0.53 AND THE DISTINCTION IS THE POINT. v1.0.53 was refused at PREFLIGHT on four conditions of the tree at its own commit, so it was born dead and no re-run could ever have saved it. v1.0.54's preflight PASSED -- the same gate that refused v1.0.53 four times went green -- and the cut job then failed inside the build at `make check-orphans`, which is NOT a preflight gate. Two OPEN CM051 PRs were neither merged nor deferred: #1305 (TNM's usage-journal producer for the shipping ostler_fda) and #1300 (my own walk-record harness_commit binding). Both are genuinely unready, MEASURED not asserted, on a latest-check-run-per-name conclusion histogram: #1305 2 failing of 66, #1300 4 failing of 36. NO RELEASE OBJECT, no bytes, nobody installed it. THE GATE OFFERED A GREEN THAT WAS REFUSED, and the reason is recorded here so nobody takes it later: check-orphans resolves its shipping ref as `origin/main` and reads LIVE PR state at BUILD time, so merging those two PRs to main would have turned it green while the DMG -- built from the TAG -- still did not contain them. That is the gate passing on a premise ('origin/main is what we ship') that is false for any tag which is not main's head, and taking it would have shipped an artefact the gate believed complete. Deferral was chosen instead because the deferral file is read from the TREE, which makes it unreachable for v1.0.54 for exactly the v1.0.53 reason and forces a new version rather than a quiet re-run. SUPERSEDED BY v1.0.55, which carries the IDENTICAL payload -- main was still AT 42464845 when this died, so v1.0.55's tree is v1.0.54 plus two written deferrals and its own cut records -- and disposes of both PRs through cut-deferrals.yaml, the mechanism this gate names itself. | none |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -4007,8 +4008,39 @@ Andy's hand walk, 2026-08-31. This section also dispositions the machine probe
 `usage_journal_producers`, so the probe is not counted twice.
 
 THIS IS ANDY'S SCOPE CALL AND IT IS DELIBERATELY NOT BEING CODED AROUND. Five usage-journal producers
-are required before the Bursar has a denominator. Two of them, in cm041 and cm048, DO NOT EXIST --
-and both of those repos call models, so the meter is missing exactly where spend happens.
+are required before the Bursar has a denominator.
+
+🔻 MY FIRST FILING SAID "TWO OF FIVE" AND IT WAS WRONG IN BOTH THE COUNT AND THE KIND. @TNM
+measured the roster row by row on 2026-09-01, before writing any producer, specifically to check they
+were not doubling up -- and the check found a third:
+
+    cm044_wiki_compiler          required   NOT MEASURED this pass, and recorded as not measured
+    cm048_conversation_extract   required   UNWIRED, and the roster says so in its own provenance
+    cm041_identity_resolution    required   UNWIRED, and the row names the wrong component
+    cm051_ostler_fda_ingest      required   🔴 WIRED UPSTREAM, ABSENT FROM THE SHIPPING TREE
+    oa_daemon_chat               required   the daemon's own tracker
+
+🔴 THE THIRD IS WORSE THAN THE OTHER TWO AND IT IS THE ONLY ROW THE ROSTER CALLS "MEASURED".
+Its provenance cites the ingesting producer in the HR015 source, and it is measured -- ON THE SOURCE,
+WHICH IS NOT WHAT SHIPS. The same predicate scores 5 on the HR015 file and 0 on the vendored copy in
+the shipping tree, with a live control of 57 on the same vendored file proving the blob was read; and
+the module the import needs is not among the 34 files in that vendored package, against a VISIBLE
+population, so the import has nowhere to resolve to even if it were present. The divergence is also
+NOT DECLARED: the divergence patch scores 0 for this class against a control of 10 for the same file,
+so the patch declares other divergences in that exact file and is silent on this one.
+
+⇒ THE INGESTING PRODUCER HAS NEVER WRITTEN A RECORD ON ANY CUSTOMER INSTALL. Not "unwired like the
+other two" -- wired, merged upstream, and LOST AT THE VENDOR BOUNDARY, while the roster records it as
+the one that was verified. That is the MERGED IS NOT IN THE ARTEFACT class landing inside the very
+gate built to detect silent pipeline failure, and it is the reason this section now exists in
+corrected form rather than as a count.
+
+🔻 AND THE cm041 ROW NAMES A COMPONENT THAT CALLS NO MODEL. The identity-resolver modules score
+0 for model calls across the whole package, against a live control of 25 on a sibling package's
+client. The contract's own wording is conditional -- identity resolution WHERE IT CALLS A MODEL -- and
+the hedge turns out to be load-bearing, because it does not. CM041 does call models, in the contact
+syncer and the calendar server, so the OBLIGATION is real and the producer_id is simply pointed at the
+wrong file.
 
 Two moves are legal: BUILD the two producers, or SHRINK the required roster deliberately and say so on
 the page. Demoting the roster to obtain a green has been proposed twice and refused twice, because it
@@ -4043,16 +4075,32 @@ Two successive statements of this number were wrong before the third stood, so t
 current best measurement rather than a settled one. Suspects are narrowed to the email-exact and
 exact-name rules. `linkedin-exact` IS CORRECT BY DESIGN and must be excluded from any repair pass.
 
-THE DECIDING TEST HAS NOT BEEN RUN. Feed the shipping resolver two records that share one email
-address and carry different given names, and assert it declines to merge.
+🟢 THE DECIDING TEST HAS NOW BEEN RUN, AND IT DECLINES. @A2, 2026-09-01, CM041 #135, test-only,
+CI green. Three cases through the real decision surface (detect_email_matches then consolidate_matches)
+under the DEFAULT config, not through raw confidence:
 
-    declines  ->  ~30 over-merges are HISTORICAL DAMAGE, and the work is a one-off repair pass
-    merges    ->  this is a LIVE CODE DEFECT and every future install reproduces it
+    same surname, different given    names_agree=unsure     conf 0.7  -> review
+    different given AND surname      names_agree=disagree   conf 0.7  -> review
+    identical name  (POSITIVE CONTROL)  names_agree=agree   conf 1.0  -> auto
 
-Those two dispositions have nothing in common. No repair should be written before the test says which
-one this is, and no severity should be assigned either.
+0.7 is below the 0.8 auto floor, so both non-agreeing verdicts route to review and never to auto. THE
+CONTROL IS WHAT MAKES THE TWO DECLINES MEAN ANYTHING: it proves the apparatus can reach auto, so this
+is not a vacuous pass by an assertion that could never fire. Non-vacuity was also shown by count --
+1144 collected on the base commit, 1147 with the three new cases, so all three demonstrably RAN rather
+than being silently skipped.
 
-OWNER: unassigned.
+⇒ THE DISPOSITION IS DECIDED: the historical over-merges are ARCHAEOLOGY. The current auto-merge path
+does not reproduce them, so the work is a one-off repair and re-resolve pass over existing data, NOT a
+resolver code change. Every future install is unaffected.
+
+SCOPE, STATED SO IT IS NOT READ AS MORE THAN IT IS. The EMAIL vector was executed. The PHONE vector
+shares the identical names_agree gate and was READ, not run, so it declines by the same mechanism as a
+matter of code reading rather than measurement. Fuzzy-name cannot score high on different given names
+-- a standalone check put the two specimen given names at 0.51 against a 0.75 boundary, so there is no
+knife-edge here. A FORCED OPERATOR DECISION bypasses the gate entirely, and that path, along with any
+pre-gate version of the resolver, are the plausible provenances of the damage that exists.
+
+OWNER: unassigned, and what is owed is now a REPAIR PASS with a defined scope, not an investigation.
 
 ### v1052-D007 -- assistant_answers_grounded failed for the SECOND consecutive walk and was investigated on neither
 
