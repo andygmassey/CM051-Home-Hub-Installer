@@ -112,13 +112,42 @@ jobs:
       - name: Every declared producer, or a red -- 15 mutation arms
         run: /bin/bash tests/test_usage_journal_producer_gate.sh
 
-      # The vendored ostler_fda imports httpx at module scope. Without it the
-      # behavioural step below cannot import the module at all -- which is
-      # CANNOT-RUN, not a product defect, and the test now says so and exits 2.
-      # Installing it here is what makes the assertion actually EXECUTE rather
-      # than politely refuse on every run.
-      - name: Dependency the vendored module needs to be importable
-        run: python3 -m pip install --quiet --disable-pip-version-check httpx
+      # The vendored ostler_fda cannot be imported without its third-party
+      # dependencies, and without the import the behavioural step below is
+      # CANNOT-RUN (exit 2) -- honest, but it measures nothing. Installing them
+      # is what makes the assertion actually EXECUTE.
+      #
+      # ⚠️ READ THE DEPS FROM THE PACKAGE'S OWN pyproject, DO NOT LIST THEM.
+      # My first attempt hand-listed `httpx` and went red on ubuntu for
+      # `nameparser` -- a second dep I had not looked up. The declared set is
+      # the only set that cannot drift from what the module actually needs:
+      # add a dep to the vendored package and this step follows it. A
+      # hand-typed list would go stale silently and reappear as a CANNOT-RUN
+      # nobody could explain.
+      #
+      # --break-system-packages: macos-14's python is PEP 668 externally
+      # managed and plain `pip install` exits 1 there. The runner is
+      # ephemeral, so this is safe; without it the macOS job fails at the
+      # install rather than at the assertion, which reads as a product red.
+      - name: Dependencies the vendored module declares (read from its pyproject)
+        run: |
+          set -euo pipefail
+          deps=$(python3 - <<'PYEOF'
+          import tomllib, pathlib
+          d = tomllib.loads(
+              pathlib.Path("vendor/ostler_fda/pyproject.toml").read_text()
+          )["project"]["dependencies"]
+          if not d:
+              raise SystemExit("pyproject declares NO dependencies -- refusing to "
+                               "install nothing and call it a pass")
+          print(" ".join(d))
+          PYEOF
+          )
+          echo "declared: ${deps}"
+          python3 -m pip install --quiet --disable-pip-version-check ${deps} \
+            || python3 -m pip install --quiet --disable-pip-version-check \
+                 --break-system-packages ${deps}
+          python3 -c 'import httpx, nameparser; print("imports resolve")'
 
       # THE ROSTER SAYS THIS ONE IS MEASURED. It was -- on the SOURCE.
       #
@@ -290,13 +319,42 @@ jobs:
       - name: Same 15 arms, on bash 3.2 + BSD userland
         run: /bin/bash tests/test_usage_journal_producer_gate.sh
 
-      # The vendored ostler_fda imports httpx at module scope. Without it the
-      # behavioural step below cannot import the module at all -- which is
-      # CANNOT-RUN, not a product defect, and the test now says so and exits 2.
-      # Installing it here is what makes the assertion actually EXECUTE rather
-      # than politely refuse on every run.
-      - name: Dependency the vendored module needs to be importable
-        run: python3 -m pip install --quiet --disable-pip-version-check httpx
+      # The vendored ostler_fda cannot be imported without its third-party
+      # dependencies, and without the import the behavioural step below is
+      # CANNOT-RUN (exit 2) -- honest, but it measures nothing. Installing them
+      # is what makes the assertion actually EXECUTE.
+      #
+      # ⚠️ READ THE DEPS FROM THE PACKAGE'S OWN pyproject, DO NOT LIST THEM.
+      # My first attempt hand-listed `httpx` and went red on ubuntu for
+      # `nameparser` -- a second dep I had not looked up. The declared set is
+      # the only set that cannot drift from what the module actually needs:
+      # add a dep to the vendored package and this step follows it. A
+      # hand-typed list would go stale silently and reappear as a CANNOT-RUN
+      # nobody could explain.
+      #
+      # --break-system-packages: macos-14's python is PEP 668 externally
+      # managed and plain `pip install` exits 1 there. The runner is
+      # ephemeral, so this is safe; without it the macOS job fails at the
+      # install rather than at the assertion, which reads as a product red.
+      - name: Dependencies the vendored module declares (read from its pyproject)
+        run: |
+          set -euo pipefail
+          deps=$(python3 - <<'PYEOF'
+          import tomllib, pathlib
+          d = tomllib.loads(
+              pathlib.Path("vendor/ostler_fda/pyproject.toml").read_text()
+          )["project"]["dependencies"]
+          if not d:
+              raise SystemExit("pyproject declares NO dependencies -- refusing to "
+                               "install nothing and call it a pass")
+          print(" ".join(d))
+          PYEOF
+          )
+          echo "declared: ${deps}"
+          python3 -m pip install --quiet --disable-pip-version-check ${deps} \
+            || python3 -m pip install --quiet --disable-pip-version-check \
+                 --break-system-packages ${deps}
+          python3 -c 'import httpx, nameparser; print("imports resolve")'
 
       # The shipping producer runs on the CUSTOMER'S Mac, so its guard must be
       # exercised on bash 3.2 + BSD userland too. `grep -c`, `cut -f` and the
