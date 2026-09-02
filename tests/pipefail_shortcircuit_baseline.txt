@@ -62,7 +62,6 @@ tests/test_vendor_fresh_gate.sh
 tests/test_verify_ci_steps_are_maskless.sh
 tests/test_verify_no_symbol_regression.sh
 tests/test_verify_test_wiring.sh
-tests/test_whatsapp_channel_block.sh
 tests/test_wiki_baseline_background.sh
 tests/test_wiki_recompile_after_late_hydration.sh
 vendor/cm019_preferences/test_vendor_preferences.sh
