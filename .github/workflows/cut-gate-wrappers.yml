@@ -28,6 +28,12 @@ on:
     paths:
       - 'gui/Makefile'
       - 'tests/test_cut_gate_wrappers.sh'
+      # Both the guard AND its subject. A `run:` step with no matching paths
+      # entry is DARK ON SELF-EDIT: the workflow runs the test but is blind to
+      # a change to it, so breaking the test does not re-trigger the test.
+      # Caught by verify_invoked_tests_are_watched.py on this very PR.
+      - 'scripts/new_cut.sh'
+      - 'tests/test_new_cut_guard_scoped_is_not_started.sh'
       - 'scripts/verify_cut_provenance.sh'
       - 'scripts/verify_no_orphaned_fixes.sh'
       - 'scripts/verify_pr_age.sh'
@@ -435,6 +441,18 @@ jobs:
       - name: pinned wiki images are arm64-only
         if: always()
         run: bash tests/test_pinned_wiki_images_are_arm64_only.sh
+
+      # new_cut.sh refused to start any cut that had been SCOPED first, because
+      # its guard tested the directory rather than cut.env. Writing SCOPE.md
+      # before starting is the standard workflow, so the one-command cut path
+      # was dead for every real cut -- v1.0.60 included.
+      #
+      # if: always() -- many test steps precede this one in the same job, and a
+      # step that only runs when everything before it passed cannot report on a
+      # red run, which is exactly when a cut-tooling guard matters.
+      - name: new_cut.sh -- a SCOPED cut is not a STARTED cut
+        if: always()
+        run: bash tests/test_new_cut_guard_scoped_is_not_started.sh
 
   wiki-provenance-extract:
     runs-on: ubuntu-latest
