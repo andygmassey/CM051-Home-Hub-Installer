@@ -455,7 +455,7 @@ if __name__ == "__main__":
     from .enex_parser import sample_notes
 
     if len(sys.argv) < 2:
-        print("Usage: python -m src.ingestion.classifier <file.enex> [--llm]")
+        print("Usage: python -m ostler_knowledge.ingestion.classifier <file.enex> [--llm]")
         sys.exit(1)
 
     file_path = sys.argv[1]

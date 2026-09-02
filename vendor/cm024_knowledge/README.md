@@ -15,20 +15,20 @@ The knowledge store for the Personal AI system. Provides semantic search over pe
 
 ```bash
 # 1. Convert ENEX to Obsidian markdown
-python -m src.cli convert data/evernote-export/*.enex -o data/obsidian-vault/evernote
+python -m ostler_knowledge.cli convert data/evernote-export/*.enex -o data/obsidian-vault/evernote
 
 # 2. Embed notes into Qdrant (using TrueNAS Ollama)
-python -m src.cli embed data/obsidian-vault/evernote -v
+python -m ostler_knowledge.cli embed data/obsidian-vault/evernote -v
 
 # 3. Query via backend adapter
-python -c "from src.api.backend_adapter import EvernoteBackend; print(EvernoteBackend().query('machine learning'))"
+python -c "from ostler_knowledge.api.backend_adapter import EvernoteBackend; print(EvernoteBackend().query('machine learning'))"
 ```
 
 ### Email Knowledge (Planned)
 
 ```bash
 # Extract knowledge from email correspondence
-python -m src.cli extract-email-knowledge --source gmail --privacy-level 4
+python -m ostler_knowledge.cli extract-email-knowledge --source gmail --privacy-level 4
 
 # See docs/EMAIL_KNOWLEDGE_DESIGN.md for full design
 ```

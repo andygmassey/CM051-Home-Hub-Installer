@@ -26,7 +26,7 @@ Add new adapters by:
 ParsedNote (the normalised shape) lives in ``src/ingestion/enex_parser.py``
 for backwards-compatibility with existing imports. The adapter package
 re-exports it from this module so adapter authors can write
-``from src.ingestion.adapters import ParsedNote``.
+``from ostler_knowledge.ingestion.adapters import ParsedNote``.
 """
 from __future__ import annotations
 

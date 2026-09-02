@@ -3,13 +3,13 @@ CM024 Evernote Knowledge CLI - Process Evernote exports into knowledge base.
 
 Usage:
     # Convert ENEX to markdown (Phase 1)
-    python -m src.cli convert data/evernote-export/*.enex --output data/obsidian-vault/evernote
+    python -m ostler_knowledge.cli convert data/evernote-export/*.enex --output data/obsidian-vault/evernote
 
     # Classify existing markdown files (Phase 2)
-    python -m src.cli classify data/obsidian-vault/evernote --llm
+    python -m ostler_knowledge.cli classify data/obsidian-vault/evernote --llm
 
     # Full pipeline (convert + classify)
-    python -m src.cli process data/evernote-export/*.enex --output data/obsidian-vault/evernote
+    python -m ostler_knowledge.cli process data/evernote-export/*.enex --output data/obsidian-vault/evernote
 """
 
 import glob
@@ -120,13 +120,13 @@ def convert_cmd(
 
     Examples:
         # Convert single file
-        python -m src.cli convert data/export.enex -o data/vault
+        python -m ostler_knowledge.cli convert data/export.enex -o data/vault
 
         # Convert multiple files with glob
-        python -m src.cli convert "data/*.enex" -o data/vault
+        python -m ostler_knowledge.cli convert "data/*.enex" -o data/vault
 
         # Convert with classification
-        python -m src.cli convert data/*.enex -o data/vault --classify
+        python -m ostler_knowledge.cli convert data/*.enex -o data/vault --classify
     """
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
@@ -158,7 +158,7 @@ def convert_cmd(
     # Initialize components
     adapter_cls = ADAPTERS[source]
     adapter = adapter_cls()
-    writer = MarkdownWriter(output, overwrite=overwrite)
+    writer = MarkdownWriter(output, overwrite=overwrite, source=source)
     classifier = PrivacyClassifier(use_llm=llm) if classify else None
     importance_scorer = ImportanceScorer()
 
@@ -252,7 +252,7 @@ def count_cmd(enex_files: tuple):
     Quick way to estimate processing time.
 
     Example:
-        python -m src.cli count data/*.enex
+        python -m ostler_knowledge.cli count data/*.enex
     """
     total = 0
 
@@ -281,7 +281,7 @@ def sample_cmd(enex_file: str, count: int, classify: bool):
     Shows note metadata and content preview.
 
     Example:
-        python -m src.cli sample data/export.enex -n 10
+        python -m ostler_knowledge.cli sample data/export.enex -n 10
     """
     from .ingestion.enex_parser import sample_notes
 
@@ -314,7 +314,7 @@ def stats_cmd(markdown_dir: str):
     Show statistics about processed markdown files.
 
     Example:
-        python -m src.cli stats data/obsidian-vault/evernote
+        python -m ostler_knowledge.cli stats data/obsidian-vault/evernote
     """
     import yaml
     from collections import Counter
@@ -398,7 +398,7 @@ def process_cmd(
     Combines all steps into one command.
 
     Example:
-        python -m src.cli process "data/*.enex" -o data/vault --classify
+        python -m ostler_knowledge.cli process "data/*.enex" -o data/vault --classify
     """
     # Delegate to convert with classification enabled
     ctx = click.get_current_context()
@@ -452,12 +452,12 @@ def embed_cmd(
 
     Example:
         # Full embedding (replaces collection)
-        python -m src.cli embed data/obsidian-vault/evernote
+        python -m ostler_knowledge.cli embed data/obsidian-vault/evernote
 
         # Incremental update (only new/updated notes)
-        python -m src.cli embed data/vault --incremental
+        python -m ostler_knowledge.cli embed data/vault --incremental
 
-        python -m src.cli embed data/vault --embedding-model nomic-embed-text
+        python -m ostler_knowledge.cli embed data/vault --embedding-model nomic-embed-text
     """
     import asyncio
 
@@ -493,8 +493,8 @@ def embed_cmd(
         batch_size=batch_size,
         limit=limit,
         incremental=incremental,
-        max_compartment_level=max_compartment_level,
         verbose=verbose,
+        max_compartment_level=max_compartment_level,
     ))
 
 
@@ -530,8 +530,8 @@ async def _run_embed(
     batch_size: int,
     limit: Optional[int],
     incremental: bool,
+    verbose: bool,
     max_compartment_level: Optional[int] = None,
-    verbose: bool = False,
 ):
     """Execute embedding pipeline."""
     import time
@@ -553,7 +553,6 @@ async def _run_embed(
     # rather than silently dropping points, so a mismatch is loud, not
     # a silently-empty Knowledge section.
     vector_size = Embedder.MODEL_CONFIGS.get(embedding_model, {}).get("dimensions", 768)
-
     store = QdrantStore(
         host=qdrant_host,
         port=qdrant_port,
@@ -617,6 +616,16 @@ async def _run_embed(
             if isinstance(tags, str):
                 tags = [tags]
             compartment_level = metadata.get('compartment_level', 2)
+            # Privacy gate (Ostler): never embed notes above the compartment
+            # cap into the searchable Qdrant collection. The wiki Knowledge
+            # reader surfaces whatever is in Qdrant, so an L3 (compartment
+            # level 3) note that reached the collection would leak. `ingest`
+            # passes max_compartment_level=2 so L3 notes are staged as
+            # markdown but never become searchable. None = embed everything
+            # (explicit operator `embed` use / backward compatible).
+            if not _note_passes_privacy_gate(compartment_level, max_compartment_level):
+                notes_skipped += 1
+                continue
             created_str = metadata.get('created')
             updated_str = metadata.get('updated')
             created_at = None
@@ -774,13 +783,13 @@ def extract_email_knowledge_cmd(
 
     Examples:
         # Gmail MBOX
-        python -m src.cli extract-email-knowledge ~/mail.mbox -o knowledge.json
+        python -m ostler_knowledge.cli extract-email-knowledge ~/mail.mbox -o knowledge.json
 
         # iCloud Mail (zip file)
-        python -m src.cli extract-email-knowledge ~/Mailboxes.zip --limit 100
+        python -m ostler_knowledge.cli extract-email-knowledge ~/Mailboxes.zip --limit 100
 
         # Directory of EML files
-        python -m src.cli extract-email-knowledge ~/emails/ -o knowledge.json
+        python -m ostler_knowledge.cli extract-email-knowledge ~/emails/ -o knowledge.json
     """
     import asyncio
 
@@ -1037,10 +1046,10 @@ def summarize_threads_cmd(
 
     Examples:
         # Using Ollama (local)
-        python -m src.cli summarize-threads output/icloud_threads.json -o output/icloud_knowledge.json
+        python -m ostler_knowledge.cli summarize-threads output/icloud_threads.json -o output/icloud_knowledge.json
 
         # Using Gemini (fast, cheap API)
-        python -m src.cli summarize-threads output/icloud_threads.json -o output/icloud_knowledge.json \\
+        python -m ostler_knowledge.cli summarize-threads output/icloud_threads.json -o output/icloud_knowledge.json \\
             --provider gemini --model gemini-1.5-flash --gemini-key YOUR_KEY
     """
     import asyncio
@@ -1212,8 +1221,8 @@ def find_duplicates_cmd(
     (based on content hash). Reports duplicate groups.
 
     Example:
-        python -m src.cli find-duplicates
-        python -m src.cli find-duplicates --collection evernote_knowledge -v
+        python -m ostler_knowledge.cli find-duplicates
+        python -m ostler_knowledge.cli find-duplicates --collection evernote_knowledge -v
     """
     import asyncio
 
@@ -1301,10 +1310,10 @@ def remove_duplicates_cmd(
 
     Example:
         # See what would be deleted
-        python -m src.cli remove-duplicates
+        python -m ostler_knowledge.cli remove-duplicates
 
         # Actually delete duplicates
-        python -m src.cli remove-duplicates --execute
+        python -m ostler_knowledge.cli remove-duplicates --execute
     """
     import asyncio
 

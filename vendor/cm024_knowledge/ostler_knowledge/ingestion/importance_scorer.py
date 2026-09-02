@@ -358,7 +358,7 @@ if __name__ == "__main__":
     from .enex_parser import sample_notes
 
     if len(sys.argv) < 2:
-        print("Usage: python -m src.ingestion.importance_scorer <file.enex>")
+        print("Usage: python -m ostler_knowledge.ingestion.importance_scorer <file.enex>")
         sys.exit(1)
 
     file_path = sys.argv[1]
