@@ -92,6 +92,19 @@ def main() -> int:
               "block. Tests that import the module cannot catch this.")
         return 1
 
+    # ANTI-VACUITY FLOOR (A2 silence sweep, tier 3 item 7). Without this the
+    # line below prints GREEN with scanned=0 -- a clean verdict over an empty
+    # denominator, which is the same shape as the vendor-gate fail-open closed
+    # in 2e1ef10f. A discovery glob that stops matching (a directory rename, a
+    # moved shipped tree) turns this gate off silently and it keeps saying
+    # GREEN. CANNOT-RUN is exit 2, distinct from the RED exit 1 above: "found
+    # nothing" and "could not look" are different answers.
+    if scanned == 0:
+        print("CANNOT-RUN: examined 0 shipped .py files, so this gate proved "
+              "nothing. That is NOT a pass -- an unexamined file is exactly "
+              "the state it exists to refuse. Check the discovery glob.")
+        return 2
+
     print(f"GREEN no definitions after a __main__ guard ({scanned} shipped "
           f".py files scanned)")
     return 0
