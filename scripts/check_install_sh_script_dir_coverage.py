@@ -344,6 +344,20 @@ def main() -> int:
             )
         return 1
 
+    # ANTI-VACUITY FLOOR (A2 silence sweep, tier 3 item 7). Same shape as the
+    # sibling floor in verify_no_defs_after_main_guard.py: with zero probes
+    # discovered this printed "OK: 0 ... all covered", which is vacuously true
+    # and reads as a pass. install.sh always contains ${SCRIPT_DIR}/X probes,
+    # so zero means the extractor stopped matching, not that the file changed.
+    if not covered and not uncovered:
+        print(
+            "CANNOT-RUN: found 0 ${SCRIPT_DIR}/X probes in install.sh, so this "
+            "gate proved nothing. install.sh always has some; zero means the "
+            "extractor stopped matching. NOT a pass.",
+            file=sys.stderr,
+        )
+        return 2
+
     print(f"OK: {len(covered)} ${{SCRIPT_DIR}}/X probes all covered.")
     return 0
 

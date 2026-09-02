@@ -239,6 +239,26 @@ from web_ui_copy import (
     WHATSAPP_PAIR_TITLE_TAG,
     WHATSAPP_PAIR_UNREADABLE_HELP,
     WHATSAPP_PAIR_UNREADABLE_TITLE,
+    EXTENSION_SETUP_ADDRESS_LABEL,
+    EXTENSION_SETUP_BACK_LINK,
+    EXTENSION_SETUP_COPIED_BUTTON,
+    EXTENSION_SETUP_COPY_BUTTON,
+    EXTENSION_SETUP_DAEMON_NOT_RELOADED_HELP,
+    EXTENSION_SETUP_DAEMON_NOT_RELOADED_TITLE,
+    EXTENSION_SETUP_HEADING,
+    EXTENSION_SETUP_KEY_LABEL,
+    EXTENSION_SETUP_LEDE,
+    EXTENSION_SETUP_LOADING,
+    EXTENSION_SETUP_MISMATCH_HELP,
+    EXTENSION_SETUP_MISMATCH_TITLE,
+    EXTENSION_SETUP_NOT_PROVISIONED_HELP,
+    EXTENSION_SETUP_NOT_PROVISIONED_TITLE,
+    EXTENSION_SETUP_POLL_MS,
+    EXTENSION_SETUP_READY_HELP,
+    EXTENSION_SETUP_READY_INSTRUCTION,
+    EXTENSION_SETUP_TITLE_TAG,
+    EXTENSION_SETUP_UNREADABLE_HELP,
+    EXTENSION_SETUP_UNREADABLE_TITLE,
     PORT_CONFLICT_DETAIL_FMT,
     PORT_CONFLICT_FIX,
     PORT_CONFLICT_FIX_COMMAND_FMT,
@@ -3946,6 +3966,270 @@ async def api_whatsapp_pair():
     """
     from whatsapp_pair import fetch_pair_status
     return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
+
+
+def _render_extension_setup_page() -> str:
+    """Render the browser-extension setup panel.
+
+    Same chassis as ``_render_whatsapp_pair_page`` so the setup surfaces sit
+    together rather than one feeling bolted on.
+
+    THREE DESIGN RULES, each load-bearing:
+
+    1. The key is painted by the browser from JSON and is NEVER baked into the
+       served HTML. It is credential-equivalent for the life of the install, so
+       it must not sit in a page a browser or a screenshot tool may cache.
+    2. The address is built from ``window.location.origin``, which is MEASURED:
+       it is the origin the customer actually reached Doctor on. Baking a host
+       and port here would hand out an address that is right on the developer's
+       box and wrong on a customer's.
+    3. The five states read DIFFERENTLY. Two of them are fixed by restarting
+       Ostler and one by re-running the installer, and a customer told only
+       "no key available" cannot tell which they are in.
+    """
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{EXTENSION_SETUP_TITLE_TAG}</title>
+    <style>
+        /* PRIVACY: no webfont @import. A local-first product must not beacon
+           the customer IP+timestamp to a font CDN. Matches whatsapp-pair. */
+        :root {{
+            --ostler-ink: #0d0b08;
+            --ostler-ink-deep: #07060a;
+            --ostler-chassis: #ECE8DD;
+            --ostler-accent: #C84545;
+            --ostler-accent-hover: #D76060;
+            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --text: var(--ostler-chassis);
+            --text-secondary: rgba(236, 232, 221, 0.74);
+            --text-muted: rgba(236, 232, 221, 0.50);
+            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+        }}
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        body {{
+            font-family: var(--font-body);
+            font-size: 15px;
+            line-height: 1.5;
+            background: var(--ostler-ink);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2.5rem 1.75rem;
+            -webkit-font-smoothing: antialiased;
+        }}
+        a {{ color: var(--ostler-accent); text-decoration: none; }}
+        a:hover {{ color: var(--ostler-accent-hover); }}
+        .container {{ max-width: 600px; margin: 0 auto; }}
+        h1 {{
+            font-family: var(--font-display);
+            font-size: 1.7rem;
+            font-weight: 600;
+            margin-bottom: 0.6rem;
+        }}
+        .lede {{ color: var(--text-secondary); margin-bottom: 1.4rem; }}
+        .panel {{
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: var(--shadow-soft);
+        }}
+        .label {{ margin-bottom: 1rem; line-height: 1.6; }}
+        .field {{ margin-bottom: 1rem; }}
+        .field-name {{
+            font-size: 0.72rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 0.35rem;
+        }}
+        .value-frame {{
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            background: var(--ostler-ink);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 10px;
+            padding: 0.8rem 0.9rem;
+        }}
+        .value {{
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            /* The key is 64 hex characters and must stay selectable in one
+               go, so it wraps rather than scrolls out of reach. */
+            word-break: break-all;
+            flex: 1 1 auto;
+            min-width: 0;
+        }}
+        .copy-btn {{
+            flex: 0 0 auto;
+            font-family: var(--font-body);
+            font-size: 0.8rem;
+            color: var(--ostler-chassis);
+            background: transparent;
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 7px;
+            padding: 0.35rem 0.7rem;
+            cursor: pointer;
+        }}
+        .copy-btn:hover {{ border-color: var(--ostler-accent); }}
+        .help {{
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            margin-top: 0.55rem;
+            line-height: 1.55;
+        }}
+        .caveat {{
+            font-size: 0.82rem;
+            color: var(--ostler-accent-hover);
+            margin-bottom: 0.9rem;
+            line-height: 1.55;
+        }}
+        .back {{ margin-top: 1.5rem; font-size: 0.9rem; }}
+    </style>
+</head>
+<body>
+  <div class="container">
+    <h1>{EXTENSION_SETUP_HEADING}</h1>
+    <p class="lede">{EXTENSION_SETUP_LEDE}</p>
+
+    <section class="panel" aria-live="polite">
+      <div id="ext-loading" class="state">{EXTENSION_SETUP_LOADING}</div>
+
+      <div id="ext-ready" class="state" hidden>
+        <p id="ext-caveat" class="caveat" hidden></p>
+        <p class="label">{EXTENSION_SETUP_READY_INSTRUCTION}</p>
+
+        <div class="field">
+          <div class="field-name">{EXTENSION_SETUP_ADDRESS_LABEL}</div>
+          <div class="value-frame"><span id="ext-address" class="value"></span></div>
+        </div>
+
+        <div class="field">
+          <div class="field-name">{EXTENSION_SETUP_KEY_LABEL}</div>
+          <div class="value-frame">
+            <span id="ext-key" class="value"></span>
+            <button id="ext-copy" class="copy-btn"
+                    type="button">{EXTENSION_SETUP_COPY_BUTTON}</button>
+          </div>
+        </div>
+
+        <p class="help">{EXTENSION_SETUP_READY_HELP}</p>
+      </div>
+
+      <div id="ext-not_provisioned" class="state" hidden>
+        <p class="label">{EXTENSION_SETUP_NOT_PROVISIONED_TITLE}</p>
+        <p class="help">{EXTENSION_SETUP_NOT_PROVISIONED_HELP}</p>
+      </div>
+
+      <div id="ext-daemon_not_reloaded" class="state" hidden>
+        <p class="label">{EXTENSION_SETUP_DAEMON_NOT_RELOADED_TITLE}</p>
+        <p class="help">{EXTENSION_SETUP_DAEMON_NOT_RELOADED_HELP}</p>
+      </div>
+
+      <div id="ext-mismatch" class="state" hidden>
+        <p class="label">{EXTENSION_SETUP_MISMATCH_TITLE}</p>
+        <p class="help">{EXTENSION_SETUP_MISMATCH_HELP}</p>
+      </div>
+
+      <div id="ext-unreadable" class="state" hidden>
+        <p class="label">{EXTENSION_SETUP_UNREADABLE_TITLE}</p>
+        <p class="help">{EXTENSION_SETUP_UNREADABLE_HELP}</p>
+      </div>
+    </section>
+
+    <p class="back"><a href="/doctor">{EXTENSION_SETUP_BACK_LINK}</a></p>
+  </div>
+
+  <script>
+  (function () {{
+    var POLL_MS = {EXTENSION_SETUP_POLL_MS};
+    var COPY_LABEL = {json.dumps(EXTENSION_SETUP_COPY_BUTTON)};
+    var COPIED_LABEL = {json.dumps(EXTENSION_SETUP_COPIED_BUTTON)};
+    var STATES = ["ext-loading", "ext-ready", "ext-not_provisioned",
+                  "ext-daemon_not_reloaded", "ext-mismatch", "ext-unreadable"];
+
+    function show(id) {{
+      STATES.forEach(function (s) {{
+        var el = document.getElementById(s);
+        if (el) {{ el.hidden = (s !== id); }}
+      }});
+    }}
+
+    function paint(data) {{
+      if (data && data.available && data.token) {{
+        // textContent, never innerHTML: the key is untrusted-by-policy
+        // output and must not be able to introduce markup.
+        document.getElementById("ext-key").textContent = data.token;
+        // Built from the origin the customer actually reached Doctor on,
+        // not from a baked host and port.
+        document.getElementById("ext-address").textContent =
+            window.location.origin + (data.ingest_path || "");
+        var caveat = document.getElementById("ext-caveat");
+        if (data.error) {{
+          caveat.textContent = data.error;
+          caveat.hidden = false;
+        }} else {{
+          caveat.textContent = "";
+          caveat.hidden = true;
+        }}
+        show("ext-ready");
+        return;
+      }}
+      var kind = (data && data.error_kind) || "unreadable";
+      if (STATES.indexOf("ext-" + kind) === -1) {{ kind = "unreadable"; }}
+      show("ext-" + kind);
+    }}
+
+    function tick() {{
+      fetch("/api/v1/extension/token")
+        .then(function (r) {{ return r.json(); }})
+        .then(paint)
+        // A fetch failure is Doctor being unreachable, not a missing key.
+        // Reporting it as "unreadable" would send the customer to support
+        // for a page that just needs a reload.
+        .catch(function () {{ show("ext-loading"); }});
+    }}
+
+    document.getElementById("ext-copy").addEventListener("click", function () {{
+      var btn = this;
+      var value = document.getElementById("ext-key").textContent;
+      if (!value || !navigator.clipboard) {{ return; }}
+      navigator.clipboard.writeText(value).then(function () {{
+        btn.textContent = COPIED_LABEL;
+        setTimeout(function () {{ btn.textContent = COPY_LABEL; }}, 1600);
+      }});
+    }});
+
+    tick();
+    setInterval(tick, POLL_MS);
+  }})();
+  </script>
+</body>
+</html>"""
+
+
+@app.get("/extension-setup", response_class=HTMLResponse)
+async def extension_setup_page():
+    """Render the browser-extension setup panel."""
+    return HTMLResponse(_render_extension_setup_page())
+
+
+@app.get("/api/v1/extension/token", response_class=JSONResponse)
+async def api_extension_token():
+    """Return the browser-extension key and the state it is in.
+
+    Read fresh on every call rather than cached. Two of the five states are
+    cleared by restarting Ostler, and a cached answer would keep telling the
+    customer to do the thing they have already done.
+    """
+    from extension_token import fetch_token_status
+    return JSONResponse(fetch_token_status().to_dict(), status_code=200)
 
 
 @app.get("/pair-ios", response_class=HTMLResponse)

@@ -2159,3 +2159,8 @@ phrase	sam wang	ORDINARY-NAME control in test_provisional_display_name.py: an in
 phrase	auntie emma placeholder	prose in the comment at line 52 explaining what the tier must NOT delete
 phrase	search history	the literal Google Takeout filename "Search History.json", quoted in a parser comment
 selfcheck	vendor/ostler_fda/tests/test_provisional_display_name.py	CONTROL CORPUS for task #302. It carries kinship labels and near-miss real names BY DESIGN, so the TOKEN and SHAPE arms turn its proof-of-detection into findings. The PAIR arm still runs over it with NO baseline (registry rule), which is what keeps a genuinely new name in this file visible.
+phrase	app group	macOS/iOS entitlement concept (an App Group container). Two capitalised words, no person.
+phrase	safari web	from Apple's API name 'Safari Web Extension'. Product noun, no person.
+phrase	extension app	window artefact of 'Safari Web Extension App-Group queue'. The detector pairs the tail of one noun with the head of the next; neither word is a name.
+phrase	live activities	Apple framework name (WidgetKit Live Activities). Product noun, no person.
+phrase	notion markdown	product name plus a file format, from the CM024 Notion adapter's own docstring. No person.

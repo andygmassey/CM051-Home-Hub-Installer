@@ -260,6 +260,17 @@ MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="Recovery passphrase skipped. (D
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="Reusing existing Doctor agent install at %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="Reusing existing email-ingest install at %s"
 MSG_INFO_REUSING_EXISTING_HUB_POWER_INSTALL="Reusing existing hub-power install at %s"
+MSG_INFO_REUSING_EXISTING_EXTENSION_TOKEN="Reusing existing browser extension key at %s"
+MSG_INFO_CHROME_EXTENSION_NOT_IN_THIS_RELEASE="The Ostler extension for Chrome is not part of this release."
+MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT="Email conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_EMAIL_SKIPPED_NO_MAIL="Email conversations: not set up, because Apple Mail is not set up on this Mac."
+MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT="Messages conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_IMESSAGE_SKIPPED_NO_DB="Messages conversations: not set up, because there is no Messages history on this Mac."
+MSG_INFO_FEED_SPOKEN_SKIPPED_HOW="  Record a call with Ostler and this turns itself on."
+MSG_INFO_FEED_SPOKEN_SKIPPED_NO_TRANSCRIPTS="Spoken conversations: not set up yet, because there are no recordings to read."
+MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT="WhatsApp conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_WHATSAPP_SKIPPED_OFF="WhatsApp conversations: not set up, because WhatsApp is switched off."
+MSG_INFO_CHROME_HISTORY_STILL_READ="  Ostler still reads your Chrome history, so pages you have visited are remembered. Live capture as you browse is Safari only for now."
 MSG_INFO_REUSING_EXISTING_JWT_SECRET="Reusing existing JWT_SECRET in %s"
 MSG_INFO_REUSING_EXISTING_PWG_SERVICE_TOKEN="Reusing existing PWG service token at %s"
 MSG_INFO_REUSING_EXISTING_WIKI_RECOMPILE_INSTALL="Reusing existing wiki-recompile install at %s"
@@ -510,6 +521,7 @@ MSG_OK_SECURITY_ALREADY_CONFIGURED_PREVIOUS_RUN="Security already configured on 
 MSG_OK_SECURITY_MODULE_INSTALLED_INTO_VENV="Security module installed into venv"
 MSG_OK_SEEDED_FRESH_JWT_SECRET="Seeded fresh JWT_SECRET in %s"
 MSG_OK_SEEDED_PWG_SERVICE_TOKEN="Seeded PWG service token at %s"
+MSG_OK_SEEDED_EXTENSION_TOKEN="Seeded browser extension key at %s"
 MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878="Services started (Qdrant :6333, Oxigraph :7878, Redis :6379)"
 # ── Qdrant optional-collection pre-create (#606) ──
 MSG_INFO_QDRANT_COLLECTION_PRECREATED="  Prepared search collection: %s"
@@ -729,6 +741,16 @@ MSG_WARN_ON_BATTERY_HUB_POWER_LAUNCHAGENT_STEP="On battery, the hub power Launch
 MSG_WARN_OR_RE_RUN_INSTALLER_PICK_DIFFERENT="or re-run the installer and pick a different channel choice."
 MSG_WARN_OR_RUNNING_AHEAD_PHASE_B_S="or running ahead of Phase B's release pipeline. Re-run the installer once the"
 MSG_WARN_OSTLER_ASSISTANT_DOCTOR_REPORTED_ERROR_S="ostler-assistant doctor reported %s error(s)."
+
+# The whole-run closing verdict (#270). Deliberately NOT phrased as a doctor
+# result: the doctor string above is scoped to the assistant doctor and is
+# true; this pair is the verdict for the install as a whole, which nothing
+# stated before. Wording is plain because a customer reads it at the moment
+# they decide whether the thing worked.
+MSG_WARN_INSTALL_FINISHED_WITH_ERRORS="Ostler finished, but %s error(s) were raised during the install."
+MSG_WARN_INSTALL_FINISHED_WITH_ERRORS_WHERE="  The full detail is in ~/.ostler/logs/install.log. Ostler will still start; open the Doctor to see what needs attention."
+MSG_OK_INSTALL_FINISHED_NO_ERRORS_RAISED="Ostler finished with no errors raised during the install."
+
 MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK="ostler-assistant extracted but --version check failed."
 MSG_WARN_OSTLER_ASSISTANT_LAUNCHAGENT_INSTALL_FAILED_SEE="Ostler assistant LaunchAgent install failed after 3 attempts. Diagnostic output above + below."
 MSG_INFO_ASSISTANT_SNIPPET_ATTEMPT_FAILED="Ostler assistant LaunchAgent install attempt %s failed; retrying."

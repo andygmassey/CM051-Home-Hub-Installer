@@ -34,6 +34,30 @@ config.local.*
 # otherwise swallows it, which dropped it from the vendor and blanked the iOS
 # Pairing tab (chat_token.py is lazy-imported by web_ui.py). Keep tracked.
 !vendor/doctor/agent/chat_token.py
+# ...and the RULE, not a third exception. The line above was added after
+# `chat_token.py` was swallowed and blanked the iOS Pairing tab. It fixed that
+# ONE file. On 2026-09-02 the identical thing happened to
+# `vendor/doctor/agent/extension_token.py`: written to disk, silently untracked,
+# and the shipped Doctor imported a module the commit did not contain. A2 caught
+# it by reading the vendored tree; `git status` never said a word.
+#
+# Two instances of one shape means the exception was the wrong fix. A SOURCE
+# FILE IS NOT A CREDENTIAL. The globs still cover what they were written for --
+# an extensionless secret, a .txt, a .json, a .pem -- and nothing below
+# re-admits those. A credential hardcoded INSIDE a .py was never stopped by
+# this file anyway; that is what the PII and secret scanners are for.
+!*token*.py
+!*token*.sh
+!*token*.swift
+!*token*.md
+!*secret*.py
+!*secret*.sh
+!*secret*.swift
+!*secret*.md
+!*credentials*.py
+!*credentials*.sh
+!*credentials*.swift
+!*credentials*.md
 secrets/
 credentials/
 

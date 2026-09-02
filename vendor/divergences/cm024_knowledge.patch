@@ -1,0 +1,267 @@
+--- a/ostler_knowledge/cli.py
++++ b/ostler_knowledge/cli.py
+@@ -641,6 +641,17 @@
+                 except (ValueError, TypeError):
+                     pass
+ 
++            # Privacy gate (Ostler): never embed notes above the compartment
++            # cap into the searchable Qdrant collection. The wiki Knowledge
++            # reader surfaces whatever is in Qdrant, so an L3 (compartment
++            # level 3) note that reached the collection would leak. The Doctor
++            # import passes max_compartment_level=2 so L3 notes are staged as
++            # markdown but never become searchable. None = embed everything
++            # (explicit operator `embed` use / backward compatible).
++            if not _note_passes_privacy_gate(compartment_level, max_compartment_level):
++                notes_skipped += 1
++                continue
++
+             # Incremental mode: check if note should be processed
+             if incremental_ingester:
+                 if not incremental_ingester.should_process(note_id, updated_at or created_at, content):
+@@ -1351,7 +1362,7 @@
+     # Remove duplicates
+     if verbose:
+         # Set logging level to see individual deletions
+-        logging.getLogger('ostler_knowledge.ingestion.incremental').setLevel(logging.INFO)
++        logging.getLogger('src.ingestion.incremental').setLevel(logging.INFO)
+ 
+     removed = await remove_duplicates(
+         qdrant_client,
+--- a/ostler_knowledge/ingestion/adapters/__init__.py
++++ b/ostler_knowledge/ingestion/adapters/__init__.py
+@@ -20,13 +20,9 @@
+ from .apple_notes import AppleNotesAdapter
+ from .base import KnowledgeSourceAdapter, ParsedNote, RawNote
+ from .evernote import EvernoteAdapter
+-from .notion import NotionAdapter
+-from .obsidian import ObsidianAdapter
+ 
+ ADAPTERS: dict[str, type[KnowledgeSourceAdapter]] = {
+     "evernote": EvernoteAdapter,
+-    "notion": NotionAdapter,
+-    "obsidian": ObsidianAdapter,
+     "apple_notes": AppleNotesAdapter,
+ }
+ 
+@@ -34,8 +30,6 @@
+     "ADAPTERS",
+     "AppleNotesAdapter",
+     "EvernoteAdapter",
+-    "NotionAdapter",
+-    "ObsidianAdapter",
+     "KnowledgeSourceAdapter",
+     "ParsedNote",
+     "RawNote",
+--- a/ostler_knowledge/ingestion/classifier.py
++++ b/ostler_knowledge/ingestion/classifier.py
+@@ -292,11 +292,31 @@
+         prompt = self._build_classification_prompt(note)
+ 
+         url = f"{self.ollama_host}/api/generate"
++
++        # Take the installer's per-tier enrichment context budget, then yield
++        # to the user before starting a new background request (knowledge
++        # classification runs during hydration/enrichment).
++        #
++        # num_ctx is RESOLVED, not hardcoded: install.sh sets
++        # OSTLER_ENRICH_NUM_CTX per resource tier, and a 16 GB Mac (the
++        # installer's hard minimum) sits at `low` = 8192. Pinning 32768 here
++        # would ask the smallest supported box for four times its own budget.
++        #
++        # Crash-safe throughout: a missing helper falls back to the daemon's
++        # own default, and a missing/stale lease returns immediately.
++        num_ctx = 32768
++        try:
++            from ..ollama_user_active import resolve_enrich_num_ctx, wait_until_user_idle
++            num_ctx = resolve_enrich_num_ctx()
++            wait_until_user_idle()
++        except Exception as exc:  # pragma: no cover - defensive
++            logger.debug("user-active lease check skipped: %s", exc)
++
+         payload = {
+             "model": self.llm_model,
+             "prompt": prompt,
+             "stream": False,
+-            "options": {"temperature": 0.1},
++            "options": {"temperature": 0.1, "num_ctx": num_ctx},
+         }
+ 
+         try:
+--- a/ostler_knowledge/knowledge/email_summarizer.py
++++ b/ostler_knowledge/knowledge/email_summarizer.py
+@@ -265,6 +265,26 @@
+         """Call Ollama API for completion."""
+         url = f"{self.ollama_host}/api/generate"
+ 
++        # Take the installer's per-tier enrichment context budget, then yield
++        # to the user before starting a new background request (email
++        # summarisation runs during hydration/enrichment).
++        #
++        # num_ctx is RESOLVED, not hardcoded: install.sh sets
++        # OSTLER_ENRICH_NUM_CTX per resource tier, and a 16 GB Mac (the
++        # installer's hard minimum) sits at `low` = 8192. Pinning 32768 here
++        # would ask the smallest supported box for four times its own budget.
++        #
++        # The lease reader is sync but returns immediately in the common
++        # (idle) case. Crash-safe: a missing helper falls back to the daemon's
++        # own default, and a missing/stale lease returns immediately.
++        num_ctx = 32768
++        try:
++            from ..ollama_user_active import resolve_enrich_num_ctx, wait_until_user_idle
++            num_ctx = resolve_enrich_num_ctx()
++            wait_until_user_idle()
++        except Exception as exc:  # pragma: no cover - defensive
++            logger.debug("user-active lease check skipped: %s", exc)
++
+         payload = {
+             "model": self.model,
+             "prompt": prompt,
+@@ -272,6 +292,7 @@
+             "options": {
+                 "temperature": 0.3,  # Lower for more consistent extraction
+                 "num_predict": 1024,  # Limit response length
++                "num_ctx": num_ctx,
+             },
+         }
+ 
+--- /dev/null
++++ b/ostler_knowledge/ollama_user_active.py
+@@ -0,0 +1,138 @@
++"""Cross-process "user-active lease" reader for background Ollama callers.
++
++The Ostler daemon (Rust) refreshes a lease file on every foreground chat
++turn so background batch jobs (wiki recompile, this enrichment pipeline)
++can yield their Ollama (:11434) slots to the user. This is the *reader*
++half of the contract; the daemon owns the *writer* half.
++
++Contract (agreed with the daemon side, Archie):
++
++- Path: ``~/.ostler/run/ollama-user-active``.
++- Format: a single integer = epoch-MILLIS "active until" (TTL ~8s,
++  refreshed per foreground turn).
++- Semantics: before starting a *new* background Ollama request, read the
++  file; while ``now_ms < active_until``, sleep briefly and re-check. Never
++  preempt an in-flight call.
++
++Crash-safety: a missing or garbage lease file is treated as "idle" so a
++background batch is never blocked by the daemon being absent, and a
++stuck/far-future lease can never deadlock the run (``max_wait`` caps the
++total yield).
++
++Pure stdlib so it can be vendored / duplicated per repo without adding a
++cross-repo dependency. Intentionally identical to the copies in the wiki
++compiler (CM044) and the cm024 knowledge package -- three small copies,
++no shared dep, no version-drift coupling.
++"""
++from __future__ import annotations
++
++import os
++import time
++from pathlib import Path
++
++# Default lease path. Override with OSTLER_USER_ACTIVE_LEASE for tests or
++# non-standard layouts.
++_DEFAULT_LEASE = "~/.ostler/run/ollama-user-active"
++
++
++def _lease_path() -> Path:
++    raw = os.environ.get("OSTLER_USER_ACTIVE_LEASE", _DEFAULT_LEASE)
++    return Path(raw).expanduser()
++
++
++def _read_active_until_ms(path: Path) -> int | None:
++    """Return the lease's epoch-millis value, or None if absent/garbage."""
++    try:
++        text = path.read_text(encoding="utf-8").strip()
++    except (FileNotFoundError, NotADirectoryError, IsADirectoryError, PermissionError, OSError):
++        return None
++    if not text:
++        return None
++    try:
++        return int(text)
++    except ValueError:
++        return None
++
++
++def wait_until_user_idle(
++    poll: float = 0.5,
++    max_wait: float = 30.0,
++    *,
++    path: Path | None = None,
++) -> float:
++    """Block while the user is active, then return.
++
++    Reads the lease file and, while ``now_ms < active_until``, sleeps for
++    ``poll`` seconds and re-checks. Returns the number of seconds spent
++    waiting (0.0 if the user was idle).
++
++    Args:
++        poll: seconds between re-checks while the user is active.
++        max_wait: hard cap on total wait so a stuck/far-future lease can
++            never deadlock a batch run. Returns once exceeded even if the
++            lease still reads active.
++        path: override the lease path (test seam).
++
++    Never raises on a missing/garbage lease -- that is treated as idle and
++    returns immediately.
++    """
++    lease = path if path is not None else _lease_path()
++    waited = 0.0
++    while True:
++        active_until = _read_active_until_ms(lease)
++        if active_until is None:
++            return waited
++        now_ms = time.time() * 1000.0
++        if now_ms >= active_until:
++            return waited
++        if waited >= max_wait:
++            return waited
++        step = min(poll, max(0.0, max_wait - waited))
++        if step <= 0:
++            return waited
++        time.sleep(step)
++        waited += step
++
++
++# ─── Enrichment context budget ────────────────────────────────────────────
++
++# Fallback when the installer has not set a budget. Matches the daemon's own
++# DEFAULT_NUM_CTX (crates/zeroclaw-providers/src/ollama.rs), which is the whole
++# point: a background caller that requests a DIFFERENT window from the
++# foreground daemon makes Ollama reload the model between the two sizes, which
++# is the churn this module exists to stop.
++_DEFAULT_ENRICH_NUM_CTX = 32768
++
++# Below this a request cannot hold its own prompt. Mirrors the daemon's own
++# floor so the two halves cannot disagree about what "too small" means.
++_MIN_NUM_CTX = 2048
++
++
++def resolve_enrich_num_ctx(default: int = _DEFAULT_ENRICH_NUM_CTX) -> int:
++    """Return the context window a BACKGROUND enrichment request should use.
++
++    WHY THIS IS NOT A CONSTANT. install.sh detects a resource tier and sets
++    OSTLER_ENRICH_NUM_CTX per tier: unset on `high` (>=32 GB), 8192 on `low`,
++    4096 on `floor`. A 16 GB Mac is `low`, and 16 GB is the installer's hard
++    minimum, so the BASELINE supported machine wants 8192 here. Hardcoding
++    32768 would ask the smallest supported box for four times its own budget,
++    in the very code path added to be polite about resources.
++
++    On `high` the variable is deliberately EMPTY, which means "no reduction":
++    fall through to `default` so the background window matches the daemon's
++    and no model reload happens between foreground and background turns.
++
++    Garbage, empty, or below `_MIN_NUM_CTX` all fall back to `default`. A
++    malformed budget must not silently shrink the window to something that
++    truncates the prompt, because Ollama truncates SILENTLY.
++    """
++    raw = os.environ.get("OSTLER_ENRICH_NUM_CTX", "").strip()
++    if not raw:
++        return default
++    try:
++        value = int(raw)
++    except ValueError:
++        return default
++    if value < _MIN_NUM_CTX:
++        return default
++    return value

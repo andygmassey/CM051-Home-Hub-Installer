@@ -219,6 +219,88 @@ def _machine_admin_token() -> str:
     return ""
 
 
+def _extension_token() -> str:
+    """The per-install browser-extension credential, if this install has one."""
+    return os.environ.get("OSTLER_EXTENSION_TOKEN", "").strip()
+
+
+# The ONLY path the extension credential may open. Not a list, not an env var,
+# not configurable. See _is_extension_credential for why.
+_EXTENSION_ONLY_PATH = "/api/safari/ingest"
+
+
+def _is_extension_credential(request, client_bearer: str, upstream_path: str) -> bool:
+    """May this request proceed on the browser-extension credential alone?
+
+    THE DEFECT THIS CLOSES (Andy, 2026-09-02: *"no, it's a fucking BUG"*).
+    The macOS Safari extension posts the customer's own browsing, captured on
+    the customer's own Mac, to a loopback service on that same Mac -- and was
+    authenticated against the gateway's PAIRED-TOKEN STORE, which is populated
+    by pairing an iPhone. A Hub customer who never buys or pairs a phone got a
+    401 on every page, forever, and no ongoing browsing capture at all.
+
+    That is the WRONG CREDENTIAL, not a missing policy. Pairing proves "this
+    phone belongs to this Hub". It says nothing about whether the Mac may read
+    its own browser, and requiring it made an iPhone a prerequisite for a
+    Mac-only feature.
+
+    FOUR CONDITIONS, ALL REQUIRED, AND THE NARROWNESS IS THE WHOLE DESIGN:
+
+      1. ONE PATH.  ``/api/safari/ingest`` and nothing else, compared against
+         the CONCRETE upstream path rather than the route template. The other
+         proxied paths are READS of the customer's entire life -- timeline,
+         people, email, memory. This is a WRITE of their own browsing.
+         Widening this credential across all of them would be a real security
+         regression and is not what the fix asks for.
+      2. WRITES ONLY.  POST. A credential that could also GET would hand a
+         local process a reader for whatever this path serves.
+      3. LOOPBACK ONLY.  Same constraint as the oracle fallback below, and the
+         SAME EXPIRY WARNING APPLIES -- read it there. It is an assumption
+         about WIRING which this file cannot keep true.
+      4. ITS OWN TOKEN.  Deliberately NOT OSTLER_ADMIN_TOKEN. Reusing the
+         admin token would give a browser extension admin-equivalent power
+         over the Hub -- a strictly worse trade than the bug it fixes.
+
+    UNLIKE :func:`_local_fallback_allowed`, THIS DOES NOT REQUIRE THE ORACLE
+    TO BE ABSENT. That is the point: the fallback exists for deployment skew
+    and is dead code on a healthy daemon, so it could never have fixed this.
+    This path is live on a correctly-working Hub, because a Hub-only customer
+    is the NORMAL case, not a broken one.
+
+    compare_digest on BYTES, not ``==`` on str -- the timing leak and the
+    non-ASCII TypeError crash are both real and both already cost us once in
+    this file.
+    """
+    if not client_bearer:
+        return False
+
+    token = _extension_token()
+    if not token:
+        return False
+
+    # Concrete path, not the route template: a template could in principle be
+    # registered for more than one concrete route.
+    if str(upstream_path or "") != _EXTENSION_ONLY_PATH:
+        return False
+
+    if str(getattr(request, "method", "") or "").upper() != "POST":
+        return False
+
+    host = ""
+    try:
+        if request.client and request.client.host:
+            host = str(request.client.host)
+    except Exception:  # pragma: no cover - defensive
+        return False
+    if host not in ("127.0.0.1", "::1", "localhost"):
+        return False
+
+    return hmac.compare_digest(
+        client_bearer.encode("utf-8", "surrogatepass"),
+        token.encode("utf-8", "surrogatepass"),
+    )
+
+
 def _local_fallback_allowed(request, client_bearer: str) -> bool:
     """May this request proceed even though the gateway gave no auth verdict?
 
@@ -436,6 +518,21 @@ async def proxy_request(
         authorized = await _is_paired_bearer(
             client_bearer, validator_url=validator_url, client=client
         )
+        if not authorized and _is_extension_credential(
+            request, client_bearer, request.url.path
+        ):
+            # The browser extension's own credential, scoped to
+            # /api/safari/ingest POST on loopback. NOT a widening of the
+            # oracle fallback below -- that one requires the oracle to be
+            # ABSENT and is dead code on a healthy daemon, which is exactly
+            # why it could never have fixed the Hub-only customer.
+            logger.info(
+                "Doctor proxy: admitting %s %s on the browser-extension "
+                "credential (loopback, ingest-only)",
+                request.method,
+                path,
+            )
+            authorized = True
         if not authorized and _local_fallback_allowed(request, client_bearer):
             # The gateway expressed no opinion because it does not serve the
             # oracle at all. Admit this narrow loopback case rather than

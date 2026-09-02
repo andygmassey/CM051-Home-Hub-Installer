@@ -33,7 +33,14 @@ wait_until_user_idle = _mod.wait_until_user_idle
 
 def test_copies_are_identical():
     """The cm048 and cm024 vendor copies must not drift."""
-    other = _REPO / "vendor" / "cm024_knowledge" / "src" / "ollama_user_active.py"
+    # ostler_knowledge/, NOT src/. The 2026-09-02 cm024 re-vendor took the tree
+    # from the repo root, where upstream's package is ostler_knowledge/; the
+    # vendored copy had carried the same code under src/ since before that
+    # rename. This assertion kept pointing at the old path and failed on a
+    # MISSING FILE, which reads like drift but was only a stale path.
+    # Verified identical at the commit before repointing (sha256 800d7b99...),
+    # so the invariant this guards is intact and it is the reader that moved.
+    other = _REPO / "vendor" / "cm024_knowledge" / "ostler_knowledge" / "ollama_user_active.py"
     assert _HELPER.read_text() == other.read_text()
 
 

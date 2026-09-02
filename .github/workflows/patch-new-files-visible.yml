@@ -1,0 +1,70 @@
+name: patch-new-files-visible
+
+# A divergence patch must not create files its own consumer cannot see.
+#
+# `vlib_patch_new_files` (scripts/_vendor_lib.sh) decides which files a patch
+# CREATES, and that verdict is the only thing stopping sync_vendor.sh deleting
+# them on the next re-vendor. It matches, literally, `^+++ b/`.
+#
+# On 2026-09-02 vendor/divergences/doctor.patch carried `+++ bb/`. Measured:
+# 8 new-file hunks written, 0 extracted. sync_vendor.sh believed the patch
+# created nothing, so agent/extension_token.py and agent/pause_control.py were
+# both one re-vendor away from silent deletion.
+#
+# WHY A COMMITTED-ARTEFACT CHECK, when three checks already covered this.
+# After the fix the invariant was enforced in three places, and not one of them
+# looks at what is committed:
+#   (a) the generator's self-check fires only when someone RUNS the generator;
+#   (b) tests/test_gen_patch_new_files.sh proves it on a synthetic FIXTURE;
+#   (c) tests/test_doctor_governor_routes_vendored.sh checks ONE named file in
+#       ONE tree.
+# The bug shipped exactly in that gap: the committed patch was written by an
+# older generator and then sat in the tree, re-validated by nothing. A patch
+# that is stale, hand-edited, or produced by an older tool has to be caught
+# however it got there, so this reads `git show HEAD:<path>`, not the worktree.
+#
+# NO paths: FILTER, deliberately, same reasoning as launchagent-pycache-guard.
+# The obvious filter is vendor/divergences/**, and it would miss a change to
+# _vendor_lib.sh that alters the consumer's predicate while every patch stays
+# byte-identical. The check reads 17 small files; a filter is not worth the
+# blind spot.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same PR. NEVER cancels main: a cancelled
+  # main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  guard:
+    name: Every divergence patch's new files are visible to their consumer
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # git show HEAD:<path> needs the commit, and a shallow clone of depth
+          # 1 still has HEAD, so depth 1 is sufficient and is the default.
+          fetch-depth: 1
+
+      # SELF TEST FIRST. A checker that cannot demonstrate it goes RED is not
+      # evidence of anything, and this gate exists precisely because an earlier
+      # check reported clean over a live defect. One of the four cases is the
+      # real historical bb/ shape and MUST be flagged.
+      - name: Self test (prove the predicate fires)
+        run: python3 scripts/verify_patch_new_files_visible.py --self-test
+
+      # tomllib needs python 3.11+. ubuntu-latest ships 3.12.
+      # Deliberately NOT a line-grep of VENDOR_MANIFEST.toml: that file mixes
+      # indented and unindented rows, so a ^-anchored reader silently sees a
+      # subset and returns empty values that read as "field absent".
+      - name: Check every committed divergence patch
+        run: python3 scripts/verify_patch_new_files_visible.py

@@ -814,3 +814,81 @@ CONSENT_UNREADABLE_DETAIL_FMT = (
     "changed, and your answers are still on this Mac. This is a fault in "
     "Ostler rather than anything you have done. Technical cause: {reason}"
 )
+
+
+# ---------------------------------------------------------------------------
+# Browser extension setup panel
+#
+# The last gap between a customer and browsing capture. The extension
+# has always posted to the Hub and the Hub now accepts its credential,
+# but a key that exists only in a 0600 file and a daemon environment is
+# not a key a customer can paste into an extension popup. Without this
+# panel the whole channel ships dark.
+#
+# Five states, and they are deliberately five. "no key yet" means run
+# the installer; "not picked up yet" means restart Ostler; "does not
+# match" means the running Hub would reject the saved key, which is the
+# one state where showing a value would actively mislead. Collapsing
+# these into "no key available" sends the customer to support with
+# nothing, and the failure they are chasing is a silent rejection
+# inside a browser extension.
+
+EXTENSION_SETUP_TITLE_TAG = "Ostler Doctor &ndash; Browser extension"
+EXTENSION_SETUP_HEADING = "Set up the browser extension"
+EXTENSION_SETUP_LEDE = (
+    "The Ostler browser extension sends the pages you read to this Mac "
+    "so they can be remembered. It needs two things from Ostler: the "
+    "address below, and the key that proves the extension is yours."
+)
+
+EXTENSION_SETUP_LOADING = "Checking your browser extension key."
+
+EXTENSION_SETUP_READY_INSTRUCTION = (
+    "Open the Ostler extension in your browser, choose Settings, and "
+    "paste these two values."
+)
+EXTENSION_SETUP_ADDRESS_LABEL = "Address"
+EXTENSION_SETUP_KEY_LABEL = "Key"
+EXTENSION_SETUP_COPY_BUTTON = "Copy key"
+EXTENSION_SETUP_COPIED_BUTTON = "Copied"
+EXTENSION_SETUP_READY_HELP = (
+    "Treat the key like a password. It only works from this Mac, and "
+    "only for sending pages to Ostler, but anyone who has it can add to "
+    "your memory. If you ever need to change it, run the Ostler "
+    "installer again."
+)
+
+EXTENSION_SETUP_NOT_PROVISIONED_TITLE = "No browser extension key yet."
+EXTENSION_SETUP_NOT_PROVISIONED_HELP = (
+    "This Mac has not been given a key for the browser extension. Run "
+    "the Ostler installer again to create one. Nothing else you have "
+    "set up is affected."
+)
+
+EXTENSION_SETUP_DAEMON_NOT_RELOADED_TITLE = "Ostler has not picked up the key yet."
+EXTENSION_SETUP_DAEMON_NOT_RELOADED_HELP = (
+    "A key was created after Ostler started, so the running copy does "
+    "not have it. Close and reopen Ostler, then come back to this page. "
+    "The key is deliberately not shown until Ostler is using it, "
+    "because until then the extension would be turned away."
+)
+
+EXTENSION_SETUP_MISMATCH_TITLE = "The key Ostler is using does not match the saved one."
+EXTENSION_SETUP_MISMATCH_HELP = (
+    "Two different keys exist on this Mac and Ostler would reject one of "
+    "them, so neither is shown. Close and reopen Ostler. If this page "
+    "still says the same thing, run the Ostler installer again."
+)
+
+EXTENSION_SETUP_UNREADABLE_TITLE = "Ostler could not read its browser extension key."
+EXTENSION_SETUP_UNREADABLE_HELP = (
+    "This is a fault rather than something you did. Use Copy "
+    "diagnostics on the Doctor dashboard and send it to support."
+)
+
+EXTENSION_SETUP_BACK_LINK = "Back to Doctor"
+
+# Poll interval. A restart is the fix for two of the five states, so the
+# page has to notice one without the customer reloading. Slower than the
+# WhatsApp panel because nothing here is short-lived.
+EXTENSION_SETUP_POLL_MS = 8000

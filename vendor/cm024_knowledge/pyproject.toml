@@ -42,17 +42,17 @@ test = [
 # /usr/local/bin/ostler-knowledge so the customer can invoke it without
 # activating the venv.
 [project.scripts]
-ostler-knowledge = "src.cli:cli"
+ostler-knowledge = "ostler_knowledge.cli:cli"
 
 [project.urls]
 Repository = "https://github.com/andygmassey/evernote-knowledge"
 
-# Package layout. The repo uses ``src/`` as the literal Python package
-# name (rather than the src-layout convention where ``src/`` is the
-# parent of a real package). Renaming to ``ostler_knowledge/`` is a
-# post-launch refactor; for v0.1 we honour the existing imports
-# (``from src.ingestion.adapters import ...``) by installing ``src``
-# as a top-level package.
+# Package layout. The importable top-level package is ``ostler_knowledge``
+# (matching the distribution name), so ``import ostler_knowledge`` and
+# ``from ostler_knowledge.ingestion.adapters import ...`` resolve from a
+# pip-installed venv. This mirrors the vendored ``ostler_fda`` packaging
+# pattern (distribution name == top-level module name) rather than
+# installing a collision-prone generic ``src`` package.
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*"]
+include = ["ostler_knowledge*"]

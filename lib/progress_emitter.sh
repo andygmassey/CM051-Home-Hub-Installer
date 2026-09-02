@@ -40,6 +40,11 @@
 #               that ended with a status other than ok. It is printed
 #               even when it is zero, so a reader can tell "no step
 #               failed" apart from "this build does not report it".
+#               `errors` is ALWAYS present too and counts [ERROR] lines
+#               raised anywhere in the run. It answers a DIFFERENT
+#               question from failed_steps: a run can close every step
+#               cleanly and still have raised errors. Printed even when
+#               zero, for the same reason.
 #
 # Usage in install.sh:
 #
@@ -136,7 +141,7 @@ _ostler_marker_field_is_public() {
             return 0
             ;;
         # Machine numerics.
-        pct|idx|total|phase|elapsed_s|rc|count|failed_steps|total_permissions)
+        pct|idx|total|phase|elapsed_s|rc|count|failed_steps|errors|total_permissions)
             return 0
             ;;
         # Operator narrative -- see "WHAT IS DELIBERATELY NOT REDACTED".
@@ -314,6 +319,10 @@ __OSTLER_STEP_RC=0
 # Count of steps closed with a status other than ok. Read by gui_done so
 # the single terminal line carries the truth about the whole run.
 __OSTLER_FAILED_STEPS=0
+# Message-level error counter. Companion to __OSTLER_FAILED_STEPS, and a
+# DIFFERENT question: that one counts steps that ended badly, this one counts
+# [ERROR] lines raised anywhere. See gui_log for why both are needed.
+__OSTLER_ERROR_LINES=0
 
 # gui_step_record_rc <rc>
 #
@@ -573,6 +582,32 @@ gui_log() {
     [[ "${OSTLER_GUI:-0}" != "1" ]] && return 0
     local level="${1:-info}"; shift
     local msg="$*"
+    # ── The MESSAGE-level error counter (A2's silence sweep, tier 1) ──
+    #
+    # #839 gave the DONE line failed_steps, which counts STEPS that ended
+    # other than ok. That is a real answer to a real question and it is not
+    # this one. install.sh's err() only PRINTS: a run can emit any number of
+    # [ERROR] lines, close every step cleanly, and produce
+    #     status=ok failed_steps=0
+    # which is TRUE by the contract above and still tells the customer
+    # nothing about the errors. Measured on a real box: an install closed
+    # "no errors detected" over 43+ real errors (#270).
+    #
+    # err() funnels through gui_log at level=error, so this is the one place
+    # every error message passes. Counting HERE rather than in install.sh's
+    # err() is the same argument #873 makes for closing the open step in this
+    # function: the guarantee should be a property of the emitter, not a rule
+    # each future caller has to remember.
+    #
+    # SUBSHELL CAVEAT, STATED RATHER THAN HIDDEN: this is a plain shell
+    # variable, so an err() raised inside a $( ) or a pipeline segment
+    # increments a copy and is lost. __OSTLER_FAILED_STEPS has carried
+    # exactly this limitation since #839 and it is accepted. The count is
+    # therefore a FLOOR, not a total -- which is the safe direction, because
+    # it can under-report but can never invent an error that did not happen.
+    if [[ "$level" == "error" ]]; then
+        __OSTLER_ERROR_LINES=$(( ${__OSTLER_ERROR_LINES:-0} + 1 ))
+    fi
     gui_emit LOG "level=$level" "msg=$msg"
 }
 
@@ -664,10 +699,12 @@ gui_done() {
     OSTLER_DONE_EMITTED=1
     if [[ -n "${OSTLER_LAST_ERROR_CODE:-}" ]]; then
         gui_emit DONE "status=$status" "code=${OSTLER_LAST_ERROR_CODE}" \
-                      "failed_steps=${__OSTLER_FAILED_STEPS:-0}"
+                      "failed_steps=${__OSTLER_FAILED_STEPS:-0}" \
+                      "errors=${__OSTLER_ERROR_LINES:-0}"
     else
         gui_emit DONE "status=$status" \
-                      "failed_steps=${__OSTLER_FAILED_STEPS:-0}"
+                      "failed_steps=${__OSTLER_FAILED_STEPS:-0}" \
+                      "errors=${__OSTLER_ERROR_LINES:-0}"
     fi
 }
 

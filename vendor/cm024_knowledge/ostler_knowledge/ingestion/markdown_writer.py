@@ -36,6 +36,7 @@ class MarkdownWriter:
         output_dir: Union[str, Path],
         create_subdirs: bool = True,
         overwrite: bool = False,
+        source: str = 'evernote',
     ):
         """
         Initialize the markdown writer.
@@ -44,10 +45,15 @@ class MarkdownWriter:
             output_dir: Directory to write markdown files
             create_subdirs: Create year/month subdirectories
             overwrite: Overwrite existing files (default: skip)
+            source: Knowledge-source name stamped into each note's
+                frontmatter ``source`` field. Defaults to ``evernote``
+                for back-compat; the convert command passes the active
+                adapter's name (e.g. ``apple_notes``, ``notion``).
         """
         self.output_dir = Path(output_dir)
         self.create_subdirs = create_subdirs
         self.overwrite = overwrite
+        self.source = source
 
         self._stats = {
             'written': 0,
@@ -198,7 +204,7 @@ class MarkdownWriter:
         # Build frontmatter
         frontmatter = {
             'title': note.title,
-            'source': 'evernote',
+            'source': self.source,
             'compartment_level': compartment_level,
             'importance_score': round(importance_score, 3),
         }
@@ -316,7 +322,7 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 3:
-        print("Usage: python -m src.ingestion.markdown_writer <input.enex> <output_dir> [--limit N]")
+        print("Usage: python -m ostler_knowledge.ingestion.markdown_writer <input.enex> <output_dir> [--limit N]")
         sys.exit(1)
 
     enex_path = sys.argv[1]

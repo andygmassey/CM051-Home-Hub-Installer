@@ -444,6 +444,79 @@ fi
 # parse keeps reading the UNKNOWN bucket, which is the one it exists to watch.
 echo "vendor-freshness: $checked tree(s) -- $ok fresh, $fail stale/divergent, $warn unverifiable (UNKNOWN), $ackd acknowledged-unverifiable$held_note"
 
+# ---------------------------------------------------------------------------
+# ANTI-VACUITY FLOOR. Read this before touching the verdicts below.
+#
+# THE DEFECT THIS CLOSES (A2's silence sweep, tier 3 item 6). Every verdict
+# below is computed from counters that all start at 0. If the manifest yields
+# no rows, no branch fires, control reaches the final `else`, and it prints
+#     GATE: GREEN -- every vendored tree matches its pinned source.
+# and exits 0, HAVING EXAMINED NOTHING. On the gate that decides whether
+# UNVERIFIED VENDORED CODE SHIPS TO CUSTOMERS.
+#
+# 🗿 AND THE FIRST VERSION OF THIS FLOOR WAS ITSELF UNSOUND. A2 REFUTED IT.
+#
+# I wrote `checked -eq <grep count of name= rows>` and justified it in this very
+# comment as using "an instrument independent of the parser, because a control
+# that fails for the same reason as its subject proves nothing." That claim was
+# FALSE ON ITS FACE: the grep and vlib_tree_names use the SAME name regex
+# (^[[:space:]]*name[[:space:]]*=), differing only in [[tree]] gating. They share
+# every blind spot. A2 demonstrated two manifests where checked == declared and
+# the gate was still vacuous:
+#
+#   (1) DUPLICATE tree name. Two [[tree]] blocks both named X. grep=2, parser
+#       emits X twice, checked=2, equality PASSES -- but vlib_field awk-exits on
+#       the first match (_vendor_lib.sh:114), so both iterations resolve every
+#       field to block ONE. Block TWO is examined zero times and its
+#       missing-on-disk FAIL never fires. GREEN, rc=0, block two ships unverified.
+#   (2) QUOTED key, which is valid TOML. `"name" = "x"` matches neither the grep
+#       nor the parser, so both drop it and agree at the WRONG number. GREEN, rc=0.
+#
+# THE SOUND PREDICATE IS IDENTITY, NOT TWO COUNTS. Two counts through one regex
+# can agree while naming different things, or while both missing the same thing.
+# So:
+#   - the denominator comes from the [[tree]] BLOCK HEADER, a genuinely
+#     different token from `name =`. A block that exists but whose name key the
+#     parser cannot read still counts here, which is exactly case (2).
+#   - names must be UNIQUE. Duplicate identity is case (1), and no count
+#     comparison of any kind can see it.
+#
+# CANNOT-RUN is exit 2, distinct from the RED exit 1 below: "the gate could not
+# look" is a third state and collapsing it into either of the other two is the
+# class this floor exists to refuse.
+_declared_blocks="$(grep -cE '^[[:space:]]*\[\[tree\]\][[:space:]]*$' "$VLIB_MANIFEST" 2>/dev/null || true)"
+_declared_blocks="${_declared_blocks:-0}"
+_parsed_names="$(vlib_tree_names 2>/dev/null || true)"
+_parsed_total="$(printf '%s\n' "$_parsed_names" | grep -c . || true)"
+_parsed_unique="$(printf '%s\n' "$_parsed_names" | grep . | sort -u | grep -c . || true)"
+_parsed_total="${_parsed_total:-0}"; _parsed_unique="${_parsed_unique:-0}"
+
+if [ "$_declared_blocks" -eq 0 ]; then
+    echo "GATE: CANNOT-RUN -- read 0 [[tree]] blocks from the manifest." >&2
+    echo "      Expected: $VLIB_MANIFEST" >&2
+    echo "      This is NOT a pass. The gate examined nothing, and an unexamined" >&2
+    echo "      vendored tree is exactly the state it exists to refuse." >&2
+    exit 2
+fi
+if [ "$_parsed_total" -ne "$_parsed_unique" ]; then
+    echo "GATE: CANNOT-RUN -- the manifest declares DUPLICATE tree names ($_parsed_total parsed, $_parsed_unique unique)." >&2
+    echo "      vlib_field resolves a name to the FIRST matching block, so every" >&2
+    echo "      duplicate after the first is examined ZERO times while the loop" >&2
+    echo "      still counts it. Its FAIL can never fire and its code would ship" >&2
+    echo "      unverified. No count comparison can see this; only identity can." >&2
+    printf '%s\n' "$_parsed_names" | grep . | sort | uniq -d | sed 's/^/        duplicate: /' >&2
+    exit 2
+fi
+if [ "$checked" -ne "$_declared_blocks" ]; then
+    echo "GATE: CANNOT-RUN -- the manifest has $_declared_blocks [[tree]] block(s) and the gate examined $checked." >&2
+    echo "      A partial parse is not a partial pass: the $((_declared_blocks - checked)) unexamined block(s)" >&2
+    echo "      would ship unverified while this gate printed a verdict about the others." >&2
+    echo "      The denominator comes from the [[tree]] HEADER, a different token from" >&2
+    echo "      'name =', so a block whose name key the parser cannot read (a quoted" >&2
+    echo "      key is valid TOML) is still counted here and still refused." >&2
+    exit 2
+fi
+
 if [ "$fail" -gt 0 ]; then
     echo "GATE: RED -- $fail tree(s) are stale or have drifted from source." >&2
     exit 1

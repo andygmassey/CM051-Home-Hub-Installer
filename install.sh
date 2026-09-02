@@ -1257,7 +1257,21 @@ warn()  { gui_active || echo -e "${YELLOW}[warn]${NC}  $*"; gui_warn "$*"; }
 # tee /dev/null on the calling side; keeps red [ERROR] colour to
 # match the visual class of `fail` (which exits) without exiting
 # itself -- caller decides whether to exit or recover.
-err()   { gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log error "$*"; }
+# Run-wide error tally. See the closing verdict just above `gui_done ok`.
+#
+# WHY THIS EXISTS SEPARATELY FROM THE EMITTER'S __OSTLER_ERROR_LINES.
+# That one lives in lib/progress_emitter.sh's gui_log and feeds `errors=` on the
+# DONE marker. gui_log returns EARLY when OSTLER_GUI != 1, and on the TTY path
+# gui_log is a no-op stub entirely -- so the emitter's counter is GUI-only BY
+# CONSTRUCTION, which is correct for a GUI marker and useless for a line a
+# terminal operator reads. The closing verdict must be true on BOTH paths, so it
+# counts here, at the one funnel every error message passes through.
+#
+# A FLOOR, NOT A TOTAL: an err() raised inside $( ) or a pipeline segment
+# increments a copy and is lost. Stated rather than hidden. It can under-report
+# and can never invent an error that did not happen.
+_OSTLER_RUN_ERRORS=0
+err()   { _OSTLER_RUN_ERRORS=$(( ${_OSTLER_RUN_ERRORS:-0} + 1 )); gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log error "$*"; }
 
 # ── LaunchAgent load, VERIFIED (#876, and the #800 class behind it) ──
 #
@@ -2105,6 +2119,7 @@ _ostler_set_paths() {
     OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
     CHAT_ADMIN_TOKEN_FILE="${SECRETS_DIR}/zeroclaw_admin_token"
     SERVICE_TOKEN_FILE="${SECRETS_DIR}/service_token"
+    EXTENSION_TOKEN_FILE="${SECRETS_DIR}/extension_token"
     # Python venv lives at $OSTLER_DIR/.venv. Created during the
     # encrypt_db step (pre-FDA), used heavily after FDA grant for the
     # Python heredocs in the FDA extraction + hydrate steps.
@@ -11601,16 +11616,27 @@ DEFAULT_PRIVACY_LEVEL=L2
 # Per-source FDA consent – comma-separated list of enabled sources.
 # Set in Phase 2 (or read from a previous install on re-run). Read by
 # ostler_fda.extract_all via the OSTLER_FDA_SOURCES env var.
-# apple_notes deliberately ABSENT from this default. The extractor
-# (vendor/ostler_fda/extract_all.py) reads every note and writes
-# apple_notes.json, but the converter that would make them searchable ships in
-# vendor/cm024_knowledge, whose VENDOR_MANIFEST.toml pin is held at 43d6c5da --
-# the re-pin to 7ace7672, which carries the apple_notes.py adapter, is DEFERRED.
-# So \`convert --source apple_notes\` exits non-zero on an unknown source and
-# the notes go nowhere. Asking Full Disk Access for data we then do not use is the
-# one option that trades consent for nothing. Restore this entry in the same
-# change that lands the CM024 re-pin, not before.
-OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES:-safari_history,safari_bookmarks,calendar,reminders}"
+# apple_notes IS IN THIS DEFAULT, and the reason it once was not is worth
+# keeping so nobody re-derives the old conclusion.
+#
+# It used to read "deliberately ABSENT ... restore this in the same change that
+# lands the CM024 re-pin, not before". That was TRUE as a description of the
+# machinery -- the extractor wrote apple_notes.json and the converter could not
+# read it, so \`convert --source apple_notes\` exited non-zero and the notes went
+# nowhere -- and it was NOT A DECISION ANYONE WAS ENTITLED TO MAKE HERE. An
+# agent wrote a product-scope call into the shipping tree in the voice of
+# policy, and it then read as settled for six weeks. Andy, 2026-09-02: "I don't
+# know where you're getting that Apple Notes shouldn't be included - it SHOULD."
+#
+# THE PRECONDITION IS NOW MET, not waived. vendor/cm024_knowledge is re-vendored
+# at 1fabd75 across the src/ -> ostler_knowledge/ rename, which is where
+# ingestion/adapters/apple_notes.py lives, and that row's manifest entry has
+# gone verify=skip -> verify=full with its unverifiable_ack DELETED. The gate
+# now reports: cm024_knowledge -- vendor == source@1fabd75d (+patch).
+#
+# So the consent we ask for is spent on data we actually use, which was the
+# whole of the original objection.
+OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES:-safari_history,safari_bookmarks,calendar,reminders,apple_notes}"
 
 # If a Google Takeout mbox is registered, point extract_all at it.
 OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}"
@@ -11722,6 +11748,7 @@ fi
 
 OSTLER_ENV_FILE="${OSTLER_DIR}/.env"
 SERVICE_TOKEN_FILE="${SECRETS_DIR}/service_token"
+EXTENSION_TOKEN_FILE="${SECRETS_DIR}/extension_token"
 _jwt_secret_min_length=32
 
 _is_jwt_secret_banlisted() {
@@ -11878,6 +11905,42 @@ else
     umask "$umask_svc_orig"
     chmod 600 "$SERVICE_TOKEN_FILE"
     ok "$(printf "$MSG_OK_SEEDED_PWG_SERVICE_TOKEN" "${SERVICE_TOKEN_FILE}")"
+fi
+
+# ── Browser-extension credential (B3, #180) ───────────────────────
+#
+# THE DEFECT THIS CLOSES. Andy, 2026-09-02: *"no, it's a fucking BUG"*.
+# The Safari/Chrome extension captures the customer's own browsing on the
+# customer's own Mac and POSTs it to the Doctor on loopback. The Doctor used to
+# validate that bearer against the ZeroClaw gateway's PAIRED-TOKEN store, which
+# is populated by PAIRING AN IPHONE. A Hub customer who never bought or paired a
+# phone got 401 on every page, forever, and the extension sat in its
+# silent-skip branch saying so only to a browser console nobody reads.
+#
+# WHY A SEPARATE FILE AND NOT $SERVICE_TOKEN_FILE. That token is the Doctor's
+# credential for talking to the ical-server: it opens roughly thirty proxied
+# routes, and those are READS of the customer's whole life -- timeline, people,
+# email, memory. This one may open exactly ONE path, a WRITE of the customer's
+# own browsing. Sharing the value would silently promote a browser extension to
+# that wider authority. The proxy predicate (vendor/doctor/agent/proxy.py,
+# _is_extension_credential) enforces the narrowness; keeping the SECRETS apart
+# means a future widening has to be deliberate rather than inherited.
+#
+# REUSED IF PRESENT, for the same reason the service token is: the customer has
+# already pasted this value into the extension popup, and regenerating it would
+# silently break capture on every reinstall with no message anywhere.
+if [[ -s "$EXTENSION_TOKEN_FILE" ]]; then
+    OSTLER_EXTENSION_TOKEN=$(cat "$EXTENSION_TOKEN_FILE")
+    info "$(printf "$MSG_INFO_REUSING_EXISTING_EXTENSION_TOKEN" "${EXTENSION_TOKEN_FILE}")"
+else
+    OSTLER_EXTENSION_TOKEN=$(openssl rand -hex 32)
+    umask_ext_orig=$(umask)
+    umask 0077
+    printf '%s' "$OSTLER_EXTENSION_TOKEN" > "$EXTENSION_TOKEN_FILE"
+    umask "$umask_ext_orig"
+    chmod 600 "$EXTENSION_TOKEN_FILE"
+    unset umask_ext_orig
+    ok "$(printf "$MSG_OK_SEEDED_EXTENSION_TOKEN" "${EXTENSION_TOKEN_FILE}")"
 fi
 
 # ── Data-store auth secrets + compose auth-readiness (v1.0.10
@@ -19163,6 +19226,17 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
         <string>8089</string>
         <key>DOCTOR_SUPPORT_EMAIL</key>
         <string>support@ostler.ai</string>
+        <!-- B3 (#180): the browser-extension credential. The Doctor accepts
+             it for POST /api/safari/ingest on loopback ONLY. See
+             _is_extension_credential in agent/proxy.py, which also refuses
+             OSTLER_ADMIN_TOKEN here on purpose. This plist is chmod 0600
+             below, same as the ical one, because it now carries a secret.
+             NOTE: no double hyphen anywhere in this comment. XML forbids it
+             inside a comment, launchd's lenient parser loads the file
+             regardless, and the result is a plist that works but that no
+             strict reader can parse. That is what landed here first. -->
+        <key>OSTLER_EXTENSION_TOKEN</key>
+        <string>${OSTLER_EXTENSION_TOKEN}</string>
         <!-- CX-P0A (2026-05-26): forward the iOS /api/v1/* paths to
              the loopback-bound ical-server on 127.0.0.1:8090. Without
              this list Doctor 404s every iOS Companion call beyond
@@ -20286,6 +20360,17 @@ _install_conversation_feed() {
 if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" == true ]]; then
     progress "$MSG_PROGRESS_WHATSAPP_BUNDLE" "whatsapp_bundle"
     _install_conversation_feed whatsapp whatsapp_source "ostler_fda pyyaml"
+else
+    # SAY WHICH PRECONDITION FAILED. Before this else existed the step was
+    # subtracted from TOTAL_STEPS and NOTHING was printed, so a customer
+    # whose WhatsApp is off saw no mention of the feed at all -- identical
+    # to a feed that does not exist. "Turned off" and "consent not given"
+    # are different facts with different next actions; do not merge them.
+    if [[ "$CHANNEL_WHATSAPP_ENABLED" != true ]]; then
+        info "$MSG_INFO_FEED_WHATSAPP_SKIPPED_OFF"
+    else
+        info "$MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT"
+    fi
 fi
 
 # Email body feed. Reads OTHER PEOPLE'S message content (Apple Mail's
@@ -20299,6 +20384,15 @@ fi
 if [[ -d "${HOME}/Library/Mail" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
     progress "$MSG_PROGRESS_EMAIL_BUNDLE" "email_bundle"
     _install_conversation_feed email email_source "ostler_fda pyyaml"
+else
+    # Same silence, same fix. "Apple Mail is not set up on this Mac" is a
+    # fact the customer may want to act on; "you declined" is a choice they
+    # already made. Reporting both as nothing taught them neither.
+    if [[ ! -d "${HOME}/Library/Mail" ]]; then
+        info "$MSG_INFO_FEED_EMAIL_SKIPPED_NO_MAIL"
+    else
+        info "$MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT"
+    fi
 fi
 
 # Meeting / voice body feed. These are the customer's OWN CM042
@@ -20312,6 +20406,13 @@ fi
 if [[ -d "${USER_FACING_ROOT}/Transcripts" ]]; then
     progress "$MSG_PROGRESS_SPOKEN_BUNDLE" "spoken_bundle"
     _install_conversation_feed spoken spoken_source "pyyaml"
+else
+    # THE ROW A2 CONFIRMED. Only one precondition here (the Transcripts
+    # directory), and its absence is the ordinary case on a fresh Mac --
+    # which is exactly why saying nothing was wrong. The customer has no
+    # way to learn that recording their calls is a thing Ostler can do.
+    info "$MSG_INFO_FEED_SPOKEN_SKIPPED_NO_TRANSCRIPTS"
+    info "$MSG_INFO_FEED_SPOKEN_SKIPPED_HOW"
 fi
 
 # iMessage body feed. Reads OTHER PEOPLE'S message content
@@ -20326,6 +20427,13 @@ fi
 if [[ -f "${HOME}/Library/Messages/chat.db" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
     progress "$MSG_PROGRESS_IMESSAGE_BUNDLE" "imessage_bundle"
     _install_conversation_feed imessage services/imessage_source "pyyaml"
+else
+    # Fourth of four. Same shape, same silence, same fix.
+    if [[ ! -f "${HOME}/Library/Messages/chat.db" ]]; then
+        info "$MSG_INFO_FEED_IMESSAGE_SKIPPED_NO_DB"
+    else
+        info "$MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT"
+    fi
 fi
 
 # ── 3.14a-probe Mail content probe + sidecar (#259) ─────────────
@@ -25557,10 +25665,33 @@ fi
 # could gate this leg instead of the silent-on-empty default. The
 # OSTLER_APPLE_NOTES_KNOWLEDGE env below is the one-line hook where such a
 # flag would land; today it defaults ON so the only gate is data presence.
-progress "Reading your Apple Notes" "hydrate_apple_notes"
-
 _HYDRATE_APPLENOTES_FDA_DIR="${OSTLER_DIR}/imports/fda"
 _HYDRATE_APPLENOTES_JSON_FILE="${_HYDRATE_APPLENOTES_FDA_DIR}/apple_notes.json"
+
+# ANNOUNCE ONLY WHAT WE ARE ABOUT TO DO.
+#
+# This `progress` call used to sit ABOVE the two lines that resolve the JSON
+# path, so it fired on EVERY install and told the customer "Reading your Apple
+# Notes" while the block below no-opped on the `-s` data gate. The customer was
+# told work happened that did not. That is the same defect as the FDA nudge
+# claiming a success it did not have (#571) and it is fixed the same way: the
+# claim moves BEHIND the condition that makes it true.
+#
+# The gated step also has to leave the step counter honest, which is the
+# established idiom in this file -- the spoken/voice body feed decrements
+# TOTAL_STEPS the same way when its source directory is absent. Without the
+# decrement the progress bar silently reserves a slot for a step that never
+# runs, and the install appears to stall at the end.
+#
+# The data gate is deliberately the ONLY announce condition. The downstream
+# branches (sentinel-fresh, operator opt-out, binary missing) each emit their
+# own message, so gating the announce on all four would swap one silence for
+# another.
+if [[ ! -s "$_HYDRATE_APPLENOTES_JSON_FILE" ]]; then
+    TOTAL_STEPS=$((TOTAL_STEPS - 1))
+else
+    progress "Reading your Apple Notes" "hydrate_apple_notes"
+fi
 _HYDRATE_APPLENOTES_BIN="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
 _HYDRATE_APPLENOTES_STAGING="${OSTLER_DIR}/data/knowledge-staging"
 _HYDRATE_APPLENOTES_DBPATH="${OSTLER_DIR}/data/knowledge-metadata.db"
@@ -27208,8 +27339,35 @@ else
 
     # Chrome Web Store: open the listing in the default browser. Fire
     # and forget; failures are non-fatal (e.g. headless install).
-    CHROME_URL="${OSTLER_CHROME_WEBSTORE_URL:-https://chrome.google.com/webstore/category/extensions}"
-    if [[ "${OSTLER_GUI:-0}" != "1" ]]; then
+    #
+    # NO LISTING, NO TAB. This used to default to the Web Store's
+    # generic extensions category and the comment above it called that
+    # "harmless if a customer lands there pre-listing". It is not
+    # harmless. The installer has just told the customer it is setting
+    # up browser extensions; opening a browser onto a category page
+    # with no Ostler listing anywhere in it reads as a broken install,
+    # and the customer has no way to tell that from one that worked.
+    #
+    # MEASURED, not assumed: there is no Chrome extension in this
+    # repository at all -- vendor/extensions/ holds a .gitkeep and
+    # nothing else, no manifest and no background script -- so there is
+    # nothing for a listing to point AT yet. The URL was a placeholder
+    # for a submission that has not happened.
+    #
+    # WHAT IS NOT LOST, and the customer is told so: Chrome HISTORY is
+    # still read through the Full Disk Access path (chrome_history.py,
+    # wired earlier in this script). Only the live extension channel is
+    # absent. Saying nothing here would leave a customer who uses
+    # Chrome believing Ostler ignores their browsing entirely.
+    #
+    # When the listing exists, set OSTLER_CHROME_WEBSTORE_URL and this
+    # block opens it exactly as before. The default is now empty rather
+    # than a decoy, so the honest branch is the one that fires today.
+    CHROME_URL="${OSTLER_CHROME_WEBSTORE_URL:-}"
+    if [[ -z "$CHROME_URL" ]]; then
+        info "$MSG_INFO_CHROME_EXTENSION_NOT_IN_THIS_RELEASE"
+        info "$MSG_INFO_CHROME_HISTORY_STILL_READ"
+    elif [[ "${OSTLER_GUI:-0}" != "1" ]]; then
         # Direct CLI install: actually open the URL.
         info "$(printf "$MSG_INFO_OPENING_CHROME_WEB_STORE" "${CHROME_URL}")"
         open "$CHROME_URL" 2>/dev/null || warn "$(printf "$MSG_WARN_COULD_NOT_OPEN_CHROME_WEB_STORE" "${CHROME_URL}")"
@@ -27887,6 +28045,48 @@ echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━�
 if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
     gui_step_end
 fi
+
+# ── THE CLOSING VERDICT, AND WHY IT IS AN ADDITION RATHER THAN AN EDIT ──
+#
+# #270 as filed reads: "install.sh closes with 'no errors detected' over a
+# session with 43+ real errors." I went to fix that line and found the filing
+# is PARTLY A MISREADING, so the fix is not what the row asked for.
+#
+# The string at :27036 is MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED,
+# and it renders as "ostler-assistant doctor: no errors detected". It is
+# SCOPED, TRUE, and it is about the assistant doctor's own output -- it counts
+# the doctor's own error markers, nothing else. Rewriting a truthful line
+# because it sits near the end of a log would have been the wrong repair, and
+# would have destroyed a real signal.
+#
+# THE ACTUAL DEFECT IS AN ABSENCE, NOT A FALSEHOOD: there was no whole-run
+# verdict at all. The customer reaches the end, sees a scoped doctor line, and
+# reads it as the closing statement because nothing else closes. So this ADDS
+# the missing sentence rather than editing the innocent one.
+#
+# PLACEMENT IS LEAD, NOT STYLE. It goes ABOVE `gui_done ok`, which is where
+# @TNM measured the boundary: `gui_done ok` is unconditional, and everything
+# below :27904 is documented post-success cosmetics. A verdict printed after
+# the GUI has flipped to success can describe a problem but cannot stop the
+# customer being told it worked.
+#
+# BRACE-AND-DEFAULT EVERY EXPANSION. @TNM's constraint, and it is a
+# correctness property here rather than a style note: :27627 documents that
+# everything from there to `gui_done ok` runs with `set -u` SUPPRESSED
+# (CX-123/#643), so an unset variable in this block will NOT abort -- it will
+# expand to nothing and silently produce a wrong sentence. Which would be this
+# very defect, committed inside its own fix.
+#
+# THE COUNT IS A FLOOR. See err(). It can under-report and can never invent an
+# error, so "Ostler finished cleanly" is only ever printed when the tally
+# genuinely saw none. That is the safe direction for a claim of health.
+if [[ "${_OSTLER_RUN_ERRORS:-0}" -gt 0 ]]; then
+    warn "$(printf "$MSG_WARN_INSTALL_FINISHED_WITH_ERRORS" "${_OSTLER_RUN_ERRORS:-0}")"
+    warn "$MSG_WARN_INSTALL_FINISHED_WITH_ERRORS_WHERE"
+else
+    ok "$MSG_OK_INSTALL_FINISHED_NO_ERRORS_RAISED"
+fi
+
 gui_done ok
 
 # CX-123 (#643): restore nounset now the display-only recap + the DONE

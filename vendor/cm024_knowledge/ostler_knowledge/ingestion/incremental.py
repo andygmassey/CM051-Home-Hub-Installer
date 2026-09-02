@@ -9,7 +9,7 @@ re-processing the entire knowledge base. Key features:
 3. Chunk replacement for updated notes
 
 Usage:
-    from src.ingestion.incremental import warm_existing_notes, should_update_note
+    from ostler_knowledge.ingestion.incremental import warm_existing_notes, should_update_note
 
     # Load existing notes from Qdrant
     existing = await warm_existing_notes(qdrant_client, collection)

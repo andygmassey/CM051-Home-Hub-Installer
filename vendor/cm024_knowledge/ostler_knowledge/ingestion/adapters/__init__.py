@@ -6,7 +6,7 @@ chunker / embedder / markdown_writer / qdrant_store. See base.py for the
 Protocol contract.
 
 Usage:
-    from src.ingestion.adapters import ADAPTERS, KnowledgeSourceAdapter
+    from ostler_knowledge.ingestion.adapters import ADAPTERS, KnowledgeSourceAdapter
     adapter_cls = ADAPTERS["evernote"]
     adapter = adapter_cls()
     for raw in adapter.discover(path):
@@ -17,15 +17,18 @@ Usage:
 
 Register new adapters by adding ``"<name>": <Cls>`` to ``ADAPTERS``.
 """
+from .apple_notes import AppleNotesAdapter
 from .base import KnowledgeSourceAdapter, ParsedNote, RawNote
 from .evernote import EvernoteAdapter
 
 ADAPTERS: dict[str, type[KnowledgeSourceAdapter]] = {
     "evernote": EvernoteAdapter,
+    "apple_notes": AppleNotesAdapter,
 }
 
 __all__ = [
     "ADAPTERS",
+    "AppleNotesAdapter",
     "EvernoteAdapter",
     "KnowledgeSourceAdapter",
     "ParsedNote",
