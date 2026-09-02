@@ -60,6 +60,19 @@ DAEMON_BIN="${OSTLER_DAEMON_BIN:-\$HOME/.ostler/OstlerAssistant.app/Contents/Mac
 REQUIRED_TOOLS="pwg_overview pwg_people pwg_person_timeline pwg_preferences pwg_knowledge_search pwg_decisions pwg_topics pwg_commitments"
 DECLARED_TOOL_COUNT=8
 
+# #854(ii) VOCABULARY FLOOR. The pre-#370 defect NAMED pwg_preferences but its
+# compact clause read only "likes/buys/watches/DISLIKES" -- the interest words
+# the walk RED'd on ("What are my interests?" -> no_tool_call) were gone. That
+# is a DIFFERENT failure from an unnamed tool: the tool is named and the
+# tool-name floor above passes, yet an interests question has no words to bind
+# to. These tokens are #370's restored vocabulary and match its source gate
+# both_branches_carry_the_interest_vocabulary_for_preferences. Checked against
+# the SAME compact _para (TNM measured anchor + vocabulary on one strings line
+# of hub-v0.4.70, 5/5), so it stays scoped to the branch that ships -- an
+# independent grep would also match the verbose branch (#370 put the same words
+# there) and false-pass a build whose compact branch had lost them.
+REQUIRED_VOCAB="interested in|enjoy|into"
+
 # The anchor. A phrase that exists ONLY in the compact-branch guidance
 # paragraph -- not in any tool description, not in the registry, not in a
 # comment that reaches the binary. Chosen by reading the shipped prompt text,
@@ -85,7 +98,10 @@ PROMPT_PRESENCE_CONTROL='with their name before saying you lack the information'
 # needing a box or a binary. Echoes one of:
 #   NO_ANCHOR                 -- no guidance paragraph found (CANNOT-RUN)
 #   MISSING:<t1,t2,...>       -- paragraph found, these tools are not named
-#   ALL_NAMED                 -- paragraph found and every tool is named in it
+#   MISSING_VOCAB:<v1,v2,...>  -- tools all named, but the pwg_preferences
+#                                interest vocabulary is gone (the #854(ii) shape)
+#   ALL_NAMED                 -- paragraph found, every tool named AND the
+#                                interest vocabulary present
 # ---------------------------------------------------------------------------
 adjudicate_prompt_blob() {
     _blob="$1"
@@ -106,8 +122,20 @@ adjudicate_prompt_blob() {
         esac
     done
 
+    _missing_vocab=""
+    _OIFS="$IFS"; IFS='|'
+    for _v in $REQUIRED_VOCAB; do
+        case "$_para" in
+            *"$_v"*) : ;;
+            *) _missing_vocab="${_missing_vocab}${_missing_vocab:+,}${_v}" ;;
+        esac
+    done
+    IFS="$_OIFS"
+
     if [ -n "$_missing" ]; then
         echo "MISSING:${_missing}"
+    elif [ -n "$_missing_vocab" ]; then
+        echo "MISSING_VOCAB:${_missing_vocab}"
     else
         echo "ALL_NAMED"
     fi
@@ -153,9 +181,12 @@ run_probe() {
         MISSING:*)
             probe_fail "the shipped compact prompt does not name: ${_verdict#MISSING:} -- compact_context defaults to true, so this IS the branch customers receive and those tools are unreachable however well they work when called (#854)"
             ;;
+        MISSING_VOCAB:*)
+            probe_fail "the shipped compact prompt names every tool but its pwg_preferences guidance has lost the interest vocabulary (${_verdict#MISSING_VOCAB:}) -- this is the exact (ii) shape the walk RED'd on: pwg_preferences is named, yet 'What are my interests?' has no words to route to it. compact_context defaults to true, so this IS the branch customers receive (#854(ii))"
+            ;;
         ALL_NAMED)
             probe_note "anchor: ${COMPACT_ANCHOR}"
-            probe_pass "all ${DECLARED_TOOL_COUNT} registered pwg_* tools are named inside the shipped compact-branch guidance paragraph"
+            probe_pass "all ${DECLARED_TOOL_COUNT} registered pwg_* tools are named inside the shipped compact-branch guidance paragraph, and its pwg_preferences guidance carries the interest vocabulary (${REQUIRED_VOCAB})"
             ;;
         *)
             probe_fail "adjudicator returned an unrecognised verdict '${_verdict}'"
@@ -169,12 +200,12 @@ run_probe() {
 #   exit 0 (probe_pass)  = a control did NOT fire => the probe is BROKEN
 # ---------------------------------------------------------------------------
 self_test() {
-    probe_examined 6 "crafted prompt fixtures driven through adjudicate_prompt_blob"
+    probe_examined 7 "crafted prompt fixtures driven through adjudicate_prompt_blob"
 
     _sf() { probe_pass "SELF-TEST CONTROL FAILED -- $1"; }
 
     _all="Some unrelated string
-For a BROAD opener about the user, call \`pwg_overview\` FIRST. For a person call \`pwg_people\`; history \`pwg_person_timeline\`. Tastes \`pwg_preferences\`. Notes \`pwg_knowledge_search\`. Decisions \`pwg_decisions\`; topics \`pwg_topics\`; owed \`pwg_commitments\`.
+For a BROAD opener about the user, call \`pwg_overview\` FIRST. For a person call \`pwg_people\`; history \`pwg_person_timeline\`. Tastes -- what they are interested in, enjoy, are into -- \`pwg_preferences\`. Notes \`pwg_knowledge_search\`. Decisions \`pwg_decisions\`; topics \`pwg_topics\`; owed \`pwg_commitments\`.
 Trailing noise"
 
     # 1. The healthy shape passes.
@@ -232,7 +263,20 @@ For BROAD opening questions call the \`pwg_overview\` tool FIRST. Also \`pwg_peo
     _r="$(adjudicate_prompt_blob "$_one_short")"
     [ "$_r" = "MISSING:pwg_commitments" ] || _sf "a paragraph missing exactly one tool adjudicated as '${_r}', expected MISSING:pwg_commitments. A single dropped tool would be rounded away."
 
-    probe_fail "controls fired on all 6 fixtures: healthy passes, the pre-#854 3-of-8 shape is caught AND names all five absent tools, a tool-registry-only binary does NOT satisfy the prompt predicate, verbose-only does not count as covered, silence is not read as a measurement, and a single missing tool is not rounded to pass"
+    # 7. 🔴 THE (ii) DISCRIMINATION. A paragraph that NAMES all eight tools but
+    #    whose pwg_preferences clause has lost the interest vocabulary is the
+    #    exact shape the walk RED'd on -- pwg_preferences named, "interested in
+    #    / enjoy / into" gone. The tool-name floor passes it; only the
+    #    vocabulary floor catches it. If this collapses, the probe guards naming
+    #    and would go green on a build that still fails the way #854 failed.
+    _vocab_dropped="For a BROAD opener about the user, call \`pwg_overview\` FIRST. For a person call \`pwg_people\`; history \`pwg_person_timeline\`. For what the user likes, buys, watches or DISLIKES call \`pwg_preferences\`. Notes \`pwg_knowledge_search\`. Decisions \`pwg_decisions\`; topics \`pwg_topics\`; owed \`pwg_commitments\`."
+    _r="$(adjudicate_prompt_blob "$_vocab_dropped")"
+    case "$_r" in
+        MISSING_VOCAB:*) : ;;
+        *) _sf "a paragraph naming all 8 tools but with pwg_preferences' interest vocabulary dropped adjudicated as '${_r}', expected MISSING_VOCAB. The tool-name floor alone would pass the (ii) shape the walk RED'd on." ;;
+    esac
+
+    probe_fail "controls fired on all 7 fixtures: healthy passes, the pre-#854 3-of-8 shape is caught AND names all five absent tools, a tool-registry-only binary does NOT satisfy the prompt predicate, verbose-only does not count as covered, silence is not read as a measurement, a single missing tool is not rounded to pass, and a tools-all-named paragraph that dropped the pwg_preferences interest vocabulary is caught as MISSING_VOCAB (the #854(ii) shape)"
 }
 
 probe_main "$@"
