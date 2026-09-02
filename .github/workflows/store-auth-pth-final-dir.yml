@@ -71,5 +71,12 @@ jobs:
       # pre-fix origin/main tree naming line 6815, and PASSES on the fix. It
       # exits 2 (CANNOT-RUN) rather than passing if the boundary marker is not
       # unique or the population is empty.
+      #
+      # `if: always()` is REQUIRED and ci-maskless caught its absence on this
+      # very PR. Without it, a red in the step above SKIPS this one -- and a
+      # gate that does not report is indistinguishable from a gate that passed.
+      # These two steps check DIFFERENT populations (function default vs call
+      # sites), so neither depends on the other and both must always speak.
       - name: No CALL SITE passes a staging root (the explicit-argument half)
+        if: always()
         run: bash tests/test_store_auth_no_call_site_passes_staging_root.sh
