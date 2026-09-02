@@ -1,0 +1,295 @@
+# cut-manifests/v1.0.58.yaml
+#
+# ===========================================================================
+# NINE ROWS. SEVEN CARRIED VERBATIM, TWO NEW AND BOTH FOUND BY A REAL WALK.
+# ===========================================================================
+# Rows A-G are byte-for-byte the seven rows of the v1.0.57 manifest, at the
+# same refs, with the same patterns. They are still true of this tree: main
+# advanced by exactly the two commits below plus cut records, and none of them
+# touches those seven subjects. Carrying them is not padding -- a manifest that
+# silently shrinks lets a row fall out of the artefact with nothing to notice.
+#
+# ROWS H AND I ARE WHY THIS VERSION EXISTS, and neither came from a review.
+# Both came from v1.0.57 being installed on a fresh account and exercised --
+# the first artefact in this sequence that anybody actually ran.
+#
+#   H  local _root=.+OSTLER_FINAL_DIR   install.sh   present   (#1316 / A1)
+#   I  Finder" to close windows         install.sh   ABSENT    (#1315 / #361)
+#
+# 🔴 ROW H IS THE ONE THAT MATTERS. The store-auth .pth had /tmp/ostler-
+# prelaunch-2026/lib frozen into it, so the import failed at every python
+# startup, for ever, on every install -- and EVERY OBVIOUS CHECK PASSED ON IT.
+# The .pth was present. The module was present and correctly installed. Only
+# the path inside was wrong. Five cuts of source-presence gates never saw it.
+#
+# ⚠️ PATTERN CHOICE ON ROW H IS DELIBERATE AND IT IS NOT COSMETIC. It contains
+# no `$` and no braces. capability_matrix.sh matches with `grep -E`, and BSD
+# grep reads `$` as an ANCHOR mid-pattern, so the literal `${2:-${OSTLER_FINAL_
+# DIR` would score ZERO against correct product code and this row would report
+# a false absence. That trap is already documented on the manifest's
+# wiki_compiler_receives_qdrant_key row; this is the second row to avoid it on
+# purpose rather than by luck.
+#
+# 🔴 ROW I IS AN ABSENCE ROW, which is rarer here and needs its own care. The
+# fix was a DELETION, because macOS permits exactly ONE
+# NSAppleEventsUsageDescription per app and stamps it on every Apple Events
+# prompt regardless of target -- so no wording could make that dialog honest
+# while the Finder event still fired. Row A (the v1.0.57 pre-announcement)
+# stays: it is still in the tree and still true, and it treated the symptom
+# while this treats the cause.
+# ⚠️ `open -R` MUST SURVIVE and is deliberately NOT covered by this row. It is
+# LaunchServices, not an Apple Event, and raises no TCC prompt. The wired test
+# tests/test_no_finder_appleevent.sh asserts BOTH directions, because a fix
+# that removed both would read identically to a clean pass here.
+#
+# WHAT THIS MANIFEST DOES NOT CLAIM, stated so the walk is not a surprise: the
+# staging-freeze GATE still covers one artefact family (LaunchAgent plists),
+# which is why row H's defect is the third occurrence of its class. Widening it
+# is tracked in the rollforward register as v1057-D003 and is deliberately NOT
+# in this cut -- a gate change inside a cut window is the class of thing that
+# has cost this project versions before.
+
+version: v1.0.58
+entries:
+  - id: v1057-a-the-installer-speaks-before-macos-does
+    title: the installer pre-announces the admin-password dialog, in its own voice, before macOS words it alarmingly
+    incident: >-
+      THE INSTALLER LET macOS SPEAK FIRST AND macOS SAYS SOMETHING ALARMING.
+      The administrator-password dialog is worded by macOS as a request to
+      control Finder, and it mentions documents and data. A customer
+      reasonably reads that as the installer asking to read their files, and
+      nothing prepared them for it. Observed on a live launch walk.
+      FIX (#1297): pre-announce the wording in the installer's own voice
+      before the dialog appears, and say plainly that the sentence belongs to
+      macOS and is how macOS asks any application for an administrator
+      password. Reassurance placed BEFORE the alarm rather than after it,
+      which is the only ordering that helps.
+      SHIPS AS A BUNDLED GUI RESOURCE. ViewCopy.json is compiled into
+      OstlerInstaller.app by gui/project.yml `resources:`, which excludes only
+      Fonts/**. gui/Makefile never names the file, so a Makefile-based ship
+      predicate scores it 0 and is WRONG about it. MEASURED: 1 on main, 0 at
+      v1.0.52, with a live control of 1/1 on the same file proving both blobs
+      were read.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/OstlerInstaller/Resources/ViewCopy.json
+      pattern: 'macOS words the next dialog oddly'
+      must_match: true
+
+  - id: v1057-b-the-bursar-can-finally-see-what-the-compiler-wrote
+    title: the wiki compiler's usage records reach the host journal instead of dying with the container
+    incident: >-
+      THE BURSAR COULD NOT SEE WHAT THE COMPILER PRODUCED. The wiki compiler
+      writes usage records into its container's /workspace/state, and no bind
+      mount connected that path to the host journal the cost panel reads. Every
+      record the compiler has ever written was discarded when the container
+      exited. The panel then showed a smaller number, which reads to a customer
+      as a quiet month rather than as a severed pipe -- a silent wrong answer,
+      not an error.
+      FIX (#1301): mount the host workspace state directory at
+      /workspace/state and set OSTLER_WORKSPACE explicitly, so the writer and
+      the mount cannot drift apart later. Scoped to state/ deliberately: the
+      whole workspace is not the cost panel's business.
+      ⚠️ THIS ROW IS THE MOUNT, NOT THE ROSTER. Three of the five required
+      usage-journal producers still write nothing on any install, and one of
+      those three is recorded in the roster as MEASURED while being absent from
+      the shipping tree. That is open, it is not fixed by this cut, and it must
+      not be read as closed because this row is green. MEASURED: 1 on main, 0
+      at v1.0.52, live control 47/45 on the same file.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'state:/workspace/state'
+      must_match: true
+
+  - id: v1057-c-store-auth-reaches-the-bundled-interpreter
+    title: the store-credential wiring covers the bundled interpreter, not only the venvs
+    incident: >-
+      100% COVERAGE OF THE WRONG POPULATION. Every call site was correct and
+      every one passed a venv root, because the guard only ever accepted an
+      executable at a venv's own bin/python3. THE BUNDLED INTERPRETER IS NOT A
+      VENV and ships no python3 alias, so the three services without their own
+      venv -- cm059-editor, ical-server, ostler_hygiene -- reached Oxigraph and
+      Qdrant with no credential, 401'd, and EXITED 0. The customer symptom was
+      Andy's A1: the Front Page never populated, on any install, for ever,
+      because its producer fail-closed to the settling stub every hour.
+      FIX (#1302): resolve the interpreter from a named executable, a venv
+      root, or a relocated tree's bin/python3.11, then ask THAT interpreter for
+      its own site-packages; and add the fifteenth call site for the bundled
+      tree. THE DEFECT WAS THE DEFINITION OF THE POPULATION, not a missing
+      call, which is why counting call sites could never have found it.
+      ⚠️ THE ROW KEYS ON THE CALL SITE, NOT THE PROSE. The most distinctive new
+      text in this commit is its own header comment; keying there would guard
+      the documentation of the fix rather than the fix, and any tidy-up could
+      delete it without touching behaviour. MEASURED: 1 on main, 0 at v1.0.52.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'wire_store_auth_pth .+PYTHON3_BIN'
+      must_match: true
+
+  - id: v1057-d-the-daemon-pin-names-the-build-that-carries-the-fix
+    title: all five pins name hub-v0.4.69, the build that actually contains Andy's Settings fix
+    incident: >-
+      THE PIN NAMED A BUILD THAT DID NOT CARRY THE FIX. gui/Makefile pinned
+      0.4.67 while the daemon fix for Andy's #454 landed at c6fc48c0, so the
+      install path would have shipped a binary without it while the cut
+      described itself as carrying it. Five sites were moved together:
+      DAEMON_VERSION, DAEMON_SHA256, HUB_APP_SHA256, OSTLER_ASSISTANT_VERSION
+      and DEFAULT_ASSISTANT_TARBALL_SHA256.
+      🔴 TWO REPOS, ONE TAG. DAEMON_REPO (ostler-releases) serves the daemon
+      and HUB_APP_REPO (ostler-assistant) serves the hub app, and BOTH are
+      fetched at the same DAEMON_RELEASE_TAG. Publishing one half leaves the
+      cut 404ing on the other -- and the hub-app fetch path is never taken on
+      an operator's Mac, so a missing half is invisible locally and fails in a
+      clean room. Both halves were verified published with a 404 control on
+      each repository, and both digests matched their published .sha256
+      sidecars byte for byte.
+      THE PATTERN IS THE DAEMON DIGEST ITSELF, which is the one string that
+      cannot be true of the previous build. Note gui/Makefile is the SAME BYTE
+      LENGTH on both trees: a digest swap preserves length, so size proves
+      nothing here and the pattern is the whole evidence. MEASURED: 1 on main,
+      0 at v1.0.52, live control 5/5 on the same file.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/Makefile
+      pattern: 'e680396893fadd78'
+      must_match: true
+
+  - id: v1057-e-a-real-name-beats-a-social-handle
+    title: a person is shown under their real name, not a run-together social handle
+    incident: >-
+      A PERSON WAS DISPLAYED UNDER A SOCIAL HANDLE INSTEAD OF THEIR NAME.
+      Observed on Andy's .231 walk. A bare username PASSES
+      is_acceptable_display_name -- it is not junk -- so the FIRST acceptable
+      candidate won by ingest order, and whichever source happened to arrive
+      first decided what a person is called.
+      FIX (CM041 #134, grafted verbatim): demote a handle-shaped token below a
+      real name using a STABLE sort, so order still decides among same-shape
+      values and two real names are never reordered.
+      THE GRAFT IS VERBATIM AND THAT WAS MEASURED BOTH WAYS: the vendored file
+      was byte-identical to source@f3a74a97^ BEFORE and is byte-identical to
+      source@f3a74a97 AFTER, so unlike the three earlier grafts on that row this
+      one does NOT widen the unrecorded divergence the vendor manifest documents.
+      DEMONSTRATED TWO-SIDED ON THE VENDORED COPY, not on source, because the
+      trees diverge and the customer runs the vendored one: handle-then-name
+      returned the handle pre-graft and the real name post-graft. FOUR CONTROLS
+      unchanged across the graft, one per over-reach mode -- all-caps brand stays
+      itself, two real names keep their order, a capitalised mononym is
+      untouched, a handles-only list still returns the first. Vendored suite 46
+      passed on BOTH sides.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: vendor/cm041/identity_resolver/canonical_name.py
+      pattern: '_looks_like_social_handle'
+      must_match: true
+
+  - id: v1057-f-the-settling-panel-is-styled-at-last
+    title: the settling panel renders as styled rows instead of unstyled markup
+    incident: >-
+      THE PANEL REACHED THE CUSTOMER AS UNSTYLED MARKUP, which is not a layout
+      that needed tuning. The renderer emitted four classes with ZERO matching
+      rules anywhere in the stylesheet, and applied a class written for a <ul>
+      to a <table>. Andy's A3.
+      FIX (CM044 #266): the li-row renderer, shipping in wiki-compiler 0.1.29.
+      🔴 DELIVERED BY IMAGE DIGEST, AND THAT IS THE POINT OF THIS ROW. The fix
+      was merged BEFORE v1.0.54 and reached NEITHER of the two previous cuts,
+      because the renderer ships as a pinned image and a merged renderer change
+      cannot reach a customer without a rebuild and a re-pin. Three deferrals in
+      the rollforward register were all waiting on this one prerequisite.
+      The pattern is the DIGEST rather than a CM044 source sha: a source sha
+      would be true about the repo and unfalsifiable against the DMG.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'eef628599ccca1087e785a47b0b428005f8cd6c71b525f08b7c668fc41ac0d40'
+      must_match: true
+
+  - id: v1057-g-duplicate-review-works-on-the-hub-mac
+    title: the wiki site CSP admits the on-box Doctor, so duplicate review actually runs
+    incident: >-
+      "Duplicate review is available on the Hub Mac only." RENDERED ON THE HUB
+      MAC, and the feature behind it was dead. The site's CSP did not admit the
+      on-box Doctor, so dup-review and corrections could not work at all: the
+      sentence was not merely wrong, it was describing a severed connection.
+      Andy reported this before it was ever filed, which is why it carries a new
+      id rather than a recurrence.
+      FIX (CM044 #262): admit the Doctor in the site CSP, shipping in wiki-site
+      0.1.29.
+      🔴 THIS IS THE ROW THAT DECIDED THE CUT. Clearing the wiki freshness RED by
+      hold_ack was available and would have been cheaper. It would also have
+      shipped v1.0 with dup-review and corrections still dead on the Hub, purely
+      to avoid moving a digest. The image was rebuilt instead.
+      Same digest-not-source-sha reasoning as row F.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'fb5536bded57dae3466cb5ea7a3f4c36b2330892731afe60add521d78c0e8720'
+      must_match: true
+  - id: v1058-h-the-store-auth-pth-points-at-the-final-tree
+    title: the store-auth .pth resolves OSTLER_FINAL_DIR, so the auth wiring survives the install
+    incident: >-
+      A1. THE .pth FROZE THE STAGING PATH AND THE AUTH WIRING NEVER RAN ON ANY
+      INSTALL. Read verbatim off the v1.0.57 walk box, not inferred from
+      source: sys.path.append("/tmp/ostler-prelaunch-2026/lib").
+      _ostler_wire_store_auth_pth defaulted its root to OSTLER_DIR, which points
+      at the temporary staging tree until the promote at the
+      OSTLER-PROMOTE-BOUNDARY line -- and four of its sixteen call sites run
+      ABOVE that boundary. The staging directory does not survive, so the
+      import failed at EVERY interpreter startup, for ever. Python answers that
+      with "Remainder of file ignored", which ALSO discards the
+      OSTLER_SECRETS_DIR default on the same line, so cm059-editor reached the
+      stores with no credential, 401'd hourly, and the Front Page never
+      populated.
+      🔴 EVERY OBVIOUS CHECK PASSES ON THIS DEFECT. The .pth was present. The
+      module was present and correctly installed at <final>/lib. Only the PATH
+      INSIDE was wrong -- which is why five cuts of source-presence gates never
+      saw it, and why the fix ships with a BEHAVIOURAL test that runs the real
+      function with OSTLER_DIR pointed at a staging tree and reads back what
+      the .pth actually contains.
+      THIRD OCCURRENCE OF ITS CLASS (#177, #578, this). MEASURED TWO-SIDED
+      against the tree that shipped v1.0.57: 1 on the fix, 0 pre-fix.
+      ⚠️ THE PATTERN CARRIES NO `$` AND NO BRACES ON PURPOSE. capability_matrix
+      matches with grep -E and BSD grep reads `$` as an anchor mid-pattern, so
+      a literal would have scored ZERO against correct product code.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'local _root=.+OSTLER_FINAL_DIR'
+      must_match: true
+
+  - id: v1058-i-no-apple-events-to-finder
+    title: the installer sends no Apple Event to Finder, so macOS stops asking to control it
+    incident: >-
+      macOS ASKED THE CUSTOMER TO LET OSTLER CONTROL FINDER AND REACH DOCUMENTS
+      AND DATA, during an install that wants neither. Observed by Andy on the
+      live v1.0.57 walk. The cause was one Apple Event: an osascript telling
+      Finder to close windows.
+      FIX (#1315): DELETE IT. This is a removal and not a rewording on purpose
+      -- macOS permits exactly ONE NSAppleEventsUsageDescription per app and
+      stamps it on EVERY Apple Events prompt regardless of target, so no copy
+      could make that dialog true while the event still fired. v1.0.57's
+      pre-announcement (row A) treated the symptom and stays in the tree; this
+      treats the cause. The usage string is also rewritten to describe what the
+      app actually does with System Events.
+      ⚠️ `open -R` MUST SURVIVE AND IS NOT COVERED BY THIS ROW. It is
+      LaunchServices, not an Apple Event, and raises no TCC prompt. The wired
+      test asserts BOTH directions, because a fix that killed both would read
+      identically to a clean pass on a Finder-only check. Positive controls (7
+      System Events call sites across 27,851 lines) prove the Finder zero is a
+      real absence and not a dead search.
+      MEASURED TWO-SIDED: 0 on the fix, 1 on the tree that shipped v1.0.57.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'Finder" to close windows'
+      must_match: false
