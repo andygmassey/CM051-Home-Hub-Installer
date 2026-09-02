@@ -46,6 +46,17 @@ pii_builtin_patterns() {
 \b07[0-9]{3}[[:space:]-]?[0-9]{6}\b
 # US/intl phone: +1 (xxx) xxx-xxxx style
 \+1[[:space:]-]?\(?[0-9]{3}\)?[[:space:]-]?[0-9]{3}[[:space:]-]?[0-9]{4}
+# Hong Kong number in international form: +852 xxxx xxxx (spaces/hyphens optional)
+# ONLY the +852 form is matched, deliberately. A bare HK 8-digit number has no
+# trunk prefix to anchor on (HK has no area codes), so a national-form pattern
+# would be "any 8 consecutive digits" -- unusably noisy for a shape scan. The
+# +852 anchor keeps it tight. The operator denylist (operator-pii-scan.sh
+# build_hk_pattern) still catches the specific bare number; this shape catches
+# the country-code-qualified leak of anyone's HK number. There is no OFCOM-style
+# reserved HK drama range, so unlike +44 this class has no placeholder excuse --
+# a synthetic HK fixture must compose the number at runtime, exactly as the
+# phone canaries in test_pii_patterns.sh do.
+\+852[[:space:]-]?[0-9]{4}[[:space:]-]?[0-9]{4}
 # US Social Security Number: xxx-xx-xxxx
 \b[0-9]{3}-[0-9]{2}-[0-9]{4}\b
 # Apple DSID-looking long numeric id (>= 15 digits, e.g. iCloud DSID)
@@ -63,6 +74,16 @@ pii_builtin_patterns() {
 # exactly as identifying as one followed by a path.
 # Placeholder home dirs are excused by pii_reserved_placeholder_re.
 /Users/[a-z0-9._-]+/?
+# Linux home directory carrying a username: /home/<name>
+# The Linux sibling of the /Users pattern above, and it is not academic here:
+# the operator denylist (operator-pii-scan.sh) checks BOTH /Users/<name> and
+# /home/<name>, but until now only /Users had a SHAPE pattern in CI, so a
+# /home/<operator> path had a denominator of ZERO in the CI shape scan. HR015's
+# gaming PC runs Ubuntu, so /home/<name> is a real operator-leak vector, not a
+# hypothetical. Placeholder + provably-impersonal home dirs (including the
+# GitHub-hosted Ubuntu CI home /home/runner) are excused by
+# pii_reserved_placeholder_re, which covers /Users and /home alike.
+/home/[a-z0-9._-]+/?
 PII_DEFAULTS
 }
 
@@ -120,7 +141,7 @@ pii_regex_is_valid() {
 # anywhere defined, took the resulting 127 as a verdict, and printed its
 # refusal over an empty list: "in 0 file(s)".
 pii_builtin_expected_count() {
-    printf '%s\n' '7'
+    printf '%s\n' '9'
 }
 
 # ── Load + validate the BUILT-INS only ────────────────────────────────────
@@ -343,7 +364,7 @@ pii_placeholder_home_names() {
 }
 
 pii_reserved_placeholder_re() {
-    printf '%s' '(\+?44[[:space:]-]?7700[[:space:]-]?900[0-9]{3}|0?7700[[:space:]-]?900[0-9]{3}|555[[:space:]-]?01[0-9]{2}|@example\.[a-z][a-z.]*$|@([a-z0-9.-]+\.)?(test|example|invalid|localhost)$|^/Users/('"$(pii_placeholder_home_names)"')/?$)'
+    printf '%s' '(\+?44[[:space:]-]?7700[[:space:]-]?900[0-9]{3}|0?7700[[:space:]-]?900[0-9]{3}|555[[:space:]-]?01[0-9]{2}|@example\.[a-z][a-z.]*$|@([a-z0-9.-]+\.)?(test|example|invalid|localhost)$|^/(Users|home)/('"$(pii_placeholder_home_names)"')/?$)'
 }
 
 pii_scan_files() {

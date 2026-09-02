@@ -152,6 +152,90 @@ printf 'the quick brown fox jumps over the lazy dog\n' > "$CLEAN_FILE"
 OUT="$(pii_scan_files "$CLEAN_FILE" "$WORK/no-custom")"
 assert_not_contains "$OUT" "$CLEAN_FILE" "clean file does not match built-ins"
 
+# ── Email: BOTH limbs of the reserved-placeholder contract ───────────────
+# The email built-in and the /Users/<name> built-in landed in #762, and were
+# for weeks the two classes with a denominator of ZERO in CI (see the header of
+# .github/scripts/ci-pii-shape-scan.sh). They now carry the same two-limb
+# positive control the phone class does: a non-reserved value that MUST fire and
+# a reserved/documentation value that MUST be excused. Without the FIRE limb a
+# pattern that silently stopped compiling in some grep/locale would look exactly
+# like a clean tree, which is the whole failure the floor and these canaries
+# exist to make impossible.
+#
+# Composed at runtime, never a literal: this file is scanned by the very hook it
+# tests, and by ci-pii-shape-scan over its own ADDED lines in CI, so a
+# real-shaped address written here would be blocked by it. someone.else at
+# consumer-mail.co is the same synthetic non-reserved mailbox
+# bin/pii_name_guard.py uses as its shape positive control -- one convention,
+# not two.
+_eu="someone.else"; _ed="consumer-mail.co"
+EMAIL_FILE="$WORK/email.txt"
+printf 'owner = "%s@%s"\n' "$_eu" "$_ed" > "$EMAIL_FILE"
+OUT="$(pii_scan_files "$EMAIL_FILE" "$WORK/no-custom")"
+assert_contains "$OUT" "$EMAIL_FILE" "built-in EMAIL pattern FIRES on a synthetic non-reserved mailbox"
+
+# The excused half. An RFC 2606 documentation domain is what a CORRECT fixture
+# uses, so it must be let through or the class is unusable -- measured ~63% false
+# positive on this repo's real tree when it was not. @example.com is reserved.
+EMAIL_DOC_FILE="$WORK/email_doc.txt"
+printf 'owner = "fixture@example.com"\n' > "$EMAIL_DOC_FILE"
+OUT="$(pii_scan_files "$EMAIL_DOC_FILE" "$WORK/no-custom")"
+assert_not_contains "$OUT" "$EMAIL_DOC_FILE" "RFC 2606 example.com address is EXCUSED, not reported"
+
+# ── macOS home path carrying a username: BOTH limbs ──────────────────────
+# The name segment is composed at runtime for the same reason: a literal
+# /Users/<realish-name>/ in this file is precisely what the guard hunts, and CI
+# scans this file's added lines in diff mode.
+_uh="/Users/"; _un="canaryoperator"
+HOME_FILE="$WORK/homepath.txt"
+printf 'config at %s%s/Library/Application Support/Ostler\n' "$_uh" "$_un" > "$HOME_FILE"
+OUT="$(pii_scan_files "$HOME_FILE" "$WORK/no-custom")"
+assert_contains "$OUT" "$HOME_FILE" "built-in HOME-PATH pattern FIRES on a non-placeholder /Users/<name>"
+
+# The excused half. A placeholder home dir (from pii_placeholder_home_names) is
+# documentation, not a person, so /Users/you must be let through.
+HOME_PH_FILE="$WORK/homepath_placeholder.txt"
+printf 'edit %s\n' "/Users/you/config.toml" > "$HOME_PH_FILE"
+OUT="$(pii_scan_files "$HOME_PH_FILE" "$WORK/no-custom")"
+assert_not_contains "$OUT" "$HOME_PH_FILE" "placeholder home dir /Users/you is EXCUSED, not reported"
+
+# ── Hong Kong mobile: the operator denylist checks it, CI had a zero ──────
+# HK mobile (+852) is a class the operator denylist (operator-pii-scan.sh
+# build_hk_pattern) has always checked and the CI shape scan never did, so it
+# had a denominator of ZERO in CI until this pattern landed. bin/redact_selftest.sh
+# independently treats +852 numbers as must-redact PII, which is the same call.
+#
+# Composed at runtime, and structurally non-assignable: HK 8-digit numbers do
+# not begin 0, so an all-zero subscriber block can belong to no subscriber, yet
+# a +852 prefix in front of it still matches the shape and so proves the pattern
+# is live. (The number is assembled from parts below, never written contiguously,
+# for the usual reason: this file is scanned by the very gate it tests.) There is
+# no reserved HK drama range to lean on, which is exactly why the FIRE limb must
+# exist -- a silently dropped HK pattern would otherwise be invisible.
+_hk_cc="+852"; _hk="0000 0000"
+HK_FILE="$WORK/hk.txt"
+printf 'ring %s %s before noon\n' "$_hk_cc" "$_hk" > "$HK_FILE"
+OUT="$(pii_scan_files "$HK_FILE" "$WORK/no-custom")"
+assert_contains "$OUT" "$HK_FILE" "built-in HK-mobile pattern FIRES on a +852 non-assignable number"
+
+# ── Linux home path /home/<name>: BOTH limbs ─────────────────────────────
+# The denylist checks /home/<name> alongside /Users/<name>; the shape scan only
+# had /Users until now. HR015's gaming PC runs Ubuntu, so /home/<operator> is a
+# real leak vector. The name segment is composed at runtime, same reason as the
+# other canaries.
+_lh="/home/"; _ln="canaryoperator"
+LHOME_FILE="$WORK/linux_home.txt"
+printf 'logs under %s%s/.ostler\n' "$_lh" "$_ln" > "$LHOME_FILE"
+OUT="$(pii_scan_files "$LHOME_FILE" "$WORK/no-custom")"
+assert_contains "$OUT" "$LHOME_FILE" "built-in HOME-PATH pattern FIRES on a non-placeholder /home/<name>"
+
+# The excused half. /home/runner is the GitHub-hosted Ubuntu CI home and is
+# provably impersonal, so it must be let through exactly as /Users/runner is.
+LHOME_CI_FILE="$WORK/linux_home_ci.txt"
+printf 'built under %s\n' "/home/runner/work/repo" > "$LHOME_CI_FILE"
+OUT="$(pii_scan_files "$LHOME_CI_FILE" "$WORK/no-custom")"
+assert_not_contains "$OUT" "$LHOME_CI_FILE" "CI home /home/runner is EXCUSED, not reported"
+
 # ──────────────────────────────────────────────────────────────────────────
 # 4. A customer-added pattern fires (and merges with built-ins)
 # ──────────────────────────────────────────────────────────────────────────
