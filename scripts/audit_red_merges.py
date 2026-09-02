@@ -24,9 +24,16 @@ the merge:
 That is the gate working, not the gate being ignored. The real answer was 0 of 60.
 
 SO THE QUESTION IS NEVER "is there a failure". It is:
-    for each check NAME, what was the LAST conclusion completing at or before
-    mergedAt?
-Runs are an append-only history. Only the last one per name is a verdict.
+    for each (WORKFLOW, check name), what was the LAST conclusion completing at
+    or before mergedAt?
+Runs are an append-only history. Only the last one per check is a verdict.
+
+AND THE KEY IS A PAIR, NOT A NAME. A job name is not unique across workflows:
+measured on this repo, `predicate-self-test` is emitted by 4 different workflows
+on a single sha, `gate` and `self-test` by 3 each. Keyed by name alone, a green
+from one workflow masks a red from another -- this tool committing the exact
+error it was built to find. See last_word_per_name() for why check_suite.id,
+which is free and looks like the obvious fix, is the wrong key.
 
 A positive control cannot catch this class. A control proves your predicate RUNS;
 it never proves your predicate ASKS THE RIGHT QUESTION.
@@ -37,7 +44,7 @@ OUTCOMES, three states, never two:
     CANNOT-RUN     the API refused, or the sha reports zero checks
 NO-CHECKS is CANNOT-RUN, never GREEN: a sha with no runs is unmeasured, not clean.
 """
-import json, subprocess, sys, collections
+import json, re, subprocess, sys, collections
 
 REPO = "andygmassey/CM051-Home-Hub-Installer"
 BAD = {"failure", "cancelled", "timed_out", "action_required", "stale"}
@@ -57,22 +64,38 @@ def gh(args, timeout=45):
 # is the exact thing this file exists to detect. Do not re-inline them.
 
 def last_word_per_name(rows, merged):
-    """name -> (conclusion, completed_at) for the LAST run completing at or
-    before `merged`.
+    """(workflow, name) -> (conclusion, completed_at) for the LAST run completing
+    at or before `merged`.
 
     Runs are an append-only history: a sha accumulates every run it ever had, so
     a failure that was later fixed still sits there forever. Only the last run
-    per NAME is a verdict.
+    per check is a verdict.
+
+    THE KEY IS (workflow, name), NOT name. A JOB NAME IS NOT UNIQUE. Measured on
+    sha 4d18745c of this repo: `predicate-self-test` appears 4 times from 4
+    DIFFERENT workflows (scheduled-agent-failure-is-loud, fda-rerun-recurs,
+    fda-rerun-ingests, calendar-backfill-multiyear), and one of the four was red
+    while the others were green. Keyed by name alone, whichever completed last
+    wins and a green from one workflow MASKS a red from another -- the precise
+    failure this tool exists to detect, occurring inside the tool itself.
+    `gate` and `self-test` collide the same way, 3 each.
+
+    And the key must NOT be check_suite.id even though that is free and distinct
+    per workflow: a RE-RUN gets a new suite too, so suite-keying would make the
+    fixed run a separate entry from the failed one and resurrect the false
+    7-of-60 reading this predicate was written to kill. Workflow identity is
+    stable across re-runs; suite identity is not.
     """
     last = {}
-    for name, concl, done in rows:
+    for workflow, name, concl, done in rows:
         if not done:
             continue                      # never completed: not a verdict at all
         if done > merged:
             continue                      # completed after the merge: not the merge-time verdict
-        prev = last.get(name)
+        key = (workflow, name)
+        prev = last.get(key)
         if prev is None or done >= prev[1]:
-            last[name] = (concl, done)
+            last[key] = (concl, done)
     return last
 
 
@@ -98,7 +121,7 @@ def classify(rows, merged):
     # Neither a pass nor a fail: `null` (in flight), or a conclusion string
     # GitHub added after this was written. Both are unmeasured, not clean.
     unknown = {n: c for n, (c, _) in last.items() if c not in OK}
-    silent = sorted({name for name, _, _ in rows} - set(last))
+    silent = sorted({(w, n) for w, n, _, _ in rows} - set(last))
     if unknown or silent:
         return ("CANNOT-RUN", {"not-a-conclusion": unknown,
                                "no-completed-run-before-merge": silent})
@@ -119,14 +142,44 @@ def main(limit=60):
     tally = collections.Counter()
     reds = []
     for p in prs:
-        rc, out, err = gh(["api", f"repos/{REPO}/commits/{p['headRefOid']}/check-runs?per_page=100",
+        sha = p["headRefOid"]
+
+        # ONE extra call per PR (not per check) to learn which WORKFLOW each run
+        # belongs to. Per-check resolution would be ~30 calls per PR and reliably
+        # earns a 504; this is 1, and it is what makes the (workflow, name) key
+        # affordable. Failure here is CANNOT-RUN, never a silent fall back to
+        # name-only keying, because name-only keying IS the masking bug.
+        rc, out, err = gh(["api", f"repos/{REPO}/actions/runs?head_sha={sha}&per_page=100",
                            "--paginate", "--jq",
-                           '.check_runs[] | [.name, (.conclusion // "null"), (.completed_at // "")] | @tsv'])
+                           '.workflow_runs[] | [(.id|tostring), (.path // .name)] | @tsv'])
+        if rc != 0:
+            tally["CANNOT-RUN"] += 1
+            print(f"  #{p['number']}  CANNOT-RUN (workflow-run list rc={rc}); without it, "
+                  f"same-named jobs from different workflows would mask each other")
+            continue
+        run_wf = dict(l.split("\t", 1) for l in out.strip().split("\n") if "\t" in l)
+
+        rc, out, err = gh(["api", f"repos/{REPO}/commits/{sha}/check-runs?per_page=100",
+                           "--paginate", "--jq",
+                           '.check_runs[] | [.name, (.conclusion // "null"), (.completed_at // ""), (.details_url // "")] | @tsv'])
         if rc != 0:
             tally["CANNOT-RUN"] += 1
             print(f"  #{p['number']}  CANNOT-RUN (api rc={rc})")
             continue
-        rows = [l.split("\t") for l in out.strip().split("\n") if l.strip()]
+
+        rows = []
+        for line in out.strip().split("\n"):
+            if not line.strip():
+                continue
+            fld = line.split("\t")
+            name, concl, done = fld[0], fld[1], fld[2]
+            url = fld[3] if len(fld) > 3 else ""
+            m = re.search(r"/actions/runs/(\d+)", url)
+            # Unknown workflow keys as the run id: still distinct per workflow, so
+            # it cannot mask, and it degrades toward over-reporting rather than
+            # under-reporting. A masking default would be the wrong way to be wrong.
+            wf = run_wf.get(m.group(1), f"run:{m.group(1)}") if m else "unknown-workflow"
+            rows.append((wf, name, concl, done))
 
         # THE CORRECTED PREDICATE lives in classify(), which the test imports.
         # Calling it here is what makes that test load-bearing rather than a
@@ -146,7 +199,8 @@ def main(limit=60):
     if reds:
         print("\n=== RED AT MERGE, named ===")
         for n, m, bad, tot in reds:
-            print(f"  #{n}  merged={m}  checks={tot}  last-word-not-green={bad}")
+            pretty = ", ".join(f"{w}:{nm}={c}" for (w, nm), c in sorted(bad.items()))
+            print(f"  #{n}  merged={m}  checks={tot}  last-word-not-green=[{pretty}]")
     else:
         print("\n  No PR was merged while a check's last word was red.")
     return 1 if reds else 0
