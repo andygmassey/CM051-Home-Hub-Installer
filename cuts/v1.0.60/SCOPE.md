@@ -61,13 +61,34 @@ TNM's ingest table had 15 rows. Andy named four omissions. Table is **19 rows**.
 > It is recorded here as one-third, and the row does not go green until a page
 > from a real browser lands in `safari_history` on a box that never paired a phone.
 >
-> **DECISION OWED (Archie's, stated for the record, not deferred):** the credential
-> can only reach the extension if CM020 reads it from somewhere install.sh can
-> write. Until that path is measured in CM020 source, B3c has no design, and I
-> will not invent one from a guess about App Groups. Next action is to read CM020's
-> extension source for an existing config-read path — **not** to widen the Doctor
-> predicate to admit uncredentialed loopback POSTs, which would be a fail-open of
-> exactly the class this cut exists to remove.
+> **B3c NOW HAS A DESIGN — measured in CM020, not guessed.** I read the extension
+> source (`~/Developer/cleanse-safari-history-extension`, origin
+> `andygmassey/safari-history-extension`) instead of inventing an App Group scheme:
+>
+> ```
+> background.js:32   DEFAULT_ENDPOINT = 'http://localhost:8089/api/safari/ingest'   ← already the Doctor
+> background.js:36   DEFAULT_API_KEY  = ''                                          ← empty by design
+> background.js:44   getConfig() reads apiKey from browser.storage.sync
+> background.js:77   if (!config.apiKey) → "Skipping send - extension not paired
+>                    with Hub. Open the popup to pair."   ← refuses to send, silently
+> background.js:102  'Authorization': `Bearer ${config.apiKey}`
+> ```
+>
+> **The extension already sends a bearer and already points at the right endpoint.**
+> Nothing in CM020 needs to change. The entire defect is that the only value a
+> customer could ever put in that box was a **paired-phone bearer**, so a Hub-only
+> customer had nothing to paste and the extension sat in its silent-skip branch
+> forever. That is the bug, whole, end to end.
+>
+> ⇒ **B3c = show the customer the extension token so they can paste it into the
+> popup.** Precedent already exists in this codebase: `whatsapp_pair.py` +
+> `/whatsapp-pair` is exactly this shape (a per-install secret rendered on a Doctor
+> page for a human to copy). No signed-bundle change, no CM020 release, no App
+> Group. B3a already makes the Doctor accept that token.
+>
+> **The three limbs now compose into a working feature**, which is the test this
+> row has to pass before it goes green: mint (B3b) → display (B3c) → accept (B3a,
+> done) → page lands in `safari_history` on a box that never paired a phone.
 | B4 | ~~iOS Safari extension must exist~~ **IT EXISTS AND IS WIRED** | **DONE at source** (A2, 2026-09-02) | `SafariCaptureRelay.swift:103` POSTs `/api/safari/ingest`, fed by a Safari Web Extension App-Group queue, drained on app foreground (`CM031App:300` scenePhase→active). **My row was mis-scoped** — I wrote "must exist" without measuring. Box proof still owed. |
 | B5 | **Chrome extension is NOT SHIPPED.** install.sh opens `chrome.google.com/webstore/category/extensions` — the generic category page, not our listing | TODO | either a real listing URL, or the step does not run at all |
 
