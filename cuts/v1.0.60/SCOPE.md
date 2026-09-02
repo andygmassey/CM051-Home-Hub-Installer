@@ -96,15 +96,47 @@ independent.
 
 ## C. TNM'S 15 ROWS — the broken ones
 
-| # | Item | State | Proof required |
+### ✅ VERIFIED BY A2, 2026-09-02. **ZERO CODE-BUILD ITEMS.** 4 REFUTED, 3 BOX LIMBS.
+
+Measured at CM051 `origin/main` 8d2818e3, with **0 differing files across all 7
+producer trees vs the cut branch 82825671** — so the verdicts hold for the tree
+being cut, not merely for main. Every row had a passing positive control.
+
+| # | Claim | VERDICT | Evidence |
 |---|---|---|---|
-| C1 | Topics extracted then dropped (#858) | TODO — **verify at source first** | a topic readable on a surface |
-| C2 | Preferences read under wrong field name (#855) | TODO — verify first | assistant answers a preference question |
-| C3 | Calendar lands raw rows not meetings (#859) | TODO — verify first | a meeting entity in the graph |
-| C4 | Calendar-people have no identifiers, cannot merge (#680) | TODO — verify first | a calendar person merges |
-| C5 | People graph stops growing (#851) — fix merged, never watched working | TODO | count rises across two ticks on a box |
-| C6 | Email drains ~30 days (#789) | TODO | measured window on a box |
-| C7 | 128 over-merged people (#659) | TODO | count after dedupe |
+| C1 | Topics extracted then dropped (#858) | **REFUTED** | written `topic_writer.py:397-406` (SPARQL insert `pwg:ConversationTopic`), readable `ical-server.py:3996` → `GET /api/v1/topics`. Namespace, graph and predicates match on both sides. "Dropped on the floor" is documented as the OLD state. |
+| C2 | Preferences read under wrong field name (#855) | **REFUTED** | writer and reader BOTH key `interests` (`emit_artefact.py:107` ↔ `ical-server.py:6637`). |
+| C3 | Calendar lands raw rows not meetings (#859) | **REFUTED** | `pwg:Meeting` created at `pwg_ingest.py:1153`. The in-code comment says this was the fixed regression. |
+| C4 | Calendar-people have no identifiers so cannot merge (#680) | **REFUTED — premise TRUE, conclusion FALSE** | there really is no `pwg:hasIdentifier` (real absence, `pwg_ingest.py:1090-1132`) **but they merge anyway** by exact display name at 0.9 against an auto threshold of 0.8. |
+| C5 | People graph stops growing (#851) | fix **PRESENT** / grows-on-box **CANNOT-RUN** | fix at `install.sh ~2848` + probe `63867dad`. Historical sample was FLAT 246725↔246725 on .228 and **no walk since records growth** — "never watched working" is corroborated, not dismissed. |
+| C6 | Email drains ~30 days (#789) | **REFUTED (mixed)** | backfill default is **1825d = 5 years** (`email-ingest-tick.sh:53`). The "30" is the per-tick CHUNK STRIDE, not a cap. A second `email_source` path is 30d-rolling, so the blanket claim is false but not baseless. |
+| C7 | 128 over-merged people (#659) | mechanism **REFUTED** / count **CANNOT-RUN** | merge is conservative: auto 0.8, **surname agreement required**, fuzzy danger-zone gated, hard-conflict veto. The named over-merge is a documented FIX. The 128 is an unmeasured store count. |
+
+**⇒ SECTION C CONTRIBUTES NO BUILD WORK TO v1.0.60.** C1-C4 all describe
+PRE-FIX state already closed in the vendored trees. **Verify-before-fix
+prevented four no-op "fixes" on healthy code** — the exact waste the dispatch
+was written to avoid, and the reason the rule is measure-then-fix.
+
+**C5, C6, C7 carry a genuine open BOX limb and are WALK items, not build items.**
+The code is present and sound; whether it works at runtime was never measured.
+Each has a named measurement that folds into the same clean-box walk already
+gating this cut — no new instrument needed, they need the box:
+
+- **C5** two-tick `ingest_coverage` + `fda-rerun` exit 0 → `walks/v1.0.60.tsv`
+- **C6** which path is actually wired, and the real drained window
+- **C7** `batch_resolver --dry-run` `auto_merge_count` against the live store
+
+⚠️ **CROSS-ROW, C4 + C7, and it is the one to watch.** Exact-display-name
+auto-merge at 0.9 with no identifier required is ONE mechanism that both makes
+identifier-less calendar people mergeable (C4, good) and is the plausible
+over-merge vector if two DISTINCT people share a name and carry no conflicting
+identifier (C7, dangerous). The C7 dry-run is where that gets settled. There is
+already a live instance of this class on the founder instance — a family member
+fragmented across records and sometimes conflated with a different relative
+(task #298, names deliberately not repeated here: this repo is PUBLIC).
+
+**No row was left TBD or deferred.** 4 refuted, 3 CANNOT-RUN with the exact
+measurement named. CANNOT-RUN is a first-class answer and never a pass.
 | C8 | **"Keeps updating" for all 19 rows** — Andy wants green in every cell | TODO | **a T+1h probe per surface.** A surface that lands once and stops is indistinguishable from a working one at T+0 |
 
 ## D. THE SELF-RENEWING DEFERRAL CLASS (swept 2026-09-02)
