@@ -175,6 +175,50 @@ else
     PROMOTE=0
 fi
 
+# --- the cut may not CLAIM a row it has not PROVEN ---------------------------
+#
+# A clean walk says "this build ran on a box". It does NOT say "this build
+# carries the nine things its BOM claims". Those are different sentences and we
+# have been publishing the second on the evidence of the first.
+#
+# Andy, 2026-09-02: "So many examples of stuff I was told was fixed now appears
+# not to be... Fixed is fucking FIXED 100% completely."
+#
+# He is right, and the register already encoded the failure as a data field.
+# Measured on cuts/v1.0.58/MUST_CONTAIN.tsv the moment v1.0.58 was published:
+# 9 data rows, 9 with verify=TBD. Nine of nine. Every row in the BOM for a DMG
+# that was cut, signed, notarised and published was DECLARED and never
+# VERIFIED. Nobody lied in a sentence; the evidence column was simply empty and
+# the empty column had no consequence.
+#
+# ⚠️ THIS IS A PROMOTE GATE, NOT A CUT GATE, AND THE DISTINCTION IS LOAD-BEARING.
+# Rows earn their verdict from a gate (pre-cut), the artefact (post-cut), or a
+# box walk (post-cut). Blocking the CUT on box evidence would be circular: the
+# box cannot exist until the DMG does. The promote is the moment the claim
+# reaches a customer, so it is the moment the claim must be true.
+#
+# 🔴 #1322 SHIPPED THIS SCRIPT AND WIRED IT TO NOTHING -- 137 lines, zero call
+# sites, found by grepping for its own name and getting zero with the control
+# firing. That is #449's class exactly (run_all_cut_gates.sh, invoked by
+# nothing) and I merged it myself hours earlier. A gate that is not invoked is
+# indistinguishable from a gate that passes. This block is the invocation.
+if [[ "$PROMOTE" -eq 1 ]]; then
+    _bom_gate="${BASH_SOURCE[0]%/*}/verify_must_contain_has_box_verdict.sh"
+    if [[ -x "$_bom_gate" ]]; then
+        "$_bom_gate" "$VERSION"
+        case $? in
+            0) : ;;                       # every row names a real verdict
+            *) step "⚠️ BOM rows are not proven -- withholding the promote"
+               PROMOTE=0 ;;               # covers FAIL(1) and CANNOT-RUN(2)
+        esac
+    else
+        # Same fail-closed rule as the walk gate above: an absent gate must
+        # never read as a satisfied one.
+        step "⚠️ verify_must_contain_has_box_verdict.sh not found -- treating as NO row evidence"
+        PROMOTE=0
+    fi
+fi
+
 # --- publish -----------------------------------------------------------------
 # --latest is REQUIRED, not cosmetic: the site redirect resolves /latest/, and
 # GitHub excludes prereleases from that. Publishing without it reproduces the

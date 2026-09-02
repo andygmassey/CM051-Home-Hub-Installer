@@ -44,6 +44,7 @@ test_assistant_identity_belt.sh	UNWIRED	-
 test_assistant_ollama_num_ctx.sh	UNWIRED	-
 test_autologin_consent_opt_in.sh	WIRED	.github/workflows/consent-contract.yml
 test_background_copy_promises_no_deadline.sh	WIRED	.github/workflows/background-copy-honesty.yml
+test_bom_verdict_gate_is_wired_into_the_promote.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_bookmarks_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_bootstrap_prelude.sh	UNWIRED	-
 test_brew_install_fail_loud.sh	UNWIRED	-
