@@ -3007,6 +3007,222 @@ index e994da08..326efbae 100644
      # distinct: record every pair so the resolver vetoes each one independently.
      return [
          {"distinct": [ids[i], ids[j]]}
+diff --git ab/agent/extension_token.py bb/agent/extension_token.py
+new file mode 100644
+index 00000000..d24de37c
+--- /dev/null
++++ bb/agent/extension_token.py
+@@ -0,0 +1,210 @@
++"""Report the browser-extension bearer token to Doctor, for the customer.
++
++WHY THIS MODULE EXISTS
++
++The browser extension (CM020, Safari + Chrome) has always posted captured
++browsing to the Hub. Three defects stood between that and a customer being able
++to use it, and the first two are fixed elsewhere:
++
++  * the Doctor proxy rejected the extension's bearer outright, because the only
++    accepted credential was the PWG service token (B3a);
++  * nothing minted or delivered an extension token at all, so there was no value
++    for the extension to send (B3b: install.sh now mints
++    ``${OSTLER_DIR}/secrets/extension_token`` and passes it to the Doctor
++    LaunchAgent as ``OSTLER_EXTENSION_TOKEN``).
++
++This is the third. A token that exists in a 0600 file and in a daemon's
++environment is not a token a customer can put into an extension popup. Without a
++surface that shows it, browsing capture ships dark: every part works and nobody
++can turn it on.
++
++WHY THE ENVIRONMENT IS THE AUTHORITY AND THE FILE IS NOT
++
++``proxy.py`` authenticates the extension against ``os.environ`` and nothing
++else. Doctor and the proxy are the same process, so whatever this module reads
++out of ``os.environ`` is, by construction, the exact value the extension will be
++checked against. The file on disk is the installer's record of what it minted;
++it is the same value in the ordinary case and it is NOT authoritative.
++
++That distinction is the whole point of the taxonomy below. If the installer
++rewrote the file after the LaunchAgent was loaded, the file holds the new token
++and the running process still checks the old one. Showing the customer the file
++value there would hand them a string that is guaranteed to fail, and the failure
++would surface as a silent 401 inside a browser extension, which is close to
++undiagnosable from the customer's side.
++
++THE STATES, each a different problem with a different next action:
++
++    ready              env token present, and the file agrees or is absent
++    not_provisioned    neither: this Hub predates B3b, or the mint step failed
++    daemon_not_reloaded  file has a token, the running Doctor has none
++    mismatch           both present and different: the running Doctor would
++                       reject the token the installer last wrote
++    unreadable         the file exists and cannot be read
++
++``whatsapp_pair.py`` established this shape (explicit ``error_kind`` rather than
++a bare ``Optional``) for the pairing panel; this mirrors it rather than
++inventing a second vocabulary.
++
++NOTHING HERE LOGS THE TOKEN. It is credential-equivalent for the lifetime of the
++install, and this logger's output lands in ``doctor.err``, which the support
++diagnostics bundle tails.
++"""
++
++from __future__ import annotations
++
++import hmac
++import logging
++import os
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Optional
++
++log = logging.getLogger(__name__)
++
++
++# Mirrors install.sh: SECRETS_DIR="${OSTLER_DIR}/secrets", and the extension
++# token file inside it. Named here as two parts so a future move of the secrets
++# directory shows up as one edit rather than a string search.
++_SECRETS_DIRNAME = "secrets"
++_TOKEN_FILENAME = "extension_token"
++
++# The single path the proxy will accept an extension bearer on. Kept in step
++# with ``_EXTENSION_ONLY_PATH`` in proxy.py; the page shows it to the customer
++# so a support call can compare what the extension is configured with against
++# what the Hub will actually answer.
++INGEST_PATH = "/api/safari/ingest"
++
++# The environment variable the Doctor LaunchAgent carries and the proxy reads.
++_ENV_VAR = "OSTLER_EXTENSION_TOKEN"
++
++
++@dataclass
++class ExtensionTokenStatus:
++    """Structured result a Doctor route can JSON-serialise directly."""
++
++    available: bool
++    token: Optional[str]
++    ingest_path: str
++    error: Optional[str]
++    error_kind: Optional[str]
++
++    def to_dict(self) -> dict:
++        return {
++            "available": self.available,
++            "token": self.token,
++            "ingest_path": self.ingest_path,
++            "error": self.error,
++            "error_kind": self.error_kind,
++        }
++
++
++def token_path() -> Path:
++    """Resolve the installer's extension-token file.
++
++    Honours ``OSTLER_HOME`` then ``OSTLER_DIR`` (the installer sets
++    ``OSTLER_DIR=~/.ostler``), falling back to ``~/.ostler``. Mirrors
++    ``whatsapp_pair.state_path`` so the two cannot drift onto different roots.
++    """
++    base = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR")
++    root = Path(base) if base else Path.home() / ".ostler"
++    return root / _SECRETS_DIRNAME / _TOKEN_FILENAME
++
++
++def _unavailable(kind: str, message: str) -> ExtensionTokenStatus:
++    return ExtensionTokenStatus(
++        available=False,
++        token=None,
++        ingest_path=INGEST_PATH,
++        error=message,
++        error_kind=kind,
++    )
++
++
++def _env_token() -> str:
++    """The value the proxy will actually compare against, in this process."""
++    return os.environ.get(_ENV_VAR, "").strip()
++
++
++def _file_token(path: Path) -> tuple[Optional[str], Optional[str]]:
++    """Read the installer's record. Returns ``(token, error_kind)``.
++
++    ``(None, None)`` means the file is genuinely absent, which is not an error
++    on its own. ``(None, "unreadable")`` means we could not look, which is a
++    different answer and must never be collapsed into the first.
++    """
++    try:
++        if not path.is_file():
++            return (None, None)
++        raw = path.read_text(encoding="utf-8")
++    except OSError as exc:
++        # Deliberately does NOT log the path's contents.
++        log.warning("extension token file unreadable at %s: %s", path, exc)
++        return (None, "unreadable")
++    value = raw.strip()
++    if not value:
++        return (None, "unreadable")
++    return (value, None)
++
++
++def fetch_token_status(path: Optional[Path] = None) -> ExtensionTokenStatus:
++    """Report whether browsing capture can be turned on, and with what value.
++
++    Never raises. This runs on a dashboard route, where an exception would blank
++    the card and tell the customer less than any of the named states below.
++    """
++    target = path if path is not None else token_path()
++    env_value = _env_token()
++    file_value, file_error = _file_token(target)
++
++    if not env_value:
++        if file_error == "unreadable":
++            return _unavailable(
++                "unreadable",
++                "Ostler could not read its browser-extension key.",
++            )
++        if file_value:
++            # The installer minted one and this Doctor was started before it
++            # existed. The value on disk is real and will work, but not until
++            # Doctor is restarted with it in the environment, so do NOT show it.
++            return _unavailable(
++                "daemon_not_reloaded",
++                "Ostler has a browser-extension key but has not picked it up "
++                "yet. Close and reopen Ostler to load it.",
++            )
++        return _unavailable(
++            "not_provisioned",
++            "This Hub has no browser-extension key. Re-run the Ostler "
++            "installer to create one.",
++        )
++
++    if file_error == "unreadable":
++        # The running process has a usable token; the record on disk is what we
++        # cannot read. Report the token, and say so, rather than block on a
++        # secondary surface.
++        return ExtensionTokenStatus(
++            available=True,
++            token=env_value,
++            ingest_path=INGEST_PATH,
++            error="Ostler could not read its own copy of this key on disk. "
++            "The key below is the one Ostler is using now.",
++            error_kind="unreadable_backing_file",
++        )
++
++    if file_value and not hmac.compare_digest(file_value, env_value):
++        # Showing either value would be a guess about which one wins, and the
++        # loser fails as a silent 401 inside a browser extension. Name it.
++        return _unavailable(
++            "mismatch",
++            "Ostler's browser-extension key does not match the one saved on "
++            "this Mac. Close and reopen Ostler, and re-run the installer if that "
++            "does not clear it.",
++        )
++
++    return ExtensionTokenStatus(
++        available=True,
++        token=env_value,
++        ingest_path=INGEST_PATH,
++        error=None,
++        error_kind=None,
++    )
 diff --git aa/agent/import_evernote.py bb/agent/import_evernote.py
 index f74d7e1b..0662dc5b 100644
 --- aa/agent/import_evernote.py
@@ -5005,7 +5221,7 @@ index 00000000..0719517d
 +        )
 +    )
 diff --git aa/agent/web_ui.py bb/agent/web_ui.py
-index 67635eae..6d451d19 100644
+index 67635eae..762629a9 100644
 --- aa/agent/web_ui.py
 +++ bb/agent/web_ui.py
 @@ -32,9 +32,15 @@ from dataclasses import asdict
@@ -5043,7 +5259,7 @@ index 67635eae..6d451d19 100644
      DASHBOARD_LAST_CHECKED_JUST_NOW,
      DASHBOARD_LAST_CHECKED_PREFIX,
      DASHBOARD_LAST_CHECKED_SUFFIX,
-@@ -215,6 +224,21 @@ from web_ui_copy import (
+@@ -215,6 +224,41 @@ from web_ui_copy import (
      PAIR_IOS_SECTION_CODE,
      PAIR_IOS_SUBTITLE,
      PAIR_IOS_TITLE_TAG,
@@ -5062,10 +5278,30 @@ index 67635eae..6d451d19 100644
 +    WHATSAPP_PAIR_TITLE_TAG,
 +    WHATSAPP_PAIR_UNREADABLE_HELP,
 +    WHATSAPP_PAIR_UNREADABLE_TITLE,
++    EXTENSION_SETUP_ADDRESS_LABEL,
++    EXTENSION_SETUP_BACK_LINK,
++    EXTENSION_SETUP_COPIED_BUTTON,
++    EXTENSION_SETUP_COPY_BUTTON,
++    EXTENSION_SETUP_DAEMON_NOT_RELOADED_HELP,
++    EXTENSION_SETUP_DAEMON_NOT_RELOADED_TITLE,
++    EXTENSION_SETUP_HEADING,
++    EXTENSION_SETUP_KEY_LABEL,
++    EXTENSION_SETUP_LEDE,
++    EXTENSION_SETUP_LOADING,
++    EXTENSION_SETUP_MISMATCH_HELP,
++    EXTENSION_SETUP_MISMATCH_TITLE,
++    EXTENSION_SETUP_NOT_PROVISIONED_HELP,
++    EXTENSION_SETUP_NOT_PROVISIONED_TITLE,
++    EXTENSION_SETUP_POLL_MS,
++    EXTENSION_SETUP_READY_HELP,
++    EXTENSION_SETUP_READY_INSTRUCTION,
++    EXTENSION_SETUP_TITLE_TAG,
++    EXTENSION_SETUP_UNREADABLE_HELP,
++    EXTENSION_SETUP_UNREADABLE_TITLE,
      PORT_CONFLICT_DETAIL_FMT,
      PORT_CONFLICT_FIX,
      PORT_CONFLICT_FIX_COMMAND_FMT,
-@@ -232,6 +256,7 @@ from web_ui_copy import (
+@@ -232,6 +276,7 @@ from web_ui_copy import (
      REPORT_OLLAMA_LABEL,
      REPORT_REDACTED_BANNER,
      REPORT_REDACTED_PLACEHOLDER,
@@ -5073,7 +5309,7 @@ index 67635eae..6d451d19 100644
      REPORT_SECTION_CONTAINERS,
      REPORT_SECTION_DISK,
      REPORT_SECTION_FINDINGS,
-@@ -386,6 +411,18 @@ def run_local_diagnostics(snapshot: SystemSnapshot) -> list[dict]:
+@@ -386,6 +431,18 @@ def run_local_diagnostics(snapshot: SystemSnapshot) -> list[dict]:
  
      # Check services
      for svc in snapshot.services:
@@ -5092,7 +5328,7 @@ index 67635eae..6d451d19 100644
          if svc.status == "unreachable":
              findings.append({
                  "severity": "critical",
-@@ -669,6 +706,113 @@ _IPV4_RE = re.compile(
+@@ -669,6 +726,113 @@ _IPV4_RE = re.compile(
      r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
  )
  
@@ -5206,7 +5442,7 @@ index 67635eae..6d451d19 100644
  
  def _home_username() -> str | None:
      """Best-effort current username for home-path redaction.
-@@ -717,8 +861,22 @@ def _redact_report(report: str) -> str:
+@@ -717,8 +881,22 @@ def _redact_report(report: str) -> str:
      )
  
      redacted = _EMAIL_RE.sub(placeholder, redacted)
@@ -5229,7 +5465,7 @@ index 67635eae..6d451d19 100644
      return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
  
  
-@@ -845,15 +1003,27 @@ def _run_diagnostics() -> dict:
+@@ -845,15 +1023,27 @@ def _run_diagnostics() -> dict:
      except Exception as exc:
          errors["report"] = f"{type(exc).__name__}: {exc}"
          report = REPORT_HEADER
@@ -5259,7 +5495,7 @@ index 67635eae..6d451d19 100644
      except Exception as exc:
          errors["mailto"] = f"{type(exc).__name__}: {exc}"
          mailto = f"mailto:{SUPPORT_EMAIL}"
-@@ -1149,6 +1319,7 @@ def render_dashboard(
+@@ -1149,6 +1339,7 @@ def render_dashboard(
              display: inline-flex;
              align-items: center;
              gap: 6px;
@@ -5267,7 +5503,7 @@ index 67635eae..6d451d19 100644
          }}
          .refresh-btn:hover, .auto-refresh-btn:hover {{
              border-color: var(--ostler-accent);
-@@ -1543,6 +1714,7 @@ def render_dashboard(
+@@ -1543,6 +1734,7 @@ def render_dashboard(
              </div>
              <div>
                  <div class="header-controls">
@@ -5275,7 +5511,7 @@ index 67635eae..6d451d19 100644
                      <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
                      <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
                      <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
-@@ -1611,7 +1783,7 @@ def render_dashboard(
+@@ -1611,7 +1803,7 @@ def render_dashboard(
          </div>
  
          <div class="meta" id="metaInfo">
@@ -5284,7 +5520,7 @@ index 67635eae..6d451d19 100644
          </div>
      </div>
  
-@@ -2004,6 +2176,32 @@ def render_history(history_entries: list[dict]) -> str:
+@@ -2004,6 +2196,32 @@ def render_history(history_entries: list[dict]) -> str:
  # ── Endpoints ────────────────────────────────────────────────────────
  
  
@@ -5317,7 +5553,7 @@ index 67635eae..6d451d19 100644
  @app.get("/doctor", response_class=HTMLResponse)
  async def dashboard():
      """Serve the diagnostic dashboard or first-run wizard."""
-@@ -2294,6 +2492,220 @@ async def api_observability_posture():
+@@ -2294,6 +2512,220 @@ async def api_observability_posture():
      return all_observability_postures()
  
  
@@ -5538,7 +5774,7 @@ index 67635eae..6d451d19 100644
  # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
  #
  # Forwards iOS-initiated CM019 paths to the local gateway over
-@@ -3333,6 +3745,209 @@ def _render_pair_ios_page() -> str:
+@@ -3333,6 +3765,473 @@ def _render_pair_ios_page() -> str:
  </html>"""
  
  
@@ -5745,11 +5981,275 @@ index 67635eae..6d451d19 100644
 +    return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
 +
 +
++def _render_extension_setup_page() -> str:
++    """Render the browser-extension setup panel.
++
++    Same chassis as ``_render_whatsapp_pair_page`` so the setup surfaces sit
++    together rather than one feeling bolted on.
++
++    THREE DESIGN RULES, each load-bearing:
++
++    1. The key is painted by the browser from JSON and is NEVER baked into the
++       served HTML. It is credential-equivalent for the life of the install, so
++       it must not sit in a page a browser or a screenshot tool may cache.
++    2. The address is built from ``window.location.origin``, which is MEASURED:
++       it is the origin the customer actually reached Doctor on. Baking a host
++       and port here would hand out an address that is right on the developer's
++       box and wrong on a customer's.
++    3. The five states read DIFFERENTLY. Two of them are fixed by restarting
++       Ostler and one by re-running the installer, and a customer told only
++       "no key available" cannot tell which they are in.
++    """
++    return f"""<!DOCTYPE html>
++<html lang="en">
++<head>
++    <meta charset="UTF-8">
++    <meta name="viewport" content="width=device-width, initial-scale=1.0">
++    <title>{EXTENSION_SETUP_TITLE_TAG}</title>
++    <style>
++        /* PRIVACY: no webfont @import. A local-first product must not beacon
++           the customer IP+timestamp to a font CDN. Matches whatsapp-pair. */
++        :root {{
++            --ostler-ink: #0d0b08;
++            --ostler-ink-deep: #07060a;
++            --ostler-chassis: #ECE8DD;
++            --ostler-accent: #C84545;
++            --ostler-accent-hover: #D76060;
++            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
++            --text: var(--ostler-chassis);
++            --text-secondary: rgba(236, 232, 221, 0.74);
++            --text-muted: rgba(236, 232, 221, 0.50);
++            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
++            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
++            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
++            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
++        }}
++        * {{ margin:0; padding:0; box-sizing:border-box; }}
++        body {{
++            font-family: var(--font-body);
++            font-size: 15px;
++            line-height: 1.5;
++            background: var(--ostler-ink);
++            color: var(--text);
++            min-height: 100vh;
++            padding: 2.5rem 1.75rem;
++            -webkit-font-smoothing: antialiased;
++        }}
++        a {{ color: var(--ostler-accent); text-decoration: none; }}
++        a:hover {{ color: var(--ostler-accent-hover); }}
++        .container {{ max-width: 600px; margin: 0 auto; }}
++        h1 {{
++            font-family: var(--font-display);
++            font-size: 1.7rem;
++            font-weight: 600;
++            margin-bottom: 0.6rem;
++        }}
++        .lede {{ color: var(--text-secondary); margin-bottom: 1.4rem; }}
++        .panel {{
++            background: var(--ostler-ink-deep);
++            border: 1px solid var(--ostler-hairline-soft);
++            border-radius: 12px;
++            padding: 1.5rem;
++            box-shadow: var(--shadow-soft);
++        }}
++        .label {{ margin-bottom: 1rem; line-height: 1.6; }}
++        .field {{ margin-bottom: 1rem; }}
++        .field-name {{
++            font-size: 0.72rem;
++            letter-spacing: 0.12em;
++            text-transform: uppercase;
++            color: var(--text-muted);
++            margin-bottom: 0.35rem;
++        }}
++        .value-frame {{
++            display: flex;
++            align-items: center;
++            gap: 0.75rem;
++            background: var(--ostler-ink);
++            border: 1px solid var(--ostler-hairline-soft);
++            border-radius: 10px;
++            padding: 0.8rem 0.9rem;
++        }}
++        .value {{
++            font-family: var(--font-mono);
++            font-size: 0.9rem;
++            /* The key is 64 hex characters and must stay selectable in one
++               go, so it wraps rather than scrolls out of reach. */
++            word-break: break-all;
++            flex: 1 1 auto;
++            min-width: 0;
++        }}
++        .copy-btn {{
++            flex: 0 0 auto;
++            font-family: var(--font-body);
++            font-size: 0.8rem;
++            color: var(--ostler-chassis);
++            background: transparent;
++            border: 1px solid var(--ostler-hairline-soft);
++            border-radius: 7px;
++            padding: 0.35rem 0.7rem;
++            cursor: pointer;
++        }}
++        .copy-btn:hover {{ border-color: var(--ostler-accent); }}
++        .help {{
++            font-size: 0.82rem;
++            color: var(--text-muted);
++            margin-top: 0.55rem;
++            line-height: 1.55;
++        }}
++        .caveat {{
++            font-size: 0.82rem;
++            color: var(--ostler-accent-hover);
++            margin-bottom: 0.9rem;
++            line-height: 1.55;
++        }}
++        .back {{ margin-top: 1.5rem; font-size: 0.9rem; }}
++    </style>
++</head>
++<body>
++  <div class="container">
++    <h1>{EXTENSION_SETUP_HEADING}</h1>
++    <p class="lede">{EXTENSION_SETUP_LEDE}</p>
++
++    <section class="panel" aria-live="polite">
++      <div id="ext-loading" class="state">{EXTENSION_SETUP_LOADING}</div>
++
++      <div id="ext-ready" class="state" hidden>
++        <p id="ext-caveat" class="caveat" hidden></p>
++        <p class="label">{EXTENSION_SETUP_READY_INSTRUCTION}</p>
++
++        <div class="field">
++          <div class="field-name">{EXTENSION_SETUP_ADDRESS_LABEL}</div>
++          <div class="value-frame"><span id="ext-address" class="value"></span></div>
++        </div>
++
++        <div class="field">
++          <div class="field-name">{EXTENSION_SETUP_KEY_LABEL}</div>
++          <div class="value-frame">
++            <span id="ext-key" class="value"></span>
++            <button id="ext-copy" class="copy-btn"
++                    type="button">{EXTENSION_SETUP_COPY_BUTTON}</button>
++          </div>
++        </div>
++
++        <p class="help">{EXTENSION_SETUP_READY_HELP}</p>
++      </div>
++
++      <div id="ext-not_provisioned" class="state" hidden>
++        <p class="label">{EXTENSION_SETUP_NOT_PROVISIONED_TITLE}</p>
++        <p class="help">{EXTENSION_SETUP_NOT_PROVISIONED_HELP}</p>
++      </div>
++
++      <div id="ext-daemon_not_reloaded" class="state" hidden>
++        <p class="label">{EXTENSION_SETUP_DAEMON_NOT_RELOADED_TITLE}</p>
++        <p class="help">{EXTENSION_SETUP_DAEMON_NOT_RELOADED_HELP}</p>
++      </div>
++
++      <div id="ext-mismatch" class="state" hidden>
++        <p class="label">{EXTENSION_SETUP_MISMATCH_TITLE}</p>
++        <p class="help">{EXTENSION_SETUP_MISMATCH_HELP}</p>
++      </div>
++
++      <div id="ext-unreadable" class="state" hidden>
++        <p class="label">{EXTENSION_SETUP_UNREADABLE_TITLE}</p>
++        <p class="help">{EXTENSION_SETUP_UNREADABLE_HELP}</p>
++      </div>
++    </section>
++
++    <p class="back"><a href="/doctor">{EXTENSION_SETUP_BACK_LINK}</a></p>
++  </div>
++
++  <script>
++  (function () {{
++    var POLL_MS = {EXTENSION_SETUP_POLL_MS};
++    var COPY_LABEL = {json.dumps(EXTENSION_SETUP_COPY_BUTTON)};
++    var COPIED_LABEL = {json.dumps(EXTENSION_SETUP_COPIED_BUTTON)};
++    var STATES = ["ext-loading", "ext-ready", "ext-not_provisioned",
++                  "ext-daemon_not_reloaded", "ext-mismatch", "ext-unreadable"];
++
++    function show(id) {{
++      STATES.forEach(function (s) {{
++        var el = document.getElementById(s);
++        if (el) {{ el.hidden = (s !== id); }}
++      }});
++    }}
++
++    function paint(data) {{
++      if (data && data.available && data.token) {{
++        // textContent, never innerHTML: the key is untrusted-by-policy
++        // output and must not be able to introduce markup.
++        document.getElementById("ext-key").textContent = data.token;
++        // Built from the origin the customer actually reached Doctor on,
++        // not from a baked host and port.
++        document.getElementById("ext-address").textContent =
++            window.location.origin + (data.ingest_path || "");
++        var caveat = document.getElementById("ext-caveat");
++        if (data.error) {{
++          caveat.textContent = data.error;
++          caveat.hidden = false;
++        }} else {{
++          caveat.textContent = "";
++          caveat.hidden = true;
++        }}
++        show("ext-ready");
++        return;
++      }}
++      var kind = (data && data.error_kind) || "unreadable";
++      if (STATES.indexOf("ext-" + kind) === -1) {{ kind = "unreadable"; }}
++      show("ext-" + kind);
++    }}
++
++    function tick() {{
++      fetch("/api/v1/extension/token")
++        .then(function (r) {{ return r.json(); }})
++        .then(paint)
++        // A fetch failure is Doctor being unreachable, not a missing key.
++        // Reporting it as "unreadable" would send the customer to support
++        // for a page that just needs a reload.
++        .catch(function () {{ show("ext-loading"); }});
++    }}
++
++    document.getElementById("ext-copy").addEventListener("click", function () {{
++      var btn = this;
++      var value = document.getElementById("ext-key").textContent;
++      if (!value || !navigator.clipboard) {{ return; }}
++      navigator.clipboard.writeText(value).then(function () {{
++        btn.textContent = COPIED_LABEL;
++        setTimeout(function () {{ btn.textContent = COPY_LABEL; }}, 1600);
++      }});
++    }});
++
++    tick();
++    setInterval(tick, POLL_MS);
++  }})();
++  </script>
++</body>
++</html>"""
++
++
++@app.get("/extension-setup", response_class=HTMLResponse)
++async def extension_setup_page():
++    """Render the browser-extension setup panel."""
++    return HTMLResponse(_render_extension_setup_page())
++
++
++@app.get("/api/v1/extension/token", response_class=JSONResponse)
++async def api_extension_token():
++    """Return the browser-extension key and the state it is in.
++
++    Read fresh on every call rather than cached. Two of the five states are
++    cleared by restarting Ostler, and a cached answer would keep telling the
++    customer to do the thing they have already done.
++    """
++    from extension_token import fetch_token_status
++    return JSONResponse(fetch_token_status().to_dict(), status_code=200)
++
++
  @app.get("/pair-ios", response_class=HTMLResponse)
  async def pair_ios_page():
      """Render the Pair iOS device panel (DFA-002)."""
 diff --git aa/agent/web_ui_copy.py bb/agent/web_ui_copy.py
-index b0c9501f..b1416f33 100644
+index b0c9501f..40eaedab 100644
 --- aa/agent/web_ui_copy.py
 +++ bb/agent/web_ui_copy.py
 @@ -209,6 +209,11 @@ DASHBOARD_BTN_EMAIL_TITLE = (
@@ -5803,7 +6303,7 @@ index b0c9501f..b1416f33 100644
  
  # ── render_history (/doctor/history page) ────────────────────────────
  
-@@ -693,3 +723,94 @@ REMINDERS_RUNTIME_REMEDIATION_DENIED = (
+@@ -693,3 +723,172 @@ REMINDERS_RUNTIME_REMEDIATION_DENIED = (
      "in the Reminders app."
  )
  
@@ -5898,6 +6398,84 @@ index b0c9501f..b1416f33 100644
 +    "changed, and your answers are still on this Mac. This is a fault in "
 +    "Ostler rather than anything you have done. Technical cause: {reason}"
 +)
++
++
++# ---------------------------------------------------------------------------
++# Browser extension setup panel
++#
++# The last gap between a customer and browsing capture. The extension
++# has always posted to the Hub and the Hub now accepts its credential,
++# but a key that exists only in a 0600 file and a daemon environment is
++# not a key a customer can paste into an extension popup. Without this
++# panel the whole channel ships dark.
++#
++# Five states, and they are deliberately five. "no key yet" means run
++# the installer; "not picked up yet" means restart Ostler; "does not
++# match" means the running Hub would reject the saved key, which is the
++# one state where showing a value would actively mislead. Collapsing
++# these into "no key available" sends the customer to support with
++# nothing, and the failure they are chasing is a silent rejection
++# inside a browser extension.
++
++EXTENSION_SETUP_TITLE_TAG = "Ostler Doctor &ndash; Browser extension"
++EXTENSION_SETUP_HEADING = "Set up the browser extension"
++EXTENSION_SETUP_LEDE = (
++    "The Ostler browser extension sends the pages you read to this Mac "
++    "so they can be remembered. It needs two things from Ostler: the "
++    "address below, and the key that proves the extension is yours."
++)
++
++EXTENSION_SETUP_LOADING = "Checking your browser extension key."
++
++EXTENSION_SETUP_READY_INSTRUCTION = (
++    "Open the Ostler extension in your browser, choose Settings, and "
++    "paste these two values."
++)
++EXTENSION_SETUP_ADDRESS_LABEL = "Address"
++EXTENSION_SETUP_KEY_LABEL = "Key"
++EXTENSION_SETUP_COPY_BUTTON = "Copy key"
++EXTENSION_SETUP_COPIED_BUTTON = "Copied"
++EXTENSION_SETUP_READY_HELP = (
++    "Treat the key like a password. It only works from this Mac, and "
++    "only for sending pages to Ostler, but anyone who has it can add to "
++    "your memory. If you ever need to change it, run the Ostler "
++    "installer again."
++)
++
++EXTENSION_SETUP_NOT_PROVISIONED_TITLE = "No browser extension key yet."
++EXTENSION_SETUP_NOT_PROVISIONED_HELP = (
++    "This Mac has not been given a key for the browser extension. Run "
++    "the Ostler installer again to create one. Nothing else you have "
++    "set up is affected."
++)
++
++EXTENSION_SETUP_DAEMON_NOT_RELOADED_TITLE = "Ostler has not picked up the key yet."
++EXTENSION_SETUP_DAEMON_NOT_RELOADED_HELP = (
++    "A key was created after Ostler started, so the running copy does "
++    "not have it. Close and reopen Ostler, then come back to this page. "
++    "The key is deliberately not shown until Ostler is using it, "
++    "because until then the extension would be turned away."
++)
++
++EXTENSION_SETUP_MISMATCH_TITLE = "The key Ostler is using does not match the saved one."
++EXTENSION_SETUP_MISMATCH_HELP = (
++    "Two different keys exist on this Mac and Ostler would reject one of "
++    "them, so neither is shown. Close and reopen Ostler. If this page "
++    "still says the same thing, run the Ostler installer again."
++)
++
++EXTENSION_SETUP_UNREADABLE_TITLE = "Ostler could not read its browser extension key."
++EXTENSION_SETUP_UNREADABLE_HELP = (
++    "This is a fault rather than something you did. Use Copy "
++    "diagnostics on the Doctor dashboard and send it to support."
++)
++
++EXTENSION_SETUP_BACK_LINK = "Back to Doctor"
++
++# Poll interval. A restart is the fix for two of the five states, so the
++# page has to notice one without the customer reloading. Slower than the
++# WhatsApp panel because nothing here is short-lived.
++EXTENSION_SETUP_POLL_MS = 8000
 diff --git ab/agent/whatsapp_pair.py bb/agent/whatsapp_pair.py
 new file mode 100644
 index 00000000..f85edd7c
