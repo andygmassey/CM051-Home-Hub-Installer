@@ -37,7 +37,37 @@ TNM's ingest table had 15 rows. Andy named four omissions. Table is **19 rows**.
 |---|---|---|---|
 | B1 | RemoteConversations (CM042) — app + LaunchAgent + `spoken_source` reader all present | **VERIFIED AT SOURCE, NOT ON A BOX** | transcript recorded → appears in graph |
 | B2 | Voice feed silently skips if `~/Documents/Ostler/Transcripts` is ever deleted (sentinel-guarded creation, presence-gated reader) | TODO | delete dir, re-run install, assert a REFUSAL not a silent skip |
-| B3 | **Safari extension must ingest WITHOUT an iPhone pair** — Andy 2026-09-02: *"it's a fucking BUG… needs fixing PROPERLY"* | TODO — **mechanism measured, see below** | Hub-only install, no phone EVER paired, browse → page in `safari_history` |
+| B3 | **Safari extension must ingest WITHOUT an iPhone pair** — Andy 2026-09-02: *"it's a fucking BUG… needs fixing PROPERLY"* | **SPLIT INTO THREE LIMBS — 1 of 3 DONE.** See B3a/B3b/B3c | Hub-only install, no phone EVER paired, browse → page in `safari_history` |
+| B3a | the auth predicate: Doctor accepts an extension credential on `/api/safari/ingest` POST loopback only | **DONE** | HR015 PR #734 (`c383b5f`) at source; CM051 `a0a79465` in the vendored tree. RED 30 / GREEN 30 measured **on the vendored file itself**, sha256-matched. Gate: `OK doctor -- vendor == source@b0b38310 (+patch)` |
+| B3b | install.sh MINTS `OSTLER_EXTENSION_TOKEN` and puts it in the Doctor plist | **NOT DONE** | plist env dict at `install.sh:19162`; `PWG_SERVICE_TOKEN` at `:19459` is the pattern to copy, incl. `chmod 0600` |
+| B3c | the EXTENSION learns the token | **NOT DONE, AND BIGGER THAN B3b** | see below |
+
+> ### 🔴 B3c — I ALMOST SHIPPED THIS AS "FIXED". IT WOULD HAVE BEEN A THIRD HALF.
+>
+> B3a makes the Doctor **willing** to accept an extension credential. It does not
+> make the extension **send** one. Measured, not assumed:
+>
+> - `install.sh:27204` installs the extension from a **pre-built signed zip**,
+>   `${SCRIPT_DIR}/extensions/OstlerSafariExtension.app.zip`, produced by CM020's
+>   `bin/build-safari-extension.sh`. install.sh **never configures it** — there is
+>   no token write, no endpoint write, no config write of any kind.
+> - `extensions/` **does not exist in this checkout at all**, so the whole install
+>   step at 27204-27240 is a no-op here. That is the same absence already filed as
+>   **#268** ("extension bundle absent from shipped Ostler.app — reconciler no-op
+>   guaranteed"), reaching a second surface.
+>
+> ⇒ **B3a alone changes NOTHING a customer can see.** Landing it and ticking B3
+> would have been precisely the "fixed = half wired" pattern Andy named today.
+> It is recorded here as one-third, and the row does not go green until a page
+> from a real browser lands in `safari_history` on a box that never paired a phone.
+>
+> **DECISION OWED (Archie's, stated for the record, not deferred):** the credential
+> can only reach the extension if CM020 reads it from somewhere install.sh can
+> write. Until that path is measured in CM020 source, B3c has no design, and I
+> will not invent one from a guess about App Groups. Next action is to read CM020's
+> extension source for an existing config-read path — **not** to widen the Doctor
+> predicate to admit uncredentialed loopback POSTs, which would be a fail-open of
+> exactly the class this cut exists to remove.
 | B4 | ~~iOS Safari extension must exist~~ **IT EXISTS AND IS WIRED** | **DONE at source** (A2, 2026-09-02) | `SafariCaptureRelay.swift:103` POSTs `/api/safari/ingest`, fed by a Safari Web Extension App-Group queue, drained on app foreground (`CM031App:300` scenePhase→active). **My row was mis-scoped** — I wrote "must exist" without measuring. Box proof still owed. |
 | B5 | **Chrome extension is NOT SHIPPED.** install.sh opens `chrome.google.com/webstore/category/extensions` — the generic category page, not our listing | TODO | either a real listing URL, or the step does not run at all |
 
