@@ -19,7 +19,16 @@
 # 🔴 THAT PERMITTED BACKLOG COST US A LIVE LAUNCH BLOCKER.
 # tests/TEST_WIRING.tsv recorded, at line 364:
 #
-#     test_walkaway_no_phase2_input_leak.sh    UNWIRED    -
+#     test_walkaway_no_phase2_input_lea + k.sh          UNWIRED    -
+#
+# ⚠️ THAT NAME IS DELIBERATELY SPLIT EVERYWHERE IN THIS FILE. DO NOT "TIDY" IT.
+# verify_test_wiring.sh computes reachability by searching starters for a test
+# FILENAME. Writing the name whole here made the walker score that test WIRED
+# "(via test_wiring_ceiling_only_ever_decreases.sh)" -- the backlog fell 91->90
+# and the guard for a LIVE walk-away stall was reported as running when nothing
+# ran it. I did that on this branch and caught it in the count, not by reading.
+# It is the same shape as the "36 false WIRED" this estate already records from
+# `xcodebuild -scheme`. A gate that mentions its subject can wire it by accident.
 #
 # That test guards a BLOCKING gui_read at install.sh:11176, sitting inside the
 # phase install.sh declares unattended at :9757. A GUI walk-away install stalls
@@ -100,7 +109,8 @@ if [ "$head_val" -gt "$base_val" ]; then
     printf '      That is not a fix, it is the removal of the ratchet. The\n' >&2
     printf '      ceiling exists so the dark-test backlog can only ever DRAIN.\n' >&2
     printf '      Raising it re-permits exactly the state that left\n' >&2
-    printf '      test_walkaway_no_phase2_input_leak.sh unrun while it guarded\n' >&2
+    printf '      %s unrun while it guarded\n' \
+        "test_walkaway_no_phase2_input_lea""k.sh" >&2
     printf '      a live walk-away install stall.\n' >&2
     printf '\n      WIRE THE TEST, OR DELETE IT. Those are the two options.\n' >&2
     exit 1
