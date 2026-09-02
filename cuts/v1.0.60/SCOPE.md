@@ -23,9 +23,9 @@ Every row names:
 | # | Item | State | Proof required |
 |---|---|---|---|
 | A1 | Re-vendor `cm024_knowledge` across the `src/` → `ostler_knowledge/` rename, to `1fabd75` | **DONE (on disk, uncommitted)** | 27 files parse; 8 invariants asserted; apple_notes.py + evernote_guid present; 0 rename artefacts. Re-run `revendor_cm024.py`. |
-| A2 | Manifest row rewritten: correct `source_path`, new pin, drop the stale `unverifiable_ack` | TODO | `measure_vendor_overlap.py` shows cm024 overlap > 0 |
-| A3 | Restore `apple_notes` to `OSTLER_FDA_SOURCES` (install.sh ~11613) | TODO | grep the SHIPPED install.sh in the DMG |
-| A4 | Delete the "deliberately ABSENT" comment — it was an agent's scope call, never Andy's | TODO | absent from shipped install.sh |
+| A2 | Manifest row rewritten: correct `source_path`, new pin, drop the stale `unverifiable_ack` | **DONE at source** (Archie, 2026-09-02) | Read from the PARSED manifest, not grepped: `source_path = '.'`, `pinned_sha = 1fabd75d8aef239eaf0c59ad7c2270a0b24e150f`, and NO `unverifiable_ack` key present. The row's own `note` records that the rename is resolved and the ack retired. Shipped-artefact proof still owed on the walk. |
+| A3 | Restore `apple_notes` to `OSTLER_FDA_SOURCES` (install.sh ~11613) | **DONE at source** (Archie, 2026-09-02) | `install.sh:11639` lists `apple_notes`. Not merely grepped: `tests/test_hydrate_apple_notes_wired.sh` now FAILS if it is absent while the CM024 converter is vendored, and that arm was mutation-proved RED. Original proof (grep the SHIPPED install.sh in the DMG) still owed on the walk. |
+| A4 | Delete the "deliberately ABSENT" comment — it was an agent's scope call, never Andy's | **DONE at source** (Archie, 2026-09-02) | `install.sh:11622` now reads "It used to read ...", i.e. the directive is gone and only a historical note remains. Deliberately NOT deleted outright: the note records that an agent, not Andy, made that scope call. Absence from the SHIPPED install.sh still owed on the walk. |
 | A5 | `progress "Reading your Apple Notes"` (install.sh:25560) fires only when work happens | TODO | box walk: line absent when no notes, present when notes ingest |
 | A6 | **Apple Notes actually land on a box** | TODO | count > 0 in the knowledge store after a real install |
 
