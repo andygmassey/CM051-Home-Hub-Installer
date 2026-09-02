@@ -1,6 +1,196 @@
---- a/agent/box_status.py
-+++ b/agent/box_status.py
-@@ -29,11 +29,17 @@
+diff --git ab/README.md bb/README.md
+new file mode 100644
+index 00000000..e8fbbe59
+--- /dev/null
++++ bb/README.md
+@@ -0,0 +1,182 @@
++# vendor/doctor/
++
++Vendored copy of the Ostler Doctor diagnostic dashboard. Source of truth:
++`HR015 - Gaming PC/doctor/agent/`.
++
++## Why vendor
++
++`install.sh` probes `${SCRIPT_DIR}/doctor/agent/` at section 3.14h
++(`Setting up Ostler Doctor diagnostic dashboard`, install.sh:4794) and
++stages those files into `${OSTLER_DIR}/doctor/` so the launchd-managed
++service can `python3 -m doctor.agent.web_ui` against the customer's
++local Hub at `http://127.0.0.1:8089/doctor`. When `SCRIPT_DIR` is the
++installer `.app`'s `Contents/Resources/`, `doctor/agent/` must travel
++inside the bundle.
++
++The pre-vendor behaviour was a soft skip: if the bundled copy was
++missing and `PWG_DOCTOR_REPO` was not set, install.sh continued without
++the dashboard. That left customers without the iframe target that
++`Ostler.app`'s Pairing tab points at (`http://127.0.0.1:8089/pair-ios`,
++served by Doctor's `web_ui.py`). Vendoring makes the customer install
++path self-contained for the v1.0 launch.
++
++## What is included
++
++Pure-Python runtime under `agent/`. Listed in `install.sh:4802` as the
++`${SCRIPT_DIR}/doctor/agent/` payload.
++
++- `__init__.py` (empty, marks the package)
++- `.env.example` (DOCTOR_PORT, GATEWAY_URL, OLLAMA_URL placeholders)
++- `apple_style.css` (Dashboard chrome)
++- `banner_copy.py`, `diagnostic_copy.py`, `first_run_copy.py`,
++  `web_ui_copy.py`, `dashboard_components.py` (Rule 0.9 catalogues +
++  rendered components)
++- `chat_token.py` (chat-token mint endpoint for the iOS companion)
++- `pair_status.py` (paircode + QR status the `/pair-ios` route serves)
++- `imessage_tcc_posture.py` (iMessage Full Disk Access posture marker
++  reader, rendered by `dashboard_components.py`)
++- `diagnostic_rules.py`, `status_collector.py` (the diagnostic engine)
++- `first_run.py` (first-launch wizard panels)
++- `import_evernote.py`, `import_evernote_runner.py` (Evernote ingest UI
++  + runner; gated by user action, safe to ship dormant)
++- `proxy.py`, `wiki_correct.py` (wiki proxy + corrector)
++- `web_ui.py` (FastAPI entry point: `/doctor`, `/pair-ios`,
++  `/api/v1/pair/status`, `/api/v1/pair/regenerate`, panels)
++- `requirements.txt` (`fastapi`, `uvicorn`, `httpx`, `pyyaml`, `qrcode`)
++
++Last synced from HR015 `doctor/agent/` @ `1bb0a0d` (HR015 origin/main,
++2026-06-16). This sync was a **surgical subset** carrying HR015 #187
++(`6636fdd`, "native-aware Docker rules") to kill the false
++"Docker not installed / not running" criticals that led the Doctor
++dashboard on the productised native build (the data tier runs in Colima
++containers, not Docker Desktop, so the Docker-Desktop check is a
++false-RED). The .152 cold-wipe walk (2026-06-16) still showed those
++criticals because the vendored copy predated #187.
++
++Files re-vendored from upstream in this sync:
++`diagnostic_rules.py`, `status_collector.py`, `web_ui.py`,
++`apple_style.css`, `first_run.py`, and the new `config_panel.py`
++(a lazy import target of the updated `web_ui.py`).
++
++Surgical re-sync (HR015 #170, 2026-07-30): `pair_status.py` @ HR015
++origin/main `b0b3831` (carries #185 `a088b26`, "unblock native Doctor
++dashboard + pairing on single-machine install"). The prior vendored copy
++predated #185, so `gateway_port()` read only `ZEROCLAW_GATEWAY_PORT` then
++`PORT` and fell through to the dead default `42617` -- the Doctor
++`/pair-ios` panel then reported the LIVE `:8000` gateway as `gateway_down`
++and blocked iOS pairing on every fresh install. The upstream fix (already
++committed, just never re-vendored) reads `OSTLER_CHAT_GATEWAY_PORT` first
++-- the single canonical lever install.sh writes into the Doctor plist
++(`OSTLER_CHAT_GATEWAY_PORT=8000`, in lockstep with the pinned `[gateway]
++port = 8000`) and the same var `chat_token._zeroclaw_port()` reads. Now
++byte-identical to source; no other file touched.
++
++Files deliberately NOT overwritten -- these are **ahead of HR015**
++(CM051-local, not yet upstreamed); future syncs must **graft**, never
++blind-copy, preserving the local work until it lands upstream:
++
++- `duplicate_decision.py` + `test_duplicate_decision_split.py`
++  (CM051 PR #302's `split` action). A blind whole-directory `rm -rf` +
++  copy (the generic recipe below) would have regressed #302.
++- `web_ui.py` carries CM051 PR #401's governor **settings button**
++  (`<a id="settingsBtn" href="/config">` + its `DASHBOARD_BTN_SETTINGS`
++  copy imports + `.refresh-btn` `text-decoration`). HR015's Doctor has
++  no governor, so this button exists **only** in the vendored copy. A
++  straight copy of HR015 `web_ui.py` deletes it.
++- `diagnostic_rules.py` + `diagnostic_copy.py` carry CM051 PR #469's
++  **`check_last_upgrade`** (B-lite) upgrade audit-trail row (reads
++  `preferences.json.last_upgrade_result`) and its `LAST_UPGRADE_*` copy
++  catalogue. HR015 has no upgrade matrix, so this rule exists **only**
++  in the vendored copy (pickaxe `--all` across HR015 finds it nowhere).
++  A straight copy of HR015 deletes the rule + copy.
++
++  **Both #401 and #469 were hand-added directly to the vendored copy
++  (they skipped the upstream-first rule).** They should be upstreamed to
++  HR015 `doctor/agent/` so a future sync is a clean copy; until then,
++  graft. The three files above are therefore now "graft, don't copy",
++  same as `duplicate_decision.py`.
++
++Surgical graft (BW4 Part A, v1.0.10 security lockdown): `proxy.py` carries
++the Doctor -> ical-server auth-boundary fix -- validate the client bearer
++against the ZeroClaw gateway `[gateway].paired_tokens` store, then
++substitute `PWG_SERVICE_TOKEN` on the `/api/v1/*` forwards (fixes the
++ical-server 401 storm). Landed upstream in HR015 `doctor/agent/proxy.py`
++first; this vendored `proxy.py` matches that source byte-for-byte, so the
++next HR015 sync is a no-op for this file. Do NOT revert it in a re-sync.
++
++### 2026-07-30 sync (v1.0.13) -- `web_ui.py`, `diagnostic_rules.py`, `diagnostic_copy.py` @ `eb5c8a9`
++
++A **partial, grafted** re-sync of three files to HR015 origin/main
++`eb5c8a9` (PR #273), catching up ~6 weeks of drift since the last full
++directory sync (`1bb0a0d`). It carries two upstream changes:
++
++- **#178** (`web_ui.py`): a new unauthenticated `GET
++  /api/v1/hydration/status` passthrough so the wiki's first-run
++  "still settling" panel can poll hydration status without a paired
++  bearer (the proxy would otherwise 401 it). Non-PII payload; honest 502
++  on upstream failure so the panel stays up rather than false-clearing.
++- **#172** (`diagnostic_rules.py` + `diagnostic_copy.py`): a new
++  `check_imessage_capture_stalled` Doctor card that fires when the
++  iMessage capture bundle is crash-looping on SQLite pre-FDA (reads the
++  tail of `~/.ostler/logs/imessage-bundle.err`; degrades to quiet on a
++  fresh box with no log). Plus a one-line `CRITICAL_DISK_FIX` copy
++  cosmetic.
++
++This was a **graft, not a straight copy**: a blind copy would have
++regressed CM051-local `#401` (`web_ui.py` settings button) and `#469`
++(`check_last_upgrade` in both diagnostic files) -- see the
++do-not-overwrite list above. The graft added only #178/#172/cosmetic and
++left #401/#469 byte-for-byte. Verified: graft-vs-`eb5c8a9` diff is
++exactly the #401/#469 hunks (nothing upstream missed); 18/18 vendored
++doctor tests pass under python3.11; both `check_last_upgrade` and
++`check_imessage_capture_stalled` are wired in `ALL_RULES` and quiet on a
++fresh box.
++
++A vendor-freshness guard, `vendor/doctor/test_vendor_pairing.sh`, fails
++the build if a future re-sync drops the `/pair-ios` route, `pair_status.py`,
++or leaves a `web_ui.py` import without its vendored module.
++
++## What is NOT included
++
++- `test_*.py` (10 files, CI-only) - never installed on a customer Mac.
++- `__pycache__/`, `.pytest_cache/` - build artefacts.
++
++## Test-only environment flags
++
++`OSTLER_TEST_DISABLE_HEALTH=1` forces `GET /doctor/api/health` to return
++503 instead of its normal 200 healthy body. It exists only for the
++(B-lite) upgrade-matrix Row 6 rollback test (install.sh exits 0 but the
++health route will not answer, so the Hub's 60s health poll times out and
++C1 rolls back). Any other value (or the variable being unset) is a
++complete no-op, so the route behaves exactly as before. Never set it in
++production.
++
++## How to sync
++
++Until `make vendor-sync` lands (post-launch chore), syncing is manual:
++
++```bash
++SRC="$HOME/Documents/Projects/HR015 - Gaming PC/doctor/agent"
++DST="$(git rev-parse --show-toplevel)/vendor/doctor/agent"
++
++rm -rf "$DST"
++mkdir -p "$DST"
++for f in "$SRC"/*.py "$SRC"/*.css "$SRC"/*.txt "$SRC"/.env.example; do
++  [ -f "$f" ] || continue
++  base=$(basename "$f")
++  case "$base" in
++    test_*) continue ;;
++  esac
++  cp "$f" "$DST/"
++done
++```
++
++Open a PR titled `chore(vendor): sync doctor agent from HR015 @ <sha>`
++and link the upstream commit.
++
++## Rule
++
++HR015 is the upstream source of truth. Bug fixes go upstream first
++(in `HR015 - Gaming PC/doctor/agent/`), then flow into this vendored
++copy via a sync PR. Never edit `vendor/doctor/agent/` in place to fix
++a bug - the next sync wipes it.
+diff --git aa/agent/box_status.py bb/agent/box_status.py
+index 56e99044..7c890712 100644
+--- aa/agent/box_status.py
++++ bb/agent/box_status.py
+@@ -29,12 +29,18 @@ Design constraints (see ``docs/SPEC_governor_status_indicator.md`` in
  from __future__ import annotations
  
  import json
@@ -10,31 +200,30 @@
  import subprocess
  import urllib.request
  from typing import Any, Optional
-+
+ 
 +# Fail-soft probes must still be able to SAY they failed. The Doctor is started
 +# by launchd with StandardErrorPath -> ~/.ostler/logs/doctor.err, so anything
 +# logged here lands in the support bundle.
 +logger = logging.getLogger(__name__)
- 
++
  # Ollama endpoint - same env var the rest of the Doctor uses.
  OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
-@@ -452,16 +458,66 @@
-         except Exception:
-             pass
+ 
+@@ -454,14 +460,64 @@ def _governor() -> dict[str, Any]:
      return {"enabled": enabled, "tier": tier, "deferring": deferring}
-+
-+
+ 
+ 
 +# A guard that swallows its own failure is a defect in its own right, so this
 +# module records whether the pause backend has ever failed to load. The
 +# box-status poll runs every few seconds; logging on every call would bury the
 +# report in its own noise, so each distinct failure is reported ONCE per
 +# process and the fallback payload carries the admission from then on.
 +_PAUSE_BACKEND_REPORTED: set[str] = set()
- 
++
 +
 +def _report_pause_backend_failure(exc: BaseException) -> str:
 +    """Log a pause-backend failure the first time each distinct one is seen.
- 
++
 +    Returns the short reason string that goes into the payload.
 +    """
 +    if isinstance(exc, ImportError):
@@ -87,7 +276,7 @@
  
  
  def _derive_state(load: Optional[dict], memory: Optional[dict],
-@@ -529,6 +585,9 @@
+@@ -529,6 +585,9 @@ def box_status() -> dict[str, Any]:
              "paused": paused,
              "expiry_human": pause.get("expiry_human", ""),
              "indefinite": bool(pause.get("indefinite")),
@@ -97,9 +286,11 @@
          },
          "settling": settling,
          "running": _running(governor, settling),
---- a/agent/config_panel.py
-+++ b/agent/config_panel.py
-@@ -67,6 +67,24 @@
+diff --git aa/agent/config_panel.py bb/agent/config_panel.py
+index 605828b1..092748af 100644
+--- aa/agent/config_panel.py
++++ bb/agent/config_panel.py
+@@ -67,6 +67,24 @@ def _config_file() -> Path:
      return DEFAULT_CONFIG_FILE
  
  
@@ -124,7 +315,7 @@
  # -- Errors -----------------------------------------------------------
  
  
-@@ -107,10 +125,11 @@
+@@ -107,10 +125,11 @@ def is_secret_key(key: str) -> bool:
  # -- Whitelist of editable fields -------------------------------------
  #
  # Each entry describes ONE clearly-safe, flat top-level field the panel
@@ -140,26 +331,26 @@
  #
  # ``kind`` drives both the rendered control and the validator:
  #   bool   -- checkbox; accepts true/false
-@@ -131,76 +150,59 @@
+@@ -131,76 +150,59 @@ class FieldSpec:
  
  
  EDITABLE_FIELDS: tuple[FieldSpec, ...] = (
 -    # -- Channels ----------------------------------------------------
+-    FieldSpec(
+-        key="imessage_enabled",
+-        kind="bool",
+-        label="iMessage",
+-        section="Channels",
+-        help="Let your assistant read and reply over iMessage.",
+-    ),
 +    # -- Background work ---------------------------------------------
 +    # The two controls Andy asked for: a Pause and a throttle. Both are
 +    # written straight through to the shell governor via governor.env, so
 +    # they take effect on the next background tick -- no daemon restart.
      FieldSpec(
--        key="imessage_enabled",
+-        key="whatsapp_enabled",
 +        key="background_paused",
          kind="bool",
--        label="iMessage",
--        section="Channels",
--        help="Let your assistant read and reply over iMessage.",
--    ),
--    FieldSpec(
--        key="whatsapp_enabled",
--        kind="bool",
 -        label="WhatsApp",
 -        section="Channels",
 -        help="Let your assistant read and reply over WhatsApp.",
@@ -256,12 +447,10 @@
  
  
  _TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
-@@ -393,18 +395,97 @@
-         except OSError:
-             pass
+@@ -395,16 +397,95 @@ def _atomic_write(path: Path, data: dict[str, Any]) -> None:
          raise ConfigError(500, f"Could not write config file: {exc}")
-+
-+
+ 
+ 
 +# -- Governor bridge (the file the background-work engine reads) ------
 +#
 +# The old defect: the panel wrote config.yaml that NO daemon read, so
@@ -295,8 +484,8 @@
 +        f"export OSTLER_PAUSED={'1' if paused else '0'}\n"
 +        f"export OSTLER_THROTTLE_LEVEL={throttle}\n"
 +    )
- 
- 
++
++
 +def _write_governor_env(config: dict[str, Any], path: Optional[Path] = None) -> None:
 +    """Atomically write the governor bridge file the shell engine reads."""
 +    p = path or _governor_env_file()
@@ -356,8 +545,11 @@
 +            # fail loud rather than silently leaving the brief armed.
 +            raise ConfigError(exc.status, exc.detail)
      return read_config_view(p)
+diff --git ab/agent/daemon_cron.py bb/agent/daemon_cron.py
+new file mode 100644
+index 00000000..e5cae7b2
 --- /dev/null
-+++ b/agent/daemon_cron.py
++++ bb/agent/daemon_cron.py
 @@ -0,0 +1,319 @@
 +"""
 +Ostler Doctor -- daemon cron pause bridge (Batch-2 review #6 F1).
@@ -678,9 +870,11 @@
 +        "config_path": str(p),
 +        "restart": restart,
 +    }
---- a/agent/dashboard_components.py
-+++ b/agent/dashboard_components.py
-@@ -66,11 +66,73 @@
+diff --git aa/agent/dashboard_components.py bb/agent/dashboard_components.py
+index ee9334a2..de88f2ec 100644
+--- aa/agent/dashboard_components.py
++++ bb/agent/dashboard_components.py
+@@ -66,11 +66,73 @@ from reminders_runtime import (
  try:
      from ostler_security.consent import all_consents  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
      _HAS_CONSENT = True
@@ -755,7 +949,7 @@
  try:
      from legal import (  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
          ARTICLE_9_EU_CONSENT,
-@@ -91,6 +153,58 @@
+@@ -91,6 +153,58 @@ except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
      _BUNDLED_CONSENTS = {}
  
  
@@ -814,7 +1008,7 @@
  def _any_ostler_container_running(snapshot: SystemSnapshot) -> bool:
      return any(
          is_ostler_container(c) and c.state == "running"
-@@ -500,12 +614,43 @@
+@@ -500,13 +614,44 @@ def render_consent_status() -> str:
      user; the bridges decide whether they need it. Doctor's job is
      to surface drift, not to enforce policy.
      """
@@ -823,8 +1017,7 @@
 +    # Resolve per call. See _resolve_consent_registry for why the
 +    # import-time flag was not trustworthy.
 +    has_consent, import_error, consents_fn = _resolve_consent_registry()
- 
--    records = all_consents()
++
 +    if not has_consent:
 +        # DEGRADED, AND IT MUST SAY SO. This used to return "" and was
 +        # therefore indistinguishable from "no records yet" (task #429).
@@ -852,16 +1045,18 @@
 +        </div>
 +        </div>
 +    </div>"""
-+
+ 
+-    records = all_consents()
 +    records = consents_fn()
      if not records:
          return ""
-+
-+    bundled_consents = _resolve_bundled_consents()
  
++    bundled_consents = _resolve_bundled_consents()
++
      tiles = ""
      for tickbox_id in sorted(records.keys()):
-@@ -516,7 +661,7 @@
+         rec = records[tickbox_id]
+@@ -516,7 +661,7 @@ def render_consent_status() -> str:
          timestamp = rec.get("timestamp")
          relative = _format_relative_time(timestamp)
  
@@ -870,9 +1065,11 @@
          if decision == "declined":
              colour = "#d96666"
              icon = "&#9888;"
---- a/agent/diagnostic_copy.py
-+++ b/agent/diagnostic_copy.py
-@@ -99,7 +99,36 @@
+diff --git aa/agent/diagnostic_copy.py bb/agent/diagnostic_copy.py
+index 71b7b451..ab221119 100644
+--- aa/agent/diagnostic_copy.py
++++ bb/agent/diagnostic_copy.py
+@@ -99,6 +99,35 @@ CONTAINER_CRASHED_DETAIL_FMT = (
  CONTAINER_CRASHED_FIX = "Check the error message in the container logs"
  CONTAINER_CRASHED_FIX_COMMAND_FMT = "docker logs --tail=30 {name}"
  
@@ -904,12 +1101,11 @@
 +CONTAINER_ENGINE_UNREACHABLE_FIX_COMMAND = (
 +    "/opt/homebrew/bin/colima start && /opt/homebrew/bin/docker ps"
 +)
- 
 +
+ 
  # ── check_qdrant_health ──────────────────────────────────────────────
  
- 
-@@ -126,6 +155,135 @@
+@@ -126,6 +155,135 @@ OXIGRAPH_INTERNAL_ERROR_FIX = "Check Oxigraph logs"
  OXIGRAPH_INTERNAL_ERROR_FIX_COMMAND_FMT = "docker logs --tail=30 {prefix}oxigraph"
  
  
@@ -1045,11 +1241,10 @@
  # ── check_import_readiness ───────────────────────────────────────────
  
  
-@@ -383,4 +541,273 @@
-     "After granting access, restart the assistant: "
+@@ -384,3 +542,272 @@ IMESSAGE_FDA_RESTART_HINT = (
      "launchctl kickstart -k gui/$(id -u)/"
      "com.creativemachines.ostler.assistant"
-+)
+ )
 +
 +
 +# ── check_imessage_capture_stalled ───────────────────────────────────
@@ -1065,7 +1260,7 @@
 +
 +IMESSAGE_CAPTURE_STALLED_TITLE = (
 +    "iMessage capture stalled: waiting for Full Disk Access"
- )
++)
 +IMESSAGE_CAPTURE_STALLED_DETAIL = (
 +    "Ostler's iMessage capture is retrying but cannot open your Messages "
 +    "database yet, so no messages are being read. macOS blocks access until "
@@ -1319,9 +1514,11 @@
 +SCHEDULED_AGENT_UNKNOWN_FIX_COMMAND_FMT = (
 +    "launchctl print gui/$(id -u)/{label}"
 +)
---- a/agent/diagnostic_rules.py
-+++ b/agent/diagnostic_rules.py
-@@ -18,11 +18,48 @@
+diff --git aa/agent/diagnostic_rules.py bb/agent/diagnostic_rules.py
+index 7f8029a3..2b85a487 100644
+--- aa/agent/diagnostic_rules.py
++++ bb/agent/diagnostic_rules.py
+@@ -18,11 +18,48 @@ Rules are organised by category:
  
  from __future__ import annotations
  
@@ -1370,7 +1567,7 @@
      ALL_UNREACHABLE_DETAIL,
      ALL_UNREACHABLE_FIX,
      ALL_UNREACHABLE_FIX_COMMAND,
-@@ -38,6 +75,10 @@
+@@ -38,6 +75,10 @@ from diagnostic_copy import (
      CONTAINER_CRASHED_DETAIL_FMT,
      CONTAINER_CRASHED_FIX,
      CONTAINER_CRASHED_FIX_COMMAND_FMT,
@@ -1381,7 +1578,7 @@
      CONTAINER_CRASHED_TITLE_FMT,
      CONTAINER_NEVER_STARTED_DETAIL,
      CONTAINER_NEVER_STARTED_FIX,
-@@ -79,6 +120,14 @@
+@@ -79,6 +120,14 @@ from diagnostic_copy import (
      HIGH_MEM_CONTAINER_FIX,
      HIGH_MEM_CONTAINER_FIX_COMMAND_FMT,
      HIGH_MEM_CONTAINER_TITLE_FMT,
@@ -1396,7 +1593,7 @@
      IMESSAGE_FDA_DETAIL,
      IMESSAGE_FDA_FIX,
      IMESSAGE_FDA_FIX_COMMAND,
-@@ -95,6 +144,15 @@
+@@ -95,6 +144,15 @@ from diagnostic_copy import (
      IMPORT_READY_DETAIL,
      IMPORT_READY_FIX_COMMAND,
      IMPORT_READY_TITLE,
@@ -1412,7 +1609,7 @@
      LOW_RAM_DETAIL,
      LOW_RAM_TITLE_FMT,
      MANY_MODELS_DETAIL,
-@@ -145,14 +203,53 @@
+@@ -145,13 +203,52 @@ from diagnostic_copy import (
      STALE_IMPORT_FIX,
      STALE_IMPORT_FIX_COMMAND,
      STALE_IMPORT_TITLE_FMT,
@@ -1461,12 +1658,11 @@
  )
  
 +log = logging.getLogger(__name__)
- 
 +
+ 
  def check_first_install(snapshot: Any) -> list[dict]:
      """Detect common first-install problems."""
-     findings = []
-@@ -228,9 +325,39 @@
+@@ -228,9 +325,39 @@ def check_first_install(snapshot: Any) -> list[dict]:
  
  
  def check_container_health(snapshot: Any) -> list[dict]:
@@ -1507,17 +1703,10 @@
      for c in snapshot.docker_containers:
          # Container restarting (crash loop)
          if "Restarting" in c.status:
-@@ -314,13 +441,359 @@
-             "detail": OXIGRAPH_INTERNAL_ERROR_DETAIL,
-             "fix": OXIGRAPH_INTERNAL_ERROR_FIX,
-             "fix_command": OXIGRAPH_INTERNAL_ERROR_FIX_COMMAND_FMT.format(prefix=prefix),
-+            "risk": "low",
-+            "category": "runtime",
-+        })
-+
-+    return findings
-+
-+
+@@ -321,6 +448,352 @@ def check_oxigraph_health(snapshot: Any) -> list[dict]:
+     return findings
+ 
+ 
 +def check_wiki_health(snapshot: Any) -> list[dict]:
 +    """The wiki must announce its own death.
 +
@@ -1578,10 +1767,10 @@
 +            ),
 +            "fix": WIKI_REFRESH_STALLED_FIX,
 +            "fix_command": WIKI_REFRESH_STALLED_FIX_COMMAND,
-             "risk": "low",
-             "category": "runtime",
-         })
- 
++            "risk": "low",
++            "category": "runtime",
++        })
++
 +    wiki_svc = next((s for s in snapshot.services if s.name == "wiki"), None)
 +    if not wiki_svc:
 +        # No probe result at all. Silence here is correct: an older
@@ -1653,9 +1842,9 @@
 +        "risk": "low",
 +        "category": "runtime",
 +    })
-     return findings
- 
- 
++    return findings
++
++
 +def check_engine_supervisor_present(snapshot: Any) -> list[dict]:
 +    """Is anything actually WATCHING the runtime?
 +
@@ -1867,16 +2056,10 @@
  def check_import_readiness(snapshot: Any) -> list[dict]:
      """Check whether the system is ready to run the import pipeline."""
      findings = []
-@@ -942,6 +1415,241 @@
-         "detail": detail,
-         "fix": IMESSAGE_FDA_FIX,
-         "fix_command": IMESSAGE_FDA_FIX_COMMAND,
-+        "risk": "low",
-+        "category": "installation",
-+    })
-+    return findings
-+
-+
+@@ -948,14 +1421,843 @@ def check_imessage_fda(snapshot: Any) -> list[dict]:
+     return findings
+ 
+ 
 +# ── (B-lite) upgrade audit-trail row ─────────────────────────────────
 +
 +
@@ -2106,15 +2289,15 @@
 +        "detail": IMESSAGE_CAPTURE_STALLED_DETAIL,
 +        "fix": IMESSAGE_CAPTURE_STALLED_FIX,
 +        "fix_command": IMESSAGE_CAPTURE_STALLED_FIX_COMMAND,
-         "risk": "low",
-         "category": "installation",
-     })
-@@ -949,13 +1657,607 @@
- 
- 
++        "risk": "low",
++        "category": "installation",
++    })
++    return findings
++
++
  # ── Rule registry ────────────────────────────────────────────────────
-+
-+
+ 
+ 
 +# Dispatch failures are logged as a non-zero return code from the CM048
 +# conversation processor. Counted over the log TAIL only: the log is appended
 +# to forever, so counting the whole file would keep surfacing failures the
@@ -2419,10 +2602,10 @@
 +# legitimately show runs = 0 two full windows later. Matches the 2x posture
 +# used by dashboard_components.STALE_INTERVAL_MULTIPLIER.
 +_SCHEDULED_AGENT_NEVER_RAN_AFTER = 2
- 
++
 +_LAUNCHD_RUNS_RE = re.compile(r"^\s*runs\s*=\s*(\d+)\s*$", re.MULTILINE)
 +_LAUNCHD_EXIT_RE = re.compile(r"^\s*last exit code\s*=\s*(.+?)\s*$", re.MULTILINE)
- 
++
 +
 +def _scheduled_agent_state_dir():
 +    """Where the per-label streak state lives.
@@ -2717,7 +2900,7 @@
      check_redis_health,
      check_gateway_health,
      check_import_readiness,
-@@ -969,6 +2271,9 @@
+@@ -969,6 +2271,9 @@ ALL_RULES = [
      check_mail_content,
      check_backfill_progress,
      check_imessage_fda,
@@ -2727,7 +2910,7 @@
  ]
  
  
-@@ -978,8 +2283,43 @@
+@@ -978,8 +2283,43 @@ def run_all_rules(snapshot: Any) -> list[dict]:
      for rule in ALL_RULES:
          try:
              findings.extend(rule(snapshot))
@@ -2773,9 +2956,11 @@
  
      # Deduplicate by title
      seen_titles = set()
---- a/agent/duplicate_decision.py
-+++ b/agent/duplicate_decision.py
-@@ -25,7 +25,7 @@
+diff --git aa/agent/duplicate_decision.py bb/agent/duplicate_decision.py
+index e994da08..326efbae 100644
+--- aa/agent/duplicate_decision.py
++++ bb/agent/duplicate_decision.py
+@@ -25,7 +25,7 @@ from typing import Any, Dict, List
  
  import yaml
  
@@ -2784,7 +2969,7 @@
  # short-id shape: hex tails plus a safe alphanumeric set. Crucially this rejects
  # path separators and dots, so a malformed/hostile id can never escape the
  # corrections dir or poison the YAML.
-@@ -63,8 +63,8 @@
+@@ -63,8 +63,8 @@ def validate_payload(body: Any) -> Dict[str, Any]:
          )
  
      ids = body.get("ids")
@@ -2795,13 +2980,13 @@
  
      seen: set = set()
      uniq: List[str] = []
-@@ -74,9 +74,15 @@
+@@ -74,8 +74,14 @@ def validate_payload(body: Any) -> Dict[str, Any]:
          if x not in seen:
              seen.add(x)
              uniq.append(x)
 -    if len(uniq) < 2:
 -        raise ValidationError("need at least 2 distinct short-ids")
- 
++
 +    # ``split`` flags ONE record as wrongly-fused (one contact that is really
 +    # two people); ``merge``/``distinct`` are pairwise so they need 2+.
 +    min_ids = 1 if action == "split" else 2
@@ -2809,11 +2994,10 @@
 +        raise ValidationError(
 +            f"action {action!r} needs at least {min_ids} distinct short-id(s)"
 +        )
-+
+ 
      return {"action": action, "ids": uniq}
  
- 
-@@ -84,6 +90,9 @@
+@@ -84,6 +90,9 @@ def _entries_for(normalised: Dict[str, Any]) -> List[Dict[str, List[str]]]:
      action, ids = normalised["action"], normalised["ids"]
      if action == "merge":
          return [{"merge": list(ids)}]
@@ -2823,126 +3007,11 @@
      # distinct: record every pair so the resolver vetoes each one independently.
      return [
          {"distinct": [ids[i], ids[j]]}
---- a/agent/import_evernote_runner.py
-+++ b/agent/import_evernote_runner.py
-@@ -37,6 +37,7 @@
- 
- import argparse
- import json
-+import logging
- import os
- import subprocess
- import sys
-@@ -44,7 +45,58 @@
- from pathlib import Path
- from typing import Any, Dict, List
- 
-+# Best-effort settling-progress import. The runner is stdlib-only by design
-+# so it can boot inside a fresh Doctor venv before extra deps land -- the
-+# helper import is guarded so an absent module never blocks the runner from
-+# finishing the import (the settling panel then falls back to calendar mode,
-+# which is the correct honest degradation).
-+try:
-+    _REPO_ROOT = Path(__file__).resolve().parents[2]
-+    if str(_REPO_ROOT) not in sys.path:
-+        sys.path.insert(0, str(_REPO_ROOT))
-+    from ostler_fda.settling_progress import (  # noqa: E402
-+        report_settling_progress,
-+    )
-+except Exception:  # noqa: BLE001 -- see comment above
-+    report_settling_progress = None  # type: ignore[assignment]
- 
-+_logger = logging.getLogger(__name__)
-+
-+# Channel identifier for the "notes" settling shard. Runner is a subprocess
-+# of start_import (in import_evernote.py); both emit into the same shard.
-+_SETTLING_CHANNEL = "notes"
-+
-+
-+def _emit_notes_settling(
-+    *,
-+    done: int,
-+    total: int,
-+    needs_source: bool = False,
-+    started_at: str,
-+) -> None:
-+    """Emit a `notes` settling shard from the runner subprocess.
-+
-+    Safe against a missing helper import or a full-disk write -- neither
-+    can abort the runner (which owns the terminal state file + lockfile
-+    removal). Silent failure here is degrades-to-calendar-mode, not lost
-+    data.
-+    """
-+    if report_settling_progress is None:
-+        return
-+    try:
-+        report_settling_progress(
-+            channel=_SETTLING_CHANNEL,
-+            done=done,
-+            total=total,
-+            needs_source=needs_source,
-+            started_at=started_at,
-+        )
-+    except Exception:  # noqa: BLE001 -- see docstring
-+        # Runner's own log stream is inherited by the parent; write a
-+        # single warning line so a real problem is at least visible.
-+        sys.stderr.write("runner: settling-progress emit failed\n")
-+
-+
- # Sentinel that separates sequential phases in the command after ``--``.
- # Doctor passes ``convert ... --and-then embed ...`` so the supervisor
- # runs convert, then embed ONLY if convert succeeded. A command with no
-@@ -80,7 +132,18 @@
-     parser.add_argument("--log-path", required=True, dest="log_path")
-     parser.add_argument("--enex-path", required=True, dest="enex_path")
-     parser.add_argument("--started-at", required=True, dest="started_at")
-+    # Optional: count of `<note>` tags in the ENEX, measured by start_import
-+    # before fork. Feeds the settling-progress `total` denominator; 0 means
-+    # "count unknown" and results in a needs_source=False, total=0 shard
-+    # (reader classifies as ready). Optional so old callers still work.
-     parser.add_argument(
-+        "--note-count",
-+        type=int,
-+        default=0,
-+        dest="note_count",
-+        help="ENEX <note>-tag count for settling-progress total (optional).",
-+    )
-+    parser.add_argument(
-         "command",
-         nargs=argparse.REMAINDER,
-         help="The command(s) to execute; precede with -- to disambiguate. "
-@@ -190,6 +253,28 @@
-         # Fall through and still try to remove the lockfile so the
-         # next start_import isn't blocked by a stale lock.
- 
-+    # Settling-progress: emit the terminal shard so the wiki "notes" panel
-+    # transitions off waiting/partway once this import completes. We treat
-+    # `succeeded` AND `partial` as "notes landed" -- partial means only
-+    # the embed step failed (Qdrant/Ollama down); the markdown IS in the
-+    # staging tree, which is what the settling panel actually cares about.
-+    # A hard `failed` state does NOT emit -- the panel keeps its last-known
-+    # `done` and the reader's stale-updated_at handling (via the A9 gate)
-+    # catches truly-abandoned imports.
-+    if status in ("succeeded", "partial"):
-+        # A zero note_count means the caller could not measure a
-+        # denominator (mangled ENEX, or older caller pre-dating the
-+        # --note-count flag). Emit total=0/done=0 which the reader
-+        # classifies as ready (needs_source=False), NOT as an invitation
-+        # to add a source -- the source IS connected, an import ran.
-+        note_count = max(0, args.note_count)
-+        _emit_notes_settling(
-+            done=note_count,
-+            total=note_count,
-+            needs_source=False,
-+            started_at=args.started_at,
-+        )
-+
-     try:
-         Path(args.lock).unlink(missing_ok=True)
-     except OSError as exc:
---- a/agent/import_evernote.py
-+++ b/agent/import_evernote.py
-@@ -46,6 +46,7 @@
+diff --git aa/agent/import_evernote.py bb/agent/import_evernote.py
+index f74d7e1b..0662dc5b 100644
+--- aa/agent/import_evernote.py
++++ bb/agent/import_evernote.py
+@@ -46,6 +46,7 @@ boundary.
  from __future__ import annotations
  
  import json
@@ -2950,7 +3019,7 @@
  import os
  import re
  import subprocess
-@@ -59,7 +60,30 @@
+@@ -59,6 +60,29 @@ from typing import Any, Dict, Optional
  
  import yaml  # PyYAML, listed in doctor/agent/requirements.txt
  
@@ -2970,23 +3039,20 @@
 +    )
 +except Exception:  # noqa: BLE001 -- best-effort import; see comment
 +    report_settling_progress = None  # type: ignore[assignment]
- 
++
 +_logger = logging.getLogger(__name__)
 +
 +# Settling-progress channel for the "notes" panel. Evernote is the sole
 +# producer today; Notion/Obsidian will follow the same shape once wired.
 +_SETTLING_CHANNEL = "notes"
 +
-+
+ 
  # ── Default paths ─────────────────────────────────────────────────────
  
- DEFAULT_OSTLER_DIR = Path.home() / ".ostler"
-@@ -226,8 +250,101 @@
-         )
- 
+@@ -228,6 +252,99 @@ def validate_enex_path(raw_path: Any) -> Path:
      return resolved
-+
-+
+ 
+ 
 +# ── Settling-progress emit ───────────────────────────────────────────
 +
 +
@@ -3000,13 +3066,13 @@
 +# ENEX files can be tens or hundreds of MB. The count helper reads in fixed
 +# chunks so we never balloon Doctor's RSS on a big export.
 +_ENEX_CHUNK_BYTES = 1 << 20  # 1 MiB
- 
++
 +# Cap the note-count scan to keep start_import fast on a very large ENEX
 +# (hundreds of thousands of notes = ~seconds of scanning). If the customer's
 +# export is larger than the cap we return the cap; the settling panel's job
 +# is a rough denominator, not a forensic count.
 +_ENEX_MAX_NOTES_FOR_TOTAL = 200_000
- 
++
 +
 +def count_enex_notes(enex_path: Path) -> int:
 +    """Count `<note>` opening tags in an ENEX export.
@@ -3083,11 +3149,10 @@
  # ── Lockfile ─────────────────────────────────────────────────────────
  
  
-@@ -383,6 +500,25 @@
-             raise EvernoteImportError(
+@@ -384,6 +501,25 @@ def start_import(
                  500, f"could not open log file {log_path}: {exc}",
              )
-+
+ 
 +        # Count notes in the ENEX for the settling-progress denominator.
 +        # Fast streaming byte scan; a mangled ENEX returns 0 (the panel
 +        # then falls back to calendar mode -- honest degradation). We do
@@ -3106,10 +3171,11 @@
 +            needs_source=False,
 +            started_at=started_at,
 +        )
- 
++
          try:
              try:
-@@ -417,6 +553,11 @@
+                 # Phase 1: convert the export to markdown in the staging
+@@ -417,6 +553,11 @@ def start_import(
                          "--log-path", str(log_path),
                          "--enex-path", str(enex_path),
                          "--started-at", started_at,
@@ -3121,8 +3187,128 @@
                          "--",
                          *convert_phase,
                          "--and-then",
+diff --git aa/agent/import_evernote_runner.py bb/agent/import_evernote_runner.py
+index f72176a9..e0df903c 100644
+--- aa/agent/import_evernote_runner.py
++++ bb/agent/import_evernote_runner.py
+@@ -37,6 +37,7 @@ from __future__ import annotations
+ 
+ import argparse
+ import json
++import logging
+ import os
+ import subprocess
+ import sys
+@@ -44,6 +45,57 @@ from datetime import datetime, timezone
+ from pathlib import Path
+ from typing import Any, Dict, List
+ 
++# Best-effort settling-progress import. The runner is stdlib-only by design
++# so it can boot inside a fresh Doctor venv before extra deps land -- the
++# helper import is guarded so an absent module never blocks the runner from
++# finishing the import (the settling panel then falls back to calendar mode,
++# which is the correct honest degradation).
++try:
++    _REPO_ROOT = Path(__file__).resolve().parents[2]
++    if str(_REPO_ROOT) not in sys.path:
++        sys.path.insert(0, str(_REPO_ROOT))
++    from ostler_fda.settling_progress import (  # noqa: E402
++        report_settling_progress,
++    )
++except Exception:  # noqa: BLE001 -- see comment above
++    report_settling_progress = None  # type: ignore[assignment]
++
++_logger = logging.getLogger(__name__)
++
++# Channel identifier for the "notes" settling shard. Runner is a subprocess
++# of start_import (in import_evernote.py); both emit into the same shard.
++_SETTLING_CHANNEL = "notes"
++
++
++def _emit_notes_settling(
++    *,
++    done: int,
++    total: int,
++    needs_source: bool = False,
++    started_at: str,
++) -> None:
++    """Emit a `notes` settling shard from the runner subprocess.
++
++    Safe against a missing helper import or a full-disk write -- neither
++    can abort the runner (which owns the terminal state file + lockfile
++    removal). Silent failure here is degrades-to-calendar-mode, not lost
++    data.
++    """
++    if report_settling_progress is None:
++        return
++    try:
++        report_settling_progress(
++            channel=_SETTLING_CHANNEL,
++            done=done,
++            total=total,
++            needs_source=needs_source,
++            started_at=started_at,
++        )
++    except Exception:  # noqa: BLE001 -- see docstring
++        # Runner's own log stream is inherited by the parent; write a
++        # single warning line so a real problem is at least visible.
++        sys.stderr.write("runner: settling-progress emit failed\n")
++
+ 
+ # Sentinel that separates sequential phases in the command after ``--``.
+ # Doctor passes ``convert ... --and-then embed ...`` so the supervisor
+@@ -80,6 +132,17 @@ def _parse_args(argv: List[str]) -> argparse.Namespace:
+     parser.add_argument("--log-path", required=True, dest="log_path")
+     parser.add_argument("--enex-path", required=True, dest="enex_path")
+     parser.add_argument("--started-at", required=True, dest="started_at")
++    # Optional: count of `<note>` tags in the ENEX, measured by start_import
++    # before fork. Feeds the settling-progress `total` denominator; 0 means
++    # "count unknown" and results in a needs_source=False, total=0 shard
++    # (reader classifies as ready). Optional so old callers still work.
++    parser.add_argument(
++        "--note-count",
++        type=int,
++        default=0,
++        dest="note_count",
++        help="ENEX <note>-tag count for settling-progress total (optional).",
++    )
+     parser.add_argument(
+         "command",
+         nargs=argparse.REMAINDER,
+@@ -190,6 +253,28 @@ def main(argv: List[str]) -> int:
+         # Fall through and still try to remove the lockfile so the
+         # next start_import isn't blocked by a stale lock.
+ 
++    # Settling-progress: emit the terminal shard so the wiki "notes" panel
++    # transitions off waiting/partway once this import completes. We treat
++    # `succeeded` AND `partial` as "notes landed" -- partial means only
++    # the embed step failed (Qdrant/Ollama down); the markdown IS in the
++    # staging tree, which is what the settling panel actually cares about.
++    # A hard `failed` state does NOT emit -- the panel keeps its last-known
++    # `done` and the reader's stale-updated_at handling (via the A9 gate)
++    # catches truly-abandoned imports.
++    if status in ("succeeded", "partial"):
++        # A zero note_count means the caller could not measure a
++        # denominator (mangled ENEX, or older caller pre-dating the
++        # --note-count flag). Emit total=0/done=0 which the reader
++        # classifies as ready (needs_source=False), NOT as an invitation
++        # to add a source -- the source IS connected, an import ran.
++        note_count = max(0, args.note_count)
++        _emit_notes_settling(
++            done=note_count,
++            total=note_count,
++            needs_source=False,
++            started_at=args.started_at,
++        )
++
+     try:
+         Path(args.lock).unlink(missing_ok=True)
+     except OSError as exc:
+diff --git ab/agent/pause_control.py bb/agent/pause_control.py
+new file mode 100644
+index 00000000..e3379fc2
 --- /dev/null
-+++ b/agent/pause_control.py
++++ bb/agent/pause_control.py
 @@ -0,0 +1,468 @@
 +"""
 +Ostler Doctor -- background-work Pause control (governor.env backend).
@@ -3592,9 +3778,11 @@
 +    import json
 +
 +    print(json.dumps(read_state(), indent=2))
---- a/agent/proxy.py
-+++ b/agent/proxy.py
-@@ -54,6 +54,7 @@
+diff --git aa/agent/proxy.py bb/agent/proxy.py
+index e781c10b..5d166c07 100644
+--- aa/agent/proxy.py
++++ bb/agent/proxy.py
+@@ -54,6 +54,7 @@ upstream verifies the bearer itself).
  """
  from __future__ import annotations
  
@@ -3602,12 +3790,10 @@
  import logging
  import os
  from typing import Iterable, Optional
-@@ -200,8 +201,99 @@
-     if raw.startswith(prefix):
-         return raw[len(prefix):].strip()
+@@ -202,6 +203,179 @@ def _extract_bearer_token(headers) -> str:
      return ""
-+
-+
+ 
+ 
 +# Whether the gateway has been observed NOT to serve the bearer-validation
 +# oracle. Set only by a 404/405 from that route, cleared by any real 401.
 +# Process-local and deliberately not persisted: it describes the daemon we are
@@ -3622,6 +3808,88 @@
 +        if raw:
 +            return raw
 +    return ""
++
++
++def _extension_token() -> str:
++    """The per-install browser-extension credential, if this install has one."""
++    return os.environ.get("OSTLER_EXTENSION_TOKEN", "").strip()
++
++
++# The ONLY path the extension credential may open. Not a list, not an env var,
++# not configurable. See _is_extension_credential for why.
++_EXTENSION_ONLY_PATH = "/api/safari/ingest"
++
++
++def _is_extension_credential(request, client_bearer: str, upstream_path: str) -> bool:
++    """May this request proceed on the browser-extension credential alone?
++
++    THE DEFECT THIS CLOSES (Andy, 2026-09-02: *"no, it's a fucking BUG"*).
++    The macOS Safari extension posts the customer's own browsing, captured on
++    the customer's own Mac, to a loopback service on that same Mac -- and was
++    authenticated against the gateway's PAIRED-TOKEN STORE, which is populated
++    by pairing an iPhone. A Hub customer who never buys or pairs a phone got a
++    401 on every page, forever, and no ongoing browsing capture at all.
++
++    That is the WRONG CREDENTIAL, not a missing policy. Pairing proves "this
++    phone belongs to this Hub". It says nothing about whether the Mac may read
++    its own browser, and requiring it made an iPhone a prerequisite for a
++    Mac-only feature.
++
++    FOUR CONDITIONS, ALL REQUIRED, AND THE NARROWNESS IS THE WHOLE DESIGN:
++
++      1. ONE PATH.  ``/api/safari/ingest`` and nothing else, compared against
++         the CONCRETE upstream path rather than the route template. The other
++         proxied paths are READS of the customer's entire life -- timeline,
++         people, email, memory. This is a WRITE of their own browsing.
++         Widening this credential across all of them would be a real security
++         regression and is not what the fix asks for.
++      2. WRITES ONLY.  POST. A credential that could also GET would hand a
++         local process a reader for whatever this path serves.
++      3. LOOPBACK ONLY.  Same constraint as the oracle fallback below, and the
++         SAME EXPIRY WARNING APPLIES -- read it there. It is an assumption
++         about WIRING which this file cannot keep true.
++      4. ITS OWN TOKEN.  Deliberately NOT OSTLER_ADMIN_TOKEN. Reusing the
++         admin token would give a browser extension admin-equivalent power
++         over the Hub -- a strictly worse trade than the bug it fixes.
++
++    UNLIKE :func:`_local_fallback_allowed`, THIS DOES NOT REQUIRE THE ORACLE
++    TO BE ABSENT. That is the point: the fallback exists for deployment skew
++    and is dead code on a healthy daemon, so it could never have fixed this.
++    This path is live on a correctly-working Hub, because a Hub-only customer
++    is the NORMAL case, not a broken one.
++
++    compare_digest on BYTES, not ``==`` on str -- the timing leak and the
++    non-ASCII TypeError crash are both real and both already cost us once in
++    this file.
++    """
++    if not client_bearer:
++        return False
++
++    token = _extension_token()
++    if not token:
++        return False
++
++    # Concrete path, not the route template: a template could in principle be
++    # registered for more than one concrete route.
++    if str(upstream_path or "") != _EXTENSION_ONLY_PATH:
++        return False
++
++    if str(getattr(request, "method", "") or "").upper() != "POST":
++        return False
++
++    host = ""
++    try:
++        if request.client and request.client.host:
++            host = str(request.client.host)
++    except Exception:  # pragma: no cover - defensive
++        return False
++    if host not in ("127.0.0.1", "::1", "localhost"):
++        return False
++
++    return hmac.compare_digest(
++        client_bearer.encode("utf-8", "surrogatepass"),
++        token.encode("utf-8", "surrogatepass"),
++    )
 +
 +
 +def _local_fallback_allowed(request, client_bearer: str) -> bool:
@@ -3694,15 +3962,15 @@
 +        admin.encode("utf-8", "surrogatepass"),
 +    ):
 +        return True
- 
++
 +    method = str(getattr(request, "method", "") or "").upper()
 +    return method in ("GET", "HEAD")
- 
++
 +
  async def _is_paired_bearer(
      token: str,
      validator_url: Optional[str] = None,
-@@ -246,12 +338,47 @@
+@@ -246,12 +420,47 @@ async def _is_paired_bearer(
          return False
      if resp.status_code == 204:
          return True
@@ -3750,21 +4018,35 @@
      return False
  
  
-@@ -306,10 +433,23 @@
+@@ -306,9 +515,37 @@ async def proxy_request(
          client_bearer = _extract_bearer_token(request.headers)
          # BW2-5: ask the gateway (single source of pairing truth, which decrypts
          # the enc2: paired_tokens) rather than re-reading config.toml ourselves.
 -        if not await _is_paired_bearer(
 +        authorized = await _is_paired_bearer(
              client_bearer, validator_url=validator_url, client=client
--        ):
 +        )
++        if not authorized and _is_extension_credential(
++            request, client_bearer, request.url.path
+         ):
++            # The browser extension's own credential, scoped to
++            # /api/safari/ingest POST on loopback. NOT a widening of the
++            # oracle fallback below -- that one requires the oracle to be
++            # ABSENT and is dead code on a healthy daemon, which is exactly
++            # why it could never have fixed the Hub-only customer.
++            logger.info(
++                "Doctor proxy: admitting %s %s on the browser-extension "
++                "credential (loopback, ingest-only)",
++                request.method,
++                path,
++            )
++            authorized = True
 +        if not authorized and _local_fallback_allowed(request, client_bearer):
 +            # The gateway expressed no opinion because it does not serve the
 +            # oracle at all. Admit this narrow loopback case rather than
 +            # locking the owner out of their own machine. See
 +            # _local_fallback_allowed for why this cannot widen access.
-             logger.warning(
++            logger.warning(
 +                "Doctor proxy: admitting loopback %s %s under the local "
 +                "fallback (gateway serves no bearer-validation oracle)",
 +                request.method,
@@ -3772,21 +4054,24 @@
 +            )
 +            authorized = True
 +        if not authorized:
-+            logger.warning(
+             logger.warning(
                  "Doctor proxy: rejecting unpaired client bearer for %s %s",
                  request.method,
-                 path,
---- a/agent/requirements.txt
-+++ b/agent/requirements.txt
+diff --git aa/agent/requirements.txt bb/agent/requirements.txt
+index 15db5ba4..c0fa9443 100644
+--- aa/agent/requirements.txt
++++ bb/agent/requirements.txt
 @@ -1,4 +1,4 @@
 -fastapi>=0.136.3,<1.0
 +fastapi>=0.115.0,<1.0
  uvicorn>=0.32.0,<1.0
  httpx>=0.28.1,<1.0
  pyyaml>=6.0,<7.0
---- a/agent/status_collector.py
-+++ b/agent/status_collector.py
-@@ -17,6 +17,7 @@
+diff --git aa/agent/status_collector.py bb/agent/status_collector.py
+index 83aedea0..d30210b7 100644
+--- aa/agent/status_collector.py
++++ bb/agent/status_collector.py
+@@ -17,6 +17,7 @@ SECURITY: This module MUST NOT collect or expose:
  from __future__ import annotations
  
  import json
@@ -3794,7 +4079,7 @@
  import os
  import shutil
  import subprocess
-@@ -32,11 +33,26 @@
+@@ -32,11 +33,26 @@ import httpx
  # Configuration – service endpoints (all localhost by default)
  # ---------------------------------------------------------------------------
  
@@ -3821,10 +4106,11 @@
  
  HTTP_TIMEOUT = 5.0  # seconds
  
-@@ -204,11 +220,58 @@
+@@ -203,12 +219,59 @@ class BackfillCheckpointInfo:
+     last_emit_count: int = 0
  
  
- @dataclass
++@dataclass
 +class HydrateMarkerInfo:
 +    """One ``~/.ostler/state/hydrate/<source>.done`` marker.
 +
@@ -3863,7 +4149,7 @@
 +    detail: str = ""
 +
 +
-+@dataclass
+ @dataclass
  class SystemSnapshot:
      timestamp: str = ""
      hostname: str | None = None
@@ -3880,11 +4166,10 @@
      ollama_models: list[OllamaModelInfo] = field(default_factory=list)
      ollama_version: str | None = None
      disk_usage: list[DiskUsageInfo] = field(default_factory=list)
-@@ -218,8 +281,40 @@
-     docker_version: str | None = None
+@@ -219,6 +282,38 @@ class SystemSnapshot:
      pipeline_signals: PipelineSignalsInfo | None = None
      backfill_checkpoint: BackfillCheckpointInfo | None = None
-+
+ 
 +    # Per-source ingest outcomes. EMPTY before this graft because nothing read
 +    # them: `grep -rl hydrate` over the vendored doctor/agent returned 0 files,
 +    # against controls qdrant=15 and pipeline_signals=6. install.sh has been
@@ -3907,7 +4192,7 @@
 +    # them.
 +    ram_total_gb: float | None = None
 +    ram_available_gb: float | None = None
- 
++
 +    # Import recency, read by check_gdpr_export_age, which raised for the
 +    # same reason. Left unpopulated deliberately: no collector measures a
 +    # last-import date yet, so the rule's own `if snapshot.last_import_date
@@ -3916,12 +4201,11 @@
 +    # is that the rule fails VISIBLY if it ever raises again.
 +    last_import_date: datetime | None = None
 +    current_date: datetime | None = None
- 
 +
+ 
  # ---------------------------------------------------------------------------
  # Collector functions – each gathers one category of safe data
- # ---------------------------------------------------------------------------
-@@ -402,6 +497,13 @@
+@@ -402,6 +497,13 @@ def collect_service_health() -> list[ServiceHealthInfo]:
          ("redis", None, None),  # special case: TCP check
          ("ollama", OLLAMA_URL, "/"),
          ("gateway", GATEWAY_URL, "/health"),
@@ -3935,7 +4219,7 @@
      ]
  
      results = []
-@@ -431,20 +533,62 @@
+@@ -431,20 +533,62 @@ def collect_service_health() -> list[ServiceHealthInfo]:
  
  
  def _check_redis() -> ServiceHealthInfo:
@@ -3947,11 +4231,7 @@
 +    """
      import socket
 +    from urllib.parse import unquote, urlsplit
- 
--    # Parse host/port from REDIS_URL
--    url = REDIS_URL.replace("redis://", "")
--    host, _, port_str = url.partition(":")
--    port = int(port_str) if port_str else 6379
++
 +    # REDIS_URL is parsed with a real URL parser. Under
 +    # OSTLER_STORE_AUTH_ENFORCE=1 the installer threads the credentialled
 +    # form redis://:<password>@localhost:6379 (install.sh), and the previous
@@ -3970,13 +4250,17 @@
 +            status_code=None,
 +        )
  
+-    # Parse host/port from REDIS_URL
+-    url = REDIS_URL.replace("redis://", "")
+-    host, _, port_str = url.partition(":")
+-    port = int(port_str) if port_str else 6379
 +    def _resp(*args: str) -> bytes:
 +        out = [b"*%d\r\n" % len(args)]
 +        for arg in args:
 +            raw = arg.encode()
 +            out.append(b"$%d\r\n%s\r\n" % (len(raw), raw))
 +        return b"".join(out)
-+
+ 
      try:
          sock = socket.create_connection((host, port), timeout=3)
 -        # Send PING, expect PONG (standard Redis health check, no data access)
@@ -4007,7 +4291,7 @@
          is_healthy = "PONG" in response
          return ServiceHealthInfo(
              name="redis",
-@@ -653,7 +797,7 @@
+@@ -653,7 +797,7 @@ def collect_full_snapshot() -> SystemSnapshot:
      only safe, non-personal diagnostic data.
      """
      hostname, os_version = collect_os_info()
@@ -4016,7 +4300,7 @@
      docker_version = collect_docker_version()
      models, ollama_version, _ollama_err = collect_ollama_models()
      disk = collect_disk_usage()
-@@ -661,12 +805,15 @@
+@@ -661,12 +805,15 @@ def collect_full_snapshot() -> SystemSnapshot:
      network = collect_network_checks()
      pipeline_signals = collect_pipeline_signals()
      backfill_checkpoint = collect_backfill_checkpoint()
@@ -4032,7 +4316,7 @@
          ollama_models=models,
          ollama_version=ollama_version,
          disk_usage=disk,
-@@ -675,4 +822,118 @@
+@@ -675,4 +822,118 @@ def collect_full_snapshot() -> SystemSnapshot:
          docker_version=docker_version,
          pipeline_signals=pipeline_signals,
          backfill_checkpoint=backfill_checkpoint,
@@ -4151,157 +4435,580 @@
 +            detail=fields.get("detail", ""),
 +        ))
 +    return out
---- a/agent/web_ui_copy.py
-+++ b/agent/web_ui_copy.py
-@@ -209,6 +209,11 @@
-     "Open your email client with the diagnostic report ready to send "
-     "to support"
- )
-+DASHBOARD_BTN_SETTINGS = "&#9881; Settings"
-+DASHBOARD_BTN_SETTINGS_TITLE = (
-+    "Pause or ease off background work, and adjust channels, model and "
-+    "schedule"
-+)
- 
- DASHBOARD_LAST_CHECKED_JUST_NOW = "Last checked: just now"
- DASHBOARD_LAST_CHECKED_PREFIX = "Last checked: "
-@@ -264,6 +269,18 @@
- 
- DASHBOARD_CONFIG_LINK = (
-     ' &ndash; <a href="/config">Configuration</a>'
-+)
+diff --git ab/agent/test_daemon_cron.py bb/agent/test_daemon_cron.py
+new file mode 100644
+index 00000000..3c5d6a77
+--- /dev/null
++++ bb/agent/test_daemon_cron.py
+@@ -0,0 +1,269 @@
++#!/usr/bin/env python3
++"""Tests for the daemon cron pause bridge (Batch-2 review #6 F1).
 +
-+# The daemon generates a WhatsApp pair code on EVERY install where
-+# `session_path` is set, and install.sh does set it. The code is written to
-+# ~/.ostler/state/whatsapp_pair.json and /whatsapp-pair renders it. That page
-+# has existed, routed and tested, while NOTHING linked to it, so the customer
-+# had to already know the URL. Measured 2026-08-15: this row already carried
-+# /pair-ios and /config, and /whatsapp-pair was the one pairing surface missing
-+# from it. See HR015 task #322, where the original row blamed a config gap that
-+# had already been fixed.
-+DASHBOARD_WHATSAPP_PAIR_LINK = (
-+    ' &ndash; <a href="/whatsapp-pair">Link WhatsApp</a>'
- )
- 
- DASHBOARD_ALERT_REPORT_FAIL = (
-@@ -305,6 +322,19 @@
- )
- # Placeholder swapped in for each redacted token.
- REPORT_REDACTED_PLACEHOLDER = "[redacted]"
++Proves the Doctor "Pause" reaches the ASSISTANT DAEMON'S cron scheduler,
++not just the shell governor: on Pause we set ``[cron].enabled = false`` in
++the daemon ``config.toml`` (the exact field the daemon reads at
++``daemon/mod.rs`` ``if config.cron.enabled { spawn scheduler }`` -- so a
++false value means the scheduler supervisor never starts and the 09:00
++brief never fires) and restart the daemon in place. On resume we set it
++back to ``true``.
 +
-+# Returned INSTEAD of the report when redaction raises. The previous behaviour
-+# was to fall back to the raw report, so a failure inside the scrubber handed
-+# the caller an unredacted bundle under the name of the redacted one. There is
-+# no safe way to degrade here: either the report was scrubbed or it was not,
-+# and the customer cannot tell by looking. So we return nothing shareable and
-+# say why.
-+REPORT_REDACTION_FAILED = (
-+    "[Ostler could not redact this report, so it has been withheld rather "
-+    "than shared unredacted. Nothing has been copied or attached. Please "
-+    "contact support and mention that redaction failed; do not send the "
-+    "unredacted diagnostics.]"
-+)
- 
- 
- # ── render_history (/doctor/history page) ────────────────────────────
-@@ -693,3 +723,94 @@
-     "in the Reminders app."
- )
- 
++Everything is synthetic (PRODUCTISATION_CHECKLIST Rule 0): tmp config
++files, a captured restart command, no real daemon.
++
++Run: ``python3 vendor/doctor/agent/test_daemon_cron.py`` (bare, no deps)
++or under pytest.
++"""
++
++import os
++import sys
++import tempfile
++import tomllib
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parent))
++
++import daemon_cron as dc  # noqa: E402
 +
 +
++# Two-job config as install.sh emits it: [[cron.jobs]] with NO [cron]
++# table, so cron.enabled defaults true.
++CONFIG_JOBS_NO_CRON_TABLE = '''\
++model = "qwen3.5:9b"
 +
-+# ── WhatsApp pairing panel ───────────────────────────────────────────
-+#
-+# The last gap between a customer and a linked WhatsApp account. The
-+# daemon publishes a pair code to a declared contract; until this panel
-+# existed the code's only exit from the process was daemon stderr, which
-+# on a headless Hub is not a surface a human can use.
-+#
-+# The three failure states are deliberately THREE, with three different
-+# next actions. "not requested" means turn it on or wait; "expired"
-+# means one is coming; "unreadable" is a fault to report. Collapsing
-+# them into one "no code available" tells a stuck customer nothing and
-+# tells support less.
++[providers]
++fallback = "ollama"
 +
-+WHATSAPP_PAIR_TITLE_TAG = "Ostler Doctor &ndash; Link WhatsApp"
-+WHATSAPP_PAIR_HEADING = "Link WhatsApp"
-+WHATSAPP_PAIR_LEDE = (
-+    "Ostler links to WhatsApp the same way WhatsApp Web does, using a "
-+    "code you type into your phone. The code is shown here for a short "
-+    "time only."
-+)
++[[cron.jobs]]
++id = "morning-brief"
++name = "Morning brief"
++job_type = "agent"
++schedule = { kind = "cron", expr = "0 9 * * *", tz = "Europe/London" }
++prompt = "brief"
++delivery = { mode = "announce", channel = "imessage", to = "+447700900111", best_effort = false }
 +
-+WHATSAPP_PAIR_LOADING = "Checking for a pairing code."
++[[cron.jobs]]
++id = "evening-wrap"
++name = "Evening wrap"
++job_type = "agent"
++schedule = { kind = "cron", expr = "0 18 * * *", tz = "Europe/London" }
++prompt = "wrap"
++delivery = { mode = "announce", channel = "imessage", to = "+447700900111", best_effort = false }
++'''
 +
-+# Deliberately names the exact phone-side path. "Pair your device" sends
-+# a customer hunting through Settings; this is the literal sequence.
-+WHATSAPP_PAIR_READY_INSTRUCTION = (
-+    "On your phone, open WhatsApp and go to Settings, then Linked "
-+    "Devices, then Link a device. Choose Link with phone number instead, "
-+    "and type this code."
-+)
-+WHATSAPP_PAIR_COUNTDOWN_PREFIX = "This code expires in"
-+WHATSAPP_PAIR_READY_HELP = (
-+    "Codes are short-lived on purpose. If it runs out, Ostler asks "
-+    "WhatsApp for another one."
-+)
++# A config that already carries a [cron] table with enabled = true.
++CONFIG_CRON_TABLE_ENABLED = '''\
++[cron]
++enabled = true
++catch_up_on_startup = true
 +
-+WHATSAPP_PAIR_NOT_REQUESTED_TITLE = "No pairing code yet."
-+WHATSAPP_PAIR_NOT_REQUESTED_HELP = (
-+    "Ostler asks WhatsApp for a code when the WhatsApp connector starts. "
-+    "If you turned WhatsApp on during setup, give it a minute. If you "
-+    "did not, WhatsApp is switched off and there is nothing to link."
-+)
++[[cron.jobs]]
++id = "morning-brief"
++job_type = "agent"
++schedule = { kind = "cron", expr = "0 9 * * *", tz = "Europe/London" }
++prompt = "brief"
++'''
 +
-+WHATSAPP_PAIR_EXPIRED_TITLE = "That code has expired."
-+WHATSAPP_PAIR_EXPIRED_HELP = (
-+    "Pairing codes last about three minutes. Ostler requests a fresh one "
-+    "automatically, so wait a moment and this page will show it."
-+)
++# A config with a [cron] table but no explicit enabled key (defaults true).
++CONFIG_CRON_TABLE_NO_ENABLED = '''\
++[cron]
++catch_up_on_startup = true
 +
-+WHATSAPP_PAIR_UNREADABLE_TITLE = "Something is wrong with the pairing file."
-+WHATSAPP_PAIR_UNREADABLE_HELP = (
-+    "Ostler could not read the pairing code it wrote. This is a fault "
-+    "rather than something you did. Use Copy diagnostics on the Doctor "
-+    "dashboard and send it to support."
-+)
++[[cron.jobs]]
++id = "morning-brief"
++job_type = "agent"
++schedule = { kind = "cron", expr = "0 9 * * *", tz = "Europe/London" }
++prompt = "brief"
++'''
 +
-+WHATSAPP_PAIR_BACK_LINK = "Back to Doctor"
++# No cron at all.
++CONFIG_NO_CRON = '''\
++model = "qwen3.5:9b"
 +
-+# Poll interval. Short enough that a code appearing feels immediate,
-+# long enough that a customer leaving the page open is not hammering
-+# the endpoint for the life of the session.
-+WHATSAPP_PAIR_POLL_MS = 5000
++[providers]
++fallback = "ollama"
++'''
++
++FAILURES = []
 +
 +
-+# ── Consent tile, degraded arm (HR015 ee511c2c, task #429) ───────────
-+#
-+# WHY THIS EXISTS. render_consent_status() returned "" for TWO different
-+# facts: "the consent registry could not be read" and "you have not
-+# consented to anything yet". Both rendered as nothing at all, so the
-+# customer could not tell them apart and neither could we from a support
-+# report. Consent records are the Article 9 / EU legal surface; a Hub whose
-+# registry is unreadable looked exactly like a fresh pre-consent install.
-+#
-+# The soft fall-through is deliberate and stays: Doctor must keep rendering
-+# without ostler_security. What changes is that the degraded state now says
-+# so out loud.
-+#
-+# APPENDED HERE rather than at upstream's position: upstream anchors this
-+# block above VAULT_LICENCE_LABEL_*, which are LOCK-3 constants that do not
-+# exist in this vendored copy. Placing it by anchor was not an option; the
-+# constants are module-level and position-independent.
-+CONSENT_UNREADABLE_TITLE = "Consent records could not be read"
-+CONSENT_UNREADABLE_DETAIL_FMT = (
-+    "Ostler could not open its consent registry, so this panel cannot show "
-+    "what you have agreed to. Nothing you have already agreed to has "
-+    "changed, and your answers are still on this Mac. This is a fault in "
-+    "Ostler rather than anything you have done. Technical cause: {reason}"
-+)
---- a/agent/web_ui.py
-+++ b/agent/web_ui.py
-@@ -32,9 +32,15 @@
++def check(cond, msg):
++    if cond:
++        print(f"ok: {msg}")
++    else:
++        print(f"FAIL: {msg}", file=sys.stderr)
++        FAILURES.append(msg)
++
++
++def _write(tmp, text):
++    p = Path(tmp) / "config.toml"
++    p.write_text(text, encoding="utf-8")
++    return p
++
++
++def _apply(p, paused, sentinel):
++    """Run apply_pause_to_cron with a captured restart command."""
++    old = dict(os.environ)
++    try:
++        # Restart writes a sentinel so we can prove it was invoked.
++        os.environ["OSTLER_ASSISTANT_RESTART_CMD"] = f"/usr/bin/touch {sentinel}"
++        os.environ.pop("OSTLER_SKIP_DAEMON_RESTART", None)
++        return dc.apply_pause_to_cron(paused, config_path=p)
++    finally:
++        os.environ.clear()
++        os.environ.update(old)
++
++
++def test_pause_disables_cron_and_restarts():
++    for label, text in (
++        ("jobs-no-cron-table", CONFIG_JOBS_NO_CRON_TABLE),
++        ("cron-table-enabled", CONFIG_CRON_TABLE_ENABLED),
++        ("cron-table-no-enabled", CONFIG_CRON_TABLE_NO_ENABLED),
++    ):
++        with tempfile.TemporaryDirectory() as tmp:
++            p = _write(tmp, text)
++            sentinel = Path(tmp) / "restarted"
++            before_jobs = len(tomllib.loads(text).get("cron", {}).get("jobs", []))
++
++            res = _apply(p, True, sentinel)
++            data = tomllib.loads(p.read_text(encoding="utf-8"))
++
++            # The daemon-side gate: cron.enabled is the field
++            # daemon/mod.rs reads to decide whether to spawn the
++            # scheduler. false => scheduler never starts => no fire.
++            check(
++                data.get("cron", {}).get("enabled") is False,
++                f"[{label}] pause sets cron.enabled = false (daemon spawn gate)",
++            )
++            check(res.get("changed") is True, f"[{label}] pause reports changed")
++            check(
++                sentinel.exists(),
++                f"[{label}] pause restarts the daemon so it re-reads config",
++            )
++            # Jobs preserved -- we never dropped the operator's briefs.
++            after_jobs = len(data.get("cron", {}).get("jobs", []))
++            check(
++                after_jobs == before_jobs,
++                f"[{label}] cron jobs preserved ({after_jobs} == {before_jobs})",
++            )
++            # Result still parses as valid TOML (implicit above) and the
++            # file is not reformatted beyond the enabled line.
++            check(
++                data.get("cron", {}).get("jobs", [{}])[0].get("id")
++                == "morning-brief",
++                f"[{label}] first job identity intact after edit",
++            )
++
++
++def test_resume_reenables_cron_and_restarts():
++    with tempfile.TemporaryDirectory() as tmp:
++        # Start paused (cron disabled), then resume.
++        p = _write(tmp, CONFIG_JOBS_NO_CRON_TABLE)
++        s1 = Path(tmp) / "r1"
++        _apply(p, True, s1)
++        assert tomllib.loads(p.read_text())["cron"]["enabled"] is False
++
++        s2 = Path(tmp) / "r2"
++        res = _apply(p, False, s2)
++        data = tomllib.loads(p.read_text(encoding="utf-8"))
++        check(
++            data.get("cron", {}).get("enabled") is True,
++            "resume sets cron.enabled = true (scheduler starts again)",
++        )
++        check(res.get("changed") is True, "resume reports changed")
++        check(s2.exists(), "resume restarts the daemon")
++
++
++def test_idempotent_no_restart_when_already_in_state():
++    with tempfile.TemporaryDirectory() as tmp:
++        # Config already has cron enabled; resuming (unpause) is a no-op.
++        p = _write(tmp, CONFIG_CRON_TABLE_ENABLED)
++        sentinel = Path(tmp) / "restarted"
++        res = _apply(p, False, sentinel)
++        check(
++            res.get("changed") is False,
++            "resume on an already-enabled config is a no-op (changed False)",
++        )
++        check(
++            not sentinel.exists(),
++            "no-op does not restart the daemon",
++        )
++
++
++def test_no_cron_is_noop():
++    with tempfile.TemporaryDirectory() as tmp:
++        p = _write(tmp, CONFIG_NO_CRON)
++        sentinel = Path(tmp) / "restarted"
++        res = _apply(p, True, sentinel)
++        check(
++            res.get("changed") is False,
++            "a config with no cron jobs is a no-op on pause",
++        )
++        check(not sentinel.exists(), "no-cron pause does not restart the daemon")
++        # And the file is untouched.
++        check(
++            p.read_text(encoding="utf-8") == CONFIG_NO_CRON,
++            "no-cron config.toml is left byte-for-byte untouched",
++        )
++
++
++def test_missing_config_is_noop():
++    with tempfile.TemporaryDirectory() as tmp:
++        p = Path(tmp) / "config.toml"  # not written
++        res = dc.apply_pause_to_cron(True, config_path=p)
++        check(
++            res.get("changed") is False and res.get("reason") == "no daemon config",
++            "absent daemon config is a graceful no-op",
++        )
++
++
++def test_malformed_toml_fails_closed():
++    with tempfile.TemporaryDirectory() as tmp:
++        bad = "this is = = not valid toml [[["
++        p = _write(tmp, bad)
++        sentinel = Path(tmp) / "restarted"
++        raised = False
++        try:
++            _apply(p, True, sentinel)
++        except dc.DaemonCronError:
++            raised = True
++        check(raised, "malformed daemon config.toml raises rather than being edited")
++        check(
++            p.read_text(encoding="utf-8") == bad,
++            "malformed config.toml is left untouched (fail-closed)",
++        )
++        check(not sentinel.exists(), "no restart on a fail-closed refusal")
++
++
++def test_skip_restart_env():
++    with tempfile.TemporaryDirectory() as tmp:
++        p = _write(tmp, CONFIG_JOBS_NO_CRON_TABLE)
++        old = dict(os.environ)
++        try:
++            os.environ["OSTLER_SKIP_DAEMON_RESTART"] = "1"
++            os.environ.pop("OSTLER_ASSISTANT_RESTART_CMD", None)
++            res = dc.apply_pause_to_cron(True, config_path=p)
++        finally:
++            os.environ.clear()
++            os.environ.update(old)
++        check(res.get("changed") is True, "skip-restart still edits config")
++        check(
++            res.get("restart", {}).get("restarted") is False
++            and res.get("restart", {}).get("reason") == "skipped",
++            "OSTLER_SKIP_DAEMON_RESTART=1 skips the restart",
++        )
++
++
++def main():
++    for name, fn in sorted(globals().items()):
++        if name.startswith("test_") and callable(fn):
++            fn()
++    if FAILURES:
++        print(f"\n{len(FAILURES)} FAILURE(S)", file=sys.stderr)
++        sys.exit(1)
++    print("\nALL DAEMON-CRON BRIDGE TESTS PASSED")
++
++
++if __name__ == "__main__":
++    main()
+diff --git ab/agent/test_diagnostic_rules.py bb/agent/test_diagnostic_rules.py
+new file mode 100644
+index 00000000..f21ee8f4
+--- /dev/null
++++ bb/agent/test_diagnostic_rules.py
+@@ -0,0 +1,207 @@
++#!/usr/bin/env python3
++"""Tests for the (B-lite) upgrade audit-trail Doctor row.
++
++Proves ``check_last_upgrade`` reads the durable, reboot-surviving
++upgrade result the Hub records at ``~/.ostler/preferences.json`` and
++turns it into exactly one Doctor row (or none, quietly, on a legacy
++or malformed install). The rule is READ-ONLY: these tests also assert
++a malformed preferences.json is left byte-for-byte untouched.
++
++Everything is synthetic (PRODUCTISATION_CHECKLIST Rule 0): a tmp dir
++stood in for HOME, a fabricated preferences.json, no real Hub.
++
++Run: ``python3 vendor/doctor/agent/test_diagnostic_rules.py`` (bare,
++no deps) or under pytest.
++"""
++
++import json
++import os
++import sys
++import tempfile
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parent))
++
++import diagnostic_copy as dc  # noqa: E402
++import diagnostic_rules as dr  # noqa: E402
++
++
++# Sentinel distinguishing "omit the last_upgrade_result key entirely"
++# from "write an explicit null".
++_OMIT = object()
++
++
++def _write_prefs(home, result):
++    """Write ~/.ostler/preferences.json under a fake HOME.
++
++    ``result`` is the value for ``last_upgrade_result``; pass ``_OMIT``
++    to leave the key out altogether. Returns the file path.
++    """
++    ostler = Path(home) / ".ostler"
++    ostler.mkdir(parents=True, exist_ok=True)
++    prefs = {"auto_apply_updates": False}
++    if result is not _OMIT:
++        prefs["last_upgrade_result"] = result
++    path = ostler / "preferences.json"
++    path.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
++    return path
++
++
++def _run_with_home(home):
++    """Run check_last_upgrade with HOME pointed at ``home``.
++
++    The snapshot arg is unused (the rule reads from disk), so we pass
++    None. HOME is restored afterwards.
++    """
++    old = dict(os.environ)
++    try:
++        os.environ["HOME"] = str(home)
++        return dr.check_last_upgrade(None)
++    finally:
++        os.environ.clear()
++        os.environ.update(old)
++
++
++def test_success_emits_one_info_finding_with_formatted_time():
++    with tempfile.TemporaryDirectory() as home:
++        _write_prefs(home, {
++            "version": "1.0.12",
++            "timestamp": "2026-07-27T14:23:11Z",
++            "status": "success",
++        })
++        findings = _run_with_home(home)
++
++        assert len(findings) == 1, "success emits exactly one finding"
++        f = findings[0]
++        assert f["severity"] == "info", "success is info severity"
++        assert f["category"] == "upgrade", "category is upgrade"
++        assert f["risk"] == "low", "risk is low"
++        assert f["fix"] is None, "success carries no fix guidance"
++        assert f["fix_command"] is None, "success carries no fix command"
++        assert "1.0.12" in f["title"], "title contains the version"
++
++        detail = f["detail"]
++        # The applied clause is rendered, and the raw ISO markers never
++        # leak: no "T" separator and no "Z" zulu suffix in the detail.
++        assert "2026-07-27 14:23" in detail, "applied time is formatted"
++        assert "T" not in detail, "no raw 'T' ISO separator in detail"
++        assert "Z" not in detail, "no raw 'Z' zulu suffix in detail"
++
++
++def test_failed_emits_one_warning_finding():
++    with tempfile.TemporaryDirectory() as home:
++        _write_prefs(home, {
++            "version": "1.0.12",
++            "timestamp": "2026-07-27T14:23:11Z",
++            "status": "failed",
++        })
++        findings = _run_with_home(home)
++
++        assert len(findings) == 1, "failed emits exactly one finding"
++        f = findings[0]
++        assert f["severity"] == "warning", "failed is warning severity"
++        assert f["category"] == "upgrade", "category is upgrade"
++        assert f["fix"] is not None, "failed offers guidance text"
++        assert f["fix_command"] is None, "failed offers no destructive command"
++
++
++def test_rolled_back_emits_one_warning_mentioning_previous_version():
++    with tempfile.TemporaryDirectory() as home:
++        _write_prefs(home, {
++            "version": "1.0.12",
++            "timestamp": "2026-07-27T14:23:11Z",
++            "status": "rolled-back",
++        })
++        findings = _run_with_home(home)
++
++        assert len(findings) == 1, "rolled-back emits exactly one finding"
++        f = findings[0]
++        assert f["severity"] == "warning", "rolled-back is warning severity"
++        assert f["category"] == "upgrade", "category is upgrade"
++        assert f["fix_command"] is None, "rolled-back offers no command"
++
++        detail = f["detail"]
++        assert "previous" in detail.lower(), "detail mentions the previous version"
++        assert "running" in detail.lower(), "detail says it is running"
++        assert "1.0.12" in detail, "detail names the version that did not install"
++
++
++def test_missing_file_is_quiet():
++    with tempfile.TemporaryDirectory() as home:
++        # No preferences.json written at all.
++        findings = _run_with_home(home)
++        assert findings == [], "missing file returns no findings, no exception"
++
++
++def test_malformed_json_is_quiet_and_leaves_file_untouched():
++    with tempfile.TemporaryDirectory() as home:
++        ostler = Path(home) / ".ostler"
++        ostler.mkdir(parents=True, exist_ok=True)
++        path = ostler / "preferences.json"
++        bad = '{ "auto_apply_updates": false, "last_upgrade_result": {{{ '
++        path.write_text(bad, encoding="utf-8")
++
++        findings = _run_with_home(home)
++        assert findings == [], "malformed JSON returns no findings, no exception"
++        assert path.read_text(encoding="utf-8") == bad, (
++            "malformed preferences.json is left byte-for-byte untouched "
++            "(read-only rule)"
++        )
++
++
++def test_missing_last_upgrade_result_key_is_quiet():
++    with tempfile.TemporaryDirectory() as home:
++        _write_prefs(home, _OMIT)  # valid file, no last_upgrade_result key
++        findings = _run_with_home(home)
++        assert findings == [], "absent last_upgrade_result returns no findings"
++
++
++def test_unknown_status_is_quiet():
++    with tempfile.TemporaryDirectory() as home:
++        _write_prefs(home, {
++            "version": "1.0.12",
++            "timestamp": "2026-07-27T14:23:11Z",
++            "status": "in-progress",  # not one of success/failed/rolled-back
++        })
++        findings = _run_with_home(home)
++        assert findings == [], "unknown status is not guessed; no findings"
++
++
++def test_malformed_timestamp_still_emits_without_crash_and_omits_time():
++    with tempfile.TemporaryDirectory() as home:
++        _write_prefs(home, {
++            "version": "1.0.12",
++            "timestamp": "not-a-timestamp",
++            "status": "success",
++        })
++        findings = _run_with_home(home)
++
++        assert len(findings) == 1, "malformed timestamp still emits the finding"
++        detail = findings[0]["detail"]
++        # The applied clause is omitted; the no-time copy is used and the
++        # raw timestamp never appears.
++        assert detail == dc.LAST_UPGRADE_SUCCESS_DETAIL_NO_TIME, (
++            "applied-time clause is omitted on an unparseable timestamp"
++        )
++        assert "not-a-timestamp" not in detail, "raw timestamp is not shown"
++        assert "T" not in detail and "Z" not in detail, "no ISO markers leak"
++
++
++def main():
++    failures = []
++    for name, fn in sorted(globals().items()):
++        if name.startswith("test_") and callable(fn):
++            try:
++                fn()
++                print(f"ok: {name}")
++            except AssertionError as exc:
++                print(f"FAIL: {name}: {exc}", file=sys.stderr)
++                failures.append(name)
++    if failures:
++        print(f"\n{len(failures)} FAILURE(S)", file=sys.stderr)
++        sys.exit(1)
++    print("\nALL UPGRADE AUDIT-TRAIL ROW TESTS PASSED")
++
++
++if __name__ == "__main__":
++    main()
+diff --git ab/agent/test_health_gate.py bb/agent/test_health_gate.py
+new file mode 100644
+index 00000000..0719517d
+--- /dev/null
++++ bb/agent/test_health_gate.py
+@@ -0,0 +1,75 @@
++#!/usr/bin/env python3
++"""Tests for the test-only OSTLER_TEST_DISABLE_HEALTH gate on the Doctor
++health route (``GET /doctor/api/health``).
++
++The (B-lite) upgrade brain (C1, ``upgrade_reconcile.rs``) polls the Doctor
++health route for 60s after install.sh runs and rolls back if it never
++returns 2xx. Matrix Row 6 needs to prove "install.sh exits 0 but the
++daemon will not answer health, so the 60s poll times out and rollback
++fires". To make that deterministic the health handler returns 503 when
++``OSTLER_TEST_DISABLE_HEALTH == "1"``.
++
++These tests prove three things:
++  1. Env unset, the route is the unchanged 200 healthy body.
++  2. ``OSTLER_TEST_DISABLE_HEALTH=1``, the route returns 503.
++  3. Any other value (e.g. "0"), the route is 200 (only exactly "1" trips).
++
++Everything is synthetic (PRODUCTISATION_CHECKLIST Rule 0): an in-process
++FastAPI TestClient, no real daemon and no network.
++
++Run: ``python3 -m pytest vendor/doctor/agent/test_health_gate.py -q``
++(needs ``fastapi`` and ``httpx`` for TestClient) or bare
++``python3 vendor/doctor/agent/test_health_gate.py``.
++"""
++
++import sys
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parent))
++
++from fastapi.testclient import TestClient  # noqa: E402
++
++import web_ui  # noqa: E402
++
++_ENV_VAR = "OSTLER_TEST_DISABLE_HEALTH"
++_HEALTH_URL = "/doctor/api/health"
++
++client = TestClient(web_ui.app)
++
++
++def test_health_default_unset_returns_200(monkeypatch):
++    """Env unset, exactly the original healthy body and a 200."""
++    monkeypatch.delenv(_ENV_VAR, raising=False)
++    resp = client.get(_HEALTH_URL)
++    assert resp.status_code == 200
++    assert resp.json() == {"status": "healthy", "service": "ostler-doctor"}
++
++
++def test_health_gate_on_returns_503(monkeypatch):
++    """OSTLER_TEST_DISABLE_HEALTH=1, the route returns 503 (Row 6 proof)."""
++    monkeypatch.setenv(_ENV_VAR, "1")
++    resp = client.get(_HEALTH_URL)
++    assert resp.status_code == 503
++    assert resp.json() == {
++        "status": "unavailable",
++        "service": "ostler-doctor",
++        "test_gate": _ENV_VAR,
++    }
++
++
++def test_health_gate_non_one_returns_200(monkeypatch):
++    """Any value other than exactly "1" is a no-op, so the route stays 200."""
++    monkeypatch.setenv(_ENV_VAR, "0")
++    resp = client.get(_HEALTH_URL)
++    assert resp.status_code == 200
++    assert resp.json() == {"status": "healthy", "service": "ostler-doctor"}
++
++
++if __name__ == "__main__":
++    import subprocess
++
++    raise SystemExit(
++        subprocess.call(
++            [sys.executable, "-m", "pytest", __file__, "-q"]
++        )
++    )
+diff --git aa/agent/web_ui.py bb/agent/web_ui.py
+index 67635eae..6d451d19 100644
+--- aa/agent/web_ui.py
++++ bb/agent/web_ui.py
+@@ -32,9 +32,15 @@ from dataclasses import asdict
  from datetime import datetime, timezone
  from pathlib import Path
  
@@ -4319,7 +5026,7 @@
  
  from status_collector import (
      collect_full_snapshot,
-@@ -82,6 +88,8 @@
+@@ -82,6 +88,8 @@ from web_ui_copy import (
      DASHBOARD_BTN_EMAIL_PREPARING,
      DASHBOARD_BTN_EMAIL_TITLE,
      DASHBOARD_BTN_REFRESH,
@@ -4328,7 +5035,7 @@
      DASHBOARD_FIX_LABEL_FMT,
      DASHBOARD_FIX_NOTE,
      DASHBOARD_HEADING,
-@@ -106,6 +114,7 @@
+@@ -106,6 +114,7 @@ from web_ui_copy import (
      DASHBOARD_CONFIG_LINK,
      DASHBOARD_IMPORT_EVERNOTE_LINK,
      DASHBOARD_PAIR_IOS_LINK,
@@ -4336,7 +5043,7 @@
      DASHBOARD_LAST_CHECKED_JUST_NOW,
      DASHBOARD_LAST_CHECKED_PREFIX,
      DASHBOARD_LAST_CHECKED_SUFFIX,
-@@ -215,6 +224,21 @@
+@@ -215,6 +224,21 @@ from web_ui_copy import (
      PAIR_IOS_SECTION_CODE,
      PAIR_IOS_SUBTITLE,
      PAIR_IOS_TITLE_TAG,
@@ -4358,7 +5065,7 @@
      PORT_CONFLICT_DETAIL_FMT,
      PORT_CONFLICT_FIX,
      PORT_CONFLICT_FIX_COMMAND_FMT,
-@@ -232,6 +256,7 @@
+@@ -232,6 +256,7 @@ from web_ui_copy import (
      REPORT_OLLAMA_LABEL,
      REPORT_REDACTED_BANNER,
      REPORT_REDACTED_PLACEHOLDER,
@@ -4366,7 +5073,7 @@
      REPORT_SECTION_CONTAINERS,
      REPORT_SECTION_DISK,
      REPORT_SECTION_FINDINGS,
-@@ -386,6 +411,18 @@
+@@ -386,6 +411,18 @@ def run_local_diagnostics(snapshot: SystemSnapshot) -> list[dict]:
  
      # Check services
      for svc in snapshot.services:
@@ -4385,12 +5092,10 @@
          if svc.status == "unreachable":
              findings.append({
                  "severity": "critical",
-@@ -667,9 +704,116 @@
- _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
- _IPV4_RE = re.compile(
+@@ -669,6 +706,113 @@ _IPV4_RE = re.compile(
      r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
-+)
-+
+ )
+ 
 +# Credential-shaped values that must never leave the machine in a report the
 +# customer is about to paste into an email.
 +#
@@ -4467,8 +5172,8 @@
 +    r"|recovery(?:[\s_-]?key)?|passphrase|password|secret|licen[cs]e(?:[\s_-]?id)?"
 +    r"|token|private[\s_-]?key|signing[\s_-]?key|credential))\b\s*[:=]\s*"
 +    r"(?:bearer\s+)?\S+"
- )
- 
++)
++
 +# 🔴 A LABEL-ANCHORED PATTERN CANNOT CATCH AN UNLABELLED SECRET, AND THE ONE
 +# THAT MATTERS MOST IS UNLABELLED. The vault recovery key appears in install.log
 +# both labelled and BARE, so every label added above is still blind to the bare
@@ -4487,7 +5192,7 @@
 +# exceeds 6 characters while a UUID always opens with 8 and closes with 12, so a
 +# pattern whose every group is 2-6 wide cannot span one.
 +_RECOVERY_KEY_RE = re.compile(r"\b[A-Z0-9]{4,6}(?:-[A-Z0-9]{2,6}){3,9}\b")
- 
++
 +# Slugified email addresses. `_EMAIL_RE` requires a literal `@`, but the wiki
 +# writes contacts to disk as `name-gmail-com` for filenames, and that form
 +# appears in the report. Bounded to known providers so an ordinary hyphenated
@@ -4498,17 +5203,16 @@
 +    r"-(?:com|net|org|co[-.]uk)\b"
 +)
 +
-+
+ 
  def _home_username() -> str | None:
      """Best-effort current username for home-path redaction.
- 
-@@ -717,7 +861,21 @@
+@@ -717,8 +861,22 @@ def _redact_report(report: str) -> str:
      )
  
      redacted = _EMAIL_RE.sub(placeholder, redacted)
 +    redacted = _SLUG_EMAIL_RE.sub(placeholder, redacted)
      redacted = _IPV4_RE.sub(placeholder, redacted)
-+
+ 
 +    # Shape-matched secrets BEFORE the label pass, because the bare occurrence
 +    # has no label to anchor on and would otherwise survive untouched.
 +    redacted = _RECOVERY_KEY_RE.sub(placeholder, redacted)
@@ -4521,10 +5225,11 @@
 +    redacted = _SECRET_LABEL_RE.sub(
 +        lambda m: f"{m.group(1)}: {placeholder}", redacted
 +    )
- 
++
      return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
  
-@@ -845,15 +1003,27 @@
+ 
+@@ -845,15 +1003,27 @@ def _run_diagnostics() -> dict:
      except Exception as exc:
          errors["report"] = f"{type(exc).__name__}: {exc}"
          report = REPORT_HEADER
@@ -4554,7 +5259,7 @@
      except Exception as exc:
          errors["mailto"] = f"{type(exc).__name__}: {exc}"
          mailto = f"mailto:{SUPPORT_EMAIL}"
-@@ -1149,6 +1319,7 @@
+@@ -1149,6 +1319,7 @@ def render_dashboard(
              display: inline-flex;
              align-items: center;
              gap: 6px;
@@ -4562,7 +5267,7 @@
          }}
          .refresh-btn:hover, .auto-refresh-btn:hover {{
              border-color: var(--ostler-accent);
-@@ -1543,6 +1714,7 @@
+@@ -1543,6 +1714,7 @@ def render_dashboard(
              </div>
              <div>
                  <div class="header-controls">
@@ -4570,7 +5275,7 @@
                      <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
                      <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
                      <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
-@@ -1611,7 +1783,7 @@
+@@ -1611,7 +1783,7 @@ def render_dashboard(
          </div>
  
          <div class="meta" id="metaInfo">
@@ -4579,7 +5284,7 @@
          </div>
      </div>
  
-@@ -2004,6 +2176,32 @@
+@@ -2004,6 +2176,32 @@ def render_history(history_entries: list[dict]) -> str:
  # ── Endpoints ────────────────────────────────────────────────────────
  
  
@@ -4612,7 +5317,7 @@
  @app.get("/doctor", response_class=HTMLResponse)
  async def dashboard():
      """Serve the diagnostic dashboard or first-run wizard."""
-@@ -2294,6 +2492,220 @@
+@@ -2294,6 +2492,220 @@ async def api_observability_posture():
      return all_observability_postures()
  
  
@@ -4833,14 +5538,10 @@
  # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
  #
  # Forwards iOS-initiated CM019 paths to the local gateway over
-@@ -3329,8 +3741,211 @@
-         setInterval(fetchStatus, STATUS_POLL_MS);
-     }})();
-     </script>
-+</body>
-+</html>"""
-+
-+
+@@ -3333,6 +3745,209 @@ def _render_pair_ios_page() -> str:
+ </html>"""
+ 
+ 
 +def _render_whatsapp_pair_page() -> str:
 +    """Render the WhatsApp pair-code panel.
 +
@@ -5023,8 +5724,8 @@
 +    setInterval(tick, POLL_MS);
 +  }})();
 +  </script>
- </body>
- </html>"""
++</body>
++</html>"""
 +
 +
 +@app.get("/whatsapp-pair", response_class=HTMLResponse)
@@ -5042,11 +5743,166 @@
 +    """
 +    from whatsapp_pair import fetch_pair_status
 +    return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
- 
- 
++
++
  @app.get("/pair-ios", response_class=HTMLResponse)
+ async def pair_ios_page():
+     """Render the Pair iOS device panel (DFA-002)."""
+diff --git aa/agent/web_ui_copy.py bb/agent/web_ui_copy.py
+index b0c9501f..b1416f33 100644
+--- aa/agent/web_ui_copy.py
++++ bb/agent/web_ui_copy.py
+@@ -209,6 +209,11 @@ DASHBOARD_BTN_EMAIL_TITLE = (
+     "Open your email client with the diagnostic report ready to send "
+     "to support"
+ )
++DASHBOARD_BTN_SETTINGS = "&#9881; Settings"
++DASHBOARD_BTN_SETTINGS_TITLE = (
++    "Pause or ease off background work, and adjust channels, model and "
++    "schedule"
++)
+ 
+ DASHBOARD_LAST_CHECKED_JUST_NOW = "Last checked: just now"
+ DASHBOARD_LAST_CHECKED_PREFIX = "Last checked: "
+@@ -266,6 +271,18 @@ DASHBOARD_CONFIG_LINK = (
+     ' &ndash; <a href="/config">Configuration</a>'
+ )
+ 
++# The daemon generates a WhatsApp pair code on EVERY install where
++# `session_path` is set, and install.sh does set it. The code is written to
++# ~/.ostler/state/whatsapp_pair.json and /whatsapp-pair renders it. That page
++# has existed, routed and tested, while NOTHING linked to it, so the customer
++# had to already know the URL. Measured 2026-08-15: this row already carried
++# /pair-ios and /config, and /whatsapp-pair was the one pairing surface missing
++# from it. See HR015 task #322, where the original row blamed a config gap that
++# had already been fixed.
++DASHBOARD_WHATSAPP_PAIR_LINK = (
++    ' &ndash; <a href="/whatsapp-pair">Link WhatsApp</a>'
++)
++
+ DASHBOARD_ALERT_REPORT_FAIL = (
+     "Could not prepare report. Please try again."
+ )
+@@ -306,6 +323,19 @@ REPORT_REDACTED_BANNER = (
+ # Placeholder swapped in for each redacted token.
+ REPORT_REDACTED_PLACEHOLDER = "[redacted]"
+ 
++# Returned INSTEAD of the report when redaction raises. The previous behaviour
++# was to fall back to the raw report, so a failure inside the scrubber handed
++# the caller an unredacted bundle under the name of the redacted one. There is
++# no safe way to degrade here: either the report was scrubbed or it was not,
++# and the customer cannot tell by looking. So we return nothing shareable and
++# say why.
++REPORT_REDACTION_FAILED = (
++    "[Ostler could not redact this report, so it has been withheld rather "
++    "than shared unredacted. Nothing has been copied or attached. Please "
++    "contact support and mention that redaction failed; do not send the "
++    "unredacted diagnostics.]"
++)
++
+ 
+ # ── render_history (/doctor/history page) ────────────────────────────
+ 
+@@ -693,3 +723,94 @@ REMINDERS_RUNTIME_REMEDIATION_DENIED = (
+     "in the Reminders app."
+ )
+ 
++
++
++
++# ── WhatsApp pairing panel ───────────────────────────────────────────
++#
++# The last gap between a customer and a linked WhatsApp account. The
++# daemon publishes a pair code to a declared contract; until this panel
++# existed the code's only exit from the process was daemon stderr, which
++# on a headless Hub is not a surface a human can use.
++#
++# The three failure states are deliberately THREE, with three different
++# next actions. "not requested" means turn it on or wait; "expired"
++# means one is coming; "unreadable" is a fault to report. Collapsing
++# them into one "no code available" tells a stuck customer nothing and
++# tells support less.
++
++WHATSAPP_PAIR_TITLE_TAG = "Ostler Doctor &ndash; Link WhatsApp"
++WHATSAPP_PAIR_HEADING = "Link WhatsApp"
++WHATSAPP_PAIR_LEDE = (
++    "Ostler links to WhatsApp the same way WhatsApp Web does, using a "
++    "code you type into your phone. The code is shown here for a short "
++    "time only."
++)
++
++WHATSAPP_PAIR_LOADING = "Checking for a pairing code."
++
++# Deliberately names the exact phone-side path. "Pair your device" sends
++# a customer hunting through Settings; this is the literal sequence.
++WHATSAPP_PAIR_READY_INSTRUCTION = (
++    "On your phone, open WhatsApp and go to Settings, then Linked "
++    "Devices, then Link a device. Choose Link with phone number instead, "
++    "and type this code."
++)
++WHATSAPP_PAIR_COUNTDOWN_PREFIX = "This code expires in"
++WHATSAPP_PAIR_READY_HELP = (
++    "Codes are short-lived on purpose. If it runs out, Ostler asks "
++    "WhatsApp for another one."
++)
++
++WHATSAPP_PAIR_NOT_REQUESTED_TITLE = "No pairing code yet."
++WHATSAPP_PAIR_NOT_REQUESTED_HELP = (
++    "Ostler asks WhatsApp for a code when the WhatsApp connector starts. "
++    "If you turned WhatsApp on during setup, give it a minute. If you "
++    "did not, WhatsApp is switched off and there is nothing to link."
++)
++
++WHATSAPP_PAIR_EXPIRED_TITLE = "That code has expired."
++WHATSAPP_PAIR_EXPIRED_HELP = (
++    "Pairing codes last about three minutes. Ostler requests a fresh one "
++    "automatically, so wait a moment and this page will show it."
++)
++
++WHATSAPP_PAIR_UNREADABLE_TITLE = "Something is wrong with the pairing file."
++WHATSAPP_PAIR_UNREADABLE_HELP = (
++    "Ostler could not read the pairing code it wrote. This is a fault "
++    "rather than something you did. Use Copy diagnostics on the Doctor "
++    "dashboard and send it to support."
++)
++
++WHATSAPP_PAIR_BACK_LINK = "Back to Doctor"
++
++# Poll interval. Short enough that a code appearing feels immediate,
++# long enough that a customer leaving the page open is not hammering
++# the endpoint for the life of the session.
++WHATSAPP_PAIR_POLL_MS = 5000
++
++
++# ── Consent tile, degraded arm (HR015 ee511c2c, task #429) ───────────
++#
++# WHY THIS EXISTS. render_consent_status() returned "" for TWO different
++# facts: "the consent registry could not be read" and "you have not
++# consented to anything yet". Both rendered as nothing at all, so the
++# customer could not tell them apart and neither could we from a support
++# report. Consent records are the Article 9 / EU legal surface; a Hub whose
++# registry is unreadable looked exactly like a fresh pre-consent install.
++#
++# The soft fall-through is deliberate and stays: Doctor must keep rendering
++# without ostler_security. What changes is that the degraded state now says
++# so out loud.
++#
++# APPENDED HERE rather than at upstream's position: upstream anchors this
++# block above VAULT_LICENCE_LABEL_*, which are LOCK-3 constants that do not
++# exist in this vendored copy. Placing it by anchor was not an option; the
++# constants are module-level and position-independent.
++CONSENT_UNREADABLE_TITLE = "Consent records could not be read"
++CONSENT_UNREADABLE_DETAIL_FMT = (
++    "Ostler could not open its consent registry, so this panel cannot show "
++    "what you have agreed to. Nothing you have already agreed to has "
++    "changed, and your answers are still on this Mac. This is a fault in "
++    "Ostler rather than anything you have done. Technical cause: {reason}"
++)
+diff --git ab/agent/whatsapp_pair.py bb/agent/whatsapp_pair.py
+new file mode 100644
+index 00000000..f85edd7c
 --- /dev/null
-+++ b/agent/whatsapp_pair.py
++++ bb/agent/whatsapp_pair.py
 @@ -0,0 +1,192 @@
 +"""Read the WhatsApp Web pair code the daemon publishes, for Doctor.
 +
@@ -5240,9 +6096,11 @@
 +        error=None,
 +        error_kind=None,
 +    )
---- a/agent/wiki_correct.py
-+++ b/agent/wiki_correct.py
-@@ -17,7 +17,7 @@
+diff --git aa/agent/wiki_correct.py bb/agent/wiki_correct.py
+index d8bdca10..44991513 100644
+--- aa/agent/wiki_correct.py
++++ bb/agent/wiki_correct.py
+@@ -17,7 +17,7 @@ Schema (per CM044 PR #26):
  
  .. code-block:: turtle
  
@@ -5251,7 +6109,7 @@
      @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
  
      <correction:UUID> a pwg:Correction ;
-@@ -46,7 +46,7 @@
+@@ -46,7 +46,7 @@ from typing import Any, Dict, Optional, Tuple
  
  import httpx
  
@@ -5260,7 +6118,7 @@
  
  # Source enum - keep in sync with the CM044 PR #26 contract and the
  # correction_overlay.js / CM031 client.
-@@ -268,7 +268,7 @@
+@@ -268,7 +268,7 @@ def build_correction_insert(
  
      body = " .\n  ".join(triples) + " ."
      sparql = (
