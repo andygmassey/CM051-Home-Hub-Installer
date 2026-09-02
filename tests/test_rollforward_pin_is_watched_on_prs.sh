@@ -110,7 +110,15 @@ fi
 # in_paths <path> -- exact whole-line match against the extracted list.
 # grep -x -F: no regex, no substring. 'bin/lib_redact.sh' must not be
 # satisfied by an entry for 'bin/lib_redact.sh.bak'.
-in_paths() { printf '%s\n' "$PATHS" | grep -qxF -- "$1"; }
+# HERESTRING, NOT A PIPE, AND I GOT THIS WRONG THE FIRST TIME.
+# This was `printf '%s\n' "$PATHS" | grep -qxF`, in a file whose own header
+# says "NO `... | grep -q` IN THIS FILE". grep -q exits at its FIRST MATCH and
+# SIGPIPEs the producer; under `set -o pipefail` the pipeline then reports
+# failure, so in_paths would answer NO for a path that IS listed -- a false RED
+# on every assertion below, firing only when $PATHS outgrows the pipe buffer.
+# That is the #405 trigger: producer output size, which is why it never
+# reproduced at 49 entries and would have appeared on its own later.
+in_paths() { grep -qxF -- "$1" <<< "$PATHS"; }
 
 printf 'pin covers %s file(s); trigger lists %s path(s)\n\n' "$n_pinned" "$n_paths"
 
@@ -172,7 +180,7 @@ okay "control: in_paths correctly rejects a path that is not listed"
 # catch, executed rather than argued.
 first_pinned="$(printf '%s\n' "$PINNED" | grep . | head -1)"
 mutated="$(printf '%s\n' "$PATHS" | grep -vxF -- "$first_pinned")"
-if printf '%s\n' "$mutated" | grep -qxF -- "$first_pinned"; then
+if grep -qxF -- "$first_pinned" <<< "$mutated"; then
     printf '\nCANNOT-RUN: could not build the mutated list -- %s survived removal.\n' "$first_pinned"
     exit 2
 fi
