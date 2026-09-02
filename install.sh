@@ -21786,20 +21786,28 @@ else
                 while :; do
                     killall "System Settings" >/dev/null 2>&1 || true
                     killall "System Preferences" >/dev/null 2>&1 || true
-                    # Close the Finder reveal window we opened on the drag-in
-                    # fallback. Gated on _fda_finder_revealed so we never touch
-                    # Finder on the normal (registered/listed) path where the
-                    # reveal was suppressed and no Finder window exists.
-                    if [[ "${_fda_finder_revealed:-false}" == true ]]; then
-                        # BOUNDED (2026-08-26): sits inside a 60-iteration
-                        # 1s wait loop, so an unbounded send here stalls the
-                        # loop AND the FDA step around it. Finder is exactly
-                        # the app that shows a modal (permission, "reopen
-                        # windows?") and an Apple Event waits on its event
-                        # loop indefinitely.
-                        _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
-                            osascript -e 'tell application "Finder" to close windows' >/dev/null 2>&1 || true
-                    fi
+                    # WALK-361 (2026-09-02, Andy on the v1.0.57 launch walk):
+                    # WE DO NOT SEND APPLE EVENTS TO FINDER. THE TIDY-UP WAS
+                    # NOT WORTH THE CONSENT DIALOG IT BOUGHT.
+                    #
+                    # This used to close the Finder reveal window opened on the
+                    # drag-in fallback. Sending ANY Apple Event to Finder makes
+                    # macOS raise a TCC consent dialog reading "OstlerInstaller
+                    # wants access to control Finder. Allowing control will
+                    # provide access to documents and data in Finder" -- and it
+                    # stamps our single NSAppleEventsUsageDescription underneath,
+                    # which talks about the administrator password. So the
+                    # customer was shown a documents-and-data prompt explained
+                    # by a sentence about passwords, to close a window.
+                    #
+                    # macOS permits exactly ONE NSAppleEventsUsageDescription per
+                    # app, so the string CANNOT be worded per target. Better copy
+                    # was never available as a fix. Not sending the event is.
+                    #
+                    # An open Finder window is harmless and the customer closes
+                    # it themselves. `open -R` above is LaunchServices, NOT an
+                    # Apple Event, so the reveal itself raises no prompt and
+                    # stays. Guarded by tests/test_no_finder_appleevent.sh.
                     # Break the instant neither pane process is alive.
                     if ! pgrep -x "System Settings" >/dev/null 2>&1 \
                        && ! pgrep -x "System Preferences" >/dev/null 2>&1; then
