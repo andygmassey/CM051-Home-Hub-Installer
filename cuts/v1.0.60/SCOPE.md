@@ -37,10 +37,10 @@ TNM's ingest table had 15 rows. Andy named four omissions. Table is **19 rows**.
 |---|---|---|---|
 | B1 | RemoteConversations (CM042) — app + LaunchAgent + `spoken_source` reader all present | **VERIFIED AT SOURCE, NOT ON A BOX** | transcript recorded → appears in graph |
 | B2 | Voice feed silently skips if `~/Documents/Ostler/Transcripts` is ever deleted (sentinel-guarded creation, presence-gated reader) | TODO | delete dir, re-run install, assert a REFUSAL not a silent skip |
-| B3 | **Safari extension must ingest WITHOUT an iPhone pair** — Andy 2026-09-02: *"it's a fucking BUG… needs fixing PROPERLY"* | **SPLIT INTO THREE LIMBS — 1 of 3 DONE.** See B3a/B3b/B3c | Hub-only install, no phone EVER paired, browse → page in `safari_history` |
+| B3 | **Safari extension must ingest WITHOUT an iPhone pair** — Andy 2026-09-02: *"it's a fucking BUG… needs fixing PROPERLY"* | **SPLIT INTO THREE LIMBS — 3 of 3 BUILT, 2 of 3 IN THE SHIPPING TREE.** See B3a/B3b/B3c | Hub-only install, no phone EVER paired, browse → page in `safari_history` |
 | B3a | the auth predicate: Doctor accepts an extension credential on `/api/safari/ingest` POST loopback only | **DONE** | HR015 PR #734 (`c383b5f`) at source; CM051 `a0a79465` in the vendored tree. RED 30 / GREEN 30 measured **on the vendored file itself**, sha256-matched. Gate: `OK doctor -- vendor == source@b0b38310 (+patch)` |
-| B3b | install.sh MINTS `OSTLER_EXTENSION_TOKEN` and puts it in the Doctor plist | **NOT DONE** | plist env dict at `install.sh:19162`; `PWG_SERVICE_TOKEN` at `:19459` is the pattern to copy, incl. `chmod 0600` |
-| B3c | the EXTENSION learns the token | **NOT DONE, AND BIGGER THAN B3b** | see below |
+| B3b | install.sh MINTS `OSTLER_EXTENSION_TOKEN` and puts it in the Doctor plist | **DONE** | CM051 `c7bab9a8`: mints to `${SECRETS_DIR}/extension_token` (umask 0077, chmod 600), reuses an existing one, and passes it to the Doctor LaunchAgent. Landed with a defect of its own: it referenced two catalogue strings that did not exist, which under `set -uo pipefail` is a DEAD INSTALL at that step. Fixed in `d1dd60dd`, which also builds the gate that had been missing for all 940 MSG_ references |
+| B3c | the EXTENSION learns the token | **DONE AT SOURCE, NOT YET VENDORED** | HR015 #734 MERGED `bb3b90a9`: `extension_token.py`, `/extension-setup`, `/api/v1/extension/token`, 12 tests, mutation-proved. **The environment is the authority, not the file**, because `proxy.py` authenticates against `os.environ` and Doctor is the same process; where the two disagree the panel shows NOTHING and names the restart. ⚠️ **The vendor carry into `vendor/doctor` is BLOCKED** on the doctor divergence patch: 3 of its 7 `/dev/null` new-file hunks name files that already exist in source at the pin (measured, both controls firing). @A2 is measuring whether the patch applies at all; I will not run the graft-deleting re-vendor on an unmeasured patch |
 
 > ### 🔴 B3c — I ALMOST SHIPPED THIS AS "FIXED". IT WOULD HAVE BEEN A THIRD HALF.
 >
@@ -192,7 +192,7 @@ measurement named. CANNOT-RUN is a first-class answer and never a pass.
 
 ## D. THE SELF-RENEWING DEFERRAL CLASS (swept 2026-09-02)
 
-Measured: **15 of 24 vendored trees** are held in a deferred/unverifiable state.
+Measured: **13 of 24 vendored trees** (CORRECTED 2026-09-02: my "15" was wrong. @A2 re-measured with `tomllib` rather than line-grep and got 13 carrying any relaxation: 7 with verification genuinely off, 6 hold_ack where full verify still runs. The likeliest source of my error is that `spoken_source` and its siblings carry `verify = "full"` AND `verify_exempt = true` on the SAME row, so a reader consulting `verify` alone sees "full". A2's parse is authoritative.) Also measured, and worse than the count: **ZERO of the 24 deferrals carries an expiry**, and the 4 exempt source trees name no owner at all while each shipping a launchd job to the customer. A deferral with no end date is indistinguishable from a decision are held in a deferred/unverifiable state.
 **None has an expiry. None has a human owner** — every owner is a role.
 The cut-deferral register is *fine* (707 of 709 rows expire); the vendor
 manifest is the one that rots.
