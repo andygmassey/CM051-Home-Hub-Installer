@@ -1257,7 +1257,21 @@ warn()  { gui_active || echo -e "${YELLOW}[warn]${NC}  $*"; gui_warn "$*"; }
 # tee /dev/null on the calling side; keeps red [ERROR] colour to
 # match the visual class of `fail` (which exits) without exiting
 # itself -- caller decides whether to exit or recover.
-err()   { gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log error "$*"; }
+# Run-wide error tally. See the closing verdict just above `gui_done ok`.
+#
+# WHY THIS EXISTS SEPARATELY FROM THE EMITTER'S __OSTLER_ERROR_LINES.
+# That one lives in lib/progress_emitter.sh's gui_log and feeds `errors=` on the
+# DONE marker. gui_log returns EARLY when OSTLER_GUI != 1, and on the TTY path
+# gui_log is a no-op stub entirely -- so the emitter's counter is GUI-only BY
+# CONSTRUCTION, which is correct for a GUI marker and useless for a line a
+# terminal operator reads. The closing verdict must be true on BOTH paths, so it
+# counts here, at the one funnel every error message passes through.
+#
+# A FLOOR, NOT A TOTAL: an err() raised inside $( ) or a pipeline segment
+# increments a copy and is lost. Stated rather than hidden. It can under-report
+# and can never invent an error that did not happen.
+_OSTLER_RUN_ERRORS=0
+err()   { _OSTLER_RUN_ERRORS=$(( ${_OSTLER_RUN_ERRORS:-0} + 1 )); gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log error "$*"; }
 
 # ── LaunchAgent load, VERIFIED (#876, and the #800 class behind it) ──
 #
@@ -27921,6 +27935,48 @@ echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━�
 if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
     gui_step_end
 fi
+
+# ── THE CLOSING VERDICT, AND WHY IT IS AN ADDITION RATHER THAN AN EDIT ──
+#
+# #270 as filed reads: "install.sh closes with 'no errors detected' over a
+# session with 43+ real errors." I went to fix that line and found the filing
+# is PARTLY A MISREADING, so the fix is not what the row asked for.
+#
+# The string at :27036 is MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED,
+# and it renders as "ostler-assistant doctor: no errors detected". It is
+# SCOPED, TRUE, and it is about the assistant doctor's own output -- it counts
+# the doctor's own error markers, nothing else. Rewriting a truthful line
+# because it sits near the end of a log would have been the wrong repair, and
+# would have destroyed a real signal.
+#
+# THE ACTUAL DEFECT IS AN ABSENCE, NOT A FALSEHOOD: there was no whole-run
+# verdict at all. The customer reaches the end, sees a scoped doctor line, and
+# reads it as the closing statement because nothing else closes. So this ADDS
+# the missing sentence rather than editing the innocent one.
+#
+# PLACEMENT IS LEAD, NOT STYLE. It goes ABOVE `gui_done ok`, which is where
+# @TNM measured the boundary: `gui_done ok` is unconditional, and everything
+# below :27904 is documented post-success cosmetics. A verdict printed after
+# the GUI has flipped to success can describe a problem but cannot stop the
+# customer being told it worked.
+#
+# BRACE-AND-DEFAULT EVERY EXPANSION. @TNM's constraint, and it is a
+# correctness property here rather than a style note: :27627 documents that
+# everything from there to `gui_done ok` runs with `set -u` SUPPRESSED
+# (CX-123/#643), so an unset variable in this block will NOT abort -- it will
+# expand to nothing and silently produce a wrong sentence. Which would be this
+# very defect, committed inside its own fix.
+#
+# THE COUNT IS A FLOOR. See err(). It can under-report and can never invent an
+# error, so "Ostler finished cleanly" is only ever printed when the tally
+# genuinely saw none. That is the safe direction for a claim of health.
+if [[ "${_OSTLER_RUN_ERRORS:-0}" -gt 0 ]]; then
+    warn "$(printf "$MSG_WARN_INSTALL_FINISHED_WITH_ERRORS" "${_OSTLER_RUN_ERRORS:-0}")"
+    warn "$MSG_WARN_INSTALL_FINISHED_WITH_ERRORS_WHERE"
+else
+    ok "$MSG_OK_INSTALL_FINISHED_NO_ERRORS_RAISED"
+fi
+
 gui_done ok
 
 # CX-123 (#643): restore nounset now the display-only recap + the DONE
