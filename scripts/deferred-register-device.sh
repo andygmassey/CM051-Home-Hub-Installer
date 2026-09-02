@@ -188,9 +188,26 @@ PYEOF
         # 3. tell the human. Best-effort: on a box where osascript is
         #    unavailable or notifications are muted this is a no-op, which is
         #    why it is the THIRD mechanism and not the only one.
-        #    System Events is deliberately NOT used here -- see WALK-361;
-        #    `display notification` needs no Apple Event target app.
-        osascript -e 'display notification "This Mac is not registered: your licence is already on the maximum number of Macs. Ostler still works here." with title "Ostler licence"' >/dev/null 2>&1 || true
+        #
+        #    System Events is deliberately NOT used here -- see WALK-361.
+        #    `display notification` addresses no target application, so it
+        #    raises no Apple Events consent dialog.
+        #
+        #    ⚠️ BOUNDED. This runs inside a launchd agent. An osascript that
+        #    blocks (no Aqua session, a wedged notification centre, a login
+        #    window) would hold the job open indefinitely and the agent would
+        #    look "running" forever. macOS has no timeout(1), and
+        #    _ostler_run_with_deadline lives in install.sh which this
+        #    standalone script does not source -- so the bound is inline.
+        _notify_bounded() {
+            osascript -e "$1" >/dev/null 2>&1 &
+            _osa=$!
+            ( sleep "${OSTLER_NOTIFY_TIMEOUT_S:-10}"; kill -9 "${_osa}" 2>/dev/null ) >/dev/null 2>&1 &
+            _watchdog=$!
+            wait "${_osa}" 2>/dev/null || true
+            kill "${_watchdog}" 2>/dev/null || true
+        }
+        _notify_bounded 'display notification "This Mac is not registered: your licence is already on the maximum number of Macs. Ostler still works here." with title "Ostler licence"'
 
         rm -f "${PENDING}"
         # Exit 0 so launchd does not retry this hopeless case; the records

@@ -123,7 +123,36 @@ if [ "${TOTAL}" -lt 10 ]; then
 fi
 
 # RATCHETS, one per class. Raise as sites are bounded; never lower.
-FLOOR_MACHINE=9
+#
+# ⚠️ LOWERED ONCE, 9 -> 8, 2026-09-02 (WALK-361). READ THIS BEFORE LOWERING IT
+# AGAIN -- the answer is almost always "no".
+#
+# THE RATCHET CANNOT SEE THE DIFFERENCE BETWEEN THE TWO WAYS A COUNT DROPS:
+#   (a) a site LOST its wrapper           -> a real hazard, the reason this exists
+#   (b) the SITE ITSELF WAS DELETED       -> no hazard; there is nothing to bound
+# Both print as "bounded N < floor". This edit is case (b) and only case (b).
+#
+# What was deleted: the single `tell application "Finder" to close windows`
+# Apple Event in install.sh's iMessage-FDA assist block. It WAS correctly
+# wrapped in _ostler_run_with_deadline, so it counted toward this floor. It
+# was removed because sending ANY Apple Event to Finder makes macOS raise a
+# TCC consent dialog reading "control Finder ... access to documents and data",
+# stamped with our single NSAppleEventsUsageDescription, which talks about the
+# administrator password. Andy hit that on the v1.0.57 launch walk, having
+# reported it once before. A cosmetic window tidy-up was buying a permanent,
+# frightening permission grant, and the copy could not be fixed -- macOS allows
+# exactly ONE usage string per app, so it cannot be worded per target.
+#
+# The deletion is guarded in the other direction by
+# tests/test_no_finder_appleevent.sh, which FAILS if a Finder Apple Event ever
+# returns. So this floor going down by one is paired with a new gate that makes
+# the count going back UP a failure. Both were mutation-tested against the real
+# pre-fix tree at origin/main.
+#
+# ANYONE LOWERING THIS AGAIN: prove case (b). Name the deleted site, show it is
+# absent from install.sh, and say what stops it coming back. A floor lowered
+# without that is indistinguishable from a wrapper quietly going missing.
+FLOOR_MACHINE=8
 FLOOR_DIALOG=6
 if [ "${MACHINE_OK}" -ge "${FLOOR_MACHINE}" ]; then
     ok "machine sites bounded ${MACHINE_OK} >= floor ${FLOOR_MACHINE}"
