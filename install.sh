@@ -284,7 +284,41 @@ _ks_bounded() {
 # and root as arguments, so hoisting introduces no unset-variable read.
 _ostler_wire_store_auth_pth() {
     local _venv="$1"
-    local _root="${2:-${OSTLER_DIR:-${HOME}/.ostler}}"
+    # ⚠️ OSTLER_FINAL_DIR, **NEVER** OSTLER_DIR. #595, found on the v1.0.57
+    # launch walk by the post-install QA suite.
+    #
+    # This default used to read ${OSTLER_DIR:-${HOME}/.ostler}. During the
+    # install OSTLER_DIR points at the TEMPORARY STAGING TREE, so the .pth
+    # written below was baked with an absolute /tmp path:
+    #
+    #   sys.path.append("/tmp/ostler-prelaunch-2026/lib")
+    #
+    # measured verbatim off a freshly installed box. That directory does not
+    # survive the install, so the import fails at EVERY interpreter start,
+    # for ever, on every install. Python then prints
+    #   ModuleNotFoundError: No module named 'ostler_store_auth'
+    #   Remainder of file ignored
+    # and "Remainder of file ignored" is the damage: the OSTLER_SECRETS_DIR
+    # default never gets set and the auth wiring never happens. The MODULE was
+    # installed correctly at ${OSTLER_FINAL_DIR}/lib all along -- only the
+    # pointer was wrong. 9 occurrences in one 2073-line install log.
+    #
+    # That is the customer-visible A1: cm059-editor runs the bundled
+    # interpreter, gets no credential, 401s against Oxigraph on every hourly
+    # tick and fail-closes to the settling stub, so the Front Page never
+    # populates. Silent because every call site below degrades to warn() (#570).
+    #
+    # 🔴 THIRD OCCURRENCE OF THIS CLASS. #177 baked a /tmp/ostler-prelaunch
+    # path into the ollama-logrotate LaunchAgent plist, which died at reboot.
+    # #578 has 9 more plists baking ${OSTLER_DIR} while the staging tree is
+    # still live. A value captured during staging and never rebound to the
+    # tree it will actually run from.
+    #
+    # OSTLER_FINAL_DIR is assigned unconditionally at install.sh:2001, before
+    # every call site that relies on this default (the earliest is ~2749). The
+    # three upgrade-path callers pass their own root explicitly and are
+    # unaffected either way.
+    local _root="${2:-${OSTLER_FINAL_DIR:-${HOME}/.ostler}}"
     # ⚠️ #595 -- THIS FUNCTION'S POPULATION WAS ITS DEFECT, NOT ITS COVERAGE.
     #
     # Until 2026-08-31 the only accepted shape was a venv root, and the guard
@@ -6777,8 +6811,33 @@ fi
 # scores ZERO in this file against a live control of 20 `-m venv` invocations,
 # so no venv inherits this interpreter's site-packages and no interpreter can
 # load the shim twice.
+# ⚠️ #595 SECOND HALF. THE GUARD AND THE ARGUMENT DISAGREED, IN ONE STATEMENT.
+#
+# The guard below tests PYTHON3_BIN against OSTLER_FINAL_DIR. The argument used
+# to pass OSTLER_DIR. Both on the same line. That is the whole defect: this call
+# runs ABOVE the promote-boundary contract line, where OSTLER_DIR is still
+# /tmp/ostler-prelaunch-<pid>, so the .pth it writes named a directory that does
+# not survive the install.
+#
+# (This comment deliberately does NOT spell the boundary marker token. The
+# marker is a UNIQUE anchor that tests locate by grep, and the first draft of
+# tests/test_store_auth_no_call_site_passes_staging_root.sh found THIS comment
+# instead of the real contract line -- shifting its boundary from ~14505 to
+# here and silently shrinking its own population. The test now refuses unless
+# the marker occurs exactly once; this wording keeps that true.)
+#
+# 🔴 THE #1316 FIX DID NOT REACH HERE, AND THE REASON IS WORTH KEEPING. #1316
+# hardened the FUNCTION'S DEFAULT (`local _root="${2:-${OSTLER_FINAL_DIR:-...}}"`).
+# A default only applies when the argument is ABSENT. This call site passes $2
+# EXPLICITLY, so it overrode the fix silently -- the hardening was real, and
+# this caller was simply never in its population. 12 of the 16 call sites pass
+# no root and were genuinely fixed by #1316; this was the one that was not.
+# Found by A2 on the P2 "gates that cover one family" sweep, not by a gate.
+#
+# The blast radius is every service WITHOUT its own venv -- cm059-editor,
+# ical-server, ostler_hygiene -- which is why the warn names them.
 if [[ -n "${PYTHON3_BIN:-}" && "${PYTHON3_BIN}" == "${OSTLER_FINAL_DIR}/python/"* ]]; then
-    _ostler_wire_store_auth_pth "$PYTHON3_BIN" "${OSTLER_DIR:-${HOME}/.ostler}" \
+    _ostler_wire_store_auth_pth "$PYTHON3_BIN" "${OSTLER_FINAL_DIR:-${HOME}/.ostler}" \
         || warn "store-auth .pth not wired into the bundled interpreter -- every service WITHOUT its own venv (cm059-editor, ical-server, ostler_hygiene) reaches the data stores with NO credential (#595/#210)"
 fi
 
@@ -15457,7 +15516,23 @@ services:
       # state/ ALONE, not the whole workspace: that tree also holds daemon
       # config and store credentials, and the wiki compiler has no business
       # reading them. Same scoping reasoning as the licence mount above.
-      - ${OSTLER_WORKSPACE:-${HOME}/.ostler/workspace}/state:/workspace/state
+      #
+      # 🔴 #482 RESIDUAL -- THE MOUNT SOURCE MUST BE THE DAEMON'S WORKSPACE,
+      # WHICH IS NOT ${HOME}/.ostler/workspace. The daemon runs with
+      # ZEROCLAW_WORKSPACE=${OSTLER_DIR}/assistant-config (the assistant-agent
+      # LaunchAgent com.creativemachines.ostler.assistant.plist), so
+      # resolve_runtime_config_dirs takes its env branch and, because a
+      # config.toml sits at assistant-config, resolve_config_dir_for_workspace
+      # appends "workspace": the daemon's CostTracker reads
+      # ${HOME}/.ostler/assistant-config/workspace/state/costs.jsonl
+      # (zeroclaw-config/src/cost/tracker.rs resolve_storage_path). The
+      # earlier default here was ${HOME}/.ostler/workspace -- a DIFFERENT
+      # directory nothing reads back, so the compiler wrote a real journal
+      # the Bursar never opened, with no error anywhere: the same silent-path
+      # shape as the mount that was missing entirely. Point the source at the
+      # daemon's workspace. OSTLER_WORKSPACE stays overridable for operators
+      # who relocate the workspace, but the default now matches the reader.
+      - ${OSTLER_WORKSPACE:-${HOME}/.ostler/assistant-config/workspace}/state:/workspace/state
     environment:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
@@ -15486,9 +15561,12 @@ services:
       # a WORKSPACE dir, and because this value's basename is literally
       # "workspace" the function uses it as-is instead of appending
       # "workspace" a second time -- that arm exists upstream and is tested.
-      # Result: /workspace/state/costs.jsonl, which IS the host's
-      # ~/.ostler/workspace/state/costs.jsonl through the mount above, and
-      # is the same file the daemon's CostTracker reads back for the Bursar.
+      # Result: /workspace/state/costs.jsonl, which through the mount above
+      # IS the host's
+      # ${HOME}/.ostler/assistant-config/workspace/state/costs.jsonl -- the
+      # same file the daemon's CostTracker reads back for the Bursar (see the
+      # mount-source note above). An earlier version of this comment named
+      # ${HOME}/.ostler/workspace, which the daemon does NOT read.
       #
       # Set EXPLICITLY, for the identical reason OSTLER_LICENCE_STATE_FILE
       # is: the image declares no USER and no ENV HOME, so "~" is /root only
@@ -21752,20 +21830,28 @@ else
                 while :; do
                     killall "System Settings" >/dev/null 2>&1 || true
                     killall "System Preferences" >/dev/null 2>&1 || true
-                    # Close the Finder reveal window we opened on the drag-in
-                    # fallback. Gated on _fda_finder_revealed so we never touch
-                    # Finder on the normal (registered/listed) path where the
-                    # reveal was suppressed and no Finder window exists.
-                    if [[ "${_fda_finder_revealed:-false}" == true ]]; then
-                        # BOUNDED (2026-08-26): sits inside a 60-iteration
-                        # 1s wait loop, so an unbounded send here stalls the
-                        # loop AND the FDA step around it. Finder is exactly
-                        # the app that shows a modal (permission, "reopen
-                        # windows?") and an Apple Event waits on its event
-                        # loop indefinitely.
-                        _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
-                            osascript -e 'tell application "Finder" to close windows' >/dev/null 2>&1 || true
-                    fi
+                    # WALK-361 (2026-09-02, Andy on the v1.0.57 launch walk):
+                    # WE DO NOT SEND APPLE EVENTS TO FINDER. THE TIDY-UP WAS
+                    # NOT WORTH THE CONSENT DIALOG IT BOUGHT.
+                    #
+                    # This used to close the Finder reveal window opened on the
+                    # drag-in fallback. Sending ANY Apple Event to Finder makes
+                    # macOS raise a TCC consent dialog reading "OstlerInstaller
+                    # wants access to control Finder. Allowing control will
+                    # provide access to documents and data in Finder" -- and it
+                    # stamps our single NSAppleEventsUsageDescription underneath,
+                    # which talks about the administrator password. So the
+                    # customer was shown a documents-and-data prompt explained
+                    # by a sentence about passwords, to close a window.
+                    #
+                    # macOS permits exactly ONE NSAppleEventsUsageDescription per
+                    # app, so the string CANNOT be worded per target. Better copy
+                    # was never available as a fix. Not sending the event is.
+                    #
+                    # An open Finder window is harmless and the customer closes
+                    # it themselves. `open -R` above is LaunchServices, NOT an
+                    # Apple Event, so the reveal itself raises no prompt and
+                    # stays. Guarded by tests/test_no_finder_appleevent.sh.
                     # Break the instant neither pane process is alive.
                     if ! pgrep -x "System Settings" >/dev/null 2>&1 \
                        && ! pgrep -x "System Preferences" >/dev/null 2>&1; then

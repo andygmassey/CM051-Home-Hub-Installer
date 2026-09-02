@@ -40,6 +40,12 @@ on:
       # the step without this line and verify_invoked_tests_are_watched.py
       # caught it: "1 file(s) are DARK ON SELF-EDIT".
       - 'tests/test_post_walk_qa_measures_the_artefact.sh'
+      # The BOM-verdict gate rides on the SAME promote decision this workflow
+      # guards, so it belongs in the same watch set. #1322 shipped the gate
+      # with zero call sites; the test below is what makes that state fail.
+      - 'scripts/verify_must_contain_has_box_verdict.sh'
+      - 'tests/test_bom_verdict_gate_is_wired_into_the_promote.sh'
+      - 'cuts/**/MUST_CONTAIN.tsv'
       # The walk DRIVER and its three suites. Same self-edit rule as above:
       # the driver is the thing that decides whether a walk passed, so a
       # change to it must run the suites that judge it.
@@ -189,3 +195,16 @@ jobs:
           printf 'qa_exit\t0\n'                  >> walks/v0.0.0-citest.tsv
           bash scripts/verify_walk_record.sh v0.0.0-citest "$CITEST_SHA"
           rm -f walks/v0.0.0-citest.tsv /tmp/citest-artefact.bin
+
+      # 🔴 #1322 SHIPPED THE BOM-VERDICT GATE WITH ZERO CALL SITES. The script
+      # was 137 lines and nothing ran it -- measured by grepping for its own
+      # name and getting zero, with verify_walk_record as the control showing
+      # the grep worked. Same class as #449. This step is what makes that
+      # state RED instead of invisible.
+      #
+      # `if: always()` is REQUIRED: a red in an earlier step would otherwise
+      # SKIP this one, and a gate that does not report is indistinguishable
+      # from a gate that passed. It shares no state with the steps above.
+      - name: The BOM-verdict gate is invoked by the promote, not merely present
+        if: always()
+        run: bash tests/test_bom_verdict_gate_is_wired_into_the_promote.sh

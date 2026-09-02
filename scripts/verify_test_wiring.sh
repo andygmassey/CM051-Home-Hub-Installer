@@ -80,6 +80,7 @@ WORKFLOWS_DIR="$WORKFLOWS_DIR" REGEN="$REGEN" python3 - <<'PYEOF'
 import os
 import sys
 import glob
+import re
 
 repo = os.environ["REPO_ROOT"]
 manifest_path = os.environ["MANIFEST"]
@@ -280,11 +281,36 @@ if swift_runner:
     for t in swift_tests:
         runner[t] = swift_runner
 
+# A .py TEST IS OFTEN INVOKED BY MODULE NAME, WHICH CARRIES NO ".py".
+#
+# `python3 -m unittest tests.test_tailnet_owner_resolution` starts a real test,
+# but the substring the loop below hunts -- the filename WITH extension,
+# `test_tailnet_owner_resolution.py` -- never appears in that invocation. The
+# module form drops the extension and swaps the path separator for a dot, so a
+# plain `t in text` scores a genuinely-wired unittest module UNWIRED. The sole
+# victim on this tree is test_tailnet_owner_resolution.py, run by
+# .github/workflows/wiki-tailnet-gate.yml, whose workflow has no `paths:`
+# filter, so the ".py" spelling appears nowhere for the substring to catch.
+#
+# FIX: for a .py test, ALSO match the bare module STEM (filename minus ".py")
+# on a word boundary, so `tests.test_tailnet_owner_resolution` and
+# `tests/test_tailnet_owner_resolution` both count while a longer identifier
+# that merely CONTAINS the stem does not. The stem arm is deliberately .py-ONLY:
+# a .sh caller always carries the ".sh", so a .sh stem arm would only invite
+# false WIRED.
+def _started_by(t, text):
+    if t in text:
+        return True
+    if t.endswith(".py") and re.search(r"(?<![\w])" + re.escape(t[:-3]) + r"(?![\w])", text):
+        return True
+    return False
+
+
 for t in tests:
     if t in runner:
         continue
     for name, text in starters.items():
-        if t in text:
+        if _started_by(t, text):
             runner[t] = name
             break
 
@@ -425,9 +451,102 @@ if missing_rows:
         print(f"    {t}", file=sys.stderr)
     print("Run scripts/verify_test_wiring.sh --regenerate and commit.", file=sys.stderr)
 
+# ── THE BACKLOG MUST SHRINK, NOT MERELY NOT-GROW ──────────────────────────
+#
+# ANDY, 2026-09-02: "The bigger question is WHY there continue to be 'unwired'
+# things at all??? I keep asking, yet you keep finding and/or delivering more."
+#
+# THE ANSWER IS THIS GATE, AND IT IS WORTH STATING PLAINLY BECAUSE IT IS MINE.
+# Until this block existed the gate exited 0 whenever a test was "wired, OR IS
+# IN THE RECORDED BACKLOG". It stopped the set GROWING and nothing ever forced
+# it DOWN. So 91 tests sat dark and the gate printed
+#
+#     "OK: no test file is newly unwired."
+#
+# on every run, for months, truthfully. A green that means "still 91 dark" is
+# how "unwired" survives being asked about repeatedly.
+#
+# 🔴 IT COST US A LIVE LAUNCH BLOCKER. tests/TEST_WIRING.tsv recorded
+# test_walkaway_no_phase2_input_leak.sh as UNWIRED with runner "-". That test
+# guards a BLOCKING gui_read at install.sh:11176, inside the phase install.sh
+# itself declares unattended at :9757. A GUI walk-away install stalls on a
+# consent sheet with nobody at the keyboard. The test existed. It was in the
+# permitted backlog. Nothing ran it. It was found by hand, not by CI.
+#
+# THE FIX IS A ONE-WAY RATCHET. The ceiling in tests/TEST_WIRING_CEILING may
+# only ever DECREASE. Wiring tests lowers it; nothing can raise it. The backlog
+# therefore has to drain, and it can never be re-inflated to hide a new dark
+# test behind an old number.
+# FIXTURE HERMETICITY, SECOND OCCURRENCE -- see the Swift-glob note above.
+# I anchored this on REPO_ROOT and the self-test suite went red on three arms:
+# each fixture scans a temp tests dir holding 1-2 files, so its backlog is 0 or
+# 1, but the ceiling it read was the REAL repo's 91. "THE BACKLOG SHRANK TO 0"
+# was the gate comparing one repo's population against another repo's pin.
+#
+# The ceiling therefore anchors on TESTS_DIR -- the population actually being
+# scanned -- so a number can never be checked against a set it does not
+# describe. A fixture that wants the ratchet evaluated writes its own ceiling.
+ceiling_path = os.path.join(tests_dir, "TEST_WIRING_CEILING")
+_is_real_run = os.path.realpath(tests_dir) == os.path.realpath(
+    os.path.join(repo, "tests")
+)
+if not os.path.exists(ceiling_path):
+    if _is_real_run:
+        # An ABSENT ceiling is CANNOT-RUN, never a pass. A deleted ceiling file
+        # must not read as "no limit"; that is how a ratchet gets quietly
+        # removed.
+        print(
+            "verify_test_wiring: CANNOT RUN -- tests/TEST_WIRING_CEILING is absent.\n"
+            "The unwired backlog has no upper bound to check against. That is not a\n"
+            "clean result, it is a missing instrument.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    # A fixture run that declares no ceiling is not making a claim about the
+    # backlog, so there is nothing to ratchet. SAY SO on stdout: a skipped
+    # check that prints nothing is indistinguishable from one that passed,
+    # which is the defect this whole file exists to prevent.
+    print("  UNWIRED backlog: not evaluated (fixture run declares no ceiling)")
+    if fail:
+        sys.exit(1)
+    print("OK: no test file is newly unwired.")
+    sys.exit(0)
+try:
+    ceiling = int(read(ceiling_path).strip())
+except ValueError:
+    print(
+        "verify_test_wiring: CANNOT RUN -- TEST_WIRING_CEILING is not an integer.",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
+actual = len(recorded_unwired)
+print(f"  UNWIRED backlog: {actual}  (ceiling {ceiling}, may only DECREASE)")
+if actual > ceiling:
+    fail = True
+    print("", file=sys.stderr)
+    print(
+        f"THE UNWIRED BACKLOG GREW: {actual} > ceiling {ceiling}.\n"
+        "Wire the test, or delete it. Raising the ceiling is not a fix and the\n"
+        "companion test refuses a raised ceiling on its own.",
+        file=sys.stderr,
+    )
+elif actual < ceiling:
+    # Shrinking is the POINT, but a stale ceiling lets the backlog creep back
+    # up to the old number unnoticed. Force the ratchet to be re-pinned.
+    fail = True
+    print("", file=sys.stderr)
+    print(
+        f"THE BACKLOG SHRANK TO {actual} BUT THE CEILING STILL SAYS {ceiling}.\n"
+        "Good news, unfinished: lower the ceiling to match, or the slack you\n"
+        "just earned silently permits the backlog to grow back into it.\n"
+        f"    printf '{actual}\\n' > tests/TEST_WIRING_CEILING",
+        file=sys.stderr,
+    )
+
 if fail:
     sys.exit(1)
 
-print("OK: no test file is newly unwired.")
+print(f"OK: no test file is newly unwired, and the backlog is pinned at {actual}.")
 sys.exit(0)
 PYEOF

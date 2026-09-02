@@ -168,5 +168,54 @@ else
     bad "manifest drift: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/        /'
 fi
 
+# --- 8-10. THE CEILING RATCHET, EVALUATED INSIDE A FIXTURE -----------------
+#
+# The ratchet reads TESTS_DIR/TEST_WIRING_CEILING. I first anchored it on
+# REPO_ROOT instead, and arms 1, 3 and 4 above went red: each fixture scans a
+# temp dir holding 1-2 files, so its backlog is 0 or 1, but the ceiling it read
+# was the REAL repo's 91. The gate was comparing one repo's population against
+# a different repo's pin and reporting it as a product finding.
+#
+# Anchoring on TESTS_DIR fixed that but created a second, quieter risk: a
+# fixture that declares NO ceiling now SKIPS the ratchet. A skipped check and a
+# passed check must never look the same, so these three arms prove the fixture
+# path is live -- the skip is announced, and a declared ceiling is enforced in
+# BOTH directions. Without them the whole fixture branch would be dark, which
+# is the exact defect this gate exists to catch.
+fixture ceiling
+echo 'x' > "$T/test_wired_one.sh"
+echo 'x' > "$T/test_dark_one.sh"
+printf 'jobs:\n  x:\n    steps:\n      - run: bash tests/test_wired_one.sh\n' > "$W/ci.yml"
+run_gate --regenerate          # backlog becomes 1 (test_dark_one has no starter)
+
+# 8. no ceiling declared -> the skip is ANNOUNCED, not silent
+run_gate
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "not evaluated (fixture run declares no ceiling)"; then
+    ok "a fixture with no ceiling SAYS the ratchet was not evaluated"
+else
+    bad "fixture skip is silent: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+
+# 9. ceiling ABOVE the backlog -> refuse, and demand a re-pin. This is the arm
+#    that stops banked slack: 1 dark test under a ceiling of 5 leaves room for
+#    4 more to appear with the gate still green.
+printf '5\n' > "$T/TEST_WIRING_CEILING"
+run_gate
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "THE BACKLOG SHRANK TO 1 BUT THE CEILING STILL SAYS 5"; then
+    ok "a fixture ceiling ABOVE the backlog -> exit 1, re-pin demanded"
+else
+    bad "fixture ceiling too high: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+
+# 10. ceiling MATCHING the backlog -> accept. Without this the two arms above
+#     would both pass on a gate that simply refuses every fixture.
+printf '1\n' > "$T/TEST_WIRING_CEILING"
+run_gate
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "UNWIRED backlog: 1  (ceiling 1"; then
+    ok "a fixture ceiling MATCHING the backlog -> exit 0 (the gate can say yes)"
+else
+    bad "fixture ceiling match: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

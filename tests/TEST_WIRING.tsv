@@ -44,6 +44,7 @@ test_assistant_identity_belt.sh	UNWIRED	-
 test_assistant_ollama_num_ctx.sh	UNWIRED	-
 test_autologin_consent_opt_in.sh	WIRED	.github/workflows/consent-contract.yml
 test_background_copy_promises_no_deadline.sh	WIRED	.github/workflows/background-copy-honesty.yml
+test_bom_verdict_gate_is_wired_into_the_promote.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_bookmarks_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_bootstrap_prelude.sh	UNWIRED	-
 test_brew_install_fail_loud.sh	UNWIRED	-
@@ -102,6 +103,7 @@ test_dedupe_deps_reach_the_consumer_venv.sh	WIRED	.github/workflows/install-gui-
 test_dedupe_heartbeat.sh	UNWIRED	-
 test_deferral_reachability.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferral_reason_reads_block_scalars.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
+test_deferred_register_cap_is_not_silent.sh	WIRED	.github/workflows/deferred-register-cap-not-silent.yml
 test_diag_sink_per_run.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_discord_claims_an_extracted_package.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_dispatch_timeout.sh	WIRED	.github/workflows/dispatch-timeout.yml
@@ -218,6 +220,7 @@ test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
 test_no_committed_binary_leaks_a_home_path.sh	WIRED	.github/workflows/no-binary-home-path.yml
 test_no_data_is_not_success.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_no_divergent_vendor_twin.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_no_finder_appleevent.sh	WIRED	.github/workflows/no-finder-appleevent.yml
 test_no_gate_execs_a_pinned_image.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_no_internal_codenames_in_customer_strings.sh	WIRED	.github/workflows/rule-09-strings-check.yml
 test_no_literal_backslash_n_in_strings.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -290,6 +293,8 @@ test_stay_awake_agent_survives_installer_exit.sh	WIRED	.github/workflows/launcha
 test_stderr_tail.sh	WIRED	.github/workflows/stderr-tail.yml
 test_step_end_does_not_report_a_timed_out_step_as_ok.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_store_auth_covers_every_interpreter.sh	WIRED	.github/workflows/store-auth-coverage-gate.yml
+test_store_auth_no_call_site_passes_staging_root.sh	WIRED	.github/workflows/store-auth-pth-final-dir.yml
+test_store_auth_pth_uses_final_dir.sh	WIRED	.github/workflows/store-auth-pth-final-dir.yml
 test_store_callers_authenticate.sh	WIRED	.github/workflows/venv-store-shim.yml
 test_stores_guard_fires.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_stores_publish_no_host_port.sh	WIRED	.github/workflows/store-host-exposure.yml
@@ -338,7 +343,7 @@ test_vendor_import_resolution.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_knowledge_embed_contract.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_vendor_manifest_is_valid_toml.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_only_survives_sync.sh	WIRED	.github/workflows/cut.yml
-test_vendor_pair_drift.py	WIRED	scripts/run_all_cut_gates.sh
+test_vendor_pair_drift.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_src_placeholder_unset.sh	WIRED	.github/workflows/cut.yml
 test_vendor_symbol_resolution.py	WIRED	.github/workflows/cut.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -368,6 +373,7 @@ test_wiki_image_namespace_matches_ci.sh	WIRED	.github/workflows/supply-chain-pin
 test_wiki_provenance_extracts_without_exec.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_wiki_recompile_after_late_hydration.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
+test_wiring_ceiling_only_ever_decreases.sh	WIRED	.github/workflows/test-wiring.yml
 test_write_pipeline_signals.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_youtube_parser_does_not_claim_facebook.py	WIRED	.github/workflows/parser-claim-separation.yml
 gui/OstlerInstallerTests/AdminAuthorizationGateTests.swift	WIRED	.github/workflows/swift-tests.yml
