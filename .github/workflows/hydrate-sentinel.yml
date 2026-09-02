@@ -48,6 +48,7 @@ on:
       - 'tests/test_hydrate_sentinel_change_fields.sh'
       - 'tests/test_source_status_contract.sh'
       - 'tests/test_source_status_canonical_matches_recorders.sh'
+      - 'tests/test_e1_source_readout_emits.sh'
       - 'vendor/doctor/agent/diagnostic_rules.py'
       - 'vendor/doctor/agent/web_ui.py'
       - 'vendor/divergences/doctor.patch'
@@ -159,7 +160,17 @@ jobs:
         if: always()
         run: bash tests/test_source_status_canonical_matches_recorders.sh
 
-      - name: All nine tests parse under bash 3.2-compatible syntax
+      # E1 (#599): the T+0 install-log readout must EMIT a line, not merely not
+      # crash. The first cut called `log`, heredoc-only in the main body, so the
+      # readout was silently absent while bash -n and the nounset test stayed
+      # green. This extracts the real E1 block + real info() and asserts a line
+      # lands on stdout (the stream teed to install.log), with an anti-vacuity
+      # limb that reverts info->log and proves nothing emits.
+      - name: The T+0 source-status readout actually emits a line (E1)
+        if: always()
+        run: bash tests/test_e1_source_readout_emits.sh
+
+      - name: All ten tests parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_hydrate_sentinel_not_on_error.sh
@@ -171,3 +182,4 @@ jobs:
           bash -n tests/test_hydrate_sentinel_change_fields.sh
           bash -n tests/test_source_status_contract.sh
           bash -n tests/test_source_status_canonical_matches_recorders.sh
+          bash -n tests/test_e1_source_readout_emits.sh
