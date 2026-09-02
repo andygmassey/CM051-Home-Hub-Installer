@@ -167,6 +167,7 @@ test_hub_payload_seed_refuses_a_wrong_interpreter.sh	WIRED	.github/workflows/cut
 test_hydrate_apple_notes_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_email_preferences_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_people_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
+test_hydrate_sentinel_change_fields.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_hydrate_sentinel_not_on_error.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_ical_server_vendor_wired.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_identity_resolver_fuzzy_cache.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -288,6 +289,8 @@ test_signing_credential_guard.sh	WIRED	.github/workflows/cut.yml
 test_skills_lockdown_config.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_slot_waiter_can_outlast_a_holder.sh	WIRED	.github/workflows/slot-fairness.yml
 test_social_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_source_status_canonical_matches_recorders.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_source_status_contract.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_spoken_transcripts_absence_discriminated.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_status_ok_with_zero_payload_is_not_ok.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_stay_awake_agent_survives_installer_exit.sh	WIRED	.github/workflows/launchagent-success-verification.yml

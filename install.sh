@@ -23318,6 +23318,39 @@ progress "Hydrating your graph from iCloud" "hydrate_graph"
 _HYDRATE_SENTINEL_DIR="${OSTLER_DIR}/state/hydrate"
 mkdir -p "$_HYDRATE_SENTINEL_DIR"
 
+# G1b: extract a typed integer count from a free-form payload. The payload is a
+# `key=value` string whose value is a count, e.g. "people=5" / "sent=0"; take the
+# value after the LAST '=' and keep it only if it is a bare integer, else 0. A
+# panel renders `item_count` without parsing prose (today `payload` is a free
+# string and `sent=0` is indistinguishable from a real 0 without splitting text).
+_hydrate_payload_count() {
+    local payload="${1:-}" v
+    v="${payload##*=}"
+    if [[ "$v" =~ ^[0-9]+$ ]]; then printf '%s' "$v"; else printf '0'; fi
+}
+
+# G1a: last_update_at is DISTINCT from recorded_at. recorded_at is when this
+# record was written (every install / re-run / tick). last_update_at is when the
+# source's DATA last changed: carried forward from the prior sentinel when the
+# count is unchanged, set to `now` when the count moves or on the first record.
+# That is what lets a panel answer BOTH "landed at install?" (recorded_at +
+# status) AND "keeps updating?" (last_update_at advancing) -- two questions one
+# timestamp cannot answer. MUST be called before the `> "$sentinel"` write, which
+# truncates the prior record; sets _HY_ITEM_COUNT and _HY_LAST_UPDATE_AT.
+_hydrate_compute_change() {
+    local sentinel="$1" new_count="$2" now="$3" prev_count="" prev_lua=""
+    if [[ -f "$sentinel" ]]; then
+        prev_count="$(grep -m1 '^item_count=' "$sentinel" 2>/dev/null | cut -d= -f2-)"
+        prev_lua="$(grep -m1 '^last_update_at=' "$sentinel" 2>/dev/null | cut -d= -f2-)"
+    fi
+    _HY_ITEM_COUNT="$new_count"
+    if [[ -n "$prev_lua" && "$prev_count" == "$new_count" ]]; then
+        _HY_LAST_UPDATE_AT="$prev_lua"
+    else
+        _HY_LAST_UPDATE_AT="$now"
+    fi
+}
+
 # Returns 0 if the sentinel for $1 is present, fresher than 7 days, AND
 # records a completed run rather than a failed one.
 # Use as: if _hydrate_sentinel_fresh imessage; then continue; fi
@@ -23463,22 +23496,31 @@ _hydrate_sentinel_record() {
     local payload="${2:-}"
     local empty_reason="${3:-}"
     local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    local now count
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
     if _hydrate_payload_is_all_zero "$payload"; then
+        _hydrate_compute_change "$sentinel" 0 "$now"
         {
-            printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            printf 'recorded_at=%s\n' "$now"
             printf 'source=%s\n' "$source"
             printf 'status=no_data\n'
             printf 'detail=%s\n' "${empty_reason:-zero_payload_undeclared}"
+            printf 'item_count=%s\n' "$_HY_ITEM_COUNT"
+            printf 'last_update_at=%s\n' "$_HY_LAST_UPDATE_AT"
             printf 'payload=%s\n' "$payload"
         } > "$sentinel"
         return 0
     fi
 
+    count="$(_hydrate_payload_count "$payload")"
+    _hydrate_compute_change "$sentinel" "$count" "$now"
     {
-        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'recorded_at=%s\n' "$now"
         printf 'source=%s\n' "$source"
         printf 'status=ok\n'
+        printf 'item_count=%s\n' "$_HY_ITEM_COUNT"
+        printf 'last_update_at=%s\n' "$_HY_LAST_UPDATE_AT"
         if [[ -n "$payload" ]]; then
             printf 'payload=%s\n' "$payload"
         fi
@@ -23528,6 +23570,8 @@ _hydrate_sentinel_record_error() {
     local payload="${3:-}"
     local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
     local status="error"
+    local now
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     # Same rc set gui_step_record_rc treats as a timeout. Kept as a literal
     # pair rather than a call into the emitter: the emitter is stubbed out
     # (install.sh:776) when the GUI is not driving, so asking it would make
@@ -23538,11 +23582,14 @@ _hydrate_sentinel_record_error() {
     # Fold the rc into the open step BEFORE writing the file, so an
     # unwritable sentinel dir cannot also cost us the log line.
     gui_step_record_rc "$rc"
+    _hydrate_compute_change "$sentinel" "$(_hydrate_payload_count "$payload")" "$now"
     {
-        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'recorded_at=%s\n' "$now"
         printf 'source=%s\n' "$source"
         printf 'status=%s\n' "$status"
         printf 'rc=%s\n' "$rc"
+        printf 'item_count=%s\n' "$_HY_ITEM_COUNT"
+        printf 'last_update_at=%s\n' "$_HY_LAST_UPDATE_AT"
         if [[ -n "$payload" ]]; then
             printf 'payload=%s\n' "$payload"
         fi
@@ -23591,10 +23638,15 @@ _hydrate_sentinel_record_no_data() {
     local source="$1"
     local detail="${2:-}"
     local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    local now
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    _hydrate_compute_change "$sentinel" 0 "$now"
     {
-        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'recorded_at=%s\n' "$now"
         printf 'source=%s\n' "$source"
         printf 'status=no_data\n'
+        printf 'item_count=%s\n' "$_HY_ITEM_COUNT"
+        printf 'last_update_at=%s\n' "$_HY_LAST_UPDATE_AT"
         if [[ -n "$detail" ]]; then
             printf 'detail=%s\n' "$detail"
         fi
@@ -23653,10 +23705,15 @@ _hydrate_sentinel_record_cannot_run() {
     local source="$1"
     local reason="${2:-}"
     local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    local now
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    _hydrate_compute_change "$sentinel" 0 "$now"
     {
-        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'recorded_at=%s\n' "$now"
         printf 'source=%s\n' "$source"
         printf 'status=cannot_run\n'
+        printf 'item_count=%s\n' "$_HY_ITEM_COUNT"
+        printf 'last_update_at=%s\n' "$_HY_LAST_UPDATE_AT"
         printf 'detail=%s\n' "${reason:-precondition_unmet}"
     } > "$sentinel"
 }

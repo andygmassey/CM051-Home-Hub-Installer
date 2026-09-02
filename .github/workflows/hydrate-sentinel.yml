@@ -45,7 +45,12 @@ on:
       - 'tests/test_email_settling_numerator_is_messages.sh'
       - 'tests/test_a_failed_hydrate_may_not_fabricate_a_count.sh'
       - 'tests/test_cannot_run_is_a_third_state.sh'
+      - 'tests/test_hydrate_sentinel_change_fields.sh'
+      - 'tests/test_source_status_contract.sh'
+      - 'tests/test_source_status_canonical_matches_recorders.sh'
       - 'vendor/doctor/agent/diagnostic_rules.py'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/divergences/doctor.patch'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/hydrate-sentinel.yml'
   push:
@@ -129,7 +134,32 @@ jobs:
         if: always()
         run: bash tests/test_cannot_run_is_a_third_state.sh
 
-      - name: All six tests parse under bash 3.2-compatible syntax
+      # G1a/G1b: the record now carries a typed item_count and a last_update_at
+      # DISTINCT from recorded_at, so a panel can answer both "landed at
+      # install?" and "keeps updating?" -- which one timestamp cannot. Extracts
+      # and drives the real recorders, so it cannot pass against a copy.
+      - name: Sentinel carries a typed item_count and a distinct last_update_at
+        if: always()
+        run: bash tests/test_hydrate_sentinel_change_fields.sh
+
+      # G1c/G3: the source-status record is an on-disk contract between the CM051
+      # writer (install.sh) and the vendored doctor reader (web_ui.py). This runs
+      # BOTH halves for real and asserts every field round-trips, so a key one
+      # side emits and the other ignores fails here, not silently on a box (#532).
+      - name: Source-status writer<->reader contract holds (G3, #532)
+        if: always()
+        run: bash tests/test_source_status_contract.sh
+
+      # G3 (a)/(c): the served set (_SOURCE_KINDS in the vendored reader) must be
+      # EXACTLY the sources install.sh writes a recorder for -- no phantom row
+      # (served-not-written = not_run forever), no missing row. That equivalence
+      # is what makes the reader's `not_run` mean "exists, unfired" not "no such
+      # recorder".
+      - name: Served sources == recorder sources, no phantom no missing (G3)
+        if: always()
+        run: bash tests/test_source_status_canonical_matches_recorders.sh
+
+      - name: All nine tests parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_hydrate_sentinel_not_on_error.sh
@@ -138,3 +168,6 @@ jobs:
           bash -n tests/test_no_data_is_not_success.sh
           bash -n tests/test_a_failed_hydrate_may_not_fabricate_a_count.sh
           bash -n tests/test_cannot_run_is_a_third_state.sh
+          bash -n tests/test_hydrate_sentinel_change_fields.sh
+          bash -n tests/test_source_status_contract.sh
+          bash -n tests/test_source_status_canonical_matches_recorders.sh
