@@ -95,8 +95,15 @@ echo "PASS: clone branch verifies \$DOCTOR_TMP/doctor/agent before copying"
 #   - the repo URL
 #   - a "to install later" recipe
 #   - a hint about PWG_DOCTOR_REPO override
-if ! grep -q 'Override the source repo with PWG_DOCTOR_REPO' "$INSTALL_SCRIPT"; then
-    echo "FAIL [diag-override]: clone failure does not mention PWG_DOCTOR_REPO override" >&2
+# The hint was i18n-extracted: install.sh emits the MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR
+# key on the clone-failure path, and the English lives in the en-GB catalogue.
+if ! grep -q 'MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR' "$INSTALL_SCRIPT"; then
+    echo "FAIL [diag-override]: clone failure does not surface the PWG_DOCTOR_REPO override hint (MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR)" >&2
+    exit 1
+fi
+STRINGS_FILE="${REPO_ROOT}/install.sh.strings.en-GB.sh"
+if ! grep -q '^MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR=.*PWG_DOCTOR_REPO' "$STRINGS_FILE"; then
+    echo "FAIL [diag-override]: en-GB catalogue does not define MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR with the PWG_DOCTOR_REPO hint" >&2
     exit 1
 fi
 echo "PASS: clone failure surfaces PWG_DOCTOR_REPO override hint"
