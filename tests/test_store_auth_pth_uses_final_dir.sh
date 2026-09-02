@@ -65,7 +65,11 @@ SANDBOX="$(mktemp -d -t ostler-pth595)"
 trap 'rm -rf "${SANDBOX}"' EXIT
 
 STAGING="${SANDBOX}/tmp/ostler-prelaunch-9999"
-FINAL="${SANDBOX}/Users/walker/.ostler"
+# NOT a /Users/<name> path: ci-pii-shape-scan matches operator paths on SHAPE
+# ('/Users/[a-z0-9._-]+/?'), so even an invented home directory trips it. The
+# guard is correct -- an operator path must never enter this PUBLIC repo -- and
+# the fixture does not need a realistic home, only a tree that is NOT staging.
+FINAL="${SANDBOX}/final-home/.ostler"
 mkdir -p "${STAGING}/lib" "${STAGING}/secrets" "${FINAL}/lib" "${FINAL}/secrets"
 
 # A venv-shaped tree with a real interpreter, because the function asks the
