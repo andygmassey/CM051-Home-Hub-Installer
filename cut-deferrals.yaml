@@ -32,19 +32,6 @@
 # ============================================================================
 
 pr_exemptions:
-  - ref: "CM051-Home-Hub-Installer#1333"
-    reason: >-
-      'test(pii): wire the dark vendor person-name sweep into CI (--report)'.
-      GREEN, measured on a latest-run-per-check-name conclusion histogram: 31
-      SUCCESS, 1 SKIPPED, 0 FAILURE of 32. Deferred on SEQUENCING, not merit.
-      It changes the machinery that JUDGES a cut, during the cut it would judge
-      -- the one ordering this file already records twice, and the reason oa#363
-      sits three entries below. It is also --report mode, so landing it now
-      would not block anything anyway: all the risk, none of the benefit, inside
-      a cut window. PIN-SAFE (0 install.sh hits, measured). CUSTOMER IMPACT:
-      none, it is CI wiring. NOT cleared by closing: it is wanted, it is simply
-      not this cut's to land. Land it once no CM051 cut is in flight.
-    review_by: "2026-09-12"
   - ref: "CM051-Home-Hub-Installer#1305"
     reason: >-
       'fix(usage-journal): the SHIPPING ostler_fda has never written a record
@@ -428,30 +415,6 @@ pr_exemptions:
     review_by: "2026-09-12"
 
 deferrals:
-  - ref: "CM051:#1333"
-    reason: >-
-      'test(pii): wire the dark vendor person-name sweep into CI (--report)'. A2's
-      work, GREEN on its own checks -- 31 SUCCESS, 1 SKIPPED, 0 FAILURE of 32,
-      measured on a latest-run-per-check-name conclusion histogram. DEFERRED ON
-      SEQUENCING, NOT MERIT. It changes the machinery that JUDGES a cut, during
-      the cut it would judge, which is the ordering this file already records
-      against oa#363 and twice more. It is also --report mode, so landing it now
-      would block nothing: all of the risk, none of the benefit, inside a cut
-      window. PIN-SAFE, measured: 0 install.sh hits, 1 file, +73/-0. CUSTOMER
-      IMPACT: none, it is CI wiring.
-      🔴 THIS ROW EXISTS BECAUSE I PUT THE FIRST ONE IN THE WRONG SECTION. I wrote
-      four deferrals into `pr_exemptions`, which is read by scripts/verify_pr_age.sh
-      (check-pr-age) and NOT by scripts/verify_no_orphaned_fixes.sh (check-orphans).
-      The orphan gate reads `deferrals`, keyed `CM051:#N`, not the long
-      `CM051-Home-Hub-Installer#N` form. #1305, #495 and #399 looked disposed of
-      only because PRE-EXISTING rows already covered them here; #1333 had none, so
-      it went RED and was the single orphan in the whole run. The gate said so in
-      its own words -- "a deferral nothing asks about holds nothing. Either the ref
-      is in the wrong key shape, or the work has landed" -- and it prints 400
-      UNCONSULTED rows every run, which is the standing evidence that this trap
-      catches more than me.
-      CLEARS: A2 opens and lands it once the v1.0.59 tag exists.
-    until_cut: "v1.0.60"
   - ref: "CM051:#1305"
     reason: >-
       TNM's usage-journal producer for the SHIPPING vendored ostler_fda (#949).
