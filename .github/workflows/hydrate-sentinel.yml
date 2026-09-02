@@ -149,7 +149,16 @@ jobs:
         if: always()
         run: bash tests/test_source_status_contract.sh
 
-      - name: All eight tests parse under bash 3.2-compatible syntax
+      # G3 (a)/(c): the served set (_SOURCE_KINDS in the vendored reader) must be
+      # EXACTLY the sources install.sh writes a recorder for -- no phantom row
+      # (served-not-written = not_run forever), no missing row. That equivalence
+      # is what makes the reader's `not_run` mean "exists, unfired" not "no such
+      # recorder".
+      - name: Served sources == recorder sources, no phantom no missing (G3)
+        if: always()
+        run: bash tests/test_source_status_canonical_matches_recorders.sh
+
+      - name: All nine tests parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_hydrate_sentinel_not_on_error.sh
@@ -160,3 +169,4 @@ jobs:
           bash -n tests/test_cannot_run_is_a_third_state.sh
           bash -n tests/test_hydrate_sentinel_change_fields.sh
           bash -n tests/test_source_status_contract.sh
+          bash -n tests/test_source_status_canonical_matches_recorders.sh
