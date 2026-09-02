@@ -20411,8 +20411,38 @@ else
     # directory), and its absence is the ordinary case on a fresh Mac --
     # which is exactly why saying nothing was wrong. The customer has no
     # way to learn that recording their calls is a thing Ostler can do.
-    info "$MSG_INFO_FEED_SPOKEN_SKIPPED_NO_TRANSCRIPTS"
-    info "$MSG_INFO_FEED_SPOKEN_SKIPPED_HOW"
+    #
+    # B2: NEVER-HAD-IT AND HAD-IT-AND-LOST-IT ARE DIFFERENT FACTS, AND
+    # THEY PRINTED IDENTICALLY. The message below is written for a fresh
+    # Mac where no recording has ever been made. In the other case it
+    # states a cause that is not the cause: the user tree WAS created and
+    # announced (the sentinel is the proof), and the Transcripts directory
+    # has been removed since. "there are no recordings to read" is then
+    # false, and a feed the customer previously had goes quiet underneath
+    # a reassuring sentence. Absence of data and absence of the place data
+    # lives are not the same absence.
+    #
+    # The sentinel is the discriminator and it already exists for exactly
+    # this purpose. Creation (~line 6583) writes it once and then
+    # deliberately never recreates a removed subdir, "so a customer who
+    # has deliberately removed (or renamed) one of the subdirs is not
+    # surprised by its silent re-creation". That intent is correct and is
+    # preserved here: this branch still creates NOTHING. What changes is
+    # that a removal is now reported AS a removal.
+    #
+    # `warn` not `info`: on a fresh Mac this is onboarding, but after a
+    # removal it is a capability that was available and now is not.
+    #
+    # ${USER_TREE_SENTINEL:-} because install.sh runs under `set -u`: an
+    # unset variable here would abort the install outright, which is the
+    # exact shape that made B3b a dead install at its own step.
+    if [[ -n "${USER_TREE_SENTINEL:-}" && -f "${USER_TREE_SENTINEL}" ]]; then
+        warn "$MSG_WARN_FEED_SPOKEN_TRANSCRIPTS_REMOVED"
+        info "$(printf "$MSG_INFO_FEED_SPOKEN_TRANSCRIPTS_REMOVED_HOW" "${USER_FACING_ROOT}/Transcripts")"
+    else
+        info "$MSG_INFO_FEED_SPOKEN_SKIPPED_NO_TRANSCRIPTS"
+        info "$MSG_INFO_FEED_SPOKEN_SKIPPED_HOW"
+    fi
 fi
 
 # iMessage body feed. Reads OTHER PEOPLE'S message content
