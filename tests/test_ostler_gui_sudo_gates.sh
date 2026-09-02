@@ -54,9 +54,14 @@ if [[ -z "$PREFLIGHT_LINE" ]]; then
     echo "FAIL [preflight-callsite]: 'sudo -v || fail \$MSG_FAIL_NEED_SUDO_ACCESS_...' line not found" >&2
     FAILED=1
 else
-    # Look at the 30 lines BEFORE the preflight callsite for an
-    # OSTLER_GUI gate.
-    WINDOW_START=$((PREFLIGHT_LINE - 30))
+    # Look at the 60 lines BEFORE the preflight callsite for an
+    # OSTLER_GUI gate. The window was 30; the `sudo -v || fail` line now
+    # sits ~34 lines below its guarding `if [[ "${OSTLER_GUI:-0}" == "1" ]]`
+    # because a long explanatory comment block (the 2026-08-29 `sudo -n true`
+    # capability-probe rationale) was inserted between the two. The gate is
+    # still correctly OSTLER_GUI-forked; only this lookback was too small to
+    # see it, producing a false preflight-gate failure.
+    WINDOW_START=$((PREFLIGHT_LINE - 60))
     [[ $WINDOW_START -lt 1 ]] && WINDOW_START=1
     if sed -n "${WINDOW_START},${PREFLIGHT_LINE}p" "$INSTALL_SCRIPT" \
             | grep -qE 'if\s*\[\[\s*"\$\{OSTLER_GUI'; then
