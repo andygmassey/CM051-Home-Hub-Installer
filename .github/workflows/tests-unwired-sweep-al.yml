@@ -89,7 +89,6 @@ jobs:
             test_cx98_previous_install_detection.sh \
             test_dedupe_defer_background.sh \
             test_dedupe_heartbeat.sh \
-            test_doctor_probe_errtrap_regression.sh \
             test_doctor_probe_non_fatal.sh \
             test_doctor_repo_fallback.sh \
             test_email_folder_prompt.sh \
@@ -101,7 +100,6 @@ jobs:
             test_governor_pause_throttle.sh \
             test_graph_db_pull_retry.sh \
             test_imessage_self_handles_fallback.sh \
-            test_ingest_offpeak_throttle.sh \
             test_install_daily_briefs.sh \
             test_install_first_month_free.sh \
             test_install_sh_prefers_bundled_python.sh \
@@ -141,4 +139,19 @@ jobs:
       - name: Shell tests needing macOS tools (PlistBuddy + plutil)
         run: |
           set -uo pipefail
-          bash tests/test_assistant_ollama_num_ctx.sh
+          fail=0
+          # test_doctor_probe_errtrap_regression.sh + test_ingest_offpeak_throttle.sh
+          # are macOS-bound (the first simulates "no timeout on PATH", which cannot
+          # hold on ubuntu where /usr/bin/timeout always exists; the second sources
+          # the macOS install.sh throttle path). They were mis-wired into sweep-ubuntu
+          # and fail-closed there. The product ships macOS-only, so this is their home.
+          for t in \
+            test_assistant_ollama_num_ctx.sh \
+            test_doctor_probe_errtrap_regression.sh \
+            test_ingest_offpeak_throttle.sh \
+          ; do
+            echo "::group::$t"
+            if bash "tests/$t"; then echo "PASS $t"; else echo "FAIL $t"; fail=1; fi
+            echo "::endgroup::"
+          done
+          exit $fail
