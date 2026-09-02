@@ -98,6 +98,45 @@ OSTLER_BOX_HOST=user@192.168.1.215 ./run_box_walk.sh
 
 Exit code is 0 only when `FAIL` and `BROKEN` are both zero.
 
+## ▶ BROWSING CAPTURE: FORCE THE HARVEST, OR YOU WILL READ A TRUE ZERO
+
+If the walk browses a page and then looks for it in `safari_history`, **it will not
+be there yet, and the product is not broken.** Measured on `install.sh` 2026-09-02:
+
+    com.ostler.fda-rerun plist (install.sh:14869)
+      ProgramArguments  ${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant
+                        run-source fda-rerun
+      StartInterval     ${OSTLER_FDA_RERUN_INTERVAL_S}     (default 3600 = 1 hour)
+      RunAtLoad         ABSENT -- 0 occurrences in that block
+
+`RunAtLoad` appears 35 times elsewhere in `install.sh`, so the zero above is a real
+absence in this plist and not a dead grep. **No RunAtLoad plus a 1-hour interval means
+the first harvest tick is up to an hour after install.** The reader is incremental
+(`vendor/ostler_fda/safari_history.py:120`, `WHERE hv.visit_time > ?`, checkpointed on
+`last_visit`), so the just-browsed page IS picked up -- on the next tick, not now.
+
+So between "browse a page" and "look in safari_history", force the harvest:
+
+```sh
+# SAFE: run the same program the plist runs, directly. No launchd involved.
+"${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant" run-source fda-rerun
+```
+
+⚠️ **DO NOT use `launchctl kickstart -k` for this.** It BLOCKS on a penalty-boxed job,
+which is a measured finding, not a worry: see
+`experiments/kickstart_k_blocks_on_penalty_box.sh` in this directory, which
+demonstrates it against a healthy control that returns fast. A walk that kickstarts a
+penalty-boxed `fda-rerun` hangs, and a hung walk looks exactly like a slow one.
+
+**WHY THIS SECTION EXISTS.** Without it the walk reads an empty `safari_history`,
+records a FAIL, and the failure names browsing capture when the real answer is a
+schedule. That is a true zero reported as a defect, and it costs a walk to discover.
+
+**AND IT IS A CUSTOMER FACT, not only a walk fact:** a real customer's browsed page
+appears within about an hour, at the next tick -- not instantly. That is fine for
+history capture, but it is the actual latency and it should be described that way
+rather than implied to be live.
+
 ## What this suite is for
 
 The human box walk covers what a person can see: does it install, does the modal
