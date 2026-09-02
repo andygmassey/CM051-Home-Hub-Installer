@@ -1,8 +1,8 @@
-diff --git ab/README.md bb/README.md
+diff --git a/README.md b/README.md
 new file mode 100644
 index 00000000..e8fbbe59
 --- /dev/null
-+++ bb/README.md
++++ b/README.md
 @@ -0,0 +1,182 @@
 +# vendor/doctor/
 +
@@ -186,10 +186,10 @@ index 00000000..e8fbbe59
 +(in `HR015 - Gaming PC/doctor/agent/`), then flow into this vendored
 +copy via a sync PR. Never edit `vendor/doctor/agent/` in place to fix
 +a bug - the next sync wipes it.
-diff --git aa/agent/box_status.py bb/agent/box_status.py
+diff --git a/agent/box_status.py b/agent/box_status.py
 index 56e99044..7c890712 100644
---- aa/agent/box_status.py
-+++ bb/agent/box_status.py
+--- a/agent/box_status.py
++++ b/agent/box_status.py
 @@ -29,12 +29,18 @@ Design constraints (see ``docs/SPEC_governor_status_indicator.md`` in
  from __future__ import annotations
  
@@ -286,10 +286,10 @@ index 56e99044..7c890712 100644
          },
          "settling": settling,
          "running": _running(governor, settling),
-diff --git aa/agent/config_panel.py bb/agent/config_panel.py
+diff --git a/agent/config_panel.py b/agent/config_panel.py
 index 605828b1..092748af 100644
---- aa/agent/config_panel.py
-+++ bb/agent/config_panel.py
+--- a/agent/config_panel.py
++++ b/agent/config_panel.py
 @@ -67,6 +67,24 @@ def _config_file() -> Path:
      return DEFAULT_CONFIG_FILE
  
@@ -545,11 +545,11 @@ index 605828b1..092748af 100644
 +            # fail loud rather than silently leaving the brief armed.
 +            raise ConfigError(exc.status, exc.detail)
      return read_config_view(p)
-diff --git ab/agent/daemon_cron.py bb/agent/daemon_cron.py
+diff --git a/agent/daemon_cron.py b/agent/daemon_cron.py
 new file mode 100644
 index 00000000..e5cae7b2
 --- /dev/null
-+++ bb/agent/daemon_cron.py
++++ b/agent/daemon_cron.py
 @@ -0,0 +1,319 @@
 +"""
 +Ostler Doctor -- daemon cron pause bridge (Batch-2 review #6 F1).
@@ -870,10 +870,10 @@ index 00000000..e5cae7b2
 +        "config_path": str(p),
 +        "restart": restart,
 +    }
-diff --git aa/agent/dashboard_components.py bb/agent/dashboard_components.py
+diff --git a/agent/dashboard_components.py b/agent/dashboard_components.py
 index ee9334a2..de88f2ec 100644
---- aa/agent/dashboard_components.py
-+++ bb/agent/dashboard_components.py
+--- a/agent/dashboard_components.py
++++ b/agent/dashboard_components.py
 @@ -66,11 +66,73 @@ from reminders_runtime import (
  try:
      from ostler_security.consent import all_consents  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
@@ -1065,10 +1065,10 @@ index ee9334a2..de88f2ec 100644
          if decision == "declined":
              colour = "#d96666"
              icon = "&#9888;"
-diff --git aa/agent/diagnostic_copy.py bb/agent/diagnostic_copy.py
+diff --git a/agent/diagnostic_copy.py b/agent/diagnostic_copy.py
 index 71b7b451..ab221119 100644
---- aa/agent/diagnostic_copy.py
-+++ bb/agent/diagnostic_copy.py
+--- a/agent/diagnostic_copy.py
++++ b/agent/diagnostic_copy.py
 @@ -99,6 +99,35 @@ CONTAINER_CRASHED_DETAIL_FMT = (
  CONTAINER_CRASHED_FIX = "Check the error message in the container logs"
  CONTAINER_CRASHED_FIX_COMMAND_FMT = "docker logs --tail=30 {name}"
@@ -1514,10 +1514,10 @@ index 71b7b451..ab221119 100644
 +SCHEDULED_AGENT_UNKNOWN_FIX_COMMAND_FMT = (
 +    "launchctl print gui/$(id -u)/{label}"
 +)
-diff --git aa/agent/diagnostic_rules.py bb/agent/diagnostic_rules.py
+diff --git a/agent/diagnostic_rules.py b/agent/diagnostic_rules.py
 index 7f8029a3..2b85a487 100644
---- aa/agent/diagnostic_rules.py
-+++ bb/agent/diagnostic_rules.py
+--- a/agent/diagnostic_rules.py
++++ b/agent/diagnostic_rules.py
 @@ -18,11 +18,48 @@ Rules are organised by category:
  
  from __future__ import annotations
@@ -2956,10 +2956,10 @@ index 7f8029a3..2b85a487 100644
  
      # Deduplicate by title
      seen_titles = set()
-diff --git aa/agent/duplicate_decision.py bb/agent/duplicate_decision.py
+diff --git a/agent/duplicate_decision.py b/agent/duplicate_decision.py
 index e994da08..326efbae 100644
---- aa/agent/duplicate_decision.py
-+++ bb/agent/duplicate_decision.py
+--- a/agent/duplicate_decision.py
++++ b/agent/duplicate_decision.py
 @@ -25,7 +25,7 @@ from typing import Any, Dict, List
  
  import yaml
@@ -3007,11 +3007,11 @@ index e994da08..326efbae 100644
      # distinct: record every pair so the resolver vetoes each one independently.
      return [
          {"distinct": [ids[i], ids[j]]}
-diff --git ab/agent/extension_token.py bb/agent/extension_token.py
+diff --git a/agent/extension_token.py b/agent/extension_token.py
 new file mode 100644
 index 00000000..d24de37c
 --- /dev/null
-+++ bb/agent/extension_token.py
++++ b/agent/extension_token.py
 @@ -0,0 +1,210 @@
 +"""Report the browser-extension bearer token to Doctor, for the customer.
 +
@@ -3223,10 +3223,10 @@ index 00000000..d24de37c
 +        error=None,
 +        error_kind=None,
 +    )
-diff --git aa/agent/import_evernote.py bb/agent/import_evernote.py
+diff --git a/agent/import_evernote.py b/agent/import_evernote.py
 index f74d7e1b..0662dc5b 100644
---- aa/agent/import_evernote.py
-+++ bb/agent/import_evernote.py
+--- a/agent/import_evernote.py
++++ b/agent/import_evernote.py
 @@ -46,6 +46,7 @@ boundary.
  from __future__ import annotations
  
@@ -3403,10 +3403,10 @@ index f74d7e1b..0662dc5b 100644
                          "--",
                          *convert_phase,
                          "--and-then",
-diff --git aa/agent/import_evernote_runner.py bb/agent/import_evernote_runner.py
+diff --git a/agent/import_evernote_runner.py b/agent/import_evernote_runner.py
 index f72176a9..e0df903c 100644
---- aa/agent/import_evernote_runner.py
-+++ bb/agent/import_evernote_runner.py
+--- a/agent/import_evernote_runner.py
++++ b/agent/import_evernote_runner.py
 @@ -37,6 +37,7 @@ from __future__ import annotations
  
  import argparse
@@ -3520,11 +3520,11 @@ index f72176a9..e0df903c 100644
      try:
          Path(args.lock).unlink(missing_ok=True)
      except OSError as exc:
-diff --git ab/agent/pause_control.py bb/agent/pause_control.py
+diff --git a/agent/pause_control.py b/agent/pause_control.py
 new file mode 100644
 index 00000000..e3379fc2
 --- /dev/null
-+++ bb/agent/pause_control.py
++++ b/agent/pause_control.py
 @@ -0,0 +1,468 @@
 +"""
 +Ostler Doctor -- background-work Pause control (governor.env backend).
@@ -3994,10 +3994,10 @@ index 00000000..e3379fc2
 +    import json
 +
 +    print(json.dumps(read_state(), indent=2))
-diff --git aa/agent/proxy.py bb/agent/proxy.py
+diff --git a/agent/proxy.py b/agent/proxy.py
 index e781c10b..5d166c07 100644
---- aa/agent/proxy.py
-+++ bb/agent/proxy.py
+--- a/agent/proxy.py
++++ b/agent/proxy.py
 @@ -54,6 +54,7 @@ upstream verifies the bearer itself).
  """
  from __future__ import annotations
@@ -4273,20 +4273,20 @@ index e781c10b..5d166c07 100644
              logger.warning(
                  "Doctor proxy: rejecting unpaired client bearer for %s %s",
                  request.method,
-diff --git aa/agent/requirements.txt bb/agent/requirements.txt
+diff --git a/agent/requirements.txt b/agent/requirements.txt
 index 15db5ba4..c0fa9443 100644
---- aa/agent/requirements.txt
-+++ bb/agent/requirements.txt
+--- a/agent/requirements.txt
++++ b/agent/requirements.txt
 @@ -1,4 +1,4 @@
 -fastapi>=0.136.3,<1.0
 +fastapi>=0.115.0,<1.0
  uvicorn>=0.32.0,<1.0
  httpx>=0.28.1,<1.0
  pyyaml>=6.0,<7.0
-diff --git aa/agent/status_collector.py bb/agent/status_collector.py
+diff --git a/agent/status_collector.py b/agent/status_collector.py
 index 83aedea0..d30210b7 100644
---- aa/agent/status_collector.py
-+++ bb/agent/status_collector.py
+--- a/agent/status_collector.py
++++ b/agent/status_collector.py
 @@ -17,6 +17,7 @@ SECURITY: This module MUST NOT collect or expose:
  from __future__ import annotations
  
@@ -4651,11 +4651,11 @@ index 83aedea0..d30210b7 100644
 +            detail=fields.get("detail", ""),
 +        ))
 +    return out
-diff --git ab/agent/test_daemon_cron.py bb/agent/test_daemon_cron.py
+diff --git a/agent/test_daemon_cron.py b/agent/test_daemon_cron.py
 new file mode 100644
 index 00000000..3c5d6a77
 --- /dev/null
-+++ bb/agent/test_daemon_cron.py
++++ b/agent/test_daemon_cron.py
 @@ -0,0 +1,269 @@
 +#!/usr/bin/env python3
 +"""Tests for the daemon cron pause bridge (Batch-2 review #6 F1).
@@ -4926,11 +4926,11 @@ index 00000000..3c5d6a77
 +
 +if __name__ == "__main__":
 +    main()
-diff --git ab/agent/test_diagnostic_rules.py bb/agent/test_diagnostic_rules.py
+diff --git a/agent/test_diagnostic_rules.py b/agent/test_diagnostic_rules.py
 new file mode 100644
 index 00000000..f21ee8f4
 --- /dev/null
-+++ bb/agent/test_diagnostic_rules.py
++++ b/agent/test_diagnostic_rules.py
 @@ -0,0 +1,207 @@
 +#!/usr/bin/env python3
 +"""Tests for the (B-lite) upgrade audit-trail Doctor row.
@@ -5139,11 +5139,11 @@ index 00000000..f21ee8f4
 +
 +if __name__ == "__main__":
 +    main()
-diff --git ab/agent/test_health_gate.py bb/agent/test_health_gate.py
+diff --git a/agent/test_health_gate.py b/agent/test_health_gate.py
 new file mode 100644
 index 00000000..0719517d
 --- /dev/null
-+++ bb/agent/test_health_gate.py
++++ b/agent/test_health_gate.py
 @@ -0,0 +1,75 @@
 +#!/usr/bin/env python3
 +"""Tests for the test-only OSTLER_TEST_DISABLE_HEALTH gate on the Doctor
@@ -5220,10 +5220,10 @@ index 00000000..0719517d
 +            [sys.executable, "-m", "pytest", __file__, "-q"]
 +        )
 +    )
-diff --git aa/agent/web_ui.py bb/agent/web_ui.py
+diff --git a/agent/web_ui.py b/agent/web_ui.py
 index 67635eae..762629a9 100644
---- aa/agent/web_ui.py
-+++ bb/agent/web_ui.py
+--- a/agent/web_ui.py
++++ b/agent/web_ui.py
 @@ -32,9 +32,15 @@ from dataclasses import asdict
  from datetime import datetime, timezone
  from pathlib import Path
@@ -6248,10 +6248,10 @@ index 67635eae..762629a9 100644
  @app.get("/pair-ios", response_class=HTMLResponse)
  async def pair_ios_page():
      """Render the Pair iOS device panel (DFA-002)."""
-diff --git aa/agent/web_ui_copy.py bb/agent/web_ui_copy.py
+diff --git a/agent/web_ui_copy.py b/agent/web_ui_copy.py
 index b0c9501f..40eaedab 100644
---- aa/agent/web_ui_copy.py
-+++ bb/agent/web_ui_copy.py
+--- a/agent/web_ui_copy.py
++++ b/agent/web_ui_copy.py
 @@ -209,6 +209,11 @@ DASHBOARD_BTN_EMAIL_TITLE = (
      "Open your email client with the diagnostic report ready to send "
      "to support"
@@ -6476,11 +6476,11 @@ index b0c9501f..40eaedab 100644
 +# page has to notice one without the customer reloading. Slower than the
 +# WhatsApp panel because nothing here is short-lived.
 +EXTENSION_SETUP_POLL_MS = 8000
-diff --git ab/agent/whatsapp_pair.py bb/agent/whatsapp_pair.py
+diff --git a/agent/whatsapp_pair.py b/agent/whatsapp_pair.py
 new file mode 100644
 index 00000000..f85edd7c
 --- /dev/null
-+++ bb/agent/whatsapp_pair.py
++++ b/agent/whatsapp_pair.py
 @@ -0,0 +1,192 @@
 +"""Read the WhatsApp Web pair code the daemon publishes, for Doctor.
 +
@@ -6674,10 +6674,10 @@ index 00000000..f85edd7c
 +        error=None,
 +        error_kind=None,
 +    )
-diff --git aa/agent/wiki_correct.py bb/agent/wiki_correct.py
+diff --git a/agent/wiki_correct.py b/agent/wiki_correct.py
 index d8bdca10..44991513 100644
---- aa/agent/wiki_correct.py
-+++ bb/agent/wiki_correct.py
+--- a/agent/wiki_correct.py
++++ b/agent/wiki_correct.py
 @@ -17,7 +17,7 @@ Schema (per CM044 PR #26):
  
  .. code-block:: turtle

@@ -19227,10 +19227,14 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
         <key>DOCTOR_SUPPORT_EMAIL</key>
         <string>support@ostler.ai</string>
         <!-- B3 (#180): the browser-extension credential. The Doctor accepts
-             it for POST /api/safari/ingest on loopback ONLY -- see
+             it for POST /api/safari/ingest on loopback ONLY. See
              _is_extension_credential in agent/proxy.py, which also refuses
              OSTLER_ADMIN_TOKEN here on purpose. This plist is chmod 0600
-             below, same as the ical one, because it now carries a secret. -->
+             below, same as the ical one, because it now carries a secret.
+             NOTE: no double hyphen anywhere in this comment. XML forbids it
+             inside a comment, launchd's lenient parser loads the file
+             regardless, and the result is a plist that works but that no
+             strict reader can parse. That is what landed here first. -->
         <key>OSTLER_EXTENSION_TOKEN</key>
         <string>${OSTLER_EXTENSION_TOKEN}</string>
         <!-- CX-P0A (2026-05-26): forward the iOS /api/v1/* paths to
