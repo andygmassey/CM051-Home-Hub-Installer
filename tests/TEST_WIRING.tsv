@@ -42,6 +42,7 @@ test_assistant_config_required_fields.sh	WIRED	.github/workflows/assistant-confi
 test_assistant_config_vane_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_identity_belt.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_ollama_num_ctx.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_audit_red_merges_predicate.py	WIRED	.github/workflows/red-merge-audit.yml
 test_autologin_consent_opt_in.sh	WIRED	.github/workflows/consent-contract.yml
 test_background_copy_promises_no_deadline.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_bom_verdict_gate_is_wired_into_the_promote.sh	WIRED	.github/workflows/walk-record-gate.yml

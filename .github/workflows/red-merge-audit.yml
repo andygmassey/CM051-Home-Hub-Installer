@@ -1,0 +1,78 @@
+name: red-merge-audit
+#
+# WIRES tests/test_audit_red_merges_predicate.py, which guards the predicate in
+# scripts/audit_red_merges.py -- the tool that answers "did we merge a PR while a
+# gate was saying no". CM051 main is not branch-protected (task #607), so that
+# question has no mechanical answer and this tool is the only instrument.
+#
+# WHY THE PREDICATE NEEDS A GATE OF ITS OWN. Its first version asked "does the
+# head sha carry any non-success conclusion". A commit sha accumulates EVERY run
+# it ever had, so a gate that failed, got fixed and re-passed still carries the
+# failure forever. That version reported 7 of 60 merged PRs as red-at-merge. The
+# true answer was 0. A positive control could not have caught it: a control proves
+# a predicate RUNS, never that it ASKS THE RIGHT QUESTION. Only cases pinning the
+# expected verdict for a superseded failure can, and those are what this runs.
+#
+# PATHS. The test, the script it imports, and this workflow are all listed. Omit
+# any one and the gate goes dark on an edit to its own subject -- watched but
+# never run, or run but never triggered.
+on:
+  pull_request:
+    paths:
+      - 'scripts/audit_red_merges.py'
+      - 'tests/test_audit_red_merges_predicate.py'
+      - '.github/workflows/red-merge-audit.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/audit_red_merges.py'
+      - 'tests/test_audit_red_merges_predicate.py'
+      - '.github/workflows/red-merge-audit.yml'
+
+jobs:
+  predicate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # No pip install: the test imports only os and sys, and the module it
+      # imports pulls json/subprocess/collections from the stdlib. If that stops
+      # being true the import fails loudly as CANNOT-RUN (exit 2) rather than
+      # skipping quietly.
+      - name: the red-merge predicate fires on reds and stays quiet on fixed ones
+        run: python3 tests/test_audit_red_merges_predicate.py
+
+      # A CANNOT-RUN from the test above is exit 2 and already fails the step.
+      # This second step exists to prove the FILE ITSELF still refuses to run
+      # against the wrong module -- i.e. that the binding control is live rather
+      # than a comment. It renames the predicate out from under the test and
+      # requires exit 2, then restores. Without this, "the test passed" and "the
+      # test would pass against anything" are indistinguishable.
+      - name: the binding control must refuse when the predicate is not importable
+        if: always()
+        run: |
+          set -uo pipefail
+          cp scripts/audit_red_merges.py /tmp/arm.bak
+          python3 - <<'PY'
+          p = "scripts/audit_red_merges.py"
+          s = open(p).read()
+          assert "def classify(" in s, "cannot mutate: classify() not found"
+          open(p, "w").write(s.replace("def classify(", "def _classify_hidden(", 1))
+          PY
+          set +e
+          python3 tests/test_audit_red_merges_predicate.py >/tmp/arm.out 2>&1
+          rc=$?
+          set -e
+          cp /tmp/arm.bak scripts/audit_red_merges.py
+          echo "mutated-run rc=${rc}"
+          sed -n '1,3p' /tmp/arm.out
+          if [ "${rc}" -ne 2 ]; then
+            echo "FAIL: with classify() renamed away the test exited ${rc}, expected 2 (CANNOT-RUN)."
+            echo "The binding control is not load-bearing: the test would pass against a module"
+            echo "that no longer carries the predicate it claims to be testing."
+            exit 1
+          fi
+          echo "ok: binding control refuses a module without the predicate"
