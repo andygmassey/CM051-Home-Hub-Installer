@@ -102,10 +102,19 @@ fi
 # tailscale 2>/dev/null && ok || warn` shape MUST NOT come back -- it
 # silently swallowed the failure and let the customer flow to "end"
 # of install with no Tailscale.
-if ! grep -q 'ERR-15-DMG48-TAILSCALE-INSTALL-FAILED' "$INSTALL_SH"; then
-    fail_test "install.sh must call fail_with_code with code ERR-15-DMG48-TAILSCALE-INSTALL-FAILED if /Applications/Tailscale.app is missing post brew install --cask tailscale."
+# The ERR-15 post-condition only applies IF install.sh still installs Tailscale
+# via `brew install --cask tailscale`. That cask install was removed -- Tailscale
+# is now an optional setup/skip decision (single-machine direction), so there is
+# no cask-install step to leave a missing /Applications/Tailscale.app unverified.
+# Assert the post-condition only when the step it guards exists.
+if grep -q 'brew install --cask tailscale' "$INSTALL_SH"; then
+    if ! grep -q 'ERR-15-DMG48-TAILSCALE-INSTALL-FAILED' "$INSTALL_SH"; then
+        fail_test "install.sh must call fail_with_code with code ERR-15-DMG48-TAILSCALE-INSTALL-FAILED if /Applications/Tailscale.app is missing post brew install --cask tailscale."
+    else
+        ok "tailscale post-install fail_with_code wired."
+    fi
 else
-    ok "tailscale post-install fail_with_code wired."
+    ok "no 'brew install --cask tailscale' step present (Tailscale is now an optional setup/skip decision); post-condition N/A."
 fi
 
 # Refuse the old soft-fail shape ever returning.

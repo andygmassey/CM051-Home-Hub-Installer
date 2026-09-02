@@ -23,8 +23,13 @@ sys.path.insert(0, str(REPO / "vendor" / "cm041"))
 from identity_resolver.models import PersonIdentity  # noqa: E402
 from identity_resolver.resolver import IdentityResolver  # noqa: E402
 
-# Substring unique to the all-persons fuzzy-candidate SELECT.
-FUZZY_SIG = "?person ?name ?org ?linkedinUrl WHERE"
+# The fuzzy candidate set loads via TWO flat SELECTs (CX-126 refactor, see
+# resolver._load_fuzzy_candidates): a person+name+org query and a flat
+# person->linkedin_url query, joined in Python by person URI. The people query
+# is the once-per-run candidate load whose O(n) behaviour this guard asserts;
+# the linkedin query feeds LinkedIn URLs into the same cache.
+PEOPLE_SIG = "?person ?name ?org WHERE"
+LINKEDIN_SIG = "?person ?linkedinUrl WHERE"
 
 
 def fail(msg: str) -> None:
@@ -37,7 +42,9 @@ def build_resolver(seed_people):
     calls = {"fuzzy": 0}
 
     def fake_sparql_query(sparql):
-        if FUZZY_SIG in sparql:
+        if PEOPLE_SIG in sparql:
+            # The once-per-run candidate load (person+name+org). Counting THIS
+            # query is how the guard proves the load is O(n), not O(n^2).
             calls["fuzzy"] += 1
             bindings = []
             for p in seed_people:
@@ -47,9 +54,20 @@ def build_resolver(seed_people):
                 }
                 if p.get("org"):
                     row["org"] = {"value": p["org"]}
-                if p.get("url"):
-                    row["linkedinUrl"] = {"value": p["url"]}
                 bindings.append(row)
+            return {"results": {"bindings": bindings}}
+        if LINKEDIN_SIG in sparql:
+            # The flat person->linkedin_url side query, joined in Python by the
+            # loader. Only seeded people that carry a URL appear here.
+            bindings = []
+            for p in seed_people:
+                if p.get("url"):
+                    bindings.append(
+                        {
+                            "person": {"value": p["uri"]},
+                            "linkedinUrl": {"value": p["url"]},
+                        }
+                    )
             return {"results": {"bindings": bindings}}
         # Tier 1/2 exact-identifier lookups: no match.
         return {"results": {"bindings": []}}

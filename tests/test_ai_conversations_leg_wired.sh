@@ -75,8 +75,8 @@ if grep -E 'pip" install [^|]*-e[[:space:]]+"\$_AICONV_SRC"' "$INSTALL" >/dev/nu
     echo "FAIL: the CM052 package is pip-installed EDITABLE; it must be non-editable (src package not exposed on every setuptools version)" >&2
     exit 1
 fi
-if ! grep -q 'pip" install --quiet "\$_AICONV_SRC"' "$INSTALL"; then
-    echo "FAIL: could not find the non-editable pip install of \$_AICONV_SRC" >&2
+if ! grep -q '_ostler_pip_install_pkg "\$_AICONV_VENV/bin/pip" "\$_AICONV_SRC"' "$INSTALL"; then
+    echo "FAIL: could not find the non-editable pip install of \$_AICONV_SRC (via _ostler_pip_install_pkg helper)" >&2
     exit 1
 fi
 echo "pip check: vendored CM052 package installed non-editable"
