@@ -148,9 +148,9 @@ _hdr; _row 'proven thing' 'gate:test-wiring.yml#test-wiring'
       _row 'human-only thing' 'needs-walk:v7.7.7#open-Settings-check-no-Advanced'
 set +e; out3="$("$_G3" --walk-card v7.7.7 2>&1)"; rc3=$?; set -e
 if [ "$rc3" -eq 0 ] \
-   && printf '%s' "$out3" | grep -q 'ALREADY PROVEN BEFORE THIS DMG REACHED YOU (1)' \
-   && printf '%s' "$out3" | grep -q 'YOU ARE THE INSTRUMENT (1)' \
-   && printf '%s' "$out3" | grep -q 'open-Settings-check-no-Advanced'; then
+   && grep -q 'ALREADY PROVEN BEFORE THIS DMG REACHED YOU (1)' <<< "$out3" \
+   && grep -q 'YOU ARE THE INSTRUMENT (1)' <<< "$out3" \
+   && grep -q 'open-Settings-check-no-Advanced' <<< "$out3"; then
     printf '  card       OK   both buckets printed, and the unproven row names what to check\n'
 else
     printf '  card       FAIL --walk-card did not print the two buckets. rc=%s\n' "$rc3" >&2
@@ -160,7 +160,7 @@ fi
 # 3b. ANTI-VACUITY. All-needs-walk is a wishlist, not a cut.
 _hdr; _row 'a' 'needs-walk:v7.7.7#look-a'; _row 'b' 'needs-walk:v7.7.7#look-b'
 set +e; out3b="$("$_G3" v7.7.7 2>&1)"; rc3b=$?; set -e
-if [ "$rc3b" -eq 1 ] && printf '%s' "$out3b" | grep -q 'NOT ONE names real evidence'; then
+if [ "$rc3b" -eq 1 ] && grep -q 'NOT ONE names real evidence' <<< "$out3b"; then
     printf '  vacuity    OK   a register that proves NOTHING is refused\n'
 else
     printf '  vacuity    FAIL all-needs-walk returned rc=%s, expected 1.\n' "$rc3b" >&2
