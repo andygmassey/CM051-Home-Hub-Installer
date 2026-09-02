@@ -1,4 +1,4 @@
-diff --git a/README.md b/README.md
+diff --git b/README.md b/README.md
 new file mode 100644
 index 00000000..e8fbbe59
 --- /dev/null
@@ -545,7 +545,7 @@ index 605828b1..092748af 100644
 +            # fail loud rather than silently leaving the brief armed.
 +            raise ConfigError(exc.status, exc.detail)
      return read_config_view(p)
-diff --git a/agent/daemon_cron.py b/agent/daemon_cron.py
+diff --git b/agent/daemon_cron.py b/agent/daemon_cron.py
 new file mode 100644
 index 00000000..e5cae7b2
 --- /dev/null
@@ -3007,7 +3007,7 @@ index e994da08..326efbae 100644
      # distinct: record every pair so the resolver vetoes each one independently.
      return [
          {"distinct": [ids[i], ids[j]]}
-diff --git a/agent/extension_token.py b/agent/extension_token.py
+diff --git b/agent/extension_token.py b/agent/extension_token.py
 new file mode 100644
 index 00000000..d24de37c
 --- /dev/null
@@ -3520,7 +3520,7 @@ index f72176a9..e0df903c 100644
      try:
          Path(args.lock).unlink(missing_ok=True)
      except OSError as exc:
-diff --git a/agent/pause_control.py b/agent/pause_control.py
+diff --git b/agent/pause_control.py b/agent/pause_control.py
 new file mode 100644
 index 00000000..e3379fc2
 --- /dev/null
@@ -4651,7 +4651,7 @@ index 83aedea0..d30210b7 100644
 +            detail=fields.get("detail", ""),
 +        ))
 +    return out
-diff --git a/agent/test_daemon_cron.py b/agent/test_daemon_cron.py
+diff --git b/agent/test_daemon_cron.py b/agent/test_daemon_cron.py
 new file mode 100644
 index 00000000..3c5d6a77
 --- /dev/null
@@ -4926,7 +4926,7 @@ index 00000000..3c5d6a77
 +
 +if __name__ == "__main__":
 +    main()
-diff --git a/agent/test_diagnostic_rules.py b/agent/test_diagnostic_rules.py
+diff --git b/agent/test_diagnostic_rules.py b/agent/test_diagnostic_rules.py
 new file mode 100644
 index 00000000..f21ee8f4
 --- /dev/null
@@ -5139,7 +5139,7 @@ index 00000000..f21ee8f4
 +
 +if __name__ == "__main__":
 +    main()
-diff --git a/agent/test_health_gate.py b/agent/test_health_gate.py
+diff --git b/agent/test_health_gate.py b/agent/test_health_gate.py
 new file mode 100644
 index 00000000..0719517d
 --- /dev/null
@@ -5221,7 +5221,7 @@ index 00000000..0719517d
 +        )
 +    )
 diff --git a/agent/web_ui.py b/agent/web_ui.py
-index 67635eae..762629a9 100644
+index 67635eae..2a99b130 100644
 --- a/agent/web_ui.py
 +++ b/agent/web_ui.py
 @@ -32,9 +32,15 @@ from dataclasses import asdict
@@ -5553,7 +5553,128 @@ index 67635eae..762629a9 100644
  @app.get("/doctor", response_class=HTMLResponse)
  async def dashboard():
      """Serve the diagnostic dashboard or first-run wizard."""
-@@ -2294,6 +2512,220 @@ async def api_observability_posture():
+@@ -2114,6 +2332,120 @@ async def health():
+     return {"status": "healthy", "service": "ostler-doctor"}
+ 
+ 
++# ---------------------------------------------------------------------------
++# G1c / G3: the source-status artefact. ONE record the Doctor panel, the
++# end-of-install probe and the box walk all read, so they cannot each infer
++# per-source state independently and disagree (#269/#213/#514/#349). Reads the
++# hydrate sentinels the installer writes (${OSTLER_DIR}/state/hydrate/<name>.done),
++# which carry a typed item_count and a last_update_at distinct from recorded_at
++# (G1a/G1b). The record is an on-disk key=value CONTRACT with the CM051 writer
++# (install.sh _hydrate_sentinel_record*); a contract test pins the two together.
++# ---------------------------------------------------------------------------
++
++# The 13 canonical hydrate sources (the ground truth: what install.sh actually
++# writes a sentinel for), each tagged with a kind. `operation` is work OVER
++# other data (dedupe over people, the privacy backfill), not a source a customer
++# connected; carried so the panel does not under-report real work, labelled so
++# presentation can hide or group them. Which are NAMED on the customer panel is
++# a later presentation call.
++_SOURCE_KINDS = {
++    "ai_conversations": "source",
++    "apple_notes": "source",
++    "browsing": "source",
++    "calendar": "source",
++    "contacts": "source",
++    "email": "source",
++    "email_preferences": "source",
++    "imessage": "source",
++    "people": "source",
++    "places": "source",
++    "whatsapp": "source",
++    "dedupe": "operation",
++    "privacy_backfill": "operation",
++}
++_SOURCE_STATUS_INT_FIELDS = {"item_count", "rc"}
++
++
++def _source_hydrate_dir() -> Path:
++    """The dir install.sh writes sentinels to: ``${OSTLER_DIR}/state/hydrate``
++    (the installer sets OSTLER_DIR=~/.ostler), falling back to ~/.ostler."""
++    base = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR")
++    root = Path(base) if base else Path.home() / ".ostler"
++    return root / "state" / "hydrate"
++
++
++def _parse_source_sentinel(text: str) -> dict:
++    rec: dict = {}
++    for line in text.splitlines():
++        key, sep, val = line.partition("=")
++        if not sep:
++            continue
++        key = key.strip()
++        if key in _SOURCE_STATUS_INT_FIELDS:
++            try:
++                rec[key] = int(val)
++            except ValueError:
++                rec[key] = None
++        else:
++            rec[key] = val
++    return rec
++
++
++def read_source_status(hydrate_dir: Path | None = None) -> list:
++    """One typed row per canonical source, read from the .done sentinels.
++
++    EVERY canonical source appears: one that never ran is reported as
++    ``status: "not_run"`` rather than dropped, so a reader cannot mistake
++    "absent" for "fine" -- the three-stores-agreeing-on-zero shape the box-walk
++    ingest probe already documents. An unreadable sentinel degrades its own row
++    to ``"unreadable"``; it is never silently treated as absent.
++    """
++    base = hydrate_dir if hydrate_dir is not None else _source_hydrate_dir()
++    rows = []
++    for name in sorted(_SOURCE_KINDS):
++        kind = _SOURCE_KINDS[name]
++        sentinel = base / (name + ".done")
++        if not sentinel.is_file():
++            rows.append({"source": name, "kind": kind, "status": "not_run",
++                         "item_count": None, "recorded_at": None,
++                         "last_update_at": None, "detail": None})
++            continue
++        try:
++            rec = _parse_source_sentinel(
++                sentinel.read_text(encoding="utf-8", errors="replace"))
++        except OSError as exc:
++            rows.append({"source": name, "kind": kind, "status": "unreadable",
++                         "item_count": None, "recorded_at": None,
++                         "last_update_at": None, "detail": exc.__class__.__name__})
++            continue
++        rows.append({
++            "source": rec.get("source", name),
++            "kind": kind,
++            "status": rec.get("status", "unknown"),
++            "item_count": rec.get("item_count"),
++            "recorded_at": rec.get("recorded_at"),
++            "last_update_at": rec.get("last_update_at"),
++            "detail": rec.get("detail") or rec.get("payload"),
++        })
++    return rows
++
++
++@app.get("/api/v1/sources", response_class=JSONResponse)
++async def api_sources():
++    """Per-source ingest status: the ONE artefact the Doctor panel, the
++    end-of-install probe (#599) and the box walk all read, so they cannot
++    disagree about whether a source landed and whether it keeps updating.
++
++    Fail-soft, like the sibling box-status route: an unreadable sentinel
++    degrades its own row rather than 500-ing the poll.
++    """
++    try:
++        rows = read_source_status()
++    except Exception:  # pragma: no cover - defensive; never 500 the panel poll
++        rows = []
++    return {"sources": rows, "count": len(rows)}
++
++
+ @app.get("/api/v1/box-status", response_class=JSONResponse)
+ async def api_box_status():
+     """Aggregated live box status for the Hub header chip + Governor page.
+@@ -2294,6 +2626,220 @@ async def api_observability_posture():
      return all_observability_postures()
  
  
@@ -5774,7 +5895,7 @@ index 67635eae..762629a9 100644
  # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
  #
  # Forwards iOS-initiated CM019 paths to the local gateway over
-@@ -3333,6 +3765,473 @@ def _render_pair_ios_page() -> str:
+@@ -3333,6 +3879,473 @@ def _render_pair_ios_page() -> str:
  </html>"""
  
  
@@ -6476,7 +6597,7 @@ index b0c9501f..40eaedab 100644
 +# page has to notice one without the customer reloading. Slower than the
 +# WhatsApp panel because nothing here is short-lived.
 +EXTENSION_SETUP_POLL_MS = 8000
-diff --git a/agent/whatsapp_pair.py b/agent/whatsapp_pair.py
+diff --git b/agent/whatsapp_pair.py b/agent/whatsapp_pair.py
 new file mode 100644
 index 00000000..f85edd7c
 --- /dev/null

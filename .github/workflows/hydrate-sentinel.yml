@@ -46,7 +46,10 @@ on:
       - 'tests/test_a_failed_hydrate_may_not_fabricate_a_count.sh'
       - 'tests/test_cannot_run_is_a_third_state.sh'
       - 'tests/test_hydrate_sentinel_change_fields.sh'
+      - 'tests/test_source_status_contract.sh'
       - 'vendor/doctor/agent/diagnostic_rules.py'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/divergences/doctor.patch'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/hydrate-sentinel.yml'
   push:
@@ -138,7 +141,15 @@ jobs:
         if: always()
         run: bash tests/test_hydrate_sentinel_change_fields.sh
 
-      - name: All seven tests parse under bash 3.2-compatible syntax
+      # G1c/G3: the source-status record is an on-disk contract between the CM051
+      # writer (install.sh) and the vendored doctor reader (web_ui.py). This runs
+      # BOTH halves for real and asserts every field round-trips, so a key one
+      # side emits and the other ignores fails here, not silently on a box (#532).
+      - name: Source-status writer<->reader contract holds (G3, #532)
+        if: always()
+        run: bash tests/test_source_status_contract.sh
+
+      - name: All eight tests parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_hydrate_sentinel_not_on_error.sh
@@ -148,3 +159,4 @@ jobs:
           bash -n tests/test_a_failed_hydrate_may_not_fabricate_a_count.sh
           bash -n tests/test_cannot_run_is_a_third_state.sh
           bash -n tests/test_hydrate_sentinel_change_fields.sh
+          bash -n tests/test_source_status_contract.sh

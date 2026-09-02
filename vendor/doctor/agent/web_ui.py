@@ -2332,6 +2332,120 @@ async def health():
     return {"status": "healthy", "service": "ostler-doctor"}
 
 
+# ---------------------------------------------------------------------------
+# G1c / G3: the source-status artefact. ONE record the Doctor panel, the
+# end-of-install probe and the box walk all read, so they cannot each infer
+# per-source state independently and disagree (#269/#213/#514/#349). Reads the
+# hydrate sentinels the installer writes (${OSTLER_DIR}/state/hydrate/<name>.done),
+# which carry a typed item_count and a last_update_at distinct from recorded_at
+# (G1a/G1b). The record is an on-disk key=value CONTRACT with the CM051 writer
+# (install.sh _hydrate_sentinel_record*); a contract test pins the two together.
+# ---------------------------------------------------------------------------
+
+# The 13 canonical hydrate sources (the ground truth: what install.sh actually
+# writes a sentinel for), each tagged with a kind. `operation` is work OVER
+# other data (dedupe over people, the privacy backfill), not a source a customer
+# connected; carried so the panel does not under-report real work, labelled so
+# presentation can hide or group them. Which are NAMED on the customer panel is
+# a later presentation call.
+_SOURCE_KINDS = {
+    "ai_conversations": "source",
+    "apple_notes": "source",
+    "browsing": "source",
+    "calendar": "source",
+    "contacts": "source",
+    "email": "source",
+    "email_preferences": "source",
+    "imessage": "source",
+    "people": "source",
+    "places": "source",
+    "whatsapp": "source",
+    "dedupe": "operation",
+    "privacy_backfill": "operation",
+}
+_SOURCE_STATUS_INT_FIELDS = {"item_count", "rc"}
+
+
+def _source_hydrate_dir() -> Path:
+    """The dir install.sh writes sentinels to: ``${OSTLER_DIR}/state/hydrate``
+    (the installer sets OSTLER_DIR=~/.ostler), falling back to ~/.ostler."""
+    base = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR")
+    root = Path(base) if base else Path.home() / ".ostler"
+    return root / "state" / "hydrate"
+
+
+def _parse_source_sentinel(text: str) -> dict:
+    rec: dict = {}
+    for line in text.splitlines():
+        key, sep, val = line.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        if key in _SOURCE_STATUS_INT_FIELDS:
+            try:
+                rec[key] = int(val)
+            except ValueError:
+                rec[key] = None
+        else:
+            rec[key] = val
+    return rec
+
+
+def read_source_status(hydrate_dir: Path | None = None) -> list:
+    """One typed row per canonical source, read from the .done sentinels.
+
+    EVERY canonical source appears: one that never ran is reported as
+    ``status: "not_run"`` rather than dropped, so a reader cannot mistake
+    "absent" for "fine" -- the three-stores-agreeing-on-zero shape the box-walk
+    ingest probe already documents. An unreadable sentinel degrades its own row
+    to ``"unreadable"``; it is never silently treated as absent.
+    """
+    base = hydrate_dir if hydrate_dir is not None else _source_hydrate_dir()
+    rows = []
+    for name in sorted(_SOURCE_KINDS):
+        kind = _SOURCE_KINDS[name]
+        sentinel = base / (name + ".done")
+        if not sentinel.is_file():
+            rows.append({"source": name, "kind": kind, "status": "not_run",
+                         "item_count": None, "recorded_at": None,
+                         "last_update_at": None, "detail": None})
+            continue
+        try:
+            rec = _parse_source_sentinel(
+                sentinel.read_text(encoding="utf-8", errors="replace"))
+        except OSError as exc:
+            rows.append({"source": name, "kind": kind, "status": "unreadable",
+                         "item_count": None, "recorded_at": None,
+                         "last_update_at": None, "detail": exc.__class__.__name__})
+            continue
+        rows.append({
+            "source": rec.get("source", name),
+            "kind": kind,
+            "status": rec.get("status", "unknown"),
+            "item_count": rec.get("item_count"),
+            "recorded_at": rec.get("recorded_at"),
+            "last_update_at": rec.get("last_update_at"),
+            "detail": rec.get("detail") or rec.get("payload"),
+        })
+    return rows
+
+
+@app.get("/api/v1/sources", response_class=JSONResponse)
+async def api_sources():
+    """Per-source ingest status: the ONE artefact the Doctor panel, the
+    end-of-install probe (#599) and the box walk all read, so they cannot
+    disagree about whether a source landed and whether it keeps updating.
+
+    Fail-soft, like the sibling box-status route: an unreadable sentinel
+    degrades its own row rather than 500-ing the poll.
+    """
+    try:
+        rows = read_source_status()
+    except Exception:  # pragma: no cover - defensive; never 500 the panel poll
+        rows = []
+    return {"sources": rows, "count": len(rows)}
+
+
 @app.get("/api/v1/box-status", response_class=JSONResponse)
 async def api_box_status():
     """Aggregated live box status for the Hub header chip + Governor page.
