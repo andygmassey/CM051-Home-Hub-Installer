@@ -382,7 +382,7 @@ jobs:
           set -e
           printf '%s\n' "$out"
           echo "self-test exit=${rc}"
-          if printf '%s\n' "$out" | grep -q 'VERDICT: BROKEN'; then
+          if [ "$(printf '%s\n' "$out" | grep -c 'VERDICT: BROKEN')" -gt 0 ]; then
             echo "PHASE 1 WOULD MARK THIS PROBE BROKEN and DISCARD its result"
             echo "on every box walk. That is how ingest_coverage.sh spent its"
             echo "entire life uncounted."
@@ -406,7 +406,7 @@ jobs:
           set -u
           out="$(/bin/bash scripts/box_walk_probes/run_box_walk.sh --list)"
           printf '%s\n' "$out"
-          if ! printf '%s\n' "$out" | grep -q '^usage_journal_producers:'; then
+          if [ "$(printf '%s\n' "$out" | grep -c '^usage_journal_producers:')" -eq 0 ]; then
             echo "THE RUNNER DOES NOT SEE THIS PROBE. It would never run on a"
             echo "box walk, which is #719 rebuilt with a fresh filename."
             exit 1
