@@ -80,6 +80,7 @@ WORKFLOWS_DIR="$WORKFLOWS_DIR" REGEN="$REGEN" python3 - <<'PYEOF'
 import os
 import sys
 import glob
+import re
 
 repo = os.environ["REPO_ROOT"]
 manifest_path = os.environ["MANIFEST"]
@@ -280,11 +281,36 @@ if swift_runner:
     for t in swift_tests:
         runner[t] = swift_runner
 
+# A .py TEST IS OFTEN INVOKED BY MODULE NAME, WHICH CARRIES NO ".py".
+#
+# `python3 -m unittest tests.test_tailnet_owner_resolution` starts a real test,
+# but the substring the loop below hunts -- the filename WITH extension,
+# `test_tailnet_owner_resolution.py` -- never appears in that invocation. The
+# module form drops the extension and swaps the path separator for a dot, so a
+# plain `t in text` scores a genuinely-wired unittest module UNWIRED. The sole
+# victim on this tree is test_tailnet_owner_resolution.py, run by
+# .github/workflows/wiki-tailnet-gate.yml, whose workflow has no `paths:`
+# filter, so the ".py" spelling appears nowhere for the substring to catch.
+#
+# FIX: for a .py test, ALSO match the bare module STEM (filename minus ".py")
+# on a word boundary, so `tests.test_tailnet_owner_resolution` and
+# `tests/test_tailnet_owner_resolution` both count while a longer identifier
+# that merely CONTAINS the stem does not. The stem arm is deliberately .py-ONLY:
+# a .sh caller always carries the ".sh", so a .sh stem arm would only invite
+# false WIRED.
+def _started_by(t, text):
+    if t in text:
+        return True
+    if t.endswith(".py") and re.search(r"(?<![\w])" + re.escape(t[:-3]) + r"(?![\w])", text):
+        return True
+    return False
+
+
 for t in tests:
     if t in runner:
         continue
     for name, text in starters.items():
-        if t in text:
+        if _started_by(t, text):
             runner[t] = name
             break
 
