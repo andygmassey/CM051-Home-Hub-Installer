@@ -27301,8 +27301,35 @@ else
 
     # Chrome Web Store: open the listing in the default browser. Fire
     # and forget; failures are non-fatal (e.g. headless install).
-    CHROME_URL="${OSTLER_CHROME_WEBSTORE_URL:-https://chrome.google.com/webstore/category/extensions}"
-    if [[ "${OSTLER_GUI:-0}" != "1" ]]; then
+    #
+    # NO LISTING, NO TAB. This used to default to the Web Store's
+    # generic extensions category and the comment above it called that
+    # "harmless if a customer lands there pre-listing". It is not
+    # harmless. The installer has just told the customer it is setting
+    # up browser extensions; opening a browser onto a category page
+    # with no Ostler listing anywhere in it reads as a broken install,
+    # and the customer has no way to tell that from one that worked.
+    #
+    # MEASURED, not assumed: there is no Chrome extension in this
+    # repository at all -- vendor/extensions/ holds a .gitkeep and
+    # nothing else, no manifest and no background script -- so there is
+    # nothing for a listing to point AT yet. The URL was a placeholder
+    # for a submission that has not happened.
+    #
+    # WHAT IS NOT LOST, and the customer is told so: Chrome HISTORY is
+    # still read through the Full Disk Access path (chrome_history.py,
+    # wired earlier in this script). Only the live extension channel is
+    # absent. Saying nothing here would leave a customer who uses
+    # Chrome believing Ostler ignores their browsing entirely.
+    #
+    # When the listing exists, set OSTLER_CHROME_WEBSTORE_URL and this
+    # block opens it exactly as before. The default is now empty rather
+    # than a decoy, so the honest branch is the one that fires today.
+    CHROME_URL="${OSTLER_CHROME_WEBSTORE_URL:-}"
+    if [[ -z "$CHROME_URL" ]]; then
+        info "$MSG_INFO_CHROME_EXTENSION_NOT_IN_THIS_RELEASE"
+        info "$MSG_INFO_CHROME_HISTORY_STILL_READ"
+    elif [[ "${OSTLER_GUI:-0}" != "1" ]]; then
         # Direct CLI install: actually open the URL.
         info "$(printf "$MSG_INFO_OPENING_CHROME_WEB_STORE" "${CHROME_URL}")"
         open "$CHROME_URL" 2>/dev/null || warn "$(printf "$MSG_WARN_COULD_NOT_OPEN_CHROME_WEB_STORE" "${CHROME_URL}")"
