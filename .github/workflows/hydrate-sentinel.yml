@@ -49,6 +49,9 @@ on:
       - 'tests/test_source_status_contract.sh'
       - 'tests/test_source_status_canonical_matches_recorders.sh'
       - 'tests/test_e1_source_readout_emits.sh'
+      - 'tests/test_ostler_home_root_is_one_class.sh'
+      - 'vendor/doctor/agent/extension_token.py'
+      - 'vendor/doctor/agent/whatsapp_pair.py'
       - 'vendor/doctor/agent/diagnostic_rules.py'
       - 'vendor/doctor/agent/web_ui.py'
       - 'vendor/divergences/doctor.patch'
@@ -170,7 +173,16 @@ jobs:
         if: always()
         run: bash tests/test_e1_source_readout_emits.sh
 
-      - name: All ten tests parse under bash 3.2-compatible syntax
+      # task #325: OSTLER_HOME carries two meanings (Doctor base root vs $HOME).
+      # The source-status artefact reader is the first place it reaches an
+      # artefact. This guards the CLASS: the convention resolvers share one root
+      # (cannot-drift), writer==reader under the shipping env, and OSTLER_HOME
+      # stays out of the Doctor plist env (the absence that keeps it safe).
+      - name: OSTLER_HOME resolves to one root across the Doctor family (#325)
+        if: always()
+        run: bash tests/test_ostler_home_root_is_one_class.sh
+
+      - name: All eleven tests parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_hydrate_sentinel_not_on_error.sh
@@ -183,3 +195,4 @@ jobs:
           bash -n tests/test_source_status_contract.sh
           bash -n tests/test_source_status_canonical_matches_recorders.sh
           bash -n tests/test_e1_source_readout_emits.sh
+          bash -n tests/test_ostler_home_root_is_one_class.sh
