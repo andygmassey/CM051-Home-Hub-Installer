@@ -144,7 +144,7 @@ fi
 # exactly ONE usage string per app, so it cannot be worded per target.
 #
 # The deletion is guarded in the other direction by
-# tests/test_no_finder_appleevent.sh, which FAILS if a Finder Apple Event ever
+# tests/test_no_finder_appleevent.sh, which FAILS if an Apple Event to Finder ever
 # returns. So this floor going down by one is paired with a new gate that makes
 # the count going back UP a failure. Both were mutation-tested against the real
 # pre-fix tree at origin/main.

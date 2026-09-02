@@ -40,7 +40,7 @@ cleanup() {
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
-# Stub Worker: 409 + the body CM050's register-device.ts actually returns.
+# Stub worker: 409 + the body CM050's register-device.ts actually returns.
 # Port 0 => the kernel picks a free ephemeral port, which it then writes out.
 # ---------------------------------------------------------------------------
 python3 - "${PORT_FILE}" <<'PYEOF' &

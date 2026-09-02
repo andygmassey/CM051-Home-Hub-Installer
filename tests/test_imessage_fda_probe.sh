@@ -492,7 +492,7 @@ if ! grep -q 'System Settings' <<< "$CLOSE_BLOCK"; then
 so it was not really extracted and the Finder-absence result above is vacuous." >&2
     exit 1
 fi
-echo "PASS [case-11]: BW6 assist-window close is loop-repeated killall + >=60s ceiling + NO Finder Apple Event (control: block extracted)"
+echo "PASS [case-11]: BW6 assist-window close is loop-repeated killall + >=60s ceiling + NO Apple Event to Finder (control: block extracted)"
 
 echo ""
 echo "ALL CX-60 + CX-66 + CX-81 B8 + B8b + BW4-A + BW6 IMESSAGE FDA PROBE TESTS PASSED"
