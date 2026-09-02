@@ -101,6 +101,36 @@ on:
       # have run.
       - 'tests/test_exemption_ref_form.sh'
       - 'cut-deferrals.yaml'
+      # THE ROLLFORWARD PIN AND EVERY FILE IT PINS.
+      #
+      # test_rollforward_registry_pin.sh lived ONLY in cut.yml, whose cutting
+      # job is `if: github.event_name == 'push'` -- a TAG PUSH. So its first
+      # chance to speak about any change was AFTER the tag that ships it.
+      # Measured 2026-09-02: it was RED ON MAIN for a day and no PR could see
+      # it. #1340 re-synced the vendored registry FILE at 10:53:45Z; #1336 had
+      # last written cuts/REGISTRY_PIN at 09:47:43Z. Content half and pin half
+      # landed on different PRs, an hour apart, each green.
+      #
+      # #1340 carried 35 checks and NONE matching roll/pin/vendor/cut. The
+      # same query on a PR that does run the gate returns two, so that zero
+      # was real rather than a broken predicate.
+      #
+      # All four pinned files are listed, not just the registry: editing the
+      # vendored gate BODY must re-run the pin that binds it to OS003, or the
+      # gate drifts from its source exactly as it did in #540 (239 diff lines
+      # behind, missing the redactor). REGISTRY_PIN itself is listed because a
+      # pin rewrite is the other half of the same change.
+      #
+      # test_rollforward_pin_is_watched_on_prs.sh DERIVES this list from the
+      # pin rather than restating it, so a fifth pinned file cannot escape the
+      # trigger by nobody remembering this comment.
+      - 'cuts/REGISTRY_PIN'
+      - 'cuts/DEFECTS_ROLLFORWARD.md'
+      - 'bin/rollforward_gate.sh'
+      - 'bin/lib_redact.sh'
+      - 'bin/redact_selftest.sh'
+      - 'tests/test_rollforward_registry_pin.sh'
+      - 'tests/test_rollforward_pin_is_watched_on_prs.sh'
       - '.github/workflows/cut-gate-wrappers.yml'
   push:
     branches: [main]
@@ -453,6 +483,33 @@ jobs:
       - name: new_cut.sh -- a SCOPED cut is not a STARTED cut
         if: always()
         run: bash tests/test_new_cut_guard_scoped_is_not_started.sh
+
+      # THE VENDORED ROLLFORWARD GATE MATCHES ITS OS003 PIN -- ON THE PR.
+      #
+      # This exact command already runs in cut.yml. It is duplicated here on
+      # purpose, and the duplication is the point: cut.yml's job is push-only,
+      # so on that path the gate can only refuse a cut whose TAG IS ALREADY
+      # WRITTEN. Here it refuses the PR instead, which is when the change can
+      # still be fixed for free.
+      #
+      # It needs no network and no OS003 checkout: it recomputes the hashes of
+      # four vendored files and compares them to cuts/REGISTRY_PIN. Measured
+      # locally at rc=0 in ~1s.
+      #
+      # if: always() -- see the note on the step above. Many test steps precede
+      # this one in the same job, and a step that runs only when everything
+      # before it passed cannot report on a red run.
+      - name: the vendored rollforward gate matches its OS003 pin (PR-side)
+        if: always()
+        run: bash tests/test_rollforward_registry_pin.sh
+
+      # AND THE WIRING FOR THE ABOVE. Watching four hand-listed paths is
+      # itself a thing that rots: add a fifth file to the pin and the trigger
+      # silently stops covering it. This derives the list FROM the pin and
+      # goes red on any file the pin covers that paths: does not.
+      - name: every file the rollforward pin covers triggers this workflow
+        if: always()
+        run: bash tests/test_rollforward_pin_is_watched_on_prs.sh
 
   wiki-provenance-extract:
     runs-on: ubuntu-latest
