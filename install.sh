@@ -15516,7 +15516,23 @@ services:
       # state/ ALONE, not the whole workspace: that tree also holds daemon
       # config and store credentials, and the wiki compiler has no business
       # reading them. Same scoping reasoning as the licence mount above.
-      - ${OSTLER_WORKSPACE:-${HOME}/.ostler/workspace}/state:/workspace/state
+      #
+      # 🔴 #482 RESIDUAL -- THE MOUNT SOURCE MUST BE THE DAEMON'S WORKSPACE,
+      # WHICH IS NOT ${HOME}/.ostler/workspace. The daemon runs with
+      # ZEROCLAW_WORKSPACE=${OSTLER_DIR}/assistant-config (the assistant-agent
+      # LaunchAgent com.creativemachines.ostler.assistant.plist), so
+      # resolve_runtime_config_dirs takes its env branch and, because a
+      # config.toml sits at assistant-config, resolve_config_dir_for_workspace
+      # appends "workspace": the daemon's CostTracker reads
+      # ${HOME}/.ostler/assistant-config/workspace/state/costs.jsonl
+      # (zeroclaw-config/src/cost/tracker.rs resolve_storage_path). The
+      # earlier default here was ${HOME}/.ostler/workspace -- a DIFFERENT
+      # directory nothing reads back, so the compiler wrote a real journal
+      # the Bursar never opened, with no error anywhere: the same silent-path
+      # shape as the mount that was missing entirely. Point the source at the
+      # daemon's workspace. OSTLER_WORKSPACE stays overridable for operators
+      # who relocate the workspace, but the default now matches the reader.
+      - ${OSTLER_WORKSPACE:-${HOME}/.ostler/assistant-config/workspace}/state:/workspace/state
     environment:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
@@ -15545,9 +15561,12 @@ services:
       # a WORKSPACE dir, and because this value's basename is literally
       # "workspace" the function uses it as-is instead of appending
       # "workspace" a second time -- that arm exists upstream and is tested.
-      # Result: /workspace/state/costs.jsonl, which IS the host's
-      # ~/.ostler/workspace/state/costs.jsonl through the mount above, and
-      # is the same file the daemon's CostTracker reads back for the Bursar.
+      # Result: /workspace/state/costs.jsonl, which through the mount above
+      # IS the host's
+      # ${HOME}/.ostler/assistant-config/workspace/state/costs.jsonl -- the
+      # same file the daemon's CostTracker reads back for the Bursar (see the
+      # mount-source note above). An earlier version of this comment named
+      # ${HOME}/.ostler/workspace, which the daemon does NOT read.
       #
       # Set EXPLICITLY, for the identical reason OSTLER_LICENCE_STATE_FILE
       # is: the image declares no USER and no ENV HOME, so "~" is /root only

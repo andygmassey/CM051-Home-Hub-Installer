@@ -55,17 +55,40 @@ fi
 pass "control: wiki-compiler present in install.sh (${compiler_hits} hits)"
 
 # ── 1. The mount exists. ─────────────────────────────────────────────
-# Accepts the ${OSTLER_WORKSPACE:-${HOME}/.ostler/workspace} default form,
-# matching how the existing ${OSTLER_WIKI_DIR:-...} lines are written. The
-# heredoc is QUOTED, so this text is written verbatim into the customer's
+# THE SOURCE MUST BE THE DAEMON'S WORKSPACE. #482 RESIDUAL, corrected here:
+# the earlier version pinned the mount SOURCE as ${HOME}/.ostler/workspace and
+# install.sh shipped that same path -- but the daemon does NOT read there. Its
+# CostTracker reads <workspace>/state/costs.jsonl, and on a customer box
+# <workspace> is ${HOME}/.ostler/assistant-config/workspace: the assistant
+# LaunchAgent (com.creativemachines.ostler.assistant.plist) sets
+# ZEROCLAW_WORKSPACE=${OSTLER_DIR}/assistant-config, config.toml lives there,
+# and resolve_config_dir_for_workspace appends "workspace". A source of
+# ~/.ostler/workspace therefore writes every enriching record to a directory
+# nothing reads back -- the SAME silent-path shape #482 is about, one level in.
+# The property is source==reader, never the spelling of one path; 1b refuses
+# the old source so PRESENT-of-the-right-one cannot pass a both-lines half-edit.
+# The heredoc is QUOTED, so this text is written verbatim into the customer's
 # compose and resolved by docker compose at `up` time.
-if grep -qE '^\s*-\s*\$\{OSTLER_WORKSPACE:-\$\{HOME\}/\.ostler/workspace\}/state:/workspace/state\s*$' "$INSTALL_SH"; then
-    pass "the shipped compose bind-mounts the workspace state dir at /workspace/state"
+if grep -qE '^\s*-\s*\$\{OSTLER_WORKSPACE:-\$\{HOME\}/\.ostler/assistant-config/workspace\}/state:/workspace/state\s*$' "$INSTALL_SH"; then
+    pass "the shipped compose bind-mounts the DAEMON'S workspace (assistant-config/workspace) state dir at /workspace/state"
 else
-    failure "the shipped wiki-compiler has NO /workspace/state mount. \
-compiler/usage_journal.py will resolve /root/.ostler/workspace/state/costs.jsonl \
-INSIDE the container, on no volume -- every compile records usage into a file \
-that is discarded on exit, and the Bursar reads an empty month forever (#482)."
+    failure "the shipped wiki-compiler has NO /workspace/state mount whose SOURCE \
+is the daemon's workspace (\$\{HOME\}/.ostler/assistant-config/workspace). Without \
+it the enriching journal lands where the daemon's CostTracker never looks (it \
+reads assistant-config/workspace/state), and the Bursar reads an empty month \
+forever (#482 residual)."
+fi
+
+# ── 1b. NEGATIVE: the old WRONG mount source must be gone. ───────────
+# Asserting the right path is PRESENT is not enough: a half-edit shipping both
+# lines would still pass 1. The bug was a source of ${HOME}/.ostler/workspace,
+# a real host directory the daemon's CostTracker never reads. Refuse it by name.
+if grep -qE '^\s*-\s*\$\{OSTLER_WORKSPACE:-\$\{HOME\}/\.ostler/workspace\}/state:/workspace/state\s*$' "$INSTALL_SH"; then
+    failure "the shipped compose still mounts ~/.ostler/workspace/state as the \
+usage-journal source. The daemon reads assistant-config/workspace/state; this \
+source sends every enriching record to a directory the Bursar never opens (#482)."
+else
+    pass "the old wrong mount source (~/.ostler/workspace) is absent"
 fi
 
 # ── 2. It is state/ ALONE, not the whole workspace. ──────────────────
@@ -73,7 +96,7 @@ fi
 # lazy fix mounts all of it; refuse that shape the way the licence mount
 # already does.
 if grep -qE '^\s*-\s*\$\{OSTLER_WORKSPACE(:-[^}]*\})?\}?:/workspace\s*$' "$INSTALL_SH" \
-   || grep -qE '^\s*-\s*\$\{HOME\}/\.ostler/workspace:/' "$INSTALL_SH"; then
+   || grep -qE '^\s*-\s*\$\{HOME\}/\.ostler/(assistant-config/)?workspace:/' "$INSTALL_SH"; then
     failure "install.sh mounts the WHOLE workspace into the wiki compiler. \
 Scope it to state/: that tree also holds daemon config and store credentials, \
 which the compiler has no reason to read."
