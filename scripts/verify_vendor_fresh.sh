@@ -444,6 +444,56 @@ fi
 # parse keeps reading the UNKNOWN bucket, which is the one it exists to watch.
 echo "vendor-freshness: $checked tree(s) -- $ok fresh, $fail stale/divergent, $warn unverifiable (UNKNOWN), $ackd acknowledged-unverifiable$held_note"
 
+# ---------------------------------------------------------------------------
+# ANTI-VACUITY FLOOR. Read this before touching the verdicts below.
+#
+# THE DEFECT THIS CLOSES (A2's silence sweep, 2026-09-02, tier 3 item 6).
+# Every verdict below is computed from counters. If the manifest goes missing,
+# is renamed, or the parser dies, ALL the counters stay at their initial 0, no
+# branch above fires, and control reaches the final `else` -- which prints
+#     GATE: GREEN -- every vendored tree matches its pinned source.
+# and exits 0, HAVING EXAMINED NOTHING. That sentence would be a lie of the
+# worst available kind, because this is the gate that decides whether
+# UNVERIFIED VENDORED CODE SHIPS TO CUSTOMERS. A zero denominator reads as
+# success, and the process substitution that feeds the loop discards the
+# parser's non-zero exit, so nothing else would notice.
+#
+# WHY THE FLOOR IS AN EQUALITY AND NOT `checked > 0`.
+# `> 0` would close the total-failure case and leave the more likely one open.
+# The manifest uses TWO indentation conventions (#529: 15 rows unindented, 9
+# indented, 24 total), so a reader with a `^`-anchored pattern silently sees
+# 15 of 24 and skips nine trees while looking perfectly healthy. A `> 0` floor
+# passes that. An equality does not.
+#
+# WHY grep AND NOT THE PARSER. Two instruments on one number is the best
+# evidence available; asking the parser to confirm its own count would be a
+# control that fails for the same reason as its subject. This grep is
+# deliberately dumb and deliberately NOT `^`-anchored, so it counts rows under
+# either indentation convention.
+#
+# CANNOT-RUN, NOT FAIL. Exit 2, distinct from the RED exit 1 below: "the gate
+# could not look" is a third state, and collapsing it into either of the other
+# two is the exact class this floor exists to refuse.
+_declared_rows="$(grep -cE '^[[:space:]]*name[[:space:]]*=' "$VLIB_MANIFEST" 2>/dev/null || true)"
+_declared_rows="${_declared_rows:-0}"
+if [ "$_declared_rows" -eq 0 ]; then
+    echo "GATE: CANNOT-RUN -- read 0 tree declarations from the manifest." >&2
+    echo "      Expected: $VLIB_MANIFEST" >&2
+    echo "      This is NOT a pass. The gate examined nothing, and an unexamined" >&2
+    echo "      vendored tree is exactly the state it exists to refuse. Check the" >&2
+    echo "      manifest exists and is readable, then re-run." >&2
+    exit 2
+fi
+if [ "$checked" -ne "$_declared_rows" ]; then
+    echo "GATE: CANNOT-RUN -- the manifest declares $_declared_rows tree(s) and the gate examined $checked." >&2
+    echo "      A partial parse is not a partial pass: the $((_declared_rows - checked)) unexamined tree(s)" >&2
+    echo "      would ship unverified while this gate printed a verdict about the others." >&2
+    echo "      The two counts come from independent instruments on purpose (grep over the" >&2
+    echo "      manifest vs the gate's own parser), so a disagreement means one of them is" >&2
+    echo "      wrong and neither result can be trusted until that is settled." >&2
+    exit 2
+fi
+
 if [ "$fail" -gt 0 ]; then
     echo "GATE: RED -- $fail tree(s) are stale or have drifted from source." >&2
     exit 1
