@@ -140,6 +140,8 @@
 
 [[tree]]
 name             = "cm041/contact_syncer"
+expires = "2026-09-30"
+owner = "archie"
 vendor_path      = "vendor/cm041/contact_syncer"
 source_repo      = "$CM041"
 source_path      = "contact_syncer"
@@ -156,6 +158,8 @@ note             = "2026-08-27b (LATEST, Archie, direction check): BOTH SIDES AR
 
 [[tree]]
 name             = "cm041/identity_resolver"
+expires = "2026-09-30"
+owner = "archie"
 vendor_path      = "vendor/cm041/identity_resolver"
 source_repo      = "$CM041"
 source_path      = "identity_resolver"
@@ -272,6 +276,8 @@ note             = "NEW 2026-07-15. SINGLE-FILE tree: canonical fail-closed L3 p
 
 [[tree]]
 name             = "cm048_pipeline"
+expires = "2026-09-30"
+owner = "archie"
 vendor_path      = "vendor/cm048_pipeline"
 source_repo      = "$CM048"
 source_path      = "."
@@ -291,6 +297,8 @@ note             = "SOURCE IS HEALTHY AND REACHABLE (corrected 2026-08-15; the p
 
 [[tree]]
 name             = "cm021"
+expires = "2026-09-30"
+owner = "archie"
 vendor_path      = "vendor/cm021"
 source_repo      = "$CM021"
 source_path      = "."
@@ -307,6 +315,8 @@ note             = "Vendored as a DELIBERATE MINIMAL SUBSET (cli.py + filters.py
 
 [[tree]]
 name             = "ostler_fda"
+expires = "2026-09-30"
+owner = "archie"
 vendor_path      = "vendor/ostler_fda"
 source_repo      = "$HR015/ostler_fda"
 source_path      = "."
@@ -431,6 +441,8 @@ note             = "2026-07-25 v1.0.10 recut re-pin to 8acf2b4c (HR015 #256 BW3-
 # Guard (run AFTER the re-pin): scripts/verify_doctor_governor_revendor.sh
 [[tree]]
 name             = "doctor"
+expires = "2026-09-30"
+owner = "archie"
 vendor_path      = "vendor/doctor"
 source_repo      = "$HR015/doctor"
 source_path      = "."
@@ -492,6 +504,8 @@ note             = "Byte-identical to source -- no divergence patch needed."
 
 [[tree]]
 name             = "cm019_preferences"
+expires = "2026-09-30"
+owner = "archie"
 vendor_path      = "vendor/cm019_preferences"
 source_repo      = "$CM019"
 source_path      = "."
@@ -602,6 +616,8 @@ note             = "2026-09-02 v1.0.60: THE RENAME IS RESOLVED AND THE ACK IS RE
 
 [[tree]]
 name             = "email_source"
+expires = "2026-09-30"
+owner = "archie"
 vendor_path      = "vendor/email_source"
 source_repo      = "$HR015"
 source_path      = "email_source"
@@ -615,6 +631,8 @@ note             = "4-artefact email conversation feed (Apple Mail bodies -> CM0
 
 [[tree]]
 name             = "imessage_source"
+expires = "2026-09-30"
+owner = "archie"
 vendor_path      = "vendor/imessage_source"
 source_repo      = "$CM040"
 source_path      = "services/imessage_source"
@@ -628,6 +646,8 @@ note             = "4-artefact iMessage conversation feed (chat.db -> CM048 bund
 
 [[tree]]
 name             = "whatsapp_source"
+expires = "2026-09-30"
+owner = "archie"
 vendor_path      = "vendor/whatsapp_source"
 source_repo      = "$HR015"
 source_path      = "whatsapp_source"
@@ -641,6 +661,8 @@ note             = "4-artefact WhatsApp conversation feed (bodies -> CM048 bundl
 
 [[tree]]
 name             = "spoken_source"
+expires = "2026-09-30"
+owner = "archie"
 vendor_path      = "vendor/spoken_source"
 source_repo      = "$HR015"
 source_path      = "spoken_source"
@@ -656,6 +678,8 @@ note             = "4-artefact spoken/voice-note conversation feed (CM042 captur
 
 [[tree]]
 name             = "cm059_editor"
+expires = "2026-09-30"
+owner = "archie"
 vendor_path      = "vendor/cm059_editor/compiler"
 source_repo      = "$CM059"
 source_path      = "compiler"
@@ -672,6 +696,8 @@ note             = "2026-08-15: THE DIVERGENCE IS NOW RECORDED, and the sentence
 
 [[tree]]
 name             = "cm052_ai_conversations"
+expires = "2026-09-30"
+owner = "archie"
 vendor_path      = "vendor/cm052_ai_conversations"
 source_repo      = "$CM052"
 source_path      = "."
