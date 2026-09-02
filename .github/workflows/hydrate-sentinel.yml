@@ -45,6 +45,7 @@ on:
       - 'tests/test_email_settling_numerator_is_messages.sh'
       - 'tests/test_a_failed_hydrate_may_not_fabricate_a_count.sh'
       - 'tests/test_cannot_run_is_a_third_state.sh'
+      - 'tests/test_hydrate_sentinel_change_fields.sh'
       - 'vendor/doctor/agent/diagnostic_rules.py'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/hydrate-sentinel.yml'
@@ -129,7 +130,15 @@ jobs:
         if: always()
         run: bash tests/test_cannot_run_is_a_third_state.sh
 
-      - name: All six tests parse under bash 3.2-compatible syntax
+      # G1a/G1b: the record now carries a typed item_count and a last_update_at
+      # DISTINCT from recorded_at, so a panel can answer both "landed at
+      # install?" and "keeps updating?" -- which one timestamp cannot. Extracts
+      # and drives the real recorders, so it cannot pass against a copy.
+      - name: Sentinel carries a typed item_count and a distinct last_update_at
+        if: always()
+        run: bash tests/test_hydrate_sentinel_change_fields.sh
+
+      - name: All seven tests parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_hydrate_sentinel_not_on_error.sh
@@ -138,3 +147,4 @@ jobs:
           bash -n tests/test_no_data_is_not_success.sh
           bash -n tests/test_a_failed_hydrate_may_not_fabricate_a_count.sh
           bash -n tests/test_cannot_run_is_a_third_state.sh
+          bash -n tests/test_hydrate_sentinel_change_fields.sh
