@@ -28,6 +28,12 @@ on:
     paths:
       - 'gui/Makefile'
       - 'tests/test_cut_gate_wrappers.sh'
+      # Both the guard AND its subject. A `run:` step with no matching paths
+      # entry is DARK ON SELF-EDIT: the workflow runs the test but is blind to
+      # a change to it, so breaking the test does not re-trigger the test.
+      # Caught by verify_invoked_tests_are_watched.py on this very PR.
+      - 'scripts/new_cut.sh'
+      - 'tests/test_new_cut_guard_scoped_is_not_started.sh'
       - 'scripts/verify_cut_provenance.sh'
       - 'scripts/verify_no_orphaned_fixes.sh'
       - 'scripts/verify_pr_age.sh'
