@@ -2119,6 +2119,7 @@ _ostler_set_paths() {
     OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
     CHAT_ADMIN_TOKEN_FILE="${SECRETS_DIR}/zeroclaw_admin_token"
     SERVICE_TOKEN_FILE="${SECRETS_DIR}/service_token"
+    EXTENSION_TOKEN_FILE="${SECRETS_DIR}/extension_token"
     # Python venv lives at $OSTLER_DIR/.venv. Created during the
     # encrypt_db step (pre-FDA), used heavily after FDA grant for the
     # Python heredocs in the FDA extraction + hydrate steps.
@@ -11747,6 +11748,7 @@ fi
 
 OSTLER_ENV_FILE="${OSTLER_DIR}/.env"
 SERVICE_TOKEN_FILE="${SECRETS_DIR}/service_token"
+EXTENSION_TOKEN_FILE="${SECRETS_DIR}/extension_token"
 _jwt_secret_min_length=32
 
 _is_jwt_secret_banlisted() {
@@ -11903,6 +11905,42 @@ else
     umask "$umask_svc_orig"
     chmod 600 "$SERVICE_TOKEN_FILE"
     ok "$(printf "$MSG_OK_SEEDED_PWG_SERVICE_TOKEN" "${SERVICE_TOKEN_FILE}")"
+fi
+
+# ── Browser-extension credential (B3, #180) ───────────────────────
+#
+# THE DEFECT THIS CLOSES. Andy, 2026-09-02: *"no, it's a fucking BUG"*.
+# The Safari/Chrome extension captures the customer's own browsing on the
+# customer's own Mac and POSTs it to the Doctor on loopback. The Doctor used to
+# validate that bearer against the ZeroClaw gateway's PAIRED-TOKEN store, which
+# is populated by PAIRING AN IPHONE. A Hub customer who never bought or paired a
+# phone got 401 on every page, forever, and the extension sat in its
+# silent-skip branch saying so only to a browser console nobody reads.
+#
+# WHY A SEPARATE FILE AND NOT $SERVICE_TOKEN_FILE. That token is the Doctor's
+# credential for talking to the ical-server: it opens roughly thirty proxied
+# routes, and those are READS of the customer's whole life -- timeline, people,
+# email, memory. This one may open exactly ONE path, a WRITE of the customer's
+# own browsing. Sharing the value would silently promote a browser extension to
+# that wider authority. The proxy predicate (vendor/doctor/agent/proxy.py,
+# _is_extension_credential) enforces the narrowness; keeping the SECRETS apart
+# means a future widening has to be deliberate rather than inherited.
+#
+# REUSED IF PRESENT, for the same reason the service token is: the customer has
+# already pasted this value into the extension popup, and regenerating it would
+# silently break capture on every reinstall with no message anywhere.
+if [[ -s "$EXTENSION_TOKEN_FILE" ]]; then
+    OSTLER_EXTENSION_TOKEN=$(cat "$EXTENSION_TOKEN_FILE")
+    info "$(printf "$MSG_INFO_REUSING_EXISTING_EXTENSION_TOKEN" "${EXTENSION_TOKEN_FILE}")"
+else
+    OSTLER_EXTENSION_TOKEN=$(openssl rand -hex 32)
+    umask_ext_orig=$(umask)
+    umask 0077
+    printf '%s' "$OSTLER_EXTENSION_TOKEN" > "$EXTENSION_TOKEN_FILE"
+    umask "$umask_ext_orig"
+    chmod 600 "$EXTENSION_TOKEN_FILE"
+    unset umask_ext_orig
+    ok "$(printf "$MSG_OK_SEEDED_EXTENSION_TOKEN" "${EXTENSION_TOKEN_FILE}")"
 fi
 
 # ── Data-store auth secrets + compose auth-readiness (v1.0.10
@@ -19188,6 +19226,13 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
         <string>8089</string>
         <key>DOCTOR_SUPPORT_EMAIL</key>
         <string>support@ostler.ai</string>
+        <!-- B3 (#180): the browser-extension credential. The Doctor accepts
+             it for POST /api/safari/ingest on loopback ONLY -- see
+             _is_extension_credential in agent/proxy.py, which also refuses
+             OSTLER_ADMIN_TOKEN here on purpose. This plist is chmod 0600
+             below, same as the ical one, because it now carries a secret. -->
+        <key>OSTLER_EXTENSION_TOKEN</key>
+        <string>${OSTLER_EXTENSION_TOKEN}</string>
         <!-- CX-P0A (2026-05-26): forward the iOS /api/v1/* paths to
              the loopback-bound ical-server on 127.0.0.1:8090. Without
              this list Doctor 404s every iOS Companion call beyond

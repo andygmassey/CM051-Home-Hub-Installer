@@ -74,7 +74,15 @@ enum InstallerEvent: Equatable {
     /// header AND on the auto-copied log header sent to support.
     /// `errorCode` is `nil` for the success path and for any legacy
     /// `fail "..."` callsite that did not pass through fail_with_code.
-    case done(status: StepStatus, errorCode: String?)
+    /// `errors` is the count of [ERROR] lines raised anywhere in the run,
+    /// and `failedSteps` the count of steps that ended other than ok. They
+    /// answer DIFFERENT questions -- a run can close every step cleanly and
+    /// still have raised errors -- and `status` answers a THIRD: whether the
+    /// install reached the end at all. All three are decoded because the
+    /// emitter has always sent failed_steps (#839) and NOTHING here read it,
+    /// so a marker was produced into a void for two weeks. Both default to 0
+    /// when absent, which is also what an older install.sh emits.
+    case done(status: StepStatus, errorCode: String?, errors: Int, failedSteps: Int)
     /// CX-126: install.sh emits `DONE status=cancelled` on the
     /// deliberate user-cancel / consent-decline `exit 0` paths
     /// (Article 9 decline, third-party decline, perms=no,
@@ -309,7 +317,9 @@ struct ProgressDecoder {
             let code = kv["code"].flatMap { $0.isEmpty ? nil : $0 }
             return .done(
                 status: Self.decodeStatus(kv["status"]),
-                errorCode: code
+                errorCode: code,
+                errors: Int(kv["errors"] ?? "0") ?? 0,
+                failedSteps: Int(kv["failed_steps"] ?? "0") ?? 0
             )
         case "RECOVERY_KEY":
             // CX-53: parse the structured recovery-key marker

@@ -1801,7 +1801,7 @@ final class InstallerCoordinator: ObservableObject {
             // Forward to the AuthorizationHelper so the user gets the
             // native prompt rather than a hidden bash sudo prompt.
             Task { await AuthorizationHelper.shared.requestAdminAuthorization(reason: reason) }
-        case .done(let status, let code):
+        case .done(let status, let code, let errorCount, let failedStepCount):
             finished = status
             // CX-17 (2026-05-23): when install.sh emits a stable
             // error code via fail_with_code, store it on the
@@ -1817,9 +1817,23 @@ final class InstallerCoordinator: ObservableObject {
                 lastErrorCode = code
             }
             let suffix = code.map { " [\($0)]" } ?? ""
-            appendLog(level: status == .ok ? "info" : "error",
-                      msg: "Install finished: \(status.rawValue)\(suffix)")
-            OstlerLog.lifecycle.info("event DONE status=\(status.rawValue, privacy: .public) code=\(code ?? "", privacy: .public)")
+            // A2's silence sweep, 2026-09-02: `failed_steps` has been on the
+            // DONE marker since #839 and NOTHING here read it, so for two weeks
+            // the emitter produced a count into a void. `errors` was landed the
+            // same day and would have joined it. Both are surfaced HERE, in the
+            // one place that turns the terminal event into something a human
+            // sees, because a field nothing renders is not an observability fix.
+            //
+            // The counts are appended only when NON-ZERO. Printing "0 errors"
+            // on every clean install is noise that trains the reader to skip the
+            // line, which is how the next real count gets missed. The ZERO still
+            // travels on the marker and in the log for anyone grepping.
+            var tail = ""
+            if errorCount > 0 { tail += ", \(errorCount) error(s) raised" }
+            if failedStepCount > 0 { tail += ", \(failedStepCount) step(s) did not complete" }
+            appendLog(level: (status == .ok && errorCount == 0 && failedStepCount == 0) ? "info" : "error",
+                      msg: "Install finished: \(status.rawValue)\(suffix)\(tail)")
+            OstlerLog.lifecycle.info("event DONE status=\(status.rawValue, privacy: .public) code=\(code ?? "", privacy: .public) errors=\(errorCount, privacy: .public) failed_steps=\(failedStepCount, privacy: .public)")
         case .cancelled:
             // CX-126: the customer deliberately cancelled / declined a
             // consent gate; install.sh exited cleanly having written
