@@ -869,6 +869,36 @@ entries:
   # is the defect. It is registered here so the red is attributable rather
   # than a probe nobody declared.
   # ==========================================================================
+  # ==========================================================================
+  # #854. A tool the model is never TOLD about cannot be chosen. Eight pwg_*
+  # tools are registered together and protected from prompt slimming; only
+  # three were ever named in the system prompt. The five unnamed ones included
+  # pwg_overview, which exists for exactly one job -- catching a broad opening
+  # question -- so an opener had nothing to bind to and was coerced into a
+  # person lookup. One such coercion resolved "summarise my recent meetings"
+  # to a component supplier.
+  #
+  # ⚠️ THE OBVIOUS PREDICATE CANNOT FAIL, which is why this row exists. Every
+  # tool name is compiled into the binary by the tool's own fn name(), so
+  # grepping the artefact for "pwg_overview" is GREEN on the exact build that
+  # shipped the defect. This probe extracts the guidance paragraph instead and
+  # requires the names to appear INSIDE it, anchored on the COMPACT branch --
+  # compact_context defaults to true, so a fix applied only to the verbose
+  # branch is correct in the file and absent on the box.
+  # ==========================================================================
+  - id: box-walk-assistant-prompt-names-every-pwg-tool
+    title: the shipped prompt must name every registered pwg_* tool, in the branch a customer receives
+    incident: >-
+      #854. Three of eight registered pwg_* tools were named to the model;
+      five were named in neither prompt branch, pwg_overview among them. The
+      tools shipped, were registered, were slim-protected, and were
+      unreachable by instruction. The customer symptom was four of four
+      natural opening questions answering "I don't know", and the graph-side
+      symptom was a broad question resolved to a component supplier.
+    proof:
+      kind: box_walk_probe
+      probe: "assistant_prompt_names_every_pwg_tool"
+
   - id: box-walk-no-store-port-is-tcp-reachable
     title: no Ostler store or UI port accepts a TCP connection, so no second account can read the graph
     incident: >-
