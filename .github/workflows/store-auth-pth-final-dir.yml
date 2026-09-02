@@ -1,0 +1,55 @@
+name: The store-auth .pth points at the final tree, not staging
+
+# ============================================================================
+# #595. Found on the v1.0.57 launch walk by the post-install QA suite, read
+# verbatim off a freshly installed box:
+#
+#   sys.path.append("/tmp/ostler-prelaunch-2026/lib")
+#
+# The staging path was frozen into the .pth. That directory does not survive
+# the install, so the import fails at EVERY python startup, for ever, on every
+# install -- and "Remainder of file ignored" means the auth wiring never runs.
+# That is the A1 mechanism: cm059-editor gets no credential, 401s hourly, and
+# the Front Page never populates.
+#
+# 🔴 THE OBVIOUS CHECKS ALL PASS ON THIS DEFECT. The .pth is present. The
+# module is present and correctly installed. Only the path inside is wrong.
+# The test is therefore BEHAVIOURAL: it runs the real function with OSTLER_DIR
+# pointed at a staging tree, as it is mid-install, and reads what came out.
+#
+# THIRD OCCURRENCE OF THE CLASS -- #177, #578, this. Anyone touching path
+# resolution in install.sh should assume it is a fourth until measured.
+# ============================================================================
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_store_auth_pth_uses_final_dir.sh'
+      - 'tests/TEST_WIRING.tsv'
+      # A gate that does not watch its own file can be quietly narrowed.
+      - '.github/workflows/store-auth-pth-final-dir.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  store-auth-pth-final-dir:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # macos-14 deliberately: install.sh ships and runs on macOS, and the
+      # test builds a real venv and asks that interpreter for its own
+      # site-packages rather than guessing the path. Exits 2 (CANNOT-RUN) if
+      # the function cannot be extracted or the extract does not contain the
+      # writer, so a broken extraction can never read as a pass.
+      - name: The .pth carries the final tree, not the staging tree
+        run: bash tests/test_store_auth_pth_uses_final_dir.sh
