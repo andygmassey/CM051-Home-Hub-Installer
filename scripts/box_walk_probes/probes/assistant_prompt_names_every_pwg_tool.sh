@@ -66,6 +66,18 @@ DECLARED_TOOL_COUNT=8
 # not by recall.
 COMPACT_ANCHOR='For a BROAD opener about the user'
 
+# MUST-HIT CONTROL. Prompt text that exists in the compact paragraph BOTH
+# before and after #854, so a missing COMPACT_ANCHOR can be attributed:
+# control present + anchor absent = the guidance changed (FAIL);
+# control absent                  = the artefact is unreadable (CANNOT-RUN).
+#
+# Deliberately an all-lowercase clause. The obvious control -- the section
+# heading -- is two capitalised words, and the repo's person-name guard reads
+# any adjacent capitalised pair as a possible real name. It flagged this file
+# three times. The guard is right to be shape-based, so the anchor moves
+# rather than the guard being widened.
+PROMPT_PRESENCE_CONTROL='with their name before saying you lack the information'
+
 # ---------------------------------------------------------------------------
 # adjudicate_prompt_blob <blob>
 #
@@ -122,13 +134,13 @@ run_probe() {
     if [ -z "$_blob" ]; then
         # MUST-HIT CONTROL. Prove the binary is readable AND carries prompt text
         # at all, so a missing anchor is attributable rather than ambiguous.
-        _sanity="$(box_run "strings -a \"${DAEMON_BIN}\" 2>/dev/null | grep -c -F '## Personal Data'")"
+        _sanity="$(box_run "strings -a \"${DAEMON_BIN}\" 2>/dev/null | grep -c -F '${PROMPT_PRESENCE_CONTROL}'")"
         _sanity="$(printf '%s' "${_sanity:-0}" | tr -cd '0-9')"
         probe_examined 0 "guidance paragraphs found in the shipped binary"
         if [ "${_sanity:-0}" -eq 0 ]; then
-            probe_cannot_run "could not read any prompt text out of ${DAEMON_BIN} (the '## Personal Data' control also scored 0), so this is an unreadable artefact, not a measured absence"
+            probe_cannot_run "could not read any prompt text out of ${DAEMON_BIN} (the '${PROMPT_PRESENCE_CONTROL}' control also scored 0), so this is an unreadable artefact, not a measured absence"
         fi
-        probe_fail "the shipped binary carries prompt text ('## Personal Data' found) but NOT the compact-branch guidance anchor. Either the compact branch no longer names the personal-graph tools, or the guidance moved and this probe's anchor is stale -- both need a human, and neither is a pass (#854)"
+        probe_fail "the shipped binary carries prompt text ('${PROMPT_PRESENCE_CONTROL}' found) but NOT the compact-branch guidance anchor. Either the compact branch no longer names the personal-graph tools, or the guidance moved and this probe's anchor is stale -- both need a human, and neither is a pass (#854)"
     fi
 
     _verdict="$(adjudicate_prompt_blob "$_blob")"
