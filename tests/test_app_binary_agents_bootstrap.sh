@@ -111,7 +111,7 @@ fi
 # forever, which is the half of the fault that makes it permanent.
 SWEEP_BODY="$(awk '/^_ostler_ensure_app_binary_agents_bootstrap\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$INSTALL_SH")"
 _sweep_ok=1
-grep -q 'kickstart -k' <<<"$SWEEP_BODY" \
+grep -Eq 'kickstart -k|_ks_bounded "[^"]*" -k' <<<"$SWEEP_BODY" \
     || { failure "sweep body has no 'launchctl kickstart -k' -- a parked EX_CONFIG(78) on an already-loaded job would never clear"; _sweep_ok=0; }
 grep -q 'ostler-assistant' <<<"$SWEEP_BODY" \
     || { failure "sweep body does not check the daemon binary exists"; _sweep_ok=0; }

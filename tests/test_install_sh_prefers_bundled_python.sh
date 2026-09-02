@@ -69,12 +69,22 @@ fi
 
 A_LINE=$(grep -nE '^\s*if\s+\[\[\s+-x\s+"\$BUNDLED_PYTHON"' "$INSTALL_SH" \
          | head -1 | cut -d: -f1 || true)
+# B and C are scoped to the canonical resolution block that A anchors.
+# $BUNDLED_PYTHON is assigned+tested ONLY in that block, so A_LINE pins it
+# deterministically. install.sh now has several EARLIER python3-resolution
+# sites (the _upg_resolve_python3 upgrade helper, _ostler_licence_python, the
+# venv-rebuild helper) that each prefer ${SCRIPT_DIR}/python/bin/python3.11
+# FIRST and only fall through to `command -v python3` as a last resort -- none
+# executes a system python3 before its bundled preference. A whole-file
+# `head -1` would wrongly pick one of those fallbacks; scope B/C to the block A
+# anchors (line >= A_LINE) so this asserts the block's own bundled-before-system
+# ordering, which is exactly what the guard is about.
 B_LINE=$(grep -nE 'command -v python3' "$INSTALL_SH" \
-         | head -1 | cut -d: -f1 || true)
+         | awk -F: -v a="$A_LINE" '$1+0>=a+0{print $1; exit}' || true)
 # Anchor on the actual invocation (not a comment) — the call lives inside
 # an `if ! brew install python@3.11; then` line in the dev-mode fallback.
 C_LINE=$(grep -nE '^\s*if !\s*brew install python@3\.11' "$INSTALL_SH" \
-         | head -1 | cut -d: -f1 || true)
+         | awk -F: -v a="$A_LINE" '$1+0>=a+0{print $1; exit}' || true)
 
 if [[ -z "$A_LINE" ]]; then
     echo "FAIL: install.sh missing the bundled-python existence test." >&2
