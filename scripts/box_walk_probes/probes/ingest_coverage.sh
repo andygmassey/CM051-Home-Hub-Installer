@@ -97,6 +97,28 @@ BASELINE_FILE="${OSTLER_INGEST_BASELINE:-${HOME}/.ostler/state/ingest_coverage_b
 # ⚠️ ASK launchctl print, NEVER launchctl list or load: `launchctl load` exits
 # 0 on failure, and only `print` carries "last exit code".
 TOPUP_AGENT="${OSTLER_TOPUP_AGENT:-com.ostler.fda-rerun}"
+TOPUP_INTERVAL_S="${OSTLER_TOPUP_INTERVAL_S:-3600}"
+OLLAMA_URL="${OSTLER_OLLAMA_URL:-http://127.0.0.1:11434/api/tags}"
+
+# Prints REACHABLE | UNREACHABLE | UNKNOWN:<code>.
+#
+# The top-up agent embeds as it ingests, so the embedder being down makes it
+# exit non-zero WITHOUT the pipeline being dead. Without this the FAIL arm
+# above cannot tell those apart and will convict a healthy box (@A2, 2026-09-02).
+ollama_reachable() {
+    local code
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        printf '%s' "${FAKE_ollama:-REACHABLE}"
+        return 0
+    fi
+    code="$(box_run "curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 5 '${OLLAMA_URL}'" \
+             | tr -d "\r\n ")"
+    case "$code" in
+        200) printf 'REACHABLE' ;;
+        000|"") printf 'UNREACHABLE' ;;
+        *)   printf 'UNKNOWN:HTTP_%s' "$code" ;;
+    esac
+}
 
 # Prints HEALTHY | DEAD:<code> | UNKNOWN:<reason-code>.
 #
@@ -339,7 +361,27 @@ run_probe() {
         probe_note "top-up agent ${TOPUP_AGENT} : ${health}"
         case "$health" in
             DEAD:*)
-                probe_fail "${flat} of ${total_stores} stores are FLAT since baseline (${flat_list# }) AND the top-up agent ${TOPUP_AGENT} is dying on every fire (last exit code ${health#DEAD:}). FLAT is not quiet here, it is DEAD: that agent is the recurring top-up for every source except email, so contacts, calendar, iMessage, WhatsApp, browsing and notes have no live path into the graph. The install is frozen at install-time contents while the installer copy says work continues in the background (#851)."
+                # ⚠️ A NON-ZERO EXIT IS NOT YET A VERDICT, and this guard is why.
+                # @A2 refuted the first draft of this arm on 2026-09-02: a
+                # genuinely dead pipeline and a TRANSIENT OLLAMA BLIP both exit 1,
+                # and launchd's "last exit code" is up to StartInterval (3600s)
+                # STALE -- so one blip in the past hour would convict a box that
+                # had already recovered. ingest_coverage never probes Ollama, so
+                # that dependency was invisible to this file.
+                #
+                # Qdrant-down is already adjudicated upstream as TRANSPORT ->
+                # CANNOT-RUN. Ollama-down was the hole. So: accuse only when the
+                # embedder the agent depends on is REACHABLE and it still died.
+                #
+                # ⛔ THIS IS A NARROWING, NOT THE COMPLETE FIX. The complete fix is
+                # a DISTINCT non-zero from the wrapper (e.g. 3 = stores/embedder
+                # unreachable, 1 = real death); without that no arm logic here can
+                # fully separate the two. Filed separately; not silently assumed.
+                _oll="$(ollama_reachable)"
+                if [ "$_oll" != "REACHABLE" ]; then
+                    probe_cannot_run "${flat} of ${total_stores} stores are FLAT and ${TOPUP_AGENT} last exited ${health#DEAD:}, but its embedder is ${_oll} -- and a transient embedder outage exits with the SAME code as a genuinely dead pipeline. launchd's last-exit is up to ${TOPUP_INTERVAL_S}s stale, so this cannot distinguish a dead top-up from a box that already recovered. Refusing to convict on an ambiguous code."
+                fi
+                probe_fail "${flat} of ${total_stores} stores are FLAT since baseline (${flat_list# }) AND the top-up agent ${TOPUP_AGENT} is dying on every fire (last exit code ${health#DEAD:}) WITH its embedder REACHABLE, so this is not a transient dependency outage. FLAT is not quiet here, it is DEAD: that agent is the recurring top-up for every source except email, so contacts, calendar, iMessage, WhatsApp, browsing and notes have no live path into the graph. The install is frozen at install-time contents while the installer copy says work continues in the background (#851)."
                 ;;
             UNKNOWN:*)
                 probe_cannot_run "${flat} of ${total_stores} stores are FLAT since baseline (${flat_list# }) and this run could NOT read the health of ${TOPUP_AGENT} (${health#UNKNOWN:}). FLAT with unknown top-up health is exactly the state this probe cannot adjudicate -- quiet and dead are indistinguishable from a count alone, and passing here would be a guess with a customer's whole graph behind it."
@@ -408,14 +450,31 @@ self_test() {
     # -> must FAIL. This is the arm that did not exist, and its absence is why
     # a graph frozen to the digit scored PASS on every walk it was part of.
     out="$(SELF_TEST_LOCAL=1 OSTLER_INGEST_BASELINE="$_bl_flat" \
-           FAKE_topup_health="DEAD:1" \
+           FAKE_topup_health="DEAD:1" FAKE_ollama="REACHABLE" \
            FAKE_conversations=1024 FAKE_people=6889 \
            FAKE_safari_history=8788 FAKE_preferences=9025 \
            bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
     if [ "$rc" -ne 1 ] || ! printf '%s' "$out" | grep -q 'FLAT is not quiet here, it is DEAD'; then
         printf 'SELF-TEST ARM 4 BROKEN: FLAT + dead top-up returned rc=%s, expected 1 naming it DEAD\n' "$rc"; fails=$((fails+1))
     else
-        printf 'arm 4 OK: FLAT + a dying top-up agent is a FAIL, not a quiet pass\n'
+        printf 'arm 4 OK: FLAT + a dying top-up agent WITH a reachable embedder is a FAIL\n'
+    fi
+
+    # ARM 7 (@A2's refutation, 2026-09-02): the SAME dead-looking agent must NOT
+    # be convicted when its embedder is down. A transient Ollama outage exits
+    # with the same code as a real death, and launchd's last-exit is up to an
+    # hour stale -- so without this arm the probe false-accuses a box that has
+    # already recovered. This arm IS the difference between an instrument and
+    # an accusation.
+    out="$(SELF_TEST_LOCAL=1 OSTLER_INGEST_BASELINE="$_bl_flat" \
+           FAKE_topup_health="DEAD:1" FAKE_ollama="UNREACHABLE" \
+           FAKE_conversations=1024 FAKE_people=6889 \
+           FAKE_safari_history=8788 FAKE_preferences=9025 \
+           bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+    if [ "$rc" -ne 78 ] || ! printf '%s' "$out" | grep -q 'Refusing to convict on an ambiguous code'; then
+        printf 'SELF-TEST ARM 7 BROKEN: FLAT + dead top-up + DOWN embedder returned rc=%s, expected 78 (CANNOT-RUN, not an accusation)\n' "$rc"; fails=$((fails+1))
+    else
+        printf 'arm 7 OK: FLAT + dead-looking agent + DOWN embedder is CANNOT-RUN, not a false accusation\n'
     fi
 
     # ARM 5 (#851): FLAT with the agent's health UNREADABLE -> must CANNOT-RUN,
@@ -463,8 +522,8 @@ self_test() {
         probe_examined "$fails" "self-test arm(s) that did NOT behave as required"
         probe_pass "SELF-TEST BROKEN: ${fails} arm(s) failed. This probe cannot demonstrate a FAIL, so its real result must not be trusted."
     fi
-    probe_examined 6 "synthetic store readings (negative control)"
-    probe_fail "negative control behaved correctly on all 6 arms (an empty store FAILs and is named; zero readable stores is CANNOT-RUN, not a pass; fully populated PASSes; FLAT + a DYING top-up agent FAILs; FLAT + UNREADABLE agent health is CANNOT-RUN carrying a reason code; FLAT + a HEALTHY agent still PASSes)"
+    probe_examined 7 "synthetic store readings (negative control)"
+    probe_fail "negative control behaved correctly on all 7 arms (an empty store FAILs and is named; zero readable stores is CANNOT-RUN, not a pass; fully populated PASSes; FLAT + a DYING top-up agent FAILs; FLAT + UNREADABLE agent health is CANNOT-RUN carrying a reason code; FLAT + a HEALTHY agent still PASSes; and a dead-looking agent with a DOWN embedder is CANNOT-RUN rather than a false accusation)"
 }
 
 probe_main "$@"
