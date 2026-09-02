@@ -208,6 +208,7 @@ test_mail_content_probe.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_mail_onboarding_259_260.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_mailbox_ingest_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_makefile_app_path_default.sh	WIRED	.github/workflows/hub-app-fetch.yml
+test_manifest_ack_expiry.sh	WIRED	.github/workflows/manifest-ack-expiry.yml
 test_manifest_gate_cannot_run_is_not_a_missing_fix.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_marker_grep_is_three_state.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_marker_payloads_never_reach_install_log.sh	WIRED	.github/workflows/install-gui-contract.yml
