@@ -132,13 +132,13 @@ jobs:
           # identity_resolver declares rapidfuzz (PR #109's missing dep).
           python -m pip install --quiet -r vendor/cm041/identity_resolver/requirements.txt
           # pytest runner + the cm024 knowledge-CLI deps the contract test needs.
-          python -m pip install --quiet pytest qdrant-client pyyaml
+          python -m pip install --quiet pytest qdrant-client pyyaml phonenumbers
 
       - name: Guard -- deps present so pytest.importorskip cannot silently skip
         # importorskip turns a missing dep into a SKIP, which is green and
         # asserts nothing. Fail loudly here instead if any dep is absent, so a
         # "passed" below always means the tests actually ran.
-        run: python -c "import aiofiles, bs4, lxml, rapidfuzz, click, qdrant_client, yaml, pytest"
+        run: python -c "import aiofiles, bs4, lxml, rapidfuzz, click, qdrant_client, yaml, pytest, phonenumbers"
 
       - name: stdlib unittest tests (no third-party deps)
         run: |
@@ -147,12 +147,14 @@ jobs:
           python tests/test_tailnet_owner_resolution.py
 
       - name: cm019 parser / filter tests (plain-script, self-reporting)
+        if: always()
         run: |
           set -e
           python tests/test_pinterest_parser.py
           python tests/test_pref_noise_source_cap.py
 
       - name: pytest-driven vendored contracts (rc=5 on zero-collected fails the step)
+        if: always()
         run: |
           set -e
           python -m pytest \
