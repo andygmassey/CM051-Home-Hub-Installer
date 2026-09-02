@@ -1,0 +1,79 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.59.
+#
+# ===========================================================================
+# WHY v1.0.59, AND WHY EVERY ROW NOW CARRIES A VERDICT
+# ===========================================================================
+# ANDY, 2026-09-02: "I'm beyond fed up with keep making DMGs and doing a walk
+# and then hearing that stuff hasn't been fixed that I was told it had. That
+# stops NOW."
+#
+# v1.0.58 shipped this register with NINE rows and NINE `verify=TBD`. TBD is
+# not a state, it is a silence, and a silence is what turns into a surprise on
+# a walk. Every row below now says one of three things and never a fourth:
+#
+#   gate:<workflow>#<job>   a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# `needs-walk` is a first-class DECLARED state, not a soft pass. Its whole
+# purpose is that an unproven row reaches Andy ANNOUNCED, at handoff, instead
+# of being discovered during the walk. scripts/verify_must_contain_has_box_verdict.sh
+# refuses a register where NOT ONE row names real evidence, so the state cannot
+# be used to wave a cut through.
+#
+# ===========================================================================
+# THE THREE GATE VERDICTS WERE MEASURED, NOT ASSUMED
+# ===========================================================================
+# A `gate:` verdict is a claim that a named job runs a test whose SUBJECT is
+# that row's subject. Each was checked by reading the workflow and naming the
+# test it invokes:
+#
+#   store-auth-pth-final-dir.yml   test_store_auth_pth_uses_final_dir.sh
+#                                  test_store_auth_no_call_site_passes_staging_root.sh
+#   store-auth-coverage-gate.yml   test_store_auth_covers_every_interpreter.sh
+#   usage-journal-gate.yml         test_shipped_compose_usage_journal_mount.sh
+#
+# The first row matters most: A1 needed BOTH tests. #1316 fixed the DEFAULT and
+# I closed A1 on it; install.sh:6815 was still passing the staging root
+# EXPLICITLY and overriding that default. #1321 closed the second half. One
+# gate, two tests, because one test would have passed over a live defect.
+#
+# ===========================================================================
+# THE DAEMON PIN MOVED, AND THE Ostler.app PIN MOVED WITH IT
+# ===========================================================================
+# v1.0.58 pinned hub-v0.4.69. v1.0.59 pins hub-v0.4.70 (bc63c445), which carries
+# oa #854. The Ostler.app was rebuilt from THE SAME COMMIT rather than carried
+# forward from 0.4.69 -- carrying it would be the #225/#226 divergent-lineage
+# defect, where a stale wrapper ships a stale frontend past a green cut.
+#
+# The artefact verdict is a real measurement on the built bundle, not on a log:
+# WRAPPER_FRONTEND_COMMIT compiled INTO the Mach-O reads bc63c445, matching the
+# daemon's commit. build-hub.sh's own header warns that its success line is
+# PRESENCE, not behaviour, and to probe the binary instead. That is what the
+# sha8 in the artefact verdict refers to.
+#
+# ===========================================================================
+# EIGHT OF THE NINE CARRIED ROWS ARE CARRIED VERBATIM
+# ===========================================================================
+# Their text is copied from v1.0.58 by the generator rather than re-typed,
+# because a BOM row that quietly changes wording between cuts is a row nobody
+# can audit. What changed is the verify column, and only where there was
+# something real to put in it.
+#
+# The NINTH -- the daemon-pin row -- is REWRITTEN rather than patched, because
+# its subject genuinely changed: it named hub-v0.4.69 and this cut ships
+# hub-v0.4.70. Carrying that text with a new verdict bolted on would have
+# shipped a row asserting a version we are not shipping.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+🟠 THE INSTALLER LET macOS SPEAK FIRST, AND macOS SAYS SOMETHING ALARMING. The admin-password dialog is worded by macOS as "Ostler wants to control Finder", and mentions documents and data -- a sentence a customer reasonably reads as the installer asking to read their files. Nothing prepared them for it. FIX (#1297): pre-announce the wording in the installer's own voice before the dialog appears, and say plainly that the sentence is macOS's own and is how macOS asks any app for an administrator password. Ships as a bundled GUI resource (ViewCopy.json), compiled into OstlerInstaller.app via gui/project.yml resources -- NOT via gui/Makefile, which never names it.	cm051	ad72c63a	no	install_finder_prompt_pre_announced	needs-walk:v1.0.59#installer-explains-the-admin-password-dialog-BEFORE-macOS-shows-it	Archie 2026-08-30 / CM051 #1297 / #361
+🔴 THE BURSAR COULD NOT SEE WHAT THE COMPILER PRODUCED. The wiki compiler writes usage records into its container's /workspace/state, and no bind mount connected that to the host journal the cost panel reads -- so every record the compiler has ever written was discarded when the container exited. The panel then showed a smaller number, which reads as a quiet month rather than a severed pipe. FIX (#1301): mount the host workspace state directory at /workspace/state and set OSTLER_WORKSPACE explicitly so the writer and the mount cannot drift apart. Scoped to state/ deliberately -- the whole workspace is not the panel's business.	cm051	876695da	no	usage_journal_mount_reaches_compiler	gate:usage-journal-gate.yml#usage-journal-gate	TNM 2026-08-31 / CM051 #1301 / #482
+🔴 THE STORE-CREDENTIAL WIRING HAD 100% COVERAGE OF THE WRONG POPULATION. Every call site was correct and every one passed a venv root, because the guard only ever accepted `-x "${_venv}/bin/python3"`. The BUNDLED interpreter is not a venv and ships no python3 alias, so the three services without their own venv -- cm059-editor, ical-server, ostler_hygiene -- reached Oxigraph and Qdrant with no credential, 401'd, and exited 0. Customer symptom: the Front Page never populated, on any install. FIX (#1302): resolve the interpreter from a named executable, a venv root, or a relocated tree's bin/python3.11, then ask THAT interpreter for its own site-packages -- and add the fifteenth call site for the bundled tree. The defect was the definition of the population, not a missing call.	cm051	6d71a220	no	store_auth_wires_bundled_interpreter	gate:store-auth-coverage-gate.yml#store-auth-coverage-gate	TNM 2026-08-31 / CM051 #1302 / #595 / #210
+🔴 THE DAEMON PIN AND THE Ostler.app PIN MUST NAME ONE COMMIT. v1.0.59 moves the daemon from hub-v0.4.69 to hub-v0.4.70 (bc63c445) to pick up oa #854. Carrying the 0.4.69 Ostler.app forward would have been the #225/#226 divergent-lineage defect -- a stale wrapper shipping a stale frontend past an otherwise green cut -- so the wrapper was REBUILT from bc63c445. Proven on the artefact, not the build log: WRAPPER_FRONTEND_COMMIT compiled INTO the Mach-O reads bc63c445, matching the daemon's commit, which is the probe build-hub.sh's own header tells you to run instead of trusting its success line.	ostler-assistant	bc63c445	no	daemon_and_hub_app_pinned_at_hub_v0470	artefact:26e1dfd8#wrapper-frontend-commit-equals-daemon-commit-bc63c445	Archie 2026-09-02 / hub-v0.4.70 / #602
+🔴 A PERSON WAS SHOWN UNDER A RUN-TOGETHER SOCIAL HANDLE INSTEAD OF THEIR REAL NAME. A bare username PASSES is_acceptable_display_name -- it is not junk -- so the FIRST acceptable candidate won by ingest order and a handle that arrived first became the name a person is displayed under. Observed on Andy's .231 walk. FIX (CM041 #134, grafted verbatim into vendor/cm041/identity_resolver/canonical_name.py): demote a handle-shaped token below a real name with a STABLE sort, so order still decides among same-shape values and two real names are never reordered. DEMONSTRATED TWO-SIDED ON THE VENDORED COPY, which is what a customer runs: handle-then-name returned the handle pre-graft and the real name post-graft, with four over-reach controls unchanged (all-caps brand, two real names' order, capitalised mononym, handles-only list) and the vendored suite at 46 passed on both sides.	cm051	fc156903	no	display_name_prefers_real_name_over_handle	needs-walk:v1.0.59#People-shows-no-run-together-surname-mash-as-a-person	Archie 2026-09-02 / CM051 #1309 / CM041 #134 / #659
+🔴 THE SETTLING PANEL REACHED THE CUSTOMER AS UNSTYLED MARKUP, not as a layout that merely needed tuning. The renderer emitted four classes with ZERO matching rules anywhere in the stylesheet, and applied a class written for a <ul> to a <table>. Andy's A3. FIX (CM044 #266): the li-row renderer, shipping in wiki-compiler 0.1.29. DELIVERED BY IMAGE DIGEST -- the fix was merged before v1.0.54 and reached NEITHER of the two previous cuts, because a merged renderer change cannot reach a customer without an image rebuild and a re-pin.	cm044-image	sha256:eef628599ccca1087e785a47b0b428005f8cd6c71b525f08b7c668fc41ac0d40	no	wiki_settling_panel_li_row_renderer	needs-walk:v1.0.59#Home-settling-panel-rows-render-as-rows-not-run-together-text	Archie 2026-09-02 / CM051 #1311 / CM044 #266 / #218
+🔴 "Duplicate review is available on the Hub Mac only." RENDERED ON THE HUB MAC, and the feature behind it was dead. The wiki site's CSP did not admit the on-box Doctor, so dup-review and corrections could not work at all -- the message was not merely wrong, it was describing a severed connection. Andy reported this before it was ever filed. FIX (CM044 #262): admit the Doctor in the site CSP, shipping in wiki-site 0.1.29. DELIVERED BY IMAGE DIGEST, same constraint as the row above. THIS IS THE ROW THAT DECIDED THE CUT: holding the wiki pin with a hold_ack would have shipped v1.0 with this still broken purely to avoid moving a digest.	cm044-image	sha256:fb5536bded57dae3466cb5ea7a3f4c36b2330892731afe60add521d78c0e8720	no	wiki_dup_review_csp_admits_doctor	needs-walk:v1.0.59#Duplicate-review-is-usable-ON-the-Hub-Mac-not-refused-there	Archie 2026-09-02 / CM051 #1311 / CM044 #262 / #594
+🔴 THE STORE-AUTH .pth FROZE THE STAGING PATH, SO THE AUTH WIRING NEVER RAN ON ANY INSTALL. Read verbatim off the v1.0.57 walk box: sys.path.append("/tmp/ostler-prelaunch-2026/lib"). _ostler_wire_store_auth_pth defaulted its root to ${OSTLER_DIR}, which points at the temp STAGING tree until the promote at the OSTLER-PROMOTE-BOUNDARY line -- and four of its sixteen call sites run above that boundary. The staging directory does not survive the install, so `__import__("ostler_store_auth")` failed at EVERY python startup, for ever. Python then prints "Remainder of file ignored", so OSTLER_SECRETS_DIR was never defaulted either: cm059-editor 401s hourly and the Front Page never populates. THAT IS THE A1 MECHANISM. FIX (#1316): resolve OSTLER_FINAL_DIR, which install.sh binds before every affected call site. THIRD OCCURRENCE OF THE CLASS (#177, #578, this), so it ships with a BEHAVIOURAL gate -- the function is run with OSTLER_DIR deliberately pointed at a staging tree and the .pth it wrote is read back -- because any presence check passes on this defect.	cm051	21a63078	no	store_auth_pth_resolves_final_dir	gate:store-auth-pth-final-dir.yml#store-auth-pth-final-dir	Archie 2026-09-02 / CM051 #1316 / #595 / #210
+🔴 THE INSTALLER SENT AN APPLE EVENT TO FINDER, so macOS asked the customer to let Ostler "control Finder" and reach "documents and data" during an install that wants neither. Observed live on the v1.0.57 launch walk. FIX (#1315): DELETE the sole `osascript -e 'tell application "Finder" to close windows'`. This is a removal and not a rewording ON PURPOSE -- macOS allows exactly ONE NSAppleEventsUsageDescription per app and stamps it on every Apple Events prompt regardless of target, so the v1.0.57 pre-announcement could soften the surprise but never make the sentence true. The usage string is also rewritten to describe what the app ACTUALLY does with System Events. TWO-SIDED GATE: it fails if a Finder event returns, AND it fails if `open -R` disappears -- a fix that removed both would read identically to a clean pass on a Finder-only check. Positive controls (7 System Events call sites across 27,851 lines) prove the Finder zero is a real absence and not a dead search.	cm051	0d104ebc	no	installer_sends_no_finder_apple_event	needs-walk:v1.0.59#no-Ostler-wants-to-control-Finder-dialog-appears-at-any-point	Archie 2026-09-02 / CM051 #1315 / #361
+🔴 THE ASSISTANT COULD NOT NAME HALF ITS OWN TOOLS. The shipped system prompt listed the registered pwg_* tools in only ONE of its two branches, so which tools the assistant believed it had depended on which prompt branch it took -- and the customer sees that as an assistant that can look something up one minute and denies the capability the next. FIX (oa #854, in the pinned daemon bc63c445): every registered pwg_* tool is named in BOTH branches, with a CM051 box-walk probe (#1332) that fails when a registered tool is missing from either.	ostler-assistant	bc63c445	no	shipped_prompt_names_every_pwg_tool	needs-walk:v1.0.59#ask-the-assistant-something-needing-a-wiki-lookup-and-see-it-use-the-tool	TNM 2026-09-02 / oa #854 / CM051 #1332
+🔴 THE BURSAR SAW A QUIET MONTH INSTEAD OF A SEVERED PIPE, SECOND HALF. #1301 mounted the host journal into the compose stack; the wiki compiler was still writing usage records into its own container workspace on the OTHER side of that mount, so its records were still discarded at container exit while the panel rendered a smaller number that reads as low spend. FIX (#1330): point the compiler's journal at the daemon's workspace so writer and reader name one path. Same gate as the mount row -- one subject, one instrument.	cm051	fda9db7d	no	usage_journal_compiler_writes_where_bursar_reads	gate:usage-journal-gate.yml#usage-journal-gate	Archie 2026-09-02 / CM051 #1330 / #482
