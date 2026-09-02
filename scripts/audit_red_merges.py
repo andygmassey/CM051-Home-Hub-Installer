@@ -49,6 +49,62 @@ def gh(args, timeout=45):
     return (r.returncode, r.stdout, r.stderr)
 
 
+# ── THE PREDICATE, FACTORED OUT SO IT CAN BE TESTED ────────────────────────────
+# These two live at module scope for one reason: tests/test_audit_red_merges_
+# predicate.py IMPORTS them. It used to carry its own copy under a docstring
+# reading "Mirrors audit_red_merges.py", which meant breaking the code below
+# could never turn that test red -- a green light with no bulb behind it, which
+# is the exact thing this file exists to detect. Do not re-inline them.
+
+def last_word_per_name(rows, merged):
+    """name -> (conclusion, completed_at) for the LAST run completing at or
+    before `merged`.
+
+    Runs are an append-only history: a sha accumulates every run it ever had, so
+    a failure that was later fixed still sits there forever. Only the last run
+    per NAME is a verdict.
+    """
+    last = {}
+    for name, concl, done in rows:
+        if not done:
+            continue                      # never completed: not a verdict at all
+        if done > merged:
+            continue                      # completed after the merge: not the merge-time verdict
+        prev = last.get(name)
+        if prev is None or done >= prev[1]:
+            last[name] = (concl, done)
+    return last
+
+
+def classify(rows, merged):
+    """Three states, never two. Returns (verdict, detail).
+
+    THE THIRD STATE IS NOT DECORATION. A check whose conclusion is `null` was
+    STILL RUNNING when the merge happened. It did not pass. Bucketing it with
+    the passes would make GREEN mean "nothing had failed YET", and absence of
+    failure is not a pass -- so it lands in CANNOT-RUN with its name printed.
+    Same for a check with no completed run before the merge at all.
+    """
+    if not rows:
+        return ("CANNOT-RUN", "zero check runs -- unmeasured, NOT clean")
+    last = last_word_per_name(rows, merged)
+    if not last:
+        return ("CANNOT-RUN", "no run completed at or before mergedAt")
+
+    bad = {n: c for n, (c, _) in last.items() if c in BAD}
+    if bad:
+        return ("RED-AT-MERGE", bad)
+
+    # Neither a pass nor a fail: `null` (in flight), or a conclusion string
+    # GitHub added after this was written. Both are unmeasured, not clean.
+    unknown = {n: c for n, (c, _) in last.items() if c not in OK}
+    silent = sorted({name for name, _, _ in rows} - set(last))
+    if unknown or silent:
+        return ("CANNOT-RUN", {"not-a-conclusion": unknown,
+                               "no-completed-run-before-merge": silent})
+    return ("GREEN", len(last))
+
+
 def main(limit=60):
     rc, out, err = gh(["pr", "list", "--repo", REPO, "--state", "merged",
                        "--limit", str(limit), "--json", "number,headRefOid,mergedAt"])
@@ -71,30 +127,17 @@ def main(limit=60):
             print(f"  #{p['number']}  CANNOT-RUN (api rc={rc})")
             continue
         rows = [l.split("\t") for l in out.strip().split("\n") if l.strip()]
-        if not rows:
-            tally["CANNOT-RUN"] += 1
-            print(f"  #{p['number']}  CANNOT-RUN (zero check runs -- unmeasured, NOT clean)")
-            continue
 
-        # THE CORRECTED PREDICATE: last conclusion per NAME, at or before mergedAt.
+        # THE CORRECTED PREDICATE lives in classify(), which the test imports.
+        # Calling it here is what makes that test load-bearing rather than a
+        # study of a copy.
         merged = p["mergedAt"]
-        last = {}
-        for name, concl, done in rows:
-            if done and done > merged:
-                continue                      # completed after the merge: not the merge-time verdict
-            prev = last.get(name)
-            if prev is None or done >= prev[1]:
-                last[name] = (concl, done)
-        if not last:
-            tally["CANNOT-RUN"] += 1
-            print(f"  #{p['number']}  CANNOT-RUN (no run completed before mergedAt)")
-            continue
-        bad = {n: c for n, (c, _) in last.items() if c in BAD}
-        if bad:
-            tally["RED-AT-MERGE"] += 1
-            reds.append((p["number"], merged, bad, len(last)))
-        else:
-            tally["GREEN"] += 1
+        verdict, detail = classify(rows, merged)
+        tally[verdict] += 1
+        if verdict == "RED-AT-MERGE":
+            reds.append((p["number"], merged, detail, len(last_word_per_name(rows, merged))))
+        elif verdict == "CANNOT-RUN":
+            print(f"  #{p['number']}  CANNOT-RUN ({detail})")
 
     print("\n=== VERDICT HISTOGRAM ===")
     for k in ("GREEN", "RED-AT-MERGE", "CANNOT-RUN"):
