@@ -79,6 +79,10 @@ is not what this row asks for.
 | B7 | Everything else CM031 generates (`/api/v1/ingest/ios`) | **WIRED — same measurement** | `PWGUploadService.swift:367` (`upload`), triggered by Quick Note save (`QuickNoteView:150`) and health sync (`HealthService:150`). Box proof still owed. |
 | B8 | GET `/api/v1/recording/active` is **DARK** — `RecordingStateService` is never instantiated (2 refs on main, both its own class definition; the "In LiveActivityCoordinator.start()" line is an aspirational comment) | **NOT a v1.0.60 item** | Live Activities dependency, v1.0.1 scope. Recorded so it is not rediscovered as new. |
 
+| B9 | **Quick Note has an UNMEASURED RUNTIME PRECONDITION** (TNM, second eyes). `QuickNoteView.swift:147` guards the POST on `let hubURL = URL(string: pwgAPIBaseURL)`, a `UserDefaults` string. Absent or empty ⇒ `URL(string:)` is nil ⇒ block skipped ⇒ **no POST, and nothing throws**, so the `catch` never fires and the customer sees a clean local save. | **WALK ITEM — not a source defect and not a build item** | on the box: read `pwgAPIBaseURL`, save a Quick Note, assert it reaches the Hub. If the key is empty on a Hub-only install, it becomes a v1.0.61 build item. |
+
+⚠️ **B9 is the silent-no-op-on-falsy-config shape and it is why "WIRED" is not "WORKING".** TNM explicitly did NOT measure what that key holds and said so — nobody may read the flag as evidence it is empty. 24 `DemoMode.isEnabled` sites exist in production Swift, so the demo half of the guard is a deliberate estate-wide pattern, not an accident here. **Whether this is a defect is a BOX question, not a source question** — the same boundary that stops a row being ticked off a receiver's existence.
+
 **A2's controls, recorded because a count without them is not evidence:**
 positive control PASSED — `subscription/receipt` found at
 `SubscriptionReceiptSync.swift:181` by the same method, so the DARK verdict is a
