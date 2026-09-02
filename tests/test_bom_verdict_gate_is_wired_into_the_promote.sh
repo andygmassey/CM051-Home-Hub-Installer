@@ -125,6 +125,60 @@ else
     fail=1
 fi
 
+# --- HALF 3: THE WALK CARD. Behavioural, and it must not be a loophole. -----
+#
+# ANDY, 2026-09-02: "I'm beyond fed up with keep making DMGs and doing a walk
+# and then hearing that stuff hasn't been fixed that I was told it had. That
+# stops NOW."
+#
+# `needs-walk:` gives a row an honest third state so it reaches him DECLARED
+# rather than as a surprise. These arms exist because that state is also the
+# easiest thing here to abuse -- mark everything needs-walk and the gate goes
+# green having proven nothing.
+tmp3="$(mktemp -d)"
+trap 'rm -rf "$tmp" "$tmp3"' EXIT
+mkdir -p "${tmp3}/cuts/v7.7.7" "${tmp3}/scripts"
+cp "$GATE" "${tmp3}/scripts/"
+_G3="${tmp3}/scripts/verify_must_contain_has_box_verdict.sh"
+_hdr() { printf 'what\trepo\tref\tlanded\tcapability_id\tverify\tticket\n' > "${tmp3}/cuts/v7.7.7/MUST_CONTAIN.tsv"; }
+_row() { printf '%s\tcm051\tdeadbeef\tyes\tcap\t%s\tarchie\n' "$1" "$2" >> "${tmp3}/cuts/v7.7.7/MUST_CONTAIN.tsv"; }
+
+# 3a. A mixed register passes AND the card names both buckets.
+_hdr; _row 'proven thing' 'gate:test-wiring.yml#test-wiring'
+      _row 'human-only thing' 'needs-walk:v7.7.7#open-Settings-check-no-Advanced'
+set +e; out3="$("$_G3" --walk-card v7.7.7 2>&1)"; rc3=$?; set -e
+if [ "$rc3" -eq 0 ] \
+   && printf '%s' "$out3" | grep -q 'ALREADY PROVEN BEFORE THIS DMG REACHED YOU (1)' \
+   && printf '%s' "$out3" | grep -q 'YOU ARE THE INSTRUMENT (1)' \
+   && printf '%s' "$out3" | grep -q 'open-Settings-check-no-Advanced'; then
+    printf '  card       OK   both buckets printed, and the unproven row names what to check\n'
+else
+    printf '  card       FAIL --walk-card did not print the two buckets. rc=%s\n' "$rc3" >&2
+    fail=1
+fi
+
+# 3b. ANTI-VACUITY. All-needs-walk is a wishlist, not a cut.
+_hdr; _row 'a' 'needs-walk:v7.7.7#look-a'; _row 'b' 'needs-walk:v7.7.7#look-b'
+set +e; out3b="$("$_G3" v7.7.7 2>&1)"; rc3b=$?; set -e
+if [ "$rc3b" -eq 1 ] && printf '%s' "$out3b" | grep -q 'NOT ONE names real evidence'; then
+    printf '  vacuity    OK   a register that proves NOTHING is refused\n'
+else
+    printf '  vacuity    FAIL all-needs-walk returned rc=%s, expected 1.\n' "$rc3b" >&2
+    printf '                  Without this, needs-walk is a green button.\n' >&2
+    fail=1
+fi
+
+# 3c. A needs-walk that does not say WHAT TO LOOK AT is a shrug, not a
+#     declaration, and must be refused exactly like TBD was.
+_hdr; _row 'proven thing' 'gate:x.yml#y'; _row 'shrug' 'needs-walk:v7.7.7'
+set +e; out3c="$("$_G3" v7.7.7 2>&1)"; rc3c=$?; set -e
+if [ "$rc3c" -eq 1 ]; then
+    printf '  shrug      OK   needs-walk with no #what is refused\n'
+else
+    printf '  shrug      FAIL a contentless needs-walk was accepted (rc=%s).\n' "$rc3c" >&2
+    fail=1
+fi
+
 printf '\n'
 if [ "$fail" -ne 0 ]; then
     printf 'FAIL: the BOM-verdict gate is not wired into the promote as specified.\n' >&2
