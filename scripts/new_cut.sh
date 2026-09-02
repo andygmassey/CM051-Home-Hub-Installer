@@ -67,7 +67,22 @@ cd "$REPO" || die "cannot cd to repo root"
 [ -d cuts ] || die "no cuts/ directory here -- wrong repo?"
 
 NEW="cuts/$VERSION"
-[ -e "$NEW" ] && die "$NEW already exists. Refusing to overwrite a cut that has already been started."
+# A SCOPED CUT IS NOT A STARTED CUT, AND THE GUARD USED TO CONFLATE THEM.
+#
+# This refused on `-e "$NEW"`, i.e. on the DIRECTORY existing. Writing
+# cuts/<version>/SCOPE.md first is now the standard workflow -- v1.0.60 was
+# scoped hours before anyone tried to start it -- so the directory exists for
+# every real cut and this script could never run for any of them. Measured:
+# `[ -e cuts/v1.0.60 ]` was TRUE with the directory holding SCOPE.md alone.
+#
+# cut.env is the right marker, and this file already says so twelve lines
+# below: PREV detection accepts a version dir ONLY if it has a cut.env. The
+# guard was the single place using a different definition of "a cut".
+#
+# The refusal it exists for is unchanged: re-running against a cut whose
+# cut.env is already written still dies, because that IS an overwrite of a
+# started cut. `mkdir -p` below already tolerates the directory being there.
+[ -f "$NEW/cut.env" ] && die "$NEW/cut.env already exists. Refusing to overwrite a cut that has already been started. (A SCOPE.md alone is a cut that has been SCOPED, not started -- that is allowed.)"
 
 # PREVIOUS CUT = highest existing version dir, by version sort, that has a cut.env.
 PREV=""
