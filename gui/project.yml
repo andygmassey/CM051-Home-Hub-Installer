@@ -56,7 +56,7 @@ targets:
         NSHighResolutionCapable: true
         NSPrincipalClass: NSApplication
         LSApplicationCategoryType: public.app-category.utilities
-        NSAppleEventsUsageDescription: "Ostler needs to ask for your administrator password to install Hub services."
+        NSAppleEventsUsageDescription: "Ostler uses System Events to show the administrator password prompt and to open the right macOS permission settings during installation. It does not read your documents."
         NSCalendarsFullAccessUsageDescription: "Ostler reads your calendar so the Hub can surface what is on next, prepare meeting briefs, and link people to events on the wiki. Events never leave this Mac."
         NSContactsUsageDescription: "Ostler reads your contacts to pre-fill names and addresses during install, and to recognise who you talk to most. Contacts never leave this Mac."
         NSDesktopFolderUsageDescription: "Ostler scans your Desktop for social-platform data exports during install. Files stay on this Mac."

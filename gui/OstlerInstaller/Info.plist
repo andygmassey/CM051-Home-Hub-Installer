@@ -27,7 +27,7 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Ostler needs to ask for your administrator password to install Hub services.</string>
+	<string>Ostler uses System Events to show the administrator password prompt and to open the right macOS permission settings during installation. It does not read your documents.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Ostler reads your calendar so the Hub can surface what is on next, prepare meeting briefs, and link people to events on the wiki. Events never leave this Mac.</string>
 	<key>NSContactsUsageDescription</key>
