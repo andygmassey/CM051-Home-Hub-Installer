@@ -477,17 +477,40 @@ if missing_rows:
 # only ever DECREASE. Wiring tests lowers it; nothing can raise it. The backlog
 # therefore has to drain, and it can never be re-inflated to hide a new dark
 # test behind an old number.
-ceiling_path = os.path.join(repo, "tests", "TEST_WIRING_CEILING")
+# FIXTURE HERMETICITY, SECOND OCCURRENCE -- see the Swift-glob note above.
+# I anchored this on REPO_ROOT and the self-test suite went red on three arms:
+# each fixture scans a temp tests dir holding 1-2 files, so its backlog is 0 or
+# 1, but the ceiling it read was the REAL repo's 91. "THE BACKLOG SHRANK TO 0"
+# was the gate comparing one repo's population against another repo's pin.
+#
+# The ceiling therefore anchors on TESTS_DIR -- the population actually being
+# scanned -- so a number can never be checked against a set it does not
+# describe. A fixture that wants the ratchet evaluated writes its own ceiling.
+ceiling_path = os.path.join(tests_dir, "TEST_WIRING_CEILING")
+_is_real_run = os.path.realpath(tests_dir) == os.path.realpath(
+    os.path.join(repo, "tests")
+)
 if not os.path.exists(ceiling_path):
-    # An ABSENT ceiling is CANNOT-RUN, never a pass. A deleted ceiling file
-    # must not read as "no limit"; that is how a ratchet gets quietly removed.
-    print(
-        "verify_test_wiring: CANNOT RUN -- tests/TEST_WIRING_CEILING is absent.\n"
-        "The unwired backlog has no upper bound to check against. That is not a\n"
-        "clean result, it is a missing instrument.",
-        file=sys.stderr,
-    )
-    sys.exit(2)
+    if _is_real_run:
+        # An ABSENT ceiling is CANNOT-RUN, never a pass. A deleted ceiling file
+        # must not read as "no limit"; that is how a ratchet gets quietly
+        # removed.
+        print(
+            "verify_test_wiring: CANNOT RUN -- tests/TEST_WIRING_CEILING is absent.\n"
+            "The unwired backlog has no upper bound to check against. That is not a\n"
+            "clean result, it is a missing instrument.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    # A fixture run that declares no ceiling is not making a claim about the
+    # backlog, so there is nothing to ratchet. SAY SO on stdout: a skipped
+    # check that prints nothing is indistinguishable from one that passed,
+    # which is the defect this whole file exists to prevent.
+    print("  UNWIRED backlog: not evaluated (fixture run declares no ceiling)")
+    if fail:
+        sys.exit(1)
+    print("OK: no test file is newly unwired.")
+    sys.exit(0)
 try:
     ceiling = int(read(ceiling_path).strip())
 except ValueError:
