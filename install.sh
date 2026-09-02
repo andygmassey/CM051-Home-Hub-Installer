@@ -6811,8 +6811,33 @@ fi
 # scores ZERO in this file against a live control of 20 `-m venv` invocations,
 # so no venv inherits this interpreter's site-packages and no interpreter can
 # load the shim twice.
+# ⚠️ #595 SECOND HALF. THE GUARD AND THE ARGUMENT DISAGREED, IN ONE STATEMENT.
+#
+# The guard below tests PYTHON3_BIN against OSTLER_FINAL_DIR. The argument used
+# to pass OSTLER_DIR. Both on the same line. That is the whole defect: this call
+# runs ABOVE the promote-boundary contract line, where OSTLER_DIR is still
+# /tmp/ostler-prelaunch-<pid>, so the .pth it writes named a directory that does
+# not survive the install.
+#
+# (This comment deliberately does NOT spell the boundary marker token. The
+# marker is a UNIQUE anchor that tests locate by grep, and the first draft of
+# tests/test_store_auth_no_call_site_passes_staging_root.sh found THIS comment
+# instead of the real contract line -- shifting its boundary from ~14505 to
+# here and silently shrinking its own population. The test now refuses unless
+# the marker occurs exactly once; this wording keeps that true.)
+#
+# 🔴 THE #1316 FIX DID NOT REACH HERE, AND THE REASON IS WORTH KEEPING. #1316
+# hardened the FUNCTION'S DEFAULT (`local _root="${2:-${OSTLER_FINAL_DIR:-...}}"`).
+# A default only applies when the argument is ABSENT. This call site passes $2
+# EXPLICITLY, so it overrode the fix silently -- the hardening was real, and
+# this caller was simply never in its population. 12 of the 16 call sites pass
+# no root and were genuinely fixed by #1316; this was the one that was not.
+# Found by A2 on the P2 "gates that cover one family" sweep, not by a gate.
+#
+# The blast radius is every service WITHOUT its own venv -- cm059-editor,
+# ical-server, ostler_hygiene -- which is why the warn names them.
 if [[ -n "${PYTHON3_BIN:-}" && "${PYTHON3_BIN}" == "${OSTLER_FINAL_DIR}/python/"* ]]; then
-    _ostler_wire_store_auth_pth "$PYTHON3_BIN" "${OSTLER_DIR:-${HOME}/.ostler}" \
+    _ostler_wire_store_auth_pth "$PYTHON3_BIN" "${OSTLER_FINAL_DIR:-${HOME}/.ostler}" \
         || warn "store-auth .pth not wired into the bundled interpreter -- every service WITHOUT its own venv (cm059-editor, ical-server, ostler_hygiene) reaches the data stores with NO credential (#595/#210)"
 fi
 

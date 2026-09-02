@@ -292,6 +292,7 @@ test_stay_awake_agent_survives_installer_exit.sh	WIRED	.github/workflows/launcha
 test_stderr_tail.sh	WIRED	.github/workflows/stderr-tail.yml
 test_step_end_does_not_report_a_timed_out_step_as_ok.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_store_auth_covers_every_interpreter.sh	WIRED	.github/workflows/store-auth-coverage-gate.yml
+test_store_auth_no_call_site_passes_staging_root.sh	WIRED	.github/workflows/store-auth-pth-final-dir.yml
 test_store_auth_pth_uses_final_dir.sh	WIRED	.github/workflows/store-auth-pth-final-dir.yml
 test_store_callers_authenticate.sh	WIRED	.github/workflows/venv-store-shim.yml
 test_stores_guard_fires.sh	WIRED	.github/workflows/store-host-exposure.yml
