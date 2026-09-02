@@ -20356,6 +20356,17 @@ _install_conversation_feed() {
 if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" == true ]]; then
     progress "$MSG_PROGRESS_WHATSAPP_BUNDLE" "whatsapp_bundle"
     _install_conversation_feed whatsapp whatsapp_source "ostler_fda pyyaml"
+else
+    # SAY WHICH PRECONDITION FAILED. Before this else existed the step was
+    # subtracted from TOTAL_STEPS and NOTHING was printed, so a customer
+    # whose WhatsApp is off saw no mention of the feed at all -- identical
+    # to a feed that does not exist. "Turned off" and "consent not given"
+    # are different facts with different next actions; do not merge them.
+    if [[ "$CHANNEL_WHATSAPP_ENABLED" != true ]]; then
+        info "$MSG_INFO_FEED_WHATSAPP_SKIPPED_OFF"
+    else
+        info "$MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT"
+    fi
 fi
 
 # Email body feed. Reads OTHER PEOPLE'S message content (Apple Mail's
@@ -20369,6 +20380,15 @@ fi
 if [[ -d "${HOME}/Library/Mail" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
     progress "$MSG_PROGRESS_EMAIL_BUNDLE" "email_bundle"
     _install_conversation_feed email email_source "ostler_fda pyyaml"
+else
+    # Same silence, same fix. "Apple Mail is not set up on this Mac" is a
+    # fact the customer may want to act on; "you declined" is a choice they
+    # already made. Reporting both as nothing taught them neither.
+    if [[ ! -d "${HOME}/Library/Mail" ]]; then
+        info "$MSG_INFO_FEED_EMAIL_SKIPPED_NO_MAIL"
+    else
+        info "$MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT"
+    fi
 fi
 
 # Meeting / voice body feed. These are the customer's OWN CM042
@@ -20382,6 +20402,13 @@ fi
 if [[ -d "${USER_FACING_ROOT}/Transcripts" ]]; then
     progress "$MSG_PROGRESS_SPOKEN_BUNDLE" "spoken_bundle"
     _install_conversation_feed spoken spoken_source "pyyaml"
+else
+    # THE ROW A2 CONFIRMED. Only one precondition here (the Transcripts
+    # directory), and its absence is the ordinary case on a fresh Mac --
+    # which is exactly why saying nothing was wrong. The customer has no
+    # way to learn that recording their calls is a thing Ostler can do.
+    info "$MSG_INFO_FEED_SPOKEN_SKIPPED_NO_TRANSCRIPTS"
+    info "$MSG_INFO_FEED_SPOKEN_SKIPPED_HOW"
 fi
 
 # iMessage body feed. Reads OTHER PEOPLE'S message content
@@ -20396,6 +20423,13 @@ fi
 if [[ -f "${HOME}/Library/Messages/chat.db" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
     progress "$MSG_PROGRESS_IMESSAGE_BUNDLE" "imessage_bundle"
     _install_conversation_feed imessage services/imessage_source "pyyaml"
+else
+    # Fourth of four. Same shape, same silence, same fix.
+    if [[ ! -f "${HOME}/Library/Messages/chat.db" ]]; then
+        info "$MSG_INFO_FEED_IMESSAGE_SKIPPED_NO_DB"
+    else
+        info "$MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT"
+    fi
 fi
 
 # ── 3.14a-probe Mail content probe + sidecar (#259) ─────────────

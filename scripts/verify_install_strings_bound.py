@@ -45,6 +45,8 @@ Exit codes, three states and not two:
 from __future__ import annotations
 
 import re
+import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -108,8 +110,52 @@ def main() -> int:
             f"contains {catalogue_substring_hits} 'MSG_' substrings."
         )
 
+    # THE CATALOGUE MUST PARSE, AND THE NAMES MUST ACTUALLY BIND.
+    #
+    # ADDED after this gate MISSED a defect it existed to prevent, within an
+    # hour of being written. Eight strings were added whose values contained a
+    # mangled quote sequence. Every one matched RE_DEFINITION, so this gate
+    # said "clean" -- and the catalogue no longer parsed as bash from that line
+    # onward, so NOTHING after it bound and the install would have died.
+    #
+    # A NAME IN A FILE IS NOT A BOUND VARIABLE. That is the same
+    # presence-is-not-behaviour mistake this gate was built to catch, made by
+    # the gate itself. So ask bash, which is the thing that will actually read
+    # this file at install time, rather than trusting a regex over text.
+    #
+    # bash is also a genuinely INDEPENDENT instrument from RE_DEFINITION: if
+    # the two disagree about which names exist, one of them is wrong and this
+    # refuses rather than picking a winner.
+    probe = (
+        "set -u; source " + shlex.quote(str(CATALOGUE)) + " >/dev/null 2>&1; "
+        "compgen -v | grep '^MSG_'"
+    )
+    proc = subprocess.run(["/bin/bash", "-c", probe], capture_output=True, text=True)
+    bound = {n for n in proc.stdout.split() if n.startswith("MSG_")}
+
+    if not bound:
+        return _cannot_run(
+            f"sourcing {CATALOGUE.name} bound ZERO MSG_ names. The catalogue "
+            "does not parse, or does not survive `set -u`. Run "
+            f"`bash -n {CATALOGUE.name}` for the syntax error."
+        )
+
+    named_but_unbound = sorted(defined - bound)
+    if named_but_unbound:
+        print(
+            f"install-strings-bound: RED -- {len(named_but_unbound)} name(s) "
+            "look like definitions but do NOT bind when the catalogue is "
+            "sourced. The usual cause is a broken quote earlier in the file, "
+            "which silently kills every assignment after it:",
+            file=sys.stderr,
+        )
+        for name in named_but_unbound[:20]:
+            print(f"    {name}", file=sys.stderr)
+        return 1
+
     at_risk = references - guarded
-    missing = sorted(at_risk - defined)
+    # A name only counts as defined if bash agrees it binds.
+    missing = sorted(at_risk - (defined & bound))
 
     print(
         f"install-strings-bound: {len(references)} distinct MSG_ references, "
