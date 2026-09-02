@@ -131,33 +131,97 @@ echo "hook check: OSTLER_APPLE_NOTES_KNOWLEDGE deferred explicit-flag hook prese
 # re-adds the source without landing the converter, and it fails the other way
 # when the converter lands and the source is not restored. Either way it points
 # at the real object.
-[[ -f "$UNIVERSAL" ]] || fail "vendored universal_import missing at $UNIVERSAL"
-if grep -q 'DEFERRED persistence' "$UNIVERSAL"; then
-    # Stage-only by design. Confirm the installer does not solicit the data.
+#
+# 2026-09-03 CORRECTION, AND IT IS THE SAME MISTAKE THIS CHECK ALREADY MADE
+# ONCE. The block above fixed "it named the wrong object" and then named a
+# second wrong object. It decided whether the FDA sweep may list apple_notes
+# by grepping a stub in vendor/ostler_fda/universal_import.py -- but that stub
+# governs the DRAG-AND-DROP path (a customer dropping a NoteStore.sqlite),
+# NOT the sweep that OSTLER_FDA_SOURCES controls. The two are different code
+# paths with different persistence stories, and this file asserts both.
+#
+# The contradiction was visible in this file's own output. Checks 1 to 6 PASS,
+# and between them they prove the INSTALL path persists: install.sh emits
+# hydrate_apple_notes, drives `convert --source apple_notes` on the staged
+# JSON plus the embed phase, and orders it after fda_extract and before
+# wiki_compile. Then check 7 failed the very same source for having no
+# persistence. A test cannot prove a thing in one half and deny it in the
+# other; one of the halves is measuring the wrong object, and it was this one.
+#
+# The premise is also simply out of date. The comment above says the re-pin
+# "to 7ace7672 that carries the apple_notes.py adapter is DEFERRED". It is
+# not: VENDOR_MANIFEST.toml now pins cm024_knowledge at 1fabd75d, the adapter
+# is vendored, and the adapters registry maps the "apple_notes" source kind.
+# The instruction was "remove it from the default, or land the re-pin". The
+# re-pin landed. This check could not see it because it read a proxy in
+# another tree instead of the capability itself.
+#
+# So measure the CAPABILITY DIRECTLY, and keep the consent invariant exactly
+# as strict. `git ls-files`, not `ls`: a file on disk that is not in the commit
+# does not ship, and would give a capability claim no artefact can honour.
+CM024_ADAPTER="vendor/cm024_knowledge/ostler_knowledge/ingestion/adapters/apple_notes.py"
+CM024_REGISTRY="vendor/cm024_knowledge/ostler_knowledge/ingestion/adapters/__init__.py"
+
+_an_capability=absent
+if [ -n "$(git ls-files -- "$CM024_ADAPTER")" ] \
+   && [ -n "$(git ls-files -- "$CM024_REGISTRY")" ] \
+   && grep -q '"apple_notes": AppleNotesAdapter' "$CM024_REGISTRY"; then
+    _an_capability=present
+fi
+
+if [ "$_an_capability" = absent ]; then
+    # No converter. We must not ask for access we cannot use: taking Full Disk
+    # Access to a customer's Notes, reading every one and using none of them.
     if grep -qE '^RECOMMENDED=.*apple_notes' "$INSTALL"; then
-        fail "apple_notes is in RECOMMENDED but persistence is still stage-only.
-   The converter is NOT vendored: VENDOR_MANIFEST.toml pins cm024_knowledge at
-   43d6c5da and the re-pin to 7ace7672 (which carries apple_notes.py) is
-   DEFERRED, so 'convert --source apple_notes' exits non-zero.
-   We would take Full Disk Access to a customer's Notes, read every one, and
-   use none of them. Remove it from RECOMMENDED, or land the re-pin."
+        fail "apple_notes is in RECOMMENDED but the CM024 converter is NOT vendored.
+   Expected $CM024_ADAPTER to be a tracked file and the adapters registry to map
+   the apple_notes source kind; one or both are missing, so
+   'convert --source apple_notes' exits non-zero. Remove it from RECOMMENDED,
+   or land the re-pin."
     fi
     if grep -qE '^OSTLER_FDA_SOURCES=.*apple_notes' "$INSTALL"; then
-        fail "apple_notes is in the default OSTLER_FDA_SOURCES but persistence
-   is still stage-only. Same reason as above: the notes would be extracted and
-   then go nowhere searchable. Remove it from the default, or land the re-pin."
+        fail "apple_notes is in the default OSTLER_FDA_SOURCES but the CM024
+   converter is NOT vendored. The notes would be extracted and then go nowhere
+   searchable. Remove it from the default, or land the re-pin."
     fi
-    echo "consent check: persistence is stage-only (universal_import.py), and"
-    echo "               apple_notes is correctly absent from RECOMMENDED + defaults"
+    echo "consent check: converter absent, and apple_notes is correctly absent"
+    echo "               from RECOMMENDED + defaults"
 else
-    # Persistence has landed. Now the route must be real AND the source restored.
+    # Capability landed. Now the inverse must hold: we have it and must offer
+    # it, and the install path must actually drive it. This arm fails if the
+    # converter lands and nobody restores the source, which is the silent
+    # half -- a capability built and never switched on.
+    grep -qE '^OSTLER_FDA_SOURCES=.*apple_notes' "$INSTALL" \
+        || fail "the CM024 apple_notes converter IS vendored and registered, but
+   apple_notes is absent from the default OSTLER_FDA_SOURCES. The capability
+   exists and nothing feeds it. Restore it."
+    # Check 1 already asserted install.sh drives convert+embed; re-assert the
+    # source kind here so this arm cannot pass on wiring that does not exist.
+    grep -q -- '--source apple_notes' "$INSTALL" \
+        || fail "converter vendored and source enabled, but install.sh never runs
+   convert --source apple_notes. The sweep would stage JSON and stop."
+    echo "capability check: CM024 converter vendored + registered, apple_notes"
+    echo "                 enabled in OSTLER_FDA_SOURCES, install.sh drives convert"
+fi
+
+# The DRAG-AND-DROP path is a SEPARATE object with its own honesty rule. It is
+# allowed to be stage-only, but it must SAY SO. A stub that quietly stopped
+# describing itself as deferred would read as persistence that does not exist.
+[[ -f "$UNIVERSAL" ]] || fail "vendored universal_import missing at $UNIVERSAL"
+if grep -q 'DEFERRED persistence' "$UNIVERSAL"; then
+    echo "drop-path check: universal_import _dispatch_apple_notes is stage-only"
+    echo "                 and declares it (tracked separately; the FDA sweep"
+    echo "                 persists via install.sh hydrate_apple_notes)"
+else
+    # The stub is GONE, so this leg now CLAIMS persistence. Make it prove it.
+    # Deleting the comment is a one-line change; gaining a route is not, and
+    # the cheap edit must not be able to buy the expensive verdict.
     grep -q '"--source", "apple_notes"' "$UNIVERSAL" \
         || fail "$UNIVERSAL no longer carries the stage-only stub but _dispatch_apple_notes
-   does not route through ostler-knowledge convert --source apple_notes either."
-    grep -qE '^RECOMMENDED=.*apple_notes' "$INSTALL" \
-        || fail "apple_notes persistence has LANDED but the source is still absent from
-   RECOMMENDED. The capability exists and we are not offering it. Restore it."
-    echo "un-defer check: persistence landed, route present, source restored"
+   does not route through ostler-knowledge convert --source apple_notes either.
+   A leg that stopped declaring itself deferred without gaining a route reads as
+   persistence that does not exist, which is worse than an honest stub."
+    echo "drop-path check: universal_import routes through convert --source apple_notes"
 fi
 
 echo "hydrate_apple_notes wiring guard: PASS"
