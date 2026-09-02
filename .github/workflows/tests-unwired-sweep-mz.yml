@@ -69,7 +69,6 @@ jobs:
             tests/test_preferences_vendor_wired.sh \
             tests/test_resource_tier_governor.sh \
             tests/test_settling_progress_writer.sh \
-            tests/test_spoken_transcripts_absence_discriminated.sh \
             tests/test_subscription_activation_path.sh \
             tests/test_sync_vendor_pin_untouched_on_abort.sh \
             tests/test_tailscale_recovery_wrapper.sh \
@@ -106,6 +105,18 @@ jobs:
             exit 1
           fi
           echo "OK: all m..z shell tests passed."
+
+      # Invoked BY NAME, deliberately, not via the loop above.
+      #
+      # scripts/verify_new_tests_are_wired.sh requires an execution verb and the
+      # filename on the SAME LINE (is_invoked_in_corpus). The `for t in ... ;
+      # bash "${t}"` loop above satisfies TEST_WIRING.tsv, which matches on a
+      # mention, but it is invisible to the invocation gate: the verb only ever
+      # touches "$t", never a literal path. Every existing entry in that list is
+      # grandfathered because that gate inspects only NEWLY ADDED tests. This
+      # one is named so both gates can see the same fact.
+      - name: B2 -- a removed Transcripts folder is reported as removed
+        run: bash tests/test_spoken_transcripts_absence_discriminated.sh
 
   python-ubuntu:
     # Vendored-logic tests (parsers, identity resolver, migration guard,
