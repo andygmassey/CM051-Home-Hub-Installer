@@ -278,3 +278,76 @@ jobs:
           fi
           echo "::error::pii-name-guard failed (exit $status). See the counts above." >&2
           exit "$status"
+
+      # ── The vendor person-name SHAPE sweep, which was DARK until this step ──
+      #
+      # tests/vendor_person_name_sweep.py is a SECOND, independent person-name
+      # instrument from the guard above. It exists because two earlier agents
+      # each swept the vendored trees for real names with a computed predicate
+      # and each returned a confident wrong number: one predicate could not see
+      # a name whose word boundary an emoji had broken, the other never opened a
+      # requirements.txt, and both were scoped to one tree of twenty-five. So it
+      # refuses to emit any verdict until it has first proved its own REACH
+      # across the four shapes that defeated its predecessors.
+      #
+      # It was invoked by NO workflow. Measured on origin/main: its only mention
+      # anywhere in the repo was a single comment in
+      # .github/scripts/ci-pii-shape-scan.sh (0 of 111 workflow files ran it).
+      # So person-name SHAPE-reach over the vendored tree had a ZERO CI
+      # denominator on a PUBLIC repo -- it was never exercised on a PR.
+      #
+      # WHAT RUNS HERE, AND WHY IT IS NOT VACUOUS.
+      # The sweep's CONTROLS run on every PR: four synthetic canaries it MUST
+      # find (a plain bigram, an emoji-decorated bigram, a name in a non-.py
+      # file, a name inside a .patch hunk), one technical bigram it must NOT
+      # find, and a self-scan of its own source for any stray name. Every canary
+      # is invented and written to a scratch tree at run time, so nothing here
+      # commits a real name. If any must-find shape is MISSED the sweep returns 2
+      # and this step REDS: a detector that cannot demonstrate reach is a false
+      # clean, which is the whole failure this instrument exists to stop.
+      # --report then prints the candidate DENOMINATOR (896 tokens on the tree
+      # this was wired against, 0 declared) so a zero can never be read as a
+      # clean tree.
+      #
+      # Two-sided proof taken on the real pre-fix tree before wiring: intact,
+      # exit 0 with all four canaries FOUND; with normalise() neutered so the
+      # emoji canary loses its word boundary, exit 2 and "REFUSING TO REPORT".
+      #
+      # WHAT CANNOT RUN HERE, BY DESIGN.
+      # Turning the vendor surface into a BLOCKING gate needs
+      # vendor/PERSON_NAMES_REVIEWED.tsv seeded -- every candidate adjudicated
+      # technical / synthetic / real-and-scrubbed. That file does not exist yet,
+      # and it cannot be committed carrying real names on a PUBLIC repo (the test
+      # would become the leak). This is the same unstored-registry wall as the
+      # operator-PII inventory two steps above, which is why that scan reports
+      # exit 2 as NOT-RUN rather than clean. Until the registry is seeded the
+      # full real-name verdict is CANNOT-RUN-in-CI, and this step reports the
+      # reach-and-denominator it CAN prove rather than a clean bill it cannot.
+      # Flipping to the blocking gate is one edit -- drop --report -- once
+      # vendor/PERSON_NAMES_REVIEWED.tsv is seeded; seeding it is a human
+      # adjudication task tracked separately.
+      #
+      # if: always() so a failure in the steps above cannot delete this
+      # measurement. CANNOT-RUN is reported as itself, never as clean.
+      - name: Vendor person-name shape sweep, reach + denominator
+        if: always()
+        run: |
+          if ! command -v python3 >/dev/null 2>&1; then
+              echo "::error::vendor-person-name-sweep CANNOT RUN: no python3 on this runner." >&2
+              echo "  That is not a clean result. It examined nothing." >&2
+              exit 2
+          fi
+          set +e
+          python3 tests/vendor_person_name_sweep.py --report
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+              echo "vendor-person-name-sweep: controls passed -- reach demonstrated on all four shapes."
+              echo "  The vendor surface is REPORTED, not gated: that needs vendor/PERSON_NAMES_REVIEWED.tsv,"
+              echo "  which cannot hold real names on a public repo. See the step comment."
+              exit 0
+          fi
+          echo "::error::vendor-person-name-sweep failed (exit $status)." >&2
+          echo "  exit 2 = the sweep could not demonstrate its reach (a must-find canary shape was" >&2
+          echo "  missed, or a stray name entered its own source). That is a REFUSAL, not a pass." >&2
+          exit "$status"

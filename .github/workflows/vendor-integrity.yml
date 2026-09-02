@@ -72,6 +72,15 @@ on:
       - 'tests/test_a_dead_wiki_announces_itself.py'
       - 'tests/test_container_engine_liveness_and_recovery.sh'
       - 'tests/test_doctor_silent_failure_grafts.py'
+      # The vendor-pair drift gate (#449): the copy that RUNS vs the copy that
+      # is REVIEWED. Watched because the step below RUNS it -- a run: with no
+      # matching path entry is a gate you have read, not one you have run. Its
+      # registry and the two invariant manifests it reads are watched too, so a
+      # drift-relevant data edit re-fires the gate rather than sliding past it.
+      - 'tests/test_vendor_pair_drift.py'
+      - 'tests/vendor_pair_registry.tsv'
+      - 'tests/tick_pair_map.tsv'
+      - 'tests/tick_seal_invariants.tsv'
   push:
     branches: [main]
 
@@ -266,6 +275,35 @@ jobs:
       - name: Imported symbols resolve, not just modules (D024)
         if: always()
         run: python3 tests/test_vendor_symbol_resolution.py
+
+      # The vendor-pair drift gate (#449): does the copy that RUNS still carry
+      # every behavioural guarantee the copy that is REVIEWED does? Same disease
+      # class as the two D024 steps above -- an FDA-preflight fix reviewed in the
+      # vendored copy while the daemon forks the sealed copy, so the fix was
+      # never in the code that ran.
+      #
+      # THIS TEST RAN NOWHERE BEFORE THIS STEP. Its only invoker was
+      # scripts/run_all_cut_gates.sh:237, and that runner is started by nothing
+      # as a gate: cut.yml has zero references to it, cut-gate-wrappers.yml only
+      # runs tests ABOUT it (never a run: of it), and the gui/Makefile mention is
+      # an @echo. So the gate was dark -- the exact class it exists to catch, and
+      # the same finding as the symbol-resolution step above.
+      #
+      # DEFAULT (CI) MODE, NOT --require-full, ON PURPOSE. The two enforced pairs
+      # resolve one side out of the ostler-assistant source repo via
+      # $OSTLER_ASSISTANT_DIR, and the unreconciled pair reads $HR015_ROOT.
+      # Neither sibling repo is checked out on a CI runner, so --require-full
+      # FAILS here for an absent checkout, not for real drift (measured: all
+      # three pairs UNRESOLVED, exit 1). Default mode still runs the gate
+      # machinery, proves the registry parses and prints the denominator, and
+      # REPORTS the unresolved cross-repo pairs rather than passing on them --
+      # the same DEGRADED posture the vendor-freshness step above takes, and for
+      # the same reason. The enforced cross-repo drift check belongs in the cut,
+      # where the sibling repos are present and --require-full runs. python3 and
+      # NOT pytest: it is a __main__ script, and "no tests ran" reads as a pass.
+      - name: Vendor-pair drift gate (#449) -- CI report mode (enforced pairs need the source repo; the cut runs --require-full)
+        if: always()
+        run: python3 tests/test_vendor_pair_drift.py
 
       # v1018-D024, the customer-visible half. The two D024 steps above ask
       # whether the vendored tree is INTERNALLY coherent. Neither can ask

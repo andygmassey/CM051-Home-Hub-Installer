@@ -186,7 +186,7 @@ if found:
 # Machine-readable rows. No regex: single string ops only, so nothing here
 # depends on shell or python escaping surviving three levels of quoting.
 pairs = []
-# Element-agnostic: the freshness rows moved from <tr> to <li> (CM044 #218, to
+# Element-agnostic: the freshness rows moved from <tr> to <li> (CM044 #266, to
 # match the sibling channel list) and could move again. Key on the class +
 # data-source that mark a machine-readable source row, NEVER the element name.
 # Split on the tag opener and read only the opening tag's attributes, so a

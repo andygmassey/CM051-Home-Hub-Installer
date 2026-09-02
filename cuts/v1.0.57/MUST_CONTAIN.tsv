@@ -1,0 +1,75 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.57.
+#
+# ===========================================================================
+# 🔴 WHY v1.0.57 AND NOT v1.0.56: I NEVER PINNED THIS FILE, AND THE GATE SAID SO
+# ===========================================================================
+# v1.0.56 was tagged and died at PREFLIGHT -- EARLIER than v1.0.54 and v1.0.55
+# reached, which makes it a REGRESSION in the sequence and not progress. Two
+# steps failed and BOTH were mine:
+#
+#   "BOM_PIN records no hash for cuts/v1.0.56/MUST_CONTAIN.tsv"
+#   "an unpinned vendored copy is a fork nobody declared"
+#   "v1.0.55  NO ROW. A cut with no row is indistinguishable from a cut
+#    nobody looked at."
+#
+# I wrote this BOM and never ran scripts/sync_cut_bom.sh, and I wrote the
+# v1.0.55 rollforward row in OS003 and never synced it into the VENDORED copy
+# the gate actually reads. Both are the same error in two places: I updated the
+# canonical thing and assumed the gate would see it. THE GATE READS THE TREE IT
+# IS CUTTING. Canonical is not vendored; merged is not delivered.
+#
+# ⚠️ AND A GATES-ONLY DRY RUN EXISTS. cut.yml declares a workflow_dispatch that
+# runs the gates with contents:read, no signing step, no notarisation, and it
+# asserts no DMG is produced. It costs nothing and it would have caught both
+# failures without spending a version. It was not run. That is the entire price
+# of v1.0.56, and the rule that follows is: NEVER TAG WITHOUT A GREEN DRY RUN.
+#
+# ===========================================================================
+# THE PAYLOAD IS NOT IDENTICAL THIS TIME, AND THAT IS THE WHOLE POINT
+# ===========================================================================
+# v1.0.54 and v1.0.55 carried the SAME four rows, because neither ever built
+# and main never moved between them. This cut breaks that: it carries those
+# four PLUS three more, and it is the first version since v1.0.52 whose
+# payload a customer would actually notice.
+#
+# THE SCOPE ARGUMENT, stated so it can be checked rather than trusted: this
+# cut carries FOUR of Andy's six v1.0.52/.231 walk findings, up from ONE.
+#
+#   A2 (#454)  Settings "Advanced" removed          rows carried from v1.0.54
+#   A3 (#218)  settling panel li-row renderer       NEW, row F
+#   A5 (#594)  "Duplicate review ... Hub Mac only"  NEW, row G
+#   #659       real name beats a social handle      NEW, row E
+#
+# ⚠️ NOT CARRIED, and a walk of this artefact should expect them: A4 (the
+# Bursar usage-journal roster) is ANDY'S SCOPE CALL, not a defect to code
+# around. A6 is now ARCHAEOLOGY -- CM041 #135's discriminator was run against
+# the SHIPPING resolver and it declines to auto-merge, so there is no live
+# defect to carry and the repair of already-written rows is an operator
+# decision. See cuts/DEFECTS_ROLLFORWARD.md v1052-D004 and v1052-D006.
+#
+# ===========================================================================
+# ROWS F AND G ARE DELIVERED BY AN IMAGE DIGEST, NOT BY A SOURCE COMMIT
+# ===========================================================================
+# The wiki renderer ships as a pinned container image, so "merged" and "in the
+# artefact" are separated by an image rebuild and a re-pin. Both happened for
+# this cut: CM044 v0.1.29 (tag 0.1.29) was built and published, and install.sh
+# now pins its two digests. That is why these two rows exist at all -- CM044
+# #262 and #266 were merged BEFORE v1.0.54 and were in NEITHER of the two
+# previous cuts.
+#
+# 🔴 THE PIN IS THE VERIFIABLE THING, so the ref column carries the DIGEST
+# rather than the CM044 source sha. A source sha would be true about the repo
+# and unfalsifiable against the DMG; the digest is in install.sh, in the
+# artefact, and resolvable against the registry. Both digests were verified by
+# authenticated manifest read: tag 0.1.29 resolves to exactly these two, with
+# tag 0.1.28 resolving to exactly the two digests being REPLACED as a
+# two-sided control, and a 64-zero digest returning 404 as the negative one.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+🟠 THE INSTALLER LET macOS SPEAK FIRST, AND macOS SAYS SOMETHING ALARMING. The admin-password dialog is worded by macOS as "Ostler wants to control Finder", and mentions documents and data -- a sentence a customer reasonably reads as the installer asking to read their files. Nothing prepared them for it. FIX (#1297): pre-announce the wording in the installer's own voice before the dialog appears, and say plainly that the sentence is macOS's own and is how macOS asks any app for an administrator password. Ships as a bundled GUI resource (ViewCopy.json), compiled into OstlerInstaller.app via gui/project.yml resources -- NOT via gui/Makefile, which never names it.	cm051	ad72c63a	no	install_finder_prompt_pre_announced	TBD	Archie 2026-08-30 / CM051 #1297 / #361
+🔴 THE BURSAR COULD NOT SEE WHAT THE COMPILER PRODUCED. The wiki compiler writes usage records into its container's /workspace/state, and no bind mount connected that to the host journal the cost panel reads -- so every record the compiler has ever written was discarded when the container exited. The panel then showed a smaller number, which reads as a quiet month rather than a severed pipe. FIX (#1301): mount the host workspace state directory at /workspace/state and set OSTLER_WORKSPACE explicitly so the writer and the mount cannot drift apart. Scoped to state/ deliberately -- the whole workspace is not the panel's business.	cm051	876695da	no	usage_journal_mount_reaches_compiler	TBD	TNM 2026-08-31 / CM051 #1301 / #482
+🔴 THE STORE-CREDENTIAL WIRING HAD 100% COVERAGE OF THE WRONG POPULATION. Every call site was correct and every one passed a venv root, because the guard only ever accepted `-x "${_venv}/bin/python3"`. The BUNDLED interpreter is not a venv and ships no python3 alias, so the three services without their own venv -- cm059-editor, ical-server, ostler_hygiene -- reached Oxigraph and Qdrant with no credential, 401'd, and exited 0. Customer symptom: the Front Page never populated, on any install. FIX (#1302): resolve the interpreter from a named executable, a venv root, or a relocated tree's bin/python3.11, then ask THAT interpreter for its own site-packages -- and add the fifteenth call site for the bundled tree. The defect was the definition of the population, not a missing call.	cm051	6d71a220	no	store_auth_wires_bundled_interpreter	TBD	TNM 2026-08-31 / CM051 #1302 / #595 / #210
+🔴 THE DAEMON PIN NAMED A BUILD THAT DID NOT CARRY ANDY'S FIX. gui/Makefile pinned 0.4.67 while the fix for #454 landed in the daemon at c6fc48c0, so the install path shipped a binary without it. FIX (#1303): move all five pins to hub-v0.4.69. TWO REPOS, ONE TAG -- DAEMON_REPO (ostler-releases) serves the daemon and HUB_APP_REPO (ostler-assistant) serves the hub app, both fetched at the same DAEMON_RELEASE_TAG, so publishing one half leaves the cut 404ing on the other. Both halves were verified published with a 404 control on each repo, and both digests matched the published .sha256 sidecars byte for byte. The row's pattern is the daemon digest itself, which is the one string that cannot be true of the previous build.	cm051	8f66b632	no	daemon_pinned_at_hub_v0469	TBD	TNM 2026-08-31 / CM051 #1303 / #951
+🔴 A PERSON WAS SHOWN UNDER A RUN-TOGETHER SOCIAL HANDLE INSTEAD OF THEIR REAL NAME. A bare username PASSES is_acceptable_display_name -- it is not junk -- so the FIRST acceptable candidate won by ingest order and a handle that arrived first became the name a person is displayed under. Observed on Andy's .231 walk. FIX (CM041 #134, grafted verbatim into vendor/cm041/identity_resolver/canonical_name.py): demote a handle-shaped token below a real name with a STABLE sort, so order still decides among same-shape values and two real names are never reordered. DEMONSTRATED TWO-SIDED ON THE VENDORED COPY, which is what a customer runs: handle-then-name returned the handle pre-graft and the real name post-graft, with four over-reach controls unchanged (all-caps brand, two real names' order, capitalised mononym, handles-only list) and the vendored suite at 46 passed on both sides.	cm051	fc156903	no	display_name_prefers_real_name_over_handle	TBD	Archie 2026-09-02 / CM051 #1309 / CM041 #134 / #659
+🔴 THE SETTLING PANEL REACHED THE CUSTOMER AS UNSTYLED MARKUP, not as a layout that merely needed tuning. The renderer emitted four classes with ZERO matching rules anywhere in the stylesheet, and applied a class written for a <ul> to a <table>. Andy's A3. FIX (CM044 #266): the li-row renderer, shipping in wiki-compiler 0.1.29. DELIVERED BY IMAGE DIGEST -- the fix was merged before v1.0.54 and reached NEITHER of the two previous cuts, because a merged renderer change cannot reach a customer without an image rebuild and a re-pin.	cm044-image	sha256:eef628599ccca1087e785a47b0b428005f8cd6c71b525f08b7c668fc41ac0d40	no	wiki_settling_panel_li_row_renderer	TBD	Archie 2026-09-02 / CM051 #1311 / CM044 #266 / #218
+🔴 "Duplicate review is available on the Hub Mac only." RENDERED ON THE HUB MAC, and the feature behind it was dead. The wiki site's CSP did not admit the on-box Doctor, so dup-review and corrections could not work at all -- the message was not merely wrong, it was describing a severed connection. Andy reported this before it was ever filed. FIX (CM044 #262): admit the Doctor in the site CSP, shipping in wiki-site 0.1.29. DELIVERED BY IMAGE DIGEST, same constraint as the row above. THIS IS THE ROW THAT DECIDED THE CUT: holding the wiki pin with a hold_ack would have shipped v1.0 with this still broken purely to avoid moving a digest.	cm044-image	sha256:fb5536bded57dae3466cb5ea7a3f4c36b2330892731afe60add521d78c0e8720	no	wiki_dup_review_csp_admits_doctor	TBD	Archie 2026-09-02 / CM051 #1311 / CM044 #262 / #594

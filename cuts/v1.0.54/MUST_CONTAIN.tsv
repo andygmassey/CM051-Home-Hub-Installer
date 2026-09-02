@@ -1,0 +1,105 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.54.
+#
+# ===========================================================================
+# WHY v1.0.54 EXISTS, AND WHY THERE IS NO v1.0.53 BOM NEXT TO THIS ONE
+# ===========================================================================
+# v1.0.53 was tagged at 8f66b632 on 2026-08-30T18:10:50Z and its preflight
+# refused with four failures. Every one is a condition ON THE TREE AT THAT
+# COMMIT -- cuts/v1.0.53/cut.env absent, cuts/v1.0.53/MUST_CONTAIN.tsv absent,
+# walk closure, and gui/project.yml still reading "1.0.52". Fixing any of them
+# requires a NEW COMMIT, so main necessarily moves PAST the tag while the tag
+# keeps pointing at a tree that can never satisfy the gates.
+#
+# 🗿 A CUT TAG MUST BE CREATED AFTER EVERY CONDITION IT WILL BE JUDGED ON.
+#
+# That is stronger than "the tag went stale". Tagging first makes the tag
+# unsatisfiable WITH CERTAINTY, because the version bump preflight demands is
+# itself a commit and no commit can precede the tag cut before it. v1.0.53 is
+# NOT deleted and must not be: it published nothing, but the ref truthfully
+# records a tree that was tagged and refused. Force-repointing it would make
+# ONE VERSION NAME TWO TREES.
+#
+# ===========================================================================
+# THE DENOMINATOR: 6 COMMITS SINCE v1.0.52, 4 OF THEM REACH THE DMG
+# ===========================================================================
+# v1.0.52 derefs to 6b5a5f45. `git log 6b5a5f45..8f66b632` is SIX commits,
+# enumerated and classified by reading each one's file list -- not by reading
+# its subject line:
+#
+#   ad72c63a  #1297  gui/.../ViewCopy.json + pbxproj + test        SHIPS
+#   6fa2e4f4  #1299  scripts/box_walk_probes/probes/*.sh           no
+#   ddd2dfe9  #1298  walks/v1.0.52.tsv                             no
+#   876695da  #1301  install.sh + CI + test                        SHIPS
+#   6d71a220  #1302  install.sh + CI + test                        SHIPS
+#   8f66b632  #1303  gui/Makefile + install.sh + CI                SHIPS
+#
+# THE SHIP PREDICATE WAS RE-RUN ON TODAY'S main, not quoted from the v1.0.51
+# BOM that established it:
+#
+#     grep -c box_walk_probes gui/Makefile   0
+#     grep -c walks/          gui/Makefile   0
+#     CONTROL: grep -c install.sh gui/Makefile  29
+#
+# So probe and walk-record work is absent from the bundling path against a
+# live control of 29, and #1299/#1298 are correctly NOT rows. Writing them
+# would claim the artefact contains them and they would sit at landed=no
+# forever, because no walk can ever find them there.
+#
+# ⚠️ AND THE PREDICATE NEEDED CORRECTING MID-FLIGHT, WHICH IS WORTH RECORDING.
+# `grep -c ViewCopy gui/Makefile` is ALSO 0 -- and ViewCopy.json ships anyway.
+# GUI resources are not bundled by the Makefile; they are bundled by
+# gui/project.yml, which declares `resources: - path: OstlerInstaller/Resources`
+# excluding only Fonts/**. ViewCopy.json sits directly in that directory. Had
+# I taken the Makefile grep as the ship predicate for every file class, #1297
+# would have been dropped from this BOM as "not in the artefact" while being
+# compiled into the .app. A ship predicate is per-CLASS, not per-repo.
+#
+# ===========================================================================
+# 🟢 ALL FOUR ROWS ARE GUARDED, AND EACH PATTERN WAS PROVED ON BOTH ARMS
+# ===========================================================================
+# The v1.0.52 BOM shipped both its rows at capability_id=none and said so
+# plainly, because its author did not write those fixes and would not invent
+# ids for them. Two of these four are mine, and I measured the other two, so
+# all four get real manifest rows. Every pattern was run against main (must
+# hit) AND against the v1.0.52 tree (must miss), through the same pipeline,
+# with a live control proving both trees were actually read:
+#
+#   pattern                                  main   v1.0.52
+#   macOS words the next dialog oddly          1        0
+#   state:/workspace/state                     1        0
+#   wire_store_auth_pth .+PYTHON3_BIN          1        0
+#   e680396893fadd78                           1        0
+#   CONTROL OSTLER_FINAL_DIR (install.sh)     47       45
+#   CONTROL DAEMON_SHA256   (gui/Makefile)     5        5
+#   CONTROL reassurance     (ViewCopy.json)    1        1
+#
+# 🔴 TWO CANDIDATE PATTERNS WERE REJECTED ON THE MUST-MISS ARM, and the reason
+# is the whole point of running it. `local _py=` scores 2 on main and 1 at
+# v1.0.52; `bin/python3.11" ]]` scores 6 and 5. Both are COUNT CHANGES, not
+# presence predicates. A capability row keyed on either would report the
+# capability PRESENT in an artefact built before the fix existed. A pattern
+# that is non-zero on the broken tree cannot serve as a capability row, however
+# obviously it names the change.
+#
+# 🔴 AND ONE WAS REJECTED FOR BEING A COMMENT. The most distinctive new text in
+# #1302 is its own header prose ("THIS FUNCTION'S POPULATION WAS ITS DEFECT").
+# Keying the row there would guard the DOCUMENTATION of the fix, not the fix --
+# the #808/#815 class, where a shipping gate's load-bearing assertion is
+# anchored on a comment that any tidy-up can delete without touching behaviour.
+# The chosen pattern matches the CALL SITE.
+#
+# ===========================================================================
+# WHAT THIS CUT DOES NOT CARRY
+# ===========================================================================
+# Four of Andy's six walk defects are not in this range and are not rows here.
+# The usage-journal producer roster is a separate, OPEN matter: #1301 ships the
+# MOUNT, so the compiler's records can now reach the panel, but the roster
+# still declares five required producers and three of them write nothing on any
+# install. That is filed against the cut, not against this BOM -- a BOM states
+# what the artefact CONTAINS, and the mount is genuinely in it.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+🟠 THE INSTALLER LET macOS SPEAK FIRST, AND macOS SAYS SOMETHING ALARMING. The admin-password dialog is worded by macOS as "Ostler wants to control Finder", and mentions documents and data -- a sentence a customer reasonably reads as the installer asking to read their files. Nothing prepared them for it. FIX (#1297): pre-announce the wording in the installer's own voice before the dialog appears, and say plainly that the sentence is macOS's own and is how macOS asks any app for an administrator password. Ships as a bundled GUI resource (ViewCopy.json), compiled into OstlerInstaller.app via gui/project.yml resources -- NOT via gui/Makefile, which never names it.	cm051	ad72c63a	no	install_finder_prompt_pre_announced	TBD	Archie 2026-08-30 / CM051 #1297 / #361
+🔴 THE BURSAR COULD NOT SEE WHAT THE COMPILER PRODUCED. The wiki compiler writes usage records into its container's /workspace/state, and no bind mount connected that to the host journal the cost panel reads -- so every record the compiler has ever written was discarded when the container exited. The panel then showed a smaller number, which reads as a quiet month rather than a severed pipe. FIX (#1301): mount the host workspace state directory at /workspace/state and set OSTLER_WORKSPACE explicitly so the writer and the mount cannot drift apart. Scoped to state/ deliberately -- the whole workspace is not the panel's business.	cm051	876695da	no	usage_journal_mount_reaches_compiler	TBD	TNM 2026-08-31 / CM051 #1301 / #482
+🔴 THE STORE-CREDENTIAL WIRING HAD 100% COVERAGE OF THE WRONG POPULATION. Every call site was correct and every one passed a venv root, because the guard only ever accepted `-x "${_venv}/bin/python3"`. The BUNDLED interpreter is not a venv and ships no python3 alias, so the three services without their own venv -- cm059-editor, ical-server, ostler_hygiene -- reached Oxigraph and Qdrant with no credential, 401'd, and exited 0. Customer symptom: the Front Page never populated, on any install. FIX (#1302): resolve the interpreter from a named executable, a venv root, or a relocated tree's bin/python3.11, then ask THAT interpreter for its own site-packages -- and add the fifteenth call site for the bundled tree. The defect was the definition of the population, not a missing call.	cm051	6d71a220	no	store_auth_wires_bundled_interpreter	TBD	TNM 2026-08-31 / CM051 #1302 / #595 / #210
+🔴 THE DAEMON PIN NAMED A BUILD THAT DID NOT CARRY ANDY'S FIX. gui/Makefile pinned 0.4.67 while the fix for #454 landed in the daemon at c6fc48c0, so the install path shipped a binary without it. FIX (#1303): move all five pins to hub-v0.4.69. TWO REPOS, ONE TAG -- DAEMON_REPO (ostler-releases) serves the daemon and HUB_APP_REPO (ostler-assistant) serves the hub app, both fetched at the same DAEMON_RELEASE_TAG, so publishing one half leaves the cut 404ing on the other. Both halves were verified published with a 404 control on each repo, and both digests matched the published .sha256 sidecars byte for byte. The row's pattern is the daemon digest itself, which is the one string that cannot be true of the previous build.	cm051	8f66b632	no	daemon_pinned_at_hub_v0469	TBD	TNM 2026-08-31 / CM051 #1303 / #951

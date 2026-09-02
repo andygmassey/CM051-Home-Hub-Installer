@@ -34,9 +34,14 @@ grep -q 'com.creativemachines.ostler.dedupe-catchup' "$INSTALL_SH" \
     && ok "catch-up LaunchAgent label present" \
     || bad "dedupe-catchup LaunchAgent label missing"
 # The catch-up agent must be torn down on uninstall (bootout + plist rm).
-grep -q 'bootout "gui/$(id -u)/com.creativemachines.ostler.dedupe-catchup"' "$INSTALL_SH" \
-    && grep -q 'rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.dedupe-catchup.plist"' "$INSTALL_SH" \
-    && ok "catch-up agent is torn down on uninstall" \
+# Teardown was refactored from two hand-maintained walls into one array-driven
+# loop: the label must be a member of OSTLER_LAUNCHAGENT_LABELS, and the loop
+# over that array must bootout + rm each member's plist.
+LA_ARRAY="$(awk '/OSTLER_LAUNCHAGENT_LABELS=\(/{f=1} f{print} f&&/^\)/{exit}' "$INSTALL_SH")"
+grep -q 'com.creativemachines.ostler.dedupe-catchup' <<<"$LA_ARRAY" \
+    && grep -q 'bootout "gui/$(id -u)/${_label}"' "$INSTALL_SH" \
+    && grep -q 'rm -f "${HOME}/Library/LaunchAgents/${_label}.plist"' "$INSTALL_SH" \
+    && ok "catch-up agent is torn down on uninstall (member of OSTLER_LAUNCHAGENT_LABELS teardown loop)" \
     || bad "dedupe-catchup uninstall teardown missing"
 # The catch-up wrapper must self-remove once the converge is done and must
 # reuse the existing wiki recompile tick (no duplicated compile logic).

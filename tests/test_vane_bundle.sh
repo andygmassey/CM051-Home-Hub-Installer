@@ -195,22 +195,36 @@ fi
 echo "PASS: install.sh polls http://localhost:3000 for Vane readiness"
 
 # ── Port conflict pre-check includes 3000 ──────────────────────
-if ! grep -q '_check_port 3000' "$INSTALL_SCRIPT"; then
-    echo "FAIL [port-3000-precheck]: install.sh does not pre-check port 3000" >&2
+# The pre-flight scan was refactored from per-port `_check_port 3000`
+# calls into a single loop over OSTLER_PREFLIGHT_PORTS, so the literal
+# `_check_port 3000` no longer appears. Assert the real contract instead:
+# 3000 is a member of that port set AND the loop feeds each member to
+# _check_port. (install.sh:15204 sets the list; :15215 runs the loop.)
+if ! grep -qE '^OSTLER_PREFLIGHT_PORTS="([0-9]+ )*3000( |")' "$INSTALL_SCRIPT" \
+   || ! grep -q '_check_port "${_pf_port}"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [port-3000-precheck]: install.sh does not pre-check port 3000 (not in the OSTLER_PREFLIGHT_PORTS pre-flight loop)" >&2
     exit 1
 fi
-echo "PASS: install.sh pre-checks port 3000 for conflicts"
+echo "PASS: install.sh pre-checks port 3000 for conflicts (via OSTLER_PREFLIGHT_PORTS loop)"
 
 # ── Health check: phase 4 surfaces vane ────────────────────────
-# The phase-4 health-check block must mention vane. We require
-# the human-readable label "Vane healthy" so a refactor that
-# replaces the curl with a different probe still has to update
-# the user-facing wording.
-if ! grep -q 'Vane healthy' "$INSTALL_SCRIPT"; then
-    echo "FAIL [phase-4-health]: phase-4 health check does not surface Vane" >&2
+# The phase-4 health-check block must surface Vane with the human-readable
+# "Vane healthy" wording so a refactor that replaces the curl with a
+# different probe still has to update the user-facing copy. Per Rule 0.9
+# that customer-facing string now lives in the en-GB catalogue as
+# MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH rather than inlined in install.sh, so
+# assert install.sh emits that key AND the catalogue still carries the
+# "Vane healthy" wording -- a refactor of either half still has to touch it.
+STRINGS="${REPO_ROOT}/install.sh.strings.en-GB.sh"
+if ! grep -q 'MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH' "$INSTALL_SCRIPT"; then
+    echo "FAIL [phase-4-health]: phase-4 health check does not surface Vane (MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH not emitted)" >&2
     exit 1
 fi
-echo "PASS: phase-4 health check surfaces Vane"
+if ! grep -q 'MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH="Vane healthy' "$STRINGS"; then
+    echo "FAIL [phase-4-health]: en-GB catalogue does not define MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH with the 'Vane healthy' wording" >&2
+    exit 1
+fi
+echo "PASS: phase-4 health check surfaces Vane (MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH -> 'Vane healthy ...')"
 
 # ── User-facing copy: --help text mentions Vane ────────────────
 # The --help screen is the customer's first read of what the

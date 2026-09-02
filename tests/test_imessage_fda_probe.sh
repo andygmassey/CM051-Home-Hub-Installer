@@ -451,16 +451,48 @@ if ! grep -Eq '_ss_close_wait" -ge (6[0-9]|[7-9][0-9]|[1-9][0-9]{2,})' <<< "$CLO
     echo "FAIL [case-11]: close-poll ceiling must be >= 60s (was 10s -- too tight under load)" >&2
     exit 1
 fi
-# 3. The Finder reveal window must be closed, gated on _fda_finder_revealed.
-if ! grep -q '_fda_finder_revealed' <<< "$CLOSE_BLOCK"; then
-    echo "FAIL [case-11]: close block must close the Finder reveal window (gated on _fda_finder_revealed)" >&2
+# 3. THE FINDER CLOSE MUST BE ABSENT. INVERTED 2026-09-02 (WALK-361).
+#
+# ⚠️ THIS ASSERTION USED TO REQUIRE THE DEFECT. It read:
+#
+#     if ! grep -q 'Finder" to close windows' ... FAIL "missing the Finder close"
+#
+# i.e. the suite went RED unless install.sh sent an Apple Event to Finder.
+# Andy hit the consequence on the v1.0.57 launch walk, having reported it
+# before: macOS raises "OstlerInstaller wants access to control Finder.
+# Allowing control will provide access to documents and data in Finder",
+# stamped with our single NSAppleEventsUsageDescription, which talks about the
+# administrator password. A documents-and-data prompt explained by a sentence
+# about passwords, in order to close a window.
+#
+# The fixture had encoded the FLAG (a window gets tidied) rather than the
+# PROPERTY (the customer is not shown a frightening consent dialog for a
+# cosmetic action), so it locked the defect in and would have refused its own
+# removal. Now it asserts the opposite. Guarded end-to-end by
+# tests/test_no_finder_appleevent.sh, which is mutation-tested against the
+# pre-fix tree.
+#
+# `open -R` is untouched and still required elsewhere: LaunchServices, not an
+# Apple Event, so it raises no prompt.
+if grep -q 'Finder" to close windows' <<< "$CLOSE_BLOCK"; then
+    echo "FAIL [case-11]: the close block sends an Apple Event to Finder again. \
+This raises the 'control Finder / documents and data' consent dialog on every \
+walk (WALK-361). Do not reword the usage string -- macOS allows exactly one \
+NSAppleEventsUsageDescription per app, so it cannot be worded per target. \
+Remove the event instead." >&2
     exit 1
 fi
-if ! grep -q 'Finder" to close windows' <<< "$CLOSE_BLOCK"; then
-    echo "FAIL [case-11]: close block missing the Finder close (osascript close windows)" >&2
+# POSITIVE CONTROL for the zero above: an unextracted or truncated block would
+# also contain no Finder event, and that must not read as the fix being in
+# place. The killall line was already proved present above, so assert the
+# block still carries the loop's own terminator too -- if this fails the
+# absence result is CANNOT-RUN, not a pass.
+if ! grep -q 'System Settings' <<< "$CLOSE_BLOCK"; then
+    echo "FAIL [case-11]: CANNOT-RUN -- close block does not contain 'System Settings', \
+so it was not really extracted and the Finder-absence result above is vacuous." >&2
     exit 1
 fi
-echo "PASS [case-11]: BW6 assist-window close is loop-repeated killall + >=60s ceiling + Finder close"
+echo "PASS [case-11]: BW6 assist-window close is loop-repeated killall + >=60s ceiling + NO Apple Event to Finder (control: block extracted)"
 
 echo ""
 echo "ALL CX-60 + CX-66 + CX-81 B8 + B8b + BW4-A + BW6 IMESSAGE FDA PROBE TESTS PASSED"

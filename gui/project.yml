@@ -15,8 +15,8 @@ settings:
     CODE_SIGN_STYLE: Manual
     PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer
     PRODUCT_NAME: OstlerInstaller
-    CURRENT_PROJECT_VERSION: "5200"
-    MARKETING_VERSION: "1.0.52"
+    CURRENT_PROJECT_VERSION: "5900"
+    MARKETING_VERSION: "1.0.59"
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS: YES
     OTHER_CODE_SIGN_FLAGS: "--timestamp"
@@ -48,15 +48,15 @@ targets:
         CFBundleName: OstlerInstaller
         CFBundleDisplayName: Ostler Installer
         CFBundleIdentifier: ai.ostler.installer
-        CFBundleShortVersionString: "1.0.52"
-        CFBundleVersion: "5200"
+        CFBundleShortVersionString: "1.0.59"
+        CFBundleVersion: "5900"
         CFBundlePackageType: APPL
         CFBundleExecutable: $(EXECUTABLE_NAME)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         NSHighResolutionCapable: true
         NSPrincipalClass: NSApplication
         LSApplicationCategoryType: public.app-category.utilities
-        NSAppleEventsUsageDescription: "Ostler needs to ask for your administrator password to install Hub services."
+        NSAppleEventsUsageDescription: "Ostler uses System Events to show the administrator password prompt and to open the right macOS permission settings during installation. It does not read your documents."
         NSCalendarsFullAccessUsageDescription: "Ostler reads your calendar so the Hub can surface what is on next, prepare meeting briefs, and link people to events on the wiki. Events never leave this Mac."
         NSContactsUsageDescription: "Ostler reads your contacts to pre-fill names and addresses during install, and to recognise who you talk to most. Contacts never leave this Mac."
         NSDesktopFolderUsageDescription: "Ostler scans your Desktop for social-platform data exports during install. Files stay on this Mac."

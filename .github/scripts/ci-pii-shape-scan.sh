@@ -25,27 +25,41 @@
 # in .githooks/pii_patterns.sh and have their own test suite asserting they
 # fire on synthetic SSN and UK-phone input and stay quiet on clean input.
 #
-# WHAT IT COVERS, EXACTLY. `pii_load_patterns` returns FIVE patterns and all
-# five are numeric:
+# WHAT IT COVERS, EXACTLY. `pii_load_patterns` returns NINE patterns:
 #
 #     UK mobile, international form   +44 7xxx xxxxxx
 #     UK mobile, national form        07xxx xxxxxx
 #     US phone                        +1 (xxx) xxx-xxxx
+#     Hong Kong number, intl form     +852 xxxx xxxx
 #     SSN                             xxx-xx-xxxx
 #     long digit run                  15+ consecutive digits (DSID and kin)
+#     email address                   <user>@<host>.<tld>
+#     macOS home path                 /Users/<name>
+#     Linux home path                 /home/<name>
 #
-# WHAT IT DOES NOT COVER, and this paragraph is load-bearing. This header used
-# to claim "email addresses, /Users/<name>/ home paths" as well. It does not
-# scan for either. Those checks are built in to .githooks/pre-commit (see
-# pii_patterns.sh:10 and :35), and pre-commit does not run in CI, so on a pull
-# request both classes have a denominator of ZERO.
+# FOUR OF THOSE NINE WERE ONCE ABSENT FROM CI, and this paragraph is
+# load-bearing because the header before it said the opposite for weeks. It USED
+# to say this gate scanned only FIVE numeric shapes, and that email and
+# /Users/<name> lived solely in .githooks/pre-commit -- which does not run in
+# CI, so on a pull request both classes had a denominator of ZERO. #762
+# (2026-08-16) closed email and /Users. A later enumeration of the operator
+# denylist (operator-pii-scan.sh) against this shape set found two MORE classes
+# the denylist checks and CI did not: the Hong Kong mobile shape
+# (build_hk_pattern) and the Linux /home/<name> path. Both are real for this
+# operator (an HK number; an Ubuntu box whose home is /home/<name>), and both
+# are now here. Each of the nine carries its own two-limb positive control in
+# .githooks/test_pii_patterns.sh -- a non-reserved value that must fire and a
+# reserved/documentation value that must be excused.
 #
-# MEASURED 2026-08-15 over the 485 tracked files under vendor/: the email class
-# has 90 distinct addresses in it, around 33 of them on domains that are not
-# obvious fixtures. None of that is visible to this gate. A reader who trusted
-# the old header would have believed it was. Adding those two classes needs a
-# canary per class -- the point of the block below is that a pattern set nobody
-# has demonstrated is worth nothing -- and that is tracked separately.
+# WHY IT MATTERED. MEASURED 2026-08-15 over the 485 tracked files under vendor/:
+# the email class alone had 90 distinct addresses in it, around 33 on domains
+# that are not obvious fixtures, and none of it was visible here while the class
+# had a zero denominator. The operator-path class is precisely what once leaked
+# from this repo into a public mirror. The reserved-placeholder layer
+# (pii_reserved_placeholder_re) excuses RFC 2606 documentation domains and
+# placeholder / CI home dirs (/Users/runner, /home/runner) so a correct fixture
+# does not read as a leak. A pattern set nobody has demonstrated is worth
+# nothing, which is what the per-class canaries and the floor below enforce.
 #
 # Person NAMES are a different instrument again: tests/vendor_person_name_sweep.py.
 #

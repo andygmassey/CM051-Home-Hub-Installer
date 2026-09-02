@@ -101,6 +101,14 @@ walk_horizon: v1.0.41
 | v1.0.49 |  | not_walked | Archie (2026-08-28). TAGGED d38f3320 -> a612a480 and NEVER INSTALLED BY ANYONE. Not walked, and deliberately not walked. Andy's launch hold (#551) landed over the #550 multi-account store exposure before any walker reached it, and the public download is still v1.0.41 (unchanged since 2026-08-22), so no customer and no operator has run this artefact. MEASURED: zero of the seven #550 merges are ancestors of a612a480. Walking it would therefore measure a tree that PREDATES every fix it would be walked to demonstrate -- a real walk producing a true result about the wrong subject, which is worse than no walk because it would read as evidence. There is no walks/v1.0.49.tsv and there should not be one. SUPERSEDED BY v1.0.50, which carries the ERR-06 Qdrant credential fix (#1226), the wiki-compiler Qdrant key (#1228), and the CM044 v0.1.28 image re-pin (#1229). The walk that matters is v1.0.50's and it has not happened either. | none |
 | v1.0.50 | 2026-08-29 | deferred | Archie 2026-08-30. Walk record walks/v1.0.50.tsv exists with verdict FAILED and qa_exit 1, so the rules table above admits closed or deferred and REFUSES not_walked. DEFERRED, not closed: four of the eight findings are fixed on CM051 main (d4ee9de2) and ride v1.0.51, but they are in NO artefact, so closing would be true about the repo and false about the DMG. The other four are open. THE HEADLINE COUNT OVER-STATES PRODUCT DEFECTS, measured not softened: fail 7 contains TWO probes with ONE cause (app_signature_survives_first_run and installed_bundle_seal_intact are both the cm052 pip build-in-place breaking the code seal) and ONE probe that was not measuring the product at all (people_seed_and_retrieval called Qdrant with no credential, got 401, and reported a collection missing that demonstrably exists). So seven recorded failures describe five distinct subjects, one of which is the instrument. Nothing here is measured closure: 7 recorded, 4 predicted to clear, 0 measured. A merge cannot clear a row in a frozen record, and walks/v1.0.50.tsv will read fail 7 permanently. The next walk is of a DIFFERENT artefact with a different sha256, which is #931 working as designed. THE ROW NOW LISTS NINE IDs WHILE THE PROSE ABOVE SAYS EIGHT, AND BOTH ARE CORRECT: v1050-D001 through D008 disposition the **fail** bucket, and v1050-D009 dispositions the **cannot_run** bucket, which nothing in this file had ever adjudicated. The row previously omitted D009 while the finding section existed, so the registry and the row disagreed by exactly one finding and walk closure went RED -- caught by the gates-only dry run 33299809685 rather than by spending a version on a tag. | v1050-D001 v1050-D002 v1050-D003 v1050-D004 v1050-D005 v1050-D006 v1050-D007 v1050-D008 v1050-D009 |
 | v1.0.51 | 2026-08-29 | deferred | Archie 2026-08-30. Walk record walks/v1.0.51.tsv exists with verdict FAILED and qa_exit 1, so the rules table above admits closed or deferred and REFUSES not_walked. It is the FIRST record in this project's history whose artefact_sha256_source is measured(...) rather than asserted -- shasum of OstlerInstaller-1.0.51.dmg taken on the walked box -- so for the first time a walk record can bind a version to a build rather than to a claim. Andy installed this artefact on hardware (OstlerInstaller.app 1.0.51, ~/.ostler 1.1 GB) and 12 of 21 probes pass. DEFERRED, not closed, and the four failures are FOUR DIFFERENT KINDS OF THING, which is why none of them is being called a product regression without saying which: D001 is a real customer-visible defect whose fix cannot reach a customer without a wiki-image rebuild that TNM measured is NOT in the v1.0 path; D002 is an EXPECTED red that Andy explicitly decided to defer to v1.0.1; D003's recorded `broken` was my own packaging and is cleared on the box, while its customer-visible half survives with MY explanation of it refuted by its own decisive test; D004 I did not investigate at all and it is recorded as unexamined rather than dispositioned. ZERO of these four are measured closure. The next walk is of a DIFFERENT artefact with a different sha256, which is #931 working as designed. | v1051-D001 v1051-D002 v1051-D003 v1051-D004 |
+| v1.0.52 | 2026-08-30 | deferred | Archie 2026-09-01 (UTC; the record's walked_at is 2026-08-30T15:22:57Z). Walk record walks/v1.0.52.tsv exists with verdict FAILED and qa_exit 1, so the rules table above admits closed or deferred and REFUSES not_walked. artefact_sha256_source reads measured(...), so this is the second record in this project's history that binds a version to a BUILD rather than to a claim. DEFERRED, not closed. THIS ROW CARRIES TWO POPULATIONS AND THEY MUST NOT BE CONFLATED: the 21-probe machine walk (12 pass / 7 fail / 2 cannot-run) and ANDY'S OWN HAND WALK of the same artefact, which found six customer-visible defects the probe suite does not measure at all. D001-D006 are Andy's six; D007-D010 are the recorded failed probes his six do not already disposition; D011 dispositions the cannot_run bucket, which nothing would otherwise adjudicate. FAIL WENT 4 -> 7 AND THAT IS NOT THREE NEW DEFECTS. Measured against walks/v1.0.51.tsv: two of the three (no_person_holds_two_contact_cards, people_stores_reconcile) were CANNOT-RUN on v1.0.51 and merely became measurable, while exactly ONE (no_unexpected_egress) moved pass -> fail and is a genuine new red. THE ARITHMETIC CLOSES AS A CONTROL: people_count_agreement moved cannot_run -> pass (+1) against no_unexpected_egress's pass -> fail (-1), which is why pass reads 12 on BOTH records -- had my reading of the delta been wrong, that number would not have reconciled. THREE OF ANDY'S SIX WERE MARKED COMPLETED IN THE TASK REGISTER WHILE BROKEN and he found them still broken on the box; closing this row would be the third statement of the same false claim, which is precisely why the status is deferred. ONE of the eleven (D002) has a fix verified inside a signed artefact, and even that is not walked. ZERO are measured closure. | v1052-D001 v1052-D002 v1052-D003 v1052-D004 v1052-D005 v1052-D006 v1052-D007 v1052-D008 v1052-D009 v1052-D010 v1052-D011 |
+| v1.0.53 |  | not_walked | Archie 2026-09-02, filed RETROSPECTIVELY to close a gap in this register: v1.0.54 and v1.0.55 both had rows while v1.0.53, which died the same way, had none. Two of three refused tags recorded reads to a later reader as 'v1.0.53 never happened', and the version sequence 52 -> 54 invites exactly that inference. It did happen. TAGGED at 8f66b632 on 2026-08-30T18:10:50Z and REFUSED AT PREFLIGHT with four failures, every one a condition of the tree AT THAT COMMIT: cuts/v1.0.53/cut.env absent, cuts/v1.0.53/MUST_CONTAIN.tsv absent, walk closure missing a v1.0.52 rollforward row, and gui/project.yml still reading MARKETING_VERSION 1.0.52. 🔴 BORN DEAD, WHICH IS STRONGER THAN 'WENT STALE'. Fixing any of the four requires a NEW COMMIT, so main necessarily moves PAST the tag, and the tag keeps pointing at a tree that can never satisfy the gates. Re-running against it fails identically, forever. This is the origin of the invariant the two rows below cite: A CUT TAG MUST BE CREATED AFTER EVERY CONDITION IT WILL BE JUDGED ON. Task #905 had recorded a weaker version of it ('the tag goes stale on every prerequisite merge'), which reads as a race that can be lost; it is not a race. Tagging first makes the tag unsatisfiable WITH CERTAINTY, because the version bump preflight demands is itself a commit and no commit can precede the tag that needs it. PUBLISHED NOTHING -- no release object, no bytes, no artefact. THE REF IS NOT DELETED AND MUST NOT BE: it truthfully records a tree that was tagged and refused, and force-repointing it would have made ONE VERSION NAME TWO TREES, which is the two-artefacts-one-version class this project filed against itself the same night. Versions are cheap; a version that names two trees is not. ABANDONED, recorded, not reused. | none |
+| v1.0.54 |  | not_walked | Archie 2026-09-01. TAGGED fbdbf00e -> 42464845 at 17:46:14Z and NEVER BUILT. There is no artefact, so there is no walks/v1.0.54.tsv and there should not be one. THIS IS A DIFFERENT DEATH FROM v1.0.53 AND THE DISTINCTION IS THE POINT. v1.0.53 was refused at PREFLIGHT on four conditions of the tree at its own commit, so it was born dead and no re-run could ever have saved it. v1.0.54's preflight PASSED -- the same gate that refused v1.0.53 four times went green -- and the cut job then failed inside the build at `make check-orphans`, which is NOT a preflight gate. Two OPEN CM051 PRs were neither merged nor deferred: #1305 (TNM's usage-journal producer for the shipping ostler_fda) and #1300 (my own walk-record harness_commit binding). Both are genuinely unready, MEASURED not asserted, on a latest-check-run-per-name conclusion histogram: #1305 2 failing of 66, #1300 4 failing of 36. NO RELEASE OBJECT, no bytes, nobody installed it. THE GATE OFFERED A GREEN THAT WAS REFUSED, and the reason is recorded here so nobody takes it later: check-orphans resolves its shipping ref as `origin/main` and reads LIVE PR state at BUILD time, so merging those two PRs to main would have turned it green while the DMG -- built from the TAG -- still did not contain them. That is the gate passing on a premise ('origin/main is what we ship') that is false for any tag which is not main's head, and taking it would have shipped an artefact the gate believed complete. Deferral was chosen instead because the deferral file is read from the TREE, which makes it unreachable for v1.0.54 for exactly the v1.0.53 reason and forces a new version rather than a quiet re-run. SUPERSEDED BY v1.0.55, which carries the IDENTICAL payload -- main was still AT 42464845 when this died, so v1.0.55's tree is v1.0.54 plus two written deferrals and its own cut records -- and disposes of both PRs through cut-deferrals.yaml, the mechanism this gate names itself. | none |
+| v1.0.55 |  | not_walked | Archie 2026-09-02. TAGGED a44621837a5f at commit 29d3c326 and NEVER BUILT to an artefact. No walks/v1.0.55.tsv exists and none should. THIS IS A THIRD DISTINCT DEATH AND THE PROGRESSION IS THE FINDING, because each version died at a gate the previous one never reached. v1.0.53 was refused at PREFLIGHT, born dead on four tree conditions at its own commit. v1.0.54's preflight PASSED and it died IN-BUILD at check-orphans on two open PRs. v1.0.55's preflight passed TWICE and it died IN-BUILD at check-freshness, one target further along. THE GATES RUN IN SERIES INSIDE THE BUILD, AFTER SIGNING CREDENTIALS ARE IMPORTED, so there is no single pre-tag sweep that can answer 'will this cut survive' -- each version buys exactly one gate's worth of new information, which is why four versions have been spent to walk four gates. ATTEMPT 1 died at check-pr-age on PR AGE, not on PR content. ATTEMPT 2, after that was cleared, died at check-freshness on three stale pins: vendor:cm041/identity_resolver, wiki:wiki-compiler and wiki:wiki-site. 🔴 THE LIVE-READ VERSUS TREE-READ DISTINCTION IS WHAT DECIDED THE COST, and it is recorded because it is not obvious from the gate names. check-orphans and check-pr-age read LIVE GitHub state at build time, so CLOSING a PR clears them with no new version -- which is how attempt 2 was bought for free. check-freshness's remedy is a hold_ack or a re-pin, both of which live in the TREE, so main necessarily moves past the tag and the tag becomes permanently unsatisfiable. That is the v1.0.53 mechanism recurring at a later gate, and it is what forces v1.0.56. ⚠️ PARTLY SELF-INFLICTED, RECORDED AS SUCH: two of the three stale pins were advanced by our own merges earlier the same night (CM041 #135, CM044 #266). Merging upstream fixes INSIDE a cut window advances the live HEADs that the pins are measured against, so the cut's own inputs went stale under it. Merging upstream during a cut is not free. AND A STALE LOG WAS READ BEFORE THIS WAS UNDERSTOOD: a re-run mints a NEW job id, and the FIRST attempt's id had been hardcoded into both the monitor and the query, so attempt 1's failure was initially read as attempt 2's. The failing STEP list happened to be identical; the CAUSE was not. Corrected by asking for /jobs?filter=latest. v1.0.55 PUBLISHED NOTHING -- no release object, no bytes, no artefact, nobody installed it. The ref is NOT deleted, because it truthfully records a tree that was tagged and refused, and repointing a version name at a second tree is the one thing this project has filed against itself. ABANDONED, recorded, not reused. | none |
+| v1.0.56 |  | not_walked | Archie 2026-09-02. TAGGED f04bf0a3 at commit c3b23919 and NEVER BUILT. No artefact, so no walks/v1.0.56.tsv and there should not be one. 🔴 THIS ONE IS A REGRESSION IN THE SEQUENCE, NOT PROGRESS, AND THAT IS THE HONEST READING. v1.0.53 was refused at PREFLIGHT; v1.0.54 got past preflight and died at check-orphans; v1.0.55 got past preflight TWICE and died at check-freshness. v1.0.56 went BACKWARDS: it died at PREFLIGHT, on two steps the three previous versions had all cleared. So the tidy story that each version buys one gate's worth of information is FALSE for this one. It bought none of that. It bought a lesson about where the gate reads from. BOTH FAILURES WERE MINE AND THEY ARE THE SAME ERROR IN TWO DIRECTIONS: (1) 'BOM_PIN records no hash for cuts/v1.0.56/MUST_CONTAIN.tsv -- an unpinned vendored copy is a fork nobody declared'. I authored that BOM directly in CM051, which is the VENDORED side, and never ran scripts/sync_cut_bom.sh; the canonical BOM lives in OS003 and the sync is what writes cuts/BOM_PIN. (2) 'v1.0.55 NO ROW'. I wrote the v1.0.55 row HERE in OS003, opened a PR for it, and never synced it into the VENDORED cuts/DEFECTS_ROLLFORWARD.md that CM051's gate actually reads. THE GATE READS THE TREE IT IS CUTTING. Canonical is not vendored; merged is not delivered. I have written that sentence about other people's work and then made both halves of it myself inside one hour. ⚠️ AND IT WAS FREE TO AVOID. cut.yml declares a gates-only workflow_dispatch: contents:read, no signing step, no notarisation, and scripts/dry_run_cut_checks.sh ends by ASSERTING no DMG and no exported artefact. It runs the same preflight gates. Running it would have surfaced both failures at zero cost and without spending a version. I did not run it. THE RULE THAT FOLLOWS IS NOT A PREFERENCE: NEVER TAG WITHOUT A GREEN DRY RUN. The v1.0.50 row already records a defect caught 'by the gates-only dry run rather than by spending a version on a tag', so the mechanism was not only available, it was documented in this very file as having worked before. PUBLISHED NOTHING -- no release object (verified 404 on the tag), no bytes, no artefact, nobody installed it. The ref is NOT deleted: it truthfully records a tree that was tagged and refused, and repointing a version name at a second tree is the one thing this project has filed against itself. ABANDONED, recorded, not reused. SUPERSEDED BY v1.0.57, which carries the IDENTICAL payload plus the registry sync and the BOM pin. | none |
+| v1.0.57 | 2026-09-02 | deferred | Archie 2026-09-02. THIS IS THE FIRST ARTEFACT IN THIS SEQUENCE THAT WAS CUT, PUBLISHED, INSTALLED ON A FRESH macOS ACCOUNT AND WALKED. Four versions before it died at gates (v1.0.53 preflight, v1.0.54 check-orphans, v1.0.55 check-freshness, v1.0.56 preflight again) and produced no bytes anybody ran. v1.0.57 produced bytes and somebody ran them: OstlerInstaller-1.0.57.dmg, 70,895,668 bytes, sha256 f01f7ec1 matching the published SHA256SUMS AND the copy on the box, installed by Andy on the Studio under archie5 (uid 505) on a machine verified clean beforehand -- 0 of 12 contaminant ports with the :22 control firing, both /Applications bundles absent, no ~/.ostler. THE WALK PAID FOR ITS VERSION, which is the whole argument for cutting. 🔴 AND IT FOUND A1, WHICH NO GATE HAD EVER CAUGHT. Read verbatim off the installed box: sys.path.append("/tmp/ostler-prelaunch-2026/lib"). The store-auth .pth had the STAGING path frozen into it, so the import failed at EVERY python startup, for ever, on every install; python printed 'Remainder of file ignored', OSTLER_SECRETS_DIR was never defaulted, cm059-editor 401d hourly and the Front Page never populated. EVERY OBVIOUS CHECK PASSES ON THAT DEFECT -- the .pth was present, the module was present and correctly installed at <final>/lib, only the path INSIDE was wrong -- which is exactly why no source-presence gate had seen it through five cuts. DEFERRED, NOT CLOSED, and the reason is the standing one: D001 and D002 are FIXED on CM051 main (#1316 21a63078, #1315 0d104ebc) and ride v1.0.58, but they are in NO artefact, so closing would be true about the repo and false about the DMG. ⚠️ THERE IS NO walks/v1.0.57.tsv AND THAT IS ITSELF A FINDING, filed as D004 rather than quietly omitted. The artefact WAS walked -- install completed, the 6-probe post-install QA subset ran on the box at 5 PASS / 1 FAIL / 0 CANNOT-RUN -- but the 21-probe harness was never run and no record was written, so this row is [DERIVED(no record)] while describing a version that really was installed. That gap is what took walk closure RED on the v1.0.58 dry run: 'v1.0.57 NO ROW. A cut with no row is indistinguishable from a cut nobody looked at.' The gate was right, the omission was mine, and it was caught by the gates-only dispatch rather than by spending a version -- the mechanism v1.0.56 was spent learning. THE STAGING-FREEZE CLASS WAS THEN SWEPT WITH CONTROLS rather than patched at the instance, because D001 is its THIRD occurrence (#177, #578, this): at the fixed pin, 8 writes above the promote-boundary contract line carry a tainted value, 1 is real (D001) and the other 7 are token/IP VALUES read via $(cat file) or openssl rand, and a token cannot freeze a directory. Both controls fired -- the same taint engine convicts #177 on its real pre-fix tree, and the finding disappears on the fixed branch -- so that near-zero is a measurement, not a vacuum. The sweep also named WHY the class recurs, which is D003. ZERO of these four are measured closure. The next walk is of a DIFFERENT artefact with a different sha256, which is #931 working as designed. | v1057-D001 v1057-D002 v1057-D003 v1057-D004 |
+| v1.0.58 |  | not_walked | Archie 2026-09-02. TAGGED cb787e69 at commit 323a0df9 and ACTUALLY CUT: run 33599019125 concluded success and published OstlerInstaller-1.0.58.dmg, 70,905,599 bytes, as a PRERELEASE on ostler-ai/ostler-installer. That makes it the SECOND artefact in this sequence to produce bytes anybody could install, after v1.0.57 and four gate deaths before that. NOBODY INSTALLED IT. There is no walks/v1.0.58.tsv and there should not be one, so this row is not_walked under the rules table above and closed is REFUSED. 🔴 THE ROW YOU ARE READING WAS FILED HOURS LATE, AND ONLY BECAUSE SOMETHING ELSE WENT LOOKING. That makes it the THIRD occurrence of the class already recorded as 'the shipping ledger can silently lose an entire cut'. The mandate is same-turn: append after any tag push. v1.0.58 was tagged at 06:23:15Z, its cut ran green at 06:28:50Z, it published a real 70,905,599-byte DMG, and the turn ended with no row in either register. NOTHING FAILED. Nothing was red. Every guard we own reads the file and the file parsed fine, so a MISSING row is invisible to all of them by construction -- a parser cannot miss what was never written. ⚠️ AND IT WAS NEARLY MISSED A SECOND TIME, BY THREE BROKEN PREDICATES IN ONE SITTING, each of which returned a confident zero that looked like a finding. (1) Reading the ledger via the contents API with a base64 decode gave an EMPTY file and the YAML loader returned None: that API goes empty above 1MB with no error and the file is 1,074,699 bytes. Fixed by asking for the raw media type. (2) With real bytes in hand, testing whether the version was present treated a LIST of dicts as a dict keyed by version, so it reported absent for SEVEN versions of which FIVE were present. (3) Listing workflow runs filtered by head branch found NO cut run for v1.0.58; the workflow-scoped query returned 33599019125 immediately, against 172 total cut runs as the denominator. 🗿 THE UNIFORM SHAPE WAS THE TELL ALL THREE TIMES, and this row is the proof of the rule rather than another anecdote about it: when a WORKING predicate was finally run against this file it answered v1.0.53 through v1.0.57 present and v1.0.58 alone missing. REAL ABSENCE IS RAGGED. A uniform zero is a broken instrument. An earlier attempt to count rows here returned zero for v1.0.56 and v1.0.57 as well, which are the CONTROL and must be non-zero -- that is what exposed the pattern rather than the file. 🔴 AND THE ARTEFACT CARRIES ONLY HALF OF A1, MEASURED ON THE TAG'S OWN TREE RATHER THAN INFERRED FROM MERGE ORDER. The v1.0.57 row records D001 and D002 as fixed on main and riding v1.0.58. D002 rides. D001 only half does: at commit 323a0df9 the PYTHON3_BIN call site still passes the STAGING root explicitly, above the promote-boundary contract line, so the .pth it writes still names a directory that does not survive the install. #1316 hardened the FUNCTION DEFAULT, and A DEFAULT CANNOT APPLY TO A CALLER THAT PASSES THE ARGUMENT EXPLICITLY -- 12 of the 16 call sites pass no root and were genuinely fixed, and this one was never in that population. CM051 #1321 changes that one identifier to the final dir and merged at 06:48:46Z, TWENTY-FIVE MINUTES AFTER THE TAG. So the published DMG has the staging freeze still live for every service without its own venv: cm059-editor, ical-server, ostler_hygiene. WALKING v1.0.58 WOULD HAVE RE-FOUND A1, which is the strongest argument available for why this row must not be quietly marked closed. PUBLISHED BYTES, NO WALK, HALF A FIX. SUPERSEDED BY v1.0.59, which carries the second half of A1, the hub-v0.4.70 daemon re-pin and its rebuilt wrapper. | none |
+| v1.0.59 |  | not_walked | Archie 2026-09-02. TAGGED c017f35d at commit 1d92f9d4, CUT run 33619834748 concluded success, and PUBLISHED OstlerInstaller-1.0.59.dmg -- 70,765,483 bytes, sha256 b35bfdd5..., prerelease, on ostler-ai/ostler-installer. 🎯 THE FIRST TAG IN THIS SEQUENCE CREATED AFTER A GREEN DRY RUN, which is the rule the v1.0.56 row states in my own words and which was still not followed at v1.0.57 or v1.0.58. Run 33619461561: preflight 20 success 0 failure, dry-run job 10 success 0 failure, cut job SKIPPED because a workflow_dispatch cannot make an artefact. IT CAUGHT SIX REFUSALS AT ZERO VERSION COST, and every one was mine. Four at preflight: no cut-manifests/v1.0.59.yaml at all; BOM_PIN carrying no hash for the v1.0.59 BOM; walk closure failing because v1.0.58 had NO ROW; and the CM051 pin not RESOLVING on CI at all. Two in-build: check-freshness, the gate that killed v1.0.55, red because I merged an upstream daemon commit INSIDE the cut window; and check-orphans, the gate that killed v1.0.54, red on exactly one orphan. 🗿 THREE OF THE SIX ARE DOCUMENTED RECURRENCES OF LESSONS ALREADY WRITTEN IN THIS FILE IN MY OWN WORDS: authoring canonically on the VENDORED side rather than here (the v1.0.56 row), advancing the live HEADs a pin is measured against mid-window (the v1.0.55 row), and reading a gate's own remedy text without acting on it. A registry that records a lesson and does not prevent its repetition has documented a habit, not fixed one. ⚠️ THE ORPHAN RED ALSO EXPOSED A KEY-SHAPE ERROR I THEN STATED PUBLICLY AND HAD TO RETRACT. cut-deferrals.yaml holds TWO top-level lists with TWO different consumers and TWO different reference shapes: deferrals is read by check-orphans, pr_exemptions by check-pr-age. I wrote four rows into pr_exemptions and announced the open PRs were disposed of. check-orphans never reads that list. The claim was HALF TRUE by accident -- three of the four were already covered by pre-existing deferrals rows, so only one was genuinely undisposed. 🔴 AND IT CARRIES THE SECOND HALF OF A1, WHICH v1.0.58 DID NOT. The v1.0.58 row records that #1316 hardened the FUNCTION DEFAULT while install.sh's PYTHON3_BIN call site kept passing the staging root EXPLICITLY, so the .pth still named a directory that does not survive promote for every service without its own venv. #1321 changes that call site and it is in this cut, measured in the shipped file rather than inferred from merge order. PROVEN ON THE ARTEFACT, NOT THE BUILD LOG, because divergent lineage is precisely the case where every step runs green and the bundle is still wrong: codesign valid, spctl accepted, stapler validated so offline first-run survives; the three fix patterns 1 hit each with a negative control at 0 and a positive control at 3009; BOTH shipped install.sh hashed identically rather than one probed and the other assumed; the shipped daemon binary carrying the pinned commit 3 times and the superseded one 0 times; and the Ostler.app wrapper's compiled-in WRAPPER_FRONTEND_COMMIT equal to the daemon commit. CUSTOMER PATH PROVEN WITH CONTROLS: unauthenticated and unproxied, DMG 200, alias 200, SHA256SUMS 200, a 9.9.9 negative control 404, and the downloaded bytes hashing to the value the release itself claims. PUBLISHED BYTES, FULL FIX, STILL NO WALK. Nobody has installed this on a clean macOS account. status is not_walked and closed is REFUSED. The BOM carries 11 rows, 5 PROVEN and 6 DECLARED needs-walk with 0 unclassified -- against v1.0.58's nine rows and nine TBD -- so what is unproven reaches Andy ANNOUNCED rather than as a surprise during the walk. | none |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -3954,3 +3962,324 @@ wrongly assumed about a red today and been corrected on. Unexamined, and recorde
 because a walk-closure row that quietly omitted it would read as coverage this cut does not have.
 
 OWNER: unassigned. Next walker or next lane picks it up.
+### v1052-D001 -- A1: the Front Page never populates, and the store-auth shim is why
+
+Andy's hand walk of v1.0.52, 2026-08-31. Home shows the settling stub on a box that has ingested.
+
+ROOT CAUSE, measured at source: the store-auth shim wires a credential into interpreters by
+ENUMERATING `.venv` DIRECTORIES. `cm059-editor` has no venv, so its Front Page producer starts with
+no credential, 401s against Oxigraph on every hourly run, and fail-closes to the settling stub. The
+panel is not empty because there is nothing to say. It is empty because the producer cannot read the
+store, and it will stay empty for ever on every install.
+
+Fix merged as CM051 #1302. NOT WALKED -- it is in no artefact any human has installed.
+
+This defect was marked COMPLETED in the task register while broken, and Andy found it still broken on
+the box. That is why this row reads deferred: calling it closed here would restate the false claim.
+
+### v1052-D002 -- A2: Settings still carries the "Advanced" section that was agreed removed
+
+Andy's hand walk, 2026-08-31: "we agreed that there wouldn't be this 'Advanced' section".
+
+This is the ONE finding of the six that v1.0.54 carries a fix for. oa #369 removes the Advanced
+surface and remounts its two customer-facing controls -- the daily-brief schedule and the iMessage
+message prefix -- on Preferences. Deleting the link alone would have re-created the earlier defect
+where those two controls were orphaned with no route to them.
+
+VERIFIED INSIDE THE SIGNED DAEMON, two-sided with a predicate control: two Advanced strings absent,
+three control strings present, one never-present token absent. That verification is OF THE ARTEFACT.
+It is not a walk, and it is not evidence that a customer sees the change.
+
+Also marked COMPLETED in the task register while broken -- on a task whose own title recorded that it
+had not been box-walked.
+
+### v1052-D003 -- A3: the "Still getting to know you" panel is unstyled, not merely untidy
+
+Andy's hand walk, 2026-08-31.
+
+MEASURED IN CM044: the renderer emits four classes that have ZERO matching rules anywhere in the
+stylesheet -- `pwg-settling-sources-h`, `pwg-source`, `pwg-source--*`, `pwg-settling-wiki-age` -- and
+`.pwg-settling-sources`, whose only rule set is written for a `<ul>`, is applied to a `<table>`. This
+is unstyled markup reaching a customer, not a layout tuning problem.
+
+Andy chose the list idiom over a styled table, which makes the fix TWO REPOS rather than
+self-contained CM044. Held by A2. Whatever lands still has to reach an artefact through a wiki-image
+rebuild and re-pin, the same delivery constraint as D005 and D008.
+
+Also marked COMPLETED in the task register while broken.
+
+### v1052-D004 -- A4: the Bursar says "You're not on the meter", and two of five required producers do not exist
+
+Andy's hand walk, 2026-08-31. This section also dispositions the machine probe
+`usage_journal_producers`, so the probe is not counted twice.
+
+THIS IS ANDY'S SCOPE CALL AND IT IS DELIBERATELY NOT BEING CODED AROUND. Five usage-journal producers
+are required before the Bursar has a denominator.
+
+🔻 MY FIRST FILING SAID "TWO OF FIVE" AND IT WAS WRONG IN BOTH THE COUNT AND THE KIND. @TNM
+measured the roster row by row on 2026-09-01, before writing any producer, specifically to check they
+were not doubling up -- and the check found a third:
+
+    cm044_wiki_compiler          required   NOT MEASURED this pass, and recorded as not measured
+    cm048_conversation_extract   required   UNWIRED, and the roster says so in its own provenance
+    cm041_identity_resolution    required   UNWIRED, and the row names the wrong component
+    cm051_ostler_fda_ingest      required   🔴 WIRED UPSTREAM, ABSENT FROM THE SHIPPING TREE
+    oa_daemon_chat               required   the daemon's own tracker
+
+🔴 THE THIRD IS WORSE THAN THE OTHER TWO AND IT IS THE ONLY ROW THE ROSTER CALLS "MEASURED".
+Its provenance cites the ingesting producer in the HR015 source, and it is measured -- ON THE SOURCE,
+WHICH IS NOT WHAT SHIPS. The same predicate scores 5 on the HR015 file and 0 on the vendored copy in
+the shipping tree, with a live control of 57 on the same vendored file proving the blob was read; and
+the module the import needs is not among the 34 files in that vendored package, against a VISIBLE
+population, so the import has nowhere to resolve to even if it were present. The divergence is also
+NOT DECLARED: the divergence patch scores 0 for this class against a control of 10 for the same file,
+so the patch declares other divergences in that exact file and is silent on this one.
+
+⇒ THE INGESTING PRODUCER HAS NEVER WRITTEN A RECORD ON ANY CUSTOMER INSTALL. Not "unwired like the
+other two" -- wired, merged upstream, and LOST AT THE VENDOR BOUNDARY, while the roster records it as
+the one that was verified. That is the MERGED IS NOT IN THE ARTEFACT class landing inside the very
+gate built to detect silent pipeline failure, and it is the reason this section now exists in
+corrected form rather than as a count.
+
+🔻 AND THE cm041 ROW NAMES A COMPONENT THAT CALLS NO MODEL. The identity-resolver modules score
+0 for model calls across the whole package, against a live control of 25 on a sibling package's
+client. The contract's own wording is conditional -- identity resolution WHERE IT CALLS A MODEL -- and
+the hedge turns out to be load-bearing, because it does not. CM041 does call models, in the contact
+syncer and the calendar server, so the OBLIGATION is real and the producer_id is simply pointed at the
+wrong file.
+
+Two moves are legal: BUILD the two producers, or SHRINK the required roster deliberately and say so on
+the page. Demoting the roster to obtain a green has been proposed twice and refused twice, because it
+converts a true "we are not measuring this" into a false "everything is measured".
+
+DO NOT clear the probe by creating the journal directory. v1051-D003 already recorded why: it turns a
+loud absence into a quiet zero, which is the failure mode this register exists to prevent.
+
+OWNER: Andy, one decision. Nothing else on this row waits on it.
+
+### v1052-D005 -- A5: "Duplicate review is available on the Hub Mac only." rendered ON the Hub Mac
+
+Andy's hand walk, 2026-08-31. He had reported this before and I had never filed it, which is why it
+appears here as a new id rather than as a recurrence.
+
+CM044 #262 is merged. It is in NO ARTEFACT: the renderer ships as a pinned image, so the fix reaches a
+customer only through a wiki-image rebuild and a re-pin in CM051. That prerequisite is the same one
+v1051-D001 was deferred on and it is still not in the v1.0 path.
+
+Carried by v1.0.54: NO. Merged is not delivered.
+
+### v1052-D006 -- A6: dedupe asks the customer to merge real people, and the deciding test has not been run
+
+Andy's hand walk, 2026-08-31. This section also dispositions the machine probes
+`no_person_holds_two_contact_cards` and `people_stores_reconcile`. BOTH WERE CANNOT-RUN ON v1.0.51 AND
+BECAME MEASURABLE ON THIS WALK -- they are not new defects, they are newly visible ones, and the row
+above says so with the arithmetic.
+
+MEASURED: approximately 30 genuine over-merges, through the shareable-id path. NOT 136 -- A2 corrected
+their own first figure, and TNM then refuted A2's replacement invariant against the ratified ruleset.
+Two successive statements of this number were wrong before the third stood, so treat the ~30 as the
+current best measurement rather than a settled one. Suspects are narrowed to the email-exact and
+exact-name rules. `linkedin-exact` IS CORRECT BY DESIGN and must be excluded from any repair pass.
+
+🟢 THE DECIDING TEST HAS NOW BEEN RUN, AND IT DECLINES. @A2, 2026-09-01, CM041 #135, test-only,
+CI green. Three cases through the real decision surface (detect_email_matches then consolidate_matches)
+under the DEFAULT config, not through raw confidence:
+
+    same surname, different given    names_agree=unsure     conf 0.7  -> review
+    different given AND surname      names_agree=disagree   conf 0.7  -> review
+    identical name  (POSITIVE CONTROL)  names_agree=agree   conf 1.0  -> auto
+
+0.7 is below the 0.8 auto floor, so both non-agreeing verdicts route to review and never to auto. THE
+CONTROL IS WHAT MAKES THE TWO DECLINES MEAN ANYTHING: it proves the apparatus can reach auto, so this
+is not a vacuous pass by an assertion that could never fire. Non-vacuity was also shown by count --
+1144 collected on the base commit, 1147 with the three new cases, so all three demonstrably RAN rather
+than being silently skipped.
+
+⇒ THE DISPOSITION IS DECIDED: the historical over-merges are ARCHAEOLOGY. The current auto-merge path
+does not reproduce them, so the work is a one-off repair and re-resolve pass over existing data, NOT a
+resolver code change. Every future install is unaffected.
+
+SCOPE, STATED SO IT IS NOT READ AS MORE THAN IT IS. The EMAIL vector was executed. The PHONE vector
+shares the identical names_agree gate and was READ, not run, so it declines by the same mechanism as a
+matter of code reading rather than measurement. Fuzzy-name cannot score high on different given names
+-- a standalone check put the two specimen given names at 0.51 against a 0.75 boundary, so there is no
+knife-edge here. A FORCED OPERATOR DECISION bypasses the gate entirely, and that path, along with any
+pre-gate version of the resolver, are the plausible provenances of the damage that exists.
+
+OWNER: unassigned, and what is owed is now a REPAIR PASS with a defined scope, not an investigation.
+
+### v1052-D007 -- assistant_answers_grounded failed for the SECOND consecutive walk and was investigated on neither
+
+Recorded in `walks/v1.0.52.tsv`, and in `walks/v1.0.51.tsv` before it, where v1051-D004 says in as
+many words that I did not investigate it.
+
+This section exists so the count stays honest across two cuts rather than one. It is NOT a
+disposition, NOT a severity assessment, and NOT a claim that the probe is the instrument rather than
+the product. What has changed since v1051-D004 is only that the omission is now a pattern: a probe
+that fails on every walk and is examined on none is indistinguishable, inside this register, from a
+probe nobody has ever run.
+
+OWNER: unassigned, and it should stop being unassigned.
+
+### v1052-D008 -- freshness_panel_has_dates: the same defect as v1051-D001, unchanged, for the reason v1051-D001 named
+
+Recorded in `walks/v1.0.52.tsv`. v1051-D001 root-caused it on the box: the panel reads install-time
+`hydrate/<source>.done` sentinels that nothing rewrites, so the largest corpus on the box reports
+`no_data` permanently; and the panel's source list disagrees with the sentinel directory in both
+directions, hiding two healthy sources behind a list that anticipated drift the other way.
+
+Nothing has changed and nothing was expected to. The renderer ships as a pinned image and the
+deferral was explicitly a scope call about not adding an image rebuild to the launch critical path.
+
+⚠️ NOTE THE COUPLING, WHICH WAS NOT VISIBLE WHEN v1051-D001 WAS WRITTEN. D003, D005 and D008 now ALL
+wait on the same wiki-image rebuild and re-pin. Three deferrals resting on one absent prerequisite is
+a different economic argument from one deferral, and it deserves re-deciding as a group rather than
+inheriting three separate "not worth it on its own" verdicts. Whoever re-decides it should price the
+rebuild ONCE, against three findings, before concluding anything.
+
+### v1052-D009 -- no_store_port_is_tcp_reachable, and TWO RECORDED DISPOSITIONS THAT CONTRADICT EACH OTHER
+
+Recorded in `walks/v1.0.52.tsv`. The subject is the wiki port and the search port, both loopback-bound
+and both answering unauthenticated from the owning account, while the demonstrably-closed stores
+return 401 on the identical request.
+
+⚠️ THE DISPOSITION IS UNRESOLVED AND THIS SECTION DOES NOT RESOLVE IT. Two records disagree:
+
+    v1051-D001..D004 era, in THIS file   Andy DEFERRED the close to v1.0.1
+    task register, later entry           Andy decided to CLOSE these ports, re-confirmed
+
+I did not witness the second, and a disposition read back from a register I wrote myself is not the
+same kind of evidence as one taken from Andy. ONE LINE TO HIM SETTLES IT. Until it is settled the
+status here is DEFERRED WITH THE CONFLICT NAMED, which is the only statement true of both records.
+Do not let a later reader collapse this into whichever of the two they find first.
+
+⚠️ STILL NOT MEASURED, unchanged from v1051-D002: whether a SECOND account on the same Mac can reach
+these ports was CANNOT-RUN. It is inferred from topology, not demonstrated. Any row or release note
+stating it as closed took that from inference.
+
+### v1052-D010 -- no_unexpected_egress is the ONLY genuine new red on this walk, and its cause is undetermined
+
+Recorded in `walks/v1.0.52.tsv`. MEASURED against `walks/v1.0.51.tsv`: this probe PASSED on v1.0.51 and
+FAILS on v1.0.52. Of the three probes that appear to be new failures, this is the only one for which
+"regression" is the right word -- the other two merely left CANNOT-RUN.
+
+I DID NOT DETERMINE THE CAUSE. Two candidates are already on file and NEITHER IS ADOPTED HERE:
+
+  - an enrichment path that is gated off, but whose one-shot pass has previously been shown not to
+    honour the consent answer;
+  - the assistant's web-fetch tool, which is on by default and unbounded by host.
+
+Neither has been tested against this probe. Writing either into a fix, a release note or a code
+comment before a discriminator runs would harden a hedged cause into a fact.
+
+⚠️ SEVERITY IS UNASSIGNED, DELIBERATELY. On a product whose central claim is that the data does not
+leave the Mac, an egress red is either the most serious finding on this row or an artefact of the
+probe, and nobody has looked. Those two possibilities are three orders of magnitude apart and a guess
+between them helps no one.
+
+OWNER: unassigned. On this product, an unexamined egress red outranks everything else unclaimed here.
+
+### v1052-D011 -- the cannot_run bucket: two probes, and the record does not say why
+
+Recorded in `walks/v1.0.52.tsv`: `ingest_coverage` and `pair_state_agreement` were NOT MEASURED.
+CANNOT-RUN is neither PASS nor FAIL, and this section exists so that neither is quietly assumed of
+them. Two of 21 unmeasured is the honest denominator for every other claim on this row.
+
+⚠️ THE REASONS ARE NOT RECOVERABLE FROM THE RECORD. The file says the reasons are withheld because
+this repo is public and that `run_box_walk.sh` prints them under "PREREQUISITES THAT WERE ABSENT" --
+that is, the reason existed on a console at walk time and the DURABLE artefact kept only the probe
+names. So a reader here cannot distinguish an absent prerequisite from a broken probe, which is the
+same gap v1050-D009 named and it has not closed.
+
+WITHHOLDING the reason is correct for a public repo. DISCARDING it is not, and the two are separable:
+a redacted reason CODE in the record costs nothing and preserves the distinction. That is the
+improvement this section asks for, and it is not a product defect.
+
+
+### v1057-D001 -- A1: the store-auth .pth froze the /tmp STAGING path, so the auth wiring never ran on any install
+
+Read verbatim off the freshly installed box, not inferred from source:
+
+    import sys, os; sys.path.append("/tmp/ostler-prelaunch-2026/lib"); ...
+
+`_ostler_wire_store_auth_pth` defaulted its root to `${OSTLER_DIR}`, which points at the
+temporary staging tree until the promote at the OSTLER-PROMOTE-BOUNDARY line -- and four
+of its sixteen call sites run ABOVE that boundary. The staging directory does not survive
+the install, so `__import__("ostler_store_auth")` failed at every interpreter startup, for
+ever. Python answers that with **"Remainder of file ignored"**, which also discards the
+`OSTLER_SECRETS_DIR` default on the same line, so cm059-editor reached the stores with no
+credential, 401d hourly, and the Front Page never populated.
+
+🔴 **A FILE-PRESENCE CHECK CANNOT CATCH THIS.** The `.pth` was present. The module was
+present and correctly installed at `<final>/lib`. Only the path inside was wrong. Any test
+asserting "the .pth exists" or "the module exists" passes on the defect, which is why the
+fix ships with a BEHAVIOURAL gate: it runs the real function with `OSTLER_DIR` deliberately
+pointed at a staging tree and reads back what the `.pth` actually contains.
+
+FIXED at CM051 `21a63078` (#1316), rides v1.0.58, **in no artefact yet**.
+
+### v1057-D002 -- macOS asked the customer to let Ostler "control Finder" and reach "documents and data"
+
+Observed by Andy during the live walk. The installer sent one Apple Event to Finder
+(`osascript -e 'tell application "Finder" to close windows'`), and macOS words that prompt
+in its own voice, mentioning documents and data -- a sentence a customer reasonably reads
+as the installer asking to read their files. Nothing in an install wants Finder.
+
+**FIXED BY DELETION, NOT BY WORDING, AND THE REASON MATTERS.** macOS permits exactly ONE
+`NSAppleEventsUsageDescription` per app and stamps it on every Apple Events prompt
+regardless of target. No copy could have made that dialog honest while the event still
+fired; v1.0.57 shipped a pre-announcement which softened the surprise but left the cause.
+`open -R` survives and must: it is LaunchServices, not an Apple Event, and raises no TCC
+prompt. The gate asserts both directions, because a fix that also killed `open -R` would
+read identically to a clean pass on a Finder-only check.
+
+FIXED at CM051 `0d104ebc` (#1315), rides v1.0.58, **in no artefact yet**.
+
+### v1057-D003 -- the staging-freeze gate covers ONE artefact family, so a .pth walked straight through it
+
+Not a defect in the shipped product; a defect in what guards it, and it is the reason
+D001 is the third occurrence of its class rather than the first.
+
+`tests/test_launchd_plist_no_tmp.sh` is a good gate. It discovers its subjects rather than
+typing them, it has a floor so a collapsed match cannot read as clean, and it locates the
+promote boundary by a marker rather than a line number. But it discovers them by matching
+
+    VAR="...LaunchAgents/<name>.plist"
+
+which is **one artefact family**. A `.pth` is not a LaunchAgent plist, so it was never in
+the population the gate examines. The gate did not fail; it was never pointed at this.
+
+Measured at the fixed pin: 8 writes above the contract line carry a value tainted from
+`OSTLER_DIR`, of which exactly 1 is real (D001) and 7 are token or IP VALUES obtained via
+`$(cat file)` or `openssl rand` -- tainted by name-flow only, and a token cannot freeze a
+directory. That near-zero is trustworthy because both controls fired: the same taint engine
+convicts #177 on its genuine pre-fix tree (`OLLAMAROTPLIST` carries `${_ollama_rot_logs}` ->
+`${LOGS_DIR}` -> `${OSTLER_DIR}/logs`), and the `.pth` finding disappears when pointed at the
+fixed branch.
+
+OPEN. Widening the gate from "LaunchAgent plists above the boundary" to "any durable write
+above the boundary whose CONTENT carries a tainted variable" is tracked separately and is
+deliberately NOT in v1.0.58 -- a gate change inside a cut window is the class of thing that
+has cost this project versions before.
+
+### v1057-D004 -- the artefact was walked and no walk record was written
+
+Filed against myself, and filed rather than omitted because an omitted process gap is
+indistinguishable from one nobody noticed.
+
+v1.0.57 was installed on a fresh account and exercised: the questions phase completed, the
+install completed, and the 6-probe post-install QA subset ran ON THE BOX at **5 PASS / 1
+FAIL / 0 CANNOT-RUN** -- the FAIL being install.sh's clean-completion claim over real
+recorded errors, a known open item and not a new one. That is a real walk and it produced
+D001, the most valuable finding of the sequence.
+
+But the 21-probe harness was never run and `walks/v1.0.57.tsv` was never written, so this
+register reads `[DERIVED(no record)]` for a version that really was installed. **The
+consequence was immediate and measurable**: walk closure took the v1.0.58 dry run RED with
+"v1.0.57 NO ROW. A cut with no row is indistinguishable from a cut nobody looked at." The
+gate is correct -- from the tree, a walked-but-unrecorded cut and an ignored cut are the
+same object.
+
+⚠️ **AND IT COST NOTHING TO FIND**, which is the only good part. The gates-only dispatch
+surfaced it before any tag was created. That is the v1.0.56 lesson applying itself one
+version later, in the direction it was meant to.

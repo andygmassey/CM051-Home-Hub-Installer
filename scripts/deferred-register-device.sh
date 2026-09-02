@@ -113,13 +113,105 @@ case "${HTTP_CODE}" in
         exit 0
         ;;
     409)
-        log "register-device 409 (cap reached) -- writing warning, clearing queue"
+        # ------------------------------------------------------------------
+        # WALK-361-SIBLING (2026-09-02): THIS ARM USED TO BE A DEAD END.
+        #
+        # It wrote `cap_reached <timestamp>` into registration_warning.txt and
+        # exited 0. That file was READ BY NOTHING -- the only other mention of
+        # it anywhere in the repo was a COMMENT in FingerprintState.swift
+        # describing a Doctor banner that was never built. So a customer whose
+        # deferred retry hit the cap was told nothing, by anything, ever. The
+        # install-time path does surface this properly (DeviceLimitReachedView);
+        # only this deferred path was silent.
+        #
+        # Now it does three things, and the last one is the one that reaches a
+        # human without depending on any other repo shipping first:
+        #   1. a STRUCTURED record, matching the ~/.ostler/state/*.json
+        #      convention the Doctor already reads elsewhere;
+        #   2. the legacy plain-text file, still written, so an older reader
+        #      is not broken by this change;
+        #   3. a macOS notification, because a state file nobody opens is the
+        #      same silence in a different format.
+        # ------------------------------------------------------------------
+        NOW="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+        # Pull the counts out of the Worker's 409 body. register-device echoes
+        # max_hardware_fingerprints and registered_count (CM050
+        # register-device.ts). Absent/unparseable -> -1, an explicit
+        # "not known" that a reader can branch on. NEVER 0: a real zero and a
+        # failed parse must not print identically.
+        COUNTS=$(/usr/bin/env python3 - "${TMP_RESPONSE}" <<'PYEOF' || true
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        d = json.load(f)
+    print(f'{int(d.get("max_hardware_fingerprints", -1))}\t{int(d.get("registered_count", -1))}')
+except Exception:
+    print("-1\t-1")
+PYEOF
+)
+        CAP_MAX="$(printf '%s' "${COUNTS}" | awk -F'\t' '{print $1}')"
+        CAP_NOW="$(printf '%s' "${COUNTS}" | awk -F'\t' '{print $2}')"
+        [ -n "${CAP_MAX}" ] || CAP_MAX="-1"
+        [ -n "${CAP_NOW}" ] || CAP_NOW="-1"
+
+        log "register-device 409 (cap reached: ${CAP_NOW}/${CAP_MAX} Macs) -- recording, notifying, clearing queue"
         mkdir -p "${STATE_DIR}"
-        printf 'cap_reached %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" > "${WARNING}"
+
+        # 1. structured, for the Doctor.
+        /usr/bin/env python3 - "${STATE_DIR}/registration_warning.json" \
+            "${NOW}" "${CAP_MAX}" "${CAP_NOW}" <<'PYEOF' || true
+import json, sys
+path, now, cap_max, cap_now = sys.argv[1:5]
+with open(path, "w") as f:
+    json.dump({
+        "state": "cap_reached",
+        "observed_at": now,
+        "max_hardware_fingerprints": int(cap_max),
+        "registered_count": int(cap_now),
+        "source": "deferred-register-device",
+        "customer_message": (
+            "This Mac could not be added to your Ostler licence because the "
+            "licence is already in use on the maximum number of Macs. Ostler "
+            "still works here, but this Mac is not registered. Remove a Mac "
+            "you no longer use, or get in touch, and it will register itself."
+        ),
+    }, f, indent=2)
+PYEOF
+        chmod 600 "${STATE_DIR}/registration_warning.json" 2>/dev/null || true
+
+        # 2. legacy plain-text, unchanged shape, so nothing that reads the old
+        #    file starts failing because we added a better one beside it.
+        printf 'cap_reached %s\n' "${NOW}" > "${WARNING}"
         chmod 600 "${WARNING}"
+
+        # 3. tell the human. Best-effort: on a box where osascript is
+        #    unavailable or notifications are muted this is a no-op, which is
+        #    why it is the THIRD mechanism and not the only one.
+        #
+        #    System Events is deliberately NOT used here -- see WALK-361.
+        #    `display notification` addresses no target application, so it
+        #    raises no Apple Events consent dialog.
+        #
+        #    ⚠️ BOUNDED. This runs inside a launchd agent. An osascript that
+        #    blocks (no Aqua session, a wedged notification centre, a login
+        #    window) would hold the job open indefinitely and the agent would
+        #    look "running" forever. macOS has no timeout(1), and
+        #    _ostler_run_with_deadline lives in install.sh which this
+        #    standalone script does not source -- so the bound is inline.
+        _notify_bounded() {
+            osascript -e "$1" >/dev/null 2>&1 &
+            _osa=$!
+            ( sleep "${OSTLER_NOTIFY_TIMEOUT_S:-10}"; kill -9 "${_osa}" 2>/dev/null ) >/dev/null 2>&1 &
+            _watchdog=$!
+            wait "${_osa}" 2>/dev/null || true
+            kill "${_watchdog}" 2>/dev/null || true
+        }
+        _notify_bounded 'display notification "This Mac is not registered: your licence is already on the maximum number of Macs. Ostler still works here." with title "Ostler licence"'
+
         rm -f "${PENDING}"
-        # Exit 0 so launchd does not retry this hopeless case; the
-        # warning file is the Doctor surface's signal.
+        # Exit 0 so launchd does not retry this hopeless case; the records
+        # above are the durable signal.
         exit 0
         ;;
     404)

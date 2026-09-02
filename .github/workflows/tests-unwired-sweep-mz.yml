@@ -1,0 +1,163 @@
+name: tests-unwired-sweep-mz
+
+# Wires a batch of previously-UNWIRED regression tests into CI -- the tests
+# whose filename letter AFTER `test_` is in the range m..z. This drains part of
+# the P1 test-wiring backlog recorded in tests/TEST_WIRING.tsv: a test that runs
+# nowhere asserts nothing, so each of these was DARK until named here.
+#
+# Discipline for this file (a2/wire-tests-mz):
+#   * Every test below was RUN and shown to PASS before being wired -- shell
+#     tests under both /bin/bash 3.2 (the macOS runner default) and bash 5.x,
+#     python tests with their declared vendored deps installed.
+#   * Tests that FAILED for a REAL reason (a live finding, not a stale
+#     assertion) are deliberately NOT wired here -- wiring a red to get green is
+#     worse than an honest UNWIRED row. Two such tests remain UNWIRED with a
+#     recorded reason: test_total_steps_dynamic.sh (its static drift heuristic
+#     miscounts a function-wrapped progress() call; install.sh's accounting is
+#     correct, proven by the same test's end-to-end checks) and
+#     test_walkaway_no_phase2_input_leak.sh (a genuine finding: a post-Phase-3
+#     `gui_read "autologin_consent"` reboot-self-heal prompt that would stall a
+#     GUI walk-away install; needs an owner decision to hoist or allowlist).
+#   * Three tests carried STALE assertions against install.sh that had moved on;
+#     each was corrected on this branch to assert the CURRENT contract, not the
+#     old literal (sudo-gate lookback window; port-3000 pre-flight loop; the
+#     ostler-installer -> ostler-releases release-repo rename; the Rule 0.9
+#     "Vane healthy" catalogue lift).
+#
+# ALWAYS RUNS -- no `paths:` filter, so a change anywhere that regresses one of
+# these contracts is caught, not skipped behind a grey tick. Same reasoning as
+# test-wiring.yml.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  shell-macos:
+    # The cut host is macOS; these tests walk install.sh, call mac-only
+    # detection (sysctl / sw_vers) and stub mac commands, so they run on the
+    # OS they assert about. Verified passing under both /bin/bash 3.2 (the
+    # runner default) and bash 5.x. Same reasoning as test-wiring.yml.
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: install.sh structural + helper regression tests (m..z batch)
+        run: |
+          set -uo pipefail
+          fail=0
+          for t in \
+            tests/test_mail_content_probe.sh \
+            tests/test_mail_onboarding_259_260.sh \
+            tests/test_mailbox_ingest_leg_wired.sh \
+            tests/test_meeting_brief_sender.sh \
+            tests/test_model_fit.sh \
+            tests/test_ostler_gui_sudo_gates.sh \
+            tests/test_placeholder_strip.sh \
+            tests/test_preferences_vendor_wired.sh \
+            tests/test_resource_tier_governor.sh \
+            tests/test_settling_progress_writer.sh \
+            tests/test_subscription_activation_path.sh \
+            tests/test_sync_vendor_pin_untouched_on_abort.sh \
+            tests/test_tailscale_recovery_wrapper.sh \
+            tests/test_takeout_split_zip_no_abort.sh \
+            tests/test_uninstaller_keep_prompt.sh \
+            tests/test_universal_import_leg_wired.sh \
+            tests/test_user_facing_tree.sh \
+            tests/test_usr_local_bin_symlinks_gui_safe.sh \
+            tests/test_v1010_at_rest_exclusions.sh \
+            tests/test_v1010_ingest_reroute_plists.sh \
+            tests/test_v1010_store_front_proxy.sh \
+            tests/test_v1010_wiki_not_tailscale_served.sh \
+            tests/test_vane_bundle.sh \
+            tests/test_vendor_cm052_ai_conversations.sh \
+            tests/test_vendor_doctor_knowledge_embed_wiring.sh \
+            tests/test_vendor_exclude_glob_depth.sh \
+            tests/test_whatsapp_channel_block.sh \
+            tests/test_wiki_baseline_background.sh \
+            tests/test_wiki_compose_paths.sh \
+            tests/test_wiki_recompile_after_late_hydration.sh \
+            tests/test_write_pipeline_signals.sh \
+          ; do
+            echo "::group::${t}"
+            if bash "${t}"; then
+              echo "PASS ${t}"
+            else
+              echo "FAIL ${t}"
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          if [ "${fail}" -ne 0 ]; then
+            echo "One or more m..z shell tests failed above." >&2
+            exit 1
+          fi
+          echo "OK: all m..z shell tests passed."
+
+  python-ubuntu:
+    # Vendored-logic tests (parsers, identity resolver, migration guard,
+    # tailnet parser, knowledge embed-contract). OS-independent, so they run on
+    # ubuntu with the declared vendored requirements installed -- same shape as
+    # the repo's other python gates (setup-python + pip install).
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install declared vendored dependencies
+        run: |
+          set -e
+          python -m pip install --quiet --upgrade pip
+          # cm019 ingest parsers are imported as a package, so the WHOLE
+          # declared ingest dependency set is needed (aiofiles + bs4 + lxml +
+          # pydantic + ...), not just the one a single parser names.
+          python -m pip install --quiet -r vendor/cm019_preferences/requirements.txt
+          # identity_resolver declares rapidfuzz (PR #109's missing dep).
+          python -m pip install --quiet -r vendor/cm041/identity_resolver/requirements.txt
+          # pytest runner + the cm024 knowledge-CLI deps the contract test needs.
+          python -m pip install --quiet pytest qdrant-client pyyaml phonenumbers
+
+      - name: Guard -- deps present so pytest.importorskip cannot silently skip
+        # importorskip turns a missing dep into a SKIP, which is green and
+        # asserts nothing. Fail loudly here instead if any dep is absent, so a
+        # "passed" below always means the tests actually ran.
+        run: python -c "import aiofiles, bs4, lxml, rapidfuzz, click, qdrant_client, yaml, pytest, phonenumbers"
+
+      - name: stdlib unittest tests (no third-party deps)
+        run: |
+          set -e
+          python tests/test_migration_marker_guard_fresh_install.py
+          python tests/test_tailnet_owner_resolution.py
+
+      - name: cm019 parser / filter tests (plain-script, self-reporting)
+        if: always()
+        run: |
+          set -e
+          python tests/test_pinterest_parser.py
+          python tests/test_pref_noise_source_cap.py
+
+      - name: pytest-driven vendored contracts (rc=5 on zero-collected fails the step)
+        if: always()
+        run: |
+          set -e
+          python -m pytest \
+            tests/test_resolver_robustness.py \
+            tests/test_vendor_knowledge_embed_contract.py \
+            -q -rs -p no:cacheprovider

@@ -142,9 +142,27 @@ def choose_canonical_display_name(
 
     cleaned = [c.strip() for c in candidates if c and c.strip()]
 
-    for cand in cleaned:
-        if is_acceptable_display_name(cand):
-            return cand
+    # Among the acceptable candidates, DEMOTE a run-together social handle
+    # (e.g. "delganycolm") below a real name. A bare username passes
+    # is_acceptable_display_name -- it is not junk -- so without this the FIRST
+    # acceptable candidate wins by ingest order, and a handle that arrived first
+    # became the name a person is shown under (Andy's .231 walk: a person shown
+    # as "delganycolm" not "Colm O'Neill"). A handle is recognised narrowly, by
+    # the exact shape the social sources leave: instagram_social sets
+    # display_name = username, and _username_to_display_name keeps a
+    # separator-less username lowercase and un-title-cased -- one all-lowercase
+    # alphabetic token. This deliberately does NOT touch an all-caps brand
+    # ("TLDR"), a spaced name ("Colm O'Neill", "TLDR AI"), or a capitalised
+    # mononym. Stable, so order still decides among same-shape values and two
+    # real names are never reordered. Display selection only; identity matching
+    # is untouched. #659 RULE 2 / handle-over-name.
+    def _looks_like_social_handle(v):
+        return v.isalpha() and v == v.lower() and " " not in v
+
+    acceptable = [c for c in cleaned if is_acceptable_display_name(c)]
+    if acceptable:
+        acceptable.sort(key=lambda v: 1 if _looks_like_social_handle(v) else 0)
+        return acceptable[0]
 
     # Nothing acceptable -- avoid a nameless node. Prefer the structured name
     # even if it tripped the guard (unlikely), else the first raw candidate.
