@@ -301,7 +301,7 @@ test_subscription_activation_path.sh	UNWIRED	-
 test_sudo_gate_accepts_passwordless_sudo.sh	WIRED	.github/workflows/colima-autostart.yml
 test_sync_vendor_pin_untouched_on_abort.sh	UNWIRED	-
 test_tagged_commit_is_green.sh	WIRED	.github/workflows/cut.yml
-test_tailnet_owner_resolution.py	UNWIRED	-
+test_tailnet_owner_resolution.py	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_daemon_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_prompt_is_conditional_on_tailnet_state.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_recovery_wrapper.sh	UNWIRED	-
