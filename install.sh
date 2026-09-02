@@ -28174,6 +28174,32 @@ else
     ok "$MSG_OK_INSTALL_FINISHED_NO_ERRORS_RAISED"
 fi
 
+# E1 (#599): a T+0 source-status readout into the install log, read from the SAME
+# /api/v1/sources artefact the Doctor panel and the box walk read (G1c/G3), so the
+# log carries the per-source landing state the customer's panel will show. READ,
+# not re-derived from stores: a point count cannot say which source landed, and
+# two empty stores agreeing on zero is indistinguishable from two that both
+# landed nothing. Fail-soft and log-only: set -u is suppressed in this block, so
+# every expansion is braced-and-defaulted; an unreachable endpoint logs a plain
+# note and nothing here can abort the install or delay `gui_done ok`.
+_sources_json="$(curl -s --noproxy '*' --max-time 5 "http://127.0.0.1:${DOCTOR_PORT:-8089}/api/v1/sources" 2>/dev/null || true)"
+_sources_line="$(printf '%s' "${_sources_json:-}" | python3 -c '
+import sys, json
+try:
+    rows = json.load(sys.stdin).get("sources")
+    assert isinstance(rows, list)
+except Exception:
+    sys.exit(0)
+landed = sum(1 for r in rows if isinstance(r, dict) and r.get("status") == "ok" and (r.get("item_count") or 0) > 0)
+notrun = sum(1 for r in rows if isinstance(r, dict) and r.get("status") == "not_run")
+print(f"{len(rows)} sources reporting, {landed} landed at install, {notrun} not yet run")
+' 2>/dev/null || true)"
+if [[ -n "${_sources_line:-}" ]]; then
+    info "Source status (T+0): ${_sources_line}"
+else
+    info "Source status (T+0): /api/v1/sources not reachable at install end (the Doctor may still be starting; its panel and the box walk read the same record)"
+fi
+
 gui_done ok
 
 # CX-123 (#643): restore nounset now the display-only recap + the DONE

@@ -454,6 +454,20 @@ entries:
       kind: box_walk_probe
       probe: "install_error_honesty"
 
+  - id: box-walk-source-status-artefact-is-served
+    title: the Doctor must serve /api/v1/sources with one honest per-source row for every canonical source
+    incident: >-
+      G1c/G3 (v1.0.60); nothing published per-source ingest state, so the panel,
+      the end-of-install probe (#599) and the box walk each re-derived it from
+      store point counts, where three stores agreeing on ZERO passes. The hydrate
+      sentinels now feed a typed per-source record served at /api/v1/sources
+      (not_run for a source that never ran); this probe is the box-side check
+      that the record is served and usable rather than a store count that cannot
+      say WHICH source landed
+    proof:
+      kind: box_walk_probe
+      probe: "source_status_artefact_is_served"
+
   # ==========================================================================
   # #722. The estate had no instrument that observes OUTBOUND traffic at all.
   # Searched OS003 and CM051 with a positive control before building: the only
