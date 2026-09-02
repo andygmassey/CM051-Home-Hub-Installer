@@ -38,7 +38,7 @@ TNM's ingest table had 15 rows. Andy named four omissions. Table is **19 rows**.
 | B1 | RemoteConversations (CM042) — app + LaunchAgent + `spoken_source` reader all present | **VERIFIED AT SOURCE, NOT ON A BOX** | transcript recorded → appears in graph |
 | B2 | Voice feed silently skips if `~/Documents/Ostler/Transcripts` is ever deleted (sentinel-guarded creation, presence-gated reader) | TODO | delete dir, re-run install, assert a REFUSAL not a silent skip |
 | B3 | **Safari extension must ingest WITHOUT an iPhone pair** — Andy 2026-09-02: *"it's a fucking BUG… needs fixing PROPERLY"* | TODO — **mechanism measured, see below** | Hub-only install, no phone EVER paired, browse → page in `safari_history` |
-| B4 | **iOS Safari extension** must exist and feed the Hub | TODO | same, from an iPhone |
+| B4 | ~~iOS Safari extension must exist~~ **IT EXISTS AND IS WIRED** | **DONE at source** (A2, 2026-09-02) | `SafariCaptureRelay.swift:103` POSTs `/api/safari/ingest`, fed by a Safari Web Extension App-Group queue, drained on app foreground (`CM031App:300` scenePhase→active). **My row was mis-scoped** — I wrote "must exist" without measuring. Box proof still owed. |
 | B5 | **Chrome extension is NOT SHIPPED.** install.sh opens `chrome.google.com/webstore/category/extensions` — the generic category page, not our listing | TODO | either a real listing URL, or the step does not run at all |
 
 ### B3 MECHANISM — measured 2026-09-02 in `vendor/doctor/agent/proxy.py`
@@ -75,8 +75,20 @@ accepted credential, not a hole.**
 browsing. The other proxied paths are READS of their whole life. Widening
 the credential across all 30 paths would be a real security regression and
 is not what this row asks for.
-| B6 | iOS-generated transcripts reach the Hub (`/api/v1/conversation/process`) | **UNMEASURED — dispatched to TNM/A2** | count CM031 call sites at source |
-| B7 | Everything else CM031 generates (quick capture → `/api/v1/ingest/ios`) | **UNMEASURED — dispatched to TNM/A2** | same |
+| B6 | iOS-generated transcripts reach the Hub (`/api/v1/conversation/process`) | **WIRED — measured by A2 at `origin/main` b2ec7c10** | `APIClient.swift:92` (`syncTranscript`), triggered by `HomeViewModel:351` (iPhone-direct) and `WatchAudioReceiver:689` (Watch audio) → TranscriptUploader → SyncManager. Box proof still owed. |
+| B7 | Everything else CM031 generates (`/api/v1/ingest/ios`) | **WIRED — same measurement** | `PWGUploadService.swift:367` (`upload`), triggered by Quick Note save (`QuickNoteView:150`) and health sync (`HealthService:150`). Box proof still owed. |
+| B8 | GET `/api/v1/recording/active` is **DARK** — `RecordingStateService` is never instantiated (2 refs on main, both its own class definition; the "In LiveActivityCoordinator.start()" line is an aspirational comment) | **NOT a v1.0.60 item** | Live Activities dependency, v1.0.1 scope. Recorded so it is not rediscovered as new. |
+
+**A2's controls, recorded because a count without them is not evidence:**
+positive control PASSED — `subscription/receipt` found at
+`SubscriptionReceiptSync.swift:181` by the same method, so the DARK verdict is a
+real absence and not a broken predicate. Denominator **306** Swift files at
+b2ec7c10, reconciled against TNM's 304 as a sha difference (main advanced by 2
+files), both correct at their own sha. Filter bound established: **0** `.m/.mm/.h`
+files, so `*.swift` is the whole network-code population rather than a partial one.
+Measured on `origin/main`, NOT the checkout HEAD, which sits on a branch diverging
+1↔6 — TNM handed that trap over without a verdict so the measurement stayed
+independent.
 
 ## C. TNM'S 15 ROWS — the broken ones
 

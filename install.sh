@@ -11601,16 +11601,27 @@ DEFAULT_PRIVACY_LEVEL=L2
 # Per-source FDA consent – comma-separated list of enabled sources.
 # Set in Phase 2 (or read from a previous install on re-run). Read by
 # ostler_fda.extract_all via the OSTLER_FDA_SOURCES env var.
-# apple_notes deliberately ABSENT from this default. The extractor
-# (vendor/ostler_fda/extract_all.py) reads every note and writes
-# apple_notes.json, but the converter that would make them searchable ships in
-# vendor/cm024_knowledge, whose VENDOR_MANIFEST.toml pin is held at 43d6c5da --
-# the re-pin to 7ace7672, which carries the apple_notes.py adapter, is DEFERRED.
-# So \`convert --source apple_notes\` exits non-zero on an unknown source and
-# the notes go nowhere. Asking Full Disk Access for data we then do not use is the
-# one option that trades consent for nothing. Restore this entry in the same
-# change that lands the CM024 re-pin, not before.
-OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES:-safari_history,safari_bookmarks,calendar,reminders}"
+# apple_notes IS IN THIS DEFAULT, and the reason it once was not is worth
+# keeping so nobody re-derives the old conclusion.
+#
+# It used to read "deliberately ABSENT ... restore this in the same change that
+# lands the CM024 re-pin, not before". That was TRUE as a description of the
+# machinery -- the extractor wrote apple_notes.json and the converter could not
+# read it, so \`convert --source apple_notes\` exited non-zero and the notes went
+# nowhere -- and it was NOT A DECISION ANYONE WAS ENTITLED TO MAKE HERE. An
+# agent wrote a product-scope call into the shipping tree in the voice of
+# policy, and it then read as settled for six weeks. Andy, 2026-09-02: "I don't
+# know where you're getting that Apple Notes shouldn't be included - it SHOULD."
+#
+# THE PRECONDITION IS NOW MET, not waived. vendor/cm024_knowledge is re-vendored
+# at 1fabd75 across the src/ -> ostler_knowledge/ rename, which is where
+# ingestion/adapters/apple_notes.py lives, and that row's manifest entry has
+# gone verify=skip -> verify=full with its unverifiable_ack DELETED. The gate
+# now reports: cm024_knowledge -- vendor == source@1fabd75d (+patch).
+#
+# So the consent we ask for is spent on data we actually use, which was the
+# whole of the original objection.
+OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES:-safari_history,safari_bookmarks,calendar,reminders,apple_notes}"
 
 # If a Google Takeout mbox is registered, point extract_all at it.
 OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}"
@@ -25557,10 +25568,33 @@ fi
 # could gate this leg instead of the silent-on-empty default. The
 # OSTLER_APPLE_NOTES_KNOWLEDGE env below is the one-line hook where such a
 # flag would land; today it defaults ON so the only gate is data presence.
-progress "Reading your Apple Notes" "hydrate_apple_notes"
-
 _HYDRATE_APPLENOTES_FDA_DIR="${OSTLER_DIR}/imports/fda"
 _HYDRATE_APPLENOTES_JSON_FILE="${_HYDRATE_APPLENOTES_FDA_DIR}/apple_notes.json"
+
+# ANNOUNCE ONLY WHAT WE ARE ABOUT TO DO.
+#
+# This `progress` call used to sit ABOVE the two lines that resolve the JSON
+# path, so it fired on EVERY install and told the customer "Reading your Apple
+# Notes" while the block below no-opped on the `-s` data gate. The customer was
+# told work happened that did not. That is the same defect as the FDA nudge
+# claiming a success it did not have (#571) and it is fixed the same way: the
+# claim moves BEHIND the condition that makes it true.
+#
+# The gated step also has to leave the step counter honest, which is the
+# established idiom in this file -- the spoken/voice body feed decrements
+# TOTAL_STEPS the same way when its source directory is absent. Without the
+# decrement the progress bar silently reserves a slot for a step that never
+# runs, and the install appears to stall at the end.
+#
+# The data gate is deliberately the ONLY announce condition. The downstream
+# branches (sentinel-fresh, operator opt-out, binary missing) each emit their
+# own message, so gating the announce on all four would swap one silence for
+# another.
+if [[ ! -s "$_HYDRATE_APPLENOTES_JSON_FILE" ]]; then
+    TOTAL_STEPS=$((TOTAL_STEPS - 1))
+else
+    progress "Reading your Apple Notes" "hydrate_apple_notes"
+fi
 _HYDRATE_APPLENOTES_BIN="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
 _HYDRATE_APPLENOTES_STAGING="${OSTLER_DIR}/data/knowledge-staging"
 _HYDRATE_APPLENOTES_DBPATH="${OSTLER_DIR}/data/knowledge-metadata.db"
