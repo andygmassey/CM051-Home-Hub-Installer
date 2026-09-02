@@ -260,6 +260,7 @@ MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="Recovery passphrase skipped. (D
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="Reusing existing Doctor agent install at %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="Reusing existing email-ingest install at %s"
 MSG_INFO_REUSING_EXISTING_HUB_POWER_INSTALL="Reusing existing hub-power install at %s"
+MSG_INFO_REUSING_EXISTING_EXTENSION_TOKEN="Reusing existing browser extension key at %s"
 MSG_INFO_REUSING_EXISTING_JWT_SECRET="Reusing existing JWT_SECRET in %s"
 MSG_INFO_REUSING_EXISTING_PWG_SERVICE_TOKEN="Reusing existing PWG service token at %s"
 MSG_INFO_REUSING_EXISTING_WIKI_RECOMPILE_INSTALL="Reusing existing wiki-recompile install at %s"
@@ -510,6 +511,7 @@ MSG_OK_SECURITY_ALREADY_CONFIGURED_PREVIOUS_RUN="Security already configured on 
 MSG_OK_SECURITY_MODULE_INSTALLED_INTO_VENV="Security module installed into venv"
 MSG_OK_SEEDED_FRESH_JWT_SECRET="Seeded fresh JWT_SECRET in %s"
 MSG_OK_SEEDED_PWG_SERVICE_TOKEN="Seeded PWG service token at %s"
+MSG_OK_SEEDED_EXTENSION_TOKEN="Seeded browser extension key at %s"
 MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878="Services started (Qdrant :6333, Oxigraph :7878, Redis :6379)"
 # ── Qdrant optional-collection pre-create (#606) ──
 MSG_INFO_QDRANT_COLLECTION_PRECREATED="  Prepared search collection: %s"

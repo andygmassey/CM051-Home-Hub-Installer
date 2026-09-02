@@ -77,3 +77,23 @@ jobs:
       - name: no internal codename reaches a customer-facing string VALUE
         if: always()
         run: /bin/bash tests/test_no_internal_codenames_in_customer_strings.sh
+
+      # The two checks above guard the SHAPE of a string and the CONTENT of a
+      # string. Neither asks whether the string the installer reads EXISTS.
+      #
+      # install.sh runs under `set -uo pipefail`. Reading an undefined variable
+      # there is not a blank line, it is `unbound variable` and the shell dies,
+      # so a forgotten catalogue entry stops a customer's install part-way
+      # through. MEASURED: 940 distinct MSG_ references, 0 of them guarded with
+      # ${VAR:-}, so all 940 are hard aborts.
+      #
+      # It has already happened: the browser-extension token block shipped
+      # referencing two strings that were never added to the catalogue, well
+      # below the `set -u` line. Nothing caught it, because `check-rule-09-
+      # strings.sh` contains zero occurrences of `MSG_`.
+      #
+      # Exit 2 is CANNOT-RUN and fails this step deliberately: a gate that could
+      # not look has not passed.
+      - name: every MSG_ string install.sh reads is actually defined
+        if: always()
+        run: python3 scripts/verify_install_strings_bound.py

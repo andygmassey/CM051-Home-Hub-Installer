@@ -22,4 +22,14 @@ if [ -x "$ROOT/.githooks/check-assistant-name-hardcoded.sh" ]; then
     "$ROOT/.githooks/check-assistant-name-hardcoded.sh" pre-commit || exit $?
 fi
 
+# Bound-string guard -- install.sh runs under `set -uo pipefail`, so a MSG_*
+# it reads that the catalogue does not define is not a blank line, it is
+# `unbound variable` and a DEAD INSTALL at that step. Rule 0.9 above cannot
+# see this: it checks the shape of a string, not whether the string answers.
+# Measured when this was wired: 940 references, 0 guarded with ${VAR:-}.
+# Exit 2 is CANNOT-RUN and blocks the commit on purpose.
+if [ -x "$ROOT/scripts/verify_install_strings_bound.py" ]; then
+    python3 "$ROOT/scripts/verify_install_strings_bound.py" >/dev/null || exit $?
+fi
+
 "$ROOT/.githooks/pre-commit-operator-pii" || exit $?
