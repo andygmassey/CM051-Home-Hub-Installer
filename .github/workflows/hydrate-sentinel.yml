@@ -47,6 +47,7 @@ on:
       - 'tests/test_cannot_run_is_a_third_state.sh'
       - 'tests/test_hydrate_sentinel_change_fields.sh'
       - 'tests/test_source_status_contract.sh'
+      - 'tests/test_source_status_canonical_matches_recorders.sh'
       - 'vendor/doctor/agent/diagnostic_rules.py'
       - 'vendor/doctor/agent/web_ui.py'
       - 'vendor/divergences/doctor.patch'
