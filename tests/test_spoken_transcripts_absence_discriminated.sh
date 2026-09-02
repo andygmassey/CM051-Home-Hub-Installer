@@ -24,6 +24,15 @@
 
 set -uo pipefail
 
+# NO `... | grep -q` ANYWHERE IN THIS FILE, DELIBERATELY. grep -q exits on its
+# first match and SIGPIPEs the producer, which under `pipefail` can invert the
+# verdict of the very assertion being made -- the pipe decides, not the test.
+# This file runs under a bash shebang we control, so the herestring remedy is
+# available and is used throughout: `grep -q PAT <<< "$var"` has no pipe, so
+# there is nothing to SIGPIPE. (If this ever has to run under `sh -c`, ssh or a
+# login shell we do not choose, herestrings are a bashism -- switch to
+# `[ "$(... | grep -c PAT)" -gt 0 ]`, because grep -c must read to EOF.)
+
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL_SH="${REPO}/install.sh"
 STRINGS="${REPO}/install.sh.strings.en-GB.sh"
@@ -59,7 +68,7 @@ fi
 
 # Positive control on the extraction itself: the block must contain the call
 # that actually runs the feed. If it does not, we grabbed the wrong region.
-if ! printf '%s' "$BLOCK" | grep -q '_install_conversation_feed spoken'; then
+if ! grep -q '_install_conversation_feed spoken' <<< "$BLOCK"; then
     printf 'CANNOT-RUN: extracted block does not contain the spoken feed call.\n'
     exit 2
 fi
@@ -95,7 +104,7 @@ removed_out="$(run_case yes)"
 # ── Assertions ────────────────────────────────────────────────────────────
 
 # 1. Neither case may run the feed (Transcripts is absent in both).
-if printf '%s%s' "$fresh_out" "$removed_out" | grep -q 'FEED_RAN'; then
+if grep -q 'FEED_RAN' <<< "${fresh_out}${removed_out}"; then
     red "the feed ran with Transcripts absent -- the gate is not gating"
 else
     okay "feed does not run when Transcripts is absent (both states)"
@@ -112,7 +121,7 @@ fi
 # 3. The removed case must WARN, not merely inform. A removal is a capability
 #    that was present and is now gone; the warn line is where a program
 #    confesses, and an info line lets it read as ordinary onboarding.
-if printf '%s' "$removed_out" | grep -q '^WARN:'; then
+if grep -q '^WARN:' <<< "$removed_out"; then
     okay "removed-directory case raises a warning"
 else
     red "removed-directory case does not warn; it only info's"
@@ -120,7 +129,7 @@ fi
 
 # 4. The removed case must NOT claim the fresh-Mac cause. This is the false
 #    statement the row is about.
-if printf '%s' "$removed_out" | grep -qi 'no recordings to read'; then
+if grep -qi 'no recordings to read' <<< "$removed_out"; then
     red "removed case still claims 'no recordings to read' -- states a false cause"
 else
     okay "removed case does not claim the fresh-Mac cause"
@@ -130,7 +139,7 @@ fi
 #    customer who has genuinely never recorded anything. A fix that made every
 #    fresh install warn would be a regression, so this is the control that must
 #    fail if the condition is inverted.
-if printf '%s' "$fresh_out" | grep -qi 'no recordings to read'; then
+if grep -qi 'no recordings to read' <<< "$fresh_out"; then
     okay "fresh-Mac case keeps its onboarding message"
 else
     red "fresh-Mac case lost its onboarding message (condition inverted?)"
