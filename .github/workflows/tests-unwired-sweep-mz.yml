@@ -116,6 +116,12 @@ jobs:
       # grandfathered because that gate inspects only NEWLY ADDED tests. This
       # one is named so both gates can see the same fact.
       - name: B2 -- a removed Transcripts folder is reported as removed
+        # `if: always()` because this step shares a job with the loop above. Without
+        # it, a failure in ANY earlier m..z test skips this one, and a test that
+        # runs only when everything before it passed cannot report on a red run --
+        # exactly the masking scripts/verify_ci_steps_are_maskless.py exists to
+        # forbid. It caught this: 1 maskable step of 359, and it was mine.
+        if: always()
         run: bash tests/test_spoken_transcripts_absence_discriminated.sh
 
   python-ubuntu:
