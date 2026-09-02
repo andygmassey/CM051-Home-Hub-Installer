@@ -26,6 +26,7 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_store_auth_pth_uses_final_dir.sh'
+      - 'tests/test_store_auth_no_call_site_passes_staging_root.sh'
       - 'tests/TEST_WIRING.tsv'
       # A gate that does not watch its own file can be quietly narrowed.
       - '.github/workflows/store-auth-pth-final-dir.yml'
@@ -53,3 +54,22 @@ jobs:
       # writer, so a broken extraction can never read as a pass.
       - name: The .pth carries the final tree, not the staging tree
         run: bash tests/test_store_auth_pth_uses_final_dir.sh
+
+      # 🔴 THE SECOND HALF, AND THE REASON THE FIRST WAS NOT ENOUGH.
+      #
+      # The step above is BEHAVIOURAL and pins the function's DEFAULT. It
+      # passed on origin/main for a day while install.sh:6815 shipped the A1
+      # defect anyway, because that caller passes its root EXPLICITLY and a
+      # default cannot reach an argument that is present.
+      #
+      # So the population of the step above is the FUNCTION. The population of
+      # this one is the CALL SITES. Same defect class, different denominator --
+      # which is the #600 lesson (a gate covers the family it enumerates) applied
+      # to itself.
+      #
+      # Two-sided proof recorded on the fix PR: this test FAILS on the real
+      # pre-fix origin/main tree naming line 6815, and PASSES on the fix. It
+      # exits 2 (CANNOT-RUN) rather than passing if the boundary marker is not
+      # unique or the population is empty.
+      - name: No CALL SITE passes a staging root (the explicit-argument half)
+        run: bash tests/test_store_auth_no_call_site_passes_staging_root.sh
