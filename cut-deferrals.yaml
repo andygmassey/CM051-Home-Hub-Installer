@@ -32,6 +32,63 @@
 # ============================================================================
 
 pr_exemptions:
+  - ref: "CM051-Home-Hub-Installer#1333"
+    reason: >-
+      'test(pii): wire the dark vendor person-name sweep into CI (--report)'.
+      GREEN, measured on a latest-run-per-check-name conclusion histogram: 31
+      SUCCESS, 1 SKIPPED, 0 FAILURE of 32. Deferred on SEQUENCING, not merit.
+      It changes the machinery that JUDGES a cut, during the cut it would judge
+      -- the one ordering this file already records twice, and the reason oa#363
+      sits three entries below. It is also --report mode, so landing it now
+      would not block anything anyway: all the risk, none of the benefit, inside
+      a cut window. PIN-SAFE (0 install.sh hits, measured). CUSTOMER IMPACT:
+      none, it is CI wiring. NOT cleared by closing: it is wanted, it is simply
+      not this cut's to land. Land it once no CM051 cut is in flight.
+    review_by: "2026-09-12"
+  - ref: "CM051-Home-Hub-Installer#1305"
+    reason: >-
+      'fix(usage-journal): the SHIPPING ostler_fda has never written a record
+      (#949)'. RED, and that is the whole reason: 2 FAILURE / 63 SUCCESS / 1
+      SKIPPED of 66, measured 2026-09-02. A red PR cannot be merged to satisfy a
+      process gate -- that is precisely the move this file exists to prevent, and
+      merit is not in question. THIS IS THE SAME PR THAT KILLED v1.0.54 at
+      check-orphans, still red a day later, so the deferral is on its own CI and
+      not on anybody's judgement. ⚠️ IT REMAINS GENUINELY OWED: v1.0.59 ships the
+      COMPILER half of the usage journal (#1301 mount + #1330 write path) and
+      NOT the ostler_fda producer half, so the Bursar's roster is still short
+      after this cut. Do not read the two green journal rows in
+      cut-manifests/v1.0.59.yaml as closing this. PIN-SAFE (0 install.sh hits).
+    review_by: "2026-09-12"
+  - ref: "CM051-Home-Hub-Installer#495"
+    reason: >-
+      'feat(cut-infra): vendor drift check + .vendor-manifests'. DRAFT, and
+      counted anyway -- this gate checks drafts LOUDEST by design, because a
+      green draft sat unnoticed for four days once. Green on its own checks (29
+      SUCCESS, 2 SKIPPED, 0 FAILURE of 31). Deferred for the #1333 reason
+      squared: it is cut-judging machinery AND it is knowingly incomplete --
+      task #203 records that its `pr_branch_not_stale_vs_main` limb never fires
+      because the calling workflows do not set the env var it reads, so merging
+      it would add a gate that cannot fail, which is worse than no gate. 29
+      files, +1387. PIN-SAFE (0 install.sh hits). Finish the wiring, prove it
+      fires on a real RED, then land it outside a cut window.
+    review_by: "2026-09-12"
+  - ref: "CM051-Home-Hub-Installer#399"
+    reason: >-
+      'feat(install): end-of-install confirmation -- whose calendars + who you
+      are'. Green (79 SUCCESS, 1 SKIPPED, 0 FAILURE of 80) and deferred on RISK,
+      not merit. 🔴 IT IS THE ONE PR HERE THAT IS NOT PIN-SAFE: 12 files and it
+      TOUCHES install.sh, measured. cuts/v1.0.59/cut.env pins CM051 by
+      install.sh BLOB IDENTITY, so merging this would invalidate the pin and
+      force a re-pin commit AFTER the tag -- which is the exact mechanism that
+      made v1.0.53 permanently unsatisfiable and cost a version. That is not a
+      preference, it is arithmetic: the fix for the staleness is itself a commit,
+      and no commit can precede the tag that needs it.
+      Beyond the pin, it adds a NEW customer-visible install screen (+1587
+      lines) to an artefact whose entire scope is closing A1's second half and
+      the hub-v0.4.70 re-pin. Open since 2026-07-14 and it can wait one more
+      cut; it cannot be un-shipped if it lands unwalked. Land it FIRST in the
+      next cut, with a box walk of the new screen.
+    review_by: "2026-09-12"
 
   # ── ostler-assistant#363, walk-only cut 2026-08-29 (Archie). ──
   # The single [RED] in check-pr-age: 1 over 48h, 7 exempt, 30 pre-rule,
