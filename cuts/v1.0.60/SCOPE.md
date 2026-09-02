@@ -37,9 +37,44 @@ TNM's ingest table had 15 rows. Andy named four omissions. Table is **19 rows**.
 |---|---|---|---|
 | B1 | RemoteConversations (CM042) — app + LaunchAgent + `spoken_source` reader all present | **VERIFIED AT SOURCE, NOT ON A BOX** | transcript recorded → appears in graph |
 | B2 | Voice feed silently skips if `~/Documents/Ostler/Transcripts` is ever deleted (sentinel-guarded creation, presence-gated reader) | TODO | delete dir, re-run install, assert a REFUSAL not a silent skip |
-| B3 | **Safari extension must ingest WITHOUT an iPhone pair** — Andy 2026-09-02: *"it's a fucking BUG… needs fixing PROPERLY"* | TODO | Hub-only install, no phone ever paired, browse → page in `safari_history` |
+| B3 | **Safari extension must ingest WITHOUT an iPhone pair** — Andy 2026-09-02: *"it's a fucking BUG… needs fixing PROPERLY"* | TODO — **mechanism measured, see below** | Hub-only install, no phone EVER paired, browse → page in `safari_history` |
 | B4 | **iOS Safari extension** must exist and feed the Hub | TODO | same, from an iPhone |
 | B5 | **Chrome extension is NOT SHIPPED.** install.sh opens `chrome.google.com/webstore/category/extensions` — the generic category page, not our listing | TODO | either a real listing URL, or the step does not run at all |
+
+### B3 MECHANISM — measured 2026-09-02 in `vendor/doctor/agent/proxy.py`
+
+It is **the wrong credential**, not a missing policy.
+
+> "when a service token is configured it VALIDATES the incoming client bearer
+> **against the ZeroClaw gateway's paired-token store** and only THEN
+> substitutes the service token on the forwarded request."
+
+The paired-token store is populated **by pairing a phone**. So the macOS
+Safari extension — running on the customer's own Mac, capturing the
+customer's own browsing, never leaving the machine — is authenticated
+against a credential that exists only if they own an iPhone and paired it.
+
+The proxy's design note explains why it validates rather than passes through,
+and that reasoning is CORRECT and must not be undone: substituting the
+service token without validating the client would let any loopback process
+that reaches `:8089` inherit ical-server access. **The fix is a second
+accepted credential, not a hole.**
+
+**Fix shape (needs review before build):**
+
+1. install.sh mints a per-install **extension token**, same class as
+   `PWG_SERVICE_TOKEN`, stored 0600 under the user's own home.
+2. The extension obtains it once, on an explicit customer action
+   ("Connect to Ostler"), never silently.
+3. The Doctor accepts **either** a valid paired-phone bearer **or** the
+   extension token, **for `/api/safari/ingest` only** — not for the other
+   29 proxied paths, which read personal data rather than write browsing.
+4. iOS Safari extension rides the paired channel it already has.
+
+⚠️ **The asymmetry is the point.** Ingest is a WRITE of the customer's own
+browsing. The other proxied paths are READS of their whole life. Widening
+the credential across all 30 paths would be a real security regression and
+is not what this row asks for.
 | B6 | iOS-generated transcripts reach the Hub (`/api/v1/conversation/process`) | **UNMEASURED — dispatched to TNM/A2** | count CM031 call sites at source |
 | B7 | Everything else CM031 generates (quick capture → `/api/v1/ingest/ios`) | **UNMEASURED — dispatched to TNM/A2** | same |
 
