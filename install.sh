@@ -28195,9 +28195,9 @@ notrun = sum(1 for r in rows if isinstance(r, dict) and r.get("status") == "not_
 print(f"{len(rows)} sources reporting, {landed} landed at install, {notrun} not yet run")
 ' 2>/dev/null || true)"
 if [[ -n "${_sources_line:-}" ]]; then
-    log "Source status (T+0): ${_sources_line}"
+    info "Source status (T+0): ${_sources_line}"
 else
-    log "Source status (T+0): /api/v1/sources not reachable at install end (the Doctor may still be starting; its panel and the box walk read the same record)"
+    info "Source status (T+0): /api/v1/sources not reachable at install end (the Doctor may still be starting; its panel and the box walk read the same record)"
 fi
 
 gui_done ok
