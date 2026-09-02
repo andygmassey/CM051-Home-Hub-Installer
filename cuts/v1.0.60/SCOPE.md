@@ -157,19 +157,47 @@ filed and are the SAME missing piece:
 | #514 | no per-source date surface anywhere; 8 of 12 components 32h stale | there is no per-source freshness record to render |
 | #349 | freshness panel prints "unknown", not a date | consequence of the above |
 
+### ✅ G6 ALREADY EXISTS — CORRECTED BY TNM, 2026-09-02, AND I WAS WRONG
+
+I wrote in the dispatch: *"G6 IS NOT A NICETY AND I WILL BLOCK THE PR WITHOUT
+IT."* **It is already in the shipping installer**, and it is already a genuinely
+distinct fourth state rather than a two-state predicate:
+
+```
+_hydrate_sentinel_record            install.sh:23323   status=ok         21 literals
+_hydrate_sentinel_record_error      install.sh:23387   status=error       7
+_hydrate_sentinel_record_no_data    install.sh:23452   status=no_data     8
+_hydrate_sentinel_record_cannot_run install.sh:23514   status=cannot_run  1   <- G6
+```
+
+Fields already written: `recorded_at` · `source` · `status` · `detail` ·
+`payload`. **Four of my five G1 fields exist under other names** (`detail` is my
+`reason_if_not`). Had TNM followed my instruction they would have built a second
+record mechanism beside a working one — the duplicate-machinery scar. They
+refused and said so rather than quietly complying. Correct call.
+
+**SECOND CORRECTION, MINE:** I reported install.sh mentions "box-walk" **20**
+times. Measured at origin/main 8d2818e3 it is **29**, with 0 non-comment. My
+count was low by nine; the conclusion — zero invocations, E stands — is unchanged.
+
+### 🔴 THE REAL G1 GAP IS THREE FIELDS, NOT A NEW MECHANISM
+
 | # | Item | State | Proof required |
 |---|---|---|---|
-| G1 | Define the per-surface record: `landed_at`, `last_update_at`, `item_count`, `status`, `reason_if_not` | TODO | schema checked in |
-| G2 | Every one of the 19 surfaces WRITES its record (a surface that cannot write one is not shipped) | TODO | 19 of 19 records present on a box |
-| G3 | `/api/v1/sources` serves it | TODO | 200 with 19 rows |
-| G4 | Doctor panel renders per-surface landed + last-updated, and says WHY when a surface is dark | TODO | screenshot on a box |
-| G5 | The install-time probe (E1) and the box walk read this artefact, not their own logic | TODO | one artefact, three readers, no second source of truth |
-| G6 | **`status` must have a CANNOT-CHECK state**, distinct from OK and FAILED | TODO | a surface whose store is unreachable reads CANNOT-CHECK, never OK |
+| G1a | `last_update_at`, DISTINCT from `recorded_at` | TODO | **one timestamp cannot answer both "Lands at install?" and "Keeps updating?"** — this single field is what makes Andy's second column possible, and it is why E3 is the hard half |
+| G1b | typed `item_count` (today `payload` is a free string, `sent=0`) | TODO | a panel can render a count without parsing prose |
+| G1c | **Nothing publishes the record** — no `/api/v1/sources`, so panel, probe and walk each infer state independently | TODO | the three-implementations-that-can-disagree problem, measured: 0 occurrences in ical-server, control `/api/v1/timeline` = 5 so the zero is real |
+| G2 | Map all 19 surfaces to recorder call sites | TODO | **stated as UNMAPPED rather than assumed.** Recorder call sites: ok 14 · error 13 · no_data 9 · **cannot_run 5** |
+| G3 | `/api/v1/sources` serves the record | TODO | 200 with 19 rows |
+| G4 | Panel renders landed + last-updated, and says WHY when dark | TODO | on a box |
+| G5 | Probe (E1) and walk READ this artefact rather than re-implementing | TODO | one artefact, three readers |
 
-⚠️ **G6 is not a nicety.** Every false-green in this product's history came from
-a two-state predicate reading "could not look" as "nothing wrong". The Doctor
-already does this: it computed a CRITICAL memory card, swallowed it in a bare
-`except`, and rendered "Everything looks healthy" at 91% RAM (#419).
+⚠️ **cannot_run at 5 call sites against 14 for the ok-recorder is the number most
+likely to be a real gap.** A surface that can say OK but cannot say "could not
+look" is precisely the false-green shape — the Doctor computing a CRITICAL memory
+card, swallowing it in a bare `except`, and rendering "Everything looks healthy"
+at 91% RAM (#419). TNM will not publish a 19-row table until every row is a
+measured surface rather than an assumed one.
 
 ## F. CUT MECHANICS
 
