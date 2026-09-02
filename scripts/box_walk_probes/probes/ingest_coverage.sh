@@ -75,6 +75,55 @@ PROBE_QUESTION="of the nine ingest sources, how many have landed data, and is an
 QDRANT_URL="${OSTLER_QDRANT_URL:-http://127.0.0.1:6333}"
 BASELINE_FILE="${OSTLER_INGEST_BASELINE:-${HOME}/.ostler/state/ingest_coverage_baseline.tsv}"
 
+# ---------------------------------------------------------------------------
+# THE DISCRIMINATOR THIS PROBE SAID IT DID NOT HAVE (#851).
+#
+# The header above is right that a point count cannot tell a QUIET source from
+# a DEAD one, and it was right to refuse to fail on FLAT alone. But the fact
+# that settles it is one launchctl read away, and it is not in this file yet.
+#
+# com.ostler.fda-rerun is the recurring top-up for EVERYTHING that is not
+# email: contacts, calendar, iMessage, WhatsApp, browsing, notes. If it is
+# dying on every fire then FLAT is not quiet, it is dead, and the customer is
+# looking at a graph frozen at install time while the installer copy tells
+# them work continues in the background.
+#
+# MEASURED on .228 2026-08-21, 11 samples one minute apart: conversation
+# columns MOVED, graph columns FLAT TO THE DIGIT (triples 246725 both ends),
+# with com.ostler.fda-rerun at "last exit code = 1", 3 runs of 3. The moving
+# column is the control: the instrument worked and the graph really was frozen.
+# This probe was in the suite that night and would have said PASS.
+#
+# ⚠️ ASK launchctl print, NEVER launchctl list or load: `launchctl load` exits
+# 0 on failure, and only `print` carries "last exit code".
+TOPUP_AGENT="${OSTLER_TOPUP_AGENT:-com.ostler.fda-rerun}"
+
+# Prints HEALTHY | DEAD:<code> | UNKNOWN:<reason-code>.
+#
+# UNKNOWN is a first-class outcome, not a soft pass. A reason CODE rather than
+# a reason STRING because walks/*.tsv already withholds not_measured_reasons on
+# the ground that this repo is public -- so a string cannot survive into the
+# record, and a record that says a probe went quiet WITHOUT saying why is what
+# let #851 sit unexamined for eleven days. A code carries no operator data.
+topup_agent_health() {
+    local uid out code
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        printf '%s' "${FAKE_topup_health:-UNKNOWN:SELFTEST}"
+        return 0
+    fi
+    uid="$(box_run 'id -u' | tr -d "\r\n ")"
+    if [ -z "$uid" ]; then printf 'UNKNOWN:NO_UID'; return 0; fi
+    out="$(box_run "launchctl print gui/${uid}/${TOPUP_AGENT}")"
+    if [ -z "$out" ]; then printf 'UNKNOWN:AGENT_UNREADABLE'; return 0; fi
+    code="$(printf '%s' "$out" | awk -F'=' '/last exit code/{print $2}' \
+              | awk '{print $1}' | tr -d "\r\n ")"
+    case "$code" in
+        "")   printf 'UNKNOWN:NO_EXIT_CODE_FIELD' ;;
+        0)    printf 'HEALTHY' ;;
+        *)    printf 'DEAD:%s' "$code" ;;
+    esac
+}
+
 # STORE CREDENTIAL. Qdrant answers 401 to a keyless request on every enforce-ON
 # install (#550/#1222). count_store used to query BARE and read that 401 as
 # UNAVAILABLE -> "not one of the stores answered", which cannot tell "the probe
@@ -281,8 +330,24 @@ run_probe() {
         probe_cannot_run "only ${reachable} of ${total_stores} stores answered (missing:${unavailable_list}). A verdict on a subset would understate coverage."
     fi
 
+    # FLAT is where #851 lived. The header's reasoning is preserved EXACTLY --
+    # FLAT alone still never fails -- but the probe no longer stops at "I cannot
+    # tell". It asks the one fact that discriminates and then says which of the
+    # three answers it got. Three outcomes, three branches.
     if [ "$flat" -gt 0 ]; then
-        probe_pass "all ${total_stores} stores hold data. ${flat} FLAT since baseline (${flat_list# }) -- this probe CANNOT tell quiet from dead, so classify those before trusting them."
+        health="$(topup_agent_health)"
+        probe_note "top-up agent ${TOPUP_AGENT} : ${health}"
+        case "$health" in
+            DEAD:*)
+                probe_fail "${flat} of ${total_stores} stores are FLAT since baseline (${flat_list# }) AND the top-up agent ${TOPUP_AGENT} is dying on every fire (last exit code ${health#DEAD:}). FLAT is not quiet here, it is DEAD: that agent is the recurring top-up for every source except email, so contacts, calendar, iMessage, WhatsApp, browsing and notes have no live path into the graph. The install is frozen at install-time contents while the installer copy says work continues in the background (#851)."
+                ;;
+            UNKNOWN:*)
+                probe_cannot_run "${flat} of ${total_stores} stores are FLAT since baseline (${flat_list# }) and this run could NOT read the health of ${TOPUP_AGENT} (${health#UNKNOWN:}). FLAT with unknown top-up health is exactly the state this probe cannot adjudicate -- quiet and dead are indistinguishable from a count alone, and passing here would be a guess with a customer's whole graph behind it."
+                ;;
+            *)
+                probe_pass "all ${total_stores} stores hold data. ${flat} FLAT since baseline (${flat_list# }) and the top-up agent ${TOPUP_AGENT} is HEALTHY (last exit 0), so FLAT here means quiet, not dead."
+                ;;
+        esac
     fi
 
     probe_pass "all ${total_stores} stores hold data and ${moved} moved since baseline. ${sources_evidenced} of 9 sources evidenced."
@@ -313,9 +378,24 @@ self_test() {
         printf 'arm 2 OK: zero readable stores is CANNOT-RUN, not a pass\n'
     fi
 
-    # ARM 3: all populated -> must PASS. Without this the probe could satisfy
-    # arms 1 and 2 by failing unconditionally.
-    out="$(SELF_TEST_LOCAL=1 FAKE_conversations=1024 FAKE_people=6889 \
+    # ⚠️ THE ARMS BELOW PIN OSTLER_INGEST_BASELINE. Without it the self-test
+    # reads the REAL baseline out of the operator's ~/.ostler and its verdict
+    # depends on whose machine ran it -- which is the same family of defect
+    # this probe exists to catch, one layer up. Found by this arm failing on a
+    # developer Mac that had a populated baseline; a runner with an empty home
+    # would have passed and told us nothing.
+    local _bl_none="${TMPDIR:-/tmp}/ingest_cov_selftest_absent.$$"
+    local _bl_flat="${TMPDIR:-/tmp}/ingest_cov_selftest_flat.$$"
+    rm -f "$_bl_none"
+    printf 'conversations\t1024\t2026-01-01T00:00:00Z\n'   >  "$_bl_flat"
+    printf 'people\t6889\t2026-01-01T00:00:00Z\n'          >> "$_bl_flat"
+    printf 'safari_history\t8788\t2026-01-01T00:00:00Z\n'  >> "$_bl_flat"
+    printf 'preferences\t9025\t2026-01-01T00:00:00Z\n'     >> "$_bl_flat"
+
+    # ARM 3: all populated, NO baseline -> must PASS. Without this the probe
+    # could satisfy arms 1 and 2 by failing unconditionally.
+    out="$(SELF_TEST_LOCAL=1 OSTLER_INGEST_BASELINE="$_bl_none" \
+           FAKE_conversations=1024 FAKE_people=6889 \
            FAKE_safari_history=8788 FAKE_preferences=9025 \
            bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
     if [ "$rc" -ne 0 ]; then
@@ -323,6 +403,48 @@ self_test() {
     else
         printf 'arm 3 OK: all stores populated returns PASS\n'
     fi
+
+    # ARM 4 (#851): counts FLAT against the baseline AND the top-up agent dying
+    # -> must FAIL. This is the arm that did not exist, and its absence is why
+    # a graph frozen to the digit scored PASS on every walk it was part of.
+    out="$(SELF_TEST_LOCAL=1 OSTLER_INGEST_BASELINE="$_bl_flat" \
+           FAKE_topup_health="DEAD:1" \
+           FAKE_conversations=1024 FAKE_people=6889 \
+           FAKE_safari_history=8788 FAKE_preferences=9025 \
+           bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+    if [ "$rc" -ne 1 ] || ! printf '%s' "$out" | grep -q 'FLAT is not quiet here, it is DEAD'; then
+        printf 'SELF-TEST ARM 4 BROKEN: FLAT + dead top-up returned rc=%s, expected 1 naming it DEAD\n' "$rc"; fails=$((fails+1))
+    else
+        printf 'arm 4 OK: FLAT + a dying top-up agent is a FAIL, not a quiet pass\n'
+    fi
+
+    # ARM 5 (#851): FLAT with the agent's health UNREADABLE -> must CANNOT-RUN,
+    # never PASS. Quiet and dead are indistinguishable from a count alone, so a
+    # pass here would be a guess with a customer's whole graph behind it.
+    out="$(SELF_TEST_LOCAL=1 OSTLER_INGEST_BASELINE="$_bl_flat" \
+           FAKE_topup_health="UNKNOWN:AGENT_UNREADABLE" \
+           FAKE_conversations=1024 FAKE_people=6889 \
+           FAKE_safari_history=8788 FAKE_preferences=9025 \
+           bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+    if [ "$rc" -ne 78 ] || ! printf '%s' "$out" | grep -q 'AGENT_UNREADABLE'; then
+        printf 'SELF-TEST ARM 5 BROKEN: FLAT + unknown top-up returned rc=%s, expected 78 carrying the reason CODE\n' "$rc"; fails=$((fails+1))
+    else
+        printf 'arm 5 OK: FLAT + unreadable top-up health is CANNOT-RUN carrying a reason code\n'
+    fi
+
+    # ARM 6: the HEALTHY branch must still PASS, or arms 4 and 5 could be
+    # satisfied by a probe that simply never passes once a baseline exists.
+    out="$(SELF_TEST_LOCAL=1 OSTLER_INGEST_BASELINE="$_bl_flat" \
+           FAKE_topup_health="HEALTHY" \
+           FAKE_conversations=1024 FAKE_people=6889 \
+           FAKE_safari_history=8788 FAKE_preferences=9025 \
+           bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+    if [ "$rc" -ne 0 ]; then
+        printf 'SELF-TEST ARM 6 BROKEN: FLAT + healthy top-up returned rc=%s, expected 0\n' "$rc"; fails=$((fails+1))
+    else
+        printf 'arm 6 OK: FLAT + a HEALTHY top-up agent still means quiet, and passes\n'
+    fi
+    rm -f "$_bl_none" "$_bl_flat"
 
     # THE CONVENTION IS INVERTED HERE, and it cost this probe every box walk
     # it has ever been part of.
@@ -341,8 +463,8 @@ self_test() {
         probe_examined "$fails" "self-test arm(s) that did NOT behave as required"
         probe_pass "SELF-TEST BROKEN: ${fails} arm(s) failed. This probe cannot demonstrate a FAIL, so its real result must not be trusted."
     fi
-    probe_examined 3 "synthetic store readings (negative control)"
-    probe_fail "negative control behaved correctly on all 3 arms (an empty store FAILs and is named; zero readable stores is CANNOT-RUN, not a pass; fully populated PASSes)"
+    probe_examined 6 "synthetic store readings (negative control)"
+    probe_fail "negative control behaved correctly on all 6 arms (an empty store FAILs and is named; zero readable stores is CANNOT-RUN, not a pass; fully populated PASSes; FLAT + a DYING top-up agent FAILs; FLAT + UNREADABLE agent health is CANNOT-RUN carrying a reason code; FLAT + a HEALTHY agent still PASSes)"
 }
 
 probe_main "$@"
