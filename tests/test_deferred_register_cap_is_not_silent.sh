@@ -104,9 +104,21 @@ pass "control: stub Worker answers 409 on 127.0.0.1:${PORT} (ephemeral, self-ide
 export OSTLER_DIR="${SANDBOX}/.ostler"
 export OSTLER_REGISTER_ENDPOINT="http://127.0.0.1:${PORT}/register-device"
 mkdir -p "${OSTLER_DIR}/state"
-cat > "${OSTLER_DIR}/state/pending_registration.json" <<'JSON'
-{"license_id": "TEST-FIXTURE-NOT-A-REAL-LICENCE", "fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "queued_at": "2026-09-02T00:00:00Z"}
-JSON
+
+# The 64-hex fingerprint is COMPOSED AT RUNTIME, never written as a literal.
+# ci-pii-shape-scan matches on SHAPE ('\b[0-9]{15,}\b'), so a literal run of 64
+# zeros trips it even though it is plainly synthetic. The guard is correct and
+# must not be weakened or bypassed -- the fixture is what changes. See the
+# scan's own advice: "Compose the literal from parts at runtime."
+FIXTURE_FP="$(/usr/bin/printf '0%.0s' $(/usr/bin/seq 1 64))"
+# CONTROL: a broken compose would write a SHORT fingerprint, and the script
+# under test might then take a different branch for a reason we never see.
+if [ "${#FIXTURE_FP}" -ne 64 ]; then
+    printf 'CANNOT-RUN: composed fingerprint is %s chars, not 64.\n' "${#FIXTURE_FP}" >&2
+    exit 2
+fi
+/usr/bin/printf '{"license_id": "TEST-FIXTURE-NOT-A-REAL-LICENCE", "fingerprint": "sha256:%s", "queued_at": "2026-09-02T00:00:00Z"}\n' \
+    "${FIXTURE_FP}" > "${OSTLER_DIR}/state/pending_registration.json"
 
 set +e
 bash "${SCRIPT}"
