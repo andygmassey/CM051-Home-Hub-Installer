@@ -284,7 +284,41 @@ _ks_bounded() {
 # and root as arguments, so hoisting introduces no unset-variable read.
 _ostler_wire_store_auth_pth() {
     local _venv="$1"
-    local _root="${2:-${OSTLER_DIR:-${HOME}/.ostler}}"
+    # ⚠️ OSTLER_FINAL_DIR, **NEVER** OSTLER_DIR. #595, found on the v1.0.57
+    # launch walk by the post-install QA suite.
+    #
+    # This default used to read ${OSTLER_DIR:-${HOME}/.ostler}. During the
+    # install OSTLER_DIR points at the TEMPORARY STAGING TREE, so the .pth
+    # written below was baked with an absolute /tmp path:
+    #
+    #   sys.path.append("/tmp/ostler-prelaunch-2026/lib")
+    #
+    # measured verbatim off a freshly installed box. That directory does not
+    # survive the install, so the import fails at EVERY interpreter start,
+    # for ever, on every install. Python then prints
+    #   ModuleNotFoundError: No module named 'ostler_store_auth'
+    #   Remainder of file ignored
+    # and "Remainder of file ignored" is the damage: the OSTLER_SECRETS_DIR
+    # default never gets set and the auth wiring never happens. The MODULE was
+    # installed correctly at ${OSTLER_FINAL_DIR}/lib all along -- only the
+    # pointer was wrong. 9 occurrences in one 2073-line install log.
+    #
+    # That is the customer-visible A1: cm059-editor runs the bundled
+    # interpreter, gets no credential, 401s against Oxigraph on every hourly
+    # tick and fail-closes to the settling stub, so the Front Page never
+    # populates. Silent because every call site below degrades to warn() (#570).
+    #
+    # 🔴 THIRD OCCURRENCE OF THIS CLASS. #177 baked a /tmp/ostler-prelaunch
+    # path into the ollama-logrotate LaunchAgent plist, which died at reboot.
+    # #578 has 9 more plists baking ${OSTLER_DIR} while the staging tree is
+    # still live. A value captured during staging and never rebound to the
+    # tree it will actually run from.
+    #
+    # OSTLER_FINAL_DIR is assigned unconditionally at install.sh:2001, before
+    # every call site that relies on this default (the earliest is ~2749). The
+    # three upgrade-path callers pass their own root explicitly and are
+    # unaffected either way.
+    local _root="${2:-${OSTLER_FINAL_DIR:-${HOME}/.ostler}}"
     # ⚠️ #595 -- THIS FUNCTION'S POPULATION WAS ITS DEFECT, NOT ITS COVERAGE.
     #
     # Until 2026-08-31 the only accepted shape was a venv root, and the guard
