@@ -10159,14 +10159,28 @@ TOTAL_STEPS="${TOTAL_STEPS:-0}"
 
 # Defensive fallback for unusual invocation paths (BASH_SOURCE
 # resolves to an unreadable /dev/fd/N, the grep returns 0, etc.).
-# Better to overshoot 100% by a step or two than divide by zero.
+# It must produce the SAME denominator the live count would have
+# produced -- see #629. The comment that used to sit here said
+# "better to overshoot 100% by a step or two than divide by zero",
+# and that sentence WAS the defect: it licensed a constant that then
+# drifted two steps behind the real count, so this branch ended every
+# install at 105-106% with no clamp. Overshooting is not the cheap
+# option, it is a visibly broken progress bar on the one code path a
+# `curl | bash` customer takes (#682). Both are now fixed: the
+# constant tracks the count, and progress() clamps regardless.
 if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
-    # Fallback base = the non-GDPR progress-call count. Must track the real
-    # count (currently 39 calls; 38 non-GDPR + the EXPORTS_DIR-gated GDPR step).
-    # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
-    # unresolvable under `bash -c`) and fails if this constant drifts.
-    TOTAL_STEPS=38
-    [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
+    # Fallback base = the NON-GDPR progress-call count, i.e. every
+    # `progress "` line except the one EXPORTS_DIR gates. Keep this in
+    # step with install.sh: tests/test_total_steps_dynamic.sh now asserts
+    # this branch produces EXACTLY the live count in both EXPORTS_DIR
+    # states, so a drift of even one fails CI rather than shipping.
+    TOTAL_STEPS=40
+    # NOT `[[ -n ... ]] && ...`: that form is the last command of this
+    # `if` body, so when EXPORTS_DIR is empty it returns 1 and, under
+    # `set -e`, takes the whole compound down with it.
+    if [[ -n "$EXPORTS_DIR" ]]; then
+        TOTAL_STEPS=$((TOTAL_STEPS + 1))
+    fi
 fi
 CURRENT_STEP=0
 
@@ -10186,6 +10200,19 @@ progress() {
 
     CURRENT_STEP=$((CURRENT_STEP + 1))
     local PCT=$((CURRENT_STEP * 100 / TOTAL_STEPS))
+    # #629: CLAMP. TOTAL_STEPS is a best-effort denominator, and on the
+    # defensive-fallback path it is a compiled-in constant that a future edit
+    # can let drift BELOW the number of steps that actually run. When that
+    # happens CURRENT_STEP overtakes it and PCT exceeds 100. Unclamped, that
+    # is not merely a wrong number: FILLED goes above BAR_WIDTH, EMPTY goes
+    # NEGATIVE, and `printf "%${EMPTY}s"` silently reinterprets the negative
+    # width as left-alignment -- so the bar renders WIDER than the width it
+    # declares. The constant is kept honest by
+    # tests/test_total_steps_dynamic.sh; this is the belt to that pair of
+    # braces, and it costs one comparison per step.
+    if [[ "$PCT" -gt 100 ]]; then
+        PCT=100
+    fi
     local BAR_WIDTH=30
     local FILLED=$((PCT * BAR_WIDTH / 100))
     local EMPTY=$((BAR_WIDTH - FILLED))
@@ -10210,8 +10237,8 @@ progress() {
     # progress bar without re-deriving from PCT.
     #
     # #839: NO ARGUMENT. This call used to read `gui_step_end ok`, and
-    # since it closes 38 of the 39 steps, that literal was the status
-    # field for almost the entire install. gui_step_end now reads the
+    # since it closes all but the first of the steps, that literal was the
+    # status field for almost the entire install. gui_step_end now reads the
     # status accumulated by gui_step_record_rc from the step's own
     # children. Passing `ok` here would assert over a measurement.
     if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then

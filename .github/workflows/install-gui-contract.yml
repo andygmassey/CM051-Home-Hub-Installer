@@ -39,6 +39,7 @@ on:
       - 'tests/test_gui_progress_emitter.sh'
       - 'tests/test_pgrep_no_match_does_not_fabricate_a_done.sh'
       - 'tests/test_abort_still_reports_when_the_close_fails.sh'
+      - 'tests/test_total_steps_dynamic.sh'
       - 'tests/test_marker_payloads_never_reach_install_log.sh'
       - 'tests/test_install_log_follows_promotion.sh'
       - 'lib/ostler-ingest-slot.sh'
@@ -149,6 +150,7 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/test_pgrep_no_match_does_not_fabricate_a_done.sh
+          bash tests/test_total_steps_dynamic.sh
 
       # #640: the abort-close is fallible and sits BEFORE the guard it protects,
       # so a failure inside it destroyed the only terminal marker the run makes.
