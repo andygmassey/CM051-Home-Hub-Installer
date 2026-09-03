@@ -59,10 +59,24 @@ EXIT_VIOLATION = 1
 EXIT_CANNOT_RUN = 2
 
 # Anti-vacuity floors. A scan that parsed almost nothing scores identically to
-# a clean one. These are floors, not expectations -- they only have to be low
-# enough never to fire on a real tree and high enough to catch a broken glob.
+# a clean one, so a zero is only meaningful above some floor.
+#
+# ⚠️ THESE DEFAULTS ARE CM051-SHAPED (119 workflows / 564 run steps) AND ARE
+# NOT A UNIVERSAL TRUTH. A2 pointed the scanner at HR015 (3wf/8steps), OS001
+# (3/6), CM044 (2/11) and oa (12/99) on 2026-09-03 and every one fell under
+# them, so STRICT mode returned CANNOT-RUN on four healthy repos and the only
+# escape was --no-floor, which used to switch anti-vacuity off ENTIRELY. That
+# turns "prove the scan was real" into "trust the operator to check by hand" --
+# A2 did check and quoted the counts, but a tool must not depend on that.
+#
+# So: the floors are now CALLER-DECLARED (--min-workflows / --min-steps), and
+# --no-floor drops to an ABSOLUTE floor rather than to nothing. A scan that
+# parsed zero workflows or zero run steps is CANNOT-RUN under every mode there
+# is; there is no flag that makes an empty scan report clean.
 MIN_WORKFLOWS = 20
 MIN_RUN_STEPS = 60
+ABSOLUTE_MIN_WORKFLOWS = 1
+ABSOLUTE_MIN_RUN_STEPS = 1
 
 RC_ASSIGN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)=\$\?\s*(#.*)?$")
 
@@ -144,7 +158,27 @@ def main(argv):
         return EXIT_CANNOT_RUN
 
     wf_dir = pathlib.Path(args[0]) if args else pathlib.Path(".github/workflows")
-    strict = "--no-floor" not in argv[1:]
+
+    # Caller-declared floors. A small repo declares its own scale instead of
+    # switching the anti-vacuity check off.
+    def _flag_int(name, default):
+        for a in argv[1:]:
+            if a.startswith(name + "="):
+                try:
+                    return int(a.split("=", 1)[1])
+                except ValueError:
+                    print(f"{USAGE}\n{name} needs an integer", file=sys.stderr)
+                    return None
+        return default
+
+    min_wf = _flag_int("--min-workflows", MIN_WORKFLOWS)
+    min_steps = _flag_int("--min-steps", MIN_RUN_STEPS)
+    if min_wf is None or min_steps is None:
+        return EXIT_CANNOT_RUN
+    if "--no-floor" in argv[1:]:
+        # NOT "no checking" -- the absolute floor still applies. An empty scan
+        # is CANNOT-RUN under every mode.
+        min_wf, min_steps = ABSOLUTE_MIN_WORKFLOWS, ABSOLUTE_MIN_RUN_STEPS
 
     if not wf_dir.is_dir():
         print(f"COULD NOT RUN: {wf_dir} is not a directory (exit 2)",
@@ -204,11 +238,18 @@ def main(argv):
     print(f"run steps scanned: {n_run_steps}")
     print(f"violations       : {len(violations)}")
 
-    if strict and (n_workflows < MIN_WORKFLOWS or n_run_steps < MIN_RUN_STEPS):
+    if n_workflows < min_wf or n_run_steps < min_steps:
         print(f"\nCOULD NOT RUN: scanned {n_workflows} workflows / "
-              f"{n_run_steps} run steps, below the floor of {MIN_WORKFLOWS} / "
-              f"{MIN_RUN_STEPS}. A near-empty scan prints the same zero as a "
-              f"clean one, so it is not a pass (exit 2)", file=sys.stderr)
+              f"{n_run_steps} run steps, below the floor of {min_wf} / "
+              f"{min_steps}. A near-empty scan prints the same zero as a "
+              f"clean one, so it is not a pass (exit 2).\n"
+              f"If this repo is genuinely smaller than the default floor "
+              f"({MIN_WORKFLOWS}/{MIN_RUN_STEPS}, a CM051-shaped number), "
+              f"DECLARE its scale: --min-workflows=N --min-steps=N. Prefer "
+              f"that to --no-floor: declaring the scale keeps a real floor, "
+              f"whereas --no-floor drops to {ABSOLUTE_MIN_WORKFLOWS}/"
+              f"{ABSOLUTE_MIN_RUN_STEPS} and only catches a totally empty scan.",
+              file=sys.stderr)
         return EXIT_CANNOT_RUN
 
     if violations:
