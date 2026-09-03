@@ -314,6 +314,54 @@ else
       longer match it. Treat every other result in this file as unproven."
 fi
 
+# ── ARM 5: THE DIAGNOSTIC MAY NOT LEAD WITH THE CODE (#612) ────────────────
+# Arms 1-4 govern the FATAL message. This governs the NON-FATAL diagnostic the
+# customer reads on the not-ready path, and it is a different failure: not a
+# false claim, an alarming ORDER.
+#
+# Seen live on the v1.0.60 walk. #566 made the message honest and deliberately
+# KEPT the code token, which is correct: it is support-greppable and appears in
+# logs customers have already sent. But the line still OPENED with it, so the
+# first thing a customer read about a condition measured to be a readiness
+# timeout was the word LEAK, in a product whose entire proposition is that
+# their data stays put. The leak hypothesis was refuted by measurement.
+#
+# The rule is about POSITION, not vocabulary. The token must still be present
+# (arm 3 of the sibling readiness test enforces that it survives at all); it
+# simply may not be the opening of a customer-facing sentence.
+DIAG_LINE="$(grep -F 'ERR-06-STORE-AUTH-LEAK diagnostic' "$INSTALL_SCRIPT" || printf '')"
+n_diag="$(printf '%s\n' "$DIAG_LINE" | grep -c 'ERR-06' || printf '0')"
+if [[ -z "$DIAG_LINE" ]]; then
+    cannot_run "the ERR-06 diagnostic line is not present in install.sh at all; wrong file, or the greppable anchor has been deleted"
+elif [[ "$n_diag" -ne 1 ]]; then
+    # A grep -F anchor that matches a COMMENT as well as its statement has
+    # silently doubled its match set, and every assertion below would then be
+    # measuring an accidental union of two lines.
+    cannot_run "the anchor matches ${n_diag} lines, expected exactly 1; a comment or a second emit site has joined the match set"
+else
+    DIAG_MSG="$(printf '%s\n' "$DIAG_LINE" | sed -E 's/^[[:space:]]*warn "//; s/"$//')"
+    if printf '%s' "$DIAG_MSG" | grep -qE '^ERR-|^[A-Z0-9-]*LEAK'; then
+        bad "ARM 5 the non-fatal diagnostic still OPENS with the error code:
+      \"$(printf '%s' "$DIAG_MSG" | cut -c1-70)\"
+      The customer's first words about a measured readiness timeout must not be
+      a security-sounding code. Keep the token, move it: a trailing support
+      reference is greppable and reads as a reference, not an accusation."
+    else
+        ok "ARM 5 the non-fatal diagnostic opens with the observation, not the code (#612)"
+    fi
+
+    # MUTATION. The pre-fix opening, pinned here, must trip the predicate.
+    # Without this the arm above passes for any string that merely fails to
+    # start with ERR-, including an empty one.
+    PRE_FIX_DIAG='ERR-06-STORE-AUTH-LEAK diagnostic (non-fatal): status=none'
+    if printf '%s' "$PRE_FIX_DIAG" | grep -qE '^ERR-|^[A-Z0-9-]*LEAK'; then
+        ok "ARM 5 MUTATION -> the pinned pre-fix opening trips the predicate (arm 5 discriminates)"
+    else
+        bad "ARM 5 MUTATION -> the pinned PRE-FIX opening does NOT trip the predicate.
+      Arm 5 therefore proves nothing and would pass over the original defect."
+    fi
+fi
+
 echo
 echo "${PASS} passed, ${FAIL} failed"
 [[ "$FAIL" -eq 0 ]] || exit 1

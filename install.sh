@@ -16630,7 +16630,25 @@ else
 
     # i18n-exempt: a support diagnostic of key=value pairs, not customer prose.
     # It is greppable by the ERR-06 code that install logs already carry.
-    warn "ERR-06-STORE-AUTH-LEAK diagnostic (non-fatal): status=${_qdrant_last_status:-none} headers_sent=${_e6_headers} waited=${_qdrant_wait_s:-0}s conf=${_e6_conf} conf_written=${_e6_conf_age} qdrant_started_at=${_e6_started}"
+    #
+    # #612, seen live on the v1.0.60 walk. #566 made the MESSAGE honest and
+    # deliberately kept the CODE (support-greppable, present in logs customers
+    # have already sent, enforced by
+    # tests/test_qdrant_readiness_tests_the_authenticated_surface.sh arm 3).
+    # What #566 did NOT fix is the ORDER. This line LED with the token, so the
+    # first thing a customer read about a condition we have measured to be a
+    # readiness timeout was the word LEAK, in a product whose whole proposition
+    # is that their data stays put. The leak hypothesis was REFUTED by
+    # measurement (status=000, not 401; warm and cold, delta 0.00s both times).
+    #
+    # So: lead with what was OBSERVED, demote the code to a trailing support
+    # reference. The code token followed by the word that follows it below is
+    # preserved VERBATIM on the warn line, because that exact phrase is the
+    # grep anchor in the test named above; moving it without preserving it
+    # would red a gate that is doing its job. This comment deliberately does
+    # NOT spell that phrase out: a `grep -F` anchor that matches a COMMENT as
+    # well as the statement it guards has silently doubled its match set.
+    warn "Knowledge-graph database did not answer in time. Non-fatal, and your data has not been touched. Support reference ERR-06-STORE-AUTH-LEAK diagnostic: status=${_qdrant_last_status:-none} headers_sent=${_e6_headers} waited=${_qdrant_wait_s:-0}s conf=${_e6_conf} conf_written=${_e6_conf_age} qdrant_started_at=${_e6_started}"
 
     # ⚠️ ONE-HEADER CONF IS ITS OWN DEFECT, AND THE LINE ABOVE MAKES IT VISIBLE.
     # _ostler_write_store_curl_config fails closed ONLY when BOTH secrets are
