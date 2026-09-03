@@ -50,6 +50,7 @@ import pty
 import re
 import select
 import socket
+import subprocess
 import struct
 import sys
 import termios
@@ -354,7 +355,7 @@ def declared_ports(install_sh):
     return ports, None
 
 
-def port_is_held(port):
+def port_bind_probe(port):
     """Three outcomes, not two: held / free / could not measure."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -373,6 +374,129 @@ def port_is_held(port):
         sock.close()
 
 
+def count_listen_rows(text, port):
+    """LISTEN rows for `port` in netstat/ss output. THREE formats, one parser.
+
+    🔴 MEASURE ON THE HOST THAT RUNS IT -- and my first version did not.
+    I wrote this against `/usr/sbin/netstat -an -p tcp -f inet` alone, which
+    is macOS. The walk box is macOS so the DRIVER was fine, but the TESTS run
+    on a Linux runner with no /usr/sbin/netstat, so the probe returned "cant"
+    for every port, `free + cant` graded unmeasured, and the preflight refused
+    every port on CI. Two PRE-EXISTING tests went red and the cause was mine.
+
+    The three shapes, and why one split() cannot do it:
+        BSD netstat  tcp4  0  0  127.0.0.1.6333   *.*        LISTEN
+        GNU netstat  tcp   0  0  127.0.0.1:6333   0.0.0.0:*  LISTEN
+        ss -Hltn     LISTEN 0  4096  127.0.0.1:6333  0.0.0.0:*
+    LISTEN is the LAST field on both netstats and the FIRST on ss, and the
+    local address separates its port with '.' on BSD and ':' elsewhere.
+
+    Split out as a pure function precisely so both formats can be tested
+    from sample text on either host, rather than only the one I happen to be
+    standing on.
+    """
+    n = 0
+    for line in text.splitlines():
+        cols = line.split()
+        if len(cols) < 4:
+            continue
+        if cols[-1] == "LISTEN":          # netstat, BSD or GNU
+            local = cols[3]
+        elif cols[0] == "LISTEN":         # ss -Hltn
+            local = cols[3]
+        else:
+            continue
+        # ':' first: an IPv6 local address is [::1]:6333, and rsplitting on
+        # '.' there would return the whole string.
+        tail = local.rsplit(":", 1)[-1] if ":" in local else local.rsplit(".", 1)[-1]
+        if tail == str(port):
+            n += 1
+    return n
+
+
+# Tried in order. The first that RUNS wins; "cant" only if none of them do.
+_LISTEN_PROBES = (
+    ["/usr/sbin/netstat", "-an", "-p", "tcp", "-f", "inet"],  # macOS, and
+                                                  # install.sh's own argv
+    ["ss", "-Hltn"],                              # Linux, modern
+    ["netstat", "-ltn"],                          # Linux, older
+)
+
+
+def port_listeners(port):
+    """LISTEN row count for `port`, or "cant" when NO instrument could run.
+
+    The macOS argv is first and is byte-identical to install.sh's
+    `_port_listeners` (install.sh:15303), so on the box the two ask the same
+    question of the same tool. The others exist so this is measurable on the
+    hosts our tests run on.
+
+    MUST NEVER return 0 for a failed measurement. That is the false-clean
+    this whole block exists to prevent.
+    """
+    for argv in _LISTEN_PROBES:
+        try:
+            out = subprocess.run(argv, capture_output=True, text=True)
+        except OSError:
+            continue                      # not installed here; try the next
+        if out.returncode != 0:
+            continue
+        if not out.stdout.strip():
+            # Ran cleanly and printed nothing. A machine with NO listening
+            # sockets at all is possible but vanishingly rare, and an empty
+            # read is the classic false zero, so do not count it as 0 --
+            # fall through and let another instrument answer.
+            continue
+        return count_listen_rows(out.stdout, port)
+    return "cant"
+
+
+def port_is_held(port):
+    """TWO instruments, and DISAGREEMENT IS NOT A COIN TOSS.
+
+    🔴 THIS COST A WALK, AND THE HARNESS WAS THE DEFECT.
+    Run 9 (2026-09-04) refused on "6333 8044 already held" SEVEN SECONDS
+    after its own --reset ran `colima stop`. Nothing held them: netstat
+    showed ZERO LISTEN rows on both, measured on the box minutes later.
+    What the bare bind() hit was TIME_WAIT. Demonstrated on an ephemeral
+    port, same machine class:
+        netstat rows after close : 2, both TIME_WAIT, LISTEN rows 0
+        bare bind()              : EADDRINUSE (errno 48)  -> reads "held"
+        bind + SO_REUSEADDR      : succeeds               <- what a server does
+    So the reset MANUFACTURED the conflict the next step refused on, and a
+    real server would have bound the port without noticing.
+
+    install.sh already knew this. Its `_check_port` (install.sh:15458)
+    grades bind=held + 0 listeners as COULD-NOT-MEASURE, in its own words
+    because "Docker sets SO_REUSEADDR and may well survive it, so calling
+    this a collision would block a working install". This function is that
+    same table, so the driver cannot be STRICTER than the preflight it
+    claims to be predicting:
+
+      bind   listeners   verdict   why
+      free   0           free      both agree
+      held   >=1         held      both agree: the real collision
+      held   0           cant      TIME_WAIT or similar, NOT a collision
+      free   >=1         cant      a listener our bind did not hit
+      held   cant        held      bind DEMONSTRATED the failure
+      cant   0           cant      no authoritative instrument ran
+      cant   >=1         held      netstat alone; a listener is a listener
+      free   cant        cant      only the weaker instrument spoke
+    """
+    bind = port_bind_probe(port)
+    listeners = port_listeners(port)
+
+    if bind == "free" and listeners == 0:
+        return "free"
+    if bind == "held" and listeners == "cant":
+        return "held"
+    if bind == "held" and listeners != "cant" and listeners != 0:
+        return "held"
+    if bind == "cant" and listeners != "cant" and listeners != 0:
+        return "held"
+    return "unmeasured"
+
+
 def preflight_ports(install_sh):
     """Refuse a walk that install.sh's own preflight is going to refuse.
 
@@ -384,11 +508,35 @@ def preflight_ports(install_sh):
     ports, err = declared_ports(install_sh)
     if err:
         return CANNOT_RUN, err
-    states = [(p, port_is_held(p)) for p in ports]
-    held = [p for p, s in states if s == "held"]
-    unmeasured = [p for p, s in states if s == "unmeasured"]
-    trace("port preflight over %d declared port(s): %s" % (
-        len(ports), " ".join("%s=%s" % (p, s) for p, s in states)))
+
+    # ⏱ WAIT OUT A TRANSIENT BEFORE CALLING IT UNMEASURABLE.
+    #
+    # Without this, `--reset` is SELF-BLOCKING: the reset stops colima, its
+    # forwarded sockets sit in TIME_WAIT for 2*MSL (30s on macOS), and the
+    # preflight that runs seconds later can measure neither free nor held.
+    # Refusing there is honest but useless -- the operator's only remedy is
+    # to wait and re-run, which is exactly what this loop does for them.
+    #
+    # This is NOT a retry-until-green: a port that is genuinely HELD exits on
+    # the FIRST pass and is never re-probed, so a real collision can never be
+    # waited away. Only the third state gets a second chance, and after the
+    # budget it is still CANNOT-RUN.
+    deadline_s = float(os.environ.get("OSTLER_WALK_PORT_SETTLE_S", "45"))
+    waited = 0.0
+    while True:
+        states = [(p, port_is_held(p)) for p in ports]
+        held = [p for p, s in states if s == "held"]
+        unmeasured = [p for p, s in states if s == "unmeasured"]
+        if held or not unmeasured or waited >= deadline_s:
+            break
+        trace("port preflight: %s unmeasured after %.0fs, waiting (TIME_WAIT "
+              "clears in ~30s on macOS)" % (" ".join(unmeasured), waited))
+        time.sleep(5)
+        waited += 5.0
+
+    trace("port preflight over %d declared port(s) after %.0fs: %s" % (
+        len(ports), waited,
+        " ".join("%s=%s" % (p, s) for p, s in states)))
     if held:
         return CANNOT_RUN, (
             "%d of %d declared port(s) are already held: %s. install.sh's own "
@@ -398,7 +546,11 @@ def preflight_ports(install_sh):
     if unmeasured:
         return CANNOT_RUN, (
             "%d of %d declared port(s) could not be measured: %s. A port we "
-            "could not measure has NOT been shown free."
+            "could not measure has NOT been shown free -- and it has NOT "
+            "been shown held either. The commonest cause is a service "
+            "that stopped seconds ago: its TIME_WAIT sockets refuse a "
+            "bare bind() while netstat shows no listener. Wait ~30s and "
+            "re-run before treating this as a busy box."
             % (len(unmeasured), len(ports), " ".join(unmeasured)))
     return PASS, "%d declared port(s) free: %s" % (len(ports), " ".join(ports))
 
@@ -415,12 +567,68 @@ def done_patterns():
     return re.compile(DEFAULT_DONE_OK), re.compile(DEFAULT_DONE_ANY)
 
 
+DONE_LINE = re.compile(r"^.*#OSTLER\s+DONE\s+status=\w+.*$", re.M)
+FAILED_STEPS_FIELD = re.compile(r"\bfailed_steps=(\d+)")
+ERRORS_FIELD = re.compile(r"\berrors=(\d+)")
+
+# 🔴 THE HARNESS'S OWN BLIND SPOT, NAMED SO IT CAN BE GRADED.
+#
+# macOS Automation (TCC) consent is a GUI dialog. A pty cannot click one, so
+# an unattended walk PROVOKES a failure it can never resolve. install.sh says
+# so in its own words -- this is the stable head of
+# MSG_WARN_IMESSAGE_AUTOMATION_PROBE_TIMEOUT in
+# install.sh.strings.en-GB.sh. Matched on the head only, so a copy edit to
+# the remediation half of that sentence cannot silently switch this off.
+UNANSWERED_PROMPT = re.compile(r"No answer to the Messages permission prompt",
+                               re.I)
+
+# Steps that DEPEND on a TCC grant and so cannot be judged unattended.
+# An ALLOWLIST of exactly the steps measured to have that dependency, never a
+# wildcard. A failure in any other step in the same run still grades FAIL --
+# that is the control on this whole idea, and there is a test arm for it.
+TCC_DEPENDENT_STEPS = ("health_check",)
+
+STEP_ERROR = re.compile(r"#OSTLER\s+STEP_END\s+id=(\S+)\s+status=error\b")
+
+
+def failed_step_ids(body):
+    """Every step id the log itself reports as status=error, in order."""
+    return STEP_ERROR.findall(body)
+
+
+def tally_from_marker(body):
+    """(failed_steps, errors) off the LAST DONE line, or None if not stated.
+
+    THE LAST one, not the first. A walk log can carry more than one terminal
+    marker -- #642 is exactly that: a pgrep no-match fabricated an early DONE
+    mid-install. Reading the first would grade the fabricated one, whose
+    tally describes a run that had not happened yet.
+
+    None means the marker did not carry the field. That is CANNOT-RUN at the
+    call site, never a pass: an absent field is not a zero.
+    """
+    lines = DONE_LINE.findall(body)
+    if not lines:
+        return None
+    last = lines[-1]
+    failed = FAILED_STEPS_FIELD.search(last)
+    if not failed:
+        return None
+    errors = ERRORS_FIELD.search(last)
+    return int(failed.group(1)), int(errors.group(1)) if errors else 0
+
+
 def adjudicate(log_path, rc, marker_channel_on):
     """FIX 2: rc is evidence, never the verdict. Require the marker.
 
-    The four cases, and why each lands where it does:
+    The cases, and why each lands where it does:
 
-      marker says ok      + rc 0    -> PASS. The only path to PASS.
+      marker ok + rc 0 + failed_steps=0  -> PASS. The only path to PASS.
+      marker ok + rc 0 + failed_steps>0  -> FAIL. It reached the end AND told
+                                       us N steps did not do their job. Two
+                                       different questions, both answered.
+      marker ok + rc 0 + no tally        -> CANNOT-RUN. "No step failed" was
+                                       never established.
       marker says ok      + rc != 0 -> FAIL. It announced completion and then
                                        exited non-zero; something after the
                                        marker died and that is a real defect.
@@ -441,12 +649,93 @@ def adjudicate(log_path, rc, marker_channel_on):
         return CANNOT_RUN, "the pty log could not be re-read: %s" % exc, ""
 
     if ok_re.search(body):
-        if rc == 0:
-            return PASS, "install.sh emitted its completion marker and exited 0", ""
-        return (FAIL,
-                "install.sh emitted its completion marker but exited rc=%d" % rc,
-                "Something after the marker failed. The marker is not a "
-                "licence to ignore a non-zero exit.")
+        if rc != 0:
+            return (FAIL,
+                    "install.sh emitted its completion marker but exited rc=%d" % rc,
+                    "Something after the marker failed. The marker is not a "
+                    "licence to ignore a non-zero exit.")
+
+        # 🔴 status=ok IS NOT THE WHOLE MARKER, AND READING ONLY IT COST A RUN.
+        #
+        # Run 3 of the ttywalk (2026-09-03) ended with
+        #     #OSTLER DONE status=ok failed_steps=1 errors=0
+        # and this driver called it "WALK PASS". The failed step was
+        # health_check, status=error rc=2 -- a real, measured product failure
+        # sitting in the same line the driver had just graded green.
+        #
+        # The product is NOT lying here. gui_done answers two different
+        # questions on purpose (#839): status=ok means "reached the end",
+        # failed_steps=N means "N steps did not do their job". Collapsing them
+        # is what hid a defect across 36 cuts. A driver that reads only the
+        # first field re-commits the same collapse from the other side.
+        #
+        # A WALK EXISTS TO FIND DEFECTS. If a step failed, the walk did not
+        # pass, whatever the install thought of its own completion.
+        tally = tally_from_marker(body)
+        if tally is None:
+            return (CANNOT_RUN,
+                    "the completion marker carried no step tally",
+                    "status=ok says install.sh REACHED THE END. It does not "
+                    "say every step did its job -- that is failed_steps=N, a "
+                    "separate field answering a separate question (#839). "
+                    "Without it, 'no step failed' was never established, and "
+                    "reporting PASS would be asserting something unmeasured. "
+                    "If ~/.walk-done-marker overrides the pattern, make it "
+                    "match a marker that carries failed_steps.")
+        failed, errors = tally
+        if failed or errors:
+            # 🔴 BUT FIRST: WAS THE FAILURE OURS?
+            #
+            # Measured on run 8 (2026-09-04). health_check went rc=2 and the
+            # installer's own WARN said why:
+            #     No answer to the Messages permission prompt, so we moved on
+            #     iMessage Automation permission: probe inconclusive
+            # That is a macOS AUTOMATION (TCC) dialog. A pty cannot click one.
+            # The driver pressed ENTER, the grant never happened, and the step
+            # failed BECAUSE THIS HARNESS IS BLIND, not because the product is
+            # broken. Reporting that as a product FAIL is the accusation
+            # version of a false green, and after a few of them nobody reads
+            # the walk at all.
+            #
+            # ⚠️ IT IS *NOT* SUPPRESSED, AND THAT DISTINCTION IS THE WHOLE
+            # POINT. A harness that dodges the failure it provoked is worse
+            # than no harness. This returns CANNOT-RUN -- the third state --
+            # names the prompt, and still prints the failed-step count so a
+            # reader sees exactly what went red. Nobody can read CANNOT-RUN as
+            # a pass; the estate's own vocabulary forbids it.
+            #
+            # Conservative on purpose: it fires on the PRESENCE of the
+            # unanswered-prompt WARN, and it says it cannot attribute
+            # per-step. A real product failure in the SAME run would also land
+            # here -- which is why the verdict is "could not judge", not
+            # "fine".
+            bad = failed_step_ids(body)
+            if (UNANSWERED_PROMPT.search(body)
+                    and bad
+                    and all(s in TCC_DEPENDENT_STEPS for s in bad)):
+                return (CANNOT_RUN,
+                        "%d step(s) failed -- %s -- and a macOS permission "
+                        "prompt went unanswered by this harness"
+                        % (failed, ", ".join(bad)),
+                        "An unattended pty CANNOT grant Automation/TCC -- the "
+                        "dialog needs a human. install.sh recorded the "
+                        "unanswered prompt itself, so this run cannot "
+                        "separate 'the product failed' from 'we could not "
+                        "answer'. That is CANNOT-RUN, not a pass and not a "
+                        "product failure. To judge these steps, walk the GUI "
+                        "installer by hand, or grant Automation on the box "
+                        "first and re-run.")
+            return (FAIL,
+                    "install.sh completed, but %d step(s) failed and it "
+                    "recorded %d error(s)" % (failed, errors),
+                    "status=ok is a claim about REACHING THE END, not about "
+                    "the steps. Grep the log for `status=error` to see which. "
+                    "This is a MEASURED product failure: the installer "
+                    "counted it itself.")
+
+        return (PASS,
+                "install.sh emitted its completion marker, exited 0, and "
+                "recorded 0 failed steps", "")
 
     seen = any_re.search(body) if any_re else None
     if seen:
