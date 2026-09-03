@@ -44,6 +44,7 @@ concurrency:
 jobs:
   symbol-regression:
     runs-on: macos-latest   # the re-vendor happens on macOS; /bin/bash is 3.2
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4

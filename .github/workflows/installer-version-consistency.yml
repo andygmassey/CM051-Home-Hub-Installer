@@ -53,6 +53,7 @@ jobs:
   # encoded scheme is CANNOT-RUN rather than a quiet pass.
   predicate-self-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: The gate can still tell a frozen build number from a fresh one
@@ -63,6 +64,7 @@ jobs:
 
   version-consistency:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4

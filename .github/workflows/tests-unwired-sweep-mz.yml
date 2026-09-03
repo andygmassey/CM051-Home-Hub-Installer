@@ -50,6 +50,7 @@ jobs:
     # OS they assert about. Verified passing under both /bin/bash 3.2 (the
     # runner default) and bash 5.x. Same reasoning as test-wiring.yml.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -130,6 +131,7 @@ jobs:
     # ubuntu with the declared vendored requirements installed -- same shape as
     # the repo's other python gates (setup-python + pip install).
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4

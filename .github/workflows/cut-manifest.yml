@@ -54,6 +54,7 @@ concurrency:
 jobs:
   manifest-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -142,6 +143,7 @@ jobs:
   # and pass a probe that dies on the real cut host.
   people-probe-fires:
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -279,6 +281,7 @@ jobs:
 
   manifest-parse:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4

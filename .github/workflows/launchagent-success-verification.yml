@@ -82,6 +82,7 @@ jobs:
     # gate that only ever runs on Linux has no way to notice a BSD/GNU split
     # in its own tooling -- see the mktemp -t note in the estate memory.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Environment, so a failure is attributable
@@ -165,6 +166,7 @@ jobs:
     # PROVE IT CAN GO RED. Green on the fix alone is not evidence -- a scanner
     # with a broken regex is green on everything.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: The scanner must catch the reinstated v1.0.44 Doctor block
@@ -176,6 +178,7 @@ jobs:
     # and a neighbour that VANISHED is a bigger finding than one that failed --
     # so a missing file is a hard stop, never a silent skip.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: The existing LaunchAgent guards must still hold

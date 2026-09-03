@@ -68,6 +68,7 @@ jobs:
     # code runs. The parse is portable; a Linux-only gate could not notice a
     # BSD/GNU split in its own tooling.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Environment, so a failure is attributable

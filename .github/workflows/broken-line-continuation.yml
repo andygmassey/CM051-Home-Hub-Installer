@@ -58,6 +58,7 @@ jobs:
     # ubuntu is correct: every assertion is over the TEXT of the shell files.
     # Nothing is executed, so nothing needs a Mac.
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

@@ -76,6 +76,7 @@ jobs:
   # check you cannot act on.
   cut-pin-self-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -107,6 +108,7 @@ jobs:
   # THE JOB THAT WAS MISSING. Runs the gate against the tree in the PR.
   cut-pin-is-actually-current:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:

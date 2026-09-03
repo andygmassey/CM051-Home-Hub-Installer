@@ -111,6 +111,7 @@ concurrency:
 jobs:
   autostart-mechanism:
     runs-on: macos-14
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

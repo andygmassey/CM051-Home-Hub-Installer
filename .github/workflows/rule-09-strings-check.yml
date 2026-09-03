@@ -30,6 +30,7 @@ concurrency:
 jobs:
   rule-09:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout (with merge-base history)
         uses: actions/checkout@v4

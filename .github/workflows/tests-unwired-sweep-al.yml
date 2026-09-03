@@ -45,6 +45,7 @@ concurrency:
 jobs:
   sweep-ubuntu:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -133,6 +134,7 @@ jobs:
 
   sweep-macos:
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

@@ -23,6 +23,7 @@ concurrency:
 jobs:
   new-tests-wired:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       # fetch-depth: 0 is LOAD-BEARING. The gate asks git for the merge-base
       # with origin/main, and a shallow clone has no merge-base to find -- it
