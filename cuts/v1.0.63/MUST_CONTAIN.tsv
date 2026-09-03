@@ -1,0 +1,74 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.63.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.63/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN. Authoring it in CM051
+# instead produces a copy with no pin, "a fork nobody declared".
+#
+# ===========================================================================
+# EVERY ROW SAYS ONE OF THREE THINGS AND NEVER A FOURTH
+# ===========================================================================
+#   gate:<workflow>#<job>   a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.62 is CONDEMNED. Six install-path commits are stranded off its tag, and
+# one of them (e17dad02) fixes a pgrep no-match that fabricates a TERMINAL
+# failure verdict mid-install. That fix postdates the v1.0.62 tag by 3h14m.
+# Walking v1.0.62 walks the deadlock. The daemon pin is HELD at bc63c445,
+# unchanged, so this artefact moves ONE variable.
+#
+# ===========================================================================
+# EVERY PATTERN BELOW WAS MUTATION-TESTED BEFORE IT WAS WRITTEN
+# ===========================================================================
+# pre-fix tree = CM051 c12c5e88 (the v1.0.62 pin, i.e. the tree that shipped),
+# post-fix tree = eb0aa4e6 (this cut). Measured 2026-09-03:
+#
+#   OSTLER_LAUNCHAGENT_BOOTOUT_SETTLE_S  pre 0  post 1   DISCRIMINATES
+#   OSTLER_GUI_DOMAIN_STATE              pre 0  post 4   DISCRIMINATES
+#   "|| true); do"  (install.sh)         pre 0  post 1   DISCRIMINATES
+#   pycache         (gui/Makefile)       pre 0  post 1   DISCRIMINATES
+#   OSTLER_EXTENSION_TOKEN               pre 5  post 5   CONTROL, non-zero both
+#   zzq_pattern_that_cannot_exist        pre 0  post 0   CONTROL, zero both
+#
+# The two controls are what make those zeros a measurement and not a vacuum.
+#
+# ⚠️ AND ONE VERIFY TOKEN IN THIS FILE WAS INVENTED BEFORE IT WAS CHECKED.
+# The first draft named gate:shellcheck-install.yml#shell-macos. THAT WORKFLOW
+# DOES NOT EXIST. Caught by resolving every workflow#job against the real tree
+# with a negative control (a bogus job name correctly failed to resolve). The
+# real owner was found by asking which workflow INVOKES the test rather than
+# guessing which one sounds right: install-gui-contract.yml runs
+# tests/test_pgrep_no_match_does_not_fabricate_a_done.sh. The consumer names
+# the producer; a plausible name is not a measured one.
+#
+# THREE CANDIDATE PATTERNS WERE REJECTED BY THAT SAME MEASUREMENT, and saying
+# so is the point of doing it:
+#   failed_steps  pre 2 post 2  -- FLAT. #1401 changed the LOGIC, not the token.
+#   bootout       pre 45 post 49 -- a COUNT DELTA on a common token. Any
+#   launchctl     pre 96 post 105   unrelated edit trips it. Not a guard, a
+#                                   tripwire. Replaced with the named vars.
+#
+# ⚠️ #1401 TOUCHES ZERO LINES OF install.sh. It is entirely Swift
+# (InstallerCoordinator.swift + 2 test files, 221 insertions). NO grep pattern
+# over the shell can guard it, so its verify token is the Swift suite, which is
+# measured-live on CI rather than assumed.
+#
+# ===========================================================================
+# THE MERGE IN THIS CUT THAT GETS NO ROW, NAMED RATHER THAN OMITTED
+# ===========================================================================
+# 205aa100 (CM051 #1393) adds an unattended ssh walk DRIVER. It is operator
+# tooling and reaches no customer artefact, so it has no capability to guard.
+# Named here so its absence is a decision on the record, not an oversight.
+
+what	repo	ref	landed	capability_id	verify	ticket
+🔴🔴🔴 THE WALK-KILLER: a pgrep no-match fabricated a TERMINAL failure verdict mid-install, and the double DONE that exposed it was the ERR trap inherited into a command substitution's SUBSHELL. Three earlier harnesses all refuted it for the same reason -- each kept an rc-capturing fallback that suppressed ERR.	cm051	eb0aa4e6	no	pgrep_no_match_no_terminal_verdict	gate:install-gui-contract.yml#contract	CM051 #1392 / #642 / #639
+🔴 A DONE status=ok CARRYING A FAILED STEP IS NOT A SUCCESS. Measured on the v1.0.62 walk log itself: the run ended `DONE status=ok failed_steps=1 errors=0`. Entirely Swift, so the guard is the test suite and not a grep.	cm051	eb0aa4e6	no	done_status_reconciles_failed_steps	gate:swift-tests.yml#swift-tests	CM051 #1401
+🔴 BOOTOUT DID NOT SETTLE BEFORE BOOTSTRAP, and 14 CANNOT-RUN branches were dead code that could never report. The settle window is now a NAMED, env-tunable constant rather than a hardcoded guess.	cm051	eb0aa4e6	no	launchagent_bootout_settles	gate:launchd-plist-paths.yml#launchd-plist-paths	CM051 #1398
+🟠 A LaunchAgent REFUSAL reached nobody. `launchctl load` exits 0 on failure, so a refusal was indistinguishable from a success at every call site; the reason is now recorded and the GUI domain state is named.	cm051	eb0aa4e6	no	gui_domain_state_recorded	gate:launchd-plist-paths.yml#launchd-plist-paths	CM051 #1396 / #519
+🟠 PAYLOAD ASSEMBLY COPIED AMBIENT __pycache__ INTO THE SHIPPED TREE, so a local cut baked whatever bytecode happened to be on the operator's disk into a PUBLIC artefact -- including co_filename build paths.	cm051	eb0aa4e6	no	payload_strips_ambient_pyc	gate:installer-app-pyc-seeded.yml#installer-app-pyc-seeded	CM051 #1400 / #644 / #534
