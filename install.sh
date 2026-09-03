@@ -16540,7 +16540,52 @@ fi
 unset _gdb_up _gdb_up_attempt
 ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 
-# ── Pre-create optional Qdrant collections (#606) ────────────────
+# ── v1061-D003 / reg#624: the vector store is a PREREQUISITE for import ──
+#
+# Long-standing latent defect a wiped, sole-tenant box finally exposed. On a
+# cold fresh install Qdrant collections do NOT self-create
+# (feedback_qdrant_collections_no_self_create_fresh_install), and a readiness
+# miss at T+0 (7 GB model pull + docker on a 16 GB box) can leave them absent.
+# import_data then writes every person as an embedding, 404s on the missing
+# collection, and discards thousands SILENTLY. This helper ensures the store
+# answers and every required collection exists -- creating any that are missing
+# -- and returns NON-ZERO if it cannot, so the import step can REFUSE rather
+# than run into a void. It reads the ONE shared list
+# _OSTLER_REQUIRED_QDRANT_COLLECTIONS (declared just below), so the importer's
+# expectation can never drift from the pre-creator's. The readiness wait is
+# env-tunable (OSTLER_QDRANT_READY_WAIT_S), not a magic constant, and probes the
+# AUTHENTICATED surface the writes actually use (#566).
+_OSTLER_QDRANT_MISSING_COLLECTIONS=""
+_ostler_ensure_qdrant_collections() {
+    local _u="${QDRANT_URL:-http://localhost:6333}"
+    local _max="${OSTLER_QDRANT_READY_WAIT_S:-120}" _waited=0 _c _missing=""
+    while [ "$_waited" -lt "$_max" ]; do
+        if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+            -sf -m 2 "${_u}/collections" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 2
+        _waited=$((_waited + 2))
+    done
+    for _c in "${_OSTLER_REQUIRED_QDRANT_COLLECTIONS[@]}"; do
+        if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+            -sf -m 5 "${_u}/collections/${_c}" >/dev/null 2>&1; then
+            continue
+        fi
+        curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+            -sf -m 10 -X PUT "${_u}/collections/${_c}" \
+            -H 'Content-Type: application/json' \
+            -d '{"vectors": {"size": 768, "distance": "Cosine"}}' >/dev/null 2>&1 || true
+        if ! curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+            -sf -m 5 "${_u}/collections/${_c}" >/dev/null 2>&1; then
+            _missing="${_missing:+$_missing }$_c"
+        fi
+    done
+    _OSTLER_QDRANT_MISSING_COLLECTIONS="$_missing"
+    [ -z "$_missing" ]
+}
+
+# ── Pre-create the required Qdrant collections (#606) ────────────────
 #
 # The wiki compiler reads several Qdrant collections at compile time.
 # On a fresh install `people` is written first by the contact hydrate
@@ -16637,7 +16682,7 @@ _OSTLER_REQUIRED_QDRANT_COLLECTIONS=(people conversations preferences evernote_k
 # from that. `-o /dev/null -w '%{http_code}'` keeps it; `|| printf '000'`
 # turns a transport failure (no listener, DNS, timeout) into a distinguishable
 # 000 rather than an empty string.
-for _qdrant_attempt in $(seq 1 30); do
+for _qdrant_attempt in $(seq 1 "${OSTLER_QDRANT_READY_WAIT_S:-30}"); do
     _qdrant_last_status="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
         -s -o /dev/null -w '%{http_code}' -m 2 "${_qdrant_url}/collections" 2>/dev/null || printf '000')"
     if [ "$_qdrant_last_status" = "200" ]; then
@@ -17931,6 +17976,21 @@ if [[ -n "${OSTLER_MAILBOX_DIR:-}" && -d "${OSTLER_MAILBOX_DIR}" ]]; then
 fi
 
 if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
+    # ── v1061-D003 / reg#624: refuse to import into a store that cannot hold it ──
+    # import_data embeds every person into Qdrant. If the collections were never
+    # prepared (a readiness miss upstream, and nothing self-creates them on a
+    # fresh store), every person 404s and is discarded SILENTLY -- which is how
+    # this walk scored STEP_END import_data status=ok over 3810 lost people.
+    # Give the store the tunable readiness wait it may have missed at T+0 and
+    # create anything still absent; if it STILL cannot hold the data, REFUSE via
+    # fail_with_code (which marks the step FAILED, so status=ok can never sit
+    # over a discarded import). This line is what CONNECTS the upstream readiness
+    # miss to a downstream stop -- without it the two live in different functions
+    # and nothing joins them.
+    if ! _ostler_ensure_qdrant_collections; then
+        fail_with_code "ERR-14-STORE-NOT-READY-FOR-IMPORT" \
+            "$(printf "$MSG_FAIL_QDRANT_IMPORT_REFUSED_MISSING_COLLECTIONS" "${_OSTLER_QDRANT_MISSING_COLLECTIONS:-unknown}")"
+    fi
     progress "Importing your data (building your knowledge graph)" "import_data"
     info "$MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES"
     if "$IMPORT_SCRIPT" "${_IMPORT_DIRS[@]}" \

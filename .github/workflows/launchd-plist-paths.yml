@@ -33,6 +33,7 @@ on:
       - 'tests/test_uninstaller_counts_do_not_abort_on_an_unreadable_dir.sh'
       - 'tests/test_err06_states_what_it_measured.sh'
       - 'tests/test_qdrant_readiness_tests_the_authenticated_surface.sh'
+      - 'tests/test_qdrant_import_gate_refuses_empty_store.sh'
       - 'tests/test_launchagent_bootstrap_after_staging.py'
       - 'tests/test_launchagent_homebrew_path.sh'
       - '**/launchd/*.plist'
@@ -250,6 +251,14 @@ jobs:
             echo "::error title=CANNOT-RUN (harness, not product)::The readiness-surface harness could not obtain a verdict -- the '_qdrant_ready=false' anchor is missing or ambiguous, so the region under test could not be identified. NOTHING about the readiness loop has been measured, and in particular this is NOT evidence that the credentialed arm executes."
           fi
           exit "$rc"
+
+      # v1061-D003 / reg#624: import must REFUSE an empty/unready store, not
+      # discard 3810 people into a void under STEP_END status=ok. Drives the
+      # lifted gate function against a stubbed store and asserts the refusal is
+      # wired ahead of import_data.
+      - name: The data import refuses an empty vector store, and the refusal is wired ahead of it
+        if: always()
+        run: bash tests/test_qdrant_import_gate_refuses_empty_store.sh
 
       # The ORDERING half of the same fault the step above gates by guard.
       # A real install log showed step 19 of 39 reaching the email-ingest
