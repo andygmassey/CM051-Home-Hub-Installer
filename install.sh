@@ -16828,7 +16828,16 @@ else
     # would red a gate that is doing its job. This comment deliberately does
     # NOT spell that phrase out: a `grep -F` anchor that matches a COMMENT as
     # well as the statement it guards has silently doubled its match set.
-    warn "Knowledge-graph database did not answer in time. Non-fatal, and your data has not been touched. Support reference ERR-06-STORE-AUTH-LEAK diagnostic: status=${_qdrant_last_status:-none} headers_sent=${_e6_headers} waited=${_qdrant_wait_s:-0}s conf=${_e6_conf} conf_written=${_e6_conf_age} qdrant_started_at=${_e6_started}"
+    # v1061-D003 requirement 6: LEAD with an honest reference. The measured
+    # condition here is a readiness timeout (status=000, not 401), so the code a
+    # customer reads first is now ERR-06-STORE-READINESS-TIMEOUT. The legacy
+    # ERR-06-STORE-AUTH-LEAK token is preserved verbatim on the same line -- old
+    # install logs customers have already sent carry it, and arms 3/4 of
+    # test_qdrant_readiness_tests_the_authenticated_surface.sh pin it as the
+    # greppable diagnostic anchor. This path is now also non-terminal by design:
+    # the import gate downstream waits, prepares, and REFUSES rather than
+    # discarding, so the customer never reaches a silent empty graph.
+    warn "Knowledge-graph database did not answer in time yet. The data import below will wait for it, prepare the search collections, and stop rather than discard your data if the store is still not ready. Support reference ERR-06-STORE-READINESS-TIMEOUT; legacy code ERR-06-STORE-AUTH-LEAK diagnostic: status=${_qdrant_last_status:-none} headers_sent=${_e6_headers} waited=${_qdrant_wait_s:-0}s conf=${_e6_conf} conf_written=${_e6_conf_age} qdrant_started_at=${_e6_started}"
 
     # ⚠️ ONE-HEADER CONF IS ITS OWN DEFECT, AND THE LINE ABOVE MAKES IT VISIBLE.
     # _ostler_write_store_curl_config fails closed ONLY when BOTH secrets are
@@ -17998,10 +18007,13 @@ if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
     # this walk scored STEP_END import_data status=ok over 3810 lost people.
     # Give the store the tunable readiness wait it may have missed at T+0 and
     # create anything still absent; if it STILL cannot hold the data, REFUSE via
-    # fail_with_code (which marks the step FAILED, so status=ok can never sit
-    # over a discarded import). This line is what CONNECTS the upstream readiness
-    # miss to a downstream stop -- without it the two live in different functions
-    # and nothing joins them.
+    # fail_with_code. Mechanism, measured (Archie review of #1385): that ends the
+    # install with a DONE fail marker BEFORE import_data is even announced -- this
+    # gate sits above the progress line -- so there is no import_data step for a
+    # false status=ok to sit on. The outcome is stronger than "the step is marked
+    # failed": the step never starts. This line is what CONNECTS the upstream
+    # readiness miss to a downstream stop -- without it the two live in different
+    # functions and nothing joins them.
     if ! _ostler_ensure_qdrant_collections; then
         fail_with_code "ERR-14-STORE-NOT-READY-FOR-IMPORT" \
             "$(printf "$MSG_FAIL_QDRANT_IMPORT_REFUSED_MISSING_COLLECTIONS" "${_OSTLER_QDRANT_MISSING_COLLECTIONS:-unknown}")"
