@@ -54,6 +54,7 @@ test_browsing_ingest_ensures_collection.py	WIRED	.github/workflows/tests-unwired
 test_bundle_phase_declares_every_copy.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_calendar_attendee_resolve_before_create.py	UNWIRED	-
 test_calendar_hydrate_venv.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_cannot_run_branch_is_reachable.sh	WIRED	.github/workflows/cannot-run-branch-reachable.yml
 test_cannot_run_is_a_third_state.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_cannot_run_names_its_prerequisite.sh	WIRED	.github/workflows/cut-manifest.yml
 test_canonical_keys_must_not_merge.py	WIRED	.github/workflows/vendor-integrity.yml

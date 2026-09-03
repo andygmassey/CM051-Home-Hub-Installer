@@ -108,8 +108,8 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          bash tests/test_post_walk_qa_measures_the_artefact.sh
-          rc=$?
+          rc=0
+          bash tests/test_post_walk_qa_measures_the_artefact.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The writer harness could not locate its anchors in scripts/post_walk_qa.sh. NOTHING about the writer has been measured. Do not debug post_walk_qa.sh on the strength of this line -- re-point the anchors in tests/test_post_walk_qa_measures_the_artefact.sh, and do not delete the arms."
           fi
@@ -135,8 +135,8 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          bash tests/test_walk_driver_does_not_inherit_a_stale_result.sh
-          rc=$?
+          rc=0
+          bash tests/test_walk_driver_does_not_inherit_a_stale_result.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The stale-result harness could not set itself up or its mutation anchor has moved. NOTHING about the driver has been measured."
           fi
@@ -146,8 +146,8 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          bash tests/test_walk_driver_requires_a_completion_marker.sh
-          rc=$?
+          rc=0
+          bash tests/test_walk_driver_requires_a_completion_marker.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The completion-marker harness could not set itself up or its mutation anchor has moved. NOTHING about the driver has been measured."
           fi
@@ -157,8 +157,8 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          bash tests/test_walk_driver_takes_ports_from_the_declared_field.sh
-          rc=$?
+          rc=0
+          bash tests/test_walk_driver_takes_ports_from_the_declared_field.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The declared-port harness could not set itself up or its mutation anchor has moved. NOTHING about the driver has been measured."
           fi
@@ -175,8 +175,8 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          bash tests/test_walk_pass_requires_zero_failed_steps.sh
-          rc=$?
+          rc=0
+          bash tests/test_walk_pass_requires_zero_failed_steps.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The failed-steps harness could not import the driver or the driver stopped exporting adjudicate/PASS/FAIL/CANNOT_RUN. NOTHING about the driver has been measured."
           fi
@@ -193,8 +193,8 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          bash tests/test_walk_port_probe_matches_install_sh.sh
-          rc=$?
+          rc=0
+          bash tests/test_walk_port_probe_matches_install_sh.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The port-probe harness could not import the driver, or install.sh no longer defines _check_port/_port_listeners. The driver's table is pinned to a contract that has moved; NOTHING was measured."
           fi

@@ -1,0 +1,95 @@
+name: cannot-run-branch-reachable
+
+# A CANNOT-RUN BRANCH AFTER A BARE CALL IS UNREACHABLE CODE.
+#
+# ============================================================================
+# THE DEFECT
+# ============================================================================
+#
+# GitHub runs a `run:` block as `/bin/bash -e {0}`. Under -e a command that
+# exits non-zero terminates the step AT THAT LINE. So the idiom
+#
+#     bash tests/test_thing.sh
+#     rc=$?
+#     if [ "$rc" -eq 2 ]; then echo "::error::CANNOT-RUN ..."; fi
+#     exit "$rc"
+#
+# never reaches the echo. The step fails, but ANONYMOUSLY: a harness that
+# could not set itself up reports identically to a real product defect.
+# CANNOT-RUN is a third state and this shape silently collapses it into FAIL.
+#
+# Measured 2026-09-04 under the real shell with a stub test exiting 2:
+#     bare call + rc=$?      rc=2, 0 ::error lines   <- unreachable
+#     `... || rc=$?`         rc=2, 1 ::error line
+#     control, test passes   rc=0, 0 ::error lines   <- silent on a pass
+#
+# Found because CM051 #1398 went RED while the test it ran passed 8 of 8.
+#
+# ============================================================================
+# WHY A GATE RATHER THAN THIRTEEN FIXES
+# ============================================================================
+#
+# The shape reads correctly and is what anyone writes who has not measured it.
+# The first sweep found FOURTEEN live sites, and two of them sat on the ship
+# path: cut.yml's "Walk the DMG" step, and all six of walk-record-gate.yml.
+# swift-tests.yml was the sharpest -- its entire reason for existing is to
+# name the failing test, and that whole block was dead on the failure path.
+# Thirteen fixes leave the fourteenth free to be written next week.
+#
+# ============================================================================
+# WHY THE SELF-TEST IS ITS OWN JOB
+# ============================================================================
+#
+# A failing gate skips everything after it, so a broken predicate would take
+# down the job it guards and report one red instead of two. The test file
+# carries four controls -- the defect must be CAUGHT, and the two correct
+# spellings (`|| rc=$?` and `set +e`) plus a shell with no -e must NOT fire --
+# so a clean verdict is only ever reported by a predicate proved to
+# discriminate in both directions.
+
+on:
+  pull_request:
+    paths:
+      # ANY workflow edit. The subject of this gate is the workflow corpus, so
+      # narrowing this to a handful of files would let the next instance land
+      # in an unwatched one.
+      - '.github/workflows/**'
+      - 'scripts/verify_cannot_run_branch_is_reachable.py'
+      - 'tests/test_cannot_run_branch_is_reachable.sh'
+      - 'tests/TEST_WIRING.tsv'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch/PR. NEVER cancels main or a
+  # tag: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  gate:
+    # macOS, because that is where the shape being guarded actually runs and
+    # where the repo's other shell gates run. The scan is portable; a gate that
+    # only ever ran on Linux could not notice a BSD/GNU split in its own
+    # tooling (see the mktemp -t note in the test file).
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Environment, so a failure is attributable
+        run: |
+          /bin/bash --version | head -1
+          python3 --version
+          python3 -c 'import yaml; print("PyYAML", yaml.__version__)'
+      - name: Every $? capture must be reachable under its step's own shell
+        run: |
+          # ⚠️ `|| rc=$?` -- this gate must not carry the defect it hunts.
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_cannot_run_branch_is_reachable.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The reachability harness could not run -- most likely PyYAML is absent, so NO workflow was parsed. Nothing was measured; this is not a pass."
+          fi
+          exit "$rc"

@@ -1018,8 +1018,8 @@ jobs:
               echo "::error title=No DMG to walk::The artefact walk found no dist/*.dmg. It has NOT walked anything -- it failed to look. DO NOT SHIP."
               exit 1
           fi
-          bash scripts/walk_dmg.sh "$DMG"
-          rc=$?
+          rc=0
+          bash scripts/walk_dmg.sh "$DMG" || rc=$?
           if [ "$rc" -eq 0 ]; then
               echo "walk_dmg: all arms PASS on ${DMG##*/}"
           elif [ "$rc" -eq 2 ]; then
