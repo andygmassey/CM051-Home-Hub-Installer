@@ -117,7 +117,7 @@ run_refusal() {
 
 # ── A. the reason reaches the transcript at all ─────────────────────────────
 OUT_UNREACH="$(run_refusal 1 "${WORK}/lib.sh")"
-if printf '%s' "$OUT_UNREACH" | grep -q 'not registered in gui/501'; then
+if grep -q 'not registered in gui/501' <<< \"$OUT_UNREACH\"; then
     ok "the refusal REASON reaches warn (the transcript a walk captures)"
 else
     bad "the reason never reached warn. THE DEFECT: it goes only to \
@@ -125,7 +125,7 @@ else
 fi
 
 # ── B. domain UNREACHABLE is named as such ──────────────────────────────────
-if printf '%s' "$OUT_UNREACH" | grep -q 'IS NOT REACHABLE'; then
+if grep -q 'IS NOT REACHABLE' <<< \"$OUT_UNREACH\"; then
     ok "domain unreachable is NAMED, not reported as an agent defect"
 else
     bad "an unreachable gui domain read like a broken agent. Every 'not \
@@ -136,7 +136,7 @@ fi
 # This is the arm that makes B mean anything: a scope line that is constant
 # across both states discriminates nothing.
 OUT_REACH="$(run_refusal 0 "${WORK}/lib.sh")"
-if printf '%s' "$OUT_REACH" | grep -q 'IS NOT REACHABLE'; then
+if grep -q 'IS NOT REACHABLE' <<< \"$OUT_REACH\"; then
     bad "a REACHABLE domain still printed the unreachable text -- the probe \
 is not consulted, or its sense is inverted."
 elif [ "$OUT_REACH" = "$OUT_UNREACH" ]; then
@@ -148,7 +148,7 @@ fi
 
 # ── D. launchd's own words survive ──────────────────────────────────────────
 # `2>/dev/null` on this stderr is what hid the cause in the first place.
-if printf '%s' "$OUT_UNREACH" | grep -q 'Bootstrap failed: 5'; then
+if grep -q 'Bootstrap failed: 5' <<< \"$OUT_UNREACH\"; then
     ok "launchd's own stderr reaches the transcript"
 else
     bad "launchd's stderr was dropped. That text IS the diagnosis; discarding \
@@ -171,7 +171,7 @@ sed -e 's/^    warn /    : /' -e 's/^            \[\[ -n "\$_l" \]\] && warn /  
     "${WORK}/lib.sh" > "${WORK}/mutant.sh"
 if ! grep -q '^    warn ' "${WORK}/mutant.sh"; then
     MUT="$(run_refusal 1 "${WORK}/mutant.sh")"
-    if printf '%s' "$MUT" | grep -q 'IS NOT REACHABLE'; then
+    if grep -q 'IS NOT REACHABLE' <<< \"$MUT\"; then
         bad "CONTROL: the mutant with every warn removed STILL passed arm B. \
 This file grades nothing."
     else
