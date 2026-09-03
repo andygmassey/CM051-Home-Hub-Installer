@@ -151,8 +151,82 @@ else:
           "close, so the shape was not reproduced here. The table arm above "
           "still pins the adjudication." % (bind_now, listeners_now))
 
+
+# ── The settle loop: --reset must not be SELF-BLOCKING ───────────────
+#
+# Grading TIME_WAIT as "unmeasured" is correct but, alone, useless: the
+# reset stops colima and the preflight seconds later can measure neither
+# free nor held, so every --reset run refuses. preflight_ports waits the
+# transient out. These arms prove it waits for the RIGHT thing, and -- the
+# one that matters -- that it CANNOT wait away a real collision.
+if not hasattr(mod, "preflight_ports"):
+    print("CANNOT-RUN [premise]: the driver has no preflight_ports; the "
+          "settle arms measured nothing.", file=sys.stderr)
+    raise SystemExit(2)
+
+import os, tempfile                                            # noqa: E402
+
+fd, fake_install = tempfile.mkstemp(suffix="-install.sh")
+with os.fdopen(fd, "w") as fh:
+    fh.write('OSTLER_PREFLIGHT_PORTS="6333"\n')
+fd2, two_port_install = tempfile.mkstemp(suffix="-install2.sh")
+with os.fdopen(fd2, "w") as fh:
+    fh.write('OSTLER_PREFLIGHT_PORTS="6333 8044"\n')
+os.environ["OSTLER_WALK_PORT_SETTLE_S"] = "10"     # 2 waits, not 45s of test
+
+real_is_held = mod.port_is_held
+try:
+    calls = {"n": 0}
+
+    def settles(_p):
+        calls["n"] += 1
+        return "unmeasured" if calls["n"] < 3 else "free"
+
+    mod.port_is_held = settles
+    verdict, msg = mod.preflight_ports(fake_install)
+    check("a transient clears while we wait", verdict, mod.PASS,
+          "THE --reset CASE. TIME_WAIT clears in ~30s; refusing instead of "
+          "waiting makes reset-then-walk impossible, which is how run 9 ended.")
+
+    calls["n"] = 0
+    mod.port_is_held = lambda _p: "unmeasured"
+    verdict, msg = mod.preflight_ports(fake_install)
+    check("a transient that never clears", verdict, mod.CANNOT_RUN,
+          "CONTROL. The wait is bounded. After the budget an unmeasurable "
+          "port is still CANNOT-RUN -- never quietly a pass.")
+
+    # ⚠️ THIS ARM IS MIXED ON PURPOSE, AND MY FIRST VERSION OF IT WAS
+    # WORTHLESS. With EVERY port held, `unmeasured` is empty, so the loop
+    # breaks on `not unmeasured` whether or not the held short-circuit
+    # exists -- the mutant that deletes `held or` SURVIVED that arm. The
+    # discriminating case needs BOTH states at once: one port definitively
+    # held, another merely unmeasurable. Only then does the short-circuit
+    # decide whether we exit now or sit through the whole budget waiting on
+    # a box we have already proved unusable.
+    calls["n"] = 0
+
+    def mixed(p):
+        calls["n"] += 1
+        return "held" if p == "6333" else "unmeasured"
+
+    mod.port_is_held = mixed
+    verdict, msg = mod.preflight_ports(two_port_install)
+    check("held + unmeasured together", verdict, mod.CANNOT_RUN,
+          "THE CONTROL THAT MATTERS MOST. A proved collision must decide "
+          "the verdict; it must not be waited on.")
+    check("...and it stops after ONE pass", calls["n"], 2,
+          "2 = one pass over two ports. Anything more means the loop kept "
+          "waiting after a port was already PROVED held -- burning the "
+          "settle budget on a box that can never pass. This is the arm that "
+          "kills the mutant which deletes the `held or` short-circuit.")
+finally:
+    mod.port_is_held = real_is_held
+    os.unlink(fake_install)
+    os.unlink(two_port_install)
+    os.environ.pop("OSTLER_WALK_PORT_SETTLE_S", None)
+
 if rc == 0:
     print("PASS: tests/test_walk_port_probe_matches_install_sh.sh "
-          "(%d table rows + live controls)" % len(ROWS))
+          "(%d table rows + live controls + 4 settle arms)" % len(ROWS))
 raise SystemExit(rc)
 PY

@@ -459,11 +459,35 @@ def preflight_ports(install_sh):
     ports, err = declared_ports(install_sh)
     if err:
         return CANNOT_RUN, err
-    states = [(p, port_is_held(p)) for p in ports]
-    held = [p for p, s in states if s == "held"]
-    unmeasured = [p for p, s in states if s == "unmeasured"]
-    trace("port preflight over %d declared port(s): %s" % (
-        len(ports), " ".join("%s=%s" % (p, s) for p, s in states)))
+
+    # ⏱ WAIT OUT A TRANSIENT BEFORE CALLING IT UNMEASURABLE.
+    #
+    # Without this, `--reset` is SELF-BLOCKING: the reset stops colima, its
+    # forwarded sockets sit in TIME_WAIT for 2*MSL (30s on macOS), and the
+    # preflight that runs seconds later can measure neither free nor held.
+    # Refusing there is honest but useless -- the operator's only remedy is
+    # to wait and re-run, which is exactly what this loop does for them.
+    #
+    # This is NOT a retry-until-green: a port that is genuinely HELD exits on
+    # the FIRST pass and is never re-probed, so a real collision can never be
+    # waited away. Only the third state gets a second chance, and after the
+    # budget it is still CANNOT-RUN.
+    deadline_s = float(os.environ.get("OSTLER_WALK_PORT_SETTLE_S", "45"))
+    waited = 0.0
+    while True:
+        states = [(p, port_is_held(p)) for p in ports]
+        held = [p for p, s in states if s == "held"]
+        unmeasured = [p for p, s in states if s == "unmeasured"]
+        if held or not unmeasured or waited >= deadline_s:
+            break
+        trace("port preflight: %s unmeasured after %.0fs, waiting (TIME_WAIT "
+              "clears in ~30s on macOS)" % (" ".join(unmeasured), waited))
+        time.sleep(5)
+        waited += 5.0
+
+    trace("port preflight over %d declared port(s) after %.0fs: %s" % (
+        len(ports), waited,
+        " ".join("%s=%s" % (p, s) for p, s in states)))
     if held:
         return CANNOT_RUN, (
             "%d of %d declared port(s) are already held: %s. install.sh's own "
