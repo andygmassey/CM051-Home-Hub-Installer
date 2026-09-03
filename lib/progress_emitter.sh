@@ -319,6 +319,13 @@ __OSTLER_STEP_RC=0
 # Count of steps closed with a status other than ok. Read by gui_done so
 # the single terminal line carries the truth about the whole run.
 __OSTLER_FAILED_STEPS=0
+# The ORDERED ids of exactly those failed steps, appended at the SAME site that
+# increments the count above (gui_step_end), so the number and the names are one
+# record and cannot disagree. NOT a second tally (#532/#616): it is a projection
+# of the same increment event, subject to the same subshell FLOOR caveat the
+# count already carries. word-count == __OSTLER_FAILED_STEPS is an invariant.
+# Read by install.sh's closing verdict to NAME which steps did not complete.
+__OSTLER_FAILED_STEP_IDS=""
 # Message-level error counter. Companion to __OSTLER_FAILED_STEPS, and a
 # DIFFERENT question: that one counts steps that ended badly, this one counts
 # [ERROR] lines raised anywhere. See gui_log for why both are needed.
@@ -410,6 +417,12 @@ gui_step_end() {
         # Count it even when OSTLER_GUI is unset: the counter is
         # bookkeeping, gui_emit is the wire, and only the wire is gated.
         __OSTLER_FAILED_STEPS=$(( __OSTLER_FAILED_STEPS + 1 ))
+        # Same event, same $id the STEP_END line below carries: append it here
+        # so the count and the id-list are written together and stay in lockstep
+        # (#616). Space-separated; ids have no internal spaces, so word-count is
+        # exact. The abort-close path (gui_done -> gui_step_end error) reaches
+        # this site too, so a run that died inside a step names that step.
+        __OSTLER_FAILED_STEP_IDS="${__OSTLER_FAILED_STEP_IDS:+${__OSTLER_FAILED_STEP_IDS} }${id}"
         # #873: a non-ok status with rc=0 says "it failed with exit code
         # success", which is the DONE line's own defect one level down.
         # It arises when the status was ESCALATED by an argument rather

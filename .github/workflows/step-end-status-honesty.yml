@@ -45,6 +45,10 @@ on:
       - 'tests/test_an_abort_speaks_on_a_terminal_install.sh'
       - 'tests/test_err_trap_emits_done_fail.sh'
       - 'tests/test_gui_progress_emitter.sh'
+      # #616 step 1: the closing verdict consults failed_steps + names the
+      # steps. Reads install.sh (the verdict) and lib/progress_emitter.sh (the
+      # id-list), both already watched above, so a change to either fires it.
+      - 'tests/test_closing_verdict_consults_failed_steps.sh'
       - '.github/workflows/step-end-status-honesty.yml'
   push:
     branches: [main]
@@ -129,6 +133,24 @@ jobs:
         if: always()
         run: /bin/bash tests/test_gui_progress_emitter.sh
 
+      # #616 step 1 -- THE VERDICT A HUMAN READS.
+      #
+      # The two gates above prove every step's own STEP_END marker is honest
+      # and that an abort counts the step it died in. Neither reads the
+      # WHOLE-RUN sentence install.sh prints at the end. On the v1.0.60 walk
+      # two steps timed out (failed_steps=2), yet that sentence was derived
+      # from the err() MESSAGE tally alone -- a `timeout` raises no err() --
+      # so it printed "Ostler finished with no errors raised" beside a
+      # DONE line reading failed_steps=2. This test extracts the real verdict
+      # block + real ok/warn/err and drives the real emitter, and carries an
+      # anti-vacuity limb (the pre-fix verdict must LIE on the same input) so
+      # it fails if the derivation is reverted rather than merely asserting
+      # it is present. Runs under /bin/bash (3.2 on this runner), the shell
+      # the customer's installer actually uses.
+      - name: The closing verdict consults failed_steps and names them (#616)
+        if: always()
+        run: /bin/bash tests/test_closing_verdict_consults_failed_steps.sh
+
       - name: Both files parse under /bin/bash 3.2 (the cut host's shell)
         if: always()
         run: |
@@ -136,6 +158,7 @@ jobs:
           /bin/bash -n tests/test_step_end_does_not_report_a_timed_out_step_as_ok.sh
           /bin/bash -n tests/test_an_abort_inside_a_step_is_counted.sh
           /bin/bash -n tests/test_an_abort_speaks_on_a_terminal_install.sh
+          /bin/bash -n tests/test_closing_verdict_consults_failed_steps.sh
           /bin/bash -n lib/progress_emitter.sh
           /bin/bash -n install.sh
           echo "OK: parses under the shell the cut actually uses"

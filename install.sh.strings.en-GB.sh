@@ -744,13 +744,17 @@ MSG_WARN_OR_RE_RUN_INSTALLER_PICK_DIFFERENT="or re-run the installer and pick a 
 MSG_WARN_OR_RUNNING_AHEAD_PHASE_B_S="or running ahead of Phase B's release pipeline. Re-run the installer once the"
 MSG_WARN_OSTLER_ASSISTANT_DOCTOR_REPORTED_ERROR_S="ostler-assistant doctor reported %s error(s)."
 
-# The whole-run closing verdict (#270). Deliberately NOT phrased as a doctor
-# result: the doctor string above is scoped to the assistant doctor and is
-# true; this pair is the verdict for the install as a whole, which nothing
-# stated before. Wording is plain because a customer reads it at the moment
-# they decide whether the thing worked.
+# The whole-run closing verdict (#270, step-failure line added #616).
+# Deliberately NOT phrased as a doctor result: the doctor string above is scoped
+# to the assistant doctor and is true; this set is the verdict for the install as
+# a whole, which nothing stated before. Wording is plain because a customer reads
+# it at the moment they decide whether the thing worked. The FAILED_STEPS line
+# exists because a step killed by its timeout cap raises no err(), so the
+# error-count line alone would print "no errors raised" over a failed step; its
+# second %s is the space-separated ids of the steps that did not complete.
 MSG_WARN_INSTALL_FINISHED_WITH_ERRORS="Ostler finished, but %s error(s) were raised during the install."
 MSG_WARN_INSTALL_FINISHED_WITH_ERRORS_WHERE="  The full detail is in ~/.ostler/logs/install.log. Ostler will still start; open the Doctor to see what needs attention."
+MSG_WARN_INSTALL_FINISHED_WITH_FAILED_STEPS="Ostler finished, but %s install step(s) did not complete cleanly: %s"
 MSG_OK_INSTALL_FINISHED_NO_ERRORS_RAISED="Ostler finished with no errors raised during the install."
 
 MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK="ostler-assistant extracted but --version check failed."
