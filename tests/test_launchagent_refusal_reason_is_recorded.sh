@@ -264,5 +264,32 @@ else
     echo "ok   arm 6 control: a RUNNING KeepAlive agent passes and records nothing"
 fi
 
+# ── NO ARM 7. AND THE REASON IS THE POINT ──────────────────────────
+#
+# I wrote one, and it did not discriminate. It installed an ERR trap around
+# the call and asserted the trap did not fire -- and the MUTANT (the real
+# pre-fix `$( ) || { }` shape restored) PASSED IT. Bash exempts the left side
+# of a `||` list from ERR, so my harness could never reproduce what the box
+# did. An arm that goes green against the defect is worse than no arm: it
+# manufactures confidence. Deleted rather than kept as decoration.
+#
+# WHAT IS ACTUALLY MEASURED lives on the box, in ttywalk run 10's own log:
+#   line 452  STEP_BEGIN id=doctor_setup
+#   line 468  DONE status=fail code=ERR-99-INSTALL-ABORT-L1465   <- FABRICATED
+#   line 839  STEP_BEGIN id=wiki_compile                        <- STILL RUNNING
+# The install did NOT die -- it ran to the end. The ERR trap fired inside the
+# command substitution's subshell under `set -Eeuo` (install.sh:29), emitted a
+# TERMINAL DONE mid-install, and cost doctor_setup a spurious status=error.
+# That is #642's shape: a fabricated terminal marker, not a killed install.
+#
+# The fix stands on install.sh's OWN documented rule, not on this file:
+#   install.sh:5453  "`|| true` is not removable either: it is what keeps
+#                     `set -E` from firing the ERR trap"
+# The two call sites in _ostler_launchagent_load_verified were the only ones
+# in that function that broke it.
+#
+# 🔴 STILL OWED: a harness that reproduces the subshell-trap emission for
+# real. Tracked, not pretended.
+
 [[ "$rc" -eq 0 ]] && echo "PASS: tests/test_launchagent_refusal_reason_is_recorded.sh"
 exit "$rc"

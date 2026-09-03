@@ -1412,12 +1412,34 @@ _ostler_launchagent_load_verified() {
     # test would report those as broken. 78 is EX_CONFIG, which launchd does
     # NOT retry -- it parks the job until a `kickstart -k` clears it. That is
     # the state a customer would otherwise be told was fine.
+    # 🔴 THE `|| true` MUST BE INSIDE THE SUBSTITUTION. THIS KILLED AN INSTALL.
+    #
+    # MEASURED, ttywalk run 10 (2026-09-04), on the Mini 16:
+    #   #OSTLER LOG level=error msg=Install aborted unexpectedly at line 1465
+    #           (step doctor_setup): launchctl print "${_domain}/${_label}"
+    #   #OSTLER STEP_END id=doctor_setup status=error elapsed_s=1 rc=113
+    #   #OSTLER DONE status=fail code=ERR-99-INSTALL-ABORT-L1465
+    # One second in, on the FIRST poll, the whole install died.
+    #
+    # This was written as `_print="$(... )" || { handle; }` -- which LOOKS
+    # guarded and is not. It is #642's mechanism exactly: the ERR trap is
+    # INHERITED INTO THE COMMAND SUBSTITUTION'S SUBSHELL, so a non-zero
+    # `launchctl print` fires the trap and aborts the run BEFORE the outer
+    # `||` is ever consulted. An outer guard cannot protect an inner command.
+    #
+    # And a non-zero print is NORMAL here: the label is legitimately absent
+    # until launchd registers it. The guard has to tolerate that INSIDE.
+    #
+    # The rc is not lost, only relocated: an absent job prints NOTHING, so
+    # emptiness is the same signal, and it cannot be faked by a job that
+    # exists (launchctl always prints a block for one that does).
     local _print
-    _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null)" || {
+    _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null || true)"
+    if [[ -z "$_print" ]]; then
         _ostler_launchagent_note_refusal "$_label" \
             "not registered in ${_domain} after bootstrap+load" "$_load_err"
         return 1
-    }
+    fi
 
     case "$_print" in
         *"last exit code = 78:"*|*"last exit code = 78"[!0-9]*)
@@ -1462,12 +1484,15 @@ _ostler_launchagent_load_verified() {
             case "$_state" in running*) break ;; esac
             sleep 0.5
             _waited=$((_waited + 1))
-            _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null)" || {
+            # Same trap, same fix as the first call: tolerance INSIDE. This is
+            # the line the run-10 abort actually named (L1465).
+            _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null || true)"
+            if [[ -z "$_print" ]]; then
                 _ostler_launchagent_note_refusal "$_label" \
                     "registered, then VANISHED from ${_domain} before it ran" \
                     "$_load_err"
                 return 1
-            }
+            fi
         done
         case "$_state" in
             running*) : ;;

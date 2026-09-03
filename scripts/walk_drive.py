@@ -374,32 +374,81 @@ def port_bind_probe(port):
         sock.close()
 
 
-def port_listeners(port):
-    """LISTEN row count for `port`, or "cant" when the instrument failed.
+def count_listen_rows(text, port):
+    """LISTEN rows for `port` in netstat/ss output. THREE formats, one parser.
 
-    Mirrors install.sh's `_port_listeners` (install.sh:15303) down to the
-    netstat flags and the field it reads, so the two cannot disagree for a
-    reason that is only about how they asked.
+    🔴 MEASURE ON THE HOST THAT RUNS IT -- and my first version did not.
+    I wrote this against `/usr/sbin/netstat -an -p tcp -f inet` alone, which
+    is macOS. The walk box is macOS so the DRIVER was fine, but the TESTS run
+    on a Linux runner with no /usr/sbin/netstat, so the probe returned "cant"
+    for every port, `free + cant` graded unmeasured, and the preflight refused
+    every port on CI. Two PRE-EXISTING tests went red and the cause was mine.
+
+    The three shapes, and why one split() cannot do it:
+        BSD netstat  tcp4  0  0  127.0.0.1.6333   *.*        LISTEN
+        GNU netstat  tcp   0  0  127.0.0.1:6333   0.0.0.0:*  LISTEN
+        ss -Hltn     LISTEN 0  4096  127.0.0.1:6333  0.0.0.0:*
+    LISTEN is the LAST field on both netstats and the FIRST on ss, and the
+    local address separates its port with '.' on BSD and ':' elsewhere.
+
+    Split out as a pure function precisely so both formats can be tested
+    from sample text on either host, rather than only the one I happen to be
+    standing on.
+    """
+    n = 0
+    for line in text.splitlines():
+        cols = line.split()
+        if len(cols) < 4:
+            continue
+        if cols[-1] == "LISTEN":          # netstat, BSD or GNU
+            local = cols[3]
+        elif cols[0] == "LISTEN":         # ss -Hltn
+            local = cols[3]
+        else:
+            continue
+        # ':' first: an IPv6 local address is [::1]:6333, and rsplitting on
+        # '.' there would return the whole string.
+        tail = local.rsplit(":", 1)[-1] if ":" in local else local.rsplit(".", 1)[-1]
+        if tail == str(port):
+            n += 1
+    return n
+
+
+# Tried in order. The first that RUNS wins; "cant" only if none of them do.
+_LISTEN_PROBES = (
+    ["/usr/sbin/netstat", "-an", "-p", "tcp", "-f", "inet"],  # macOS, and
+                                                  # install.sh's own argv
+    ["ss", "-Hltn"],                              # Linux, modern
+    ["netstat", "-ltn"],                          # Linux, older
+)
+
+
+def port_listeners(port):
+    """LISTEN row count for `port`, or "cant" when NO instrument could run.
+
+    The macOS argv is first and is byte-identical to install.sh's
+    `_port_listeners` (install.sh:15303), so on the box the two ask the same
+    question of the same tool. The others exist so this is measurable on the
+    hosts our tests run on.
 
     MUST NEVER return 0 for a failed measurement. That is the false-clean
     this whole block exists to prevent.
     """
-    try:
-        out = subprocess.run(
-            ["/usr/sbin/netstat", "-an", "-p", "tcp", "-f", "inet"],
-            capture_output=True, text=True)
-    except OSError:
-        return "cant"
-    if out.returncode != 0 or not out.stdout.strip():
-        return "cant"
-    n = 0
-    for line in out.stdout.splitlines():
-        cols = line.split()
-        if len(cols) < 4 or cols[-1] != "LISTEN":
+    for argv in _LISTEN_PROBES:
+        try:
+            out = subprocess.run(argv, capture_output=True, text=True)
+        except OSError:
+            continue                      # not installed here; try the next
+        if out.returncode != 0:
             continue
-        if cols[3].rsplit(".", 1)[-1] == str(port):
-            n += 1
-    return n
+        if not out.stdout.strip():
+            # Ran cleanly and printed nothing. A machine with NO listening
+            # sockets at all is possible but vanishingly rare, and an empty
+            # read is the classic false zero, so do not count it as 0 --
+            # fall through and let another instrument answer.
+            continue
+        return count_listen_rows(out.stdout, port)
+    return "cant"
 
 
 def port_is_held(port):
