@@ -42,8 +42,8 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          bash tests/test_version_gate_refuses_a_tautology.sh
-          rc=$?
+          rc=0
+          bash tests/test_version_gate_refuses_a_tautology.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The tautology harness could not read the plist or find the gate. NOTHING about the version gate has been measured -- this is not a pass."
           fi

@@ -234,8 +234,8 @@ jobs:
                   export OSTLER_EXPECTED_DMG_BYTES="${want_bytes}"
               fi
           fi
-          /bin/bash scripts/verify_customer_download_path.sh "${want_version}"
-          rc=$?
+          rc=0
+          /bin/bash scripts/verify_customer_download_path.sh "${want_version}" || rc=$?
           # Tri-state is deliberate and is NOT flattened here. rc=2 means the
           # gate could not reach the release API (auth or network), which is a
           # statement about this runner and not about the download path. Report

@@ -50,6 +50,7 @@ on:
       - 'tests/test_launchagent_success_requires_verification.sh'
       - 'tests/test_launchagent_refusal_reason_is_recorded.sh'
       - 'tests/test_launchagent_refusal_reaches_the_transcript.sh'
+      - 'tests/test_launchagent_bootout_settles_before_bootstrap.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/launchagent-success-verification.yml'
       # Watched because the regression job below RUNS them. A run: without a
@@ -115,11 +116,33 @@ jobs:
       - name: A refusal must reach the transcript and name its scope
         if: always()
         run: |
+          # ⚠️ `|| rc=$?`, NOT a bare call. The step shell is `/bin/bash -e {0}`
+          # (printed by the runner). Under -e a test exiting 2 kills the step AT
+          # THAT LINE, so `rc=$?` never runs and the CANNOT-RUN branch below is
+          # unreachable code. Measured 2026-09-04: current form 0 ::error lines
+          # on an rc=2 test, this form 1, and 0 when the test passes.
           set -uo pipefail
-          /bin/bash tests/test_launchagent_refusal_reaches_the_transcript.sh
-          rc=$?
+          rc=0
+          /bin/bash tests/test_launchagent_refusal_reaches_the_transcript.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The refusal harness could not extract its subject from install.sh. NOTHING was measured about LaunchAgent refusals -- this is not a pass."
+          fi
+          exit "$rc"
+      # bootout is ASYNCHRONOUS. Bootstrapping into a half-torn-down label
+      # fails EIO and the job never spawns. Measured on the Mini 16: payload
+      # 18:42:10Z, plist 18:42:11Z, refusal 18:42:11Z -- one second for the
+      # whole sequence, and the reason recorded was "registered, then VANISHED
+      # from gui/501 before it ran". 2 of 20 agents failed; 18 loaded.
+      - name: bootout settles before bootstrap, and costs nothing when idle
+        if: always()
+        run: |
+          # `|| rc=$?` for the same reason as the step above: under `bash -e`
+          # a bare fallible call exits the step before rc is ever captured.
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_launchagent_bootout_settles_before_bootstrap.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::Could not extract the bootout region from install.sh. NOTHING was measured -- this is not a pass."
           fi
           exit "$rc"
 
