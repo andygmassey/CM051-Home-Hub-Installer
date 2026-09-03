@@ -49,7 +49,11 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INSTALL_SCRIPT="${REPO_ROOT}/install.sh"
+# INSTALL_SCRIPT is env-overridable ONLY so this gate can be exercised against a
+# fixture install.sh (e.g. one with a line inserted in the readiness loop, to
+# prove the region extraction is robust to line drift -- #631). Unset in CI, it
+# resolves to the real repo install.sh, unchanged.
+INSTALL_SCRIPT="${OSTLER_TEST_INSTALL_SCRIPT:-${REPO_ROOT}/install.sh}"
 
 pass=0; fail=0
 ok()   { printf '  ok    %s\n' "$*"; pass=$((pass+1)); }
@@ -73,8 +77,17 @@ elif [ "$n_anchor" -gt 1 ]; then
     cannot_run "'_qdrant_ready=false' appears ${n_anchor} times; the region is ambiguous. Refusing to guess which loop is the subject."
 fi
 start_line="$(grep -nE '^_qdrant_ready=false$' "$INSTALL_SCRIPT" | cut -d: -f1)"
-LOOP="$(awk -v s="$start_line" 'NR>=s && NR<=s+70' "$INSTALL_SCRIPT" \
-    | awk '/^done$/{print; exit} {print}')"
+# Extract the loop by its STRUCTURAL end -- the first `^done$` after the
+# initialiser -- not by an arbitrary line window. The old `NR<=s+70` cap was
+# a proxy for "the loop is short"; the loop is 79 lines, so the cap already
+# truncated it (blind to the status check and `done`) and left ARM 1's
+# credential anchor one inserted line from falling out of the window, a false
+# RED on any PR that touched the region (#631). `done` is the terminator the
+# code already searched for; anchor on it directly.
+LOOP="$(awk -v s="$start_line" 'NR>=s{print; if (/^done$/) exit}' "$INSTALL_SCRIPT")"
+if [ "$(printf '%s\n' "$LOOP" | tail -1)" != "done" ]; then
+    cannot_run "no 'done' closes the readiness loop after line ${start_line}; its terminator was renamed or removed. Refusing to judge a region with no end."
+fi
 
 if [ "$(printf '%s\n' "$LOOP" | grep -cF '/collections')" -eq 0 ]; then
     cannot_run "the extracted readiness region does not mention /collections; wrong region."
@@ -198,6 +211,30 @@ else
     bad "ARM 6 MUTATION -> the PINNED PRE-FIX loop does NOT trip arm 2, so arm 2's
       green proves nothing: either the fixture has drifted from what actually
       shipped, or the predicate cannot match the defect it names."
+fi
+
+# ── ARM 7: ROBUSTNESS -- A LINE INSERTED IN THE LOOP MUST NOT CHANGE THE VERDICT ──
+# The region used to be extracted by a fixed `s+70` window (#631). The loop is
+# 79 lines, so the window already truncated it and ARM 1's credential anchor sat
+# one inserted line from falling out -- a comment added anywhere in the region
+# turned this gate RED on a PR that never touched readiness. The fix anchors the
+# region on the loop's own `done`. This proves it: re-run the gate against a copy
+# of install.sh with ONE comment inserted inside the loop; the verdict must not
+# move. Skipped when INSTALL_SCRIPT is already overridden, so the child does not
+# recurse into this arm.
+if [ -z "${OSTLER_TEST_INSTALL_SCRIPT:-}" ]; then
+    _rb_start="$(grep -nE '^_qdrant_ready=false$' "$INSTALL_SCRIPT" | cut -d: -f1)"
+    _rb_tmp="$(mktemp "${TMPDIR:-/tmp}/readiness-shift-XXXXXX")"
+    awk -v s="$_rb_start" 'NR==s+1{print "    # #631 robustness probe: a line inserted inside the readiness loop"} {print}' \
+        "$INSTALL_SCRIPT" > "$_rb_tmp"
+    if OSTLER_TEST_INSTALL_SCRIPT="$_rb_tmp" bash "${BASH_SOURCE[0]}" >/dev/null 2>&1; then
+        ok "ARM 7 ROBUSTNESS -> a line inserted in the loop does not change the verdict (region tracks its own 'done', not a window)"
+    else
+        bad "ARM 7 ROBUSTNESS -> inserting one line in the readiness loop changed the
+      verdict. The region extraction is drifting with line numbers again -- the
+      exact #631 tripwire. Anchor the region on the loop's 'done', not a window."
+    fi
+    rm -f "$_rb_tmp"
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
