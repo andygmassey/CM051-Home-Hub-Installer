@@ -475,6 +475,74 @@ jobs:
 YML
 expect "(23) a glob path entry is not mistaken for a missing workflow" 0 "$d"
 
+echo "== axis 1b: a path in a full-line comment is NOT an invocation =="
+
+# (24) The defect from CM051 #1402: a `run:` body that NAMES a tests/ path in a
+#      full-line `#` comment (explaining why, not running it) was read as an
+#      invocation, so an unwatched path spelled only in a comment manufactured a
+#      false violation. test_subject.sh is watched and run (clean); test_other.sh
+#      appears ONLY in a comment. Before the fix this is rc=1 (false); after, rc=0.
+d="$(fixture commentonly)"
+cat > "$d/.github/workflows/w.yml" <<'YML'
+name: w
+on:
+  pull_request:
+    paths:
+      - 'tests/test_subject.sh'
+      - '.github/workflows/w.yml'
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          # tests/test_other.sh is named here in a comment, never executed
+          bash tests/test_subject.sh
+YML
+expect "(24) a tests/ path in a full-line comment is not an invocation" 0 "$d"
+
+# (25) POSITIVE CONTROL, the fix must stay narrow: the SAME path in a LIVE
+#      command is still caught. If (24) passes by blinding real invocations too,
+#      this goes rc=0 and the fix is too broad.
+d="$(fixture commentlive)"
+cat > "$d/.github/workflows/w.yml" <<'YML'
+name: w
+on:
+  pull_request:
+    paths:
+      - 'tests/test_subject.sh'
+      - '.github/workflows/w.yml'
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          bash tests/test_other.sh
+          bash tests/test_subject.sh
+YML
+expect "(25) the same path in a LIVE command is still a violation" 1 "$d"
+
+# (26) Requirement 3: only a line whose FIRST non-space char is '#' is skipped.
+#      A real command with a TRAILING '# note' must STILL count. If the skip were
+#      "any line containing #", this unwatched live invocation would go dark-free
+#      (rc=0) and the guard would be gone.
+d="$(fixture trailingnote)"
+cat > "$d/.github/workflows/w.yml" <<'YML'
+name: w
+on:
+  pull_request:
+    paths:
+      - 'tests/test_subject.sh'
+      - '.github/workflows/w.yml'
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          bash tests/test_other.sh  # trailing note -- the command must still count
+          bash tests/test_subject.sh
+YML
+expect "(26) a real command with a trailing # comment still counts" 1 "$d"
+
 echo
 echo "== the gate on this repo =="
 # (16) The whole point: run it where it will run. This asserts only that it
