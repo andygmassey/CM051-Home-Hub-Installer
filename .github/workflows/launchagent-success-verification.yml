@@ -48,6 +48,7 @@ on:
       - 'install.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_launchagent_success_requires_verification.sh'
+      - 'tests/test_launchagent_refusal_reason_is_recorded.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/launchagent-success-verification.yml'
       # Watched because the regression job below RUNS them. A run: without a
@@ -88,6 +89,21 @@ jobs:
           sw_vers | head -2
       - name: The gate
         run: /bin/bash tests/test_launchagent_success_requires_verification.sh
+
+      # THE OTHER HALF OF #876. The helper above stops the installer CLAIMING a
+      # LaunchAgent loaded when it did not. It could not say WHY, because both
+      # load attempts ran under `2>/dev/null` and launchd's refusal -- the only
+      # artefact that knows -- went to the bit bucket.
+      #
+      # Measured on the Mini 16, 2026-09-04: com.ostler.doctor absent from
+      # launchctl, :8089 answering 000, the installer correctly WARNING and the
+      # warning carrying no reason. Bootstrapping the identical unmodified
+      # plist by hand 21 minutes later gave `state = running` and a 200, so
+      # plist and payload were both fine and the diagnosis cost a second full
+      # install. An honest "no" that cannot say why is a whole walk per defect.
+      - name: A refused LaunchAgent load must record launchd's reason
+        if: always()
+        run: /bin/bash tests/test_launchagent_refusal_reason_is_recorded.sh
 
       # A LaunchAgent that loaded is not a LaunchAgent that read the plist you
       # just wrote. On an UPGRADE the label is already bootstrapped, so

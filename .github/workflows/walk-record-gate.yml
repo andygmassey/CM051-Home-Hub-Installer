@@ -53,6 +53,7 @@ on:
       - 'tests/test_walk_driver_does_not_inherit_a_stale_result.sh'
       - 'tests/test_walk_driver_requires_a_completion_marker.sh'
       - 'tests/test_walk_driver_takes_ports_from_the_declared_field.sh'
+      - 'tests/test_walk_pass_requires_zero_failed_steps.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
       - '.github/workflows/walk-record-gate.yml'
@@ -159,6 +160,24 @@ jobs:
           rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The declared-port harness could not set itself up or its mutation anchor has moved. NOTHING about the driver has been measured."
+          fi
+          exit "$rc"
+
+      # A WALK EXISTS TO FIND DEFECTS AND CANNOT PASS OVER ONE IT WAS TOLD
+      # ABOUT. Measured on ttywalk run 3: the marker read
+      # `status=ok failed_steps=1 errors=0`, the failed step was health_check
+      # (status=error rc=2), and the driver printed WALK PASS. status=ok and
+      # failed_steps answer DIFFERENT questions by design (#839) -- reached the
+      # end vs did every step work -- and reading only the first commits the
+      # same collapse the product was blamed for, from the instrument side.
+      - name: PASS requires zero failed steps, and an absent tally is CANNOT-RUN
+        if: always()
+        run: |
+          set -uo pipefail
+          bash tests/test_walk_pass_requires_zero_failed_steps.sh
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The failed-steps harness could not import the driver or the driver stopped exporting adjudicate/PASS/FAIL/CANNOT_RUN. NOTHING about the driver has been measured."
           fi
           exit "$rc"
 
