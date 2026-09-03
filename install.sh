@@ -16568,6 +16568,40 @@ ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 # non-fatal: a transient Qdrant hiccup must not fail the whole install
 # (CM044's reader is being hardened to tolerate a 404 in parallel).
 _qdrant_url="${QDRANT_URL:-http://localhost:6333}"
+# 🔴 #628. THIS WAIT IS THE ONE TIMEOUT #615 DID NOT RAISE, AND IT IS WHAT
+# FIRED ON THE v1.0.61 WALK. #615 named six hardcoded 90s hydrate caps, raised
+# them to 1800 and made them env-tunable; nine OSTLER_*_TIMEOUT:-1800 sites now
+# exist. This one stayed a bare `seq 1 30` and nobody noticed, because it is a
+# READINESS wait rather than a hydrate CAP and so fell outside that sweep's
+# vocabulary.
+#
+# What it cost: on the Mini 16 the store did not answer inside 30 attempts, the
+# installer then called the vector collections "optional", skipped creating
+# them, ran the import anyway, and discarded 3810 of 3810 people (#624).
+#
+# 🗿 WHY THE NUMBER MATTERS MORE NOW THAN IT DID. Before A2's import gate
+# (#1385) an expiry here was a silent discard. After it, an expiry here is a
+# HARD INSTALL FAILURE. That is the right direction -- loud beats silent -- but
+# it moves this constant from "how long before we quietly lose data" to "how
+# long before we refuse to install", and 30 seconds is not a defensible answer
+# to the second question on a 16 GB Mac cold-starting a Docker image at T+0.
+# Raising it is what keeps the refusal RARE and therefore MEANINGFUL.
+#
+# 300 not 1800: this is a liveness probe against a local container, not a
+# hydrate of a customer's whole mailbox. A store that has not answered in five
+# minutes is not slow, it is broken, and the customer should hear so. Tunable
+# on the #615 pattern so a slow box can be given more without a recut.
+_QDRANT_READY_CAP="${OSTLER_QDRANT_READY_TIMEOUT:-300}"
+case "$_QDRANT_READY_CAP" in
+    ''|*[!0-9]*)
+        # A non-numeric override is operator error. Do not silently fall back to
+        # a number they did not choose and cannot see -- say so, then use the
+        # default, so the log carries both the mistake and the value in force.
+        warn "OSTLER_QDRANT_READY_TIMEOUT is not a whole number of seconds; using 300"
+        _QDRANT_READY_CAP=300
+        ;;
+esac
+
 _qdrant_ready=false
 _qdrant_last_status=""
 _qdrant_wait_s=0
@@ -16637,7 +16671,7 @@ _OSTLER_REQUIRED_QDRANT_COLLECTIONS=(people conversations preferences evernote_k
 # from that. `-o /dev/null -w '%{http_code}'` keeps it; `|| printf '000'`
 # turns a transport failure (no listener, DNS, timeout) into a distinguishable
 # 000 rather than an empty string.
-for _qdrant_attempt in $(seq 1 30); do
+for _qdrant_attempt in $(seq 1 "$_QDRANT_READY_CAP"); do
     _qdrant_last_status="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
         -s -o /dev/null -w '%{http_code}' -m 2 "${_qdrant_url}/collections" 2>/dev/null || printf '000')"
     if [ "$_qdrant_last_status" = "200" ]; then
@@ -16648,7 +16682,7 @@ for _qdrant_attempt in $(seq 1 30); do
     _qdrant_wait_s="$_qdrant_attempt"
     sleep 1
 done
-unset _qdrant_attempt
+unset _qdrant_attempt _QDRANT_READY_CAP
 
 if [[ "$_qdrant_ready" == true ]]; then
     # ⚠️ THIS PROBE IS CREDENTIALED. Read the curl below before the prose.
@@ -26322,11 +26356,43 @@ _INITIAL_HYDRATE_LOG="${OSTLER_DIAG_DIR}/initial-hydrate.log"
 # Probe Qdrant collections count. The /collections endpoint returns
 # {"result": {"collections": [{...}, ...]}, ...} on a healthy Qdrant.
 # Counts-only -- no name leakage off-machine.
+# 🔴 v1061-D004. THIS FUNCTION USED TO REPORT "0" WHEN IT COULD NOT READ THE
+# STORE, AND IT COST A LIVE WALK. Measured on the Mini 16, 2026-09-03:
+#
+#     CX106_QDRANT_BEFORE count=0
+#     "Checking your search index (0 collections detected)"
+#
+# while the store actually held THREE collections with real points -- people
+# 7535, safari_history 8626, preferences 8245. hydrate_people's STEP_END was
+# four lines further up the same log. The zero was false.
+#
+# The mechanism was three separate fail-to-zero paths in eighteen lines:
+# `curl -sf ... || true` (empty on ANY failure), `except: print(0)`, and a
+# non-numeric coerced to 0. The store has been 401-by-design since #1222, and
+# `curl -sf` on a 401 exits 22 with no output -- SO A LOCKED STORE WAS
+# INDISTINGUISHABLE FROM AN EMPTY ONE.
+#
+# It is not cosmetic, because the caller branches on `-eq 0` and re-runs the
+# WHOLE browser-history ingest (cap 1800s). The customer sat at 97% with
+# "~1m remaining" while the installer re-imported 8626 pages it already had.
+#
+# 🗿 The fix is the one its sibling below already had: SAY CANNOT-RUN. A
+# probe that reports absence when it was DENIED is the same defect class as a
+# step that reports ok over discarded data (#625). Callers must branch on a
+# POSITIVE zero, never on a could-not-read.
+#
+# Contract: prints a non-negative integer on a successful read, or the literal
+# string CANNOT-RUN. It never prints 0 for a read it did not get.
 _initial_hydrate_qdrant_count() {
-    local raw count
-    raw="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_INITIAL_HYDRATE_QDRANT}/collections" 2>/dev/null || true)"
+    local raw count rc=0
+    raw="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_INITIAL_HYDRATE_QDRANT}/collections" 2>/dev/null)" || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        printf 'CANNOT-RUN'
+        return 0
+    fi
     if [[ -z "$raw" ]]; then
-        printf '0'
+        # A 200 with an empty body is not an empty store either.
+        printf 'CANNOT-RUN'
         return 0
     fi
     count="$(printf '%s' "$raw" \
@@ -26335,10 +26401,20 @@ try:
     d = json.loads(sys.stdin.read())
     print(len((d.get("result") or {}).get("collections") or []))
 except Exception:
-    print(0)' 2>/dev/null)"
-    count="${count:-0}"
-    [[ "$count" =~ ^[0-9]+$ ]] || count=0
+    # Unreadable shape is CANNOT-RUN, never "everything is missing".
+    print("CANNOT-RUN")' 2>/dev/null)"
+    if [[ ! "$count" =~ ^[0-9]+$ ]]; then
+        printf 'CANNOT-RUN'
+        return 0
+    fi
     printf '%s' "$count"
+}
+
+# Does the count say, positively, that the store is empty? A could-not-read
+# must answer NO here -- that is the whole point of #626. Kept as a named
+# predicate so every caller asks the same question the same way.
+_initial_hydrate_qdrant_is_positively_empty() {
+    [[ "${1:-}" == "0" ]]
 }
 
 # ── WHICH collections, not HOW MANY ─────────────────────────────────
@@ -26430,7 +26506,16 @@ print(" ".join(name for name in sys.argv[1:] if name not in present))
 
 _INITIAL_HYDRATE_COLLECTIONS_BEFORE="$(_initial_hydrate_qdrant_count)"
 gui_emit CX106_QDRANT_BEFORE "count=${_INITIAL_HYDRATE_COLLECTIONS_BEFORE}"
-info "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_BEFORE" "${_INITIAL_HYDRATE_COLLECTIONS_BEFORE}")"
+# #626: the count is now three-state, so the CUSTOMER LINE must be too. Printing
+# "CANNOT-RUN collections detected" through the count message would be worse than
+# the false zero it replaces. No new MSG_ key is invented here on purpose -- the
+# membership check already owns the right sentence for "could not look", and one
+# sentence with one meaning beats two that drift.
+if [[ "$_INITIAL_HYDRATE_COLLECTIONS_BEFORE" =~ ^[0-9]+$ ]]; then
+    info "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_BEFORE" "${_INITIAL_HYDRATE_COLLECTIONS_BEFORE}")"
+else
+    warn "$(printf "$MSG_WARN_QDRANT_MEMBERSHIP_UNMEASURED" "the store did not answer a credentialed GET")"
+fi
 
 # Re-run the gateway-driven browser history ingest if Qdrant is empty.
 # The first hydrate_browsing call (line ~10889) may have raced ahead
@@ -26438,7 +26523,7 @@ info "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_BEFORE" "${_INITIAL_HYDRATE_COLLECTI
 # inside install completion, with a long enough timeout that a slow
 # gateway start (Docker image cold-start, first-request JIT) does not
 # silently leave Qdrant empty.
-if [[ "$_INITIAL_HYDRATE_COLLECTIONS_BEFORE" -eq 0 ]] \
+if _initial_hydrate_qdrant_is_positively_empty "$_INITIAL_HYDRATE_COLLECTIONS_BEFORE" \
    && [[ -x "$_INITIAL_HYDRATE_PY" ]] \
    && { [[ -s "${_INITIAL_HYDRATE_FDA_DIR}/safari_history.json" ]] \
         || [[ -s "${_INITIAL_HYDRATE_FDA_DIR}/chrome_history.json" ]]; }; then
@@ -26481,13 +26566,14 @@ except Exception as exc:
     # 0 to >=1 only after the first successful upsert is committed.
     _INITIAL_HYDRATE_POLL_ELAPSED=0
     while [[ "$_INITIAL_HYDRATE_POLL_ELAPSED" -lt 30 ]]; do
-        if [[ "$(_initial_hydrate_qdrant_count)" -gt 0 ]]; then
+        _INITIAL_HYDRATE_POLL_N="$(_initial_hydrate_qdrant_count)"
+        if [[ "$_INITIAL_HYDRATE_POLL_N" =~ ^[0-9]+$ ]] && [[ "$_INITIAL_HYDRATE_POLL_N" -gt 0 ]]; then
             break
         fi
         sleep 2
         _INITIAL_HYDRATE_POLL_ELAPSED=$((_INITIAL_HYDRATE_POLL_ELAPSED + 2))
     done
-    unset _INITIAL_HYDRATE_POLL_ELAPSED _INITIAL_HYDRATE_TIMEOUT_WRAP _INITIAL_HYDRATE_CAP
+    unset _INITIAL_HYDRATE_POLL_ELAPSED _INITIAL_HYDRATE_POLL_N _INITIAL_HYDRATE_TIMEOUT_WRAP _INITIAL_HYDRATE_CAP
     unset _INITIAL_HYDRATE_RETRY_RC
 fi
 
@@ -26507,7 +26593,9 @@ if [[ "$_INITIAL_HYDRATE_QDRANT_MISSING" == CANNOT-RUN:* ]]; then
     # be reported as either.
     warn "$(printf "$MSG_WARN_QDRANT_MEMBERSHIP_UNMEASURED" \
         "${_INITIAL_HYDRATE_QDRANT_MISSING#CANNOT-RUN: }")"
-elif [[ -n "$_INITIAL_HYDRATE_QDRANT_MISSING" && "$_INITIAL_HYDRATE_COLLECTIONS_AFTER" -gt 0 ]]; then
+elif [[ -n "$_INITIAL_HYDRATE_QDRANT_MISSING" ]] \
+     && [[ "$_INITIAL_HYDRATE_COLLECTIONS_AFTER" =~ ^[0-9]+$ ]] \
+     && [[ "$_INITIAL_HYDRATE_COLLECTIONS_AFTER" -gt 0 ]]; then
     # THE v1.0.60 CASE, and the one the old cardinality test called healthy:
     # the store is up and serving collections, but not all the ones we
     # promised. Partial is a real defect, so it warns and it NAMES them.
@@ -26521,7 +26609,12 @@ elif [[ -n "$_INITIAL_HYDRATE_QDRANT_MISSING" ]]; then
     info "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED_AWAITING" \
         "${_INITIAL_HYDRATE_QDRANT_MISSING}")"
 else
-    ok "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_READY" "${_INITIAL_HYDRATE_COLLECTIONS_AFTER}")"
+    # Every required collection is present. Only claim a COUNT if we have one.
+    if [[ "$_INITIAL_HYDRATE_COLLECTIONS_AFTER" =~ ^[0-9]+$ ]]; then
+        ok "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_READY" "${_INITIAL_HYDRATE_COLLECTIONS_AFTER}")"
+    else
+        warn "$(printf "$MSG_WARN_QDRANT_MEMBERSHIP_UNMEASURED" "the store did not answer a credentialed GET")"
+    fi
 fi
 
 # DEDUPE_MERGE (#661, RULE 1, 2026-06-09): after every person-creating
@@ -26687,8 +26780,8 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     else
         _hydrate_sentinel_record "places" "ran=1,rc=$_places_rc"
     fi
-    unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP \ _PLACES_CAP
-          _places_rc _places_log_tail
+    unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP \
+          _PLACES_CAP _places_rc _places_log_tail
 fi
 
 # ── Privacy-level backfill (CM041 #97 fail-closed gate) ───────────────
