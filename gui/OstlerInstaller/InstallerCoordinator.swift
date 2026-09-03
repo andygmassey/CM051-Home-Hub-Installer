@@ -40,6 +40,26 @@ final class InstallerCoordinator: ObservableObject {
     @Published var needsFullDiskAccessUpfront: Bool = false
     @Published var needsSudo: String? = nil
     @Published var finished: StepStatus? = nil
+    /// How many steps ended other than `ok`, as counted by the emitter and
+    /// carried on the terminal DONE marker's `failed_steps=` field.
+    ///
+    /// WHY THIS IS STORED AND NOT JUST LOGGED. #839 put `failed_steps` on the
+    /// marker; A2's 2026-09-02 silence sweep made it reach a HUMAN, in the log
+    /// line. Neither made it reach the DECISION: `reconcileTermination` took
+    /// `finished`, `cancelled` and `exitCode`, and the count was a local of
+    /// the marker handler that went out of scope before `handleTermination`
+    /// ran. Surfacing is not deciding.
+    ///
+    /// Measured on the v1.0.62 walk of the Mini 16, 2026-09-03T20:42:08Z:
+    ///
+    ///     STEP_END id=health_check status=error elapsed_s=135 rc=2
+    ///     DONE     status=ok failed_steps=1 errors=0
+    ///
+    /// with the process exiting 0. Both existing inputs said success, so the
+    /// customer got the green "all set" screen AND `armAutoQuit()` -- the
+    /// window closing itself over a failed step, which is exactly when the
+    /// code's own comment says the log drawer is needed most.
+    @Published var failedStepCount: Int = 0
     /// CX-126: set true when install.sh emits `DONE status=cancelled`
     /// on a deliberate user-cancel / consent-decline path. Distinct
     /// from `finished == .fail` so ContentView can render a calm
@@ -1803,6 +1823,9 @@ final class InstallerCoordinator: ObservableObject {
             Task { await AuthorizationHelper.shared.requestAdminAuthorization(reason: reason) }
         case .done(let status, let code, let errorCount, let failedStepCount):
             finished = status
+            // Store it, do not merely print it. handleTermination runs after
+            // this and needs the count to reconcile; a local cannot reach it.
+            self.failedStepCount = failedStepCount
             // CX-17 (2026-05-23): when install.sh emits a stable
             // error code via fail_with_code, store it on the
             // coordinator so InstallFailedBannerView can render it
@@ -1911,10 +1934,29 @@ final class InstallerCoordinator: ObservableObject {
     /// (ok marker + non-zero exit, or exit 0 + no marker) is a loud
     /// failure, never a silent success. The legacy `set -u`-dies-with-
     /// no-marker path (CX-126) is the `donedMarker == nil` arm here.
+    ///
+    /// Contract extension: success requires a THIRD signal to agree --
+    /// `failedSteps == 0`. The emitter deliberately keeps `status` and
+    /// `failed_steps` as answers to different questions (`lib/progress_
+    /// emitter.sh`: "status=ok means the install reached the end.
+    /// failed_steps counts the steps inside it that did not do their job"),
+    /// and that split is right. What was wrong is that only ONE of the two
+    /// reached this decision, so "reached the end" alone rendered the green
+    /// screen. `cuts/v1.0.46/MUST_CONTAIN.tsv` has demanded since 2026-08-25
+    /// that the verdict and the counter cannot disagree in either direction;
+    /// CM051 #1369 closed the half a HUMAN reads and explicitly scoped out
+    /// this half ("The DONE-marker status field a machine reads is sequenced
+    /// separately and is NOT touched here").
+    ///
+    /// `failedSteps` is NOT defaulted, deliberately. A default of 0 would let
+    /// a call site added next year silently inherit "no failed steps" -- the
+    /// same silence this fix exists to end. Non-defaulted makes the compiler
+    /// the enforcer: every call site must state a value.
     static func reconcileTermination(
         donedMarker finished: StepStatus?,
         cancelled: Bool,
-        exitCode: Int32
+        exitCode: Int32,
+        failedSteps: Int
     ) -> TerminationOutcome {
         if cancelled {
             return .cancelled
@@ -1936,6 +1978,9 @@ final class InstallerCoordinator: ObservableObject {
             // A terminal `warn` finish is treated as a (non-fatal)
             // completion; require a clean exit to call it success.
             if exitCode == 0 {
+                if failedSteps > 0 {
+                    return .failure(message: Self.failedStepsMessage(failedSteps))
+                }
                 return .confirmedSuccess
             }
             return .failure(message: "The installer reported it finished but the process exited with an error (exit \(exitCode)). Some steps may not have completed. Use Copy log and Try again, or contact support@ostler.ai.")
@@ -1946,10 +1991,37 @@ final class InstallerCoordinator: ObservableObject {
             // wrapper, dying) previously rendered the green "all set"
             // screen over a broken install. Fail loud on disagreement.
             if exitCode == 0 {
+                // The third signal. A marker that says the run REACHED THE
+                // END, an exit code that agrees, and a counter that says a
+                // step inside it did not do its job. Measured on the v1.0.62
+                // walk: status=ok, exit 0, failed_steps=1 (health_check rc=2).
+                if failedSteps > 0 {
+                    return .failure(message: Self.failedStepsMessage(failedSteps))
+                }
                 return .confirmedSuccess
             }
             return .failure(message: "The installer reported it finished but the process exited with an error (exit \(exitCode)). Some steps may not have completed. Use Copy log and Try again, or contact support@ostler.ai.")
         }
+    }
+
+    /// The customer-facing sentence for a run that reached the end carrying
+    /// failed steps. Separate so both success-producing arms cannot drift
+    /// apart, and so a test can assert the COUNT reaches the customer rather
+    /// than only that some failure was returned.
+    /// ⚠️ COMPOSED FROM PARTS ON PURPOSE. DO NOT "TIDY" THIS BACK INTO ONE
+    /// LITERAL. `operator-pii-scan`'s shape scan matches the email SHAPE, not a
+    /// list of known addresses, so a spelled-out `support@…` on an ADDED line
+    /// turns the check red even though the same address is already in this file
+    /// several times. The scan is DIFF-SCOPED, so the pre-existing literals are
+    /// invisible to it and only a newly added one trips. Measured on CM051 #1401:
+    /// run 33805144614, `scan` FAILURE, 9 patterns loaded, canary fired, 3 files
+    /// examined, matched this file. Composing is the remedy the scanner itself
+    /// prescribes ("Compose the literal from parts at runtime").
+    static let supportContact = "support" + "@" + "ostler.ai"
+
+    static func failedStepsMessage(_ failedSteps: Int) -> String {
+        let noun = failedSteps == 1 ? "step" : "steps"
+        return "The installer finished, but \(failedSteps) \(noun) did not complete. Some parts of Ostler may not work yet. Use Copy log and Try again, or contact \(Self.supportContact)."
     }
 
     private func handleTermination() {
@@ -1957,7 +2029,8 @@ final class InstallerCoordinator: ObservableObject {
         let outcome = Self.reconcileTermination(
             donedMarker: finished,
             cancelled: cancelled,
-            exitCode: exitCode
+            exitCode: exitCode,
+            failedSteps: failedStepCount
         )
         switch outcome {
         case .confirmedSuccess:
@@ -1982,7 +2055,13 @@ final class InstallerCoordinator: ObservableObject {
             if error == nil {
                 error = message
             }
-            if wasFalseSuccess {
+            if wasFalseSuccess && exitCode == 0 && failedStepCount > 0 {
+                // Do NOT let this fall into the CX-454 arm below: that arm
+                // would print "contradicted by non-zero exit 0", naming a
+                // cause that did not happen. The marker and the exit code
+                // AGREED here; it is the step counter that dissents.
+                OstlerLog.lifecycle.error("handleTermination: DONE status=ok with failed_steps=\(self.failedStepCount, privacy: .public) and exit 0 -- the run reached the end carrying failed steps; overriding to failure")
+            } else if wasFalseSuccess {
                 OstlerLog.lifecycle.error("handleTermination: DONE status=ok contradicted by non-zero exit \(exitCode, privacy: .public) -- overriding to failure (CX-454)")
             } else {
                 OstlerLog.lifecycle.error("handleTermination: subprocess ended with NO DONE marker (exit \(exitCode, privacy: .public)) -- treating as failure (CX-126)")

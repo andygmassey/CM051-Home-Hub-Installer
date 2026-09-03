@@ -1322,16 +1322,75 @@ err()   { _OSTLER_RUN_ERRORS=$(( ${_OSTLER_RUN_ERRORS:-0} + 1 )); gui_active || 
 # tree, which is exactly when it is needed. LOGS_DIR follows the staging tree
 # and is renamed onto ~/.ostler/logs/ on success (see _ostler_set_paths), so
 # this lands beside doctor.log and install.log where support already looks.
+# Is the GUI bootstrap domain reachable AT ALL? One probe per run, cached.
+#
+# 🔬 WHY THIS IS A SEPARATE QUESTION FROM "did this agent load".
+# They are different findings and only ONE of them is about the product:
+#
+#   domain reachable + job absent  -> THIS AGENT is broken. A real defect,
+#                                     and the warning below means what it says.
+#   domain UNREACHABLE             -> NO agent can load, and every per-agent
+#                                     "not loaded" warning in this run is a
+#                                     statement about the SESSION, not about
+#                                     the product.
+#
+# `gui/<uid>` exists only while that user has a window-server session. An
+# install driven over ssh with nobody logged in at the GUI has no such domain,
+# so bootstrap fails for all 14 call sites at once, for a reason that has
+# nothing to do with any plist.
+#
+# BEFORE THIS PROBE THE TWO WERE INDISTINGUISHABLE. Both printed the identical
+# warning, so an ssh-driven walk could manufacture a full set of "not loaded"
+# findings and every one would read as a customer-facing defect. That is the
+# instrument being reported as the subject, which has already cost this
+# estate three separate diagnoses. A domain we cannot reach is CANNOT-RUN,
+# and CANNOT-RUN is not a product failure and is not a pass.
+#
+# Deliberately NOT a hard failure: an ssh install is a real thing we do on
+# purpose, and refusing it outright would break the walk driver. It labels.
+_ostler_gui_domain_reachable() {
+    if [[ -z "${_OSTLER_GUI_DOMAIN_STATE:-}" ]]; then
+        if launchctl print "gui/$(id -u)" >/dev/null 2>&1; then
+            _OSTLER_GUI_DOMAIN_STATE=reachable
+        else
+            _OSTLER_GUI_DOMAIN_STATE=unreachable
+        fi
+    fi
+    [[ "$_OSTLER_GUI_DOMAIN_STATE" == "reachable" ]]
+}
+
 _ostler_launchagent_note_refusal() {   # $1 label, $2 our reason, $3 launchd stderr
     local _dir="${LOGS_DIR:-${OSTLER_DIAG_DIR:-${TMPDIR:-/tmp}}}"
     local _f="${_dir}/launchagent-load.log"
+    local _scope
+    if _ostler_gui_domain_reachable; then
+        _scope="gui domain reachable, so this is specific to ${1}"
+    else
+        _scope="🔬 gui/$(id -u) IS NOT REACHABLE -- no LaunchAgent can load in this session (ssh with no GUI login looks exactly like this). This is CANNOT-RUN, not a verdict on ${1}."
+    fi
     mkdir -p "$_dir" 2>/dev/null || true
     {
         printf '%s  %s  %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" "$2"
+        printf '    scope: %s\n' "$_scope"
         if [[ -n "$3" ]]; then
             printf '%s\n' "$3" | sed -e 's/^/    launchd: /'
         fi
     } >> "$_f" 2>/dev/null || true
+
+    # 🔴 AND SAY IT WHERE SOMEONE WILL READ IT.
+    # Until now the reason went ONLY to ${LOGS_DIR}/launchagent-load.log, and
+    # MEASURED 2026-09-04: that file is collected by NOTHING -- 0 references in
+    # scripts/ttywalk.sh and 0 in scripts/walk_drive.py. So the caller's warn
+    # said "Doctor not loaded" with no cause, the cause sat in a file no walk
+    # ever reads, and diagnosing it cost a second full 21-minute install.
+    # A diagnosis nobody collects is not a diagnosis.
+    warn "  launchagent ${1}: ${2}"
+    warn "  ${_scope}"
+    if [[ -n "$3" ]]; then
+        printf '%s\n' "$3" | while IFS= read -r _l; do
+            [[ -n "$_l" ]] && warn "  launchd said: ${_l}"
+        done
+    fi
 }
 
 # True when the plist says launchd must KEEP THIS UP. Deliberately NOT
@@ -1362,6 +1421,63 @@ _ostler_launchagent_load_verified() {
     # This is the LABEL form. The DOMAIN form (`bootout gui/<uid>`, no label)
     # tears down the customer's whole GUI session and must never appear here.
     launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
+
+    # 🔬 BOOTOUT IS ASYNCHRONOUS. WAIT FOR THE LABEL TO ACTUALLY GO.
+    #
+    # `launchctl bootout` returns as soon as launchd ACCEPTS the request, not
+    # when the job is gone. Bootstrapping into a half-torn-down label fails
+    # with EIO, and the job never spawns.
+    #
+    # MEASURED ON THE MINI 16, install of 2026-09-03 (timestamps UTC):
+    #     18:42:10  ~/.ostler/doctor/web_ui.py written   (payload)
+    #     18:42:11  com.ostler.doctor.plist written
+    #     18:42:11  refusal recorded
+    # One second for bootout + bootstrap + load + verify. The recorded reason
+    # was "registered, then VANISHED from gui/501 before it ran", and launchd
+    # said `Bootstrap failed: 5: Input/output error` AND `Load failed: 5`.
+    # Registered-then-vanished is exactly what a teardown completing AFTER the
+    # bootstrap looks like.
+    #
+    # THE OTHER CANDIDATES WERE MEASURED AND REFUTED, one at a time:
+    #   plist invalid            -- `plutil -lint` says OK
+    #   payload missing          -- web_ui.py present, the venv python RUNS
+    #   label disabled           -- absent from `launchctl print-disabled`
+    #   domain unreachable       -- 18 of 20 ostler agents DID load
+    #   quarantine xattr         -- none on the plist
+    #   program path location    -- a LOADED agent sits in the same directory
+    # and a hand bootstrap of the identical unmodified plist minutes later
+    # gives `state = running`, which is the timing tell.
+    #
+    # ⚠️ STATED AS WHAT IT IS: converging evidence, not a live reproduction.
+    # I have not caught the race in the act. This wait is cheap, cannot make
+    # a working install worse, and if the race is not the cause the refusal
+    # text will now say so on the next run.
+    #
+    # COSTS NOTHING ON A FRESH INSTALL. If the label was never loaded the very
+    # first probe fails and we break immediately -- zero sleeps, which is the
+    # normal customer path. Only a REINSTALL, where the label really is loaded,
+    # ever waits. If it never clears we proceed anyway: the evidence check
+    # below still adjudicates, so this can add a delay but never a verdict.
+    local _settle=0 _settle_cap="${OSTLER_LAUNCHAGENT_BOOTOUT_SETTLE_S:-10}"
+    while [ "$_settle" -lt "$_settle_cap" ]; do
+        launchctl print "${_domain}/${_label}" >/dev/null 2>&1 || break
+        sleep 1
+        _settle=$((_settle + 1))
+    done
+    if [ "$_settle" -ge "$_settle_cap" ]; then
+        # 🔴 warn(), NOT note_refusal(). launchagent-load.log carries ONLY REAL
+        # REFUSALS -- tests/test_launchagent_refusal_reason_is_recorded.sh has
+        # two CONTROLS asserting a SUCCESSFUL load writes ZERO lines to it, and
+        # my first draft called note_refusal here and reddened both. A slow
+        # teardown that then loads fine is not a refusal, and writing it to the
+        # refusal record would make that record mean less.
+        #
+        # It is worth SAYING, though: this is measurable evidence the label
+        # really was still present after ${_settle_cap}s, which on CI happened
+        # after an EX_CONFIG-parked job from an earlier arm. A parked job can
+        # outlive its bootout.
+        warn "  launchagent ${_label}: still registered ${_settle_cap}s after bootout; bootstrapping anyway"
+    fi
 
     # bootstrap on Sequoia+ (load is deprecated), fall back to load. BOTH
     # are allowed to fail: their exit status is not the evidence, and the

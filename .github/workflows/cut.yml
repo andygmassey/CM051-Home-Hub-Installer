@@ -170,17 +170,37 @@ jobs:
       - name: Resolve which cut this run is about
         run: |
           set -euo pipefail
+          # 🔴 THE SOURCE IS NOW EXPORTED, NOT JUST PRINTED (#171).
+          # On a dispatch this value is read OUT OF the plist that the
+          # installer-version gate later compares it against -- a comparison
+          # that cannot lose. Printing "source: ..." told a human and told the
+          # gate nothing, so the gate graded a tautology as SUCCESS (measured:
+          # the v1.0.61 dry run graded v1.0.60). CUT_VERSION_SOURCE lets it
+          # refuse instead. Full write-up in that gate's own header comment.
+          #
+          # ⚠️ DO NOT SPELL THE GATE'S PATH IN THIS COMMENT. The maskless
+          # checker classifies a step as a TEST step by looking for the
+          # literal test-path prefix anywhere in its `run:` block, comments
+          # included (verify_ci_steps_are_maskless.py:57). Naming the file
+          # here made this resolve step read as a test, which in turn made the
+          # NEXT real test in this job look maskable, and ci-maskless went red
+          # on a workflow whose behaviour had not changed. Prose is not inert
+          # inside a file something parses.
           if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
             CUT_VERSION="${GITHUB_REF_NAME}"
+            CUT_VERSION_SOURCE="tag"
             echo "source: tag push"
           else
             VER="$(python3 -c 'import plistlib; print(plistlib.load(open("gui/OstlerInstaller/Info.plist","rb"))["CFBundleShortVersionString"])')"
             [ -n "$VER" ] || { echo "::error::could not read CFBundleShortVersionString from gui/OstlerInstaller/Info.plist" >&2; exit 1; }
             CUT_VERSION="v$(printf '%s' "$VER" | cut -d. -f1-3)"
+            CUT_VERSION_SOURCE="plist"
             echo "source: gui/OstlerInstaller/Info.plist (CFBundleShortVersionString=$VER)"
+            echo "::notice::CUT_VERSION came from the plist, so the installer-version gate will report CANNOT-RUN (#171). Only a TAG PUSH can check that field."
           fi
           echo "cut version: $CUT_VERSION"
           echo "CUT_VERSION=$CUT_VERSION" >> "$GITHUB_ENV"
+          echo "CUT_VERSION_SOURCE=$CUT_VERSION_SOURCE" >> "$GITHUB_ENV"
 
       - name: The cut record for this version must exist
         run: |
@@ -998,8 +1018,8 @@ jobs:
               echo "::error title=No DMG to walk::The artefact walk found no dist/*.dmg. It has NOT walked anything -- it failed to look. DO NOT SHIP."
               exit 1
           fi
-          bash scripts/walk_dmg.sh "$DMG"
-          rc=$?
+          rc=0
+          bash scripts/walk_dmg.sh "$DMG" || rc=$?
           if [ "$rc" -eq 0 ]; then
               echo "walk_dmg: all arms PASS on ${DMG##*/}"
           elif [ "$rc" -eq 2 ]; then
