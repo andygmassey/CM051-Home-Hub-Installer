@@ -53,15 +53,22 @@ trap 'rm -rf "$WORK"' EXIT
 # _ostler_launchagent_load_verified. Every `}` inside either body is indented,
 # so the anchor cannot land early.
 SRC="${WORK}/extracted.sh"
+#
+# Stop at the brace that closes load_verified SPECIFICALLY, not at "the Nth
+# brace": a helper added between them silently truncated this extraction the
+# first time, and a truncated body defines fewer functions while still looking
+# like a successful extract.
 awk '
-    /^_ostler_launchagent_note_refusal\(\) \{/ { f = 1 }
-    f { print }
-    f && /^\}$/ { n++; if (n == 2) exit }
+    /^_ostler_launchagent_note_refusal\(\) \{/   { f = 1 }
+    f                                            { print }
+    f && /^_ostler_launchagent_load_verified\(\) \{/ { inlv = 1 }
+    inlv && /^\}$/                               { exit }
 ' "$INSTALLER" > "$SRC"
 
 # PREMISE GUARD. If the extraction missed, every arm below would exercise
 # nothing and report success. That is CANNOT-RUN, not a pass.
 for _need in '_ostler_launchagent_note_refusal()' \
+             '_ostler_launchagent_keeps_alive()' \
              '_ostler_launchagent_load_verified()' \
              'launchctl bootstrap' \
              'launchctl print'; do
@@ -100,6 +107,11 @@ case "$1" in
                 exit 0 ;;
             parked)
                 printf '\tstate = spawn scheduled\n\tlast exit code = 78: EX_CONFIG\n'
+                exit 0 ;;
+            notrunning)
+                # Registered, not parked on 78, and NOT RUNNING. This is the
+                # state the Doctor was actually in on the walk box.
+                printf '\tstate = not running\n\tlast exit code = 0\n'
                 exit 0 ;;
             *)  echo "Could not find service in domain" >&2
                 exit 113 ;;
@@ -192,6 +204,64 @@ elif ! grep -q 'plist absent' "$DIAG" 2>/dev/null; then
     rc=1
 else
     echo "ok   arm 4: an absent plist is refused and the reason is recorded"
+fi
+
+# ── Arm 5: KeepAlive + registered + NOT RUNNING must be refused ───
+#
+# THE #876 RECURRENCE, measured on the Mini 16 during ttywalk run 5. The
+# installer printed "Ostler Doctor running at http://localhost:8089/doctor"
+# and 254 lines later its own health check said "Doctor not responding".
+# launchd had REGISTERED the label and never spawned the job -- doctor.err,
+# which launchd creates on spawn, was never created at all. The old predicate
+# refused only EX_CONFIG, so registered-and-idle sailed through.
+KEEPALIVE_PLIST="${WORK}/com.ostler.keepalive.plist"
+cat > "$KEEPALIVE_PLIST" <<'PL'
+<?xml version="1.0"?>
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.ostler.keepalive</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict></plist>
+PL
+
+: > "$DIAG"
+STUB_LOAD_OK=1 STUB_PRINT_MODE=notrunning
+export STUB_LOAD_OK STUB_PRINT_MODE
+_ostler_launchagent_load_verified "$KEEPALIVE_PLIST" && arm5_rc=0 || arm5_rc=$?
+
+if [[ "$arm5_rc" -eq 0 ]]; then
+    echo "FAIL arm 5: a KeepAlive agent that is registered but NOT RUNNING was"
+    echo "     reported as loaded. That is #876 verbatim: the installer says"
+    echo "     the Doctor is running while :8089 answers nothing."
+    rc=1
+elif ! grep -q 'KeepAlive' "$DIAG" 2>/dev/null; then
+    echo "FAIL arm 5: refused, but the record does not say it was the"
+    echo "     KeepAlive/never-ran rule. A refusal that cannot be attributed"
+    echo "     costs another install to diagnose."
+    rc=1
+else
+    echo "ok   arm 5: KeepAlive + registered + not running is REFUSED and named"
+fi
+
+# ── Arm 6: THE CONTROL FOR ARM 5 ──────────────────────────────────
+#
+# The same KeepAlive plist, actually running, must still pass and record
+# nothing. Without this, arm 5 is satisfied by a predicate that refuses every
+# KeepAlive agent -- which would take the whole install down instead.
+: > "$DIAG"
+STUB_LOAD_OK=1 STUB_PRINT_MODE=running
+export STUB_LOAD_OK STUB_PRINT_MODE
+_ostler_launchagent_load_verified "$KEEPALIVE_PLIST" && arm6_rc=0 || arm6_rc=$?
+
+if [[ "$arm6_rc" -ne 0 ]]; then
+    echo "FAIL arm 6 control: a KeepAlive agent in 'state = running' was refused"
+    echo "     (rc=${arm6_rc}). The new rule refuses healthy agents."
+    rc=1
+elif [[ "$(diag_lines)" -ne 0 ]]; then
+    echo "FAIL arm 6 control: a running KeepAlive agent wrote $(diag_lines) line(s)."
+    rc=1
+else
+    echo "ok   arm 6 control: a RUNNING KeepAlive agent passes and records nothing"
 fi
 
 [[ "$rc" -eq 0 ]] && echo "PASS: tests/test_launchagent_refusal_reason_is_recorded.sh"

@@ -1334,6 +1334,15 @@ _ostler_launchagent_note_refusal() {   # $1 label, $2 our reason, $3 launchd std
     } >> "$_f" 2>/dev/null || true
 }
 
+# True when the plist says launchd must KEEP THIS UP. Deliberately NOT
+# RunAtLoad: one-shot agents here set RunAtLoad, do their job and exit 0, and
+# demanding `state = running` of those would report every healthy one-shot as
+# broken -- a blanket refusal, which is worse than the defect it replaces.
+# A KeepAlive <dict> (conditional) does not match either, on purpose.
+_ostler_launchagent_keeps_alive() {
+    grep -A1 '<key>KeepAlive</key>' "$1" 2>/dev/null | grep -q '<true/>'
+}
+
 _ostler_launchagent_load_verified() {
     local _plist="$1"
     local _label _domain
@@ -1419,6 +1428,56 @@ _ostler_launchagent_load_verified() {
             return 1
             ;;
     esac
+
+    # 🔴 #876 RECURRED, AND THIS IS THE HOLE IT CAME THROUGH.
+    #
+    # The comment above says "Registration is not runnability" and then handles
+    # exactly ONE way of being registered-but-not-running: parked on EX_CONFIG.
+    # Everything else registered was accepted.
+    #
+    # MEASURED on the Mini 16, ttywalk run 5 (2026-09-04), in ONE install log:
+    #   line 333  Ostler Doctor running at http://localhost:8089/doctor   <- us
+    #   line 587  WARN Doctor not responding (127.0.0.1:8089)             <- us
+    # 254 lines apart, same run. Afterwards com.ostler.doctor was absent from
+    # the domain entirely, :8089 answered 000, and ~/.ostler/logs/doctor.err
+    # had NEVER BEEN CREATED -- launchd creates it on spawn, so the job never
+    # spawned. Not a payload fault: the venv python runs and fastapi+uvicorn
+    # import fine, checked on the box. We announced success on REGISTRATION.
+    #
+    # WHY KeepAlive AND NOT RunAtLoad. Several agents here are legitimately
+    # ONE-SHOT: they set RunAtLoad, do their job, and exit 0. Requiring
+    # `state = running` of those would report every healthy one-shot as broken
+    # -- the blanket-refusal failure, which is worse than the defect. KeepAlive
+    # is the plist saying "launchd must keep this up", so for those and only
+    # those, not-running IS broken. The Doctor declares KeepAlive true.
+    #
+    # The wait is bounded and short: bootstrap returns before the child has
+    # spawned, so a zero-wait check would race the very thing it measures.
+    # doctor_setup reported elapsed_s=0, which is how fast this used to be.
+    if _ostler_launchagent_keeps_alive "$_plist"; then
+        local _state="" _waited=0
+        while [[ "$_waited" -lt 20 ]]; do
+            _state="$(printf '%s\n' "$_print" \
+                      | sed -n 's/^[[:space:]]*state = \(.*\)$/\1/p' | head -1)"
+            case "$_state" in running*) break ;; esac
+            sleep 0.5
+            _waited=$((_waited + 1))
+            _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null)" || {
+                _ostler_launchagent_note_refusal "$_label" \
+                    "registered, then VANISHED from ${_domain} before it ran" \
+                    "$_load_err"
+                return 1
+            }
+        done
+        case "$_state" in
+            running*) : ;;
+            *)  _ostler_launchagent_note_refusal "$_label" \
+                    "declares KeepAlive but never reached 'state = running' (last seen: ${_state:-<no state line>})" \
+                    "$(printf '%s\n' "$_print" | grep -E 'state =|last exit code|program =|path =' || true)"
+                return 1
+                ;;
+        esac
+    fi
 
     return 0
 }
