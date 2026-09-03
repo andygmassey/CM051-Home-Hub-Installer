@@ -82,7 +82,26 @@ jobs:
         run: |
           /bin/bash --version | head -1
           python3 --version
-          python3 -c 'import yaml; print("PyYAML", yaml.__version__)'
+
+      # macos-latest python3 has NO PyYAML -- measured here on the first run of
+      # this workflow, `ModuleNotFoundError: No module named 'yaml'` on Python
+      # 3.14.7. Without this the whole gate is CANNOT-RUN, and a gate that
+      # cannot run is not a gate. Same install ladder as appcast-ship-wiring,
+      # which carries the same note.
+      #
+      # The import is PROVED AFTER the install, with no `|| true` on the proof:
+      # a `|| true` there would reproduce the exact defect this workflow exists
+      # to catch, one layer up.
+      - name: PyYAML must be present, or nothing can be parsed
+        run: |
+          set -uo pipefail
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            python3 -m pip install --quiet --break-system-packages --ignore-installed pyyaml \
+              || python3 -m pip install --quiet --ignore-installed pyyaml \
+              || pip3 install --quiet pyyaml \
+              || true
+          fi
+          python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
       - name: Every $? capture must be reachable under its step's own shell
         run: |
           # ⚠️ `|| rc=$?` -- this gate must not carry the defect it hunts.
