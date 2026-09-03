@@ -1406,8 +1406,18 @@ _ostler_launchagent_load_verified() {
         _settle=$((_settle + 1))
     done
     if [ "$_settle" -ge "$_settle_cap" ]; then
-        _ostler_launchagent_note_refusal "$_label" \
-            "still present in ${_domain} ${_settle_cap}s after bootout; bootstrapping anyway" ""
+        # 🔴 warn(), NOT note_refusal(). launchagent-load.log carries ONLY REAL
+        # REFUSALS -- tests/test_launchagent_refusal_reason_is_recorded.sh has
+        # two CONTROLS asserting a SUCCESSFUL load writes ZERO lines to it, and
+        # my first draft called note_refusal here and reddened both. A slow
+        # teardown that then loads fine is not a refusal, and writing it to the
+        # refusal record would make that record mean less.
+        #
+        # It is worth SAYING, though: this is measurable evidence the label
+        # really was still present after ${_settle_cap}s, which on CI happened
+        # after an EX_CONFIG-parked job from an earlier arm. A parked job can
+        # outlive its bootout.
+        warn "  launchagent ${_label}: still registered ${_settle_cap}s after bootout; bootstrapping anyway"
     fi
 
     # bootstrap on Sequoia+ (load is deprecated), fall back to load. BOTH
