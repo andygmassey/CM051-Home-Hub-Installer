@@ -126,8 +126,8 @@ jobs:
       # depends on it must go red rather than run blind.
       - name: Dependency for the shipped-Doctor reader control
         if: always()
-        run: python3 -m pip install --quiet --break-system-packages httpx
-             || python3 -m pip install --quiet httpx
+        run: python3 -m pip install --quiet --break-system-packages --ignore-installed httpx
+             || python3 -m pip install --quiet --ignore-installed httpx
 
       # #848, the same family pointing the other way: 4 of 13 hydrate steps
       # wrote no sentinel at all, so CANNOT-RUN, FAIL and PASS shared one

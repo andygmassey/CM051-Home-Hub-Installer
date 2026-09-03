@@ -72,8 +72,8 @@ jobs:
       # of defect-shaped failures.
       - name: Install the rule module's one import-time dependency
         run: |
-          python3 -m pip install --quiet --break-system-packages httpx \
-            || python3 -m pip install --quiet httpx
+          python3 -m pip install --quiet --break-system-packages --ignore-installed httpx \
+            || python3 -m pip install --quiet --ignore-installed httpx
 
       # 19 controls. Exit 2 is CANNOT-RUN, and CI treats it as failure, which
       # is correct: a gate that cannot find what it guards has not passed.
@@ -95,8 +95,8 @@ jobs:
       # would reintroduce the coupling the split exists to avoid.
       - name: Install the rule module's one import-time dependency
         run: |
-          python3 -m pip install --quiet --break-system-packages httpx \
-            || python3 -m pip install --quiet httpx
+          python3 -m pip install --quiet --break-system-packages --ignore-installed httpx \
+            || python3 -m pip install --quiet --ignore-installed httpx
 
       # Reinstates the defect in a COPY of the module -- MUTANT A restores the
       # #810 never-ran/healthy conflation, MUTANT B restores the silence --
