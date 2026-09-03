@@ -33,7 +33,9 @@ cannot() { echo "CANNOT-RUN [$1]: $2" >&2; exit 2; }
 [ -f "${DRIVER}" ] || cannot "driver-missing" "${DRIVER} not found -- nothing was checked."
 command -v python3 >/dev/null 2>&1 || cannot "no-python3" "python3 is not on PATH."
 
-python3 - "${DRIVER}" <<'PY'
+STRINGS="${REPO_ROOT}/install.sh.strings.en-GB.sh"
+
+python3 - "${DRIVER}" "${STRINGS}" <<'PY'
 import importlib.util, os, sys, tempfile
 
 driver = sys.argv[1]
@@ -49,14 +51,67 @@ except Exception as exc:                                  # noqa: BLE001
 # PREMISE GUARD. Every arm below compares against these names; if the driver
 # stopped exporting them, the comparisons would all be against AttributeError
 # and the arms would report something other than what they measure.
-for need in ("adjudicate", "PASS", "FAIL", "CANNOT_RUN"):
+for need in ("adjudicate", "PASS", "FAIL", "CANNOT_RUN",
+             "UNANSWERED_PROMPT", "TCC_DEPENDENT_STEPS", "failed_step_ids"):
     if not hasattr(mod, need):
         print("CANNOT-RUN [premise]: the driver has no %r. Nothing was measured."
               % need, file=sys.stderr)
         raise SystemExit(2)
 
+# PREMISE GUARD, the allowlist. Arms 7-10 expect health_check to be a step the
+# harness admits it cannot judge. If it were dropped from the allowlist, those
+# arms would still run and would measure a DIFFERENT rule than the one named.
+if "health_check" not in mod.TCC_DEPENDENT_STEPS:
+    print("CANNOT-RUN [premise]: health_check is not in TCC_DEPENDENT_STEPS, "
+          "so arms 7-10 would measure something other than what they claim.",
+          file=sys.stderr)
+    raise SystemExit(2)
+
+# 🔴 THE CROSS-FILE CONTRACT, and the whole reason this is a premise and not an
+# arm. The driver's excuse fires on a sentence that INSTALL.SH OWNS. A copy
+# edit to that string, in a repo where nothing links the two files, would
+# silently switch the CANNOT-RUN rule off and every TCC-blocked walk would go
+# back to reading as a product FAIL. So take the string from the strings file
+# and prove the driver's pattern still matches the REAL text.
+strings_path = sys.argv[2]
+try:
+    with open(strings_path, "r", encoding="utf-8", errors="replace") as fh:
+        strings_body = fh.read()
+except IOError as exc:
+    print("CANNOT-RUN [premise]: %s is unreadable (%s), so the cross-file "
+          "contract was not checked." % (strings_path, exc), file=sys.stderr)
+    raise SystemExit(2)
+
+KEY = "MSG_WARN_IMESSAGE_AUTOMATION_PROBE_TIMEOUT="
+real_warn = None
+for line in strings_body.splitlines():
+    if line.startswith(KEY):
+        real_warn = line[len(KEY):].strip().strip('"')
+        break
+if real_warn is None:
+    print("CANNOT-RUN [premise]: %s does not define %s -- the string this whole "
+          "rule keys off has moved or been renamed."
+          % (strings_path, KEY.rstrip("=")), file=sys.stderr)
+    raise SystemExit(2)
+if not mod.UNANSWERED_PROMPT.search(real_warn):
+    print("CANNOT-RUN [premise]: UNANSWERED_PROMPT does not match the CURRENT "
+          "text of %s. The driver would grade every TCC-blocked walk as a "
+          "product FAIL. Re-sync the pattern with the string."
+          % KEY.rstrip("="), file=sys.stderr)
+    raise SystemExit(2)
+
 NAME = {mod.PASS: "PASS", mod.FAIL: "FAIL", mod.CANNOT_RUN: "CANNOT-RUN"}
 TAB = "\t"
+
+
+def step_error(step_id):
+    return ("#OSTLER" + TAB + "STEP_END" + TAB + "id=" + step_id + TAB
+            + "status=error" + TAB + "elapsed_s=171" + TAB + "rc=2\n")
+
+
+def warn_line():
+    """The installer's own words, taken from the strings file, not retyped."""
+    return "#OSTLER" + TAB + "WARN" + TAB + "msg=" + real_warn + "\n"
 
 
 def grade(body, rc=0, channel_on=True):
@@ -112,6 +167,41 @@ ARMS = [
      marker("fail", 3, 0),
      mod.FAIL,
      "REGRESSION DIRECTION. The pre-existing status!=ok path must be untouched."),
+
+    # ------------------------------------------------------------------
+    # THE HARNESS'S OWN BLIND SPOT. Measured on run 8 (2026-09-04):
+    # health_check went rc=2 because a macOS Automation dialog was never
+    # answered, and a pty CANNOT answer one. Grading that as a product FAIL
+    # is the accusation version of a false green: it is wrong, it is
+    # permanent, and after a few of them nobody reads the walk at all.
+    # ------------------------------------------------------------------
+    ("TCC dialog nobody could answer",
+     step_error("health_check") + warn_line() + marker("ok", 1, 0),
+     mod.CANNOT_RUN,
+     "THE DEFECT THIS PAIR EXISTS FOR. The only failed step depends on a "
+     "grant no unattended run can give, and the installer said so itself. "
+     "That is CANNOT-RUN: not a pass, and not the product's fault."),
+
+    ("a product failure in the same run",
+     step_error("wiki_compile") + warn_line() + marker("ok", 1, 0),
+     mod.FAIL,
+     "CONTROL, AND THE ONE THAT MATTERS MOST. The unanswered prompt must "
+     "excuse ONLY the steps that depend on it. If the WARN alone were the "
+     "trigger, one dialog would launder every other failure in the run."),
+
+    ("health_check failed with no prompt involved",
+     step_error("health_check") + marker("ok", 1, 0),
+     mod.FAIL,
+     "CONTROL. The excuse needs EVIDENCE, not just a step name on a list. "
+     "health_check can fail for ordinary product reasons and must still "
+     "grade FAIL when it does."),
+
+    ("a tally we cannot attribute",
+     warn_line() + marker("ok", 1, 0),
+     mod.FAIL,
+     "CONTROL. failed_steps=1 with no STEP_END to name it: we cannot show "
+     "the failure was ours, so we do not get to claim it was. Refusing to "
+     "excuse what you cannot attribute is the whole discipline."),
 ]
 
 rc = 0

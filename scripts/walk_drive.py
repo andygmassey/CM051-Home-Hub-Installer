@@ -419,6 +419,30 @@ DONE_LINE = re.compile(r"^.*#OSTLER\s+DONE\s+status=\w+.*$", re.M)
 FAILED_STEPS_FIELD = re.compile(r"\bfailed_steps=(\d+)")
 ERRORS_FIELD = re.compile(r"\berrors=(\d+)")
 
+# 🔴 THE HARNESS'S OWN BLIND SPOT, NAMED SO IT CAN BE GRADED.
+#
+# macOS Automation (TCC) consent is a GUI dialog. A pty cannot click one, so
+# an unattended walk PROVOKES a failure it can never resolve. install.sh says
+# so in its own words -- this is the stable head of
+# MSG_WARN_IMESSAGE_AUTOMATION_PROBE_TIMEOUT in
+# install.sh.strings.en-GB.sh. Matched on the head only, so a copy edit to
+# the remediation half of that sentence cannot silently switch this off.
+UNANSWERED_PROMPT = re.compile(r"No answer to the Messages permission prompt",
+                               re.I)
+
+# Steps that DEPEND on a TCC grant and so cannot be judged unattended.
+# An ALLOWLIST of exactly the steps measured to have that dependency, never a
+# wildcard. A failure in any other step in the same run still grades FAIL --
+# that is the control on this whole idea, and there is a test arm for it.
+TCC_DEPENDENT_STEPS = ("health_check",)
+
+STEP_ERROR = re.compile(r"#OSTLER\s+STEP_END\s+id=(\S+)\s+status=error\b")
+
+
+def failed_step_ids(body):
+    """Every step id the log itself reports as status=error, in order."""
+    return STEP_ERROR.findall(body)
+
 
 def tally_from_marker(body):
     """(failed_steps, errors) off the LAST DONE line, or None if not stated.
@@ -508,6 +532,47 @@ def adjudicate(log_path, rc, marker_channel_on):
                     "match a marker that carries failed_steps.")
         failed, errors = tally
         if failed or errors:
+            # 🔴 BUT FIRST: WAS THE FAILURE OURS?
+            #
+            # Measured on run 8 (2026-09-04). health_check went rc=2 and the
+            # installer's own WARN said why:
+            #     No answer to the Messages permission prompt, so we moved on
+            #     iMessage Automation permission: probe inconclusive
+            # That is a macOS AUTOMATION (TCC) dialog. A pty cannot click one.
+            # The driver pressed ENTER, the grant never happened, and the step
+            # failed BECAUSE THIS HARNESS IS BLIND, not because the product is
+            # broken. Reporting that as a product FAIL is the accusation
+            # version of a false green, and after a few of them nobody reads
+            # the walk at all.
+            #
+            # ⚠️ IT IS *NOT* SUPPRESSED, AND THAT DISTINCTION IS THE WHOLE
+            # POINT. A harness that dodges the failure it provoked is worse
+            # than no harness. This returns CANNOT-RUN -- the third state --
+            # names the prompt, and still prints the failed-step count so a
+            # reader sees exactly what went red. Nobody can read CANNOT-RUN as
+            # a pass; the estate's own vocabulary forbids it.
+            #
+            # Conservative on purpose: it fires on the PRESENCE of the
+            # unanswered-prompt WARN, and it says it cannot attribute
+            # per-step. A real product failure in the SAME run would also land
+            # here -- which is why the verdict is "could not judge", not
+            # "fine".
+            bad = failed_step_ids(body)
+            if (UNANSWERED_PROMPT.search(body)
+                    and bad
+                    and all(s in TCC_DEPENDENT_STEPS for s in bad)):
+                return (CANNOT_RUN,
+                        "%d step(s) failed -- %s -- and a macOS permission "
+                        "prompt went unanswered by this harness"
+                        % (failed, ", ".join(bad)),
+                        "An unattended pty CANNOT grant Automation/TCC -- the "
+                        "dialog needs a human. install.sh recorded the "
+                        "unanswered prompt itself, so this run cannot "
+                        "separate 'the product failed' from 'we could not "
+                        "answer'. That is CANNOT-RUN, not a pass and not a "
+                        "product failure. To judge these steps, walk the GUI "
+                        "installer by hand, or grant Automation on the box "
+                        "first and re-run.")
             return (FAIL,
                     "install.sh completed, but %d step(s) failed and it "
                     "recorded %d error(s)" % (failed, errors),
