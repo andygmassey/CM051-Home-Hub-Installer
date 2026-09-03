@@ -16568,6 +16568,40 @@ ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 # non-fatal: a transient Qdrant hiccup must not fail the whole install
 # (CM044's reader is being hardened to tolerate a 404 in parallel).
 _qdrant_url="${QDRANT_URL:-http://localhost:6333}"
+# 🔴 #628. THIS WAIT IS THE ONE TIMEOUT #615 DID NOT RAISE, AND IT IS WHAT
+# FIRED ON THE v1.0.61 WALK. #615 named six hardcoded 90s hydrate caps, raised
+# them to 1800 and made them env-tunable; nine OSTLER_*_TIMEOUT:-1800 sites now
+# exist. This one stayed a bare `seq 1 30` and nobody noticed, because it is a
+# READINESS wait rather than a hydrate CAP and so fell outside that sweep's
+# vocabulary.
+#
+# What it cost: on the Mini 16 the store did not answer inside 30 attempts, the
+# installer then called the vector collections "optional", skipped creating
+# them, ran the import anyway, and discarded 3810 of 3810 people (#624).
+#
+# 🗿 WHY THE NUMBER MATTERS MORE NOW THAN IT DID. Before A2's import gate
+# (#1385) an expiry here was a silent discard. After it, an expiry here is a
+# HARD INSTALL FAILURE. That is the right direction -- loud beats silent -- but
+# it moves this constant from "how long before we quietly lose data" to "how
+# long before we refuse to install", and 30 seconds is not a defensible answer
+# to the second question on a 16 GB Mac cold-starting a Docker image at T+0.
+# Raising it is what keeps the refusal RARE and therefore MEANINGFUL.
+#
+# 300 not 1800: this is a liveness probe against a local container, not a
+# hydrate of a customer's whole mailbox. A store that has not answered in five
+# minutes is not slow, it is broken, and the customer should hear so. Tunable
+# on the #615 pattern so a slow box can be given more without a recut.
+_QDRANT_READY_CAP="${OSTLER_QDRANT_READY_TIMEOUT:-300}"
+case "$_QDRANT_READY_CAP" in
+    ''|*[!0-9]*)
+        # A non-numeric override is operator error. Do not silently fall back to
+        # a number they did not choose and cannot see -- say so, then use the
+        # default, so the log carries both the mistake and the value in force.
+        warn "OSTLER_QDRANT_READY_TIMEOUT is not a whole number of seconds; using 300"
+        _QDRANT_READY_CAP=300
+        ;;
+esac
+
 _qdrant_ready=false
 _qdrant_last_status=""
 _qdrant_wait_s=0
@@ -16637,39 +16671,6 @@ _OSTLER_REQUIRED_QDRANT_COLLECTIONS=(people conversations preferences evernote_k
 # from that. `-o /dev/null -w '%{http_code}'` keeps it; `|| printf '000'`
 # turns a transport failure (no listener, DNS, timeout) into a distinguishable
 # 000 rather than an empty string.
-# 🔴 #628. THIS WAIT IS THE ONE TIMEOUT #615 DID NOT RAISE, AND IT IS WHAT
-# FIRED ON THE v1.0.61 WALK. #615 named six hardcoded 90s hydrate caps, raised
-# them to 1800 and made them env-tunable; nine OSTLER_*_TIMEOUT:-1800 sites now
-# exist. This one stayed a bare `seq 1 30` and nobody noticed, because it is a
-# READINESS wait rather than a hydrate CAP and so fell outside that sweep's
-# vocabulary.
-#
-# What it cost: on the Mini 16 the store did not answer inside 30 attempts, the
-# installer then called the vector collections "optional", skipped creating
-# them, ran the import anyway, and discarded 3810 of 3810 people (#624).
-#
-# 🗿 WHY THE NUMBER MATTERS MORE NOW THAN IT DID. Before A2's import gate
-# (#1385) an expiry here was a silent discard. After it, an expiry here is a
-# HARD INSTALL FAILURE. That is the right direction -- loud beats silent -- but
-# it moves this constant from "how long before we quietly lose data" to "how
-# long before we refuse to install", and 30 seconds is not a defensible answer
-# to the second question on a 16 GB Mac cold-starting a Docker image at T+0.
-# Raising it is what keeps the refusal RARE and therefore MEANINGFUL.
-#
-# 300 not 1800: this is a liveness probe against a local container, not a
-# hydrate of a customer's whole mailbox. A store that has not answered in five
-# minutes is not slow, it is broken, and the customer should hear so. Tunable
-# on the #615 pattern so a slow box can be given more without a recut.
-_QDRANT_READY_CAP="${OSTLER_QDRANT_READY_TIMEOUT:-300}"
-case "$_QDRANT_READY_CAP" in
-    ''|*[!0-9]*)
-        # A non-numeric override is operator error. Do not silently fall back to
-        # a number they did not choose and cannot see -- say so, then use the
-        # default, so the log carries both the mistake and the value in force.
-        warn "OSTLER_QDRANT_READY_TIMEOUT is not a whole number of seconds; using 300"
-        _QDRANT_READY_CAP=300
-        ;;
-esac
 for _qdrant_attempt in $(seq 1 "$_QDRANT_READY_CAP"); do
     _qdrant_last_status="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
         -s -o /dev/null -w '%{http_code}' -m 2 "${_qdrant_url}/collections" 2>/dev/null || printf '000')"
