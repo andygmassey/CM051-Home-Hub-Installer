@@ -702,8 +702,34 @@ gui_done() {
     #
     # A cancel does not come through here (gui_cancelled has its own
     # path), so a deliberate user cancel still counts nothing.
+    #
+    # ── #640: `|| true` IS LOAD-BEARING. THE ABORT PATH MUST NOT ABORT ──
+    #
+    # install.sh runs under `set -Eeuo pipefail` (install.sh:29), and this
+    # close is reached only from the three abort paths. Without the `|| true`
+    # a failure ANYWHERE inside gui_step_end kills the shell right here --
+    # inside gui_done, after the caller has committed to reporting, but
+    # BEFORE OSTLER_DONE_EMITTED is set and before the DONE marker is
+    # emitted below. The run then ends with NO terminal marker at all, which
+    # the GUI renders as the no-DONE crash fallback: a red banner for an
+    # install that said nothing about why it stopped.
+    #
+    # MEASURED, against this file and the real install.sh ERR trap, with
+    # gui_emit forced to return 1 for STEP_END only:
+    #     before this change ....... 0 DONE markers   (control, no fault: 1)
+    #     moving OSTLER_DONE_EMITTED
+    #       above this block ....... 0 DONE markers   -- does NOT fix it,
+    #                                and makes the silence guaranteed by
+    #                                muting the EXIT backstop too
+    #     this change .............. 1 DONE marker    (control still 1)
+    # The obvious fix was the wrong one; only the tolerated close works.
+    #
+    # Losing the step-close is the CHEAPER failure by construction. It costs
+    # one `failed_steps` increment and one STEP_END line. Losing the DONE
+    # costs the customer any statement at all. When the reporter itself is
+    # breaking, report.
     if [[ "$status" != "ok" && -n "${__OSTLER_STEP_ID:-}" ]]; then
-        gui_step_end error
+        gui_step_end error || true
     fi
 
     # CX-454: record that a terminal DONE marker has gone out, so the

@@ -37,6 +37,8 @@ on:
       - 'tests/test_bundle_phase_declares_every_copy.sh'
       - 'tests/test_ai_model_env_contract.sh'
       - 'tests/test_gui_progress_emitter.sh'
+      - 'tests/test_pgrep_no_match_does_not_fabricate_a_done.sh'
+      - 'tests/test_abort_still_reports_when_the_close_fails.sh'
       - 'tests/test_marker_payloads_never_reach_install_log.sh'
       - 'tests/test_install_log_follows_promotion.sh'
       - 'lib/ostler-ingest-slot.sh'
@@ -137,6 +139,24 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/test_gui_progress_emitter.sh
+
+      # #642: a pgrep no-match fabricated a TERMINAL DONE from inside a command
+      # substitution's subshell, the GUI believed it and stopped prompting, and
+      # the next prompt DEADLOCKED the install on a real box. Lives here because
+      # the defect is only visible through the emitter + the ERR trap together.
+      - name: A pgrep no-match must not fabricate a terminal DONE (#642)
+        if: always()
+        run: |
+          set -euo pipefail
+          bash tests/test_pgrep_no_match_does_not_fabricate_a_done.sh
+
+      # #640: the abort-close is fallible and sits BEFORE the guard it protects,
+      # so a failure inside it destroyed the only terminal marker the run makes.
+      - name: An abort must still report when its own step-close fails (#640)
+        if: always()
+        run: |
+          set -euo pipefail
+          bash tests/test_abort_still_reports_when_the_close_fails.sh
 
       - name: Marker payloads must not reach the durable install log
         if: always()
