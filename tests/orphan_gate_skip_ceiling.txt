@@ -1,0 +1,27 @@
+# ORPHAN-GATE SKIP CEILING (task #611)
+#
+# The MAXIMUM set of repo labels that scripts/verify_no_orphaned_fixes.sh may
+# leave NOT CHECKED on a cut, via OSTLER_ORPHAN_GATE_SKIP. It is the guard on a
+# gap the gate cannot otherwise see: nothing pinned the skip set, so a sixth
+# label could be added and the gate still exit 0, and coverage would walk down
+# to a floor of one repo, every step green, because only `checked == 0` fails
+# closed (exit 3).
+#
+# THIS IS A MAXIMUM, NOT AN EQUALITY. The skip set legitimately differs by
+# environment: the operator's Mac resolves every repo and skips none; a hosted
+# runner has only CM051 present and skips the other five. Skipping FEWER than
+# this list is progress and stays GREEN. Skipping a label NOT on this list FAILS
+# and names it.
+#
+# IT IS A LIST, NOT A COUNT. A count cannot see a swap: drop CM044, add CM051,
+# and the total is unchanged while coverage moved to a different, unreviewed
+# shape. Every permitted skip is a line here, so raising the ceiling is a
+# reviewable edit to this file, in the same PR as the workflow that skips.
+#
+# One label per line. Blank lines and #-comments ignored. Compared with
+# LC_ALL=C so collation cannot phantom-diff.
+CM031
+CM041
+CM044
+CM059
+daemon
