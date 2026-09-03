@@ -42,7 +42,13 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 [[ -f "$LIB"       ]] || fail "lib/progress_emitter.sh not found"
 [[ -f "$INSTALLER" ]] || fail "install.sh not found"
 
-WORK="$(mktemp -d -t ostler-642)"
+# PORTABILITY: `mktemp -d -t NAME` with no X's in the template is BSD-only.
+# GNU mktemp (ubuntu-latest, which is what CI runs) refuses it outright with
+# "too few X's in template", leaves WORK EMPTY, and every subsequent write goes
+# to `/`. This is the repo's existing idiom: plain `-d` first (GNU + BSD both
+# accept it), BSD `-t` only as the fallback.
+WORK="$(mktemp -d 2>/dev/null || mktemp -d -t ostler-642)"
+[[ -n "$WORK" && -d "$WORK" ]] || fail "mktemp produced no directory. CANNOT-RUN."
 trap 'rm -rf "$WORK"' EXIT
 rc=0
 
