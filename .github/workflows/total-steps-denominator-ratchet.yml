@@ -21,11 +21,23 @@ name: total-steps-denominator-ratchet
 # ============================================================================
 #
 # The real fix hoists each late decrement above the first `progress` call so
-# TOTAL_STEPS is final before it is published. Five of six are plainly
-# hoistable (condition vars assigned at 3336/4884/4918/4964, first progress at
-# 10711). THE SIXTH IS NOT SETTLED: line 21521 guards a shipped payload file
-# (`bin/wiki-recompile-tick.sh`), and whether its presence is knowable at seed
-# time depends on payload-staging order, WHICH HAS NOT BEEN MEASURED.
+# TOTAL_STEPS is final before it is published.
+#
+# ⚠️ ONLY THREE OF SIX ARE HOISTABLE. This comment first said FIVE, on a
+# measurement of WHEN EACH GUARD'S VARIABLE IS ASSIGNED. That was the wrong
+# question: four of the six guards are FILE TESTS, and an early variable says
+# nothing about whether the path it names EXISTS at seed time.
+#
+#   hoistable: 20995 (pure vars) · 21019 (~/Library/Mail) · 21092 (chat.db)
+#              -- the latter two are USER-owned paths install.sh never creates
+#   not:       21041 (Transcripts, created by install.sh, see 3344)
+#              21521 (bin/wiki-recompile-tick.sh, shipped payload)
+#              26530 (Apple Notes FDA output; its variable is not even
+#                     assigned until 26508, long after the 10711 seed)
+#
+# So the floor is THREE. Below that is not a hoist -- it needs the condition
+# computed from something knowable at seed, or an accepted decision that the
+# denominator moves.
 #
 # A gate demanding zero would therefore be unsatisfiable today, and an
 # unsatisfiable gate gets bypassed rather than met. So: a ratchet, pinned at

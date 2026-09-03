@@ -17,18 +17,35 @@
 # ── WHY A RATCHET AND NOT A FIX ──────────────────────────────────────────────
 #
 # The real fix is to HOIST each late decrement above the first `progress` call,
-# so TOTAL_STEPS is final before it is ever published. Five of the six are
-# plainly hoistable: their condition variables are all assigned well before the
-# first progress call (measured: 3336, 4884, 4918, 4964 vs first progress at
-# 10711).
+# so TOTAL_STEPS is final before it is ever published.
 #
-# THE SIXTH IS NOT SETTLED. Line 21521 guards
-# `${OSTLER_DIR}/bin/wiki-recompile-tick.sh`, which install.sh only ever
-# REFERENCES and never writes -- so it is a shipped payload file, and whether
-# its presence is knowable at seed time depends on when the payload populates
-# `bin/`. THAT ORDER HAS NOT BEEN MEASURED. Writing a gate that demands zero
-# late decrements would therefore be writing a gate nobody can currently
-# satisfy, and an unsatisfiable gate gets bypassed rather than met.
+# ⚠️ ONLY THREE OF THE SIX ARE HOISTABLE. An earlier version of this comment
+# said FIVE. That was wrong, and the way it was wrong is worth keeping: I had
+# measured WHEN EACH GUARD'S VARIABLE IS ASSIGNED, and every one of them is
+# assigned before 10711. But four of the six guards are FILE TESTS, and a
+# variable being set early says nothing about whether the PATH IT NAMES exists
+# at seed time. Right instrument, wrong question.
+#
+# Re-measured properly:
+#
+#   HOISTABLE (3)
+#     20995  pure variable test, CHANNEL_WHATSAPP_* assigned 4884/4885
+#     21019  ~/Library/Mail        -- USER-owned, install.sh never creates it
+#     21092  ~/Library/Messages/chat.db -- USER-owned, same
+#
+#   NOT HOISTABLE (3) -- each names a path INSTALL.SH ITSELF PRODUCES, so the
+#   test genuinely answers differently at seed time than where it sits now
+#     21041  ${USER_FACING_ROOT}/Transcripts -- created by install.sh; the dir
+#            is in USER_TREE_SUBDIRS at 3344
+#     21521  ${OSTLER_DIR}/bin/wiki-recompile-tick.sh -- shipped payload
+#     26530  ${_HYDRATE_APPLENOTES_JSON_FILE} -- an FDA extraction OUTPUT, and
+#            the variable itself is not assigned until 26508, long after seed
+#
+# So the floor for this ratchet is THREE, not one, and getting below three is
+# not a hoist at all -- it needs the condition computed from something knowable
+# at seed, or an accepted design decision that the denominator moves. Writing a
+# gate that demands zero would be writing a gate nobody can satisfy, and an
+# unsatisfiable gate gets bypassed rather than met.
 #
 # So this is a RATCHET, pinned at the measured 6. It is satisfiable TODAY, it
 # refuses a SEVENTH, and -- because it also fails when the count drops without
