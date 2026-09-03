@@ -49,6 +49,7 @@ on:
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_launchagent_success_requires_verification.sh'
       - 'tests/test_launchagent_refusal_reason_is_recorded.sh'
+      - 'tests/test_launchagent_refusal_reaches_the_transcript.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/launchagent-success-verification.yml'
       # Watched because the regression job below RUNS them. A run: without a
@@ -104,6 +105,23 @@ jobs:
       - name: A refused LaunchAgent load must record launchd's reason
         if: always()
         run: /bin/bash tests/test_launchagent_refusal_reason_is_recorded.sh
+
+      # RECORDING THE REASON IS NOT DELIVERING IT. The step above proves the
+      # cause is captured; this one proves it reaches somewhere a walk reads,
+      # and that an UNREACHABLE gui domain is named rather than reported as a
+      # broken agent. Measured 2026-09-04: the refusal log had 0 references in
+      # ttywalk.sh and 0 in walk_drive.py, so the cause of the Mini 16 Doctor
+      # failure sat on the box unread and cost a second 21-minute install.
+      - name: A refusal must reach the transcript and name its scope
+        if: always()
+        run: |
+          set -uo pipefail
+          /bin/bash tests/test_launchagent_refusal_reaches_the_transcript.sh
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The refusal harness could not extract its subject from install.sh. NOTHING was measured about LaunchAgent refusals -- this is not a pass."
+          fi
+          exit "$rc"
 
       # A LaunchAgent that loaded is not a LaunchAgent that read the plist you
       # just wrote. On an UPGRADE the label is already bootstrapped, so

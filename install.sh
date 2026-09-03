@@ -1322,16 +1322,75 @@ err()   { _OSTLER_RUN_ERRORS=$(( ${_OSTLER_RUN_ERRORS:-0} + 1 )); gui_active || 
 # tree, which is exactly when it is needed. LOGS_DIR follows the staging tree
 # and is renamed onto ~/.ostler/logs/ on success (see _ostler_set_paths), so
 # this lands beside doctor.log and install.log where support already looks.
+# Is the GUI bootstrap domain reachable AT ALL? One probe per run, cached.
+#
+# 🔬 WHY THIS IS A SEPARATE QUESTION FROM "did this agent load".
+# They are different findings and only ONE of them is about the product:
+#
+#   domain reachable + job absent  -> THIS AGENT is broken. A real defect,
+#                                     and the warning below means what it says.
+#   domain UNREACHABLE             -> NO agent can load, and every per-agent
+#                                     "not loaded" warning in this run is a
+#                                     statement about the SESSION, not about
+#                                     the product.
+#
+# `gui/<uid>` exists only while that user has a window-server session. An
+# install driven over ssh with nobody logged in at the GUI has no such domain,
+# so bootstrap fails for all 14 call sites at once, for a reason that has
+# nothing to do with any plist.
+#
+# BEFORE THIS PROBE THE TWO WERE INDISTINGUISHABLE. Both printed the identical
+# warning, so an ssh-driven walk could manufacture a full set of "not loaded"
+# findings and every one would read as a customer-facing defect. That is the
+# instrument being reported as the subject, which has already cost this
+# estate three separate diagnoses. A domain we cannot reach is CANNOT-RUN,
+# and CANNOT-RUN is not a product failure and is not a pass.
+#
+# Deliberately NOT a hard failure: an ssh install is a real thing we do on
+# purpose, and refusing it outright would break the walk driver. It labels.
+_ostler_gui_domain_reachable() {
+    if [[ -z "${_OSTLER_GUI_DOMAIN_STATE:-}" ]]; then
+        if launchctl print "gui/$(id -u)" >/dev/null 2>&1; then
+            _OSTLER_GUI_DOMAIN_STATE=reachable
+        else
+            _OSTLER_GUI_DOMAIN_STATE=unreachable
+        fi
+    fi
+    [[ "$_OSTLER_GUI_DOMAIN_STATE" == "reachable" ]]
+}
+
 _ostler_launchagent_note_refusal() {   # $1 label, $2 our reason, $3 launchd stderr
     local _dir="${LOGS_DIR:-${OSTLER_DIAG_DIR:-${TMPDIR:-/tmp}}}"
     local _f="${_dir}/launchagent-load.log"
+    local _scope
+    if _ostler_gui_domain_reachable; then
+        _scope="gui domain reachable, so this is specific to ${1}"
+    else
+        _scope="🔬 gui/$(id -u) IS NOT REACHABLE -- no LaunchAgent can load in this session (ssh with no GUI login looks exactly like this). This is CANNOT-RUN, not a verdict on ${1}."
+    fi
     mkdir -p "$_dir" 2>/dev/null || true
     {
         printf '%s  %s  %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" "$2"
+        printf '    scope: %s\n' "$_scope"
         if [[ -n "$3" ]]; then
             printf '%s\n' "$3" | sed -e 's/^/    launchd: /'
         fi
     } >> "$_f" 2>/dev/null || true
+
+    # 🔴 AND SAY IT WHERE SOMEONE WILL READ IT.
+    # Until now the reason went ONLY to ${LOGS_DIR}/launchagent-load.log, and
+    # MEASURED 2026-09-04: that file is collected by NOTHING -- 0 references in
+    # scripts/ttywalk.sh and 0 in scripts/walk_drive.py. So the caller's warn
+    # said "Doctor not loaded" with no cause, the cause sat in a file no walk
+    # ever reads, and diagnosing it cost a second full 21-minute install.
+    # A diagnosis nobody collects is not a diagnosis.
+    warn "  launchagent ${1}: ${2}"
+    warn "  ${_scope}"
+    if [[ -n "$3" ]]; then
+        printf '%s\n' "$3" | while IFS= read -r _l; do
+            [[ -n "$_l" ]] && warn "  launchd said: ${_l}"
+        done
+    fi
 }
 
 # True when the plist says launchd must KEEP THIS UP. Deliberately NOT
