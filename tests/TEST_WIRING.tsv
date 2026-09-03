@@ -429,3 +429,4 @@ gui/OstlerInstallerTests/StringsCatalogueEmDashTest.swift	WIRED	.github/workflow
 gui/OstlerInstallerTests/StringsCatalogueYNSuffixTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
+test_declined_remote_access_is_not_promised.sh	WIRED	.github/workflows/background-copy-honesty.yml
