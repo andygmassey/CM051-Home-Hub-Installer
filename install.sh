@@ -26261,6 +26261,33 @@ except Exception:
 # would train the reader to ignore the warning. Three outcomes, three arms.
 _initial_hydrate_qdrant_missing_required() {
     local raw out rc=0
+    # 🔴 AN EMPTY EXPECTATION IS NOT A SATISFIED ONE (TNM, review of #1376).
+    #
+    # If the declared list is unset or empty, every loop below iterates nothing
+    # and the function returns "" -- which this branch reads as "all present".
+    # That is the worst possible failure: it reports a clean search index on
+    # precisely the install where nothing was created.
+    #
+    # It is reachable. The pre-create loop runs only when the store came up
+    # ready; move the declaration inside that branch and it is unset on the
+    # not-ready path. And WHAT HAPPENS THEN DEPENDS ON THE INTERPRETER, which
+    # is why this cannot be left to bash's own behaviour -- measured, set -u,
+    # same expansion, both by absolute path:
+    #     /bin/bash 3.2.57        unset "${ARR[@]}" -> unbound variable, rc=1,
+    #                             the INSTALL ABORTS mid-hydrate
+    #     homebrew bash 5.3.15    unset "${ARR[@]}" -> empty, rc=0, SILENT
+    #                             false clean -- the exact defect this fixes
+    # install.sh is `#!/usr/bin/env bash`, so which one a customer gets is
+    # PATH-dependent. One branch kills the install, the other lies. Neither is
+    # an acceptable way to find out the list went missing, so we ask directly.
+    #
+    # `${ARR[@]+x}` is the idiom already used for _OSTLER_STORE_CURL_ARGS in
+    # this file, and it is measured identical on 3.2.57 and 5.3.15:
+    #     UNSET -> CANNOT-RUN · EMPTY -> CANNOT-RUN · SET(4) -> n=4, rc=0 both.
+    if [[ -z "${_OSTLER_REQUIRED_QDRANT_COLLECTIONS[@]+x}" ]]; then
+        printf 'CANNOT-RUN: the declared collection list is unset or empty, so nothing could be checked'
+        return 0
+    fi
     raw="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
         -sf -m 5 "${_INITIAL_HYDRATE_QDRANT}/collections" 2>&1)" || rc=$?
     if [[ "$rc" -ne 0 ]]; then

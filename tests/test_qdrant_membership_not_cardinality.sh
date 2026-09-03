@@ -155,7 +155,30 @@ else
     bad "D an unexpected response shape must be CANNOT-RUN, got: '${D_OUT}'"
 fi
 
-printf '== ARMS E-G: install.sh structure ==\n'
+# ARM H -- the use-site guard for the trap arm F describes. Even if the array
+# somehow arrives unset at runtime, the checker must say CANNOT-RUN and must
+# NOT return "" (which the caller reads as "every collection is present").
+# Without this, the scope defect is a SILENT FALSE CLEAN on bash 5.x and an
+# ABORTED INSTALL on bash 3.2 -- neither is an acceptable way to discover it.
+_H_SAVE=("${_OSTLER_REQUIRED_QDRANT_COLLECTIONS[@]}")
+unset _OSTLER_REQUIRED_QDRANT_COLLECTIONS
+_STUB_RC=0
+_STUB_BODY="$(_body_for people)"
+H_OUT="$(_initial_hydrate_qdrant_missing_required 2>/dev/null)"
+_OSTLER_REQUIRED_QDRANT_COLLECTIONS=("${_H_SAVE[@]}")
+if [ "$(printf '%s' "$H_OUT" | grep -c '^CANNOT-RUN:')" -gt 0 ]; then
+    ok "H an unset declared list is CANNOT-RUN, not a silent 'nothing missing'"
+else
+    bad "H an unset declared list must be CANNOT-RUN, got: '${H_OUT}'"
+fi
+# ...and the restore must actually have worked, or every arm after this is junk.
+if [ "${#_OSTLER_REQUIRED_QDRANT_COLLECTIONS[@]}" -eq 4 ]; then
+    ok "H the declared list was restored after the unset arm (4 entries)"
+else
+    bad "H restore failed; later arms ran against a mangled list (n=${#_OSTLER_REQUIRED_QDRANT_COLLECTIONS[@]})"
+fi
+
+printf '== ARMS E-H: install.sh structure ==\n'
 
 # ARM E -- the READY claim must be reachable ONLY when nothing is missing,
 # i.e. it must sit LATER in the file than the missing-collections warning.
@@ -169,14 +192,50 @@ else
     bad "E the READY claim is reachable before the missing check (ready=${E_READY} missing=${E_MISS})"
 fi
 
-# ARM F -- THE TRAP. Top level, or the checker goes blind on the not-ready path.
-F_COL="$(printf '%s' "$DECL_LINE" | cut -d: -f2-)"
-case "$F_COL" in
-    _OSTLER_REQUIRED_QDRANT_COLLECTIONS=*)
-        ok "F the declared array is at top level (column 0), so it cannot be unset on the not-ready path" ;;
-    *)
-        bad "F the declared array is indented, so it is unset when the pre-create branch is skipped" ;;
-esac
+# ARM F -- THE TRAP, and this arm was a DEAD CONTROL until TNM refuted it.
+#
+# 🔻 WHAT IT USED TO DO, AND WHY THAT WAS WORTHLESS. It read the declaration
+# line and checked it began at COLUMN 0. But COLUMN 0 IS TYPOGRAPHY AND THE
+# TRAP IS SCOPE. bash does not require indentation, so a declaration can sit
+# at column 0 and still be INSIDE the readiness `if` -- unset on the not-ready
+# path, which is the whole defect. TNM built that mutant and my suite passed
+# it 9/9 while arm F printed "at top level (column 0), so it cannot be unset".
+# A control whose failing case cannot occur is worse than no control, because
+# it reports green. Measured, three trees:
+#     baseline                                 9 passed
+#     decl indented 4 spaces                   FAILED (the :77 blind guard)
+#     decl moved INSIDE the if, column 0       9 passed, 0 failed  <- dead
+#
+# WHAT IT DOES NOW: asks bash's own parser for the SEMANTIC fact. Truncate the
+# file immediately after the declaration and parse it. If the declaration is
+# genuinely top level, the truncation is a complete program. If it is inside
+# an unclosed `if`, bash reports an unexpected EOF. Typography cannot fool it.
+F_LINE="${DECL_LINE%%:*}"
+F_HEAD="$(mktemp)"; F_CTL="$(mktemp)"
+head -n "$F_LINE" "$INSTALL_SH" > "$F_HEAD"
+/bin/bash -n "$F_HEAD" 2>/dev/null
+F_RC=$?
+
+# The must-fail control, in the SAME run, so a parser that has stopped
+# discriminating cannot quietly pass this arm. Truncating at the pre-create
+# loop is truncating INSIDE the readiness `if`, so it MUST fail to parse.
+F_CTL_LINE="$(grep -n 'for _coll in "\${_OSTLER_REQUIRED_QDRANT_COLLECTIONS\[@\]}"' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+if [ -n "$F_CTL_LINE" ]; then
+    head -n "$F_CTL_LINE" "$INSTALL_SH" > "$F_CTL"
+    /bin/bash -n "$F_CTL" 2>/dev/null
+    F_CTL_RC=$?
+else
+    F_CTL_RC=0   # anchor gone -> control cannot run -> treated as not-firing below
+fi
+rm -f "$F_HEAD" "$F_CTL"
+
+if [ "$F_CTL_RC" -eq 0 ]; then
+    blind "F the must-fail control did not fail (truncating inside the if parsed clean); this arm proves nothing"
+elif [ "$F_RC" -eq 0 ]; then
+    ok "F the declared array is genuinely TOP LEVEL by bash's parser (control fired: rc=${F_CTL_RC})"
+else
+    bad "F the declared array is inside a conditional block, so it is unset on the not-ready path (bash -n rc=${F_RC})"
+fi
 
 # ARM G -- one list, two readers. A literal list in the creation loop means
 # the creator and the checker can drift apart.
