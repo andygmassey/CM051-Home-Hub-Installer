@@ -68,6 +68,7 @@ jobs:
             tests/test_ostler_gui_sudo_gates.sh \
             tests/test_placeholder_strip.sh \
             tests/test_preferences_vendor_wired.sh \
+            tests/test_region_persist_does_not_leak_a_traceback.sh \
             tests/test_resource_tier_governor.sh \
             tests/test_settling_progress_writer.sh \
             tests/test_subscription_activation_path.sh \
