@@ -9764,7 +9764,18 @@ done
 # while Phase 3 kicks off. The step itself is a no-op marker -- the
 # GUI renders the HintCopy "setup_complete_wrap_up" block until the
 # next step (homebrew_install) fires its STEP_BEGIN.
-step "$MSG_STEP_SETUP_COMPLETE_WRAP_UP" "setup_complete_wrap_up"
+# #613: name only the interactions that are actually still coming. A customer
+# who answered "skip" to remote access is not going to be asked to sign in to
+# Tailscale, so saying so here is a promise the install then breaks.
+# The predicate is `== skip`, NOT `!= setup`: an EMPTY TAILSCALE_CONFIRM means
+# the question has not been asked yet (the late-ask path at the tailscale_connect
+# step), and on that path the sign-in genuinely is still to come. Unknown must
+# therefore keep the original wording. Only a MEASURED decline changes the copy.
+if [[ "${TAILSCALE_CONFIRM:-}" == "skip" ]]; then
+    step "$MSG_STEP_SETUP_COMPLETE_WRAP_UP_NO_REMOTE" "setup_complete_wrap_up"
+else
+    step "$MSG_STEP_SETUP_COMPLETE_WRAP_UP" "setup_complete_wrap_up"
+fi
 
 fi  # end of SKIP_PHASE2 check (GDPR scan + consent)
 
@@ -21424,7 +21435,16 @@ else
                     # unannounced crash of windows after being told to walk
                     # away. This is a log line, not another modal -- it sets
                     # expectation without adding a window.
-                    info "$MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE"
+                    # #613: same predicate as the wrap-up above. Naming a
+                    # Tailscale sign-in to someone who declined it is the
+                    # SECOND such promise on the declined path, and this one
+                    # lands at the moment they are deciding whether they can
+                    # walk away. Unknown answer keeps the original wording.
+                    if [[ "${TAILSCALE_CONFIRM:-}" == "skip" ]]; then
+                        info "$MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE_NO_REMOTE"
+                    else
+                        info "$MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE"
+                    fi
 
                 # BW4-A (2026-07-24): TCC auto-register nudge for the daemon.
                 #

@@ -42,6 +42,14 @@ MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK="Setup (a few quick questions, the
 # for a Tailscale sign-in. A customer who does what this sentence says comes
 # back to a stalled install. It now names what is still wanted.
 MSG_STEP_SETUP_COMPLETE_WRAP_UP="Questions done. Ostler now installs in the background – roughly 45 minutes to a few hours. Two things will still want you: if macOS asks to install developer tools, click Install; and near the end there is a couple of minutes of setup (Full Disk Access, then signing in to Tailscale). Between those you can leave it running."
+# #613: the line above names a Tailscale sign-in that a customer who answered
+# "skip" to the remote-access question will never be asked for. Promising a step
+# we then do not perform is the same defect class as claiming success we did not
+# have: the customer plans their time around a sentence that is not true. This
+# variant is emitted on the declined branch and names only what is left.
+# Kept as a separate string rather than a printf substitution so the shipped
+# copy of BOTH branches is readable in this file and gets its own review.
+MSG_STEP_SETUP_COMPLETE_WRAP_UP_NO_REMOTE="Questions done. Ostler now installs in the background – roughly 45 minutes to a few hours. Two things will still want you: if macOS asks to install developer tools, click Install; and near the end there is a minute of setup (switching on Full Disk Access). Between those you can leave it running."
 
 # ── Info messages (progress, context) ──
 
@@ -161,6 +169,12 @@ MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE="Registering the Ostler assistant with macO
 MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED="Full Disk Access is still pending. The Doctor dashboard will keep the card visible until access is granted."
 MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED="ostler-assistant already has Full Disk Access; no further action needed."
 MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE="This part needs you for about two minutes: switch on Full Disk Access for the assistant now, then sign in to Tailscale on the next step. After that, you can leave Ostler to finish on its own."
+# #613: the declined-remote-access variant of the line above. On the v1.0.60
+# walk this was the SECOND time a customer who had answered "skip" was told a
+# Tailscale sign-in was coming. Emitted only when the answer is known to be
+# skip; an unknown answer keeps the original wording, because the late-ask path
+# means the question genuinely is still to come.
+MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE_NO_REMOTE="This part needs you for about a minute: switch on Full Disk Access for the assistant. After that, you can leave Ostler to finish on its own."
 # WALK-874(b): %s is the Full Disk Access row name, DERIVED from the
 # assistant .app bundle (install.sh: _ostler_fda_entry_name). It read
 # "Ostler is already listed" while the row said OstlerAssistant, so the

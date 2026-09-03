@@ -47,8 +47,14 @@ name: background-copy-honesty
 on:
   pull_request:
     paths:
+      - 'install.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_background_copy_promises_no_deadline.sh'
+      # #613: the sibling rule. The deadline test guards a promise about WHEN;
+      # this one guards a promise about WHETHER, made to a customer who already
+      # said no. It reads install.sh (the predicate) as well as the catalogue,
+      # so install.sh joins the path filter above.
+      - 'tests/test_declined_remote_access_is_not_promised.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/background-copy-honesty.yml'
   push:
@@ -76,6 +82,24 @@ jobs:
       - name: Background-loading copy must not promise a completion time
         run: bash tests/test_background_copy_promises_no_deadline.sh
 
-      - name: Test parses under bash 3.2-compatible syntax
+      # #613, found by the owner on the live v1.0.60 walk. He answered "skip" to
+      # remote access and was told TWICE that a Tailscale sign-in was still
+      # coming: once in the post-questions wrap-up, once at the Full Disk Access
+      # gate. Both lines are read at the moment a customer decides how long they
+      # must stay at the keyboard, so the promise costs them real time. The
+      # install then printed "Tailscale skipped" in the same run, contradicting
+      # itself. Neither line consulted the answer.
+      #
+      # The ACCEPTED and UNKNOWN arms are load-bearing, not padding: deleting the
+      # promise from the copy outright would satisfy the declined case and break
+      # a true promise on the accept path and on the late-ask path, where the
+      # sign-in genuinely is still to come.
+      - name: A declined remote-access answer is never followed by a sign-in promise (#613)
         if: always()
-        run: bash -n tests/test_background_copy_promises_no_deadline.sh
+        run: /bin/bash tests/test_declined_remote_access_is_not_promised.sh
+
+      - name: Tests parse under bash 3.2-compatible syntax
+        if: always()
+        run: |
+          bash -n tests/test_background_copy_promises_no_deadline.sh
+          bash -n tests/test_declined_remote_access_is_not_promised.sh
