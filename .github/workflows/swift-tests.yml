@@ -104,6 +104,7 @@ jobs:
   # tax adding tests) and a log with no result line (CANNOT-RUN, never a pass).
   verifier-self-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: The result predicate can still tell a shrunken suite from a healthy one
@@ -113,6 +114,7 @@ jobs:
 
   swift-tests:
     runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

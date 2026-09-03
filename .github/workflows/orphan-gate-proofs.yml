@@ -72,6 +72,7 @@ jobs:
     # they exercise is invoked from a macOS build, and a proof that passes on a
     # different platform from the thing it proves is a weaker claim than it looks.
     runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -1,0 +1,93 @@
+name: workflow-jobs-have-timeouts
+
+# EVERY WORKFLOW JOB MUST DECLARE timeout-minutes (register #426).
+#
+# ============================================================================
+# CAUGHT IN THE ACT, NOT REASONED ABOUT
+# ============================================================================
+#
+# 2026-09-03T20:46:57Z, CM051 #1400. The `shell-macos` job of
+# tests-unwired-sweep-mz wedged: `in_progress` for 51 minutes, no output, no
+# signal but a spinner. It blocked the PR and looked exactly like a slow job.
+#
+# The denominator that makes it a WEDGE and not slowness: the previous 10
+# completed runs of that same workflow took 32 to 48 SECONDS.
+#
+# And it was not the branch. The same branch passed the same job in 41s one
+# commit earlier; the delta was a single added row in a TSV data file that no
+# shell test in that batch executes. A rerun of the identical commit on a
+# fresh runner passed in ~90s.
+#
+# With no `timeout-minutes`, a job inherits GitHub's 360-minute default. That
+# is not a bound -- it is a whole working day of a wedged runner holding a PR.
+#
+# ============================================================================
+# THE TIERS ARE MEASURED, AND THE FIRST MEASUREMENT WAS WRONG
+# ============================================================================
+#
+# Per workflow, over each workflow's own last-30 runs:
+#   window 2026-08-13 -> 2026-09-03 (21 days), 3423 runs, 3353 success,
+#   121 of 121 workflow files covered, ZERO unmeasured.
+#
+#   slowest SUCCESS per workflow: p50 1.0m | p90 7.6m | p99 9.7m | MAX 21.2m
+#   over 10m: 2 of 121   over 20m: 1   over 30m: 0   over 45m: 0
+#
+#   60 min -> cut.yml (13.0m observed), keyless-store-probe-tests.yml (21.2m)
+#   30 min -> everything else
+#
+# ⚠️ AN EARLIER ATTEMPT AT THIS MEASUREMENT WAS INVALID AND NEARLY SHIPPED.
+# It listed 500 recent runs repo-wide and reported "max 8.2 min, zero over 10
+# minutes". 500 was the PAGE CAP, not a population: the window it covered was
+# THIRTY MINUTES of dense PR traffic, and cut.yml -- the longest job in the
+# estate -- had ZERO runs in it. A tier set from that would have been derived
+# from a burst of fast PR gates with the slowest job entirely absent.
+#
+# ⚠️ AND THE FIGURES ABOVE ARE RUN-LEVEL WALL TIME, WHICH INCLUDES QUEUEING.
+# Job execution is strictly shorter, so the headroom ratios are LOWER BOUNDS
+# -- safe for SETTING a timeout, wrong for judging an existing one. Using it
+# that way first flagged 8 pre-existing 5-minute timeouts as "too tight";
+# job-level measurement then showed those jobs run in 8 to 11 SECONDS. This
+# gate therefore checks PRESENCE only and never polices the value.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - 'scripts/verify_workflow_jobs_have_timeouts.py'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch/PR. NEVER cancels main or a
+  # tag: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  timeouts-declared:
+    runs-on: ubuntu-latest
+    # This gate is subject to its own rule. A workflow that polices timeouts
+    # while having none would be the first thing it should catch.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Environment, so a failure is attributable
+        run: |
+          python3 --version
+          python3 -c "import yaml; print('PyYAML', yaml.__version__)"
+      - name: Every workflow job declares timeout-minutes
+        run: |
+          # `|| rc=$?`, NOT a bare call. The step shell is `bash -e {0}`, so a
+          # bare fallible call exits before rc is captured and the CANNOT-RUN
+          # branch below becomes unreachable code -- the exact class the
+          # cannot-run-branch-reachable gate exists to forbid.
+          set -uo pipefail
+          rc=0
+          python3 scripts/verify_workflow_jobs_have_timeouts.py || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The timeout gate could not read or parse the workflow directory. NOTHING was measured about job bounds -- this is not a pass."
+          fi
+          exit "$rc"

@@ -47,6 +47,7 @@ permissions:
 jobs:
   sensitive-artefacts-not-world-readable:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

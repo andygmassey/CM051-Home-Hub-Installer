@@ -150,6 +150,7 @@ concurrency:
 jobs:
   cut-gate-wrappers:
     runs-on: macos-latest   # the cut host is macOS; bash 3.2 quoting differs
+    timeout-minutes: 30
     steps:
       # fetch-depth: 0 is LOAD-BEARING for the PR-age partial-verdict proof.
       #
@@ -518,6 +519,7 @@ jobs:
 
   wiki-provenance-extract:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

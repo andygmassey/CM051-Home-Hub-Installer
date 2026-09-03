@@ -28,6 +28,7 @@ concurrency:
 jobs:
   honesty:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: an unreachable source must never be recorded as absent
@@ -39,6 +40,7 @@ jobs:
     # only exists there. Testing this on ubuntu would measure a different
     # kernel's errno behaviour and a permission regime the product never meets.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

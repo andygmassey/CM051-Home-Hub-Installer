@@ -75,6 +75,7 @@ jobs:
     # where the `koly` trailer actually sits. On Linux that limb self-skips and
     # says so, which would leave the offset assertion unproven.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -100,6 +101,7 @@ jobs:
     # and zero-payload-is-not-ok split theirs out -- I wrote that reasoning
     # into both of those workflows on the same day I failed to apply it here.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -194,6 +196,7 @@ jobs:
   # then disabled. So assert the strongest TRUE thing instead of skipping.
   gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: controls
     steps:
       - uses: actions/checkout@v4
