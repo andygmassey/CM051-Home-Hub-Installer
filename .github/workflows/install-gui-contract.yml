@@ -39,6 +39,7 @@ on:
       - 'tests/test_gui_progress_emitter.sh'
       - 'tests/test_pgrep_no_match_does_not_fabricate_a_done.sh'
       - 'tests/test_abort_still_reports_when_the_close_fails.sh'
+      - 'tests/test_progress_bar_cannot_exceed_one_hundred.sh'
       - 'tests/test_total_steps_dynamic.sh'
       - 'tests/test_marker_payloads_never_reach_install_log.sh'
       - 'tests/test_install_log_follows_promotion.sh'
@@ -159,6 +160,20 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/test_abort_still_reports_when_the_close_fails.sh
+
+      # The bar the customer watches for the whole install had NO upper bound,
+      # while the only other percentage in install.sh (the Ollama pull parser)
+      # has clamped for months. TOTAL_STEPS is seeded by counting `progress "`
+      # lines and then DECREMENTED at seven sites, so CURRENT_STEP overtakes it
+      # and pct goes past 100 -- measured 37/35. The percentage is the smaller
+      # half: EMPTY goes NEGATIVE, and a negative printf width is not an error,
+      # it is the left-justify flag, so the bar silently renders wider than its
+      # own declared width and nothing anywhere complains.
+      - name: The progress bar cannot exceed 100% (#641 neighbour)
+        if: always()
+        run: |
+          set -euo pipefail
+          bash tests/test_progress_bar_cannot_exceed_one_hundred.sh
 
       - name: Marker payloads must not reach the durable install log
         if: always()

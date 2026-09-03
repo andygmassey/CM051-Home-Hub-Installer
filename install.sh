@@ -1313,6 +1313,36 @@ err()   { _OSTLER_RUN_ERRORS=$(( ${_OSTLER_RUN_ERRORS:-0} + 1 )); gui_active || 
 #
 # Guarded by tests/test_launchagent_success_requires_verification.sh,
 # which fails the build if any new site announces success without it.
+# Records WHY launchd refused, beside the install log, off the customer's
+# screen. Same idiom as every pip failure in this file: capture the tool's own
+# stderr to a file under the logs dir rather than paraphrasing it.
+#
+# LOGS_DIR (not OSTLER_DIAG_DIR) because OSTLER_DIAG_DIR is a mktemp under
+# /tmp that nothing promotes -- the refusal would evaporate with the staging
+# tree, which is exactly when it is needed. LOGS_DIR follows the staging tree
+# and is renamed onto ~/.ostler/logs/ on success (see _ostler_set_paths), so
+# this lands beside doctor.log and install.log where support already looks.
+_ostler_launchagent_note_refusal() {   # $1 label, $2 our reason, $3 launchd stderr
+    local _dir="${LOGS_DIR:-${OSTLER_DIAG_DIR:-${TMPDIR:-/tmp}}}"
+    local _f="${_dir}/launchagent-load.log"
+    mkdir -p "$_dir" 2>/dev/null || true
+    {
+        printf '%s  %s  %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" "$2"
+        if [[ -n "$3" ]]; then
+            printf '%s\n' "$3" | sed -e 's/^/    launchd: /'
+        fi
+    } >> "$_f" 2>/dev/null || true
+}
+
+# True when the plist says launchd must KEEP THIS UP. Deliberately NOT
+# RunAtLoad: one-shot agents here set RunAtLoad, do their job and exit 0, and
+# demanding `state = running` of those would report every healthy one-shot as
+# broken -- a blanket refusal, which is worse than the defect it replaces.
+# A KeepAlive <dict> (conditional) does not match either, on purpose.
+_ostler_launchagent_keeps_alive() {
+    grep -A1 '<key>KeepAlive</key>' "$1" 2>/dev/null | grep -q '<true/>'
+}
+
 _ostler_launchagent_load_verified() {
     local _plist="$1"
     local _label _domain
@@ -1321,7 +1351,10 @@ _ostler_launchagent_load_verified() {
 
     # A plist that was never written cannot be loaded. Say no here rather
     # than let launchctl's exit-0-on-failure decide it for us.
-    [[ -f "$_plist" ]] || return 1
+    [[ -f "$_plist" ]] || {
+        _ostler_launchagent_note_refusal "$_label" "plist absent at ${_plist}" ""
+        return 1
+    }
 
     # bootout first: bootstrap onto an already-loaded label errors, and a
     # stale registration would otherwise keep the OLD plist's environment
@@ -1333,8 +1366,30 @@ _ostler_launchagent_load_verified() {
     # bootstrap on Sequoia+ (load is deprecated), fall back to load. BOTH
     # are allowed to fail: their exit status is not the evidence, and the
     # ERR trap must not abort the install on an expected failure here.
-    launchctl bootstrap "$_domain" "$_plist" 2>/dev/null || \
-        launchctl load "$_plist" 2>/dev/null || true
+    #
+    # 🔬 BUT THE REFUSAL TEXT IS NOT NOISE, AND `2>/dev/null` USED TO EAT IT.
+    # Measured on the Mini 16 during the 2026-09-04 walk: this function
+    # correctly returned 1 for com.ostler.doctor (absent from launchctl, :8089
+    # answered 000) so the installer WARNED rather than lying -- the #876 half
+    # works. But the warn carried NO REASON, because the only thing that knew
+    # it was on stderr, going to /dev/null. Bootstrapping the identical,
+    # unmodified plist by hand 21 minutes later gave `state = running` and
+    # :8089 200, so plist and payload were both fine and the refusal was the
+    # entire diagnosis. Diagnosing it cost a second full install.
+    #
+    # Capture instead of discard. `2>&1 >/dev/null` inside the substitution
+    # keeps stderr and drops stdout (order matters: stderr is duplicated onto
+    # the capture BEFORE stdout is redirected away).
+    #
+    # ⚠️ THE TRAILING `|| true` IS INSIDE THE SUBSTITUTION ON PURPOSE. The ERR
+    # trap is inherited into a command substitution's subshell, and an outer
+    # `|| true` does NOT protect the inner failing command -- that is exactly
+    # the mechanism behind the #642 double-DONE (three earlier harnesses
+    # refuted it because each suppressed ERR at the outer level only). Ending
+    # the subshell's list with `true` is what actually keeps ERR quiet here.
+    local _load_err
+    _load_err="$( { launchctl bootstrap "$_domain" "$_plist" 2>&1 >/dev/null || \
+                    launchctl load "$_plist" 2>&1 >/dev/null || true ; } )"
 
     # THE EVIDENCE. Nothing above this line is permitted to decide.
     #
@@ -1357,15 +1412,97 @@ _ostler_launchagent_load_verified() {
     # test would report those as broken. 78 is EX_CONFIG, which launchd does
     # NOT retry -- it parks the job until a `kickstart -k` clears it. That is
     # the state a customer would otherwise be told was fine.
+    # 🔴 THE `|| true` MUST BE INSIDE THE SUBSTITUTION. THIS KILLED AN INSTALL.
+    #
+    # MEASURED, ttywalk run 10 (2026-09-04), on the Mini 16:
+    #   #OSTLER LOG level=error msg=Install aborted unexpectedly at line 1465
+    #           (step doctor_setup): launchctl print "${_domain}/${_label}"
+    #   #OSTLER STEP_END id=doctor_setup status=error elapsed_s=1 rc=113
+    #   #OSTLER DONE status=fail code=ERR-99-INSTALL-ABORT-L1465
+    # One second in, on the FIRST poll, the whole install died.
+    #
+    # This was written as `_print="$(... )" || { handle; }` -- which LOOKS
+    # guarded and is not. It is #642's mechanism exactly: the ERR trap is
+    # INHERITED INTO THE COMMAND SUBSTITUTION'S SUBSHELL, so a non-zero
+    # `launchctl print` fires the trap and aborts the run BEFORE the outer
+    # `||` is ever consulted. An outer guard cannot protect an inner command.
+    #
+    # And a non-zero print is NORMAL here: the label is legitimately absent
+    # until launchd registers it. The guard has to tolerate that INSIDE.
+    #
+    # The rc is not lost, only relocated: an absent job prints NOTHING, so
+    # emptiness is the same signal, and it cannot be faked by a job that
+    # exists (launchctl always prints a block for one that does).
     local _print
-    _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null)" || return 1
+    _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null || true)"
+    if [[ -z "$_print" ]]; then
+        _ostler_launchagent_note_refusal "$_label" \
+            "not registered in ${_domain} after bootstrap+load" "$_load_err"
+        return 1
+    fi
 
     case "$_print" in
         *"last exit code = 78:"*|*"last exit code = 78"[!0-9]*)
             # Parked on EX_CONFIG. Registered, never going to run.
+            _ostler_launchagent_note_refusal "$_label" \
+                "registered but parked on EX_CONFIG (last exit code = 78)" \
+                "$(printf '%s\n' "$_print" | grep -E 'state =|last exit code|program =|path =' || true)"
             return 1
             ;;
     esac
+
+    # 🔴 #876 RECURRED, AND THIS IS THE HOLE IT CAME THROUGH.
+    #
+    # The comment above says "Registration is not runnability" and then handles
+    # exactly ONE way of being registered-but-not-running: parked on EX_CONFIG.
+    # Everything else registered was accepted.
+    #
+    # MEASURED on the Mini 16, ttywalk run 5 (2026-09-04), in ONE install log:
+    #   line 333  Ostler Doctor running at http://localhost:8089/doctor   <- us
+    #   line 587  WARN Doctor not responding (127.0.0.1:8089)             <- us
+    # 254 lines apart, same run. Afterwards com.ostler.doctor was absent from
+    # the domain entirely, :8089 answered 000, and ~/.ostler/logs/doctor.err
+    # had NEVER BEEN CREATED -- launchd creates it on spawn, so the job never
+    # spawned. Not a payload fault: the venv python runs and fastapi+uvicorn
+    # import fine, checked on the box. We announced success on REGISTRATION.
+    #
+    # WHY KeepAlive AND NOT RunAtLoad. Several agents here are legitimately
+    # ONE-SHOT: they set RunAtLoad, do their job, and exit 0. Requiring
+    # `state = running` of those would report every healthy one-shot as broken
+    # -- the blanket-refusal failure, which is worse than the defect. KeepAlive
+    # is the plist saying "launchd must keep this up", so for those and only
+    # those, not-running IS broken. The Doctor declares KeepAlive true.
+    #
+    # The wait is bounded and short: bootstrap returns before the child has
+    # spawned, so a zero-wait check would race the very thing it measures.
+    # doctor_setup reported elapsed_s=0, which is how fast this used to be.
+    if _ostler_launchagent_keeps_alive "$_plist"; then
+        local _state="" _waited=0
+        while [[ "$_waited" -lt 20 ]]; do
+            _state="$(printf '%s\n' "$_print" \
+                      | sed -n 's/^[[:space:]]*state = \(.*\)$/\1/p' | head -1)"
+            case "$_state" in running*) break ;; esac
+            sleep 0.5
+            _waited=$((_waited + 1))
+            # Same trap, same fix as the first call: tolerance INSIDE. This is
+            # the line the run-10 abort actually named (L1465).
+            _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null || true)"
+            if [[ -z "$_print" ]]; then
+                _ostler_launchagent_note_refusal "$_label" \
+                    "registered, then VANISHED from ${_domain} before it ran" \
+                    "$_load_err"
+                return 1
+            fi
+        done
+        case "$_state" in
+            running*) : ;;
+            *)  _ostler_launchagent_note_refusal "$_label" \
+                    "declares KeepAlive but never reached 'state = running' (last seen: ${_state:-<no state line>})" \
+                    "$(printf '%s\n' "$_print" | grep -E 'state =|last exit code|program =|path =' || true)"
+                return 1
+                ;;
+        esac
+    fi
 
     return 0
 }
@@ -10159,28 +10296,25 @@ TOTAL_STEPS="${TOTAL_STEPS:-0}"
 
 # Defensive fallback for unusual invocation paths (BASH_SOURCE
 # resolves to an unreadable /dev/fd/N, the grep returns 0, etc.).
-# It must produce the SAME denominator the live count would have
-# produced -- see #629. The comment that used to sit here said
-# "better to overshoot 100% by a step or two than divide by zero",
-# and that sentence WAS the defect: it licensed a constant that then
-# drifted two steps behind the real count, so this branch ended every
-# install at 105-106% with no clamp. Overshooting is not the cheap
-# option, it is a visibly broken progress bar on the one code path a
-# `curl | bash` customer takes (#682). Both are now fixed: the
-# constant tracks the count, and progress() clamps regardless.
+# Better to overshoot 100% by a step or two than divide by zero.
 if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
-    # Fallback base = the NON-GDPR progress-call count, i.e. every
-    # `progress "` line except the one EXPORTS_DIR gates. Keep this in
-    # step with install.sh: tests/test_total_steps_dynamic.sh now asserts
-    # this branch produces EXACTLY the live count in both EXPORTS_DIR
-    # states, so a drift of even one fails CI rather than shipping.
+    # Fallback base = the non-GDPR progress-call count.
+    #
+    # 🔴 THE COMMENT HERE SAID "currently 39 calls" AND WAS STALE. Measured
+    # 2026-09-04 with this file's OWN predicate,
+    #     grep -cE '^[[:space:]]*progress "' install.sh   ->  41
+    # so the base is 40 non-GDPR + 1 EXPORTS_DIR-gated, not 38 + 1.
+    #
+    # ⚠️ AND CORRECTING IT DOES NOT MAKE THIS BRANCH RIGHT. The six mid-run
+    # decrements at :20703-:21229 and :26238 subtract from whatever this sets,
+    # so a fallback seed still ends up below the number of steps that actually
+    # run. That is why progress() now CLAMPS (see the note there): the clamp is
+    # the thing that holds when this constant next drifts, and it will.
+    #
+    # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
+    # unresolvable under `bash -c`) and fails if this constant drifts.
     TOTAL_STEPS=40
-    # NOT `[[ -n ... ]] && ...`: that form is the last command of this
-    # `if` body, so when EXPORTS_DIR is empty it returns 1 and, under
-    # `set -e`, takes the whole compound down with it.
-    if [[ -n "$EXPORTS_DIR" ]]; then
-        TOTAL_STEPS=$((TOTAL_STEPS + 1))
-    fi
+    [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
 CURRENT_STEP=0
 
@@ -10200,31 +10334,34 @@ progress() {
 
     CURRENT_STEP=$((CURRENT_STEP + 1))
     local PCT=$((CURRENT_STEP * 100 / TOTAL_STEPS))
-    # #629: CLAMP. TOTAL_STEPS is a best-effort denominator, and on the
-    # defensive-fallback path it is a compiled-in constant that a future edit
-    # can let drift BELOW the number of steps that actually run. When that
-    # happens CURRENT_STEP overtakes it and PCT exceeds 100. Unclamped, that
-    # is not merely a wrong number: FILLED goes above BAR_WIDTH, EMPTY goes
-    # NEGATIVE, and `printf "%${EMPTY}s"` silently reinterprets the negative
-    # width as left-alignment -- so the bar renders WIDER than the width it
-    # declares. The constant is kept honest by
-    # tests/test_total_steps_dynamic.sh; this is the belt to that pair of
-    # braces, and it costs one comparison per step.
+
+    # CLAMP. This file already computes a percentage in one other place
+    # (the Ollama pull parser, :1517) and clamps it there with exactly this
+    # line. progress() -- the bar the CUSTOMER watches for the whole install
+    # -- had no clamp at all.
     #
-    # SPELLED TO MATCH THE OTHER PERCENTAGE IN THIS FILE. The Ollama pull
-    # parser clamps with exactly `(( pct > 100 )) && pct=100` (:1517) and has
-    # done for months. Two computations, one contract -- so they say it the
-    # same way, and a reader (or a grep) that has found one finds both.
+    # WHY IT MATTERS, and it is not only the number. TOTAL_STEPS is seeded by
+    # counting `progress "` lines in BASH_SOURCE, then DECREMENTED at seven
+    # sites (:10158 + six mid-run at :20703-:21229 + :26238). If the seed
+    # overshoots -- which the fallback at :10168 does by construction, since
+    # it hardcodes 38 and the mid-run decrements then subtract from THAT --
+    # CURRENT_STEP can exceed TOTAL_STEPS and PCT goes above 100.
     #
-    # ⚠️ POSITION, NOT TASTE, IS WHAT MAKES THIS FORM SAFE. Under `set -Eeuo
-    # pipefail` (:29) a bare `A && B` whose A is FALSE evaluates to 1. Bash
-    # exempts it here only because it is NOT the last command of its enclosing
-    # compound -- `local BAR_WIDTH=30` follows. Do NOT copy this form to the
-    # TOTAL_STEPS fallback above: there the `&&` WAS the last statement of an
-    # `if` body, so its non-zero status became the block's status and set -e
-    # killed the installer. Same operator, opposite outcome, decided purely by
-    # what comes next. Measured both ways, not reasoned.
+    # Then:
+    #     FILLED = PCT * 30 / 100        -> exceeds BAR_WIDTH
+    #     EMPTY  = 30 - FILLED           -> NEGATIVE
+    #     printf "%${EMPTY}s"            -> a negative width is not an error
+    #                                       in printf, it LEFT-JUSTIFIES
+    # so the bar silently renders wider than its own declared width, and the
+    # ETA divides by a percentage that is a lie. Nothing errors. TNM derived
+    # the 105-106% arithmetically; this line makes the derivation unnecessary.
+    #
+    # A CLAMP RATHER THAN A CORRECTED CONSTANT, DELIBERATELY. The constant has
+    # drifted before and will again -- the comment at :10166 still says
+    # "currently 39 calls" against a measured 41. A bound cannot drift; a
+    # count can. Fix the count too (below), but do not rely on it.
     (( PCT > 100 )) && PCT=100
+
     local BAR_WIDTH=30
     local FILLED=$((PCT * BAR_WIDTH / 100))
     local EMPTY=$((BAR_WIDTH - FILLED))
@@ -10249,8 +10386,8 @@ progress() {
     # progress bar without re-deriving from PCT.
     #
     # #839: NO ARGUMENT. This call used to read `gui_step_end ok`, and
-    # since it closes all but the first of the steps, that literal was the
-    # status field for almost the entire install. gui_step_end now reads the
+    # since it closes 38 of the 39 steps, that literal was the status
+    # field for almost the entire install. gui_step_end now reads the
     # status accumulated by gui_step_record_rc from the step's own
     # children. Passing `ok` here would assert over a measurement.
     if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
