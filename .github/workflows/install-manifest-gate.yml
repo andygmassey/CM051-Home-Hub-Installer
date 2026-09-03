@@ -1,0 +1,86 @@
+name: install-manifest-gate
+
+# THE INSTALL-COMPLETENESS CLASS GATE.
+#
+# For a month the same shape shipped: a thing a finished install must contain was
+# silently absent and nothing counted it -- an empty [[cron.jobs]] block (#619),
+# a usage-journal dir never created (#482), a kinship guard with no importer on a
+# write path (#617), a LaunchAgent roster nobody had written down. Each was found
+# by a human noticing, never by a gate, because every earlier attempt derived the
+# expectation FROM install.sh -- and a check that reads the producer to decide
+# what the producer should have produced is green by construction.
+#
+# scripts/install_manifest.tsv is a HAND-DECLARED roster, NOT generated from
+# install.sh. scripts/verify_install_manifest.py compares it to what is present,
+# both directions, and NAMES every difference (a count passes regardless of WHICH
+# subject went missing). This workflow runs the gate's own test, which drives the
+# real verifier + real manifest + real box-walk probe against synthetic installs
+# and carries a positive control per type plus an anti-vacuity limb.
+#
+# WHY macos, and why /bin/bash. The box-walk probe and the customer installer run
+# under macOS's /bin/bash 3.2. The test is invoked under /bin/bash so it, and the
+# probe it drives, are measured under the shell they actually run in -- not the
+# 5.x on the runner's PATH.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_install_manifest.py'
+      - 'scripts/install_manifest.tsv'
+      - 'scripts/box_walk_probes/probes/install_manifest_complete.sh'
+      - 'scripts/box_walk_probes/lib/probe.sh'
+      - 'tests/test_install_manifest_gate.sh'
+      - '.github/workflows/install-manifest-gate.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  manifest-gate:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: python3 is present (the verifier needs it)
+        run: python3 --version
+
+      # The test drives the REAL verifier + REAL manifest + REAL probe against
+      # synthetic installs: complete -> PASS, and each single removal or addition
+      # -> a NAMED failure. It carries a positive control per type (so the gate is
+      # not uniformly failing on a broken enumerator) and an anti-vacuity note.
+      - name: The class gate names every EXPECTED-vs-PRESENT difference
+        run: /bin/bash tests/test_install_manifest_gate.sh
+
+      # The box-walk runner marks a probe BROKEN unless its --self-test returns
+      # FAIL. Assert that directly here too, so a change that neuters the probe's
+      # own negative control is caught in CI and not only on a live box walk
+      # (which does not run in CI).
+      - name: The box-walk probe's negative control still fails (phase-1 contract)
+        if: always()
+        run: |
+          # GitHub runs `run:` under `bash -eo pipefail`. The probe's --self-test
+          # EXITS 1 by design (VERDICT: FAIL is the healthy negative-control
+          # result), so capture it with `|| rc=$?` -- a bare invocation would trip
+          # errexit and abort before the check below.
+          rc=0
+          /bin/bash scripts/box_walk_probes/probes/install_manifest_complete.sh --self-test || rc=$?
+          if [ "$rc" -ne 1 ]; then
+            echo "BROKEN: the probe --self-test returned $rc, not 1. The box walk would mark it BROKEN." >&2
+            exit 1
+          fi
+          echo "OK: probe --self-test fails as the runner requires (returned 1)."
+
+      - name: Everything parses under /bin/bash 3.2 (the cut host's shell)
+        if: always()
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n tests/test_install_manifest_gate.sh
+          /bin/bash -n scripts/box_walk_probes/probes/install_manifest_complete.sh
+          python3 -c "import ast; ast.parse(open('scripts/verify_install_manifest.py').read()); print('verifier parses')"
+          echo "OK: parses under the shell the box walk and installer use"
