@@ -1237,6 +1237,10 @@ MSG_PROMPT_SAVE_KEYCHAIN_HELP="Stores your encryption recovery key in the macOS 
 MSG_HYDRATE_TITLE="Hydrating your graph"
 MSG_HYDRATE_CONTACTS_STARTED="Importing your contacts to the graph"
 MSG_HYDRATE_CONTACTS_DONE="Imported %s contacts"
+# %s = the cap in seconds, %s = contacts imported before the cap was hit.
+# Says WHAT WAS MEASURED and what happens next, rather than blaming the step:
+# a partial import is a real result and the retry is what completes it.
+MSG_HYDRATE_CONTACTS_TIMED_OUT="Contacts took longer than %ss, so we stopped waiting and moved on. %s contacts are in so far, and Ostler will finish the rest in the background."
 # CX-92 (DMG #48g, 2026-05-29): calendar backfill window changed from 90
 # days to 5 years -- customer copy updated to match the new behaviour.
 MSG_HYDRATE_CALENDAR_STARTED="Loading your calendar history (five years back, a year ahead)"
