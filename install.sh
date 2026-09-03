@@ -24206,13 +24206,56 @@ if [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
     # goes to stderr so the final stdout line is parseable.
     _HYDRATE_FORCE_ABCDDB_VCF="${OSTLER_DIR}/imports/.hydrate-force-abcddb.vcf"
     rm -f "$_HYDRATE_FORCE_ABCDDB_VCF" 2>/dev/null || true
+
+    # Same timeout picker as the other hydrate phases (brew coreutils
+    # gtimeout preferred; system timeout fallback; unbounded if neither).
+    #
+    # Until this, contacts was one of TWO hydrate sub-phases with no bound at
+    # all -- and the only one that was ALSO silent (no heartbeat ticker), so a
+    # wedged AddressBook read showed the customer nothing while the installer
+    # had already told them they could walk away. The cap matches the two
+    # phases that already carry one (apple_notes, email_preferences); it is a
+    # BACKSTOP against a wedge, not a tuned budget. See the PR for why a tuned
+    # number is not available yet: nothing records per-sub-phase durations, so
+    # there is no measured distribution to size it from.
+    _HYDRATE_CONTACTS_CAP="${OSTLER_HYDRATE_CONTACTS_TIMEOUT:-1800}"
+    _HYDRATE_CONTACTS_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _HYDRATE_CONTACTS_TIMEOUT_WRAP="gtimeout $_HYDRATE_CONTACTS_CAP"
+    elif command -v timeout >/dev/null 2>&1; then
+        _HYDRATE_CONTACTS_TIMEOUT_WRAP="timeout $_HYDRATE_CONTACTS_CAP"
+    fi
+
+    # Initialised before the call so `set -u` holds on every path, including
+    # the one where the substitution succeeds and the `||` arm never runs.
+    _HYDRATE_CONTACTS_RC=0
+    _HYDRATE_CONTACTS_TIMED_OUT=false
+    _HYDRATE_CONTACTS_STARTED_AT="$(date +%s)"
     _HYDRATE_CONTACTS_JSON="$(
         cd "$PIPELINE_DIR" && \
+        $_HYDRATE_CONTACTS_TIMEOUT_WRAP \
         "$_HYDRATE_PIPELINE_PY" -m contact_syncer.syncer \
             --vcf "$_HYDRATE_FORCE_ABCDDB_VCF" \
             --graph-endpoint "$_HYDRATE_OXIGRAPH" 2>>"${OSTLER_DIAG_DIR}/hydrate-contacts.log" \
         | tail -n 1
-    )" || _HYDRATE_CONTACTS_JSON=""
+    )" || { _HYDRATE_CONTACTS_RC=$?; _HYDRATE_CONTACTS_JSON=""; }
+    # A KILLED WRAPPER IS NOT AN EMPTY ADDRESS BOOK. Without this the cap
+    # above would have made things worse, not better: `|| JSON=""` collapses
+    # every failure into "no contacts found", so a timeout would report
+    # MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD -- a customer with 2,410
+    # cards told their address book is empty, and a no_data sentinel that
+    # suppresses the retry. That is #852's shape, and adding a bound without
+    # this arm is what would have introduced it here.
+    if [[ "${_HYDRATE_CONTACTS_RC:-0}" -eq 124 ]] || [[ "${_HYDRATE_CONTACTS_RC:-0}" -eq 137 ]]; then
+        _HYDRATE_CONTACTS_TIMED_OUT=true
+    fi
+    _HYDRATE_CONTACTS_ELAPSED_S=$(( $(date +%s) - _HYDRATE_CONTACTS_STARTED_AT ))
+    # Recorded so the NEXT walk can size the cap from a measurement instead of
+    # from the precedent above. Diagnostic only -- nothing branches on it.
+    printf 'hydrate_contacts elapsed_s=%s cap_s=%s wrapped=%s\n' \
+        "$_HYDRATE_CONTACTS_ELAPSED_S" "$_HYDRATE_CONTACTS_CAP" \
+        "$([[ -n "$_HYDRATE_CONTACTS_TIMEOUT_WRAP" ]] && echo true || echo false)" \
+        >>"${OSTLER_DIAG_DIR}/hydrate-contacts.log" 2>/dev/null || true
     _HYDRATE_CONTACTS_COUNT="$(
         printf '%s' "$_HYDRATE_CONTACTS_JSON" \
         | python3 -c 'import json,sys
@@ -24258,7 +24301,19 @@ except Exception:
     # transient this file's own #711 notes describe. Suppressing that retry
     # for a week is a product decision, not a bug fix, and it is not made
     # here.
-    if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
+    #
+    # THE TIMEOUT ARM COMES FIRST AND IT IS ORDERED THAT WAY DELIBERATELY.
+    # A killed wrapper can still have imported cards before it was killed, so
+    # a non-zero count is NOT evidence the step completed. Testing the count
+    # first would report a partial import as a clean success and record a
+    # success sentinel that suppresses the retry for 7 days -- the #810 shape.
+    # rc wins over count, exactly as the email block above orders its tests.
+    if [[ "$_HYDRATE_CONTACTS_TIMED_OUT" == "true" ]]; then
+        warn "$(printf "$MSG_HYDRATE_CONTACTS_TIMED_OUT" \
+            "$_HYDRATE_CONTACTS_CAP" "$_HYDRATE_CONTACTS_COUNT")"
+        _hydrate_sentinel_record_error "contacts" "$_HYDRATE_CONTACTS_RC" \
+            "imported=${_HYDRATE_CONTACTS_COUNT},cap_s=${_HYDRATE_CONTACTS_CAP},elapsed_s=${_HYDRATE_CONTACTS_ELAPSED_S}"
+    elif [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CONTACTS_DONE" "$_HYDRATE_CONTACTS_COUNT")"
         _hydrate_sentinel_record "contacts" "imported=${_HYDRATE_CONTACTS_COUNT}"
         # EMAIL-COVERAGE GUARD (post-hydrate): contacts landed, but a
@@ -25041,6 +25096,8 @@ unset _HYDRATE_OXIGRAPH_WA
 unset _HYDRATE_VCF _HYDRATE_API _HYDRATE_OXIGRAPH _HYDRATE_PIPELINE_PY \
       _HYDRATE_CALENDAR_VENV _HYDRATE_CALENDAR_PY
 unset _HYDRATE_CONTACTS_JSON _HYDRATE_CONTACTS_COUNT
+unset _HYDRATE_CONTACTS_CAP _HYDRATE_CONTACTS_TIMEOUT_WRAP _HYDRATE_CONTACTS_RC
+unset _HYDRATE_CONTACTS_TIMED_OUT _HYDRATE_CONTACTS_STARTED_AT _HYDRATE_CONTACTS_ELAPSED_S
 unset _HYDRATE_CALENDAR_JSON _HYDRATE_CALENDAR_COUNT
 
 # Browser hydration (CX-86 Gap A + Gap C) --------------------------
