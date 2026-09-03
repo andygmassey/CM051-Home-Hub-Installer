@@ -13505,9 +13505,14 @@ fi
 if [[ "$HAS_SECURITY_MODULE" == true ]]; then
     info "$MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION"
 
-    # Region first.
-    "$OSTLER_PYTHON" - "$OSTLER_REGION" "$OSTLER_REGION_ISO" "$OSTLER_REGION_SOURCE" <<'PY' || \
-        warn "$MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING"
+    # Region first. Capture stderr so a failure surfaces as a clean warn plus a
+    # Doctor-readable diagnostic, never a raw Python traceback on the customer's
+    # screen (#622 / v1061-D001). Mirrors the consent-cli path below. The
+    # encryption status is unaffected: region persistence is best-effort by
+    # design (block header above), so this changes only HOW a failure is shown,
+    # not the step's ok status.
+    _region_stderr="$(mktemp)"
+    if ! "$OSTLER_PYTHON" - "$OSTLER_REGION" "$OSTLER_REGION_ISO" "$OSTLER_REGION_SOURCE" 2>"$_region_stderr" <<'PY'
 import sys
 from ostler_security.region import RegionResult, save_region
 from datetime import datetime, timezone
@@ -13520,6 +13525,16 @@ result = RegionResult(
 )
 save_region(result)
 PY
+    then
+        warn "$MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING"
+        mkdir -p "${OSTLER_DIR}/posture" 2>/dev/null || true
+        {
+            echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] region persist failed"
+            head -c 400 "$_region_stderr" 2>/dev/null
+            echo ""
+        } >> "${OSTLER_DIR}/posture/region-persist-failures.log" 2>/dev/null || true
+    fi
+    rm -f "$_region_stderr"
 
     # Wraps `ostler_security.consent_cli record` with proper stderr
     # handling. The previous in-line pattern used `2>/dev/null || warn`
