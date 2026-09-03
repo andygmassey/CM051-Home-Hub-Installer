@@ -285,21 +285,44 @@ if [[ "${PAYLOAD_N:-0}" -lt 20 ]]; then
 fi
 say "payload names read from gui/Makefile: ${PAYLOAD_N}"
 
+# The payload dirs are NOT all one shape in the repo. Measured 2026-09-04:
+#   2 already at the root            (contact_syncer, assistant-agent)
+#  11 under vendor/                  (ostler_fda, ostler_security, doctor, ...)
+#   1 under gui/                     (ostler-mecard)
+#   3 under vendor/cm041/            (assistant_api, meeting_syncer, identity_resolver)
+#   3 in NONE of those               (hub-power, email-ingest, imessage-bridge)
+#
+# My first cut of this loop looked only at the root and vendor/, found 13 of
+# 22, and reported the other 9 as "absent" -- which would have been a false
+# accusation against the repo for 6 of them and would have quietly under-staged
+# every run. Search the real candidate roots, and keep the genuinely-absent
+# three as a NAMED list rather than a count, so nobody has to guess which.
 LINKED=0; ALREADY=0; ABSENT=""
 for p in $PAYLOAD_NAMES; do
     [[ "$p" == "install.sh" || "$p" == "Ostler.app" ]] && continue
     if [[ -e "${REPO_ROOT}/${p}" ]]; then
-        ALREADY=$(( ALREADY + 1 ))          # already at the root, e.g. contact_syncer
-    elif [[ -d "${REPO_ROOT}/vendor/${p}" ]]; then
-        "${SSH[@]}" "cd '${REMOTE_DIR}' && rm -rf './${p}' && cp -R 'vendor/${p}' './${p}'" \
-            || die "could not flatten vendor/${p} on the host."
+        ALREADY=$(( ALREADY + 1 ))
+        continue
+    fi
+    src=""
+    for cand in "vendor/${p}" "gui/${p}" "vendor/cm041/${p}"; do
+        [[ -d "${REPO_ROOT}/${cand}" ]] && { src="$cand"; break; }
+    done
+    if [[ -n "$src" ]]; then
+        "${SSH[@]}" "cd '${REMOTE_DIR}' && rm -rf './${p}' && cp -R '${src}' './${p}'" \
+            || die "could not flatten ${src} on the host."
         LINKED=$(( LINKED + 1 ))
     else
         ABSENT="${ABSENT} ${p}"
     fi
 done
-say "flattened from vendor/: ${LINKED}   already at root: ${ALREADY}"
-[[ -n "$ABSENT" ]] && say "NOT FOUND in either place (the run will exercise their absence):${ABSENT}"
+say "flattened: ${LINKED}   already at root: ${ALREADY}   of $(( PAYLOAD_N - 2 )) payload dirs"
+if [[ -n "$ABSENT" ]]; then
+    say "🔴 NOT IN THE REPO AT ALL:${ABSENT}"
+    say "   These reach a real DMG from somewhere else in the cut pipeline."
+    say "   The run below therefore exercises their ABSENCE, not their content."
+    say "   Any failure naming one of them is the HARNESS, not the product."
+fi
 
 # POSITIVE CONTROL: the specific directory whose absence killed run 2 must now
 # resolve at the exact path install.sh tests. Checking the general case above
