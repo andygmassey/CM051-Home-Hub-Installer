@@ -170,17 +170,28 @@ jobs:
       - name: Resolve which cut this run is about
         run: |
           set -euo pipefail
+          # 🔴 THE SOURCE IS NOW EXPORTED, NOT JUST PRINTED (#171).
+          # On a dispatch this value is read OUT OF the plist that
+          # tests/test_installer_version_matches_the_cut.sh then compares it
+          # against -- a comparison that cannot lose. Printing "source: ..."
+          # told a human and told the gate nothing, so the gate graded a
+          # tautology as SUCCESS (measured: v1.0.61 dry run graded v1.0.60).
+          # CUT_VERSION_SOURCE lets it refuse instead. See that file's header.
           if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
             CUT_VERSION="${GITHUB_REF_NAME}"
+            CUT_VERSION_SOURCE="tag"
             echo "source: tag push"
           else
             VER="$(python3 -c 'import plistlib; print(plistlib.load(open("gui/OstlerInstaller/Info.plist","rb"))["CFBundleShortVersionString"])')"
             [ -n "$VER" ] || { echo "::error::could not read CFBundleShortVersionString from gui/OstlerInstaller/Info.plist" >&2; exit 1; }
             CUT_VERSION="v$(printf '%s' "$VER" | cut -d. -f1-3)"
+            CUT_VERSION_SOURCE="plist"
             echo "source: gui/OstlerInstaller/Info.plist (CFBundleShortVersionString=$VER)"
+            echo "::notice::CUT_VERSION came from the plist, so the installer-version gate will report CANNOT-RUN (#171). Only a TAG PUSH can check that field."
           fi
           echo "cut version: $CUT_VERSION"
           echo "CUT_VERSION=$CUT_VERSION" >> "$GITHUB_ENV"
+          echo "CUT_VERSION_SOURCE=$CUT_VERSION_SOURCE" >> "$GITHUB_ENV"
 
       - name: The cut record for this version must exist
         run: |

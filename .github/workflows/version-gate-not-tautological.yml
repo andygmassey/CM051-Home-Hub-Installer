@@ -1,0 +1,50 @@
+# The installer-version gate must refuse a comparison it cannot lose (#171).
+#
+# MEASURED: TNM, run 33729085116 -- the v1.0.61 dry run graded v1.0.60 and
+# reported SUCCESS, because on a workflow_dispatch cut.yml reads CUT_VERSION
+# out of the very plist field the gate then compares it against.
+#
+# This workflow guards BOTH halves, and they only work as a pair:
+#   the gate must REFUSE when told its expected value came from its subject
+#   cut.yml must SAY where the value came from
+# A gate demanding a variable nobody sets is dark; a caller setting a variable
+# nobody reads is decoration.
+name: version-gate-not-tautological
+
+on:
+  pull_request:
+    paths:
+      - 'tests/test_installer_version_matches_the_cut.sh'
+      - 'tests/test_version_gate_refuses_a_tautology.sh'
+      - 'gui/OstlerInstaller/Info.plist'
+      - '.github/workflows/cut.yml'
+      # A gate must trigger on changes to ITSELF, or it can be quietly
+      # narrowed in the very PR that narrows it.
+      - '.github/workflows/version-gate-not-tautological.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tests/test_installer_version_matches_the_cut.sh'
+      - 'tests/test_version_gate_refuses_a_tautology.sh'
+      - '.github/workflows/cut.yml'
+      - '.github/workflows/version-gate-not-tautological.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  refuses-a-tautology:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The version gate refuses a tautology and still catches a mismatch
+        if: always()
+        run: |
+          set -uo pipefail
+          bash tests/test_version_gate_refuses_a_tautology.sh
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The tautology harness could not read the plist or find the gate. NOTHING about the version gate has been measured -- this is not a pass."
+          fi
+          exit "$rc"
