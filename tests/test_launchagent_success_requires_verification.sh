@@ -302,17 +302,62 @@ else
     # stronger than the old form, which would have passed a helper whose last
     # line was `launchctl print` but which ignored EX_CONFIG entirely -- i.e.
     # it would have passed the version Archie2 rejected.
-    _derives=0
-    # (a) the print's own failure must refuse, not fall through
-    grep -qE 'launchctl print[^|]*\|\|[[:space:]]*return 1|_print="\$\(launchctl print.*\)"[[:space:]]*\|\|[[:space:]]*return 1' \
-        <<< "$_body" && _derives=1
-    # (b) ...or the print IS the final command, the original shape. Still fine.
-    _last="$(grep -v '^\s*#' <<< "$_body" | grep -v '^\s*$' | tail -2 | head -1)"
-    grep -q 'launchctl print' <<< "$_last" && _derives=1
+    # 🔴 AND IT HAPPENED A SECOND TIME, 2026-09-04. The helper grew a refusal
+    # arm that RECORDS WHY launchd said no (the stderr it used to send to
+    # /dev/null -- see tests/test_launchagent_refusal_reason_is_recorded.sh),
+    # so the print's failure branch became `|| { note …; return 1; }` and limb
+    # (a), which demanded the literal `|| return 1`, went red over a helper
+    # that had just got STRICTLY better at its job. Same lesson, same file,
+    # one version apart: grade the property, not the punctuation.
+    #
+    # So the check is now a function, applied to the real body AND to a
+    # deliberately-broken one. A widening that cannot be shown to still refuse
+    # is just a hole with a comment on it.
+    _verdict_derives() {
+        local _b="$1" _d=0 _l _first_ret
+        # (a) the print's own failure must refuse, not fall through
+        grep -qE 'launchctl print[^|]*\|\|[[:space:]]*return 1|_print="\$\(launchctl print.*\)"[[:space:]]*\|\|[[:space:]]*return 1' \
+            <<< "$_b" && _d=1
+        # (a2) ...or it refuses inside a brace block whose FIRST return is 1.
+        #      The first return is what matters: a block that does anything
+        #      else before refusing is fine, a block that returns 0 is not.
+        _first_ret="$(awk '
+            /_print="\$\(launchctl print/  { seen = 1 }
+            seen && /\|\|[[:space:]]*\{/   { inblk = 1; next }
+            inblk && /^[[:space:]]*\}/     { exit }
+            inblk && /return[[:space:]]+/  { print; exit }
+        ' <<< "$_b")"
+        [[ "$_first_ret" == *"return 1"* ]] && _d=1
+        # (b) ...or the print IS the final command, the original shape. Still fine.
+        _l="$(grep -v '^\s*#' <<< "$_b" | grep -v '^\s*$' | tail -2 | head -1)"
+        grep -q 'launchctl print' <<< "$_l" && _d=1
 
-    # (c) REGARDLESS of shape, the function must never end by swallowing.
-    if grep -qE '\|\|[[:space:]]*true[[:space:]]*$' <<< "$(tail -3 <<< "$_body")"; then
-        _derives=0
+        # (c) REGARDLESS of shape, the function must never end by swallowing.
+        if grep -qE '\|\|[[:space:]]*true[[:space:]]*$' <<< "$(tail -3 <<< "$_b")"; then
+            _d=0
+        fi
+        printf '%s' "$_d"
+    }
+
+    _derives="$(_verdict_derives "$_body")"
+    _last="$(grep -v '^\s*#' <<< "$_body" | grep -v '^\s*$' | tail -2 | head -1)"
+
+    # NEGATIVE CONTROL for limb (a2). A failure arm that does NOT refuse must
+    # still grade 0, or the widening above would accept any brace block at all
+    # -- including the #876 shape it exists to catch.
+    _fallthrough_body="$(printf '%s\n' \
+        '_ostler_launchagent_load_verified() {' \
+        '    local _print' \
+        '    _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null)" || {' \
+        '        warn "could not read launchd state"' \
+        '        return 0' \
+        '    }' \
+        '    return 0' \
+        '}')"
+    if [[ "$(_verdict_derives "$_fallthrough_body")" == "0" ]]; then
+        pass "the derives-from-print predicate still REFUSES a non-refusing failure arm"
+    else
+        bad "the derives-from-print predicate accepted a helper whose launchctl-print failure arm returns 0. It is too weak to grade #876."
     fi
 
     if [[ "$_derives" == "1" ]]; then

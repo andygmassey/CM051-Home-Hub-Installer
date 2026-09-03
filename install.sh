@@ -1313,6 +1313,27 @@ err()   { _OSTLER_RUN_ERRORS=$(( ${_OSTLER_RUN_ERRORS:-0} + 1 )); gui_active || 
 #
 # Guarded by tests/test_launchagent_success_requires_verification.sh,
 # which fails the build if any new site announces success without it.
+# Records WHY launchd refused, beside the install log, off the customer's
+# screen. Same idiom as every pip failure in this file: capture the tool's own
+# stderr to a file under the logs dir rather than paraphrasing it.
+#
+# LOGS_DIR (not OSTLER_DIAG_DIR) because OSTLER_DIAG_DIR is a mktemp under
+# /tmp that nothing promotes -- the refusal would evaporate with the staging
+# tree, which is exactly when it is needed. LOGS_DIR follows the staging tree
+# and is renamed onto ~/.ostler/logs/ on success (see _ostler_set_paths), so
+# this lands beside doctor.log and install.log where support already looks.
+_ostler_launchagent_note_refusal() {   # $1 label, $2 our reason, $3 launchd stderr
+    local _dir="${LOGS_DIR:-${OSTLER_DIAG_DIR:-${TMPDIR:-/tmp}}}"
+    local _f="${_dir}/launchagent-load.log"
+    mkdir -p "$_dir" 2>/dev/null || true
+    {
+        printf '%s  %s  %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" "$2"
+        if [[ -n "$3" ]]; then
+            printf '%s\n' "$3" | sed -e 's/^/    launchd: /'
+        fi
+    } >> "$_f" 2>/dev/null || true
+}
+
 _ostler_launchagent_load_verified() {
     local _plist="$1"
     local _label _domain
@@ -1321,7 +1342,10 @@ _ostler_launchagent_load_verified() {
 
     # A plist that was never written cannot be loaded. Say no here rather
     # than let launchctl's exit-0-on-failure decide it for us.
-    [[ -f "$_plist" ]] || return 1
+    [[ -f "$_plist" ]] || {
+        _ostler_launchagent_note_refusal "$_label" "plist absent at ${_plist}" ""
+        return 1
+    }
 
     # bootout first: bootstrap onto an already-loaded label errors, and a
     # stale registration would otherwise keep the OLD plist's environment
@@ -1333,8 +1357,30 @@ _ostler_launchagent_load_verified() {
     # bootstrap on Sequoia+ (load is deprecated), fall back to load. BOTH
     # are allowed to fail: their exit status is not the evidence, and the
     # ERR trap must not abort the install on an expected failure here.
-    launchctl bootstrap "$_domain" "$_plist" 2>/dev/null || \
-        launchctl load "$_plist" 2>/dev/null || true
+    #
+    # 🔬 BUT THE REFUSAL TEXT IS NOT NOISE, AND `2>/dev/null` USED TO EAT IT.
+    # Measured on the Mini 16 during the 2026-09-04 walk: this function
+    # correctly returned 1 for com.ostler.doctor (absent from launchctl, :8089
+    # answered 000) so the installer WARNED rather than lying -- the #876 half
+    # works. But the warn carried NO REASON, because the only thing that knew
+    # it was on stderr, going to /dev/null. Bootstrapping the identical,
+    # unmodified plist by hand 21 minutes later gave `state = running` and
+    # :8089 200, so plist and payload were both fine and the refusal was the
+    # entire diagnosis. Diagnosing it cost a second full install.
+    #
+    # Capture instead of discard. `2>&1 >/dev/null` inside the substitution
+    # keeps stderr and drops stdout (order matters: stderr is duplicated onto
+    # the capture BEFORE stdout is redirected away).
+    #
+    # ⚠️ THE TRAILING `|| true` IS INSIDE THE SUBSTITUTION ON PURPOSE. The ERR
+    # trap is inherited into a command substitution's subshell, and an outer
+    # `|| true` does NOT protect the inner failing command -- that is exactly
+    # the mechanism behind the #642 double-DONE (three earlier harnesses
+    # refuted it because each suppressed ERR at the outer level only). Ending
+    # the subshell's list with `true` is what actually keeps ERR quiet here.
+    local _load_err
+    _load_err="$( { launchctl bootstrap "$_domain" "$_plist" 2>&1 >/dev/null || \
+                    launchctl load "$_plist" 2>&1 >/dev/null || true ; } )"
 
     # THE EVIDENCE. Nothing above this line is permitted to decide.
     #
@@ -1358,11 +1404,18 @@ _ostler_launchagent_load_verified() {
     # NOT retry -- it parks the job until a `kickstart -k` clears it. That is
     # the state a customer would otherwise be told was fine.
     local _print
-    _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null)" || return 1
+    _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null)" || {
+        _ostler_launchagent_note_refusal "$_label" \
+            "not registered in ${_domain} after bootstrap+load" "$_load_err"
+        return 1
+    }
 
     case "$_print" in
         *"last exit code = 78:"*|*"last exit code = 78"[!0-9]*)
             # Parked on EX_CONFIG. Registered, never going to run.
+            _ostler_launchagent_note_refusal "$_label" \
+                "registered but parked on EX_CONFIG (last exit code = 78)" \
+                "$(printf '%s\n' "$_print" | grep -E 'state =|last exit code|program =|path =' || true)"
             return 1
             ;;
     esac
