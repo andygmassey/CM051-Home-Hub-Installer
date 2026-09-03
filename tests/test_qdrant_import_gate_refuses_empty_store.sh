@@ -141,7 +141,12 @@ fi
 att_line="$(grep -nF '_import_attempted="$(grep -cE' "$INSTALL" | head -1)"
 if [ -z "$att_line" ]; then
   fail "K the attempted-count read is missing entirely"
-elif printf '%s' "$att_line" | grep -qF '2>/dev/null'; then
+# `grep -c`, not `| grep -q`: this file runs under `set -uo pipefail`, and a pipe
+# into a short-circuiting consumer lets grep exit on first match and SIGPIPE the
+# producer, which pipefail then reports as a failed pipeline. The ratchet caught
+# this in my own commit -- I introduced it while fixing someone else's fail-open.
+# grep -c must read to EOF, and unlike the `<<<` herestring it is not a bashism.
+elif [ "$(printf '%s' "$att_line" | grep -cF '2>/dev/null')" -gt 0 ]; then
   fail "K attempted-count still swallows read errors (2>/dev/null) -- an unreadable log reads as 0 and disarms the floor"
 elif ! grep -qF '[[ -r "$_import_log" ]]' "$INSTALL"; then
   fail "K attempted-count is read with no -r readability guard, so CANNOT-RUN and 0 are indistinguishable"
