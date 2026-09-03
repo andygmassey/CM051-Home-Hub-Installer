@@ -110,6 +110,7 @@ walk_horizon: v1.0.41
 | v1.0.58 |  | not_walked | Archie 2026-09-02. TAGGED cb787e69 at commit 323a0df9 and ACTUALLY CUT: run 33599019125 concluded success and published OstlerInstaller-1.0.58.dmg, 70,905,599 bytes, as a PRERELEASE on ostler-ai/ostler-installer. That makes it the SECOND artefact in this sequence to produce bytes anybody could install, after v1.0.57 and four gate deaths before that. NOBODY INSTALLED IT. There is no walks/v1.0.58.tsv and there should not be one, so this row is not_walked under the rules table above and closed is REFUSED. 🔴 THE ROW YOU ARE READING WAS FILED HOURS LATE, AND ONLY BECAUSE SOMETHING ELSE WENT LOOKING. That makes it the THIRD occurrence of the class already recorded as 'the shipping ledger can silently lose an entire cut'. The mandate is same-turn: append after any tag push. v1.0.58 was tagged at 06:23:15Z, its cut ran green at 06:28:50Z, it published a real 70,905,599-byte DMG, and the turn ended with no row in either register. NOTHING FAILED. Nothing was red. Every guard we own reads the file and the file parsed fine, so a MISSING row is invisible to all of them by construction -- a parser cannot miss what was never written. ⚠️ AND IT WAS NEARLY MISSED A SECOND TIME, BY THREE BROKEN PREDICATES IN ONE SITTING, each of which returned a confident zero that looked like a finding. (1) Reading the ledger via the contents API with a base64 decode gave an EMPTY file and the YAML loader returned None: that API goes empty above 1MB with no error and the file is 1,074,699 bytes. Fixed by asking for the raw media type. (2) With real bytes in hand, testing whether the version was present treated a LIST of dicts as a dict keyed by version, so it reported absent for SEVEN versions of which FIVE were present. (3) Listing workflow runs filtered by head branch found NO cut run for v1.0.58; the workflow-scoped query returned 33599019125 immediately, against 172 total cut runs as the denominator. 🗿 THE UNIFORM SHAPE WAS THE TELL ALL THREE TIMES, and this row is the proof of the rule rather than another anecdote about it: when a WORKING predicate was finally run against this file it answered v1.0.53 through v1.0.57 present and v1.0.58 alone missing. REAL ABSENCE IS RAGGED. A uniform zero is a broken instrument. An earlier attempt to count rows here returned zero for v1.0.56 and v1.0.57 as well, which are the CONTROL and must be non-zero -- that is what exposed the pattern rather than the file. 🔴 AND THE ARTEFACT CARRIES ONLY HALF OF A1, MEASURED ON THE TAG'S OWN TREE RATHER THAN INFERRED FROM MERGE ORDER. The v1.0.57 row records D001 and D002 as fixed on main and riding v1.0.58. D002 rides. D001 only half does: at commit 323a0df9 the PYTHON3_BIN call site still passes the STAGING root explicitly, above the promote-boundary contract line, so the .pth it writes still names a directory that does not survive the install. #1316 hardened the FUNCTION DEFAULT, and A DEFAULT CANNOT APPLY TO A CALLER THAT PASSES THE ARGUMENT EXPLICITLY -- 12 of the 16 call sites pass no root and were genuinely fixed, and this one was never in that population. CM051 #1321 changes that one identifier to the final dir and merged at 06:48:46Z, TWENTY-FIVE MINUTES AFTER THE TAG. So the published DMG has the staging freeze still live for every service without its own venv: cm059-editor, ical-server, ostler_hygiene. WALKING v1.0.58 WOULD HAVE RE-FOUND A1, which is the strongest argument available for why this row must not be quietly marked closed. PUBLISHED BYTES, NO WALK, HALF A FIX. SUPERSEDED BY v1.0.59, which carries the second half of A1, the hub-v0.4.70 daemon re-pin and its rebuilt wrapper. | none |
 | v1.0.59 |  | not_walked | Archie 2026-09-02. TAGGED c017f35d at commit 1d92f9d4, CUT run 33619834748 concluded success, and PUBLISHED OstlerInstaller-1.0.59.dmg -- 70,765,483 bytes, sha256 b35bfdd5..., prerelease, on ostler-ai/ostler-installer. 🎯 THE FIRST TAG IN THIS SEQUENCE CREATED AFTER A GREEN DRY RUN, which is the rule the v1.0.56 row states in my own words and which was still not followed at v1.0.57 or v1.0.58. Run 33619461561: preflight 20 success 0 failure, dry-run job 10 success 0 failure, cut job SKIPPED because a workflow_dispatch cannot make an artefact. IT CAUGHT SIX REFUSALS AT ZERO VERSION COST, and every one was mine. Four at preflight: no cut-manifests/v1.0.59.yaml at all; BOM_PIN carrying no hash for the v1.0.59 BOM; walk closure failing because v1.0.58 had NO ROW; and the CM051 pin not RESOLVING on CI at all. Two in-build: check-freshness, the gate that killed v1.0.55, red because I merged an upstream daemon commit INSIDE the cut window; and check-orphans, the gate that killed v1.0.54, red on exactly one orphan. 🗿 THREE OF THE SIX ARE DOCUMENTED RECURRENCES OF LESSONS ALREADY WRITTEN IN THIS FILE IN MY OWN WORDS: authoring canonically on the VENDORED side rather than here (the v1.0.56 row), advancing the live HEADs a pin is measured against mid-window (the v1.0.55 row), and reading a gate's own remedy text without acting on it. A registry that records a lesson and does not prevent its repetition has documented a habit, not fixed one. ⚠️ THE ORPHAN RED ALSO EXPOSED A KEY-SHAPE ERROR I THEN STATED PUBLICLY AND HAD TO RETRACT. cut-deferrals.yaml holds TWO top-level lists with TWO different consumers and TWO different reference shapes: deferrals is read by check-orphans, pr_exemptions by check-pr-age. I wrote four rows into pr_exemptions and announced the open PRs were disposed of. check-orphans never reads that list. The claim was HALF TRUE by accident -- three of the four were already covered by pre-existing deferrals rows, so only one was genuinely undisposed. 🔴 AND IT CARRIES THE SECOND HALF OF A1, WHICH v1.0.58 DID NOT. The v1.0.58 row records that #1316 hardened the FUNCTION DEFAULT while install.sh's PYTHON3_BIN call site kept passing the staging root EXPLICITLY, so the .pth still named a directory that does not survive promote for every service without its own venv. #1321 changes that call site and it is in this cut, measured in the shipped file rather than inferred from merge order. PROVEN ON THE ARTEFACT, NOT THE BUILD LOG, because divergent lineage is precisely the case where every step runs green and the bundle is still wrong: codesign valid, spctl accepted, stapler validated so offline first-run survives; the three fix patterns 1 hit each with a negative control at 0 and a positive control at 3009; BOTH shipped install.sh hashed identically rather than one probed and the other assumed; the shipped daemon binary carrying the pinned commit 3 times and the superseded one 0 times; and the Ostler.app wrapper's compiled-in WRAPPER_FRONTEND_COMMIT equal to the daemon commit. CUSTOMER PATH PROVEN WITH CONTROLS: unauthenticated and unproxied, DMG 200, alias 200, SHA256SUMS 200, a 9.9.9 negative control 404, and the downloaded bytes hashing to the value the release itself claims. PUBLISHED BYTES, FULL FIX, STILL NO WALK. Nobody has installed this on a clean macOS account. status is not_walked and closed is REFUSED. The BOM carries 11 rows, 5 PROVEN and 6 DECLARED needs-walk with 0 unclassified -- against v1.0.58's nine rows and nine TBD -- so what is unproven reaches Andy ANNOUNCED rather than as a surprise during the walk. | none |
 | v1.0.60 | 2026-09-03 | deferred | Archie 2026-09-03. **THE ARTEFACT WAS INSTALLED AND WALKED BY ANDY ON THE MINI 16 (.98), AND IT FAILED.** That is his recorded call, not an inference of mine. I did not observe the walk; I observed its artefact and its findings, and this row says which is which throughout. ARTEFACT EVIDENCE I MEASURED MYSELF, over ssh, read-only: ~/.ostler/logs/install.log final line `DONE status=ok failed_steps=2 errors=0`, mtime `Sep 3 11:39:48` box-local, i.e. the run COMPLETED and then MISREPORTED ITSELF -- which is v1060-D001 caught in the act on the shipped artefact rather than reasoned about. The same log carries `Source status (T+0): 13 sources reporting, 5 landed at install`, so A2's G3 publisher is live on a real install. SEVEN DEFECTS CAME OFF THIS WALK, every one filed the same day with a named author, and FIVE ARE ALREADY FIXED ON MAIN: v1060-D001 (#1369 16b3d219 + #1376 e08869ab), D002 (#1375 dc9d85d3), D003 (#1370 39e896b6), D004 (#1371 318d513d), D005 (#1377 477608ab). D006 and D007 are OPEN. **DEFERRED, NOT CLOSED, and the reason is the standing one**: those five fixes are on CM051 main and ride v1.0.61, but they are in NO ARTEFACT, so closing would be true about the repo and false about the DMG. The next walk is of a DIFFERENT artefact with a different sha256, which is #931 working as designed. 🔴 AND `closed` IS NOT MERELY UNWISE HERE, IT IS ILLEGAL: this file's own status table says that with no walk record for a cut, only `deferred` or `not_walked` are legal and `closed` is REFUSED. `not_walked` would be a false statement about a version somebody really did install, so `deferred` is the only honest cell. ⚠️ THERE IS NO walks/v1.0.60.tsv AND THAT IS ITSELF A FINDING, filed as v1060-D008 rather than quietly omitted -- the identical shape as v1057-D004, which means this is the SECOND consecutive hand-walked cut whose harness record was never written, and a recurrence is a mechanism rather than an oversight. 📌 PROVENANCE, STATED SO IT CAN BE AUDITED RATHER THAN TRUSTED: the seven defect sections below are transcribed from register rows filed on 2026-09-03 from Andy's live walk, plus my own install.log measurement. TNM built the v1.0.61 cut set, hit this gate RED, and REFUSED to write this row -- correctly, because they held none of the findings and a walk row is a record of something someone watched. I am writing it because I hold the findings and the artefact measurement; I am NOT writing walks/v1.0.60.tsv, because that file is generated by scripts/post_walk_qa.sh and I did not run the harness, and hand-forging a harness record is the one thing this whole mechanism exists to prevent. @ANDY: correct anything here you saw and I have not captured -- these are your findings and my transcription. | v1060-D001 v1060-D002 v1060-D003 v1060-D004 v1060-D005 v1060-D006 v1060-D007 v1060-D008 |
+| v1.0.61 | 2026-09-03 | deferred | Archie 2026-09-03. **ANDY INSTALLED THIS ON A CLEAN ACCOUNT ON THE MINI 16 AND IT FAILED**, and for the first time since v1.0.52 THE HARNESS WROTE A RECORD OF IT. `walks/v1.0.61.tsv` exists: verdict FAILED, qa_exit 1, walked_at 2026-09-03T10:56:21Z, box_fp 165e8417bcff2a80, artefact_sha256 0da59320633a92c9... with artefact_sha256_source reading measured(shasum -a 256 on the walked box). Phase-1 counts are pass 11, fail 7, cannot_run 6, broken 0, and the file's own `measured` line reconciles them at 24 of 24, so the buckets partition the suite rather than leaving a silent remainder. 🎯 **THE EXISTENCE OF THAT FILE IS ITSELF THE CLOSURE OF v1057-D004 AND v1060-D008**, which are the same finding filed twice running: "the artefact was walked and no walk record was written". Both times the walk was done by hand, and the harness -- the only thing that writes the record -- was never run. This time it was. That makes this the first row in the v1.0.5x/6x sequence whose status is DERIVED FROM A RECORD rather than from my transcription of somebody else's account, and the difference is not cosmetic: every row above this one reading [DERIVED(no record)] is me writing down what I was told. 🔴 **SIX DEFECTS CAME OFF THE WALK AND THREE ARE ALREADY FIXED ON MAIN**: v1061-D003 (CM051 #1385, 4e1bd89a) and v1061-D004 + v1061-D006 (CM051 #1386, c7b2c3ac). D006 is the one that ended the walk -- a SPACE after a line-continuation backslash at install.sh:26690, which `bash -n` exits 0 on, so no parse-level check we own could ever have seen it. v1061-D001 (#622), v1061-D002 (#623) and v1061-D005 (#627) are OPEN. **DEFERRED, NOT CLOSED, and the reason is the standing one**: those three fixes are on CM051 main and ride v1.0.62, but they are in NO ARTEFACT, so closing would be true about the repo and false about the DMG. The next walk is of a different artefact with a different sha256, which is #931 working as designed. ⚠️ **AND A SEVENTH FINDING CAME OUT OF THE RECORD ITSELF RATHER THAN OFF THE BOX**, filed as v1061-D007: three probes have now failed on FOUR CONSECUTIVE walk records and not one of the four was investigated. That is NOT a v1.0.61 regression and this row does not claim it is -- it is a standing condition the harness has been reporting since v1.0.50, filed here because v1052-D007 already called it out at two consecutive and nothing changed. 📌 PROVENANCE, STATED SO IT CAN BE AUDITED RATHER THAN TRUSTED: the walk is Andy's, on his hardware, and the descriptions of D001, D002 and D005 are transcribed from register rows filed the same day from what he saw. The counts, the probe names and the four-walk recurrence in D007 are mine, measured directly from the walks/*.tsv files. I did NOT write walks/v1.0.61.tsv; the harness did, which is the entire point of this row. @ANDY: correct anything here you saw and I have not captured. | v1061-D001 v1061-D002 v1061-D003 v1061-D004 v1061-D005 v1061-D006 v1061-D007 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -4413,3 +4414,122 @@ to refuse on the evidence they held, and I am writing it only for the parts I ca
 ⇒ SUCCESSOR WORK, not a T-minus fix: either the walk driver writes a record for a hand walk too, or
 the gate learns to accept a DERIVED row with named provenance as a distinct third state from both
 "harness record" and "nothing". Related to #599.
+
+### v1061-D001 -- five raw Python tracebacks reach the customer during the passphrase step, and the step still reports status=ok
+
+OPEN (#622).
+
+Andy's finding on the live walk. During the passphrase step the installer printed five raw Python
+tracebacks to the customer, and the step then recorded `status=ok`.
+
+**This is the third member of the honesty class named in #625**: `status=ok` is a claim about the
+STEP, never about the DATA and never about what the customer was shown. A step can print a stack
+trace, do none of its work, and still exit 0. v1060-D001 was this same shape at the whole-run level
+(`DONE status=ok failed_steps=2`); this is it at the step level, one cut later.
+
+A traceback is also the most alarming thing a non-technical customer can be shown, and it lands at
+the passphrase step, which is precisely where they are being asked to trust the product with a
+credential.
+
+### v1061-D002 -- install.sh tells the customer the AI model is "~5 GB". It is 7.2 GB, measured on the box
+
+OPEN (#623).
+
+Measured on the walked box rather than read off a spec: the model the installer downloads is 7.2 GB.
+The copy says "~5 GB". That is a 44% understatement of the largest single download in the install,
+given to the customer at the moment they decide whether to continue on a metered or slow connection.
+
+⚠️ RELATED, NOT THE SAME: #544 records a 52-minute silent step and a 3.43 GB vane image. Download
+honesty is a CLASS here, not an instance. Fixing this one string without auditing the other
+advertised sizes leaves the class alive and the next cut re-finds it.
+
+### v1061-D003 -- the import attempted 3810 people, stored 0, and reported success
+
+**FIXED on main** (CM051 #1385, `4e1bd89a`).
+
+On a cold install Qdrant collections do not self-create
+(`feedback_qdrant_collections_no_self_create_fresh_install`). A readiness miss at T+0 left them
+absent, `import_data` embedded every person, 404'd on the missing collection, and discarded 3810 of
+3810 people while the step reported `status=ok`.
+
+The fix has two halves and the second is the one that matters. The import now REFUSES an unready
+store rather than running into a void, AND an import that attempted people but stored none FAILS. A
+refusal alone would have left the silent-loss path reachable by any other route to an empty store.
+
+🔻 A CORRECTION INSIDE MY OWN FIX, RECORDED BECAUSE IT IS THE SAME CLASS AS THE DEFECT: the first cut
+of the yield floor read its input with `grep -c ... 2>/dev/null || printf '0'`, which reports an
+UNREADABLE log as "attempted 0" -- and attempted-0 is exactly the value that makes the floor decline
+to fire. **I shipped a fail-open while fixing a fail-open.** The count is now read behind an `-r`
+guard and reports CANNOT-RUN, which is a third state and not a pass. The log is also no longer
+deleted one line before the failure that cites it as evidence.
+
+### v1061-D004 -- a LOCKED store read as EMPTY, and bought a redundant re-ingest
+
+**FIXED on main** (CM051 #1386, `c7b2c3ac`).
+
+The store was locked, not empty. The predicate that asked could only answer two ways, so "I cannot
+read this" and "there is nothing here" collapsed to the same value, and the install responded to the
+wrong one by re-ingesting data that was already present.
+
+Now tri-state. **CANNOT-RUN is not FAIL and is not PASS.** A two-state predicate that meets a third
+condition will always answer with whichever of its two states is cheapest to reach, and it will do
+so silently, which is what makes this class expensive rather than merely wrong.
+
+### v1061-D005 -- the install step denominator shrank mid-run, 41 to 40, and nothing said so
+
+OPEN (#627).
+
+The customer-facing progress counter changed its denominator during the run and nothing announced it.
+
+Low customer harm, high diagnostic harm. A denominator that moves silently makes every percentage
+before and after it incomparable, which means our own progress telemetry cannot be used to compare
+two runs -- and comparing runs is most of how a walk regression gets caught. Same reading hazard as
+the zero-denominator in #533: the number wears the format of a measurement and is not one.
+
+### v1061-D006 -- the walk-killer: a space after a line-continuation backslash at install.sh:26690
+
+**FIXED on main** (CM051 #1386, `c7b2c3ac`).
+
+This is what ended the walk at 97%. A backslash followed by a SPACE is not a line continuation. The
+line ends there, and what should have been its continuation becomes a separate command.
+
+🗿 **NO PARSE-LEVEL CHECK WE OWN COULD HAVE CAUGHT IT, AND THAT IS THE DURABLE LESSON.** `bash -n`
+EXITS 0 on the real pre-fix file. The file is syntactically valid; it simply does something other
+than what it reads as. A shape-reading gate now exists and it ships with a `--self-test`, because a
+gate that cannot demonstrate its own RED is a gate nobody can trust.
+
+⚠️ THE PROOF THIS CUT MUST CARRY: run `scripts/verify_no_broken_line_continuation.py` against the
+**MOUNTED DMG's** install.sh, not the repo copy, and run `--self-test` first. REPO LAYOUT IS NOT
+PAYLOAD LAYOUT, and the defect was in the shipped file.
+
+### v1061-D007 -- three probes have now failed on FOUR CONSECUTIVE walk records, and not one was investigated
+
+OPEN. Filed against the process, and measured directly from the records rather than recalled.
+
+`assistant_answers_grounded`, `freshness_panel_has_dates` and `usage_journal_producers` appear in the
+`failed_probe` list of every walk record we hold from v1.0.50 onward:
+
+| record | verdict | the three probes |
+|---|---|---|
+| walks/v1.0.50.tsv | FAILED | all three present |
+| walks/v1.0.51.tsv | FAILED | all three present |
+| walks/v1.0.52.tsv | FAILED | all three present |
+| walks/v1.0.61.tsv | FAILED | all three present |
+
+**v1052-D007 ALREADY FILED THIS AT TWO CONSECUTIVE**, and its title says so in as many words:
+"assistant_answers_grounded failed for the SECOND consecutive walk and was investigated on neither".
+It is now four. A register that records a recurrence and does not change what happens next has
+documented a habit rather than fixed one, which is the sentence the v1.0.59 row uses about me.
+
+⚠️ WHAT THIS FINDING DOES NOT CLAIM: it is not a v1.0.61 regression. It is a standing condition that
+predates the cut, and the walk record is simply the instrument that makes it countable. Each probe
+has a live register row already -- #510 (assistant grounding), #514 (freshness panel), #482 (usage
+journal producers) -- and #482 in particular records that 4 of 5 required producers have NO CHANNEL
+to the journal at all, so that probe may be failing for a structural reason no fix to any cut can
+address. If so, the honest move is to say that on the probe, not to keep reporting it as a red the
+next cut might clear.
+
+⇒ SUCCESSOR WORK, not a T-minus fix: either these three get an owner and a disposition before the
+next walk, or the harness marks a probe that has failed N consecutive walks as a KNOWN-FAILING state
+distinct from a fresh red -- so that a genuinely NEW failure is not lost among the standing ones,
+which is the actual risk a persistent red creates.
