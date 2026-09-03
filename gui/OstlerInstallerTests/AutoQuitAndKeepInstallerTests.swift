@@ -134,7 +134,7 @@ final class AutoQuitAndKeepInstallerTests: XCTestCase {
         // exactly when the customer needs the log drawer and Copy log; the
         // window must not close under them.
         let outcome = InstallerCoordinator.reconcileTermination(
-            donedMarker: .fail, cancelled: false, exitCode: 1)
+            donedMarker: .fail, cancelled: false, exitCode: 1, failedSteps: 0)
         guard case .confirmedFailure = outcome else {
             return XCTFail("expected .confirmedFailure, got \(outcome)")
         }
