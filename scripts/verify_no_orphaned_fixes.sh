@@ -89,7 +89,12 @@ esac
 # instrument measuring itself.
 EXPIRED_BASELINE="${OSTLER_EXPIRED_BASELINE:-${REPO_ROOT}/tests/expired_deferrals_baseline.txt}"
 # task #611: the committed MAXIMUM skip set. See the file header and the
-# ceiling check in the unchecked>0 verdict below.
+# ceiling check in the unchecked>0 verdict below. Capture whether the caller set
+# the ceiling explicitly BEFORE the default fills it in: that plus "is the repo
+# set the DEFAULT one" is how the check tells a real cut (enforce) from a test
+# that injects a synthetic repo set to exercise skip mechanics (do not enforce a
+# ceiling that does not describe those synthetic labels).
+_ORPHAN_CEILING_EXPLICIT="${OSTLER_ORPHAN_SKIP_CEILING+1}"
 ORPHAN_SKIP_CEILING="${OSTLER_ORPHAN_SKIP_CEILING:-${REPO_ROOT}/tests/orphan_gate_skip_ceiling.txt}"
 
 # 🔴 `mktemp -t <template>` WITHOUT X's IS BSD-ONLY. GNU refuses it outright:
@@ -1361,7 +1366,15 @@ if [[ "$unchecked" -gt 0 ]]; then
     # of one repo, every step green. Bound the ACTUAL skips against the committed
     # ceiling LIST. A MAXIMUM: skipping fewer is progress and stays green; a skip
     # the ceiling does not name fails here and is named.
-    _skip_over="$(_orphan_skip_ceiling_over "$unchecked_labels" "$ORPHAN_SKIP_CEILING")"
+    # Enforce on the REAL cut (default repo set) or when a ceiling is given
+    # explicitly (this check's own test). A caller that injects a synthetic repo
+    # set (OSTLER_ORPHAN_GATE_REPOS) with no explicit ceiling is a DIFFERENT
+    # test exercising skip mechanics, and the real ceiling does not name its
+    # synthetic labels, so do not red it. The cut path never injects repos.
+    _skip_over=""
+    if [[ -z "${OSTLER_ORPHAN_GATE_REPOS:-}" || -n "$_ORPHAN_CEILING_EXPLICIT" ]]; then
+        _skip_over="$(_orphan_skip_ceiling_over "$unchecked_labels" "$ORPHAN_SKIP_CEILING")"
+    fi
     if [[ -n "$_skip_over" ]]; then
         say "" >&2
         say "FAIL: the orphan-gate skip set EXCEEDS its ceiling (#611)." >&2
