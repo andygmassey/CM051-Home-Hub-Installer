@@ -1,0 +1,71 @@
+# A line-continuation backslash must not have a space after it.
+#
+# 🔴 THIS KILLED A LIVE BOX WALK, v1.0.61, 2026-09-03. install.sh:26690 read
+# `... _PLACES_TIMEOUT_WRAP \ _PLACES_CAP` with a SPACE after the backslash, so
+# it escaped the space instead of the newline. `unset` got " _PLACES_CAP" --
+# an identifier with a leading space, which is illegal -- returned non-zero,
+# tripped the ERR trap, and aborted the install at 97%. The customer's Hub
+# never started. Marker: DONE status=fail code=ERR-99-INSTALL-ABORT-L26692.
+#
+# 🗿 WHY A SYNTAX CHECK CANNOT COVER THIS, MEASURED not assumed: `bash -n` on
+# the real pre-fix install.sh exits 0. It is VALID SHELL that does the wrong
+# thing. Every parse-only gate in this repo passed it, through a cut, into a
+# DMG, onto a customer-shaped machine. The `install.sh parses` step below is
+# kept anyway, as the cheap first line -- but it is NOT what catches this.
+#
+# WHAT GREEN HERE MEANS. The checker prints the number of shell files it
+# examined on every run, so the colour can never stand in for the count; a
+# zero denominator exits 2 (CANNOT-RUN) rather than reporting a pass over
+# nothing. The predicate is deliberately narrow and its narrowness is
+# measured: 527 shell files in this repo carry TEN legitimate
+# backslash-spaces (case globs like `OK\ *)`, a `[[ ]]` pattern, an escaped
+# path in a comment), so a blanket ban would be ten false accusations. It
+# fires only on the full defect shape -- a backslash-space whose NEXT line is
+# an orphaned continuation of bare identifiers.
+#
+# The self-test runs first and carries five negative controls plus an arm
+# that plants a real defect beside a legitimate glob in one file. A gate that
+# cannot fail is not a gate, and one that cannot tell the two apart gets
+# switched off.
+name: broken-line-continuation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - '**/*.sh'
+      - 'scripts/verify_no_broken_line_continuation.py'
+      - '.github/workflows/broken-line-continuation.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - '**/*.sh'
+      - 'scripts/verify_no_broken_line_continuation.py'
+      - '.github/workflows/broken-line-continuation.yml'
+
+concurrency:
+  # Never cancels main: a cancelled main run is a gate that did not finish,
+  # which reads identically to a gate that passed.
+  group: broken-line-continuation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  continuations:
+    # ubuntu is correct: every assertion is over the TEXT of the shell files.
+    # Nothing is executed, so nothing needs a Mac.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: the checker discriminates (5 negative controls + a mixed file)
+        run: python3 scripts/verify_no_broken_line_continuation.py --self-test
+
+      - name: install.sh parses (cheap, and provably NOT what catches this)
+        run: bash -n install.sh
+
+      - name: no broken line continuations
+        run: python3 scripts/verify_no_broken_line_continuation.py

@@ -122,6 +122,32 @@ DECLARED = [
     ("_HYDRATE_CONTACTS_CAP",    "hydrate_graph/contacts",  "MSG_INFO_PLEASE_WAIT_READING_CONTACTS",
      MEASURED_FLOOR_S,
      "PROMISE 'a couple of minutes' = 120s, cleared; MEASURED family floor 900s governs"),
+    # ── #628. A READINESS WAIT, NOT A HYDRATE CAP. Read the floor before the row.
+    #
+    # This one is caught by CAP_DEF because it is spelled `_CAP`, and declaring
+    # it here is the right answer rather than renaming it to dodge the regex.
+    # But it is NOT a member of the hydrate family, so MEASURED_FLOOR_S (900,
+    # "longest clean observed run of that family") does not apply: this is a
+    # liveness probe against a local container, not a pass over a customer's
+    # mailbox. Borrowing 900 would assert an observation nobody made.
+    #
+    # ⚠️ THE FLOOR IS 60, NOT 300, AND THE GAP IS THE POINT. Setting the floor
+    # equal to the cap would be TAUTOLOGICAL -- unfailable by construction, the
+    # same defect as #171's version gate. What we actually measured on the
+    # v1.0.61 walk is the NEGATIVE: 30 attempts were INSUFFICIENT, the store had
+    # not answered, and the installer went on to discard 3810 of 3810 people
+    # (#624). So the floor encodes the one fact in evidence -- 30s is too few --
+    # at 2x the value watched failing. The cap sits at 300 with headroom, and
+    # anyone lowering it back toward the value we watched fail turns this RED.
+    #
+    # NO CLEAN RUN OF THIS WAIT HAS BEEN OBSERVED. This is therefore NOT a
+    # clean-run floor and must not be described as one, nor raised to 900 by
+    # analogy. Replace it with a real number the first time a walk records how
+    # long the store actually took to answer, and say which walk.
+    ("_QDRANT_READY_CAP",        "graph_db_start",            PHASE_MSG, 60,
+     "MEASURED-INSUFFICIENT: 30s watched FAILING on the v1.0.61 walk (#624); "
+     "floor = 2x the value observed failing. No clean run observed -- NOT a "
+     "clean-run floor, and deliberately below the 300s cap so it can fail"),
 ]
 
 CAP_DEF = re.compile(r'^\s*(_[A-Z0-9_]*_CAP)="\$\{([A-Z0-9_]+):-(\d+)\}"', re.M)
