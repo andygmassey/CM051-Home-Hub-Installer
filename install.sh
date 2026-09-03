@@ -21881,7 +21881,17 @@ else
                         # the by-identity sweep below can distinguish the instance
                         # WE spawn from any pre-existing legit process, and never
                         # touch the latter.
-                        _fda_pre_pids="$(pgrep -f 'OstlerAssistant\.app/Contents/MacOS/ostler-assistant' 2>/dev/null | sort -u)"
+                        # `|| true` IS LOAD-BEARING (#642, killed the v1.0.62
+                        # walk on its second run). `pgrep` exits 1 when NOTHING
+                        # MATCHES, which here is the ordinary case: no assistant
+                        # is running yet. Under this script's `set -Eeuo
+                        # pipefail` (install.sh:29) that 1 travels through the
+                        # pipe, fails the bare assignment, and kills the whole
+                        # install. `2>/dev/null` hides the stderr, not the
+                        # status. MEASURED: pgrep no-match rc=1; piped to sort
+                        # rc=0 without pipefail and rc=1 with it; control
+                        # `pgrep -f launchd` rc=0.
+                        _fda_pre_pids="$(pgrep -f 'OstlerAssistant\.app/Contents/MacOS/ostler-assistant' 2>/dev/null | sort -u || true)"
                         # (2) app-identity nudge: -n fresh instance, -g/-j launch
                         # background + hidden (no focus-steal, no visible window),
                         # NO -W (the read+exit is sub-second; -W is what tempted
@@ -21922,7 +21932,23 @@ else
                         # `run-source <src>` ingest tick that happened to fire in
                         # the settle window). Compared against _fda_pre_pids so a
                         # pre-existing process is never signalled.
-                        _fda_post_pids="$(pgrep -f 'OstlerAssistant\.app/Contents/MacOS/ostler-assistant' 2>/dev/null | sort -u)"
+                        # `|| true` IS LOAD-BEARING -- see the sibling note at
+                        # the pre-scan above. THIS is the line that actually
+                        # killed the v1.0.62 walk (#642): the post-scan runs
+                        # after the nudge process has already read-and-exited,
+                        # so a no-match here is not merely possible, it is the
+                        # EXPECTED outcome, and it took the install down with
+                        # ERR-99-INSTALL-ABORT-L21925 at step 26 of 37.
+                        #
+                        # It also produced the DOUBLE terminal DONE of #639,
+                        # unexplained for a day: `set -E` propagates the ERR
+                        # trap into this command substitution's SUBSHELL, which
+                        # emits one DONE and sets OSTLER_DONE_EMITTED *in the
+                        # subshell only*. The parent's guard stays empty, so the
+                        # parent's own later failure emits a SECOND DONE with a
+                        # different line number. Neutralising the status here
+                        # closes both the abort and the duplicate marker.
+                        _fda_post_pids="$(pgrep -f 'OstlerAssistant\.app/Contents/MacOS/ostler-assistant' 2>/dev/null | sort -u || true)"
                         while IFS= read -r _fda_np; do
                             [[ -n "$_fda_np" ]] || continue
                             _fda_np_cmd="$(ps -p "$_fda_np" -o command= 2>/dev/null)"
