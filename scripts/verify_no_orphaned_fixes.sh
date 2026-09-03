@@ -572,7 +572,28 @@ check_repo() {
     # OSTLER_ORPHAN_GATE_SKIP="label1,label2" -- a deliberate, visible act.
     if [[ -z "$path" ]]; then
         if [[ ",${OSTLER_ORPHAN_GATE_SKIP:-}," == *",${label},"* ]]; then
-            note "${label}: skipped by OSTLER_ORPHAN_GATE_SKIP"
+            # COUNT IT. This branch used to return without touching a counter,
+            # so a repo declared-skipped AND carrying an empty path vanished
+            # from the coverage line altogether: the summary printed
+            # "0 NOT CHECKED" while this repo had, in fact, not been checked.
+            #
+            # MEASURED on two arms differing only in how the same operator act
+            # was spelled, everything else identical (0 checked, 0 orphaned,
+            # 1 warning):
+            #     ghost with EMPTY path         -> "0 NOT CHECKED"
+            #     ghost with unresolvable path  -> "1 NOT CHECKED"
+            # One declaration, two coverage figures. The zero is the dangerous
+            # one, because a zero here reads as complete coverage rather than as
+            # a repo nobody looked at.
+            #
+            # It also fed the --regenerate-expired-baseline refusal further
+            # down, which guards on `unchecked -gt 0`. An all-empty-path run
+            # looked like FULL coverage to that guard and would have been
+            # allowed to overwrite the baseline from a run that saw nothing --
+            # the precise thing that refusal exists to prevent.
+            note "${label}: NOT CHECKED HERE (declared in OSTLER_ORPHAN_GATE_SKIP, no path configured)"
+            unchecked_labels="${unchecked_labels}${unchecked_labels:+, }${label}"
+            unchecked=$((unchecked + 1))
             return
         fi
         bad "${label}: no checkout path configured -- cannot verify"

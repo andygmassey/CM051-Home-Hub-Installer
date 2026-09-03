@@ -33,6 +33,7 @@ on:
       - 'tests/test_orphan_gate_pr_skip_is_per_label.sh'
       - 'tests/test_orphan_gate_empty_pr_list_needs_a_control.sh'
       - 'tests/test_orphan_gate_failed_fetch_is_not_truth.sh'
+      - 'tests/test_orphan_gate_declared_skip_always_counts.sh'
       - 'tests/test_deferral_reachability.sh'
       - 'tests/test_deferral_reason_reads_block_scalars.sh'
       # The expiry ratchet: its comparison, and the baseline it compares to.
@@ -88,7 +89,8 @@ jobs:
                    tests/test_orphan_gate_cannot_verify.sh \
                    tests/test_orphan_gate_pr_skip_is_per_label.sh \
                    tests/test_orphan_gate_empty_pr_list_needs_a_control.sh \
-                   tests/test_orphan_gate_failed_fetch_is_not_truth.sh; do
+                   tests/test_orphan_gate_failed_fetch_is_not_truth.sh \
+                   tests/test_orphan_gate_declared_skip_always_counts.sh; do
             [ -x "$f" ] || { echo "::error::$f missing or not executable" >&2; exit 1; }
             echo "  ok $f"
           done
@@ -184,6 +186,17 @@ jobs:
       - name: A failed fetch is CANNOT-VERIFY, not a warn (#526)
         if: always()
         run: ./tests/test_orphan_gate_failed_fetch_is_not_truth.sh
+
+      - name: A declared skip counts as NOT CHECKED however it is spelled (#535)
+        if: always()
+        # check_repo honours OSTLER_ORPHAN_GATE_SKIP in TWO branches. The
+        # not-a-checkout branch incremented `unchecked`; the empty-path branch
+        # returned without touching a counter, so the same declaration produced
+        # "0 NOT CHECKED" on one spelling and "1 NOT CHECKED" on the other.
+        # The zero is the dangerous one -- it reads as complete coverage -- and
+        # it also made an all-empty-path run look like FULL coverage to the
+        # --regenerate-expired-baseline refusal, which guards on unchecked > 0.
+        run: ./tests/test_orphan_gate_declared_skip_always_counts.sh
 
       - name: Deferral reachability controls
         # The four controls for deferral_reachability_report() in
