@@ -54,6 +54,7 @@ on:
       - 'tests/test_walk_driver_requires_a_completion_marker.sh'
       - 'tests/test_walk_driver_takes_ports_from_the_declared_field.sh'
       - 'tests/test_walk_pass_requires_zero_failed_steps.sh'
+      - 'tests/test_walk_port_probe_matches_install_sh.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
       - '.github/workflows/walk-record-gate.yml'
@@ -178,6 +179,24 @@ jobs:
           rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The failed-steps harness could not import the driver or the driver stopped exporting adjudicate/PASS/FAIL/CANNOT_RUN. NOTHING about the driver has been measured."
+          fi
+          exit "$rc"
+
+      # ── The driver's port probe must not be STRICTER than install.sh's ──
+      #
+      # Run 9 refused a walk on "6333 8044 already held" seven seconds after
+      # its own --reset stopped colima. Nothing held them: TIME_WAIT refuses a
+      # bare bind() while netstat shows no listener, and install.sh grades
+      # exactly that case could-not-measure. The harness manufactured the
+      # conflict it then refused on.
+      - name: Port probe agrees with install.sh's own two-instrument table
+        if: always()
+        run: |
+          set -uo pipefail
+          bash tests/test_walk_port_probe_matches_install_sh.sh
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The port-probe harness could not import the driver, or install.sh no longer defines _check_port/_port_listeners. The driver's table is pinned to a contract that has moved; NOTHING was measured."
           fi
           exit "$rc"
 

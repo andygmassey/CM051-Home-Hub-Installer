@@ -50,6 +50,7 @@ import pty
 import re
 import select
 import socket
+import subprocess
 import struct
 import sys
 import termios
@@ -354,7 +355,7 @@ def declared_ports(install_sh):
     return ports, None
 
 
-def port_is_held(port):
+def port_bind_probe(port):
     """Three outcomes, not two: held / free / could not measure."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -371,6 +372,80 @@ def port_is_held(port):
         return "unmeasured"
     finally:
         sock.close()
+
+
+def port_listeners(port):
+    """LISTEN row count for `port`, or "cant" when the instrument failed.
+
+    Mirrors install.sh's `_port_listeners` (install.sh:15303) down to the
+    netstat flags and the field it reads, so the two cannot disagree for a
+    reason that is only about how they asked.
+
+    MUST NEVER return 0 for a failed measurement. That is the false-clean
+    this whole block exists to prevent.
+    """
+    try:
+        out = subprocess.run(
+            ["/usr/sbin/netstat", "-an", "-p", "tcp", "-f", "inet"],
+            capture_output=True, text=True)
+    except OSError:
+        return "cant"
+    if out.returncode != 0 or not out.stdout.strip():
+        return "cant"
+    n = 0
+    for line in out.stdout.splitlines():
+        cols = line.split()
+        if len(cols) < 4 or cols[-1] != "LISTEN":
+            continue
+        if cols[3].rsplit(".", 1)[-1] == str(port):
+            n += 1
+    return n
+
+
+def port_is_held(port):
+    """TWO instruments, and DISAGREEMENT IS NOT A COIN TOSS.
+
+    🔴 THIS COST A WALK, AND THE HARNESS WAS THE DEFECT.
+    Run 9 (2026-09-04) refused on "6333 8044 already held" SEVEN SECONDS
+    after its own --reset ran `colima stop`. Nothing held them: netstat
+    showed ZERO LISTEN rows on both, measured on the box minutes later.
+    What the bare bind() hit was TIME_WAIT. Demonstrated on an ephemeral
+    port, same machine class:
+        netstat rows after close : 2, both TIME_WAIT, LISTEN rows 0
+        bare bind()              : EADDRINUSE (errno 48)  -> reads "held"
+        bind + SO_REUSEADDR      : succeeds               <- what a server does
+    So the reset MANUFACTURED the conflict the next step refused on, and a
+    real server would have bound the port without noticing.
+
+    install.sh already knew this. Its `_check_port` (install.sh:15458)
+    grades bind=held + 0 listeners as COULD-NOT-MEASURE, in its own words
+    because "Docker sets SO_REUSEADDR and may well survive it, so calling
+    this a collision would block a working install". This function is that
+    same table, so the driver cannot be STRICTER than the preflight it
+    claims to be predicting:
+
+      bind   listeners   verdict   why
+      free   0           free      both agree
+      held   >=1         held      both agree: the real collision
+      held   0           cant      TIME_WAIT or similar, NOT a collision
+      free   >=1         cant      a listener our bind did not hit
+      held   cant        held      bind DEMONSTRATED the failure
+      cant   0           cant      no authoritative instrument ran
+      cant   >=1         held      netstat alone; a listener is a listener
+      free   cant        cant      only the weaker instrument spoke
+    """
+    bind = port_bind_probe(port)
+    listeners = port_listeners(port)
+
+    if bind == "free" and listeners == 0:
+        return "free"
+    if bind == "held" and listeners == "cant":
+        return "held"
+    if bind == "held" and listeners != "cant" and listeners != 0:
+        return "held"
+    if bind == "cant" and listeners != "cant" and listeners != 0:
+        return "held"
+    return "unmeasured"
 
 
 def preflight_ports(install_sh):
@@ -398,7 +473,11 @@ def preflight_ports(install_sh):
     if unmeasured:
         return CANNOT_RUN, (
             "%d of %d declared port(s) could not be measured: %s. A port we "
-            "could not measure has NOT been shown free."
+            "could not measure has NOT been shown free -- and it has NOT "
+            "been shown held either. The commonest cause is a service "
+            "that stopped seconds ago: its TIME_WAIT sockets refuse a "
+            "bare bind() while netstat shows no listener. Wait ~30s and "
+            "re-run before treating this as a busy box."
             % (len(unmeasured), len(ports), " ".join(unmeasured)))
     return PASS, "%d declared port(s) free: %s" % (len(ports), " ".join(ports))
 
