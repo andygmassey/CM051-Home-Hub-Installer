@@ -249,7 +249,18 @@ jobs:
               echo "::error::operator-pii-scan failed (exit $status). See output above." >&2
               exit "$status"
           fi
-          echo "operator-pii-scan: clean (${{ steps.stage.outputs.count }} files scanned against a real inventory)"
+          # THE STAGED COUNT IS NOT THE SCANNED COUNT, and this line used to
+          # conflate them. `count` is every changed tracked file, regardless of
+          # type. The scanner applies a type filter on top, so for a PR touching
+          # only kinds that filter cannot see, this number is non-zero while the
+          # number actually examined is zero -- the line asserted a scan that did
+          # not happen. The scanner now prints its OWN "examined N file(s)" line
+          # to this same log, computed with the same filter it scans with, so the
+          # honest thing here is to label this number for what it is and let that
+          # line carry the denominator.
+          echo "operator-pii-scan: clean against a real inventory."
+          echo "  ${{ steps.stage.outputs.count }} changed file(s) were staged; the scanner's own"
+          echo "  'examined N file(s)' line above is the number actually scanned."
 
       # ── The person-name guard, which was DARK until 2026-08-29 ──────────
       #
