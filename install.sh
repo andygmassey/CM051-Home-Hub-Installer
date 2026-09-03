@@ -10161,11 +10161,22 @@ TOTAL_STEPS="${TOTAL_STEPS:-0}"
 # resolves to an unreadable /dev/fd/N, the grep returns 0, etc.).
 # Better to overshoot 100% by a step or two than divide by zero.
 if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
-    # Fallback base = the non-GDPR progress-call count. Must track the real
-    # count (currently 39 calls; 38 non-GDPR + the EXPORTS_DIR-gated GDPR step).
+    # Fallback base = the non-GDPR progress-call count.
+    #
+    # 🔴 THE COMMENT HERE SAID "currently 39 calls" AND WAS STALE. Measured
+    # 2026-09-04 with this file's OWN predicate,
+    #     grep -cE '^[[:space:]]*progress "' install.sh   ->  41
+    # so the base is 40 non-GDPR + 1 EXPORTS_DIR-gated, not 38 + 1.
+    #
+    # ⚠️ AND CORRECTING IT DOES NOT MAKE THIS BRANCH RIGHT. The six mid-run
+    # decrements at :20703-:21229 and :26238 subtract from whatever this sets,
+    # so a fallback seed still ends up below the number of steps that actually
+    # run. That is why progress() now CLAMPS (see the note there): the clamp is
+    # the thing that holds when this constant next drifts, and it will.
+    #
     # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
     # unresolvable under `bash -c`) and fails if this constant drifts.
-    TOTAL_STEPS=38
+    TOTAL_STEPS=40
     [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
 CURRENT_STEP=0
@@ -10186,6 +10197,34 @@ progress() {
 
     CURRENT_STEP=$((CURRENT_STEP + 1))
     local PCT=$((CURRENT_STEP * 100 / TOTAL_STEPS))
+
+    # CLAMP. This file already computes a percentage in one other place
+    # (the Ollama pull parser, :1517) and clamps it there with exactly this
+    # line. progress() -- the bar the CUSTOMER watches for the whole install
+    # -- had no clamp at all.
+    #
+    # WHY IT MATTERS, and it is not only the number. TOTAL_STEPS is seeded by
+    # counting `progress "` lines in BASH_SOURCE, then DECREMENTED at seven
+    # sites (:10158 + six mid-run at :20703-:21229 + :26238). If the seed
+    # overshoots -- which the fallback at :10168 does by construction, since
+    # it hardcodes 38 and the mid-run decrements then subtract from THAT --
+    # CURRENT_STEP can exceed TOTAL_STEPS and PCT goes above 100.
+    #
+    # Then:
+    #     FILLED = PCT * 30 / 100        -> exceeds BAR_WIDTH
+    #     EMPTY  = 30 - FILLED           -> NEGATIVE
+    #     printf "%${EMPTY}s"            -> a negative width is not an error
+    #                                       in printf, it LEFT-JUSTIFIES
+    # so the bar silently renders wider than its own declared width, and the
+    # ETA divides by a percentage that is a lie. Nothing errors. TNM derived
+    # the 105-106% arithmetically; this line makes the derivation unnecessary.
+    #
+    # A CLAMP RATHER THAN A CORRECTED CONSTANT, DELIBERATELY. The constant has
+    # drifted before and will again -- the comment at :10166 still says
+    # "currently 39 calls" against a measured 41. A bound cannot drift; a
+    # count can. Fix the count too (below), but do not rely on it.
+    (( PCT > 100 )) && PCT=100
+
     local BAR_WIDTH=30
     local FILLED=$((PCT * BAR_WIDTH / 100))
     local EMPTY=$((BAR_WIDTH - FILLED))
