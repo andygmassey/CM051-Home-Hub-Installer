@@ -215,7 +215,29 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         done
         if [[ -n "$COLIMA" ]]; then
             echo "stopping container VM: $COLIMA"
-            "$COLIMA" stop 2>&1 | tail -3
+            # 🔴 AND THE ABSOLUTE PATH ALONE IS NOT ENOUGH, measured on run 4:
+            #     level=fatal msg="dependency check failed for VM: lima not
+            #     found, run brew install lima to install"
+            # colima SHELLS OUT to limactl, so resolving colima by path just
+            # moves the command-not-found one process deeper -- and the whole
+            # reset then silently did nothing, all six ports stayed held, and
+            # the run refused. Give the child the directory colima came from.
+            # (limactl IS installed; nothing needed installing.)
+            # CAPTURE, THEN PRINT. Not `| tail`: piping makes $? the exit of
+            # TAIL, which is 0 whatever colima did, and that is how a failed
+            # stop reads as a clean one.
+            #
+            # ⚠️ AND NOT ${PIPESTATUS[0]} EITHER. This block is interpreted by
+            # the REMOTE LOGIN SHELL, which on the walk box is zsh 5.9 (asked,
+            # not assumed) -- zsh spells it $pipestatus and leaves PIPESTATUS
+            # UNSET, so under the `set -u` at the top of this heredoc the
+            # "safety" line would itself abort the reset. Measured before it
+            # cost a run.
+            _colima_bin_dir="${COLIMA%/*}"
+            _stop_out="$(PATH="${_colima_bin_dir}:${PATH}" "$COLIMA" stop 2>&1)" \
+                && _stop_rc=0 || _stop_rc=$?
+            printf '%s\n' "$_stop_out" | tail -3
+            echo "colima stop rc=${_stop_rc}"
         else
             echo "no colima binary found at either Homebrew prefix."
             echo "If the ports below are HELD, THAT is why -- not a clean box."
@@ -352,6 +374,13 @@ fi
 rule "RUN (unattended; OSTLER_GUI=1 with OSTLER_GUI_FD UNSET)"
 say "started $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
+# ARCHIVE THE PREVIOUS RUN'S EVIDENCE BEFORE THIS ONE STARTS, so the report at
+# the end can only be describing this run. Archived, not deleted: the previous
+# answers are how we saw run 4 reporting run 3's. See the QA PAIRS note below.
+"${SSH[@]}" 'for f in ~/.walk-qa.tsv; do
+    [[ -f "$f" ]] && mv -f "$f" "${f%.tsv}.prev.tsv"
+done; :' >/dev/null 2>&1
+
 # nohup + setsid-equivalent so the run survives this ssh channel closing.
 # OSTLER_GUI_FD and OSTLER_MARKER_FD are explicitly UNSET rather than merely
 # unmentioned: an inherited value from a previous shell would silently send
@@ -408,4 +437,14 @@ rule "DRIVER STDERR (last 30 lines)"
 "${SSH[@]}" "tail -30 ~/${REMOTE_DIR}/ttywalk.driver.out 2>/dev/null || echo '(none)'"
 
 rule "QA PAIRS ANSWERED"
-"${SSH[@]}" "wc -l < ~/.walk-qa.tsv 2>/dev/null | tr -d ' ' | sed 's/^/rows: /'; tail -50 ~/.walk-qa.tsv 2>/dev/null || echo '(none)'"
+# 🔴 THIS SECTION PRINTED ANOTHER RUN'S ANSWERS AS THIS ONE'S. Run 4 refused
+# at the port preflight, answered nothing, and still reported four Q/A rows --
+# run 3's, timestamped 40 minutes before run 4 started. ~/.walk-qa.tsv is
+# append-only and nothing rotated it. Same class as walk_drive's FIX 1 (a
+# stale result file read as this run's verdict), one artefact over: the driver
+# guards its RESULT and nobody guarded its EVIDENCE.
+#
+# The archive at the top of the run makes the rows here unambiguous. The count
+# excludes the header, because "rows: 5" over four answers is a small lie of
+# exactly the kind this harness exists to catch.
+"${SSH[@]}" "awk 'NR>1' ~/.walk-qa.tsv 2>/dev/null | wc -l | tr -d ' ' | sed 's/^/answers this run: /'; tail -50 ~/.walk-qa.tsv 2>/dev/null || echo '(none)'"

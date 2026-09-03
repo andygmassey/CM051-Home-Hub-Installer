@@ -415,12 +415,44 @@ def done_patterns():
     return re.compile(DEFAULT_DONE_OK), re.compile(DEFAULT_DONE_ANY)
 
 
+DONE_LINE = re.compile(r"^.*#OSTLER\s+DONE\s+status=\w+.*$", re.M)
+FAILED_STEPS_FIELD = re.compile(r"\bfailed_steps=(\d+)")
+ERRORS_FIELD = re.compile(r"\berrors=(\d+)")
+
+
+def tally_from_marker(body):
+    """(failed_steps, errors) off the LAST DONE line, or None if not stated.
+
+    THE LAST one, not the first. A walk log can carry more than one terminal
+    marker -- #642 is exactly that: a pgrep no-match fabricated an early DONE
+    mid-install. Reading the first would grade the fabricated one, whose
+    tally describes a run that had not happened yet.
+
+    None means the marker did not carry the field. That is CANNOT-RUN at the
+    call site, never a pass: an absent field is not a zero.
+    """
+    lines = DONE_LINE.findall(body)
+    if not lines:
+        return None
+    last = lines[-1]
+    failed = FAILED_STEPS_FIELD.search(last)
+    if not failed:
+        return None
+    errors = ERRORS_FIELD.search(last)
+    return int(failed.group(1)), int(errors.group(1)) if errors else 0
+
+
 def adjudicate(log_path, rc, marker_channel_on):
     """FIX 2: rc is evidence, never the verdict. Require the marker.
 
-    The four cases, and why each lands where it does:
+    The cases, and why each lands where it does:
 
-      marker says ok      + rc 0    -> PASS. The only path to PASS.
+      marker ok + rc 0 + failed_steps=0  -> PASS. The only path to PASS.
+      marker ok + rc 0 + failed_steps>0  -> FAIL. It reached the end AND told
+                                       us N steps did not do their job. Two
+                                       different questions, both answered.
+      marker ok + rc 0 + no tally        -> CANNOT-RUN. "No step failed" was
+                                       never established.
       marker says ok      + rc != 0 -> FAIL. It announced completion and then
                                        exited non-zero; something after the
                                        marker died and that is a real defect.
@@ -441,12 +473,52 @@ def adjudicate(log_path, rc, marker_channel_on):
         return CANNOT_RUN, "the pty log could not be re-read: %s" % exc, ""
 
     if ok_re.search(body):
-        if rc == 0:
-            return PASS, "install.sh emitted its completion marker and exited 0", ""
-        return (FAIL,
-                "install.sh emitted its completion marker but exited rc=%d" % rc,
-                "Something after the marker failed. The marker is not a "
-                "licence to ignore a non-zero exit.")
+        if rc != 0:
+            return (FAIL,
+                    "install.sh emitted its completion marker but exited rc=%d" % rc,
+                    "Something after the marker failed. The marker is not a "
+                    "licence to ignore a non-zero exit.")
+
+        # 🔴 status=ok IS NOT THE WHOLE MARKER, AND READING ONLY IT COST A RUN.
+        #
+        # Run 3 of the ttywalk (2026-09-03) ended with
+        #     #OSTLER DONE status=ok failed_steps=1 errors=0
+        # and this driver called it "WALK PASS". The failed step was
+        # health_check, status=error rc=2 -- a real, measured product failure
+        # sitting in the same line the driver had just graded green.
+        #
+        # The product is NOT lying here. gui_done answers two different
+        # questions on purpose (#839): status=ok means "reached the end",
+        # failed_steps=N means "N steps did not do their job". Collapsing them
+        # is what hid a defect across 36 cuts. A driver that reads only the
+        # first field re-commits the same collapse from the other side.
+        #
+        # A WALK EXISTS TO FIND DEFECTS. If a step failed, the walk did not
+        # pass, whatever the install thought of its own completion.
+        tally = tally_from_marker(body)
+        if tally is None:
+            return (CANNOT_RUN,
+                    "the completion marker carried no step tally",
+                    "status=ok says install.sh REACHED THE END. It does not "
+                    "say every step did its job -- that is failed_steps=N, a "
+                    "separate field answering a separate question (#839). "
+                    "Without it, 'no step failed' was never established, and "
+                    "reporting PASS would be asserting something unmeasured. "
+                    "If ~/.walk-done-marker overrides the pattern, make it "
+                    "match a marker that carries failed_steps.")
+        failed, errors = tally
+        if failed or errors:
+            return (FAIL,
+                    "install.sh completed, but %d step(s) failed and it "
+                    "recorded %d error(s)" % (failed, errors),
+                    "status=ok is a claim about REACHING THE END, not about "
+                    "the steps. Grep the log for `status=error` to see which. "
+                    "This is a MEASURED product failure: the installer "
+                    "counted it itself.")
+
+        return (PASS,
+                "install.sh emitted its completion marker, exited 0, and "
+                "recorded 0 failed steps", "")
 
     seen = any_re.search(body) if any_re else None
     if seen:
