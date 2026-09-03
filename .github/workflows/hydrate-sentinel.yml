@@ -124,10 +124,27 @@ jobs:
       # import on a real box. Same line vendor-integrity.yml uses for the same
       # tree. NOT `|| true` -- if this cannot install, the control that
       # depends on it must go red rather than run blind.
-      - name: Dependency for the shipped-Doctor reader control
-        if: always()
+      # TWO STEPS, NOT `a || b`. The chain form discards arm 1's exit code: on
+      # 2026-09-02 arm 1 died on `uninstall-no-record-file` (the runner ships httpx
+      # via Homebrew with no RECORD file) and arm 2 then died on
+      # `externally-managed-environment`. Only arm 2's message survived, so the log
+      # named a cause that was ALREADY handled -- --break-system-packages was
+      # present the whole time. Three checks were red for hours behind that.
+      # Split so each arm reports its own failure with its own message.
+      - name: Dependency for the shipped-Doctor reader control (preferred, PEP 668 aware)
+        id: pip_httpx
+        continue-on-error: true
         run: python3 -m pip install --quiet --break-system-packages --ignore-installed httpx
-             || python3 -m pip install --quiet --ignore-installed httpx
+
+      - name: Dependency for the shipped-Doctor reader control (fallback, pre-PEP-668 runners)
+        if: always() && steps.pip_httpx.outcome == 'failure'
+        run: python3 -m pip install --quiet --ignore-installed httpx
+
+      # Prove it rather than assume it: if BOTH arms failed, this names the missing
+      # module instead of leaving pip's last line as the only signal.
+      - name: Dependency for the shipped-Doctor reader control -- prove the module imports
+        if: always()
+        run: python3 -c 'import httpx; print("httpx", httpx.__version__, "importable")'
 
       # #848, the same family pointing the other way: 4 of 13 hydrate steps
       # wrote no sentinel at all, so CANNOT-RUN, FAIL and PASS shared one

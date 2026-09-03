@@ -70,10 +70,26 @@ jobs:
       # has no doctor venv. The first run of this gate failed on precisely
       # this, and the test now reports it as CANNOT-RUN rather than as a wall
       # of defect-shaped failures.
-      - name: Install the rule module's one import-time dependency
-        run: |
-          python3 -m pip install --quiet --break-system-packages --ignore-installed httpx \
-            || python3 -m pip install --quiet --ignore-installed httpx
+      # TWO STEPS, NOT `a || b`. The chain form discards arm 1's exit code: on
+      # 2026-09-02 arm 1 died on `uninstall-no-record-file` (the runner ships httpx
+      # via Homebrew with no RECORD file) and arm 2 then died on
+      # `externally-managed-environment`. Only arm 2's message survived, so the log
+      # named a cause that was ALREADY handled -- --break-system-packages had been
+      # present the whole time. Three checks were red for hours behind that.
+      - name: Install httpx (preferred, PEP 668 aware)
+        id: pip_httpx
+        continue-on-error: true
+        run: python3 -m pip install --quiet --break-system-packages --ignore-installed httpx
+
+      - name: Install httpx (fallback, pre-PEP-668 runners)
+        if: always() && steps.pip_httpx.outcome == 'failure'
+        run: python3 -m pip install --quiet --ignore-installed httpx
+
+      # Prove it rather than assume it: if BOTH arms failed, this names the missing
+      # module instead of leaving pip's last line as the only signal.
+      - name: httpx must actually import
+        if: always()
+        run: python3 -c 'import httpx; print("httpx", httpx.__version__, "importable")'
 
       # 19 controls. Exit 2 is CANNOT-RUN, and CI treats it as failure, which
       # is correct: a gate that cannot find what it guards has not passed.
@@ -93,10 +109,26 @@ jobs:
       # Same one dependency; see the sibling job. Repeated rather than shared
       # because these are deliberately independent jobs -- a shared setup step
       # would reintroduce the coupling the split exists to avoid.
-      - name: Install the rule module's one import-time dependency
-        run: |
-          python3 -m pip install --quiet --break-system-packages --ignore-installed httpx \
-            || python3 -m pip install --quiet --ignore-installed httpx
+      # TWO STEPS, NOT `a || b`. The chain form discards arm 1's exit code: on
+      # 2026-09-02 arm 1 died on `uninstall-no-record-file` (the runner ships httpx
+      # via Homebrew with no RECORD file) and arm 2 then died on
+      # `externally-managed-environment`. Only arm 2's message survived, so the log
+      # named a cause that was ALREADY handled -- --break-system-packages had been
+      # present the whole time. Three checks were red for hours behind that.
+      - name: Install httpx (preferred, PEP 668 aware)
+        id: pip_httpx
+        continue-on-error: true
+        run: python3 -m pip install --quiet --break-system-packages --ignore-installed httpx
+
+      - name: Install httpx (fallback, pre-PEP-668 runners)
+        if: always() && steps.pip_httpx.outcome == 'failure'
+        run: python3 -m pip install --quiet --ignore-installed httpx
+
+      # Prove it rather than assume it: if BOTH arms failed, this names the missing
+      # module instead of leaving pip's last line as the only signal.
+      - name: httpx must actually import
+        if: always()
+        run: python3 -c 'import httpx; print("httpx", httpx.__version__, "importable")'
 
       # Reinstates the defect in a COPY of the module -- MUTANT A restores the
       # #810 never-ran/healthy conflation, MUTANT B restores the silence --
