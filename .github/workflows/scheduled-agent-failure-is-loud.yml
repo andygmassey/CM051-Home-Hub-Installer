@@ -79,7 +79,7 @@ jobs:
       - name: Install httpx (preferred, PEP 668 aware)
         id: pip_httpx
         continue-on-error: true
-        run: python3 -m pip install --quiet --break-system-packages --ignore-installed httpx
+        run: python3 -m pip install --quiet --break-system-packages --ignore-installed ostler-archie-proof-nonexistent-pkg-9f3a
 
       - name: Install httpx (fallback, pre-PEP-668 runners)
         if: always() && steps.pip_httpx.outcome == 'failure'
