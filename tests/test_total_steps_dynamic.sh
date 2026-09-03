@@ -322,7 +322,15 @@ awk '
     capture && /^\}$/  { exit }
 ' "$INSTALL_SCRIPT" > "$PROGRESS_FN"
 
-if ! grep -q '^progress() {' "$PROGRESS_FN" || ! tail -1 "$PROGRESS_FN" | grep -q '^}$'; then
+# NOT `tail -1 "$PROGRESS_FN" | grep -q '^}$'`. Under the `set -o pipefail` on
+# line 38, `grep -q` exits the instant it matches, closing the pipe while `tail`
+# may still be writing; pipefail then reports the producer's EPIPE and the
+# condition reads FALSE on input that MATCHES. That inversion is #892's ratchet
+# (tests/test_pipefail_shortcircuit_inversion.sh), and it caught this line in
+# the very PR that added it. Read the line into a variable and compare it --
+# no pipe, so nothing to short-circuit, and no dependence on which shell runs it.
+PROGRESS_LAST_LINE="$(tail -1 "$PROGRESS_FN")"
+if ! grep -q '^progress() {' "$PROGRESS_FN" || [[ "$PROGRESS_LAST_LINE" != '}' ]]; then
     echo "FAIL [extract-progress]: could not extract a complete progress() function" >&2
     exit 1
 fi
