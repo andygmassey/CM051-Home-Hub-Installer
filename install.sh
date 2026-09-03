@@ -12181,6 +12181,92 @@ for _pt in "${_merged_paired_tokens[@]}"; do
 done
 unset _existing_tok _pt _pt_esc
 
+# ── PRESERVE the customer's CHANNELS across a reuse-settings re-run ─────
+#
+# 🔴 #619. THIS IS THE SAME CLASS AS THE paired_tokens BLOCK DIRECTLY ABOVE
+# -- same file, same truncating redirect, same "regenerated from scratch"
+# cause -- and the channels never got the fix that the tokens got.
+#
+# The `{ ... } > "$ASSISTANT_CONFIG"` below regenerates config.toml on EVERY
+# run, and NOTHING gates it on SKIP_PHASE2 (measured: zero SKIP_PHASE2 sites
+# between the last questions block and the redirect). On the reuse-settings
+# re-run SKIP_PHASE2=true, so the channel questions never execute and
+# CHANNEL_IMESSAGE_ENABLED / CHANNEL_IMESSAGE_ALLOWED sit at their
+# unconditional Phase-2 defaults (false / ""). `set -a; source .env` cannot
+# restore them either: config/.env carries 21 keys and NONE of them are
+# CHANNEL_* (measured, with a must-hit control on the keys it does carry).
+#
+# Consequence, and it is exactly what #619 reports: the brief-delivery
+# resolver below resolves NO channel, so the re-run writes ZERO [[cron.jobs]].
+# The customer silently loses the morning brief and the evening wrap they
+# already had, and the [channels] section goes with them.
+#
+# ⚠️ AND THE INSTALLER PROMISED THE OPPOSITE. The reuse prompt's help text
+# exists precisely to tell the customer their previous answers -- name,
+# assistant, timezone, country code, CHANNELS -- are being auto-reused.
+#
+# The comment justifying the empty defaults argues they are right because they
+# match "Phase-2-was-never-walked". True for a FRESH install; false for the
+# only path that reaches them, because reuse CANNOT fire unless a prior
+# COMPLETE install exists -- its trigger requires config/.env with a real
+# USER_ID= line. The defaults are correct for the case that never uses them.
+#
+# FILL-ONLY, NEVER OVERWRITE. Each value is restored only when the in-memory
+# variable is still at its Phase-2 default, so a fresh walk's answers always
+# win and this can never resurrect a channel the customer just turned off.
+#
+# Reads with the same awk shape as the paired_tokens reader above rather than
+# a TOML parser: no new interpreter dependency, and it only has to read back
+# the shape THIS FILE writes twenty lines further down.
+_ostler_config_list_first() {
+    # $1 = config path, $2 = section suffix, $3 = key.
+    # Echoes the FIRST quoted element of a (possibly multi-line) TOML array.
+    [[ -f "$1" ]] || return 0
+    awk -v sect="[channels.$2]" -v key="$3" '
+        $0 == sect { in_s = 1; next }
+        in_s && /^\[/ { in_s = 0 }
+        in_s && !cap && $0 ~ ("^[ \t]*" key "[ \t]*=") { cap = 1 }
+        cap { buf = buf $0 "\n"; if (index($0, "]") > 0) { cap = 0; in_s = 0 } }
+        END { printf "%s", buf }
+    ' "$1" | grep -oE '"[^"]*"' | head -1 | sed 's/^"//; s/"$//'
+}
+_ostler_config_section_enabled() {
+    # $1 = config path, $2 = section suffix. Echoes "true" only for enabled=true.
+    [[ -f "$1" ]] || return 0
+    awk -v sect="[channels.$2]" '
+        $0 == sect { in_s = 1; next }
+        in_s && /^\[/ { in_s = 0 }
+        in_s && $0 ~ /^[ \t]*enabled[ \t]*=[ \t]*true[ \t]*$/ { print "true"; exit }
+    ' "$1"
+}
+_ostler_restore_channels_from_existing_config() {
+    local _cfg="${1:-}"
+    [[ -n "$_cfg" && -f "$_cfg" ]] || return 0
+    local _v
+    if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" != true ]]; then
+        _v="$(_ostler_config_section_enabled "$_cfg" imessage)"
+        [[ "$_v" == true ]] && CHANNEL_IMESSAGE_ENABLED=true
+    fi
+    if [[ -z "${CHANNEL_IMESSAGE_ALLOWED:-}" ]]; then
+        _v="$(_ostler_config_list_first "$_cfg" imessage allowed_contacts)"
+        [[ -n "$_v" ]] && CHANNEL_IMESSAGE_ALLOWED="$_v"
+    fi
+    if [[ "${CHANNEL_WHATSAPP_ENABLED:-false}" != true ]]; then
+        _v="$(_ostler_config_section_enabled "$_cfg" whatsapp)"
+        [[ "$_v" == true ]] && CHANNEL_WHATSAPP_ENABLED=true
+    fi
+    if [[ -z "${CHANNEL_WHATSAPP_RECIPIENT:-}" ]]; then
+        _v="$(_ostler_config_list_first "$_cfg" whatsapp allowed_numbers)"
+        [[ -n "$_v" ]] && CHANNEL_WHATSAPP_RECIPIENT="$_v"
+    fi
+    return 0
+}
+# MUST run BEFORE the truncating redirect below -- once `{ ... } > "$cfg"` has
+# opened the file it is already empty and there is nothing left to read.
+if [[ "${SKIP_PHASE2:-false}" == true ]]; then
+    _ostler_restore_channels_from_existing_config "$ASSISTANT_CONFIG"
+fi
+
 umask_orig=$(umask)
 umask 0077
 {

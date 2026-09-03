@@ -283,6 +283,7 @@ test_repair_overmerged_contact_cards.py	WIRED	.github/workflows/contact-card-rep
 test_repin_wiki_images_refuses_a_typed_sha.sh	WIRED	.github/workflows/cut-freshness.yml
 test_resolver_robustness.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_resource_tier_governor.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_reuse_run_keeps_the_daily_briefs.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_rollforward_pin_is_watched_on_prs.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_rollforward_registry_pin.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_runtime_ready_does_not_require_optional_imports.sh	WIRED	.github/workflows/consent-data-handling.yml
