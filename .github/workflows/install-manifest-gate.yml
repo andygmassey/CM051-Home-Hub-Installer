@@ -30,6 +30,7 @@ on:
       - 'scripts/box_walk_probes/probes/install_manifest_complete.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'tests/test_install_manifest_gate.sh'
+      - 'tests/test_import_wire_membership.sh'
       - '.github/workflows/install-manifest-gate.yml'
   push:
     branches: [main]
@@ -57,6 +58,15 @@ jobs:
       - name: The class gate names every EXPECTED-vs-PRESENT difference
         run: /bin/bash tests/test_install_manifest_gate.sh
 
+      # #617 gate hardening: import_wire is MEMBERSHIP (each vendored
+      # person-displayName writer named + required), not CARDINALITY (present
+      # in ANY file in the dir, which false-greened via the guard's own
+      # definition). Each writer in turn loses the guard -> a NAMED red; a
+      # removed writer -> CANNOT-RUN, never a silent pass.
+      - name: import_wire names WHICH writer lost the kinship guard (membership, not cardinality)
+        if: always()
+        run: /bin/bash tests/test_import_wire_membership.sh
+
       # The box-walk runner marks a probe BROKEN unless its --self-test returns
       # FAIL. Assert that directly here too, so a change that neuters the probe's
       # own negative control is caught in CI and not only on a live box walk
@@ -81,6 +91,7 @@ jobs:
         run: |
           /bin/bash --version | head -1
           /bin/bash -n tests/test_install_manifest_gate.sh
+          /bin/bash -n tests/test_import_wire_membership.sh
           /bin/bash -n scripts/box_walk_probes/probes/install_manifest_complete.sh
           python3 -c "import ast; ast.parse(open('scripts/verify_install_manifest.py').read()); print('verifier parses')"
           echo "OK: parses under the shell the box walk and installer use"

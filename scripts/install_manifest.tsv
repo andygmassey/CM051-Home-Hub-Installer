@@ -113,9 +113,34 @@ artefact_dir	~/.ostler/assistant-config/workspace/state (usage journal, #482)	re
 # called 454). MUST PASS, proving the enumerator scores a real wiring present.
 import_wire	identifier_quality applies the shared kinship guard	required	vendor/ostler_fda/identifier_quality.py|is_relationship_label	#617-control	MUST PASS: proves the import_wire enumerator detects a real shared-guard wiring
 # The uncovered write paths (any file in the dir may satisfy it). FAIL today; go
-# green when #617 wires the shared guard into the write boundary.
-import_wire	contact_syncer applies the shared kinship guard	required	vendor/cm041/contact_syncer/*.py|is_relationship_label	#617	8 name-writers (syncer, facebook_friends, instagram_social, linkedin_*, owner_node, google_calendar), 0 guard
-import_wire	identity_resolver applies the shared kinship guard	required	vendor/cm041/identity_resolver/*.py|is_relationship_label	#617	the write boundary: resolver.register_person/create_person + batch_resolver, 0 guard
+# ONE ROW PER WRITER, NOT ONE GLOB OVER THE DIR (#616-class, same shape as #1376).
+# The earlier `contact_syncer/*.py|is_relationship_label` row was a CARDINALITY test:
+# `symbol present in ANY file in the dir`. In the VENDORED tree that goes GREEN the moment
+# relationship_labels.py (which DEFINES the guard) is vendored, so every direct name-WRITER
+# could lose the guard and the row would still pass. A2 mutation-proved this 2026-09-03:
+# a predicate that matches ANY member cannot see a MISSING one.
+#
+# Fix: name each VENDORED file that WRITES a person pwg:displayName literal and REQUIRE the
+# guard in each, so a RED names WHICH writer regressed. A renamed/removed writer makes its
+# single-file glob match zero -> CANNOT-RUN, never a silent pass (an empty expectation is
+# not a satisfied one). Writer set MEASURED from displayName INSERT sites in vendor/cm041,
+# NOT the old hand-list:
+#   owner_node.py EXCLUDED -- writes the ACCOUNT OWNER's own name, never a contact's.
+#   name_election.py is NOT vendored (absent from the shipping subset) -- resolver.py:594
+#     carries canonical election in the shipping path -- so it is not a shipping write row.
+#   carddav/twitter/whatsapp/google_calendar/dedup write NO displayName literal (route via
+#     syncer.py or only QUERY ?name); identifier_quality/relationship_labels reference the
+#     guard but do not write names.
+# KNOWN GAP (documented, same as #1376's hand-list): a NEW vendored writer added without the
+#   guard is not caught by this set -- the undeclared-writer direction is a named follow-up.
+# FAIL today (vendored copy carries 0 guard anywhere); all 7 go green on the CM041 #136 re-vendor.
+import_wire	contact_syncer/syncer.py imports the shared kinship guard	required	vendor/cm041/contact_syncer/syncer.py|is_relationship_label	#617	person displayName INSERT at syncer.py:825,946 (create + update)
+import_wire	contact_syncer/facebook_friends.py imports the shared kinship guard	required	vendor/cm041/contact_syncer/facebook_friends.py|is_relationship_label	#617	person displayName INSERT at facebook_friends.py:182
+import_wire	contact_syncer/instagram_social.py imports the shared kinship guard	required	vendor/cm041/contact_syncer/instagram_social.py|is_relationship_label	#617	person displayName INSERT at instagram_social.py:222
+import_wire	contact_syncer/linkedin_connections.py imports the shared kinship guard	required	vendor/cm041/contact_syncer/linkedin_connections.py|is_relationship_label	#617	person displayName INSERT at linkedin_connections.py:183
+import_wire	contact_syncer/linkedin_career.py imports the shared kinship guard	required	vendor/cm041/contact_syncer/linkedin_career.py|is_relationship_label	#617	person displayName INSERT at linkedin_career.py:291
+import_wire	identity_resolver/resolver.py imports the shared kinship guard	required	vendor/cm041/identity_resolver/resolver.py|is_relationship_label	#617	person displayName INSERT at resolver.py:324 (create_person) + :555 (canonical election)
+import_wire	identity_resolver/batch_resolver.py imports the shared kinship guard	required	vendor/cm041/identity_resolver/batch_resolver.py|is_relationship_label	#617	canonical displayName INSERT at batch_resolver.py:1131
 
 # ---- qdrant_collection (enumerable; both directions enforced) -------------------
 # The vector collections a finished install must hold. install.sh creates these
