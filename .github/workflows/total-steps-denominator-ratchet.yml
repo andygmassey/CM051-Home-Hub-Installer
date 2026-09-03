@@ -1,0 +1,90 @@
+name: total-steps-denominator-ratchet
+
+# THE PROGRESS DENOMINATOR MUST NOT KEEP MOVING MID-RUN (register #627).
+#
+# ============================================================================
+# MEASURED ON A LIVE INSTALL, NOT REASONED ABOUT
+# ============================================================================
+#
+# ttywalk of v1.0.62 on the Mini 16, 2026-09-03. The `total=` field on the
+# STEP_BEGIN markers, in order of appearance:
+#
+#     idx=2  total=40      idx=26 total=37      idx=35 total=36
+#     idx=9  total=40      idx=30 total=37      idx=36 total=36
+#
+# THREE denominators in ONE run: 40 -> 37 -> 36. The customer watches a
+# percentage computed against a number that shrinks underneath them. It ended
+# `idx=36 total=36` -- 100% -- and THEN health_check failed.
+#
+# ============================================================================
+# WHY A RATCHET AND NOT A GATE DEMANDING ZERO
+# ============================================================================
+#
+# The real fix hoists each late decrement above the first `progress` call so
+# TOTAL_STEPS is final before it is published. Five of six are plainly
+# hoistable (condition vars assigned at 3336/4884/4918/4964, first progress at
+# 10711). THE SIXTH IS NOT SETTLED: line 21521 guards a shipped payload file
+# (`bin/wiki-recompile-tick.sh`), and whether its presence is knowable at seed
+# time depends on payload-staging order, WHICH HAS NOT BEEN MEASURED.
+#
+# A gate demanding zero would therefore be unsatisfiable today, and an
+# unsatisfiable gate gets bypassed rather than met. So: a ratchet, pinned at
+# the measured 6, satisfiable now, refusing a seventh -- AND failing if the
+# count drops without the pin being lowered, so a hoist has to be recorded
+# rather than silently absorbed.
+#
+# ============================================================================
+# THE SELF-TEST IS ITS OWN JOB
+# ============================================================================
+#
+# A failing gate skips everything after it, so a broken predicate would take
+# down the job it guards and report one red instead of two. The test carries
+# both ratchet directions plus an anti-vacuity arm, and its comment-skip
+# exclusion exists BECAUSE its own arm C caught the predicate counting a
+# commented-out decrement as live.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_total_steps_denominator_ratchet.sh'
+      - '.github/workflows/total-steps-denominator-ratchet.yml'
+      - 'tests/TEST_WIRING.tsv'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch/PR. NEVER cancels main or a
+  # tag: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  ratchet:
+    # macOS, because install.sh is a macOS artefact and the gate runs where the
+    # code runs. The parse is portable; a Linux-only gate could not notice a
+    # BSD/GNU split in its own tooling.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Environment, so a failure is attributable
+        run: |
+          /bin/bash --version | head -1
+          python3 --version
+      - name: TOTAL_STEPS must not gain a new late decrement
+        run: |
+          # ⚠️ `|| rc=$?`, NOT a bare call. The step shell is `/bin/bash -e {0}`,
+          # so a bare fallible call exits the step before rc is captured and the
+          # CANNOT-RUN branch below becomes unreachable code. This is the class
+          # scripts/verify_cannot_run_branch_is_reachable.py exists to catch --
+          # this workflow must not be its next instance.
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_total_steps_denominator_ratchet.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The ratchet could not read install.sh or parsed nothing of it. NOTHING was measured about the progress denominator -- this is not a pass."
+          fi
+          exit "$rc"
