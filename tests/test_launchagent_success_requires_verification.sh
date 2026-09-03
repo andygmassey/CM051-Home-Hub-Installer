@@ -328,6 +328,19 @@ else
             inblk && /return[[:space:]]+/  { print; exit }
         ' <<< "$_b")"
         [[ "$_first_ret" == *"return 1"* ]] && _d=1
+        # (a3) ...or the SAFE shape: tolerance INSIDE the substitution, with
+        #      an emptiness test that refuses. This is what the run-10 fix
+        #      changed the code TO, and the earlier limbs cannot see it
+        #      because there is no `|| {` any more. Grading the PROPERTY
+        #      (a non-zero print refuses) not the SPELLING (`|| {`) is the
+        #      whole point -- limb (a2) was widened for the same reason.
+        _first_ret="$(awk '
+            /_print="\$\(launchctl print.*\|\|[[:space:]]*true\)"/ { seen = 1; next }
+            seen && /if[[:space:]]*\[\[[[:space:]]*-z[[:space:]]*"\$_print"/ { inblk = 1; next }
+            inblk && /^[[:space:]]*fi[[:space:]]*$/ { exit }
+            inblk && /return[[:space:]]+/ { print; exit }
+        ' <<< "$_b")"
+        [[ "$_first_ret" == *"return 1"* ]] && _d=1
         # (b) ...or the print IS the final command, the original shape. Still fine.
         _l="$(grep -v '^\s*#' <<< "$_b" | grep -v '^\s*$' | tail -2 | head -1)"
         grep -q 'launchctl print' <<< "$_l" && _d=1
@@ -354,6 +367,25 @@ else
         '    }' \
         '    return 0' \
         '}')"
+    # NEGATIVE CONTROL for limb (a3). The SAFE shape with an emptiness test
+    # that returns 0 must ALSO grade 0 -- otherwise (a3) would accept any
+    # `if [[ -z ... ]]` at all, which is the same weakness (a2) had.
+    _empty_swallow_body="$(printf '%s\n' \
+        '_ostler_launchagent_load_verified() {' \
+        '    local _print' \
+        '    _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null || true)"' \
+        '    if [[ -z "$_print" ]]; then' \
+        '        warn "could not read launchd state"' \
+        '        return 0' \
+        '    fi' \
+        '    return 0' \
+        '}')"
+    if [[ "$(_verdict_derives "$_empty_swallow_body")" == "0" ]]; then
+        pass "limb (a3) REFUSES an emptiness test that returns 0"
+    else
+        bad "limb (a3) accepted a helper whose empty-print branch returns 0. Grading the shape, not the property."
+    fi
+
     if [[ "$(_verdict_derives "$_fallthrough_body")" == "0" ]]; then
         pass "the derives-from-print predicate still REFUSES a non-refusing failure arm"
     else
