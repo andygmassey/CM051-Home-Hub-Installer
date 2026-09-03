@@ -26687,8 +26687,8 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     else
         _hydrate_sentinel_record "places" "ran=1,rc=$_places_rc"
     fi
-    unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP \ _PLACES_CAP
-          _places_rc _places_log_tail
+    unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP \
+          _PLACES_CAP _places_rc _places_log_tail
 fi
 
 # ── Privacy-level backfill (CM041 #97 fail-closed gate) ───────────────
