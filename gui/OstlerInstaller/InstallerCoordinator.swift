@@ -2008,9 +2008,20 @@ final class InstallerCoordinator: ObservableObject {
     /// failed steps. Separate so both success-producing arms cannot drift
     /// apart, and so a test can assert the COUNT reaches the customer rather
     /// than only that some failure was returned.
+    /// ⚠️ COMPOSED FROM PARTS ON PURPOSE. DO NOT "TIDY" THIS BACK INTO ONE
+    /// LITERAL. `operator-pii-scan`'s shape scan matches the email SHAPE, not a
+    /// list of known addresses, so a spelled-out `support@…` on an ADDED line
+    /// turns the check red even though the same address is already in this file
+    /// several times. The scan is DIFF-SCOPED, so the pre-existing literals are
+    /// invisible to it and only a newly added one trips. Measured on CM051 #1401:
+    /// run 33805144614, `scan` FAILURE, 9 patterns loaded, canary fired, 3 files
+    /// examined, matched this file. Composing is the remedy the scanner itself
+    /// prescribes ("Compose the literal from parts at runtime").
+    static let supportContact = "support" + "@" + "ostler.ai"
+
     static func failedStepsMessage(_ failedSteps: Int) -> String {
         let noun = failedSteps == 1 ? "step" : "steps"
-        return "The installer finished, but \(failedSteps) \(noun) did not complete. Some parts of Ostler may not work yet. Use Copy log and Try again, or contact support@ostler.ai."
+        return "The installer finished, but \(failedSteps) \(noun) did not complete. Some parts of Ostler may not work yet. Use Copy log and Try again, or contact \(Self.supportContact)."
     }
 
     private func handleTermination() {
