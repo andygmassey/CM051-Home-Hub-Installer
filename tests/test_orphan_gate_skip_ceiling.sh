@@ -89,7 +89,7 @@ if [ "$RC" -ne 0 ]; then
 else
     bad "RED ARM FAILED: SKIPB is skipped and NOT on the ceiling, yet the gate exited 0. The ceiling does not bound the skip set."
 fi
-if printf '%s' "$out" | grep -q 'SKIPB'; then
+if grep -q 'SKIPB' <<< "$out"; then
     ok "RED: the over-ceiling label SKIPB is NAMED in the failure"
 else
     bad "RED ARM: the gate failed but did not NAME SKIPB -- a ceiling failure that does not say which label is not actionable."
