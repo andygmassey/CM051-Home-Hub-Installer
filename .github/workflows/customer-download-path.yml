@@ -30,6 +30,27 @@ on:
       - 'tests/fixtures/verify_customer_download_path.prefix'
       - 'scripts/lib/strip_comments.sh'
       - '.github/workflows/customer-download-path.yml'
+  # THE EVENT THIS GATE HAS ALWAYS BELONGED TO AND NEVER HAD.
+  #
+  # Measured 2026-09-03, the day v1.0.62 was cut: https://ostler.ai/install.dmg
+  # returned 200 and served v1.0.41 -- 57877510 bytes, twenty-one versions old.
+  # The gate's own header already names the mechanism ("GitHub excludes
+  # PRERELEASES from `latest`"), so nothing about the PREDICATE was wrong. What
+  # was wrong is that it could only ever fire when its OWN files changed, and it
+  # asked about a version pinned in the workflow rather than the one just
+  # blessed. On the v1.0.62 tag push it did not run at all.
+  #
+  # A TAG PUSH IS THE WRONG EVENT TOO, and that is why this is not a cut
+  # prerequisite: a cut publishes a PRERELEASE deliberately, so `latest` will
+  # correctly not be it, and a gate wired to the cut would fail every cut for
+  # behaving exactly as designed. The moment the question "does the URL a buyer
+  # clicks serve the build we blessed" HAS an answer is the moment a release
+  # stops being a prerelease. GitHub fires `release: released` then, and only
+  # then. Both halves of the verdict are taken from that release rather than
+  # from a constant: the version from its tag, the expected byte count from its
+  # own OstlerInstaller.dmg asset.
+  release:
+    types: [released]
   pull_request:
     paths:
       - 'scripts/verify_customer_download_path.sh'
@@ -179,10 +200,41 @@ jobs:
       - name: Customer download path, prelaunch posture
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OSTLER_DOWNLOAD_POSTURE: prelaunch
+          # POSTURE IS THE DIFFERENCE BETWEEN LOOKING AND NOT LOOKING, so it
+          # cannot stay a constant once this workflow can fire on a promote.
+          # `prelaunch` deliberately SHORT-CIRCUITS the unauthenticated URL
+          # fetch, because before launch the public URL 404s by design and
+          # asserting it would be a false red. On a promote that same
+          # short-circuit is a false GREEN: the gate would report OK having
+          # never fetched the URL a buyer clicks, which is the one thing it
+          # exists to do. Caught by running the red arm and watching it pass.
+          OSTLER_DOWNLOAD_POSTURE: ${{ github.event_name == 'release' && 'public' || 'prelaunch' }}
+          # Empty on every trigger except a promote, which is the discriminator
+          # the run step keys on.
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          OSTLER_RELEASE_REPO: ostler-ai/ostler-installer
         run: |
           set -uo pipefail
-          /bin/bash scripts/verify_customer_download_path.sh "${OSTLER_EXPECTED_VERSION:-1.0.37}"
+          # ON A PROMOTE, BOTH HALVES COME FROM THE RELEASE BEING PROMOTED.
+          # A constant here is what made this gate ask about 1.0.37 forever. On
+          # any other trigger there IS no release in context, so the old pin is
+          # kept as the explicit fallback rather than leaving the variable empty
+          # and letting the gate skip its size comparison silently.
+          want_version="${OSTLER_EXPECTED_VERSION:-1.0.37}"
+          want_bytes=""
+          if [ -n "${RELEASE_TAG:-}" ]; then
+              # Strip a single leading v; the gate takes a bare version.
+              want_version="${RELEASE_TAG#v}"
+              want_bytes="$(gh api "repos/${OSTLER_RELEASE_REPO}/releases/tags/${RELEASE_TAG}" \
+                  --jq '[.assets[] | select(.name == "OstlerInstaller.dmg") | .size] | first // empty' 2>/dev/null || true)"
+              if [ -z "${want_bytes}" ]; then
+                  echo "::warning::CANNOT-RUN on the size half: no OstlerInstaller.dmg asset readable on ${RELEASE_TAG}. The version half still runs; do not read this as a size match."
+              else
+                  echo "promote check: tag ${RELEASE_TAG} -> version ${want_version}, expecting ${want_bytes} bytes"
+                  export OSTLER_EXPECTED_DMG_BYTES="${want_bytes}"
+              fi
+          fi
+          /bin/bash scripts/verify_customer_download_path.sh "${want_version}"
           rc=$?
           # Tri-state is deliberate and is NOT flattened here. rc=2 means the
           # gate could not reach the release API (auth or network), which is a
