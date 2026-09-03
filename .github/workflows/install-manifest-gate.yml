@@ -64,13 +64,17 @@ jobs:
       - name: The box-walk probe's negative control still fails (phase-1 contract)
         if: always()
         run: |
-          set -uo pipefail
-          /bin/bash scripts/box_walk_probes/probes/install_manifest_complete.sh --self-test; rc=$?
+          # GitHub runs `run:` under `bash -eo pipefail`. The probe's --self-test
+          # EXITS 1 by design (VERDICT: FAIL is the healthy negative-control
+          # result), so capture it with `|| rc=$?` -- a bare invocation would trip
+          # errexit and abort before the check below.
+          rc=0
+          /bin/bash scripts/box_walk_probes/probes/install_manifest_complete.sh --self-test || rc=$?
           if [ "$rc" -ne 1 ]; then
             echo "BROKEN: the probe --self-test returned $rc, not 1. The box walk would mark it BROKEN." >&2
             exit 1
           fi
-          echo "OK: probe --self-test fails as the runner requires."
+          echo "OK: probe --self-test fails as the runner requires (returned 1)."
 
       - name: Everything parses under /bin/bash 3.2 (the cut host's shell)
         if: always()

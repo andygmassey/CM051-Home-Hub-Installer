@@ -612,6 +612,25 @@ entries:
       kind: box_walk_probe
       probe: "fda_tick_can_import"
 
+  - id: box-walk-install-manifest-complete
+    title: a finished install must contain every declared required LaunchAgent, cron job and artefact dir, and nothing undeclared
+    incident: >-
+      the class gate (A2, 2026-09-03). For a month the same shape shipped: a
+      thing a finished install must contain was silently absent and nothing
+      counted it -- an empty [[cron.jobs]] block (#619), a usage-journal dir
+      never created (#482), a LaunchAgent roster nobody had written down. Each
+      was found by a human, never a gate, because every earlier attempt derived
+      the expectation FROM install.sh, which is green by construction. This probe
+      compares a HAND-DECLARED manifest (scripts/install_manifest.tsv, not derived
+      from install.sh) to what is actually present, both directions, and NAMES
+      every difference -- a count passes regardless of WHICH subject went missing.
+      It adjudicates the box-observable types (launch_agent, cron_job,
+      artefact_dir); import_wire (#617) is a source property checked in CI, not
+      on the box.
+    proof:
+      kind: box_walk_probe
+      probe: "install_manifest_complete"
+
   - id: box-walk-launchagents-resolve-their-tools
     title: agents that shell out to Homebrew tooling must carry a PATH that reaches it
     incident: >-

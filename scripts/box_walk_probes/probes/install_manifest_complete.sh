@@ -2,9 +2,10 @@
 # probes/install_manifest_complete.sh
 # ============================================================================
 # QUESTION: does the finished install CONTAIN everything a finished install is
-#           declared to contain -- every LaunchAgent, cron job, artefact
-#           directory and write-path guard on the roster -- and does it contain
-#           nothing that the roster does not account for?
+#           declared to contain -- every required LaunchAgent, cron job and
+#           artefact directory on the roster -- and does it contain nothing that
+#           the roster does not account for? (The import_wire type is a SOURCE
+#           property, checked in CI, not on the box; see run_probe.)
 #
 # WHY THIS PROBE EXISTS, AND WHY IT IS NOT ANOTHER ONE-OFF.
 # For a month the same shape shipped: a thing a finished install must contain
@@ -49,8 +50,13 @@ run_probe() {
     [ -r "$VERIFIER" ] || probe_cannot_run "verifier not readable at ${VERIFIER}"
     [ -r "$MANIFEST" ] || probe_cannot_run "manifest not readable at ${MANIFEST}"
 
+    # BOX-OBSERVABLE types only. import_wire is a property of the SOURCE tree
+    # (does a write path import the kinship guard), not of the installed artefact
+    # on this box, so it is checked in CI (install-manifest-gate.yml) and excluded
+    # here. This probe adjudicates launch_agent, cron_job and artefact_dir -- the
+    # things a finished install actually exposes.
     local out rc
-    out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$HOME" --source-root "$_REPO_SCRIPTS/.." 2>&1)"
+    out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$HOME" --exclude-type import_wire 2>&1)"
     rc=$?
 
     case "$rc" in
@@ -94,7 +100,7 @@ self_test() {
     # -> must FAIL and NAME it.
     rm -f "$la/com.ostler.doctor.plist"
     out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$work" --config "$cfg" --only-type launch_agent 2>&1)"; rc=$?
-    if [ "$rc" -eq 0 ] || ! printf '%s' "$out" | grep -q 'com.ostler.doctor'; then
+    if [ "$rc" -eq 0 ] || ! grep -q 'com.ostler.doctor' <<< "$out"; then
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: a missing required LaunchAgent (com.ostler.doctor) was not named as a failure. The gate is blind to absence."
     fi
     printf '<plist><dict><key>Label</key><string>com.ostler.doctor</string></dict></plist>\n' > "$la/com.ostler.doctor.plist"
@@ -102,7 +108,7 @@ self_test() {
     # CASE 2: add an undeclared launch agent -> must FAIL and NAME it.
     printf '<plist><dict><key>Label</key><string>com.ostler.mystery</string></dict></plist>\n' > "$la/com.ostler.mystery.plist"
     out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$work" --config "$cfg" --only-type launch_agent 2>&1)"; rc=$?
-    if [ "$rc" -eq 0 ] || ! printf '%s' "$out" | grep -q 'com.ostler.mystery'; then
+    if [ "$rc" -eq 0 ] || ! grep -q 'com.ostler.mystery' <<< "$out"; then
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: an undeclared LaunchAgent (com.ostler.mystery) was not named. The produced-but-not-declared direction is dead."
     fi
     rm -f "$la/com.ostler.mystery.plist"
@@ -110,7 +116,7 @@ self_test() {
     # CASE 3: drop a required cron job -> must FAIL and NAME it.
     printf '[[cron.jobs]]\nid = "morning-brief"\n' > "$cfg"
     out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$work" --config "$cfg" --only-type cron_job 2>&1)"; rc=$?
-    if [ "$rc" -eq 0 ] || ! printf '%s' "$out" | grep -q 'evening-wrap'; then
+    if [ "$rc" -eq 0 ] || ! grep -q 'evening-wrap' <<< "$out"; then
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: a missing required cron job (evening-wrap) was not named. #619 would pass this gate."
     fi
 

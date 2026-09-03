@@ -71,7 +71,7 @@ if ! python3 "$VERIFIER" --manifest "$MANIFEST" --home "$WORK" --only-type launc
     : # a non-zero here is expected (WORK has no LaunchAgents dir -> CANNOT-RUN/FAIL); we only need parse-ability
 fi
 _parsecheck="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$WORK" --only-type import_wire 2>&1 || true)"
-if printf '%s' "$_parsecheck" | grep -qiE 'manifest line|not one of|declares zero'; then
+if grep -qiE 'manifest line|not one of|declares zero' <<< "$_parsecheck"; then
     cannot "manifest does not parse cleanly: $(printf '%s' "$_parsecheck" | grep -i manifest | head -1)"
 fi
 note "manifest parses; verifier loads it"
@@ -92,7 +92,7 @@ _run() { python3 "$VERIFIER" --manifest "$MANIFEST" --home "$H" --config "$CFG" 
 
 # ── A. COMPLETE (box types) -> PASS. ───────────────────────────────────
 out="$(_run --exclude-type import_wire)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '^PASS'; then
+if [ "$rc" -eq 0 ] && grep -q '^PASS' <<< "$out"; then
     pass "a complete install passes the box-observable gate"
 else
     bad "REGRESSION: a complete install did not PASS (rc=$rc). This gate would red a healthy install. Got: $(printf '%s' "$out" | grep -E 'FAIL|    -' | head -2)"
@@ -102,7 +102,7 @@ fi
 # Remove com.ostler.doctor: it is a REQUIRED row (colima is only conditional).
 rm -f "$H/Library/LaunchAgents/com.ostler.doctor.plist"
 out="$(_run --only-type launch_agent)"; rc=$?
-if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'com.ostler.doctor'; then
+if [ "$rc" -ne 0 ] && grep -q 'com.ostler.doctor' <<< "$out"; then
     pass "a missing required LaunchAgent is NAMED (com.ostler.doctor)"
 else
     bad "a missing required LaunchAgent was not caught+named (rc=$rc): $(printf '%s' "$out" | grep -i doctor || printf '(not named)')"
@@ -112,7 +112,7 @@ printf '<plist><dict><key>Label</key><string>com.ostler.doctor</string></dict></
 # ── C. UNDECLARED LaunchAgent -> FAIL + NAMED. ────────────────────────
 printf '<plist><dict><key>Label</key><string>com.ostler.mystery</string></dict></plist>\n' > "$H/Library/LaunchAgents/com.ostler.mystery.plist"
 out="$(_run --only-type launch_agent)"; rc=$?
-if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'com.ostler.mystery'; then
+if [ "$rc" -ne 0 ] && grep -q 'com.ostler.mystery' <<< "$out"; then
     pass "an UNDECLARED LaunchAgent is NAMED (produced-but-not-declared direction lives)"
 else
     bad "an undeclared LaunchAgent was not caught+named (rc=$rc): $(printf '%s' "$out" | grep -i mystery || printf '(not named)')"
@@ -122,7 +122,7 @@ rm -f "$H/Library/LaunchAgents/com.ostler.mystery.plist"
 # ── D. MISSING cron job -> FAIL + NAMED (the #619 shape). ─────────────
 printf '[[cron.jobs]]\nid = "morning-brief"\n' > "$CFG"
 out="$(_run --only-type cron_job)"; rc=$?
-if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'evening-wrap'; then
+if [ "$rc" -ne 0 ] && grep -q 'evening-wrap' <<< "$out"; then
     pass "a missing required cron job is NAMED (evening-wrap; this is #619's shape)"
 else
     bad "a missing cron job was not caught+named (rc=$rc): $(printf '%s' "$out" | grep -i evening || printf '(not named)')"
@@ -132,7 +132,7 @@ printf '[[cron.jobs]]\nid = "morning-brief"\n[[cron.jobs]]\nid = "evening-wrap"\
 # ── E. MISSING artefact_dir -> FAIL + NAMED (#482 family). ────────────
 rm -rf "$H/Documents/Ostler/Wiki"
 out="$(_run --only-type artefact_dir)"; rc=$?
-if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'Wiki'; then
+if [ "$rc" -ne 0 ] && grep -q 'Wiki' <<< "$out"; then
     pass "a missing required artefact_dir is NAMED (~/Documents/Ostler/Wiki)"
 else
     bad "a missing artefact_dir was not caught+named (rc=$rc): $(printf '%s' "$out" | grep -i wiki || printf '(not named)')"
@@ -141,12 +141,12 @@ mkdir -p "$H/Documents/Ostler/Wiki"
 
 # ── F. IMPORT_WIRE against the real repo: control passes, negatives named. ──
 out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$H" --source-root "$REPO" --only-type import_wire 2>&1)"; rc=$?
-if printf '%s' "$out" | grep -q 'identifier_quality'; then
+if grep -q 'identifier_quality' <<< "$out"; then
     bad "the import_wire positive control (identifier_quality) was reported MISSING -- the enumerator cannot detect a real shared-guard wiring, so every negative below is meaningless."
 else
     pass "the import_wire positive control (identifier_quality) is PRESENT -- the enumerator detects a real wiring"
 fi
-if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'contact_syncer' && printf '%s' "$out" | grep -q 'identity_resolver'; then
+if [ "$rc" -ne 0 ] && grep -q 'contact_syncer' <<< "$out" && grep -q 'identity_resolver' <<< "$out"; then
     pass "the two uncovered write paths are NAMED (contact_syncer, identity_resolver; #617)"
 else
     bad "the uncovered write paths were not both named (rc=$rc): $(printf '%s' "$out" | grep -iE 'contact_syncer|identity_resolver' | head -2)"
@@ -163,7 +163,7 @@ TM="$WORK/tmp_manifest.tsv"
   printf 'import_wire\tshared guard counts\trequired\tshared/*.py|is_relationship_label\t#617-disc\tthe real wiring\n'
 } > "$TM"
 out="$(python3 "$VERIFIER" --manifest "$TM" --home "$H" --source-root "$SRC" --only-type import_wire 2>&1)"; rc=$?
-if printf '%s' "$out" | grep -q 'private copy must NOT count' && ! printf '%s' "$out" | grep -q 'shared guard counts'; then
+if grep -q 'private copy must NOT count' <<< "$out" && ! grep -q 'shared guard counts' <<< "$out"; then
     pass "private-copy discrimination: _is_relationship_label is NOT read as the shared guard, is_relationship_label IS"
 else
     bad "private-copy discrimination failed. The private copy should be MISSING and the shared use PRESENT. Got: $(printf '%s' "$out" | grep -E '    -' | head -3)"
