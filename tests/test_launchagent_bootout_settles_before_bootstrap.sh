@@ -89,6 +89,7 @@ run() { # $1 present-count -> "<sleeps> <probes>"
         }
         sleep() { SLEEPS=$((SLEEPS+1)); }
         _ostler_launchagent_note_refusal() { :; }
+        warn() { :; }
         # THE REGION DECLARES `local`, WHICH IS ONLY LEGAL INSIDE A FUNCTION.
         # Sourced at top level it errors, $_settle stays unset, `set -u` kills
         # the shell, and the harness printed NOTHING -- three arms read as
@@ -141,6 +142,7 @@ if git -C "$REPO_ROOT" show origin/main:install.sh > "${WORK}/main.sh" 2>/dev/nu
         launchctl() { case "${1:-}" in print) PROBES=$((PROBES+1)); return 0;; *) return 0;; esac; }
         sleep() { SLEEPS=$((SLEEPS+1)); }
         _ostler_launchagent_note_refusal() { :; }
+        warn() { :; }
         _run_region() { source "$1"; }
         _run_region "$1"
         printf "%s" "$SLEEPS"
