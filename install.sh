@@ -16485,6 +16485,29 @@ _qdrant_url="${QDRANT_URL:-http://localhost:6333}"
 _qdrant_ready=false
 _qdrant_last_status=""
 _qdrant_wait_s=0
+
+# ── The collections this install PROMISES to create ─────────────────
+#
+# ⚠️ DEFINED AT TOP LEVEL, UNCONDITIONALLY, AND THAT IS THE WHOLE POINT.
+# The pre-create loop below runs only when the store came up ready. If this
+# array were declared inside that branch, then on the NOT-ready path it would
+# be UNSET, the post-hydrate membership check would iterate an empty list, and
+# it would report "nothing missing" on precisely the install where everything
+# is missing. An empty expectation is not a satisfied one.
+#
+# ONE list, TWO readers: the pre-create loop (which creates them) and
+# _initial_hydrate_qdrant_missing_required (which later checks they are still
+# there). They MUST NOT drift into two hand-maintained copies -- a checker
+# reading a different list from the creator answers a question nobody asked.
+#
+# SCOPE, STATED HONESTLY: this is a SELF-CONSISTENCY check, not an independent
+# one. It answers "I tried to create these four; are they there?" It CANNOT
+# tell you the declared set itself is wrong, because it is the producer's own
+# list. The independent check is scripts/install_manifest.tsv's
+# qdrant_collection rows (CM051 #1374), which are hand-declared and compared
+# against the live store at box-walk time. Two different questions, both worth
+# asking; do not let this one stand in for that one.
+_OSTLER_REQUIRED_QDRANT_COLLECTIONS=(people conversations preferences evernote_knowledge)
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
@@ -16583,7 +16606,7 @@ if [[ "$_qdrant_ready" == true ]]; then
     # it appears in install logs customers have already sent us, and in
     # @ARCHIE's live traces. The code survives; only the SELF-TERMINATION on
     # it is gone.
-    for _coll in people conversations preferences evernote_knowledge; do
+    for _coll in "${_OSTLER_REQUIRED_QDRANT_COLLECTIONS[@]}"; do
         # Already present? Leave it untouched (never clobber real data).
         if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_qdrant_url}/collections/${_coll}" &>/dev/null; then
             continue
@@ -26208,6 +26231,66 @@ except Exception:
     printf '%s' "$count"
 }
 
+# ── WHICH collections, not HOW MANY ─────────────────────────────────
+#
+# 🔴 #616 / #615, MEASURED ON THE v1.0.60 WALK. The branch below used to ask
+# `count -gt 0` and print "Search index ready (N collections)". A CARDINALITY
+# TEST CANNOT SEE A MISSING MEMBER. On the walk box the live store answers:
+#
+#     GET :6333/collections -> preferences, people, safari_history
+#
+# That is three collections, so `count -gt 0` is TRUE and the install would
+# say "ready (3 collections)" -- while `conversations` and `evernote_knowledge`,
+# two of the four it had just promised to create, are absent. One of the three
+# it does have (safari_history) was never in the creation loop at all. The
+# count is right and the claim is false. This is the same shape as "23
+# LaunchAgents present" passing regardless of WHICH 23.
+#
+# Returns on stdout exactly one of:
+#   ""                      every required collection is present
+#   "CANNOT-RUN: <reason>"  the store could not be read -- NOT an absence
+#   "<name> <name> ..."     the required collections that are absent
+#
+# THE CANNOT-RUN ARM IS LOAD-BEARING AND IS WHY THIS DOES NOT REUSE
+# _initial_hydrate_qdrant_count BELOW. That helper collapses "curl failed"
+# into `printf '0'`, so an unreadable store and a genuinely empty one are
+# indistinguishable in its return value -- which is exactly why the walk's
+# `CX106_QDRANT_AFTER count=0` could not tell us whether the collections were
+# missing or the probe was blind. A checker that reports "all four missing"
+# because it could not reach the store would be a false accusation, and it
+# would train the reader to ignore the warning. Three outcomes, three arms.
+_initial_hydrate_qdrant_missing_required() {
+    local raw out rc=0
+    raw="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+        -sf -m 5 "${_INITIAL_HYDRATE_QDRANT}/collections" 2>&1)" || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        printf 'CANNOT-RUN: the store did not answer a credentialed GET (curl rc=%s)' "$rc"
+        return 0
+    fi
+    # The declared names go in as argv, so the comparison happens in one
+    # process with no pipe between a producer and a matcher (a `| grep -q`
+    # here would SIGPIPE the producer under pipefail, and `grep -c` on a
+    # missing name exits 1 -- both are avoidable by not using a pipe).
+    out="$(printf '%s' "$raw" | python3 -c '
+import json, sys
+try:
+    doc = json.loads(sys.stdin.read())
+    cols = (doc.get("result") or {}).get("collections")
+    if cols is None:
+        raise ValueError("no result.collections key")
+    present = {c.get("name") for c in cols if isinstance(c, dict)}
+except Exception as exc:
+    # Unreadable shape is CANNOT-RUN, never "everything is missing".
+    print("CANNOT-RUN: the store answered in an unexpected shape (%s)" % type(exc).__name__)
+    sys.exit(0)
+print(" ".join(name for name in sys.argv[1:] if name not in present))
+' "${_OSTLER_REQUIRED_QDRANT_COLLECTIONS[@]}")" || {
+        printf 'CANNOT-RUN: could not parse the store response'
+        return 0
+    }
+    printf '%s' "$out"
+}
+
 _INITIAL_HYDRATE_COLLECTIONS_BEFORE="$(_initial_hydrate_qdrant_count)"
 gui_emit CX106_QDRANT_BEFORE "count=${_INITIAL_HYDRATE_COLLECTIONS_BEFORE}"
 info "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_BEFORE" "${_INITIAL_HYDRATE_COLLECTIONS_BEFORE}")"
@@ -26268,14 +26351,34 @@ fi
 _INITIAL_HYDRATE_COLLECTIONS_AFTER="$(_initial_hydrate_qdrant_count)"
 gui_emit CX106_QDRANT_AFTER "count=${_INITIAL_HYDRATE_COLLECTIONS_AFTER}"
 
-if [[ "$_INITIAL_HYDRATE_COLLECTIONS_AFTER" -gt 0 ]]; then
-    ok "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_READY" "${_INITIAL_HYDRATE_COLLECTIONS_AFTER}")"
+_INITIAL_HYDRATE_QDRANT_MISSING="$(_initial_hydrate_qdrant_missing_required)"
+gui_emit CX106_QDRANT_MISSING "missing=${_INITIAL_HYDRATE_QDRANT_MISSING:-none}"
+
+# SEVERITY IS DELIBERATE AND NOT UNIFORM. All three arms remain NON-FATAL --
+# the wiki, the LaunchAgents and the rest of the install genuinely do keep
+# working without a complete index, and failing the install here would be a
+# worse answer than saying so plainly. What changes is that the install can no
+# longer stay SILENT about which collections it promised and did not deliver.
+if [[ "$_INITIAL_HYDRATE_QDRANT_MISSING" == CANNOT-RUN:* ]]; then
+    # Could not look. That is neither "ready" nor "missing", and it must not
+    # be reported as either.
+    warn "$(printf "$MSG_WARN_QDRANT_MEMBERSHIP_UNMEASURED" \
+        "${_INITIAL_HYDRATE_QDRANT_MISSING#CANNOT-RUN: }")"
+elif [[ -n "$_INITIAL_HYDRATE_QDRANT_MISSING" && "$_INITIAL_HYDRATE_COLLECTIONS_AFTER" -gt 0 ]]; then
+    # THE v1.0.60 CASE, and the one the old cardinality test called healthy:
+    # the store is up and serving collections, but not all the ones we
+    # promised. Partial is a real defect, so it warns and it NAMES them.
+    warn "$(printf "$MSG_WARN_QDRANT_COLLECTIONS_MISSING" \
+        "${_INITIAL_HYDRATE_QDRANT_MISSING}")"
+elif [[ -n "$_INITIAL_HYDRATE_QDRANT_MISSING" ]]; then
+    # Nothing there yet. Hub readiness is deferred to first-run background
+    # ingest and the Doctor surfaces the gap, so the severity stays at info
+    # exactly as before -- but it now names what it is waiting for instead of
+    # leaving the reader to guess.
+    info "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED_AWAITING" \
+        "${_INITIAL_HYDRATE_QDRANT_MISSING}")"
 else
-    # Qdrant still empty -- Hub readiness will be deferred to first-run
-    # background ingest. Doctor will pick it up and surface the gap.
-    # We do NOT fail install here; the rest of the system is fine and
-    # the wiki + LaunchAgents continue to work.
-    info "$MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED"
+    ok "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_READY" "${_INITIAL_HYDRATE_COLLECTIONS_AFTER}")"
 fi
 
 # DEDUPE_MERGE (#661, RULE 1, 2026-06-09): after every person-creating
