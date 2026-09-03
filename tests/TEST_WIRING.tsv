@@ -100,6 +100,7 @@ test_cx98_previous_install_detection.sh	WIRED	.github/workflows/tests-unwired-sw
 test_daemon_fda_app_bundle_path.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_daemon_pins_agree.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_dead_launchagent_prune.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
+test_declined_remote_access_is_not_promised.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_dedupe_defer_background.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_dedupe_deps_reach_the_consumer_venv.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_dedupe_heartbeat.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -429,4 +430,3 @@ gui/OstlerInstallerTests/StringsCatalogueEmDashTest.swift	WIRED	.github/workflow
 gui/OstlerInstallerTests/StringsCatalogueYNSuffixTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
-test_declined_remote_access_is_not_promised.sh	WIRED	.github/workflows/background-copy-honesty.yml
