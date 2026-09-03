@@ -1265,6 +1265,21 @@ MSG_INITIAL_HYDRATE_QDRANT_BEFORE="Checking your search index (%s collections de
 MSG_INITIAL_HYDRATE_BROWSER_RETRY="Loading your browsing history into the search index"
 MSG_INITIAL_HYDRATE_QDRANT_READY="Search index ready (%s collections)"
 MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED="Search index will populate in the background after install completes"
+# #616 / #615. MSG_INITIAL_HYDRATE_QDRANT_READY above is printed with a COUNT,
+# and a count cannot see a missing member. On the v1.0.60 walk box the store
+# holds three collections, two of the four the installer promised are absent,
+# and the count-based test called that "ready". These three strings exist so
+# the install can say WHICH, and so that "could not look" is a third outcome
+# rather than being folded into either of the other two.
+#
+# NOTE ON TIME WORDS: the _AWAITING string deliberately inherits the wording of
+# the DEFERRED string above and names no deadline. Background loading has no
+# completion time we can honestly quote (see background-copy-honesty.yml, where
+# an "hour" was measured wrong by two orders of magnitude); it may say work
+# CONTINUES, never when it will be DONE.
+MSG_WARN_QDRANT_COLLECTIONS_MISSING="Search index is incomplete: %s could not be created. Ostler will keep working, and the Doctor shows this gap."
+MSG_WARN_QDRANT_MEMBERSHIP_UNMEASURED="Could not check which search collections exist (%s). This is not a report that they are missing."
+MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED_AWAITING="Search index will populate in the background after install completes (waiting for: %s)"
 MSG_HYDRATE_DONE="Your graph is ready: %s people, %s events"
 # CX-93 (DMG #48g, 2026-05-29): split the "no contacts" copy. The old
 # string blamed iCloud, which was misleading on a local-AB-only Mac.
