@@ -28167,8 +28167,32 @@ fi
 # THE COUNT IS A FLOOR. See err(). It can under-report and can never invent an
 # error, so "Ostler finished cleanly" is only ever printed when the tally
 # genuinely saw none. That is the safe direction for a claim of health.
-if [[ "${_OSTLER_RUN_ERRORS:-0}" -gt 0 ]]; then
-    warn "$(printf "$MSG_WARN_INSTALL_FINISHED_WITH_ERRORS" "${_OSTLER_RUN_ERRORS:-0}")"
+#
+# TWO INDEPENDENT KINDS OF TROUBLE, #616. `_OSTLER_RUN_ERRORS` counts MESSAGE
+# errors (err()). It is blind to a STEP that ran and FAILED: a hydrate step
+# killed by its timeout cap raises no err(), so on the v1.0.60 walk this verdict
+# printed "no errors raised" beside `DONE ... failed_steps=2`, telling a customer
+# whose search index came out empty that the install went fine. So the verdict
+# now ALSO consults __OSTLER_FAILED_STEPS (the emitter's step-failure tally) and
+# NAMES the steps from __OSTLER_FAILED_STEP_IDS -- the SAME ids the STEP_END
+# lines carry, appended at the one site that increments the count, so the number
+# and the names cannot disagree. The reassuring line prints only when BOTH
+# tallies are zero.
+#
+# SCOPE, stated: this fixes only the sentence a HUMAN reads. The DONE-marker
+# `status` field a machine reads is a separate, sequenced change (#616 step 2,
+# ok|completed_with_failures|fail) with a Swift blast radius; it is NOT touched
+# here, so #839 (status=ok means "reached the end") is left intact.
+# CLOSING VERDICT (#616):
+if [[ "${_OSTLER_RUN_ERRORS:-0}" -gt 0 || "${__OSTLER_FAILED_STEPS:-0}" -gt 0 ]]; then
+    # Not a clean finish. Report each kind of trouble that actually occurred:
+    # a run can have message errors, failed steps, or both.
+    if [[ "${_OSTLER_RUN_ERRORS:-0}" -gt 0 ]]; then
+        warn "$(printf "$MSG_WARN_INSTALL_FINISHED_WITH_ERRORS" "${_OSTLER_RUN_ERRORS:-0}")"
+    fi
+    if [[ "${__OSTLER_FAILED_STEPS:-0}" -gt 0 ]]; then
+        warn "$(printf "$MSG_WARN_INSTALL_FINISHED_WITH_FAILED_STEPS" "${__OSTLER_FAILED_STEPS:-0}" "${__OSTLER_FAILED_STEP_IDS:-unknown}")"
+    fi
     warn "$MSG_WARN_INSTALL_FINISHED_WITH_ERRORS_WHERE"
 else
     ok "$MSG_OK_INSTALL_FINISHED_NO_ERRORS_RAISED"
