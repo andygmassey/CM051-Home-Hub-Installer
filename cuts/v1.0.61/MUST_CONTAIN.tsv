@@ -1,0 +1,44 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.61.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.61/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN. Authoring it in CM051
+# instead produces a copy with no pin -- "a fork nobody declared". v1.0.61 saw
+# that class TWICE in one hour: once in the v1.0.56 row's own words, and once
+# live, when the v1.0.60 walk row was written on the VENDORED side and
+# cut-gate-wrappers refused it. THE GATE READS THE TREE IT IS CUTTING.
+#
+# ⚠️ AND THE BOOTSTRAP IS UNREACHABLE BY ITS OWN REMEDY TEXT. sync_cut_bom.sh
+# CANNOT-RUNs with "write it there first (bin/bom_add.sh)", and bom_add.sh
+# exits 2 on a missing BOM -- so the remedy cannot create the file it demands.
+# This header was written by hand for exactly that reason. Filed as CM051 #956.
+#
+# ===========================================================================
+# EVERY ROW SAYS ONE OF THREE THINGS AND NEVER A FOURTH
+# ===========================================================================
+#   gate:<workflow>#<job>   a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# `TBD` is not a state, it is a silence, and a silence is what turns into a
+# surprise on a walk.
+#
+# ===========================================================================
+# TWO ROWS FOR NINE MERGES, AND THAT IS A STATEMENT NOT AN OVERSIGHT
+# ===========================================================================
+# v1.0.61 carries nine merges. Only two are here, because a BOM row needs a
+# capability_id that RESOLVES in manifest/capability_manifest.tsv AND a pattern
+# that DISCRIMINATES -- present on the shipped tree, ABSENT on the pre-fix one.
+# Both patterns below were mutation-tested against v1.0.60's CM051 pin before
+# being written: post>0 AND pre=0, with OSTLER_EXTENSION_TOKEN (13/13) as the
+# must-be-non-zero control proving the scan sees the tree at all. A pattern
+# that scores non-zero on the pre-fix tree guards nothing; `failed_steps` was
+# rejected on exactly that test (post=2, pre=1).
+#
+# The other seven merges are real and are recorded in cuts/v1.0.61/SCOPE.md.
+# They are NOT given rows here rather than given rows that guard nothing.
+what	repo	ref	landed	capability_id	verify	ticket
+🔴 A REUSE-SETTINGS RE-RUN SILENTLY DELETED THE CUSTOMER'S DAILY BRIEFS. Re-running the installer to change a setting takes SKIP_PHASE2, which leaves the Phase-2 channel defaults at CHANNEL_IMESSAGE_ENABLED=false with an empty allow-list; the assistant config is then regenerated wholesale, so the brief-channel resolver matched nothing and wrote ZERO [[cron.jobs]] entries. The customer's morning brief and evening wrap stopped, with no error and no prompt. The brief WRITER was never the defect. FIX (#1377): a fill-only restore reads the channel settings back out of the EXISTING config before regeneration, and restores each value ONLY where it is still at its Phase-2 default, so a deliberate later change is never overwritten. Proved by EXTRACTION and mutation, not by grep: the real pre-fix install.sh still fails arm A with 'wrote 0 [[cron.jobs]], expected 2 -- the customer lost their briefs'.	cm051	477608ab	no	reuse_run_preserves_daily_brief_channels	gate:assistant-config-required-fields.yml#assistant-config-required-fields	CM051 #1377 / #619 / v1.0.61
+🔴 THE INSTALL CLAIMED A CLEAN FINISH OVER A FAILED STEP -- CAUGHT ON THE v1.0.60 ARTEFACT, NOT REASONED ABOUT. install.log's final line read 'DONE status=ok failed_steps=2 errors=0': the closing verdict consulted only _OSTLER_RUN_ERRORS, which counts err() MESSAGES and is blind to a STEP that ran and FAILED, so a hydrate step killed by its timeout raised no err() and a customer whose search index came out empty was told the install went fine. FIX (#1369): the verdict ALSO consults __OSTLER_FAILED_STEPS and NAMES the steps from __OSTLER_FAILED_STEP_IDS, appended at the one site that increments the count so the number and the names cannot disagree; the reassuring line prints only when BOTH tallies are zero. SCOPE, stated: this fixes the sentence a HUMAN reads. The DONE-marker status field a machine reads is sequenced separately and is NOT touched here.	cm051	477608ab	no	closing_verdict_consults_failed_steps	gate:step-end-status-honesty.yml#step-end-honesty	CM051 #1369 / #616 / v1060-D001
