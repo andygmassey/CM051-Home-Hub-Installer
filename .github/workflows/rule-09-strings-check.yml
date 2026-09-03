@@ -97,3 +97,22 @@ jobs:
       - name: every MSG_ string install.sh reads is actually defined
         if: always()
         run: python3 scripts/verify_install_strings_bound.py
+
+      # T1. Four hydrate steps shipped with a bare `gtimeout 90`; on a real box
+      # two were killed at the cap while still writing log lines, and a sibling
+      # in the same family ran 729s and finished cleanly. This asserts no cap
+      # sits below the floor its declared evidence sets, in both directions:
+      # an undeclared cap and a declared-but-absent cap are both RED.
+      #
+      # Self-test FIRST. A gate whose failing case has stopped failing is worse
+      # than no gate, and this one has already caught its own fixture going
+      # stale -- the below-floor arm silently stopped discriminating when the
+      # floor moved. Exit 2 is CANNOT-RUN and fails the step: a gate that could
+      # not look has not passed.
+      - name: hydrate cap floors -- self-test (controls must still fail)
+        if: always()
+        run: python3 scripts/verify_hydrate_cap_floors.py --self-test
+
+      - name: no hydrate cap sits below its declared floor
+        if: always()
+        run: python3 scripts/verify_hydrate_cap_floors.py
