@@ -1422,6 +1422,53 @@ _ostler_launchagent_load_verified() {
     # tears down the customer's whole GUI session and must never appear here.
     launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
 
+    # 🔬 BOOTOUT IS ASYNCHRONOUS. WAIT FOR THE LABEL TO ACTUALLY GO.
+    #
+    # `launchctl bootout` returns as soon as launchd ACCEPTS the request, not
+    # when the job is gone. Bootstrapping into a half-torn-down label fails
+    # with EIO, and the job never spawns.
+    #
+    # MEASURED ON THE MINI 16, install of 2026-09-03 (timestamps UTC):
+    #     18:42:10  ~/.ostler/doctor/web_ui.py written   (payload)
+    #     18:42:11  com.ostler.doctor.plist written
+    #     18:42:11  refusal recorded
+    # One second for bootout + bootstrap + load + verify. The recorded reason
+    # was "registered, then VANISHED from gui/501 before it ran", and launchd
+    # said `Bootstrap failed: 5: Input/output error` AND `Load failed: 5`.
+    # Registered-then-vanished is exactly what a teardown completing AFTER the
+    # bootstrap looks like.
+    #
+    # THE OTHER CANDIDATES WERE MEASURED AND REFUTED, one at a time:
+    #   plist invalid            -- `plutil -lint` says OK
+    #   payload missing          -- web_ui.py present, the venv python RUNS
+    #   label disabled           -- absent from `launchctl print-disabled`
+    #   domain unreachable       -- 18 of 20 ostler agents DID load
+    #   quarantine xattr         -- none on the plist
+    #   program path location    -- a LOADED agent sits in the same directory
+    # and a hand bootstrap of the identical unmodified plist minutes later
+    # gives `state = running`, which is the timing tell.
+    #
+    # ⚠️ STATED AS WHAT IT IS: converging evidence, not a live reproduction.
+    # I have not caught the race in the act. This wait is cheap, cannot make
+    # a working install worse, and if the race is not the cause the refusal
+    # text will now say so on the next run.
+    #
+    # COSTS NOTHING ON A FRESH INSTALL. If the label was never loaded the very
+    # first probe fails and we break immediately -- zero sleeps, which is the
+    # normal customer path. Only a REINSTALL, where the label really is loaded,
+    # ever waits. If it never clears we proceed anyway: the evidence check
+    # below still adjudicates, so this can add a delay but never a verdict.
+    local _settle=0 _settle_cap="${OSTLER_LAUNCHAGENT_BOOTOUT_SETTLE_S:-10}"
+    while [ "$_settle" -lt "$_settle_cap" ]; do
+        launchctl print "${_domain}/${_label}" >/dev/null 2>&1 || break
+        sleep 1
+        _settle=$((_settle + 1))
+    done
+    if [ "$_settle" -ge "$_settle_cap" ]; then
+        _ostler_launchagent_note_refusal "$_label" \
+            "still present in ${_domain} ${_settle_cap}s after bootout; bootstrapping anyway" ""
+    fi
+
     # bootstrap on Sequoia+ (load is deprecated), fall back to load. BOTH
     # are allowed to fail: their exit status is not the evidence, and the
     # ERR trap must not abort the install on an expected failure here.

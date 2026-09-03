@@ -204,6 +204,7 @@ test_installer_version_matches_the_cut.sh	WIRED	.github/workflows/cut.yml
 test_invoked_tests_are_watched_gate.sh	WIRED	.github/workflows/invoked-tests-are-watched.yml
 test_knowledge_repo_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_laptop_hub_power_copy_fires_on_laptops_only.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_launchagent_bootout_settles_before_bootstrap.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_launchagent_bootstrap_after_staging.py	WIRED	.github/workflows/launchd-plist-paths.yml
 test_launchagent_homebrew_path.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_launchagent_refusal_reaches_the_transcript.sh	WIRED	.github/workflows/launchagent-success-verification.yml
