@@ -72,7 +72,7 @@ REQUIRED, CONDITIONAL, EXCLUDED = "required", "conditional", "excluded"
 VALID_EXPECT = {REQUIRED, CONDITIONAL, EXCLUDED}
 # The types whose full present-set can be enumerated, so the UNDECLARED
 # (produced-but-not-declared) direction is meaningful.
-ENUMERABLE = {"launch_agent", "cron_job"}
+ENUMERABLE = {"launch_agent", "cron_job", "qdrant_collection"}
 
 
 class CannotRun(Exception):
@@ -183,6 +183,59 @@ def present_cron_jobs(config_path):
     return ids
 
 
+def present_qdrant_collections(qdrant_url, conf_path):
+    """The collection names Qdrant actually holds, read over its REST API.
+
+    A store that is DOWN, unreachable, or refuses the credential is CANNOT-RUN,
+    NOT "no collections" -- exactly the false zero that read the v1.0.60 index as
+    empty when it was 401 (up, unauthenticated). So a non-JSON body, a missing
+    result.collections list, or status != ok all raise CannotRun rather than
+    returning an empty set.
+
+    TEST SEAM: OSTLER_MANIFEST_QDRANT_OVERRIDE lets the hermetic test inject a
+    present-set (comma-separated) or the sentinel `__unreachable__` without a live
+    Qdrant. It is read ONLY here and named so its presence is obvious.
+    """
+    import json
+    import subprocess
+
+    override = os.environ.get("OSTLER_MANIFEST_QDRANT_OVERRIDE")
+    if override is not None:
+        if override == "__unreachable__":
+            raise CannotRun("Qdrant marked unreachable by the test seam (OSTLER_MANIFEST_QDRANT_OVERRIDE)")
+        return {c.strip() for c in override.split(",") if c.strip()}
+
+    cmd = ["curl", "-s", "--noproxy", "*", "--max-time", "5"]
+    if conf_path and os.path.isfile(conf_path):
+        cmd += ["-K", conf_path]
+    cmd += [qdrant_url.rstrip("/") + "/collections"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+    except FileNotFoundError:
+        raise CannotRun("curl not on PATH; cannot query Qdrant at %s" % qdrant_url)
+    except Exception as e:
+        raise CannotRun("could not query Qdrant at %s: %s" % (qdrant_url, e))
+    body = (proc.stdout or "").strip()
+    if not body:
+        raise CannotRun(
+            "Qdrant at %s returned no body -- unreachable or down. That is CANNOT-RUN, "
+            "not 'no collections'." % qdrant_url
+        )
+    try:
+        doc = json.loads(body)
+    except ValueError:
+        raise CannotRun(
+            "Qdrant at %s did not return JSON -- most likely a 401/403 (up but the "
+            "credential was refused). CANNOT-RUN, not absence: %s" % (qdrant_url, body[:120])
+        )
+    if not isinstance(doc, dict) or doc.get("status") != "ok":
+        raise CannotRun("Qdrant at %s did not return status=ok (auth or error): %s" % (qdrant_url, body[:120]))
+    colls = (doc.get("result") or {}).get("collections")
+    if not isinstance(colls, list):
+        raise CannotRun("Qdrant at %s returned no result.collections list -- unexpected shape" % qdrant_url)
+    return {c.get("name") for c in colls if isinstance(c, dict) and c.get("name")}
+
+
 def dir_present(home, locator):
     """artefact_dir: locator is a path, ~ and $HOME resolved against --home."""
     path = locator.replace("$HOME", home)
@@ -242,9 +295,16 @@ def _strip_py_comments(text):
 # --------------------------------------------------------------------------
 # The comparison.
 # --------------------------------------------------------------------------
-def evaluate(rows, home, config_path, source_root):
-    """Return (missing, undeclared, notes) lists of human strings."""
-    missing, undeclared, notes = [], [], []
+def evaluate(rows, home, config_path, source_root, qdrant_url, qdrant_conf):
+    """Return (missing, undeclared, notes, cannot_run) lists of human strings.
+
+    CANNOT-RUN is PER TYPE, not global: a store that is down makes
+    qdrant_collection unmeasurable, but the LaunchAgent and cron checks still run
+    and still report. Collapsing the whole run to CANNOT-RUN because one type
+    could not be read would throw away results that were readable -- the opposite
+    of the four-state discipline this gate exists to keep.
+    """
+    missing, undeclared, notes, cannot_run = [], [], [], []
 
     by_type = {}
     for r in rows:
@@ -256,39 +316,44 @@ def evaluate(rows, home, config_path, source_root):
         excluded = {r.subject for r in trows if r.expectation == EXCLUDED}
         ticket_of = {r.subject: r.ticket for r in trows}
 
-        if t in ENUMERABLE:
-            if t == "launch_agent":
-                present = present_launch_agents(home)
-            elif t == "cron_job":
-                present = present_cron_jobs(config_path)
-            else:  # pragma: no cover - ENUMERABLE guards this
-                present = set()
-            for subj in sorted(required - present):
-                missing.append("%s %s (%s) -- required but NOT present" % (t, subj, ticket_of.get(subj, "?")))
-            for subj in sorted(present - declared):
-                undeclared.append(
-                    "%s %s -- PRESENT on the install but declared NOWHERE in the "
-                    "manifest. Declare it required/conditional, or mark it excluded." % (t, subj)
-                )
-            for subj in sorted(present & excluded):
-                notes.append("%s %s -- marked excluded but IS present (%s)" % (t, subj, ticket_of.get(subj, "?")))
-        elif t == "artefact_dir":
-            for r in trows:
-                if r.expectation != REQUIRED:
-                    continue
-                ok, resolved = dir_present(home, r.locator)
-                if not ok:
-                    missing.append("%s %s (%s) -- required directory does not exist: %s" % (t, r.subject, r.ticket, resolved))
-        elif t == "import_wire":
-            for r in trows:
-                if r.expectation != REQUIRED:
-                    continue
-                if not import_wire_present(source_root, r.locator):
-                    missing.append("%s %s (%s) -- write path does not import the guard [%s]" % (t, r.subject, r.ticket, r.locator))
-        else:
-            notes.append("type %r has no enumerator; %d row(s) not checked" % (t, len(trows)))
+        try:
+            if t in ENUMERABLE:
+                if t == "launch_agent":
+                    present = present_launch_agents(home)
+                elif t == "cron_job":
+                    present = present_cron_jobs(config_path)
+                elif t == "qdrant_collection":
+                    present = present_qdrant_collections(qdrant_url, qdrant_conf)
+                else:  # pragma: no cover - ENUMERABLE guards this
+                    present = set()
+                for subj in sorted(required - present):
+                    missing.append("%s %s (%s) -- required but NOT present" % (t, subj, ticket_of.get(subj, "?")))
+                for subj in sorted(present - declared):
+                    undeclared.append(
+                        "%s %s -- PRESENT on the install but declared NOWHERE in the "
+                        "manifest. Declare it required/conditional, or mark it excluded." % (t, subj)
+                    )
+                for subj in sorted(present & excluded):
+                    notes.append("%s %s -- marked excluded but IS present (%s)" % (t, subj, ticket_of.get(subj, "?")))
+            elif t == "artefact_dir":
+                for r in trows:
+                    if r.expectation != REQUIRED:
+                        continue
+                    ok, resolved = dir_present(home, r.locator)
+                    if not ok:
+                        missing.append("%s %s (%s) -- required directory does not exist: %s" % (t, r.subject, r.ticket, resolved))
+            elif t == "import_wire":
+                for r in trows:
+                    if r.expectation != REQUIRED:
+                        continue
+                    if not import_wire_present(source_root, r.locator):
+                        missing.append("%s %s (%s) -- write path does not import the guard [%s]" % (t, r.subject, r.ticket, r.locator))
+            else:
+                notes.append("type %r has no enumerator; %d row(s) not checked" % (t, len(trows)))
+        except CannotRun as e:
+            cannot_run.append("%s: %s" % (t, e))
 
-    return missing, undeclared, notes
+    return missing, undeclared, notes, cannot_run
 
 
 def default_config(home):
@@ -315,12 +380,18 @@ def main(argv):
                     help="skip a type; repeatable. The install's closing report passes "
                          "--exclude-type import_wire, since that is a source-tree property, "
                          "not something a customer's finished install exposes.")
+    ap.add_argument("--qdrant-url", default="http://127.0.0.1:6333",
+                    help="Qdrant REST base for the qdrant_collection type (default: local)")
+    ap.add_argument("--qdrant-conf", default=None,
+                    help="curl -K config with the Qdrant credential (default: "
+                         "<home>/.ostler/secrets/store-curl.conf)")
     args = ap.parse_args(argv)
 
     if not args.home or not os.path.isdir(args.home):
         print("CANNOT-RUN: --home %r is not a directory" % args.home, file=sys.stderr)
         return EXIT_CANNOT_RUN
     config_path = args.config or default_config(args.home)
+    qdrant_conf = args.qdrant_conf or os.path.join(args.home, ".ostler", "secrets", "store-curl.conf")
 
     try:
         rows = load_manifest(args.manifest)
@@ -332,18 +403,20 @@ def main(argv):
             rows = [r for r in rows if r.type not in set(args.exclude_type)]
             if not rows:
                 raise CannotRun("every manifest row was excluded by --exclude-type %s" % args.exclude_type)
-        missing, undeclared, notes = evaluate(rows, args.home, config_path, args.source_root)
     except CannotRun as e:
         print("CANNOT-RUN: %s" % e, file=sys.stderr)
         return EXIT_CANNOT_RUN
+
+    missing, undeclared, notes, cannot_run = evaluate(
+        rows, args.home, config_path, args.source_root, args.qdrant_url, qdrant_conf
+    )
 
     examined = len(rows)
     print("install-manifest gate: %d declared row(s) examined; home=%s" % (examined, args.home))
     for n in notes:
         print("  note: %s" % n)
-    if not missing and not undeclared:
-        print("PASS: every required subject is present and every present subject is declared.")
-        return EXIT_CLEAN
+    for c in cannot_run:
+        print("  CANNOT-RUN: %s" % c)
 
     if missing:
         print("FAIL: %d required subject(s) MISSING:" % len(missing))
@@ -353,7 +426,16 @@ def main(argv):
         print("FAIL: %d present subject(s) UNDECLARED:" % len(undeclared))
         for u in undeclared:
             print("    - %s" % u)
-    return EXIT_DIFFERENCE
+    if missing or undeclared:
+        # A real difference dominates: report it even if a type was also CANNOT-RUN.
+        return EXIT_DIFFERENCE
+    if cannot_run:
+        # Nothing failed, but at least one type could not be measured. That is a
+        # coverage statement, not a pass -- a 0-of-0 must never read as clean.
+        print("CANNOT-RUN: %d type(s) could not be measured; see above." % len(cannot_run))
+        return EXIT_CANNOT_RUN
+    print("PASS: every required subject is present and every present subject is declared.")
+    return EXIT_CLEAN
 
 
 if __name__ == "__main__":

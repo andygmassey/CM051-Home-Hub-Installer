@@ -87,6 +87,10 @@ for L in $REQ_AGENTS; do
 done
 CFG="$H/.ostler/assistant-config/config.toml"
 printf '[[cron.jobs]]\nid = "morning-brief"\n[[cron.jobs]]\nid = "evening-wrap"\n' > "$CFG"
+# The complete qdrant present-set via the test seam, so the box-type runs below
+# (which include qdrant_collection) see a healthy store instead of CANNOT-RUN.
+# The qdrant-specific arm overrides this per-call to inject missing/undeclared.
+export OSTLER_MANIFEST_QDRANT_OVERRIDE="people,conversations,preferences,evernote_knowledge,safari_history"
 
 _run() { python3 "$VERIFIER" --manifest "$MANIFEST" --home "$H" --config "$CFG" "$@" 2>&1; }
 
@@ -138,6 +142,31 @@ else
     bad "a missing artefact_dir was not caught+named (rc=$rc): $(printf '%s' "$out" | grep -i wiki || printf '(not named)')"
 fi
 mkdir -p "$H/Documents/Ostler/Wiki"
+
+# ── E2. QDRANT_COLLECTION: missing named, undeclared named, down = CANNOT-RUN. ──
+# The env assignment sits on the python3 SIMPLE command (reliably exported),
+# not on a function call (where bash export semantics are subtle).
+_run_q() { OSTLER_MANIFEST_QDRANT_OVERRIDE="$1" python3 "$VERIFIER" --manifest "$MANIFEST" --home "$H" --config "$CFG" --only-type qdrant_collection 2>&1; }
+out="$(_run_q "people,preferences")"; rc=$?
+if [ "$rc" -ne 0 ] && grep -q 'conversations' <<< "$out" && grep -q 'evernote_knowledge' <<< "$out"; then
+    pass "missing required qdrant collections are NAMED (conversations, evernote_knowledge; the .98/#615 shape)"
+else
+    bad "missing qdrant collections not caught+named (rc=$rc): $(printf '%s' "$out" | grep -iE 'conversations|evernote' | head -2)"
+fi
+out="$(_run_q "people,conversations,preferences,evernote_knowledge,mystery_coll")"; rc=$?
+if [ "$rc" -ne 0 ] && grep -q 'mystery_coll' <<< "$out"; then
+    pass "an undeclared qdrant collection is NAMED (mystery_coll; how safari_history first surfaced)"
+else
+    bad "undeclared qdrant collection not named (rc=$rc): $(printf '%s' "$out" | grep -i mystery || printf '(not named)')"
+fi
+# A store that is DOWN is CANNOT-RUN (exit 2), NOT 'no collections' -- the exact
+# false zero that read the v1.0.60 index as empty when it was 401 (up, unauth).
+out="$(_run_q "__unreachable__")"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qi 'cannot-run' <<< "$out"; then
+    pass "a DOWN qdrant is CANNOT-RUN (exit 2), not read as empty (the false-zero guard)"
+else
+    bad "a down qdrant was not CANNOT-RUN (rc=$rc); a false zero would ship silently. Got: $(printf '%s' "$out" | head -1)"
+fi
 
 # ── F. IMPORT_WIRE against the real repo: control passes, negatives named. ──
 out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$H" --source-root "$REPO" --only-type import_wire 2>&1)"; rc=$?
