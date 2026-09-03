@@ -49,6 +49,7 @@ on:
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_launchagent_success_requires_verification.sh'
       - 'tests/test_launchagent_refusal_reason_is_recorded.sh'
+      - 'tests/test_launchagent_bootout_settles_before_bootstrap.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/launchagent-success-verification.yml'
       # Watched because the regression job below RUNS them. A run: without a
@@ -104,6 +105,22 @@ jobs:
       - name: A refused LaunchAgent load must record launchd's reason
         if: always()
         run: /bin/bash tests/test_launchagent_refusal_reason_is_recorded.sh
+
+      # bootout is ASYNCHRONOUS. Bootstrapping into a half-torn-down label
+      # fails EIO and the job never spawns. Measured on the Mini 16: payload
+      # 18:42:10Z, plist 18:42:11Z, refusal 18:42:11Z -- one second for the
+      # whole sequence, and the reason recorded was "registered, then VANISHED
+      # from gui/501 before it ran". 2 of 20 agents failed; 18 loaded.
+      - name: bootout settles before bootstrap, and costs nothing when idle
+        if: always()
+        run: |
+          set -uo pipefail
+          /bin/bash tests/test_launchagent_bootout_settles_before_bootstrap.sh
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::Could not extract the bootout region from install.sh. NOTHING was measured -- this is not a pass."
+          fi
+          exit "$rc"
 
       # A LaunchAgent that loaded is not a LaunchAgent that read the plist you
       # just wrote. On an UPGRADE the label is already bootstrapped, so
