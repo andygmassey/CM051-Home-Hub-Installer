@@ -34,6 +34,8 @@ on:
       - 'tests/test_orphan_gate_empty_pr_list_needs_a_control.sh'
       - 'tests/test_orphan_gate_failed_fetch_is_not_truth.sh'
       - 'tests/test_orphan_gate_declared_skip_always_counts.sh'
+      - 'tests/test_orphan_gate_skip_ceiling.sh'
+      - 'tests/orphan_gate_skip_ceiling.txt'
       - 'tests/test_deferral_reachability.sh'
       - 'tests/test_deferral_reason_reads_block_scalars.sh'
       # The expiry ratchet: its comparison, and the baseline it compares to.
@@ -90,7 +92,8 @@ jobs:
                    tests/test_orphan_gate_pr_skip_is_per_label.sh \
                    tests/test_orphan_gate_empty_pr_list_needs_a_control.sh \
                    tests/test_orphan_gate_failed_fetch_is_not_truth.sh \
-                   tests/test_orphan_gate_declared_skip_always_counts.sh; do
+                   tests/test_orphan_gate_declared_skip_always_counts.sh \
+                   tests/test_orphan_gate_skip_ceiling.sh; do
             [ -x "$f" ] || { echo "::error::$f missing or not executable" >&2; exit 1; }
             echo "  ok $f"
           done
@@ -197,6 +200,16 @@ jobs:
         # it also made an all-empty-path run look like FULL coverage to the
         # --regenerate-expired-baseline refusal, which guards on unchecked > 0.
         run: ./tests/test_orphan_gate_declared_skip_always_counts.sh
+
+      - name: The skip set has a CEILING, and it is load-bearing (#611)
+        if: always()
+        # Nothing pinned OSTLER_ORPHAN_GATE_SKIP, so a sixth label could be added
+        # and the gate still exit 0, walking coverage down to a floor of one repo.
+        # A committed ceiling LIST (tests/orphan_gate_skip_ceiling.txt) bounds the
+        # ACTUAL skips as a MAXIMUM. This drives the real gate hermetically and
+        # includes the mutation limb: revert the comparison, the RED case stops
+        # firing -- a test that passes against a broken gate is what #1365 was about.
+        run: ./tests/test_orphan_gate_skip_ceiling.sh
 
       - name: Deferral reachability controls
         # The four controls for deferral_reachability_report() in

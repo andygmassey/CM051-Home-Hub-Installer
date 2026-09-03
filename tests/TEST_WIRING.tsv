@@ -243,6 +243,7 @@ test_orphan_gate_declared_skip_always_counts.sh	WIRED	.github/workflows/orphan-g
 test_orphan_gate_empty_pr_list_needs_a_control.sh	WIRED	.github/workflows/cut.yml
 test_orphan_gate_failed_fetch_is_not_truth.sh	WIRED	.github/workflows/cut.yml
 test_orphan_gate_pr_skip_is_per_label.sh	WIRED	.github/workflows/cut.yml
+test_orphan_gate_skip_ceiling.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_osascript_dialogs_activate_system_events.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_osascript_sites_are_deadlined.sh	WIRED	.github/workflows/osascript-deadline.yml
 test_ostler_gui_sudo_gates.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
