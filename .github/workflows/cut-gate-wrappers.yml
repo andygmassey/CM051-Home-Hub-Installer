@@ -49,6 +49,8 @@ on:
       # share a trigger, or editing one of these tests would never re-run it.
       - 'tests/test_pyc_seed_excludes_nested_ostler_app.sh'
       - 'tests/test_pyc_bytes_depend_on_compile_path.sh'
+      - 'tests/test_stage_payload_strips_ambient_pyc.sh'
+      - 'gui/scripts/strip-payload-pyc.sh'
       - 'tests/test_sign_python_bundle_reports_why.sh'
       - 'tests/test_product_seed_regex_does_not_exclude_the_bundle.sh'
       - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
@@ -299,6 +301,9 @@ jobs:
       - name: pyc bytes depend on the compile path (the reason for the above)
         if: always()
         run: bash tests/test_pyc_bytes_depend_on_compile_path.sh
+      - name: the assembled payload is .pyc-free before seeding (#644)
+        if: always()
+        run: bash tests/test_stage_payload_strips_ambient_pyc.sh
 
       # provenance_gate.sh accused three healthy CM044 wiki images of being
       # stale on run 31696154993, because `gh api` prints its error body to

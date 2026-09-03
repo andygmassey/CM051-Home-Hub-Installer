@@ -1276,6 +1276,11 @@ stage-payload: download-python
 	    exit 1; \
 	fi; \
 	printf '[OK] Embedded (B-lite) payload sealed-pending-sparkle at %s\n' "$$PAYLOAD"
+	@# #644: strip ambient __pycache__/.pyc that the cp -R copies above bring in
+	@# from the operator checkout, BEFORE seeding. The seeder compiles for 3.11
+	@# and never overwrites a wrong-tag (e.g. cpython-314) .pyc, so an unstripped
+	@# payload ships the operator ambient bytecode. Self-checks: 0 .pyc must remain.
+	@bash "$(CURDIR)/scripts/strip-payload-pyc.sh" "$(OSTLER_APP_PATH)/Contents/Resources/ostler-payload"
 	@bash "$(CURDIR)/scripts/seed-hub-payload-pyc.sh" "$(OSTLER_APP_PATH)" "$(PYTHON_BUNDLE_TARBALL)"
 
 # ---------------------------------------------------------------------------
