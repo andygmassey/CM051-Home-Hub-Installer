@@ -125,6 +125,12 @@ jobs:
         if: always()
         run: bash tests/test_spoken_transcripts_absence_discriminated.sh
 
+      - name: v1061-D001 -- the region step must not leak a raw traceback (#622)
+        # if: always() -- shares the job with the loop above; without it a red in an
+        # earlier m..z test would skip this one and mask it (verify_ci_steps_are_maskless).
+        if: always()
+        run: bash tests/test_region_persist_does_not_leak_a_traceback.sh
+
   python-ubuntu:
     # Vendored-logic tests (parsers, identity resolver, migration guard,
     # tailnet parser, knowledge embed-contract). OS-independent, so they run on
