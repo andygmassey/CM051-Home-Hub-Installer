@@ -68,7 +68,6 @@ jobs:
             tests/test_ostler_gui_sudo_gates.sh \
             tests/test_placeholder_strip.sh \
             tests/test_preferences_vendor_wired.sh \
-            tests/test_region_persist_does_not_leak_a_traceback.sh \
             tests/test_resource_tier_governor.sh \
             tests/test_settling_progress_writer.sh \
             tests/test_subscription_activation_path.sh \
@@ -125,6 +124,12 @@ jobs:
         # forbid. It caught this: 1 maskable step of 359, and it was mine.
         if: always()
         run: bash tests/test_spoken_transcripts_absence_discriminated.sh
+
+      - name: v1061-D001 -- the region step must not leak a raw traceback (#622)
+        # if: always() -- shares the job with the loop above; without it a red in an
+        # earlier m..z test would skip this one and mask it (verify_ci_steps_are_maskless).
+        if: always()
+        run: bash tests/test_region_persist_does_not_leak_a_traceback.sh
 
   python-ubuntu:
     # Vendored-logic tests (parsers, identity resolver, migration guard,
