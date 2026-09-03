@@ -171,12 +171,21 @@ jobs:
         run: |
           set -euo pipefail
           # 🔴 THE SOURCE IS NOW EXPORTED, NOT JUST PRINTED (#171).
-          # On a dispatch this value is read OUT OF the plist that
-          # tests/test_installer_version_matches_the_cut.sh then compares it
-          # against -- a comparison that cannot lose. Printing "source: ..."
-          # told a human and told the gate nothing, so the gate graded a
-          # tautology as SUCCESS (measured: v1.0.61 dry run graded v1.0.60).
-          # CUT_VERSION_SOURCE lets it refuse instead. See that file's header.
+          # On a dispatch this value is read OUT OF the plist that the
+          # installer-version gate later compares it against -- a comparison
+          # that cannot lose. Printing "source: ..." told a human and told the
+          # gate nothing, so the gate graded a tautology as SUCCESS (measured:
+          # the v1.0.61 dry run graded v1.0.60). CUT_VERSION_SOURCE lets it
+          # refuse instead. Full write-up in that gate's own header comment.
+          #
+          # ⚠️ DO NOT SPELL THE GATE'S PATH IN THIS COMMENT. The maskless
+          # checker classifies a step as a TEST step by looking for the
+          # literal test-path prefix anywhere in its `run:` block, comments
+          # included (verify_ci_steps_are_maskless.py:57). Naming the file
+          # here made this resolve step read as a test, which in turn made the
+          # NEXT real test in this job look maskable, and ci-maskless went red
+          # on a workflow whose behaviour had not changed. Prose is not inert
+          # inside a file something parses.
           if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
             CUT_VERSION="${GITHUB_REF_NAME}"
             CUT_VERSION_SOURCE="tag"
