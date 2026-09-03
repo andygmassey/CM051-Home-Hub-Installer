@@ -209,6 +209,17 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         # limactl there hours earlier). A bare `colima` here is
         # command-not-found, and under `|| true` that reads as a clean reset
         # that never happened. That is task #542 and it bites the harness too.
+        # 🔴 STOP THE SUPERVISOR BEFORE THE THING IT SUPERVISES.
+        # Run 6 measured this: colima stop returned rc=0, the survey showed
+        # all six ports FREE, and by the time the driver ran its own preflight
+        # ~90s later 6333 was held again and colima was running. Nothing had
+        # gone wrong -- com.ostler.engine-supervisor had done its job and
+        # restarted the container VM, which is CORRECT on a customer box.
+        # A reset that stops colima without stopping its supervisor is racing
+        # a component designed to win that race.
+        # Booting it out is not destructive: the install re-loads it.
+        echo "booting out the engine supervisor so it cannot restart colima under us"
+        launchctl bootout "gui/$(id -u)/com.ostler.engine-supervisor" 2>&1 | head -2 || true
         COLIMA=""
         for c in /opt/homebrew/bin/colima /usr/local/bin/colima; do
             [[ -x "$c" ]] && { COLIMA="$c"; break; }
@@ -236,7 +247,21 @@ if [[ "$DO_RESET" -eq 1 ]]; then
             _colima_bin_dir="${COLIMA%/*}"
             _stop_out="$(PATH="${_colima_bin_dir}:${PATH}" "$COLIMA" stop 2>&1)" \
                 && _stop_rc=0 || _stop_rc=$?
-            printf '%s\n' "$_stop_out" | tail -3
+            # echo, NOT printf with a quoted format. THIS WHOLE BLOCK IS A
+            # SINGLE-QUOTED ARGUMENT TO ssh, so any inner single quote closes
+            # it and the shell re-splits everything after. Run 6 printed
+            #     msg=donencolima stop rc=0
+            # -- two separate lines welded together with a stray literal n,
+            # which is what a quote breakout looks like when it does not
+            # error. It corrupted the OUTPUT ONLY, so nothing failed and
+            # nothing said so.
+            #
+            # NOTE TO THE NEXT EDITOR, AND I TRIPPED ON IT WRITING THIS VERY
+            # COMMENT: no apostrophes in here either. bash -n does NOT catch
+            # it, because the quotes rebalance at the end of the block and the
+            # result is valid shell that means something else. The control
+            # that catches it is a grep for a quote inside the block.
+            echo "$_stop_out" | tail -3
             echo "colima stop rc=${_stop_rc}"
         else
             echo "no colima binary found at either Homebrew prefix."
