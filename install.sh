@@ -16585,6 +16585,21 @@ _ostler_ensure_qdrant_collections() {
     [ -z "$_missing" ]
 }
 
+# ── reg#625: an import that attempted people but stored zero vectors FAILED ──
+# Complements the collection gate above: that refuses when the store has no
+# collection to hold the data; this catches the case where the collection is
+# present but every write still failed (the walk's 3810 x 404). Pure predicate,
+# so it is unit-testable: returns non-zero iff work was attempted and nothing
+# landed. The caller reads "attempted" from the importer's own [i/N] progress
+# and "stored" from the people collection's point count.
+_ostler_import_yield_ok() {
+    # _ostler_import_yield_ok <attempted> <stored>
+    local _a="${1:-0}" _s="${2:-0}"
+    case "$_a$_s" in *[!0-9]*) return 0 ;; esac   # non-numeric -> cannot judge, do not fail
+    [ "$_a" -gt 0 ] && [ "$_s" -eq 0 ] && return 1
+    return 0
+}
+
 # ── Pre-create the required Qdrant collections (#606) ────────────────
 #
 # The wiki compiler reads several Qdrant collections at compile time.
@@ -17991,16 +18006,36 @@ if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
         fail_with_code "ERR-14-STORE-NOT-READY-FOR-IMPORT" \
             "$(printf "$MSG_FAIL_QDRANT_IMPORT_REFUSED_MISSING_COLLECTIONS" "${_OSTLER_QDRANT_MISSING_COLLECTIONS:-unknown}")"
     fi
+    _import_log="$(mktemp -t ostler-import.XXXXXX 2>/dev/null || printf '/tmp/ostler-import.log')"
     progress "Importing your data (building your knowledge graph)" "import_data"
     info "$MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES"
     if "$IMPORT_SCRIPT" "${_IMPORT_DIRS[@]}" \
         --user-name "$USER_NAME" --user-id "$USER_ID" --verbose 2>&1 \
-        | while IFS= read -r line; do echo "  $line"; done; then
+        | tee "$_import_log" | while IFS= read -r line; do echo "  $line"; done; then
         ok "$MSG_OK_GDPR_IMPORT_COMPLETE"
     else
         warn "$MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN"
         warn "$(printf "$MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE" "${_IMPORT_DIRS[0]}" "${USER_NAME}")"
     fi
+    # ── reg#625 yield floor: attempted people but stored nothing is a FAILED import ──
+    # The importer prints one [i/N] line per person. If it processed any and the
+    # people vector collection is still empty, every write was discarded (the
+    # 3810 x 404 this walk hit) and status=ok would lie. Read both, then FAIL.
+    _import_attempted="$(grep -cE '\[[0-9]+/[0-9]+\]' "$_import_log" 2>/dev/null || printf '0')"
+    _people_points="$(
+        curl -sf -m 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" "${QDRANT_URL:-http://localhost:6333}/collections/people" 2>/dev/null \
+        | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read()); print(int(((d.get("result") or {}).get("points_count")) or 0))
+except Exception:
+    print(0)' 2>/dev/null || printf '0'
+    )"
+    rm -f "$_import_log" 2>/dev/null || true
+    if ! _ostler_import_yield_ok "${_import_attempted:-0}" "${_people_points:-0}"; then
+        fail_with_code "ERR-14-IMPORT-STORED-NOTHING" \
+            "$(printf "$MSG_FAIL_IMPORT_ATTEMPTED_BUT_STORED_NOTHING" "${_import_attempted:-0}")"
+    fi
+
     # Counts-only preferences readback; no item content leaves the process.
     # v1.0.10 install-abort fix: this is a counts-only, non-fatal
     # diagnostic, but under `set -Eeuo pipefail` a failing curl (401 /

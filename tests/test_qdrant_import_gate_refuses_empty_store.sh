@@ -104,6 +104,25 @@ else
   pass "E no 'optional collections' / 'wiki will still build' reassurance on this path"
 fi
 
+# ---- arms F-I: reg#625 yield floor -- attempted people but stored nothing FAILS ----
+YFN="$(sed -n '/^_ostler_import_yield_ok() {/,/^}/p' "$INSTALL")"
+if [ -n "$YFN" ]; then
+  eval "$YFN"
+  if _ostler_import_yield_ok 3810 3810; then pass "F attempted 3810, stored 3810 -> ok (a real import is not a floor violation)"
+  else fail "F a healthy import scored a floor violation"; fi
+  if _ostler_import_yield_ok 0 0; then pass "G attempted 0 (empty source) -> ok, not a failure"
+  else fail "G an empty source scored a floor violation"; fi
+  if _ostler_import_yield_ok 3810 0; then fail "H attempted 3810 stored 0 was NOT caught -- tonight's exact silent loss"
+  else pass "H attempted 3810, stored 0 -> FAIL (the yield floor fires on the real defect)"; fi
+else
+  fail "F-H the yield-floor predicate _ostler_import_yield_ok does not exist in $INSTALL"
+fi
+if grep -qF '_ostler_import_yield_ok "${_import_attempted' "$INSTALL" && grep -qF 'ERR-14-IMPORT-STORED-NOTHING' "$INSTALL"; then
+  pass "I the yield floor is wired after import with its own fail_with_code"
+else
+  fail "I the yield-floor check is not wired after the import step"
+fi
+
 echo
-if [ "$fails" = "0" ]; then echo "OK -- import refuses into an empty store, and the refusal is wired ahead of it"; exit 0
+if [ "$fails" = "0" ]; then echo "OK -- import refuses an empty store AND fails when it stored nothing, both wired"; exit 0
 else echo "FAILED -- $fails arm(s) failed"; exit 1; fi
