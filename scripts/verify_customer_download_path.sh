@@ -215,8 +215,36 @@ if command -v hdiutil >/dev/null 2>&1; then
             say "       Customers would receive a DIFFERENT build from the one gated."
             exit 1
         fi
+        # THE VERSION HALF IS NOT THE WHOLE CHECK, AND THE THIRD ARM PROVED IT.
+        # Measured 2026-09-03: this script was run with the right version and a
+        # deliberately WRONG byte count and it still printed OK, because
+        # WANT_BYTES was consulted only on the release-API arm above and never
+        # here. A caller exporting OSTLER_EXPECTED_DMG_BYTES on the public path
+        # would have been exporting a variable this arm ignores -- presence
+        # without behaviour, which reads to the next person as "bytes are
+        # checked".
+        #
+        # It matters beyond tidiness: CFBundleShortVersionString is a STRING
+        # INSIDE the disk image. Two different builds of the same version carry
+        # the same string, so the version half cannot tell a re-cut from the
+        # blessed artefact. The byte count can, and it is already in hand
+        # (`size`, counted off the actual download).
+        if [ -n "${WANT_BYTES}" ] && [ "${size}" != "${WANT_BYTES}" ]; then
+            say ""
+            say "[FAIL] version ${got} matches, but the download is ${size} bytes"
+            say "       and the blessed release asset is ${WANT_BYTES}."
+            say "       Same version string, DIFFERENT build. A version string is"
+            say "       carried inside the image and cannot distinguish two cuts."
+            exit 1
+        fi
         say ""
-        say "[OK] ${URL} serves a real DMG at version ${got} -- the customer path works."
+        if [ -n "${WANT_BYTES}" ]; then
+            say "[OK] ${URL} serves a real DMG at version ${got}, ${size} bytes, matching the blessed asset -- the customer path works."
+        else
+            # Say so rather than letting a narrower check read as the full one.
+            say "[OK] ${URL} serves a real DMG at version ${got} -- the customer path works."
+            say "     (byte count NOT compared: pass OSTLER_EXPECTED_DMG_BYTES to pin the exact build)"
+        fi
         exit 0
     fi
     say "[CANNOT] could not mount the downloaded DMG to read its version"
