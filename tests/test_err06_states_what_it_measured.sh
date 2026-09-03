@@ -340,7 +340,12 @@ elif [[ "$n_diag" -ne 1 ]]; then
     cannot_run "the anchor matches ${n_diag} lines, expected exactly 1; a comment or a second emit site has joined the match set"
 else
     DIAG_MSG="$(printf '%s\n' "$DIAG_LINE" | sed -E 's/^[[:space:]]*warn "//; s/"$//')"
-    if printf '%s' "$DIAG_MSG" | grep -qE '^ERR-|^[A-Z0-9-]*LEAK'; then
+    # grep -c, NOT the quiet flag, and deliberately so. A quiet grep on the
+    # right of a pipe exits at the first match and SIGPIPEs its producer, which
+    # under `set -o pipefail` can invert this very verdict. Counting forces a
+    # read to EOF, so it cannot. The pipefail-shortcircuit ratchet caught my
+    # first draft of this arm, in this file, on this PR.
+    if [ "$(printf '%s' "$DIAG_MSG" | grep -cE '^ERR-|^[A-Z0-9-]*LEAK')" -gt 0 ]; then
         bad "ARM 5 the non-fatal diagnostic still OPENS with the error code:
       \"$(printf '%s' "$DIAG_MSG" | cut -c1-70)\"
       The customer's first words about a measured readiness timeout must not be
@@ -354,7 +359,7 @@ else
     # Without this the arm above passes for any string that merely fails to
     # start with ERR-, including an empty one.
     PRE_FIX_DIAG='ERR-06-STORE-AUTH-LEAK diagnostic (non-fatal): status=none'
-    if printf '%s' "$PRE_FIX_DIAG" | grep -qE '^ERR-|^[A-Z0-9-]*LEAK'; then
+    if [ "$(printf '%s' "$PRE_FIX_DIAG" | grep -cE '^ERR-|^[A-Z0-9-]*LEAK')" -gt 0 ]; then
         ok "ARM 5 MUTATION -> the pinned pre-fix opening trips the predicate (arm 5 discriminates)"
     else
         bad "ARM 5 MUTATION -> the pinned PRE-FIX opening does NOT trip the predicate.
