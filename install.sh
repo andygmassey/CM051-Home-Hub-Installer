@@ -10210,9 +10210,21 @@ progress() {
     # declares. The constant is kept honest by
     # tests/test_total_steps_dynamic.sh; this is the belt to that pair of
     # braces, and it costs one comparison per step.
-    if [[ "$PCT" -gt 100 ]]; then
-        PCT=100
-    fi
+    #
+    # SPELLED TO MATCH THE OTHER PERCENTAGE IN THIS FILE. The Ollama pull
+    # parser clamps with exactly `(( pct > 100 )) && pct=100` (:1517) and has
+    # done for months. Two computations, one contract -- so they say it the
+    # same way, and a reader (or a grep) that has found one finds both.
+    #
+    # ⚠️ POSITION, NOT TASTE, IS WHAT MAKES THIS FORM SAFE. Under `set -Eeuo
+    # pipefail` (:29) a bare `A && B` whose A is FALSE evaluates to 1. Bash
+    # exempts it here only because it is NOT the last command of its enclosing
+    # compound -- `local BAR_WIDTH=30` follows. Do NOT copy this form to the
+    # TOTAL_STEPS fallback above: there the `&&` WAS the last statement of an
+    # `if` body, so its non-zero status became the block's status and set -e
+    # killed the installer. Same operator, opposite outcome, decided purely by
+    # what comes next. Measured both ways, not reasoned.
+    (( PCT > 100 )) && PCT=100
     local BAR_WIDTH=30
     local FILLED=$((PCT * BAR_WIDTH / 100))
     local EMPTY=$((BAR_WIDTH - FILLED))
