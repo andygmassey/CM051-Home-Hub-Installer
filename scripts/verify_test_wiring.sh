@@ -287,10 +287,32 @@ if swift_runner:
 # but the substring the loop below hunts -- the filename WITH extension,
 # `test_tailnet_owner_resolution.py` -- never appears in that invocation. The
 # module form drops the extension and swaps the path separator for a dot, so a
-# plain `t in text` scores a genuinely-wired unittest module UNWIRED. The sole
-# victim on this tree is test_tailnet_owner_resolution.py, run by
-# .github/workflows/wiki-tailnet-gate.yml, whose workflow has no `paths:`
-# filter, so the ".py" spelling appears nowhere for the substring to catch.
+# plain `t in text` scores a genuinely-wired unittest module UNWIRED.
+#
+# 🔻 THE ORIGINAL VERSION OF THIS PARAGRAPH WAS MEASURABLY FALSE AND IS
+# CORRECTED HERE (2026-09-03). It said the sole victim was
+# test_tailnet_owner_resolution.py, run by wiki-tailnet-gate.yml, and that
+# 'the ".py" spelling appears nowhere for the substring to catch'. Measured:
+# TWO workflows invoke that test, and only one uses the module form.
+#
+#   wiki-tailnet-gate.yml:47      python3 -m unittest tests.test_...  no ".py"
+#   tests-unwired-sweep-mz.yml:165  python tests/test_....py          HAS ".py"
+#
+# The plain arm therefore already matches via the sweep, which is why the TSV
+# credits tests-unwired-sweep-mz.yml as the runner rather than the purpose-built
+# gate. ⇒ ON THIS TREE THE STEM ARM BELOW IS REDUNDANT, NOT LOAD-BEARING.
+# Proved by mutation, not reasoned: deleting the stem arm and regenerating
+# leaves tests/TEST_WIRING.tsv BYTE-IDENTICAL (git status clean), across all
+# 416 rows -- so it currently changes no verdict anywhere.
+#
+# 🗿 IT IS RETAINED DELIBERATELY, and the distinction matters. A guard with no
+# failing case today is not automatically dead weight -- it is dead weight only
+# if the case can never return. Here it can and cheaply: delete the sweep line,
+# or let the sweep drop this file, and wiki-tailnet-gate.yml's module-form
+# invocation becomes the only starter, at which point the stem arm is the sole
+# thing standing between a genuinely-wired test and a FALSE UNWIRED row.
+# Keeping it is insurance. Keeping a FALSE STORY about it is not, which is the
+# whole reason this paragraph was rewritten rather than the code touched.
 #
 # FIX: for a .py test, ALSO match the bare module STEM (filename minus ".py")
 # on a word boundary, so `tests.test_tailnet_owner_resolution` and
