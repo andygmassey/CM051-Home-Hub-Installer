@@ -545,6 +545,7 @@ MSG_WARN_QDRANT_COLLECTION_PRECREATE_FAILED="Could not prepare the %s search col
 MSG_WARN_QDRANT_NOT_READY_COLLECTIONS_SKIPPED="Search index not ready in time yet; the data import below will wait for it, prepare the collections, and stop rather than discard your data if the store is still not ready."
 MSG_FAIL_QDRANT_IMPORT_REFUSED_MISSING_COLLECTIONS="Your data was not imported. The search store could not be prepared to hold it (missing: %s), and importing anyway would have discarded it silently. Nothing was lost. Re-run the installer once the machine is idle, or set OSTLER_QDRANT_READY_WAIT_S to wait longer."
 MSG_FAIL_IMPORT_ATTEMPTED_BUT_STORED_NOTHING="Your data import ran over %s records but stored none of them; the search store rejected every one, so the result would be an empty knowledge graph presented as complete. Stopping rather than showing you that. Re-run the installer once the machine is idle."
+MSG_WARN_IMPORT_YIELD_UNMEASURABLE="Could not read the import's own log, so the check that your data actually landed could not run. This is not a report that the import failed, and it is not a report that it succeeded."
 MSG_OK_SLEEP_DISABLED_AC_BATTERY_SLEEP_PRESERVED="Sleep disabled on AC, battery sleep preserved, wake-on-network enabled"
 MSG_OK_SLEEP_DISABLED_WAKE_NETWORK_ENABLED="Sleep disabled, wake-on-network enabled"
 MSG_OK_TAILSCALE_ALREADY_INSTALLED="Tailscale already installed"

@@ -123,6 +123,44 @@ else
   fail "I the yield-floor check is not wired after the import step"
 fi
 
+# ---- arms J-L: the floor's INPUT must be three-state, and its evidence must survive ----
+#
+# A floor is only as honest as the number it reads. The first cut of this gate
+# read "attempted" with `grep -c ... 2>/dev/null || printf '0'`, which reports an
+# UNREADABLE log as "attempted 0" -- and attempted-0 is precisely the value that
+# makes the floor decline to fire. A silent-loss guard that disarms itself when
+# it cannot see is the same false-zero that cost a redundant re-ingest in D004.
+if [ -n "$YFN" ]; then
+  if _ostler_import_yield_ok "CANNOT-RUN" 0; then
+    pass "J attempted CANNOT-RUN -> ok (an unmeasurable count is not a floor violation)"
+  else
+    fail "J an unreadable import log would FAIL the install -- cannot-run is not fail"
+  fi
+fi
+
+att_line="$(grep -nF '_import_attempted="$(grep -cE' "$INSTALL" | head -1)"
+if [ -z "$att_line" ]; then
+  fail "K the attempted-count read is missing entirely"
+elif printf '%s' "$att_line" | grep -qF '2>/dev/null'; then
+  fail "K attempted-count still swallows read errors (2>/dev/null) -- an unreadable log reads as 0 and disarms the floor"
+elif ! grep -qF '[[ -r "$_import_log" ]]' "$INSTALL"; then
+  fail "K attempted-count is read with no -r readability guard, so CANNOT-RUN and 0 are indistinguishable"
+else
+  pass "K attempted-count is read behind an -r guard and does not swallow read errors"
+fi
+
+rm_ln="$(grep -nF 'rm -f "$_import_log"' "$INSTALL" | head -1 | cut -d: -f1)"
+nothing_ln="$(grep -nF 'ERR-14-IMPORT-STORED-NOTHING' "$INSTALL" | head -1 | cut -d: -f1)"
+if [ -z "$nothing_ln" ]; then
+  fail "L cannot locate the stored-nothing failure to check evidence retention"
+elif [ -z "$rm_ln" ]; then
+  pass "L the import log is retained, so the failure that cites it still has its evidence"
+elif [ "$rm_ln" -gt "$nothing_ln" ]; then
+  pass "L the import log is deleted only after the failure that cites it"
+else
+  fail "L the import log is deleted at line $rm_ln, BEFORE the failure at $nothing_ln that cites it"
+fi
+
 echo
 if [ "$fails" = "0" ]; then echo "OK -- import refuses an empty store AND fails when it stored nothing, both wired"; exit 0
 else echo "FAILED -- $fails arm(s) failed"; exit 1; fi
