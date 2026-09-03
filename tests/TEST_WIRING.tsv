@@ -276,6 +276,7 @@ test_provenance_gate_marker_read_is_not_piped.sh	WIRED	.github/workflows/cut-gat
 test_provenance_survives_the_filter_under_execution.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_pyc_bytes_depend_on_compile_path.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pyc_seed_excludes_nested_ostler_app.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_qdrant_import_gate_refuses_empty_store.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_qdrant_membership_not_cardinality.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_qdrant_readiness_tests_the_authenticated_surface.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_readonly_flags_need_no_tty.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml

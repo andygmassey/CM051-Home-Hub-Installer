@@ -16540,7 +16540,67 @@ fi
 unset _gdb_up _gdb_up_attempt
 ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 
-# ── Pre-create optional Qdrant collections (#606) ────────────────
+# ── v1061-D003 / reg#624: the vector store is a PREREQUISITE for import ──
+#
+# Long-standing latent defect a wiped, sole-tenant box finally exposed. On a
+# cold fresh install Qdrant collections do NOT self-create
+# (feedback_qdrant_collections_no_self_create_fresh_install), and a readiness
+# miss at T+0 (7 GB model pull + docker on a 16 GB box) can leave them absent.
+# import_data then writes every person as an embedding, 404s on the missing
+# collection, and discards thousands SILENTLY. This helper ensures the store
+# answers and every required collection exists -- creating any that are missing
+# -- and returns NON-ZERO if it cannot, so the import step can REFUSE rather
+# than run into a void. It reads the ONE shared list
+# _OSTLER_REQUIRED_QDRANT_COLLECTIONS (declared just below), so the importer's
+# expectation can never drift from the pre-creator's. The readiness wait is
+# env-tunable (OSTLER_QDRANT_READY_WAIT_S), not a magic constant, and probes the
+# AUTHENTICATED surface the writes actually use (#566).
+_OSTLER_QDRANT_MISSING_COLLECTIONS=""
+_ostler_ensure_qdrant_collections() {
+    local _u="${QDRANT_URL:-http://localhost:6333}"
+    local _max="${OSTLER_QDRANT_READY_WAIT_S:-120}" _waited=0 _c _missing=""
+    while [ "$_waited" -lt "$_max" ]; do
+        if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+            -sf -m 2 "${_u}/collections" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 2
+        _waited=$((_waited + 2))
+    done
+    for _c in "${_OSTLER_REQUIRED_QDRANT_COLLECTIONS[@]}"; do
+        if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+            -sf -m 5 "${_u}/collections/${_c}" >/dev/null 2>&1; then
+            continue
+        fi
+        curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+            -sf -m 10 -X PUT "${_u}/collections/${_c}" \
+            -H 'Content-Type: application/json' \
+            -d '{"vectors": {"size": 768, "distance": "Cosine"}}' >/dev/null 2>&1 || true
+        if ! curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+            -sf -m 5 "${_u}/collections/${_c}" >/dev/null 2>&1; then
+            _missing="${_missing:+$_missing }$_c"
+        fi
+    done
+    _OSTLER_QDRANT_MISSING_COLLECTIONS="$_missing"
+    [ -z "$_missing" ]
+}
+
+# ── reg#625: an import that attempted people but stored zero vectors FAILED ──
+# Complements the collection gate above: that refuses when the store has no
+# collection to hold the data; this catches the case where the collection is
+# present but every write still failed (the walk's 3810 x 404). Pure predicate,
+# so it is unit-testable: returns non-zero iff work was attempted and nothing
+# landed. The caller reads "attempted" from the importer's own [i/N] progress
+# and "stored" from the people collection's point count.
+_ostler_import_yield_ok() {
+    # _ostler_import_yield_ok <attempted> <stored>
+    local _a="${1:-0}" _s="${2:-0}"
+    case "$_a$_s" in *[!0-9]*) return 0 ;; esac   # non-numeric -> cannot judge, do not fail
+    [ "$_a" -gt 0 ] && [ "$_s" -eq 0 ] && return 1
+    return 0
+}
+
+# ── Pre-create the required Qdrant collections (#606) ────────────────
 #
 # The wiki compiler reads several Qdrant collections at compile time.
 # On a fresh install `people` is written first by the contact hydrate
@@ -16602,6 +16662,26 @@ case "$_QDRANT_READY_CAP" in
         ;;
 esac
 
+# Merge note (#1385 x #1386): both branches renamed the loop bound below. Kept
+# #1386's _QDRANT_READY_CAP (OSTLER_QDRANT_READY_TIMEOUT, default 300) over
+# #1385's OSTLER_QDRANT_READY_WAIT_S default 30, for three measured reasons: 30
+# is the value watched FAILING on the v1.0.61 walk; _QDRANT_READY_CAP is the
+# name the hydrate-cap-floor gate declares and enforces; and its assignment
+# validates the env override instead of feeding a non-numeric straight to seq.
+# OSTLER_QDRANT_READY_WAIT_S keeps its own separate job -- the in-function wait
+# in _ostler_ensure_qdrant_collections (default 120), which is the wait the
+# store-not-ready refusal tells the customer to raise. ONE NAME FOR TWO WAITS
+# WITH TWO DEFAULTS was the real trap here.
+#
+# ⚠️ THIS PROSE SITS ABOVE THE READINESS STATE VARIABLE DELIBERATELY, AND MUST
+# NOT SPELL IT. Two gates anchor on the line below and they are not equally
+# robust: #566 anchors it line-exactly, so prose cannot fool it, but the ERR-06
+# harness counts bare substring matches -- so merely NAMING the variable in a
+# comment made its anchor match twice and turned that gate CANNOT-RUN. Both
+# were measured here, in that order. #566 additionally reads only a 70-LINE
+# WINDOW from the anchor, and the credentialed curl it hunts falls outside once
+# a comment this long sits in between. Keep commentary above; do not widen a
+# gate's window, and do not quote its anchor, to make it go green.
 _qdrant_ready=false
 _qdrant_last_status=""
 _qdrant_wait_s=0
@@ -16802,7 +16882,16 @@ else
     # would red a gate that is doing its job. This comment deliberately does
     # NOT spell that phrase out: a `grep -F` anchor that matches a COMMENT as
     # well as the statement it guards has silently doubled its match set.
-    warn "Knowledge-graph database did not answer in time. Non-fatal, and your data has not been touched. Support reference ERR-06-STORE-AUTH-LEAK diagnostic: status=${_qdrant_last_status:-none} headers_sent=${_e6_headers} waited=${_qdrant_wait_s:-0}s conf=${_e6_conf} conf_written=${_e6_conf_age} qdrant_started_at=${_e6_started}"
+    # v1061-D003 requirement 6: LEAD with an honest reference. The measured
+    # condition here is a readiness timeout (status=000, not 401), so the code a
+    # customer reads first is now ERR-06-STORE-READINESS-TIMEOUT. The legacy
+    # ERR-06-STORE-AUTH-LEAK token is preserved verbatim on the same line -- old
+    # install logs customers have already sent carry it, and arms 3/4 of
+    # test_qdrant_readiness_tests_the_authenticated_surface.sh pin it as the
+    # greppable diagnostic anchor. This path is now also non-terminal by design:
+    # the import gate downstream waits, prepares, and REFUSES rather than
+    # discarding, so the customer never reaches a silent empty graph.
+    warn "Knowledge-graph database did not answer in time yet. The data import below will wait for it, prepare the search collections, and stop rather than discard your data if the store is still not ready. Support reference ERR-06-STORE-READINESS-TIMEOUT; legacy code ERR-06-STORE-AUTH-LEAK diagnostic: status=${_qdrant_last_status:-none} headers_sent=${_e6_headers} waited=${_qdrant_wait_s:-0}s conf=${_e6_conf} conf_written=${_e6_conf_age} qdrant_started_at=${_e6_started}"
 
     # ⚠️ ONE-HEADER CONF IS ITS OWN DEFECT, AND THE LINE ABOVE MAKES IT VISIBLE.
     # _ostler_write_store_curl_config fails closed ONLY when BOTH secrets are
@@ -17965,16 +18054,84 @@ if [[ -n "${OSTLER_MAILBOX_DIR:-}" && -d "${OSTLER_MAILBOX_DIR}" ]]; then
 fi
 
 if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
+    # ── v1061-D003 / reg#624: refuse to import into a store that cannot hold it ──
+    # import_data embeds every person into Qdrant. If the collections were never
+    # prepared (a readiness miss upstream, and nothing self-creates them on a
+    # fresh store), every person 404s and is discarded SILENTLY -- which is how
+    # this walk scored STEP_END import_data status=ok over 3810 lost people.
+    # Give the store the tunable readiness wait it may have missed at T+0 and
+    # create anything still absent; if it STILL cannot hold the data, REFUSE via
+    # fail_with_code. Mechanism, measured (Archie review of #1385): that ends the
+    # install with a DONE fail marker BEFORE import_data is even announced -- this
+    # gate sits above the progress line -- so there is no import_data step for a
+    # false status=ok to sit on. The outcome is stronger than "the step is marked
+    # failed": the step never starts. This line is what CONNECTS the upstream
+    # readiness miss to a downstream stop -- without it the two live in different
+    # functions and nothing joins them.
+    if ! _ostler_ensure_qdrant_collections; then
+        fail_with_code "ERR-14-STORE-NOT-READY-FOR-IMPORT" \
+            "$(printf "$MSG_FAIL_QDRANT_IMPORT_REFUSED_MISSING_COLLECTIONS" "${_OSTLER_QDRANT_MISSING_COLLECTIONS:-unknown}")"
+    fi
+    # Diagnostics go in the private per-run sink (#910), like every other log
+    # this script writes. The fallback this replaced was a FIXED /tmp path, which
+    # is the shared-sink class that killed a walk in #538: on a multi-account Mac
+    # another user can pre-create or symlink that name. No fallback is needed here
+    # at all -- OSTLER_DIAG_DIR is created with mktemp -d at :168 and the script
+    # EXITS if that fails, so by this line the directory is known to exist.
+    _import_log="${OSTLER_DIAG_DIR}/import.log"
     progress "Importing your data (building your knowledge graph)" "import_data"
     info "$MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES"
     if "$IMPORT_SCRIPT" "${_IMPORT_DIRS[@]}" \
         --user-name "$USER_NAME" --user-id "$USER_ID" --verbose 2>&1 \
-        | while IFS= read -r line; do echo "  $line"; done; then
+        | tee "$_import_log" | while IFS= read -r line; do echo "  $line"; done; then
         ok "$MSG_OK_GDPR_IMPORT_COMPLETE"
     else
         warn "$MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN"
         warn "$(printf "$MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE" "${_IMPORT_DIRS[0]}" "${USER_NAME}")"
     fi
+    # ── reg#625 yield floor: attempted people but stored nothing is a FAILED import ──
+    # The importer prints one [i/N] line per person. If it processed any and the
+    # people vector collection is still empty, every write was discarded (the
+    # 3810 x 404 this walk hit) and status=ok would lie. Read both, then FAIL.
+    # Read "attempted" as THREE states, because two of them are not zero.
+    #
+    # `grep -c ... 2>/dev/null || printf '0'` reports an UNREADABLE log as
+    # "attempted 0", which silently disarms the floor below on exactly the run
+    # that most needed it -- the same false-zero that bought a redundant full
+    # re-ingest in v1061-D004. And on a READABLE log with no matches it is
+    # malformed rather than merely wrong: grep -c PRINTS "0" and EXITS 1, so the
+    # `||` arm fires as well and the value becomes the two-line string "0\n0"
+    # (measured). That is what puts a bare `syntax error in expression (error
+    # token is "0")` on the customer's screen (#271).
+    #
+    # `|| true` inside the substitution keeps errexit happy without appending a
+    # second count, and stderr is deliberately NOT discarded: a real read error
+    # belongs in the install log, not in /dev/null.
+    if [[ -r "$_import_log" ]]; then
+        _import_attempted="$(grep -cE '\[[0-9]+/[0-9]+\]' "$_import_log" || true)"
+    else
+        _import_attempted="CANNOT-RUN"
+        warn "$MSG_WARN_IMPORT_YIELD_UNMEASURABLE"
+    fi
+    _people_points="$(
+        curl -sf -m 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" "${QDRANT_URL:-http://localhost:6333}/collections/people" 2>/dev/null \
+        | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read()); print(int(((d.get("result") or {}).get("points_count")) or 0))
+except Exception:
+    print(0)' 2>/dev/null || printf '0'
+    )"
+    # The import log is deliberately NOT deleted here. It used to be, and that was
+    # safe while it lived at a throwaway mktemp path -- but it now lives in the
+    # per-run diagnostic sink, and the very next line can end the install over what
+    # that log says. Deleting it one line before the failure that cites it destroys
+    # the only record of WHICH records were attempted. Every sibling log in
+    # OSTLER_DIAG_DIR is retained for the same reason.
+    if ! _ostler_import_yield_ok "${_import_attempted:-0}" "${_people_points:-0}"; then
+        fail_with_code "ERR-14-IMPORT-STORED-NOTHING" \
+            "$(printf "$MSG_FAIL_IMPORT_ATTEMPTED_BUT_STORED_NOTHING" "${_import_attempted:-0}")"
+    fi
+
     # Counts-only preferences readback; no item content leaves the process.
     # v1.0.10 install-abort fix: this is a counts-only, non-fatal
     # diagnostic, but under `set -Eeuo pipefail` a failing curl (401 /
