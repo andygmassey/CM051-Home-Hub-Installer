@@ -112,6 +112,16 @@ DECLARED = [
      "PRECEDENT: already named + tunable at 1800 before T1; unchanged"),
     ("_HYDRATE_EMAILPREFS_CAP",  "hydrate_email_preferences", PHASE_MSG, MEASURED_FLOOR_S,
      "PRECEDENT: already named + tunable at 1800 before T1; unchanged"),
+    # THE ONLY ROW WHERE THE PROMISE LIMB IS ACTUALLY ENFORCEABLE. Contacts is
+    # the one capped step that publishes a duration promise of its own:
+    # MSG_INFO_PLEASE_WAIT_READING_CONTACTS -- "large libraries can take a
+    # couple of minutes". That promise floor is 120s; the measured family floor
+    # of 900s is higher, so 900 governs and the promise clears comfortably.
+    # Recorded because it is the existence proof that the briefed rule CAN be
+    # enforced once per-step copy exists -- today it exists exactly once.
+    ("_HYDRATE_CONTACTS_CAP",    "hydrate_graph/contacts",  "MSG_INFO_PLEASE_WAIT_READING_CONTACTS",
+     MEASURED_FLOOR_S,
+     "PROMISE 'a couple of minutes' = 120s, cleared; MEASURED family floor 900s governs"),
 ]
 
 CAP_DEF = re.compile(r'^\s*(_[A-Z0-9_]*_CAP)="\$\{([A-Z0-9_]+):-(\d+)\}"', re.M)
@@ -175,7 +185,12 @@ def self_test() -> int:
     # failing is worse than no control, so it is computed here.
     over = {row[0]: (f"ENV_{i}", row[3] + 1) for i, row in enumerate(DECLARED)}
     good_install = "\n".join(f'    {c}="${{{e}:-{v}}}"' for c, (e, v) in over.items())
-    good_strings = f'{PHASE_MSG}="typically takes 45 minutes to a few hours"\n'
+    # DERIVED, for the same reason the cap values are: the first version hardcoded
+    # only PHASE_MSG, so the moment a row cited a different governing key the
+    # BASELINE arm started failing on a fixture gap rather than on a real defect.
+    # Every governing key in the table gets a synthetic definition.
+    good_strings = "".join(f'{row[2]}="synthetic duration copy for the self-test"\n'
+                           for row in DECLARED)
 
     cases = []
     f, n = check(good_install, good_strings)
