@@ -137,11 +137,54 @@ while IFS= read -r glob; do
     [ -n "$glob" ] && RG_ARGS+=(--glob "!$glob")
 done <<< "$SKIP_GLOBS"
 
+# ONE filter definition, used by BOTH the census and the scan below. They must
+# be the same array: a denominator computed with a different filter from the
+# thing it describes is a second instrument that can silently disagree, which is
+# the exact class of defect this scanner exists to catch.
+#
+# WIDENED. Measured on the CM051 tree: 1514 tracked files, 1227 visible to the
+# original extension list, so 287 TEXT files were invisible BY CONSTRUCTION.
+# Blind kinds were .tsv 46, .env 36, .patch 17, .example 5, .ttl 4, .gitignore 3,
+# .jsonl 2, plus extension-less files. .tsv is the one that mattered:
+# .pii-name-registry.tsv is a .tsv, so the PII name registry was invisible to the
+# PII scanner. Repeated --type-add on the same type name APPENDS (verified: a
+# 9-file fixture went 1 visible -> 9 visible), which is why this reads as a list.
+TYPE_ARGS=(
+    --type-add 'src:*.{py,swift,rs,ts,js,mjs,yaml,yml,toml,json,sh,plist,conf,html,css,md,txt,xml,xcconfig}'
+    --type-add 'src:*.{tsv,csv,env,patch,diff,jsonl,ttl,example,cfg,ini,properties,sql,tf,tfvars}'
+    --type-add 'src:Makefile'
+    --type-add 'src:Dockerfile'
+    --type-add 'src:NOTICE'
+    --type-add 'src:LICENSE'
+    --type-add 'src:.gitignore'
+    --type-add 'src:.gitattributes'
+    -t src
+)
+
+# THE EXAMINED DENOMINATOR, printed because a zero here is otherwise invisible.
+# rg returns 1 for "no matches" whether it searched 20,000 files or ZERO, and the
+# case block below maps rc=1 to exit 0 CLEAN. So "searched the tree and found
+# nothing" and "searched nothing at all" were indistinguishable at the exit code.
+#
+# THE CALLER'S COUNT IS NOT A SUBSTITUTE, and this is the specific bug.
+# operator-pii-scan.yml counts STAGED files -- every changed tracked file,
+# regardless of type -- then prints "clean (N files scanned against a real
+# inventory)". For a PR touching only kinds the filter cannot see, that N is
+# non-zero while the number actually examined is zero, so the line asserts a scan
+# that did not happen. Print what THIS process examined, with THIS filter.
+EXAMINED="$(rg --files --hidden "${RG_ARGS[@]}" "${TYPE_ARGS[@]}" "$TARGET" 2>/dev/null | grep -c . || true)"
+echo "operator-pii-scan: examined ${EXAMINED} file(s) under ${TARGET} against ${#PATTERNS[@]} pattern(s)"
+if [ "${EXAMINED:-0}" -eq 0 ]; then
+    echo "operator-pii-scan: NOTHING EXAMINED -- 0 files matched the type filter." >&2
+    echo "  This is NOT a clean result. Whatever the exit code below, this run" >&2
+    echo "  checked nothing at all. If the changed files are a text kind, the" >&2
+    echo "  filter needs widening; see TYPE_ARGS above." >&2
+fi
+
 # Run the scan. PCRE2 needed for non-capturing groups + look-around.
 rg --pcre2 --no-heading -n -i --hidden \
     "${RG_ARGS[@]}" \
-    --type-add 'src:*.{py,swift,rs,ts,js,mjs,yaml,yml,toml,json,sh,plist,conf,html,css,md,txt,xml,xcconfig}' \
-    -t src \
+    "${TYPE_ARGS[@]}" \
     "$MASTER" \
     "$TARGET"
 
