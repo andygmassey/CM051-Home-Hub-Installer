@@ -78,9 +78,18 @@ jobs:
         run: |
           # ⚠️ `|| rc=$?`, NOT a bare call. The step shell is `/bin/bash -e {0}`,
           # so a bare fallible call exits the step before rc is captured and the
-          # CANNOT-RUN branch below becomes unreachable code. This is the class
-          # scripts/verify_cannot_run_branch_is_reachable.py exists to catch --
-          # this workflow must not be its next instance.
+          # CANNOT-RUN branch below becomes unreachable code. That is the class
+          # the cannot-run-branch-reachable gate exists to catch, and this
+          # workflow must not become its next instance.
+          #
+          # ⚠️ THAT SCANNER IS NAMED BY ITS WORKFLOW, NOT ITS PATH, ON PURPOSE.
+          # invoked-tests-are-watched extracts `(tests|scripts|bin|lib)/….(sh|py)`
+          # out of the whole run: body with NO comment awareness, so spelling the
+          # file as a path in a COMMENT reads as an INVOCATION and demands a
+          # paths: entry for a script this workflow never runs. Measured on run
+          # 33806347997, which failed exactly that way. Filed as a gate finding;
+          # NOT worked around by adding a false path entry, because that would
+          # make this workflow claim to watch something it does not use.
           set -uo pipefail
           rc=0
           /bin/bash tests/test_total_steps_denominator_ratchet.sh || rc=$?
