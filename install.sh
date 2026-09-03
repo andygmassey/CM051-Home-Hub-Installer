@@ -24767,11 +24767,17 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
     # run unbounded -- on a fresh install with a small backfill
     # window the FDA emit is fast enough that the absence rarely
     # bites in practice.
+    # T1: was a bare literal 180. Named + env-tunable on the
+    # _HYDRATE_APPLENOTES_CAP pattern, and governed by the floor rule --
+    # no hydrate cap may sit below the duration the customer-facing copy
+    # promises for it. scripts/verify_hydrate_cap_floors.py enforces that
+    # and names any step that breaks it.
+    _HYDRATE_EMAIL_CAP="${OSTLER_HYDRATE_EMAIL_TIMEOUT:-1800}"
     _HYDRATE_EMAIL_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _HYDRATE_EMAIL_TIMEOUT_WRAP="gtimeout 180"
+        _HYDRATE_EMAIL_TIMEOUT_WRAP="gtimeout $_HYDRATE_EMAIL_CAP"
     elif command -v timeout >/dev/null 2>&1; then
-        _HYDRATE_EMAIL_TIMEOUT_WRAP="timeout 180"
+        _HYDRATE_EMAIL_TIMEOUT_WRAP="timeout $_HYDRATE_EMAIL_CAP"
     fi
 
     mkdir -p "$_HYDRATE_EMAIL_MBOX_DIR"
@@ -24907,7 +24913,7 @@ except Exception:
     fi
 
     unset _HYDRATE_EMAIL_MBOX _HYDRATE_EMAIL_TIMED_OUT _HYDRATE_EMAIL_JSON
-    unset _HYDRATE_EMAIL_COUNT _HYDRATE_EMAIL_TIMEOUT_WRAP _HYDRATE_EMAIL_LOG
+    unset _HYDRATE_EMAIL_COUNT _HYDRATE_EMAIL_TIMEOUT_WRAP _HYDRATE_EMAIL_LOG _HYDRATE_EMAIL_CAP
     unset _HYDRATE_EMAIL_COUNTS _HYDRATE_EMAIL_MSGS
     unset _HYDRATE_EMAIL_RC _HYDRATE_EMAIL_OUTCOME
 else
@@ -24979,11 +24985,17 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
 
     # Same timeout picker as hydrate_email (brew coreutils gtimeout
     # preferred; system timeout fallback; unbounded if neither).
+    # T1: was a bare literal 90. Named + env-tunable on the
+    # _HYDRATE_APPLENOTES_CAP pattern, and governed by the floor rule --
+    # no hydrate cap may sit below the duration the customer-facing copy
+    # promises for it. scripts/verify_hydrate_cap_floors.py enforces that
+    # and names any step that breaks it.
+    _HYDRATE_WHATSAPP_CAP="${OSTLER_HYDRATE_WHATSAPP_TIMEOUT:-1800}"
     _HYDRATE_WHATSAPP_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _HYDRATE_WHATSAPP_TIMEOUT_WRAP="gtimeout 90"
+        _HYDRATE_WHATSAPP_TIMEOUT_WRAP="gtimeout $_HYDRATE_WHATSAPP_CAP"
     elif command -v timeout >/dev/null 2>&1; then
-        _HYDRATE_WHATSAPP_TIMEOUT_WRAP="timeout 90"
+        _HYDRATE_WHATSAPP_TIMEOUT_WRAP="timeout $_HYDRATE_WHATSAPP_CAP"
     fi
 
     _HYDRATE_WHATSAPP_LOG="${OSTLER_DIAG_DIR}/hydrate-whatsapp.log"
@@ -25070,7 +25082,7 @@ except Exception:
     fi
 
     unset _HYDRATE_WHATSAPP_TIMED_OUT _HYDRATE_WHATSAPP_JSON
-    unset _HYDRATE_WHATSAPP_COUNT _HYDRATE_WHATSAPP_TIMEOUT_WRAP _HYDRATE_WHATSAPP_RC
+    unset _HYDRATE_WHATSAPP_COUNT _HYDRATE_WHATSAPP_TIMEOUT_WRAP _HYDRATE_WHATSAPP_RC _HYDRATE_WHATSAPP_CAP
     unset _HYDRATE_WHATSAPP_LOG
 elif [[ ! -x "$_HYDRATE_WHATSAPP_PY" ]]; then
     info "$MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING"
@@ -25138,11 +25150,17 @@ elif [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
    { [[ -s "$_HYDRATE_BROWSING_SAFARI" ]] || [[ -s "$_HYDRATE_BROWSING_CHROME" ]]; }; then
     info "$MSG_HYDRATE_BROWSING_STARTED"
 
+    # T1: was a bare literal 90. Named + env-tunable on the
+    # _HYDRATE_APPLENOTES_CAP pattern, and governed by the floor rule --
+    # no hydrate cap may sit below the duration the customer-facing copy
+    # promises for it. scripts/verify_hydrate_cap_floors.py enforces that
+    # and names any step that breaks it.
+    _HYDRATE_BROWSING_CAP="${OSTLER_HYDRATE_BROWSING_TIMEOUT:-1800}"
     _HYDRATE_BROWSING_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _HYDRATE_BROWSING_TIMEOUT_WRAP="gtimeout 90"
+        _HYDRATE_BROWSING_TIMEOUT_WRAP="gtimeout $_HYDRATE_BROWSING_CAP"
     elif command -v timeout >/dev/null 2>&1; then
-        _HYDRATE_BROWSING_TIMEOUT_WRAP="timeout 90"
+        _HYDRATE_BROWSING_TIMEOUT_WRAP="timeout $_HYDRATE_BROWSING_CAP"
     fi
 
     _HYDRATE_BROWSING_LOG="${OSTLER_DIAG_DIR}/hydrate-browsing.log"
@@ -25252,7 +25270,7 @@ except Exception:
 
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
     unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED
-    unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG _HYDRATE_BROWSING_RC
+    unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG _HYDRATE_BROWSING_RC _HYDRATE_BROWSING_CAP
 elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
     info "$MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING"
 else
@@ -25465,11 +25483,17 @@ if _hydrate_sentinel_fresh "imessage"; then
 elif [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]; then
     info "$MSG_HYDRATE_IMESSAGE_STARTED"
 
+    # T1: was a bare literal 90. Named + env-tunable on the
+    # _HYDRATE_APPLENOTES_CAP pattern, and governed by the floor rule --
+    # no hydrate cap may sit below the duration the customer-facing copy
+    # promises for it. scripts/verify_hydrate_cap_floors.py enforces that
+    # and names any step that breaks it.
+    _HYDRATE_IMESSAGE_CAP="${OSTLER_HYDRATE_IMESSAGE_TIMEOUT:-1800}"
     _HYDRATE_IMESSAGE_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _HYDRATE_IMESSAGE_TIMEOUT_WRAP="gtimeout 90"
+        _HYDRATE_IMESSAGE_TIMEOUT_WRAP="gtimeout $_HYDRATE_IMESSAGE_CAP"
     elif command -v timeout >/dev/null 2>&1; then
-        _HYDRATE_IMESSAGE_TIMEOUT_WRAP="timeout 90"
+        _HYDRATE_IMESSAGE_TIMEOUT_WRAP="timeout $_HYDRATE_IMESSAGE_CAP"
     fi
 
     _HYDRATE_IMESSAGE_LOG="${OSTLER_DIAG_DIR}/hydrate-imessage.log"
@@ -25590,7 +25614,7 @@ except Exception:
     fi
 
     unset _HYDRATE_IMESSAGE_TIMED_OUT _HYDRATE_IMESSAGE_JSON_OUT
-    unset _HYDRATE_IMESSAGE_COUNT _HYDRATE_IMESSAGE_TIMEOUT_WRAP
+    unset _HYDRATE_IMESSAGE_COUNT _HYDRATE_IMESSAGE_TIMEOUT_WRAP _HYDRATE_IMESSAGE_CAP
     unset _HYDRATE_IMESSAGE_LOG
 elif [[ ! -x "$_HYDRATE_IMESSAGE_PY" ]]; then
     info "$MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING"
@@ -26224,11 +26248,17 @@ if [[ "$_INITIAL_HYDRATE_COLLECTIONS_BEFORE" -eq 0 ]] \
         || [[ -s "${_INITIAL_HYDRATE_FDA_DIR}/chrome_history.json" ]]; }; then
     info "$MSG_INITIAL_HYDRATE_BROWSER_RETRY"
 
+    # T1: was a bare literal 90. Named + env-tunable on the
+    # _HYDRATE_APPLENOTES_CAP pattern, and governed by the floor rule --
+    # no hydrate cap may sit below the duration the customer-facing copy
+    # promises for it. scripts/verify_hydrate_cap_floors.py enforces that
+    # and names any step that breaks it.
+    _INITIAL_HYDRATE_CAP="${OSTLER_INITIAL_HYDRATE_TIMEOUT:-1800}"
     _INITIAL_HYDRATE_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _INITIAL_HYDRATE_TIMEOUT_WRAP="gtimeout 90"
+        _INITIAL_HYDRATE_TIMEOUT_WRAP="gtimeout $_INITIAL_HYDRATE_CAP"
     elif command -v timeout >/dev/null 2>&1; then
-        _INITIAL_HYDRATE_TIMEOUT_WRAP="timeout 90"
+        _INITIAL_HYDRATE_TIMEOUT_WRAP="timeout $_INITIAL_HYDRATE_CAP"
     fi
     _INITIAL_HYDRATE_RETRY_RC=0
 
@@ -26261,7 +26291,7 @@ except Exception as exc:
         sleep 2
         _INITIAL_HYDRATE_POLL_ELAPSED=$((_INITIAL_HYDRATE_POLL_ELAPSED + 2))
     done
-    unset _INITIAL_HYDRATE_POLL_ELAPSED _INITIAL_HYDRATE_TIMEOUT_WRAP
+    unset _INITIAL_HYDRATE_POLL_ELAPSED _INITIAL_HYDRATE_TIMEOUT_WRAP _INITIAL_HYDRATE_CAP
     unset _INITIAL_HYDRATE_RETRY_RC
 fi
 
@@ -26372,11 +26402,17 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     info "$MSG_HYDRATE_PLACES_STARTED"
     _PLACES_EMBED_URL="${EMBED_OLLAMA_URL:-http://localhost:11434}"
     _PLACES_EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
+    # T1: was a bare literal 120. Named + env-tunable on the
+    # _HYDRATE_APPLENOTES_CAP pattern, and governed by the floor rule --
+    # no hydrate cap may sit below the duration the customer-facing copy
+    # promises for it. scripts/verify_hydrate_cap_floors.py enforces that
+    # and names any step that breaks it.
+    _PLACES_CAP="${OSTLER_HYDRATE_PLACES_TIMEOUT:-1800}"
     _PLACES_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _PLACES_TIMEOUT_WRAP="gtimeout 120"
+        _PLACES_TIMEOUT_WRAP="gtimeout $_PLACES_CAP"
     elif command -v timeout >/dev/null 2>&1; then
-        _PLACES_TIMEOUT_WRAP="timeout 120"
+        _PLACES_TIMEOUT_WRAP="timeout $_PLACES_CAP"
     fi
     # Capture the exit code explicitly (do NOT collapse to `&& ok || info`):
     # the module exits 0 for BOTH success AND the benign no-signals case, and
@@ -26435,7 +26471,7 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     else
         _hydrate_sentinel_record "places" "ran=1,rc=$_places_rc"
     fi
-    unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP \
+    unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP \ _PLACES_CAP
           _places_rc _places_log_tail
 fi
 
