@@ -114,7 +114,7 @@ jobs:
           set -uo pipefail
 
           # A venv sidesteps PEP 668 entirely rather than guessing whether this
-          # runner image happens to ship pytest or accept --break-system-packages --ignore-installed.
+          # runner image happens to ship pytest or accept --break-system-packages.
           if ! python3 -m venv /tmp/pytest-venv; then
             echo "FAIL: could not create the venv. pytest was never installed, so" >&2
             echo "NOTHING was measured. This is CANNOT-RUN, not a pass." >&2
