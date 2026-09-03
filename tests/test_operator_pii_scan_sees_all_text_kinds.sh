@@ -54,8 +54,15 @@ TOK="qqxzvbrand"
 # on a line STARTING with `]`. An inline ["x"] opens the array and never closes
 # it, swallowing every following line into the pattern. That is a fixture trap
 # worth writing down, not a scanner defect.
-mkdir -p "$TMP/home"
-cat > "$TMP/home/.ostler-operator-pii.toml" <<TOML
+# THE FIXTURE DIR IS DELIBERATELY NOT NAMED AFTER A UNIX HOME DIRECTORY.
+# ci-pii-shape-scan carries a pattern for that path shape, and it matches on
+# SHAPE rather than on a list of known values, so naming the fixture dir that
+# way writes the shape into this file and trips the guard. It did exactly that
+# on the first push of this test. The guard was right; the fix is to stop
+# writing the shape, not to weaken the pattern, and that is why this comment
+# describes the shape in prose instead of quoting it.
+mkdir -p "$TMP/inv"
+cat > "$TMP/inv/.ostler-operator-pii.toml" <<TOML
 [phone]
 hk_mobile_digits = "85200000000"
 uk_mobile_digits = "447700900123"
@@ -87,7 +94,7 @@ TOML
 
 run() {  # $1 = dir -> prints the scanner's exit code
     set +e
-    HOME="$TMP/home" bash "$SCANNER" "$1" >/dev/null 2>&1
+    HOME="$TMP/inv" bash "$SCANNER" "$1" >/dev/null 2>&1
     local rc=$?
     set -e
     printf '%s' "$rc"
@@ -131,8 +138,18 @@ done
 
 # (3) THE EXAMINED DENOMINATOR must be stated. A zero here is otherwise
 #     invisible, and the caller prints a STAGED count that is a different number.
-out="$(HOME="$TMP/home" bash "$SCANNER" "$(carrier stated.tsv)" 2>&1)"
-if printf '%s\n' "$out" | grep -q 'examined [0-9][0-9]* file(s)'; then
+# Count matches rather than piping into a short-circuiting consumer: under
+# pipefail such a consumer SIGPIPEs the producer and the pipeline reports
+# failure ON A MATCH. The repo ratchets that construct in
+# tests/pipefail_shortcircuit_baseline.txt, and it caught two instances of it
+# in the first push of this very file. This comment therefore describes the
+# construct rather than spelling it, so the warning does not itself become a
+# new ratchet instance.
+has() { [ "$(printf '%s\n' "$2" | grep -cF "$1" || true)" -gt 0 ]; }
+hasre() { [ "$(printf '%s\n' "$2" | grep -cE "$1" || true)" -gt 0 ]; }
+
+out="$(HOME="$TMP/inv" bash "$SCANNER" "$(carrier stated.tsv)" 2>&1)"
+if hasre 'examined [0-9]+ file\(s\)' "$out"; then
     ok "the scanner states how many files it examined"
 else
     bad "no examined-count line; a zero denominator would be invisible"
@@ -141,8 +158,8 @@ fi
 # (4) AND IT MUST SAY SO OUT LOUD WHEN THAT COUNT IS ZERO. This is the arm that
 #     separates "searched and found nothing" from "searched nothing".
 mkdir -p "$TMP/nofiles"; printf 'binary-ish\n' > "$TMP/nofiles/thing.unknownkind"
-out="$(HOME="$TMP/home" bash "$SCANNER" "$TMP/nofiles" 2>&1)"
-if printf '%s\n' "$out" | grep -q 'NOTHING EXAMINED'; then
+out="$(HOME="$TMP/inv" bash "$SCANNER" "$TMP/nofiles" 2>&1)"
+if has 'NOTHING EXAMINED' "$out"; then
     ok "a zero examined-count is announced, not reported as clean"
 else
     bad "0 files examined printed no warning -- it reads as a clean scan"
