@@ -34,6 +34,7 @@ on:
       # CHECK, and the pair is the point -- the gate must fire on changes
       # to itself, not only on changes to install.sh.
       - 'tests/test_skills_lockdown_config.sh'
+      - 'tests/test_reuse_run_keeps_the_daily_briefs.sh'
       - '.github/workflows/assistant-config-required-fields.yml'
   push:
     branches: [main]
@@ -74,3 +75,21 @@ jobs:
       - name: Skills surface lockdown is written unconditionally (#559)
         if: always()
         run: bash tests/test_skills_lockdown_config.sh
+
+      # #619. SAME EMITTER, DIFFERENT FAILURE MODE: not "a table is present but
+      # partial", but "a table the customer already had is regenerated EMPTY".
+      # The `{ ... } > "$ASSISTANT_CONFIG"` block runs on the reuse-settings
+      # re-run too, where the Phase-2 channel questions never execute, so the
+      # brief-delivery guard resolves no channel and writes ZERO [[cron.jobs]].
+      # The customer loses the morning brief and evening wrap they already had.
+      #
+      # Arm A drives the shipping resolver with that exact state and is RED on
+      # pre-fix install.sh (proved: 0 cron jobs, expected 2). Arm B is the
+      # must-be-zero control -- no channel anywhere must still emit nothing --
+      # so the gate cannot pass by always writing jobs.
+      #
+      # `if: always()` for the same reason as the step above: a skipped gate
+      # reports identically to one that ran and passed.
+      - name: A reuse re-run must not silently delete the customer's daily briefs (#619)
+        if: always()
+        run: bash tests/test_reuse_run_keeps_the_daily_briefs.sh
