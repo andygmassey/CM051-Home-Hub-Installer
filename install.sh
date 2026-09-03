@@ -8556,7 +8556,22 @@ ostler_slot_acquire() {
 # orphan them mid-walk.
 _ostler_slot_signal_tree() {
     local sig="$1" pid="$2" kid
-    for kid in $(pgrep -P "$pid" 2>/dev/null); do
+    # `|| true` IS LOAD-BEARING here too (#642). A childless process is the
+    # NORMAL case for this recursion's base step, and `pgrep -P` exits 1 when
+    # it finds no children. Under `set -Eeuo pipefail` that fires the ERR trap
+    # INSIDE the command substitution's subshell, which emits a spurious
+    # terminal DONE marker -- during the watchdog kill path, i.e. exactly when
+    # the install is already in trouble.
+    #
+    # I FIRST DECLARED THIS SITE SAFE AND WAS WRONG. My control used
+    # `for x in $( exit 1 )`, and `exit` is the one construct that does NOT
+    # trigger ERR, so the control could not fail. Re-measured against the real
+    # shipped ERR handler with a real `pgrep`:
+    #     for-list, real pgrep, unguarded ... 2 DONE markers
+    #     for-list, real pgrep, guarded ..... 1
+    #     for-list, $( exit 1 ) ............. 1   <- the invalid control
+    #     bare assignment, unguarded ........ 2   <- reference shape
+    for kid in $(pgrep -P "$pid" 2>/dev/null || true); do
         _ostler_slot_signal_tree "$sig" "$kid"
     done
     kill -"$sig" "$pid" 2>/dev/null || true
