@@ -12,7 +12,7 @@
 # consciously remove the row here -- never to let a script sync them.
 #
 # COLUMNS (tab-separated, exactly six):
-#   type         launch_agent | cron_job | artefact_dir | import_wire
+#   type         launch_agent | cron_job | artefact_dir | import_wire | qdrant_collection
 #   subject      the human name of the expected thing (what a diff will print)
 #   expectation  required   -> must be present; absent = FAIL
 #                conditional-> present only under a stated condition; absent is not a failure,
@@ -116,3 +116,21 @@ import_wire	identifier_quality applies the shared kinship guard	required	vendor/
 # green when #617 wires the shared guard into the write boundary.
 import_wire	contact_syncer applies the shared kinship guard	required	vendor/cm041/contact_syncer/*.py|is_relationship_label	#617	8 name-writers (syncer, facebook_friends, instagram_social, linkedin_*, owner_node, google_calendar), 0 guard
 import_wire	identity_resolver applies the shared kinship guard	required	vendor/cm041/identity_resolver/*.py|is_relationship_label	#617	the write boundary: resolver.register_person/create_person + batch_resolver, 0 guard
+
+# ---- qdrant_collection (enumerable; both directions enforced) -------------------
+# The vector collections a finished install must hold. install.sh creates these
+# four in one loop (install.sh:16586: `for _coll in people conversations
+# preferences evernote_knowledge`), so they are required. On the v1.0.60 walk
+# only people + preferences were present; conversations + evernote_knowledge were
+# absent (#615-adjacent) -- required here so that absence can NEVER ship silently.
+# A store that is DOWN or 401 is CANNOT-RUN, not absence (verifier enforces this).
+qdrant_collection	people	required	people	baseline	install.sh:16586 creation loop; also pre-created at 16470 (#638)
+qdrant_collection	conversations	required	conversations	#615	install.sh:16586 creation loop; ABSENT on the v1.0.60 walk
+qdrant_collection	preferences	required	preferences	baseline	install.sh:16586 creation loop; CM019 preference vectors
+qdrant_collection	evernote_knowledge	required	evernote_knowledge	#615	install.sh:16586 creation loop; ABSENT on the v1.0.60 walk
+# safari_history is created by an INGEST writer (the Safari extension path), not
+# the install.sh creation loop, so it is present only when browsing was ingested.
+# Declared conditional so its existence is a DECIDED fact (not an UNDECLARED
+# surprise, which is how the class gate first surfaced it) without reding a Hub
+# that legitimately has no Safari history.
+qdrant_collection	safari_history	conditional	safari_history	baseline	ingest-created (Safari extension), present when browsing history was ingested

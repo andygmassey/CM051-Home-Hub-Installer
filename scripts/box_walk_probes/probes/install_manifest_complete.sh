@@ -2,8 +2,8 @@
 # probes/install_manifest_complete.sh
 # ============================================================================
 # QUESTION: does the finished install CONTAIN everything a finished install is
-#           declared to contain -- every required LaunchAgent, cron job and
-#           artefact directory on the roster -- and does it contain nothing that
+#           declared to contain -- every required LaunchAgent, cron job,
+#           artefact directory and vector collection on the roster -- and does it contain nothing that
 #           the roster does not account for? (The import_wire type is a SOURCE
 #           property, checked in CI, not on the box; see run_probe.)
 #
@@ -53,8 +53,8 @@ run_probe() {
     # BOX-OBSERVABLE types only. import_wire is a property of the SOURCE tree
     # (does a write path import the kinship guard), not of the installed artefact
     # on this box, so it is checked in CI (install-manifest-gate.yml) and excluded
-    # here. This probe adjudicates launch_agent, cron_job and artefact_dir -- the
-    # things a finished install actually exposes.
+    # here. This probe adjudicates launch_agent, cron_job, artefact_dir and
+    # qdrant_collection -- the things a finished install actually exposes.
     local out rc
     out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$HOME" --exclude-type import_wire 2>&1)"
     rc=$?
@@ -74,7 +74,7 @@ run_probe() {
 # correctly -- the healthy result the runner expects. A probe_pass (rc 0) here
 # means a control did NOT fire and the gate is blind.
 self_test() {
-    probe_examined 3 "synthetic installs missing/adding one declared subject (negative control)"
+    probe_examined 4 "synthetic installs missing/adding one declared subject (negative control)"
 
     command -v python3 >/dev/null 2>&1 || probe_cannot_run "python3 not on PATH for the negative control"
     [ -r "$VERIFIER" ] || probe_cannot_run "verifier not readable for the negative control"
@@ -120,7 +120,14 @@ self_test() {
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: a missing required cron job (evening-wrap) was not named. #619 would pass this gate."
     fi
 
-    probe_fail "negative control behaved correctly on all 3 cases (missing agent, undeclared agent and missing cron each named)"
+    # CASE 4: a required qdrant collection missing -> must FAIL and NAME it. The
+    # store is injected via the test seam so the control needs no live Qdrant.
+    out="$(OSTLER_MANIFEST_QDRANT_OVERRIDE="people,preferences" python3 "$VERIFIER" --manifest "$MANIFEST" --home "$work" --config "$cfg" --only-type qdrant_collection 2>&1)"; rc=$?
+    if [ "$rc" -eq 0 ] || ! grep -q 'conversations' <<< "$out"; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: a missing required qdrant collection (conversations) was not named. #615 absence would ship silently."
+    fi
+
+    probe_fail "negative control behaved correctly on all 4 cases (missing agent, undeclared agent, missing cron and missing qdrant collection each named)"
 }
 
 probe_main "$@"
