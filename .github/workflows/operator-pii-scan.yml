@@ -151,6 +151,23 @@ jobs:
       - name: Prove ci-pii-shape-scan scope
         run: bash tests/test_pii_shape_scan_scope.sh
 
+      # Prove the DENYLIST scanner can SEE the file it is pointed at, before
+      # trusting any clean verdict from it. Measured: 1514 tracked files, 1227
+      # visible to the old extension list, so 287 text files were invisible by
+      # construction -- including every .tsv, and .pii-name-registry.tsv is a
+      # .tsv. Demonstrated against the pre-fix scanner: a .tsv carrying a
+      # denylisted term read exit 0 CLEAN while the same term in a .py read
+      # exit 1 DIRTY. Also pins that the scanner states its own EXAMINED count,
+      # because the staged count printed below is a different number and can be
+      # non-zero while nothing was examined.
+      # `if: always()` is REQUIRED, not decoration: without it this step is
+      # skipped whenever an earlier test in the same job fails, so a red run
+      # would silently stop reporting it. verify_ci_steps_are_maskless.py
+      # refuses exactly that, and it caught this step on the first push.
+      - name: Prove the operator-PII scanner sees every text kind
+        if: always()
+        run: bash tests/test_operator_pii_scan_sees_all_text_kinds.sh
+
       # Prove the PATTERNS, having just proved the SCOPE. The two are separate
       # questions and this repo answered only the first for weeks: the scope
       # test pinned WHICH LINES get asked, and nothing at all pinned WHAT gets
