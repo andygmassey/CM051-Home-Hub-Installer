@@ -55,7 +55,24 @@ DAEMON_BIN="${OSTLER_DAEMON_BIN:-\$HOME/.ostler/OstlerAssistant.app/Contents/Mac
 CONFIG_DIR="${OSTLER_ASSISTANT_CONFIG_DIR:-\$HOME/.ostler/assistant-config}"
 
 port_is_listening() {
-    box_run "lsof -nP -iTCP:${GATEWAY_PORT} -sTCP:LISTEN 2>/dev/null | tail -n +2 | wc -l | tr -d ' '"
+    # Echoes a COUNT, or the literal string UNREADABLE.
+    #
+    # The `2>/dev/null` that used to be here is gone on principle: never
+    # discard a probe's stderr. But MEASURE BEFORE CLAIMING A FIX -- on macOS
+    # this one does not fire, and saying otherwise would be inventing a cause:
+    #
+    #     lsof -nP -iTCP:8000 -sTCP:LISTEN   (as archie, andy's socket bound)
+    #       rc = 1        stdout = 0 lines        stderr = 0 BYTES
+    #
+    # There is no permission error to preserve. macOS lsof simply OMITS what
+    # the caller may not see. And rc=1 does not discriminate either: it is also
+    # what a genuinely empty port returns.
+    #
+    # ⇒ NEITHER stderr NOR the exit code can tell a foreign-owned socket from
+    # an empty port here. The CONNECT TEST below is the only discriminator, and
+    # it is what actually caught this. This stderr capture is correct hygiene
+    # and a real signal on other platforms; it is not the load-bearing half.
+    box_run "lsof -nP -iTCP:${GATEWAY_PORT} -sTCP:LISTEN 2>\"\$TMPDIR/ostler_probe_lsof.err\" | tail -n +2 | wc -l | tr -d ' '; if [ -s \"\$TMPDIR/ostler_probe_lsof.err\" ]; then echo UNREADABLE; fi"
 }
 
 port_answers() {
@@ -89,24 +106,47 @@ run_probe() {
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; nothing inspected"
     fi
 
-    local listening status pid last_exit
-    listening="$(port_is_listening)"
+    local listening_raw listening lsof_readable status pid last_exit
+    listening_raw="$(port_is_listening)"
+    case "$listening_raw" in
+        *UNREADABLE*) lsof_readable=0 ;;
+        *)            lsof_readable=1 ;;
+    esac
+    listening="$(printf '%s' "$listening_raw" | tr -dc '0-9' | head -c 6)"
     status="$(launchd_status)"
     pid="${status%% *}"
     last_exit="${status##* }"
 
-    probe_note "listeners on :${GATEWAY_PORT} : ${listening:-0}"
+    if [ "$lsof_readable" -eq 1 ]; then
+        probe_note "listeners on :${GATEWAY_PORT} : ${listening:-0}"
+    else
+        probe_note "listeners on :${GATEWAY_PORT} : UNREADABLE (lsof wrote to stderr)"
+    fi
     probe_note "launchd ${DAEMON_LABEL}"
     probe_note "  pid=${pid:-none} last_exit=${last_exit:-none}"
 
     # The denominator is the set of independent signals actually readable.
+    # An enumeration that ERRORED is not a signal, whatever number it printed.
     local signals=0
-    [ -n "$listening" ] && signals=$((signals + 1))
+    [ -n "$listening" ] && [ "$lsof_readable" -eq 1 ] && signals=$((signals + 1))
     [ -n "$status" ] && signals=$((signals + 1))
     probe_examined "$signals" "of 2 daemon liveness signals readable"
 
+    # 🔴 THIS GUARD USED TO REQUIRE **BOTH** SIGNALS TO BE MISSING, and that
+    # conjunction is what turned a permission boundary into a product FAIL on
+    # the v1.0.66 artefact walk. launchctl answered happily (loaded,
+    # last_exit=0), so `signals` was non-zero, this arm was skipped, and the
+    # run fell through to a FAIL that named a defect nobody had. **The honest
+    # verdict was one branch away and an AND closed it.**
+    #
+    # The two signals answer DIFFERENT questions -- "is a socket bound" and
+    # "is the job loaded" -- so a second signal cannot stand in for the first.
+    # An unreadable port enumeration is disqualifying ON ITS OWN.
     if [ "$signals" -eq 0 ]; then
         probe_cannot_run "neither lsof nor launchctl returned anything; cannot tell a stopped daemon from an unreadable box"
+    fi
+    if [ "$lsof_readable" -eq 0 ]; then
+        probe_cannot_run "the port enumeration ERRORED (lsof wrote to stderr) and was therefore never made. On a shared Mac that is normally a socket owned by ANOTHER ACCOUNT, which this user may not see. launchctl answering is not a substitute: it says the job is loaded, not that a socket is bound. Nothing about :${GATEWAY_PORT} was measured."
     fi
 
     if [ "${listening:-0}" -gt 0 ]; then
