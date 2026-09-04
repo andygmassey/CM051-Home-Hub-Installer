@@ -139,7 +139,16 @@ fi
 # Measured 2026-09-04 by executing each statement with its producer shadowed:
 # 23 multi-line candidates, 19 measured, 11 aborting. These are the ten
 # siblings of the subject.
-CLASS="_HYDRATE_CALENDAR_COUNT _HYDRATE_EMAIL_COUNTS _HYDRATE_WHATSAPP_JSON
+# _HYDRATE_WHATSAPP_JSON is DELIBERATELY ABSENT and must stay absent. Its site
+# is bracketed by `trap - ERR; set +e` (the #640-class guard, install.sh:26186),
+# so it cannot abort and needs no `||`. A probe that imposes the file's GLOBAL
+# `set -Eeuo pipefail` on it measures options that statement does not run under
+# -- the same mistake as testing a heredoc's contents under the host's options.
+# Worse, a `||` there would swallow the status the very next line reads as
+# `rc=$?`, and rc 124/137 is how the timeout arm tells the customer the extract
+# continues in the background. MEASURED: with the guard, rc=124 becomes rc=0 and
+# the timeout arm stops firing.
+CLASS="_HYDRATE_CALENDAR_COUNT _HYDRATE_EMAIL_COUNTS
 _HYDRATE_WHATSAPP_COUNT _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED
 _HYDRATE_IMESSAGE_COUNT _HYDRATE_PEOPLE_SENT _AICONV_COUNT"
 D_BAD=""; D_SEEN=0

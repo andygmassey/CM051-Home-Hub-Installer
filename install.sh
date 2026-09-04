@@ -26191,7 +26191,7 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
             --since-days 365 \
             2>>"$_HYDRATE_WHATSAPP_LOG" \
         | tail -n 1
-    )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_WHATSAPP_JSON=""; }
+    )"
     rc=$?
     # #712: mirror into a per-source variable at the point of capture. `rc` is
     # a shared global that every hydrate block reassigns, so reading it a
