@@ -165,8 +165,27 @@ show('TERMINAL DONE markers',     r'#OSTLER\s+DONE\s')
 show('abort / fatal lines',       r'(?i)\b(fatal|aborting|aborted)\b', 8)
 PY" 2>&1
 
+    # 🔴 THIS SECTION PRINTED THE RAW EXIT CODE UNDER THE WORD "VERDICT" AND SO
+    # REPORTED A FAILED WALK AS 0. MEASURED on walk 11: install.sh reached its
+    # end and exited 0, so .walk-rc held 0 and this heading published it as the
+    # adjudication, while walk_drive.py had already concluded FAIL over three
+    # failed steps. The driver's own comment says .walk-rc is "EVIDENCE ... not
+    # the verdict"; the harness printing it was the part that disagreed.
+    #
+    # Both numbers are printed now, because they answer different questions and
+    # a disagreement between them is itself a finding.
+    rule "EXIT CODE install.sh RETURNED (evidence, not a verdict)"
+    "${SSH[@]}" "cd '${REMOTE_DIR}' 2>/dev/null && python3 scripts/walk_drive.py --read-result 2>&1 || echo 'no exit code recorded'"
     rule "VERDICT (walk_drive.py's own adjudication)"
-    "${SSH[@]}" "cd '${REMOTE_DIR}' 2>/dev/null && python3 scripts/walk_drive.py --read-result 2>&1 || echo 'no result recorded'"
+    WALK_VERDICT="$("${SSH[@]}" "cd '${REMOTE_DIR}' 2>/dev/null && python3 scripts/walk_drive.py --read-verdict 2>/dev/null" | tr -d '[:space:]')"
+    case "$WALK_VERDICT" in
+        0) say "0  PASS" ;;
+        1) say "1  FAIL" ;;
+        2) say "2  CANNOT-RUN" ;;
+        *) say "UNREADABLE verdict [${WALK_VERDICT}] -- treating as CANNOT-RUN."
+           say "A verdict that cannot be read has not passed."
+           WALK_VERDICT="$CANNOT_RUN" ;;
+    esac
     return 0
 }
 
@@ -654,3 +673,17 @@ rule "QA PAIRS ANSWERED"
 # excludes the header, because "rows: 5" over four answers is a small lie of
 # exactly the kind this harness exists to catch.
 "${SSH[@]}" "awk 'NR>1' ~/.walk-qa.tsv 2>/dev/null | wc -l | tr -d ' ' | sed 's/^/answers this run: /'; tail -50 ~/.walk-qa.tsv 2>/dev/null || echo '(none)'"
+
+# ── EXIT WITH THE VERDICT ────────────────────────────────────────────────
+# This script used to end on its last `ssh`, so it exited 0 no matter what the
+# walk found. Every failed walk of the night reported "exit code 0" to whatever
+# ran it, and a caller branching on that would have called walk 11 green while
+# three steps were failing. A gate that exits zero after dying is not a gate.
+if [[ -z "${WALK_VERDICT:-}" ]]; then
+    say ""
+    say "NO VERDICT WAS RECORDED. That is CANNOT-RUN, not a pass."
+    exit "$CANNOT_RUN"
+fi
+say ""
+say "ttywalk exiting ${WALK_VERDICT}"
+exit "$WALK_VERDICT"

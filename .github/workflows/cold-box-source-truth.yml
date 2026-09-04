@@ -64,6 +64,7 @@ on:
       - 'tests/test_ttywalk_licence_preflight_is_cannot_run.sh'
       - 'scripts/ttywalk.sh'
       - 'tests/test_walk_driver_cancel_is_not_a_build_verdict.sh'
+      - 'tests/test_a_failed_walk_must_not_exit_zero.sh'
       - 'scripts/walk_drive.py'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/TEST_WIRING.tsv'
@@ -186,6 +187,9 @@ jobs:
       - name: A cancel the harness caused is not a build verdict
         if: always()
         run: bash tests/test_walk_driver_cancel_is_not_a_build_verdict.sh
+
+      - name: A failed walk must not exit zero
+        run: bash tests/test_a_failed_walk_must_not_exit_zero.sh
 
       - name: No question may stall a walk-away install
         if: always()
