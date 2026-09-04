@@ -911,7 +911,7 @@ MSG_FAIL_GRAPH_DB_PULL_FAILED="Could not download the knowledge-graph database i
 MSG_FAIL_GRAPH_DB_UP_FAILED="The knowledge-graph databases were downloaded but could not be started. Re-run the installer; if it keeps happening, open Terminal and run: cd ~/.ostler && docker compose up -d qdrant oxigraph redis"
 MSG_FAIL_STORE_AUTH_LEAK="Ostler could not complete an authenticated request to the knowledge-graph database. It tried twice, two seconds apart, and both attempts were refused. We do not yet know why: the database may still have been starting up, or the credential Ostler holds may not be the one it expects. Your data has not been touched. Re-running the installer often succeeds, and if it does we would still like to hear about it – send us the install log, because this is a fault we are actively trying to reproduce."
 MSG_FAIL_FDA_MODULE_MISSING_RE_RUN="FDA extraction module is missing from the installer bundle. Re-download the .app from ostler.ai/install, or re-run with --allow-plaintext for dev/CI."
-MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN="The data-extraction module was installed but cannot be loaded, so the background refresh would fail every time it ran. Full output saved to /tmp/ostler-fda-deps.log – re-run the installer, and attach that file if you contact support (Reference: ERR-10-FDA-DEPS-IMPORT)."
+MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN="The data-extraction module was installed but cannot be loaded, so the background refresh would fail every time it ran. Full output saved to %s – re-run the installer, and attach that file if you contact support (Reference: ERR-10-FDA-DEPS-IMPORT)."
 MSG_FAIL_FDA_DEPS_UNSAFE_PATH="Internal error: the data-extraction module was staged inside the application bundle, which would break its signature. This is a build fault, not a problem with your Mac. Re-download the .app from ostler.ai/install (Reference: ERR-10-FDA-DEPS-UNSAFE-PATH)."
 MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED="Doctor dependencies install failed. Full output saved to %s – attach it when you email support@ostler.ai (Reference: ERR-17-DOCTOR-PIP)."
 MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED="Import pipeline dependencies install failed. Full output saved to %s – attach it when you email support@ostler.ai (Reference: ERR-14-PIPELINE-PIP)."
@@ -1257,8 +1257,8 @@ MSG_HYDRATE_PLACES_SKIPPED="No location signals found yet; Places will fill in a
 # Loud, VISIBLE failure surface: the places module's own guard fired (location
 # signals exist in the graph but 0 Place points were produced/written), or the
 # ingester errored unexpectedly. NOT the benign "no signals yet" case.
-MSG_HYDRATE_PLACES_GUARD_WARN="Places build hit a problem: location signals exist but no Places were produced. Your Places page may stay empty. See /tmp/ostler-places-ingest.log"
-MSG_HYDRATE_PLACES_ERROR_WARN="Places build did not complete (unexpected error). Your Places page may be incomplete. See /tmp/ostler-places-ingest.log"
+MSG_HYDRATE_PLACES_GUARD_WARN="Places build hit a problem: location signals exist but no Places were produced. Your Places page may stay empty. See %s"
+MSG_HYDRATE_PLACES_ERROR_WARN="Places build did not complete (unexpected error). Your Places page may be incomplete. See %s"
 MSG_HYDRATE_WIKI_RECOMPILE="Building your wiki. Ostler is writing a short summary for each of your key people, organisations and topics, so on a large address book this can take from a few minutes up to around an hour. It only happens once, runs entirely on your Mac, and is safe to leave."
 
 # CX-106 (DMG #48l, 2026-05-29): initial_hydrate step strings.
@@ -1338,10 +1338,10 @@ MSG_HYDRATE_CONTACTS_DENIED="Could not read your Contacts. Ostler reads them thr
 MSG_HYDRATE_CONTACTS_PENDING="Your Contacts app has not synced yet. Open Contacts once, wait for it to sync, then re-run hydration from Settings."
 MSG_HYDRATE_CONTACTS_READ_FAILED="Your contacts are on this Mac but Ostler imported 0 of them, which is unexpected. The import will retry automatically in the background. If it persists, re-run hydration from Settings or check the install log."
 MSG_HYDRATE_CONTACTS_RESYNC_SCHEDULED="Ostler will keep checking in the background and import your contacts automatically once iCloud finishes syncing."
-MSG_HYDRATE_CONTACTS_EMAIL_COVERAGE_LOW="Imported %s contacts with phone numbers but almost no email addresses (%s phone vs %s email). This usually means the contact reader dropped emails. Your contacts are still usable; see /tmp/ostler-hydrate-contacts.log and re-run hydration from Settings once resolved."
+MSG_HYDRATE_CONTACTS_EMAIL_COVERAGE_LOW="Imported %s contacts with phone numbers but almost no email addresses (%s phone vs %s email). This usually means the contact reader dropped emails. Your contacts are still usable; see %s and re-run hydration from Settings once resolved."
 MSG_HYDRATE_CONTACTS_RESYNC_REBUILDING_WIKI="New contacts imported; rebuilding your wiki in the background."
 MSG_HYDRATE_CALENDAR_PENDING="Your Calendar app has not synced events yet. Open Calendar once, wait for it to sync, then re-run hydration from Settings."
-MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED="Could not read your calendar this time (the extractor reported an error, not an empty calendar). Your other data was unaffected; see /tmp/ostler-hydrate-calendar.log, then re-run hydration from Settings."
+MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED="Could not read your calendar this time (the extractor reported an error, not an empty calendar). Your other data was unaffected; see %s, then re-run hydration from Settings."
 
 # WhatsApp hydration strings (CX-85)
 # Used by install.sh's hydrate_whatsapp step, inserted inside the
