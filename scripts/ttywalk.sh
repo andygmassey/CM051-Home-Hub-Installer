@@ -73,6 +73,7 @@ while [[ $# -gt 0 ]]; do
         --reset)        DO_RESET=1; shift ;;
         --report-only)  REPORT_ONLY=1; shift ;;
         --stage-only)   STAGE_ONLY=1; shift ;;
+        --from-dmg)     FROM_DMG="${2:-}"; shift 2 ;;
         -h|--help)      sed -n '2,45p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *)              die "unknown argument: $1" ;;
     esac
@@ -502,16 +503,64 @@ if [[ "$DO_RESET" -eq 1 ]]; then
     ' 2>&1
 fi
 
-# ── Stage the CURRENT tree ───────────────────────────────────────────
+# ── Stage: the REPO by default, or the ARTEFACT with --from-dmg ──────
+#
+# 🔴 EVERY WALK THIS HARNESS HAS EVER RUN MEASURED THE REPO, NOT THE DMG, and
+# that gap has been carried in prose on every green it produced. A source-truth
+# walk proves install.sh runs clean. It does NOT prove the thing a customer
+# downloads runs clean, because the DMG's Contents/Resources is assembled by
+# the cut pipeline from places the repo does not hold: on v1.0.65, 23 of its 48
+# payload entries were absent from a full repo checkout and I had to copy 22 of
+# them in by hand to get past step 21.
+#
+# --from-dmg stages that directory instead. It is the same SHAPE the repo
+# presents after flattening -- install.sh at the top with the payload dirs
+# beside it -- so nothing downstream changes.
+#
+# WHAT IT STILL DOES NOT COVER, said here so a green does not overstate itself:
+# the .app is never launched. A customer double-clicks an installer app; this
+# runs the install.sh inside it. Those differ in exactly the way v1.0.45 was
+# bricked by -- a bundle that writes into itself on first RUN, which nothing
+# inspecting it at rest can see.
+STAGE_SRC="$REPO_ROOT"
+STAGE_KIND="repo"
+DMG_MNT=""
+if [[ -n "${FROM_DMG:-}" ]]; then
+    [[ -f "$FROM_DMG" ]] || die "--from-dmg: no file at ${FROM_DMG}"
+    DMG_MNT="$(mktemp -d "${TMPDIR:-/tmp}/ostler-dmg.XXXXXX")" \
+        || die "--from-dmg: could not make a mountpoint"
+    hdiutil attach -nobrowse -readonly -mountpoint "$DMG_MNT" "$FROM_DMG" >/dev/null 2>&1 \
+        || die "--from-dmg: hdiutil attach failed for ${FROM_DMG}"
+    # Detach on the way out however we leave, so a later run does not meet
+    # "Resource busy" -- the v1.0.51 failure, one artefact over.
+    trap 'hdiutil detach "$DMG_MNT" -quiet 2>/dev/null || hdiutil detach "$DMG_MNT" -force -quiet 2>/dev/null || true' EXIT
+    _res="$(/usr/bin/find "$DMG_MNT" -maxdepth 3 -type d -name Resources -path '*.app/Contents/*' 2>/dev/null | head -1)"
+    [[ -n "$_res" ]] || die "--from-dmg: no <app>/Contents/Resources inside ${FROM_DMG}"
+    [[ -f "${_res}/install.sh" ]] \
+        || die "--from-dmg: ${_res} has no install.sh. That is not the payload root."
+    STAGE_SRC="$_res"
+    STAGE_KIND="artefact"
+    say "ARTEFACT WALK. Staging the DMG's payload, not this checkout."
+    say "   dmg:     ${FROM_DMG}"
+    say "   payload: ${_res}"
+    say "   ⚠️  the .app is NOT launched. This runs the install.sh INSIDE it,"
+    say "      so it still says nothing about first-RUN behaviour of the bundle."
+fi
+
 rule "STAGE"
-HEAD_SHA="$(cd "$REPO_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
-DIRTY="$(cd "$REPO_ROOT" && git status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
-say "staging ${REPO_ROOT} @ ${HEAD_SHA} (${DIRTY} uncommitted paths) -> ${HOST}:~/${REMOTE_DIR}"
+if [[ "$STAGE_KIND" == "repo" ]]; then
+    HEAD_SHA="$(cd "$REPO_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    DIRTY="$(cd "$REPO_ROOT" && git status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+    say "staging ${REPO_ROOT} @ ${HEAD_SHA} (${DIRTY} uncommitted paths) -> ${HOST}:~/${REMOTE_DIR}"
+    say "⚠️  THIS IS A SOURCE-TRUTH WALK. It measures install.sh, not the DMG."
+else
+    say "staging ${STAGE_SRC} -> ${HOST}:~/${REMOTE_DIR}"
+fi
 
 rsync -a --delete \
       --exclude '.git/' --exclude 'walks/' --exclude '__pycache__/' \
       --exclude '*.pyc' --exclude '.venv/' \
-      "${REPO_ROOT}/" "${HOST}:${REMOTE_DIR}/" \
+      "${STAGE_SRC}/" "${HOST}:${REMOTE_DIR}/" \
     || die "rsync failed; nothing was run on the host."
 
 # Re-confirm AFTER staging. Staging takes minutes; a DHCP lease can move in
