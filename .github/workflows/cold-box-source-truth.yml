@@ -92,10 +92,30 @@ jobs:
       # which this test never drives) so the run cannot degrade to CANNOT-RUN
       # on a machine without that wheel -- a CANNOT-RUN that becomes permanent
       # is how a gate stops gating.
-      - name: Install the one dependency the converge test loads
+      # A VENV, NOT `pip install` INTO THE SYSTEM PYTHON. The runner's python3
+      # is externally managed (PEP 668) and refuses, which failed this job on
+      # its first run. `--break-system-packages` would have silenced it by
+      # doing exactly the thing that error exists to prevent, on a python the
+      # rest of the job depends on.
+      #
+      # FROM THE PACKAGE'S OWN REQUIREMENTS FILE, not a hand-picked name. A
+      # venv built from that file is the only thing that TESTS it, and
+      # building one is how its two missing declarations (httpx, phonenumbers)
+      # were found: every other environment already had them from a sibling
+      # requirements file, so the list was short and nothing could see it.
+      - name: Build a venv from identity_resolver's own requirements
         if: always()
-        run: python3 -m pip install --quiet httpx
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/convergetest
+          /tmp/convergetest/bin/python -m pip install --quiet --upgrade pip
+          /tmp/convergetest/bin/python -m pip install --quiet \
+            -r vendor/cm041/identity_resolver/requirements.txt
+          /tmp/convergetest/bin/python -c 'import httpx, phonenumbers; print("deps ok")'
 
+      # PATH-first so the test's own `python3` resolves to the venv. The test
+      # reports CANNOT-RUN (exit 2) rather than passing when a dependency is
+      # missing, so a broken venv cannot read as a clean gate.
       - name: RULE 2 must be enforced on the CONVERGE path, not just resolve
         if: always()
-        run: bash tests/test_converge_path_enforces_rule2.sh
+        run: PATH="/tmp/convergetest/bin:$PATH" bash tests/test_converge_path_enforces_rule2.sh

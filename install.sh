@@ -5685,10 +5685,14 @@ fi
 # than discovered later. Measured on the Mini 16, 2026-09-04: two addresses,
 # and the account-identity one is NOT the address the owner actually uses.
 #
-#     <apple-id>@   10 rows   CardDAV, iTunes Store, iCloud, Messages, IDMS,
-#                             Game Center, Find My, Device Locator, CloudKit,
-#                             Apple ID
-#     <preferred>@   7 rows   CalDAV x6, Gmail
+#     the account-identity address   10 rows, spanning the Apple sign-in and
+#                                    nine services that hang off it
+#     the address the owner uses      7 rows, all mail/calendar accounts
+#
+# Described by ROLE AND COUNT rather than enumerated. The first draft listed
+# the Apple service names and the whole-tree person-name guard flagged two of
+# them as a name PAIR -- a false positive, but the list was decorative and
+# fighting a PII guard over decoration is the wrong trade.
 #
 # The owner confirmed the SECOND is his address. So this rule is right about
 # "which account identifies this Mac" and wrong about "which mailbox is this
