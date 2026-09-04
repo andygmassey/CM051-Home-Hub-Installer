@@ -125,7 +125,11 @@ fi
 #
 # NOT `[^)]*` -- that spans '|| true' and would match the very lines the fix
 # adds, which is exactly the false reading that nearly shipped here.
-mapfile -t unguarded < <(grep -nE '\$\(pgrep' "$INSTALLER" | grep -v '|| true' || true)
+# bash 3.2 (the /bin/bash the product ships to) has no `mapfile`; it is a
+# bash 4 builtin. This file was green on ubuntu CI and died on macOS at this
+# line, AFTER printing four `ok` arms -- partial credit that reads as a run.
+unguarded=()
+while IFS= read -r _line; do unguarded+=("$_line"); done < <(grep -nE '\$\(pgrep' "$INSTALLER" | grep -v '|| true' || true)
 
 # POSITIVE CONTROL: the predicate must be able to SEE guarded sites, or its
 # zero would be a dead predicate rather than a clean tree.
@@ -137,7 +141,10 @@ if [[ "$guarded_n" -lt 1 ]]; then
 fi
 
 offenders=0
-for line in "${unguarded[@]}"; do
+# ${a[@]+"${a[@]}"} because an EMPTY array under `set -u` is an
+# unbound-variable error on bash 3.2 -- fixing only the mapfile would
+# have swapped one 3.2 death for another.
+for line in ${unguarded[@]+"${unguarded[@]}"}; do
     # NO EXEMPTIONS. Arm 1c proves a for-list is just as unsafe.
     echo "FAIL arm 2: unguarded pgrep command substitution: ${line}"
     offenders=$(( offenders + 1 ))

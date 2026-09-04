@@ -1,0 +1,132 @@
+name: bash32-compat
+
+# A TEST THAT CANNOT RUN ON THE CUSTOMER'S SHELL IS NOT COVERAGE.
+#
+# `/bin/bash` on macOS is 3.2.57, released 2007, and it is the shell
+# install.sh runs under on every customer machine. `mapfile` and `readarray`
+# are bash 4 builtins. They do not exist there.
+#
+# Two shipped tests called `mapfile`:
+#
+#     tests/test_pgrep_no_match_does_not_fabricate_a_done.sh   line 128
+#     tests/test_upgrade_path_can_wire_store_auth.sh           line 38
+#
+# Both were GREEN in CI for as long as they have existed, because both are
+# wired only to ubuntu-latest workflows (install-gui-contract.yml and
+# upgrade-store-auth-wiring.yml), where bash is 5.x and mapfile is present.
+#
+# THE PART THAT MATTERS MORE THAN THE BUILTIN
+#
+# The pgrep test did not die at its first line. It printed FOUR `ok` arms and
+# then died, so a human reading its output on macOS saw a run, not a failure.
+# The arm it never reached is arm 2 -- "every pgrep command substitution in
+# install.sh is guarded" -- which is a live assertion over the shipped
+# installer. It has never once executed on this platform. Fixing the builtin
+# recovered a guard that was silently absent, not merely a red line.
+#
+# WHY THIS WORKFLOW IS ON macos AND THE TESTS' OWN WORKFLOWS ARE NOT
+#
+# Both tests assert on install.sh, which only ever runs on macOS, yet both are
+# verified exclusively on ubuntu. That is the defect class. This workflow runs
+# them where the code runs. Their existing ubuntu jobs are left alone: they
+# still catch logic regressions cheaply, and this job catches what ubuntu
+# structurally cannot see.
+#
+# THE PATH SHIM IS NOT OPTIONAL
+#
+# On macos-14 the `bash` on PATH is 5.x while `/bin/bash` is 3.2. Invoking
+# these under a bare `bash` would measure the wrong shell and pass for the
+# wrong reason -- the exact failure this workflow exists to prevent. The shim
+# puts 3.2 first so the harnesses' own inner shells are 3.2 too, and the job
+# refuses to continue if the shim did not take.
+#
+# British English throughout; " -- " not em-dashes.
+
+on:
+  pull_request:
+    paths:
+      - 'tests/test_no_test_uses_a_bash4_builtin.sh'
+      - 'tests/test_pgrep_no_match_does_not_fabricate_a_done.sh'
+      - 'tests/test_upgrade_path_can_wire_store_auth.sh'
+      - '.github/workflows/bash32-compat.yml'
+      # The class guard scans every tests/*.sh and scripts/*.sh, so any new
+      # or edited test can introduce the defect it looks for. Watching only
+      # the three files above would leave the guard unable to fire on the
+      # commit that breaks it.
+      - 'tests/**'
+      - 'scripts/**'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  bash32:
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Record the shells before any assertion leans on them. If /bin/bash is
+      # ever not 3.2 on this runner image, every arm below silently becomes a
+      # weaker claim, and a job that cannot say which shell it measured has
+      # not measured anything.
+      - name: Record the shells this job actually has
+        run: |
+          set -uo pipefail
+          echo "/bin/bash : $(/bin/bash -c 'echo $BASH_VERSION')"
+          echo "PATH bash : $(bash -c 'echo $BASH_VERSION')"
+          case "$(/bin/bash -c 'echo $BASH_VERSION')" in
+            3.2*) echo "OK: /bin/bash is 3.2, the shell the customer installs under" ;;
+            *) echo "CANNOT-RUN: /bin/bash on this runner is not 3.2, so this job cannot measure the shipping shell." >&2; exit 1 ;;
+          esac
+
+      # Carries its own negative control: a synthetic file that DOES call
+      # mapfile must be detected, so a pass means the scan works rather than
+      # that it looked and was blind.
+      - name: No test may depend on a bash 4 builtin
+        run: /bin/bash tests/test_no_test_uses_a_bash4_builtin.sh
+
+      # The two tests below already run on ubuntu. These steps are the first
+      # time either has executed under 3.2. if: always() so a failure in one
+      # cannot silence the other -- a skipped test reads as "no objection".
+      - name: The pgrep DONE guard runs under 3.2, not just on ubuntu
+        if: always()
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/b32shim
+          ln -sf /bin/bash /tmp/b32shim/bash
+          export PATH="/tmp/b32shim:${PATH}"
+          case "$(bash -c 'echo $BASH_VERSION')" in
+            3.2*) : ;;
+            *) echo "CANNOT-RUN: the shim did not put bash 3.2 on PATH; this step measured the wrong shell." >&2; exit 1 ;;
+          esac
+          /bin/bash tests/test_pgrep_no_match_does_not_fabricate_a_done.sh
+
+      - name: The upgrade store-auth wiring test runs under 3.2
+        if: always()
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/b32shim
+          ln -sf /bin/bash /tmp/b32shim/bash
+          export PATH="/tmp/b32shim:${PATH}"
+          case "$(bash -c 'echo $BASH_VERSION')" in
+            3.2*) : ;;
+            *) echo "CANNOT-RUN: the shim did not put bash 3.2 on PATH; this step measured the wrong shell." >&2; exit 1 ;;
+          esac
+          /bin/bash tests/test_upgrade_path_can_wire_store_auth.sh install.sh
+
+      - name: All three parse under /bin/bash 3.2
+        if: always()
+        run: |
+          /bin/bash -n tests/test_no_test_uses_a_bash4_builtin.sh
+          /bin/bash -n tests/test_pgrep_no_match_does_not_fabricate_a_done.sh
+          /bin/bash -n tests/test_upgrade_path_can_wire_store_auth.sh
+          echo "OK: parses under the shell the cut actually uses"
