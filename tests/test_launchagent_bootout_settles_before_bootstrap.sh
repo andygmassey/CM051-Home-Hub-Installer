@@ -145,6 +145,12 @@ fi
 # A negative control must point at the tree where the DEFECT LIVES. That tree
 # does not move. A branch does.
 _PREFIX_SHA=1adc5ef1026edafab9e0fc6351e3769d3b7e76ec   # 0c4f920a^ -- the parent of the #1398 fix
+# CI CLONES SHALLOW, so the pinned sha is usually absent. Fetch just that one
+# object rather than demanding fetch-depth:0 on every workflow that runs this.
+# `--depth=1 <sha>` costs one object, not the history.
+if ! git -C "$REPO_ROOT" cat-file -e "${_PREFIX_SHA}^{commit}" 2>/dev/null; then
+    git -C "$REPO_ROOT" fetch --quiet --depth=1 origin "${_PREFIX_SHA}" 2>/dev/null || true
+fi
 if git -C "$REPO_ROOT" show "${_PREFIX_SHA}:install.sh" > "${WORK}/main.sh" 2>/dev/null; then
     extract_region "${WORK}/main.sh" > "${WORK}/region_main.sh"
     PRE="$(env -u OSTLER_LAUNCHAGENT_BOOTOUT_SETTLE_S bash -c '
