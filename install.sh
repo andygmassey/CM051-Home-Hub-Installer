@@ -26055,7 +26055,46 @@ except Exception:
         _HYDRATE_EMAIL_MSGS="${_HYDRATE_EMAIL_COUNTS##* }"
         case "${_HYDRATE_EMAIL_COUNT:-}" in ''|*[!0-9]*) _HYDRATE_EMAIL_COUNT=0 ;; esac
         case "${_HYDRATE_EMAIL_MSGS:-}"  in ''|*[!0-9]*) _HYDRATE_EMAIL_MSGS=0 ;; esac
-        if [[ "$_HYDRATE_EMAIL_COUNT" -gt 0 ]]; then
+        # An UNMEASURED count must not fall through this chain. This is the
+        # guard the calendar arm already carries, and the reason string is
+        # deliberately IDENTICAL so the two encode one state, not two.
+        #
+        # Without it: the counter substitution fails, _HYDRATE_EMAIL_COUNTS
+        # becomes "", the two `case` lines above turn that into 0, `-gt 0` is
+        # false, and the run lands on "no_correspondents_in_window" -- a cause
+        # nobody observed, published for a count nobody could take. The flag
+        # was SET on the `||` above and then read by NOTHING in the file.
+        if [[ "${_HYDRATE_EMAIL_COUNTS_UNMEASURED:-false}" == true ]]; then
+            _hydrate_sentinel_record_no_data "email" "counter_failed_count_unmeasured"
+            _HYDRATE_EMAIL_OUTCOME="counter_failed_count_unmeasured"
+            # 🔴 AND THIS ARM DELIBERATELY REPORTS NOTHING TO THE SETTLING
+            # PANEL. A first draft called `settling_report emails 0 0 true`
+            # here, and TNM caught it: the 4th positional is `needs_source`,
+            # and the contacts precedent this pattern is lifted from states the
+            # invariant in its own words at 25461 --
+            #
+            #     "A zero count means WE RAN AND FOUND NOTHING, so needs_source
+            #      invites the customer to connect a source rather than leaving
+            #      a permanent 0%."
+            #
+            # This arm fires on the OPPOSITE condition. We did not run and find
+            # nothing; the counter COULD NOT RUN. `true` therefore asks the
+            # customer to connect an email account they have already connected,
+            # on the strength of a value nobody measured -- which is this fix's
+            # own defect class, one layer further out.
+            #
+            # `false` is not the answer either: that renders a settled channel
+            # at 0 of 0, the permanent 0% the contacts comment exists to escape.
+            # NEITHER BOOLEAN IS TRUE, because the state is a third one and
+            # the settling writer has only two.
+            #
+            # So this tick stays silent, and nothing is lost by it: the sentinel
+            # above already carries `counter_failed_count_unmeasured`, and the
+            # hourly recurring tick reports the channel on its own (v1064-ac),
+            # so the row is not permanently absent -- only absent for one tick.
+            # A third state in the settling writer is the durable fix, and it
+            # belongs with the CM044 panel that consumes it, not here.
+        elif [[ "$_HYDRATE_EMAIL_COUNT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_EMAIL_DONE" "$_HYDRATE_EMAIL_COUNT")"
             # Denominator measured from the Mail store, not from this pass.
             # This phase reads a capped slice and the hourly agent carries on
@@ -29352,6 +29391,15 @@ try:
 except Exception:
     print(0)' 2>/dev/null
             )" || { _AICONV_UNMEASURED=true; _AICONV_COUNT=""; }
+            # `:-0` MANUFACTURES the value whose failure was just recorded.
+            # _AICONV_UNMEASURED was set on the line above and read by nothing
+            # in the entire file, so a counter that COULD NOT RUN was published
+            # as a measured zero. Record the third state before the default
+            # erases the evidence for it.
+            if [[ "${_AICONV_UNMEASURED:-false}" == true ]]; then
+                _hydrate_sentinel_record_cannot_run "ai_conversations" \
+                    "counter_failed_count_unmeasured"
+            fi
             _AICONV_COUNT="${_AICONV_COUNT:-0}"
 
             # ── Steady-state recurring feed: register UNCONDITIONALLY ──
