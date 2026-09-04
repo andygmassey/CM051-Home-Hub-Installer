@@ -65,6 +65,7 @@ on:
       - 'scripts/ttywalk.sh'
       - 'tests/test_walk_driver_cancel_is_not_a_build_verdict.sh'
       - 'tests/test_consent_state_is_defined_before_it_is_called.sh'
+      - 'tests/test_installed_pipeline_packages_can_import_themselves.sh'
       - 'tests/test_a_failed_walk_must_not_exit_zero.sh'
       - 'scripts/walk_drive.py'
       - 'install.sh.strings.en-GB.sh'
@@ -192,6 +193,10 @@ jobs:
       - name: _ostler_consent_state is defined above its call sites (one function, not the class)
         if: always()
         run: bash tests/test_consent_state_is_defined_before_it_is_called.sh
+      - name: Installed pipeline packages can import themselves
+        if: always()
+        run: bash tests/test_installed_pipeline_packages_can_import_themselves.sh
+
       - name: A failed walk must not exit zero
         if: always()
         run: bash tests/test_a_failed_walk_must_not_exit_zero.sh
