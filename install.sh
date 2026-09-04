@@ -5031,6 +5031,50 @@ ${_reuse_summary}"
             SKIP_PHASE2=false
             ;;
     esac
+
+    # ── "USE PREVIOUS ANSWERS" REQUIRES PREVIOUS ANSWERS TO EXIST ─────────
+    #
+    # A box installed before consent decisions were written to config/.env has
+    # NONE of them, and reusing on such a box skips the question phase for
+    # answers that were never stored. The recorder downstream is guarded on a
+    # non-empty decision, so it writes nothing, the consent registry stays
+    # null, and the feeds those tickboxes gate stay OFF with no record saying
+    # why. MEASURED on Andy's Mini: `ostler-consent show` returned null for
+    # every tickbox on a complete install, and config/.env carried 21 keys of
+    # which zero were consent.
+    #
+    # The two checked here are the REGION-INDEPENDENT ones -- both are asked
+    # on every install, in every country, and each gates a feed. Article 9 and
+    # the EU voice gate are deliberately NOT checked: they are asked only on
+    # the EU branch, so their absence on a non-EU box is correct and demanding
+    # them would force a pointless re-walk on every install outside the EU.
+    #
+    # WHY WALK THE QUESTIONS RATHER THAN ASK JUST THESE TWO. Asking them here
+    # would mean a second copy of two consent prompts, their strings, their
+    # decline handling and their abort semantics, sitting far from the
+    # originals and free to drift. Two copies of a prompt is one copy plus a
+    # future defect, which is the #1427 class. Walking the phase costs the
+    # customer one pass through questions they can answer quickly, ONCE, after
+    # an upgrade, and it reuses the code that is already tested.
+    #
+    # A one-time re-walk is the price of recovering consent nobody recorded.
+    # The alternative is a box that reports "missing" forever and silently
+    # runs with feeds off, which is the state this exists to end.
+    if [[ "$SKIP_PHASE2" == "true" ]]; then
+        _missing_consent=""
+        [[ -z "${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}" ]] \
+            && _missing_consent="${_missing_consent} third-party-data"
+        [[ -z "${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}" ]] \
+            && _missing_consent="${_missing_consent} spoken-capture"
+        if [[ -n "$_missing_consent" ]]; then
+            warn "Your previous answers do not include every consent decision, so they cannot all be reused."
+            warn "  Missing:${_missing_consent}"
+            warn "  This happens on a Mac set up before Ostler stored those decisions with the rest of your settings."
+            warn "  Ostler will ask the setup questions once more so nothing is left switched off without your say-so."
+            SKIP_PHASE2=false
+        fi
+        unset _missing_consent
+    fi
     # CX-87 (DMG #48g, 2026-05-29): when re-running on a Mac with a
     # prior complete install, promote the staging tree onto
     # ~/.ostler/ immediately. There is no Quit & Reopen risk on a
@@ -12094,6 +12138,51 @@ OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}"
 # was installed and signed in. Used by the iOS / Watch companion to reach
 # this Mac from anywhere. Empty if Tailscale is not in use.
 OSTLER_TAILSCALE_IP="${OSTLER_TAILSCALE_IP:-}"
+
+# ── CONSENT DECISIONS, AND THEY MUST BE HERE OR "REUSE" SILENTLY REVOKES THEM ──
+#
+# MEASURED on Andy's Mini, 2026-09-04. \`ostler-consent show\` returned null for
+# every tickbox on a box with a complete install, and config/.env carried 21
+# keys of which ZERO were consent. That is not a coincidence, it is a loop:
+#
+#   "Use previous answers"  ->  SKIP_PHASE2=true
+#     ->  the question phase never runs
+#     ->  OSTLER_CONSENT_*_DECISION stay EMPTY
+#     ->  the recorder at Phase 3 is guarded on non-empty, so it writes NOTHING
+#     ->  nothing is persisted for the NEXT reuse run to restore
+#
+# Self-perpetuating: every reuse run starts from the state the previous reuse
+# run failed to leave behind. The customer answered these questions once and
+# the answers evaporated, and the feeds they gate stayed off with no record
+# saying why. A wiped Mac restored from Time Machine hits this on its FIRST
+# install, because the restored home already carries a config/.env and the
+# installer therefore offers to reuse it.
+#
+# WHY HERE AND NOT A NEW FILE. The reuse path at ~4972 already does
+# \`set -a; source config/.env; set +a\`, so a key written here is restored
+# into exactly the variable the recorder reads, with no new mechanism, no
+# second source of truth, and nothing to keep in sync. This block also runs on
+# BOTH paths (the SKIP_PHASE2 guard closes at ~10137, well above), so a reuse
+# run rewrites what it restored rather than truncating it away.
+#
+# EMPTY IS PRESERVED DELIBERATELY, NOT DEFAULTED. An absent decision must stay
+# absent so Doctor reports "missing" and the freshness gate can ask again.
+# Defaulting an unanswered consent question to "accepted" would manufacture a
+# consent nobody gave, and defaulting it to "declined" would switch a feed off
+# the customer never refused. Both are worse than a truthful gap.
+OSTLER_CONSENT_ARTICLE_9_DECISION="${OSTLER_CONSENT_ARTICLE_9_DECISION:-}"
+OSTLER_CONSENT_VOICE_EU_DECISION="${OSTLER_CONSENT_VOICE_EU_DECISION:-}"
+OSTLER_CONSENT_THIRD_PARTY_DECISION="${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}"
+OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}"
+OSTLER_CONSENT_ENRICHMENT_DECISION="${OSTLER_CONSENT_ENRICHMENT_DECISION:-}"
+
+# The WhatsApp tickbox is recorded from TWO variables rather than one decision
+# string, so both have to survive or the recorder reads a decline as a
+# never-asked. CHANNEL_WHATSAPP_CONSENT_ACCEPTED carries the accept; WA_CONSENT
+# carries an explicit "n" refusal that Doctor must show as "user declined"
+# rather than "missing".
+CHANNEL_WHATSAPP_CONSENT_ACCEPTED="${CHANNEL_WHATSAPP_CONSENT_ACCEPTED:-}"
+WA_CONSENT="${WA_CONSENT:-}"
 ENVEOF
 
 # This .env carries USER_ID + config the whole install reads; it is
