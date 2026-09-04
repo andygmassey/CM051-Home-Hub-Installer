@@ -25,6 +25,7 @@ test_a_truncated_category_is_not_reported_complete.py	WIRED	.github/workflows/en
 test_abort_still_reports_when_the_close_fails.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_ai_conversations_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_ai_model_env_contract.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_aiconv_agent_not_registered_without_owner_email.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_aiconv_hydrate_honesty.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_amazon_extracted_dir_parse.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_an_abort_inside_a_step_is_counted.sh	WIRED	.github/workflows/step-end-status-honesty.yml
@@ -76,6 +77,7 @@ test_container_runtime_guard_tests_the_engine_not_the_client.sh	WIRED	.github/wo
 test_container_runtime_precondition.sh	WIRED	.github/workflows/container-runtime-precondition.yml
 test_context_refresh_vendor_sha.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_context_refresh_wired.sh	WIRED	.github/workflows/context-digest-auth.yml
+test_converge_path_enforces_rule2.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_conversation_bundle_user_id_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_conversation_process_metadata_conversation_id.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_conversations_ingest_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -317,6 +319,7 @@ test_slot_waiter_can_outlast_a_holder.sh	WIRED	.github/workflows/slot-fairness.y
 test_social_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_source_status_canonical_matches_recorders.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_source_status_contract.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_source_status_reports_ongoing_not_just_install.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_spoken_transcripts_absence_discriminated.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_stage_payload_strips_ambient_pyc.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_status_ok_with_zero_payload_is_not_ok.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml

@@ -5654,6 +5654,88 @@ if [[ -n "$CARD_DATA" ]]; then
     DETECTED_PHONE=$(echo "$CARD_DATA" | cut -d'|' -f5)
 fi
 
+# ── Owner address, second source: the accounts database ──────────────────
+#
+# WHY A SECOND SOURCE AT ALL. The me-card read above is an osascript call
+# into Contacts.app. MEASURED on the Mini 16 during the v1.0.63 walk,
+# 2026-09-04, on a wiped machine restored from a Time Machine backup:
+#
+#     Contacts got an error: Application isn't running. (-600)
+#
+# The branch above already RECOGNISES that failure and warns about it. What
+# it had was no alternative, so DETECTED_EMAIL stayed empty, and one empty
+# string later the AI-conversations agent was registered with
+# CM052_USER_EMAIL="" and refused every hour forever.
+#
+# A GUI app being warm is not a property of a customer's Mac at install time.
+# It is the property LEAST likely to hold: the installer runs on a machine
+# somebody has just set up.
+#
+# WHY THIS SOURCE. ~/Library/Accounts/Accounts4.sqlite is where macOS keeps
+# every configured account -- iCloud, Mail, Calendar, Contacts -- and it is a
+# plain file, present before any app has been opened. Measured on the same
+# box: 8 account rows resolving to 2 distinct addresses, while Contacts was
+# unscriptable and the local AddressBook store held 0 email addresses.
+#
+# MOST ROWS WINS. An Apple ID appears once per service it backs, so the
+# address with the most rows is the account identity rather than a
+# single-purpose mailbox.
+#
+# 🔴 AND IT PICKED THE WRONG ONE ON THE FIRST BOX IT MET. Stated here rather
+# than discovered later. Measured on the Mini 16, 2026-09-04: two addresses,
+# and the account-identity one is NOT the address the owner actually uses.
+#
+#     the account-identity address   10 rows, spanning the Apple sign-in and
+#                                    nine services that hang off it
+#     the address the owner uses      7 rows, all mail/calendar accounts
+#
+# Described by ROLE AND COUNT rather than enumerated. The first draft listed
+# the Apple service names and the whole-tree person-name guard flagged two of
+# them as a name PAIR -- a false positive, but the list was decorative and
+# fighting a PII guard over decoration is the wrong trade.
+#
+# The owner confirmed the SECOND is his address. So this rule is right about
+# "which account identifies this Mac" and wrong about "which mailbox is this
+# person", and those are different questions.
+#
+# IT SHIPS ANYWAY, AND HERE IS THE ARGUMENT. The alternative on this path is
+# no address at all, which registers nothing and leaves AI conversations dead
+# until the customer notices. A plausible-but-wrong address still labels
+# transcripts, still lets the agent run, and is correctable in one field. An
+# absent one is not correctable by anybody who does not already know it is
+# absent.
+#
+# ⚠️ THE REAL FIX IS TO ASK, AND THIS IS NOT IT. This value should pre-fill a
+# question the customer confirms, exactly as the name and country do. Until
+# that lands, this is a fallback that reduces a permanent silent failure to a
+# visible wrong value, and it must not be mistaken for the fix.
+#
+# READ-ONLY AND IMMUTABLE, DELIBERATELY. `immutable=1` opens without taking a
+# lock and without creating -wal/-shm sidecars, so reading the customer's
+# live accounts store cannot perturb it. Never open this database writable.
+#
+# FDA MAY STILL REFUSE, and that is fine: the query fails, DETECTED_EMAIL
+# stays empty, and the guard at the AI-conversations agent refuses to
+# register a dead agent and says why. Absent is handled; empty-and-pretending
+# is what was not.
+if [[ -z "$DETECTED_EMAIL" ]]; then
+    _acct_db="${HOME}/Library/Accounts/Accounts4.sqlite"
+    if [[ -r "$_acct_db" ]] && command -v sqlite3 >/dev/null 2>&1; then
+        _acct_email="$(sqlite3 "file:${_acct_db}?immutable=1" \
+            "select ZUSERNAME from ZACCOUNT where ZUSERNAME like '%@%.%' \
+             group by ZUSERNAME order by count(*) desc limit 1;" 2>/dev/null | head -n 1)"
+        # Shape-check before accepting: this feeds a shipped LaunchAgent, and
+        # a malformed value would be worse than none because it would satisfy
+        # the emptiness guard while still being wrong.
+        if [[ "$_acct_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+            DETECTED_EMAIL="$_acct_email"
+            info "Read your email address from this Mac's account settings (your Contacts card was not available)."
+        fi
+        unset _acct_email
+    fi
+    unset _acct_db
+fi
+
 # ── Map country name to dialling code ──────────────────────────────
 
 _country_to_code() {
@@ -18780,7 +18862,7 @@ fi
 # channel a scheduler can act on -- a loud log tells a human, an rc tells the
 # system, and only one of those is watching at 04:00.
 "$OSTLER_PYTHON" -c "
-import json, sys
+import json, sys, os, datetime
 sys.path.insert(0, '${FDA_DIR}')
 from ostler_fda.extract_all import run_all
 from ostler_fda.pwg_ingest import ingest_all
@@ -18789,6 +18871,62 @@ fda_dir = Path('${OSTLER_DIR}/imports/fda')
 run_all(fda_dir)
 results = ingest_all(fda_dir) or {}
 print('[ingest] ' + json.dumps(results, default=str))
+
+# ── ONGOING ACTIVITY RECORD (#W018) ──────────────────────────────────────
+#
+# WHY THIS EXISTS, MEASURED on the Mini 16 2026-09-04. Every hydrate sentinel
+# under state/hydrate was frozen between 08:29Z and 08:45Z -- install time --
+# while this very script rewrote imessage_conversations.json at 09:17Z with
+# 167 conversations and 136 people created. The extract moved; the record did
+# not. So /api/v1/sources reported 'no_data, people=0' for a source that had
+# just done real work, and its own docstring claims it shows 'whether a source
+# landed AND WHETHER IT KEEPS UPDATING'. It could never answer the second half.
+#
+# TWO RECORDS, NEVER ONE REPURPOSED. state/hydrate/<n>.done stays exactly as
+# it is: an install-time verdict with a 7-day dedupe window. That record
+# answers 'did this land at install'. This one answers 'is this still
+# working', which is a different question and needs its own writer.
+#
+# LAST-RUN AND LAST-SUCCESS ARE SEPARATE FIELDS ON PURPOSE. 'ran 4 minutes ago
+# and found nothing' and 'last ran at install and has not run since' print
+# identically when you only keep one timestamp, and that collapse is the whole
+# defect. last_success_at is CARRIED FORWARD from the previous record when
+# this run was not a success, so a failing source still shows when it last
+# worked rather than losing that history on its first bad tick.
+#
+# BEST EFFORT, ALWAYS. This is bookkeeping about ingest, not ingest. It must
+# never be able to fail the tick it is describing, so every write is wrapped
+# and a broken record costs a row of reporting, never a harvest.
+try:
+    _now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    _act = Path('${OSTLER_DIR}') / 'state' / 'source_activity'
+    _act.mkdir(parents=True, exist_ok=True)
+    _rows = results if isinstance(results, dict) and results.get('status') != 'error' else {}
+    for _name in sorted(_rows):
+        _res = _rows[_name]
+        if not isinstance(_res, dict):
+            continue
+        _status = str(_res.get('status', 'unknown'))
+        _f = _act / (_name + '.tsv')
+        _prev_success = ''
+        if _f.is_file():
+            for _line in _f.read_text(encoding='utf-8', errors='replace').splitlines():
+                if _line.startswith('last_success_at='):
+                    _prev_success = _line.split('=', 1)[1]
+        _success = _now if _status == 'ok' else _prev_success
+        _detail = json.dumps({k: v for k, v in _res.items() if k != 'status'}, default=str)
+        _f.write_text(
+            'source=' + _name + chr(10) +
+            'last_run_at=' + _now + chr(10) +
+            'last_status=' + _status + chr(10) +
+            'last_success_at=' + _success + chr(10) +
+            'last_detail=' + _detail[:400] + chr(10) +
+            'writer=ostler-fda' + chr(10),
+            encoding='utf-8')
+except Exception as _exc:
+    sys.stderr.write('[activity] could not record ongoing status: ' +
+                     type(_exc).__name__ + ': ' + str(_exc) + chr(10))
+
 failed = []
 if results.get('status') == 'error':
     # The whole-directory failure shape: a FLAT dict, not per-source. Checked
@@ -28808,6 +28946,46 @@ except Exception:
             _AICONV_RESUME_PLIST="${HOME}/Library/LaunchAgents/com.ostler.aiconv-resume.plist"
             mkdir -p "$LOGS_DIR" "${HOME}/Library/LaunchAgents"
 
+            # 🔴 AN EMPTY REQUIRED VAR MUST NOT REACH A SHIPPED PLIST.
+            #
+            # MEASURED on the Mini 16 during the v1.0.63 walk, 2026-09-04.
+            # USER_EMAIL is read from exactly ONE place -- DETECTED_EMAIL at
+            # :5763, which comes from the macOS me-card via osascript at :5653.
+            # On a Mac where Contacts.app has never been launched that call
+            # returns:
+            #
+            #     Contacts got an error: Application isn't running. (-600)
+            #
+            # so DETECTED_EMAIL is empty, USER_EMAIL is empty, and the
+            # ${USER_EMAIL:-} below expanded to "". The agent then ran hourly
+            # and cm052.cli refused every single time:
+            #
+            #     ERROR cm052.cli: CM052_USER_EMAIL is not set. The wire needs
+            #     it to label the user side of each transcript.
+            #
+            # ai_conversations therefore read `not_run` FOREVER, and the same
+            # rc=2 folded into gui_step_record_rc and reddened health_check --
+            # one empty string, two symptoms, neither naming the cause.
+            #
+            # A COLD MAC IS THE NORMAL CUSTOMER MAC. A wiped machine restoring
+            # from iCloud or Time Machine has no warm GUI apps, which is
+            # exactly when this install runs. Registering an agent that cannot
+            # possibly succeed is worse than not registering it: it is an
+            # hourly failure with no reader, and the source it feeds reports a
+            # state ("not_run") that says nothing about why.
+            #
+            # So: refuse, say why in the customer's own status record, and let
+            # the freshness gate retry once an address is known. `not_run` with
+            # a declared reason is recoverable; a dead agent is not.
+            if [[ -z "${USER_EMAIL:-}" ]]; then
+                warn "AI conversations: no owner email address is known for this Mac, so the hourly AI-conversation reader was not registered."
+                warn "  The address labels your side of each transcript, and the reader cannot run without it."
+                warn "  Ostler reads it from your card in Contacts; on a Mac where Contacts has never been opened there is nothing to read."
+                warn "  Open Contacts once, check your own card has an email address, then re-run Ostler from Settings."
+                _hydrate_sentinel_record "ai_conversations" "written=0" \
+                    "owner_email_unknown_agent_not_registered"
+            else
+
             cat > "$_AICONV_RESUME_PLIST" <<AICONVPLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -28853,6 +29031,7 @@ AICONVPLIST
                || launchctl load "$_AICONV_RESUME_PLIST" 2>/dev/null; then
                 _AICONV_AGENT_OK=true
             fi
+            fi   # end: owner email known
 
             # ── Drain outcome: user-facing message + hydrate sentinel ──
             # The recurring steady feed is registered above regardless; this

@@ -1,0 +1,121 @@
+name: cold-box-source-truth
+
+# Three defects found on the v1.0.63 walk, on a FRESHLY WIPED Mini 16 restored
+# from a Time Machine backup. All three had shipped, none was visible to any
+# existing gate, and each now has a test that goes red against the blob that
+# shipped it.
+#
+# ============================================================================
+# WHY THESE THREE BELONG IN ONE WORKFLOW
+# ============================================================================
+#
+# They are one failure with three faces: THE PRODUCT REPORTED ON ITSELF AND
+# WAS BELIEVED.
+#
+#   1. An owner email that could not be read (Contacts.app was never launched
+#      on a new Mac, so osascript returned -600) shipped as an EMPTY required
+#      variable into a LaunchAgent, which then refused once an hour forever.
+#      ai_conversations read `not_run` permanently and the same rc=2 reddened
+#      health_check. One empty string, two symptoms, neither naming the cause.
+#
+#   2. The source-status surface was written ONLY by install.sh. Every ongoing
+#      tick did real work and updated nothing, so a source that failed at
+#      install showed failed forever after it recovered. Measured: all 11
+#      sentinels frozen at install time while the iMessage extract was
+#      rewritten 38 minutes later with 136 people created.
+#
+#   3. RULE 2 of the dedupe ruleset was enforced on the resolve path and NOT
+#      on the converge path, which is the one install.sh actually runs. The
+#      over-merge count therefore GREW across boxes -- 128, 130, 137 -- while
+#      the fix was believed to be in place, and the walk probe failed on three
+#      consecutive cuts.
+#
+# ============================================================================
+# WHY macos, NOT ubuntu
+# ============================================================================
+#
+# The aiconv guard test extracts the real region from install.sh and the
+# source-status test drives the shipped reader. Both are macOS-shaped code
+# paths, and the installer only ever runs on macOS. The gate runs where the
+# code runs.
+#
+# EVERY STEP CARRIES `if: always()`. A failure in one test must not silence
+# the next: a skipped test reads as "no objection", which is precisely the
+# class of defect this workflow exists to remove.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/cm041/identity_resolver/batch_resolver.py'
+      - 'vendor/cm041/identity_resolver/resolver.py'
+      - 'tests/test_aiconv_agent_not_registered_without_owner_email.sh'
+      - 'tests/test_source_status_reports_ongoing_not_just_install.sh'
+      - 'tests/test_converge_path_enforces_rule2.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/cold-box-source-truth.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  cold-box-truth:
+    runs-on: macos-14
+    timeout-minutes: 25
+    steps:
+      # fetch-depth 0: every one of these tests pins its negative control to
+      # 45126e9a, the v1.0.63 cut commit -- the blob that actually shipped the
+      # defect. A shallow clone cannot see it, and a control that cannot be
+      # read reports CANNOT-RUN, which is not a pass.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: An empty owner email must not reach a shipped LaunchAgent
+        run: bash tests/test_aiconv_agent_not_registered_without_owner_email.sh
+
+      - name: Source status must report ONGOING state, not the install verdict
+        if: always()
+        run: bash tests/test_source_status_reports_ongoing_not_just_install.sh
+
+      # httpx is imported by batch_resolver at module scope. rapidfuzz is
+      # stubbed inside the test itself (it backs only the fuzzy strategies,
+      # which this test never drives) so the run cannot degrade to CANNOT-RUN
+      # on a machine without that wheel -- a CANNOT-RUN that becomes permanent
+      # is how a gate stops gating.
+      # A VENV, NOT `pip install` INTO THE SYSTEM PYTHON. The runner's python3
+      # is externally managed (PEP 668) and refuses, which failed this job on
+      # its first run. `--break-system-packages` would have silenced it by
+      # doing exactly the thing that error exists to prevent, on a python the
+      # rest of the job depends on.
+      #
+      # FROM THE PACKAGE'S OWN REQUIREMENTS FILE, not a hand-picked name. A
+      # venv built from that file is the only thing that TESTS it, and
+      # building one is how its two missing declarations (httpx, phonenumbers)
+      # were found: every other environment already had them from a sibling
+      # requirements file, so the list was short and nothing could see it.
+      - name: Build a venv from identity_resolver's own requirements
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/convergetest
+          /tmp/convergetest/bin/python -m pip install --quiet --upgrade pip
+          /tmp/convergetest/bin/python -m pip install --quiet \
+            -r vendor/cm041/identity_resolver/requirements.txt
+          /tmp/convergetest/bin/python -c 'import httpx, phonenumbers; print("deps ok")'
+
+      # PATH-first so the test's own `python3` resolves to the venv. The test
+      # reports CANNOT-RUN (exit 2) rather than passing when a dependency is
+      # missing, so a broken venv cannot read as a clean gate.
+      - name: RULE 2 must be enforced on the CONVERGE path, not just resolve
+        if: always()
+        run: PATH="/tmp/convergetest/bin:$PATH" bash tests/test_converge_path_enforces_rule2.sh

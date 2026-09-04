@@ -41,24 +41,76 @@ VERIFIER="${_REPO_SCRIPTS}/verify_install_manifest.py"
 MANIFEST="${_REPO_SCRIPTS}/install_manifest.tsv"
 
 run_probe() {
-    probe_examined 1 "scripts/verify_install_manifest.py against \$HOME on this box"
-
-    if [ -n "${OSTLER_BOX_HOST:-}" ]; then
-        probe_cannot_run "OSTLER_BOX_HOST is set (${OSTLER_BOX_HOST}); the manifest gate reads the target's own filesystem (~/Library/LaunchAgents, the live config), so run the box walk ON the box, not remotely"
-    fi
-    command -v python3 >/dev/null 2>&1 || probe_cannot_run "python3 not on PATH; the manifest verifier needs it"
     [ -r "$VERIFIER" ] || probe_cannot_run "verifier not readable at ${VERIFIER}"
     [ -r "$MANIFEST" ] || probe_cannot_run "manifest not readable at ${MANIFEST}"
+
+    # ── REMOTE WALKS ARE MEASURED, NOT REFUSED ───────────────────────────
+    #
+    # This probe used to CANNOT-RUN whenever OSTLER_BOX_HOST was set, on the
+    # correct observation that the verifier reads the TARGET's filesystem
+    # (~/Library/LaunchAgents, the live config) and so cannot be run from here.
+    # The conclusion drawn from it was wrong: "I cannot run where I am" is not
+    # a reason to give up, it is a reason to run somewhere else.
+    #
+    # WHAT THAT COST, MEASURED. install_manifest_complete returned CANNOT-RUN
+    # on v1.0.50, .51, .52, .61 and .63 -- every recorded walk -- because every
+    # walk is driven remotely. Five cuts shipped with this gate never once
+    # adjudicating, and alongside it ingest_coverage was CANNOT-RUN for four
+    # cuts while five sources were failing behind it. A gate that has never
+    # returned a verdict is indistinguishable from no gate, and the walk
+    # summary counted it as "not measured" in a column nobody read.
+    #
+    # THE VERIFIER IS SELF-CONTAINED, so it can simply be carried to the
+    # subject. Both files go over the existing ssh transport, are written to a
+    # temp dir on the box, run there against the box's OWN $HOME, and are
+    # removed. The exit code comes back over ssh unchanged, so the three-state
+    # contract below is preserved exactly.
+    #
+    # DECODED WITH python3, NOT `base64 -d`. macOS shipped `base64` with -D and
+    # without -d for years; picking the wrong one prints a usage error to
+    # stderr and writes an EMPTY file, and an empty verifier "runs" and finds
+    # nothing -- a false zero wearing the shape of a clean install. python3 is
+    # already a hard requirement two lines below, so it costs nothing and
+    # cannot differ between hosts.
+    local out rc _payload
+    if [ -n "${OSTLER_BOX_HOST:-}" ]; then
+        box_reachable || probe_cannot_run "OSTLER_BOX_HOST is set (${OSTLER_BOX_HOST}) but the box did not answer; a gate that cannot reach its subject has not passed"
+        command -v python3 >/dev/null 2>&1 || probe_cannot_run "python3 not on PATH here; needed to encode the verifier for transport"
+        _payload="$(python3 - "$VERIFIER" "$MANIFEST" <<'ENCODE'
+import base64, sys
+print(base64.b64encode(open(sys.argv[1], "rb").read()).decode())
+print(base64.b64encode(open(sys.argv[2], "rb").read()).decode())
+ENCODE
+)" || probe_cannot_run "could not encode the verifier and manifest for transport"
+        local _v64 _m64
+        _v64="$(printf '%s\n' "$_payload" | sed -n 1p)"
+        _m64="$(printf '%s\n' "$_payload" | sed -n 2p)"
+        [ -n "$_v64" ] && [ -n "$_m64" ] || probe_cannot_run "encoded payload was empty; refusing to run a verifier that may be a zero-byte file"
+
+        probe_examined 1 "scripts/verify_install_manifest.py carried to ${OSTLER_BOX_HOST} and run against ITS \$HOME"
+        out="$(box_run_v "
+d=\$(mktemp -d) || exit 2
+printf '%s' '${_v64}' | python3 -c 'import sys,base64;open(sys.argv[1],\"wb\").write(base64.b64decode(sys.stdin.read()))' \"\$d/v.py\" || { rm -rf \"\$d\"; exit 2; }
+printf '%s' '${_m64}' | python3 -c 'import sys,base64;open(sys.argv[1],\"wb\").write(base64.b64decode(sys.stdin.read()))' \"\$d/m.tsv\" || { rm -rf \"\$d\"; exit 2; }
+[ -s \"\$d/v.py\" ] && [ -s \"\$d/m.tsv\" ] || { rm -rf \"\$d\"; exit 2; }
+python3 \"\$d/v.py\" --manifest \"\$d/m.tsv\" --home \"\$HOME\" --exclude-type import_wire
+_rc=\$?
+rm -rf \"\$d\"
+exit \$_rc
+")"
+        rc=$?
+    else
+        command -v python3 >/dev/null 2>&1 || probe_cannot_run "python3 not on PATH; the manifest verifier needs it"
+        probe_examined 1 "scripts/verify_install_manifest.py against \$HOME on this box"
+        out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$HOME" --exclude-type import_wire 2>&1)"
+        rc=$?
+    fi
 
     # BOX-OBSERVABLE types only. import_wire is a property of the SOURCE tree
     # (does a write path import the kinship guard), not of the installed artefact
     # on this box, so it is checked in CI (install-manifest-gate.yml) and excluded
     # here. This probe adjudicates launch_agent, cron_job, artefact_dir and
     # qdrant_collection -- the things a finished install actually exposes.
-    local out rc
-    out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$HOME" --exclude-type import_wire 2>&1)"
-    rc=$?
-
     case "$rc" in
         0) probe_pass "$(printf '%s' "$out" | grep -E '^(PASS|install-manifest)' | tr '\n' ' ')" ;;
         1) probe_fail "install is not complete/consistent -- $(printf '%s' "$out" | grep -E '^(FAIL|    -)' | tr '\n' ' | ')" ;;

@@ -30,21 +30,86 @@ DEVICES_DB="${OSTLER_DEVICES_DB:-\$HOME/.ostler/devices.db}"
 # is correct only while both machines happen to share a username.
 CONFIG_TOML="${OSTLER_CONFIG_TOML:-\$HOME/.ostler/assistant-config/config.toml}"
 HEALTH_URL="${OSTLER_HEALTH_URL:-http://127.0.0.1:8089/doctor/api/health}"
+# The GATEWAY health, which is where the pairing flags actually live.
+# MEASURED on the Mini 16, 2026-09-04:
+#   :8089/doctor/api/health  -> no `paired` key at all (this probe's own note
+#                               at adjudicate() says so, and it is correct)
+#   :8000/health             -> {"companion_paired":false,"paired":false,
+#                                "require_pairing":true, ...}
+# So the device-layer flag was never missing, it was being asked of the wrong
+# service -- the third time today a gate has reported on itself rather than on
+# the product (see also usage_journal_producers reading a workspace path the
+# daemon does not use, and install_manifest_complete refusing to run remotely).
+GATEWAY_HEALTH_URL="${OSTLER_GATEWAY_HEALTH_URL:-http://127.0.0.1:8000/health}"
 
 # --- signal readers. Each prints  true | false | UNAVAILABLE ---------------
+
+# 🔴 THE GLOB PARSE WAS A FALSE-POSITIVE WAITING FOR AN ENDPOINT THAT HAS THE
+# KEY. It read:
+#
+#     *'"paired"'*'true'*) printf 'true'
+#
+# which matches `true` ANYWHERE AFTER the key, not the key's own value. The
+# gateway body is:
+#
+#     {"companion_paired":false,"paired":false,"require_pairing":true,...}
+#
+# `"paired"` appears, and `true` appears later in "require_pairing":true, so the
+# first arm matches and the probe would report PAIRED on a box with no phone.
+# It never fired only because the endpoint it was pointed at carried no
+# `paired` key at all, so every read fell through to UNAVAILABLE. Repointing
+# the URL without fixing the parse would have turned a permanent CANNOT-RUN
+# into a confident wrong answer, which is strictly worse.
+#
+# Parsed as JSON, LOCALLY. python3 is already required by this suite, and the
+# value is read by key rather than by proximity.
+# THE PARSE, AS ITS OWN FUNCTION, so the reader and its control are the SAME
+# CODE. An earlier draft of the control inlined a second copy of this python
+# and asserted against that -- a fixture encoding the fix rather than the
+# property, which would have gone green with the real reader still broken.
+_parse_paired_body() {
+    # stdin: a health body. stdout: true | false | UNAVAILABLE
+    python3 -c '
+import json, sys
+try:
+    d = json.loads(sys.stdin.read())
+except Exception:
+    print("UNAVAILABLE"); raise SystemExit
+if not isinstance(d, dict):
+    print("UNAVAILABLE"); raise SystemExit
+# `paired` is the device-layer question. `companion_paired` is the same
+# question from the iOS side and is accepted only when `paired` is absent, so
+# a body carrying both can never be read off the weaker key.
+for key in ("paired", "companion_paired"):
+    if key in d:
+        v = d[key]
+        print("true" if v is True else "false" if v is False else "UNAVAILABLE")
+        raise SystemExit
+print("UNAVAILABLE")
+' 2>/dev/null || printf 'UNAVAILABLE'
+}
+
+_health_paired_from() {
+    # _health_paired_from <url> -> true | false | UNAVAILABLE
+    local body
+    body="$(box_run "curl -sS -m 5 '$1' 2>/dev/null")"
+    [ -n "$body" ] || { printf 'UNAVAILABLE'; return; }
+    printf '%s' "$body" | _parse_paired_body
+}
 
 signal_health_flag() {
     if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
         printf '%s' "${FAKE_HEALTH:-UNAVAILABLE}"; return
     fi
-    local body
-    body="$(box_run "curl -sS -m 5 '$HEALTH_URL' 2>/dev/null")"
-    if [ -z "$body" ]; then printf 'UNAVAILABLE'; return; fi
-    case "$body" in
-        *'"paired"'*'true'*) printf 'true' ;;
-        *'"paired"'*'false'*) printf 'false' ;;
-        *) printf 'UNAVAILABLE' ;;
-    esac
+    local v
+    # The gateway first: it is the service that owns the flag. The doctor is
+    # kept as a fallback rather than deleted, because if it ever grows the key
+    # this probe should read it rather than silently prefer one service.
+    v="$(_health_paired_from "$GATEWAY_HEALTH_URL")"
+    if [ "$v" = "UNAVAILABLE" ]; then
+        v="$(_health_paired_from "$HEALTH_URL")"
+    fi
+    printf '%s' "$v"
 }
 
 DEVICES_DB_USED=""   # set by signal_devices_rows so run_probe can report WHICH file
@@ -394,6 +459,60 @@ self_test() {
     if [ "${r%% *}" != "AGREE" ]; then
         probe_pass "NEGATIVE CONTROL OVER-FIRED: config and gateway both saying true adjudicated as '${r%% *}'. A correctly configured box would fail this row."
     fi
+
+    # ── PARSE CONTROL: the real gateway body shape ────────────────────
+
+    # The old glob was *'"paired"'*'true'* -- it matched `true` ANYWHERE
+
+    # after the key. The live gateway body carries "paired":false AND
+
+    # "require_pairing":true, so that arm would have reported PAIRED on a
+
+    # box with no phone. It never fired only because the endpoint it was
+
+    # pointed at had no `paired` key, so every read fell through to
+
+    # UNAVAILABLE. Repointing the URL without fixing the parse would have
+
+    # turned a permanent CANNOT-RUN into a confident wrong answer.
+
+    #
+
+    # Driven through the REAL parser, not a copy of it.
+
+    # Drives _parse_paired_body -- the SAME function signal_health_flag uses.
+    _parse_case() { printf '%s' "$1" | _parse_paired_body; }
+
+    _pc_fail=0
+
+    # THE EXACT SHAPE THAT WOULD HAVE LIED: paired=false with a later true.
+
+    v="$(_parse_case '{"companion_paired":false,"paired":false,"require_pairing":true}')"
+
+    [ "$v" = "false" ] || { _pc_fail=1; probe_note "parse control: paired=false-with-later-true returned '$v', expected false"; }
+
+    v="$(_parse_case '{"paired":true,"require_pairing":false}')"
+
+    [ "$v" = "true" ] || { _pc_fail=1; probe_note "parse control: a genuine paired=true returned '$v'"; }
+
+    v="$(_parse_case '{"require_pairing":true}')"
+
+    [ "$v" = "UNAVAILABLE" ] || { _pc_fail=1; probe_note "parse control: a body with NO pairing key returned '$v', expected UNAVAILABLE"; }
+
+    v="$(_parse_case 'not json at all')"
+
+    [ "$v" = "UNAVAILABLE" ] || { _pc_fail=1; probe_note "parse control: unparseable body returned '$v', expected UNAVAILABLE"; }
+
+    if [ "$_pc_fail" -eq 0 ]; then
+
+        probe_note "parse control: 4 of 4 bodies read by KEY, not by proximity"
+
+    else
+
+        probe_pass "PARSE CONTROL FAILED -- the health-flag reader can misreport pairing. See the notes above."
+
+    fi
+
 
     probe_fail "negative control behaved correctly on all 6 combinations (split-brain caught, consistent states passed, single-signal refused, live #512 shape caught, healthy 2-signal box cleared)"
 }
