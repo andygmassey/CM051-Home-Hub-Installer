@@ -9720,9 +9720,31 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
                 # ~/.ostler/imports/.
                 #
                 # THE WIPE IS FOR THIS RUN'S RESIDUE, NOT FOR AN INSTALL THAT
-                # WAS ALREADY HERE. On a re-install the same statement would
-                # take the graph, the vectors, the conversations and the
-                # config -- and the sentence below would call that nothing.
+                # WAS ALREADY HERE, AND THE SENTENCE BELOW MUST MATCH WHAT IT
+                # ACTUALLY DID.
+                #
+                # PROVENANCE, BECAUSE THE FIRST VERSION OF THIS COMMENT WAS
+                # WRONG AND A SOURCE COMMENT OUTLIVES THE BOARD POST THAT
+                # CORRECTED IT. TNM proved BY EXECUTION that this arm destroys
+                # whatever OSTLER_DIR points at: he seeded three files, ran the
+                # arm, and counted zero survivors while it printed "nothing was
+                # written to your Mac". That is why the guard and the second
+                # message exist.
+                #
+                # He then measured the TARGET and WITHDREW the data-loss claim.
+                # Every path that reaches this arm binds OSTLER_DIR to the
+                # prelaunch staging tree, not to ~/.ostler, because the promote
+                # that rebinds it is disabled by the very flag #1431 sets
+                # earlier. So on the paths measured so far the wipe takes
+                # staging residue, and the earlier claim that it "would take the
+                # graph, the vectors, the conversations and the config" is NOT
+                # true of any reachable path.
+                #
+                # The guard stays regardless. It is cheap, it is correct on its
+                # own terms, and the binding is an emergent property of two
+                # other decisions that a later change could quietly reverse.
+                # What must not stand is a comment asserting a data-loss path
+                # that was measured not to exist.
                 if [[ "$_OSTLER_FINAL_PREEXISTED" != true && -d "$OSTLER_DIR" ]]; then
                     rm -rf "$OSTLER_DIR" 2>/dev/null || true
                 fi
