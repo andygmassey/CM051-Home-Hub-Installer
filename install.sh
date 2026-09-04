@@ -21312,7 +21312,89 @@ fi
 # Step-count: Email body-feed is a gated progress step (Apple Mail present +
 # third-party consent). Subtract its slot from TOTAL_STEPS when skipped.
 [[ ! -d "${HOME}/Library/Mail" || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
-if [[ -d "${HOME}/Library/Mail" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
+
+# ── UNKNOWN IS NOT DECLINED, AND CONFLATING THEM SILENTLY TURNS FEATURES OFF ──
+#
+# MEASURED on the Mini 16, 2026-09-04, on a finished v1.0.63 install where the
+# customer chose "use previous answers":
+#
+#     PROMPT markers in the whole run    imessage_automation_incoming_ack,
+#                                        reuse_settings, tailscale_confirm
+#     occurrences of "consent_third_party"   0      <- never asked
+#     consent registry, `show --tickbox`     null   <- nothing recorded
+#     keys matching ^[A-Z_]*CONSENT.*= in config/.env   0   (of 19 keys;
+#                                        CONTROL: ^USER_ID= is 1, so the
+#                                        predicate works and .env does persist)
+#     conversation feeds installed       1 of 4 (spoken only)
+#     bundle agents present              spoken only; imessage/whatsapp/email
+#                                        ABSENT (CONTROL: ostler.assistant
+#                                        PRESENT, so the probe can find agents)
+#
+# THE LOOP IS SELF-PERPETUATING, which is why it does not heal:
+#
+#     reuse -> SKIP_PHASE2 -> the consent questions never execute
+#           -> OSTLER_CONSENT_*_DECISION stays EMPTY
+#           -> the recorder at ~13755 is guarded on the variable being NON-EMPTY,
+#              so it records NOTHING into the durable registry
+#           -> the NEXT reuse run has nothing to restore, and repeats
+#
+# So the decision lives only in a shell variable that dies with the process, and
+# every consent-gated feature reads its absence as a refusal.
+#
+# 🔴 SAME CLASS AS #619, THIRD OCCURRENCE. The block at ~12674 records this
+# exact shape for CHANNELS -- "config/.env carries 21 keys and NONE of them are
+# CHANNEL_*" -- and the paired_tokens block above it records it once more. Both
+# got a fill-only restore. Consent did not, and consent is the one where the
+# failure mode is a PRIVACY-GATED FEATURE SILENTLY SWITCHING OFF.
+#
+# WHAT THIS FUNCTION DOES AND DELIBERATELY DOES NOT DO.
+#
+# It reports THREE states, never two. It does NOT invent a decision, and it
+# never upgrades unknown to accepted: consent is the customer's to give, and a
+# restore that guesses "yes" would be far worse than the bug it fixes.
+#
+#     accepted   the customer said yes, this run or in the durable registry
+#     declined   the customer said no
+#     unknown    nobody has ever been asked, or the answer was lost
+#
+# The CALLERS decide what to do with `unknown`. What they may no longer do is
+# treat it as `declined` in silence.
+_ostler_consent_state() {
+    # _ostler_consent_state <tickbox-id> <in-memory-decision>
+    # -> accepted | declined | unknown
+    local tickbox="$1" inmem="${2:-}"
+    case "$inmem" in
+        accepted) printf 'accepted'; return ;;
+        declined) printf 'declined'; return ;;
+    esac
+    # Nothing in memory. Ask the DURABLE registry rather than assuming.
+    # `check` exits 0 only when a current ACCEPTED record exists; every other
+    # state (declined, absent, unreadable) exits non-zero and is therefore
+    # NOT enough to distinguish declined from never-asked. That is why a
+    # non-zero here reports `unknown` and not `declined`.
+    if [[ -n "${OSTLER_PYTHON:-}" ]] && [[ -x "${OSTLER_PYTHON}" ]]; then
+        if "$OSTLER_PYTHON" -m ostler_security.consent_cli check \
+               --tickbox "$tickbox" >/dev/null 2>&1; then
+            printf 'accepted'; return
+        fi
+    fi
+    printf 'unknown'
+}
+
+# Say out loud that a feature was skipped for want of an ANSWER, not for want
+# of consent. A customer who is never told cannot act, and this is precisely
+# the case the installer's own reuse help text promises will not happen.
+_ostler_warn_consent_unknown() {
+    # _ostler_warn_consent_unknown <feature-label> <tickbox-id>
+    warn "$(printf "$MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED" "$1")"
+    warn "$(printf "$MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY" "$2")"
+}
+
+_OSTLER_CONSENT_TP_EMAIL="$(_ostler_consent_state third_party_data_personal_records "$OSTLER_CONSENT_THIRD_PARTY_DECISION")"
+if [[ -d "${HOME}/Library/Mail" && "$_OSTLER_CONSENT_TP_EMAIL" == "unknown" ]]; then
+    _ostler_warn_consent_unknown "Mail conversation feed" third_party_data_personal_records
+fi
+if [[ -d "${HOME}/Library/Mail" && "$_OSTLER_CONSENT_TP_EMAIL" == "accepted" ]]; then
     progress "$MSG_PROGRESS_EMAIL_BUNDLE" "email_bundle"
     _install_conversation_feed email email_source "ostler_fda pyyaml"
 else
@@ -21385,7 +21467,11 @@ fi
 # Step-count: iMessage body-feed is a gated progress step (chat.db present +
 # third-party consent). Subtract its slot from TOTAL_STEPS when skipped.
 [[ ! -f "${HOME}/Library/Messages/chat.db" || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
-if [[ -f "${HOME}/Library/Messages/chat.db" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
+_OSTLER_CONSENT_TP_IMSG="$(_ostler_consent_state third_party_data_personal_records "$OSTLER_CONSENT_THIRD_PARTY_DECISION")"
+if [[ -f "${HOME}/Library/Messages/chat.db" && "$_OSTLER_CONSENT_TP_IMSG" == "unknown" ]]; then
+    _ostler_warn_consent_unknown "iMessage conversation feed" third_party_data_personal_records
+fi
+if [[ -f "${HOME}/Library/Messages/chat.db" && "$_OSTLER_CONSENT_TP_IMSG" == "accepted" ]]; then
     progress "$MSG_PROGRESS_IMESSAGE_BUNDLE" "imessage_bundle"
     _install_conversation_feed imessage services/imessage_source "pyyaml"
 else
