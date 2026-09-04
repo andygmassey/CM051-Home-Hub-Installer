@@ -251,6 +251,7 @@ test_no_committed_binary_leaks_a_home_path.sh	WIRED	.github/workflows/no-binary-
 test_no_data_is_not_success.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_no_divergent_vendor_twin.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_no_finder_appleevent.sh	WIRED	.github/workflows/no-finder-appleevent.yml
+test_no_function_is_called_before_it_is_defined.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_no_gate_execs_a_pinned_image.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_no_internal_codenames_in_customer_strings.sh	WIRED	.github/workflows/rule-09-strings-check.yml
 test_no_literal_backslash_n_in_strings.sh	WIRED	.github/workflows/consent-data-handling.yml
