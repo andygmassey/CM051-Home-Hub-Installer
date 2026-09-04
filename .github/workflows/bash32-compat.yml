@@ -55,6 +55,14 @@ on:
       # commit that breaks it.
       - 'tests/**'
       - 'scripts/**'
+      # THE SHIPPED SHELL. Arm E scans install.sh and lib/*.sh, which are the
+      # files that actually run on a customer's Mac under bash 3.2. A guard
+      # that asserts on a file it does not watch cannot fire on the commit
+      # that breaks it, which is the same defect #561 records against a run:
+      # with no matching paths entry.
+      - 'install.sh'
+      - 'lib/**'
+      - 'assistant-agent/INSTALL_SNIPPET.sh'
   push:
     branches: [main]
 
@@ -91,7 +99,12 @@ jobs:
       # Carries its own negative control: a synthetic file that DOES call
       # mapfile must be detected, so a pass means the scan works rather than
       # that it looked and was blind.
-      - name: No test may depend on a bash 4 builtin
+      # Also scans the SHIPPED shell (arm E): install.sh and lib/*.sh carry a
+      # comment claiming they stay bash-3.2 clean, and until now nothing
+      # checked it. Mutation-verified before landing: seeding one `declare -A`
+      # into install.sh turns arm E red and names the line, and so does one
+      # ${x^^}. A guard nobody has watched fail is not a guard.
+      - name: No test, and no SHIPPED file, may depend on a bash 4 construct
         run: /bin/bash tests/test_no_test_uses_a_bash4_builtin.sh
 
       # The two tests below already run on ubuntu. These steps are the first

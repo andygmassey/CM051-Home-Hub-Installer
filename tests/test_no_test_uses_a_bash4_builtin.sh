@@ -86,6 +86,37 @@ scan() {
 HITS="$(scan "${REPO}/tests"; scan "${REPO}/scripts")"
 N_HITS="$(printf '%s' "$HITS" | grep -c . || true)"
 
+# THE SHIPPED SHELL. install.sh and lib/*.sh are the files that actually run
+# on a customer's Mac under /bin/bash 3.2.57, so they matter more than any
+# test here. Two of them already carry the line
+#
+#     # file stays bash-3.2 clean: no associative arrays, no mapfile, no ${x^^}
+#
+# which means somebody established this invariant deliberately and wrote it
+# down. NOTHING CHECKED IT. A discipline that lives only in a comment is one
+# distracted afternoon from being untrue, and the 17 ubuntu-only workflows
+# that EXECUTE installer shell would not notice: ubuntu's bash is 5.x, where
+# every one of these constructs works.
+SHIPPED=""
+for _f in "${REPO}/install.sh" "${REPO}"/lib/*.sh "${REPO}/assistant-agent/INSTALL_SNIPPET.sh"; do
+    [ -f "$_f" ] || continue
+    SHIPPED="${SHIPPED} ${_f}"
+done
+SHIP_HITS=""
+for _f in $SHIPPED; do
+    _h="$(grep -nE '^[^#]*(^|[;|&(]|[[:space:]](do|then)[[:space:]])[[:space:]]*(mapfile|readarray|declare[[:space:]]+-A|local[[:space:]]+-A)[[:space:]]' "$_f" 2>/dev/null | sed "s|^|${_f}:|" || true)"
+    [ -n "$_h" ] && SHIP_HITS="${SHIP_HITS}${_h}
+"
+    # ${x^^} / ${x,,} are bash 4 case-modifying expansions. On 3.2 they are a
+    # runtime "bad substitution", NOT a parse error -- `bash -n` accepts them
+    # -- so only a scan or an execution finds them. `^[^#]*` drops the two
+    # comment lines that name the construct while forbidding it.
+    _c="$(grep -nE '^[^#]*\$\{[A-Za-z_][A-Za-z0-9_]*(\^\^|,,)' "$_f" 2>/dev/null | sed "s|^|${_f}:|" || true)"
+    [ -n "$_c" ] && SHIP_HITS="${SHIP_HITS}${_c}
+"
+done
+N_SHIP="$(printf '%s' "$SHIP_HITS" | grep -c . || true)"
+
 # --- C: record the shell, because it changes what these arms mean ----------
 BV="${BASH_VERSINFO[0]:-0}"
 if [ "$BV" -ge 4 ]; then
@@ -140,6 +171,28 @@ if [ "$N_HITS" -eq 0 ]; then
 else
     bad "A  ${N_HITS} call site(s) use a bash 4 construct and will die on macOS:"
     printf '%s\n' "$HITS" | sed 's|^|        |' | head -10
+fi
+
+# --- E: the shipped shell ---------------------------------------------------
+_n_ship_files="$(printf '%s' "$SHIPPED" | wc -w | tr -d ' ')"
+if [ "$_n_ship_files" -lt 3 ]; then
+    fatal "only ${_n_ship_files} shipped shell file(s) resolved. install.sh and lib/*.sh must be there; a glob that matched nothing would make arm E pass by scanning an empty set."
+fi
+if [ "$N_SHIP" -eq 0 ]; then
+    ok "E  the SHIPPED shell (${_n_ship_files} files: install.sh, lib/*.sh, INSTALL_SNIPPET.sh) uses no bash 4 construct"
+else
+    bad "E  ${N_SHIP} bash 4 construct(s) in the shell that runs on the customer's Mac:"
+    printf '%s\n' "$SHIP_HITS" | grep -v '^$' | sed 's|^|        |' | head -10
+fi
+
+# --- E2: control for arm E, on the same predicates -------------------------
+printf '#!/bin/bash\ndeclare -A m\nx=abc; echo "${x^^}"\n' > "${TMP}/seeded_shipped.sh"
+_e2a="$(grep -cE '^[^#]*(^|[;|&(]|[[:space:]](do|then)[[:space:]])[[:space:]]*(mapfile|readarray|declare[[:space:]]+-A|local[[:space:]]+-A)[[:space:]]' "${TMP}/seeded_shipped.sh" || true)"
+_e2b="$(grep -cE '^[^#]*\$\{[A-Za-z_][A-Za-z0-9_]*(\^\^|,,)' "${TMP}/seeded_shipped.sh" || true)"
+if [ "$_e2a" -ge 1 ] && [ "$_e2b" -ge 1 ]; then
+    ok "E2 control: both shipped-shell predicates fire on a seeded file (builtin=${_e2a}, case-expansion=${_e2b})"
+else
+    fatal "arm E's predicates did not fire on a file containing both constructs (builtin=${_e2a}, case-expansion=${_e2b}). Arm E's zero would mean nothing."
 fi
 
 printf '\nCONCLUSION HISTOGRAM\n  PASS : %d\n  FAIL : %d\n  TOTAL: %d\n' "$PASS" "$FAIL" "$((PASS+FAIL))"
