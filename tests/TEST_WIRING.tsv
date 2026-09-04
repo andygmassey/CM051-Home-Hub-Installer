@@ -26,7 +26,8 @@ test_abort_still_reports_when_the_close_fails.sh	WIRED	.github/workflows/install
 test_ai_conversations_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_ai_model_env_contract.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_aiconv_agent_not_registered_without_owner_email.sh	WIRED	.github/workflows/cold-box-source-truth.yml
-test_aiconv_hydrate_honesty.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_aiconv_hydrate_honesty.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_aiconv_without_owner_email_does_not_redden_health_check.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_amazon_extracted_dir_parse.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_an_abort_inside_a_step_is_counted.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_an_abort_speaks_on_a_terminal_install.sh	WIRED	.github/workflows/step-end-status-honesty.yml
