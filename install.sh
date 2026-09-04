@@ -15492,11 +15492,38 @@ FDARPEOF
             launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
                 launchctl unload "$FDA_RERUN_PLIST" 2>/dev/null || true
         fi
-        if _ostler_launchagent_load_verified "$FDA_RERUN_PLIST"; then
-            ok "$(printf "$MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING" "$(( OSTLER_FDA_RERUN_INTERVAL_S / 60 ))")"
-        else
-            warn "$MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED"
-        fi
+        # 🔴 DO NOT LOAD IT YET. ITS PROGRAM DOES NOT EXIST FOR ANOTHER 3,292
+        # LINES.
+        #
+        # MEASURED on the Mini 16, 2026-09-04, on a finished install:
+        #
+        #     ~/.ostler/logs/fda-rerun.err   08:23:35Z  "ostler-fda not
+        #                                    found/executable at
+        #                                    ~/.ostler/bin/ostler-fda; re-run
+        #                                    the installer to repair."
+        #     ~/.ostler/bin/ostler-fda       08:24:13Z  written 38s LATER
+        #
+        # launchd starts a StartInterval job IMMEDIATELY on load and then every
+        # interval, so bootstrapping here fires a tick against a binary this
+        # script has not written yet. EVERY CUSTOMER INSTALL therefore writes
+        # "re-run the installer to repair" into its own error log, on a run
+        # that is about to succeed. Harmless -- the next tick works -- and
+        # alarming to whoever reads it, which on a support call is exactly who
+        # does.
+        #
+        # WHY DEFER RATHER THAN MOVE THE BINARY. The plist write is inside this
+        # conditional; the binary is written at TOP LEVEL far below. Hoisting a
+        # 100-line heredoc across 3,292 lines of a file this size, days after a
+        # walk, is a much larger change than the defect justifies. Deferring the
+        # LOAD moves one call and changes no other ordering.
+        #
+        # THE BEHAVIOUR CHANGE, STATED RATHER THAN GLOSSED: if the install
+        # aborts between here and the deferred load, the agent is not
+        # registered at all, where before it was registered and broken. That is
+        # the better failure -- an aborted install is a failed install the
+        # customer re-runs, and a registered agent whose program never arrived
+        # is a job that fails hourly forever with nobody reading it.
+        _OSTLER_FDA_RERUN_LOAD_PENDING=1
     fi
 else
     # Reachable only when --allow-plaintext was passed AND the FDA
@@ -18944,6 +18971,26 @@ if failed:
 "
 FDAEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-fda"
+
+# ── THE DEFERRED fda-rerun LOAD (see the note at its plist write) ─────────
+# Registered ONLY now, because only now does the program it invokes exist.
+# launchd starts a StartInterval job immediately on load, so loading it any
+# earlier fires a tick against a binary that is not there and writes
+# "re-run the installer to repair" into the customer's own error log.
+if [[ "${_OSTLER_FDA_RERUN_LOAD_PENDING:-0}" == "1" ]]; then
+    # A guard, not decoration: if the binary is somehow still absent we are
+    # about to reproduce the exact defect this block exists to remove, so say
+    # so instead of registering it anyway.
+    if [[ ! -x "${OSTLER_DIR}/bin/ostler-fda" ]]; then
+        warn "$MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED"
+        warn "  ostler-fda is not executable at ${OSTLER_DIR}/bin/ostler-fda, so the recurring re-run was NOT registered."
+    elif _ostler_launchagent_load_verified "$FDA_RERUN_PLIST"; then
+        ok "$(printf "$MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING" "$(( OSTLER_FDA_RERUN_INTERVAL_S / 60 ))")"
+    else
+        warn "$MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED"
+    fi
+    unset _OSTLER_FDA_RERUN_LOAD_PENDING
+fi
 
 # Create a self-removing contact re-sync wrapper. Re-runs the CM041
 # contact_syncer against the LOCAL AddressBook store -- specifically the
