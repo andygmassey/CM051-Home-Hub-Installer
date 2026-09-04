@@ -206,7 +206,12 @@ jobs:
         if: always()
         run: /bin/bash tests/test_upgrade_does_not_revert_the_launchagent_path.sh
 
+      # `if: always()` because the step ABOVE this one is new (#1466) and a
+      # failure there would otherwise skip this, which is exactly what
+      # scripts/verify_ci_steps_are_maskless.py exists to stop. Adding a step
+      # can mask the one after it; the gate caught mine.
       - name: The existing LaunchAgent guards must still hold
+        if: always()
         run: |
           set +e
           set -uo pipefail
