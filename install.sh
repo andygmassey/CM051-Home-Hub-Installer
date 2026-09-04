@@ -21428,23 +21428,6 @@ else
     fi
 fi
 
-# Email body feed. Reads OTHER PEOPLE'S message content (Apple Mail's
-# local store), so it is gated on the third-party-data consent (Q14),
-# never source-presence alone -- reading others' bodies is predicated on
-# that acknowledgement (declined wipes ~/.ostler/imports). Needs
-# ostler_fda (reader reuses ostler_fda.apple_mail_mbox) + pyyaml.
-# Step-count: Email body-feed is a gated progress step (Apple Mail present +
-# third-party consent). Subtract its slot from TOTAL_STEPS when skipped.
-#
-# 🔴 RESOLVED FIRST, AND THE DECREMENT READS THE SAME VALUE THE GUARD DOES.
-# This line used to read the RAW variable while the guard below read the
-# resolver. On a reuse run where the resolver restores `accepted` from the
-# durable registry, the step would RUN while its slot had already been
-# subtracted -- the denominator shrinking mid-run, which is v1061-D005 filed
-# against this very installer. One value, computed once, read by both.
-_OSTLER_CONSENT_TP_EMAIL="$(_ostler_consent_state third_party_data_personal_records "$OSTLER_CONSENT_THIRD_PARTY_DECISION")"
-[[ ! -d "${HOME}/Library/Mail" || "$_OSTLER_CONSENT_TP_EMAIL" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
-
 # ── UNKNOWN IS NOT DECLINED, AND CONFLATING THEM SILENTLY TURNS FEATURES OFF ──
 #
 # MEASURED on the Mini 16, 2026-09-04, on a finished v1.0.63 install where the
@@ -21512,6 +21495,23 @@ _ostler_consent_state() {
     fi
     printf 'unknown'
 }
+
+# Email body feed. Reads OTHER PEOPLE'S message content (Apple Mail's
+# local store), so it is gated on the third-party-data consent (Q14),
+# never source-presence alone -- reading others' bodies is predicated on
+# that acknowledgement (declined wipes ~/.ostler/imports). Needs
+# ostler_fda (reader reuses ostler_fda.apple_mail_mbox) + pyyaml.
+# Step-count: Email body-feed is a gated progress step (Apple Mail present +
+# third-party consent). Subtract its slot from TOTAL_STEPS when skipped.
+#
+# 🔴 RESOLVED FIRST, AND THE DECREMENT READS THE SAME VALUE THE GUARD DOES.
+# This line used to read the RAW variable while the guard below read the
+# resolver. On a reuse run where the resolver restores `accepted` from the
+# durable registry, the step would RUN while its slot had already been
+# subtracted -- the denominator shrinking mid-run, which is v1061-D005 filed
+# against this very installer. One value, computed once, read by both.
+_OSTLER_CONSENT_TP_EMAIL="$(_ostler_consent_state third_party_data_personal_records "$OSTLER_CONSENT_THIRD_PARTY_DECISION")"
+[[ ! -d "${HOME}/Library/Mail" || "$_OSTLER_CONSENT_TP_EMAIL" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 
 # Say out loud that a feature was skipped for want of an ANSWER, not for want
 # of consent. A customer who is never told cannot act, and this is precisely

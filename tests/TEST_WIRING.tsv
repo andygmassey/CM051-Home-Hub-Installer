@@ -72,6 +72,7 @@ test_composite_cleanup.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_config_reader_absence_does_not_abort_the_install.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_consent_a7_a8.sh	WIRED	.github/workflows/consent-contract.yml
 test_consent_decisions_survive_a_reuse_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_consent_state_is_defined_before_it_is_called.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
 test_contact_card_prefill.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_contact_email_coverage_guard.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
