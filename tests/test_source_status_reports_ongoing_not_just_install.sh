@@ -183,6 +183,68 @@ else:
     bad("CONTROL: ongoing=%r with an EMPTY activity dir. The reader is not reading what this test writes."
         % r3.get("ongoing"))
 
+# ── 6. The alias table must actually bridge the two naming schemes ───────
+# MEASURED on the Mini 16: the tick writes apple_mail / browser_history /
+# bookmarks / people_index, and the canonical names are email / browsing /
+# people. Only 3 of 9 records matched by name, so three sources reported
+# "never" while their ingest had just succeeded. The code was self-consistent
+# and the tests passed, because both sides of the join were written from the
+# same wrong assumption. This limb drives the alias explicitly.
+aliases = ns.get("_SOURCE_ACTIVITY_ALIASES", {})
+if not aliases:
+    bad("no alias table -- the tick's key names cannot reach the canonical rows")
+else:
+    checked = 0
+    for canon, alts in aliases.items():
+        if canon not in KINDS:
+            bad("alias table maps %r, which is not a canonical source" % canon)
+            continue
+        alt = alts[0]
+        root = pathlib.Path(tempfile.mkdtemp())
+        _os.environ["OSTLER_DIR"] = str(root)
+        ns["os"].environ["OSTLER_DIR"] = str(root)
+        h = root / "state" / "hydrate"; a = root / "state" / "source_activity"
+        h.mkdir(parents=True); a.mkdir(parents=True)
+        (h / (canon + ".done")).write_text(
+            "source=%s\nstatus=ok\ndetail=x\nitem_count=1\n" % canon,
+            encoding="utf-8")
+        # Write the record under the TICK's name only, never the canonical one.
+        (a / (alt + ".tsv")).write_text(
+            "source=%s\nlast_run_at=2026-09-04T09:31:14Z\nlast_status=ok\n"
+            "last_success_at=2026-09-04T09:31:14Z\n" % alt, encoding="utf-8")
+        got = row_for(canon, read_source_status())
+        if got and got.get("ongoing") == "active":
+            checked += 1
+        else:
+            bad("alias %s -> %s did not bridge: ongoing=%r"
+                % (alt, canon, got.get("ongoing") if got else None))
+    if checked == len(aliases):
+        ok("every alias bridges the tick's key to its canonical row (%d of %d)"
+           % (checked, len(aliases)))
+
+# ── 7. CONTROL: a source with NO alias must not be accidentally joined ────
+# If the lookup were fuzzy rather than table-driven, apple_notes would pick up
+# apple_mail's record and report a source as working on somebody else's
+# evidence. That is a worse failure than the one being fixed.
+if "apple_notes" in KINDS:
+    root = pathlib.Path(tempfile.mkdtemp())
+    _os.environ["OSTLER_DIR"] = str(root)
+    ns["os"].environ["OSTLER_DIR"] = str(root)
+    h = root / "state" / "hydrate"; a = root / "state" / "source_activity"
+    h.mkdir(parents=True); a.mkdir(parents=True)
+    (h / "apple_notes.done").write_text(
+        "source=apple_notes\nstatus=no_data\ndetail=no_export_json\nitem_count=0\n",
+        encoding="utf-8")
+    (a / "apple_mail.tsv").write_text(
+        "source=apple_mail\nlast_run_at=2026-09-04T09:31:14Z\nlast_status=ok\n"
+        "last_success_at=2026-09-04T09:31:14Z\n", encoding="utf-8")
+    got = row_for("apple_notes", read_source_status())
+    if got and got.get("ongoing") == "never":
+        ok("CONTROL: apple_notes is NOT joined to apple_mail's record by a loose match")
+    else:
+        bad("CONTROL: apple_notes picked up a foreign record (ongoing=%r). The lookup is not table-driven."
+            % (got.get("ongoing") if got else None))
+
 print()
 print("== %d pass / %d fail / %d total ==" % (PASS, FAIL, PASS + FAIL))
 raise SystemExit(1 if FAIL else 0)

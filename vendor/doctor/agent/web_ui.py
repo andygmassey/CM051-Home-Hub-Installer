@@ -2403,6 +2403,44 @@ def _source_activity_dir() -> Path:
     return root / "state" / "source_activity"
 
 
+# ── CANONICAL NAME -> THE KEYS THE INGEST TICK ACTUALLY USES ─────────────
+#
+# MEASURED on the Mini 16, 2026-09-04, immediately after the activity writer
+# first ran. The tick derives its keys from ingest_all's results dict and those
+# are NOT the canonical hydrate names. Nine records were written and only three
+# matched:
+#
+#     written by the tick : apple_mail bookmarks browser_history calendar
+#                           imessage people_index photos social whatsapp
+#     canonical           : ... browsing calendar contacts email imessage
+#                           people whatsapp ...
+#     matched             : calendar imessage whatsapp        <- 3 of 9
+#
+# So `email`, `browsing` and `people` reported ongoing="never" while their
+# ingest had demonstrably just succeeded. Caught before shipping only because
+# the writer was run on a real box and the output compared key by key; the code
+# was self-consistent and the tests passed, because both sides of the join were
+# written from the same wrong assumption.
+#
+# AN EXPLICIT TABLE, NOT FUZZY MATCHING. `people` vs `people_index` would fall
+# to a prefix rule; `email` vs `apple_mail` would not, and a rule loose enough
+# to catch it would also join `apple_mail` to `apple_notes`. Guessing at
+# runtime is how a wrong join becomes invisible, so every pairing is written
+# down and the contract test asserts each alias exists in one list or the
+# other.
+#
+# SEVERAL SOURCES LEGITIMATELY HAVE NO KEY HERE and that is not a gap:
+# `dedupe`, `privacy_backfill` and `places` are operations run outside this
+# tick, and `ai_conversations` has its own agent. They report "never" from
+# this writer and must be fed by their own recorders, not aliased onto
+# somebody else's.
+_SOURCE_ACTIVITY_ALIASES = {
+    "email": ("apple_mail",),
+    "browsing": ("browser_history", "bookmarks"),
+    "people": ("people_index",),
+}
+
+
 def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
     """The ongoing-activity record for one source, or {} when absent.
 
@@ -2413,18 +2451,40 @@ def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
     invent a failure, and reporting it as fresh would hide one.
     """
     base = activity_dir if activity_dir is not None else _source_activity_dir()
-    f = base / (name + ".tsv")
-    if not f.is_file():
+
+    def _load(stem: str) -> dict:
+        f = base / (stem + ".tsv")
+        if not f.is_file():
+            return {}
+        try:
+            rec = {}
+            for line in f.read_text(encoding="utf-8",
+                                    errors="replace").splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    rec[k.strip()] = v.strip()
+            return rec
+        except OSError:
+            return {}
+
+    # The canonical name first, then any alias. A source fed by SEVERAL keys
+    # (browsing = browser_history + bookmarks) takes the MOST RECENT run and
+    # is only "ok" when every contributing key is: one half of a source
+    # succeeding while the other fails is a failing source, and reporting the
+    # cheerful half would hide exactly the case worth seeing.
+    recs = [r for r in (_load(n) for n in
+                        (name,) + tuple(_SOURCE_ACTIVITY_ALIASES.get(name, ())))
+            if r]
+    if not recs:
         return {}
-    try:
-        rec = {}
-        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
-            if "=" in line:
-                k, v = line.split("=", 1)
-                rec[k.strip()] = v.strip()
-        return rec
-    except OSError:
-        return {}
+    if len(recs) == 1:
+        return recs[0]
+    merged = max(recs, key=lambda r: r.get("last_run_at", ""))
+    if any(r.get("last_status") != "ok" for r in recs):
+        merged = dict(merged)
+        merged["last_status"] = "error"
+        merged["last_detail"] = "one or more contributing extracts did not succeed"
+    return merged
 
 
 def read_source_status(hydrate_dir: Path | None = None,
