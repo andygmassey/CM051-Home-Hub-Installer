@@ -150,6 +150,56 @@ else
     bad "expected 1 marker status=fail for the unmasked assignment, got ${_n} status=${_s:-?}"
 fi
 
+# ── 4b. THE BARE SITES MUST STILL ABORT, not merely still report ──────────
+#
+# 410 assignments in install.sh are bare `X="$(cmd)"` with NO mask. They have
+# no handling block, so they are the ones that depend on the parent dying.
+# Arm 4 proves such a failure still REPORTS status=fail. It does not prove the
+# parent STOPPED, and "reported the failure then carried on doing the install"
+# would be a worse outcome than the phantom marker this fix removes.
+#
+# A sentinel after the failing assignment must never execute.
+run "${W}/h.fixed" "${BARE}
+gui_log info SENTINEL_REACHED_AFTER_BARE_FAILURE"
+if grep -q 'SENTINEL_REACHED' "${W}/log" 2>/dev/null; then
+    bad "the parent CONTINUED past a bare failing substitution. The guard has
+        turned a fatal abort into a warning, which is worse than the phantom."
+else
+    ok "a bare failing substitution still ABORTS the parent (sentinel never ran)"
+fi
+
+# ── 4c. NO-CHANGE ARM. `|| { }` was ALREADY safe, and this proves the fix
+#        did not disturb it. IT DOES NOT DEMONSTRATE THE FIX.
+#
+# Labelled honestly because it passes with or without the guard, and an arm
+# that cannot fail is decoration unless it says so. MEASURED, both handlers,
+# counting the handler's OWN log lines to see whether the trap fired at all:
+#
+#     shape                      pre-fix DONE   fixed DONE   ERR fired
+#     bare   X="$(cmd)"               2             1           2
+#     masked X="$(cmd)" || { }        1             1           0   <- never
+#     local  X="$(cmd)"               2             1           1
+#
+# `||` puts the assignment in a tested context, and bash suppresses the ERR
+# trap there -- INCLUDING inside the substitution's subshell. So the 19
+# `|| { }` sites in install.sh never produced a phantom marker and never
+# could. The fix's real subject is the 410 BARE sites, which went 2 -> 1.
+#
+# This arm still earns its place: the `|| { }` block is the deliberate,
+# load-bearing mask the hydrate family depends on, and a guard that swallowed
+# the failure would break the recording without breaking any marker count.
+# Both halves are asserted -- one marker AND the block ran.
+run "${W}/h.fixed" "_UNMEASURED=false
+v=\"\$(pgrep -f '${N}' 2>/dev/null | sort -u)\" || { _UNMEASURED=true; v=\"\"; }
+gui_log info \"UNMEASURED=\${_UNMEASURED}\""
+_n="$(n_done)"
+_flag="$(grep -o 'UNMEASURED=true' "${W}/log" | head -1)"
+if [ "$_n" = "1" ] && [ "$_flag" = "UNMEASURED=true" ]; then
+    ok "NO-CHANGE: a '|| { }' site still emits ONE marker and still records (it was already safe)"
+else
+    bad "expected 1 marker and UNMEASURED=true from the '|| { }' shape; got ${_n} marker(s), flag='${_flag:-unset}'"
+fi
+
 # ── 5. CONTROL: the clean run is untouched ─────────────────────────────────
 run "${W}/h.fixed" "v=ok"
 _n="$(n_done)"; _s="$(done_status 1)"
