@@ -110,6 +110,15 @@ TRACE = os.path.join(HOME, ".walk-drive.trace")
 RESULT = os.path.join(HOME, ".walk-rc")
 RUN_START = os.path.join(HOME, ".walk-run-start")
 
+# THE RAW EXIT CODE IS NOT THE VERDICT, AND KEEPING THEM IN ONE FILE LET A
+# FAILED WALK PRINT 0. MEASURED on walk 11: install.sh reached its end and
+# exited 0, so .walk-rc held 0, and ttywalk.sh printed that 0 under the
+# heading "VERDICT (walk_drive.py's own adjudication)". adjudicate() had
+# already returned FAIL for three failed steps. The two numbers answer
+# different questions -- "what did the process return" and "what do we
+# conclude" -- and only the second is a verdict, so it gets its own file.
+VERDICT_F = os.path.join(HOME, ".walk-verdict")
+
 ANSI = re.compile(rb"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07|\r")
 
 # FIX 2. The completion marker.
@@ -900,7 +909,56 @@ def read_result(argv):
     return PASS
 
 
+def _read_stamped(path, what):
+    """Print a number recorded by THIS run, or refuse.
+
+    Shared by --read-result and --read-verdict so the staleness guard cannot
+    drift between them. Absence is CANNOT-RUN, never zero: "no walk has run"
+    and "the walk passed" are different findings that print identically if
+    absence is allowed to mean success.
+    """
+    if not os.path.exists(path):
+        return verdict(CANNOT_RUN,
+                       "no %s at %s" % (what, path),
+                       "Absent is not zero. Either no walk has run since the "
+                       "last clear, or the run that was going to write this "
+                       "one died before it finished.")
+    try:
+        started = os.path.getmtime(RUN_START)
+    except OSError:
+        return verdict(CANNOT_RUN,
+                       "no run-start stamp at %s" % RUN_START,
+                       "Without it the age of the %s cannot be adjudicated, "
+                       "so it cannot be told apart from a leftover of an "
+                       "earlier run." % what)
+    written = os.path.getmtime(path)
+    if written < started:
+        return verdict(CANNOT_RUN,
+                       "the %s is STALE -- it predates the run it would "
+                       "describe" % what,
+                       "mtime %s < run start %s. This is a previous run's "
+                       "number; reporting it as this one's is how a crashed "
+                       "walk gets recorded as a pass."
+                       % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(written)),
+                          time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started))))
+    with open(path) as fh:
+        sys.stdout.write(fh.read().strip() + "\n")
+    return PASS
+
+
+def read_verdict(argv):
+    """Print the ADJUDICATED verdict for this run.
+
+    This is the number a caller should branch on. --read-result prints the raw
+    exit status of install.sh, which is evidence and not a conclusion: a run
+    that reaches the end with failed steps exits 0 and adjudicates to FAIL.
+    """
+    return _read_stamped(VERDICT_F, "walk verdict")
+
+
 def main(argv):
+    if "--read-verdict" in argv:
+        return read_verdict(argv)
     if "--read-result" in argv:
         return read_result(argv)
 
@@ -910,6 +968,8 @@ def main(argv):
     try:
         if os.path.exists(RESULT):
             os.unlink(RESULT)
+        if os.path.exists(VERDICT_F):
+            os.unlink(VERDICT_F)
         with open(RUN_START, "w") as fh:
             fh.write(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + "\n")
     except OSError as exc:
@@ -1065,6 +1125,19 @@ def main(argv):
         fh.write(str(rc) + "\n")
 
     code, headline, detail = adjudicate(log_path, rc, marker_channel_on)
+
+    # Written AFTER adjudication and BEFORE returning, so the file a caller
+    # reads is the conclusion this run reached rather than the status the
+    # process happened to exit with.
+    try:
+        with open(VERDICT_F, "w") as fh:
+            fh.write(str(code) + "\n")
+    except OSError:
+        # A verdict that cannot be recorded must not be reported as a pass by
+        # a later reader finding nothing. read_verdict treats absence as
+        # CANNOT-RUN for exactly this case.
+        pass
+
     return verdict(code, headline, detail)
 
 
