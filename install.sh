@@ -10841,7 +10841,58 @@ else
     set -e
 
     if [[ $BREW_EXIT -ne 0 ]]; then
-        warn "$(printf "$MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT" "$BREW_EXIT")"
+        # W003 (v1.0.63 walk): the two customer-facing messages below name a
+        # FIXED log path. Nothing wrote it. The log is real but it lives in
+        # OSTLER_DIAG_DIR -- a private `mktemp -d` under TMPDIR, which on
+        # macOS is /var/folders/<xx>/<yy>/T and never /tmp. Two string
+        # literals had drifted (different directory AND different basename),
+        # so every ERR-04 support report arrived with nothing attached and
+        # the Homebrew failure could not be root-caused from a customer's
+        # machine.
+        #
+        # The log STAYS in the private directory. :168 refuses a shared path
+        # deliberately: another user can pre-create our log files there, and
+        # a pip run that never happened then looks like a failure whose text
+        # we print back to the operator. So publish a COPY at the promised
+        # name instead, with mktemp + `mv -f`. rename(2) REPLACES whatever
+        # occupies the target -- including a hostile symlink -- rather than
+        # writing through it. `rm -f` followed by `: >` would leave a TOCTOU
+        # window between the two calls; rename leaves none.
+        #
+        # If publishing fails -- which is precisely what /tmp's sticky bit
+        # does when another user already owns that name -- name where the log
+        # ACTUALLY is instead of repeating a promise we have just failed to
+        # keep. A fix that can still print a path that does not exist is not
+        # a fix for this defect.
+        BREW_LOG_SHOWN="/tmp/ostler-brew-install.log"
+        _brew_pub_tmp=""
+        # `mv -f FILE DIR` does not fail -- it moves FILE *into* DIR. Measured
+        # 2026-09-04: with a directory sitting at the promised name, the publish
+        # "succeeded", the customer was told the log was at that path, and that
+        # path held a directory containing a randomly-named file. That is this
+        # very defect reappearing inside its own fix, so the guard is two-sided:
+        # refuse a directory target up front, and VERIFY THE OUTCOME after the
+        # rename instead of trusting its exit code.
+        if _brew_pub_tmp="$(mktemp /tmp/ostler-brew-pub-XXXXXX 2>/dev/null)" \
+           && cp "$BREW_INSTALL_LOG" "$_brew_pub_tmp" 2>/dev/null \
+           && [[ ! -d "$BREW_LOG_SHOWN" ]] \
+           && mv -f "$_brew_pub_tmp" "$BREW_LOG_SHOWN" 2>/dev/null \
+           && [[ -f "$BREW_LOG_SHOWN" && -s "$BREW_LOG_SHOWN" ]]; then
+            chmod 600 "$BREW_LOG_SHOWN" 2>/dev/null || true
+        else
+            [[ -n "$_brew_pub_tmp" ]] && rm -f "$_brew_pub_tmp" 2>/dev/null || true
+            BREW_LOG_SHOWN="$BREW_INSTALL_LOG"
+        fi
+        unset _brew_pub_tmp
+
+        if [[ "$BREW_LOG_SHOWN" == "/tmp/ostler-brew-install.log" ]]; then
+            _brew_warn_msg="$(printf "$MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT" "$BREW_EXIT")"
+            _brew_fail_msg="$MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED"
+        else
+            _brew_warn_msg="$(printf "$MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT_AT" "$BREW_EXIT" "$BREW_LOG_SHOWN")"
+            _brew_fail_msg="$(printf "$MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_AT" "$BREW_LOG_SHOWN")"
+        fi
+        warn "$_brew_warn_msg"
         warn "$MSG_WARN_HOMEBREW_INSTALL_LOG_LAST_LINES"
         # Surface the last 30 lines via warn() so the GUI's prefix-aware
         # log parser actually renders them in the customer log. The
@@ -10851,7 +10902,7 @@ else
         while IFS= read -r line; do
             warn "    $line"
         done < <(tail -30 "$BREW_INSTALL_LOG")
-        fail_with_code "ERR-04-HOMEBREW-INSTALL" "$MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED"
+        fail_with_code "ERR-04-HOMEBREW-INSTALL" "$_brew_fail_msg"
     fi
 
     if [[ "$ARCH" == "arm64" ]]; then

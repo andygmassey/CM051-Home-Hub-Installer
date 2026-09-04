@@ -49,6 +49,7 @@ test_background_copy_promises_no_deadline.sh	WIRED	.github/workflows/background-
 test_bom_verdict_gate_is_wired_into_the_promote.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_bookmarks_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_bootstrap_prelude.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_brew_failure_writes_the_log_it_promises.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_brew_install_fail_loud.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_browsing_ingest_ensures_collection.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_bundle_phase_declares_every_copy.sh	WIRED	.github/workflows/install-gui-contract.yml

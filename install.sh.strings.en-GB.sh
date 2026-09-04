@@ -707,6 +707,10 @@ MSG_WARN_GIT_SAID="Git said:"
 MSG_WARN_HEALTH_CHECK_FAILED_OSTLER_KNOWLEDGE_VERSION="  Health check failed: ostler-knowledge --version did not produce output."
 MSG_WARN_HEALTH_CHECK_FAILED_PWG_CONVO_HELP="  Health check failed: the conversation memory engine could not load (pwg-convo or its pipeline import did not return cleanly)."
 MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT="Homebrew installer exited %s. Last 30 lines of /tmp/ostler-brew-install.log follow:"
+# W003: used when the log could NOT be published to the promised path (another
+# user owns that name in sticky /tmp). Names where the log actually is, so the
+# installer never states a path that does not exist.
+MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT_AT="Homebrew installer exited %s. Last 30 lines of %s follow:"
 MSG_WARN_HOMEBREW_INSTALL_LOG_LAST_LINES="--- Homebrew install log (tail) ---"
 MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT="Doctor pip install exited %s. Last 30 lines of /tmp/ostler-doctor-pip.log follow:"
 MSG_WARN_DOCTOR_PIP_LOG_LAST_LINES="--- Doctor pip install log (tail) ---"
@@ -916,6 +920,8 @@ MSG_FAIL_FDA_DEPS_UNSAFE_PATH="Internal error: the data-extraction module was st
 MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED="Doctor dependencies install failed. Full output saved to /tmp/ostler-doctor-pip.log – attach it when you email support@ostler.ai (Reference: ERR-17-DOCTOR-PIP)."
 MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED="Import pipeline dependencies install failed. Full output saved to /tmp/ostler-pipeline-pip.log – attach it when you email support@ostler.ai (Reference: ERR-14-PIPELINE-PIP)."
 MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED="Homebrew install failed. Full output saved to /tmp/ostler-brew-install.log – attach it when you email support@ostler.ai."
+# W003: degraded-path counterpart of the message above. Same promise, true path.
+MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_AT="Homebrew install failed. Full output saved to %s – attach it when you email support@ostler.ai."
 MSG_FAIL_IMPORT_PIPELINE_INSTALL_FAILED_RE_RUN_INSTALLER="Import pipeline install failed. The contact_syncer bundle is required for the productised install. Re-run with --allow-plaintext for dev/CI, or re-download the installer and try again."
 MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL="Need sudo access to disable sleep + install Homebrew. Re-run when ready."
 MSG_FAIL_NEITHER_COLIMA_NOR_DOCKER_DESKTOP_COULD="Neither Colima nor Docker Desktop could start. Install Docker Desktop and re-run."
