@@ -46,9 +46,21 @@ PERSISTED="USER_ID USER_NAME ASSISTANT_NAME USER_TZ COUNTRY_CODE
            CHANNEL_EMAIL_APPLE_MAIL_INPUT CHANNEL_EMAIL_CUSTOM_IMAP_INPUT
            CHANNEL_EMAIL_IMAP_HOST CHANNEL_EMAIL_SMTP_HOST CHANNEL_EMAIL_USERNAME"
 TRANSIENT="REUSE TZ_CONFIRM CC_CONFIRM RP_CONFIRM PERMS_OK ACK_PASSKEY
-           IMPORT_CONFIRM TAKEOUT_CONFIRM FV_CONTINUE MANUAL_PATH"
+           IMPORT_CONFIRM TAKEOUT_CONFIRM FV_CONTINUE MANUAL_PATH CONSENT"
 SECRET="RECOVERY_PASSPHRASE CHANNEL_EMAIL_PASSWORD"
-GAP="THIRD_PARTY CONSENT ART9 WA_CONSENT SPOKEN_CAPTURE VOICE ENRICH_CHOICE
+#
+# ⚠️ CONSENT WAS IN THIS LIST AND WAS WRONG. I put it here on the strength of
+# its NAME. Read: it resolves to INSTALL or CANCEL at install.sh:10102 and does
+# nothing else -- `break` or `exit 0` -- and it is read nowhere but its own
+# normalisation two lines above. It is a type-INSTALL-to-proceed gate, so
+# nothing about it needs to survive a re-run. Moved to TRANSIENT and the
+# ceiling dropped 10 -> 9, which is the direction this ratchet may move.
+#
+# The five that DO carry consent all feed an OSTLER_CONSENT_*_DECISION
+# variable, and the recorder is guarded on that variable being non-empty. So on
+# a reuse run NONE of the five is recorded -- which is exactly what the box
+# showed: `ostler-consent show` returned null for every tickbox asked.
+GAP="THIRD_PARTY ART9 WA_CONSENT SPOKEN_CAPTURE VOICE ENRICH_CHOICE
      PRESET SAVE_KEYCHAIN TAILSCALE_CONFIRM"
 
 _declared() {
@@ -103,7 +115,7 @@ fi
 
 # ── The ratchet: the GAP list may only shrink ────────────────────────────
 gap_n=0; for v in $GAP; do gap_n=$((gap_n+1)); done
-CEILING=10
+CEILING=9
 if [ "$gap_n" -le "$CEILING" ]; then
     ok "unpersisted-decision backlog is ${gap_n} (ceiling ${CEILING}, may only DECREASE)"
 else
