@@ -161,15 +161,47 @@ import glob, json, os
 
 state = os.path.expanduser('~/.ostler/state/settling_progress.d')
 files = sorted(glob.glob(os.path.join(state, '*.json')))
+# ── THE TWO SIDES SPEAK DIFFERENT LANGUAGES, AND THIS PROBE DID NOT KNOW ──
+#
+# MEASURED on the Mini 16, 2026-09-04. The two sets this probe compares had
+# ZERO overlap -- not one key appeared in both:
+#
+#   settling_progress.d keys : calendar, contacts, emails, messages
+#   wiki panel data-source   : ai_conversations, apple_notes, browsing,
+#                              email_preferences, imessage, people, places,
+#                              privacy_backfill, whatsapp
+#
+# So every ingested key reported as MISSING and the verdict named four
+# sources, all of which were wrong as stated. The panel actually speaks the
+# CANONICAL vocabulary (_SOURCE_KINDS in the Doctor); settling_progress.d
+# speaks a third one. A cross-vocabulary comparison cannot be right even when
+# it happens to be red, and this one was red for four spurious reasons while
+# the real gaps went unnamed.
+#
+# THE FILENAME CARRIES THE SUB-SOURCE, so most of the mapping is DERIVED
+# rather than guessed: messages.imessage.json and messages.whatsapp.json both
+# carry key='messages', and their stems name exactly which panel row should
+# cover them. Only the flat names need a table, and it is spelled out rather
+# than prefix-matched: 'emails' -> 'email' would survive a loose rule, but
+# 'contacts' -> 'people' would be invented by one and is deliberately NOT
+# asserted here -- contacts is its own canonical source and its absence from
+# the panel is a real gap, not a naming artefact.
+FLAT_ALIASES = {'emails': 'email'}
 keys, dated = set(), 0
 for f in files:
     try:
         doc = json.load(open(f))
     except Exception:
         continue
-    k = doc.get('key')
-    if k:
-        keys.add(str(k))
+    stem = os.path.basename(f)[:-5] if f.endswith('.json') else os.path.basename(f)
+    if '.' in stem:
+        # messages.imessage -> imessage: the file names the panel row itself.
+        keys.add(stem.split('.', 1)[1])
+    else:
+        k = doc.get('key')
+        if k:
+            k = str(k)
+            keys.add(FLAT_ALIASES.get(k, k))
     v = doc.get('updated_at') or doc.get('started_at')
     if v and str(v).strip().lower() not in ('', 'unknown', 'none', 'null'):
         dated += 1
