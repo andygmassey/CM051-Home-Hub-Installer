@@ -55,6 +55,7 @@ on:
       - 'tests/test_converge_path_enforces_rule2.sh'
       - 'tests/test_fda_rerun_agent_loads_after_its_binary.sh'
       - 'tests/test_unknown_consent_is_not_declined.sh'
+      - 'tests/test_every_question_declares_its_persistence.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/cold-box-source-truth.yml'
@@ -137,3 +138,12 @@ jobs:
       - name: Unknown consent is not declined, and never becomes accepted
         if: always()
         run: bash tests/test_unknown_consent_is_not_declined.sh
+
+      # The RATCHET. reuse_settings skips every question whose answer lives
+      # nowhere, so a new question that forgets to persist itself silently
+      # reverts to its default on every re-run. Found three times one at a
+      # time (paired_tokens, channels #619, consent); this catches the fourth
+      # when it is written.
+      - name: Every question must declare what happens to its answer
+        if: always()
+        run: bash tests/test_every_question_declares_its_persistence.sh
