@@ -60,6 +60,8 @@ on:
       - 'tests/test_every_question_declares_its_persistence.sh'
       - 'tests/test_consent_decisions_survive_a_reuse_run.sh'
       - 'tests/test_walkaway_no_phase2_input_leak.sh'
+      - 'tests/test_ttywalk_licence_preflight_is_cannot_run.sh'
+      - 'scripts/ttywalk.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/cold-box-source-truth.yml'
@@ -169,6 +171,13 @@ jobs:
       # gate. It reports EVERY offender now rather than dying on the first:
       # allowlisting autologin_consent revealed autologin_password underneath,
       # so the old exit-on-first would have let a "fix" ship half done.
+      # The harness is part of the evidence chain, so it gets a gate too. This
+      # one is about EXIT CODES -- 2 for a setup gap, never 1 -- and no pattern
+      # over the source can tell 2 from 1, so it executes the real case block.
+      - name: A missing licence is CANNOT-RUN, not a build verdict
+        if: always()
+        run: bash tests/test_ttywalk_licence_preflight_is_cannot_run.sh
+
       - name: No question may stall a walk-away install
         if: always()
         run: bash tests/test_walkaway_no_phase2_input_leak.sh
