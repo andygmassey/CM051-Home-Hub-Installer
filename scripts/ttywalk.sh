@@ -208,6 +208,64 @@ identity_check "before staging"
 # A MISSING LICENCE IS CANNOT-RUN, NOT FAIL. The build under test has not been
 # shown to be bad; the harness was not given what it needs. Conflating the two
 # is how a setup gap gets filed as a product defect.
+# ── BUNDLED-PYTHON PREFLIGHT ─────────────────────────────────────────
+#
+# 🔴 A MISSING BUILD PRODUCT DOES NOT JUST REMOVE FILES, IT CHANGES WHICH
+# CODE PATH THE INSTALL TAKES, AND THAT IS FAR WORSE.
+#
+# MEASURED 2026-09-04, on the second walk of a cold account. The run died at
+#
+#     [ERR-05-HOMEBREW-PYTHON-INSTALL] Could not install Python 3.11 via Homebrew
+#
+# and it looked exactly like a product defect. It is not one. install.sh:7035
+# reads ${SCRIPT_DIR}/python/bin/python3.11 and takes the bundled interpreter
+# when it is executable; the `brew install python@3.11` arm below it is, in
+# the file's own words, a "Dev mode fallback ... hit only when install.sh runs
+# from a developer's HR015 sibling-clone, not from the customer-facing signed
+# .app (which always has ${SCRIPT_DIR}/python/bin/python3.11 bundled)".
+#
+# THE CONTROL THAT SETTLED IT:
+#
+#     DMG   Contents/Resources/python/bin/python3.11   present, 3.11.15, 17.6 MB
+#     repo  python/bin/python3.11                      DOES NOT EXIST
+#
+# So the harness walked a branch no customer ever runs and produced a red that
+# said nothing about the build. That is not a wasted run, it is a MISLEADING
+# one, and this file already carries the same warning for hub-power,
+# email-ingest and imessage-bridge -- but those only change which FILES exist.
+# This one changes the interpreter the whole install is built on.
+#
+# REFUSING IS THE RIGHT OUTCOME, not warning. The purpose of this harness is
+# to produce a verdict about the product, and a verdict from the dev-mode
+# branch is not one. CANNOT-RUN, never FAIL: nothing about the build has been
+# shown to be wrong.
+rule "BUNDLED-PYTHON PREFLIGHT (the customer path, not the dev fallback)"
+BUNDLED_PY_LOCAL="${REPO_ROOT}/python/bin/python3.11"
+if [[ -x "$BUNDLED_PY_LOCAL" ]]; then
+    say "bundled interpreter present: $("$BUNDLED_PY_LOCAL" --version 2>&1 | head -1)"
+else
+    printf '%s\n' "CANNOT-RUN: no bundled interpreter at ${BUNDLED_PY_LOCAL}" >&2
+    printf '%s\n' "" >&2
+    printf '%s\n' "  install.sh takes the BUNDLED python when that file is executable and" >&2
+    printf '%s\n' "  falls back to 'brew install python@3.11' when it is not. The signed" >&2
+    printf '%s\n' "  .app always ships it, so the fallback is a DEV-ONLY branch that no" >&2
+    printf '%s\n' "  customer reaches. Walking without it does not merely skip a file, it" >&2
+    printf '%s\n' "  runs the whole install on a DIFFERENT interpreter path, and any red it" >&2
+    printf '%s\n' "  produces says nothing about the build." >&2
+    printf '%s\n' "" >&2
+    printf '%s\n' "  It is a build product, so it is absent from the repo by design. Take it" >&2
+    printf '%s\n' "  from the cut you are walking:" >&2
+    printf '%s\n' "" >&2
+    printf '%s\n' "      hdiutil attach -nobrowse -readonly <the>.dmg" >&2
+    printf '%s\n' "      cp -R \"/Volumes/Install Ostler/OstlerInstaller.app/Contents/Resources/python\" \\" >&2
+    printf '%s\n' "            \"${REPO_ROOT}/python\"" >&2
+    printf '%s\n' "      hdiutil detach \"/Volumes/Install Ostler\"" >&2
+    printf '%s\n' "" >&2
+    printf '%s\n' "  Take it from the DMG you intend to ship, not from any other build: the" >&2
+    printf '%s\n' "  interpreter is part of the artefact." >&2
+    exit 2
+fi
+
 rule "LICENCE PREFLIGHT (on the target account, before anything is staged)"
 lic_state="$("${SSH[@]}" 'if [[ -s "${HOME}/.ostler/license/license.json" ]]; then
                               echo "present $(stat -f %z "${HOME}/.ostler/license/license.json") bytes"
