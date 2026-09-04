@@ -64,6 +64,7 @@ on:
       - 'tests/test_ttywalk_licence_preflight_is_cannot_run.sh'
       - 'scripts/ttywalk.sh'
       - 'tests/test_walk_driver_cancel_is_not_a_build_verdict.sh'
+      - 'tests/test_doctor_probe_cap_exceeds_the_command.sh'
       - 'tests/test_installed_pipeline_packages_can_import_themselves.sh'
       - 'tests/test_a_failed_walk_must_not_exit_zero.sh'
       - 'scripts/walk_drive.py'
@@ -188,6 +189,10 @@ jobs:
       - name: A cancel the harness caused is not a build verdict
         if: always()
         run: bash tests/test_walk_driver_cancel_is_not_a_build_verdict.sh
+
+      - name: The doctor probe cap exceeds the command it wraps
+        if: always()
+        run: bash tests/test_doctor_probe_cap_exceeds_the_command.sh
 
       - name: Installed pipeline packages can import themselves
         if: always()

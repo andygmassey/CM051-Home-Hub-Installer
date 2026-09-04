@@ -123,6 +123,7 @@ test_dispatch_timing.sh	WIRED	.github/workflows/dispatch-timing.yml
 test_display_name_tiers.sh	WIRED	.github/workflows/display-name-tiers.yml
 test_dmg_contains_bundled_python.sh	UNWIRED	-
 test_doctor_governor_routes_vendored.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_doctor_probe_cap_exceeds_the_command.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_doctor_probe_errtrap_regression.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_doctor_probe_non_fatal.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_doctor_proxy_paths_predicate.sh	WIRED	.github/workflows/launchagent-success-verification.yml
