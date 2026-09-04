@@ -538,6 +538,36 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
             | sed -n 's/^ *\([A-Za-z_][A-Za-z0-9_]*\) = .*/\1/p')"
         while IFS= read -r _k; do
             [[ -n "$_k" ]] || continue
+            # ── PATH IS PRODUCT-OWNED AND MUST NOT BE CARRIED FORWARD ──────
+            #
+            # 🔴 REPRODUCED 2026-09-04 with this function extracted and run:
+            #
+            #   BEFORE  new PATH = /usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin
+            #   AFTER   new PATH = /usr/bin:/bin:/usr/sbin:/sbin
+            #
+            # The template gained the Homebrew prefix on 2026-08-20, measured on
+            # the Mini after a real power cycle:
+            #
+            #   colima  FATA  exec "limactl": executable file not found in $PATH
+            #
+            # and the consequence recorded there is that Qdrant, Oxigraph, Redis,
+            # Vane, wiki-site and store-proxy were all gone until someone started
+            # Colima by hand. `/usr/bin:/bin:/usr/sbin:/sbin` is exactly the PATH
+            # that produces it -- launchd's default.
+            #
+            # So every customer upgrading from a pre-2026-08-20 install had that
+            # fix SILENTLY REVERTED by this loop, and their container stack did
+            # not survive a reboot. The fix shipped; it never arrived.
+            #
+            # WHY EXCLUDE RATHER THAN MERGE. This function exists to carry
+            # forward values the RE-RENDER cannot re-derive -- the service token
+            # and the captured iMessage handles, which the template holds only as
+            # placeholders. PATH is not one of those: the template states it
+            # outright, and the template is the only thing that knows which
+            # prefixes this version needs. A customer has no reason to have
+            # edited it, and if they had, silently keeping their value is how the
+            # fix got lost in the first place.
+            [[ "$_k" == "PATH" ]] && continue
             _v="$("$_UPG_PB" -c "Print :EnvironmentVariables:${_k}" "$_old" 2>/dev/null)" || continue
             if "$_UPG_PB" -c "Print :EnvironmentVariables:${_k}" "$_new" >/dev/null 2>&1; then
                 "$_UPG_PB" -c "Set :EnvironmentVariables:${_k} ${_v}" "$_new" >/dev/null 2>&1
