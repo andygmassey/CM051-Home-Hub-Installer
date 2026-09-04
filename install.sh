@@ -7446,7 +7446,9 @@ if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
         if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
             warn "$MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT"
         else
-            fail_with_code "ERR-10-FDA-DEPS-IMPORT" "$MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN"
+            # W003 class: this message named /tmp/ostler-fda-deps.log, which
+            # nothing writes. The real log is under the private per-run diag dir.
+            fail_with_code "ERR-10-FDA-DEPS-IMPORT" "$(printf "$MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN" "${OSTLER_DIAG_DIR}/fda-deps.log")"
         fi
     else
         ok "$MSG_OK_FDA_DEPENDENCIES_IMPORTABLE"
@@ -10834,14 +10836,56 @@ else
     else
         # Fallback: official installer (used in dev mode where /opt/homebrew
         # is not pre-chowned, OR if pre-chown silently failed).
-        echo "Falling back to official installer (prefix not pre-chowned)" >> "$BREW_INSTALL_LOG"
+        #
+        # W002 (v1.0.63 walk 2): this line used to say "prefix not pre-chowned"
+        # flat, but the branch above is a THREE-WAY test -- GUI mode, the
+        # directory existing, and the directory being writable. Any one of them
+        # being false lands here, and they have three different causes: not
+        # running under the .app, the parent .app never creating the prefix,
+        # and the chown failing or being reverted. One sentence for three
+        # causes is a guess printed as a finding, and this log is the only
+        # thing a customer can send us.
+        #
+        # The pre-probe above already records OSTLER_GUI and `ls -ld
+        # /opt/homebrew`, so the evidence was in the file; what was missing was
+        # the branch saying which test it actually failed.
+        _brew_fallback_why=""
+        [[ "${OSTLER_GUI:-0}" == "1" ]] || _brew_fallback_why="not running under the GUI app (OSTLER_GUI=${OSTLER_GUI:-0})"
+        if [[ -z "$_brew_fallback_why" ]]; then
+            if [[ ! -d /opt/homebrew ]]; then
+                _brew_fallback_why="/opt/homebrew does not exist -- the parent .app did not create the prefix"
+            elif [[ ! -w /opt/homebrew ]]; then
+                _brew_fallback_why="/opt/homebrew exists but is not writable by $(id -un) -- the pre-chown did not take"
+            else
+                # Belt and braces: if all three now pass, the state changed
+                # between the test and here. Say so rather than pick a cause.
+                _brew_fallback_why="all three pre-chown conditions pass NOW; state changed between the test and this line"
+            fi
+        fi
+        echo "Falling back to official installer: ${_brew_fallback_why}" >> "$BREW_INSTALL_LOG"
+        echo "NOTE: the official installer aborts at have_sudo_access() even when no sudo is needed (CX-25)." >> "$BREW_INSTALL_LOG"
+        unset _brew_fallback_why
         NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$BREW_INSTALL_LOG" 2>&1
         BREW_EXIT=$?
     fi
     set -e
 
     if [[ $BREW_EXIT -ne 0 ]]; then
-        warn "$(printf "$MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT" "$BREW_EXIT")"
+        # W003 (v1.0.63 walk): these messages used to name a hardcoded
+        # /tmp/ostler-brew-install.log. Nothing ever wrote that path, so every
+        # ERR-04 support report arrived with nothing attached and the Homebrew
+        # failure could not be root-caused from a customer's machine.
+        #
+        # The log was never missing -- it is BREW_INSTALL_LOG, inside
+        # OSTLER_DIAG_DIR, a private `mktemp -d` under TMPDIR. On macOS TMPDIR
+        # is /var/folders/<xx>/<yy>/T and never /tmp, so two literals had
+        # drifted: different directory AND different basename.
+        #
+        # The fix is the MESSAGE, not the filesystem. Publishing a copy to a
+        # fixed /tmp name was considered and rejected: #910 forbids exactly
+        # that, because a fixed name in a world-writable directory lets another
+        # user pre-create our log files. Interpolate the real path instead.
+        warn "$(printf "$MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT" "$BREW_EXIT" "$BREW_INSTALL_LOG")"
         warn "$MSG_WARN_HOMEBREW_INSTALL_LOG_LAST_LINES"
         # Surface the last 30 lines via warn() so the GUI's prefix-aware
         # log parser actually renders them in the customer log. The
@@ -10851,7 +10895,7 @@ else
         while IFS= read -r line; do
             warn "    $line"
         done < <(tail -30 "$BREW_INSTALL_LOG")
-        fail_with_code "ERR-04-HOMEBREW-INSTALL" "$MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED"
+        fail_with_code "ERR-04-HOMEBREW-INSTALL" "$(printf "$MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED" "$BREW_INSTALL_LOG")"
     fi
 
     if [[ "$ARCH" == "arm64" ]]; then
@@ -17637,12 +17681,15 @@ if [[ "$HAS_PIPELINE" == true ]]; then
         fi
         set -e
         if [[ $PIPELINE_PIP_EXIT -ne 0 ]]; then
-            warn "$(printf "$MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT" "$PIPELINE_PIP_EXIT")"
+            warn "$(printf "$MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT" "$PIPELINE_PIP_EXIT" "$PIPELINE_PIP_LOG")"
             warn "$MSG_WARN_PIPELINE_PIP_LOG_LAST_LINES"
             while IFS= read -r line; do
                 warn "    $line"
             done < <(tail -30 "$PIPELINE_PIP_LOG")
-            fail_with_code "ERR-14-PIPELINE-PIP" "$MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED"
+            # W003 class: this message named /tmp/ostler-pipeline-pip.log, which
+            # nothing writes. The log is PIPELINE_PIP_LOG, under the private
+            # per-run OSTLER_DIAG_DIR (#910). Name the real path.
+            fail_with_code "ERR-14-PIPELINE-PIP" "$(printf "$MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED" "$PIPELINE_PIP_LOG")"
         fi
         ln -sf "${CONFIG_DIR}/.env" contact_syncer/.env 2>/dev/null || true
         ok "$MSG_OK_IMPORT_PIPELINE_READY"
@@ -19874,12 +19921,15 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     DOCTOR_PIP_EXIT=$?
     set -e
     if [[ $DOCTOR_PIP_EXIT -ne 0 ]]; then
-        warn "$(printf "$MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT" "$DOCTOR_PIP_EXIT")"
+        warn "$(printf "$MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT" "$DOCTOR_PIP_EXIT" "$DOCTOR_PIP_LOG")"
         warn "$MSG_WARN_DOCTOR_PIP_LOG_LAST_LINES"
         while IFS= read -r line; do
             warn "    $line"
         done < <(tail -30 "$DOCTOR_PIP_LOG")
-        fail_with_code "ERR-17-DOCTOR-PIP" "$MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED"
+        # W003 class: this message named /tmp/ostler-doctor-pip.log, which
+        # nothing writes. The log is DOCTOR_PIP_LOG, under the private per-run
+        # OSTLER_DIAG_DIR (#910). Name the real path.
+        fail_with_code "ERR-17-DOCTOR-PIP" "$(printf "$MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED" "$DOCTOR_PIP_LOG")"
     fi
     ok "$MSG_OK_DOCTOR_DEPENDENCIES_INSTALLED"
 
@@ -25036,8 +25086,12 @@ except Exception:
             # the phone count -> the phone-only-export signature.
             if [[ "$phones" -ge 20 ]] \
                && [[ $((emails * 20)) -lt "$phones" ]]; then
+                # W003 class: named /tmp/ostler-hydrate-contacts.log, which
+                # nothing writes. The path is the FOURTH %s in this message --
+                # the three counts come first and their order is unchanged.
                 warn "$(printf "$MSG_HYDRATE_CONTACTS_EMAIL_COVERAGE_LOW" \
-                    "$_HYDRATE_CONTACTS_COUNT" "$phones" "$emails")"
+                    "$_HYDRATE_CONTACTS_COUNT" "$phones" "$emails" \
+                    "${OSTLER_DIAG_DIR}/hydrate-contacts.log")"
             fi
         }
         _guard_email_coverage || true
@@ -25378,7 +25432,8 @@ except Exception:
         # The extractor or ingest raised -- this is NOT an empty calendar.
         # Surface it as a failure (with the log path) instead of the
         # "not synced" state so the two are never conflated.
-        warn "$MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED"
+        # W003 class: named /tmp/ostler-hydrate-calendar.log, which nothing writes.
+        warn "$(printf "$MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED" "${OSTLER_DIAG_DIR}/hydrate-calendar.log")"
         # FAIL. `events=0` here is MEASURED, not defaulted: the count was
         # parsed above and this arm is only reached when it is zero. The
         # stage that raised is named so the two python legs stay separable.
@@ -27355,11 +27410,15 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     elif printf '%s' "$_places_log_tail" | grep -q "PLACES INGEST GUARD"; then
         # The module's own loud guard fired: signals exist but no Places were
         # produced/written. Surface it loudly (non-fatal: a re-run is safe).
-        warn "$MSG_HYDRATE_PLACES_GUARD_WARN"
+        # W003 class: named /tmp/ostler-places-ingest.log, which nothing writes.
+        warn "$(printf "$MSG_HYDRATE_PLACES_GUARD_WARN" "${OSTLER_DIAG_DIR}/places-ingest.log")"
     else
         # Non-zero exit with no guard line = config error / unexpected crash.
         # Still non-fatal, but visible -- not mislabelled as "no signals yet".
-        warn "$MSG_HYDRATE_PLACES_ERROR_WARN"
+        # W003 class: same path, second message. Both arms named a file that
+        # nothing writes, so fixing only the guard arm would have left the
+        # unexpected-error arm lying.
+        warn "$(printf "$MSG_HYDRATE_PLACES_ERROR_WARN" "${OSTLER_DIAG_DIR}/places-ingest.log")"
     fi
     # #711. The branches above already distinguish a crash ("Non-zero
     # exit with no guard line = config error / unexpected crash") and
