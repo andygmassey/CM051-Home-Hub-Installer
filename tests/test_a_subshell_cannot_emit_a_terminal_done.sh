@@ -66,22 +66,53 @@ hl="$(wc -l < "${W}/h.fixed" | tr -d ' ')"
 # The PRE-FIX handler for arm 1. Read from origin/main; if that is not
 # resolvable this is CANNOT-RUN, never a silent skip -- an anti-vacuity arm
 # that quietly does not run is exactly the hole it exists to close.
-# MUTATE the handler we just extracted; do NOT read a different revision.
-# `git show origin/main:` is unavailable on a CI runner (no origin/main ref),
-# which made this limb CANNOT-RUN on every PR -- an anti-vacuity arm that
-# never ran is the hole it exists to close. Stripping the guard is offline and
-# mutates the SUBJECT rather than comparing against another revision.
-awk '
-    /BASH_SUBSHELL:-0/ { skip = 1 }
-    skip && /^    fi$/ { skip = 0; next }
-    !skip              { print }
-' "${W}/h.fixed" > "${W}/h.pre"
-pl="$(wc -l < "${W}/h.pre" | tr -d ' ')"
-[ "$pl" -lt "$hl" ] || cannot "the mutation removed nothing (${pl} vs ${hl} lines); the limb would compare the handler with itself"
-# The GUARD line, not the word: the comment block above it names
-# $BASH_SUBSHELL while explaining the defect, so a bare word match would
-# report the mutation failed when it succeeded.
-grep -q 'BASH_SUBSHELL:-0' "${W}/h.pre" && cannot "the guard line survived the mutation; the pre-fix handler is not pre-fix"
+# ── THE PRE-FIX HANDLER: PINNED BLOB FIRST, MUTATION AS FALLBACK ─────
+#
+# a752275d is the v1.0.66 cut -- the artefact that SHIPPED with this defect.
+# Pinned to a fixed sha, never a branch: a control that reads origin/main
+# inverts the moment this fix merges. Same rationale as the 7b2130ac pin in
+# tests/test_config_reader_absence_does_not_abort_the_install.sh.
+#
+# CI CLONES SHALLOW (111 of 124 workflows take the depth-1 default), so the
+# blob is usually absent. Fetch just that one object, as the launchagent
+# bootout test already does, rather than demanding fetch-depth:0 everywhere.
+#
+# AND IF IT IS STILL UNREACHABLE, MUTATE INSTEAD OF GIVING UP. The pre-fix
+# handler is exactly the current handler minus the guard, so it can be
+# rebuilt deterministically with no network at all. An anti-vacuity limb that
+# silently does not run is the hole it exists to close -- my first version
+# used `git show origin/main:` and reported CANNOT-RUN on every PR.
+#
+# Either route must yield a handler WITHOUT the guard. That invariant is
+# asserted below whichever path produced it.
+_PREFIX_SHA=a752275d   # v1.0.66 -- the cut that shipped the defect
+_pre_src="pinned blob ${_PREFIX_SHA} (v1.0.66)"
+if ! git -C "$REPO" cat-file -e "${_PREFIX_SHA}:install.sh" 2>/dev/null; then
+    git -C "$REPO" fetch --quiet --depth=1 origin "${_PREFIX_SHA}" 2>/dev/null || true
+fi
+if git -C "$REPO" show "${_PREFIX_SHA}:install.sh" 2>/dev/null \
+     | awk '/^_ostler_on_err\(\) \{$/,/^# ─── OSTLER_ERR_TRAP_END/' > "${W}/h.pre" \
+   && [ "$(wc -l < "${W}/h.pre" | tr -d ' ')" -ge 20 ]; then
+    :
+else
+    _pre_src="mutation of the live handler (blob unreachable: shallow clone, no network)"
+    awk '
+        /BASH_SUBSHELL:-0/ { skip = 1 }
+        skip && /^    fi$/ { skip = 0; next }
+        !skip              { print }
+    ' "${W}/h.fixed" > "${W}/h.pre"
+    [ "$(wc -l < "${W}/h.pre" | tr -d ' ')" -lt "$hl" ] \
+        || cannot "the mutation removed nothing; the limb would compare the handler with itself"
+fi
+printf '  pre-fix handler from: %s\n' "$_pre_src"
+
+# THE INVARIANT, whichever route produced it. Match the guard LINE, not the
+# word: the comment block above the guard names $BASH_SUBSHELL while
+# explaining the defect, so a bare word match reports failure on success.
+grep -q 'BASH_SUBSHELL:-0' "${W}/h.pre" \
+    && cannot "the pre-fix handler still contains the guard line; it is not pre-fix"
+[ "$(wc -l < "${W}/h.pre" | tr -d ' ')" -ge 20 ] \
+    || cannot "the pre-fix handler is only $(wc -l < "${W}/h.pre" | tr -d ' ') lines; it did not extract"
 
 cat > "${W}/probe.inc" <<PROBE
 eval "\$(declare -f gui_emit | sed '1s/^gui_emit/__real_gui_emit/')"

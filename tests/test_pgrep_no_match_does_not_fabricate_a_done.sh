@@ -86,19 +86,37 @@ grep -q "^trap '_ostler_on_err" "${WORK}/handler.inc" \
 # exists to close. Stripping the guard out of the handler just extracted is
 # offline AND stronger: it mutates the SUBJECT rather than comparing against a
 # revision that may differ for unrelated reasons.
-awk '
-    /BASH_SUBSHELL:-0/ { skip = 1 }
-    skip && /^    fi$/ { skip = 0; next }
-    !skip              { print }
-' "${WORK}/handler.inc" > "${WORK}/handler.pre"
+# a752275d is the v1.0.66 cut -- the artefact that SHIPPED with this defect.
+# Pinned to a fixed sha, never a branch: a control reading origin/main inverts
+# the moment this fix merges. Same rationale as the 7b2130ac pin in
+# tests/test_config_reader_absence_does_not_abort_the_install.sh.
+#
+# CI CLONES SHALLOW (111 of 124 workflows take the depth-1 default), so fetch
+# the single object rather than demanding fetch-depth:0 everywhere. If it is
+# STILL unreachable, mutate the live handler instead: the pre-fix handler is
+# exactly the current one minus the guard, so it rebuilds with no network. An
+# anti-vacuity limb that silently does not run is the hole it exists to close.
+_PREFIX_SHA=a752275d
+_pre_src="pinned blob ${_PREFIX_SHA} (v1.0.66)"
+if ! git -C "$REPO_ROOT" cat-file -e "${_PREFIX_SHA}:install.sh" 2>/dev/null; then
+    git -C "$REPO_ROOT" fetch --quiet --depth=1 origin "${_PREFIX_SHA}" 2>/dev/null || true
+fi
+if git -C "$REPO_ROOT" show "${_PREFIX_SHA}:install.sh" 2>/dev/null \
+     | awk '/^_ostler_on_err\(\) \{$/,/^# ─── OSTLER_ERR_TRAP_END/' > "${WORK}/handler.pre" \
+   && [[ "$(wc -l < "${WORK}/handler.pre" | tr -d ' ')" -ge 20 ]]; then
+    :
+else
+    _pre_src="mutation of the live handler (blob unreachable)"
+    awk '
+        /BASH_SUBSHELL:-0/ { skip = 1 }
+        skip && /^    fi$/ { skip = 0; next }
+        !skip              { print }
+    ' "${WORK}/handler.inc" > "${WORK}/handler.pre"
+fi
 PREFIX_OK=1
-_pre_l="$(wc -l < "${WORK}/handler.pre" | tr -d ' ')"
-_cur_l="$(wc -l < "${WORK}/handler.inc" | tr -d ' ')"
-# The mutation must REMOVE something, or the limb compares the handler with
-# itself and passes for free. Match the guard LINE, not the word: the comment
-# above it names $BASH_SUBSHELL while explaining the defect.
-[[ "$_pre_l" -lt "$_cur_l" ]] || PREFIX_OK=0
+[[ "$(wc -l < "${WORK}/handler.pre" | tr -d ' ')" -ge 20 ]] || PREFIX_OK=0
 grep -q 'BASH_SUBSHELL:-0' "${WORK}/handler.pre" && PREFIX_OK=0
+echo "     pre-fix handler from: ${_pre_src}"
 
 # ── Arm 1: the behaviour, three spellings ─────────────────────────
 #
