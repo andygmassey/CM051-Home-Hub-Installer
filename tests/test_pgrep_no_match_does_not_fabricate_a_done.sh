@@ -61,6 +61,33 @@ hl="$(wc -l < "${WORK}/handler.inc" | tr -d ' ')"
 grep -q "^trap '_ostler_on_err" "${WORK}/handler.inc" \
     || fail "extracted handler has no ERR trap. CANNOT-RUN, not a pass."
 
+# ── THE PRE-FIX HANDLER, and why this file now needs one ──────────────
+#
+# #642 was originally fixed at the CALL SITES with `|| true`, so arms 1a/1c
+# below asserted that an UNGUARDED substitution still emits TWO markers --
+# an anti-vacuity limb proving the harness reproduces the defect before arm 2
+# leans on it.
+#
+# The defect is now fixed at the HANDLER: `_ostler_on_err` returns early when
+# $BASH_SUBSHELL > 0, because a subshell cannot write OSTLER_DONE_EMITTED back
+# to its parent and so its terminal marker is always a phantom. MEASURED:
+# `local v="$(pgrep -f '<no-match>')"` produced pid=55691 subshell=1 status=fail
+# followed by pid=55691 subshell=0 status=ok -- same process, a failed install
+# reported as a success.
+#
+# So an unguarded substitution now yields ONE marker, and arms 1a/1c would
+# fail for the RIGHT reason. Deleting them would delete the anti-vacuity with
+# them. Instead they move: the defect must still reproduce against the
+# PRE-FIX handler read from origin/main, and must NOT against this one.
+PREFIX_OK=1
+if git -C "$REPO_ROOT" rev-parse --verify -q origin/main >/dev/null 2>&1; then
+    git -C "$REPO_ROOT" show origin/main:install.sh 2>/dev/null \
+        | awk '/^_ostler_on_err\(\) \{$/,/^# ─── OSTLER_ERR_TRAP_END/' > "${WORK}/handler.pre"
+    [[ "$(wc -l < "${WORK}/handler.pre" | tr -d ' ')" -ge 20 ]] || PREFIX_OK=0
+else
+    PREFIX_OK=0
+fi
+
 # ── Arm 1: the behaviour, three spellings ─────────────────────────
 #
 # A pattern that cannot match any real process. Deliberately not a plausible
@@ -68,13 +95,13 @@ grep -q "^trap '_ostler_on_err" "${WORK}/handler.inc" \
 # CI runner, or the arm measures the runner rather than the code.
 NOMATCH='ostler-642-no-such-process-zzq'
 
-run_arm() {   # $1 = shell fragment producing the assignment
+run_arm() {   # $1 = shell fragment producing the assignment, $2 = handler (default: current)
     cat > "${WORK}/arm.sh" <<EOF
 #!/bin/bash
 set -Eeuo pipefail
 export OSTLER_GUI=1
 source "${LIB}"
-source "${WORK}/handler.inc"
+source "${2:-${WORK}/handler.inc}"
 OSTLER_DONE_EMITTED=""
 gui_step_begin t642 "harness" 3 1 1
 $1
@@ -92,12 +119,29 @@ c="$(run_arm "for k in \$(pgrep -f '${NOMATCH}' 2>/dev/null); do :; done")"
 # 1d FOR-LIST, GUARDED -- must emit ONE. Proves the same fix works there.
 d="$(run_arm "for k in \$(pgrep -f '${NOMATCH}' 2>/dev/null || true); do :; done")"
 
-if [[ "$a" == "2" ]]; then
-    echo "ok   arm 1a: an UNGUARDED pgrep substitution fabricates 2 DONE markers"
+if [[ "$a" == "1" ]]; then
+    echo "ok   arm 1a: an unguarded pgrep substitution now emits ONE marker (handler guard)"
 else
-    echo "FAIL arm 1a: expected 2 DONE markers from the unguarded form, got ${a}."
-    echo "     The harness no longer reproduces #642, so arms 1b/2 prove nothing."
-    echo "     This is CANNOT-RUN, not a pass."
+    echo "FAIL arm 1a: expected 1 DONE marker from the unguarded form, got ${a}."
+    echo "     The handler's BASH_SUBSHELL guard is the thing under test here."
+    rc=1
+fi
+
+# ANTI-VACUITY, moved here from arm 1a. The defect must still reproduce
+# against the PRE-FIX handler, or the arm above passes because the harness
+# stopped exercising the path rather than because the guard works.
+if [[ "$PREFIX_OK" == "1" ]]; then
+    pre="$(run_arm "v=\"\$(pgrep -f '${NOMATCH}' 2>/dev/null | sort -u)\"" "${WORK}/handler.pre")"
+    if [[ "$pre" == "2" ]]; then
+        echo "ok   arm 1a-mut: the PRE-FIX handler still fabricates 2 markers, so 1a is a measurement"
+    else
+        echo "FAIL arm 1a-mut: the pre-fix handler gave ${pre} markers, expected 2."
+        echo "     Without this the harness may simply have stopped reproducing #642."
+        rc=1
+    fi
+else
+    echo "CANNOT-RUN arm 1a-mut: origin/main not resolvable, so the pre-fix handler"
+    echo "     could not be built. This is NOT a pass for the mutation limb."
     rc=1
 fi
 if [[ "$b" == "1" ]]; then
@@ -106,12 +150,10 @@ else
     echo "FAIL arm 1b: expected 1 DONE marker from the guarded form, got ${b}."
     rc=1
 fi
-if [[ "$c" == "2" ]]; then
-    echo "ok   arm 1c: an UNGUARDED for-list fabricates 2 markers too (no exemption)"
+if [[ "$c" == "1" ]]; then
+    echo "ok   arm 1c: the unguarded for-list also emits ONE marker (no exemption)"
 else
-    echo "FAIL arm 1c: expected 2 DONE markers from the unguarded for-list, got ${c}."
-    echo "     Either bash changed, or the harness stopped reproducing the defect."
-    echo "     CANNOT-RUN, not a pass."
+    echo "FAIL arm 1c: expected 1 DONE marker from the unguarded for-list, got ${c}."
     rc=1
 fi
 if [[ "$d" == "1" ]]; then

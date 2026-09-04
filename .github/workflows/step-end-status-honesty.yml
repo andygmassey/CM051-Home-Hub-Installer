@@ -49,6 +49,10 @@ on:
       # steps. Reads install.sh (the verdict) and lib/progress_emitter.sh (the
       # id-list), both already watched above, so a change to either fires it.
       - 'tests/test_closing_verdict_consults_failed_steps.sh'
+      # #642: a subshell must not emit a TERMINAL marker. Watched because the
+      # step below runs it, and because it reads install.sh's ERR handler,
+      # which is already watched above.
+      - 'tests/test_a_subshell_cannot_emit_a_terminal_done.sh'
       - '.github/workflows/step-end-status-honesty.yml'
   push:
     branches: [main]
@@ -151,6 +155,22 @@ jobs:
       - name: The closing verdict consults failed_steps and names them (#616)
         if: always()
         run: /bin/bash tests/test_closing_verdict_consults_failed_steps.sh
+
+      # #642 -- THE FALSE `status=ok`.
+      #
+      # `set -E` propagates the ERR trap into command substitutions. The child
+      # emits a terminal DONE and dies, and OSTLER_DONE_EMITTED dies with it,
+      # so the parent never learns. MEASURED on 3.2.57 with $$ and
+      # $BASH_SUBSHELL at every emit: `local v="$(pgrep -f '<no-match>')"`
+      # gave pid=55691 subshell=1 status=fail then pid=55691 subshell=0
+      # status=ok. Same process. A failed install reported as a success.
+      #
+      # Carries a mutation limb (the PRE-FIX handler out of origin/main must
+      # still produce the defect) and the clean-run control, so it cannot pass
+      # by the harness going quiet.
+      - name: A subshell must not emit a terminal DONE (#642)
+        if: always()
+        run: /bin/bash tests/test_a_subshell_cannot_emit_a_terminal_done.sh
 
       - name: Both files parse under /bin/bash 3.2 (the cut host's shell)
         if: always()

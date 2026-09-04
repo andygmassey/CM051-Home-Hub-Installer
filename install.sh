@@ -10418,6 +10418,43 @@ _ostler_on_err() {
     local exit_code="${1:-1}"
     local line="${2:-0}"
     local cmd="${3:-}"
+    # ── A SUBSHELL MAY NOT SPEAK THE LAST WORD (#642, measured 2026-09-04) ──
+    #
+    # `set -E` propagates this trap INTO command substitutions. When the
+    # substituted command exits non-zero the trap fires in the CHILD, the
+    # child emits a terminal DONE and dies, and `OSTLER_DONE_EMITTED=1` dies
+    # with it because a subshell cannot write to its parent. The parent's flag
+    # is still empty and the parent never learned anything happened.
+    #
+    # MEASURED on /bin/bash 3.2.57 against this handler and the real emitter,
+    # printing $$ and $BASH_SUBSHELL at every DONE emit:
+    #
+    #   v="$(pgrep -f '<no-match>')"          2 markers, BOTH fail
+    #                                         (the parent aborts on its own
+    #                                          failed assignment, so it agrees)
+    #   local v="$(pgrep -f '<no-match>')"    pid=55691 subshell=1  status=fail
+    #                                         pid=55691 subshell=0  status=ok
+    #
+    # SAME PID. DIFFERENT SUBSHELL. fail, then ok. `local` ALWAYS RETURNS 0,
+    # so it hides the substitution's status from the parent while doing nothing
+    # about the trap that has already fired in the child. The GUI is handed a
+    # failed install reported as a success. That is the customer-facing half.
+    #
+    # THE FIX IS HERE AND NOT AT THE CALL SITES because there are nine
+    # `local X="$(...)"` sites in this file and none carries `|| true`; a
+    # per-site guard fixes the ones we thought of. This is also NOT the
+    # re-entrancy fix (a dedicated __OSTLER_ON_ERR_ACTIVE flag) -- re-entrancy
+    # produces fail THEN fail, and the measurement above is fail then ok.
+    #
+    # NOT `return` OUTRIGHT. lib/progress_emitter.sh:717-725 records what
+    # happens when this handler is made quieter without care: 0 DONE markers,
+    # a silent run, which is the worse half. The child still LOGS -- a LOG
+    # marker is not terminal and the GUI does not close on it -- so the
+    # failure keeps a voice. Only the last word is withheld.
+    if [[ "${BASH_SUBSHELL:-0}" -gt 0 ]]; then
+        gui_log error "Command failed inside a subshell at line ${line}${__OSTLER_STEP_ID:+ (step ${__OSTLER_STEP_ID})}: ${cmd}"
+        return
+    fi
     # If a terminal DONE marker already went out (an explicit
     # fail/fail_with_code, a clean gui_done ok, a cancel, or a prior
     # ERR fire), stay silent: report exactly once, and never overwrite
