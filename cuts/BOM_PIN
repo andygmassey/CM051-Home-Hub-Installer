@@ -7,6 +7,6 @@
 # Proves the copy matches a NAMED commit, NOT that the commit is still
 # OS003 HEAD. That half is an OPERATOR check: --check before tagging.
 os003_repo	andygmassey/OS003-Ostler-Release
-os003_sha	25d91db1b5d722c61f594b86c018f526ea8408d8
+os003_sha	33a8f89c8b93c64be3bdc305557c638861ac9a5a
 os003_branch	main
-cuts/v1.0.64/MUST_CONTAIN.tsv	419bdd7f85b666be42e83cabdd6066b27d1b7a0ccdd1aae3ad22290046260eeb
+cuts/v1.0.65/MUST_CONTAIN.tsv	d28f8c7e7dfb513ed2f27493abaac82b2b3ce965730ed0c9b990252c5fa009e8

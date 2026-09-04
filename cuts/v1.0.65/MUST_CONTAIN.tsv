@@ -1,0 +1,52 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.65.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.65/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN. Authoring it in CM051
+# instead produces a copy with no pin, "a fork nobody declared".
+#
+# ===========================================================================
+# EVERY ROW SAYS ONE OF THREE THINGS AND NEVER A FOURTH
+# ===========================================================================
+#   gate:<workflow>#<job>   a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.64 was cut, published and verified to its payload, and NEVER WALKED,
+# because it still ends a cold-Mac install with a red final step. This cut
+# carries ONE defect fix and moves no other variable: the daemon pin is HELD
+# at bc63c445, unchanged since v1.0.62.
+#
+# ===========================================================================
+# THE ROW BELOW IS PROVED BY EXECUTION, NOT BY A PATTERN, AND ON PURPOSE
+# ===========================================================================
+# The defect is an ORDERING between a guard and a fold, and after v1.0.64's
+# partial fix BOTH were present in the tree. Every structural check over the
+# source answers YES on a tree that still ships the bug, so a grep-shaped BOM
+# row here would be a row that cannot discriminate. The gate named below runs
+# the real block against a stub producer and reads the recorded rc.
+#
+# TWO PINNED CONTROLS, BOTH REPRODUCING THE FAILURE. Measured 2026-09-04:
+#
+#   45126e9a  the v1.0.63 cut, the blob that produced the measured log line
+#             -> rc 2 folded, producer ran            DISCRIMINATES
+#   deecd9fc  v1.0.64's tree, this fix's own parent
+#             -> rc 2 folded, producer ran            DISCRIMINATES
+#   subject   this cut, empty owner email
+#             -> rc 0 folded, producer NOT run        the fixed behaviour
+#   subject   this cut, owner email PRESENT
+#             -> rc 2 folded, producer ran            CONTROL on the fix
+#
+# The last line is what stops the cheap green: deleting the fold entirely
+# would satisfy the third line and hide every real producer failure.
+#
+# Pins are fixed shas, never a moving branch. A control that reads origin/main
+# inverts the moment the fix it guards merges, and then passes forever.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+🔴 A SOURCE WITH NO INPUT FAILED THE WHOLE INSTALL. v1.0.63 ended STEP_END id=health_check status=error rc=2 and DONE failed_steps=1 while every probe inside that step logged healthy: Qdrant, Oxigraph, Redis, Ollama, pairing, Doctor, assistant API, wiki, Vane. USER_EMAIL comes from the macOS me-card via osascript, which returns -600 on a Mac where Contacts has never been opened, so the address is empty and cm052.cli exits 2. Re-measured on the box against the installed binary, with a control: empty CM052_USER_EMAIL exits 2, --help on the same binary exits 0, so the 2 is specific to the missing address and not a broken venv. v1.0.64 FIXED ONLY THE OTHER HALF -- it stopped registering an hourly agent that could only fail, but that guard sits BELOW the fold, so the drain still ran and health_check still reddened. One predicate, _aiconv_owner_email_known, now answers for BOTH consumers, so the drain and the LaunchAgent registration cannot disagree. The sentinel written on the skip is status=no_data with a declared reason, which freshness does NOT treat as done, so the source returns on its own once an address exists.	CM051	989545da	no	aiconv_rc_cannot_redden_health_check	gate:cold-box-source-truth.yml#cold-box-truth	#1428 #1418
