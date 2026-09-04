@@ -79,14 +79,26 @@ grep -q "^trap '_ostler_on_err" "${WORK}/handler.inc" \
 # fail for the RIGHT reason. Deleting them would delete the anti-vacuity with
 # them. Instead they move: the defect must still reproduce against the
 # PRE-FIX handler read from origin/main, and must NOT against this one.
+# BUILT BY MUTATING THE REAL HANDLER, NOT READ FROM git. The first version of
+# this limb ran `git show origin/main:install.sh`, which is unavailable on a CI
+# runner -- the checkout carries no origin/main ref, so the limb reported
+# CANNOT-RUN on every PR. An anti-vacuity arm that never runs is the hole it
+# exists to close. Stripping the guard out of the handler just extracted is
+# offline AND stronger: it mutates the SUBJECT rather than comparing against a
+# revision that may differ for unrelated reasons.
+awk '
+    /BASH_SUBSHELL:-0/ { skip = 1 }
+    skip && /^    fi$/ { skip = 0; next }
+    !skip              { print }
+' "${WORK}/handler.inc" > "${WORK}/handler.pre"
 PREFIX_OK=1
-if git -C "$REPO_ROOT" rev-parse --verify -q origin/main >/dev/null 2>&1; then
-    git -C "$REPO_ROOT" show origin/main:install.sh 2>/dev/null \
-        | awk '/^_ostler_on_err\(\) \{$/,/^# ─── OSTLER_ERR_TRAP_END/' > "${WORK}/handler.pre"
-    [[ "$(wc -l < "${WORK}/handler.pre" | tr -d ' ')" -ge 20 ]] || PREFIX_OK=0
-else
-    PREFIX_OK=0
-fi
+_pre_l="$(wc -l < "${WORK}/handler.pre" | tr -d ' ')"
+_cur_l="$(wc -l < "${WORK}/handler.inc" | tr -d ' ')"
+# The mutation must REMOVE something, or the limb compares the handler with
+# itself and passes for free. Match the guard LINE, not the word: the comment
+# above it names $BASH_SUBSHELL while explaining the defect.
+[[ "$_pre_l" -lt "$_cur_l" ]] || PREFIX_OK=0
+grep -q 'BASH_SUBSHELL:-0' "${WORK}/handler.pre" && PREFIX_OK=0
 
 # ── Arm 1: the behaviour, three spellings ─────────────────────────
 #
@@ -140,8 +152,8 @@ if [[ "$PREFIX_OK" == "1" ]]; then
         rc=1
     fi
 else
-    echo "CANNOT-RUN arm 1a-mut: origin/main not resolvable, so the pre-fix handler"
-    echo "     could not be built. This is NOT a pass for the mutation limb."
+    echo "CANNOT-RUN arm 1a-mut: the guard could not be stripped from the handler"
+    echo "     (the mutation removed nothing, or the guard line survived it)."
     rc=1
 fi
 if [[ "$b" == "1" ]]; then
@@ -167,11 +179,18 @@ fi
 #
 # NOT `[^)]*` -- that spans '|| true' and would match the very lines the fix
 # adds, which is exactly the false reading that nearly shipped here.
-mapfile -t unguarded < <(grep -nE '\$\(pgrep' "$INSTALLER" | grep -v '|| true' || true)
+# `^[^#]*` drops COMMENT lines. Arm 2 has been comment-blind since it was
+# written, and nothing revealed it because nobody had written the pgrep
+# substitution shape in prose before. The #642 comment block added to
+# install.sh does exactly that -- it quotes the defective shape in order to
+# explain it -- and arm 2 duly reported two "unguarded substitutions" that
+# are documentation. A scanner that cannot tell code from a comment ABOUT
+# that code fails on the day somebody documents the thing it looks for.
+mapfile -t unguarded < <(grep -nE '^[^#]*\$\(pgrep' "$INSTALLER" | grep -v '|| true' || true)
 
 # POSITIVE CONTROL: the predicate must be able to SEE guarded sites, or its
 # zero would be a dead predicate rather than a clean tree.
-guarded_n="$(grep -nE '\$\(pgrep' "$INSTALLER" | grep -c '|| true' || true)"
+guarded_n="$(grep -nE '^[^#]*\$\(pgrep' "$INSTALLER" | grep -c '|| true' || true)"
 if [[ "$guarded_n" -lt 1 ]]; then
     echo "FAIL arm 2 control: found 0 GUARDED pgrep substitutions."
     echo "     The predicate cannot see the shape it is grading. CANNOT-RUN."

@@ -66,13 +66,22 @@ hl="$(wc -l < "${W}/h.fixed" | tr -d ' ')"
 # The PRE-FIX handler for arm 1. Read from origin/main; if that is not
 # resolvable this is CANNOT-RUN, never a silent skip -- an anti-vacuity arm
 # that quietly does not run is exactly the hole it exists to close.
-if ! git -C "$REPO" rev-parse --verify -q origin/main >/dev/null 2>&1; then
-    cannot "origin/main is not resolvable, so the mutation arm cannot be built"
-fi
-git -C "$REPO" show origin/main:install.sh 2>/dev/null \
-    | awk '/^_ostler_on_err\(\) \{$/,/^# ─── OSTLER_ERR_TRAP_END/' > "${W}/h.pre"
+# MUTATE the handler we just extracted; do NOT read a different revision.
+# `git show origin/main:` is unavailable on a CI runner (no origin/main ref),
+# which made this limb CANNOT-RUN on every PR -- an anti-vacuity arm that
+# never ran is the hole it exists to close. Stripping the guard is offline and
+# mutates the SUBJECT rather than comparing against another revision.
+awk '
+    /BASH_SUBSHELL:-0/ { skip = 1 }
+    skip && /^    fi$/ { skip = 0; next }
+    !skip              { print }
+' "${W}/h.fixed" > "${W}/h.pre"
 pl="$(wc -l < "${W}/h.pre" | tr -d ' ')"
-[ "$pl" -ge 20 ] || cannot "could not extract the pre-fix handler from origin/main (${pl} lines)"
+[ "$pl" -lt "$hl" ] || cannot "the mutation removed nothing (${pl} vs ${hl} lines); the limb would compare the handler with itself"
+# The GUARD line, not the word: the comment block above it names
+# $BASH_SUBSHELL while explaining the defect, so a bare word match would
+# report the mutation failed when it succeeded.
+grep -q 'BASH_SUBSHELL:-0' "${W}/h.pre" && cannot "the guard line survived the mutation; the pre-fix handler is not pre-fix"
 
 cat > "${W}/probe.inc" <<PROBE
 eval "\$(declare -f gui_emit | sed '1s/^gui_emit/__real_gui_emit/')"
