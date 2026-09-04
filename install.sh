@@ -2300,6 +2300,30 @@ fi
 # accumulate in /tmp.
 
 OSTLER_FINAL_DIR="${HOME}/.ostler"
+
+# 🔴 DID A REAL INSTALL ALREADY EXIST WHEN THIS RUN STARTED?
+#
+# Read HERE, at the one place the final directory is named, and before any
+# code can create it. Two decline arms below wipe a tree and then print
+# "nothing has been installed and nothing was written to your Mac". That
+# sentence is TRUE on a fresh install and FALSE on a re-install, and until
+# now it was printed unconditionally.
+#
+# FOUND BY TNM, 2026-09-04, BY EXECUTION rather than by reading: he pinned
+# the target at a seeded tree, ran the decline arm, and counted the
+# survivors. Three files seeded, ZERO survived, and the script still printed
+# that nothing had been written.
+#
+# CM051 #1431 did not create that arm, and it did not create its reachability
+# either -- declining the reuse prompt has always walked the questions on a
+# populated box. What #1431 changed is WHO CHOOSES: the installer now sets
+# SKIP_PHASE2=false on the customer's behalf on the most common re-install
+# path, so a customer who declines a consent question they last saw months
+# ago now reaches this arm without having asked to. Involuntary entry into a
+# destructive arm is a different risk from voluntary entry, and this flag is
+# what lets the arm tell the two apart.
+_OSTLER_FINAL_PREEXISTED=false
+[[ -d "$OSTLER_FINAL_DIR" ]] && _OSTLER_FINAL_PREEXISTED=true
 OSTLER_PRELAUNCH_DIR="${OSTLER_PRELAUNCH_DIR:-/tmp/ostler-prelaunch-$$}"
 
 # _ostler_set_paths $target_root rebinds OSTLER_DIR + every
@@ -9693,14 +9717,24 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
                 # Article 9 invariant (b): leaves no ~/.ostler/ residue.
                 # At this point in Phase 2, the only thing that may have
                 # touched ~/.ostler/ is the contacts export under
-                # ~/.ostler/imports/. Wipe the lot.
-                if [[ -d "$OSTLER_DIR" ]]; then
+                # ~/.ostler/imports/.
+                #
+                # THE WIPE IS FOR THIS RUN'S RESIDUE, NOT FOR AN INSTALL THAT
+                # WAS ALREADY HERE. On a re-install the same statement would
+                # take the graph, the vectors, the conversations and the
+                # config -- and the sentence below would call that nothing.
+                if [[ "$_OSTLER_FINAL_PREEXISTED" != true && -d "$OSTLER_DIR" ]]; then
                     rm -rf "$OSTLER_DIR" 2>/dev/null || true
                 fi
                 unset RECOVERY_PASSPHRASE 2>/dev/null || true
                 echo ""
-                echo "  No problem. Nothing has been installed and nothing was"
-                echo "  written to your Mac."
+                if [[ "$_OSTLER_FINAL_PREEXISTED" == true ]]; then
+                    echo "  No problem. Setup has stopped and your existing Ostler"
+                    echo "  data has been left exactly as it was."
+                else
+                    echo "  No problem. Nothing has been installed and nothing was"
+                    echo "  written to your Mac."
+                fi
                 echo ""
                 echo "  If you change your mind, re-run the installer."
                 gui_cancelled   # CX-126: neutral cancelled terminal, not a failure
@@ -9888,14 +9922,21 @@ while true; do
             OSTLER_CONSENT_THIRD_PARTY_DECISION="declined"
             # Mirror Article 9 decline: leave no ~/.ostler/ residue.
             # By this point Phase 2 may have written the contacts
-            # export under ~/.ostler/imports/; wipe the lot.
-            if [[ -d "$OSTLER_DIR" ]]; then
+            # export under ~/.ostler/imports/.
+            #
+            # SAME GUARD, SAME REASON. See the flag at OSTLER_FINAL_DIR.
+            if [[ "$_OSTLER_FINAL_PREEXISTED" != true && -d "$OSTLER_DIR" ]]; then
                 rm -rf "$OSTLER_DIR" 2>/dev/null || true
             fi
             unset RECOVERY_PASSPHRASE 2>/dev/null || true
             echo ""
-            echo "  No problem. Nothing has been installed and nothing was"
-            echo "  written to your Mac."
+            if [[ "$_OSTLER_FINAL_PREEXISTED" == true ]]; then
+                echo "  No problem. Setup has stopped and your existing Ostler"
+                echo "  data has been left exactly as it was."
+            else
+                echo "  No problem. Nothing has been installed and nothing was"
+                echo "  written to your Mac."
+            fi
             echo ""
             echo "  If you change your mind, re-run the installer."
             gui_cancelled   # CX-126: neutral cancelled terminal, not a failure

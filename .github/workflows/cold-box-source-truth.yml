@@ -60,6 +60,7 @@ on:
       - 'tests/test_every_question_declares_its_persistence.sh'
       - 'tests/test_consent_decisions_survive_a_reuse_run.sh'
       - 'tests/test_config_reader_absence_does_not_abort_the_install.sh'
+      - 'tests/test_decline_does_not_wipe_an_existing_install.sh'
       - 'tests/test_walkaway_no_phase2_input_leak.sh'
       - 'tests/test_ttywalk_licence_preflight_is_cannot_run.sh'
       - 'scripts/ttywalk.sh'
@@ -195,6 +196,14 @@ jobs:
       # be: the defect is an EXIT STATUS produced by a pipeline under
       # `set -Eeuo pipefail`, and nothing in the source text distinguishes the
       # broken form from the fixed one -- both end in sed.
+      # Found by TNM by EXECUTION: he seeded a tree, ran the decline arm, and
+      # counted zero survivors while the script printed "nothing was written
+      # to your Mac". A grep would not have found it, so this test seeds and
+      # counts too.
+      - name: Declining must not wipe an install that was already there
+        if: always()
+        run: bash tests/test_decline_does_not_wipe_an_existing_install.sh
+
       - name: An absent config key must not abort the install
         if: always()
         run: bash tests/test_config_reader_absence_does_not_abort_the_install.sh
