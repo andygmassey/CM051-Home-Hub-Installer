@@ -179,6 +179,46 @@ else
     bad "the failure kinds are no longer broken out"
 fi
 
+echo "── the harness must not manufacture a permission it cannot have ──"
+
+# MEASURED on walk 13: the run reached the last step and recorded
+# `STEP_END id=health_check status=timeout elapsed_s=110 rc=124` because
+# install.sh probes iMessage Automation with osascript, and granting that is a
+# macOS TCC decision requiring a GUI click that an ssh session can never make.
+# The probe blocks for its full 90s deadline every single walk.
+#
+# install.sh ships PWG_IMESSAGE_PROBE_OUTCOME for exactly this. The VALUE is
+# the whole risk: `granted-and-working` would fabricate a permission the box
+# has not got and turn a walk into a lie. `check-failed` is the honest state
+# and is the same value install.sh itself records on a real 124.
+_shim="$(/usr/bin/grep -oE 'IMESSAGE_SHIM="[^"]*"' "$WALK" | head -1 | sed -E 's/.*"([^"]*)".*/\1/')"
+case "$_shim" in
+    check-failed)
+        ok "the iMessage probe shim is 'check-failed', the honest could-not-determine state" ;;
+    granted-and-working)
+        bad "the shim is 'granted-and-working'. That FABRICATES a TCC grant this box does not have and makes every walk verdict a lie." ;;
+    "")
+        bad "no IMESSAGE_SHIM found in ttywalk.sh; the probe will block 90s and time out the last step every walk" ;;
+    *)
+        bad "the shim is '${_shim}', which is neither the honest state nor a recognised outcome" ;;
+esac
+
+# It must be PASSED to the run, not merely defined.
+if /usr/bin/grep -q 'PWG_IMESSAGE_PROBE_OUTCOME=' "$WALK"; then
+    ok "and it is exported into the run environment"
+else
+    bad "IMESSAGE_SHIM is defined but PWG_IMESSAGE_PROBE_OUTCOME is never passed to the run"
+fi
+
+# A REDUCTION IN COVERAGE THAT IS NOT DISCLOSED IS A CLAIM THAT IT DID NOT
+# HAPPEN. The harness already discloses its staging gap; this one is the same
+# shape and must be stated in the run output, not buried in a comment.
+if /usr/bin/grep -q 'DOES NOT TEST THE REAL AUTOMATION PROBE' "$WALK"; then
+    ok "and the run DISCLOSES that it does not exercise the real probe"
+else
+    bad "the shim is applied with no disclosure in the run output. A walk that passes would imply TCC was tested."
+fi
+
 echo
 echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
 [ "$FAIL" -eq 0 ] || exit 1

@@ -621,8 +621,52 @@ done; :' >/dev/null 2>&1
 # unmentioned: an inherited value from a previous shell would silently send
 # the markers somewhere we are not reading, and the run would then look
 # marker-less for a reason that has nothing to do with the product.
+# ── THE ONE THING AN UNATTENDED WALK CANNOT DO, DECLARED RATHER THAN DISCOVERED
+#
+# MEASURED on walk 13. The run reached the last step and then:
+#
+#     STEP_END id=health_check status=timeout elapsed_s=110 rc=124
+#     WARN No answer to the Messages permission prompt, so we moved on.
+#
+# install.sh probes iMessage Automation with `osascript ... tell application
+# "Messages"`, deadlined at OSTLER_IMESSAGE_PROBE_TIMEOUT_S (90s by default).
+# Granting Automation is a macOS TCC decision that requires a GUI user to click
+# Allow in a dialog. **An ssh session cannot click it, ever.** So the probe
+# blocks for the full 90s, returns 124, and the step is recorded `timeout`.
+#
+# install.sh handles that 124 correctly and deliberately -- its own comment
+# says "A probe nobody answered is NOT a denial" and records `check-failed`,
+# which the daemon later re-probes. The PRODUCT is not at fault. The harness is,
+# for spending 90 seconds every run to rediscover a permission it can never be
+# granted, and then reporting the result as a failed step.
+#
+# install.sh already ships the hook for exactly this: PWG_IMESSAGE_PROBE_OUTCOME
+# is documented in its source as "lets test harnesses inject an outcome without
+# invoking osascript. Real macOS installs leave this unset."
+#
+# 🔴 THE VALUE MATTERS AND IT IS NOT A FREE CHOICE.
+#
+#     granted-and-working   would MANUFACTURE a permission this box has not got.
+#                           That is a fabricated pass and must never be used.
+#     check-failed          is the honest state: we could not determine it.
+#                           It is the same value install.sh itself records on a
+#                           real 124, so the walk follows the same path a real
+#                           unattended install follows.
+#
+# WHAT THIS COSTS, STATED PLAINLY: the walk does NOT exercise the real osascript
+# probe. That coverage was never obtainable over ssh, so nothing is lost that
+# was ever there -- but a walk that passes says nothing about TCC, and a human
+# walk on a real console is the only thing that can.
+IMESSAGE_SHIM="check-failed"
+say "iMessage Automation probe: SHIMMED to '${IMESSAGE_SHIM}' for this run."
+say "   macOS TCC needs a GUI click that ssh cannot make, so the real probe"
+say "   would block 90s and report a timed-out step every single walk."
+say "   ⚠️  THIS WALK THEREFORE DOES NOT TEST THE REAL AUTOMATION PROBE."
+say "   Only a console walk by a human can. Never shim it to granted-and-working."
+
 "${SSH[@]}" "cd '${REMOTE_DIR}' && \
     unset OSTLER_GUI_FD OSTLER_MARKER_FD && \
+    PWG_IMESSAGE_PROBE_OUTCOME='${IMESSAGE_SHIM}' \
     OSTLER_GUI=1 nohup python3 scripts/walk_drive.py > ttywalk.driver.out 2>&1 &
     echo started" >/dev/null 2>&1
 
