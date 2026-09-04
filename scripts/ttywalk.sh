@@ -73,6 +73,7 @@ while [[ $# -gt 0 ]]; do
         --reset)        DO_RESET=1; shift ;;
         --report-only)  REPORT_ONLY=1; shift ;;
         --stage-only)   STAGE_ONLY=1; shift ;;
+        --from-dmg)     FROM_DMG="${2:-}"; shift 2 ;;
         -h|--help)      sed -n '2,45p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *)              die "unknown argument: $1" ;;
     esac
@@ -278,8 +279,42 @@ identity_check "before staging"
 # to produce a verdict about the product, and a verdict from the dev-mode
 # branch is not one. CANNOT-RUN, never FAIL: nothing about the build has been
 # shown to be wrong.
+STAGE_SRC="$REPO_ROOT"
+STAGE_KIND="repo"
+DMG_MNT=""
+if [[ -n "${FROM_DMG:-}" ]]; then
+    [[ -f "$FROM_DMG" ]] || die "--from-dmg: no file at ${FROM_DMG}"
+    DMG_MNT="$(mktemp -d "${TMPDIR:-/tmp}/ostler-dmg.XXXXXX")" \
+        || die "--from-dmg: could not make a mountpoint"
+    hdiutil attach -nobrowse -readonly -mountpoint "$DMG_MNT" "$FROM_DMG" >/dev/null 2>&1 \
+        || die "--from-dmg: hdiutil attach failed for ${FROM_DMG}"
+    # Detach on the way out however we leave, so a later run does not meet
+    # "Resource busy" -- the v1.0.51 failure, one artefact over.
+    trap 'hdiutil detach "$DMG_MNT" -quiet 2>/dev/null || hdiutil detach "$DMG_MNT" -force -quiet 2>/dev/null || true' EXIT
+    _res="$(/usr/bin/find "$DMG_MNT" -maxdepth 3 -type d -name Resources -path '*.app/Contents/*' 2>/dev/null | head -1)"
+    [[ -n "$_res" ]] || die "--from-dmg: no <app>/Contents/Resources inside ${FROM_DMG}"
+    [[ -f "${_res}/install.sh" ]] \
+        || die "--from-dmg: ${_res} has no install.sh. That is not the payload root."
+    STAGE_SRC="$_res"
+    STAGE_KIND="artefact"
+    say "ARTEFACT WALK. Staging the DMG's payload, not this checkout."
+    say "   dmg:     ${FROM_DMG}"
+    say "   payload: ${_res}"
+    say "   ⚠️  the .app is NOT launched. This runs the install.sh INSIDE it,"
+    say "      so it still says nothing about first-RUN behaviour of the bundle."
+fi
+
 rule "BUNDLED-PYTHON PREFLIGHT (the customer path, not the dev fallback)"
-BUNDLED_PY_LOCAL="${REPO_ROOT}/python/bin/python3.11"
+# READ FROM THE STAGED SOURCE, not the checkout. In --from-dmg mode the
+# interpreter lives inside the artefact, and checking $REPO_ROOT there made
+# the first artefact walk refuse CANNOT-RUN against a DMG that HAS one.
+# ${STAGE_SRC:-$REPO_ROOT}, not ${STAGE_SRC}: tests/test_ttywalk_licence_preflight_is_cannot_run.sh
+# EXTRACTS this block and drives it in isolation, where STAGE_SRC does not exist.
+# A bare ${STAGE_SRC} under `set -u` made all three of its interpreter arms exit
+# 1, so a change that only added an artefact mode blinded a guard that was
+# already working. The default keeps the extracted block self-sufficient and
+# changes nothing at runtime, where STAGE_SRC is always set above.
+BUNDLED_PY_LOCAL="${STAGE_SRC:-$REPO_ROOT}/python/bin/python3.11"
 if [[ -x "$BUNDLED_PY_LOCAL" ]]; then
     say "bundled interpreter present: $("$BUNDLED_PY_LOCAL" --version 2>&1 | head -1)"
 else
@@ -502,17 +537,67 @@ if [[ "$DO_RESET" -eq 1 ]]; then
     ' 2>&1
 fi
 
-# ── Stage the CURRENT tree ───────────────────────────────────────────
+# ── Stage: the REPO by default, or the ARTEFACT with --from-dmg ──────
+#
+# 🔴 EVERY WALK THIS HARNESS HAS EVER RUN MEASURED THE REPO, NOT THE DMG, and
+# that gap has been carried in prose on every green it produced. A source-truth
+# walk proves install.sh runs clean. It does NOT prove the thing a customer
+# downloads runs clean, because the DMG's Contents/Resources is assembled by
+# the cut pipeline from places the repo does not hold: on v1.0.65, 23 of its 48
+# payload entries were absent from a full repo checkout and I had to copy 22 of
+# them in by hand to get past step 21.
+#
+# --from-dmg stages that directory instead. It is the same SHAPE the repo
+# presents after flattening -- install.sh at the top with the payload dirs
+# beside it -- so nothing downstream changes.
+#
+# WHAT IT STILL DOES NOT COVER, said here so a green does not overstate itself:
+# the .app is never launched. A customer double-clicks an installer app; this
+# runs the install.sh inside it. Those differ in exactly the way v1.0.45 was
+# bricked by -- a bundle that writes into itself on first RUN, which nothing
+# inspecting it at rest can see.
 rule "STAGE"
-HEAD_SHA="$(cd "$REPO_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
-DIRTY="$(cd "$REPO_ROOT" && git status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
-say "staging ${REPO_ROOT} @ ${HEAD_SHA} (${DIRTY} uncommitted paths) -> ${HOST}:~/${REMOTE_DIR}"
+if [[ "$STAGE_KIND" == "repo" ]]; then
+    HEAD_SHA="$(cd "$REPO_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    DIRTY="$(cd "$REPO_ROOT" && git status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+    say "staging ${REPO_ROOT} @ ${HEAD_SHA} (${DIRTY} uncommitted paths) -> ${HOST}:~/${REMOTE_DIR}"
+    say "⚠️  THIS IS A SOURCE-TRUTH WALK. It measures install.sh, not the DMG."
+else
+    say "staging ${STAGE_SRC} -> ${HOST}:~/${REMOTE_DIR}"
+fi
 
-rsync -a --delete \
-      --exclude '.git/' --exclude 'walks/' --exclude '__pycache__/' \
-      --exclude '*.pyc' --exclude '.venv/' \
-      "${REPO_ROOT}/" "${HOST}:${REMOTE_DIR}/" \
-    || die "rsync failed; nothing was run on the host."
+# 🔴 THE REPO EXCLUDES DESTROY A SIGNED BUNDLE. MEASURED on the first artefact
+# walk that got as far as running: install.sh refused at step 9 with
+#
+#     Refusing to install ostler-assistant: not a Developer-ID-signed,
+#     notarised bundle
+#     codesign: a sealed resource is missing or invalid
+#
+# and the artefact was innocent. Inside the DMG that bundle passes BOTH checks
+# install.sh demands (codesign --verify --deep --strict rc=0, spctl accepted,
+# source=Notarized Developer ID). What broke it was this rsync:
+#
+#     in the DMG   54 files
+#     staged       52 files
+#     missing      Contents/Resources/ingest/email-ingest/__pycache__
+#                  .../__pycache__/mark_first_ingest.cpython-311.pyc
+#
+# A .pyc inside a signed .app is a SEALED RESOURCE. `--exclude '*.pyc'` is
+# correct hygiene for a CHECKOUT and is destructive to an ARTEFACT, and the
+# same flag means opposite things depending on which one you are staging.
+#
+# So the artefact is copied VERBATIM. The whole premise of this mode is that
+# the box receives what the customer receives; an exclude list contradicts it.
+if [[ "$STAGE_KIND" == "artefact" ]]; then
+    rsync -a --delete "${STAGE_SRC}/" "${HOST}:${REMOTE_DIR}/" \
+        || die "rsync failed; nothing was run on the host."
+else
+    rsync -a --delete \
+          --exclude '.git/' --exclude 'walks/' --exclude '__pycache__/' \
+          --exclude '*.pyc' --exclude '.venv/' \
+          "${STAGE_SRC}/" "${HOST}:${REMOTE_DIR}/" \
+        || die "rsync failed; nothing was run on the host."
+fi
 
 # Re-confirm AFTER staging. Staging takes minutes; a DHCP lease can move in
 # that window, and every step from here is on the box.
@@ -537,6 +622,23 @@ identity_check "after staging"
 # check is the definition of what a DMG contains; a second hand-maintained copy
 # here would drift and the harness would go on testing the old set while
 # reporting success. Same artefact, one consumer.
+# 🔴 THE ARTEFACT IS ALREADY IN THIS SHAPE. Flattening exists to turn a REPO
+# checkout into what the DMG's Contents/Resources already is, so running it in
+# --from-dmg mode looks for repo-relative sources that do not exist inside the
+# artefact and dies. The first artefact walk got as far as here and refused:
+#
+#     cp: gui/ostler-mecard: No such file or directory
+#     CANNOT-RUN: could not flatten gui/ostler-mecard on the host.
+#
+# Skipped, with a POSITIVE CONTROL rather than a bare skip: the whole point of
+# this step is that ostler_fda ends up beside install.sh, and that is asserted
+# below for both modes. A skip that checked nothing would hand the next walk
+# the run-2 failure back.
+if [[ "$STAGE_KIND" == "artefact" ]]; then
+    rule "LAYOUT (skipped: the artefact ships already flattened)"
+    say "the DMG's Contents/Resources IS the target shape; nothing to flatten."
+    say "the control below still runs, so this skip is not a free pass."
+else
 rule "LAYOUT (flatten payload dirs to the Contents/Resources shape)"
 PAYLOAD_NAMES="$(sed -n 's/.*for p in \(Ostler\.app install\.sh .*\); do.*/\1/p' \
                     "${REPO_ROOT}/gui/Makefile" | head -1)"
@@ -589,6 +691,60 @@ if [[ -n "$ABSENT" ]]; then
     say "   These reach a real DMG from somewhere else in the cut pipeline."
     say "   The run below therefore exercises their ABSENCE, not their content."
     say "   Any failure naming one of them is the HARNESS, not the product."
+fi
+
+fi
+
+# ── OVERLAY THE INSTRUMENT, WITHOUT TOUCHING THE SUBJECT ─────────────
+#
+# The artefact has no scripts/ directory -- it is a payload, not a checkout --
+# so the driver that answers install.sh's prompts is simply not there. The
+# third artefact walk died on exactly that, with an empty pty log:
+#
+#     python3: can't open file '.../ostler-ttywalk/scripts/walk_drive.py'
+#
+# walk_drive.py is the INSTRUMENT and install.sh is the SUBJECT. The instrument
+# has to be beside the subject to drive its pty, but it must not change it.
+# So: copy ONLY the driver in, then ASSERT the artefact's own install.sh is
+# byte-identical to the one inside the DMG. A harness that quietly edited the
+# thing it was measuring would make every verdict it produced meaningless, and
+# "I only added a file" is exactly the assumption worth checking rather than
+# stating.
+if [[ "$STAGE_KIND" == "artefact" ]]; then
+    rule "OVERLAY (the driver only; the payload must not change)"
+    _sub_before="$(shasum -a 256 "${STAGE_SRC}/install.sh" | awk '{print $1}')"
+    "${SSH[@]}" "mkdir -p '${REMOTE_DIR}/scripts'" \
+        || die "could not create scripts/ on the host for the driver."
+    scp -q "${REPO_ROOT}/scripts/walk_drive.py" "${HOST}:${REMOTE_DIR}/scripts/walk_drive.py" \
+        || die "could not copy walk_drive.py to the host."
+    _sub_after="$("${SSH[@]}" "shasum -a 256 '${REMOTE_DIR}/install.sh'" | awk '{print $1}')"
+    if [[ "$_sub_before" != "$_sub_after" ]]; then
+        die "the staged install.sh does NOT match the DMG's.
+       dmg   ${_sub_before}
+       host  ${_sub_after}
+       The instrument has changed the subject, or staging is lossy. Either
+       way this walk would measure something that is not the artefact."
+    fi
+    say "driver overlaid; install.sh on the host is byte-identical to the DMG's"
+    say "   sha256 ${_sub_before}"
+
+    # 🔴 A HASH ON ONE FILE IS NOT A CHECK ON 49 ENTRIES. install.sh matched
+    # while a bundle two directories away had lost two sealed resources, and
+    # the walk went on to blame the product for it. The seal is the thing that
+    # actually proves the payload arrived intact, so assert it directly, on the
+    # box, before spending a walk.
+    _agent="${REMOTE_DIR}/assistant-agent/OstlerAssistant.app"
+    if "${SSH[@]}" "[[ -d '${_agent}' ]]"; then
+        if "${SSH[@]}" "codesign --verify --deep --strict '${_agent}' 2>&1"; then
+            say "staged daemon bundle still verifies: codesign --deep --strict OK"
+        else
+            die "the staged OstlerAssistant.app NO LONGER VERIFIES on the host.
+       The payload was damaged in transit, so install.sh will refuse it and
+       the walk would record that refusal as a product defect. Compare the
+       file COUNT inside the bundle on both sides: an rsync exclude that is
+       correct for a checkout can strip a sealed resource from a signed app."
+        fi
+    fi
 fi
 
 # POSITIVE CONTROL: the specific directory whose absence killed run 2 must now
