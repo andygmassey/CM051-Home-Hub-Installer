@@ -662,6 +662,40 @@ fi
 
 fi
 
+# ── OVERLAY THE INSTRUMENT, WITHOUT TOUCHING THE SUBJECT ─────────────
+#
+# The artefact has no scripts/ directory -- it is a payload, not a checkout --
+# so the driver that answers install.sh's prompts is simply not there. The
+# third artefact walk died on exactly that, with an empty pty log:
+#
+#     python3: can't open file '.../ostler-ttywalk/scripts/walk_drive.py'
+#
+# walk_drive.py is the INSTRUMENT and install.sh is the SUBJECT. The instrument
+# has to be beside the subject to drive its pty, but it must not change it.
+# So: copy ONLY the driver in, then ASSERT the artefact's own install.sh is
+# byte-identical to the one inside the DMG. A harness that quietly edited the
+# thing it was measuring would make every verdict it produced meaningless, and
+# "I only added a file" is exactly the assumption worth checking rather than
+# stating.
+if [[ "$STAGE_KIND" == "artefact" ]]; then
+    rule "OVERLAY (the driver only; the payload must not change)"
+    _sub_before="$(shasum -a 256 "${STAGE_SRC}/install.sh" | awk '{print $1}')"
+    "${SSH[@]}" "mkdir -p '${REMOTE_DIR}/scripts'" \
+        || die "could not create scripts/ on the host for the driver."
+    scp -q "${REPO_ROOT}/scripts/walk_drive.py" "${HOST}:${REMOTE_DIR}/scripts/walk_drive.py" \
+        || die "could not copy walk_drive.py to the host."
+    _sub_after="$("${SSH[@]}" "shasum -a 256 '${REMOTE_DIR}/install.sh'" | awk '{print $1}')"
+    if [[ "$_sub_before" != "$_sub_after" ]]; then
+        die "the staged install.sh does NOT match the DMG's.
+       dmg   ${_sub_before}
+       host  ${_sub_after}
+       The instrument has changed the subject, or staging is lossy. Either
+       way this walk would measure something that is not the artefact."
+    fi
+    say "driver overlaid; install.sh on the host is byte-identical to the DMG's"
+    say "   sha256 ${_sub_before}"
+fi
+
 # POSITIVE CONTROL: the specific directory whose absence killed run 2 must now
 # resolve at the exact path install.sh tests. Checking the general case above
 # and not this one would leave the original failure free to recur silently.
