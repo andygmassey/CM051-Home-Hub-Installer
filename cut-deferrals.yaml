@@ -478,6 +478,22 @@ pr_exemptions:
     review_by: "2026-09-12"
 
 deferrals:
+  - ref: "CM051:#1437"
+    reason: >-
+      The decline arm must not claim "nothing was written to your Mac" when a
+      pre-existing install was there. REVIEWED AND GREEN, and held out of
+      v1.0.66 on ORDER, not merit. Including it would have moved main past the
+      CM051 pin that four cut gates had already certified, for a change whose
+      data-loss half TNM WITHDREW after measuring it: every path that reaches
+      that arm binds OSTLER_DIR to the prelaunch staging tree, not to
+      ~/.ostler, because the promote that rebinds it is disabled by the very
+      flag #1431 sets earlier. So what remains is an HONESTY fix to a message,
+      not a data-loss fix, and it does not gate a cut whose whole purpose is to
+      replace a v1.0.65 that aborts every install at step 21. The guard stays
+      in the PR regardless, because the binding is an emergent property of two
+      unrelated decisions that a later change could reverse quietly. Land it in
+      v1.0.67; it needs no prerequisite and its 114 checks are already green.
+    until_cut: "v1.0.67"
   - ref: "CM051:#1305"
     reason: >-
       TNM's usage-journal producer for the SHIPPING vendored ostler_fda (#949).
