@@ -133,7 +133,19 @@ fi
 
 # ── F. NEGATIVE CONTROL: the real pre-fix code must FAIL arm C ─────────────
 # Without this, a region that never polls could pass B and D by doing nothing.
-if git -C "$REPO_ROOT" show origin/main:install.sh > "${WORK}/main.sh" 2>/dev/null; then
+# ⚠️ THIS CONTROL IS PINNED TO A COMMIT, NOT TO origin/main, AND THAT IS THE
+# WHOLE POINT. It was written against `origin/main` while the fix (#1398,
+# 0c4f920a) was still unmerged. The moment that fix LANDED, main started
+# waiting, the control inverted, and this file failed on every push -- honestly
+# reporting "this file is not grading the change it claims to".
+#
+# It then BLOCKED A REAL CUT: cut.yml preflight refuses to cut a tagged commit
+# whose own checks are red, so the v1.0.63 tag produced no artefact.
+#
+# A negative control must point at the tree where the DEFECT LIVES. That tree
+# does not move. A branch does.
+_PREFIX_SHA=1adc5ef1026edafab9e0fc6351e3769d3b7e76ec   # 0c4f920a^ -- the parent of the #1398 fix
+if git -C "$REPO_ROOT" show "${_PREFIX_SHA}:install.sh" > "${WORK}/main.sh" 2>/dev/null; then
     extract_region "${WORK}/main.sh" > "${WORK}/region_main.sh"
     PRE="$(env -u OSTLER_LAUNCHAGENT_BOOTOUT_SETTLE_S bash -c '
         set -uo pipefail
@@ -148,13 +160,14 @@ if git -C "$REPO_ROOT" show origin/main:install.sh > "${WORK}/main.sh" 2>/dev/nu
         printf "%s" "$SLEEPS"
     ' _ "${WORK}/region_main.sh")"
     if [ "${PRE:-0}" = "0" ]; then
-        ok "CONTROL: origin/main waits ${PRE:-0}s after bootout -- the defect, and this file sees it"
+        ok "CONTROL: the pre-fix tree (${_PREFIX_SHA:0:8}) waits ${PRE:-0}s after bootout -- the defect, and this file sees it"
     else
-        bad "CONTROL: origin/main already waited ${PRE}s, so this file is not \
-grading the change it claims to."
+        bad "CONTROL: the pinned pre-fix tree (${_PREFIX_SHA:0:8}) already waited ${PRE}s. \
+That sha should contain the DEFECT. Either the pin is wrong or the region moved."
     fi
 else
-    printf 'note: origin/main unavailable, the pre-fix control did not run\n' >&2
+    printf 'CANNOT-RUN: pre-fix sha %s is unavailable (shallow clone?), so the negative control did not run. NOT a pass.\n' "${_PREFIX_SHA:0:8}" >&2
+    exit 2
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
