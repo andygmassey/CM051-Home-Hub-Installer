@@ -589,6 +589,23 @@ identity_check "after staging"
 # check is the definition of what a DMG contains; a second hand-maintained copy
 # here would drift and the harness would go on testing the old set while
 # reporting success. Same artefact, one consumer.
+# 🔴 THE ARTEFACT IS ALREADY IN THIS SHAPE. Flattening exists to turn a REPO
+# checkout into what the DMG's Contents/Resources already is, so running it in
+# --from-dmg mode looks for repo-relative sources that do not exist inside the
+# artefact and dies. The first artefact walk got as far as here and refused:
+#
+#     cp: gui/ostler-mecard: No such file or directory
+#     CANNOT-RUN: could not flatten gui/ostler-mecard on the host.
+#
+# Skipped, with a POSITIVE CONTROL rather than a bare skip: the whole point of
+# this step is that ostler_fda ends up beside install.sh, and that is asserted
+# below for both modes. A skip that checked nothing would hand the next walk
+# the run-2 failure back.
+if [[ "$STAGE_KIND" == "artefact" ]]; then
+    rule "LAYOUT (skipped: the artefact ships already flattened)"
+    say "the DMG's Contents/Resources IS the target shape; nothing to flatten."
+    say "the control below still runs, so this skip is not a free pass."
+else
 rule "LAYOUT (flatten payload dirs to the Contents/Resources shape)"
 PAYLOAD_NAMES="$(sed -n 's/.*for p in \(Ostler\.app install\.sh .*\); do.*/\1/p' \
                     "${REPO_ROOT}/gui/Makefile" | head -1)"
@@ -641,6 +658,8 @@ if [[ -n "$ABSENT" ]]; then
     say "   These reach a real DMG from somewhere else in the cut pipeline."
     say "   The run below therefore exercises their ABSENCE, not their content."
     say "   Any failure naming one of them is the HARNESS, not the product."
+fi
+
 fi
 
 # POSITIVE CONTROL: the specific directory whose absence killed run 2 must now
