@@ -23,10 +23,41 @@ evidence.
 ## SCOPE
 
 ```
+#1437   declining must not wipe an install already there PRODUCT   MERGED 22:58:25Z
 #1457   two UNMEASURED flags that nothing reads          PRODUCT   MERGED 22:33:28Z
 #1459   a subshell must not emit a terminal DONE (#642)  PRODUCT   MERGED 22:34:11Z
-TBD     the upgrade path reverts the Homebrew PATH fix   PRODUCT   TNM writing it
+#1466   the upgrade path reverts the Homebrew PATH fix   PRODUCT   MERGED 22:53:37Z
 ```
+
+**All four VERIFIED as v1.0.67 content by blob comparison against the tag, not
+by merge time.** A pin compares the `install.sh` BLOB, not the commit, so
+"merged after the tag" is an argument and this is a measurement:
+
+```
+probe                             v1.0.66 tag   main
+_OSTLER_FINAL_PREEXISTED               0          6    NEW   (#1437)
+counter_failed_count_unmeasured        6         10    NEW   (#1457, +4 sites)
+BASH_SUBSHELL:-0                       0          1    NEW   (#1459)
+[[ "$_k" == "PATH" ]] && continue      0          1    NEW   (#1466)
+```
+
+### #1437 -- DECLINING MUST NOT WIPE AN INSTALL THAT WAS ALREADY THERE
+
+Data loss on the re-install decline path. Reviewed by TNM, who closed the
+open question with a PROOF rather than a sample: the `OSTLER_DIR` binding at
+the decline arm is ONE FLAG WITH OPPOSITE GUARDS -- the only promote that
+precedes the arm runs when `SKIP_PHASE2 == true`, the arm is reachable only
+when it is `false`, and the col-0 `if` opened at 7853 is still open at 9760 at
+depth 2. The other four promote sites are all after the arm.
+
+⚠️ **KNOWN CONSEQUENCE, named rather than discovered later:** the wipe WAS the
+staging cleanup on that path. `composite_cleanup` arms at 10442, after both
+decline arms, and the traps at 9748 clean no staging, so a declined re-install
+now leaves `/tmp/ostler-prelaunch-$$`. Not `~/.ostler`, so the Article 9
+invariant as written still holds, and the OS clears it. **Follow-up job
+dispatched** to remove `$OSTLER_PRELAUNCH_DIR` explicitly, guarded on `-n` and
+`-d`; an explicit removal is honest about which tree is being cleaned and
+survives a rebinding, which an incidental wipe was not even while it worked.
 
 ### THE UPGRADE PATH SILENTLY REVERTS THE 2026-08-20 HOMEBREW-PATH FIX
 
