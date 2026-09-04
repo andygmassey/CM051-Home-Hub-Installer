@@ -2391,7 +2391,44 @@ def _parse_source_sentinel(text: str) -> dict:
     return rec
 
 
-def read_source_status(hydrate_dir: Path | None = None) -> list:
+def _source_activity_dir() -> Path:
+    """Where the recurring ticks record ONGOING status.
+
+    Sibling of the hydrate dir, deliberately separate. See the long note in
+    ``read_source_status``: two questions, two records, and repurposing the
+    install-time sentinel to answer the second one is what produced the defect
+    this exists to close.
+    """
+    root = Path(os.environ.get("OSTLER_DIR", str(Path.home() / ".ostler")))
+    return root / "state" / "source_activity"
+
+
+def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
+    """The ongoing-activity record for one source, or {} when absent.
+
+    Absent is a normal state and is NOT an error: a box installed before this
+    record existed, or a source whose tick has not fired yet, both legitimately
+    have nothing here. The caller must distinguish "no ongoing record" from
+    "ongoing record says stale" -- reporting the first as the second would
+    invent a failure, and reporting it as fresh would hide one.
+    """
+    base = activity_dir if activity_dir is not None else _source_activity_dir()
+    f = base / (name + ".tsv")
+    if not f.is_file():
+        return {}
+    try:
+        rec = {}
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                rec[k.strip()] = v.strip()
+        return rec
+    except OSError:
+        return {}
+
+
+def read_source_status(hydrate_dir: Path | None = None,
+                       activity_dir: Path | None = None) -> list:
     """One typed row per canonical source, read from the .done sentinels.
 
     EVERY canonical source appears: one that never ran is reported as
@@ -2427,6 +2464,47 @@ def read_source_status(hydrate_dir: Path | None = None) -> list:
             "last_update_at": rec.get("last_update_at"),
             "detail": rec.get("detail") or rec.get("payload"),
         })
+
+    # ── ONGOING STATUS, MERGED IN (#W018) ────────────────────────────────
+    #
+    # MEASURED on the Mini 16, 2026-09-04. Every row above comes from a
+    # state/hydrate sentinel, and all eleven were frozen between 08:29Z and
+    # 08:45Z -- install time. In the same window the fda-rerun tick rewrote
+    # imessage_conversations.json at 09:17Z with 167 conversations and 136
+    # people created, and this endpoint still answered:
+    #
+    #     imessage  status=no_data  item_count=0  detail=zero_payload_undeclared
+    #
+    # The extract moved and the record did not, because nothing outside
+    # install.sh has ever written a sentinel. This route's own docstring
+    # promises it shows "whether a source landed AND WHETHER IT KEEPS
+    # UPDATING". The second half was unanswerable by construction.
+    #
+    # THE INSTALL-TIME ROW IS NOT OVERWRITTEN. `status` still means what it
+    # always meant: the verdict at install. The ongoing fields are ADDED
+    # beside it, because a reader needs both -- "landed at install and has
+    # been quiet since" and "failed at install but has worked hourly since"
+    # are different situations and one field cannot carry them.
+    #
+    # THREE ONGOING STATES, AND THE THIRD IS THE ONE THAT MATTERS:
+    #   ongoing="active"   a tick has run and recorded an outcome
+    #   ongoing="never"    no ongoing record at all -- either a box installed
+    #                      before this existed, or a tick that has not fired.
+    #                      NOT reported as a failure: inventing one is as bad
+    #                      as hiding one.
+    #   ongoing="failing"  the last tick ran and did not succeed
+    for row in rows:
+        act = _read_source_activity(row["source"], activity_dir)
+        if not act:
+            row["ongoing"] = "never"
+            row["last_run_at"] = None
+            row["last_success_at"] = None
+            continue
+        last_status = act.get("last_status", "unknown")
+        row["ongoing"] = "active" if last_status == "ok" else "failing"
+        row["last_run_at"] = act.get("last_run_at") or None
+        row["last_success_at"] = act.get("last_success_at") or None
+        row["ongoing_detail"] = act.get("last_detail") or None
     return rows
 
 

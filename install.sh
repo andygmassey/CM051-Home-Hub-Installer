@@ -18811,7 +18811,7 @@ fi
 # channel a scheduler can act on -- a loud log tells a human, an rc tells the
 # system, and only one of those is watching at 04:00.
 "$OSTLER_PYTHON" -c "
-import json, sys
+import json, sys, os, datetime
 sys.path.insert(0, '${FDA_DIR}')
 from ostler_fda.extract_all import run_all
 from ostler_fda.pwg_ingest import ingest_all
@@ -18820,6 +18820,62 @@ fda_dir = Path('${OSTLER_DIR}/imports/fda')
 run_all(fda_dir)
 results = ingest_all(fda_dir) or {}
 print('[ingest] ' + json.dumps(results, default=str))
+
+# ── ONGOING ACTIVITY RECORD (#W018) ──────────────────────────────────────
+#
+# WHY THIS EXISTS, MEASURED on the Mini 16 2026-09-04. Every hydrate sentinel
+# under state/hydrate was frozen between 08:29Z and 08:45Z -- install time --
+# while this very script rewrote imessage_conversations.json at 09:17Z with
+# 167 conversations and 136 people created. The extract moved; the record did
+# not. So /api/v1/sources reported 'no_data, people=0' for a source that had
+# just done real work, and its own docstring claims it shows 'whether a source
+# landed AND WHETHER IT KEEPS UPDATING'. It could never answer the second half.
+#
+# TWO RECORDS, NEVER ONE REPURPOSED. state/hydrate/<n>.done stays exactly as
+# it is: an install-time verdict with a 7-day dedupe window. That record
+# answers 'did this land at install'. This one answers 'is this still
+# working', which is a different question and needs its own writer.
+#
+# LAST-RUN AND LAST-SUCCESS ARE SEPARATE FIELDS ON PURPOSE. 'ran 4 minutes ago
+# and found nothing' and 'last ran at install and has not run since' print
+# identically when you only keep one timestamp, and that collapse is the whole
+# defect. last_success_at is CARRIED FORWARD from the previous record when
+# this run was not a success, so a failing source still shows when it last
+# worked rather than losing that history on its first bad tick.
+#
+# BEST EFFORT, ALWAYS. This is bookkeeping about ingest, not ingest. It must
+# never be able to fail the tick it is describing, so every write is wrapped
+# and a broken record costs a row of reporting, never a harvest.
+try:
+    _now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    _act = Path('${OSTLER_DIR}') / 'state' / 'source_activity'
+    _act.mkdir(parents=True, exist_ok=True)
+    _rows = results if isinstance(results, dict) and results.get('status') != 'error' else {}
+    for _name in sorted(_rows):
+        _res = _rows[_name]
+        if not isinstance(_res, dict):
+            continue
+        _status = str(_res.get('status', 'unknown'))
+        _f = _act / (_name + '.tsv')
+        _prev_success = ''
+        if _f.is_file():
+            for _line in _f.read_text(encoding='utf-8', errors='replace').splitlines():
+                if _line.startswith('last_success_at='):
+                    _prev_success = _line.split('=', 1)[1]
+        _success = _now if _status == 'ok' else _prev_success
+        _detail = json.dumps({k: v for k, v in _res.items() if k != 'status'}, default=str)
+        _f.write_text(
+            'source=' + _name + chr(10) +
+            'last_run_at=' + _now + chr(10) +
+            'last_status=' + _status + chr(10) +
+            'last_success_at=' + _success + chr(10) +
+            'last_detail=' + _detail[:400] + chr(10) +
+            'writer=ostler-fda' + chr(10),
+            encoding='utf-8')
+except Exception as _exc:
+    sys.stderr.write('[activity] could not record ongoing status: ' +
+                     type(_exc).__name__ + ': ' + str(_exc) + chr(10))
+
 failed = []
 if results.get('status') == 'error':
     # The whole-directory failure shape: a FLAT dict, not per-source. Checked
