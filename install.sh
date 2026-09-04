@@ -25429,7 +25429,7 @@ try:
     print(int(d.get("imported", 0)))
 except Exception:
     print(0)' 2>/dev/null
-    )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_CONTACTS_COUNT=""; }
+    )" || { _HYDRATE_CONTACTS_COUNT_UNMEASURED=true; _HYDRATE_CONTACTS_COUNT=""; }
     _HYDRATE_CONTACTS_COUNT="${_HYDRATE_CONTACTS_COUNT:-0}"
 
     # Settling panel, `contacts` channel. Reported HERE rather than as a
@@ -25822,7 +25822,7 @@ try:
     print(int(d.get("imported", 0)))
 except Exception:
     print(0)' 2>/dev/null
-    )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_CALENDAR_COUNT=""; }
+    )" || { _HYDRATE_CALENDAR_COUNT_UNMEASURED=true; _HYDRATE_CALENDAR_COUNT=""; }
     _HYDRATE_CALENDAR_COUNT="${_HYDRATE_CALENDAR_COUNT:-0}"
     # Parse the extract + ingest "status" so a genuine extractor failure
     # (a raised exception -- e.g. ModuleNotFoundError if ostler_fda is not
@@ -26020,7 +26020,7 @@ try:
     print(int(d.get("people_extracted", 0)), int(d.get("messages_read", 0)))
 except Exception:
     print(0, 0)' 2>/dev/null
-        )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_EMAIL_COUNTS=""; }
+        )" || { _HYDRATE_EMAIL_COUNTS_UNMEASURED=true; _HYDRATE_EMAIL_COUNTS=""; }
         _HYDRATE_EMAIL_COUNT="${_HYDRATE_EMAIL_COUNTS%% *}"
         _HYDRATE_EMAIL_MSGS="${_HYDRATE_EMAIL_COUNTS##* }"
         case "${_HYDRATE_EMAIL_COUNT:-}" in ''|*[!0-9]*) _HYDRATE_EMAIL_COUNT=0 ;; esac
@@ -26224,7 +26224,7 @@ try:
     print(int(d.get("people_added", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_WHATSAPP_COUNT=""; }
+        )" || { _HYDRATE_WHATSAPP_UNMEASURED=true; _HYDRATE_WHATSAPP_COUNT=""; }
         _HYDRATE_WHATSAPP_COUNT="${_HYDRATE_WHATSAPP_COUNT:-0}"
 
         if [[ "$_HYDRATE_WHATSAPP_COUNT" -gt 0 ]]; then
@@ -26252,8 +26252,17 @@ except Exception:
     else
         # W012 class: reachable zero on the rc=0 arm. Declared, so a run
         # that completed and added nobody is not filed as an unexplained zero.
-        _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}" \
-            "ran_ok_no_people_added"
+        # W012 declared this zero. But a zero the counter never PRODUCED is not
+        # the same fact, and after the abort guard landed the two became
+        # byte-identical in the sentinel: `:-0` manufactures the number the
+        # reason is about. Say which one happened.
+        if [[ "${_HYDRATE_WHATSAPP_UNMEASURED:-false}" == true ]]; then
+            _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}" \
+                "counter_failed_count_unmeasured"
+        else
+            _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}" \
+                "ran_ok_no_people_added"
+        fi
     fi
 
     unset _HYDRATE_WHATSAPP_TIMED_OUT _HYDRATE_WHATSAPP_JSON
@@ -26400,7 +26409,7 @@ try:
     print(int(d.get("sent", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_BROWSING_SENT=""; }
+        )" || { _HYDRATE_BROWSING_UNMEASURED=true; _HYDRATE_BROWSING_SENT=""; }
         _HYDRATE_BROWSING_SKIPPED="$(
             printf '%s' "$_HYDRATE_BROWSING_JSON" \
             | python3 -c 'import json,sys
@@ -26409,7 +26418,7 @@ try:
     print(int(d.get("skipped_sensitive", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_BROWSING_SKIPPED=""; }
+        )" || { _HYDRATE_BROWSING_UNMEASURED=true; _HYDRATE_BROWSING_SKIPPED=""; }
         _HYDRATE_BROWSING_SENT="${_HYDRATE_BROWSING_SENT:-0}"
         _HYDRATE_BROWSING_SKIPPED="${_HYDRATE_BROWSING_SKIPPED:-0}"
         if [[ "$_HYDRATE_BROWSING_SENT" -gt 0 ]]; then
@@ -26441,8 +26450,17 @@ except Exception:
             "sent=${_HYDRATE_BROWSING_SENT:-unknown},skipped=${_HYDRATE_BROWSING_SKIPPED:-unknown},collection_points=$(_hydrate_qdrant_points safari_history)"
     else
         # W012 class: reachable zero on the rc=0 arm.
-        _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}" \
-            "ran_ok_nothing_sent_or_skipped"
+        # W012 declared this zero. But a zero the counter never PRODUCED is not
+        # the same fact, and after the abort guard landed the two became
+        # byte-identical in the sentinel: `:-0` manufactures the number the
+        # reason is about. Say which one happened.
+        if [[ "${_HYDRATE_BROWSING_UNMEASURED:-false}" == true ]]; then
+            _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}" \
+                "counter_failed_count_unmeasured"
+        else
+            _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}" \
+                "ran_ok_nothing_sent_or_skipped"
+        fi
     fi
 
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
@@ -26732,7 +26750,7 @@ try:
     print(int(d.get("people_created", 0)) + int(d.get("people_enriched", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_IMESSAGE_COUNT=""; }
+        )" || { _HYDRATE_IMESSAGE_UNMEASURED=true; _HYDRATE_IMESSAGE_COUNT=""; }
         _HYDRATE_IMESSAGE_COUNT="${_HYDRATE_IMESSAGE_COUNT:-0}"
 
         if [[ "$_HYDRATE_IMESSAGE_COUNT" -gt 0 ]]; then
@@ -26818,8 +26836,17 @@ except Exception:
         # message counts would report status=ok by itself -- but those counts
         # are not in the JSON install.sh receives. That repair belongs in the
         # vendored ingest, upstream, not here.
-        _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}" \
-            "ran_ok_no_new_or_enriched_people"
+        # W012 declared this zero. But a zero the counter never PRODUCED is not
+        # the same fact, and after the abort guard landed the two became
+        # byte-identical in the sentinel: `:-0` manufactures the number the
+        # reason is about. Say which one happened.
+        if [[ "${_HYDRATE_IMESSAGE_UNMEASURED:-false}" == true ]]; then
+            _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}" \
+                "counter_failed_count_unmeasured"
+        else
+            _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}" \
+                "ran_ok_no_new_or_enriched_people"
+        fi
     fi
 
     unset _HYDRATE_IMESSAGE_TIMED_OUT _HYDRATE_IMESSAGE_JSON_OUT
@@ -27343,7 +27370,7 @@ try:
     print(int(d.get("sent", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_PEOPLE_SENT=""; }
+        )" || { _HYDRATE_PEOPLE_UNMEASURED=true; _HYDRATE_PEOPLE_SENT=""; }
         _HYDRATE_PEOPLE_SENT="${_HYDRATE_PEOPLE_SENT:-0}"
         if [[ "$_HYDRATE_PEOPLE_SENT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_PEOPLE_DONE" "$_HYDRATE_PEOPLE_SENT")"
@@ -27368,8 +27395,17 @@ except Exception:
         # W012 class: reachable zero on the rc=0 arm. #852 fixed the
         # FABRICATED zero on the error arm; this is the honest zero on the
         # success arm, which was still filed as unexplained.
-        _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}" \
-            "ran_ok_nothing_sent"
+        # W012 declared this zero. But a zero the counter never PRODUCED is not
+        # the same fact, and after the abort guard landed the two became
+        # byte-identical in the sentinel: `:-0` manufactures the number the
+        # reason is about. Say which one happened.
+        if [[ "${_HYDRATE_PEOPLE_UNMEASURED:-false}" == true ]]; then
+            _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}" \
+                "counter_failed_count_unmeasured"
+        else
+            _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}" \
+                "ran_ok_nothing_sent"
+        fi
     fi
 
     unset _HYDRATE_PEOPLE_TIMED_OUT _HYDRATE_PEOPLE_JSON
@@ -29251,7 +29287,7 @@ try:
     print(int(d.get("written", 0)))
 except Exception:
     print(0)' 2>/dev/null
-            )" || { _HYDRATE_COUNTER_RC=$?; _AICONV_COUNT=""; }
+            )" || { _AICONV_UNMEASURED=true; _AICONV_COUNT=""; }
             _AICONV_COUNT="${_AICONV_COUNT:-0}"
 
             # ── Steady-state recurring feed: register UNCONDITIONALLY ──

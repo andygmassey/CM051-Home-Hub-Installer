@@ -41,6 +41,7 @@ on:
       - 'install.sh'
       - 'tests/test_hydrate_sentinel_not_on_error.sh'
       - 'tests/test_hydrate_counters_survive_a_failed_producer.sh'
+      - 'tests/test_an_unmeasured_count_is_not_a_measured_zero.sh'
       - 'tests/test_no_data_is_not_success.sh'
       - 'tests/test_aiconv_hydrate_honesty.sh'
       - 'tests/test_email_settling_numerator_is_messages.sh'
@@ -214,6 +215,12 @@ jobs:
       - name: A hydrate counter must not abort when its producer fails (walk 11)
         if: always()
         run: /bin/bash tests/test_hydrate_counters_survive_a_failed_producer.sh
+
+      # The counterpart: guarding the abort must not turn "we could not count"
+      # into "we counted zero". Explicit run step, not a loop entry (#647).
+      - name: An unmeasured count must not be recorded as a measured zero
+        if: always()
+        run: /bin/bash tests/test_an_unmeasured_count_is_not_a_measured_zero.sh
 
       - name: All twelve tests parse under bash 3.2-compatible syntax
         if: always()
