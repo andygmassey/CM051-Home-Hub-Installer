@@ -105,6 +105,36 @@ else
     bad "D  ${N_SHARED} references to the shared _HYDRATE_COUNTER_RC remain; per-source flags were the point"
 fi
 
+# --- E: every flag that is SET must be READ, or be exempt with a reason ------
+# Archie's audit on this PR found CALENDAR set=1 read=0: the flag existed and
+# nothing consulted it, so an unmeasured calendar count still fell through to
+# "calendar_not_synced_yet". A flag nobody reads is a comment with a dollar
+# sign. Exemptions are listed WITH their reason, because "it is fine" that
+# nobody wrote down is indistinguishable from "nobody checked".
+#
+#   _HYDRATE_EMAIL_COUNTS_UNMEASURED  the email no-data arm takes its reason
+#       from _HYDRATE_EMAIL_OUTCOME, measured independently of the count, so an
+#       unmeasured count cannot fabricate the declared cause.
+#   _AICONV_UNMEASURED                the ai_conversations record is guarded by
+#       `-gt 0`; an unmeasured count skips the record entirely rather than
+#       declaring anything.
+E_EXEMPT="_HYDRATE_EMAIL_COUNTS_UNMEASURED _AICONV_UNMEASURED"
+E_BAD=""; E_SEEN=0
+for f in $(grep -oE '_[A-Z_]*_UNMEASURED' "$SUBJECT" | sort -u); do
+    set_n="$(grep -c "${f}=true" "$SUBJECT" || true)"
+    [ "$set_n" -gt 0 ] || continue
+    E_SEEN=$((E_SEEN+1))
+    read_n="$(grep -c "\${${f}:-false}" "$SUBJECT" || true)"
+    [ "$read_n" -gt 0 ] && continue
+    case " $E_EXEMPT " in *" $f "*) ;; *) E_BAD="${E_BAD} ${f}" ;; esac
+done
+[ "$E_SEEN" -ge 4 ] || fatal "only ${E_SEEN} _UNMEASURED flags found; the scan is not reading install.sh"
+if [ -z "$E_BAD" ]; then
+    ok "E  ${E_SEEN} flags set, every one either read or exempt with a recorded reason"
+else
+    bad "E  flag(s) set but never read, and not exempt:${E_BAD}. A flag nobody reads cannot stop a false declaration."
+fi
+
 printf '\nCONCLUSION HISTOGRAM\n  PASS : %d\n  FAIL : %d\n  TOTAL: %d\n' "$PASS" "$FAIL" "$((PASS+FAIL))"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0

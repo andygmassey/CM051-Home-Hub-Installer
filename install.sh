@@ -25478,6 +25478,12 @@ except Exception:
             "$_HYDRATE_CONTACTS_CAP" "$_HYDRATE_CONTACTS_COUNT")"
         _hydrate_sentinel_record_error "contacts" "$_HYDRATE_CONTACTS_RC" \
             "imported=${_HYDRATE_CONTACTS_COUNT},cap_s=${_HYDRATE_CONTACTS_CAP},elapsed_s=${_HYDRATE_CONTACTS_ELAPSED_S}"
+    elif [[ "${_HYDRATE_CONTACTS_COUNT_UNMEASURED:-false}" == true ]]; then
+        # Same reason as calendar: an unmeasured count would otherwise reach
+        # "icloud_sync_pending" or "no_contacts_source", both of which state a
+        # cause this run did not establish. Ordered AFTER the timeout arm so
+        # rc still wins over count, exactly as the comment above requires.
+        _hydrate_sentinel_record_no_data "contacts" "counter_failed_count_unmeasured"
     elif [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CONTACTS_DONE" "$_HYDRATE_CONTACTS_COUNT")"
         _hydrate_sentinel_record "contacts" "imported=${_HYDRATE_CONTACTS_COUNT}"
@@ -25846,7 +25852,14 @@ except Exception:
     # As with contacts, the record is added and the 7-day freshness SKIP is
     # deliberately not: a calendar that has not finished syncing at install
     # time is precisely the case that needs the next run to look again.
-    if [[ "$_HYDRATE_CALENDAR_COUNT" -gt 0 ]]; then
+    # An UNMEASURED count must not fall through this chain. `:-0` makes it 0,
+    # `-gt 0` is then false, and the run lands on a branch that declares
+    # "calendar_not_synced_yet" -- a cause nobody observed. The extract and
+    # ingest statuses come from different variables, so a failed COUNT parse
+    # does not make them "error" either: nothing else catches it.
+    if [[ "${_HYDRATE_CALENDAR_COUNT_UNMEASURED:-false}" == true ]]; then
+        _hydrate_sentinel_record_no_data "calendar" "counter_failed_count_unmeasured"
+    elif [[ "$_HYDRATE_CALENDAR_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CALENDAR_DONE" "$_HYDRATE_CALENDAR_COUNT")"
         _hydrate_sentinel_record "calendar" "events=${_HYDRATE_CALENDAR_COUNT}"
     elif [[ "$_HYDRATE_CALENDAR_EXTRACT_STATUS" == "error" \
