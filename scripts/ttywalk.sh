@@ -158,7 +158,17 @@ else:
     print('    none. Either the marker channel was off, or install.sh never')
     print('    reached its first step. Those are different findings.')
 
-show('status=error steps',        r'status=error')
+# 🔴 THIS COUNTED ONLY `status=error` AND SO REPORTED A TIMED-OUT STEP AS
+# ZERO FAILURES. MEASURED on walk 13: the run ended `DONE status=ok
+# failed_steps=1`, this line printed `status=error steps: 0`, and the step that
+# actually failed was `STEP_END id=health_check status=timeout rc=124`.
+# `status=error steps: 0` is TRUE and it reads as "nothing failed". The
+# installer's own vocabulary has more than one way to fail a step, so the
+# predicate has to be "not ok" rather than a list of the failure words I
+# happened to think of.
+show('STEP_END not status=ok',    r'STEP_END(?!.*status=ok)')
+show('  of which status=error',   r'STEP_END.*status=error')
+show('  of which status=timeout', r'STEP_END.*status=timeout')
 show('ERR-NN codes',              r'ERR-\d+-')
 show('Python tracebacks',         r'Traceback \(most recent call last\)')
 show('TERMINAL DONE markers',     r'#OSTLER\s+DONE\s')

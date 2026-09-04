@@ -138,6 +138,47 @@ else
     bad "the raw exit status is still published under the VERDICT heading"
 fi
 
+echo "── the report must not call a non-ok step zero failures ──"
+
+# MEASURED on walk 13. The run ended `DONE status=ok failed_steps=1` and the
+# report printed `status=error steps: 0`. Both statements true. The step that
+# actually failed was `STEP_END id=health_check status=timeout rc=124`, and a
+# predicate that enumerates the failure words someone thought of cannot see a
+# word they did not think of. The honest predicate is "not ok".
+_TIMEOUT_LINE='#OSTLER	STEP_END	id=health_check	status=timeout	elapsed_s=110	rc=124'
+_OK_LINE='#OSTLER	STEP_END	id=docker_install	status=ok	elapsed_s=3'
+
+# BSD grep has no negative lookahead, so the predicate is tested with the same
+# engine ttywalk's report uses: python's re.
+_match() {
+    python3 -c 'import re,sys; print("YES" if re.search(sys.argv[1], sys.argv[2]) else "NO")' "$1" "$2"
+}
+
+_pat="$(/usr/bin/grep -oE "show\('STEP_END not status=ok',[^)]*r'[^']*'" "$WALK" | sed -E "s/.*r'([^']*)'.*/\1/")"
+if [ -z "$_pat" ]; then
+    bad "ttywalk.sh has no 'STEP_END not status=ok' counter; a timed-out step still reports as zero failures"
+else
+    if [ "$(_match "$_pat" "$_TIMEOUT_LINE")" = YES ]; then
+        ok "the report counts a status=timeout STEP_END as a failure"
+    else
+        bad "the failure predicate does not match a status=timeout step. This is the measured walk-13 blind spot."
+    fi
+    if [ "$(_match "$_pat" "$_OK_LINE")" = NO ]; then
+        ok "CONTROL: it does NOT count a status=ok step, so the predicate discriminates rather than matching every STEP_END"
+    else
+        bad "CONTROL: the predicate also matches a status=ok step. It would report every clean walk as failing."
+    fi
+fi
+
+# The narrow counters must survive as a BREAKDOWN. Collapsing every failure
+# kind into one number loses which kind it was, and a timeout and an abort
+# need different next actions.
+if /usr/bin/grep -q "of which status=error" "$WALK" && /usr/bin/grep -q "of which status=timeout" "$WALK"; then
+    ok "and the kinds are still broken out, so a timeout and an error do not print identically"
+else
+    bad "the failure kinds are no longer broken out"
+fi
+
 echo
 echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
 [ "$FAIL" -eq 0 ] || exit 1
