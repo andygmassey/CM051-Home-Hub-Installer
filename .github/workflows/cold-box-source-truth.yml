@@ -54,6 +54,8 @@ on:
       - 'tests/test_source_status_reports_ongoing_not_just_install.sh'
       - 'tests/test_converge_path_enforces_rule2.sh'
       - 'tests/test_fda_rerun_agent_loads_after_its_binary.sh'
+      - 'tests/test_unknown_consent_is_not_declined.sh'
+      - 'install.sh.strings.en-GB.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/cold-box-source-truth.yml'
   push:
@@ -128,3 +130,10 @@ jobs:
       - name: The fda-rerun agent must load AFTER its binary exists
         if: always()
         run: bash tests/test_fda_rerun_agent_loads_after_its_binary.sh
+
+      # An unrecorded consent decision must not read as a refusal. Its control
+      # is the one that matters: `unknown` must never become `accepted`, which
+      # would turn on a privacy-gated feature nobody agreed to.
+      - name: Unknown consent is not declined, and never becomes accepted
+        if: always()
+        run: bash tests/test_unknown_consent_is_not_declined.sh

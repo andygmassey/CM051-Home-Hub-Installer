@@ -350,6 +350,7 @@ test_uninstall_removes_every_launchagent_plist.sh	WIRED	.github/workflows/launch
 test_uninstaller_counts_do_not_abort_on_an_unreadable_dir.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_uninstaller_keep_prompt.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_universal_import_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_unknown_consent_is_not_declined.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_unreachable_is_not_absence.sh	WIRED	.github/workflows/unreachable-not-absence.yml
 test_upgrade_mode_invariants.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_upgrade_path_can_wire_store_auth.sh	WIRED	.github/workflows/upgrade-store-auth-wiring.yml
