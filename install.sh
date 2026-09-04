@@ -17651,12 +17651,15 @@ if [[ "$HAS_PIPELINE" == true ]]; then
         fi
         set -e
         if [[ $PIPELINE_PIP_EXIT -ne 0 ]]; then
-            warn "$(printf "$MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT" "$PIPELINE_PIP_EXIT")"
+            warn "$(printf "$MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT" "$PIPELINE_PIP_EXIT" "$PIPELINE_PIP_LOG")"
             warn "$MSG_WARN_PIPELINE_PIP_LOG_LAST_LINES"
             while IFS= read -r line; do
                 warn "    $line"
             done < <(tail -30 "$PIPELINE_PIP_LOG")
-            fail_with_code "ERR-14-PIPELINE-PIP" "$MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED"
+            # W003 class: this message named /tmp/ostler-pipeline-pip.log, which
+            # nothing writes. The log is PIPELINE_PIP_LOG, under the private
+            # per-run OSTLER_DIAG_DIR (#910). Name the real path.
+            fail_with_code "ERR-14-PIPELINE-PIP" "$(printf "$MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED" "$PIPELINE_PIP_LOG")"
         fi
         ln -sf "${CONFIG_DIR}/.env" contact_syncer/.env 2>/dev/null || true
         ok "$MSG_OK_IMPORT_PIPELINE_READY"
@@ -19888,12 +19891,15 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     DOCTOR_PIP_EXIT=$?
     set -e
     if [[ $DOCTOR_PIP_EXIT -ne 0 ]]; then
-        warn "$(printf "$MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT" "$DOCTOR_PIP_EXIT")"
+        warn "$(printf "$MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT" "$DOCTOR_PIP_EXIT" "$DOCTOR_PIP_LOG")"
         warn "$MSG_WARN_DOCTOR_PIP_LOG_LAST_LINES"
         while IFS= read -r line; do
             warn "    $line"
         done < <(tail -30 "$DOCTOR_PIP_LOG")
-        fail_with_code "ERR-17-DOCTOR-PIP" "$MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED"
+        # W003 class: this message named /tmp/ostler-doctor-pip.log, which
+        # nothing writes. The log is DOCTOR_PIP_LOG, under the private per-run
+        # OSTLER_DIAG_DIR (#910). Name the real path.
+        fail_with_code "ERR-17-DOCTOR-PIP" "$(printf "$MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED" "$DOCTOR_PIP_LOG")"
     fi
     ok "$MSG_OK_DOCTOR_DEPENDENCIES_INSTALLED"
 
