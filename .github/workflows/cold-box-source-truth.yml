@@ -53,6 +53,7 @@ on:
       - 'tests/test_aiconv_agent_not_registered_without_owner_email.sh'
       - 'tests/test_source_status_reports_ongoing_not_just_install.sh'
       - 'tests/test_converge_path_enforces_rule2.sh'
+      - 'tests/test_fda_rerun_agent_loads_after_its_binary.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/cold-box-source-truth.yml'
   push:
@@ -119,3 +120,11 @@ jobs:
       - name: RULE 2 must be enforced on the CONVERGE path, not just resolve
         if: always()
         run: PATH="/tmp/convergetest/bin:$PATH" bash tests/test_converge_path_enforces_rule2.sh
+
+      # v1063-D010. Line order IS the property: install.sh runs top to bottom,
+      # so "later in the file" is "later in time" for two statements at the
+      # same reachability. Its control is pinned to 661c00c9, the v1.0.64
+      # tagged commit -- the tree that actually shipped the bad ordering.
+      - name: The fda-rerun agent must load AFTER its binary exists
+        if: always()
+        run: bash tests/test_fda_rerun_agent_loads_after_its_binary.sh
