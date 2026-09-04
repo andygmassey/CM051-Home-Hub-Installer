@@ -1,0 +1,56 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.66.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.65/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN. Authoring it in CM051
+# instead produces a copy with no pin, "a fork nobody declared".
+#
+# ===========================================================================
+# EVERY ROW SAYS ONE OF THREE THINGS AND NEVER A FOURTH
+# ===========================================================================
+#   gate:<workflow>#<job>   a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.64 was cut, published and verified to its payload, and NEVER WALKED,
+# because it still ends a cold-Mac install with a red final step. This cut
+# carries ONE defect fix and moves no other variable: the daemon pin is HELD
+# at bc63c445, unchanged since v1.0.62.
+#
+# ===========================================================================
+# THE ROW BELOW IS PROVED BY EXECUTION, NOT BY A PATTERN, AND ON PURPOSE
+# ===========================================================================
+# The defect is an ORDERING between a guard and a fold, and after v1.0.64's
+# partial fix BOTH were present in the tree. Every structural check over the
+# source answers YES on a tree that still ships the bug, so a grep-shaped BOM
+# row here would be a row that cannot discriminate. The gate named below runs
+# the real block against a stub producer and reads the recorded rc.
+#
+# TWO PINNED CONTROLS, BOTH REPRODUCING THE FAILURE. Measured 2026-09-04:
+#
+#   45126e9a  the v1.0.63 cut, the blob that produced the measured log line
+#             -> rc 2 folded, producer ran            DISCRIMINATES
+#   deecd9fc  v1.0.64's tree, this fix's own parent
+#             -> rc 2 folded, producer ran            DISCRIMINATES
+#   subject   this cut, empty owner email
+#             -> rc 0 folded, producer NOT run        the fixed behaviour
+#   subject   this cut, owner email PRESENT
+#             -> rc 2 folded, producer ran            CONTROL on the fix
+#
+# The last line is what stops the cheap green: deleting the fold entirely
+# would satisfy the third line and hide every real producer failure.
+#
+# Pins are fixed shas, never a moving branch. A control that reads origin/main
+# inverts the moment the fix it guards merges, and then passes forever.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+🔴 THE INSTALL ABORTED AT STEP 21 OF 40 FOR EVERY CUSTOMER. rc=127, command not found: _ostler_consent_state was CALLED at install.sh:21321 and DEFINED at 21370. install.sh is a linear script whose step bodies are top-level statements executed in file order, so the call ran against a name bash had not bound. A SAME-DAY REGRESSION, not a latent defect: git log -S puts both halves in one commit e7b835ba (#1423) and git tag --contains returns v1.0.65 alone; in v1.0.63 and v1.0.64 the function does not exist at all. Measured on walk 10, archie@192.168.1.240. capability_id is none DELIBERATELY: the property is an ORDERING and this manifest's only method is a presence grep, which cannot tell a fixed tree from a broken one because both contain the same definition and the same call. Only executing them in file order discriminates, which is what the gate does.	CM051	b692b9ae	no	none	gate:cold-box-source-truth.yml#cold-box-truth (test_consent_state_is_defined_before_it_is_called.sh, 7 limbs, negative control pinned to 7b2130ac)	#1439
+🔴 CONTACTS AND PLACES HAVE NEVER IMPORTED SINCE v1.0.60. install.sh:17729 copies the ROOT contact_syncer into ~/.ostler/import-pipeline; that copy had 19 modules against the vendored copy's 24, and the two it lacked are two the installer RUNS. Measured on the box from the installer's own logs: ModuleNotFoundError: No module named 'contact_syncer.photo_storage', and No module named contact_syncer.places_ingest. The customer is told 'your contacts are on this Mac but Ostler imported 0 of them' and the install then reports DONE status=ok, which is why it survived six cuts. Present in v1.0.60 through v1.0.65, every tag checked with git cat-file -p.	CM051	b3245058	no	none	gate:cold-box-source-truth.yml#cold-box-truth (test_installed_pipeline_packages_can_import_themselves.sh, resolves BY PATH not find_spec, negative control pinned to the v1.0.65 tag)	#1442
+A HYDRATE COUNTER ABORTED THE INSTALL WHEN ITS PRODUCER FAILED, AND THEN DECLARED A CAUSE NOBODY OBSERVED. install.sh:25424 was a command substitution containing a pipeline with no guard, sitting after a guarded producer: the expensive call was defended and the arithmetic after it was not. Class measured BY EXECUTION, not parse: 19 multi-line sites probed, 11 abort, 8 survive, 10 of the 11 in the hydrate family; a parse-only report claimed 20 and would have handed over nine non-defects. The guard alone would have been WORSE than the defect, because it composed with a declared reason and a pre-existing :-0 into byte-identical sentinels for a run that FAILED and a run that FOUND NOBODY. Both halves land together for that reason.	CM051	58ff8a6f	no	none	gate:hydrate-sentinel.yml (test_an_unmeasured_count_is_not_a_measured_zero.sh; refuses with CANNOT-RUN on the parent rather than passing)	#1443 #1450
+THE DOCTOR PROBE CAPPED A 15.7s COMMAND AT 10s AND REPORTED A HEALTHY DAEMON AS TIMED OUT ON EVERY INSTALL. Measured three consecutive runs on the walk box against a live daemon: 15.7s, 15.7s, 15.6s, all rc=0, spread 0.1s, so it is the command's normal duration and not a slow sample. health_check closed status=timeout rc=124 and the installer's own closing line read 'Ostler finished, but 1 install step(s) did not complete cleanly'. A cap BELOW the normal duration of the thing it wraps is not a timeout, it is a guaranteed failure with a timeout's name on it. Cap is now named and tunable, default 60. The daemon's own doctor output confirms the floor independently: it runs a 15s internal imessage-tcc probe.	CM051	ae7479e2	no	none	gate:cold-box-source-truth.yml#cold-box-truth (test_doctor_probe_cap_exceeds_the_command.sh, drives the real block, mutation-tested at 10 and at 20)	#1448
+AN OLD-FORMAT SENTINEL ABORTED THE UPGRADE. item_count= and last_update_at= arrive in #1346, so every build to v1.0.59 wrote sentinels without them; on an upgrade the grep finds nothing, exits 1, pipefail promotes it, and with no guard the install aborts as a generic ERR-99 because 2>/dev/null has already discarded the reason. _hydrate_compute_change is called from EVERY hydrate block and runs before the sentinel is rewritten. LATENT, NOT LIVE, and stated as such: neither box available carries an old-format sentinel, so reachability is traced end to end rather than executed.	CM051	b0a11f4d	no	none	gate:hydrate-sentinel.yml (test_an_old_format_sentinel_does_not_abort_the_install.sh)	#1449

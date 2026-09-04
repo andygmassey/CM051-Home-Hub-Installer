@@ -34,6 +34,7 @@ concurrency:
 jobs:
   dispatch-timeout:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Every conversation feed bounds its dispatch

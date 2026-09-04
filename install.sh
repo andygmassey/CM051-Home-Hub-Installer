@@ -1257,7 +1257,21 @@ warn()  { gui_active || echo -e "${YELLOW}[warn]${NC}  $*"; gui_warn "$*"; }
 # tee /dev/null on the calling side; keeps red [ERROR] colour to
 # match the visual class of `fail` (which exits) without exiting
 # itself -- caller decides whether to exit or recover.
-err()   { gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log error "$*"; }
+# Run-wide error tally. See the closing verdict just above `gui_done ok`.
+#
+# WHY THIS EXISTS SEPARATELY FROM THE EMITTER'S __OSTLER_ERROR_LINES.
+# That one lives in lib/progress_emitter.sh's gui_log and feeds `errors=` on the
+# DONE marker. gui_log returns EARLY when OSTLER_GUI != 1, and on the TTY path
+# gui_log is a no-op stub entirely -- so the emitter's counter is GUI-only BY
+# CONSTRUCTION, which is correct for a GUI marker and useless for a line a
+# terminal operator reads. The closing verdict must be true on BOTH paths, so it
+# counts here, at the one funnel every error message passes through.
+#
+# A FLOOR, NOT A TOTAL: an err() raised inside $( ) or a pipeline segment
+# increments a copy and is lost. Stated rather than hidden. It can under-report
+# and can never invent an error that did not happen.
+_OSTLER_RUN_ERRORS=0
+err()   { _OSTLER_RUN_ERRORS=$(( ${_OSTLER_RUN_ERRORS:-0} + 1 )); gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log error "$*"; }
 
 # ── LaunchAgent load, VERIFIED (#876, and the #800 class behind it) ──
 #
@@ -1299,6 +1313,95 @@ err()   { gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log
 #
 # Guarded by tests/test_launchagent_success_requires_verification.sh,
 # which fails the build if any new site announces success without it.
+# Records WHY launchd refused, beside the install log, off the customer's
+# screen. Same idiom as every pip failure in this file: capture the tool's own
+# stderr to a file under the logs dir rather than paraphrasing it.
+#
+# LOGS_DIR (not OSTLER_DIAG_DIR) because OSTLER_DIAG_DIR is a mktemp under
+# /tmp that nothing promotes -- the refusal would evaporate with the staging
+# tree, which is exactly when it is needed. LOGS_DIR follows the staging tree
+# and is renamed onto ~/.ostler/logs/ on success (see _ostler_set_paths), so
+# this lands beside doctor.log and install.log where support already looks.
+# Is the GUI bootstrap domain reachable AT ALL? One probe per run, cached.
+#
+# 🔬 WHY THIS IS A SEPARATE QUESTION FROM "did this agent load".
+# They are different findings and only ONE of them is about the product:
+#
+#   domain reachable + job absent  -> THIS AGENT is broken. A real defect,
+#                                     and the warning below means what it says.
+#   domain UNREACHABLE             -> NO agent can load, and every per-agent
+#                                     "not loaded" warning in this run is a
+#                                     statement about the SESSION, not about
+#                                     the product.
+#
+# `gui/<uid>` exists only while that user has a window-server session. An
+# install driven over ssh with nobody logged in at the GUI has no such domain,
+# so bootstrap fails for all 14 call sites at once, for a reason that has
+# nothing to do with any plist.
+#
+# BEFORE THIS PROBE THE TWO WERE INDISTINGUISHABLE. Both printed the identical
+# warning, so an ssh-driven walk could manufacture a full set of "not loaded"
+# findings and every one would read as a customer-facing defect. That is the
+# instrument being reported as the subject, which has already cost this
+# estate three separate diagnoses. A domain we cannot reach is CANNOT-RUN,
+# and CANNOT-RUN is not a product failure and is not a pass.
+#
+# Deliberately NOT a hard failure: an ssh install is a real thing we do on
+# purpose, and refusing it outright would break the walk driver. It labels.
+_ostler_gui_domain_reachable() {
+    if [[ -z "${_OSTLER_GUI_DOMAIN_STATE:-}" ]]; then
+        if launchctl print "gui/$(id -u)" >/dev/null 2>&1; then
+            _OSTLER_GUI_DOMAIN_STATE=reachable
+        else
+            _OSTLER_GUI_DOMAIN_STATE=unreachable
+        fi
+    fi
+    [[ "$_OSTLER_GUI_DOMAIN_STATE" == "reachable" ]]
+}
+
+_ostler_launchagent_note_refusal() {   # $1 label, $2 our reason, $3 launchd stderr
+    local _dir="${LOGS_DIR:-${OSTLER_DIAG_DIR:-${TMPDIR:-/tmp}}}"
+    local _f="${_dir}/launchagent-load.log"
+    local _scope
+    if _ostler_gui_domain_reachable; then
+        _scope="gui domain reachable, so this is specific to ${1}"
+    else
+        _scope="🔬 gui/$(id -u) IS NOT REACHABLE -- no LaunchAgent can load in this session (ssh with no GUI login looks exactly like this). This is CANNOT-RUN, not a verdict on ${1}."
+    fi
+    mkdir -p "$_dir" 2>/dev/null || true
+    {
+        printf '%s  %s  %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" "$2"
+        printf '    scope: %s\n' "$_scope"
+        if [[ -n "$3" ]]; then
+            printf '%s\n' "$3" | sed -e 's/^/    launchd: /'
+        fi
+    } >> "$_f" 2>/dev/null || true
+
+    # 🔴 AND SAY IT WHERE SOMEONE WILL READ IT.
+    # Until now the reason went ONLY to ${LOGS_DIR}/launchagent-load.log, and
+    # MEASURED 2026-09-04: that file is collected by NOTHING -- 0 references in
+    # scripts/ttywalk.sh and 0 in scripts/walk_drive.py. So the caller's warn
+    # said "Doctor not loaded" with no cause, the cause sat in a file no walk
+    # ever reads, and diagnosing it cost a second full 21-minute install.
+    # A diagnosis nobody collects is not a diagnosis.
+    warn "  launchagent ${1}: ${2}"
+    warn "  ${_scope}"
+    if [[ -n "$3" ]]; then
+        printf '%s\n' "$3" | while IFS= read -r _l; do
+            [[ -n "$_l" ]] && warn "  launchd said: ${_l}"
+        done
+    fi
+}
+
+# True when the plist says launchd must KEEP THIS UP. Deliberately NOT
+# RunAtLoad: one-shot agents here set RunAtLoad, do their job and exit 0, and
+# demanding `state = running` of those would report every healthy one-shot as
+# broken -- a blanket refusal, which is worse than the defect it replaces.
+# A KeepAlive <dict> (conditional) does not match either, on purpose.
+_ostler_launchagent_keeps_alive() {
+    grep -A1 '<key>KeepAlive</key>' "$1" 2>/dev/null | grep -q '<true/>'
+}
+
 _ostler_launchagent_load_verified() {
     local _plist="$1"
     local _label _domain
@@ -1307,7 +1410,10 @@ _ostler_launchagent_load_verified() {
 
     # A plist that was never written cannot be loaded. Say no here rather
     # than let launchctl's exit-0-on-failure decide it for us.
-    [[ -f "$_plist" ]] || return 1
+    [[ -f "$_plist" ]] || {
+        _ostler_launchagent_note_refusal "$_label" "plist absent at ${_plist}" ""
+        return 1
+    }
 
     # bootout first: bootstrap onto an already-loaded label errors, and a
     # stale registration would otherwise keep the OLD plist's environment
@@ -1316,11 +1422,90 @@ _ostler_launchagent_load_verified() {
     # tears down the customer's whole GUI session and must never appear here.
     launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
 
+    # 🔬 BOOTOUT IS ASYNCHRONOUS. WAIT FOR THE LABEL TO ACTUALLY GO.
+    #
+    # `launchctl bootout` returns as soon as launchd ACCEPTS the request, not
+    # when the job is gone. Bootstrapping into a half-torn-down label fails
+    # with EIO, and the job never spawns.
+    #
+    # MEASURED ON THE MINI 16, install of 2026-09-03 (timestamps UTC):
+    #     18:42:10  ~/.ostler/doctor/web_ui.py written   (payload)
+    #     18:42:11  com.ostler.doctor.plist written
+    #     18:42:11  refusal recorded
+    # One second for bootout + bootstrap + load + verify. The recorded reason
+    # was "registered, then VANISHED from gui/501 before it ran", and launchd
+    # said `Bootstrap failed: 5: Input/output error` AND `Load failed: 5`.
+    # Registered-then-vanished is exactly what a teardown completing AFTER the
+    # bootstrap looks like.
+    #
+    # THE OTHER CANDIDATES WERE MEASURED AND REFUTED, one at a time:
+    #   plist invalid            -- `plutil -lint` says OK
+    #   payload missing          -- web_ui.py present, the venv python RUNS
+    #   label disabled           -- absent from `launchctl print-disabled`
+    #   domain unreachable       -- 18 of 20 ostler agents DID load
+    #   quarantine xattr         -- none on the plist
+    #   program path location    -- a LOADED agent sits in the same directory
+    # and a hand bootstrap of the identical unmodified plist minutes later
+    # gives `state = running`, which is the timing tell.
+    #
+    # ⚠️ STATED AS WHAT IT IS: converging evidence, not a live reproduction.
+    # I have not caught the race in the act. This wait is cheap, cannot make
+    # a working install worse, and if the race is not the cause the refusal
+    # text will now say so on the next run.
+    #
+    # COSTS NOTHING ON A FRESH INSTALL. If the label was never loaded the very
+    # first probe fails and we break immediately -- zero sleeps, which is the
+    # normal customer path. Only a REINSTALL, where the label really is loaded,
+    # ever waits. If it never clears we proceed anyway: the evidence check
+    # below still adjudicates, so this can add a delay but never a verdict.
+    local _settle=0 _settle_cap="${OSTLER_LAUNCHAGENT_BOOTOUT_SETTLE_S:-10}"
+    while [ "$_settle" -lt "$_settle_cap" ]; do
+        launchctl print "${_domain}/${_label}" >/dev/null 2>&1 || break
+        sleep 1
+        _settle=$((_settle + 1))
+    done
+    if [ "$_settle" -ge "$_settle_cap" ]; then
+        # 🔴 warn(), NOT note_refusal(). launchagent-load.log carries ONLY REAL
+        # REFUSALS -- tests/test_launchagent_refusal_reason_is_recorded.sh has
+        # two CONTROLS asserting a SUCCESSFUL load writes ZERO lines to it, and
+        # my first draft called note_refusal here and reddened both. A slow
+        # teardown that then loads fine is not a refusal, and writing it to the
+        # refusal record would make that record mean less.
+        #
+        # It is worth SAYING, though: this is measurable evidence the label
+        # really was still present after ${_settle_cap}s, which on CI happened
+        # after an EX_CONFIG-parked job from an earlier arm. A parked job can
+        # outlive its bootout.
+        warn "  launchagent ${_label}: still registered ${_settle_cap}s after bootout; bootstrapping anyway"
+    fi
+
     # bootstrap on Sequoia+ (load is deprecated), fall back to load. BOTH
     # are allowed to fail: their exit status is not the evidence, and the
     # ERR trap must not abort the install on an expected failure here.
-    launchctl bootstrap "$_domain" "$_plist" 2>/dev/null || \
-        launchctl load "$_plist" 2>/dev/null || true
+    #
+    # 🔬 BUT THE REFUSAL TEXT IS NOT NOISE, AND `2>/dev/null` USED TO EAT IT.
+    # Measured on the Mini 16 during the 2026-09-04 walk: this function
+    # correctly returned 1 for com.ostler.doctor (absent from launchctl, :8089
+    # answered 000) so the installer WARNED rather than lying -- the #876 half
+    # works. But the warn carried NO REASON, because the only thing that knew
+    # it was on stderr, going to /dev/null. Bootstrapping the identical,
+    # unmodified plist by hand 21 minutes later gave `state = running` and
+    # :8089 200, so plist and payload were both fine and the refusal was the
+    # entire diagnosis. Diagnosing it cost a second full install.
+    #
+    # Capture instead of discard. `2>&1 >/dev/null` inside the substitution
+    # keeps stderr and drops stdout (order matters: stderr is duplicated onto
+    # the capture BEFORE stdout is redirected away).
+    #
+    # ⚠️ THE TRAILING `|| true` IS INSIDE THE SUBSTITUTION ON PURPOSE. The ERR
+    # trap is inherited into a command substitution's subshell, and an outer
+    # `|| true` does NOT protect the inner failing command -- that is exactly
+    # the mechanism behind the #642 double-DONE (three earlier harnesses
+    # refuted it because each suppressed ERR at the outer level only). Ending
+    # the subshell's list with `true` is what actually keeps ERR quiet here.
+    local _load_err
+    _load_err="$( { launchctl bootstrap "$_domain" "$_plist" 2>&1 >/dev/null || \
+                    launchctl load "$_plist" 2>&1 >/dev/null || true ; } )"
 
     # THE EVIDENCE. Nothing above this line is permitted to decide.
     #
@@ -1343,15 +1528,97 @@ _ostler_launchagent_load_verified() {
     # test would report those as broken. 78 is EX_CONFIG, which launchd does
     # NOT retry -- it parks the job until a `kickstart -k` clears it. That is
     # the state a customer would otherwise be told was fine.
+    # 🔴 THE `|| true` MUST BE INSIDE THE SUBSTITUTION. THIS KILLED AN INSTALL.
+    #
+    # MEASURED, ttywalk run 10 (2026-09-04), on the Mini 16:
+    #   #OSTLER LOG level=error msg=Install aborted unexpectedly at line 1465
+    #           (step doctor_setup): launchctl print "${_domain}/${_label}"
+    #   #OSTLER STEP_END id=doctor_setup status=error elapsed_s=1 rc=113
+    #   #OSTLER DONE status=fail code=ERR-99-INSTALL-ABORT-L1465
+    # One second in, on the FIRST poll, the whole install died.
+    #
+    # This was written as `_print="$(... )" || { handle; }` -- which LOOKS
+    # guarded and is not. It is #642's mechanism exactly: the ERR trap is
+    # INHERITED INTO THE COMMAND SUBSTITUTION'S SUBSHELL, so a non-zero
+    # `launchctl print` fires the trap and aborts the run BEFORE the outer
+    # `||` is ever consulted. An outer guard cannot protect an inner command.
+    #
+    # And a non-zero print is NORMAL here: the label is legitimately absent
+    # until launchd registers it. The guard has to tolerate that INSIDE.
+    #
+    # The rc is not lost, only relocated: an absent job prints NOTHING, so
+    # emptiness is the same signal, and it cannot be faked by a job that
+    # exists (launchctl always prints a block for one that does).
     local _print
-    _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null)" || return 1
+    _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null || true)"
+    if [[ -z "$_print" ]]; then
+        _ostler_launchagent_note_refusal "$_label" \
+            "not registered in ${_domain} after bootstrap+load" "$_load_err"
+        return 1
+    fi
 
     case "$_print" in
         *"last exit code = 78:"*|*"last exit code = 78"[!0-9]*)
             # Parked on EX_CONFIG. Registered, never going to run.
+            _ostler_launchagent_note_refusal "$_label" \
+                "registered but parked on EX_CONFIG (last exit code = 78)" \
+                "$(printf '%s\n' "$_print" | grep -E 'state =|last exit code|program =|path =' || true)"
             return 1
             ;;
     esac
+
+    # 🔴 #876 RECURRED, AND THIS IS THE HOLE IT CAME THROUGH.
+    #
+    # The comment above says "Registration is not runnability" and then handles
+    # exactly ONE way of being registered-but-not-running: parked on EX_CONFIG.
+    # Everything else registered was accepted.
+    #
+    # MEASURED on the Mini 16, ttywalk run 5 (2026-09-04), in ONE install log:
+    #   line 333  Ostler Doctor running at http://localhost:8089/doctor   <- us
+    #   line 587  WARN Doctor not responding (127.0.0.1:8089)             <- us
+    # 254 lines apart, same run. Afterwards com.ostler.doctor was absent from
+    # the domain entirely, :8089 answered 000, and ~/.ostler/logs/doctor.err
+    # had NEVER BEEN CREATED -- launchd creates it on spawn, so the job never
+    # spawned. Not a payload fault: the venv python runs and fastapi+uvicorn
+    # import fine, checked on the box. We announced success on REGISTRATION.
+    #
+    # WHY KeepAlive AND NOT RunAtLoad. Several agents here are legitimately
+    # ONE-SHOT: they set RunAtLoad, do their job, and exit 0. Requiring
+    # `state = running` of those would report every healthy one-shot as broken
+    # -- the blanket-refusal failure, which is worse than the defect. KeepAlive
+    # is the plist saying "launchd must keep this up", so for those and only
+    # those, not-running IS broken. The Doctor declares KeepAlive true.
+    #
+    # The wait is bounded and short: bootstrap returns before the child has
+    # spawned, so a zero-wait check would race the very thing it measures.
+    # doctor_setup reported elapsed_s=0, which is how fast this used to be.
+    if _ostler_launchagent_keeps_alive "$_plist"; then
+        local _state="" _waited=0
+        while [[ "$_waited" -lt 20 ]]; do
+            _state="$(printf '%s\n' "$_print" \
+                      | sed -n 's/^[[:space:]]*state = \(.*\)$/\1/p' | head -1)"
+            case "$_state" in running*) break ;; esac
+            sleep 0.5
+            _waited=$((_waited + 1))
+            # Same trap, same fix as the first call: tolerance INSIDE. This is
+            # the line the run-10 abort actually named (L1465).
+            _print="$(launchctl print "${_domain}/${_label}" 2>/dev/null || true)"
+            if [[ -z "$_print" ]]; then
+                _ostler_launchagent_note_refusal "$_label" \
+                    "registered, then VANISHED from ${_domain} before it ran" \
+                    "$_load_err"
+                return 1
+            fi
+        done
+        case "$_state" in
+            running*) : ;;
+            *)  _ostler_launchagent_note_refusal "$_label" \
+                    "declares KeepAlive but never reached 'state = running' (last seen: ${_state:-<no state line>})" \
+                    "$(printf '%s\n' "$_print" | grep -E 'state =|last exit code|program =|path =' || true)"
+                return 1
+                ;;
+        esac
+    fi
 
     return 0
 }
@@ -2105,6 +2372,7 @@ _ostler_set_paths() {
     OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
     CHAT_ADMIN_TOKEN_FILE="${SECRETS_DIR}/zeroclaw_admin_token"
     SERVICE_TOKEN_FILE="${SECRETS_DIR}/service_token"
+    EXTENSION_TOKEN_FILE="${SECRETS_DIR}/extension_token"
     # Python venv lives at $OSTLER_DIR/.venv. Created during the
     # encrypt_db step (pre-FDA), used heavily after FDA grant for the
     # Python heredocs in the FDA extraction + hydrate steps.
@@ -4417,7 +4685,7 @@ else
 fi
 gui_emit PCT "step=prereq_check" "pct=70"
 
-# Disk space check -- need ~35 GB: Docker images (~1 GB), AI model (5-10 GB),
+# Disk space check -- need ~35 GB: Docker images (~1 GB), AI model (7.2-23 GB),
 # embedding model (300 MB), import pipeline + venv (~500 MB), databases (grows
 # with data), and headroom for GDPR exports.
 FREE_GB=$(df -g / | tail -1 | awk '{print $4}')
@@ -4763,6 +5031,50 @@ ${_reuse_summary}"
             SKIP_PHASE2=false
             ;;
     esac
+
+    # ── "USE PREVIOUS ANSWERS" REQUIRES PREVIOUS ANSWERS TO EXIST ─────────
+    #
+    # A box installed before consent decisions were written to config/.env has
+    # NONE of them, and reusing on such a box skips the question phase for
+    # answers that were never stored. The recorder downstream is guarded on a
+    # non-empty decision, so it writes nothing, the consent registry stays
+    # null, and the feeds those tickboxes gate stay OFF with no record saying
+    # why. MEASURED on Andy's Mini: `ostler-consent show` returned null for
+    # every tickbox on a complete install, and config/.env carried 21 keys of
+    # which zero were consent.
+    #
+    # The two checked here are the REGION-INDEPENDENT ones -- both are asked
+    # on every install, in every country, and each gates a feed. Article 9 and
+    # the EU voice gate are deliberately NOT checked: they are asked only on
+    # the EU branch, so their absence on a non-EU box is correct and demanding
+    # them would force a pointless re-walk on every install outside the EU.
+    #
+    # WHY WALK THE QUESTIONS RATHER THAN ASK JUST THESE TWO. Asking them here
+    # would mean a second copy of two consent prompts, their strings, their
+    # decline handling and their abort semantics, sitting far from the
+    # originals and free to drift. Two copies of a prompt is one copy plus a
+    # future defect, which is the #1427 class. Walking the phase costs the
+    # customer one pass through questions they can answer quickly, ONCE, after
+    # an upgrade, and it reuses the code that is already tested.
+    #
+    # A one-time re-walk is the price of recovering consent nobody recorded.
+    # The alternative is a box that reports "missing" forever and silently
+    # runs with feeds off, which is the state this exists to end.
+    if [[ "$SKIP_PHASE2" == "true" ]]; then
+        _missing_consent=""
+        [[ -z "${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}" ]] \
+            && _missing_consent="${_missing_consent} third-party-data"
+        [[ -z "${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}" ]] \
+            && _missing_consent="${_missing_consent} spoken-capture"
+        if [[ -n "$_missing_consent" ]]; then
+            warn "Your previous answers do not include every consent decision, so they cannot all be reused."
+            warn "  Missing:${_missing_consent}"
+            warn "  This happens on a Mac set up before Ostler stored those decisions with the rest of your settings."
+            warn "  Ostler will ask the setup questions once more so nothing is left switched off without your say-so."
+            SKIP_PHASE2=false
+        fi
+        unset _missing_consent
+    fi
     # CX-87 (DMG #48g, 2026-05-29): when re-running on a Mac with a
     # prior complete install, promote the staging tree onto
     # ~/.ostler/ immediately. There is no Quit & Reopen risk on a
@@ -5384,6 +5696,88 @@ if [[ -n "$CARD_DATA" ]]; then
     DETECTED_COUNTRY=$(echo "$CARD_DATA" | cut -d'|' -f3)
     DETECTED_EMAIL=$(echo "$CARD_DATA" | cut -d'|' -f4)
     DETECTED_PHONE=$(echo "$CARD_DATA" | cut -d'|' -f5)
+fi
+
+# ── Owner address, second source: the accounts database ──────────────────
+#
+# WHY A SECOND SOURCE AT ALL. The me-card read above is an osascript call
+# into Contacts.app. MEASURED on the Mini 16 during the v1.0.63 walk,
+# 2026-09-04, on a wiped machine restored from a Time Machine backup:
+#
+#     Contacts got an error: Application isn't running. (-600)
+#
+# The branch above already RECOGNISES that failure and warns about it. What
+# it had was no alternative, so DETECTED_EMAIL stayed empty, and one empty
+# string later the AI-conversations agent was registered with
+# CM052_USER_EMAIL="" and refused every hour forever.
+#
+# A GUI app being warm is not a property of a customer's Mac at install time.
+# It is the property LEAST likely to hold: the installer runs on a machine
+# somebody has just set up.
+#
+# WHY THIS SOURCE. ~/Library/Accounts/Accounts4.sqlite is where macOS keeps
+# every configured account -- iCloud, Mail, Calendar, Contacts -- and it is a
+# plain file, present before any app has been opened. Measured on the same
+# box: 8 account rows resolving to 2 distinct addresses, while Contacts was
+# unscriptable and the local AddressBook store held 0 email addresses.
+#
+# MOST ROWS WINS. An Apple ID appears once per service it backs, so the
+# address with the most rows is the account identity rather than a
+# single-purpose mailbox.
+#
+# 🔴 AND IT PICKED THE WRONG ONE ON THE FIRST BOX IT MET. Stated here rather
+# than discovered later. Measured on the Mini 16, 2026-09-04: two addresses,
+# and the account-identity one is NOT the address the owner actually uses.
+#
+#     the account-identity address   10 rows, spanning the Apple sign-in and
+#                                    nine services that hang off it
+#     the address the owner uses      7 rows, all mail/calendar accounts
+#
+# Described by ROLE AND COUNT rather than enumerated. The first draft listed
+# the Apple service names and the whole-tree person-name guard flagged two of
+# them as a name PAIR -- a false positive, but the list was decorative and
+# fighting a PII guard over decoration is the wrong trade.
+#
+# The owner confirmed the SECOND is his address. So this rule is right about
+# "which account identifies this Mac" and wrong about "which mailbox is this
+# person", and those are different questions.
+#
+# IT SHIPS ANYWAY, AND HERE IS THE ARGUMENT. The alternative on this path is
+# no address at all, which registers nothing and leaves AI conversations dead
+# until the customer notices. A plausible-but-wrong address still labels
+# transcripts, still lets the agent run, and is correctable in one field. An
+# absent one is not correctable by anybody who does not already know it is
+# absent.
+#
+# ⚠️ THE REAL FIX IS TO ASK, AND THIS IS NOT IT. This value should pre-fill a
+# question the customer confirms, exactly as the name and country do. Until
+# that lands, this is a fallback that reduces a permanent silent failure to a
+# visible wrong value, and it must not be mistaken for the fix.
+#
+# READ-ONLY AND IMMUTABLE, DELIBERATELY. `immutable=1` opens without taking a
+# lock and without creating -wal/-shm sidecars, so reading the customer's
+# live accounts store cannot perturb it. Never open this database writable.
+#
+# FDA MAY STILL REFUSE, and that is fine: the query fails, DETECTED_EMAIL
+# stays empty, and the guard at the AI-conversations agent refuses to
+# register a dead agent and says why. Absent is handled; empty-and-pretending
+# is what was not.
+if [[ -z "$DETECTED_EMAIL" ]]; then
+    _acct_db="${HOME}/Library/Accounts/Accounts4.sqlite"
+    if [[ -r "$_acct_db" ]] && command -v sqlite3 >/dev/null 2>&1; then
+        _acct_email="$(sqlite3 "file:${_acct_db}?immutable=1" \
+            "select ZUSERNAME from ZACCOUNT where ZUSERNAME like '%@%.%' \
+             group by ZUSERNAME order by count(*) desc limit 1;" 2>/dev/null | head -n 1)"
+        # Shape-check before accepting: this feeds a shipped LaunchAgent, and
+        # a malformed value would be worse than none because it would satisfy
+        # the emptiness guard while still being wrong.
+        if [[ "$_acct_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+            DETECTED_EMAIL="$_acct_email"
+            info "Read your email address from this Mac's account settings (your Contacts card was not available)."
+        fi
+        unset _acct_email
+    fi
+    unset _acct_db
 fi
 
 # ── Map country name to dialling code ──────────────────────────────
@@ -7178,7 +7572,9 @@ if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
         if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
             warn "$MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT"
         else
-            fail_with_code "ERR-10-FDA-DEPS-IMPORT" "$MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN"
+            # W003 class: this message named /tmp/ostler-fda-deps.log, which
+            # nothing writes. The real log is under the private per-run diag dir.
+            fail_with_code "ERR-10-FDA-DEPS-IMPORT" "$(printf "$MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN" "${OSTLER_DIAG_DIR}/fda-deps.log")"
         fi
     else
         ok "$MSG_OK_FDA_DEPENDENCIES_IMPORTABLE"
@@ -7416,7 +7812,12 @@ else
         AI_MODEL_SIZE="~6.6 GB"
     else
         AI_MODEL="gemma4:e2b"
-        AI_MODEL_SIZE="~5 GB"
+        # v1061-D002 (reg #623): measured 7.2 GB on the v1.0.61 walk box, not
+        # the ~5 GB this said. This ladder is the STRIPPED-BUNDLE path, so it
+        # is a second, independently-editable copy of the same customer claim
+        # -- it must not drift from lib/ostler-model-fit.sh. Gated by
+        # tests/test_model_download_size_honesty.sh, which compares the two.
+        AI_MODEL_SIZE="~7.2 GB"
     fi
     ok "$(printf "$MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM" "${AI_MODEL}" "${AI_MODEL_SIZE}" "${RAM_GB}")"
 fi
@@ -8541,7 +8942,22 @@ ostler_slot_acquire() {
 # orphan them mid-walk.
 _ostler_slot_signal_tree() {
     local sig="$1" pid="$2" kid
-    for kid in $(pgrep -P "$pid" 2>/dev/null); do
+    # `|| true` IS LOAD-BEARING here too (#642). A childless process is the
+    # NORMAL case for this recursion's base step, and `pgrep -P` exits 1 when
+    # it finds no children. Under `set -Eeuo pipefail` that fires the ERR trap
+    # INSIDE the command substitution's subshell, which emits a spurious
+    # terminal DONE marker -- during the watchdog kill path, i.e. exactly when
+    # the install is already in trouble.
+    #
+    # I FIRST DECLARED THIS SITE SAFE AND WAS WRONG. My control used
+    # `for x in $( exit 1 )`, and `exit` is the one construct that does NOT
+    # trigger ERR, so the control could not fail. Re-measured against the real
+    # shipped ERR handler with a real `pgrep`:
+    #     for-list, real pgrep, unguarded ... 2 DONE markers
+    #     for-list, real pgrep, guarded ..... 1
+    #     for-list, $( exit 1 ) ............. 1   <- the invalid control
+    #     bare assignment, unguarded ........ 2   <- reference shape
+    for kid in $(pgrep -P "$pid" 2>/dev/null || true); do
         _ostler_slot_signal_tree "$sig" "$kid"
     done
     kill -"$sig" "$pid" 2>/dev/null || true
@@ -9749,7 +10165,18 @@ done
 # while Phase 3 kicks off. The step itself is a no-op marker -- the
 # GUI renders the HintCopy "setup_complete_wrap_up" block until the
 # next step (homebrew_install) fires its STEP_BEGIN.
-step "$MSG_STEP_SETUP_COMPLETE_WRAP_UP" "setup_complete_wrap_up"
+# #613: name only the interactions that are actually still coming. A customer
+# who answered "skip" to remote access is not going to be asked to sign in to
+# Tailscale, so saying so here is a promise the install then breaks.
+# The predicate is `== skip`, NOT `!= setup`: an EMPTY TAILSCALE_CONFIRM means
+# the question has not been asked yet (the late-ask path at the tailscale_connect
+# step), and on that path the sign-in genuinely is still to come. Unknown must
+# therefore keep the original wording. Only a MEASURED decline changes the copy.
+if [[ "${TAILSCALE_CONFIRM:-}" == "skip" ]]; then
+    step "$MSG_STEP_SETUP_COMPLETE_WRAP_UP_NO_REMOTE" "setup_complete_wrap_up"
+else
+    step "$MSG_STEP_SETUP_COMPLETE_WRAP_UP" "setup_complete_wrap_up"
+fi
 
 fi  # end of SKIP_PHASE2 check (GDPR scan + consent)
 
@@ -10120,11 +10547,22 @@ TOTAL_STEPS="${TOTAL_STEPS:-0}"
 # resolves to an unreadable /dev/fd/N, the grep returns 0, etc.).
 # Better to overshoot 100% by a step or two than divide by zero.
 if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
-    # Fallback base = the non-GDPR progress-call count. Must track the real
-    # count (currently 39 calls; 38 non-GDPR + the EXPORTS_DIR-gated GDPR step).
+    # Fallback base = the non-GDPR progress-call count.
+    #
+    # 🔴 THE COMMENT HERE SAID "currently 39 calls" AND WAS STALE. Measured
+    # 2026-09-04 with this file's OWN predicate,
+    #     grep -cE '^[[:space:]]*progress "' install.sh   ->  41
+    # so the base is 40 non-GDPR + 1 EXPORTS_DIR-gated, not 38 + 1.
+    #
+    # ⚠️ AND CORRECTING IT DOES NOT MAKE THIS BRANCH RIGHT. The six mid-run
+    # decrements at :20703-:21229 and :26238 subtract from whatever this sets,
+    # so a fallback seed still ends up below the number of steps that actually
+    # run. That is why progress() now CLAMPS (see the note there): the clamp is
+    # the thing that holds when this constant next drifts, and it will.
+    #
     # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
     # unresolvable under `bash -c`) and fails if this constant drifts.
-    TOTAL_STEPS=38
+    TOTAL_STEPS=40
     [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
 CURRENT_STEP=0
@@ -10145,6 +10583,34 @@ progress() {
 
     CURRENT_STEP=$((CURRENT_STEP + 1))
     local PCT=$((CURRENT_STEP * 100 / TOTAL_STEPS))
+
+    # CLAMP. This file already computes a percentage in one other place
+    # (the Ollama pull parser, :1517) and clamps it there with exactly this
+    # line. progress() -- the bar the CUSTOMER watches for the whole install
+    # -- had no clamp at all.
+    #
+    # WHY IT MATTERS, and it is not only the number. TOTAL_STEPS is seeded by
+    # counting `progress "` lines in BASH_SOURCE, then DECREMENTED at seven
+    # sites (:10158 + six mid-run at :20703-:21229 + :26238). If the seed
+    # overshoots -- which the fallback at :10168 does by construction, since
+    # it hardcodes 38 and the mid-run decrements then subtract from THAT --
+    # CURRENT_STEP can exceed TOTAL_STEPS and PCT goes above 100.
+    #
+    # Then:
+    #     FILLED = PCT * 30 / 100        -> exceeds BAR_WIDTH
+    #     EMPTY  = 30 - FILLED           -> NEGATIVE
+    #     printf "%${EMPTY}s"            -> a negative width is not an error
+    #                                       in printf, it LEFT-JUSTIFIES
+    # so the bar silently renders wider than its own declared width, and the
+    # ETA divides by a percentage that is a lie. Nothing errors. TNM derived
+    # the 105-106% arithmetically; this line makes the derivation unnecessary.
+    #
+    # A CLAMP RATHER THAN A CORRECTED CONSTANT, DELIBERATELY. The constant has
+    # drifted before and will again -- the comment at :10166 still says
+    # "currently 39 calls" against a measured 41. A bound cannot drift; a
+    # count can. Fix the count too (below), but do not rely on it.
+    (( PCT > 100 )) && PCT=100
+
     local BAR_WIDTH=30
     local FILLED=$((PCT * BAR_WIDTH / 100))
     local EMPTY=$((BAR_WIDTH - FILLED))
@@ -10496,14 +10962,56 @@ else
     else
         # Fallback: official installer (used in dev mode where /opt/homebrew
         # is not pre-chowned, OR if pre-chown silently failed).
-        echo "Falling back to official installer (prefix not pre-chowned)" >> "$BREW_INSTALL_LOG"
+        #
+        # W002 (v1.0.63 walk 2): this line used to say "prefix not pre-chowned"
+        # flat, but the branch above is a THREE-WAY test -- GUI mode, the
+        # directory existing, and the directory being writable. Any one of them
+        # being false lands here, and they have three different causes: not
+        # running under the .app, the parent .app never creating the prefix,
+        # and the chown failing or being reverted. One sentence for three
+        # causes is a guess printed as a finding, and this log is the only
+        # thing a customer can send us.
+        #
+        # The pre-probe above already records OSTLER_GUI and `ls -ld
+        # /opt/homebrew`, so the evidence was in the file; what was missing was
+        # the branch saying which test it actually failed.
+        _brew_fallback_why=""
+        [[ "${OSTLER_GUI:-0}" == "1" ]] || _brew_fallback_why="not running under the GUI app (OSTLER_GUI=${OSTLER_GUI:-0})"
+        if [[ -z "$_brew_fallback_why" ]]; then
+            if [[ ! -d /opt/homebrew ]]; then
+                _brew_fallback_why="/opt/homebrew does not exist -- the parent .app did not create the prefix"
+            elif [[ ! -w /opt/homebrew ]]; then
+                _brew_fallback_why="/opt/homebrew exists but is not writable by $(id -un) -- the pre-chown did not take"
+            else
+                # Belt and braces: if all three now pass, the state changed
+                # between the test and here. Say so rather than pick a cause.
+                _brew_fallback_why="all three pre-chown conditions pass NOW; state changed between the test and this line"
+            fi
+        fi
+        echo "Falling back to official installer: ${_brew_fallback_why}" >> "$BREW_INSTALL_LOG"
+        echo "NOTE: the official installer aborts at have_sudo_access() even when no sudo is needed (CX-25)." >> "$BREW_INSTALL_LOG"
+        unset _brew_fallback_why
         NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$BREW_INSTALL_LOG" 2>&1
         BREW_EXIT=$?
     fi
     set -e
 
     if [[ $BREW_EXIT -ne 0 ]]; then
-        warn "$(printf "$MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT" "$BREW_EXIT")"
+        # W003 (v1.0.63 walk): these messages used to name a hardcoded
+        # /tmp/ostler-brew-install.log. Nothing ever wrote that path, so every
+        # ERR-04 support report arrived with nothing attached and the Homebrew
+        # failure could not be root-caused from a customer's machine.
+        #
+        # The log was never missing -- it is BREW_INSTALL_LOG, inside
+        # OSTLER_DIAG_DIR, a private `mktemp -d` under TMPDIR. On macOS TMPDIR
+        # is /var/folders/<xx>/<yy>/T and never /tmp, so two literals had
+        # drifted: different directory AND different basename.
+        #
+        # The fix is the MESSAGE, not the filesystem. Publishing a copy to a
+        # fixed /tmp name was considered and rejected: #910 forbids exactly
+        # that, because a fixed name in a world-writable directory lets another
+        # user pre-create our log files. Interpolate the real path instead.
+        warn "$(printf "$MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT" "$BREW_EXIT" "$BREW_INSTALL_LOG")"
         warn "$MSG_WARN_HOMEBREW_INSTALL_LOG_LAST_LINES"
         # Surface the last 30 lines via warn() so the GUI's prefix-aware
         # log parser actually renders them in the customer log. The
@@ -10513,7 +11021,7 @@ else
         while IFS= read -r line; do
             warn "    $line"
         done < <(tail -30 "$BREW_INSTALL_LOG")
-        fail_with_code "ERR-04-HOMEBREW-INSTALL" "$MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED"
+        fail_with_code "ERR-04-HOMEBREW-INSTALL" "$(printf "$MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED" "$BREW_INSTALL_LOG")"
     fi
 
     if [[ "$ARCH" == "arm64" ]]; then
@@ -11601,16 +12109,27 @@ DEFAULT_PRIVACY_LEVEL=L2
 # Per-source FDA consent – comma-separated list of enabled sources.
 # Set in Phase 2 (or read from a previous install on re-run). Read by
 # ostler_fda.extract_all via the OSTLER_FDA_SOURCES env var.
-# apple_notes deliberately ABSENT from this default. The extractor
-# (vendor/ostler_fda/extract_all.py) reads every note and writes
-# apple_notes.json, but the converter that would make them searchable ships in
-# vendor/cm024_knowledge, whose VENDOR_MANIFEST.toml pin is held at 43d6c5da --
-# the re-pin to 7ace7672, which carries the apple_notes.py adapter, is DEFERRED.
-# So \`convert --source apple_notes\` exits non-zero on an unknown source and
-# the notes go nowhere. Asking Full Disk Access for data we then do not use is the
-# one option that trades consent for nothing. Restore this entry in the same
-# change that lands the CM024 re-pin, not before.
-OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES:-safari_history,safari_bookmarks,calendar,reminders}"
+# apple_notes IS IN THIS DEFAULT, and the reason it once was not is worth
+# keeping so nobody re-derives the old conclusion.
+#
+# It used to read "deliberately ABSENT ... restore this in the same change that
+# lands the CM024 re-pin, not before". That was TRUE as a description of the
+# machinery -- the extractor wrote apple_notes.json and the converter could not
+# read it, so \`convert --source apple_notes\` exited non-zero and the notes went
+# nowhere -- and it was NOT A DECISION ANYONE WAS ENTITLED TO MAKE HERE. An
+# agent wrote a product-scope call into the shipping tree in the voice of
+# policy, and it then read as settled for six weeks. Andy, 2026-09-02: "I don't
+# know where you're getting that Apple Notes shouldn't be included - it SHOULD."
+#
+# THE PRECONDITION IS NOW MET, not waived. vendor/cm024_knowledge is re-vendored
+# at 1fabd75 across the src/ -> ostler_knowledge/ rename, which is where
+# ingestion/adapters/apple_notes.py lives, and that row's manifest entry has
+# gone verify=skip -> verify=full with its unverifiable_ack DELETED. The gate
+# now reports: cm024_knowledge -- vendor == source@1fabd75d (+patch).
+#
+# So the consent we ask for is spent on data we actually use, which was the
+# whole of the original objection.
+OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES:-safari_history,safari_bookmarks,calendar,reminders,apple_notes}"
 
 # If a Google Takeout mbox is registered, point extract_all at it.
 OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}"
@@ -11619,6 +12138,51 @@ OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}"
 # was installed and signed in. Used by the iOS / Watch companion to reach
 # this Mac from anywhere. Empty if Tailscale is not in use.
 OSTLER_TAILSCALE_IP="${OSTLER_TAILSCALE_IP:-}"
+
+# ── CONSENT DECISIONS, AND THEY MUST BE HERE OR "REUSE" SILENTLY REVOKES THEM ──
+#
+# MEASURED on Andy's Mini, 2026-09-04. \`ostler-consent show\` returned null for
+# every tickbox on a box with a complete install, and config/.env carried 21
+# keys of which ZERO were consent. That is not a coincidence, it is a loop:
+#
+#   "Use previous answers"  ->  SKIP_PHASE2=true
+#     ->  the question phase never runs
+#     ->  OSTLER_CONSENT_*_DECISION stay EMPTY
+#     ->  the recorder at Phase 3 is guarded on non-empty, so it writes NOTHING
+#     ->  nothing is persisted for the NEXT reuse run to restore
+#
+# Self-perpetuating: every reuse run starts from the state the previous reuse
+# run failed to leave behind. The customer answered these questions once and
+# the answers evaporated, and the feeds they gate stayed off with no record
+# saying why. A wiped Mac restored from Time Machine hits this on its FIRST
+# install, because the restored home already carries a config/.env and the
+# installer therefore offers to reuse it.
+#
+# WHY HERE AND NOT A NEW FILE. The reuse path at ~4972 already does
+# \`set -a; source config/.env; set +a\`, so a key written here is restored
+# into exactly the variable the recorder reads, with no new mechanism, no
+# second source of truth, and nothing to keep in sync. This block also runs on
+# BOTH paths (the SKIP_PHASE2 guard closes at ~10137, well above), so a reuse
+# run rewrites what it restored rather than truncating it away.
+#
+# EMPTY IS PRESERVED DELIBERATELY, NOT DEFAULTED. An absent decision must stay
+# absent so Doctor reports "missing" and the freshness gate can ask again.
+# Defaulting an unanswered consent question to "accepted" would manufacture a
+# consent nobody gave, and defaulting it to "declined" would switch a feed off
+# the customer never refused. Both are worse than a truthful gap.
+OSTLER_CONSENT_ARTICLE_9_DECISION="${OSTLER_CONSENT_ARTICLE_9_DECISION:-}"
+OSTLER_CONSENT_VOICE_EU_DECISION="${OSTLER_CONSENT_VOICE_EU_DECISION:-}"
+OSTLER_CONSENT_THIRD_PARTY_DECISION="${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}"
+OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}"
+OSTLER_CONSENT_ENRICHMENT_DECISION="${OSTLER_CONSENT_ENRICHMENT_DECISION:-}"
+
+# The WhatsApp tickbox is recorded from TWO variables rather than one decision
+# string, so both have to survive or the recorder reads a decline as a
+# never-asked. CHANNEL_WHATSAPP_CONSENT_ACCEPTED carries the accept; WA_CONSENT
+# carries an explicit "n" refusal that Doctor must show as "user declined"
+# rather than "missing".
+CHANNEL_WHATSAPP_CONSENT_ACCEPTED="${CHANNEL_WHATSAPP_CONSENT_ACCEPTED:-}"
+WA_CONSENT="${WA_CONSENT:-}"
 ENVEOF
 
 # This .env carries USER_ID + config the whole install reads; it is
@@ -11722,6 +12286,7 @@ fi
 
 OSTLER_ENV_FILE="${OSTLER_DIR}/.env"
 SERVICE_TOKEN_FILE="${SECRETS_DIR}/service_token"
+EXTENSION_TOKEN_FILE="${SECRETS_DIR}/extension_token"
 _jwt_secret_min_length=32
 
 _is_jwt_secret_banlisted() {
@@ -11878,6 +12443,42 @@ else
     umask "$umask_svc_orig"
     chmod 600 "$SERVICE_TOKEN_FILE"
     ok "$(printf "$MSG_OK_SEEDED_PWG_SERVICE_TOKEN" "${SERVICE_TOKEN_FILE}")"
+fi
+
+# ── Browser-extension credential (B3, #180) ───────────────────────
+#
+# THE DEFECT THIS CLOSES. Andy, 2026-09-02: *"no, it's a fucking BUG"*.
+# The Safari/Chrome extension captures the customer's own browsing on the
+# customer's own Mac and POSTs it to the Doctor on loopback. The Doctor used to
+# validate that bearer against the ZeroClaw gateway's PAIRED-TOKEN store, which
+# is populated by PAIRING AN IPHONE. A Hub customer who never bought or paired a
+# phone got 401 on every page, forever, and the extension sat in its
+# silent-skip branch saying so only to a browser console nobody reads.
+#
+# WHY A SEPARATE FILE AND NOT $SERVICE_TOKEN_FILE. That token is the Doctor's
+# credential for talking to the ical-server: it opens roughly thirty proxied
+# routes, and those are READS of the customer's whole life -- timeline, people,
+# email, memory. This one may open exactly ONE path, a WRITE of the customer's
+# own browsing. Sharing the value would silently promote a browser extension to
+# that wider authority. The proxy predicate (vendor/doctor/agent/proxy.py,
+# _is_extension_credential) enforces the narrowness; keeping the SECRETS apart
+# means a future widening has to be deliberate rather than inherited.
+#
+# REUSED IF PRESENT, for the same reason the service token is: the customer has
+# already pasted this value into the extension popup, and regenerating it would
+# silently break capture on every reinstall with no message anywhere.
+if [[ -s "$EXTENSION_TOKEN_FILE" ]]; then
+    OSTLER_EXTENSION_TOKEN=$(cat "$EXTENSION_TOKEN_FILE")
+    info "$(printf "$MSG_INFO_REUSING_EXISTING_EXTENSION_TOKEN" "${EXTENSION_TOKEN_FILE}")"
+else
+    OSTLER_EXTENSION_TOKEN=$(openssl rand -hex 32)
+    umask_ext_orig=$(umask)
+    umask 0077
+    printf '%s' "$OSTLER_EXTENSION_TOKEN" > "$EXTENSION_TOKEN_FILE"
+    umask "$umask_ext_orig"
+    chmod 600 "$EXTENSION_TOKEN_FILE"
+    unset umask_ext_orig
+    ok "$(printf "$MSG_OK_SEEDED_EXTENSION_TOKEN" "${EXTENSION_TOKEN_FILE}")"
 fi
 
 # ── Data-store auth secrets + compose auth-readiness (v1.0.10
@@ -12058,6 +12659,46 @@ ASSISTANT_CONFIG_DIR="${OSTLER_DIR}/assistant-config"
 mkdir -p "$ASSISTANT_CONFIG_DIR"
 ASSISTANT_CONFIG="${ASSISTANT_CONFIG_DIR}/config.toml"
 
+# W006 (v1.0.63 walk 2): PUBLISH THE WORKSPACE THE DAEMON ACTUALLY USES.
+#
+# The daemon learns its workspace from the assistant LaunchAgent's
+# ZEROCLAW_WORKSPACE=${OSTLER_DIR}/assistant-config, so its CostTracker reads
+#     ${OSTLER_DIR}/assistant-config/workspace/state/costs.jsonl
+# Nothing else on the box has that variable. Every other reader -- the box-walk
+# probe over ssh, scripts/verify_usage_journal_producers.py, Doctor, any CLI --
+# falls through its resolver to
+#     ${HOME}/.ostler/workspace/state/costs.jsonl
+# which the compose comment further down calls, correctly, "a DIFFERENT
+# directory nothing reads back".
+#
+# So the walk reported the usage journal as 0 records / file absent while the
+# Bursar panel was showing 73 model calls from the real one. Two resolvers,
+# one truth, and no bridge between them: the resolvers DO honour a
+# ${HOME}/.ostler/active_workspace.toml marker, and nothing had ever written
+# it. Measured on this tree: `active_workspace` appears 0 times in install.sh
+# against 19 hits for `config.toml`, so the absence was real and not a
+# mis-typed search.
+#
+# The marker goes in ${HOME}/.ostler REGARDLESS of OSTLER_DIR, because that is
+# where both resolvers look for it -- neither honours OSTLER_DIR when locating
+# the marker itself. The value is ABSOLUTE so a relocated OSTLER_DIR still
+# resolves; both readers accept an absolute config_dir.
+#
+# Env vars still win in both resolvers, so the daemon is unaffected. This only
+# moves the processes that are currently resolving to a path nobody writes.
+_ostler_workspace_marker="${HOME}/.ostler/active_workspace.toml"
+mkdir -p "${HOME}/.ostler"
+if printf 'config_dir = "%s"\n' "$ASSISTANT_CONFIG_DIR" > "${_ostler_workspace_marker}.tmp.$$" \
+   && mv -f "${_ostler_workspace_marker}.tmp.$$" "$_ostler_workspace_marker"; then
+    dbg "Published workspace marker: ${_ostler_workspace_marker} -> ${ASSISTANT_CONFIG_DIR}"
+else
+    # Non-fatal: the daemon does not need this file, only the other readers do.
+    # But say so, because a silent miss here is exactly the failure it fixes.
+    rm -f "${_ostler_workspace_marker}.tmp.$$" 2>/dev/null || true
+    warn "Could not write ${_ostler_workspace_marker}. Usage-journal readers outside the daemon will resolve to \${HOME}/.ostler/workspace, which nothing writes."  # i18n-exempt
+fi
+unset _ostler_workspace_marker
+
 # P0-β (box-walk recut #2, 2026-07-26): PRESERVE existing gateway pairings
 # across upgrades. The `{ ... } > "$ASSISTANT_CONFIG"` block below REGENERATES
 # the config from scratch, and its [gateway] line historically wrote
@@ -12106,6 +12747,127 @@ for _pt in "${_merged_paired_tokens[@]}"; do
     fi
 done
 unset _existing_tok _pt _pt_esc
+
+# ── PRESERVE the customer's CHANNELS across a reuse-settings re-run ─────
+#
+# 🔴 #619. THIS IS THE SAME CLASS AS THE paired_tokens BLOCK DIRECTLY ABOVE
+# -- same file, same truncating redirect, same "regenerated from scratch"
+# cause -- and the channels never got the fix that the tokens got.
+#
+# The `{ ... } > "$ASSISTANT_CONFIG"` below regenerates config.toml on EVERY
+# run, and NOTHING gates it on SKIP_PHASE2 (measured: zero SKIP_PHASE2 sites
+# between the last questions block and the redirect). On the reuse-settings
+# re-run SKIP_PHASE2=true, so the channel questions never execute and
+# CHANNEL_IMESSAGE_ENABLED / CHANNEL_IMESSAGE_ALLOWED sit at their
+# unconditional Phase-2 defaults (false / ""). `set -a; source .env` cannot
+# restore them either: config/.env carries 21 keys and NONE of them are
+# CHANNEL_* (measured, with a must-hit control on the keys it does carry).
+#
+# Consequence, and it is exactly what #619 reports: the brief-delivery
+# resolver below resolves NO channel, so the re-run writes ZERO [[cron.jobs]].
+# The customer silently loses the morning brief and the evening wrap they
+# already had, and the [channels] section goes with them.
+#
+# ⚠️ AND THE INSTALLER PROMISED THE OPPOSITE. The reuse prompt's help text
+# exists precisely to tell the customer their previous answers -- name,
+# assistant, timezone, country code, CHANNELS -- are being auto-reused.
+#
+# The comment justifying the empty defaults argues they are right because they
+# match "Phase-2-was-never-walked". True for a FRESH install; false for the
+# only path that reaches them, because reuse CANNOT fire unless a prior
+# COMPLETE install exists -- its trigger requires config/.env with a real
+# USER_ID= line. The defaults are correct for the case that never uses them.
+#
+# FILL-ONLY, NEVER OVERWRITE. Each value is restored only when the in-memory
+# variable is still at its Phase-2 default, so a fresh walk's answers always
+# win and this can never resurrect a channel the customer just turned off.
+#
+# Reads with the same awk shape as the paired_tokens reader above rather than
+# a TOML parser: no new interpreter dependency, and it only has to read back
+# the shape THIS FILE writes twenty lines further down.
+_ostler_config_list_first() {
+    # $1 = config path, $2 = section suffix, $3 = key.
+    # Echoes the FIRST quoted element of a (possibly multi-line) TOML array.
+    #
+    # 🔴 AN ABSENT KEY IS A NORMAL ANSWER, AND IT USED TO ABORT THE INSTALL.
+    #
+    # MEASURED on a cold account, 2026-09-04, walk 5 of v1.0.65. The shipped
+    # uninstaller leaves config/.env behind, so a re-install offers "We found
+    # your previous answers", takes the reuse path, and reaches the restore
+    # below. Then:
+    #
+    #     STEP_END id=config_save status=error rc=1
+    #     Install aborted unexpectedly at line 12720 (step config_save):
+    #         _v="$(_ostler_config_list_first "$_cfg" whatsapp allowed_numbers)"
+    #     #OSTLER DONE status=fail code=ERR-99-INSTALL-ABORT-L12720
+    #
+    # THE MECHANISM IS `pipefail`, NOT THE LAST COMMAND. install.sh runs under
+    # `set -Eeuo pipefail` (line 29). `grep -oE` exits 1 when it matches
+    # NOTHING, and pipefail promotes that 1 to the whole pipeline even though
+    # `sed` -- the last command -- exits 0. The assignment then trips `set -e`
+    # and the ERR trap fires. Reading only the last command of the chain gives
+    # the wrong answer here.
+    #
+    # WHO HITS IT: anyone re-running the installer whose config has no
+    # `[channels.whatsapp] allowed_numbers`, which is EVERY customer who did
+    # not choose WhatsApp. The other call site asks for
+    # `imessage allowed_contacts` and fails the same way when that is absent.
+    #
+    # REPRODUCED AND CONTROLLED on the box, with the real awk/grep/sed:
+    #     key ABSENT   -> exit 1, the script died before its next line
+    #     key PRESENT  -> exit 0, value "+447700900000" returned
+    # so absence is the cause, not some property of the file or the pipeline.
+    #
+    # THE FIX IS TO SAY THAT ABSENCE IS NOT AN ERROR, and to say it at the
+    # grep, not with a blanket `|| true` on the whole pipeline. A trailing
+    # `|| true` would also swallow an awk failure, an unreadable file and a
+    # broken sed -- it would fix the symptom by making the function unable to
+    # report anything at all.
+    [[ -f "$1" ]] || return 0
+    awk -v sect="[channels.$2]" -v key="$3" '
+        $0 == sect { in_s = 1; next }
+        in_s && /^\[/ { in_s = 0 }
+        in_s && !cap && $0 ~ ("^[ \t]*" key "[ \t]*=") { cap = 1 }
+        cap { buf = buf $0 "\n"; if (index($0, "]") > 0) { cap = 0; in_s = 0 } }
+        END { printf "%s", buf }
+    ' "$1" | { grep -oE '"[^"]*"' || true; } | head -1 | sed 's/^"//; s/"$//'
+}
+_ostler_config_section_enabled() {
+    # $1 = config path, $2 = section suffix. Echoes "true" only for enabled=true.
+    [[ -f "$1" ]] || return 0
+    awk -v sect="[channels.$2]" '
+        $0 == sect { in_s = 1; next }
+        in_s && /^\[/ { in_s = 0 }
+        in_s && $0 ~ /^[ \t]*enabled[ \t]*=[ \t]*true[ \t]*$/ { print "true"; exit }
+    ' "$1"
+}
+_ostler_restore_channels_from_existing_config() {
+    local _cfg="${1:-}"
+    [[ -n "$_cfg" && -f "$_cfg" ]] || return 0
+    local _v
+    if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" != true ]]; then
+        _v="$(_ostler_config_section_enabled "$_cfg" imessage)"
+        [[ "$_v" == true ]] && CHANNEL_IMESSAGE_ENABLED=true
+    fi
+    if [[ -z "${CHANNEL_IMESSAGE_ALLOWED:-}" ]]; then
+        _v="$(_ostler_config_list_first "$_cfg" imessage allowed_contacts)"
+        [[ -n "$_v" ]] && CHANNEL_IMESSAGE_ALLOWED="$_v"
+    fi
+    if [[ "${CHANNEL_WHATSAPP_ENABLED:-false}" != true ]]; then
+        _v="$(_ostler_config_section_enabled "$_cfg" whatsapp)"
+        [[ "$_v" == true ]] && CHANNEL_WHATSAPP_ENABLED=true
+    fi
+    if [[ -z "${CHANNEL_WHATSAPP_RECIPIENT:-}" ]]; then
+        _v="$(_ostler_config_list_first "$_cfg" whatsapp allowed_numbers)"
+        [[ -n "$_v" ]] && CHANNEL_WHATSAPP_RECIPIENT="$_v"
+    fi
+    return 0
+}
+# MUST run BEFORE the truncating redirect below -- once `{ ... } > "$cfg"` has
+# opened the file it is already empty and there is nothing left to read.
+if [[ "${SKIP_PHASE2:-false}" == true ]]; then
+    _ostler_restore_channels_from_existing_config "$ASSISTANT_CONFIG"
+fi
 
 umask_orig=$(umask)
 umask 0077
@@ -13038,9 +13800,14 @@ fi
 if [[ "$HAS_SECURITY_MODULE" == true ]]; then
     info "$MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION"
 
-    # Region first.
-    "$OSTLER_PYTHON" - "$OSTLER_REGION" "$OSTLER_REGION_ISO" "$OSTLER_REGION_SOURCE" <<'PY' || \
-        warn "$MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING"
+    # Region first. Capture stderr so a failure surfaces as a clean warn plus a
+    # Doctor-readable diagnostic, never a raw Python traceback on the customer's
+    # screen (#622 / v1061-D001). Mirrors the consent-cli path below. The
+    # encryption status is unaffected: region persistence is best-effort by
+    # design (block header above), so this changes only HOW a failure is shown,
+    # not the step's ok status.
+    _region_stderr="$(mktemp)"
+    if ! "$OSTLER_PYTHON" - "$OSTLER_REGION" "$OSTLER_REGION_ISO" "$OSTLER_REGION_SOURCE" 2>"$_region_stderr" <<'PY'
 import sys
 from ostler_security.region import RegionResult, save_region
 from datetime import datetime, timezone
@@ -13053,6 +13820,16 @@ result = RegionResult(
 )
 save_region(result)
 PY
+    then
+        warn "$MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING"
+        mkdir -p "${OSTLER_DIR}/posture" 2>/dev/null || true
+        {
+            echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] region persist failed"
+            head -c 400 "$_region_stderr" 2>/dev/null
+            echo ""
+        } >> "${OSTLER_DIR}/posture/region-persist-failures.log" 2>/dev/null || true
+    fi
+    rm -f "$_region_stderr"
 
     # Wraps `ostler_security.consent_cli record` with proper stderr
     # handling. The previous in-line pattern used `2>/dev/null || warn`
@@ -14839,11 +15616,38 @@ FDARPEOF
             launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
                 launchctl unload "$FDA_RERUN_PLIST" 2>/dev/null || true
         fi
-        if _ostler_launchagent_load_verified "$FDA_RERUN_PLIST"; then
-            ok "$(printf "$MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING" "$(( OSTLER_FDA_RERUN_INTERVAL_S / 60 ))")"
-        else
-            warn "$MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED"
-        fi
+        # 🔴 DO NOT LOAD IT YET. ITS PROGRAM DOES NOT EXIST FOR ANOTHER 3,292
+        # LINES.
+        #
+        # MEASURED on the Mini 16, 2026-09-04, on a finished install:
+        #
+        #     ~/.ostler/logs/fda-rerun.err   08:23:35Z  "ostler-fda not
+        #                                    found/executable at
+        #                                    ~/.ostler/bin/ostler-fda; re-run
+        #                                    the installer to repair."
+        #     ~/.ostler/bin/ostler-fda       08:24:13Z  written 38s LATER
+        #
+        # launchd starts a StartInterval job IMMEDIATELY on load and then every
+        # interval, so bootstrapping here fires a tick against a binary this
+        # script has not written yet. EVERY CUSTOMER INSTALL therefore writes
+        # "re-run the installer to repair" into its own error log, on a run
+        # that is about to succeed. Harmless -- the next tick works -- and
+        # alarming to whoever reads it, which on a support call is exactly who
+        # does.
+        #
+        # WHY DEFER RATHER THAN MOVE THE BINARY. The plist write is inside this
+        # conditional; the binary is written at TOP LEVEL far below. Hoisting a
+        # 100-line heredoc across 3,292 lines of a file this size, days after a
+        # walk, is a much larger change than the defect justifies. Deferring the
+        # LOAD moves one call and changes no other ordering.
+        #
+        # THE BEHAVIOUR CHANGE, STATED RATHER THAN GLOSSED: if the install
+        # aborts between here and the deferred load, the agent is not
+        # registered at all, where before it was registered and broken. That is
+        # the better failure -- an aborted install is a failed install the
+        # customer re-runs, and a registered agent whose program never arrived
+        # is a job that fails hourly forever with nobody reading it.
+        _OSTLER_FDA_RERUN_LOAD_PENDING=1
     fi
 else
     # Reachable only when --allow-plaintext was passed AND the FDA
@@ -16380,7 +17184,67 @@ fi
 unset _gdb_up _gdb_up_attempt
 ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 
-# ── Pre-create optional Qdrant collections (#606) ────────────────
+# ── v1061-D003 / reg#624: the vector store is a PREREQUISITE for import ──
+#
+# Long-standing latent defect a wiped, sole-tenant box finally exposed. On a
+# cold fresh install Qdrant collections do NOT self-create
+# (feedback_qdrant_collections_no_self_create_fresh_install), and a readiness
+# miss at T+0 (7 GB model pull + docker on a 16 GB box) can leave them absent.
+# import_data then writes every person as an embedding, 404s on the missing
+# collection, and discards thousands SILENTLY. This helper ensures the store
+# answers and every required collection exists -- creating any that are missing
+# -- and returns NON-ZERO if it cannot, so the import step can REFUSE rather
+# than run into a void. It reads the ONE shared list
+# _OSTLER_REQUIRED_QDRANT_COLLECTIONS (declared just below), so the importer's
+# expectation can never drift from the pre-creator's. The readiness wait is
+# env-tunable (OSTLER_QDRANT_READY_WAIT_S), not a magic constant, and probes the
+# AUTHENTICATED surface the writes actually use (#566).
+_OSTLER_QDRANT_MISSING_COLLECTIONS=""
+_ostler_ensure_qdrant_collections() {
+    local _u="${QDRANT_URL:-http://localhost:6333}"
+    local _max="${OSTLER_QDRANT_READY_WAIT_S:-120}" _waited=0 _c _missing=""
+    while [ "$_waited" -lt "$_max" ]; do
+        if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+            -sf -m 2 "${_u}/collections" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 2
+        _waited=$((_waited + 2))
+    done
+    for _c in "${_OSTLER_REQUIRED_QDRANT_COLLECTIONS[@]}"; do
+        if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+            -sf -m 5 "${_u}/collections/${_c}" >/dev/null 2>&1; then
+            continue
+        fi
+        curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+            -sf -m 10 -X PUT "${_u}/collections/${_c}" \
+            -H 'Content-Type: application/json' \
+            -d '{"vectors": {"size": 768, "distance": "Cosine"}}' >/dev/null 2>&1 || true
+        if ! curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+            -sf -m 5 "${_u}/collections/${_c}" >/dev/null 2>&1; then
+            _missing="${_missing:+$_missing }$_c"
+        fi
+    done
+    _OSTLER_QDRANT_MISSING_COLLECTIONS="$_missing"
+    [ -z "$_missing" ]
+}
+
+# ── reg#625: an import that attempted people but stored zero vectors FAILED ──
+# Complements the collection gate above: that refuses when the store has no
+# collection to hold the data; this catches the case where the collection is
+# present but every write still failed (the walk's 3810 x 404). Pure predicate,
+# so it is unit-testable: returns non-zero iff work was attempted and nothing
+# landed. The caller reads "attempted" from the importer's own [i/N] progress
+# and "stored" from the people collection's point count.
+_ostler_import_yield_ok() {
+    # _ostler_import_yield_ok <attempted> <stored>
+    local _a="${1:-0}" _s="${2:-0}"
+    case "$_a$_s" in *[!0-9]*) return 0 ;; esac   # non-numeric -> cannot judge, do not fail
+    [ "$_a" -gt 0 ] && [ "$_s" -eq 0 ] && return 1
+    return 0
+}
+
+# ── Pre-create the required Qdrant collections (#606) ────────────────
 #
 # The wiki compiler reads several Qdrant collections at compile time.
 # On a fresh install `people` is written first by the contact hydrate
@@ -16408,9 +17272,86 @@ ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 # non-fatal: a transient Qdrant hiccup must not fail the whole install
 # (CM044's reader is being hardened to tolerate a 404 in parallel).
 _qdrant_url="${QDRANT_URL:-http://localhost:6333}"
+# 🔴 #628. THIS WAIT IS THE ONE TIMEOUT #615 DID NOT RAISE, AND IT IS WHAT
+# FIRED ON THE v1.0.61 WALK. #615 named six hardcoded 90s hydrate caps, raised
+# them to 1800 and made them env-tunable; nine OSTLER_*_TIMEOUT:-1800 sites now
+# exist. This one stayed a bare `seq 1 30` and nobody noticed, because it is a
+# READINESS wait rather than a hydrate CAP and so fell outside that sweep's
+# vocabulary.
+#
+# What it cost: on the Mini 16 the store did not answer inside 30 attempts, the
+# installer then called the vector collections "optional", skipped creating
+# them, ran the import anyway, and discarded 3810 of 3810 people (#624).
+#
+# 🗿 WHY THE NUMBER MATTERS MORE NOW THAN IT DID. Before A2's import gate
+# (#1385) an expiry here was a silent discard. After it, an expiry here is a
+# HARD INSTALL FAILURE. That is the right direction -- loud beats silent -- but
+# it moves this constant from "how long before we quietly lose data" to "how
+# long before we refuse to install", and 30 seconds is not a defensible answer
+# to the second question on a 16 GB Mac cold-starting a Docker image at T+0.
+# Raising it is what keeps the refusal RARE and therefore MEANINGFUL.
+#
+# 300 not 1800: this is a liveness probe against a local container, not a
+# hydrate of a customer's whole mailbox. A store that has not answered in five
+# minutes is not slow, it is broken, and the customer should hear so. Tunable
+# on the #615 pattern so a slow box can be given more without a recut.
+_QDRANT_READY_CAP="${OSTLER_QDRANT_READY_TIMEOUT:-300}"
+case "$_QDRANT_READY_CAP" in
+    ''|*[!0-9]*)
+        # A non-numeric override is operator error. Do not silently fall back to
+        # a number they did not choose and cannot see -- say so, then use the
+        # default, so the log carries both the mistake and the value in force.
+        warn "OSTLER_QDRANT_READY_TIMEOUT is not a whole number of seconds; using 300"
+        _QDRANT_READY_CAP=300
+        ;;
+esac
+
+# Merge note (#1385 x #1386): both branches renamed the loop bound below. Kept
+# #1386's _QDRANT_READY_CAP (OSTLER_QDRANT_READY_TIMEOUT, default 300) over
+# #1385's OSTLER_QDRANT_READY_WAIT_S default 30, for three measured reasons: 30
+# is the value watched FAILING on the v1.0.61 walk; _QDRANT_READY_CAP is the
+# name the hydrate-cap-floor gate declares and enforces; and its assignment
+# validates the env override instead of feeding a non-numeric straight to seq.
+# OSTLER_QDRANT_READY_WAIT_S keeps its own separate job -- the in-function wait
+# in _ostler_ensure_qdrant_collections (default 120), which is the wait the
+# store-not-ready refusal tells the customer to raise. ONE NAME FOR TWO WAITS
+# WITH TWO DEFAULTS was the real trap here.
+#
+# ⚠️ THIS PROSE SITS ABOVE THE READINESS STATE VARIABLE DELIBERATELY, AND MUST
+# NOT SPELL IT. Two gates anchor on the line below and they are not equally
+# robust: #566 anchors it line-exactly, so prose cannot fool it, but the ERR-06
+# harness counts bare substring matches -- so merely NAMING the variable in a
+# comment made its anchor match twice and turned that gate CANNOT-RUN. Both
+# were measured here, in that order. #566 additionally reads only a 70-LINE
+# WINDOW from the anchor, and the credentialed curl it hunts falls outside once
+# a comment this long sits in between. Keep commentary above; do not widen a
+# gate's window, and do not quote its anchor, to make it go green.
 _qdrant_ready=false
 _qdrant_last_status=""
 _qdrant_wait_s=0
+
+# ── The collections this install PROMISES to create ─────────────────
+#
+# ⚠️ DEFINED AT TOP LEVEL, UNCONDITIONALLY, AND THAT IS THE WHOLE POINT.
+# The pre-create loop below runs only when the store came up ready. If this
+# array were declared inside that branch, then on the NOT-ready path it would
+# be UNSET, the post-hydrate membership check would iterate an empty list, and
+# it would report "nothing missing" on precisely the install where everything
+# is missing. An empty expectation is not a satisfied one.
+#
+# ONE list, TWO readers: the pre-create loop (which creates them) and
+# _initial_hydrate_qdrant_missing_required (which later checks they are still
+# there). They MUST NOT drift into two hand-maintained copies -- a checker
+# reading a different list from the creator answers a question nobody asked.
+#
+# SCOPE, STATED HONESTLY: this is a SELF-CONSISTENCY check, not an independent
+# one. It answers "I tried to create these four; are they there?" It CANNOT
+# tell you the declared set itself is wrong, because it is the producer's own
+# list. The independent check is scripts/install_manifest.tsv's
+# qdrant_collection rows (CM051 #1374), which are hand-declared and compared
+# against the live store at box-walk time. Two different questions, both worth
+# asking; do not let this one stand in for that one.
+_OSTLER_REQUIRED_QDRANT_COLLECTIONS=(people conversations preferences evernote_knowledge)
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
@@ -16454,7 +17395,7 @@ _qdrant_wait_s=0
 # from that. `-o /dev/null -w '%{http_code}'` keeps it; `|| printf '000'`
 # turns a transport failure (no listener, DNS, timeout) into a distinguishable
 # 000 rather than an empty string.
-for _qdrant_attempt in $(seq 1 30); do
+for _qdrant_attempt in $(seq 1 "$_QDRANT_READY_CAP"); do
     _qdrant_last_status="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
         -s -o /dev/null -w '%{http_code}' -m 2 "${_qdrant_url}/collections" 2>/dev/null || printf '000')"
     if [ "$_qdrant_last_status" = "200" ]; then
@@ -16465,7 +17406,7 @@ for _qdrant_attempt in $(seq 1 30); do
     _qdrant_wait_s="$_qdrant_attempt"
     sleep 1
 done
-unset _qdrant_attempt
+unset _qdrant_attempt _QDRANT_READY_CAP
 
 if [[ "$_qdrant_ready" == true ]]; then
     # ⚠️ THIS PROBE IS CREDENTIALED. Read the curl below before the prose.
@@ -16509,7 +17450,7 @@ if [[ "$_qdrant_ready" == true ]]; then
     # it appears in install logs customers have already sent us, and in
     # @ARCHIE's live traces. The code survives; only the SELF-TERMINATION on
     # it is gone.
-    for _coll in people conversations preferences evernote_knowledge; do
+    for _coll in "${_OSTLER_REQUIRED_QDRANT_COLLECTIONS[@]}"; do
         # Already present? Leave it untouched (never clobber real data).
         if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_qdrant_url}/collections/${_coll}" &>/dev/null; then
             continue
@@ -16567,7 +17508,34 @@ else
 
     # i18n-exempt: a support diagnostic of key=value pairs, not customer prose.
     # It is greppable by the ERR-06 code that install logs already carry.
-    warn "ERR-06-STORE-AUTH-LEAK diagnostic (non-fatal): status=${_qdrant_last_status:-none} headers_sent=${_e6_headers} waited=${_qdrant_wait_s:-0}s conf=${_e6_conf} conf_written=${_e6_conf_age} qdrant_started_at=${_e6_started}"
+    #
+    # #612, seen live on the v1.0.60 walk. #566 made the MESSAGE honest and
+    # deliberately kept the CODE (support-greppable, present in logs customers
+    # have already sent, enforced by
+    # tests/test_qdrant_readiness_tests_the_authenticated_surface.sh arm 3).
+    # What #566 did NOT fix is the ORDER. This line LED with the token, so the
+    # first thing a customer read about a condition we have measured to be a
+    # readiness timeout was the word LEAK, in a product whose whole proposition
+    # is that their data stays put. The leak hypothesis was REFUTED by
+    # measurement (status=000, not 401; warm and cold, delta 0.00s both times).
+    #
+    # So: lead with what was OBSERVED, demote the code to a trailing support
+    # reference. The code token followed by the word that follows it below is
+    # preserved VERBATIM on the warn line, because that exact phrase is the
+    # grep anchor in the test named above; moving it without preserving it
+    # would red a gate that is doing its job. This comment deliberately does
+    # NOT spell that phrase out: a `grep -F` anchor that matches a COMMENT as
+    # well as the statement it guards has silently doubled its match set.
+    # v1061-D003 requirement 6: LEAD with an honest reference. The measured
+    # condition here is a readiness timeout (status=000, not 401), so the code a
+    # customer reads first is now ERR-06-STORE-READINESS-TIMEOUT. The legacy
+    # ERR-06-STORE-AUTH-LEAK token is preserved verbatim on the same line -- old
+    # install logs customers have already sent carry it, and arms 3/4 of
+    # test_qdrant_readiness_tests_the_authenticated_surface.sh pin it as the
+    # greppable diagnostic anchor. This path is now also non-terminal by design:
+    # the import gate downstream waits, prepares, and REFUSES rather than
+    # discarding, so the customer never reaches a silent empty graph.
+    warn "Knowledge-graph database did not answer in time yet. The data import below will wait for it, prepare the search collections, and stop rather than discard your data if the store is still not ready. Support reference ERR-06-STORE-READINESS-TIMEOUT; legacy code ERR-06-STORE-AUTH-LEAK diagnostic: status=${_qdrant_last_status:-none} headers_sent=${_e6_headers} waited=${_qdrant_wait_s:-0}s conf=${_e6_conf} conf_written=${_e6_conf_age} qdrant_started_at=${_e6_started}"
 
     # ⚠️ ONE-HEADER CONF IS ITS OWN DEFECT, AND THE LINE ABOVE MAKES IT VISIBLE.
     # _ostler_write_store_curl_config fails closed ONLY when BOTH secrets are
@@ -16946,12 +17914,15 @@ if [[ "$HAS_PIPELINE" == true ]]; then
         fi
         set -e
         if [[ $PIPELINE_PIP_EXIT -ne 0 ]]; then
-            warn "$(printf "$MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT" "$PIPELINE_PIP_EXIT")"
+            warn "$(printf "$MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT" "$PIPELINE_PIP_EXIT" "$PIPELINE_PIP_LOG")"
             warn "$MSG_WARN_PIPELINE_PIP_LOG_LAST_LINES"
             while IFS= read -r line; do
                 warn "    $line"
             done < <(tail -30 "$PIPELINE_PIP_LOG")
-            fail_with_code "ERR-14-PIPELINE-PIP" "$MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED"
+            # W003 class: this message named /tmp/ostler-pipeline-pip.log, which
+            # nothing writes. The log is PIPELINE_PIP_LOG, under the private
+            # per-run OSTLER_DIAG_DIR (#910). Name the real path.
+            fail_with_code "ERR-14-PIPELINE-PIP" "$(printf "$MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED" "$PIPELINE_PIP_LOG")"
         fi
         ln -sf "${CONFIG_DIR}/.env" contact_syncer/.env 2>/dev/null || true
         ok "$MSG_OK_IMPORT_PIPELINE_READY"
@@ -17730,16 +18701,84 @@ if [[ -n "${OSTLER_MAILBOX_DIR:-}" && -d "${OSTLER_MAILBOX_DIR}" ]]; then
 fi
 
 if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
+    # ── v1061-D003 / reg#624: refuse to import into a store that cannot hold it ──
+    # import_data embeds every person into Qdrant. If the collections were never
+    # prepared (a readiness miss upstream, and nothing self-creates them on a
+    # fresh store), every person 404s and is discarded SILENTLY -- which is how
+    # this walk scored STEP_END import_data status=ok over 3810 lost people.
+    # Give the store the tunable readiness wait it may have missed at T+0 and
+    # create anything still absent; if it STILL cannot hold the data, REFUSE via
+    # fail_with_code. Mechanism, measured (Archie review of #1385): that ends the
+    # install with a DONE fail marker BEFORE import_data is even announced -- this
+    # gate sits above the progress line -- so there is no import_data step for a
+    # false status=ok to sit on. The outcome is stronger than "the step is marked
+    # failed": the step never starts. This line is what CONNECTS the upstream
+    # readiness miss to a downstream stop -- without it the two live in different
+    # functions and nothing joins them.
+    if ! _ostler_ensure_qdrant_collections; then
+        fail_with_code "ERR-14-STORE-NOT-READY-FOR-IMPORT" \
+            "$(printf "$MSG_FAIL_QDRANT_IMPORT_REFUSED_MISSING_COLLECTIONS" "${_OSTLER_QDRANT_MISSING_COLLECTIONS:-unknown}")"
+    fi
+    # Diagnostics go in the private per-run sink (#910), like every other log
+    # this script writes. The fallback this replaced was a FIXED /tmp path, which
+    # is the shared-sink class that killed a walk in #538: on a multi-account Mac
+    # another user can pre-create or symlink that name. No fallback is needed here
+    # at all -- OSTLER_DIAG_DIR is created with mktemp -d at :168 and the script
+    # EXITS if that fails, so by this line the directory is known to exist.
+    _import_log="${OSTLER_DIAG_DIR}/import.log"
     progress "Importing your data (building your knowledge graph)" "import_data"
     info "$MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES"
     if "$IMPORT_SCRIPT" "${_IMPORT_DIRS[@]}" \
         --user-name "$USER_NAME" --user-id "$USER_ID" --verbose 2>&1 \
-        | while IFS= read -r line; do echo "  $line"; done; then
+        | tee "$_import_log" | while IFS= read -r line; do echo "  $line"; done; then
         ok "$MSG_OK_GDPR_IMPORT_COMPLETE"
     else
         warn "$MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN"
         warn "$(printf "$MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE" "${_IMPORT_DIRS[0]}" "${USER_NAME}")"
     fi
+    # ── reg#625 yield floor: attempted people but stored nothing is a FAILED import ──
+    # The importer prints one [i/N] line per person. If it processed any and the
+    # people vector collection is still empty, every write was discarded (the
+    # 3810 x 404 this walk hit) and status=ok would lie. Read both, then FAIL.
+    # Read "attempted" as THREE states, because two of them are not zero.
+    #
+    # `grep -c ... 2>/dev/null || printf '0'` reports an UNREADABLE log as
+    # "attempted 0", which silently disarms the floor below on exactly the run
+    # that most needed it -- the same false-zero that bought a redundant full
+    # re-ingest in v1061-D004. And on a READABLE log with no matches it is
+    # malformed rather than merely wrong: grep -c PRINTS "0" and EXITS 1, so the
+    # `||` arm fires as well and the value becomes the two-line string "0\n0"
+    # (measured). That is what puts a bare `syntax error in expression (error
+    # token is "0")` on the customer's screen (#271).
+    #
+    # `|| true` inside the substitution keeps errexit happy without appending a
+    # second count, and stderr is deliberately NOT discarded: a real read error
+    # belongs in the install log, not in /dev/null.
+    if [[ -r "$_import_log" ]]; then
+        _import_attempted="$(grep -cE '\[[0-9]+/[0-9]+\]' "$_import_log" || true)"
+    else
+        _import_attempted="CANNOT-RUN"
+        warn "$MSG_WARN_IMPORT_YIELD_UNMEASURABLE"
+    fi
+    _people_points="$(
+        curl -sf -m 5 "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" "${QDRANT_URL:-http://localhost:6333}/collections/people" 2>/dev/null \
+        | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read()); print(int(((d.get("result") or {}).get("points_count")) or 0))
+except Exception:
+    print(0)' 2>/dev/null || printf '0'
+    )"
+    # The import log is deliberately NOT deleted here. It used to be, and that was
+    # safe while it lived at a throwaway mktemp path -- but it now lives in the
+    # per-run diagnostic sink, and the very next line can end the install over what
+    # that log says. Deleting it one line before the failure that cites it destroys
+    # the only record of WHICH records were attempted. Every sibling log in
+    # OSTLER_DIAG_DIR is retained for the same reason.
+    if ! _ostler_import_yield_ok "${_import_attempted:-0}" "${_people_points:-0}"; then
+        fail_with_code "ERR-14-IMPORT-STORED-NOTHING" \
+            "$(printf "$MSG_FAIL_IMPORT_ATTEMPTED_BUT_STORED_NOTHING" "${_import_attempted:-0}")"
+    fi
+
     # Counts-only preferences readback; no item content leaves the process.
     # v1.0.10 install-abort fix: this is a counts-only, non-fatal
     # diagnostic, but under `set -Eeuo pipefail` a failing curl (401 /
@@ -17974,7 +19013,7 @@ fi
 # channel a scheduler can act on -- a loud log tells a human, an rc tells the
 # system, and only one of those is watching at 04:00.
 "$OSTLER_PYTHON" -c "
-import json, sys
+import json, sys, os, datetime
 sys.path.insert(0, '${FDA_DIR}')
 from ostler_fda.extract_all import run_all
 from ostler_fda.pwg_ingest import ingest_all
@@ -17983,6 +19022,62 @@ fda_dir = Path('${OSTLER_DIR}/imports/fda')
 run_all(fda_dir)
 results = ingest_all(fda_dir) or {}
 print('[ingest] ' + json.dumps(results, default=str))
+
+# ── ONGOING ACTIVITY RECORD (#W018) ──────────────────────────────────────
+#
+# WHY THIS EXISTS, MEASURED on the Mini 16 2026-09-04. Every hydrate sentinel
+# under state/hydrate was frozen between 08:29Z and 08:45Z -- install time --
+# while this very script rewrote imessage_conversations.json at 09:17Z with
+# 167 conversations and 136 people created. The extract moved; the record did
+# not. So /api/v1/sources reported 'no_data, people=0' for a source that had
+# just done real work, and its own docstring claims it shows 'whether a source
+# landed AND WHETHER IT KEEPS UPDATING'. It could never answer the second half.
+#
+# TWO RECORDS, NEVER ONE REPURPOSED. state/hydrate/<n>.done stays exactly as
+# it is: an install-time verdict with a 7-day dedupe window. That record
+# answers 'did this land at install'. This one answers 'is this still
+# working', which is a different question and needs its own writer.
+#
+# LAST-RUN AND LAST-SUCCESS ARE SEPARATE FIELDS ON PURPOSE. 'ran 4 minutes ago
+# and found nothing' and 'last ran at install and has not run since' print
+# identically when you only keep one timestamp, and that collapse is the whole
+# defect. last_success_at is CARRIED FORWARD from the previous record when
+# this run was not a success, so a failing source still shows when it last
+# worked rather than losing that history on its first bad tick.
+#
+# BEST EFFORT, ALWAYS. This is bookkeeping about ingest, not ingest. It must
+# never be able to fail the tick it is describing, so every write is wrapped
+# and a broken record costs a row of reporting, never a harvest.
+try:
+    _now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    _act = Path('${OSTLER_DIR}') / 'state' / 'source_activity'
+    _act.mkdir(parents=True, exist_ok=True)
+    _rows = results if isinstance(results, dict) and results.get('status') != 'error' else {}
+    for _name in sorted(_rows):
+        _res = _rows[_name]
+        if not isinstance(_res, dict):
+            continue
+        _status = str(_res.get('status', 'unknown'))
+        _f = _act / (_name + '.tsv')
+        _prev_success = ''
+        if _f.is_file():
+            for _line in _f.read_text(encoding='utf-8', errors='replace').splitlines():
+                if _line.startswith('last_success_at='):
+                    _prev_success = _line.split('=', 1)[1]
+        _success = _now if _status == 'ok' else _prev_success
+        _detail = json.dumps({k: v for k, v in _res.items() if k != 'status'}, default=str)
+        _f.write_text(
+            'source=' + _name + chr(10) +
+            'last_run_at=' + _now + chr(10) +
+            'last_status=' + _status + chr(10) +
+            'last_success_at=' + _success + chr(10) +
+            'last_detail=' + _detail[:400] + chr(10) +
+            'writer=ostler-fda' + chr(10),
+            encoding='utf-8')
+except Exception as _exc:
+    sys.stderr.write('[activity] could not record ongoing status: ' +
+                     type(_exc).__name__ + ': ' + str(_exc) + chr(10))
+
 failed = []
 if results.get('status') == 'error':
     # The whole-directory failure shape: a FLAT dict, not per-source. Checked
@@ -18000,6 +19095,26 @@ if failed:
 "
 FDAEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-fda"
+
+# ── THE DEFERRED fda-rerun LOAD (see the note at its plist write) ─────────
+# Registered ONLY now, because only now does the program it invokes exist.
+# launchd starts a StartInterval job immediately on load, so loading it any
+# earlier fires a tick against a binary that is not there and writes
+# "re-run the installer to repair" into the customer's own error log.
+if [[ "${_OSTLER_FDA_RERUN_LOAD_PENDING:-0}" == "1" ]]; then
+    # A guard, not decoration: if the binary is somehow still absent we are
+    # about to reproduce the exact defect this block exists to remove, so say
+    # so instead of registering it anyway.
+    if [[ ! -x "${OSTLER_DIR}/bin/ostler-fda" ]]; then
+        warn "$MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED"
+        warn "  ostler-fda is not executable at ${OSTLER_DIR}/bin/ostler-fda, so the recurring re-run was NOT registered."
+    elif _ostler_launchagent_load_verified "$FDA_RERUN_PLIST"; then
+        ok "$(printf "$MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING" "$(( OSTLER_FDA_RERUN_INTERVAL_S / 60 ))")"
+    else
+        warn "$MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED"
+    fi
+    unset _OSTLER_FDA_RERUN_LOAD_PENDING
+fi
 
 # Create a self-removing contact re-sync wrapper. Re-runs the CM041
 # contact_syncer against the LOCAL AddressBook store -- specifically the
@@ -18078,7 +19193,7 @@ try:
     print(int(json.loads(sys.stdin.read()).get("imported", 0)))
 except Exception:
     print(0)' 2>/dev/null
-)"
+)" || count=""
 count="${count:-0}"
 
 if [[ "$count" -gt 0 ]]; then
@@ -18710,7 +19825,7 @@ echo ""
 echo "  This will NOT remove:"
 echo "    - Docker Desktop or Colima"
 echo "    - Homebrew"
-echo "    - Ollama or downloaded models (may be 5-23 GB)"
+echo "    - Ollama or downloaded models (may be 7.2-23 GB)"
 echo "      To remove: ollama rm <model-name>"
 echo "    - Your original GDPR export files"
 echo "    - Your hub power policy (~/.ostler/power.conf)"
@@ -19115,12 +20230,15 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     DOCTOR_PIP_EXIT=$?
     set -e
     if [[ $DOCTOR_PIP_EXIT -ne 0 ]]; then
-        warn "$(printf "$MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT" "$DOCTOR_PIP_EXIT")"
+        warn "$(printf "$MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT" "$DOCTOR_PIP_EXIT" "$DOCTOR_PIP_LOG")"
         warn "$MSG_WARN_DOCTOR_PIP_LOG_LAST_LINES"
         while IFS= read -r line; do
             warn "    $line"
         done < <(tail -30 "$DOCTOR_PIP_LOG")
-        fail_with_code "ERR-17-DOCTOR-PIP" "$MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED"
+        # W003 class: this message named /tmp/ostler-doctor-pip.log, which
+        # nothing writes. The log is DOCTOR_PIP_LOG, under the private per-run
+        # OSTLER_DIAG_DIR (#910). Name the real path.
+        fail_with_code "ERR-17-DOCTOR-PIP" "$(printf "$MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED" "$DOCTOR_PIP_LOG")"
     fi
     ok "$MSG_OK_DOCTOR_DEPENDENCIES_INSTALLED"
 
@@ -19163,6 +20281,17 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
         <string>8089</string>
         <key>DOCTOR_SUPPORT_EMAIL</key>
         <string>support@ostler.ai</string>
+        <!-- B3 (#180): the browser-extension credential. The Doctor accepts
+             it for POST /api/safari/ingest on loopback ONLY. See
+             _is_extension_credential in agent/proxy.py, which also refuses
+             OSTLER_ADMIN_TOKEN here on purpose. This plist is chmod 0600
+             below, same as the ical one, because it now carries a secret.
+             NOTE: no double hyphen anywhere in this comment. XML forbids it
+             inside a comment, launchd's lenient parser loads the file
+             regardless, and the result is a plist that works but that no
+             strict reader can parse. That is what landed here first. -->
+        <key>OSTLER_EXTENSION_TOKEN</key>
+        <string>${OSTLER_EXTENSION_TOKEN}</string>
         <!-- CX-P0A (2026-05-26): forward the iOS /api/v1/* paths to
              the loopback-bound ical-server on 127.0.0.1:8090. Without
              this list Doctor 404s every iOS Companion call beyond
@@ -20286,7 +21415,86 @@ _install_conversation_feed() {
 if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" == true ]]; then
     progress "$MSG_PROGRESS_WHATSAPP_BUNDLE" "whatsapp_bundle"
     _install_conversation_feed whatsapp whatsapp_source "ostler_fda pyyaml"
+else
+    # SAY WHICH PRECONDITION FAILED. Before this else existed the step was
+    # subtracted from TOTAL_STEPS and NOTHING was printed, so a customer
+    # whose WhatsApp is off saw no mention of the feed at all -- identical
+    # to a feed that does not exist. "Turned off" and "consent not given"
+    # are different facts with different next actions; do not merge them.
+    if [[ "$CHANNEL_WHATSAPP_ENABLED" != true ]]; then
+        info "$MSG_INFO_FEED_WHATSAPP_SKIPPED_OFF"
+    else
+        info "$MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT"
+    fi
 fi
+
+# ── UNKNOWN IS NOT DECLINED, AND CONFLATING THEM SILENTLY TURNS FEATURES OFF ──
+#
+# MEASURED on the Mini 16, 2026-09-04, on a finished v1.0.63 install where the
+# customer chose "use previous answers":
+#
+#     PROMPT markers in the whole run    imessage_automation_incoming_ack,
+#                                        reuse_settings, tailscale_confirm
+#     occurrences of "consent_third_party"   0      <- never asked
+#     consent registry, `show --tickbox`     null   <- nothing recorded
+#     keys matching ^[A-Z_]*CONSENT.*= in config/.env   0   (of 19 keys;
+#                                        CONTROL: ^USER_ID= is 1, so the
+#                                        predicate works and .env does persist)
+#     conversation feeds installed       1 of 4 (spoken only)
+#     bundle agents present              spoken only; imessage/whatsapp/email
+#                                        ABSENT (CONTROL: ostler.assistant
+#                                        PRESENT, so the probe can find agents)
+#
+# THE LOOP IS SELF-PERPETUATING, which is why it does not heal:
+#
+#     reuse -> SKIP_PHASE2 -> the consent questions never execute
+#           -> OSTLER_CONSENT_*_DECISION stays EMPTY
+#           -> the recorder at ~13755 is guarded on the variable being NON-EMPTY,
+#              so it records NOTHING into the durable registry
+#           -> the NEXT reuse run has nothing to restore, and repeats
+#
+# So the decision lives only in a shell variable that dies with the process, and
+# every consent-gated feature reads its absence as a refusal.
+#
+# 🔴 SAME CLASS AS #619, THIRD OCCURRENCE. The block at ~12674 records this
+# exact shape for CHANNELS -- "config/.env carries 21 keys and NONE of them are
+# CHANNEL_*" -- and the paired_tokens block above it records it once more. Both
+# got a fill-only restore. Consent did not, and consent is the one where the
+# failure mode is a PRIVACY-GATED FEATURE SILENTLY SWITCHING OFF.
+#
+# WHAT THIS FUNCTION DOES AND DELIBERATELY DOES NOT DO.
+#
+# It reports THREE states, never two. It does NOT invent a decision, and it
+# never upgrades unknown to accepted: consent is the customer's to give, and a
+# restore that guesses "yes" would be far worse than the bug it fixes.
+#
+#     accepted   the customer said yes, this run or in the durable registry
+#     declined   the customer said no
+#     unknown    nobody has ever been asked, or the answer was lost
+#
+# The CALLERS decide what to do with `unknown`. What they may no longer do is
+# treat it as `declined` in silence.
+_ostler_consent_state() {
+    # _ostler_consent_state <tickbox-id> <in-memory-decision>
+    # -> accepted | declined | unknown
+    local tickbox="$1" inmem="${2:-}"
+    case "$inmem" in
+        accepted) printf 'accepted'; return ;;
+        declined) printf 'declined'; return ;;
+    esac
+    # Nothing in memory. Ask the DURABLE registry rather than assuming.
+    # `check` exits 0 only when a current ACCEPTED record exists; every other
+    # state (declined, absent, unreadable) exits non-zero and is therefore
+    # NOT enough to distinguish declined from never-asked. That is why a
+    # non-zero here reports `unknown` and not `declined`.
+    if [[ -n "${OSTLER_PYTHON:-}" ]] && [[ -x "${OSTLER_PYTHON}" ]]; then
+        if "$OSTLER_PYTHON" -m ostler_security.consent_cli check \
+               --tickbox "$tickbox" >/dev/null 2>&1; then
+            printf 'accepted'; return
+        fi
+    fi
+    printf 'unknown'
+}
 
 # Email body feed. Reads OTHER PEOPLE'S message content (Apple Mail's
 # local store), so it is gated on the third-party-data consent (Q14),
@@ -20295,10 +21503,40 @@ fi
 # ostler_fda (reader reuses ostler_fda.apple_mail_mbox) + pyyaml.
 # Step-count: Email body-feed is a gated progress step (Apple Mail present +
 # third-party consent). Subtract its slot from TOTAL_STEPS when skipped.
-[[ ! -d "${HOME}/Library/Mail" || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
-if [[ -d "${HOME}/Library/Mail" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
+#
+# 🔴 RESOLVED FIRST, AND THE DECREMENT READS THE SAME VALUE THE GUARD DOES.
+# This line used to read the RAW variable while the guard below read the
+# resolver. On a reuse run where the resolver restores `accepted` from the
+# durable registry, the step would RUN while its slot had already been
+# subtracted -- the denominator shrinking mid-run, which is v1061-D005 filed
+# against this very installer. One value, computed once, read by both.
+_OSTLER_CONSENT_TP_EMAIL="$(_ostler_consent_state third_party_data_personal_records "$OSTLER_CONSENT_THIRD_PARTY_DECISION")"
+[[ ! -d "${HOME}/Library/Mail" || "$_OSTLER_CONSENT_TP_EMAIL" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
+
+# Say out loud that a feature was skipped for want of an ANSWER, not for want
+# of consent. A customer who is never told cannot act, and this is precisely
+# the case the installer's own reuse help text promises will not happen.
+_ostler_warn_consent_unknown() {
+    # _ostler_warn_consent_unknown <feature-label> <tickbox-id>
+    warn "$(printf "$MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED" "$1")"
+    warn "$(printf "$MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY" "$2")"
+}
+
+if [[ -d "${HOME}/Library/Mail" && "$_OSTLER_CONSENT_TP_EMAIL" == "unknown" ]]; then
+    _ostler_warn_consent_unknown "Mail conversation feed" third_party_data_personal_records
+fi
+if [[ -d "${HOME}/Library/Mail" && "$_OSTLER_CONSENT_TP_EMAIL" == "accepted" ]]; then
     progress "$MSG_PROGRESS_EMAIL_BUNDLE" "email_bundle"
     _install_conversation_feed email email_source "ostler_fda pyyaml"
+else
+    # Same silence, same fix. "Apple Mail is not set up on this Mac" is a
+    # fact the customer may want to act on; "you declined" is a choice they
+    # already made. Reporting both as nothing taught them neither.
+    if [[ ! -d "${HOME}/Library/Mail" ]]; then
+        info "$MSG_INFO_FEED_EMAIL_SKIPPED_NO_MAIL"
+    else
+        info "$MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT"
+    fi
 fi
 
 # Meeting / voice body feed. These are the customer's OWN CM042
@@ -20312,6 +21550,43 @@ fi
 if [[ -d "${USER_FACING_ROOT}/Transcripts" ]]; then
     progress "$MSG_PROGRESS_SPOKEN_BUNDLE" "spoken_bundle"
     _install_conversation_feed spoken spoken_source "pyyaml"
+else
+    # THE ROW A2 CONFIRMED. Only one precondition here (the Transcripts
+    # directory), and its absence is the ordinary case on a fresh Mac --
+    # which is exactly why saying nothing was wrong. The customer has no
+    # way to learn that recording their calls is a thing Ostler can do.
+    #
+    # B2: NEVER-HAD-IT AND HAD-IT-AND-LOST-IT ARE DIFFERENT FACTS, AND
+    # THEY PRINTED IDENTICALLY. The message below is written for a fresh
+    # Mac where no recording has ever been made. In the other case it
+    # states a cause that is not the cause: the user tree WAS created and
+    # announced (the sentinel is the proof), and the Transcripts directory
+    # has been removed since. "there are no recordings to read" is then
+    # false, and a feed the customer previously had goes quiet underneath
+    # a reassuring sentence. Absence of data and absence of the place data
+    # lives are not the same absence.
+    #
+    # The sentinel is the discriminator and it already exists for exactly
+    # this purpose. Creation (~line 6583) writes it once and then
+    # deliberately never recreates a removed subdir, "so a customer who
+    # has deliberately removed (or renamed) one of the subdirs is not
+    # surprised by its silent re-creation". That intent is correct and is
+    # preserved here: this branch still creates NOTHING. What changes is
+    # that a removal is now reported AS a removal.
+    #
+    # `warn` not `info`: on a fresh Mac this is onboarding, but after a
+    # removal it is a capability that was available and now is not.
+    #
+    # ${USER_TREE_SENTINEL:-} because install.sh runs under `set -u`: an
+    # unset variable here would abort the install outright, which is the
+    # exact shape that made B3b a dead install at its own step.
+    if [[ -n "${USER_TREE_SENTINEL:-}" && -f "${USER_TREE_SENTINEL}" ]]; then
+        warn "$MSG_WARN_FEED_SPOKEN_TRANSCRIPTS_REMOVED"
+        info "$(printf "$MSG_INFO_FEED_SPOKEN_TRANSCRIPTS_REMOVED_HOW" "${USER_FACING_ROOT}/Transcripts")"
+    else
+        info "$MSG_INFO_FEED_SPOKEN_SKIPPED_NO_TRANSCRIPTS"
+        info "$MSG_INFO_FEED_SPOKEN_SKIPPED_HOW"
+    fi
 fi
 
 # iMessage body feed. Reads OTHER PEOPLE'S message content
@@ -20322,10 +21597,23 @@ fi
 # so the package stages under services/ (stage_subpath services/imessage_source).
 # Step-count: iMessage body-feed is a gated progress step (chat.db present +
 # third-party consent). Subtract its slot from TOTAL_STEPS when skipped.
-[[ ! -f "${HOME}/Library/Messages/chat.db" || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
-if [[ -f "${HOME}/Library/Messages/chat.db" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
+# Resolved BEFORE the decrement, for the v1061-D005 reason noted at the email
+# step above: the slot subtraction and the guard must read one value.
+_OSTLER_CONSENT_TP_IMSG="$(_ostler_consent_state third_party_data_personal_records "$OSTLER_CONSENT_THIRD_PARTY_DECISION")"
+[[ ! -f "${HOME}/Library/Messages/chat.db" || "$_OSTLER_CONSENT_TP_IMSG" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
+if [[ -f "${HOME}/Library/Messages/chat.db" && "$_OSTLER_CONSENT_TP_IMSG" == "unknown" ]]; then
+    _ostler_warn_consent_unknown "iMessage conversation feed" third_party_data_personal_records
+fi
+if [[ -f "${HOME}/Library/Messages/chat.db" && "$_OSTLER_CONSENT_TP_IMSG" == "accepted" ]]; then
     progress "$MSG_PROGRESS_IMESSAGE_BUNDLE" "imessage_bundle"
     _install_conversation_feed imessage services/imessage_source "pyyaml"
+else
+    # Fourth of four. Same shape, same silence, same fix.
+    if [[ ! -f "${HOME}/Library/Messages/chat.db" ]]; then
+        info "$MSG_INFO_FEED_IMESSAGE_SKIPPED_NO_DB"
+    else
+        info "$MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT"
+    fi
 fi
 
 # ── 3.14a-probe Mail content probe + sidecar (#259) ─────────────
@@ -21286,7 +22574,16 @@ else
                     # unannounced crash of windows after being told to walk
                     # away. This is a log line, not another modal -- it sets
                     # expectation without adding a window.
-                    info "$MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE"
+                    # #613: same predicate as the wrap-up above. Naming a
+                    # Tailscale sign-in to someone who declined it is the
+                    # SECOND such promise on the declined path, and this one
+                    # lands at the moment they are deciding whether they can
+                    # walk away. Unknown answer keeps the original wording.
+                    if [[ "${TAILSCALE_CONFIRM:-}" == "skip" ]]; then
+                        info "$MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE_NO_REMOTE"
+                    else
+                        info "$MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE"
+                    fi
 
                 # BW4-A (2026-07-24): TCC auto-register nudge for the daemon.
                 #
@@ -21405,7 +22702,17 @@ else
                         # the by-identity sweep below can distinguish the instance
                         # WE spawn from any pre-existing legit process, and never
                         # touch the latter.
-                        _fda_pre_pids="$(pgrep -f 'OstlerAssistant\.app/Contents/MacOS/ostler-assistant' 2>/dev/null | sort -u)"
+                        # `|| true` IS LOAD-BEARING (#642, killed the v1.0.62
+                        # walk on its second run). `pgrep` exits 1 when NOTHING
+                        # MATCHES, which here is the ordinary case: no assistant
+                        # is running yet. Under this script's `set -Eeuo
+                        # pipefail` (install.sh:29) that 1 travels through the
+                        # pipe, fails the bare assignment, and kills the whole
+                        # install. `2>/dev/null` hides the stderr, not the
+                        # status. MEASURED: pgrep no-match rc=1; piped to sort
+                        # rc=0 without pipefail and rc=1 with it; control
+                        # `pgrep -f launchd` rc=0.
+                        _fda_pre_pids="$(pgrep -f 'OstlerAssistant\.app/Contents/MacOS/ostler-assistant' 2>/dev/null | sort -u || true)"
                         # (2) app-identity nudge: -n fresh instance, -g/-j launch
                         # background + hidden (no focus-steal, no visible window),
                         # NO -W (the read+exit is sub-second; -W is what tempted
@@ -21446,7 +22753,23 @@ else
                         # `run-source <src>` ingest tick that happened to fire in
                         # the settle window). Compared against _fda_pre_pids so a
                         # pre-existing process is never signalled.
-                        _fda_post_pids="$(pgrep -f 'OstlerAssistant\.app/Contents/MacOS/ostler-assistant' 2>/dev/null | sort -u)"
+                        # `|| true` IS LOAD-BEARING -- see the sibling note at
+                        # the pre-scan above. THIS is the line that actually
+                        # killed the v1.0.62 walk (#642): the post-scan runs
+                        # after the nudge process has already read-and-exited,
+                        # so a no-match here is not merely possible, it is the
+                        # EXPECTED outcome, and it took the install down with
+                        # ERR-99-INSTALL-ABORT-L21925 at step 26 of 37.
+                        #
+                        # It also produced the DOUBLE terminal DONE of #639,
+                        # unexplained for a day: `set -E` propagates the ERR
+                        # trap into this command substitution's SUBSHELL, which
+                        # emits one DONE and sets OSTLER_DONE_EMITTED *in the
+                        # subshell only*. The parent's guard stays empty, so the
+                        # parent's own later failure emits a SECOND DONE with a
+                        # different line number. Neutralising the status here
+                        # closes both the abort and the duplicate marker.
+                        _fda_post_pids="$(pgrep -f 'OstlerAssistant\.app/Contents/MacOS/ostler-assistant' 2>/dev/null | sort -u || true)"
                         while IFS= read -r _fda_np; do
                             [[ -n "$_fda_np" ]] || continue
                             _fda_np_cmd="$(ps -p "$_fda_np" -o command= 2>/dev/null)"
@@ -23180,6 +24503,56 @@ progress "Hydrating your graph from iCloud" "hydrate_graph"
 _HYDRATE_SENTINEL_DIR="${OSTLER_DIR}/state/hydrate"
 mkdir -p "$_HYDRATE_SENTINEL_DIR"
 
+# G1b: extract a typed integer count from a free-form payload. The payload is a
+# `key=value` string whose value is a count, e.g. "people=5" / "sent=0"; take the
+# value after the LAST '=' and keep it only if it is a bare integer, else 0. A
+# panel renders `item_count` without parsing prose (today `payload` is a free
+# string and `sent=0` is indistinguishable from a real 0 without splitting text).
+_hydrate_payload_count() {
+    local payload="${1:-}" v
+    v="${payload##*=}"
+    if [[ "$v" =~ ^[0-9]+$ ]]; then printf '%s' "$v"; else printf '0'; fi
+}
+
+# G1a: last_update_at is DISTINCT from recorded_at. recorded_at is when this
+# record was written (every install / re-run / tick). last_update_at is when the
+# source's DATA last changed: carried forward from the prior sentinel when the
+# count is unchanged, set to `now` when the count moves or on the first record.
+# That is what lets a panel answer BOTH "landed at install?" (recorded_at +
+# status) AND "keeps updating?" (last_update_at advancing) -- two questions one
+# timestamp cannot answer. MUST be called before the `> "$sentinel"` write, which
+# truncates the prior record; sets _HY_ITEM_COUNT and _HY_LAST_UPDATE_AT.
+_hydrate_compute_change() {
+    local sentinel="$1" new_count="$2" now="$3" prev_count="" prev_lua=""
+    if [[ -f "$sentinel" ]]; then
+        # A MISSING KEY IS A REAL STATE, NOT AN ERROR. `item_count=` and
+        # `last_update_at=` were introduced by #1346 (b38af35d), which is in
+        # v1.0.60 and later -- 6 of 242 tags. Every build up to v1.0.59 wrote
+        # sentinels without them, so on an upgrade this grep finds nothing.
+        #
+        # `grep` exits 1 on no match. Under `set -Eeuo pipefail` that makes the
+        # substitution non-zero, and with no `||` the install ABORTS -- as a
+        # generic ERR-99, because `2>/dev/null` has already thrown the reason
+        # away. This helper is called from EVERY hydrate block and runs before
+        # the sentinel is rewritten, so the abort lands early in hydrate on a
+        # customer whose only distinguishing feature is not having upgraded
+        # for a few versions.
+        #
+        # An absent key means "no previous value", which is exactly what the
+        # code below already handles: `-n "$prev_lua"` is false and the caller
+        # takes the "count moved or first record" branch. So the empty string
+        # is the CORRECT value, not a fallback.
+        prev_count="$(grep -m1 '^item_count=' "$sentinel" 2>/dev/null | cut -d= -f2-)" || prev_count=""
+        prev_lua="$(grep -m1 '^last_update_at=' "$sentinel" 2>/dev/null | cut -d= -f2-)" || prev_lua=""
+    fi
+    _HY_ITEM_COUNT="$new_count"
+    if [[ -n "$prev_lua" && "$prev_count" == "$new_count" ]]; then
+        _HY_LAST_UPDATE_AT="$prev_lua"
+    else
+        _HY_LAST_UPDATE_AT="$now"
+    fi
+}
+
 # Returns 0 if the sentinel for $1 is present, fresher than 7 days, AND
 # records a completed run rather than a failed one.
 # Use as: if _hydrate_sentinel_fresh imessage; then continue; fi
@@ -23220,6 +24593,24 @@ mkdir -p "$_HYDRATE_SENTINEL_DIR"
 #
 # This is the difference between "not known to have failed" and "known
 # to have succeeded". Only the second is evidence.
+
+# ── ONE VALUE, TWO CONSUMERS ──────────────────────────────────────
+#
+# The AI-conversations producer cannot run without an owner email address:
+# CM052_USER_EMAIL labels the user side of every transcript, and cm052.cli
+# refuses outright without it. TWO places in this file have to know that --
+# the install-time drain and the hourly LaunchAgent registration -- and
+# before this helper existed only one of them did.
+#
+# They must never be able to disagree, which is why this is a function and
+# not the condition written twice. v1.0.63 shipped exactly that split in a
+# neighbouring block: the step counter read the raw variable while the guard
+# read the resolver, so a step ran after its slot had been subtracted (#1427).
+# Two copies of a predicate is one copy plus a future defect.
+_aiconv_owner_email_known() {
+    [[ -n "${USER_EMAIL:-}" ]]
+}
+
 _hydrate_sentinel_fresh() {
     # --repair means "re-attempt everything". Nothing is ever fresh under it.
     # This is the ONLY thing that makes the flag Doctor advertises in 10
@@ -23325,22 +24716,31 @@ _hydrate_sentinel_record() {
     local payload="${2:-}"
     local empty_reason="${3:-}"
     local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    local now count
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
     if _hydrate_payload_is_all_zero "$payload"; then
+        _hydrate_compute_change "$sentinel" 0 "$now"
         {
-            printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            printf 'recorded_at=%s\n' "$now"
             printf 'source=%s\n' "$source"
             printf 'status=no_data\n'
             printf 'detail=%s\n' "${empty_reason:-zero_payload_undeclared}"
+            printf 'item_count=%s\n' "$_HY_ITEM_COUNT"
+            printf 'last_update_at=%s\n' "$_HY_LAST_UPDATE_AT"
             printf 'payload=%s\n' "$payload"
         } > "$sentinel"
         return 0
     fi
 
+    count="$(_hydrate_payload_count "$payload")"
+    _hydrate_compute_change "$sentinel" "$count" "$now"
     {
-        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'recorded_at=%s\n' "$now"
         printf 'source=%s\n' "$source"
         printf 'status=ok\n'
+        printf 'item_count=%s\n' "$_HY_ITEM_COUNT"
+        printf 'last_update_at=%s\n' "$_HY_LAST_UPDATE_AT"
         if [[ -n "$payload" ]]; then
             printf 'payload=%s\n' "$payload"
         fi
@@ -23390,6 +24790,8 @@ _hydrate_sentinel_record_error() {
     local payload="${3:-}"
     local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
     local status="error"
+    local now
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     # Same rc set gui_step_record_rc treats as a timeout. Kept as a literal
     # pair rather than a call into the emitter: the emitter is stubbed out
     # (install.sh:776) when the GUI is not driving, so asking it would make
@@ -23400,11 +24802,14 @@ _hydrate_sentinel_record_error() {
     # Fold the rc into the open step BEFORE writing the file, so an
     # unwritable sentinel dir cannot also cost us the log line.
     gui_step_record_rc "$rc"
+    _hydrate_compute_change "$sentinel" "$(_hydrate_payload_count "$payload")" "$now"
     {
-        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'recorded_at=%s\n' "$now"
         printf 'source=%s\n' "$source"
         printf 'status=%s\n' "$status"
         printf 'rc=%s\n' "$rc"
+        printf 'item_count=%s\n' "$_HY_ITEM_COUNT"
+        printf 'last_update_at=%s\n' "$_HY_LAST_UPDATE_AT"
         if [[ -n "$payload" ]]; then
             printf 'payload=%s\n' "$payload"
         fi
@@ -23453,10 +24858,15 @@ _hydrate_sentinel_record_no_data() {
     local source="$1"
     local detail="${2:-}"
     local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    local now
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    _hydrate_compute_change "$sentinel" 0 "$now"
     {
-        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'recorded_at=%s\n' "$now"
         printf 'source=%s\n' "$source"
         printf 'status=no_data\n'
+        printf 'item_count=%s\n' "$_HY_ITEM_COUNT"
+        printf 'last_update_at=%s\n' "$_HY_LAST_UPDATE_AT"
         if [[ -n "$detail" ]]; then
             printf 'detail=%s\n' "$detail"
         fi
@@ -23515,10 +24925,15 @@ _hydrate_sentinel_record_cannot_run() {
     local source="$1"
     local reason="${2:-}"
     local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    local now
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    _hydrate_compute_change "$sentinel" 0 "$now"
     {
-        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'recorded_at=%s\n' "$now"
         printf 'source=%s\n' "$source"
         printf 'status=cannot_run\n'
+        printf 'item_count=%s\n' "$_HY_ITEM_COUNT"
+        printf 'last_update_at=%s\n' "$_HY_LAST_UPDATE_AT"
         printf 'detail=%s\n' "${reason:-precondition_unmet}"
     } > "$sentinel"
 }
@@ -23973,13 +25388,56 @@ if [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
     # goes to stderr so the final stdout line is parseable.
     _HYDRATE_FORCE_ABCDDB_VCF="${OSTLER_DIR}/imports/.hydrate-force-abcddb.vcf"
     rm -f "$_HYDRATE_FORCE_ABCDDB_VCF" 2>/dev/null || true
+
+    # Same timeout picker as the other hydrate phases (brew coreutils
+    # gtimeout preferred; system timeout fallback; unbounded if neither).
+    #
+    # Until this, contacts was one of TWO hydrate sub-phases with no bound at
+    # all -- and the only one that was ALSO silent (no heartbeat ticker), so a
+    # wedged AddressBook read showed the customer nothing while the installer
+    # had already told them they could walk away. The cap matches the two
+    # phases that already carry one (apple_notes, email_preferences); it is a
+    # BACKSTOP against a wedge, not a tuned budget. See the PR for why a tuned
+    # number is not available yet: nothing records per-sub-phase durations, so
+    # there is no measured distribution to size it from.
+    _HYDRATE_CONTACTS_CAP="${OSTLER_HYDRATE_CONTACTS_TIMEOUT:-1800}"
+    _HYDRATE_CONTACTS_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _HYDRATE_CONTACTS_TIMEOUT_WRAP="gtimeout $_HYDRATE_CONTACTS_CAP"
+    elif command -v timeout >/dev/null 2>&1; then
+        _HYDRATE_CONTACTS_TIMEOUT_WRAP="timeout $_HYDRATE_CONTACTS_CAP"
+    fi
+
+    # Initialised before the call so `set -u` holds on every path, including
+    # the one where the substitution succeeds and the `||` arm never runs.
+    _HYDRATE_CONTACTS_RC=0
+    _HYDRATE_CONTACTS_TIMED_OUT=false
+    _HYDRATE_CONTACTS_STARTED_AT="$(date +%s)"
     _HYDRATE_CONTACTS_JSON="$(
         cd "$PIPELINE_DIR" && \
+        $_HYDRATE_CONTACTS_TIMEOUT_WRAP \
         "$_HYDRATE_PIPELINE_PY" -m contact_syncer.syncer \
             --vcf "$_HYDRATE_FORCE_ABCDDB_VCF" \
             --graph-endpoint "$_HYDRATE_OXIGRAPH" 2>>"${OSTLER_DIAG_DIR}/hydrate-contacts.log" \
         | tail -n 1
-    )" || _HYDRATE_CONTACTS_JSON=""
+    )" || { _HYDRATE_CONTACTS_RC=$?; _HYDRATE_CONTACTS_JSON=""; }
+    # A KILLED WRAPPER IS NOT AN EMPTY ADDRESS BOOK. Without this the cap
+    # above would have made things worse, not better: `|| JSON=""` collapses
+    # every failure into "no contacts found", so a timeout would report
+    # MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD -- a customer with 2,410
+    # cards told their address book is empty, and a no_data sentinel that
+    # suppresses the retry. That is #852's shape, and adding a bound without
+    # this arm is what would have introduced it here.
+    if [[ "${_HYDRATE_CONTACTS_RC:-0}" -eq 124 ]] || [[ "${_HYDRATE_CONTACTS_RC:-0}" -eq 137 ]]; then
+        _HYDRATE_CONTACTS_TIMED_OUT=true
+    fi
+    _HYDRATE_CONTACTS_ELAPSED_S=$(( $(date +%s) - _HYDRATE_CONTACTS_STARTED_AT ))
+    # Recorded so the NEXT walk can size the cap from a measurement instead of
+    # from the precedent above. Diagnostic only -- nothing branches on it.
+    printf 'hydrate_contacts elapsed_s=%s cap_s=%s wrapped=%s\n' \
+        "$_HYDRATE_CONTACTS_ELAPSED_S" "$_HYDRATE_CONTACTS_CAP" \
+        "$([[ -n "$_HYDRATE_CONTACTS_TIMEOUT_WRAP" ]] && echo true || echo false)" \
+        >>"${OSTLER_DIAG_DIR}/hydrate-contacts.log" 2>/dev/null || true
     _HYDRATE_CONTACTS_COUNT="$(
         printf '%s' "$_HYDRATE_CONTACTS_JSON" \
         | python3 -c 'import json,sys
@@ -23988,7 +25446,7 @@ try:
     print(int(d.get("imported", 0)))
 except Exception:
     print(0)' 2>/dev/null
-    )"
+    )" || { _HYDRATE_CONTACTS_COUNT_UNMEASURED=true; _HYDRATE_CONTACTS_COUNT=""; }
     _HYDRATE_CONTACTS_COUNT="${_HYDRATE_CONTACTS_COUNT:-0}"
 
     # Settling panel, `contacts` channel. Reported HERE rather than as a
@@ -24025,7 +25483,25 @@ except Exception:
     # transient this file's own #711 notes describe. Suppressing that retry
     # for a week is a product decision, not a bug fix, and it is not made
     # here.
-    if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
+    #
+    # THE TIMEOUT ARM COMES FIRST AND IT IS ORDERED THAT WAY DELIBERATELY.
+    # A killed wrapper can still have imported cards before it was killed, so
+    # a non-zero count is NOT evidence the step completed. Testing the count
+    # first would report a partial import as a clean success and record a
+    # success sentinel that suppresses the retry for 7 days -- the #810 shape.
+    # rc wins over count, exactly as the email block above orders its tests.
+    if [[ "$_HYDRATE_CONTACTS_TIMED_OUT" == "true" ]]; then
+        warn "$(printf "$MSG_HYDRATE_CONTACTS_TIMED_OUT" \
+            "$_HYDRATE_CONTACTS_CAP" "$_HYDRATE_CONTACTS_COUNT")"
+        _hydrate_sentinel_record_error "contacts" "$_HYDRATE_CONTACTS_RC" \
+            "imported=${_HYDRATE_CONTACTS_COUNT},cap_s=${_HYDRATE_CONTACTS_CAP},elapsed_s=${_HYDRATE_CONTACTS_ELAPSED_S}"
+    elif [[ "${_HYDRATE_CONTACTS_COUNT_UNMEASURED:-false}" == true ]]; then
+        # Same reason as calendar: an unmeasured count would otherwise reach
+        # "icloud_sync_pending" or "no_contacts_source", both of which state a
+        # cause this run did not establish. Ordered AFTER the timeout arm so
+        # rc still wins over count, exactly as the comment above requires.
+        _hydrate_sentinel_record_no_data "contacts" "counter_failed_count_unmeasured"
+    elif [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CONTACTS_DONE" "$_HYDRATE_CONTACTS_COUNT")"
         _hydrate_sentinel_record "contacts" "imported=${_HYDRATE_CONTACTS_COUNT}"
         # EMAIL-COVERAGE GUARD (post-hydrate): contacts landed, but a
@@ -24055,8 +25531,12 @@ except Exception:
             # the phone count -> the phone-only-export signature.
             if [[ "$phones" -ge 20 ]] \
                && [[ $((emails * 20)) -lt "$phones" ]]; then
+                # W003 class: named /tmp/ostler-hydrate-contacts.log, which
+                # nothing writes. The path is the FOURTH %s in this message --
+                # the three counts come first and their order is unchanged.
                 warn "$(printf "$MSG_HYDRATE_CONTACTS_EMAIL_COVERAGE_LOW" \
-                    "$_HYDRATE_CONTACTS_COUNT" "$phones" "$emails")"
+                    "$_HYDRATE_CONTACTS_COUNT" "$phones" "$emails" \
+                    "${OSTLER_DIAG_DIR}/hydrate-contacts.log")"
             fi
         }
         _guard_email_coverage || true
@@ -24365,7 +25845,7 @@ try:
     print(int(d.get("imported", 0)))
 except Exception:
     print(0)' 2>/dev/null
-    )"
+    )" || { _HYDRATE_CALENDAR_COUNT_UNMEASURED=true; _HYDRATE_CALENDAR_COUNT=""; }
     _HYDRATE_CALENDAR_COUNT="${_HYDRATE_CALENDAR_COUNT:-0}"
     # Parse the extract + ingest "status" so a genuine extractor failure
     # (a raised exception -- e.g. ModuleNotFoundError if ostler_fda is not
@@ -24389,7 +25869,14 @@ except Exception:
     # As with contacts, the record is added and the 7-day freshness SKIP is
     # deliberately not: a calendar that has not finished syncing at install
     # time is precisely the case that needs the next run to look again.
-    if [[ "$_HYDRATE_CALENDAR_COUNT" -gt 0 ]]; then
+    # An UNMEASURED count must not fall through this chain. `:-0` makes it 0,
+    # `-gt 0` is then false, and the run lands on a branch that declares
+    # "calendar_not_synced_yet" -- a cause nobody observed. The extract and
+    # ingest statuses come from different variables, so a failed COUNT parse
+    # does not make them "error" either: nothing else catches it.
+    if [[ "${_HYDRATE_CALENDAR_COUNT_UNMEASURED:-false}" == true ]]; then
+        _hydrate_sentinel_record_no_data "calendar" "counter_failed_count_unmeasured"
+    elif [[ "$_HYDRATE_CALENDAR_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CALENDAR_DONE" "$_HYDRATE_CALENDAR_COUNT")"
         _hydrate_sentinel_record "calendar" "events=${_HYDRATE_CALENDAR_COUNT}"
     elif [[ "$_HYDRATE_CALENDAR_EXTRACT_STATUS" == "error" \
@@ -24397,7 +25884,8 @@ except Exception:
         # The extractor or ingest raised -- this is NOT an empty calendar.
         # Surface it as a failure (with the log path) instead of the
         # "not synced" state so the two are never conflated.
-        warn "$MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED"
+        # W003 class: named /tmp/ostler-hydrate-calendar.log, which nothing writes.
+        warn "$(printf "$MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED" "${OSTLER_DIAG_DIR}/hydrate-calendar.log")"
         # FAIL. `events=0` here is MEASURED, not defaulted: the count was
         # parsed above and this arm is only reached when it is zero. The
         # stage that raised is named so the two python legs stay separable.
@@ -24479,11 +25967,17 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
     # run unbounded -- on a fresh install with a small backfill
     # window the FDA emit is fast enough that the absence rarely
     # bites in practice.
+    # T1: was a bare literal 180. Named + env-tunable on the
+    # _HYDRATE_APPLENOTES_CAP pattern, and governed by the floor rule --
+    # no hydrate cap may sit below the duration the customer-facing copy
+    # promises for it. scripts/verify_hydrate_cap_floors.py enforces that
+    # and names any step that breaks it.
+    _HYDRATE_EMAIL_CAP="${OSTLER_HYDRATE_EMAIL_TIMEOUT:-1800}"
     _HYDRATE_EMAIL_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _HYDRATE_EMAIL_TIMEOUT_WRAP="gtimeout 180"
+        _HYDRATE_EMAIL_TIMEOUT_WRAP="gtimeout $_HYDRATE_EMAIL_CAP"
     elif command -v timeout >/dev/null 2>&1; then
-        _HYDRATE_EMAIL_TIMEOUT_WRAP="timeout 180"
+        _HYDRATE_EMAIL_TIMEOUT_WRAP="timeout $_HYDRATE_EMAIL_CAP"
     fi
 
     mkdir -p "$_HYDRATE_EMAIL_MBOX_DIR"
@@ -24556,7 +26050,7 @@ try:
     print(int(d.get("people_extracted", 0)), int(d.get("messages_read", 0)))
 except Exception:
     print(0, 0)' 2>/dev/null
-        )"
+        )" || { _HYDRATE_EMAIL_COUNTS_UNMEASURED=true; _HYDRATE_EMAIL_COUNTS=""; }
         _HYDRATE_EMAIL_COUNT="${_HYDRATE_EMAIL_COUNTS%% *}"
         _HYDRATE_EMAIL_MSGS="${_HYDRATE_EMAIL_COUNTS##* }"
         case "${_HYDRATE_EMAIL_COUNT:-}" in ''|*[!0-9]*) _HYDRATE_EMAIL_COUNT=0 ;; esac
@@ -24612,14 +26106,16 @@ except Exception:
         _hydrate_sentinel_record_error "email" "$_HYDRATE_EMAIL_RC" \
             "people=${_HYDRATE_EMAIL_COUNT:-unknown},messages=${_HYDRATE_EMAIL_MSGS:-unknown},outcome=${_HYDRATE_EMAIL_OUTCOME:-unknown}"
     elif [[ "$_HYDRATE_EMAIL_OUTCOME" == "imported" ]]; then
+        # W012 class: outcome=imported with zero of both is reachable.
         _hydrate_sentinel_record "email" \
-            "people=${_HYDRATE_EMAIL_COUNT:-0},messages=${_HYDRATE_EMAIL_MSGS:-0}"
+            "people=${_HYDRATE_EMAIL_COUNT:-0},messages=${_HYDRATE_EMAIL_MSGS:-0}" \
+            "ran_ok_imported_zero"
     else
         _hydrate_sentinel_record_no_data "email" "${_HYDRATE_EMAIL_OUTCOME:-unknown}"
     fi
 
     unset _HYDRATE_EMAIL_MBOX _HYDRATE_EMAIL_TIMED_OUT _HYDRATE_EMAIL_JSON
-    unset _HYDRATE_EMAIL_COUNT _HYDRATE_EMAIL_TIMEOUT_WRAP _HYDRATE_EMAIL_LOG
+    unset _HYDRATE_EMAIL_COUNT _HYDRATE_EMAIL_TIMEOUT_WRAP _HYDRATE_EMAIL_LOG _HYDRATE_EMAIL_CAP
     unset _HYDRATE_EMAIL_COUNTS _HYDRATE_EMAIL_MSGS
     unset _HYDRATE_EMAIL_RC _HYDRATE_EMAIL_OUTCOME
 else
@@ -24691,11 +26187,17 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
 
     # Same timeout picker as hydrate_email (brew coreutils gtimeout
     # preferred; system timeout fallback; unbounded if neither).
+    # T1: was a bare literal 90. Named + env-tunable on the
+    # _HYDRATE_APPLENOTES_CAP pattern, and governed by the floor rule --
+    # no hydrate cap may sit below the duration the customer-facing copy
+    # promises for it. scripts/verify_hydrate_cap_floors.py enforces that
+    # and names any step that breaks it.
+    _HYDRATE_WHATSAPP_CAP="${OSTLER_HYDRATE_WHATSAPP_TIMEOUT:-1800}"
     _HYDRATE_WHATSAPP_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _HYDRATE_WHATSAPP_TIMEOUT_WRAP="gtimeout 90"
+        _HYDRATE_WHATSAPP_TIMEOUT_WRAP="gtimeout $_HYDRATE_WHATSAPP_CAP"
     elif command -v timeout >/dev/null 2>&1; then
-        _HYDRATE_WHATSAPP_TIMEOUT_WRAP="timeout 90"
+        _HYDRATE_WHATSAPP_TIMEOUT_WRAP="timeout $_HYDRATE_WHATSAPP_CAP"
     fi
 
     _HYDRATE_WHATSAPP_LOG="${OSTLER_DIAG_DIR}/hydrate-whatsapp.log"
@@ -24752,7 +26254,7 @@ try:
     print(int(d.get("people_added", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )"
+        )" || { _HYDRATE_WHATSAPP_UNMEASURED=true; _HYDRATE_WHATSAPP_COUNT=""; }
         _HYDRATE_WHATSAPP_COUNT="${_HYDRATE_WHATSAPP_COUNT:-0}"
 
         if [[ "$_HYDRATE_WHATSAPP_COUNT" -gt 0 ]]; then
@@ -24778,11 +26280,23 @@ except Exception:
         _hydrate_sentinel_record_error "whatsapp" "$_HYDRATE_WHATSAPP_RC" \
             "people_added=${_HYDRATE_WHATSAPP_COUNT:-unknown}"
     else
-        _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+        # W012 class: reachable zero on the rc=0 arm. Declared, so a run
+        # that completed and added nobody is not filed as an unexplained zero.
+        # W012 declared this zero. But a zero the counter never PRODUCED is not
+        # the same fact, and after the abort guard landed the two became
+        # byte-identical in the sentinel: `:-0` manufactures the number the
+        # reason is about. Say which one happened.
+        if [[ "${_HYDRATE_WHATSAPP_UNMEASURED:-false}" == true ]]; then
+            _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}" \
+                "counter_failed_count_unmeasured"
+        else
+            _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}" \
+                "ran_ok_no_people_added"
+        fi
     fi
 
     unset _HYDRATE_WHATSAPP_TIMED_OUT _HYDRATE_WHATSAPP_JSON
-    unset _HYDRATE_WHATSAPP_COUNT _HYDRATE_WHATSAPP_TIMEOUT_WRAP _HYDRATE_WHATSAPP_RC
+    unset _HYDRATE_WHATSAPP_COUNT _HYDRATE_WHATSAPP_TIMEOUT_WRAP _HYDRATE_WHATSAPP_RC _HYDRATE_WHATSAPP_CAP
     unset _HYDRATE_WHATSAPP_LOG
 elif [[ ! -x "$_HYDRATE_WHATSAPP_PY" ]]; then
     info "$MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING"
@@ -24808,6 +26322,8 @@ unset _HYDRATE_OXIGRAPH_WA
 unset _HYDRATE_VCF _HYDRATE_API _HYDRATE_OXIGRAPH _HYDRATE_PIPELINE_PY \
       _HYDRATE_CALENDAR_VENV _HYDRATE_CALENDAR_PY
 unset _HYDRATE_CONTACTS_JSON _HYDRATE_CONTACTS_COUNT
+unset _HYDRATE_CONTACTS_CAP _HYDRATE_CONTACTS_TIMEOUT_WRAP _HYDRATE_CONTACTS_RC
+unset _HYDRATE_CONTACTS_TIMED_OUT _HYDRATE_CONTACTS_STARTED_AT _HYDRATE_CONTACTS_ELAPSED_S
 unset _HYDRATE_CALENDAR_JSON _HYDRATE_CALENDAR_COUNT
 
 # Browser hydration (CX-86 Gap A + Gap C) --------------------------
@@ -24848,11 +26364,17 @@ elif [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
    { [[ -s "$_HYDRATE_BROWSING_SAFARI" ]] || [[ -s "$_HYDRATE_BROWSING_CHROME" ]]; }; then
     info "$MSG_HYDRATE_BROWSING_STARTED"
 
+    # T1: was a bare literal 90. Named + env-tunable on the
+    # _HYDRATE_APPLENOTES_CAP pattern, and governed by the floor rule --
+    # no hydrate cap may sit below the duration the customer-facing copy
+    # promises for it. scripts/verify_hydrate_cap_floors.py enforces that
+    # and names any step that breaks it.
+    _HYDRATE_BROWSING_CAP="${OSTLER_HYDRATE_BROWSING_TIMEOUT:-1800}"
     _HYDRATE_BROWSING_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _HYDRATE_BROWSING_TIMEOUT_WRAP="gtimeout 90"
+        _HYDRATE_BROWSING_TIMEOUT_WRAP="gtimeout $_HYDRATE_BROWSING_CAP"
     elif command -v timeout >/dev/null 2>&1; then
-        _HYDRATE_BROWSING_TIMEOUT_WRAP="timeout 90"
+        _HYDRATE_BROWSING_TIMEOUT_WRAP="timeout $_HYDRATE_BROWSING_CAP"
     fi
 
     _HYDRATE_BROWSING_LOG="${OSTLER_DIAG_DIR}/hydrate-browsing.log"
@@ -24917,7 +26439,7 @@ try:
     print(int(d.get("sent", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )"
+        )" || { _HYDRATE_BROWSING_UNMEASURED=true; _HYDRATE_BROWSING_SENT=""; }
         _HYDRATE_BROWSING_SKIPPED="$(
             printf '%s' "$_HYDRATE_BROWSING_JSON" \
             | python3 -c 'import json,sys
@@ -24926,7 +26448,7 @@ try:
     print(int(d.get("skipped_sensitive", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )"
+        )" || { _HYDRATE_BROWSING_UNMEASURED=true; _HYDRATE_BROWSING_SKIPPED=""; }
         _HYDRATE_BROWSING_SENT="${_HYDRATE_BROWSING_SENT:-0}"
         _HYDRATE_BROWSING_SKIPPED="${_HYDRATE_BROWSING_SKIPPED:-0}"
         if [[ "$_HYDRATE_BROWSING_SENT" -gt 0 ]]; then
@@ -24957,12 +26479,23 @@ except Exception:
         _hydrate_sentinel_record_error "browsing" "$_HYDRATE_BROWSING_RC" \
             "sent=${_HYDRATE_BROWSING_SENT:-unknown},skipped=${_HYDRATE_BROWSING_SKIPPED:-unknown},collection_points=$(_hydrate_qdrant_points safari_history)"
     else
-        _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+        # W012 class: reachable zero on the rc=0 arm.
+        # W012 declared this zero. But a zero the counter never PRODUCED is not
+        # the same fact, and after the abort guard landed the two became
+        # byte-identical in the sentinel: `:-0` manufactures the number the
+        # reason is about. Say which one happened.
+        if [[ "${_HYDRATE_BROWSING_UNMEASURED:-false}" == true ]]; then
+            _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}" \
+                "counter_failed_count_unmeasured"
+        else
+            _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}" \
+                "ran_ok_nothing_sent_or_skipped"
+        fi
     fi
 
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
     unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED
-    unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG _HYDRATE_BROWSING_RC
+    unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG _HYDRATE_BROWSING_RC _HYDRATE_BROWSING_CAP
 elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
     info "$MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING"
 else
@@ -25115,7 +26648,9 @@ else
             _hydrate_sentinel_record_error "email_preferences" "$_HYDRATE_EMAILPREFS_RC" \
                 "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-unknown}"
         else
-            _hydrate_sentinel_record "email_preferences" "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}"
+            # W012 class: reachable zero on the rc=0 arm.
+            _hydrate_sentinel_record "email_preferences" "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}" \
+                "ran_ok_no_preferences_created"
         fi
     fi
 
@@ -25175,11 +26710,17 @@ if _hydrate_sentinel_fresh "imessage"; then
 elif [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]; then
     info "$MSG_HYDRATE_IMESSAGE_STARTED"
 
+    # T1: was a bare literal 90. Named + env-tunable on the
+    # _HYDRATE_APPLENOTES_CAP pattern, and governed by the floor rule --
+    # no hydrate cap may sit below the duration the customer-facing copy
+    # promises for it. scripts/verify_hydrate_cap_floors.py enforces that
+    # and names any step that breaks it.
+    _HYDRATE_IMESSAGE_CAP="${OSTLER_HYDRATE_IMESSAGE_TIMEOUT:-1800}"
     _HYDRATE_IMESSAGE_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _HYDRATE_IMESSAGE_TIMEOUT_WRAP="gtimeout 90"
+        _HYDRATE_IMESSAGE_TIMEOUT_WRAP="gtimeout $_HYDRATE_IMESSAGE_CAP"
     elif command -v timeout >/dev/null 2>&1; then
-        _HYDRATE_IMESSAGE_TIMEOUT_WRAP="timeout 90"
+        _HYDRATE_IMESSAGE_TIMEOUT_WRAP="timeout $_HYDRATE_IMESSAGE_CAP"
     fi
 
     _HYDRATE_IMESSAGE_LOG="${OSTLER_DIAG_DIR}/hydrate-imessage.log"
@@ -25239,7 +26780,7 @@ try:
     print(int(d.get("people_created", 0)) + int(d.get("people_enriched", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )"
+        )" || { _HYDRATE_IMESSAGE_UNMEASURED=true; _HYDRATE_IMESSAGE_COUNT=""; }
         _HYDRATE_IMESSAGE_COUNT="${_HYDRATE_IMESSAGE_COUNT:-0}"
 
         if [[ "$_HYDRATE_IMESSAGE_COUNT" -gt 0 ]]; then
@@ -25296,11 +26837,50 @@ except Exception:
         _hydrate_sentinel_record_error "imessage" "$rc" \
             "people=${_HYDRATE_IMESSAGE_COUNT:-unknown}"
     else
-        _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}"
+        # W012 (v1.0.63 walk 2): this recorded detail=zero_payload_undeclared
+        # whenever the people count came back 0, and Doctor rendered that as
+        # "the source produced nothing". On the walk box the run had ingested
+        # 10 conversations and 15,345 messages -- the count was 0 because all
+        # 13 contacts were ALREADY known from Contacts. The person who read
+        # his own product as broken was the author of the spec.
+        #
+        # The sentinel already distinguishes an explainable zero from an
+        # unexplained one; this call site simply never passed the third
+        # argument. Declare only what install.sh has MEASURED at this line:
+        # the ingest returned rc=0 and people_created + people_enriched summed
+        # to zero. NOT "all contacts were already known" -- that was the
+        # diagnosis of one walk box, and this line never established it. A
+        # reason that states a cause it did not observe is the same defect
+        # wearing a better word.
+        #
+        # It deliberately does NOT name the backfill rung. The rung governs
+        # the EXTRACTOR; `ingest_imessage(fda_dir)` takes no window and
+        # reports none (vendor/ostler_fda/pwg_ingest.py:551,663), so naming a
+        # rung here would be install.sh asserting a cause it never observed --
+        # the same defect one level down.
+        #
+        # Nor does this make the STATUS true, and it should not be mistaken
+        # for that. A run that ingested 15,345 messages did not produce "no
+        # data". _hydrate_payload_is_all_zero flips to false the moment any
+        # numeric field is non-zero, so a payload carrying conversation and
+        # message counts would report status=ok by itself -- but those counts
+        # are not in the JSON install.sh receives. That repair belongs in the
+        # vendored ingest, upstream, not here.
+        # W012 declared this zero. But a zero the counter never PRODUCED is not
+        # the same fact, and after the abort guard landed the two became
+        # byte-identical in the sentinel: `:-0` manufactures the number the
+        # reason is about. Say which one happened.
+        if [[ "${_HYDRATE_IMESSAGE_UNMEASURED:-false}" == true ]]; then
+            _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}" \
+                "counter_failed_count_unmeasured"
+        else
+            _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}" \
+                "ran_ok_no_new_or_enriched_people"
+        fi
     fi
 
     unset _HYDRATE_IMESSAGE_TIMED_OUT _HYDRATE_IMESSAGE_JSON_OUT
-    unset _HYDRATE_IMESSAGE_COUNT _HYDRATE_IMESSAGE_TIMEOUT_WRAP
+    unset _HYDRATE_IMESSAGE_COUNT _HYDRATE_IMESSAGE_TIMEOUT_WRAP _HYDRATE_IMESSAGE_CAP
     unset _HYDRATE_IMESSAGE_LOG
 elif [[ ! -x "$_HYDRATE_IMESSAGE_PY" ]]; then
     info "$MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING"
@@ -25557,10 +27137,33 @@ fi
 # could gate this leg instead of the silent-on-empty default. The
 # OSTLER_APPLE_NOTES_KNOWLEDGE env below is the one-line hook where such a
 # flag would land; today it defaults ON so the only gate is data presence.
-progress "Reading your Apple Notes" "hydrate_apple_notes"
-
 _HYDRATE_APPLENOTES_FDA_DIR="${OSTLER_DIR}/imports/fda"
 _HYDRATE_APPLENOTES_JSON_FILE="${_HYDRATE_APPLENOTES_FDA_DIR}/apple_notes.json"
+
+# ANNOUNCE ONLY WHAT WE ARE ABOUT TO DO.
+#
+# This `progress` call used to sit ABOVE the two lines that resolve the JSON
+# path, so it fired on EVERY install and told the customer "Reading your Apple
+# Notes" while the block below no-opped on the `-s` data gate. The customer was
+# told work happened that did not. That is the same defect as the FDA nudge
+# claiming a success it did not have (#571) and it is fixed the same way: the
+# claim moves BEHIND the condition that makes it true.
+#
+# The gated step also has to leave the step counter honest, which is the
+# established idiom in this file -- the spoken/voice body feed decrements
+# TOTAL_STEPS the same way when its source directory is absent. Without the
+# decrement the progress bar silently reserves a slot for a step that never
+# runs, and the install appears to stall at the end.
+#
+# The data gate is deliberately the ONLY announce condition. The downstream
+# branches (sentinel-fresh, operator opt-out, binary missing) each emit their
+# own message, so gating the announce on all four would swap one silence for
+# another.
+if [[ ! -s "$_HYDRATE_APPLENOTES_JSON_FILE" ]]; then
+    TOTAL_STEPS=$((TOTAL_STEPS - 1))
+else
+    progress "Reading your Apple Notes" "hydrate_apple_notes"
+fi
 _HYDRATE_APPLENOTES_BIN="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
 _HYDRATE_APPLENOTES_STAGING="${OSTLER_DIR}/data/knowledge-staging"
 _HYDRATE_APPLENOTES_DBPATH="${OSTLER_DIR}/data/knowledge-metadata.db"
@@ -25684,7 +27287,9 @@ elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_APPLENOTE
         _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_EMBED_RC" \
             "stage=embed,notes=${_HYDRATE_APPLENOTES_COUNT:-unknown}"
     else
-        _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+        # W012 class: reachable zero on the rc=0 arm.
+        _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}" \
+            "ran_ok_no_notes"
     fi
 
     unset _HYDRATE_APPLENOTES_CAP _HYDRATE_APPLENOTES_TIMEOUT_WRAP
@@ -25795,7 +27400,7 @@ try:
     print(int(d.get("sent", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )"
+        )" || { _HYDRATE_PEOPLE_UNMEASURED=true; _HYDRATE_PEOPLE_SENT=""; }
         _HYDRATE_PEOPLE_SENT="${_HYDRATE_PEOPLE_SENT:-0}"
         if [[ "$_HYDRATE_PEOPLE_SENT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_PEOPLE_DONE" "$_HYDRATE_PEOPLE_SENT")"
@@ -25817,7 +27422,20 @@ except Exception:
         _hydrate_sentinel_record_error "people" "$_HYDRATE_PEOPLE_RC" \
             "sent=${_HYDRATE_PEOPLE_SENT:-unknown},collection_points=$(_hydrate_qdrant_points people)"
     else
-        _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}"
+        # W012 class: reachable zero on the rc=0 arm. #852 fixed the
+        # FABRICATED zero on the error arm; this is the honest zero on the
+        # success arm, which was still filed as unexplained.
+        # W012 declared this zero. But a zero the counter never PRODUCED is not
+        # the same fact, and after the abort guard landed the two became
+        # byte-identical in the sentinel: `:-0` manufactures the number the
+        # reason is about. Say which one happened.
+        if [[ "${_HYDRATE_PEOPLE_UNMEASURED:-false}" == true ]]; then
+            _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}" \
+                "counter_failed_count_unmeasured"
+        else
+            _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}" \
+                "ran_ok_nothing_sent"
+        fi
     fi
 
     unset _HYDRATE_PEOPLE_TIMED_OUT _HYDRATE_PEOPLE_JSON
@@ -25876,11 +27494,43 @@ _INITIAL_HYDRATE_LOG="${OSTLER_DIAG_DIR}/initial-hydrate.log"
 # Probe Qdrant collections count. The /collections endpoint returns
 # {"result": {"collections": [{...}, ...]}, ...} on a healthy Qdrant.
 # Counts-only -- no name leakage off-machine.
+# 🔴 v1061-D004. THIS FUNCTION USED TO REPORT "0" WHEN IT COULD NOT READ THE
+# STORE, AND IT COST A LIVE WALK. Measured on the Mini 16, 2026-09-03:
+#
+#     CX106_QDRANT_BEFORE count=0
+#     "Checking your search index (0 collections detected)"
+#
+# while the store actually held THREE collections with real points -- people
+# 7535, safari_history 8626, preferences 8245. hydrate_people's STEP_END was
+# four lines further up the same log. The zero was false.
+#
+# The mechanism was three separate fail-to-zero paths in eighteen lines:
+# `curl -sf ... || true` (empty on ANY failure), `except: print(0)`, and a
+# non-numeric coerced to 0. The store has been 401-by-design since #1222, and
+# `curl -sf` on a 401 exits 22 with no output -- SO A LOCKED STORE WAS
+# INDISTINGUISHABLE FROM AN EMPTY ONE.
+#
+# It is not cosmetic, because the caller branches on `-eq 0` and re-runs the
+# WHOLE browser-history ingest (cap 1800s). The customer sat at 97% with
+# "~1m remaining" while the installer re-imported 8626 pages it already had.
+#
+# 🗿 The fix is the one its sibling below already had: SAY CANNOT-RUN. A
+# probe that reports absence when it was DENIED is the same defect class as a
+# step that reports ok over discarded data (#625). Callers must branch on a
+# POSITIVE zero, never on a could-not-read.
+#
+# Contract: prints a non-negative integer on a successful read, or the literal
+# string CANNOT-RUN. It never prints 0 for a read it did not get.
 _initial_hydrate_qdrant_count() {
-    local raw count
-    raw="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_INITIAL_HYDRATE_QDRANT}/collections" 2>/dev/null || true)"
+    local raw count rc=0
+    raw="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" -sf -m 5 "${_INITIAL_HYDRATE_QDRANT}/collections" 2>/dev/null)" || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        printf 'CANNOT-RUN'
+        return 0
+    fi
     if [[ -z "$raw" ]]; then
-        printf '0'
+        # A 200 with an empty body is not an empty store either.
+        printf 'CANNOT-RUN'
         return 0
     fi
     count="$(printf '%s' "$raw" \
@@ -25889,15 +27539,121 @@ try:
     d = json.loads(sys.stdin.read())
     print(len((d.get("result") or {}).get("collections") or []))
 except Exception:
-    print(0)' 2>/dev/null)"
-    count="${count:-0}"
-    [[ "$count" =~ ^[0-9]+$ ]] || count=0
+    # Unreadable shape is CANNOT-RUN, never "everything is missing".
+    print("CANNOT-RUN")' 2>/dev/null)"
+    if [[ ! "$count" =~ ^[0-9]+$ ]]; then
+        printf 'CANNOT-RUN'
+        return 0
+    fi
     printf '%s' "$count"
+}
+
+# Does the count say, positively, that the store is empty? A could-not-read
+# must answer NO here -- that is the whole point of #626. Kept as a named
+# predicate so every caller asks the same question the same way.
+_initial_hydrate_qdrant_is_positively_empty() {
+    [[ "${1:-}" == "0" ]]
+}
+
+# ── WHICH collections, not HOW MANY ─────────────────────────────────
+#
+# 🔴 #616 / #615, MEASURED ON THE v1.0.60 WALK. The branch below used to ask
+# `count -gt 0` and print "Search index ready (N collections)". A CARDINALITY
+# TEST CANNOT SEE A MISSING MEMBER. On the walk box the live store answers:
+#
+#     GET :6333/collections -> preferences, people, safari_history
+#
+# That is three collections, so `count -gt 0` is TRUE and the install would
+# say "ready (3 collections)" -- while `conversations` and `evernote_knowledge`,
+# two of the four it had just promised to create, are absent. One of the three
+# it does have (safari_history) was never in the creation loop at all. The
+# count is right and the claim is false. This is the same shape as "23
+# LaunchAgents present" passing regardless of WHICH 23.
+#
+# Returns on stdout exactly one of:
+#   ""                      every required collection is present
+#   "CANNOT-RUN: <reason>"  the store could not be read -- NOT an absence
+#   "<name> <name> ..."     the required collections that are absent
+#
+# THE CANNOT-RUN ARM IS LOAD-BEARING AND IS WHY THIS DOES NOT REUSE
+# _initial_hydrate_qdrant_count BELOW. That helper collapses "curl failed"
+# into `printf '0'`, so an unreadable store and a genuinely empty one are
+# indistinguishable in its return value -- which is exactly why the walk's
+# `CX106_QDRANT_AFTER count=0` could not tell us whether the collections were
+# missing or the probe was blind. A checker that reports "all four missing"
+# because it could not reach the store would be a false accusation, and it
+# would train the reader to ignore the warning. Three outcomes, three arms.
+_initial_hydrate_qdrant_missing_required() {
+    local raw out rc=0
+    # 🔴 AN EMPTY EXPECTATION IS NOT A SATISFIED ONE (TNM, review of #1376).
+    #
+    # If the declared list is unset or empty, every loop below iterates nothing
+    # and the function returns "" -- which this branch reads as "all present".
+    # That is the worst possible failure: it reports a clean search index on
+    # precisely the install where nothing was created.
+    #
+    # It is reachable. The pre-create loop runs only when the store came up
+    # ready; move the declaration inside that branch and it is unset on the
+    # not-ready path. And WHAT HAPPENS THEN DEPENDS ON THE INTERPRETER, which
+    # is why this cannot be left to bash's own behaviour -- measured, set -u,
+    # same expansion, both by absolute path:
+    #     /bin/bash 3.2.57        unset "${ARR[@]}" -> unbound variable, rc=1,
+    #                             the INSTALL ABORTS mid-hydrate
+    #     homebrew bash 5.3.15    unset "${ARR[@]}" -> empty, rc=0, SILENT
+    #                             false clean -- the exact defect this fixes
+    # install.sh is `#!/usr/bin/env bash`, so which one a customer gets is
+    # PATH-dependent. One branch kills the install, the other lies. Neither is
+    # an acceptable way to find out the list went missing, so we ask directly.
+    #
+    # `${ARR[@]+x}` is the idiom already used for _OSTLER_STORE_CURL_ARGS in
+    # this file, and it is measured identical on 3.2.57 and 5.3.15:
+    #     UNSET -> CANNOT-RUN · EMPTY -> CANNOT-RUN · SET(4) -> n=4, rc=0 both.
+    if [[ -z "${_OSTLER_REQUIRED_QDRANT_COLLECTIONS[@]+x}" ]]; then
+        printf 'CANNOT-RUN: the declared collection list is unset or empty, so nothing could be checked'
+        return 0
+    fi
+    raw="$(curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+        -sf -m 5 "${_INITIAL_HYDRATE_QDRANT}/collections" 2>&1)" || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        printf 'CANNOT-RUN: the store did not answer a credentialed GET (curl rc=%s)' "$rc"
+        return 0
+    fi
+    # The declared names go in as argv, so the comparison happens in one
+    # process with no pipe between a producer and a matcher (a `| grep -q`
+    # here would SIGPIPE the producer under pipefail, and `grep -c` on a
+    # missing name exits 1 -- both are avoidable by not using a pipe).
+    out="$(printf '%s' "$raw" | python3 -c '
+import json, sys
+try:
+    doc = json.loads(sys.stdin.read())
+    cols = (doc.get("result") or {}).get("collections")
+    if cols is None:
+        raise ValueError("no result.collections key")
+    present = {c.get("name") for c in cols if isinstance(c, dict)}
+except Exception as exc:
+    # Unreadable shape is CANNOT-RUN, never "everything is missing".
+    print("CANNOT-RUN: the store answered in an unexpected shape (%s)" % type(exc).__name__)
+    sys.exit(0)
+print(" ".join(name for name in sys.argv[1:] if name not in present))
+' "${_OSTLER_REQUIRED_QDRANT_COLLECTIONS[@]}")" || {
+        printf 'CANNOT-RUN: could not parse the store response'
+        return 0
+    }
+    printf '%s' "$out"
 }
 
 _INITIAL_HYDRATE_COLLECTIONS_BEFORE="$(_initial_hydrate_qdrant_count)"
 gui_emit CX106_QDRANT_BEFORE "count=${_INITIAL_HYDRATE_COLLECTIONS_BEFORE}"
-info "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_BEFORE" "${_INITIAL_HYDRATE_COLLECTIONS_BEFORE}")"
+# #626: the count is now three-state, so the CUSTOMER LINE must be too. Printing
+# "CANNOT-RUN collections detected" through the count message would be worse than
+# the false zero it replaces. No new MSG_ key is invented here on purpose -- the
+# membership check already owns the right sentence for "could not look", and one
+# sentence with one meaning beats two that drift.
+if [[ "$_INITIAL_HYDRATE_COLLECTIONS_BEFORE" =~ ^[0-9]+$ ]]; then
+    info "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_BEFORE" "${_INITIAL_HYDRATE_COLLECTIONS_BEFORE}")"
+else
+    warn "$(printf "$MSG_WARN_QDRANT_MEMBERSHIP_UNMEASURED" "the store did not answer a credentialed GET")"
+fi
 
 # Re-run the gateway-driven browser history ingest if Qdrant is empty.
 # The first hydrate_browsing call (line ~10889) may have raced ahead
@@ -25905,17 +27661,23 @@ info "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_BEFORE" "${_INITIAL_HYDRATE_COLLECTI
 # inside install completion, with a long enough timeout that a slow
 # gateway start (Docker image cold-start, first-request JIT) does not
 # silently leave Qdrant empty.
-if [[ "$_INITIAL_HYDRATE_COLLECTIONS_BEFORE" -eq 0 ]] \
+if _initial_hydrate_qdrant_is_positively_empty "$_INITIAL_HYDRATE_COLLECTIONS_BEFORE" \
    && [[ -x "$_INITIAL_HYDRATE_PY" ]] \
    && { [[ -s "${_INITIAL_HYDRATE_FDA_DIR}/safari_history.json" ]] \
         || [[ -s "${_INITIAL_HYDRATE_FDA_DIR}/chrome_history.json" ]]; }; then
     info "$MSG_INITIAL_HYDRATE_BROWSER_RETRY"
 
+    # T1: was a bare literal 90. Named + env-tunable on the
+    # _HYDRATE_APPLENOTES_CAP pattern, and governed by the floor rule --
+    # no hydrate cap may sit below the duration the customer-facing copy
+    # promises for it. scripts/verify_hydrate_cap_floors.py enforces that
+    # and names any step that breaks it.
+    _INITIAL_HYDRATE_CAP="${OSTLER_INITIAL_HYDRATE_TIMEOUT:-1800}"
     _INITIAL_HYDRATE_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _INITIAL_HYDRATE_TIMEOUT_WRAP="gtimeout 90"
+        _INITIAL_HYDRATE_TIMEOUT_WRAP="gtimeout $_INITIAL_HYDRATE_CAP"
     elif command -v timeout >/dev/null 2>&1; then
-        _INITIAL_HYDRATE_TIMEOUT_WRAP="timeout 90"
+        _INITIAL_HYDRATE_TIMEOUT_WRAP="timeout $_INITIAL_HYDRATE_CAP"
     fi
     _INITIAL_HYDRATE_RETRY_RC=0
 
@@ -25942,27 +27704,55 @@ except Exception as exc:
     # 0 to >=1 only after the first successful upsert is committed.
     _INITIAL_HYDRATE_POLL_ELAPSED=0
     while [[ "$_INITIAL_HYDRATE_POLL_ELAPSED" -lt 30 ]]; do
-        if [[ "$(_initial_hydrate_qdrant_count)" -gt 0 ]]; then
+        _INITIAL_HYDRATE_POLL_N="$(_initial_hydrate_qdrant_count)"
+        if [[ "$_INITIAL_HYDRATE_POLL_N" =~ ^[0-9]+$ ]] && [[ "$_INITIAL_HYDRATE_POLL_N" -gt 0 ]]; then
             break
         fi
         sleep 2
         _INITIAL_HYDRATE_POLL_ELAPSED=$((_INITIAL_HYDRATE_POLL_ELAPSED + 2))
     done
-    unset _INITIAL_HYDRATE_POLL_ELAPSED _INITIAL_HYDRATE_TIMEOUT_WRAP
+    unset _INITIAL_HYDRATE_POLL_ELAPSED _INITIAL_HYDRATE_POLL_N _INITIAL_HYDRATE_TIMEOUT_WRAP _INITIAL_HYDRATE_CAP
     unset _INITIAL_HYDRATE_RETRY_RC
 fi
 
 _INITIAL_HYDRATE_COLLECTIONS_AFTER="$(_initial_hydrate_qdrant_count)"
 gui_emit CX106_QDRANT_AFTER "count=${_INITIAL_HYDRATE_COLLECTIONS_AFTER}"
 
-if [[ "$_INITIAL_HYDRATE_COLLECTIONS_AFTER" -gt 0 ]]; then
-    ok "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_READY" "${_INITIAL_HYDRATE_COLLECTIONS_AFTER}")"
+_INITIAL_HYDRATE_QDRANT_MISSING="$(_initial_hydrate_qdrant_missing_required)"
+gui_emit CX106_QDRANT_MISSING "missing=${_INITIAL_HYDRATE_QDRANT_MISSING:-none}"
+
+# SEVERITY IS DELIBERATE AND NOT UNIFORM. All three arms remain NON-FATAL --
+# the wiki, the LaunchAgents and the rest of the install genuinely do keep
+# working without a complete index, and failing the install here would be a
+# worse answer than saying so plainly. What changes is that the install can no
+# longer stay SILENT about which collections it promised and did not deliver.
+if [[ "$_INITIAL_HYDRATE_QDRANT_MISSING" == CANNOT-RUN:* ]]; then
+    # Could not look. That is neither "ready" nor "missing", and it must not
+    # be reported as either.
+    warn "$(printf "$MSG_WARN_QDRANT_MEMBERSHIP_UNMEASURED" \
+        "${_INITIAL_HYDRATE_QDRANT_MISSING#CANNOT-RUN: }")"
+elif [[ -n "$_INITIAL_HYDRATE_QDRANT_MISSING" ]] \
+     && [[ "$_INITIAL_HYDRATE_COLLECTIONS_AFTER" =~ ^[0-9]+$ ]] \
+     && [[ "$_INITIAL_HYDRATE_COLLECTIONS_AFTER" -gt 0 ]]; then
+    # THE v1.0.60 CASE, and the one the old cardinality test called healthy:
+    # the store is up and serving collections, but not all the ones we
+    # promised. Partial is a real defect, so it warns and it NAMES them.
+    warn "$(printf "$MSG_WARN_QDRANT_COLLECTIONS_MISSING" \
+        "${_INITIAL_HYDRATE_QDRANT_MISSING}")"
+elif [[ -n "$_INITIAL_HYDRATE_QDRANT_MISSING" ]]; then
+    # Nothing there yet. Hub readiness is deferred to first-run background
+    # ingest and the Doctor surfaces the gap, so the severity stays at info
+    # exactly as before -- but it now names what it is waiting for instead of
+    # leaving the reader to guess.
+    info "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED_AWAITING" \
+        "${_INITIAL_HYDRATE_QDRANT_MISSING}")"
 else
-    # Qdrant still empty -- Hub readiness will be deferred to first-run
-    # background ingest. Doctor will pick it up and surface the gap.
-    # We do NOT fail install here; the rest of the system is fine and
-    # the wiki + LaunchAgents continue to work.
-    info "$MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED"
+    # Every required collection is present. Only claim a COUNT if we have one.
+    if [[ "$_INITIAL_HYDRATE_COLLECTIONS_AFTER" =~ ^[0-9]+$ ]]; then
+        ok "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_READY" "${_INITIAL_HYDRATE_COLLECTIONS_AFTER}")"
+    else
+        warn "$(printf "$MSG_WARN_QDRANT_MEMBERSHIP_UNMEASURED" "the store did not answer a credentialed GET")"
+    fi
 fi
 
 # DEDUPE_MERGE (#661, RULE 1, 2026-06-09): after every person-creating
@@ -26059,11 +27849,17 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     info "$MSG_HYDRATE_PLACES_STARTED"
     _PLACES_EMBED_URL="${EMBED_OLLAMA_URL:-http://localhost:11434}"
     _PLACES_EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
+    # T1: was a bare literal 120. Named + env-tunable on the
+    # _HYDRATE_APPLENOTES_CAP pattern, and governed by the floor rule --
+    # no hydrate cap may sit below the duration the customer-facing copy
+    # promises for it. scripts/verify_hydrate_cap_floors.py enforces that
+    # and names any step that breaks it.
+    _PLACES_CAP="${OSTLER_HYDRATE_PLACES_TIMEOUT:-1800}"
     _PLACES_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _PLACES_TIMEOUT_WRAP="gtimeout 120"
+        _PLACES_TIMEOUT_WRAP="gtimeout $_PLACES_CAP"
     elif command -v timeout >/dev/null 2>&1; then
-        _PLACES_TIMEOUT_WRAP="timeout 120"
+        _PLACES_TIMEOUT_WRAP="timeout $_PLACES_CAP"
     fi
     # Capture the exit code explicitly (do NOT collapse to `&& ok || info`):
     # the module exits 0 for BOTH success AND the benign no-signals case, and
@@ -26102,11 +27898,15 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     elif printf '%s' "$_places_log_tail" | grep -q "PLACES INGEST GUARD"; then
         # The module's own loud guard fired: signals exist but no Places were
         # produced/written. Surface it loudly (non-fatal: a re-run is safe).
-        warn "$MSG_HYDRATE_PLACES_GUARD_WARN"
+        # W003 class: named /tmp/ostler-places-ingest.log, which nothing writes.
+        warn "$(printf "$MSG_HYDRATE_PLACES_GUARD_WARN" "${OSTLER_DIAG_DIR}/places-ingest.log")"
     else
         # Non-zero exit with no guard line = config error / unexpected crash.
         # Still non-fatal, but visible -- not mislabelled as "no signals yet".
-        warn "$MSG_HYDRATE_PLACES_ERROR_WARN"
+        # W003 class: same path, second message. Both arms named a file that
+        # nothing writes, so fixing only the guard arm would have left the
+        # unexpected-error arm lying.
+        warn "$(printf "$MSG_HYDRATE_PLACES_ERROR_WARN" "${OSTLER_DIAG_DIR}/places-ingest.log")"
     fi
     # #711. The branches above already distinguish a crash ("Non-zero
     # exit with no guard line = config error / unexpected crash") and
@@ -26123,7 +27923,7 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
         _hydrate_sentinel_record "places" "ran=1,rc=$_places_rc"
     fi
     unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP \
-          _places_rc _places_log_tail
+          _PLACES_CAP _places_rc _places_log_tail
 fi
 
 # ── Privacy-level backfill (CM041 #97 fail-closed gate) ───────────────
@@ -26261,7 +28061,11 @@ if [ -d "$WIKI_DOCS_DIR" ]; then
     # -type f, not -name '*', so a tree of empty DIRECTORIES counts zero.
     # That is the exact shape the box walk found: directories present,
     # contents absent.
-    WIKI_PAGE_COUNT="$(find "$WIKI_DOCS_DIR" -type f \( -name '*.md' -o -name '*.html' \) 2>/dev/null | wc -l | tr -d ' ')"
+    # `find` exits non-zero when the tree is absent, which is precisely the
+    # state the check below exists to report: line 28018 already treats an
+    # empty value as zero. Aborting here would kill the install instead of
+    # letting it say "no pages on disk".
+    WIKI_PAGE_COUNT="$(find "$WIKI_DOCS_DIR" -type f \( -name '*.md' -o -name '*.html' \) 2>/dev/null | wc -l | tr -d ' ')" || WIKI_PAGE_COUNT=""
 fi
 info "Wiki pages on disk after the baseline compile: ${WIKI_PAGE_COUNT} (${WIKI_DOCS_DIR})"
 if [ "${WIKI_PAGE_COUNT:-0}" -eq 0 ]; then
@@ -26468,7 +28272,11 @@ fi
 # account on the Mac -- the same hole inside the fix for the hole.
 _ostler_redis_ping() {
     local _r
-    _r="$(docker exec ostler-redis redis-cli ping 2>/dev/null | head -1)"
+    # A DOWN CONTAINER IS THIS FUNCTION'S ANSWER, NOT ITS ERROR. `docker exec`
+    # exits non-zero when ostler-redis is not running, which under
+    # `set -Eeuo pipefail` aborted the install from inside the very helper
+    # written to report that state -- `return 1` at the bottom is the "no".
+    _r="$(docker exec ostler-redis redis-cli ping 2>/dev/null | head -1)" || _r=""
     if [[ "$_r" == *PONG* ]]; then printf 'PONG\n'; return 0; fi
     if [[ "$_r" == *NOAUTH* ]]; then
         [[ -n "${REDIS_PASSWORD:-}" ]] || return 1
@@ -26930,11 +28738,37 @@ if [[ -x "${ASSISTANT_BINARY:-}" ]]; then
     # macOS ships NEITHER -- the old bare `timeout 10` was always a
     # command-not-found there, so this probe never actually ran doctor.
     # Empty wrapper -> call the daemon directly (its own startup is fast).
+    #
+    # 🔴 THE CAP WAS 10s AND THE COMMAND TAKES 15.7s, SO A HEALTHY DAEMON
+    # REPORTED A TIMED-OUT STEP ON EVERY INSTALL. MEASURED on the walk box
+    # 2026-09-04, three consecutive runs against a daemon that was up and
+    # answering:
+    #
+    #     run 1  rc=0  15.7s      run 3  rc=0  15.6s
+    #     run 2  rc=0  15.7s      min 15.6  max 15.7  cap 10
+    #
+    # Every run exits 0 and every run exceeds the cap. The spread is a tenth
+    # of a second, so this is the command's normal duration and not a slow
+    # sample. The consequence is customer-visible on every install:
+    # health_check closes `status=timeout`, and the installer's own closing
+    # line reads "Ostler finished, but 1 install step(s) did not complete
+    # cleanly: health_check" for a daemon that is working perfectly.
+    #
+    # A cap BELOW the normal duration of the thing it wraps is not a timeout,
+    # it is a guaranteed failure with a timeout's name on it. The cap stays --
+    # it exists so a wedged daemon cannot hang the install -- but it has to sit
+    # above the command, with headroom for a slower Mac than this M4 mini and
+    # for a customer with more data than a walk box.
+    #
+    # Named and tunable like its siblings (OSTLER_IMESSAGE_PROBE_TIMEOUT_S=90,
+    # OSTLER_OSASCRIPT_TIMEOUT_S=20) so it can be lowered in a test without
+    # editing this line.
+    OSTLER_DOCTOR_PROBE_TIMEOUT_S="${OSTLER_DOCTOR_PROBE_TIMEOUT_S:-60}"
     _DOCTOR_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _DOCTOR_TIMEOUT_WRAP="gtimeout 10"
+        _DOCTOR_TIMEOUT_WRAP="gtimeout ${OSTLER_DOCTOR_PROBE_TIMEOUT_S}"
     elif command -v timeout >/dev/null 2>&1; then
-        _DOCTOR_TIMEOUT_WRAP="timeout 10"
+        _DOCTOR_TIMEOUT_WRAP="timeout ${OSTLER_DOCTOR_PROBE_TIMEOUT_S}"
     fi
     # The daemon may still be booting, so a non-zero `doctor` here is
     # expected and deferred (the `||` fallback handles it). The load-
@@ -27208,8 +29042,35 @@ else
 
     # Chrome Web Store: open the listing in the default browser. Fire
     # and forget; failures are non-fatal (e.g. headless install).
-    CHROME_URL="${OSTLER_CHROME_WEBSTORE_URL:-https://chrome.google.com/webstore/category/extensions}"
-    if [[ "${OSTLER_GUI:-0}" != "1" ]]; then
+    #
+    # NO LISTING, NO TAB. This used to default to the Web Store's
+    # generic extensions category and the comment above it called that
+    # "harmless if a customer lands there pre-listing". It is not
+    # harmless. The installer has just told the customer it is setting
+    # up browser extensions; opening a browser onto a category page
+    # with no Ostler listing anywhere in it reads as a broken install,
+    # and the customer has no way to tell that from one that worked.
+    #
+    # MEASURED, not assumed: there is no Chrome extension in this
+    # repository at all -- vendor/extensions/ holds a .gitkeep and
+    # nothing else, no manifest and no background script -- so there is
+    # nothing for a listing to point AT yet. The URL was a placeholder
+    # for a submission that has not happened.
+    #
+    # WHAT IS NOT LOST, and the customer is told so: Chrome HISTORY is
+    # still read through the Full Disk Access path (chrome_history.py,
+    # wired earlier in this script). Only the live extension channel is
+    # absent. Saying nothing here would leave a customer who uses
+    # Chrome believing Ostler ignores their browsing entirely.
+    #
+    # When the listing exists, set OSTLER_CHROME_WEBSTORE_URL and this
+    # block opens it exactly as before. The default is now empty rather
+    # than a decoy, so the honest branch is the one that fires today.
+    CHROME_URL="${OSTLER_CHROME_WEBSTORE_URL:-}"
+    if [[ -z "$CHROME_URL" ]]; then
+        info "$MSG_INFO_CHROME_EXTENSION_NOT_IN_THIS_RELEASE"
+        info "$MSG_INFO_CHROME_HISTORY_STILL_READ"
+    elif [[ "${OSTLER_GUI:-0}" != "1" ]]; then
         # Direct CLI install: actually open the URL.
         info "$(printf "$MSG_INFO_OPENING_CHROME_WEB_STORE" "${CHROME_URL}")"
         open "$CHROME_URL" 2>/dev/null || warn "$(printf "$MSG_WARN_COULD_NOT_OPEN_CHROME_WEB_STORE" "${CHROME_URL}")"
@@ -27412,7 +29273,52 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
             # counts-only JSON summary.
             _hydrate_heartbeat_start "$MSG_HYDRATE_AICONV_HEARTBEAT"
             _aiconv_rc=0
-            if [[ -z "$_AICONV_OUT" ]]; then
+            _AICONV_NO_OWNER_EMAIL=false
+            # 🔴 A PRODUCER THAT CANNOT SUCCEED MUST NOT BE RUN, BECAUSE ITS
+            # REFUSAL IS INDISTINGUISHABLE FROM A FAILED INSTALL.
+            #
+            # MEASURED on Andy's Mini during the v1.0.63 walk, 2026-09-04, and
+            # then re-measured on that same box against the installed binary:
+            #
+            #   CM052_USER_EMAIL="" pwg-ai-convo --source all --json  -> exit 2
+            #     ERROR cm052.cli: CM052_USER_EMAIL is not set.
+            #   CONTROL, same binary:  pwg-ai-convo --help            -> exit 0
+            #
+            # so the 2 is specific to the missing address, not a broken venv.
+            # That 2 was then folded into the shared recorder a few lines
+            # below, and the LAST step of the install closed as:
+            #
+            #   STEP_END id=health_check status=error elapsed_s=28 rc=2
+            #   DONE status=ok failed_steps=1 errors=0
+            #
+            # Every probe inside that step -- Qdrant, Oxigraph, Redis, Ollama,
+            # pairing, Doctor, assistant API, wiki, Vane -- had logged healthy.
+            # The install worked. The app came up. The assistant sent its first
+            # iMessage. And the installer's final word was a red step, because
+            # an optional source declined a job it was never given the input for.
+            #
+            # v1.0.64 fixed the OTHER half of this (it stopped registering an
+            # hourly agent that could only fail) but the guard it added sits
+            # BELOW the fold, so the drain still ran and health_check still
+            # reddened. Half a fix reads exactly like a whole one from the
+            # commit message, which is why the control below is a runtime one.
+            #
+            # A COLD MAC IS THE NORMAL CUSTOMER MAC. USER_EMAIL comes from the
+            # macOS me-card via osascript; on a Mac where Contacts has never
+            # been opened that call returns "Application isn't running. (-600)"
+            # and the address is empty. That is the default state of a machine
+            # restoring from iCloud or Time Machine, which is when this
+            # installer runs.
+            #
+            # So: skip the drain, say why, leave rc at 0, and let the guarded
+            # block below record ai_conversations as `no_data` with a DECLARED
+            # reason. That sentinel is not `status=ok`, so it does not suppress
+            # the retry -- the source comes back on its own once an address
+            # exists. Not-run-with-a-reason is recoverable. A red final step is
+            # a customer ringing support about an install that worked.
+            if ! _aiconv_owner_email_known; then
+                _AICONV_NO_OWNER_EMAIL=true
+            elif [[ -z "$_AICONV_OUT" ]]; then
                 warn "Skipping the AI-conversations drain: no private directory could be secured for its summary"
                 _aiconv_rc=1
             else
@@ -27445,7 +29351,7 @@ try:
     print(int(d.get("written", 0)))
 except Exception:
     print(0)' 2>/dev/null
-            )"
+            )" || { _AICONV_UNMEASURED=true; _AICONV_COUNT=""; }
             _AICONV_COUNT="${_AICONV_COUNT:-0}"
 
             # ── Steady-state recurring feed: register UNCONDITIONALLY ──
@@ -27468,6 +29374,46 @@ except Exception:
             _AICONV_AGENT_OK=false
             _AICONV_RESUME_PLIST="${HOME}/Library/LaunchAgents/com.ostler.aiconv-resume.plist"
             mkdir -p "$LOGS_DIR" "${HOME}/Library/LaunchAgents"
+
+            # 🔴 AN EMPTY REQUIRED VAR MUST NOT REACH A SHIPPED PLIST.
+            #
+            # MEASURED on the Mini 16 during the v1.0.63 walk, 2026-09-04.
+            # USER_EMAIL is read from exactly ONE place -- DETECTED_EMAIL at
+            # :5763, which comes from the macOS me-card via osascript at :5653.
+            # On a Mac where Contacts.app has never been launched that call
+            # returns:
+            #
+            #     Contacts got an error: Application isn't running. (-600)
+            #
+            # so DETECTED_EMAIL is empty, USER_EMAIL is empty, and the
+            # ${USER_EMAIL:-} below expanded to "". The agent then ran hourly
+            # and cm052.cli refused every single time:
+            #
+            #     ERROR cm052.cli: CM052_USER_EMAIL is not set. The wire needs
+            #     it to label the user side of each transcript.
+            #
+            # ai_conversations therefore read `not_run` FOREVER, and the same
+            # rc=2 folded into gui_step_record_rc and reddened health_check --
+            # one empty string, two symptoms, neither naming the cause.
+            #
+            # A COLD MAC IS THE NORMAL CUSTOMER MAC. A wiped machine restoring
+            # from iCloud or Time Machine has no warm GUI apps, which is
+            # exactly when this install runs. Registering an agent that cannot
+            # possibly succeed is worse than not registering it: it is an
+            # hourly failure with no reader, and the source it feeds reports a
+            # state ("not_run") that says nothing about why.
+            #
+            # So: refuse, say why in the customer's own status record, and let
+            # the freshness gate retry once an address is known. `not_run` with
+            # a declared reason is recoverable; a dead agent is not.
+            if ! _aiconv_owner_email_known; then
+                warn "AI conversations: no owner email address is known for this Mac, so the hourly AI-conversation reader was not registered."
+                warn "  The address labels your side of each transcript, and the reader cannot run without it."
+                warn "  Ostler reads it from your card in Contacts; on a Mac where Contacts has never been opened there is nothing to read."
+                warn "  Open Contacts once, check your own card has an email address, then re-run Ostler from Settings."
+                _hydrate_sentinel_record "ai_conversations" "written=0" \
+                    "owner_email_unknown_agent_not_registered"
+            else
 
             cat > "$_AICONV_RESUME_PLIST" <<AICONVPLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -27514,12 +29460,21 @@ AICONVPLIST
                || launchctl load "$_AICONV_RESUME_PLIST" 2>/dev/null; then
                 _AICONV_AGENT_OK=true
             fi
+            fi   # end: owner email known
 
             # ── Drain outcome: user-facing message + hydrate sentinel ──
             # The recurring steady feed is registered above regardless; this
             # only decides the install-time message + whether to stamp the
             # 7-day hydrate sentinel (success arms only).
-            if [[ "$_AICONV_TIMED_OUT" == "true" ]]; then
+            if [[ "${_AICONV_NO_OWNER_EMAIL:-false}" == "true" ]]; then
+                # The drain was never attempted (no owner email address), so
+                # there is no outcome to report and nothing succeeded. Say the
+                # same thing the other not-attempted arms say, and record NO
+                # sentinel here: the guarded block above already wrote
+                # ai_conversations with a declared reason, and a second write
+                # from this arm would land `written=0` with no cause attached.
+                info "$MSG_HYDRATE_AICONV_SKIPPED_NOT_READY"
+            elif [[ "$_AICONV_TIMED_OUT" == "true" ]]; then
                 # 180s cap hit mid-drain: do NOT record the sentinel here --
                 # an incomplete drain must retry, not skip for a week
                 # (w7-aiconv-honesty defect 1). The recurring agent registered
@@ -27887,6 +29842,98 @@ echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━�
 if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
     gui_step_end
 fi
+
+# ── THE CLOSING VERDICT, AND WHY IT IS AN ADDITION RATHER THAN AN EDIT ──
+#
+# #270 as filed reads: "install.sh closes with 'no errors detected' over a
+# session with 43+ real errors." I went to fix that line and found the filing
+# is PARTLY A MISREADING, so the fix is not what the row asked for.
+#
+# The string at :27036 is MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED,
+# and it renders as "ostler-assistant doctor: no errors detected". It is
+# SCOPED, TRUE, and it is about the assistant doctor's own output -- it counts
+# the doctor's own error markers, nothing else. Rewriting a truthful line
+# because it sits near the end of a log would have been the wrong repair, and
+# would have destroyed a real signal.
+#
+# THE ACTUAL DEFECT IS AN ABSENCE, NOT A FALSEHOOD: there was no whole-run
+# verdict at all. The customer reaches the end, sees a scoped doctor line, and
+# reads it as the closing statement because nothing else closes. So this ADDS
+# the missing sentence rather than editing the innocent one.
+#
+# PLACEMENT IS LEAD, NOT STYLE. It goes ABOVE `gui_done ok`, which is where
+# @TNM measured the boundary: `gui_done ok` is unconditional, and everything
+# below :27904 is documented post-success cosmetics. A verdict printed after
+# the GUI has flipped to success can describe a problem but cannot stop the
+# customer being told it worked.
+#
+# BRACE-AND-DEFAULT EVERY EXPANSION. @TNM's constraint, and it is a
+# correctness property here rather than a style note: :27627 documents that
+# everything from there to `gui_done ok` runs with `set -u` SUPPRESSED
+# (CX-123/#643), so an unset variable in this block will NOT abort -- it will
+# expand to nothing and silently produce a wrong sentence. Which would be this
+# very defect, committed inside its own fix.
+#
+# THE COUNT IS A FLOOR. See err(). It can under-report and can never invent an
+# error, so "Ostler finished cleanly" is only ever printed when the tally
+# genuinely saw none. That is the safe direction for a claim of health.
+#
+# TWO INDEPENDENT KINDS OF TROUBLE, #616. `_OSTLER_RUN_ERRORS` counts MESSAGE
+# errors (err()). It is blind to a STEP that ran and FAILED: a hydrate step
+# killed by its timeout cap raises no err(), so on the v1.0.60 walk this verdict
+# printed "no errors raised" beside `DONE ... failed_steps=2`, telling a customer
+# whose search index came out empty that the install went fine. So the verdict
+# now ALSO consults __OSTLER_FAILED_STEPS (the emitter's step-failure tally) and
+# NAMES the steps from __OSTLER_FAILED_STEP_IDS -- the SAME ids the STEP_END
+# lines carry, appended at the one site that increments the count, so the number
+# and the names cannot disagree. The reassuring line prints only when BOTH
+# tallies are zero.
+#
+# SCOPE, stated: this fixes only the sentence a HUMAN reads. The DONE-marker
+# `status` field a machine reads is a separate, sequenced change (#616 step 2,
+# ok|completed_with_failures|fail) with a Swift blast radius; it is NOT touched
+# here, so #839 (status=ok means "reached the end") is left intact.
+# CLOSING VERDICT (#616):
+if [[ "${_OSTLER_RUN_ERRORS:-0}" -gt 0 || "${__OSTLER_FAILED_STEPS:-0}" -gt 0 ]]; then
+    # Not a clean finish. Report each kind of trouble that actually occurred:
+    # a run can have message errors, failed steps, or both.
+    if [[ "${_OSTLER_RUN_ERRORS:-0}" -gt 0 ]]; then
+        warn "$(printf "$MSG_WARN_INSTALL_FINISHED_WITH_ERRORS" "${_OSTLER_RUN_ERRORS:-0}")"
+    fi
+    if [[ "${__OSTLER_FAILED_STEPS:-0}" -gt 0 ]]; then
+        warn "$(printf "$MSG_WARN_INSTALL_FINISHED_WITH_FAILED_STEPS" "${__OSTLER_FAILED_STEPS:-0}" "${__OSTLER_FAILED_STEP_IDS:-unknown}")"
+    fi
+    warn "$MSG_WARN_INSTALL_FINISHED_WITH_ERRORS_WHERE"
+else
+    ok "$MSG_OK_INSTALL_FINISHED_NO_ERRORS_RAISED"
+fi
+
+# E1 (#599): a T+0 source-status readout into the install log, read from the SAME
+# /api/v1/sources artefact the Doctor panel and the box walk read (G1c/G3), so the
+# log carries the per-source landing state the customer's panel will show. READ,
+# not re-derived from stores: a point count cannot say which source landed, and
+# two empty stores agreeing on zero is indistinguishable from two that both
+# landed nothing. Fail-soft and log-only: set -u is suppressed in this block, so
+# every expansion is braced-and-defaulted; an unreachable endpoint logs a plain
+# note and nothing here can abort the install or delay `gui_done ok`.
+_sources_json="$(curl -s --noproxy '*' --max-time 5 "http://127.0.0.1:${DOCTOR_PORT:-8089}/api/v1/sources" 2>/dev/null || true)"
+_sources_line="$(printf '%s' "${_sources_json:-}" | python3 -c '
+import sys, json
+try:
+    rows = json.load(sys.stdin).get("sources")
+    assert isinstance(rows, list)
+except Exception:
+    sys.exit(0)
+landed = sum(1 for r in rows if isinstance(r, dict) and r.get("status") == "ok" and (r.get("item_count") or 0) > 0)
+notrun = sum(1 for r in rows if isinstance(r, dict) and r.get("status") == "not_run")
+print(f"{len(rows)} sources reporting, {landed} landed at install, {notrun} not yet run")
+' 2>/dev/null || true)"
+if [[ -n "${_sources_line:-}" ]]; then
+    info "Source status (T+0): ${_sources_line}"
+else
+    info "Source status (T+0): /api/v1/sources not reachable at install end (the Doctor may still be starting; its panel and the box walk read the same record)"
+fi
+
 gui_done ok
 
 # CX-123 (#643): restore nounset now the display-only recap + the DONE

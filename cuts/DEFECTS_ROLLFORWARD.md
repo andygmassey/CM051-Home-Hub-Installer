@@ -109,6 +109,12 @@ walk_horizon: v1.0.41
 | v1.0.57 | 2026-09-02 | deferred | Archie 2026-09-02. THIS IS THE FIRST ARTEFACT IN THIS SEQUENCE THAT WAS CUT, PUBLISHED, INSTALLED ON A FRESH macOS ACCOUNT AND WALKED. Four versions before it died at gates (v1.0.53 preflight, v1.0.54 check-orphans, v1.0.55 check-freshness, v1.0.56 preflight again) and produced no bytes anybody ran. v1.0.57 produced bytes and somebody ran them: OstlerInstaller-1.0.57.dmg, 70,895,668 bytes, sha256 f01f7ec1 matching the published SHA256SUMS AND the copy on the box, installed by Andy on the Studio under archie5 (uid 505) on a machine verified clean beforehand -- 0 of 12 contaminant ports with the :22 control firing, both /Applications bundles absent, no ~/.ostler. THE WALK PAID FOR ITS VERSION, which is the whole argument for cutting. 🔴 AND IT FOUND A1, WHICH NO GATE HAD EVER CAUGHT. Read verbatim off the installed box: sys.path.append("/tmp/ostler-prelaunch-2026/lib"). The store-auth .pth had the STAGING path frozen into it, so the import failed at EVERY python startup, for ever, on every install; python printed 'Remainder of file ignored', OSTLER_SECRETS_DIR was never defaulted, cm059-editor 401d hourly and the Front Page never populated. EVERY OBVIOUS CHECK PASSES ON THAT DEFECT -- the .pth was present, the module was present and correctly installed at <final>/lib, only the path INSIDE was wrong -- which is exactly why no source-presence gate had seen it through five cuts. DEFERRED, NOT CLOSED, and the reason is the standing one: D001 and D002 are FIXED on CM051 main (#1316 21a63078, #1315 0d104ebc) and ride v1.0.58, but they are in NO artefact, so closing would be true about the repo and false about the DMG. ⚠️ THERE IS NO walks/v1.0.57.tsv AND THAT IS ITSELF A FINDING, filed as D004 rather than quietly omitted. The artefact WAS walked -- install completed, the 6-probe post-install QA subset ran on the box at 5 PASS / 1 FAIL / 0 CANNOT-RUN -- but the 21-probe harness was never run and no record was written, so this row is [DERIVED(no record)] while describing a version that really was installed. That gap is what took walk closure RED on the v1.0.58 dry run: 'v1.0.57 NO ROW. A cut with no row is indistinguishable from a cut nobody looked at.' The gate was right, the omission was mine, and it was caught by the gates-only dispatch rather than by spending a version -- the mechanism v1.0.56 was spent learning. THE STAGING-FREEZE CLASS WAS THEN SWEPT WITH CONTROLS rather than patched at the instance, because D001 is its THIRD occurrence (#177, #578, this): at the fixed pin, 8 writes above the promote-boundary contract line carry a tainted value, 1 is real (D001) and the other 7 are token/IP VALUES read via $(cat file) or openssl rand, and a token cannot freeze a directory. Both controls fired -- the same taint engine convicts #177 on its real pre-fix tree, and the finding disappears on the fixed branch -- so that near-zero is a measurement, not a vacuum. The sweep also named WHY the class recurs, which is D003. ZERO of these four are measured closure. The next walk is of a DIFFERENT artefact with a different sha256, which is #931 working as designed. | v1057-D001 v1057-D002 v1057-D003 v1057-D004 |
 | v1.0.58 |  | not_walked | Archie 2026-09-02. TAGGED cb787e69 at commit 323a0df9 and ACTUALLY CUT: run 33599019125 concluded success and published OstlerInstaller-1.0.58.dmg, 70,905,599 bytes, as a PRERELEASE on ostler-ai/ostler-installer. That makes it the SECOND artefact in this sequence to produce bytes anybody could install, after v1.0.57 and four gate deaths before that. NOBODY INSTALLED IT. There is no walks/v1.0.58.tsv and there should not be one, so this row is not_walked under the rules table above and closed is REFUSED. 🔴 THE ROW YOU ARE READING WAS FILED HOURS LATE, AND ONLY BECAUSE SOMETHING ELSE WENT LOOKING. That makes it the THIRD occurrence of the class already recorded as 'the shipping ledger can silently lose an entire cut'. The mandate is same-turn: append after any tag push. v1.0.58 was tagged at 06:23:15Z, its cut ran green at 06:28:50Z, it published a real 70,905,599-byte DMG, and the turn ended with no row in either register. NOTHING FAILED. Nothing was red. Every guard we own reads the file and the file parsed fine, so a MISSING row is invisible to all of them by construction -- a parser cannot miss what was never written. ⚠️ AND IT WAS NEARLY MISSED A SECOND TIME, BY THREE BROKEN PREDICATES IN ONE SITTING, each of which returned a confident zero that looked like a finding. (1) Reading the ledger via the contents API with a base64 decode gave an EMPTY file and the YAML loader returned None: that API goes empty above 1MB with no error and the file is 1,074,699 bytes. Fixed by asking for the raw media type. (2) With real bytes in hand, testing whether the version was present treated a LIST of dicts as a dict keyed by version, so it reported absent for SEVEN versions of which FIVE were present. (3) Listing workflow runs filtered by head branch found NO cut run for v1.0.58; the workflow-scoped query returned 33599019125 immediately, against 172 total cut runs as the denominator. 🗿 THE UNIFORM SHAPE WAS THE TELL ALL THREE TIMES, and this row is the proof of the rule rather than another anecdote about it: when a WORKING predicate was finally run against this file it answered v1.0.53 through v1.0.57 present and v1.0.58 alone missing. REAL ABSENCE IS RAGGED. A uniform zero is a broken instrument. An earlier attempt to count rows here returned zero for v1.0.56 and v1.0.57 as well, which are the CONTROL and must be non-zero -- that is what exposed the pattern rather than the file. 🔴 AND THE ARTEFACT CARRIES ONLY HALF OF A1, MEASURED ON THE TAG'S OWN TREE RATHER THAN INFERRED FROM MERGE ORDER. The v1.0.57 row records D001 and D002 as fixed on main and riding v1.0.58. D002 rides. D001 only half does: at commit 323a0df9 the PYTHON3_BIN call site still passes the STAGING root explicitly, above the promote-boundary contract line, so the .pth it writes still names a directory that does not survive the install. #1316 hardened the FUNCTION DEFAULT, and A DEFAULT CANNOT APPLY TO A CALLER THAT PASSES THE ARGUMENT EXPLICITLY -- 12 of the 16 call sites pass no root and were genuinely fixed, and this one was never in that population. CM051 #1321 changes that one identifier to the final dir and merged at 06:48:46Z, TWENTY-FIVE MINUTES AFTER THE TAG. So the published DMG has the staging freeze still live for every service without its own venv: cm059-editor, ical-server, ostler_hygiene. WALKING v1.0.58 WOULD HAVE RE-FOUND A1, which is the strongest argument available for why this row must not be quietly marked closed. PUBLISHED BYTES, NO WALK, HALF A FIX. SUPERSEDED BY v1.0.59, which carries the second half of A1, the hub-v0.4.70 daemon re-pin and its rebuilt wrapper. | none |
 | v1.0.59 |  | not_walked | Archie 2026-09-02. TAGGED c017f35d at commit 1d92f9d4, CUT run 33619834748 concluded success, and PUBLISHED OstlerInstaller-1.0.59.dmg -- 70,765,483 bytes, sha256 b35bfdd5..., prerelease, on ostler-ai/ostler-installer. 🎯 THE FIRST TAG IN THIS SEQUENCE CREATED AFTER A GREEN DRY RUN, which is the rule the v1.0.56 row states in my own words and which was still not followed at v1.0.57 or v1.0.58. Run 33619461561: preflight 20 success 0 failure, dry-run job 10 success 0 failure, cut job SKIPPED because a workflow_dispatch cannot make an artefact. IT CAUGHT SIX REFUSALS AT ZERO VERSION COST, and every one was mine. Four at preflight: no cut-manifests/v1.0.59.yaml at all; BOM_PIN carrying no hash for the v1.0.59 BOM; walk closure failing because v1.0.58 had NO ROW; and the CM051 pin not RESOLVING on CI at all. Two in-build: check-freshness, the gate that killed v1.0.55, red because I merged an upstream daemon commit INSIDE the cut window; and check-orphans, the gate that killed v1.0.54, red on exactly one orphan. 🗿 THREE OF THE SIX ARE DOCUMENTED RECURRENCES OF LESSONS ALREADY WRITTEN IN THIS FILE IN MY OWN WORDS: authoring canonically on the VENDORED side rather than here (the v1.0.56 row), advancing the live HEADs a pin is measured against mid-window (the v1.0.55 row), and reading a gate's own remedy text without acting on it. A registry that records a lesson and does not prevent its repetition has documented a habit, not fixed one. ⚠️ THE ORPHAN RED ALSO EXPOSED A KEY-SHAPE ERROR I THEN STATED PUBLICLY AND HAD TO RETRACT. cut-deferrals.yaml holds TWO top-level lists with TWO different consumers and TWO different reference shapes: deferrals is read by check-orphans, pr_exemptions by check-pr-age. I wrote four rows into pr_exemptions and announced the open PRs were disposed of. check-orphans never reads that list. The claim was HALF TRUE by accident -- three of the four were already covered by pre-existing deferrals rows, so only one was genuinely undisposed. 🔴 AND IT CARRIES THE SECOND HALF OF A1, WHICH v1.0.58 DID NOT. The v1.0.58 row records that #1316 hardened the FUNCTION DEFAULT while install.sh's PYTHON3_BIN call site kept passing the staging root EXPLICITLY, so the .pth still named a directory that does not survive promote for every service without its own venv. #1321 changes that call site and it is in this cut, measured in the shipped file rather than inferred from merge order. PROVEN ON THE ARTEFACT, NOT THE BUILD LOG, because divergent lineage is precisely the case where every step runs green and the bundle is still wrong: codesign valid, spctl accepted, stapler validated so offline first-run survives; the three fix patterns 1 hit each with a negative control at 0 and a positive control at 3009; BOTH shipped install.sh hashed identically rather than one probed and the other assumed; the shipped daemon binary carrying the pinned commit 3 times and the superseded one 0 times; and the Ostler.app wrapper's compiled-in WRAPPER_FRONTEND_COMMIT equal to the daemon commit. CUSTOMER PATH PROVEN WITH CONTROLS: unauthenticated and unproxied, DMG 200, alias 200, SHA256SUMS 200, a 9.9.9 negative control 404, and the downloaded bytes hashing to the value the release itself claims. PUBLISHED BYTES, FULL FIX, STILL NO WALK. Nobody has installed this on a clean macOS account. status is not_walked and closed is REFUSED. The BOM carries 11 rows, 5 PROVEN and 6 DECLARED needs-walk with 0 unclassified -- against v1.0.58's nine rows and nine TBD -- so what is unproven reaches Andy ANNOUNCED rather than as a surprise during the walk. | none |
+| v1.0.60 | 2026-09-03 | deferred | Archie 2026-09-03. **THE ARTEFACT WAS INSTALLED AND WALKED BY ANDY ON THE MINI 16 (.98), AND IT FAILED.** That is his recorded call, not an inference of mine. I did not observe the walk; I observed its artefact and its findings, and this row says which is which throughout. ARTEFACT EVIDENCE I MEASURED MYSELF, over ssh, read-only: ~/.ostler/logs/install.log final line `DONE status=ok failed_steps=2 errors=0`, mtime `Sep 3 11:39:48` box-local, i.e. the run COMPLETED and then MISREPORTED ITSELF -- which is v1060-D001 caught in the act on the shipped artefact rather than reasoned about. The same log carries `Source status (T+0): 13 sources reporting, 5 landed at install`, so A2's G3 publisher is live on a real install. SEVEN DEFECTS CAME OFF THIS WALK, every one filed the same day with a named author, and FIVE ARE ALREADY FIXED ON MAIN: v1060-D001 (#1369 16b3d219 + #1376 e08869ab), D002 (#1375 dc9d85d3), D003 (#1370 39e896b6), D004 (#1371 318d513d), D005 (#1377 477608ab). D006 and D007 are OPEN. **DEFERRED, NOT CLOSED, and the reason is the standing one**: those five fixes are on CM051 main and ride v1.0.61, but they are in NO ARTEFACT, so closing would be true about the repo and false about the DMG. The next walk is of a DIFFERENT artefact with a different sha256, which is #931 working as designed. 🔴 AND `closed` IS NOT MERELY UNWISE HERE, IT IS ILLEGAL: this file's own status table says that with no walk record for a cut, only `deferred` or `not_walked` are legal and `closed` is REFUSED. `not_walked` would be a false statement about a version somebody really did install, so `deferred` is the only honest cell. ⚠️ THERE IS NO walks/v1.0.60.tsv AND THAT IS ITSELF A FINDING, filed as v1060-D008 rather than quietly omitted -- the identical shape as v1057-D004, which means this is the SECOND consecutive hand-walked cut whose harness record was never written, and a recurrence is a mechanism rather than an oversight. 📌 PROVENANCE, STATED SO IT CAN BE AUDITED RATHER THAN TRUSTED: the seven defect sections below are transcribed from register rows filed on 2026-09-03 from Andy's live walk, plus my own install.log measurement. TNM built the v1.0.61 cut set, hit this gate RED, and REFUSED to write this row -- correctly, because they held none of the findings and a walk row is a record of something someone watched. I am writing it because I hold the findings and the artefact measurement; I am NOT writing walks/v1.0.60.tsv, because that file is generated by scripts/post_walk_qa.sh and I did not run the harness, and hand-forging a harness record is the one thing this whole mechanism exists to prevent. @ANDY: correct anything here you saw and I have not captured -- these are your findings and my transcription. | v1060-D001 v1060-D002 v1060-D003 v1060-D004 v1060-D005 v1060-D006 v1060-D007 v1060-D008 |
+| v1.0.61 | 2026-09-03 | deferred | Archie 2026-09-03. **ANDY INSTALLED THIS ON A CLEAN ACCOUNT ON THE MINI 16 AND IT FAILED**, and for the first time since v1.0.52 THE HARNESS WROTE A RECORD OF IT. `walks/v1.0.61.tsv` exists: verdict FAILED, qa_exit 1, walked_at 2026-09-03T10:56:21Z, box_fp 165e8417bcff2a80, artefact_sha256 0da59320633a92c9... with artefact_sha256_source reading measured(shasum -a 256 on the walked box). Phase-1 counts are pass 11, fail 7, cannot_run 6, broken 0, and the file's own `measured` line reconciles them at 24 of 24, so the buckets partition the suite rather than leaving a silent remainder. 🎯 **THE EXISTENCE OF THAT FILE IS ITSELF THE CLOSURE OF v1057-D004 AND v1060-D008**, which are the same finding filed twice running: "the artefact was walked and no walk record was written". Both times the walk was done by hand, and the harness -- the only thing that writes the record -- was never run. This time it was. That makes this the first row in the v1.0.5x/6x sequence whose status is DERIVED FROM A RECORD rather than from my transcription of somebody else's account, and the difference is not cosmetic: every row above this one reading [DERIVED(no record)] is me writing down what I was told. 🔴 **SIX DEFECTS CAME OFF THE WALK AND THREE ARE ALREADY FIXED ON MAIN**: v1061-D003 (CM051 #1385, 4e1bd89a) and v1061-D004 + v1061-D006 (CM051 #1386, c7b2c3ac). D006 is the one that ended the walk -- a SPACE after a line-continuation backslash at install.sh:26690, which `bash -n` exits 0 on, so no parse-level check we own could ever have seen it. v1061-D001 (#622), v1061-D002 (#623) and v1061-D005 (#627) are OPEN. **DEFERRED, NOT CLOSED, and the reason is the standing one**: those three fixes are on CM051 main and ride v1.0.62, but they are in NO ARTEFACT, so closing would be true about the repo and false about the DMG. The next walk is of a different artefact with a different sha256, which is #931 working as designed. ⚠️ **AND A SEVENTH FINDING CAME OUT OF THE RECORD ITSELF RATHER THAN OFF THE BOX**, filed as v1061-D007: three probes have now failed on FOUR CONSECUTIVE walk records and not one of the four was investigated. That is NOT a v1.0.61 regression and this row does not claim it is -- it is a standing condition the harness has been reporting since v1.0.50, filed here because v1052-D007 already called it out at two consecutive and nothing changed. 📌 PROVENANCE, STATED SO IT CAN BE AUDITED RATHER THAN TRUSTED: the walk is Andy's, on his hardware, and the descriptions of D001, D002 and D005 are transcribed from register rows filed the same day from what he saw. The counts, the probe names and the four-walk recurrence in D007 are mine, measured directly from the walks/*.tsv files. I did NOT write walks/v1.0.61.tsv; the harness did, which is the entire point of this row. @ANDY: correct anything here you saw and I have not captured. | v1061-D001 v1061-D002 v1061-D003 v1061-D004 v1061-D005 v1061-D006 v1061-D007 |
+| v1.0.62 | 2026-09-03 | deferred | Archie 2026-09-03. **THE ARTEFACT WAS CUT, INSTALLED ON THE MINI 16, AND WALKED. THE HARNESS DID NOT WRITE A RECORD.** There is no `walks/v1.0.62.tsv`: measured with `git ls-files walks/`, 7 files present (v1.0.44, 47, 50, 51, 52, 61 and the README), and a positive control confirms the predicate is sound because it finds `walks/v1.0.61.tsv`. The zero is real, not a broken search. 🔴 **THAT MAKES THIS THE THIRD OCCURRENCE OF THE CLASS v1057-D004 AND v1060-D008 BOTH NAMED**, and the v1.0.61 row directly above celebrated closing it: "the artefact was walked and no walk record was written". One cut ran the harness. The very next one did not. The closure was a single event, not a mechanism, which is exactly the distinction this register exists to force. Everything in this row is therefore **[DERIVED(no record)]** -- me writing down what I observed, the same provenance the v1.0.61 row was written to escape. 📌 **WHAT THE WALK ACTUALLY SHOWED.** The ttywalk ended 2026-09-03T20:42:08Z with `~/.ostler/logs/install.log` frozen at 4180s and no `install.sh` process alive. The log's terminal line reads `DONE status=ok failed_steps=1 errors=0` -- a success verdict carrying a failed step, which is **precisely** the defect CM051 #1401 (6e82afc5) fixes. #1401 merged 21:06:16Z and **v1.0.62 was tagged 13:24:04Z, 7h42m earlier**, so the fix is on main and in no artefact. 🔴🔴🔴 **AND THE WALK-KILLER IS WORSE.** e17dad02 (CM051 #1392, register #642) fixes a `pgrep` no-match that fabricates a TERMINAL failure verdict mid-install; it postdates the v1.0.62 tag by **3h14m**. The double-DONE mechanism was solved on a live run of this vintage: the ERR trap inherited into a command substitution's SUBSHELL, which is why three earlier harnesses all refuted it -- each kept an rc-capturing fallback on the fallible call, which suppressed ERR. 🚦 **SCOPE CALL, MINE, 2026-09-03T22:19Z: v1.0.62 MUST NOT BE WALKED AGAIN.** Walking it walks the deadlock. Six install-path commits are stranded off the tag -- e17dad02 (#1392), 6e82afc5 (#1401), 0c4f920a (#1398), 1adc5ef1 (#1396), f875f353 (#1400), 205aa100 (#1393) -- measured as 14 commits since the tag of which 6 touch `install.sh` or `gui/`, with a control confirming the gate-only PRs (#1404, #1405, #1406) are correctly ABSENT from that shipping set. **DEFERRED rather than closed, for the standing reason**: those fixes ride v1.0.63, which does not exist yet, so closing would be true about the repo and false about the DMG (#931). ✅ One thing this artefact did prove: the Tailscale pre-announce guard was verified IN the shipped v1.0.62 DMG (register #613), so declining no longer promises a later sign-in. ⚠️ **THE FINDINGS COLUMN OF THIS ROW IS DELIBERATELY EMPTY AND THAT IS NOT A CLAIM THAT NOTHING WAS FOUND.** The gate counts findings by `v1062-Dxxx` ids carrying a matching `###` section here, and this walk's findings are already filed as register rows #639, #640, #641, #642 and #613, cited in the prose above. Minting duplicate `v1062-D` sections would put TWO REGISTERS ON ONE FACT, which is this estate's signature failure (#532), so I have not done it. But the consequence must be stated rather than left for a reader to trip over: **this row passes walk closure on a ZERO DENOMINATOR**, exactly as v1.0.58 and v1.0.59 do, while v1.0.60 and v1.0.61 carry 8 and 7. A `deferred` row with no findings is the odd one out in that sequence and a reader is entitled to be suspicious of it. @ANDY: correct anything you saw here that I have not captured. | #639 #640 #641 #642 #613 |
+| v1.0.63 | 2026-09-04 | deferred | Archie 2026-09-04. **ANDY INSTALLED THIS ON THE FRESHLY WIPED MINI 16 AND WALKED IT BY HAND, AND THE HARNESS WROTE A RECORD.** `walks/v1.0.63.tsv` exists: verdict FAILED, qa_exit 1, artefact_sha256 1c1bb8a941c1d24b... with artefact_sha256_source reading measured(...) on the walked box. 🔴 **BUT THE RECORD IN THE TREE IS NOT THE WALK'S OWN RESULT, AND THAT IS MY DOING.** The first harness run, at ~08:53Z on the untouched box, measured **pass 14 / fail 8 / cannot_run 2 / broken 0**. I then repaired the box by hand with Andy's explicit go-ahead -- set the aiconv owner email ~09:16Z, pinned the iMessage backfill window and re-extracted ~09:17Z, ran the over-merge repair ~10:07Z -- and re-ran the harness, which OVERWROTE the file with the 10:14:36Z result of **pass 15 / fail 7 / cannot_run 2**. The delta is `people_count_agreement`, which moved FAIL -> PASS because of my repair and not because of any build. **So this row's counts are 14/8/2/0 and the file's are 15/7/2/0, and the file is the weaker evidence.** That is #940 exactly -- a walk verdict is a function of the build AND the box state, and only the build is recorded -- caught on myself rather than reasoned about. The harness has no notion of a box that changed under it, and I gave it one. ⚠️ **THE MINI 16 IS THEREFORE NO LONGER A CLEAN SUBJECT** and no probe result taken from it after 09:16Z is a verdict on the v1.0.63 artefact. 🎯 **TEN FINDINGS CAME OFF THIS WALK AND SIX ARE ALREADY FIXED ON MAIN**, all in CM051 #1418 (98398996) except where noted: D001, D002, D003, D004, D005 and D009. D006, D007, D008 and D010 are OPEN. Three of the ten are not product defects at all but **GATES REPORTING ON THEMSELVES** -- D004, D005 and D006 -- which is the finding underneath the findings: `install_manifest_complete` had never once adjudicated since v1.0.50 because every walk is remote and it refused to run remotely; `pair_state_agreement` asked the Doctor for a key only the gateway carries; `usage_journal_producers` reads a workspace path the daemon does not use, and has FAILED ON ALL FIVE WALKS THAT MEASURED IT while the journal it reports missing exists with 684 records. **DEFERRED, NOT CLOSED, for the standing reason** (#931): the six fixes are on CM051 main and ride v1.0.64, which is being cut now, but they are in NO ARTEFACT. Closing would be true about the repo and false about the DMG. 📌 PROVENANCE: the walk is Andy's, on his hardware. The probe counts, root causes and code reads are mine, measured directly. **I asserted seven root causes across this session and three survived** -- the four withdrawn ones are named in D003 and D006 so the record shows the wrong turns, not just the destination. @ANDY: correct anything you saw that I have not captured. | v1063-D001 v1063-D002 v1063-D003 v1063-D004 v1063-D005 v1063-D006 v1063-D007 v1063-D008 v1063-D009 v1063-D010 |
+| v1.0.64 |  | not_walked | Archie 2026-09-04. **TAGGED, CUT, PUBLISHED, VERIFIED TO THE PAYLOAD, AND NEVER WALKED.** The artefact is real and I measured it: OstlerInstaller-1.0.64.dmg, 70,927,801 bytes, sha256 7e6a0ebf..., stapled, codesigned, Gatekeeper-accepted, and the `install.sh` INSIDE the DMG hashes identically to the tagged blob 92d4286e71a95adab992816f, which is the check that compares the payload rather than the commit. It was copied to the Mini and its hash re-measured there. 🔴 **IT WAS NOT WALKED BECAUSE IT WOULD HAVE FAILED THE WALK IN THE SAME PLACE v1.0.63 DID, AND THAT IS MY DOING.** First it could not be walked at all: the only account on the Mini was Andy's, whose running v1.0.63 held all six store ports through colima's forwarder (measured: `ssh: ~/.colima/_lima/colima/ssh.sock [mux]`, pid 10934, holding 3000 6333 6379 7878 8044 8144), so `ttywalk.sh` returned CANNOT-RUN and was RIGHT to. Andy then created a second account, `archie` (uid 502), which is a genuinely cold subject. Before spending it I re-read the one defect v1.0.64 was cut to fix and found I had fixed HALF of it. `v1063-D001` has two symptoms from one empty string; CM051 #1418 guarded the LaunchAgent and left the `health_check` fold alone, because the guard it added sits BELOW the fold at install.sh:29055. So v1.0.64 still ends a cold-Mac install `failed_steps=1` with a red final step while every service inside it logs healthy. **A brand-new account has never opened Contacts, which is precisely the condition the defect needs**, so walking v1.0.64 on `archie` would have reproduced Andy's exact complaint on the only genuinely cold account available. ⚠️ **THE CUT MANIFEST FOR v1.0.64 STATES THIS DEFECT AS FIXED**, and so did a code comment I wrote the same morning. The reason it survived is worth more than the fix: the defect is an ORDERING between a guard and a fold, and after #1418 BOTH were present in the tree, so every structural check over the source answers YES on a tree that still ships the bug. Only executing the block discriminates. **SUPERSEDED BY v1.0.65**, which carries CM051 #1428 and a RUNTIME test whose two pinned controls, 45126e9a and deecd9fc, BOTH reproduce the failure. The second control is the one that proves v1.0.64 did not fix it. 📌 PROVENANCE: no human installed this artefact. Every claim in this row is a measurement of the artefact or of the source, not of a walk, and the row says `not_walked` for exactly that reason. | v1063-D001 |
+| v1.0.65 | 2026-09-04 | deferred | Archie 2026-09-04. **WALKED NINE TIMES ON archie@192.168.1.240 (uid 502) AND CONDEMNED.** This is the first cut ever driven past step 21, and the reason it took nine attempts is worth more than the verdict: **FOUR of the nine stops were MY HARNESS, not the product.** walk 5 died at step 6 on a real defect (#1436, merged). walks 6-8 died at step 10 on three different false zeros I wrote into ttywalk's reset payload -- an apostrophe inside a single-quoted ssh argument, a `tr -d ' '` that closed it the same way, and a bare `docker` that is not on the non-interactive ssh PATH -- each of which PRINTED SUCCESS while five containers were running. walk 9 died at step 21 on a staging gap: the harness stages the REPO and 23 of 48 DMG `Contents/Resources` entries were absent, of which it warned about 3. **THE STAGING GAP IS WORKED AROUND, NOT FIXED**: I copied 22 of the 23 in BY HAND from the mounted DMG into a worktree under `/private/tmp`, which macOS clears on boot. 🔴 **THEN THE PRODUCT DEFECTS.** walk 10 found `v1065-D001`, a same-day regression of mine that kills every install at step 21 with rc=127. walks 11 and 12 found `v1065-D002`, which has silently disabled contact and Places import since v1.0.60, and `v1065-D003`, the abort that turned it into a dead step. walk 18 is GREEN: 39 steps, 0 not-ok, 0 ERR codes, 0 tracebacks, one terminal `DONE status=ok failed_steps=0 errors=0`, `ttywalk exiting 0`. ⚠️ **THE GREEN WALK SHIMS THE iMESSAGE TCC PROBE AND THEREFORE SAYS NOTHING ABOUT AUTOMATION PERMISSION.** macOS TCC needs a GUI click an ssh session cannot make. Only a console walk by a human can measure it, and the harness prints that disclaimer on every run. 🔴 **AND THE POST-WALK GATE IS 10 PASS / 10 FAIL / 4 CANNOT-RUN, AGAINST 15/8/1 ON THE v1.0.63 WALK THIS MORNING.** Three failures are new (`daemon_is_listening`, `people_count_agreement`, `people_seed_and_retrieval`) and one moved FAIL -> CANNOT-RUN (`ingest_coverage`), which is coverage lost and must not be read as a fix. `assistant_answers_grounded` DEGRADED rather than merely staying red: this morning the socket connected and answered, tonight all three questions die at `handshake HTTP/1.1 401 Unauthorized`. **The 401 is NOT a provisioning failure** -- `secrets/service_token` is present at mode 600 and the daemon plist carries a `PWG_SERVICE_TOKEN` of matching length, and four credential presentations all 401 against a `GET /` control that returns 200. **CONFOUND, STATED: tonight's box is a FRESH RESET and the v1.0.63 box had history**, so I have NOT established that any of the three new failures is caused by code. That needs a real v1.0.66 DMG on a cold account. 📌 PROVENANCE: every walk is mine, unattended, on Andy's Mini under the `archie` account. No human installed this artefact. **DEFERRED, NOT CLOSED**, for the standing reason (#931): D001, D002 and D003 are all fixed on CM051 main and ride v1.0.66, which has no artefact yet. Closing would be true about the repo and false about the DMG. @ANDY: correct anything you saw that I have not captured. | v1065-D001 v1065-D002 v1065-D003 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -4283,3 +4289,662 @@ same object.
 ⚠️ **AND IT COST NOTHING TO FIND**, which is the only good part. The gates-only dispatch
 surfaced it before any tag was created. That is the v1.0.56 lesson applying itself one
 version later, in the direction it was meant to.
+
+### v1060-D001 -- the install printed a clean finish over two failed steps and an empty search index
+
+**FIXED on main** (#1369 `16b3d219` names the failure; #1376 `e08869ab` names WHICH collections are missing).
+
+Measured on the walked artefact, not reasoned: the final line of `~/.ostler/logs/install.log` reads
+`DONE status=ok failed_steps=2 errors=0`. The run completed, carried two failed steps, and reported
+`status=ok` anyway. The customer-facing wrap-up said the install finished with no errors raised.
+
+The second half is worse than the first. The install had also just promised to create four Qdrant
+collections and then asked `count -gt 0` about them -- **a cardinality test cannot see a missing
+member.** The live store held three collections, two of the four promised were absent, and one
+present collection was never in the creation loop. Count correct, claim false, wiki compiling
+against an index that did not have what it needed.
+
+⚠️ REMAINDER, NOT CLOSED BY THE ABOVE: #1376 closes the qdrant half AT INSTALL TIME. The
+declared-vs-present manifest for LaunchAgents, cron, artefact dirs and import wires still only runs
+on a box walk. That is tracked separately and is Andy's #599 idea (run the T+0 probe subset at the
+end of a customer install).
+
+### v1060-D002 -- two hydrate steps timed out at 90s and the wiki compiled against an empty store
+
+**FIXED on main** (#1375 `dc9d85d3`).
+
+Two hydrate steps returned rc=124 -- killed by their own cap. Six hardcoded `90` caps were doing it;
+they are now named constants at 1800 and env-tunable, gated. #456 predicted exactly this failure on
+a real install and it arrived.
+
+🔻 A CORRECTION THAT BELONGS IN THE RECORD: my first sizing said "six bare-literal-90 sites". TNM
+measured 8 lines / 6 capped steps. And I attributed the hour-long promise to `initial_hydrate` when
+`wiki_compile` owns it. My cap-floor rule was also refused as unenforceable and replaced with a
+defensible measured floor. Three corrections on one finding, all TNM's, all taken.
+
+### v1060-D003 -- the installer promised a Tailscale sign-in twice AFTER the customer declined it
+
+**FIXED on main** (#1370 `39e896b6`). Found by Andy live, mid-walk.
+
+He answered "skip" to remote access and was then told twice that a Tailscale sign-in was still
+coming: once in the post-questions wrap-up, once at the Full Disk Access gate. The install then
+printed "Tailscale skipped" in the same run, contradicting itself. **Neither line consulted the
+answer.** Both are read at the moment a customer is deciding how long they must stay at the
+keyboard, so the false promise costs them real time.
+
+The fix keeps the ACCEPTED and late-ask arms, which are load-bearing: deleting the promise outright
+would have satisfied the declined case and broken a true promise on the two paths where the sign-in
+genuinely is still to come.
+
+### v1060-D004 -- ERR-06 told the customer "STORE-AUTH-LEAK" for a measured readiness timeout
+
+**FIXED on main** (#1371 `318d513d`).
+
+The #566 residual, seen live on this walk. #566 had already established the mechanism -- status=000,
+a readiness timeout, NOT a 401 -- and five candidate mechanisms had died explaining a status code
+nobody had measured. The mechanism was fixed; the NAME was not. The customer still read the word
+LEAK for a timeout. ERR-06 now leads with the measurement.
+
+### v1060-D005 -- the daily briefs were absent, and not broken: there was no LaunchAgent at all
+
+**FIXED on main** (#1377 `477608ab`).
+
+Andy: "daily briefings haven't worked for 10-15 builds." Measured on the box: there was no
+daily-brief LaunchAgent present, and `[[cron.jobs]]` count was 0.
+
+Mechanism, and it is a reuse-path defect: the reuse-settings re-run restores five values from
+`config/.env`, which carries **zero** CHANNEL_* keys (measured, with a must-hit control on the keys
+it does carry). The channel questions never execute under SKIP_PHASE2, config.toml is regenerated
+anyway with no SKIP_PHASE2 guard between the questions block and the truncating redirect, the
+brief-delivery resolver therefore resolves NO channel, and the re-run writes ZERO cron jobs. The
+customer silently loses the morning brief and the evening wrap they already had -- while the reuse
+prompt's own help text promises their previous answers are being carried over.
+
+🗿 The fix shipped WITH a test that fails on the ORIGINAL defect, per #398, and it was verified
+against the real pre-fix install.sh rather than a synthetic mutant: arms A and E go RED with
+"reuse re-run wrote 0 [[cron.jobs]], expected 2 -- the customer lost their briefs", arms B/C/D still
+PASS (so it discriminates rather than failing wholesale), and arm F reports CANNOT-RUN rather than
+passing when its anchors are absent.
+
+### v1060-D006 -- a contact labelled "Mum" produced a "gone quiet" card
+
+**OPEN.** Fix exists upstream (CM041 #136), lands the cut AFTER v1.0.61 unless Andy pulls it forward.
+
+⚠️ REFRAMED BY ANDY AND THE REFRAME IS THE IMPORTANT PART: this is most likely **#298 regressing** --
+his wife is labelled "Mum" -- and NOT a missing deceased-state feature. He parked deceased-state by
+decision. Do not re-derive this as a bereavement-handling gap; it is a people-dedupe regression.
+
+Not pulled into v1.0.61 because a re-vendor at T-minus imports an unmeasured delta, and because A2
+measured that the box-walk probe runs `--exclude-type import_wire` deliberately, so the CI red
+cannot be rediscovered by a walk. **Re-vendor only to a CM041 SHA that has #136 merged**: on bare
+main, row 117 goes GREEN via three helper files while `syncer.py` -- the actual write path -- is
+still unguarded, which is a split state that misrepresents the fix.
+
+### v1060-D007 -- freshness times render as decimal hours, and "0.0h ago" means nothing to a reader
+
+**OPEN, UNOWNED, AND THE PRODUCER IS NOT FOUND.** Filed honestly as unresolved rather than guessed at.
+
+Andy saw "0.2h ago" and "0.0h ago" on the freshness panel. Four renderers measured, and **all four
+floor correctly and cannot emit a decimal**: the HR015 Doctor (`dashboard_components.py:292`,
+`seconds // 3600`), the daemon SPA (`SystemStatus.tsx:58-72`, `Math.floor` at every step), the daemon
+Rust (`mod.rs:930-946`, integer `mins / 60`, and a prompt string rather than a panel), and the HR015
+doctor tree generally.
+
+🔻 **My "it is the daemon SPA" narrowing is REFUTED by my own measurement.** Unprobed surfaces: CM031
+iOS Swift, and the CM044 wiki compiler. Advice for whoever takes it, learned by wasting the time:
+**find the PANEL first, then read its renderer.** Going renderer-first found nothing.
+
+### v1060-D008 -- the artefact was walked and no walk record was written (SECOND CONSECUTIVE TIME)
+
+Filed against the process, and filed rather than omitted because an omitted process gap is
+indistinguishable from one nobody noticed.
+
+`walks/v1.0.60.tsv` does not exist. The newest walk record on main is still v1.0.52. v1.0.60 was
+genuinely installed and exercised -- it produced seven distinct defects, five of which are already
+fixed -- so this is a real walk with no artefact of itself.
+
+**This is the identical shape as v1057-D004, one cut later, which makes it a MECHANISM rather than an
+oversight.** Both times the walk was performed by hand rather than through
+`scripts/post_walk_qa.sh`, and the harness is the only thing that writes the record. A process that
+depends on someone remembering to run a second tool after the interesting part is over will keep
+producing this row.
+
+⚠️ WHAT I DELIBERATELY DID NOT DO: I did not hand-write `walks/v1.0.60.tsv`. That file is generated
+by the harness and its whole value is that it was produced by something that watched. Forging one
+would defeat the mechanism it belongs to far more thoroughly than leaving it absent and saying so.
+TNM reached the same conclusion independently and refused to write the row at all; they were right
+to refuse on the evidence they held, and I am writing it only for the parts I can source.
+
+⇒ SUCCESSOR WORK, not a T-minus fix: either the walk driver writes a record for a hand walk too, or
+the gate learns to accept a DERIVED row with named provenance as a distinct third state from both
+"harness record" and "nothing". Related to #599.
+
+### v1063-D001 -- an empty owner email shipped into a LaunchAgent, and it reddened health_check too
+
+`USER_EMAIL` is read from exactly ONE place: the macOS me-card via `osascript`.
+On a Mac where Contacts.app has never been launched that call returns
+`Contacts got an error: Application isn't running. (-600)`. The installer
+ALREADY recognised that failure and warned about it; what it had was no
+fallback and no guard. So the agent shipped `CM052_USER_EMAIL=""` and
+`cm052.cli` refused once an hour, forever.
+
+One empty string, two symptoms, neither naming the cause: `ai_conversations`
+read `not_run` permanently, AND the same rc=2 folded through
+`gui_step_record_rc` into `health_check`, which is why every service reported
+`healthy` and the step still exited 2.
+
+A warm GUI app is the property LEAST likely to hold at install time -- the
+installer runs on a machine somebody has just set up.
+
+**FIXED on main**, CM051 #1418: a GUI-free second source
+(`Accounts4.sqlite`, opened `immutable=1` so it takes no lock) plus a guard
+that refuses to register an agent that cannot succeed and records
+`owner_email_unknown_agent_not_registered`. The fallback PICKED THE WRONG
+ADDRESS on the first box it met and the code says so: the account-identity
+address is not the one the owner uses. It ships because a plausible-but-wrong
+address is correctable in one field while an absent one leaves the source dead
+until somebody notices. **The real fix is to ASK, pre-filled, and that is not
+done.**
+
+🔴 **CORRECTION, 2026-09-04T14:38:35Z. ONLY ONE OF THE TWO SYMPTOMS WAS FIXED, AND
+I WROTE THE SENTENCE THAT SAID OTHERWISE.** The row above says this row's two
+symptoms were fixed in #1418. The LaunchAgent half was. The `health_check`
+half was NOT, and v1.0.64 shipped carrying it.
+
+The guard #1418 added sits **BELOW** the fold it was supposed to prevent:
+
+```
+install.sh :29038   CM052_USER_EMAIL="${USER_EMAIL:-}"  ...  <- drain runs anyway
+install.sh :29055   gui_step_record_rc "$_aiconv_rc"         <- rc 2 folded HERE
+install.sh :29185   if [[ -z "${USER_EMAIL:-}" ]]            <- the #1418 guard
+```
+
+So on v1.0.64 the producer is still invoked with an empty address, still exits
+2, and the install still ends `failed_steps=1` with a red final step while
+every service inside it logs healthy. Re-measured against the installed binary
+on the Mini, with a control:
+
+```
+CM052_USER_EMAIL="" pwg-ai-convo --source all --json   -> exit 2
+CONTROL, same binary:  pwg-ai-convo --help             -> exit 0
+```
+
+**WHY IT SURVIVED A REVIEW, AND THIS IS THE TRANSFERABLE PART.** The defect is
+an ORDERING between a guard and a fold, and after #1418 **both were present in
+the tree**. Every structural check over the source -- "is there a guard", "is
+the reason recorded", "is the plist protected" -- answers YES on a tree that
+still ships the bug. No pattern distinguishes *guarded above the fold* from
+*guarded below it*. Only executing the block does. The v1.0.64 cut manifest
+states this defect as fixed on exactly that evidence, and so did I.
+
+**ACTUALLY FIXED**, CM051 #1428, riding v1.0.65: one predicate
+(`_aiconv_owner_email_known`) read by BOTH consumers, so the drain and the
+LaunchAgent registration cannot disagree, and a RUNTIME test that extracts the
+real block and runs it against a stub producer exiting 2. Two pinned controls,
+`45126e9a` (the v1.0.63 cut) and `deecd9fc` (#1428's own parent), and **both
+reproduce the failure** -- the second is what proves v1.0.64 did not fix it.
+Plus a negative control on the fix itself: with an address present the rc MUST
+still be folded, so deleting the fold is not the cheap way to green.
+
+⚠️ **A COLD MAC IS THE NORMAL CUSTOMER MAC**, and the walk subject for v1.0.65
+is a brand-new account that has never opened Contacts. Walking v1.0.64 on it
+would have reproduced this exact red step on the one genuinely cold account
+available.
+
+### v1063-D002 -- the source-status surface only ever reported the install-time run
+
+Measured on the box: all eleven hydrate sentinels stamped between 08:29:38Z and
+08:45:04Z -- install time -- while `imports/fda/imessage_conversations.json` was
+rewritten at 09:17:19Z with 167 conversations and 136 people created. The
+extract moved and the record did not.
+
+Nothing outside `install.sh` had ever written a sentinel, so ongoing ingestion
+did real work and updated nothing. `/api/v1/sources` still answered
+`imessage status=no_data item_count=0` for a source that had just delivered.
+The route's own docstring promises it shows "whether a source landed AND
+WHETHER IT KEEPS UPDATING" -- the second half was unanswerable by construction.
+
+A source that failed at install showed failed forever after it recovered; one
+that worked showed `ok` forever after it died. **Andy asked twice for a check
+that each source ingested AND that ongoing ingestion works. The product could
+not answer the second half at all.**
+
+**FIXED on main**, CM051 #1418. Two records, never one repurposed:
+`state/hydrate/<n>.done` keeps its install-time meaning, and a new
+`state/source_activity/<n>.tsv` carries `last_run_at` + `last_success_at` from
+the recurring tick. `last_success_at` is carried forward on a failing run so a
+broken source still shows when it last worked. Three ongoing states, and the
+third is the one that matters: `never` means no record at all and is NOT
+reported as a failure -- inventing one is as bad as hiding one.
+
+⚠️ The tick's key names are NOT the canonical ones -- it writes `apple_mail`,
+`browser_history`, `bookmarks`, `people_index`. Only 3 of 9 records joined on
+first contact with a real box. An explicit alias table now bridges them, with a
+control asserting `apple_notes` is never joined to `apple_mail`'s record by a
+loose match. **Caught on the box, not in the tests: the suite was green because
+both sides of the join were written from the same wrong assumption.**
+
+### v1063-D003 -- RULE 2 was enforced on ONE of the TWO merge paths, and the count grew for three cuts
+
+Measured independently of the walk probe, with a matched control:
+
+    over-merged Person nodes                   137
+    Contacts cards swallowed                   286  (149 people with no node)
+    CONTROL: icloud_contact_uid identifiers   2261
+    CONTROL: correctly single-uid nodes       1975  (so the zero was reachable)
+
+RULE 2 -- "MUST NOT MERGE: different canonical keys" -- was implemented in
+`IdentityResolver`, and the register recorded that as "stops NEW ones". It
+stops new ones ON THE RESOLVE PATH. `batch_resolver --execute --converge` is
+the other path: `install.sh` runs it on EVERY install and the dedupe-catchup
+agent re-runs it hourly. It reached the graph through raw SPARQL in
+`_merge_oxigraph` and had never heard of the veto. There is exactly ONE caller
+of `merge_persons()` and it IS guarded -- **this path never called it**, which
+is why every audit that started from the guarded function came back clean.
+
+That is why the number GREW while the fix was believed to be in place:
+128 (v1.0.38) -> 130 (2026-08-26) -> **137** here, with the walk probe failing
+on v1.0.52, v1.0.61 and v1.0.63.
+
+**FIXED on main**, CM051 #1418. The veto is applied per pair before any write,
+FAILS CLOSED if the store cannot be read, and prints its refusal count. Red-
+first: 1 pass / 3 fail against 45126e9a, 4 / 0 after.
+
+🔴 **I ASSERTED THREE WRONG CAUSES ON THIS DEFECT BEFORE READING THE CODE** --
+the resolver's single-match path, then `_identifier_match_trustworthy`, then
+the fuzzy tier. Each was plausible and each was refuted by the next read. What
+found it was enumerating every CALLER of the merge primitive and noticing the
+shipping path was not among them. **When a guard is present and the defect
+persists, stop auditing the guard and enumerate the callers of what it guards.**
+
+**GRAPH REPAIR APPLIED TO THE FOUNDER INSTANCE ONLY**, with Andy's explicit
+go-ahead and a movelog: 137 -> 46 nodes, 286 -> 94 cards, identifier control
+pinned at 2261 so nothing was destroyed, single-uid 1975 -> 2167 reconciling
+exactly with the 192 cards freed. **The customer-install policy for that repair
+is NOT decided.** 46 nodes remain: 51 cards whose origin node was erased at
+merge time and 14 where no card is provably native. The tool refuses to guess.
+
+### v1063-D004 -- install_manifest_complete had never adjudicated, on any walk, since v1.0.50
+
+It returned CANNOT-RUN whenever `OSTLER_BOX_HOST` was set, on the correct
+observation that the verifier reads the TARGET's filesystem. The conclusion
+drawn from that was wrong: "I cannot run where I am" is a reason to run
+somewhere else, not to give up. **Every walk is driven remotely**, so five cuts
+shipped with this gate never once returning a verdict, filed under "not
+measured" -- a column nobody read.
+
+**FIXED on main**, CM051 #1418: the verifier is carried to the box over the
+existing ssh transport and run against its own `$HOME`. Decoded with `python3`,
+not `base64 -d`: macOS shipped `base64` with `-D` and without `-d` for years,
+and the wrong flag writes an EMPTY file -- an empty verifier runs and finds
+nothing, a false zero wearing the shape of a clean install.
+
+⚠️ **ITS FIRST VERDICT WAS 3 FALSE POSITIVES AND 1 REAL GAP**, and I reported
+all four as defects before checking. `com.ostler.enrich` is deliberately not
+installed (`OSTLER_ENRICH_AGENT_ENABLED` defaults to 0 -- it is standing
+outbound traffic the customer must opt into). The two brief cron jobs ARE
+installed and enabled, as `[[cron.jobs]]` in the assistant TOML -- I checked
+`crontab -l`, which is the wrong surface, and got a clean believable zero.
+**Only `context-refresh` being undeclared is real.** The gate cannot adjudicate
+a cut until its manifest matches these deliberate decisions. OPEN.
+
+### v1063-D005 -- the pairing flag was asked of the wrong service, and the parse would have lied
+
+`pair_state_agreement` returned CANNOT-RUN on every recorded walk: only one
+device-layer signal was readable, and one signal cannot contradict itself.
+
+The flag was never missing. `:8089/doctor/api/health` carries no `paired` key
+-- the probe's own note says so, correctly -- while `:8000/health` returns
+`{"companion_paired":false,"paired":false,"require_pairing":true,...}`.
+
+🔴 **REPOINTING THE URL ALONE WOULD HAVE BEEN WORSE THAN THE BUG.** The parse
+was `*'"paired"'*'true'*`, which matches `true` ANYWHERE AFTER the key. The
+live body carries `"paired":false` followed by `"require_pairing":true`, so
+that arm matches and the probe reports PAIRED on a box with no phone. It had
+never fired only because the endpoint it was pointed at had no such key. **A
+permanent CANNOT-RUN would have become a confident wrong answer.**
+
+**FIXED on main**, CM051 #1418: parsed as JSON and read BY KEY, control
+mutation-tested against the old glob, and reader and control share ONE function
+-- the first draft inlined a second copy of the parser and would have gone
+green with the real reader still broken. CANNOT-RUN -> PASS on the box.
+
+### v1063-D006 -- usage_journal_producers has failed on ALL FIVE walks that measured it, and the journal exists
+
+The Bursar is the paid tier's justification and the probe has reported it
+broken on v1.0.50, .51, .52, .61 and .63. **It is a gate defect.**
+
+    probe reads   ~/.ostler/workspace/state/costs.jsonl                 DOES NOT EXIST
+    daemon writes ~/.ostler/assistant-config/workspace/state/costs.jsonl 175020 bytes, 684 records
+
+The daemon gets `ZEROCLAW_WORKSPACE` from its LaunchAgent; an ssh probe session
+does not, so it falls through to a directory `install.sh`'s own comment
+describes as "a DIFFERENT directory nothing reads back". `active_workspace.toml`
+-- the marker that would let any reader resolve correctly -- has **0 hits in
+install.sh**.
+
+⚠️ **I TOLD ANDY THE BURSAR HAD NEVER WORKED, ON THE STRENGTH OF THIS PROBE,
+AND RETRACTED IT.** TNM held the evidence and had told me not to say it. Same
+shape as the crontab in D004: a true reading of the wrong surface.
+
+**OPEN.** Two jobs, not one: make the resolver find the workspace from a
+CLEARED environment (`env -i`), and SEPARATELY reconcile the panel's arithmetic
+-- 73 model calls / 23.5K tokens against a 684-record journal may or may not
+agree, and assuming it does because the file exists is the same mistake in the
+opposite direction.
+
+### v1063-D007 -- the freshness panel omits three sources it holds current data for
+
+The panel renders 9 of the 13 canonical sources. `calendar` (updated
+10:27:34Z), `contacts` (08:29:38Z) and `email` (08:31:18Z) all have fresh data
+in `/api/v1/sources` and **no row at all**. An absent row is not a neutral
+omission: the customer is shown a currency report that silently excludes a
+source they rely on.
+
+The probe itself was also wrong and is **FIXED on main** (CM051 #1418): it
+compared `settling_progress.d` keys against panel rows, and those two sets had
+**ZERO overlap** -- not one key in common -- so all four ingested keys reported
+missing and all four were wrong as stated. The filename carries the sub-source
+(`messages.imessage.json`), so most of the map is derived; `contacts -> people`
+was deliberately NOT aliased, because contacts is its own canonical source and
+its absence is a real gap rather than a naming artefact.
+
+    before   NO ROW for calendar contacts emails messages   (4, all spurious)
+    after    NO ROW for calendar contacts email             (3, all real)
+
+**The remaining gap is in the CM044 wiki compiler**, which owns the renderer.
+OPEN.
+
+### v1063-D008 -- nothing routes iMessage or WhatsApp into the conversations store
+
+`ingest_coverage` reports the `conversations` collection EMPTY. Its declared
+mapping is `conversations <- imessage, whatsapp, ai_conversations`.
+
+The only writer in the tree is `vendor/cm048_pipeline/src/ingest.py`. The only
+agent driving cm048 is `com.creativemachines.ostler.spoken-bundle`, which reads
+`~/Documents/Ostler/Transcripts` -- RemoteCapture voice transcripts -- and
+correctly found zero, because Andy has recorded no calls.
+`pwg_ingest.ingest_imessage` writes the PEOPLE GRAPH, not conversation vectors.
+
+**So on a customer install that store is fed by voice alone, while the coverage
+probe declares three sources feed it. Two of the three have no route to it
+anywhere in the tree.**
+
+**OPEN, and the two possibilities need OPPOSITE fixes**: either the wiring is
+missing, or the probe's mapping is aspirational and `conversations` is a
+voice-only store. CM040, the conversation-memory extractor, is personal infra
+per CLAUDE.md and may never have been in the product -- that is the first thing
+to check. **Not guessed here.**
+
+### v1063-D009 -- identity_resolver declared 1 of its 3 dependencies
+
+`requirements.txt` exists specifically because PR #109 added a `rapidfuzz`
+import without declaring it. The same omission was sitting in the same package,
+twice: `phonenumbers` (normalise.py:6) and `httpx` (resolver.py,
+batch_resolver.py) were both undeclared.
+
+It stayed invisible because every environment that runs this package -- the
+installed venv, a developer machine, the box -- already had all three from a
+sibling requirements file. **A dependency list is only tested by an environment
+that has nothing**, and building one clean venv found it in seconds.
+
+Enumerated rather than added one traceback at a time: chasing them one failure
+at a time is how a list ends up one short again.
+
+**FIXED on main**, CM051 #1418. Control: a venv built ONLY from that file now
+runs the converge test, 4 pass / 0 fail.
+
+### v1063-D010 -- the fda-rerun agent is bootstrapped 38 seconds before its binary exists
+
+    ~/.ostler/logs/fda-rerun.err   08:23:35Z  "ostler-fda not found/executable ... re-run the installer to repair"
+    ~/.ostler/bin/ostler-fda       08:24:13Z  installed 38 SECONDS LATER
+
+Every customer install writes "re-run the installer to repair" into its own
+error log on the first tick. Harmless -- the agent retries hourly and the
+second tick succeeds -- and alarming to anyone who reads it, which on a support
+call is exactly who does.
+
+**OPEN.** Bootstrap after the binary is installed, or make the first tick quiet
+when it is not yet there.
+
+
+### v1061-D001 -- five raw Python tracebacks reach the customer during the passphrase step, and the step still reports status=ok
+
+OPEN (#622).
+
+Andy's finding on the live walk. During the passphrase step the installer printed five raw Python
+tracebacks to the customer, and the step then recorded `status=ok`.
+
+**This is the third member of the honesty class named in #625**: `status=ok` is a claim about the
+STEP, never about the DATA and never about what the customer was shown. A step can print a stack
+trace, do none of its work, and still exit 0. v1060-D001 was this same shape at the whole-run level
+(`DONE status=ok failed_steps=2`); this is it at the step level, one cut later.
+
+A traceback is also the most alarming thing a non-technical customer can be shown, and it lands at
+the passphrase step, which is precisely where they are being asked to trust the product with a
+credential.
+
+### v1061-D002 -- install.sh tells the customer the AI model is "~5 GB". It is 7.2 GB, measured on the box
+
+OPEN (#623).
+
+Measured on the walked box rather than read off a spec: the model the installer downloads is 7.2 GB.
+The copy says "~5 GB". That is a 44% understatement of the largest single download in the install,
+given to the customer at the moment they decide whether to continue on a metered or slow connection.
+
+⚠️ RELATED, NOT THE SAME: #544 records a 52-minute silent step and a 3.43 GB vane image. Download
+honesty is a CLASS here, not an instance. Fixing this one string without auditing the other
+advertised sizes leaves the class alive and the next cut re-finds it.
+
+### v1061-D003 -- the import attempted 3810 people, stored 0, and reported success
+
+**FIXED on main** (CM051 #1385, `4e1bd89a`).
+
+On a cold install Qdrant collections do not self-create
+(`feedback_qdrant_collections_no_self_create_fresh_install`). A readiness miss at T+0 left them
+absent, `import_data` embedded every person, 404'd on the missing collection, and discarded 3810 of
+3810 people while the step reported `status=ok`.
+
+The fix has two halves and the second is the one that matters. The import now REFUSES an unready
+store rather than running into a void, AND an import that attempted people but stored none FAILS. A
+refusal alone would have left the silent-loss path reachable by any other route to an empty store.
+
+🔻 A CORRECTION INSIDE MY OWN FIX, RECORDED BECAUSE IT IS THE SAME CLASS AS THE DEFECT: the first cut
+of the yield floor read its input with `grep -c ... 2>/dev/null || printf '0'`, which reports an
+UNREADABLE log as "attempted 0" -- and attempted-0 is exactly the value that makes the floor decline
+to fire. **I shipped a fail-open while fixing a fail-open.** The count is now read behind an `-r`
+guard and reports CANNOT-RUN, which is a third state and not a pass. The log is also no longer
+deleted one line before the failure that cites it as evidence.
+
+### v1061-D004 -- a LOCKED store read as EMPTY, and bought a redundant re-ingest
+
+**FIXED on main** (CM051 #1386, `c7b2c3ac`).
+
+The store was locked, not empty. The predicate that asked could only answer two ways, so "I cannot
+read this" and "there is nothing here" collapsed to the same value, and the install responded to the
+wrong one by re-ingesting data that was already present.
+
+Now tri-state. **CANNOT-RUN is not FAIL and is not PASS.** A two-state predicate that meets a third
+condition will always answer with whichever of its two states is cheapest to reach, and it will do
+so silently, which is what makes this class expensive rather than merely wrong.
+
+### v1061-D005 -- the install step denominator shrank mid-run, 41 to 40, and nothing said so
+
+OPEN (#627).
+
+The customer-facing progress counter changed its denominator during the run and nothing announced it.
+
+Low customer harm, high diagnostic harm. A denominator that moves silently makes every percentage
+before and after it incomparable, which means our own progress telemetry cannot be used to compare
+two runs -- and comparing runs is most of how a walk regression gets caught. Same reading hazard as
+the zero-denominator in #533: the number wears the format of a measurement and is not one.
+
+### v1061-D006 -- the walk-killer: a space after a line-continuation backslash at install.sh:26690
+
+**FIXED on main** (CM051 #1386, `c7b2c3ac`).
+
+This is what ended the walk at 97%. A backslash followed by a SPACE is not a line continuation. The
+line ends there, and what should have been its continuation becomes a separate command.
+
+🗿 **NO PARSE-LEVEL CHECK WE OWN COULD HAVE CAUGHT IT, AND THAT IS THE DURABLE LESSON.** `bash -n`
+EXITS 0 on the real pre-fix file. The file is syntactically valid; it simply does something other
+than what it reads as. A shape-reading gate now exists and it ships with a `--self-test`, because a
+gate that cannot demonstrate its own RED is a gate nobody can trust.
+
+⚠️ THE PROOF THIS CUT MUST CARRY: run `scripts/verify_no_broken_line_continuation.py` against the
+**MOUNTED DMG's** install.sh, not the repo copy, and run `--self-test` first. REPO LAYOUT IS NOT
+PAYLOAD LAYOUT, and the defect was in the shipped file.
+
+### v1061-D007 -- three probes have now failed on FOUR CONSECUTIVE walk records, and not one was investigated
+
+OPEN. Filed against the process, and measured directly from the records rather than recalled.
+
+`assistant_answers_grounded`, `freshness_panel_has_dates` and `usage_journal_producers` appear in the
+`failed_probe` list of every walk record we hold from v1.0.50 onward:
+
+| record | verdict | the three probes |
+|---|---|---|
+| walks/v1.0.50.tsv | FAILED | all three present |
+| walks/v1.0.51.tsv | FAILED | all three present |
+| walks/v1.0.52.tsv | FAILED | all three present |
+| walks/v1.0.61.tsv | FAILED | all three present |
+
+**v1052-D007 ALREADY FILED THIS AT TWO CONSECUTIVE**, and its title says so in as many words:
+"assistant_answers_grounded failed for the SECOND consecutive walk and was investigated on neither".
+It is now four. A register that records a recurrence and does not change what happens next has
+documented a habit rather than fixed one, which is the sentence the v1.0.59 row uses about me.
+
+⚠️ WHAT THIS FINDING DOES NOT CLAIM: it is not a v1.0.61 regression. It is a standing condition that
+predates the cut, and the walk record is simply the instrument that makes it countable. Each probe
+has a live register row already -- #510 (assistant grounding), #514 (freshness panel), #482 (usage
+journal producers) -- and #482 in particular records that 4 of 5 required producers have NO CHANNEL
+to the journal at all, so that probe may be failing for a structural reason no fix to any cut can
+address. If so, the honest move is to say that on the probe, not to keep reporting it as a red the
+next cut might clear.
+
+⇒ SUCCESSOR WORK, not a T-minus fix: either these three get an owner and a disposition before the
+next walk, or the harness marks a probe that has failed N consecutive walks as a KNOWN-FAILING state
+distinct from a fresh red -- so that a genuinely NEW failure is not lost among the standing ones,
+which is the actual risk a persistent red creates.
+
+### v1065-D001 -- the install aborts at step 21 because a function is called above its definition
+
+MEASURED on walk 10, the first walk ever to reach step 21 of 40:
+
+    #OSTLER STEP_END id=email_ingest status=error elapsed_s=5 rc=127
+    Install aborted unexpectedly at line 21445 (step email_ingest):
+        _OSTLER_CONSENT_TP_EMAIL="$(_ostler_consent_state ...)"
+
+rc=127 is "command not found". install.sh is a LINEAR script whose step bodies
+are top-level statements executed in file order. The assignment sat at 21445
+and `_ostler_consent_state` was defined at 21494, 49 lines below it.
+
+**THIS IS A SAME-DAY REGRESSION OF MINE, NOT A LATENT DEFECT**, and the first
+version of this record said the opposite:
+
+    v1.0.63   the function does not exist at all
+    v1.0.64   the function does not exist at all
+    v1.0.65   BROKEN, call 21321, definition 21370
+
+`git log -S` puts BOTH halves in ONE commit, e7b835ba (#1423, 2026-09-04
+20:45:16 +0800), and `git tag --contains` returns v1.0.65 alone. I wrote that
+it "shipped unnoticed because no walk got deep enough"; Andy refuted it on
+sight, because plenty of DMGs have installed to the end. Ageing a defect
+backwards makes a repair look like a discovery and points the next reader at
+the harness instead of at the change that caused it.
+
+**FIXED on main, CM051 #1439.** A pure relocation, verified by the sorted line
+multiset being byte-identical to the parent. TNM's review corrected the
+account: the anchor deltas show the CALL moved, carrying a `TOTAL_STEPS`
+decrement whose misplacement is v1061-D005, and he measured 0 of 26
+`TOTAL_STEPS` references inside the moved window with progress-step counts of
+41/41 either side. Safe by measurement, not by my argument.
+
+⚠️ The regression test guards ONE function and is blind to the class. TNM
+mutation-tested it: a different function with the same shape passes 7/7. The CI
+step is named for the function it actually checks. **A generic class test is
+OWED** and needs his unbound-name execution, because a sweep keyed on "line
+begins with the name" cannot see the `$( )` shape that broke the install.
+
+### v1065-D002 -- contacts and Places have never imported, since v1.0.60
+
+MEASURED on the box from the installer's own diagnostic logs, walks 11 and 12:
+
+    hydrate-contacts.log
+      File ".../import-pipeline/contact_syncer/syncer.py", line 35
+        from contact_syncer.photo_storage import remove_photo, write_photo
+      ModuleNotFoundError: No module named 'contact_syncer.photo_storage'
+
+    places-ingest.log
+      No module named contact_syncer.places_ingest
+
+`install.sh:17729` copies the ROOT `contact_syncer/` into
+`~/.ostler/import-pipeline`. That copy had 19 modules; the complete vendored
+copy at `vendor/cm041/contact_syncer/` has 24, and the two it lacks are two the
+installer runs. The two `syncer.py` differ in size (65,023 vs 64,362 bytes), so
+the root copy is a DIVERGED PARTIAL rather than a stale mirror.
+
+**THE CUSTOMER-VISIBLE SHAPE IS WHY IT SURVIVED SIX CUTS.** hydrate dies at
+`elapsed_s=0`, the customer is told "your contacts are on this Mac but Ostler
+imported 0 of them", and the install then reaches its end and reports
+`DONE status=ok`. Nothing about a completed install says the contacts never
+arrived.
+
+Present in v1.0.60, .61, .62, .63, .64 and .65, every tag checked directly with
+`git cat-file -p`. **`git show <tag>:<path>` was discarded as an instrument**:
+under zsh it returned EMPTY with rc=0 for a blob `cat-file` reads at 65,050
+bytes, because `:c` is consumed as a zsh modifier.
+
+**FIXED on main, CM051 #1442.** TNM reviewed it by attacking completeness,
+expecting three further missing modules, and his own measurement refuted him:
+five are absent but only two are reachable, one by intra-package import and one
+as an install.sh `-m` entry point. The accompanying test resolves BY PATH rather
+than `find_spec`, because `find_spec` imports the parent package and turned a
+submodule question into `No module named cryptography` on ostler_security.
+
+⚠️ **NOT reconciled: the root and vendored `syncer.py` still differ.** The fix
+restores two absent modules; it does not close the divergence.
+
+### v1065-D003 -- a hydrate counter aborts the install when its producer fails, then declares a cause nobody observed
+
+Found by TNM after two of my own reductions failed and I posted "I do not know".
+`install.sh:25424` is a command substitution containing a pipeline with **no
+`|| { ... }` guard**, sitting immediately after a guarded producer. The
+expensive call was defended and the arithmetic after it was not.
+
+Class measured BY EXECUTION, not by parse:
+
+    23 multi-line candidates, 4 skipped, 19 measured
+    11 abort, 8 survive, 0 CANNOT-RUN
+    parse said 20 unguarded; execution said 11
+    10 of the 11 are the hydrate step family
+
+**A parse-only report would have handed over nine sites that are not defects.**
+Single-line substitutions remain an UNMEASURED population and the "30 pipelines
+/ 330 substitutions" intersection is still open.
+
+🔴 **AND THE FIX ALONE WOULD HAVE BEEN WORSE THAN THE DEFECT.** TNM found that
+his own guard composed with two other correct things into a false statement:
+
+    W012 (merged)       gave the zero a DECLARED reason
+    the abort guard     made a failed counter yield ""
+    a pre-existing :-0  turned "" into 0
+    ------------------------------------------------------
+    a run that FAILED and a run that FOUND NOBODY emitted BYTE-IDENTICAL sentinels
+
+He reported it against himself rather than shipping it. **A declared cause is
+safe only while the value it explains cannot be manufactured.** #1443 was
+therefore HELD and landed together with #1450, never alone: a loud abort is
+better than a quiet fabrication.
+
+**FIXED on main, CM051 #1443 + #1450.** Nine per-source `*_UNMEASURED` flags
+replace a shared global the file's own comment at 26196 warns against; 0
+references to it remain. One site of the eleven was withdrawn on review: 26194
+is already inside a `set +e` bracket and the guard there would have stolen the
+`rc=$?` that drives the 124/137 WhatsApp timeout arm.
+
+⚠️ **STILL OWED**: `_HYDRATE_EMAIL_COUNTS_UNMEASURED` and `_AICONV_UNMEASURED`
+are set and never read. Neither site has been traced, so neither is claimed as
+a defect. And the sentinel STATUS is still `no_data` in both cases -- only the
+DETAIL was made honest, because a true status needs volume counts
+`ingest_imessage` does not return.

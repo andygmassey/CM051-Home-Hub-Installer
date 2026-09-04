@@ -208,9 +208,21 @@ def main(argv):
         collect_runs(doc.get("jobs", {}), bodies)
         invoked = set()
         for body in bodies:
-            for match in FILE_RE.findall(body):
-                if os.path.exists(os.path.join(root, match)):
-                    invoked.add(match)
+            # Scan line by line and skip full-line shell comments: a path
+            # spelled in a `#` comment DESCRIBES a file, it does not run it,
+            # so counting it as an invocation manufactures a false 'dark on
+            # self-edit' against a workflow that never executes it (CM051
+            # #1402). Only a line whose FIRST non-space char is `#` is a
+            # comment; a trailing `# note` after a real command still counts,
+            # because that line still carries the command. This does NOT make
+            # a workflow that stopped running something pass -- a live `run:`
+            # line is unaffected.
+            for line in body.splitlines():
+                if line.lstrip().startswith("#"):
+                    continue
+                for match in FILE_RE.findall(line):
+                    if os.path.exists(os.path.join(root, match)):
+                        invoked.add(match)
 
         for target in invoked:
             fires = regexes is None or any(r.match(target) for r in regexes)

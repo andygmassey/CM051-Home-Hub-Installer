@@ -82,7 +82,62 @@ case "$CUT_VER" in
     [0-9]*.[0-9]*.[0-9]*) : ;;
     *) printf '  CANNOT-RUN: %s does not look like a version.\n' "$CUT" >&2; exit 2 ;;
 esac
-ok "cut version resolved: ${CUT_VER} (from '${CUT}')"
+
+# --- 🔴 REFUSE TO GRADE A COMPARISON WE CANNOT LOSE (#171) -------------------
+#
+# RECURRED AND MEASURED 2026-09-03 (TNM, run 33729085116): the v1.0.61 dry run
+# graded v1.0.60 and reported SUCCESS.
+#
+# THE MECHANISM, at the line. cut.yml's "Resolve which cut this run is about"
+# branches on the event:
+#     push            -> CUT_VERSION="${GITHUB_REF_NAME}"        (independent)
+#     anything else   -> CUT_VERSION="v$(plist CFBundleShortVersionString
+#                                        | cut -d. -f1-3)"       (THE SUBJECT)
+# On a workflow_dispatch the expected value is READ OUT OF THE VERY FIELD this
+# gate then compares it against. That is not a weak check, it is not a check:
+#
+#   3-part version (1.0.62): expected v1.0.62 vs plist 1.0.62 -- UNFAILABLE.
+#   4-part hotfix (1.0.13.1): `cut -d. -f1-3` yields v1.0.13 vs plist 1.0.13.1
+#                             -- a FALSE RED on a correct tree.
+#
+# Two-sided: it cannot catch the defect it exists for, AND it can accuse a
+# good hotfix. The one event where it is sound is a TAG PUSH, where the tag is
+# an independent statement of intent.
+#
+# So the gate now demands to know WHERE its expected value came from, and
+# refuses rather than reporting a verdict it did not earn. CANNOT-RUN, exit 2,
+# which this estate does not read as a pass.
+#
+# Absent provenance is NOT assumed innocent: a caller that does not say is a
+# caller we cannot vouch for. Local runs set it explicitly.
+case "${CUT_VERSION_SOURCE:-}" in
+    tag)
+        : ;;   # independent of the subject -- the comparison is real
+    plist|subject|self)
+        printf '  CANNOT-RUN: the expected version came from %s -- the SAME\n' \
+               "${CUT_VERSION_SOURCE}" >&2
+        printf '              artefact this gate checks. The comparison cannot\n' >&2
+        printf '              lose, so passing it would mean nothing (#171).\n' >&2
+        printf '              A 3-part version makes it unfailable; a 4-part\n' >&2
+        printf '              hotfix makes it a FALSE RED. Sound only on a tag\n' >&2
+        printf '              push, where the tag is an independent claim.\n' >&2
+        printf '              THIS IS NOT A PASS.\n' >&2
+        exit 2 ;;
+    "")
+        printf '  CANNOT-RUN: CUT_VERSION_SOURCE is unset, so this gate cannot\n' >&2
+        printf '              tell whether %s is an independent claim or was\n' "$CUT" >&2
+        printf '              read out of its own subject (#171). Unstated\n' >&2
+        printf '              provenance is not assumed innocent.\n' >&2
+        printf '              Set CUT_VERSION_SOURCE=tag when the version comes\n' >&2
+        printf '              from a tag/ref, or =plist when it does not.\n' >&2
+        exit 2 ;;
+    *)
+        printf '  CANNOT-RUN: CUT_VERSION_SOURCE=%s is not a value this gate\n' \
+               "${CUT_VERSION_SOURCE}" >&2
+        printf '              knows. Refusing rather than guessing.\n' >&2
+        exit 2 ;;
+esac
+ok "cut version resolved: ${CUT_VER} (from '${CUT}', source=${CUT_VERSION_SOURCE})"
 
 # --- read the plist ---------------------------------------------------------
 # A REAL PLIST PARSER rather than grep: the plist is XML and a grep for

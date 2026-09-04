@@ -68,16 +68,22 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/ostler-zeropayload-XXXXXX")" || cannot "could
 # one -- and would pass forever after install.sh diverged.
 awk '
     /^_hydrate_payload_is_all_zero\(\) \{/ { grab = 1 }
+    /^_hydrate_payload_count\(\) \{/       { grab = 1 }
+    /^_hydrate_compute_change\(\) \{/      { grab = 1 }
     /^_hydrate_sentinel_record\(\) \{/     { grab = 1 }
     grab { print }
     grab && /^\}/                          { grab = 0 }
 ' "$INSTALL" > "${WORK}/recorder.sh"
 
+# _hydrate_sentinel_record now calls _hydrate_payload_count + _hydrate_compute_change
+# (G1a/G1b: typed item_count + last_update_at). Without them the recorder leaves
+# _HY_* unbound and aborts mid-write under set -u, dropping the record's tail
+# (payload) -- extract all four, not just the two the rule used to need.
 _fn_count="$(grep -c '^_hydrate_[a-z_]*() {' "${WORK}/recorder.sh" || true)"
-if [ "${_fn_count:-0}" -ne 2 ]; then
-    cannot "extracted ${_fn_count:-0} recorder function(s), expected 2 (_hydrate_payload_is_all_zero + _hydrate_sentinel_record). They moved or were renamed, and every verdict below would be about the wrong code."
+if [ "${_fn_count:-0}" -ne 4 ]; then
+    cannot "extracted ${_fn_count:-0} recorder function(s), expected 4 (_hydrate_payload_is_all_zero + _hydrate_payload_count + _hydrate_compute_change + _hydrate_sentinel_record). They moved or were renamed, and every verdict below would be about the wrong code."
 fi
-note "extracted 2 recorder functions from install.sh"
+note "extracted 4 recorder functions from install.sh"
 
 # ── PREMISE: the freshness gate really does lock out on status=ok. ──────
 # If it stopped doing that, the defect would no longer be a week-long outage

@@ -76,6 +76,7 @@ jobs:
   # check you cannot act on.
   cut-pin-self-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -107,6 +108,7 @@ jobs:
   # THE JOB THAT WAS MISSING. Runs the gate against the tree in the PR.
   cut-pin-is-actually-current:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -158,8 +160,8 @@ jobs:
         continue-on-error: true
         run: |
           set -uo pipefail
-          bash scripts/verify_cut_pin_is_current.sh --ref HEAD
-          rc=$?
+          rc=0
+          bash scripts/verify_cut_pin_is_current.sh --ref HEAD || rc=$?
           if [ "$rc" -ne 0 ]; then
             echo "::warning::The newest cut record's pin no longer matches this tree."
             echo "::warning::That is EXPECTED if this PR changed install.sh -- a follow-up"

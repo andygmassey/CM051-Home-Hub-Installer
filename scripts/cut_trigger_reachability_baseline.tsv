@@ -40,3 +40,4 @@ tests/test_every_default_source_is_requested.sh	UNREVIEWED	gap recorded 2026-08-
 tests/test_fda_deps_are_installed_not_just_copied.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
 tests/test_provenance_gate_marker_read_is_not_piped.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
 tests/test_status_ok_with_zero_payload_is_not_ok.sh	UNREVIEWED	gap recorded 2026-08-27; nobody has decided whether this must run on the cut
+tests/test_new_cut_guard_scoped_is_not_started.sh	DECIDED	Archie 2026-09-02: DELIBERATELY not on the tag path. Its subject is scripts/new_cut.sh, the command that STARTS a cut -- it runs before any v1.0.* tag exists. A guard on it that first fired on a tag push would fire when it can no longer change anything. It runs on pull_request via cut-gate-wrappers.yml, which is the moment it can still stop a bad cut.

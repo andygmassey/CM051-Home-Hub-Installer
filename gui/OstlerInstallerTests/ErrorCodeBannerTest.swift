@@ -47,7 +47,7 @@ final class ErrorCodeBannerTest: XCTestCase {
     func testDecoderParsesErrorCodeOnDoneMarker() throws {
         let raw = "#OSTLER\tDONE\tstatus=fail\tcode=ERR-17-DOCTOR-MISSING"
         let event = ProgressDecoder.decode(line: raw)
-        guard case .done(let status, let code) = event else {
+        guard case .done(let status, let code, _, _) = event else {
             XCTFail("Expected .done event, got \(event)")
             return
         }
@@ -62,7 +62,7 @@ final class ErrorCodeBannerTest: XCTestCase {
     func testDecoderReturnsNilCodeOnDoneMarkerWithoutCode() throws {
         let raw = "#OSTLER\tDONE\tstatus=ok"
         let event = ProgressDecoder.decode(line: raw)
-        guard case .done(let status, let code) = event else {
+        guard case .done(let status, let code, _, _) = event else {
             XCTFail("Expected .done event, got \(event)")
             return
         }

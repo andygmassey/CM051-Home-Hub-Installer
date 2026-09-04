@@ -138,10 +138,16 @@ extract_fn() {
 }
 
 extract_fn progress "$INSTALL_SH" > "${WORK}/progress.sh"
+# The recorders now depend on these two helpers (G1a/G1b: typed item_count +
+# last_update_at). They must be extracted too, or a recorder call hits an
+# unbound _HY_* under set -u and the run aborts mid-scenario -- which reads as
+# "no STEP_END", the exact failure shape this test exists to catch.
+extract_fn _hydrate_payload_count "$INSTALL_SH" > "${WORK}/payload_count.sh"
+extract_fn _hydrate_compute_change "$INSTALL_SH" > "${WORK}/compute_change.sh"
 extract_fn _hydrate_sentinel_record_error "$INSTALL_SH" > "${WORK}/sentinel_error.sh"
 extract_fn _hydrate_sentinel_record "$INSTALL_SH" > "${WORK}/sentinel_ok.sh"
 
-for f in progress sentinel_error sentinel_ok; do
+for f in progress payload_count compute_change sentinel_error sentinel_ok; do
     if [ ! -s "${WORK}/${f}.sh" ]; then
         printf 'FATAL: could not extract %s from install.sh. The test is measuring nothing.\n' "$f" >&2
         exit 1
@@ -180,6 +186,10 @@ _HYDRATE_SENTINEL_DIR="${_OSTLER_TEST_SENTINELS}"
 . "${_OSTLER_TEST_EMITTER}"
 # shellcheck source=/dev/null
 . "${_OSTLER_TEST_WORK}/progress.sh"
+# shellcheck source=/dev/null
+. "${_OSTLER_TEST_WORK}/payload_count.sh"
+# shellcheck source=/dev/null
+. "${_OSTLER_TEST_WORK}/compute_change.sh"
 # shellcheck source=/dev/null
 . "${_OSTLER_TEST_WORK}/sentinel_error.sh"
 # shellcheck source=/dev/null

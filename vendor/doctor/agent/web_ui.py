@@ -239,6 +239,26 @@ from web_ui_copy import (
     WHATSAPP_PAIR_TITLE_TAG,
     WHATSAPP_PAIR_UNREADABLE_HELP,
     WHATSAPP_PAIR_UNREADABLE_TITLE,
+    EXTENSION_SETUP_ADDRESS_LABEL,
+    EXTENSION_SETUP_BACK_LINK,
+    EXTENSION_SETUP_COPIED_BUTTON,
+    EXTENSION_SETUP_COPY_BUTTON,
+    EXTENSION_SETUP_DAEMON_NOT_RELOADED_HELP,
+    EXTENSION_SETUP_DAEMON_NOT_RELOADED_TITLE,
+    EXTENSION_SETUP_HEADING,
+    EXTENSION_SETUP_KEY_LABEL,
+    EXTENSION_SETUP_LEDE,
+    EXTENSION_SETUP_LOADING,
+    EXTENSION_SETUP_MISMATCH_HELP,
+    EXTENSION_SETUP_MISMATCH_TITLE,
+    EXTENSION_SETUP_NOT_PROVISIONED_HELP,
+    EXTENSION_SETUP_NOT_PROVISIONED_TITLE,
+    EXTENSION_SETUP_POLL_MS,
+    EXTENSION_SETUP_READY_HELP,
+    EXTENSION_SETUP_READY_INSTRUCTION,
+    EXTENSION_SETUP_TITLE_TAG,
+    EXTENSION_SETUP_UNREADABLE_HELP,
+    EXTENSION_SETUP_UNREADABLE_TITLE,
     PORT_CONFLICT_DETAIL_FMT,
     PORT_CONFLICT_FIX,
     PORT_CONFLICT_FIX_COMMAND_FMT,
@@ -2312,6 +2332,258 @@ async def health():
     return {"status": "healthy", "service": "ostler-doctor"}
 
 
+# ---------------------------------------------------------------------------
+# G1c / G3: the source-status artefact. ONE record the Doctor panel, the
+# end-of-install probe and the box walk all read, so they cannot each infer
+# per-source state independently and disagree (#269/#213/#514/#349). Reads the
+# hydrate sentinels the installer writes (${OSTLER_DIR}/state/hydrate/<name>.done),
+# which carry a typed item_count and a last_update_at distinct from recorded_at
+# (G1a/G1b). The record is an on-disk key=value CONTRACT with the CM051 writer
+# (install.sh _hydrate_sentinel_record*); a contract test pins the two together.
+# ---------------------------------------------------------------------------
+
+# The 13 canonical hydrate sources (the ground truth: what install.sh actually
+# writes a sentinel for), each tagged with a kind. `operation` is work OVER
+# other data (dedupe over people, the privacy backfill), not a source a customer
+# connected; carried so the panel does not under-report real work, labelled so
+# presentation can hide or group them. Which are NAMED on the customer panel is
+# a later presentation call.
+_SOURCE_KINDS = {
+    "ai_conversations": "source",
+    "apple_notes": "source",
+    "browsing": "source",
+    "calendar": "source",
+    "contacts": "source",
+    "email": "source",
+    "email_preferences": "source",
+    "imessage": "source",
+    "people": "source",
+    "places": "source",
+    "whatsapp": "source",
+    "dedupe": "operation",
+    "privacy_backfill": "operation",
+}
+_SOURCE_STATUS_INT_FIELDS = {"item_count", "rc"}
+
+
+def _source_hydrate_dir() -> Path:
+    """The dir install.sh writes sentinels to: ``${OSTLER_DIR}/state/hydrate``
+    (the installer sets OSTLER_DIR=~/.ostler), falling back to ~/.ostler."""
+    base = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR")
+    root = Path(base) if base else Path.home() / ".ostler"
+    return root / "state" / "hydrate"
+
+
+def _parse_source_sentinel(text: str) -> dict:
+    rec: dict = {}
+    for line in text.splitlines():
+        key, sep, val = line.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        if key in _SOURCE_STATUS_INT_FIELDS:
+            try:
+                rec[key] = int(val)
+            except ValueError:
+                rec[key] = None
+        else:
+            rec[key] = val
+    return rec
+
+
+def _source_activity_dir() -> Path:
+    """Where the recurring ticks record ONGOING status.
+
+    Sibling of the hydrate dir, deliberately separate. See the long note in
+    ``read_source_status``: two questions, two records, and repurposing the
+    install-time sentinel to answer the second one is what produced the defect
+    this exists to close.
+    """
+    root = Path(os.environ.get("OSTLER_DIR", str(Path.home() / ".ostler")))
+    return root / "state" / "source_activity"
+
+
+# ── CANONICAL NAME -> THE KEYS THE INGEST TICK ACTUALLY USES ─────────────
+#
+# MEASURED on the Mini 16, 2026-09-04, immediately after the activity writer
+# first ran. The tick derives its keys from ingest_all's results dict and those
+# are NOT the canonical hydrate names. Nine records were written and only three
+# matched:
+#
+#     written by the tick : apple_mail bookmarks browser_history calendar
+#                           imessage people_index photos social whatsapp
+#     canonical           : ... browsing calendar contacts email imessage
+#                           people whatsapp ...
+#     matched             : calendar imessage whatsapp        <- 3 of 9
+#
+# So `email`, `browsing` and `people` reported ongoing="never" while their
+# ingest had demonstrably just succeeded. Caught before shipping only because
+# the writer was run on a real box and the output compared key by key; the code
+# was self-consistent and the tests passed, because both sides of the join were
+# written from the same wrong assumption.
+#
+# AN EXPLICIT TABLE, NOT FUZZY MATCHING. `people` vs `people_index` would fall
+# to a prefix rule; `email` vs `apple_mail` would not, and a rule loose enough
+# to catch it would also join `apple_mail` to `apple_notes`. Guessing at
+# runtime is how a wrong join becomes invisible, so every pairing is written
+# down and the contract test asserts each alias exists in one list or the
+# other.
+#
+# SEVERAL SOURCES LEGITIMATELY HAVE NO KEY HERE and that is not a gap:
+# `dedupe`, `privacy_backfill` and `places` are operations run outside this
+# tick, and `ai_conversations` has its own agent. They report "never" from
+# this writer and must be fed by their own recorders, not aliased onto
+# somebody else's.
+_SOURCE_ACTIVITY_ALIASES = {
+    "email": ("apple_mail",),
+    "browsing": ("browser_history", "bookmarks"),
+    "people": ("people_index",),
+}
+
+
+def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
+    """The ongoing-activity record for one source, or {} when absent.
+
+    Absent is a normal state and is NOT an error: a box installed before this
+    record existed, or a source whose tick has not fired yet, both legitimately
+    have nothing here. The caller must distinguish "no ongoing record" from
+    "ongoing record says stale" -- reporting the first as the second would
+    invent a failure, and reporting it as fresh would hide one.
+    """
+    base = activity_dir if activity_dir is not None else _source_activity_dir()
+
+    def _load(stem: str) -> dict:
+        f = base / (stem + ".tsv")
+        if not f.is_file():
+            return {}
+        try:
+            rec = {}
+            for line in f.read_text(encoding="utf-8",
+                                    errors="replace").splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    rec[k.strip()] = v.strip()
+            return rec
+        except OSError:
+            return {}
+
+    # The canonical name first, then any alias. A source fed by SEVERAL keys
+    # (browsing = browser_history + bookmarks) takes the MOST RECENT run and
+    # is only "ok" when every contributing key is: one half of a source
+    # succeeding while the other fails is a failing source, and reporting the
+    # cheerful half would hide exactly the case worth seeing.
+    recs = [r for r in (_load(n) for n in
+                        (name,) + tuple(_SOURCE_ACTIVITY_ALIASES.get(name, ())))
+            if r]
+    if not recs:
+        return {}
+    if len(recs) == 1:
+        return recs[0]
+    merged = max(recs, key=lambda r: r.get("last_run_at", ""))
+    if any(r.get("last_status") != "ok" for r in recs):
+        merged = dict(merged)
+        merged["last_status"] = "error"
+        merged["last_detail"] = "one or more contributing extracts did not succeed"
+    return merged
+
+
+def read_source_status(hydrate_dir: Path | None = None,
+                       activity_dir: Path | None = None) -> list:
+    """One typed row per canonical source, read from the .done sentinels.
+
+    EVERY canonical source appears: one that never ran is reported as
+    ``status: "not_run"`` rather than dropped, so a reader cannot mistake
+    "absent" for "fine" -- the three-stores-agreeing-on-zero shape the box-walk
+    ingest probe already documents. An unreadable sentinel degrades its own row
+    to ``"unreadable"``; it is never silently treated as absent.
+    """
+    base = hydrate_dir if hydrate_dir is not None else _source_hydrate_dir()
+    rows = []
+    for name in sorted(_SOURCE_KINDS):
+        kind = _SOURCE_KINDS[name]
+        sentinel = base / (name + ".done")
+        if not sentinel.is_file():
+            rows.append({"source": name, "kind": kind, "status": "not_run",
+                         "item_count": None, "recorded_at": None,
+                         "last_update_at": None, "detail": None})
+            continue
+        try:
+            rec = _parse_source_sentinel(
+                sentinel.read_text(encoding="utf-8", errors="replace"))
+        except OSError as exc:
+            rows.append({"source": name, "kind": kind, "status": "unreadable",
+                         "item_count": None, "recorded_at": None,
+                         "last_update_at": None, "detail": exc.__class__.__name__})
+            continue
+        rows.append({
+            "source": rec.get("source", name),
+            "kind": kind,
+            "status": rec.get("status", "unknown"),
+            "item_count": rec.get("item_count"),
+            "recorded_at": rec.get("recorded_at"),
+            "last_update_at": rec.get("last_update_at"),
+            "detail": rec.get("detail") or rec.get("payload"),
+        })
+
+    # ── ONGOING STATUS, MERGED IN (#W018) ────────────────────────────────
+    #
+    # MEASURED on the Mini 16, 2026-09-04. Every row above comes from a
+    # state/hydrate sentinel, and all eleven were frozen between 08:29Z and
+    # 08:45Z -- install time. In the same window the fda-rerun tick rewrote
+    # imessage_conversations.json at 09:17Z with 167 conversations and 136
+    # people created, and this endpoint still answered:
+    #
+    #     imessage  status=no_data  item_count=0  detail=zero_payload_undeclared
+    #
+    # The extract moved and the record did not, because nothing outside
+    # install.sh has ever written a sentinel. This route's own docstring
+    # promises it shows "whether a source landed AND WHETHER IT KEEPS
+    # UPDATING". The second half was unanswerable by construction.
+    #
+    # THE INSTALL-TIME ROW IS NOT OVERWRITTEN. `status` still means what it
+    # always meant: the verdict at install. The ongoing fields are ADDED
+    # beside it, because a reader needs both -- "landed at install and has
+    # been quiet since" and "failed at install but has worked hourly since"
+    # are different situations and one field cannot carry them.
+    #
+    # THREE ONGOING STATES, AND THE THIRD IS THE ONE THAT MATTERS:
+    #   ongoing="active"   a tick has run and recorded an outcome
+    #   ongoing="never"    no ongoing record at all -- either a box installed
+    #                      before this existed, or a tick that has not fired.
+    #                      NOT reported as a failure: inventing one is as bad
+    #                      as hiding one.
+    #   ongoing="failing"  the last tick ran and did not succeed
+    for row in rows:
+        act = _read_source_activity(row["source"], activity_dir)
+        if not act:
+            row["ongoing"] = "never"
+            row["last_run_at"] = None
+            row["last_success_at"] = None
+            continue
+        last_status = act.get("last_status", "unknown")
+        row["ongoing"] = "active" if last_status == "ok" else "failing"
+        row["last_run_at"] = act.get("last_run_at") or None
+        row["last_success_at"] = act.get("last_success_at") or None
+        row["ongoing_detail"] = act.get("last_detail") or None
+    return rows
+
+
+@app.get("/api/v1/sources", response_class=JSONResponse)
+async def api_sources():
+    """Per-source ingest status: the ONE artefact the Doctor panel, the
+    end-of-install probe (#599) and the box walk all read, so they cannot
+    disagree about whether a source landed and whether it keeps updating.
+
+    Fail-soft, like the sibling box-status route: an unreadable sentinel
+    degrades its own row rather than 500-ing the poll.
+    """
+    try:
+        rows = read_source_status()
+    except Exception:  # pragma: no cover - defensive; never 500 the panel poll
+        rows = []
+    return {"sources": rows, "count": len(rows)}
+
+
 @app.get("/api/v1/box-status", response_class=JSONResponse)
 async def api_box_status():
     """Aggregated live box status for the Hub header chip + Governor page.
@@ -3946,6 +4218,270 @@ async def api_whatsapp_pair():
     """
     from whatsapp_pair import fetch_pair_status
     return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
+
+
+def _render_extension_setup_page() -> str:
+    """Render the browser-extension setup panel.
+
+    Same chassis as ``_render_whatsapp_pair_page`` so the setup surfaces sit
+    together rather than one feeling bolted on.
+
+    THREE DESIGN RULES, each load-bearing:
+
+    1. The key is painted by the browser from JSON and is NEVER baked into the
+       served HTML. It is credential-equivalent for the life of the install, so
+       it must not sit in a page a browser or a screenshot tool may cache.
+    2. The address is built from ``window.location.origin``, which is MEASURED:
+       it is the origin the customer actually reached Doctor on. Baking a host
+       and port here would hand out an address that is right on the developer's
+       box and wrong on a customer's.
+    3. The five states read DIFFERENTLY. Two of them are fixed by restarting
+       Ostler and one by re-running the installer, and a customer told only
+       "no key available" cannot tell which they are in.
+    """
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{EXTENSION_SETUP_TITLE_TAG}</title>
+    <style>
+        /* PRIVACY: no webfont @import. A local-first product must not beacon
+           the customer IP+timestamp to a font CDN. Matches whatsapp-pair. */
+        :root {{
+            --ostler-ink: #0d0b08;
+            --ostler-ink-deep: #07060a;
+            --ostler-chassis: #ECE8DD;
+            --ostler-accent: #C84545;
+            --ostler-accent-hover: #D76060;
+            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --text: var(--ostler-chassis);
+            --text-secondary: rgba(236, 232, 221, 0.74);
+            --text-muted: rgba(236, 232, 221, 0.50);
+            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+        }}
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        body {{
+            font-family: var(--font-body);
+            font-size: 15px;
+            line-height: 1.5;
+            background: var(--ostler-ink);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2.5rem 1.75rem;
+            -webkit-font-smoothing: antialiased;
+        }}
+        a {{ color: var(--ostler-accent); text-decoration: none; }}
+        a:hover {{ color: var(--ostler-accent-hover); }}
+        .container {{ max-width: 600px; margin: 0 auto; }}
+        h1 {{
+            font-family: var(--font-display);
+            font-size: 1.7rem;
+            font-weight: 600;
+            margin-bottom: 0.6rem;
+        }}
+        .lede {{ color: var(--text-secondary); margin-bottom: 1.4rem; }}
+        .panel {{
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: var(--shadow-soft);
+        }}
+        .label {{ margin-bottom: 1rem; line-height: 1.6; }}
+        .field {{ margin-bottom: 1rem; }}
+        .field-name {{
+            font-size: 0.72rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 0.35rem;
+        }}
+        .value-frame {{
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            background: var(--ostler-ink);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 10px;
+            padding: 0.8rem 0.9rem;
+        }}
+        .value {{
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            /* The key is 64 hex characters and must stay selectable in one
+               go, so it wraps rather than scrolls out of reach. */
+            word-break: break-all;
+            flex: 1 1 auto;
+            min-width: 0;
+        }}
+        .copy-btn {{
+            flex: 0 0 auto;
+            font-family: var(--font-body);
+            font-size: 0.8rem;
+            color: var(--ostler-chassis);
+            background: transparent;
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 7px;
+            padding: 0.35rem 0.7rem;
+            cursor: pointer;
+        }}
+        .copy-btn:hover {{ border-color: var(--ostler-accent); }}
+        .help {{
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            margin-top: 0.55rem;
+            line-height: 1.55;
+        }}
+        .caveat {{
+            font-size: 0.82rem;
+            color: var(--ostler-accent-hover);
+            margin-bottom: 0.9rem;
+            line-height: 1.55;
+        }}
+        .back {{ margin-top: 1.5rem; font-size: 0.9rem; }}
+    </style>
+</head>
+<body>
+  <div class="container">
+    <h1>{EXTENSION_SETUP_HEADING}</h1>
+    <p class="lede">{EXTENSION_SETUP_LEDE}</p>
+
+    <section class="panel" aria-live="polite">
+      <div id="ext-loading" class="state">{EXTENSION_SETUP_LOADING}</div>
+
+      <div id="ext-ready" class="state" hidden>
+        <p id="ext-caveat" class="caveat" hidden></p>
+        <p class="label">{EXTENSION_SETUP_READY_INSTRUCTION}</p>
+
+        <div class="field">
+          <div class="field-name">{EXTENSION_SETUP_ADDRESS_LABEL}</div>
+          <div class="value-frame"><span id="ext-address" class="value"></span></div>
+        </div>
+
+        <div class="field">
+          <div class="field-name">{EXTENSION_SETUP_KEY_LABEL}</div>
+          <div class="value-frame">
+            <span id="ext-key" class="value"></span>
+            <button id="ext-copy" class="copy-btn"
+                    type="button">{EXTENSION_SETUP_COPY_BUTTON}</button>
+          </div>
+        </div>
+
+        <p class="help">{EXTENSION_SETUP_READY_HELP}</p>
+      </div>
+
+      <div id="ext-not_provisioned" class="state" hidden>
+        <p class="label">{EXTENSION_SETUP_NOT_PROVISIONED_TITLE}</p>
+        <p class="help">{EXTENSION_SETUP_NOT_PROVISIONED_HELP}</p>
+      </div>
+
+      <div id="ext-daemon_not_reloaded" class="state" hidden>
+        <p class="label">{EXTENSION_SETUP_DAEMON_NOT_RELOADED_TITLE}</p>
+        <p class="help">{EXTENSION_SETUP_DAEMON_NOT_RELOADED_HELP}</p>
+      </div>
+
+      <div id="ext-mismatch" class="state" hidden>
+        <p class="label">{EXTENSION_SETUP_MISMATCH_TITLE}</p>
+        <p class="help">{EXTENSION_SETUP_MISMATCH_HELP}</p>
+      </div>
+
+      <div id="ext-unreadable" class="state" hidden>
+        <p class="label">{EXTENSION_SETUP_UNREADABLE_TITLE}</p>
+        <p class="help">{EXTENSION_SETUP_UNREADABLE_HELP}</p>
+      </div>
+    </section>
+
+    <p class="back"><a href="/doctor">{EXTENSION_SETUP_BACK_LINK}</a></p>
+  </div>
+
+  <script>
+  (function () {{
+    var POLL_MS = {EXTENSION_SETUP_POLL_MS};
+    var COPY_LABEL = {json.dumps(EXTENSION_SETUP_COPY_BUTTON)};
+    var COPIED_LABEL = {json.dumps(EXTENSION_SETUP_COPIED_BUTTON)};
+    var STATES = ["ext-loading", "ext-ready", "ext-not_provisioned",
+                  "ext-daemon_not_reloaded", "ext-mismatch", "ext-unreadable"];
+
+    function show(id) {{
+      STATES.forEach(function (s) {{
+        var el = document.getElementById(s);
+        if (el) {{ el.hidden = (s !== id); }}
+      }});
+    }}
+
+    function paint(data) {{
+      if (data && data.available && data.token) {{
+        // textContent, never innerHTML: the key is untrusted-by-policy
+        // output and must not be able to introduce markup.
+        document.getElementById("ext-key").textContent = data.token;
+        // Built from the origin the customer actually reached Doctor on,
+        // not from a baked host and port.
+        document.getElementById("ext-address").textContent =
+            window.location.origin + (data.ingest_path || "");
+        var caveat = document.getElementById("ext-caveat");
+        if (data.error) {{
+          caveat.textContent = data.error;
+          caveat.hidden = false;
+        }} else {{
+          caveat.textContent = "";
+          caveat.hidden = true;
+        }}
+        show("ext-ready");
+        return;
+      }}
+      var kind = (data && data.error_kind) || "unreadable";
+      if (STATES.indexOf("ext-" + kind) === -1) {{ kind = "unreadable"; }}
+      show("ext-" + kind);
+    }}
+
+    function tick() {{
+      fetch("/api/v1/extension/token")
+        .then(function (r) {{ return r.json(); }})
+        .then(paint)
+        // A fetch failure is Doctor being unreachable, not a missing key.
+        // Reporting it as "unreadable" would send the customer to support
+        // for a page that just needs a reload.
+        .catch(function () {{ show("ext-loading"); }});
+    }}
+
+    document.getElementById("ext-copy").addEventListener("click", function () {{
+      var btn = this;
+      var value = document.getElementById("ext-key").textContent;
+      if (!value || !navigator.clipboard) {{ return; }}
+      navigator.clipboard.writeText(value).then(function () {{
+        btn.textContent = COPIED_LABEL;
+        setTimeout(function () {{ btn.textContent = COPY_LABEL; }}, 1600);
+      }});
+    }});
+
+    tick();
+    setInterval(tick, POLL_MS);
+  }})();
+  </script>
+</body>
+</html>"""
+
+
+@app.get("/extension-setup", response_class=HTMLResponse)
+async def extension_setup_page():
+    """Render the browser-extension setup panel."""
+    return HTMLResponse(_render_extension_setup_page())
+
+
+@app.get("/api/v1/extension/token", response_class=JSONResponse)
+async def api_extension_token():
+    """Return the browser-extension key and the state it is in.
+
+    Read fresh on every call rather than cached. Two of the five states are
+    cleared by restarting Ostler, and a cached answer would keep telling the
+    customer to do the thing they have already done.
+    """
+    from extension_token import fetch_token_status
+    return JSONResponse(fetch_token_status().to_dict(), status_code=200)
 
 
 @app.get("/pair-ios", response_class=HTMLResponse)

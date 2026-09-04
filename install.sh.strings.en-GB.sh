@@ -42,6 +42,14 @@ MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK="Setup (a few quick questions, the
 # for a Tailscale sign-in. A customer who does what this sentence says comes
 # back to a stalled install. It now names what is still wanted.
 MSG_STEP_SETUP_COMPLETE_WRAP_UP="Questions done. Ostler now installs in the background – roughly 45 minutes to a few hours. Two things will still want you: if macOS asks to install developer tools, click Install; and near the end there is a couple of minutes of setup (Full Disk Access, then signing in to Tailscale). Between those you can leave it running."
+# #613: the line above names a Tailscale sign-in that a customer who answered
+# "skip" to the remote-access question will never be asked for. Promising a step
+# we then do not perform is the same defect class as claiming success we did not
+# have: the customer plans their time around a sentence that is not true. This
+# variant is emitted on the declined branch and names only what is left.
+# Kept as a separate string rather than a printf substitution so the shipped
+# copy of BOTH branches is readable in this file and gets its own review.
+MSG_STEP_SETUP_COMPLETE_WRAP_UP_NO_REMOTE="Questions done. Ostler now installs in the background – roughly 45 minutes to a few hours. Two things will still want you: if macOS asks to install developer tools, click Install; and near the end there is a minute of setup (switching on Full Disk Access). Between those you can leave it running."
 
 # ── Info messages (progress, context) ──
 
@@ -161,6 +169,12 @@ MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE="Registering the Ostler assistant with macO
 MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED="Full Disk Access is still pending. The Doctor dashboard will keep the card visible until access is granted."
 MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED="ostler-assistant already has Full Disk Access; no further action needed."
 MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE="This part needs you for about two minutes: switch on Full Disk Access for the assistant now, then sign in to Tailscale on the next step. After that, you can leave Ostler to finish on its own."
+# #613: the declined-remote-access variant of the line above. On the v1.0.60
+# walk this was the SECOND time a customer who had answered "skip" was told a
+# Tailscale sign-in was coming. Emitted only when the answer is known to be
+# skip; an unknown answer keeps the original wording, because the late-ask path
+# means the question genuinely is still to come.
+MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE_NO_REMOTE="This part needs you for about a minute: switch on Full Disk Access for the assistant. After that, you can leave Ostler to finish on its own."
 # WALK-874(b): %s is the Full Disk Access row name, DERIVED from the
 # assistant .app bundle (install.sh: _ostler_fda_entry_name). It read
 # "Ostler is already listed" while the row said OstlerAssistant, so the
@@ -260,6 +274,19 @@ MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="Recovery passphrase skipped. (D
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="Reusing existing Doctor agent install at %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="Reusing existing email-ingest install at %s"
 MSG_INFO_REUSING_EXISTING_HUB_POWER_INSTALL="Reusing existing hub-power install at %s"
+MSG_INFO_REUSING_EXISTING_EXTENSION_TOKEN="Reusing existing browser extension key at %s"
+MSG_INFO_CHROME_EXTENSION_NOT_IN_THIS_RELEASE="The Ostler extension for Chrome is not part of this release."
+MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT="Email conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_EMAIL_SKIPPED_NO_MAIL="Email conversations: not set up, because Apple Mail is not set up on this Mac."
+MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT="Messages conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_IMESSAGE_SKIPPED_NO_DB="Messages conversations: not set up, because there is no Messages history on this Mac."
+MSG_INFO_FEED_SPOKEN_SKIPPED_HOW="  Record a call with Ostler and this turns itself on."
+MSG_INFO_FEED_SPOKEN_SKIPPED_NO_TRANSCRIPTS="Spoken conversations: not set up yet, because there are no recordings to read."
+MSG_WARN_FEED_SPOKEN_TRANSCRIPTS_REMOVED="Spoken conversations: switched off, because the Transcripts folder has been removed since Ostler was installed."
+MSG_INFO_FEED_SPOKEN_TRANSCRIPTS_REMOVED_HOW="  Recreate %s to turn it back on. Ostler will not recreate it for you."
+MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT="WhatsApp conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_WHATSAPP_SKIPPED_OFF="WhatsApp conversations: not set up, because WhatsApp is switched off."
+MSG_INFO_CHROME_HISTORY_STILL_READ="  Ostler still reads your Chrome history, so pages you have visited are remembered. Live capture as you browse is Safari only for now."
 MSG_INFO_REUSING_EXISTING_JWT_SECRET="Reusing existing JWT_SECRET in %s"
 MSG_INFO_REUSING_EXISTING_PWG_SERVICE_TOKEN="Reusing existing PWG service token at %s"
 MSG_INFO_REUSING_EXISTING_WIKI_RECOMPILE_INSTALL="Reusing existing wiki-recompile install at %s"
@@ -353,6 +380,8 @@ MSG_WARN_ENGINE_SUPERVISOR_NOT_STAGED="The container-runtime supervisor files ar
 MSG_WARN_OSTLER_DOCTOR_NOT_LOADED="The Ostler Doctor dashboard could not be started, so http://localhost:8089 will not answer. The app's own pages that read from it - People, Timeline, Governor, channel status - will show as unavailable until it is running. Re-run the installer to try again."
 MSG_WARN_STAY_AWAKE_AGENT_NOT_LOADED="The keep-awake helper could not be scheduled. Ostler still works, but this Mac may sleep during long background jobs and they will resume when it wakes rather than finishing overnight."
 MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED="The background top-up helper could not be scheduled, so new messages, mail and calendar entries will not be picked up on their own. Re-run the installer to restore it."
+MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED="%s not set up: Ostler has no record of your answer to the question that governs it, so it did not assume one."
+MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY="  Re-run Ostler and choose to answer the questions again to turn it on. (consent record: %s)"
 MSG_WARN_MEETING_BRIEF_SENDER_NOT_LOADED="The daily brief could not be scheduled, so you will not receive the morning summary. Everything else works; re-run the installer to restore it."
 MSG_WARN_EXPORT_SCAN_NOT_LOADED="The Downloads watcher could not be started, so files you drop into Downloads will not be picked up automatically. Everything already imported is unaffected, and you can still add files from inside the app. Re-run the installer to restore it."
 MSG_WARN_DEFERRED_DEVICE_REGISTRATION_NOT_LOADED="The retry helper for device registration could not be scheduled. If your iPhone registered during setup this changes nothing; if it did not, you will need to pair again from the app rather than it completing on its own."
@@ -510,11 +539,15 @@ MSG_OK_SECURITY_ALREADY_CONFIGURED_PREVIOUS_RUN="Security already configured on 
 MSG_OK_SECURITY_MODULE_INSTALLED_INTO_VENV="Security module installed into venv"
 MSG_OK_SEEDED_FRESH_JWT_SECRET="Seeded fresh JWT_SECRET in %s"
 MSG_OK_SEEDED_PWG_SERVICE_TOKEN="Seeded PWG service token at %s"
+MSG_OK_SEEDED_EXTENSION_TOKEN="Seeded browser extension key at %s"
 MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878="Services started (Qdrant :6333, Oxigraph :7878, Redis :6379)"
-# ── Qdrant optional-collection pre-create (#606) ──
+# ── Qdrant collection pre-create + import gate (#606 / v1061-D003) ──
 MSG_INFO_QDRANT_COLLECTION_PRECREATED="  Prepared search collection: %s"
-MSG_WARN_QDRANT_COLLECTION_PRECREATE_FAILED="Could not prepare the %s search collection; the wiki will still build (the reader treats it as empty)"
-MSG_WARN_QDRANT_NOT_READY_COLLECTIONS_SKIPPED="Search index not ready in time; skipped preparing optional collections (the wiki will still build)"
+MSG_WARN_QDRANT_COLLECTION_PRECREATE_FAILED="Could not prepare the %s search collection yet; the data import below will retry it and stop rather than discard your data if it still cannot."
+MSG_WARN_QDRANT_NOT_READY_COLLECTIONS_SKIPPED="Search index not ready in time yet; the data import below will wait for it, prepare the collections, and stop rather than discard your data if the store is still not ready."
+MSG_FAIL_QDRANT_IMPORT_REFUSED_MISSING_COLLECTIONS="Your data was not imported. The search store could not be prepared to hold it (missing: %s), and importing anyway would have discarded it silently. Nothing was lost. Re-run the installer once the machine is idle, or set OSTLER_QDRANT_READY_WAIT_S to wait longer."
+MSG_FAIL_IMPORT_ATTEMPTED_BUT_STORED_NOTHING="Your data import ran over %s records but stored none of them; the search store rejected every one, so the result would be an empty knowledge graph presented as complete. Stopping rather than showing you that. Re-run the installer once the machine is idle."
+MSG_WARN_IMPORT_YIELD_UNMEASURABLE="Could not read the import's own log, so the check that your data actually landed could not run. This is not a report that the import failed, and it is not a report that it succeeded."
 MSG_OK_SLEEP_DISABLED_AC_BATTERY_SLEEP_PRESERVED="Sleep disabled on AC, battery sleep preserved, wake-on-network enabled"
 MSG_OK_SLEEP_DISABLED_WAKE_NETWORK_ENABLED="Sleep disabled, wake-on-network enabled"
 MSG_OK_TAILSCALE_ALREADY_INSTALLED="Tailscale already installed"
@@ -675,11 +708,11 @@ MSG_WARN_GDPR_IMPORT_WILL_BE_UNAVAILABLE_THIS_INSTANCE="GDPR import will be unav
 MSG_WARN_GIT_SAID="Git said:"
 MSG_WARN_HEALTH_CHECK_FAILED_OSTLER_KNOWLEDGE_VERSION="  Health check failed: ostler-knowledge --version did not produce output."
 MSG_WARN_HEALTH_CHECK_FAILED_PWG_CONVO_HELP="  Health check failed: the conversation memory engine could not load (pwg-convo or its pipeline import did not return cleanly)."
-MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT="Homebrew installer exited %s. Last 30 lines of /tmp/ostler-brew-install.log follow:"
+MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT="Homebrew installer exited %s. Last 30 lines of %s follow:"
 MSG_WARN_HOMEBREW_INSTALL_LOG_LAST_LINES="--- Homebrew install log (tail) ---"
-MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT="Doctor pip install exited %s. Last 30 lines of /tmp/ostler-doctor-pip.log follow:"
+MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT="Doctor pip install exited %s. Last 30 lines of %s follow:"
 MSG_WARN_DOCTOR_PIP_LOG_LAST_LINES="--- Doctor pip install log (tail) ---"
-MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT="Pipeline pip install exited %s. Last 30 lines of /tmp/ostler-pipeline-pip.log follow:"
+MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT="Pipeline pip install exited %s. Last 30 lines of %s follow:"
 MSG_WARN_PIPELINE_PIP_LOG_LAST_LINES="--- Pipeline pip install log (tail) ---"
 MSG_WARN_HUB_POWER_LAUNCHAGENT_INSTALL_FAILED_SEE="Hub power LaunchAgent install failed. See output above."
 MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE="Hub power scripts not found at the expected bundle path."
@@ -729,6 +762,20 @@ MSG_WARN_ON_BATTERY_HUB_POWER_LAUNCHAGENT_STEP="On battery, the hub power Launch
 MSG_WARN_OR_RE_RUN_INSTALLER_PICK_DIFFERENT="or re-run the installer and pick a different channel choice."
 MSG_WARN_OR_RUNNING_AHEAD_PHASE_B_S="or running ahead of Phase B's release pipeline. Re-run the installer once the"
 MSG_WARN_OSTLER_ASSISTANT_DOCTOR_REPORTED_ERROR_S="ostler-assistant doctor reported %s error(s)."
+
+# The whole-run closing verdict (#270, step-failure line added #616).
+# Deliberately NOT phrased as a doctor result: the doctor string above is scoped
+# to the assistant doctor and is true; this set is the verdict for the install as
+# a whole, which nothing stated before. Wording is plain because a customer reads
+# it at the moment they decide whether the thing worked. The FAILED_STEPS line
+# exists because a step killed by its timeout cap raises no err(), so the
+# error-count line alone would print "no errors raised" over a failed step; its
+# second %s is the space-separated ids of the steps that did not complete.
+MSG_WARN_INSTALL_FINISHED_WITH_ERRORS="Ostler finished, but %s error(s) were raised during the install."
+MSG_WARN_INSTALL_FINISHED_WITH_ERRORS_WHERE="  The full detail is in ~/.ostler/logs/install.log. Ostler will still start; open the Doctor to see what needs attention."
+MSG_WARN_INSTALL_FINISHED_WITH_FAILED_STEPS="Ostler finished, but %s install step(s) did not complete cleanly: %s"
+MSG_OK_INSTALL_FINISHED_NO_ERRORS_RAISED="Ostler finished with no errors raised during the install."
+
 MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK="ostler-assistant extracted but --version check failed."
 MSG_WARN_OSTLER_ASSISTANT_LAUNCHAGENT_INSTALL_FAILED_SEE="Ostler assistant LaunchAgent install failed after 3 attempts. Diagnostic output above + below."
 MSG_INFO_ASSISTANT_SNIPPET_ATTEMPT_FAILED="Ostler assistant LaunchAgent install attempt %s failed; retrying."
@@ -866,11 +913,11 @@ MSG_FAIL_GRAPH_DB_PULL_FAILED="Could not download the knowledge-graph database i
 MSG_FAIL_GRAPH_DB_UP_FAILED="The knowledge-graph databases were downloaded but could not be started. Re-run the installer; if it keeps happening, open Terminal and run: cd ~/.ostler && docker compose up -d qdrant oxigraph redis"
 MSG_FAIL_STORE_AUTH_LEAK="Ostler could not complete an authenticated request to the knowledge-graph database. It tried twice, two seconds apart, and both attempts were refused. We do not yet know why: the database may still have been starting up, or the credential Ostler holds may not be the one it expects. Your data has not been touched. Re-running the installer often succeeds, and if it does we would still like to hear about it – send us the install log, because this is a fault we are actively trying to reproduce."
 MSG_FAIL_FDA_MODULE_MISSING_RE_RUN="FDA extraction module is missing from the installer bundle. Re-download the .app from ostler.ai/install, or re-run with --allow-plaintext for dev/CI."
-MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN="The data-extraction module was installed but cannot be loaded, so the background refresh would fail every time it ran. Full output saved to /tmp/ostler-fda-deps.log – re-run the installer, and attach that file if you contact support (Reference: ERR-10-FDA-DEPS-IMPORT)."
+MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN="The data-extraction module was installed but cannot be loaded, so the background refresh would fail every time it ran. Full output saved to %s – re-run the installer, and attach that file if you contact support (Reference: ERR-10-FDA-DEPS-IMPORT)."
 MSG_FAIL_FDA_DEPS_UNSAFE_PATH="Internal error: the data-extraction module was staged inside the application bundle, which would break its signature. This is a build fault, not a problem with your Mac. Re-download the .app from ostler.ai/install (Reference: ERR-10-FDA-DEPS-UNSAFE-PATH)."
-MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED="Doctor dependencies install failed. Full output saved to /tmp/ostler-doctor-pip.log – attach it when you email support@ostler.ai (Reference: ERR-17-DOCTOR-PIP)."
-MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED="Import pipeline dependencies install failed. Full output saved to /tmp/ostler-pipeline-pip.log – attach it when you email support@ostler.ai (Reference: ERR-14-PIPELINE-PIP)."
-MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED="Homebrew install failed. Full output saved to /tmp/ostler-brew-install.log – attach it when you email support@ostler.ai."
+MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED="Doctor dependencies install failed. Full output saved to %s – attach it when you email support@ostler.ai (Reference: ERR-17-DOCTOR-PIP)."
+MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED="Import pipeline dependencies install failed. Full output saved to %s – attach it when you email support@ostler.ai (Reference: ERR-14-PIPELINE-PIP)."
+MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED="Homebrew install failed. Full output saved to %s – attach it when you email support@ostler.ai."
 MSG_FAIL_IMPORT_PIPELINE_INSTALL_FAILED_RE_RUN_INSTALLER="Import pipeline install failed. The contact_syncer bundle is required for the productised install. Re-run with --allow-plaintext for dev/CI, or re-download the installer and try again."
 MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL="Need sudo access to disable sleep + install Homebrew. Re-run when ready."
 MSG_FAIL_NEITHER_COLIMA_NOR_DOCKER_DESKTOP_COULD="Neither Colima nor Docker Desktop could start. Install Docker Desktop and re-run."
@@ -1195,6 +1242,10 @@ MSG_PROMPT_SAVE_KEYCHAIN_HELP="Stores your encryption recovery key in the macOS 
 MSG_HYDRATE_TITLE="Hydrating your graph"
 MSG_HYDRATE_CONTACTS_STARTED="Importing your contacts to the graph"
 MSG_HYDRATE_CONTACTS_DONE="Imported %s contacts"
+# %s = the cap in seconds, %s = contacts imported before the cap was hit.
+# Says WHAT WAS MEASURED and what happens next, rather than blaming the step:
+# a partial import is a real result and the retry is what completes it.
+MSG_HYDRATE_CONTACTS_TIMED_OUT="Contacts took longer than %ss, so we stopped waiting and moved on. %s contacts are in so far, and Ostler will finish the rest in the background."
 # CX-92 (DMG #48g, 2026-05-29): calendar backfill window changed from 90
 # days to 5 years -- customer copy updated to match the new behaviour.
 MSG_HYDRATE_CALENDAR_STARTED="Loading your calendar history (five years back, a year ahead)"
@@ -1208,8 +1259,8 @@ MSG_HYDRATE_PLACES_SKIPPED="No location signals found yet; Places will fill in a
 # Loud, VISIBLE failure surface: the places module's own guard fired (location
 # signals exist in the graph but 0 Place points were produced/written), or the
 # ingester errored unexpectedly. NOT the benign "no signals yet" case.
-MSG_HYDRATE_PLACES_GUARD_WARN="Places build hit a problem: location signals exist but no Places were produced. Your Places page may stay empty. See /tmp/ostler-places-ingest.log"
-MSG_HYDRATE_PLACES_ERROR_WARN="Places build did not complete (unexpected error). Your Places page may be incomplete. See /tmp/ostler-places-ingest.log"
+MSG_HYDRATE_PLACES_GUARD_WARN="Places build hit a problem: location signals exist but no Places were produced. Your Places page may stay empty. See %s"
+MSG_HYDRATE_PLACES_ERROR_WARN="Places build did not complete (unexpected error). Your Places page may be incomplete. See %s"
 MSG_HYDRATE_WIKI_RECOMPILE="Building your wiki. Ostler is writing a short summary for each of your key people, organisations and topics, so on a large address book this can take from a few minutes up to around an hour. It only happens once, runs entirely on your Mac, and is safe to leave."
 
 # CX-106 (DMG #48l, 2026-05-29): initial_hydrate step strings.
@@ -1219,6 +1270,21 @@ MSG_INITIAL_HYDRATE_QDRANT_BEFORE="Checking your search index (%s collections de
 MSG_INITIAL_HYDRATE_BROWSER_RETRY="Loading your browsing history into the search index"
 MSG_INITIAL_HYDRATE_QDRANT_READY="Search index ready (%s collections)"
 MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED="Search index will populate in the background after install completes"
+# #616 / #615. MSG_INITIAL_HYDRATE_QDRANT_READY above is printed with a COUNT,
+# and a count cannot see a missing member. On the v1.0.60 walk box the store
+# holds three collections, two of the four the installer promised are absent,
+# and the count-based test called that "ready". These three strings exist so
+# the install can say WHICH, and so that "could not look" is a third outcome
+# rather than being folded into either of the other two.
+#
+# NOTE ON TIME WORDS: the _AWAITING string deliberately inherits the wording of
+# the DEFERRED string above and names no deadline. Background loading has no
+# completion time we can honestly quote (see background-copy-honesty.yml, where
+# an "hour" was measured wrong by two orders of magnitude); it may say work
+# CONTINUES, never when it will be DONE.
+MSG_WARN_QDRANT_COLLECTIONS_MISSING="Search index is incomplete: %s could not be created. Ostler will keep working, and the Doctor shows this gap."
+MSG_WARN_QDRANT_MEMBERSHIP_UNMEASURED="Could not check which search collections exist (%s). This is not a report that they are missing."
+MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED_AWAITING="Search index will populate in the background after install completes (waiting for: %s)"
 MSG_HYDRATE_DONE="Your graph is ready: %s people, %s events"
 # CX-93 (DMG #48g, 2026-05-29): split the "no contacts" copy. The old
 # string blamed iCloud, which was misleading on a local-AB-only Mac.
@@ -1274,10 +1340,10 @@ MSG_HYDRATE_CONTACTS_DENIED="Could not read your Contacts. Ostler reads them thr
 MSG_HYDRATE_CONTACTS_PENDING="Your Contacts app has not synced yet. Open Contacts once, wait for it to sync, then re-run hydration from Settings."
 MSG_HYDRATE_CONTACTS_READ_FAILED="Your contacts are on this Mac but Ostler imported 0 of them, which is unexpected. The import will retry automatically in the background. If it persists, re-run hydration from Settings or check the install log."
 MSG_HYDRATE_CONTACTS_RESYNC_SCHEDULED="Ostler will keep checking in the background and import your contacts automatically once iCloud finishes syncing."
-MSG_HYDRATE_CONTACTS_EMAIL_COVERAGE_LOW="Imported %s contacts with phone numbers but almost no email addresses (%s phone vs %s email). This usually means the contact reader dropped emails. Your contacts are still usable; see /tmp/ostler-hydrate-contacts.log and re-run hydration from Settings once resolved."
+MSG_HYDRATE_CONTACTS_EMAIL_COVERAGE_LOW="Imported %s contacts with phone numbers but almost no email addresses (%s phone vs %s email). This usually means the contact reader dropped emails. Your contacts are still usable; see %s and re-run hydration from Settings once resolved."
 MSG_HYDRATE_CONTACTS_RESYNC_REBUILDING_WIKI="New contacts imported; rebuilding your wiki in the background."
 MSG_HYDRATE_CALENDAR_PENDING="Your Calendar app has not synced events yet. Open Calendar once, wait for it to sync, then re-run hydration from Settings."
-MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED="Could not read your calendar this time (the extractor reported an error, not an empty calendar). Your other data was unaffected; see /tmp/ostler-hydrate-calendar.log, then re-run hydration from Settings."
+MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED="Could not read your calendar this time (the extractor reported an error, not an empty calendar). Your other data was unaffected; see %s, then re-run hydration from Settings."
 
 # WhatsApp hydration strings (CX-85)
 # Used by install.sh's hydrate_whatsapp step, inserted inside the

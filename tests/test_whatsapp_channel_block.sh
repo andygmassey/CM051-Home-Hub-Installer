@@ -82,7 +82,7 @@ if [[ -z "$GATE_LINE" ]]; then
     exit 1
 fi
 
-if ! echo "$GATE_LINE" | grep -q 'CHANNEL_WHATSAPP_ENABLED'; then
+if ! grep -q 'CHANNEL_WHATSAPP_ENABLED' <<< "$GATE_LINE"; then
     echo "FAIL [whatsapp-wrong-gate]: [channels.whatsapp] block is not gated on CHANNEL_WHATSAPP_ENABLED" >&2
     echo "      Found gate: $GATE_LINE" >&2
     exit 1
@@ -139,7 +139,7 @@ OUTPUT="$(
     bash -c "$(cat "$EMITTER")" 2>&1
 )"
 
-if ! echo "$OUTPUT" | grep -q '^\[channels\.whatsapp\]$'; then
+if ! grep -q '^\[channels\.whatsapp\]$' <<< "$OUTPUT"; then
     echo "FAIL [end-to-end-header]: emitter output missing [channels.whatsapp] header" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
@@ -147,7 +147,7 @@ if ! echo "$OUTPUT" | grep -q '^\[channels\.whatsapp\]$'; then
 fi
 echo "PASS: emitter produces [channels.whatsapp] header when CHANNEL_WHATSAPP_ENABLED=true"
 
-if ! echo "$OUTPUT" | grep -q '^enabled = true$'; then
+if ! grep -q '^enabled = true$' <<< "$OUTPUT"; then
     echo "FAIL [end-to-end-enabled]: emitter output missing 'enabled = true' under whatsapp block" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
@@ -164,7 +164,7 @@ OUTPUT_OFF="$(
     bash -c "$(cat "$EMITTER")" 2>&1
 )"
 
-if echo "$OUTPUT_OFF" | grep -q '\[channels\.whatsapp\]'; then
+if grep -q '\[channels\.whatsapp\]' <<< "$OUTPUT_OFF"; then
     echo "FAIL [end-to-end-suppress]: emitter wrote [channels.whatsapp] when CHANNEL_WHATSAPP_ENABLED=false" >&2
     exit 1
 fi
@@ -207,7 +207,7 @@ OUTPUT_WEB="$(
 
 # CONTROL: the render must have produced the block at all, or every
 # assertion below is vacuously true against empty output.
-if ! echo "$OUTPUT_WEB" | grep -q '^\[channels\.whatsapp\]$'; then
+if ! grep -q '^\[channels\.whatsapp\]$' <<< "$OUTPUT_WEB"; then
     echo "FAIL [web-render-control]: the parameterised render produced no whatsapp block" >&2
     echo "Output was:" >&2
     echo "$OUTPUT_WEB" >&2
@@ -215,7 +215,7 @@ if ! echo "$OUTPUT_WEB" | grep -q '^\[channels\.whatsapp\]$'; then
 fi
 
 # ── session_path present, absolute, outside Caches ──────────────
-if ! echo "$OUTPUT_WEB" | grep -qE '^session_path = "'; then
+if ! grep -qE '^session_path = "' <<< "$OUTPUT_WEB"; then
     echo "FAIL [whatsapp-session-path]: emitted TOML has no session_path." >&2
     echo "  Without it the daemon refuses the channel at startup and the customer's" >&2
     echo "  recorded consent buys them nothing. Output was:" >&2
@@ -254,7 +254,7 @@ echo "PASS: emitted TOML carries an absolute session_path outside Caches"
 # So assert the fix, not the directory: the value must name the final tree and
 # must not sit in a purged location, and the STAGING state/ dir (which the
 # promote carries over) must be the one created.
-if echo "$OUTPUT_WEB" | grep -qE '^session_path = "/tmp/'; then
+if grep -qE '^session_path = "/tmp/' <<< "$OUTPUT_WEB"; then
     echo "FAIL [whatsapp-session-tmp]: session_path is under /tmp -- macOS purges it, the WhatsApp link dies and the customer must re-pair (#177)" >&2
     exit 1
 fi
@@ -296,7 +296,7 @@ echo "PASS: session_path names the final tree, is not purged, and the block does
 # PairCodeOptions.phone_number (whatsapp_web.rs, `phone.clone()`), so
 # a stored "+" reaches Meta unchanged and the pair code never arrives.
 # Only the internal bot_phone identity is digit-filtered.
-if ! echo "$OUTPUT_WEB" | grep -qE '^pair_phone = "'; then
+if ! grep -qE '^pair_phone = "' <<< "$OUTPUT_WEB"; then
     echo "FAIL [whatsapp-pair-phone]: emitted TOML has no pair_phone." >&2
     echo "  wa-rs then falls back to QR, and a QR printed to daemon stderr on a" >&2
     echo "  headless Hub is not a surface a customer can use." >&2
@@ -318,7 +318,7 @@ echo "PASS: pair_phone is digits only and derived from the wizard number"
 # digit-strip to both fields this test would still pass on pair_phone
 # while the inbound allowlist silently stopped matching. The two
 # fields want different formats and both are asserted.
-if ! echo "$OUTPUT_WEB" | grep -qF 'allowed_numbers = ["+447700900123"]'; then
+if ! grep -qF 'allowed_numbers = ["+447700900123"]' <<< "$OUTPUT_WEB"; then
     echo "FAIL [whatsapp-allowed-numbers-e164]: allowed_numbers lost its E.164 form." >&2
     echo "  pair_phone is digits-only; allowed_numbers is E.164 WITH the plus." >&2
     echo "$OUTPUT_WEB" >&2
@@ -338,11 +338,11 @@ OUTPUT_NORECIP="$(
     OSTLER_DIR="${WA_TMP}/.ostler-norecip" \
     bash -c "$(cat "$EMITTER")" 2>&1
 )"
-if ! echo "$OUTPUT_NORECIP" | grep -qE '^session_path = "'; then
+if ! grep -qE '^session_path = "' <<< "$OUTPUT_NORECIP"; then
     echo "FAIL [whatsapp-no-recipient-session]: session_path must not depend on the recipient" >&2
     exit 1
 fi
-if echo "$OUTPUT_NORECIP" | grep -qE '^pair_phone = '; then
+if grep -qE '^pair_phone = ' <<< "$OUTPUT_NORECIP"; then
     echo "FAIL [whatsapp-no-recipient-pair]: pair_phone emitted with no number to pair" >&2
     exit 1
 fi

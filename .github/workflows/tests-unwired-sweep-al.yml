@@ -45,6 +45,7 @@ concurrency:
 jobs:
   sweep-ubuntu:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -133,8 +134,17 @@ jobs:
 
   sweep-macos:
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      # W003: wired as an EXPLICIT run step, NOT into the `for t in ...` loops
+      # above. #647: the new-tests-wired gate needs a test's path and an
+      # execution verb on ONE line; a path inside a loop body that invokes via
+      # `bash "$t"` is invisible to it, and the loop's existing entries are only
+      # there because they are grandfathered.
+      - name: Homebrew failure writes the log it promises (W003)
+        run: bash tests/test_brew_failure_writes_the_log_it_promises.sh
 
       - name: Shell tests needing macOS tools (PlistBuddy + plutil)
         run: |

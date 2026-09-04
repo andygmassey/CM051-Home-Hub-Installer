@@ -1,0 +1,59 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.62.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.62/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN. Authoring it in CM051
+# instead produces a copy with no pin, "a fork nobody declared" -- the v1.0.56
+# row's own words, and a mistake made live during v1.0.61. THE GATE READS THE
+# TREE IT IS CUTTING.
+#
+# ===========================================================================
+# EVERY ROW SAYS ONE OF THREE THINGS AND NEVER A FOURTH
+# ===========================================================================
+#   gate:<workflow>#<job>   a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# `TBD` is not a state, it is a silence, and a silence is what turns into a
+# surprise on a walk.
+#
+# ===========================================================================
+# FOUR ROWS, AND EVERY PATTERN WAS MUTATION-TESTED BEFORE IT WAS WRITTEN
+# ===========================================================================
+# Measured 2026-09-03, pre-fix tree = CM051 477608ab (the v1.0.61 pin, i.e. the
+# tree Andy actually walked), post-fix tree = c12c5e88 (this cut):
+#
+#   _ostler_ensure_qdrant_collections   pre 0  post 3   DISCRIMINATES
+#   _ostler_import_yield_ok             pre 0  post 3   DISCRIMINATES
+#   _QDRANT_READY_CAP                   pre 0  post 7   DISCRIMINATES
+#   \\[[:space:]] (install.sh)            pre 1  post 0   DISCRIMINATES (a removal)
+#   OSTLER_EXTENSION_TOKEN              pre 5  post 5   CONTROL, non-zero both
+#
+# The control is what makes those zeros a measurement rather than a vacuum.
+#
+# ⚠️ ON THE WALK-KILLER PATTERN, AND WHY IT IS NOT THE OBVIOUS ONE. The defect
+# was a backslash followed by a SPACE, MID-LINE, at install.sh:26690. The
+# obvious pattern is an end-of-line one; it scores 0 on BOTH trees and would
+# have guarded nothing while looking fine. The pattern here is the whitespace
+# CLASS, deliberately not a literal trailing space, because a field ending in
+# whitespace inside a TSV is the same silent-stripping class the defect belongs
+# to. It cannot match a legitimate trailing-backslash continuation: grep reads
+# line by line, so a backslash at end of line has no following character.
+#
+# ===========================================================================
+# THE OTHER MERGES IN THIS CUT, NAMED HERE RATHER THAN BEHIND A POINTER
+# ===========================================================================
+# CM051 #1388 (c12c5e88) is the version bump itself: 1.0.61 -> 1.0.62 and build
+# 6100 -> 6200 across ten sites in three files, verified by plutil -extract and
+# yaml.safe_load rather than by grep. It gets no row because a version bump has
+# no capability to guard beyond the version gate that already exists.
+#
+# v1.0.61's header pointed at cuts/v1.0.61/SCOPE.md, which is not in this repo.
+# Naming the merges inline avoids repeating that dangling reference.
+what	repo	ref	landed	capability_id	verify	ticket
+🔴 THE IMPORT DISCARDED 3810 OF 3810 PEOPLE INTO AN UNREADY STORE AND REPORTED status=ok. On a cold install Qdrant collections do not self-create; a readiness miss at T+0 left them absent, import_data embedded every person, 404'd on the missing collection and dropped the lot SILENTLY. FIX (#1385): the import now REFUSES an unready store rather than running into a void, and the refusal is WIRED AHEAD of the import step so the two facts are connected rather than adjacent. Proved by driving the lifted gate function against a stubbed store: a down store returns rc=1 naming all four collections, an empty-but-reachable store self-heals to rc=0, a healthy store is idempotent.	cm051	c12c5e88	no	import_refuses_unready_store	gate:launchd-plist-paths.yml#launchd-plist-paths	CM051 #1385 / #624 / v1061-D003
+🔴 AND A REFUSAL ALONE WOULD NOT HAVE BEEN ENOUGH, so the yield floor is a separate row: an import that ATTEMPTED people and STORED NONE now FAILS instead of reporting success. Without it the silent-loss path stays reachable by any other route to an empty store. 🔻 A CORRECTION INSIDE THE FIX, RECORDED BECAUSE IT IS THE SAME CLASS AS THE DEFECT: the first cut of this floor read its input with `grep -c ... 2>/dev/null || printf '0'`, which reports an UNREADABLE log as attempted-0, and attempted-0 is exactly the value that makes the floor decline to fire. A fail-open shipped while fixing a fail-open. The count is now read behind an -r guard and reports CANNOT-RUN, which is a third state and not a pass.	cm051	c12c5e88	no	import_yield_floor_fails_on_zero_stored	gate:launchd-plist-paths.yml#launchd-plist-paths	CM051 #1385 / #625 / v1061-D003
+🔴 THE WALK-KILLER: a SPACE after a line-continuation backslash at install.sh:26690 ended Andy's v1.0.61 clean-account walk at 97%. The backslash escaped the space instead of continuing the line, so the intended continuation became an orphaned command. 🗿 NO PARSE-LEVEL CHECK COULD HAVE CAUGHT IT AND THAT IS THE DURABLE LESSON: `bash -n` EXITS 0 on the real pre-fix file. The file is syntactically valid; it simply does something other than what it reads as. The gate is shape-reading rather than parse-reading and ships with a --self-test, because a gate that cannot demonstrate its own RED is a gate nobody can trust; its self-test carries a case-glob CONTROL so a legitimate `OK\ *)` is not flagged.	cm051	c12c5e88	no	install_sh_has_no_backslash_whitespace	gate:broken-line-continuation.yml#continuations	CM051 #1386 / #626 / v1061-D006
+🟠 A LOCKED STORE READ AS EMPTY AND BOUGHT A REDUNDANT RE-INGEST. The predicate could answer only two ways, so 'I cannot read this' and 'there is nothing here' collapsed to one value and the install responded to the wrong one. Now tri-state, and the readiness wait is raised 30s -> 300s as a NAMED, env-tunable cap (_QDRANT_READY_CAP) with the override validated and a declared floor. ⚠️ VERIFY IS needs-walk, NOT gate, AND THAT IS DELIBERATE: the capability matrix checks the constant is PRESENT, but NO test and NO workflow exercises the 300s behaviour (measured: zero matches for _QDRANT_READY_CAP across tests/ and .github/workflows/). A fast CI store never reaches even the old 30s limit, so the raise is unprovable in CI by construction. It is proven only by a store that is genuinely slow to come up, i.e. on the walk.	cm051	c12c5e88	no	store_readiness_cap_named_and_tunable	needs-walk:v1.0.62#on a cold box, confirm the store-readiness wait survives a slow Qdrant start rather than timing out at 30s, and that OSTLER_QDRANT_READY_WAIT_S overrides it	CM051 #1386 / #628 / v1061-D004

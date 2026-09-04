@@ -8,6 +8,7 @@ on:
 jobs:
   fail-closed:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: a cut that cannot publish must fail, not warn

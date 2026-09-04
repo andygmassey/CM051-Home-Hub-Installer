@@ -1,0 +1,136 @@
+# install_manifest.tsv -- THE DECLARED ROSTER OF WHAT A FINISHED OSTLER INSTALL MUST CONTAIN.
+#
+# READ THIS BEFORE EDITING.
+#
+# This file is HAND-DECLARED. It is NOT generated from install.sh and must never
+# be. install.sh is the PRODUCER; this is the independent statement of what it is
+# supposed to produce. scripts/verify_install_manifest.py compares the two. If
+# this file were derived from install.sh, deleting the line that installs a thing
+# would also delete the expectation that it be installed, and the gate would pass
+# forever over the exact regression it exists to catch. So when install.sh stops
+# producing something, the fix is to make install.sh produce it again OR to
+# consciously remove the row here -- never to let a script sync them.
+#
+# COLUMNS (tab-separated, exactly six):
+#   type         launch_agent | cron_job | artefact_dir | import_wire | qdrant_collection
+#   subject      the human name of the expected thing (what a diff will print)
+#   expectation  required   -> must be present; absent = FAIL
+#                conditional-> present only under a stated condition; absent is not a failure,
+#                              but if present it counts as declared (not UNDECLARED)
+#                excluded   -> known and deliberately NOT expected in v1 (suppresses the
+#                              UNDECLARED warning without requiring it)
+#   locator      how presence is measured (type-specific):
+#                  launch_agent : the plist Label (== filename stem under ~/Library/LaunchAgents)
+#                  cron_job     : the [[cron.jobs]] id in the live config.toml
+#                  artefact_dir : a path; ~ and $HOME resolve against --home
+#                  import_wire  : <path-glob-under-source-root>|<symbol-that-must-be-imported>
+#   ticket       provenance -- the incident this row was seeded from
+#   note         free text
+#
+# The UNDECLARED (present-but-not-declared) direction is enforced for the
+# enumerable types (launch_agent, cron_job). The full launch_agent roster below
+# (all 29 labels install.sh handles) is declared so a real box walk names only a
+# GENUINELY new agent, not the known 29.
+#
+# LAUNCH-AGENT ROSTER seeded 2026-09-03 from the authoritative uninstaller array
+# OSTLER_LAUNCHAGENT_LABELS (install.sh:18968-18998, 29 rows) and a per-label
+# conditional classification: 13 unconditional (required), 13 gated (conditional),
+# 3 skipped (excluded). Line numbers are the write/load site measured that day.
+
+# ---- launch_agent (enumerable; both directions enforced) ----------------------
+# 13 UNCONDITIONAL -> required. On any successful install these are present, so
+# they are also the positive controls for the type: a broken enumerator that
+# scored everything absent fails here loudly.
+launch_agent	com.ostler.stay-awake	required	com.ostler.stay-awake	baseline	write 10309/load 10333; installed on both paths deliberately
+launch_agent	com.ostler.engine-supervisor	required	com.ostler.engine-supervisor	baseline	write 10906; container-engine supervisor (#995), always bundled
+launch_agent	com.ostler.ollama	required	com.ostler.ollama	baseline	write 11342/load 11416; the local model server
+launch_agent	com.ostler.ollama-logrotate	required	com.ostler.ollama-logrotate	baseline	write 11508/load 11531
+launch_agent	com.ostler.enrich	required	com.ostler.enrich	baseline	write 16282/load 16332; Wikidata enrichment
+launch_agent	com.ostler.export-scan	required	com.ostler.export-scan	baseline	write 18293/load 18333
+launch_agent	com.ostler.doctor	required	com.ostler.doctor	baseline	write 19191; the Doctor serving /api/v1/sources; panel + box walk + install E1 all read it
+launch_agent	com.ostler.ical-server	required	com.ostler.ical-server	baseline	write 19453/load 19599; the unified API server
+launch_agent	com.ostler.fda-rerun	required	com.ostler.fda-rerun	baseline	write 14868; self-removing FDA-retry, idempotent on upgrade
+launch_agent	com.creativemachines.ostler.assistant	required	com.creativemachines.ostler.assistant	baseline	assistant-agent/INSTALL_SNIPPET.sh:131, invoke 21084; the core assistant daemon (ZeroClaw)
+launch_agent	com.creativemachines.ostler.email-ingest	required	com.creativemachines.ostler.email-ingest	baseline	invoke 19868; hard-fails ERR-20 if vendor missing, so present on any SUCCESSFUL install
+launch_agent	com.creativemachines.ostler.wiki-recompile	required	com.creativemachines.ostler.wiki-recompile	baseline	invoke 20799; bundled in the .app
+launch_agent	com.creativemachines.ostler.editor-frontpage	required	com.creativemachines.ostler.editor-frontpage	baseline	vendor/cm059_editor invoke 21017; bundled
+# 13 GATED -> conditional. Present only under the stated condition; absent is not
+# a failure, but if present they are declared (not an UNDECLARED surprise).
+launch_agent	com.ostler.deferred-register-device	conditional	com.ostler.deferred-register-device	baseline	write 18614; retries POST only while pending_registration.json queued (transient)
+launch_agent	com.creativemachines.ostler.whatsapp-keepalive	conditional	com.creativemachines.ostler.whatsapp-keepalive	baseline	only if CHANNEL_WHATSAPP_ENABLED
+launch_agent	com.creativemachines.ostler.whatsapp-bundle	conditional	com.creativemachines.ostler.whatsapp-bundle	baseline	only if WhatsApp enabled + consent accepted (20360)
+launch_agent	com.creativemachines.ostler.email-bundle	conditional	com.creativemachines.ostler.email-bundle	baseline	only if ~/Library/Mail present + third-party consent accepted (20384)
+launch_agent	com.creativemachines.ostler.spoken-bundle	conditional	com.creativemachines.ostler.spoken-bundle	baseline	only if CM042 Transcripts present (20406)
+launch_agent	com.creativemachines.ostler.imessage-bundle	conditional	com.creativemachines.ostler.imessage-bundle	baseline	only if chat.db present + third-party consent accepted (20457)
+launch_agent	com.creativemachines.ostler.hub-power	conditional	com.creativemachines.ostler.hub-power	baseline	only if HAS_BATTERY (MacBook); skipped on AC-only desktop (19780)
+launch_agent	com.ostler.contact-resync	conditional	com.ostler.contact-resync	baseline	only if initial contact hydrate incomplete (FDA denied / sync pending)
+launch_agent	com.creativemachines.ostler.wiki-recompile-catchup	conditional	com.creativemachines.ostler.wiki-recompile-catchup	baseline	only if install-time wiki converge did not finish in budget
+launch_agent	com.creativemachines.ostler.dedupe-catchup	conditional	com.creativemachines.ostler.dedupe-catchup	baseline	only if dedupe converge did not complete in budget (23828)
+launch_agent	com.ostler.aiconv-resume	conditional	com.ostler.aiconv-resume	baseline	only if the initial AI-conversations drain timed out (rc 124/137, 27670)
+launch_agent	com.creativemachines.ostler.tailscaled	conditional	com.creativemachines.ostler.tailscaled	baseline	only if Tailscale CLI+daemon resolved (22723); remote-access path
+launch_agent	com.creativemachines.ostler-remotecapture	conditional	com.creativemachines.ostler-remotecapture	v1.0.1	arm64 + REMOTECAPTURE_INSTALLED (default false; placeholder release, warn-skips today, 22145)
+# 3 SKIPPED -> excluded. Deliberately not installed in v1; declared so presence or
+# absence is not mistaken for a surprise.
+launch_agent	com.ostler.meeting-brief-sender	excluded	com.ostler.meeting-brief-sender	v1.0.1	skip at 18384; "v1.0.1 feature; endpoints not yet shipped" (strings:215)
+launch_agent	com.ostler.imessage-bridge	excluded	com.ostler.imessage-bridge	baseline	actively removed 20762-20771; "disabled in v1.0 single-machine mode"
+launch_agent	com.ostler.colima	excluded	com.ostler.colima	baseline	legacy; teardown-only (10940-10962), no heredoc ever writes it fresh
+
+# ---- cron_job (enumerable; both directions enforced) --------------------------
+# Denominator = 2, BOTH gated on a resolved brief channel (install.sh:12785).
+# Declared required because on the launch configuration a brief channel resolves,
+# and #619 is precisely these being ABSENT when the channel WAS resolved (the
+# .98 walk: imessage enabled, 0 [[cron.jobs]] written). On a genuine no-channel
+# install these are legitimately absent; the gate names them and the operator
+# confirms the no-channel case. A condition-aware refinement (require iff a brief
+# channel resolves) is TNM's T3 and can supersede these rows.
+cron_job	morning-brief	required	morning-brief	#619	written at install.sh:12795; delivery announce on the resolved brief channel
+cron_job	evening-wrap	required	evening-wrap	#619	written at install.sh:12803; delivery announce on the resolved brief channel
+
+# ---- artefact_dir (per-row presence; required-present only) --------------------
+# Customer-facing roots install.sh creates (positive controls: present on any
+# finished install, fresh or upgrade).
+artefact_dir	~/Documents/Ostler (customer-facing root)	required	~/Documents/Ostler	baseline	install.sh:6586 USER_FACING_ROOT; the "Reveal in Finder" target at install end
+artefact_dir	~/Documents/Ostler/Wiki (compiled wiki)	required	~/Documents/Ostler/Wiki	baseline	install.sh:6587 USER_TREE_SUBDIRS; the compiled personal wiki
+# #482: the usage-journal directory. MEASURED (2026-09-03): install.sh creates the
+# parent workspace (12881) but NOT the state/ leaf -- it is left to the wiki
+# compiler's Docker bind mount (15598, annotated "#482 RESIDUAL") or the daemon's
+# first write. So a finished install can lack it, which is the #482 defect. Declared
+# required so the gate NAMES it; goes green when install.sh mkdir -p's it. This is
+# dir EXISTENCE only; journal CONTENT is guarded by usage_journal_producers.sh.
+artefact_dir	~/.ostler/assistant-config/workspace/state (usage journal, #482)	required	~/.ostler/assistant-config/workspace/state	#482	install.sh mkdirs the parent workspace (12881) but not this state/ leaf
+
+# ---- import_wire (per-row presence; required-present only) ---------------------
+# #617: the SHARED kinship guard vendor/ostler_fda/relationship_labels.py
+# (is_relationship_label) must be applied on every person-name WRITE path, or a
+# kinship word ("Mum") can be persisted as a displayName. MEASURED 2026-09-03: 34
+# files examined across contact_syncer + identity_resolver + repair_*; 12 persist a
+# person name, 0 import the shared guard. The WRITE BOUNDARY is
+# identity_resolver/resolver.py::register_person/create_person plus per-source
+# create_person_oxigraph copies. pwg_ingest is behaviourally covered but via its
+# OWN private _is_relationship_label (deliberate, pwg_ingest.py:140), NOT the shared
+# guard -- so it is not the control here.
+# Positive control FIRST: identifier_quality.py imports the shared guard (line 94,
+# called 454). MUST PASS, proving the enumerator scores a real wiring present.
+import_wire	identifier_quality applies the shared kinship guard	required	vendor/ostler_fda/identifier_quality.py|is_relationship_label	#617-control	MUST PASS: proves the import_wire enumerator detects a real shared-guard wiring
+# The uncovered write paths (any file in the dir may satisfy it). FAIL today; go
+# green when #617 wires the shared guard into the write boundary.
+import_wire	contact_syncer applies the shared kinship guard	required	vendor/cm041/contact_syncer/*.py|is_relationship_label	#617	8 name-writers (syncer, facebook_friends, instagram_social, linkedin_*, owner_node, google_calendar), 0 guard
+import_wire	identity_resolver applies the shared kinship guard	required	vendor/cm041/identity_resolver/*.py|is_relationship_label	#617	the write boundary: resolver.register_person/create_person + batch_resolver, 0 guard
+
+# ---- qdrant_collection (enumerable; both directions enforced) -------------------
+# The vector collections a finished install must hold. install.sh creates these
+# four in one loop (install.sh:16586: `for _coll in people conversations
+# preferences evernote_knowledge`), so they are required. On the v1.0.60 walk
+# only people + preferences were present; conversations + evernote_knowledge were
+# absent (#615-adjacent) -- required here so that absence can NEVER ship silently.
+# A store that is DOWN or 401 is CANNOT-RUN, not absence (verifier enforces this).
+qdrant_collection	people	required	people	baseline	install.sh:16586 creation loop; also pre-created at 16470 (#638)
+qdrant_collection	conversations	required	conversations	#615	install.sh:16586 creation loop; ABSENT on the v1.0.60 walk
+qdrant_collection	preferences	required	preferences	baseline	install.sh:16586 creation loop; CM019 preference vectors
+qdrant_collection	evernote_knowledge	required	evernote_knowledge	#615	install.sh:16586 creation loop; ABSENT on the v1.0.60 walk
+# safari_history is created by an INGEST writer (the Safari extension path), not
+# the install.sh creation loop, so it is present only when browsing was ingested.
+# Declared conditional so its existence is a DECIDED fact (not an UNDECLARED
+# surprise, which is how the class gate first surfaced it) without reding a Hub
+# that legitimately has no Safari history.
+qdrant_collection	safari_history	conditional	safari_history	baseline	ingest-created (Safari extension), present when browsing history was ingested

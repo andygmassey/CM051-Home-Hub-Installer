@@ -53,6 +53,8 @@ on:
       - 'tests/test_walk_driver_does_not_inherit_a_stale_result.sh'
       - 'tests/test_walk_driver_requires_a_completion_marker.sh'
       - 'tests/test_walk_driver_takes_ports_from_the_declared_field.sh'
+      - 'tests/test_walk_pass_requires_zero_failed_steps.sh'
+      - 'tests/test_walk_port_probe_matches_install_sh.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
       - '.github/workflows/walk-record-gate.yml'
@@ -69,6 +71,7 @@ concurrency:
 jobs:
   walk-record-gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -106,8 +109,8 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          bash tests/test_post_walk_qa_measures_the_artefact.sh
-          rc=$?
+          rc=0
+          bash tests/test_post_walk_qa_measures_the_artefact.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The writer harness could not locate its anchors in scripts/post_walk_qa.sh. NOTHING about the writer has been measured. Do not debug post_walk_qa.sh on the strength of this line -- re-point the anchors in tests/test_post_walk_qa_measures_the_artefact.sh, and do not delete the arms."
           fi
@@ -133,8 +136,8 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          bash tests/test_walk_driver_does_not_inherit_a_stale_result.sh
-          rc=$?
+          rc=0
+          bash tests/test_walk_driver_does_not_inherit_a_stale_result.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The stale-result harness could not set itself up or its mutation anchor has moved. NOTHING about the driver has been measured."
           fi
@@ -144,8 +147,8 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          bash tests/test_walk_driver_requires_a_completion_marker.sh
-          rc=$?
+          rc=0
+          bash tests/test_walk_driver_requires_a_completion_marker.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The completion-marker harness could not set itself up or its mutation anchor has moved. NOTHING about the driver has been measured."
           fi
@@ -155,10 +158,46 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          bash tests/test_walk_driver_takes_ports_from_the_declared_field.sh
-          rc=$?
+          rc=0
+          bash tests/test_walk_driver_takes_ports_from_the_declared_field.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The declared-port harness could not set itself up or its mutation anchor has moved. NOTHING about the driver has been measured."
+          fi
+          exit "$rc"
+
+      # A WALK EXISTS TO FIND DEFECTS AND CANNOT PASS OVER ONE IT WAS TOLD
+      # ABOUT. Measured on ttywalk run 3: the marker read
+      # `status=ok failed_steps=1 errors=0`, the failed step was health_check
+      # (status=error rc=2), and the driver printed WALK PASS. status=ok and
+      # failed_steps answer DIFFERENT questions by design (#839) -- reached the
+      # end vs did every step work -- and reading only the first commits the
+      # same collapse the product was blamed for, from the instrument side.
+      - name: PASS requires zero failed steps, and an absent tally is CANNOT-RUN
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          bash tests/test_walk_pass_requires_zero_failed_steps.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The failed-steps harness could not import the driver or the driver stopped exporting adjudicate/PASS/FAIL/CANNOT_RUN. NOTHING about the driver has been measured."
+          fi
+          exit "$rc"
+
+      # ── The driver's port probe must not be STRICTER than install.sh's ──
+      #
+      # Run 9 refused a walk on "6333 8044 already held" seven seconds after
+      # its own --reset stopped colima. Nothing held them: TIME_WAIT refuses a
+      # bare bind() while netstat shows no listener, and install.sh grades
+      # exactly that case could-not-measure. The harness manufactured the
+      # conflict it then refused on.
+      - name: Port probe agrees with install.sh's own two-instrument table
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          bash tests/test_walk_port_probe_matches_install_sh.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The port-probe harness could not import the driver, or install.sh no longer defines _check_port/_port_listeners. The driver's table is pinned to a contract that has moved; NOTHING was measured."
           fi
           exit "$rc"
 

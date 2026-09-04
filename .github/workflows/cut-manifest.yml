@@ -54,6 +54,7 @@ concurrency:
 jobs:
   manifest-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -142,6 +143,7 @@ jobs:
   # and pass a probe that dies on the real cut host.
   people-probe-fires:
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -161,8 +163,8 @@ jobs:
       - name: Install PyYAML (verify_branch_truth refuses to parse the ledger without it)
         run: |
           set -euo pipefail
-          python3 -m pip install --quiet --break-system-packages pyyaml \
-            || python3 -m pip install --quiet pyyaml
+          python3 -m pip install --quiet --break-system-packages --ignore-installed pyyaml \
+            || python3 -m pip install --quiet --ignore-installed pyyaml
           # Prove it, do not assume the install worked: a silent pip failure would
           # leave the suite failing for the same reason with a fix in the log.
           python3 -c 'import yaml; print("PyYAML", yaml.__version__, "importable")'
@@ -279,6 +281,7 @@ jobs:
 
   manifest-parse:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4

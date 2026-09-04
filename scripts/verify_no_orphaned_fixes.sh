@@ -88,6 +88,14 @@ esac
 # A gate whose self-test writes into the artefact the gate is judging is an
 # instrument measuring itself.
 EXPIRED_BASELINE="${OSTLER_EXPIRED_BASELINE:-${REPO_ROOT}/tests/expired_deferrals_baseline.txt}"
+# task #611: the committed MAXIMUM skip set. See the file header and the
+# ceiling check in the unchecked>0 verdict below. Capture whether the caller set
+# the ceiling explicitly BEFORE the default fills it in: that plus "is the repo
+# set the DEFAULT one" is how the check tells a real cut (enforce) from a test
+# that injects a synthetic repo set to exercise skip mechanics (do not enforce a
+# ceiling that does not describe those synthetic labels).
+_ORPHAN_CEILING_EXPLICIT="${OSTLER_ORPHAN_SKIP_CEILING+1}"
+ORPHAN_SKIP_CEILING="${OSTLER_ORPHAN_SKIP_CEILING:-${REPO_ROOT}/tests/orphan_gate_skip_ceiling.txt}"
 
 # 🔴 `mktemp -t <template>` WITHOUT X's IS BSD-ONLY. GNU refuses it outright:
 # "mktemp: too few X's in template". This gate ran `mktemp -t ostler-expired-refs`,
@@ -572,7 +580,28 @@ check_repo() {
     # OSTLER_ORPHAN_GATE_SKIP="label1,label2" -- a deliberate, visible act.
     if [[ -z "$path" ]]; then
         if [[ ",${OSTLER_ORPHAN_GATE_SKIP:-}," == *",${label},"* ]]; then
-            note "${label}: skipped by OSTLER_ORPHAN_GATE_SKIP"
+            # COUNT IT. This branch used to return without touching a counter,
+            # so a repo declared-skipped AND carrying an empty path vanished
+            # from the coverage line altogether: the summary printed
+            # "0 NOT CHECKED" while this repo had, in fact, not been checked.
+            #
+            # MEASURED on two arms differing only in how the same operator act
+            # was spelled, everything else identical (0 checked, 0 orphaned,
+            # 1 warning):
+            #     ghost with EMPTY path         -> "0 NOT CHECKED"
+            #     ghost with unresolvable path  -> "1 NOT CHECKED"
+            # One declaration, two coverage figures. The zero is the dangerous
+            # one, because a zero here reads as complete coverage rather than as
+            # a repo nobody looked at.
+            #
+            # It also fed the --regenerate-expired-baseline refusal further
+            # down, which guards on `unchecked -gt 0`. An all-empty-path run
+            # looked like FULL coverage to that guard and would have been
+            # allowed to overwrite the baseline from a run that saw nothing --
+            # the precise thing that refusal exists to prevent.
+            note "${label}: NOT CHECKED HERE (declared in OSTLER_ORPHAN_GATE_SKIP, no path configured)"
+            unchecked_labels="${unchecked_labels}${unchecked_labels:+, }${label}"
+            unchecked=$((unchecked + 1))
             return
         fi
         bad "${label}: no checkout path configured -- cannot verify"
@@ -1089,6 +1118,33 @@ expiry_ratchet_sets() {
     LC_ALL=C comm -13 <(LC_ALL=C sort -u "$current") <(LC_ALL=C sort -u "$base_clean") > "$out_gone"
 }
 
+# _orphan_skip_ceiling_over  <actual-labels>  <ceiling-file>   (task #611)
+# Prints, one per line, the labels ACTUALLY skipped that the ceiling does NOT
+# permit -- the over-set. Empty output means the skip set is within the ceiling.
+# <actual-labels> is unchecked_labels: the repos genuinely NOT CHECKED here (both
+# skip branches populate it, #1365), NOT the raw OSTLER_ORPHAN_GATE_SKIP env var,
+# because a leftover label naming a repo that resolved anyway is not a skip and
+# must not fire. Comma- or newline-separated, surrounding space tolerated.
+# A MAXIMUM check by construction: comm -23 lists only actual-not-in-ceiling, so
+# skipping FEWER than the ceiling yields nothing. A LIST, not a count: a swap
+# (drop one, add one) is visible where a total would hide it. LC_ALL=C on both
+# sides so a locale mismatch cannot phantom-diff, same reason expiry_ratchet_sets
+# pins it. A missing ceiling file is treated as an EMPTY ceiling, so any skip is
+# over it -- fail closed, not open.
+_orphan_skip_ceiling_over() {
+    local actual_raw="$1" ceiling_file="$2" actual ceiling
+    actual="$(printf '%s' "$actual_raw" | tr ',' '\n' \
+        | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^[[:space:]]*$' | LC_ALL=C sort -u)"
+    [[ -z "$actual" ]] && return 0
+    if [[ -f "$ceiling_file" ]]; then
+        ceiling="$(grep -vE '^[[:space:]]*(#|$)' "$ceiling_file" \
+            | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^[[:space:]]*$' | LC_ALL=C sort -u)"
+    else
+        ceiling=""
+    fi
+    LC_ALL=C comm -23 <(printf '%s\n' "$actual") <(printf '%s\n' "$ceiling")
+}
+
 sort -u "$EXPIRED_REFS" 2>/dev/null > "${EXPIRED_REFS}.sorted" || : > "${EXPIRED_REFS}.sorted"
 
 if [[ "$REGEN_EXPIRED" -eq 1 ]]; then
@@ -1305,6 +1361,30 @@ if [[ "$expiry_ratchet_failed" -ne 0 ]]; then
 fi
 
 if [[ "$unchecked" -gt 0 ]]; then
+    # ORPHAN-GATE SKIP CEILING (#611). The skip set is unpinned: a sixth label
+    # could be added and this gate still exit 0, walking coverage down to a floor
+    # of one repo, every step green. Bound the ACTUAL skips against the committed
+    # ceiling LIST. A MAXIMUM: skipping fewer is progress and stays green; a skip
+    # the ceiling does not name fails here and is named.
+    # Enforce on the REAL cut (default repo set) or when a ceiling is given
+    # explicitly (this check's own test). A caller that injects a synthetic repo
+    # set (OSTLER_ORPHAN_GATE_REPOS) with no explicit ceiling is a DIFFERENT
+    # test exercising skip mechanics, and the real ceiling does not name its
+    # synthetic labels, so do not red it. The cut path never injects repos.
+    _skip_over=""
+    if [[ -z "${OSTLER_ORPHAN_GATE_REPOS:-}" || -n "$_ORPHAN_CEILING_EXPLICIT" ]]; then
+        _skip_over="$(_orphan_skip_ceiling_over "$unchecked_labels" "$ORPHAN_SKIP_CEILING")"
+    fi
+    if [[ -n "$_skip_over" ]]; then
+        say "" >&2
+        say "FAIL: the orphan-gate skip set EXCEEDS its ceiling (#611)." >&2
+        say "  skipped but NOT permitted by the ceiling: $(printf '%s' "$_skip_over" | tr '\n' ' ')" >&2
+        say "  ceiling: ${ORPHAN_SKIP_CEILING}" >&2
+        say "  Skipping MORE repos than the ceiling walks coverage toward a floor of one." >&2
+        say "  If a skip is genuinely needed, RAISE THE CEILING deliberately in that file," >&2
+        say "  in the same PR as the workflow change that adds the skip." >&2
+        exit 1
+    fi
     say "GREEN, PARTIAL: every written fix in the ${checked} repo(s) CHECKED HERE is"
     say "shipping or consciously deferred. ${unchecked} repo(s) were not examined."
     exit 0

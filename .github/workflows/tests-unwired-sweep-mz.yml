@@ -50,6 +50,7 @@ jobs:
     # OS they assert about. Verified passing under both /bin/bash 3.2 (the
     # runner default) and bash 5.x. Same reasoning as test-wiring.yml.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -106,12 +107,37 @@ jobs:
           fi
           echo "OK: all m..z shell tests passed."
 
+      # Invoked BY NAME, deliberately, not via the loop above.
+      #
+      # scripts/verify_new_tests_are_wired.sh requires an execution verb and the
+      # filename on the SAME LINE (is_invoked_in_corpus). The `for t in ... ;
+      # bash "${t}"` loop above satisfies TEST_WIRING.tsv, which matches on a
+      # mention, but it is invisible to the invocation gate: the verb only ever
+      # touches "$t", never a literal path. Every existing entry in that list is
+      # grandfathered because that gate inspects only NEWLY ADDED tests. This
+      # one is named so both gates can see the same fact.
+      - name: B2 -- a removed Transcripts folder is reported as removed
+        # `if: always()` because this step shares a job with the loop above. Without
+        # it, a failure in ANY earlier m..z test skips this one, and a test that
+        # runs only when everything before it passed cannot report on a red run --
+        # exactly the masking scripts/verify_ci_steps_are_maskless.py exists to
+        # forbid. It caught this: 1 maskable step of 359, and it was mine.
+        if: always()
+        run: bash tests/test_spoken_transcripts_absence_discriminated.sh
+
+      - name: v1061-D001 -- the region step must not leak a raw traceback (#622)
+        # if: always() -- shares the job with the loop above; without it a red in an
+        # earlier m..z test would skip this one and mask it (verify_ci_steps_are_maskless).
+        if: always()
+        run: bash tests/test_region_persist_does_not_leak_a_traceback.sh
+
   python-ubuntu:
     # Vendored-logic tests (parsers, identity resolver, migration guard,
     # tailnet parser, knowledge embed-contract). OS-independent, so they run on
     # ubuntu with the declared vendored requirements installed -- same shape as
     # the repo's other python gates (setup-python + pip install).
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4

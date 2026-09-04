@@ -48,6 +48,9 @@ on:
       - 'install.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_launchagent_success_requires_verification.sh'
+      - 'tests/test_launchagent_refusal_reason_is_recorded.sh'
+      - 'tests/test_launchagent_refusal_reaches_the_transcript.sh'
+      - 'tests/test_launchagent_bootout_settles_before_bootstrap.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/launchagent-success-verification.yml'
       # Watched because the regression job below RUNS them. A run: without a
@@ -79,6 +82,7 @@ jobs:
     # gate that only ever runs on Linux has no way to notice a BSD/GNU split
     # in its own tooling -- see the mktemp -t note in the estate memory.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Environment, so a failure is attributable
@@ -88,6 +92,60 @@ jobs:
           sw_vers | head -2
       - name: The gate
         run: /bin/bash tests/test_launchagent_success_requires_verification.sh
+
+      # THE OTHER HALF OF #876. The helper above stops the installer CLAIMING a
+      # LaunchAgent loaded when it did not. It could not say WHY, because both
+      # load attempts ran under `2>/dev/null` and launchd's refusal -- the only
+      # artefact that knows -- went to the bit bucket.
+      #
+      # Measured on the Mini 16, 2026-09-04: com.ostler.doctor absent from
+      # launchctl, :8089 answering 000, the installer correctly WARNING and the
+      # warning carrying no reason. Bootstrapping the identical unmodified
+      # plist by hand 21 minutes later gave `state = running` and a 200, so
+      # plist and payload were both fine and the diagnosis cost a second full
+      # install. An honest "no" that cannot say why is a whole walk per defect.
+      - name: A refused LaunchAgent load must record launchd's reason
+        if: always()
+        run: /bin/bash tests/test_launchagent_refusal_reason_is_recorded.sh
+
+      # RECORDING THE REASON IS NOT DELIVERING IT. The step above proves the
+      # cause is captured; this one proves it reaches somewhere a walk reads,
+      # and that an UNREACHABLE gui domain is named rather than reported as a
+      # broken agent. Measured 2026-09-04: the refusal log had 0 references in
+      # ttywalk.sh and 0 in walk_drive.py, so the cause of the Mini 16 Doctor
+      # failure sat on the box unread and cost a second 21-minute install.
+      - name: A refusal must reach the transcript and name its scope
+        if: always()
+        run: |
+          # ⚠️ `|| rc=$?`, NOT a bare call. The step shell is `/bin/bash -e {0}`
+          # (printed by the runner). Under -e a test exiting 2 kills the step AT
+          # THAT LINE, so `rc=$?` never runs and the CANNOT-RUN branch below is
+          # unreachable code. Measured 2026-09-04: current form 0 ::error lines
+          # on an rc=2 test, this form 1, and 0 when the test passes.
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_launchagent_refusal_reaches_the_transcript.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The refusal harness could not extract its subject from install.sh. NOTHING was measured about LaunchAgent refusals -- this is not a pass."
+          fi
+          exit "$rc"
+      # bootout is ASYNCHRONOUS. Bootstrapping into a half-torn-down label
+      # fails EIO and the job never spawns. Measured on the Mini 16: payload
+      # 18:42:10Z, plist 18:42:11Z, refusal 18:42:11Z -- one second for the
+      # whole sequence, and the reason recorded was "registered, then VANISHED
+      # from gui/501 before it ran". 2 of 20 agents failed; 18 loaded.
+      - name: bootout settles before bootstrap, and costs nothing when idle
+        if: always()
+        run: |
+          # `|| rc=$?` for the same reason as the step above: under `bash -e`
+          # a bare fallible call exits the step before rc is ever captured.
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_launchagent_bootout_settles_before_bootstrap.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::Could not extract the bootout region from install.sh. NOTHING was measured -- this is not a pass."
+          fi
+          exit "$rc"
 
       # A LaunchAgent that loaded is not a LaunchAgent that read the plist you
       # just wrote. On an UPGRADE the label is already bootstrapped, so
@@ -108,6 +166,7 @@ jobs:
     # PROVE IT CAN GO RED. Green on the fix alone is not evidence -- a scanner
     # with a broken regex is green on everything.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: The scanner must catch the reinstated v1.0.44 Doctor block
@@ -119,6 +178,7 @@ jobs:
     # and a neighbour that VANISHED is a bigger finding than one that failed --
     # so a missing file is a hard stop, never a silent skip.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: The existing LaunchAgent guards must still hold

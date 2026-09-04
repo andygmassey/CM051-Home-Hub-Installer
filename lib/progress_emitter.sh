@@ -40,6 +40,11 @@
 #               that ended with a status other than ok. It is printed
 #               even when it is zero, so a reader can tell "no step
 #               failed" apart from "this build does not report it".
+#               `errors` is ALWAYS present too and counts [ERROR] lines
+#               raised anywhere in the run. It answers a DIFFERENT
+#               question from failed_steps: a run can close every step
+#               cleanly and still have raised errors. Printed even when
+#               zero, for the same reason.
 #
 # Usage in install.sh:
 #
@@ -136,7 +141,7 @@ _ostler_marker_field_is_public() {
             return 0
             ;;
         # Machine numerics.
-        pct|idx|total|phase|elapsed_s|rc|count|failed_steps|total_permissions)
+        pct|idx|total|phase|elapsed_s|rc|count|failed_steps|errors|total_permissions)
             return 0
             ;;
         # Operator narrative -- see "WHAT IS DELIBERATELY NOT REDACTED".
@@ -314,6 +319,17 @@ __OSTLER_STEP_RC=0
 # Count of steps closed with a status other than ok. Read by gui_done so
 # the single terminal line carries the truth about the whole run.
 __OSTLER_FAILED_STEPS=0
+# The ORDERED ids of exactly those failed steps, appended at the SAME site that
+# increments the count above (gui_step_end), so the number and the names are one
+# record and cannot disagree. NOT a second tally (#532/#616): it is a projection
+# of the same increment event, subject to the same subshell FLOOR caveat the
+# count already carries. word-count == __OSTLER_FAILED_STEPS is an invariant.
+# Read by install.sh's closing verdict to NAME which steps did not complete.
+__OSTLER_FAILED_STEP_IDS=""
+# Message-level error counter. Companion to __OSTLER_FAILED_STEPS, and a
+# DIFFERENT question: that one counts steps that ended badly, this one counts
+# [ERROR] lines raised anywhere. See gui_log for why both are needed.
+__OSTLER_ERROR_LINES=0
 
 # gui_step_record_rc <rc>
 #
@@ -401,6 +417,12 @@ gui_step_end() {
         # Count it even when OSTLER_GUI is unset: the counter is
         # bookkeeping, gui_emit is the wire, and only the wire is gated.
         __OSTLER_FAILED_STEPS=$(( __OSTLER_FAILED_STEPS + 1 ))
+        # Same event, same $id the STEP_END line below carries: append it here
+        # so the count and the id-list are written together and stay in lockstep
+        # (#616). Space-separated; ids have no internal spaces, so word-count is
+        # exact. The abort-close path (gui_done -> gui_step_end error) reaches
+        # this site too, so a run that died inside a step names that step.
+        __OSTLER_FAILED_STEP_IDS="${__OSTLER_FAILED_STEP_IDS:+${__OSTLER_FAILED_STEP_IDS} }${id}"
         # #873: a non-ok status with rc=0 says "it failed with exit code
         # success", which is the DONE line's own defect one level down.
         # It arises when the status was ESCALATED by an argument rather
@@ -573,6 +595,32 @@ gui_log() {
     [[ "${OSTLER_GUI:-0}" != "1" ]] && return 0
     local level="${1:-info}"; shift
     local msg="$*"
+    # ── The MESSAGE-level error counter (A2's silence sweep, tier 1) ──
+    #
+    # #839 gave the DONE line failed_steps, which counts STEPS that ended
+    # other than ok. That is a real answer to a real question and it is not
+    # this one. install.sh's err() only PRINTS: a run can emit any number of
+    # [ERROR] lines, close every step cleanly, and produce
+    #     status=ok failed_steps=0
+    # which is TRUE by the contract above and still tells the customer
+    # nothing about the errors. Measured on a real box: an install closed
+    # "no errors detected" over 43+ real errors (#270).
+    #
+    # err() funnels through gui_log at level=error, so this is the one place
+    # every error message passes. Counting HERE rather than in install.sh's
+    # err() is the same argument #873 makes for closing the open step in this
+    # function: the guarantee should be a property of the emitter, not a rule
+    # each future caller has to remember.
+    #
+    # SUBSHELL CAVEAT, STATED RATHER THAN HIDDEN: this is a plain shell
+    # variable, so an err() raised inside a $( ) or a pipeline segment
+    # increments a copy and is lost. __OSTLER_FAILED_STEPS has carried
+    # exactly this limitation since #839 and it is accepted. The count is
+    # therefore a FLOOR, not a total -- which is the safe direction, because
+    # it can under-report but can never invent an error that did not happen.
+    if [[ "$level" == "error" ]]; then
+        __OSTLER_ERROR_LINES=$(( ${__OSTLER_ERROR_LINES:-0} + 1 ))
+    fi
     gui_emit LOG "level=$level" "msg=$msg"
 }
 
@@ -654,8 +702,34 @@ gui_done() {
     #
     # A cancel does not come through here (gui_cancelled has its own
     # path), so a deliberate user cancel still counts nothing.
+    #
+    # ── #640: `|| true` IS LOAD-BEARING. THE ABORT PATH MUST NOT ABORT ──
+    #
+    # install.sh runs under `set -Eeuo pipefail` (install.sh:29), and this
+    # close is reached only from the three abort paths. Without the `|| true`
+    # a failure ANYWHERE inside gui_step_end kills the shell right here --
+    # inside gui_done, after the caller has committed to reporting, but
+    # BEFORE OSTLER_DONE_EMITTED is set and before the DONE marker is
+    # emitted below. The run then ends with NO terminal marker at all, which
+    # the GUI renders as the no-DONE crash fallback: a red banner for an
+    # install that said nothing about why it stopped.
+    #
+    # MEASURED, against this file and the real install.sh ERR trap, with
+    # gui_emit forced to return 1 for STEP_END only:
+    #     before this change ....... 0 DONE markers   (control, no fault: 1)
+    #     moving OSTLER_DONE_EMITTED
+    #       above this block ....... 0 DONE markers   -- does NOT fix it,
+    #                                and makes the silence guaranteed by
+    #                                muting the EXIT backstop too
+    #     this change .............. 1 DONE marker    (control still 1)
+    # The obvious fix was the wrong one; only the tolerated close works.
+    #
+    # Losing the step-close is the CHEAPER failure by construction. It costs
+    # one `failed_steps` increment and one STEP_END line. Losing the DONE
+    # costs the customer any statement at all. When the reporter itself is
+    # breaking, report.
     if [[ "$status" != "ok" && -n "${__OSTLER_STEP_ID:-}" ]]; then
-        gui_step_end error
+        gui_step_end error || true
     fi
 
     # CX-454: record that a terminal DONE marker has gone out, so the
@@ -664,10 +738,12 @@ gui_done() {
     OSTLER_DONE_EMITTED=1
     if [[ -n "${OSTLER_LAST_ERROR_CODE:-}" ]]; then
         gui_emit DONE "status=$status" "code=${OSTLER_LAST_ERROR_CODE}" \
-                      "failed_steps=${__OSTLER_FAILED_STEPS:-0}"
+                      "failed_steps=${__OSTLER_FAILED_STEPS:-0}" \
+                      "errors=${__OSTLER_ERROR_LINES:-0}"
     else
         gui_emit DONE "status=$status" \
-                      "failed_steps=${__OSTLER_FAILED_STEPS:-0}"
+                      "failed_steps=${__OSTLER_FAILED_STEPS:-0}" \
+                      "errors=${__OSTLER_ERROR_LINES:-0}"
     fi
 }
 

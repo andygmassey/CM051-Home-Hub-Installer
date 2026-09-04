@@ -9,4 +9,23 @@
 # an infrastructure flake rather than a missing declaration.
 #
 # The package that imports a dependency is the package that declares it.
+#
+# 🔴 AND IT HAPPENED AGAIN, TWICE, IN THE SAME FILE THIS COMMENT GUARDS.
+# MEASURED 2026-09-04 by building a clean venv from this file and importing
+# identity_resolver.batch_resolver:
+#
+#     ModuleNotFoundError: No module named 'phonenumbers'   normalise.py:6
+#     ModuleNotFoundError: No module named 'httpx'          resolver.py, batch_resolver.py
+#
+# Enumerated rather than added one-at-a-time as each import failed: the
+# module-scope third-party imports across every file in this package are
+# httpx, phonenumbers and rapidfuzz, and all three are now here. Chasing them
+# one traceback at a time is how a list ends up one short again.
+#
+# It stayed invisible because every environment that runs this package --
+# the installed venv, the developer's machine, the box -- already had all
+# three from a sibling requirements file. A dependency list is only tested by
+# an environment that has nothing.
+httpx>=0.24,<1.0
+phonenumbers>=8.13
 rapidfuzz>=3.0,<4.0

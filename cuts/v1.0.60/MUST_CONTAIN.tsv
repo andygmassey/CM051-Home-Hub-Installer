@@ -1,0 +1,48 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.60.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.60/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN. It CANNOT-RUNs (exit
+# 2) while this file is absent, printing "write it there first". Writing the
+# BOM directly in CM051 instead produces a copy with no pin -- "a fork nobody
+# declared", which is how the vendored rollforward gate drifted 239 lines.
+#
+# ===========================================================================
+# EVERY ROW SAYS ONE OF THREE THINGS AND NEVER A FOURTH
+# ===========================================================================
+#   gate:<workflow>#<job>   a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# v1.0.58 shipped nine rows and nine `verify=TBD`. TBD is not a state, it is a
+# silence, and a silence is what turns into a surprise on a walk. Andy,
+# 2026-09-02: "I'm beyond fed up with keep making DMGs and doing a walk and
+# then hearing that stuff hasn't been fixed that I was told it had."
+#
+# ===========================================================================
+# THIS BOM IS DELIBERATELY SHORT, AND THAT IS A STATEMENT NOT AN OVERSIGHT
+# ===========================================================================
+# cuts/v1.0.60/SCOPE.md in CM051 carries ~49 rows, 10 of them marked DONE. Only
+# the rows below are here, because a BOM row needs a capability_id that resolves
+# in manifest/capability_manifest.tsv AND a pattern that actually discriminates.
+#
+# The A-block (A1..A5, Apple Notes) is DONE AT SOURCE and is deliberately NOT
+# listed yet. Its natural pattern, `apple_notes`, was measured at 187 hits
+# across 34 files on CM051 origin/main: a capability row on that pattern would
+# report GUARDED and pass whether or not apple_notes is in OSTLER_FDA_SOURCES.
+# It needs either a discriminating pattern or a `needs-walk` row written by
+# whoever owns the walk. An honest gap beats a row that guards nothing.
+#
+# B3c is NOT here either: it is DONE AT SOURCE in HR015 and NOT YET VENDORED
+# into CM051, so it is not in the shipping tree and must not be claimed as
+# in-artefact. That is the "merged is not delivered" distinction this register
+# exists to hold.
+#
+# ⚠️ THE DAEMON PIN DOES NOT MOVE FOR v1.0.60 unless a daemon change lands.
+# v1.0.59 pinned hub-v0.4.70 (bc63c445). Carrying a pin forward is correct when
+# nothing daemon-side changed, and it is the CUT.ENV that records that choice.
+what	repo	ref	landed	capability_id	verify	ticket
+🟠 A REMOVED Transcripts FOLDER REPORTED THE FRESH-MAC CAUSE. The spoken feed is presence-gated on ~/Documents/Ostler/Transcripts, created ONCE under a sentinel that deliberately never recreates it. Two states reach the skip branch and they are not the same fact: no sentinel + no folder means nothing was ever recorded; sentinel PRESENT + no folder means it existed and is gone. Both printed "there are no recordings to read", which in the second case states a cause that is not the cause, so a feed the customer used to have goes quiet under reassuring onboarding copy. FIX (#1347): the sentinel is the discriminator and already existed for exactly this purpose; a removal now warns rather than informs, and the branch still creates nothing. Proved by EXECUTION, not grep -- the real branch is extracted from the shipping install.sh and run under both states, so a fix adding the string without wiring the condition still fails.	cm051	deb55bda	no	feed_spoken_removed_dir_is_reported_as_removed	gate:tests-unwired-sweep-mz.yml#shell-macos	Archie 2026-09-02 / CM051 #1347 / v1.0.60 B2
+🔴 THE SAFARI EXTENSION COULD NOT INGEST WITHOUT AN iPHONE PAIR. Andy 2026-09-02: "it's a fucking BUG... needs fixing PROPERLY". A Hub-only install with no phone ever paired had no credential the extension could present, so browsing reached nothing. FIX (B3b): install.sh MINTS OSTLER_EXTENSION_TOKEN into ${SECRETS_DIR}/extension_token under umask 0077 with chmod 600, reuses an existing one rather than rotating on every install, and passes it to the Doctor LaunchAgent. Landed carrying a defect of its own -- it referenced two catalogue strings that did not exist, which under `set -uo pipefail` is a DEAD INSTALL at that step -- fixed in d1dd60dd, which also built the gate that had been missing for all 940 MSG_ references. ⚠️ THIS IS THE MINT HALF ONLY. B3a (the Doctor accepts the credential) is vendored; B3c (the extension LEARNS the token) is merged in HR015 and NOT yet vendored into CM051, so end-to-end ingest is NOT claimed by this row.	cm051	d1dd60dd	no	installer_mints_extension_token	needs-walk:v1.0.60#Hub-only-install-no-phone-ever-paired-browse-a-page-see-it-in-safari_history	Archie 2026-09-02 / CM051 B3b / #180

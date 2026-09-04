@@ -67,6 +67,7 @@ concurrency:
 jobs:
   consent-data-handling:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -220,3 +221,14 @@ jobs:
       - name: control -- prove every limb of the ollama contract can fail
         if: always()
         run: bash scripts/tests/test_ollama_contract_controls.sh
+
+      # A killed contacts wrapper must not be reported as an empty address
+      # book. The bound added alongside this would otherwise have INTRODUCED
+      # #852's shape: `|| JSON=""` collapses a timeout into "no contacts",
+      # which prints the empty-address-book message to someone with thousands
+      # of cards and records a no_data sentinel that suppresses the retry.
+      # Two of its assertions are pre-fix controls, and a drift guard reads
+      # install.sh directly so this file cannot quietly stop describing it.
+      - name: a killed contacts hydrate is an error, not an empty address book
+        if: always()
+        run: bash scripts/tests/test_hydrate_contacts_timeout_arm.sh

@@ -22,4 +22,30 @@ if [ -x "$ROOT/.githooks/check-assistant-name-hardcoded.sh" ]; then
     "$ROOT/.githooks/check-assistant-name-hardcoded.sh" pre-commit || exit $?
 fi
 
+# Bound-string guard -- install.sh runs under `set -uo pipefail`, so a MSG_*
+# it reads that the catalogue does not define is not a blank line, it is
+# `unbound variable` and a DEAD INSTALL at that step. Rule 0.9 above cannot
+# see this: it checks the shape of a string, not whether the string answers.
+# Measured when this was wired: 940 references, 0 guarded with ${VAR:-}.
+# Exit 2 is CANNOT-RUN and blocks the commit on purpose.
+if [ -x "$ROOT/scripts/verify_install_strings_bound.py" ]; then
+    python3 "$ROOT/scripts/verify_install_strings_bound.py" >/dev/null || exit $?
+fi
+
+# Divergence-patch visibility -- a patch must not create files that
+# vlib_patch_new_files cannot see, because that verdict is the only thing
+# stopping sync_vendor.sh deleting them on the next re-vendor. doctor.patch
+# carried `+++ bb/` on 2026-09-02: 8 new-file hunks written, 0 visible, and
+# both agent/extension_token.py and agent/pause_control.py were one re-vendor
+# from silent deletion. It survived because the patch still APPLIED -- git
+# strips at -p1, so every apply-side check stayed green and only the DETECTION
+# was dead. Reads what is COMMITTED, so a stale or hand-edited patch is caught
+# regardless of how it entered the tree. Exit 2 is CANNOT-RUN and blocks.
+# --staged, NOT the default HEAD read: in a hook, HEAD is the PREVIOUS commit,
+# so a patch this very commit FIXES would still read as broken (false RED) and
+# a patch it ADDS would not be checked at all. Judge what is being committed.
+if [ -f "$ROOT/scripts/verify_patch_new_files_visible.py" ]; then
+    python3 "$ROOT/scripts/verify_patch_new_files_visible.py" --staged >/dev/null || exit $?
+fi
+
 "$ROOT/.githooks/pre-commit-operator-pii" || exit $?

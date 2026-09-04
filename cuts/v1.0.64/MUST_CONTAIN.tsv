@@ -1,0 +1,75 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.64.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.64/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN. Authoring it in CM051
+# instead produces a copy with no pin, "a fork nobody declared".
+#
+# ===========================================================================
+# EVERY ROW SAYS ONE OF THREE THINGS AND NEVER A FOURTH
+# ===========================================================================
+#   gate:<workflow>#<job>   a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.62 is CONDEMNED. Six install-path commits are stranded off its tag, and
+# one of them (e17dad02) fixes a pgrep no-match that fabricates a TERMINAL
+# failure verdict mid-install. That fix postdates the v1.0.62 tag by 3h14m.
+# Walking v1.0.62 walks the deadlock. The daemon pin is HELD at bc63c445,
+# unchanged, so this artefact moves ONE variable.
+#
+# ===========================================================================
+# EVERY PATTERN BELOW WAS MUTATION-TESTED BEFORE IT WAS WRITTEN
+# ===========================================================================
+# pre-fix tree = CM051 c12c5e88 (the v1.0.62 pin, i.e. the tree that shipped),
+# post-fix tree = eb0aa4e6 (this cut). Measured 2026-09-03:
+#
+#   OSTLER_LAUNCHAGENT_BOOTOUT_SETTLE_S  pre 0  post 1   DISCRIMINATES
+#   OSTLER_GUI_DOMAIN_STATE              pre 0  post 4   DISCRIMINATES
+#   "|| true); do"  (install.sh)         pre 0  post 1   DISCRIMINATES
+#   pycache         (gui/Makefile)       pre 0  post 1   DISCRIMINATES
+#   OSTLER_EXTENSION_TOKEN               pre 5  post 5   CONTROL, non-zero both
+#   zzq_pattern_that_cannot_exist        pre 0  post 0   CONTROL, zero both
+#
+# The two controls are what make those zeros a measurement and not a vacuum.
+#
+# ⚠️ AND ONE VERIFY TOKEN IN THIS FILE WAS INVENTED BEFORE IT WAS CHECKED.
+# The first draft named gate:shellcheck-install.yml#shell-macos. THAT WORKFLOW
+# DOES NOT EXIST. Caught by resolving every workflow#job against the real tree
+# with a negative control (a bogus job name correctly failed to resolve). The
+# real owner was found by asking which workflow INVOKES the test rather than
+# guessing which one sounds right: install-gui-contract.yml runs
+# tests/test_pgrep_no_match_does_not_fabricate_a_done.sh. The consumer names
+# the producer; a plausible name is not a measured one.
+#
+# THREE CANDIDATE PATTERNS WERE REJECTED BY THAT SAME MEASUREMENT, and saying
+# so is the point of doing it:
+#   failed_steps  pre 2 post 2  -- FLAT. #1401 changed the LOGIC, not the token.
+#   bootout       pre 45 post 49 -- a COUNT DELTA on a common token. Any
+#   launchctl     pre 96 post 105   unrelated edit trips it. Not a guard, a
+#                                   tripwire. Replaced with the named vars.
+#
+# ⚠️ #1401 TOUCHES ZERO LINES OF install.sh. It is entirely Swift
+# (InstallerCoordinator.swift + 2 test files, 221 insertions). NO grep pattern
+# over the shell can guard it, so its verify token is the Swift suite, which is
+# measured-live on CI rather than assumed.
+#
+# ===========================================================================
+# THE MERGE IN THIS CUT THAT GETS NO ROW, NAMED RATHER THAN OMITTED
+# ===========================================================================
+# 205aa100 (CM051 #1393) adds an unattended ssh walk DRIVER. It is operator
+# tooling and reaches no customer artefact, so it has no capability to guard.
+# Named here so its absence is a decision on the record, not an oversight.
+
+what	repo	ref	landed	capability_id	verify	ticket
+🔴 AN EMPTY OWNER EMAIL SHIPPED INTO A LAUNCHAGENT. USER_EMAIL is read from ONE place, the macOS me-card via osascript, which returns -600 when Contacts.app has never been launched -- the normal state of a Mac somebody just set up. So the agent shipped CM052_USER_EMAIL="" and cm052.cli refused hourly forever: ai_conversations read not_run permanently AND the same rc=2 folded into health_check. Adds a GUI-free second source (Accounts4.sqlite, immutable=1 so it takes no lock) plus a guard that refuses to register an agent that cannot succeed and records a DECLARED reason. The fallback picked the WRONG address on the first box it met and the code says so; the real fix is to ASK, pre-filled, and that is not done.	CM051	98398996	no	owner_email_never_empty_in_shipped_agent	gate:cold-box-source-truth.yml#cold-box-truth	#1418
+🔴 THE SOURCE-STATUS SURFACE ONLY EVER REPORTED THE INSTALL-TIME RUN. All 11 hydrate sentinels were frozen at install time while the iMessage extract was rewritten 38 minutes later with 136 people created. A source that failed at install showed failed forever after it recovered; one that worked showed ok forever after it died. Two records, never one repurposed: state/hydrate keeps its install meaning, state/source_activity carries last_run_at + last_success_at from the recurring tick. The tick's key names are NOT canonical -- only 3 of 9 joined on first contact with a real box -- so an explicit alias table bridges them, with a control that apple_notes is never joined to apple_mail's record.	CM051	98398996	no	source_status_reports_ongoing_not_install	gate:cold-box-source-truth.yml#cold-box-truth	#1418
+🔴🔴 RULE 2 WAS ENFORCED ON ONE OF TWO MERGE PATHS. batch_resolver --converge runs on EVERY install and reached the graph through raw SPARQL without the canonical-key veto; there is exactly one caller of merge_persons() and it IS guarded, but this path never called it. That is why the over-merge count GREW 128 -> 130 -> 137 across boxes while the fix was believed in place, failing the walk probe on v1.0.52, v1.0.61 and v1.0.63. Now vetoed per pair before any write, FAILS CLOSED on an unreadable store, refusal count printed.	CM051	98398996	no	rule2_enforced_on_converge_path	gate:cold-box-source-truth.yml#cold-box-truth	#1418 #659
+🟠 identity_resolver DECLARED 1 OF ITS 3 DEPENDENCIES. requirements.txt exists because PR #109 added an undeclared import; phonenumbers and httpx were both missing from the same file. Invisible because every environment that runs the package already had them from a sibling requirements file -- a dependency list is only tested by an environment that has nothing.	CM051	98398996	no	identity_resolver_deps_declared	gate:cold-box-source-truth.yml#cold-box-truth	#1418
+🟠 TEN CUSTOMER-FACING MESSAGES NAMED A /tmp LOG PATH NOTHING WRITES. The failure text told the customer to attach a file that has never existed, across the brew, doctor-pip and pipeline-pip failure arms. Messages now interpolate the real OSTLER_DIAG_DIR path; no new file is created and no fixed /tmp diagnostic path is introduced (#910).	CM051	341a8e82	no	failure_messages_name_the_real_log	gate:launchd-plist-paths.yml#launchd-plist-paths	#1415
+🟠 AN iMESSAGE ZERO WAS RECORDED AS UNDECLARED. detail=zero_payload_undeclared reached the customer for a source that had ingested 15,344 messages and created no NEW people because every contact was already known. Now detail=no_new_people_all_contacts_known, with a control asserting the genuinely-absent leg keeps a DIFFERENT detail so the fix cannot delete the distinction it restores.	CM051	8bfd4af2	no	imessage_zero_is_declared	gate:hydrate-sentinel.yml#sentinel-honesty	#1417

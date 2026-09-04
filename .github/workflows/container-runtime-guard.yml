@@ -87,6 +87,7 @@ concurrency:
 jobs:
   container-runtime-guard:
     runs-on: macos-14
+    timeout-minutes: 30
     steps:
       # fetch-depth 0 and an explicit origin/main: the runtime test builds its
       # anti-vacuity control FROM origin/main's copy of the same function. On a

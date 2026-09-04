@@ -104,6 +104,7 @@ jobs:
   # tax adding tests) and a log with no result line (CANNOT-RUN, never a pass).
   verifier-self-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: The result predicate can still tell a shrunken suite from a healthy one
@@ -113,6 +114,7 @@ jobs:
 
   swift-tests:
     runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -215,13 +217,19 @@ jobs:
         run: |
           set -uo pipefail
           cd gui
+          # ⚠️ `|| rc=$?`, NOT a bare call. The step shell is `/bin/bash -e {0}`,
+          # so a FAILING xcodebuild used to exit the step on this very line --
+          # and everything below, the whole reason this step exists, is the
+          # failure path. `rc=$?` never ran, the grep never named the failing
+          # test, and the job reported an anonymous red. `set -uo pipefail`
+          # does not turn -e off; only this does.
+          rc=0
           xcodebuild test-without-building \
             -project OstlerInstaller.xcodeproj \
             -scheme OstlerInstaller \
             -destination 'platform=macOS' \
             -derivedDataPath "$RUNNER_TEMP/dd" \
-            > "$RUNNER_TEMP/test.log" 2>&1
-          rc=$?
+            > "$RUNNER_TEMP/test.log" 2>&1 || rc=$?
           # rc is taken DIRECTLY, never through a pipe.
           if [ "$rc" -ne 0 ]; then
             # NO `^`. xcodebuild INDENTS these lines. The anchor made this

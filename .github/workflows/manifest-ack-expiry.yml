@@ -1,0 +1,49 @@
+name: manifest-ack-expiry
+
+# D1 / D2 of the v1.0.60 SCOPE: the vendor manifest's ACKS must be time-bounded
+# and humanly owned. Every unverifiable_ack / hold_ack / verify_exempt must
+# carry an absolute ISO `expires` (not past, not more than 30 days out) and an
+# `owner` from the closed set { andy, archie, tnm, a2 }. A past ack REFUSES.
+#
+# WHY: the cut-deferral register expires; the vendor manifest did not, so cm024's
+# Apple Notes sat behind an undated, role-owned unverifiable_ack for six weeks
+# while install.sh advertised a step that could never land a note. This is the
+# enforcer. Policy + the full rationale live in
+# scripts/verify_manifest_ack_expiry.sh.
+#
+# LANDS RED ON PURPOSE (Archie's sequencing lock, 2026-09-02): the real ack rows
+# carry no `expires`/`owner`, so `enforce` fails until they are brought into
+# compliance. The RED on the genuine article IS the deliverable -- it must be
+# watched failing on the real defect before the rows are fixed, or the gate's
+# eventual green is a clean verdict nobody earned. Do NOT soften this to
+# warn-only: a two-state predicate that reads a warning as a pass is the exact
+# shape this gate exists to kill.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/VENDOR_MANIFEST.toml'
+      - 'scripts/verify_manifest_ack_expiry.sh'
+      - 'tests/test_manifest_ack_expiry.sh'
+      - '.github/workflows/manifest-ack-expiry.yml'
+  push:
+    branches: [main]
+
+jobs:
+  ack-expiry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # The self-test proves each arm of the predicate fires (baseline GREEN,
+      # every single-property mutation RED, CANNOT-RUN on zero-acks/unreadable).
+      # It runs first so its pass is recorded even when `enforce` then fails.
+      - name: self-test the predicate
+        run: bash tests/test_manifest_ack_expiry.sh
+      # Enforce against the real manifest. RED until every ack carries
+      # expires + owner. This is intended to fail today; see the header.
+      - name: enforce the manifest ack policy (D1/D2)
+        run: bash scripts/verify_manifest_ack_expiry.sh

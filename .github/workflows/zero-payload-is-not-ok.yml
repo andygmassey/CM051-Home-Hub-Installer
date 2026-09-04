@@ -64,6 +64,7 @@ jobs:
     # installer and runs it with BSD mktemp semantics. The gate runs where the
     # code runs.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Environment, so a failure is attributable
@@ -79,6 +80,7 @@ jobs:
     # if this change made any of them disagree, that shows up as its own red
     # line rather than as a mystery inside the gate job.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: The existing hydrate guards must still hold

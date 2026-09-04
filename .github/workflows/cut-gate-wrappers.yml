@@ -28,6 +28,12 @@ on:
     paths:
       - 'gui/Makefile'
       - 'tests/test_cut_gate_wrappers.sh'
+      # Both the guard AND its subject. A `run:` step with no matching paths
+      # entry is DARK ON SELF-EDIT: the workflow runs the test but is blind to
+      # a change to it, so breaking the test does not re-trigger the test.
+      # Caught by verify_invoked_tests_are_watched.py on this very PR.
+      - 'scripts/new_cut.sh'
+      - 'tests/test_new_cut_guard_scoped_is_not_started.sh'
       - 'scripts/verify_cut_provenance.sh'
       - 'scripts/verify_no_orphaned_fixes.sh'
       - 'scripts/verify_pr_age.sh'
@@ -43,6 +49,8 @@ on:
       # share a trigger, or editing one of these tests would never re-run it.
       - 'tests/test_pyc_seed_excludes_nested_ostler_app.sh'
       - 'tests/test_pyc_bytes_depend_on_compile_path.sh'
+      - 'tests/test_stage_payload_strips_ambient_pyc.sh'
+      - 'gui/scripts/strip-payload-pyc.sh'
       - 'tests/test_sign_python_bundle_reports_why.sh'
       - 'tests/test_product_seed_regex_does_not_exclude_the_bundle.sh'
       - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
@@ -95,6 +103,36 @@ on:
       # have run.
       - 'tests/test_exemption_ref_form.sh'
       - 'cut-deferrals.yaml'
+      # THE ROLLFORWARD PIN AND EVERY FILE IT PINS.
+      #
+      # test_rollforward_registry_pin.sh lived ONLY in cut.yml, whose cutting
+      # job is `if: github.event_name == 'push'` -- a TAG PUSH. So its first
+      # chance to speak about any change was AFTER the tag that ships it.
+      # Measured 2026-09-02: it was RED ON MAIN for a day and no PR could see
+      # it. #1340 re-synced the vendored registry FILE at 10:53:45Z; #1336 had
+      # last written cuts/REGISTRY_PIN at 09:47:43Z. Content half and pin half
+      # landed on different PRs, an hour apart, each green.
+      #
+      # #1340 carried 35 checks and NONE matching roll/pin/vendor/cut. The
+      # same query on a PR that does run the gate returns two, so that zero
+      # was real rather than a broken predicate.
+      #
+      # All four pinned files are listed, not just the registry: editing the
+      # vendored gate BODY must re-run the pin that binds it to OS003, or the
+      # gate drifts from its source exactly as it did in #540 (239 diff lines
+      # behind, missing the redactor). REGISTRY_PIN itself is listed because a
+      # pin rewrite is the other half of the same change.
+      #
+      # test_rollforward_pin_is_watched_on_prs.sh DERIVES this list from the
+      # pin rather than restating it, so a fifth pinned file cannot escape the
+      # trigger by nobody remembering this comment.
+      - 'cuts/REGISTRY_PIN'
+      - 'cuts/DEFECTS_ROLLFORWARD.md'
+      - 'bin/rollforward_gate.sh'
+      - 'bin/lib_redact.sh'
+      - 'bin/redact_selftest.sh'
+      - 'tests/test_rollforward_registry_pin.sh'
+      - 'tests/test_rollforward_pin_is_watched_on_prs.sh'
       - '.github/workflows/cut-gate-wrappers.yml'
   push:
     branches: [main]
@@ -112,6 +150,7 @@ concurrency:
 jobs:
   cut-gate-wrappers:
     runs-on: macos-latest   # the cut host is macOS; bash 3.2 quoting differs
+    timeout-minutes: 30
     steps:
       # fetch-depth: 0 is LOAD-BEARING for the PR-age partial-verdict proof.
       #
@@ -263,6 +302,9 @@ jobs:
       - name: pyc bytes depend on the compile path (the reason for the above)
         if: always()
         run: bash tests/test_pyc_bytes_depend_on_compile_path.sh
+      - name: the assembled payload is .pyc-free before seeding (#644)
+        if: always()
+        run: bash tests/test_stage_payload_strips_ambient_pyc.sh
 
       # provenance_gate.sh accused three healthy CM044 wiki images of being
       # stale on run 31696154993, because `gh api` prints its error body to
@@ -317,7 +359,7 @@ jobs:
           # missing yaml exits 2 having never reached the thing arm A measures.
           /usr/bin/python3 -m pip install --user --quiet pyyaml 2>/dev/null || true
           python3 -m pip install --user --quiet pyyaml 2>/dev/null \
-            || python3 -m pip install --break-system-packages --quiet pyyaml 2>/dev/null || true
+            || python3 -m pip install --break-system-packages --ignore-installed --quiet pyyaml 2>/dev/null || true
           /bin/bash tests/test_manifest_gate_cannot_run_is_not_a_missing_fix.sh
 
       - name: A marker pattern that cannot run is CANNOT-RUN, not 'absent'
@@ -436,8 +478,48 @@ jobs:
         if: always()
         run: bash tests/test_pinned_wiki_images_are_arm64_only.sh
 
+      # new_cut.sh refused to start any cut that had been SCOPED first, because
+      # its guard tested the directory rather than cut.env. Writing SCOPE.md
+      # before starting is the standard workflow, so the one-command cut path
+      # was dead for every real cut -- v1.0.60 included.
+      #
+      # if: always() -- many test steps precede this one in the same job, and a
+      # step that only runs when everything before it passed cannot report on a
+      # red run, which is exactly when a cut-tooling guard matters.
+      - name: new_cut.sh -- a SCOPED cut is not a STARTED cut
+        if: always()
+        run: bash tests/test_new_cut_guard_scoped_is_not_started.sh
+
+      # THE VENDORED ROLLFORWARD GATE MATCHES ITS OS003 PIN -- ON THE PR.
+      #
+      # This exact command already runs in cut.yml. It is duplicated here on
+      # purpose, and the duplication is the point: cut.yml's job is push-only,
+      # so on that path the gate can only refuse a cut whose TAG IS ALREADY
+      # WRITTEN. Here it refuses the PR instead, which is when the change can
+      # still be fixed for free.
+      #
+      # It needs no network and no OS003 checkout: it recomputes the hashes of
+      # four vendored files and compares them to cuts/REGISTRY_PIN. Measured
+      # locally at rc=0 in ~1s.
+      #
+      # if: always() -- see the note on the step above. Many test steps precede
+      # this one in the same job, and a step that runs only when everything
+      # before it passed cannot report on a red run.
+      - name: the vendored rollforward gate matches its OS003 pin (PR-side)
+        if: always()
+        run: bash tests/test_rollforward_registry_pin.sh
+
+      # AND THE WIRING FOR THE ABOVE. Watching four hand-listed paths is
+      # itself a thing that rots: add a fifth file to the pin and the trigger
+      # silently stops covering it. This derives the list FROM the pin and
+      # goes red on any file the pin covers that paths: does not.
+      - name: every file the rollforward pin covers triggers this workflow
+        if: always()
+        run: bash tests/test_rollforward_pin_is_watched_on_prs.sh
+
   wiki-provenance-extract:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

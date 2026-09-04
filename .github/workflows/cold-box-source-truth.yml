@@ -1,0 +1,227 @@
+name: cold-box-source-truth
+
+# Three defects found on the v1.0.63 walk, on a FRESHLY WIPED Mini 16 restored
+# from a Time Machine backup. All three had shipped, none was visible to any
+# existing gate, and each now has a test that goes red against the blob that
+# shipped it.
+#
+# ============================================================================
+# WHY THESE THREE BELONG IN ONE WORKFLOW
+# ============================================================================
+#
+# They are one failure with three faces: THE PRODUCT REPORTED ON ITSELF AND
+# WAS BELIEVED.
+#
+#   1. An owner email that could not be read (Contacts.app was never launched
+#      on a new Mac, so osascript returned -600) shipped as an EMPTY required
+#      variable into a LaunchAgent, which then refused once an hour forever.
+#      ai_conversations read `not_run` permanently and the same rc=2 reddened
+#      health_check. One empty string, two symptoms, neither naming the cause.
+#
+#   2. The source-status surface was written ONLY by install.sh. Every ongoing
+#      tick did real work and updated nothing, so a source that failed at
+#      install showed failed forever after it recovered. Measured: all 11
+#      sentinels frozen at install time while the iMessage extract was
+#      rewritten 38 minutes later with 136 people created.
+#
+#   3. RULE 2 of the dedupe ruleset was enforced on the resolve path and NOT
+#      on the converge path, which is the one install.sh actually runs. The
+#      over-merge count therefore GREW across boxes -- 128, 130, 137 -- while
+#      the fix was believed to be in place, and the walk probe failed on three
+#      consecutive cuts.
+#
+# ============================================================================
+# WHY macos, NOT ubuntu
+# ============================================================================
+#
+# The aiconv guard test extracts the real region from install.sh and the
+# source-status test drives the shipped reader. Both are macOS-shaped code
+# paths, and the installer only ever runs on macOS. The gate runs where the
+# code runs.
+#
+# EVERY STEP CARRIES `if: always()`. A failure in one test must not silence
+# the next: a skipped test reads as "no objection", which is precisely the
+# class of defect this workflow exists to remove.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/cm041/identity_resolver/batch_resolver.py'
+      - 'vendor/cm041/identity_resolver/resolver.py'
+      - 'tests/test_aiconv_agent_not_registered_without_owner_email.sh'
+      - 'tests/test_aiconv_without_owner_email_does_not_redden_health_check.sh'
+      - 'tests/test_aiconv_hydrate_honesty.sh'
+      - 'tests/test_source_status_reports_ongoing_not_just_install.sh'
+      - 'tests/test_converge_path_enforces_rule2.sh'
+      - 'tests/test_fda_rerun_agent_loads_after_its_binary.sh'
+      - 'tests/test_unknown_consent_is_not_declined.sh'
+      - 'tests/test_every_question_declares_its_persistence.sh'
+      - 'tests/test_consent_decisions_survive_a_reuse_run.sh'
+      - 'tests/test_config_reader_absence_does_not_abort_the_install.sh'
+      - 'tests/test_walkaway_no_phase2_input_leak.sh'
+      - 'tests/test_ttywalk_licence_preflight_is_cannot_run.sh'
+      - 'scripts/ttywalk.sh'
+      - 'tests/test_walk_driver_cancel_is_not_a_build_verdict.sh'
+      - 'tests/test_consent_state_is_defined_before_it_is_called.sh'
+      - 'tests/test_doctor_probe_cap_exceeds_the_command.sh'
+      - 'tests/test_installed_pipeline_packages_can_import_themselves.sh'
+      - 'tests/test_a_failed_walk_must_not_exit_zero.sh'
+      - 'scripts/walk_drive.py'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/cold-box-source-truth.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  cold-box-truth:
+    runs-on: macos-14
+    timeout-minutes: 25
+    steps:
+      # fetch-depth 0: every one of these tests pins its negative control to
+      # 45126e9a, the v1.0.63 cut commit -- the blob that actually shipped the
+      # defect. A shallow clone cannot see it, and a control that cannot be
+      # read reports CANNOT-RUN, which is not a pass.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: An empty owner email must not reach a shipped LaunchAgent
+        run: bash tests/test_aiconv_agent_not_registered_without_owner_email.sh
+
+      # Runtime, not structural: the defect is an ORDERING between a guard and
+      # a fold, and both were present in the tree that shipped it. Needs
+      # fetch-depth 0 above -- it executes the block from two pinned control
+      # blobs and requires BOTH to reproduce the failure.
+      - name: A source with no input must not fail the install
+        if: always()
+        run: bash tests/test_aiconv_without_owner_email_does_not_redden_health_check.sh
+
+      - name: AI-conversations hydrate honesty (51 checks, 8 scenarios)
+        if: always()
+        run: bash tests/test_aiconv_hydrate_honesty.sh
+
+      - name: Source status must report ONGOING state, not the install verdict
+        if: always()
+        run: bash tests/test_source_status_reports_ongoing_not_just_install.sh
+
+      # httpx is imported by batch_resolver at module scope. rapidfuzz is
+      # stubbed inside the test itself (it backs only the fuzzy strategies,
+      # which this test never drives) so the run cannot degrade to CANNOT-RUN
+      # on a machine without that wheel -- a CANNOT-RUN that becomes permanent
+      # is how a gate stops gating.
+      # A VENV, NOT `pip install` INTO THE SYSTEM PYTHON. The runner's python3
+      # is externally managed (PEP 668) and refuses, which failed this job on
+      # its first run. `--break-system-packages` would have silenced it by
+      # doing exactly the thing that error exists to prevent, on a python the
+      # rest of the job depends on.
+      #
+      # FROM THE PACKAGE'S OWN REQUIREMENTS FILE, not a hand-picked name. A
+      # venv built from that file is the only thing that TESTS it, and
+      # building one is how its two missing declarations (httpx, phonenumbers)
+      # were found: every other environment already had them from a sibling
+      # requirements file, so the list was short and nothing could see it.
+      - name: Build a venv from identity_resolver's own requirements
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/convergetest
+          /tmp/convergetest/bin/python -m pip install --quiet --upgrade pip
+          /tmp/convergetest/bin/python -m pip install --quiet \
+            -r vendor/cm041/identity_resolver/requirements.txt
+          /tmp/convergetest/bin/python -c 'import httpx, phonenumbers; print("deps ok")'
+
+      # PATH-first so the test's own `python3` resolves to the venv. The test
+      # reports CANNOT-RUN (exit 2) rather than passing when a dependency is
+      # missing, so a broken venv cannot read as a clean gate.
+      - name: RULE 2 must be enforced on the CONVERGE path, not just resolve
+        if: always()
+        run: PATH="/tmp/convergetest/bin:$PATH" bash tests/test_converge_path_enforces_rule2.sh
+
+      # v1063-D010. Line order IS the property: install.sh runs top to bottom,
+      # so "later in the file" is "later in time" for two statements at the
+      # same reachability. Its control is pinned to 661c00c9, the v1.0.64
+      # tagged commit -- the tree that actually shipped the bad ordering.
+      - name: The fda-rerun agent must load AFTER its binary exists
+        if: always()
+        run: bash tests/test_fda_rerun_agent_loads_after_its_binary.sh
+
+      # An unrecorded consent decision must not read as a refusal. Its control
+      # is the one that matters: `unknown` must never become `accepted`, which
+      # would turn on a privacy-gated feature nobody agreed to.
+      - name: Unknown consent is not declined, and never becomes accepted
+        if: always()
+        run: bash tests/test_unknown_consent_is_not_declined.sh
+
+      # The RATCHET. reuse_settings skips every question whose answer lives
+      # nowhere, so a new question that forgets to persist itself silently
+      # reverts to its default on every re-run. Found three times one at a
+      # time (paired_tokens, channels #619, consent); this catches the fourth
+      # when it is written.
+      # Runtime, not structural: half 1 renders the real config/.env writer and
+      # reads it back; half 2 executes the reuse-completeness guard under four
+      # environments, one of which is a CONTROL proving the guard is not so
+      # wide that every non-EU install re-walks its questions forever.
+      # WIRED 2026-09-04, and it had been failing since v1.0.11 where nobody
+      # could see it. A test that fails where nobody looks is a file, not a
+      # gate. It reports EVERY offender now rather than dying on the first:
+      # allowlisting autologin_consent revealed autologin_password underneath,
+      # so the old exit-on-first would have let a "fix" ship half done.
+      # The harness is part of the evidence chain, so it gets a gate too. This
+      # one is about EXIT CODES -- 2 for a setup gap, never 1 -- and no pattern
+      # over the source can tell 2 from 1, so it executes the real case block.
+      - name: A missing licence is CANNOT-RUN, not a build verdict
+        if: always()
+        run: bash tests/test_ttywalk_licence_preflight_is_cannot_run.sh
+      # The harness adjudicates, so the adjudication gets a gate. 1 and 2 are
+      # indistinguishable to any pattern over the source, so this imports the
+      # driver and calls adjudicate() with fixture homes.
+      - name: A cancel the harness caused is not a build verdict
+        if: always()
+        run: bash tests/test_walk_driver_cancel_is_not_a_build_verdict.sh
+
+      - name: _ostler_consent_state is defined above its call sites (one function, not the class)
+        if: always()
+        run: bash tests/test_consent_state_is_defined_before_it_is_called.sh
+      - name: The doctor probe cap exceeds the command it wraps
+        if: always()
+        run: bash tests/test_doctor_probe_cap_exceeds_the_command.sh
+
+      - name: Installed pipeline packages can import themselves
+        if: always()
+        run: bash tests/test_installed_pipeline_packages_can_import_themselves.sh
+
+      - name: A failed walk must not exit zero
+        if: always()
+        run: bash tests/test_a_failed_walk_must_not_exit_zero.sh
+
+      - name: No question may stall a walk-away install
+        if: always()
+        run: bash tests/test_walkaway_no_phase2_input_leak.sh
+
+      # Found by walk 5 of v1.0.65 on a cold account. Runtime, and it has to
+      # be: the defect is an EXIT STATUS produced by a pipeline under
+      # `set -Eeuo pipefail`, and nothing in the source text distinguishes the
+      # broken form from the fixed one -- both end in sed.
+      - name: An absent config key must not abort the install
+        if: always()
+        run: bash tests/test_config_reader_absence_does_not_abort_the_install.sh
+
+      - name: Consent decisions must survive a reuse run
+        if: always()
+        run: bash tests/test_consent_decisions_survive_a_reuse_run.sh
+
+      - name: Every question must declare what happens to its answer
+        if: always()
+        run: bash tests/test_every_question_declares_its_persistence.sh

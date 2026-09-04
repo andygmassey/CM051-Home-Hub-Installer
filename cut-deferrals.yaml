@@ -32,6 +32,69 @@
 # ============================================================================
 
 pr_exemptions:
+  # ── v1.0.61 cut, 2026-09-03 (Archie). Six PRs over 48h, none of which can
+  #    reach this DMG, deferred so check-pr-age does not kill `make ship` at
+  #    cut.yml:862. Every row here is deferred on ARITHMETIC or on DRAFT
+  #    STATUS, none on merit, and none is a judgement about the change.
+  #
+  #    ⚠️ THE FIVE DEPENDABOT ROWS ARE NOT NOISE-SUPPRESSION. The rule they
+  #    trip is real and it is the rule that stopped a 176-PR backlog. They are
+  #    deferred because merging a dependency bump into a repo whose SOURCE does
+  #    not enter this artefact buys the cut nothing and costs it an unmeasured
+  #    delta at T-minus. Sweep them the week after launch; they are cheap.
+  - ref: "CM044-PWG-Personal-Wiki#265"
+    reason: >-
+      'build(deps): update nh3 requirement'. Dependabot. CM044 reaches the DMG
+      ONLY as a PINNED IMAGE (the ghcr wiki-compiler digest), never as source,
+      so merging a Python dependency bump in CM044 cannot change one byte of
+      this artefact. It could only matter by tempting a re-pin, and a re-pin at
+      T-minus is an unmeasured image delta against a walk we have not run.
+      Deferred on that arithmetic, not on merit.
+    review_by: "2026-09-10"
+  - ref: "CM044-PWG-Personal-Wiki#264"
+    reason: >-
+      'build(deps): update pymdown-extensions requirement'. Dependabot. Same
+      arithmetic as #265: pinned-image consumer, source never enters the DMG.
+    review_by: "2026-09-10"
+  - ref: "CM044-PWG-Personal-Wiki#263"
+    reason: >-
+      'build(deps): bump python in /docker'. Dependabot, and the least safe of
+      the three to wave through: it changes the BASE IMAGE of the wiki
+      compiler, which is exactly the input the pin exists to hold still. Merging
+      it does not touch this DMG (pinned digest), but it must be followed by a
+      deliberate image rebuild + re-pin + walk, which is post-launch work.
+    review_by: "2026-09-10"
+  - ref: "CM031-PWG-Companion#170"
+    reason: >-
+      'chore(deps): Bump github.com/argmaxinc/whisperkit from 0.18.0 to 1.1.0'.
+      Dependabot. CM031 is the iOS app and is NOT in the Hub DMG at all -- it
+      ships as a separate App Store artefact -- so this cannot block or affect
+      the cut. Independently of the cut it needs a REAL review and must not be
+      swept in: it is a MAJOR version jump in a native dependency, in the one
+      repo with a live upstream-slice defect on record (task #495, llama.cpp
+      dropped iOS simulator slices between b10360 and b10472 and the fix was to
+      pin DOWN). A major bump next to a known-fragile native pin is reviewed on
+      a device, not merged to satisfy an age rule.
+    review_by: "2026-09-10"
+  - ref: "CM031-PWG-Companion#169"
+    reason: >-
+      'chore(deps): Bump the swift-minor-and-patch group with 2 updates'.
+      Dependabot. iOS app, not in the Hub DMG. Same review path as #170 but
+      lower risk (minor/patch group). Sweep with its sibling.
+    review_by: "2026-09-10"
+  - ref: "ostler-assistant#368"
+    reason: >-
+      'fix(pairing): rotation revokes paired devices, spares the admin token
+      (#898)'. DRAFT, and counted anyway because this gate reads drafts
+      LOUDEST. Deferred because the author has not marked it ready and because
+      of what it is: a SECURITY-BEHAVIOUR change to the pairing lifecycle,
+      sibling to task #503 (rotating a pairing code does NOT revoke existing
+      bearer tokens even though clear()'s own doc says it does -- two different
+      collections). A change that alters who keeps access is reviewed on its
+      merits with a test that fails on the original defect, never merged to
+      clear a 48h clock. It also cannot reach this DMG: the daemon enters by
+      PINNED BINARY, and this is unmerged upstream source.
+    review_by: "2026-09-10"
   - ref: "CM051-Home-Hub-Installer#1305"
     reason: >-
       'fix(usage-journal): the SHIPPING ostler_fda has never written a record
@@ -415,6 +478,22 @@ pr_exemptions:
     review_by: "2026-09-12"
 
 deferrals:
+  - ref: "CM051:#1437"
+    reason: >-
+      The decline arm must not claim "nothing was written to your Mac" when a
+      pre-existing install was there. REVIEWED AND GREEN, and held out of
+      v1.0.66 on ORDER, not merit. Including it would have moved main past the
+      CM051 pin that four cut gates had already certified, for a change whose
+      data-loss half TNM WITHDREW after measuring it: every path that reaches
+      that arm binds OSTLER_DIR to the prelaunch staging tree, not to
+      ~/.ostler, because the promote that rebinds it is disabled by the very
+      flag #1431 sets earlier. So what remains is an HONESTY fix to a message,
+      not a data-loss fix, and it does not gate a cut whose whole purpose is to
+      replace a v1.0.65 that aborts every install at step 21. The guard stays
+      in the PR regardless, because the binding is an emergent property of two
+      unrelated decisions that a later change could reverse quietly. Land it in
+      v1.0.67; it needs no prerequisite and its 114 checks are already green.
+    until_cut: "v1.0.67"
   - ref: "CM051:#1305"
     reason: >-
       TNM's usage-journal producer for the SHIPPING vendored ostler_fda (#949).

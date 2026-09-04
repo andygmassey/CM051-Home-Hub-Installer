@@ -40,12 +40,25 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_hydrate_sentinel_not_on_error.sh'
+      - 'tests/test_hydrate_counters_survive_a_failed_producer.sh'
+      - 'tests/test_an_unmeasured_count_is_not_a_measured_zero.sh'
+      - 'tests/test_an_old_format_sentinel_does_not_abort_the_install.sh'
       - 'tests/test_no_data_is_not_success.sh'
       - 'tests/test_aiconv_hydrate_honesty.sh'
       - 'tests/test_email_settling_numerator_is_messages.sh'
       - 'tests/test_a_failed_hydrate_may_not_fabricate_a_count.sh'
       - 'tests/test_cannot_run_is_a_third_state.sh'
+      - 'tests/test_hydrate_sentinel_change_fields.sh'
+      - 'tests/test_source_status_contract.sh'
+      - 'tests/test_source_status_canonical_matches_recorders.sh'
+      - 'tests/test_e1_source_readout_emits.sh'
+      - 'tests/test_ostler_home_root_is_one_class.sh'
+      - 'tests/test_imessage_zero_is_declared_not_undeclared.sh'
+      - 'vendor/doctor/agent/extension_token.py'
+      - 'vendor/doctor/agent/whatsapp_pair.py'
       - 'vendor/doctor/agent/diagnostic_rules.py'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/divergences/doctor.patch'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/hydrate-sentinel.yml'
   push:
@@ -63,6 +76,7 @@ concurrency:
 jobs:
   sentinel-honesty:
     runs-on: macos-14
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -115,10 +129,27 @@ jobs:
       # import on a real box. Same line vendor-integrity.yml uses for the same
       # tree. NOT `|| true` -- if this cannot install, the control that
       # depends on it must go red rather than run blind.
-      - name: Dependency for the shipped-Doctor reader control
+      # TWO STEPS, NOT `a || b`. The chain form discards arm 1's exit code: on
+      # 2026-09-02 arm 1 died on `uninstall-no-record-file` (the runner ships httpx
+      # via Homebrew with no RECORD file) and arm 2 then died on
+      # `externally-managed-environment`. Only arm 2's message survived, so the log
+      # named a cause that was ALREADY handled -- --break-system-packages was
+      # present the whole time. Three checks were red for hours behind that.
+      # Split so each arm reports its own failure with its own message.
+      - name: Dependency for the shipped-Doctor reader control (preferred, PEP 668 aware)
+        id: pip_httpx
+        continue-on-error: true
+        run: python3 -m pip install --quiet --break-system-packages --ignore-installed httpx
+
+      - name: Dependency for the shipped-Doctor reader control (fallback, pre-PEP-668 runners)
+        if: always() && steps.pip_httpx.outcome == 'failure'
+        run: python3 -m pip install --quiet --ignore-installed httpx
+
+      # Prove it rather than assume it: if BOTH arms failed, this names the missing
+      # module instead of leaving pip's last line as the only signal.
+      - name: Dependency for the shipped-Doctor reader control -- prove the module imports
         if: always()
-        run: python3 -m pip install --quiet --break-system-packages httpx
-             || python3 -m pip install --quiet httpx
+        run: python3 -c 'import httpx; print("httpx", httpx.__version__, "importable")'
 
       # #848, the same family pointing the other way: 4 of 13 hydrate steps
       # wrote no sentinel at all, so CANNOT-RUN, FAIL and PASS shared one
@@ -129,7 +160,76 @@ jobs:
         if: always()
         run: bash tests/test_cannot_run_is_a_third_state.sh
 
-      - name: All six tests parse under bash 3.2-compatible syntax
+      # G1a/G1b: the record now carries a typed item_count and a last_update_at
+      # DISTINCT from recorded_at, so a panel can answer both "landed at
+      # install?" and "keeps updating?" -- which one timestamp cannot. Extracts
+      # and drives the real recorders, so it cannot pass against a copy.
+      - name: Sentinel carries a typed item_count and a distinct last_update_at
+        if: always()
+        run: bash tests/test_hydrate_sentinel_change_fields.sh
+
+      # G1c/G3: the source-status record is an on-disk contract between the CM051
+      # writer (install.sh) and the vendored doctor reader (web_ui.py). This runs
+      # BOTH halves for real and asserts every field round-trips, so a key one
+      # side emits and the other ignores fails here, not silently on a box (#532).
+      - name: Source-status writer<->reader contract holds (G3, #532)
+        if: always()
+        run: bash tests/test_source_status_contract.sh
+
+      # G3 (a)/(c): the served set (_SOURCE_KINDS in the vendored reader) must be
+      # EXACTLY the sources install.sh writes a recorder for -- no phantom row
+      # (served-not-written = not_run forever), no missing row. That equivalence
+      # is what makes the reader's `not_run` mean "exists, unfired" not "no such
+      # recorder".
+      - name: Served sources == recorder sources, no phantom no missing (G3)
+        if: always()
+        run: bash tests/test_source_status_canonical_matches_recorders.sh
+
+      # E1 (#599): the T+0 install-log readout must EMIT a line, not merely not
+      # crash. The first cut called `log`, heredoc-only in the main body, so the
+      # readout was silently absent while bash -n and the nounset test stayed
+      # green. This extracts the real E1 block + real info() and asserts a line
+      # lands on stdout (the stream teed to install.log), with an anti-vacuity
+      # limb that reverts info->log and proves nothing emits.
+      - name: The T+0 source-status readout actually emits a line (E1)
+        if: always()
+        run: bash tests/test_e1_source_readout_emits.sh
+
+      # task #325: OSTLER_HOME carries two meanings (Doctor base root vs $HOME).
+      # The source-status artefact reader is the first place it reaches an
+      # artefact. This guards the CLASS: the convention resolvers share one root
+      # (cannot-drift), writer==reader under the shipping env, and OSTLER_HOME
+      # stays out of the Doctor plist env (the absence that keeps it safe).
+      - name: OSTLER_HOME resolves to one root across the Doctor family (#325)
+        if: always()
+        run: bash tests/test_ostler_home_root_is_one_class.sh
+
+      # W012: explicit run step, NOT a loop entry. #647 -- the new-tests-wired
+      # gate needs a test path and an execution verb on ONE line, and a path
+      # inside a `for t in ...` body is invisible to it.
+      - name: A zero iMessage people-count is DECLARED, not undeclared (W012)
+        if: always()
+        run: bash tests/test_imessage_zero_is_declared_not_undeclared.sh
+
+      # Walk 11: the install reached step 38 of 38 and aborted at an UNGUARDED
+      # count-the-JSON substitution. #647: explicit run step, not a loop entry.
+      - name: A hydrate counter must not abort when its producer fails (walk 11)
+        if: always()
+        run: /bin/bash tests/test_hydrate_counters_survive_a_failed_producer.sh
+
+      # The counterpart: guarding the abort must not turn "we could not count"
+      # into "we counted zero". Explicit run step, not a loop entry (#647).
+      - name: An unmeasured count must not be recorded as a measured zero
+        if: always()
+        run: /bin/bash tests/test_an_unmeasured_count_is_not_a_measured_zero.sh
+      # An upgrade from <= v1.0.59 hands this helper a sentinel with no
+      # item_count=. grep exits 1 on no match and the install aborted.
+      # Explicit run step, not a loop entry (#647).
+      - name: An old-format sentinel must not abort the upgrade
+        if: always()
+        run: /bin/bash tests/test_an_old_format_sentinel_does_not_abort_the_install.sh
+
+      - name: All twelve tests parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_hydrate_sentinel_not_on_error.sh
@@ -138,3 +238,9 @@ jobs:
           bash -n tests/test_no_data_is_not_success.sh
           bash -n tests/test_a_failed_hydrate_may_not_fabricate_a_count.sh
           bash -n tests/test_cannot_run_is_a_third_state.sh
+          bash -n tests/test_hydrate_sentinel_change_fields.sh
+          bash -n tests/test_source_status_contract.sh
+          bash -n tests/test_source_status_canonical_matches_recorders.sh
+          bash -n tests/test_e1_source_readout_emits.sh
+          bash -n tests/test_imessage_zero_is_declared_not_undeclared.sh
+          bash -n tests/test_ostler_home_root_is_one_class.sh

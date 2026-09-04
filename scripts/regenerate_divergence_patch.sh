@@ -300,10 +300,55 @@ fi
 # this operation cannot change shipped bytes: the vendored side of the diff is
 # the input, never the output.
 NEW_PATCH="$SRC.new"
-( cd "$VLIB_REPO_ROOT" && git diff --no-index --no-color -- "$SRC" "$ABS_VENDOR" ) > "$NEW_PATCH" 2>/dev/null || true
+# --no-prefix is load-bearing, do not remove it.
+#
+# Without it git emits `diff --git a/<SRC-path> b/<DST-path>`, prepending its
+# own a/ and b/. The sed below then matches ${SRC}/ INSIDE that string, one
+# character in, and prepends a SECOND prefix. The result was `aa/`, `ab/` and
+# `bb/` rather than `a/` and `b/`.
+#
+# That was not cosmetic. `vlib_patch_new_files` (scripts/_vendor_lib.sh)
+# decides which files this patch CREATES by matching, literally, `^+++ b/`.
+# `bb/` gives b then b, so it matched NOTHING: measured 2026-09-02, the doctor
+# patch carried 8 new-file hunks and the consumer extracted 0. sync_vendor.sh
+# therefore believed the patch created nothing, and every one of those 8 files
+# -- including agent/extension_token.py and agent/pause_control.py -- would
+# have been deleted by the next re-vendor.
+#
+# It stayed invisible because the patch still APPLIED: git strips at -p1, so
+# every apply-side check remained green. Only the DETECTION was dead.
+( cd "$VLIB_REPO_ROOT" && git diff --no-index --no-color --no-prefix -- "$SRC" "$ABS_VENDOR" ) > "$NEW_PATCH" 2>/dev/null || true
 # Rewrite the temp-dir prefixes to stable a/ b/ paths so the patch is portable
 # and does not embed this run's mktemp path.
-sed -i.bak -e "s#${SRC}/#a/#g" -e "s#${ABS_VENDOR}/#b/#g" -e "s#${SRC}#a#g" -e "s#${ABS_VENDOR}#b#g" "$NEW_PATCH" 2>/dev/null
+#
+# BOTH forms are matched on purpose. Under --no-prefix git prints the paths
+# with the LEADING SLASH STRIPPED, so a pattern anchored on the absolute path
+# matches nothing and the rewrite silently no-ops. Measured on a fixture
+# 2026-09-02: with only the absolute form, 0 of 1 new files came out visible.
+_rdp_src_nl="${SRC#/}"
+_rdp_dst_nl="${ABS_VENDOR#/}"
+sed -i.bak \
+    -e "s#${SRC}/#a/#g" -e "s#${ABS_VENDOR}/#b/#g" \
+    -e "s#${_rdp_src_nl}/#a/#g" -e "s#${_rdp_dst_nl}/#b/#g" \
+    -e "s#${SRC}#a#g" -e "s#${ABS_VENDOR}#b#g" \
+    -e "s#${_rdp_src_nl}#a#g" -e "s#${_rdp_dst_nl}#b#g" \
+    "$NEW_PATCH" 2>/dev/null
+
+# SELF-CHECK: a patch whose new-file hunks the real consumer cannot see is
+# worse than no patch, because it reads as protection that is not there. Assert
+# the invariant with the consumer's OWN predicate rather than trusting the sed.
+_rdp_devnull=$(grep -c '^--- /dev/null$' "$NEW_PATCH" || true)
+_rdp_seen=$(awk '
+    /^--- \/dev\/null$/ { pending = 1; next }
+    /^\+\+\+ b\// { if (pending) c++ ; pending = 0; next }
+    { pending = 0 }
+    END { print c + 0 }
+' "$NEW_PATCH")
+if [ "$_rdp_devnull" -ne "$_rdp_seen" ]; then
+    echo "regenerate_divergence_patch: REFUSING -- ${_rdp_devnull} new-file hunk(s) written, ${_rdp_seen} visible to vlib_patch_new_files." >&2
+    echo "  The path prefixes are wrong. Every invisible file will be deleted by the next re-vendor, silently." >&2
+    exit 1
+fi
 rm -f "$NEW_PATCH.bak"
 
 if [ ! -s "$NEW_PATCH" ]; then

@@ -70,6 +70,7 @@ on:
       # a gate you have read, not a gate you have run.
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'tests/test_usage_journal_producer_gate.sh'
+      - 'tests/test_usage_journal_readers_resolve_like_the_daemon.sh'
       - 'tests/fixtures/usage_journal/costs_full.jsonl'
       # The SHIPPING producer itself. The roster names cm051_ostler_fda_ingest
       # as its one MEASURED row -- measured on HR015 source, which is not what
@@ -99,6 +100,7 @@ jobs:
   # ==========================================================================
   producer-gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -166,6 +168,13 @@ jobs:
       - name: The SHIPPING ostler_fda actually writes a record (not just imports one)
         if: always()
         run: /bin/bash tests/test_vendored_fda_writes_the_usage_journal.sh
+
+      # W006: explicit run step (#647). Drives the SHIPPED resolver, so it goes
+      # red if install.sh ever stops publishing the workspace marker and the
+      # non-daemon readers drift back to a path nothing writes.
+      - name: Journal readers resolve to the daemon's path (W006)
+        if: always()
+        run: /bin/bash tests/test_usage_journal_readers_resolve_like_the_daemon.sh
 
       # The three exit codes, asserted at the top level rather than only inside
       # the harness. CANNOT-RUN collapsing into PASS or FAIL is the exact
@@ -313,6 +322,7 @@ jobs:
   # ==========================================================================
   producer-gate-macos:
     runs-on: macos-14
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

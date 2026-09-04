@@ -37,6 +37,10 @@ on:
       - 'tests/test_bundle_phase_declares_every_copy.sh'
       - 'tests/test_ai_model_env_contract.sh'
       - 'tests/test_gui_progress_emitter.sh'
+      - 'tests/test_pgrep_no_match_does_not_fabricate_a_done.sh'
+      - 'tests/test_abort_still_reports_when_the_close_fails.sh'
+      - 'tests/test_progress_bar_cannot_exceed_one_hundred.sh'
+      - 'tests/test_total_steps_dynamic.sh'
       - 'tests/test_marker_payloads_never_reach_install_log.sh'
       - 'tests/test_install_log_follows_promotion.sh'
       - 'lib/ostler-ingest-slot.sh'
@@ -58,6 +62,7 @@ concurrency:
 jobs:
   contract:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v4
@@ -137,6 +142,39 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/test_gui_progress_emitter.sh
+
+      # #642: a pgrep no-match fabricated a TERMINAL DONE from inside a command
+      # substitution's subshell, the GUI believed it and stopped prompting, and
+      # the next prompt DEADLOCKED the install on a real box. Lives here because
+      # the defect is only visible through the emitter + the ERR trap together.
+      - name: A pgrep no-match must not fabricate a terminal DONE (#642)
+        if: always()
+        run: |
+          set -euo pipefail
+          bash tests/test_pgrep_no_match_does_not_fabricate_a_done.sh
+          bash tests/test_total_steps_dynamic.sh
+
+      # #640: the abort-close is fallible and sits BEFORE the guard it protects,
+      # so a failure inside it destroyed the only terminal marker the run makes.
+      - name: An abort must still report when its own step-close fails (#640)
+        if: always()
+        run: |
+          set -euo pipefail
+          bash tests/test_abort_still_reports_when_the_close_fails.sh
+
+      # The bar the customer watches for the whole install had NO upper bound,
+      # while the only other percentage in install.sh (the Ollama pull parser)
+      # has clamped for months. TOTAL_STEPS is seeded by counting `progress "`
+      # lines and then DECREMENTED at seven sites, so CURRENT_STEP overtakes it
+      # and pct goes past 100 -- measured 37/35. The percentage is the smaller
+      # half: EMPTY goes NEGATIVE, and a negative printf width is not an error,
+      # it is the left-justify flag, so the bar silently renders wider than its
+      # own declared width and nothing anywhere complains.
+      - name: The progress bar cannot exceed 100% (#641 neighbour)
+        if: always()
+        run: |
+          set -euo pipefail
+          bash tests/test_progress_bar_cannot_exceed_one_hundred.sh
 
       - name: Marker payloads must not reach the durable install log
         if: always()
