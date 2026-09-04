@@ -24452,6 +24452,24 @@ _hydrate_compute_change() {
 #
 # This is the difference between "not known to have failed" and "known
 # to have succeeded". Only the second is evidence.
+
+# ── ONE VALUE, TWO CONSUMERS ──────────────────────────────────────
+#
+# The AI-conversations producer cannot run without an owner email address:
+# CM052_USER_EMAIL labels the user side of every transcript, and cm052.cli
+# refuses outright without it. TWO places in this file have to know that --
+# the install-time drain and the hourly LaunchAgent registration -- and
+# before this helper existed only one of them did.
+#
+# They must never be able to disagree, which is why this is a function and
+# not the condition written twice. v1.0.63 shipped exactly that split in a
+# neighbouring block: the step counter read the raw variable while the guard
+# read the resolver, so a step ran after its slot had been subtracted (#1427).
+# Two copies of a predicate is one copy plus a future defect.
+_aiconv_owner_email_known() {
+    [[ -n "${USER_EMAIL:-}" ]]
+}
+
 _hydrate_sentinel_fresh() {
     # --repair means "re-attempt everything". Nothing is ever fresh under it.
     # This is the ONLY thing that makes the flag Doctor advertises in 10
@@ -29031,7 +29049,52 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
             # counts-only JSON summary.
             _hydrate_heartbeat_start "$MSG_HYDRATE_AICONV_HEARTBEAT"
             _aiconv_rc=0
-            if [[ -z "$_AICONV_OUT" ]]; then
+            _AICONV_NO_OWNER_EMAIL=false
+            # 🔴 A PRODUCER THAT CANNOT SUCCEED MUST NOT BE RUN, BECAUSE ITS
+            # REFUSAL IS INDISTINGUISHABLE FROM A FAILED INSTALL.
+            #
+            # MEASURED on Andy's Mini during the v1.0.63 walk, 2026-09-04, and
+            # then re-measured on that same box against the installed binary:
+            #
+            #   CM052_USER_EMAIL="" pwg-ai-convo --source all --json  -> exit 2
+            #     ERROR cm052.cli: CM052_USER_EMAIL is not set.
+            #   CONTROL, same binary:  pwg-ai-convo --help            -> exit 0
+            #
+            # so the 2 is specific to the missing address, not a broken venv.
+            # That 2 was then folded into the shared recorder a few lines
+            # below, and the LAST step of the install closed as:
+            #
+            #   STEP_END id=health_check status=error elapsed_s=28 rc=2
+            #   DONE status=ok failed_steps=1 errors=0
+            #
+            # Every probe inside that step -- Qdrant, Oxigraph, Redis, Ollama,
+            # pairing, Doctor, assistant API, wiki, Vane -- had logged healthy.
+            # The install worked. The app came up. The assistant sent its first
+            # iMessage. And the installer's final word was a red step, because
+            # an optional source declined a job it was never given the input for.
+            #
+            # v1.0.64 fixed the OTHER half of this (it stopped registering an
+            # hourly agent that could only fail) but the guard it added sits
+            # BELOW the fold, so the drain still ran and health_check still
+            # reddened. Half a fix reads exactly like a whole one from the
+            # commit message, which is why the control below is a runtime one.
+            #
+            # A COLD MAC IS THE NORMAL CUSTOMER MAC. USER_EMAIL comes from the
+            # macOS me-card via osascript; on a Mac where Contacts has never
+            # been opened that call returns "Application isn't running. (-600)"
+            # and the address is empty. That is the default state of a machine
+            # restoring from iCloud or Time Machine, which is when this
+            # installer runs.
+            #
+            # So: skip the drain, say why, leave rc at 0, and let the guarded
+            # block below record ai_conversations as `no_data` with a DECLARED
+            # reason. That sentinel is not `status=ok`, so it does not suppress
+            # the retry -- the source comes back on its own once an address
+            # exists. Not-run-with-a-reason is recoverable. A red final step is
+            # a customer ringing support about an install that worked.
+            if ! _aiconv_owner_email_known; then
+                _AICONV_NO_OWNER_EMAIL=true
+            elif [[ -z "$_AICONV_OUT" ]]; then
                 warn "Skipping the AI-conversations drain: no private directory could be secured for its summary"
                 _aiconv_rc=1
             else
@@ -29119,7 +29182,7 @@ except Exception:
             # So: refuse, say why in the customer's own status record, and let
             # the freshness gate retry once an address is known. `not_run` with
             # a declared reason is recoverable; a dead agent is not.
-            if [[ -z "${USER_EMAIL:-}" ]]; then
+            if ! _aiconv_owner_email_known; then
                 warn "AI conversations: no owner email address is known for this Mac, so the hourly AI-conversation reader was not registered."
                 warn "  The address labels your side of each transcript, and the reader cannot run without it."
                 warn "  Ostler reads it from your card in Contacts; on a Mac where Contacts has never been opened there is nothing to read."
@@ -29179,7 +29242,15 @@ AICONVPLIST
             # The recurring steady feed is registered above regardless; this
             # only decides the install-time message + whether to stamp the
             # 7-day hydrate sentinel (success arms only).
-            if [[ "$_AICONV_TIMED_OUT" == "true" ]]; then
+            if [[ "${_AICONV_NO_OWNER_EMAIL:-false}" == "true" ]]; then
+                # The drain was never attempted (no owner email address), so
+                # there is no outcome to report and nothing succeeded. Say the
+                # same thing the other not-attempted arms say, and record NO
+                # sentinel here: the guarded block above already wrote
+                # ai_conversations with a declared reason, and a second write
+                # from this arm would land `written=0` with no cause attached.
+                info "$MSG_HYDRATE_AICONV_SKIPPED_NOT_READY"
+            elif [[ "$_AICONV_TIMED_OUT" == "true" ]]; then
                 # 180s cap hit mid-drain: do NOT record the sentinel here --
                 # an incomplete drain must retry, not skip for a week
                 # (w7-aiconv-honesty defect 1). The recurring agent registered

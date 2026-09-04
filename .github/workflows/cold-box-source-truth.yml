@@ -51,6 +51,8 @@ on:
       - 'vendor/cm041/identity_resolver/batch_resolver.py'
       - 'vendor/cm041/identity_resolver/resolver.py'
       - 'tests/test_aiconv_agent_not_registered_without_owner_email.sh'
+      - 'tests/test_aiconv_without_owner_email_does_not_redden_health_check.sh'
+      - 'tests/test_aiconv_hydrate_honesty.sh'
       - 'tests/test_source_status_reports_ongoing_not_just_install.sh'
       - 'tests/test_converge_path_enforces_rule2.sh'
       - 'tests/test_fda_rerun_agent_loads_after_its_binary.sh'
@@ -86,6 +88,18 @@ jobs:
 
       - name: An empty owner email must not reach a shipped LaunchAgent
         run: bash tests/test_aiconv_agent_not_registered_without_owner_email.sh
+
+      # Runtime, not structural: the defect is an ORDERING between a guard and
+      # a fold, and both were present in the tree that shipped it. Needs
+      # fetch-depth 0 above -- it executes the block from two pinned control
+      # blobs and requires BOTH to reproduce the failure.
+      - name: A source with no input must not fail the install
+        if: always()
+        run: bash tests/test_aiconv_without_owner_email_does_not_redden_health_check.sh
+
+      - name: AI-conversations hydrate honesty (51 checks, 8 scenarios)
+        if: always()
+        run: bash tests/test_aiconv_hydrate_honesty.sh
 
       - name: Source status must report ONGOING state, not the install verdict
         if: always()
