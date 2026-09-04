@@ -34,12 +34,25 @@
 #
 # WHAT THIS TEST ASSERTS
 #
-#   A  No tests/*.sh or scripts/*.sh invokes mapfile or readarray as a command.
-#   B  NEGATIVE CONTROL, MUST FIRE. A synthetic file that does invoke one is
-#      detected, so a pass means the scan works rather than that it found
+#   A  No tests/*.sh or scripts/*.sh invokes mapfile, readarray, `declare -A`
+#      or `local -A` as a command.
+#   B  NEGATIVE CONTROL, MUST FIRE. A synthetic file that does invoke mapfile
+#      is detected, so a pass means the scan works rather than that it found
 #      nothing.
+#   B2 The same for `declare -A`, because one control proves one predicate.
+#      B passing says nothing about whether the widened pattern works.
 #   C  The shell this runs under really is bash 3.x. On bash 4+ every arm
 #      above would pass for the wrong reason, so it is recorded, not assumed.
+#   D  MUST-MISS, MUST STAY QUIET. `grep -q 'declare -A' file` is a search
+#      string, not an invocation, and the file carrying it runs clean on 3.2.
+#      A scan that cannot stay quiet on a safe shape is red on a healthy tree,
+#      and a gate that is red on day one is a gate people route around.
+#
+# MEASURED, NOT ASSUMED: `/bin/bash -n` accepts ALL FIVE of these constructs
+# on 3.2.57. A parse sweep returns uniform zeros and reads as a clean tree, so
+# there is no cheap syntactic shortcut here. Worse, `mapfile` alone exits
+# rc=0 -- the diagnostic goes to stderr and the script carries on -- so an
+# rc-only detector misses it too. Only stderr, or this scan, decides.
 #
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,11 +62,24 @@ ok(){ PASS=$((PASS+1)); printf '  [PASS] %s\n' "$1"; }
 bad(){ FAIL=$((FAIL+1)); printf '  [FAIL] %s\n' "$1"; }
 fatal(){ printf 'CANNOT-RUN: %s\n' "$1" >&2; exit 2; }
 
-# mapfile/readarray in COMMAND position: start of line, or after ; | & ( or
-# `do`/`then`. Comment lines are dropped first.
+# The bash 4 constructs, in COMMAND position: start of line, or after ; | & (
+# or `do`/`then`. Comment lines are dropped first.
+#
+# COMMAND POSITION IS NOT FUSSINESS, IT IS THE DIFFERENCE BETWEEN A GATE AND A
+# NUISANCE. tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh:74
+# contains the text `declare -A` inside a quoted search string:
+#
+#     && grep -q 'declare -A' "$SPEC" 2>/dev/null; then
+#
+# That file runs clean under 3.2 (verified: rc=0, no diagnostic on stderr). A
+# looser pattern flags it, the guard is red on a healthy tree from the day it
+# lands, and this repo already has the scar for what happens next -- see the
+# non-retroactive PR-age rule in gui/Makefile check-pr-age. There `grep` holds
+# command position, not `declare`, so the anchor below skips it. Arm D proves
+# that rather than trusting it.
 scan() {
     local dir="$1"
-    grep -rnE '^[^#]*(^|[;|&(]|[[:space:]](do|then)[[:space:]])[[:space:]]*(mapfile|readarray)[[:space:]]' \
+    grep -rnE '^[^#]*(^|[;|&(]|[[:space:]](do|then)[[:space:]])[[:space:]]*(mapfile|readarray|declare[[:space:]]+-A|local[[:space:]]+-A)[[:space:]]' \
         "$dir" --include='*.sh' 2>/dev/null || true
 }
 
@@ -73,6 +99,11 @@ TMP="$(mktemp -d)" || fatal "no temp dir"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "${TMP}/tests"
 printf '#!/bin/bash\nmapfile -t x < <(echo hi)\n' > "${TMP}/tests/synthetic_offender.sh"
+printf '#!/bin/bash\ndeclare -A m\n'              > "${TMP}/tests/synthetic_offender_assoc.sh"
+# The MUST-MISS. Real shape, lifted from
+# test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh:74.
+printf '#!/bin/bash\nif grep -q %sdeclare -A%s "$1"; then :; fi\n' "'" "'" \
+    > "${TMP}/tests/must_miss_quoted.sh"
 CTL="$(scan "${TMP}/tests")"
 # `printf ... | grep -q` is the short-circuiting-consumer inversion, and
 # tests/test_pipefail_shortcircuit_inversion.sh caught it here on the first
@@ -82,17 +113,32 @@ CTL="$(scan "${TMP}/tests")"
 # inverted control means a blind scan reads as a clean tree, which is the
 # exact failure this file exists to prevent. `grep -c` must read to EOF, and
 # unlike the herestring remedy it is POSIX rather than a bashism.
-if [ "$(printf '%s' "$CTL" | grep -c 'synthetic_offender')" -gt 0 ]; then
+if [ "$(printf '%s' "$CTL" | grep -c 'synthetic_offender\.sh')" -gt 0 ]; then
     ok "B  negative control: a synthetic mapfile caller IS detected"
 else
     fatal "the scan did not detect a file that calls mapfile on line 2. It cannot find anything, so arm A would pass by being blind."
 fi
 
+if [ "$(printf '%s' "$CTL" | grep -c 'synthetic_offender_assoc')" -gt 0 ]; then
+    ok "B2 negative control: a synthetic 'declare -A' caller IS detected"
+else
+    fatal "the scan missed a file whose line 2 is 'declare -A'. The widened pattern does not work, so arm A says nothing about associative arrays."
+fi
+
+# THE MUST-MISS. A control that only ever fires proves the scan is loud, not
+# that it is right. This one proves it can stay quiet on the shape that is
+# genuinely safe, which is what stops the guard being red on a clean tree.
+if [ "$(printf '%s' "$CTL" | grep -c 'must_miss_quoted')" -eq 0 ]; then
+    ok "D  must-miss: 'grep -q \"declare -A\" file' is NOT flagged (a quoted search string is not an invocation)"
+else
+    bad "D  the scan flagged a quoted search string. It would be red on a healthy tree, and a gate that cries wolf gets routed around."
+fi
+
 # --- A: the real tree -------------------------------------------------------
 if [ "$N_HITS" -eq 0 ]; then
-    ok "A  no tests/*.sh or scripts/*.sh calls mapfile or readarray"
+    ok "A  no tests/*.sh or scripts/*.sh calls mapfile, readarray or declare -A"
 else
-    bad "A  ${N_HITS} call site(s) use a bash 4 builtin and will die on macOS:"
+    bad "A  ${N_HITS} call site(s) use a bash 4 construct and will die on macOS:"
     printf '%s\n' "$HITS" | sed 's|^|        |' | head -10
 fi
 
