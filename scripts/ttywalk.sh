@@ -837,9 +837,57 @@ say "   Only a console walk by a human can. Never shim it to granted-and-working
     echo started" >/dev/null 2>&1
 
 # Poll. A poll loop with no delay is not a wait.
-DEADLINE=$(( $(date +%s) + 7200 ))
+# IS THE BOX DOING WORK? Echoes "<free-kb> <live-worker-count>", or nothing
+# at all when it could not measure -- and the caller treats "could not
+# measure" as CANNOT-RUN rather than as zero.
+#
+# CPU IS THE WRONG INSTRUMENT HERE AND I MEASURED THAT BEFORE SHIPPING IT.
+# Two ways it lies on this box:
+#   unscoped .... colima's VM daemons burn ~1 CPU-second every 25s whether or
+#                 not anything is progressing, i.e. ~48s of pure noise per
+#                 20-minute window. Everything looks busy.
+#   descendant .. a docker pull's work happens INSIDE the colima VM, which is
+#                 not a descendant of walk_drive.py. Everything looks idle.
+# Free disk has neither problem: a 3.5 GB image pull consumes it monotonically.
+_box_work_signal() {
+    "${SSH[@]}" 'FREE=$(df -k / | tail -1 | awk "{print \$4}");
+        W=$(/usr/bin/pgrep -f "[d]ocker (pull|compose)|[b]rew (install|upgrade)|[c]url .*-o" | wc -l | tr -d " ");
+        [ -n "$FREE" ] && printf "%s %s" "$FREE" "${W:-0}"' 2>/dev/null
+}
+
+# 4h. vane_install alone is documented as up to an hour, and there are 39
+# other steps. 2h could not cover a healthy walk, so it was a second
+# fixed number standing in for a measurement.
+# THE DECISION, AS A PURE FUNCTION so it can be tested without a box.
+#   _stall_verdict "<signal>" "<free_prev_kb>"
+# where <signal> is "<free_kb> <workers>" or empty.
+# Echoes exactly one of: WORKING  STALLED  CANNOT-RUN
+#
+# CANNOT-RUN is a THIRD STATE and it is not a pass and not a failure. An
+# unreadable signal means the harness could not look, which must never be
+# spelled the same way as "it looked and saw nothing".
+_stall_verdict() {
+    local sig="$1" prev="$2" free workers delta
+    if [[ -z "$sig" ]]; then printf 'CANNOT-RUN'; return; fi
+    free="${sig%% *}"; workers="${sig##* }"
+    case "$free" in ''|*[!0-9]*) printf 'CANNOT-RUN'; return ;; esac
+    case "$workers" in ''|*[!0-9]*) printf 'CANNOT-RUN'; return ;; esac
+    if [[ "$workers" -ge 1 ]]; then printf 'WORKING'; return; fi
+    if [[ -z "$prev" ]]; then printf 'WORKING'; return; fi   # first sample: no delta yet
+    case "$prev" in ''|*[!0-9]*) printf 'CANNOT-RUN'; return ;; esac
+    delta=$(( prev - free )); [[ "$delta" -lt 0 ]] && delta=$(( -delta ))
+    if [[ "$delta" -ge 51200 ]]; then printf 'WORKING'; else printf 'STALLED'; fi
+}
+
+DEADLINE=$(( $(date +%s) + 14400 ))
 LAST_SIZE=-1
 STALL_TICKS=0
+STALL_EXTENSIONS=0
+# 6 x 20 min = up to 2h of quiet-but-working, which the 2h DEADLINE bounds
+# anyway. The cap exists so a process that spins without progressing cannot
+# hold the walk open forever.
+STALL_EXTENSION_CAP=6
+_free_prev=""   # seeded on the first stall check, not before
 while :; do
     sleep 30
     ALIVE="$("${SSH[@]}" 'pgrep -f walk_drive.py >/dev/null 2>&1 && echo yes || echo no')"
@@ -857,17 +905,61 @@ while :; do
     LAST_SIZE="$SIZE"
 
     # 40 ticks x 30s = 20 minutes of a LIVE process producing NO output.
-    # That is reported, never silently tolerated: a wedged install and a slow
-    # one look identical from here and the difference matters.
+    #
+    # 🔴 MEASURED 2026-09-04, ARTEFACT WALK 6. This fired at vane_install and
+    # threw away 27 minutes for nothing. The step was PERFECTLY HEALTHY: Vane
+    # is a 3.5 GB image pull, and install.sh itself logs
+    #
+    #     "There is no progress bar for it, so a long silence here is expected
+    #      and does not mean the install has stalled."
+    #
+    # A docker pull writes NOTHING to the marker wire for as long as it takes.
+    # So a fixed log-silence cap does not measure wedged-ness, it measures
+    # step identity, and it will kill EVERY artefact walk at step 11 of 40.
+    #
+    # The comment this replaces had it exactly right -- "a wedged install and a
+    # slow one look identical from here and the difference matters" -- and then
+    # resolved the ambiguity by guessing. The fix is to STOP THEM LOOKING
+    # IDENTICAL, not to raise the number and guess later.
+    #
+    # ELAPSED TIME IS NOT WORK. CUMULATIVE CPU IS. A wedged process burns no
+    # CPU; a pull, an unpack and a build all do. So silence now TRIGGERS a
+    # second, independent measurement instead of ending the run.
     if [[ "$STALL_TICKS" -ge 40 ]]; then
-        say ""
-        say "STALLED: the driver is alive but the log has not grown in 20 minutes."
-        say "Reporting on what exists. This is not a completed run."
-        break
+        _sig_now="$(_box_work_signal)"
+        if [[ -z "$_sig_now" ]]; then
+            say ""
+            say "STALL CHECK CANNOT-RUN: could not read the work signal from the box."
+            say "Refusing to call this either way. Absent is not zero."
+            break
+        fi
+        _free_now="${_sig_now%% *}"; _workers="${_sig_now##* }"
+        _free_delta=$(( ${_free_prev:-$_free_now} - _free_now ))
+        [[ "$_free_delta" -lt 0 ]] && _free_delta=$(( -_free_delta ))
+        if [[ "$(_stall_verdict "$_sig_now" "${_free_prev:-}")" == "WORKING" ]]; then
+            STALL_EXTENSIONS=$(( STALL_EXTENSIONS + 1 ))
+            say "  quiet but WORKING: disk moved $(( _free_delta / 1024 ))MB, ${_workers} long-running worker(s) alive"
+            say "  (extension ${STALL_EXTENSIONS} of ${STALL_EXTENSION_CAP}; the deadline below still applies)"
+            _free_prev="$_free_now"
+            STALL_TICKS=0
+            if [[ "$STALL_EXTENSIONS" -ge "$STALL_EXTENSION_CAP" ]]; then
+                say ""
+                say "STALLED: ${STALL_EXTENSION_CAP} extensions used and still no marker output."
+                say "Reporting on what exists. This is not a completed run."
+                break
+            fi
+        else
+            say ""
+            say "STALLED: no marker output for 20 minutes, disk moved only"
+            say "$(( _free_delta / 1024 ))MB and no long-running worker is alive. Alive and doing"
+            say "nothing is the discriminator between wedged and merely slow."
+            say "Reporting on what exists. This is not a completed run."
+            break
+        fi
     fi
     if [[ "$(date +%s)" -ge "$DEADLINE" ]]; then
         say ""
-        say "DEADLINE: 2 hours elapsed and the driver is still running."
+        say "DEADLINE: 4 hours elapsed and the driver is still running."
         say "Reporting on what exists. This is not a completed run."
         break
     fi
