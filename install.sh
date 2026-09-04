@@ -11946,7 +11946,37 @@ else
     ok "$MSG_OK_OLLAMA_INSTALLED"
 fi
 
-if curl -s http://localhost:11434/api/tags &>/dev/null; then
+# ── "ALREADY RUNNING" MUST NOT MEAN "SOMEBODY ELSE'S OLLAMA ANSWERED" ──
+#
+# 🔴 MEASURED 2026-09-04 on the v1.0.66 artefact walk, and it is the reason
+# install_manifest_complete reported com.ostler.ollama MISSING on a green
+# install:
+#
+#     curl http://127.0.0.1:11434/          -> 200
+#     lsof -nP -iTCP:11434 (as this user)   -> NOTHING
+#     ~/Library/LaunchAgents/com.ostler.ollama.plist -> ABSENT
+#     #OSTLER STEP_END id=ollama_install status=ok elapsed_s=0
+#
+# ANOTHER ACCOUNT ON THE SAME MAC WAS SERVING 11434. This probe is a bare
+# loopback curl with no ownership check, so it answered "yes, Ollama is
+# running", and the else below -- the ONLY place com.ostler.ollama.plist is
+# ever written -- was skipped entirely.
+#
+# The customer-facing shape is worse than a missing file. That install ends up
+# with NO LaunchAgent, so nothing starts Ollama at boot for it; it depends on a
+# process owned by a different user, which disappears when that user logs out;
+# and the step reports ok in ZERO SECONDS while saying none of it.
+#
+# THE TWO QUESTIONS WERE CONFLATED. "Is something serving 11434 right now?"
+# decides whether we need to START Ollama. "Do we have our own LaunchAgent?"
+# decides whether this install is COMPLETE and survives a reboot. Only the
+# second is about us, and the plist path is hoisted above the branch so both
+# arms can see it.
+#
+# Reachability is not ownership. Same class as the :8000 gateway collision and
+# the lsof enumerations that read another user's socket as absence.
+OLLAMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
+if curl -s http://localhost:11434/api/tags &>/dev/null && [[ -f "$OLLAMA_PLIST" ]]; then
     ok "$MSG_OK_OLLAMA_RUNNING"
 else
     info "$MSG_INFO_STARTING_OLLAMA"
@@ -11962,6 +11992,8 @@ else
     # periodic cleanup broke, so the Ollama agent failed after reboot.
     OLLAMA_LOG_DIR="${HOME}/.ostler/logs"
     mkdir -p "$OLLAMA_LOG_DIR" "${HOME}/Library/LaunchAgents"
+    # (OLLAMA_PLIST is set above the branch so both arms can test it; this
+    # line is kept as a no-op re-assert so the block still reads standalone.)
     OLLAMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
 
     # Resource-tier governor (v1.0.3): OLLAMA_NUM_PARALLEL scales to the
