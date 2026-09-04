@@ -227,6 +227,7 @@ test_meeting_brief_sender.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_memory_embeddings_wired.sh	WIRED	.github/workflows/memory-embeddings.yml
 test_mergeable_unknown_is_not_clean.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_migration_marker_guard_fresh_install.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_model_download_size_honesty.sh	WIRED	.github/workflows/model-download-honesty.yml
 test_model_fit.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
 test_new_cut_guard_scoped_is_not_started.sh	WIRED	.github/workflows/cut-gate-wrappers.yml

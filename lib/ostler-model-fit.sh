@@ -39,9 +39,21 @@ OSTLER_MODEL_FIT_NUM_CTX="${OSTLER_MODEL_FIT_NUM_CTX:-32768}"
 # system bash -- no associative arrays):
 #
 #   tag        : the `ollama pull` tag
-#   weights_gb : approximate resident weight size, GB (download ~ same)
+#   weights_gb : approximate RESIDENT weight size, GB. NOT the download.
+#                This column used to be documented as "download ~ same" and
+#                size_label was derived from that assumption. It is false for
+#                at least one shipped tag: a model can carry a full parameter
+#                set on disk while only a subset is resident (that is the
+#                point of an "E2B"-style effective-parameter build), so the
+#                download is LARGER than the resident footprint. Reading a
+#                download size off this column is what produced v1061-D002.
+#                Nothing computes from this column -- it is documentation.
 #   quant      : quant tier shipped at that tag
-#   size_label : human-friendly download size for the installer copy
+#   size_label : human-friendly DOWNLOAD size for the installer copy. This is
+#                a customer-facing honesty surface: they decide whether to
+#                continue on a metered or slow link by reading it. It must be
+#                a MEASURED figure, never one inferred from weights_gb.
+#                Gated by tests/test_model_download_size_honesty.sh.
 #   min_fit    : MINIMUM total system RAM (GB) to run this model AT
 #                OSTLER_MODEL_FIT_NUM_CTX comfortably (= weights + 32k KV
 #                cache + macOS/Docker headroom). Below this -> "won't fit".
@@ -58,7 +70,15 @@ OSTLER_MODEL_FIT_NUM_CTX="${OSTLER_MODEL_FIT_NUM_CTX:-32768}"
 OSTLER_MODEL_TAGS=(   "qwen3.6:35b-a3b" "qwen3.5:9b" "gemma4:e2b" )
 OSTLER_MODEL_WEIGHTS=( 23                6            5            )
 OSTLER_MODEL_QUANT=(  "q4_K_M"          "q4_K_M"     "q4_K_M"      )
-OSTLER_MODEL_SIZELBL=("~23 GB"          "~6.6 GB"    "~5 GB"       )
+# size_label PROVENANCE. gemma4:e2b read "~5 GB" until v1061-D002 (reg #623).
+# It was MEASURED at 7.2 GB on the v1.0.61 walk box -- a 44% understatement of
+# the largest single download in the install. The repo already knew: install.sh
+# called it "a 7.2 GB model" and "7 GB model pull ... on a 16 GB box", and
+# scripts/verify_install_duration_honesty.sh prices the install floor on
+# "7.2 GB of models". Only this customer-facing label still said 5.
+# The other two labels are NOT measured -- they are still inherited from
+# weights_gb and are the remaining live half of the download-honesty class.
+OSTLER_MODEL_SIZELBL=("~23 GB"          "~6.6 GB"    "~7.2 GB"     )
 # min_fit: comfortable at num_ctx 32768.
 #   35b-a3b: ~23 GB weights + ~5 GB 32k KV + headroom -> needs ~48 GB box.
 #   9b     : ~6 GB weights  + ~2 GB 32k KV + headroom -> needs ~24 GB box.

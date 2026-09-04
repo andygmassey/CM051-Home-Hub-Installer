@@ -4685,7 +4685,7 @@ else
 fi
 gui_emit PCT "step=prereq_check" "pct=70"
 
-# Disk space check -- need ~35 GB: Docker images (~1 GB), AI model (5-10 GB),
+# Disk space check -- need ~35 GB: Docker images (~1 GB), AI model (7.2-23 GB),
 # embedding model (300 MB), import pipeline + venv (~500 MB), databases (grows
 # with data), and headroom for GDPR exports.
 FREE_GB=$(df -g / | tail -1 | awk '{print $4}')
@@ -7684,7 +7684,12 @@ else
         AI_MODEL_SIZE="~6.6 GB"
     else
         AI_MODEL="gemma4:e2b"
-        AI_MODEL_SIZE="~5 GB"
+        # v1061-D002 (reg #623): measured 7.2 GB on the v1.0.61 walk box, not
+        # the ~5 GB this said. This ladder is the STRIPPED-BUNDLE path, so it
+        # is a second, independently-editable copy of the same customer claim
+        # -- it must not drift from lib/ostler-model-fit.sh. Gated by
+        # tests/test_model_download_size_honesty.sh, which compares the two.
+        AI_MODEL_SIZE="~7.2 GB"
     fi
     ok "$(printf "$MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM" "${AI_MODEL}" "${AI_MODEL_SIZE}" "${RAM_GB}")"
 fi
@@ -19424,7 +19429,7 @@ echo ""
 echo "  This will NOT remove:"
 echo "    - Docker Desktop or Colima"
 echo "    - Homebrew"
-echo "    - Ollama or downloaded models (may be 5-23 GB)"
+echo "    - Ollama or downloaded models (may be 7.2-23 GB)"
 echo "      To remove: ollama rm <model-name>"
 echo "    - Your original GDPR export files"
 echo "    - Your hub power policy (~/.ostler/power.conf)"
