@@ -560,11 +560,38 @@ else
     say "staging ${STAGE_SRC} -> ${HOST}:~/${REMOTE_DIR}"
 fi
 
-rsync -a --delete \
-      --exclude '.git/' --exclude 'walks/' --exclude '__pycache__/' \
-      --exclude '*.pyc' --exclude '.venv/' \
-      "${STAGE_SRC}/" "${HOST}:${REMOTE_DIR}/" \
-    || die "rsync failed; nothing was run on the host."
+# 🔴 THE REPO EXCLUDES DESTROY A SIGNED BUNDLE. MEASURED on the first artefact
+# walk that got as far as running: install.sh refused at step 9 with
+#
+#     Refusing to install ostler-assistant: not a Developer-ID-signed,
+#     notarised bundle
+#     codesign: a sealed resource is missing or invalid
+#
+# and the artefact was innocent. Inside the DMG that bundle passes BOTH checks
+# install.sh demands (codesign --verify --deep --strict rc=0, spctl accepted,
+# source=Notarized Developer ID). What broke it was this rsync:
+#
+#     in the DMG   54 files
+#     staged       52 files
+#     missing      Contents/Resources/ingest/email-ingest/__pycache__
+#                  .../__pycache__/mark_first_ingest.cpython-311.pyc
+#
+# A .pyc inside a signed .app is a SEALED RESOURCE. `--exclude '*.pyc'` is
+# correct hygiene for a CHECKOUT and is destructive to an ARTEFACT, and the
+# same flag means opposite things depending on which one you are staging.
+#
+# So the artefact is copied VERBATIM. The whole premise of this mode is that
+# the box receives what the customer receives; an exclude list contradicts it.
+if [[ "$STAGE_KIND" == "artefact" ]]; then
+    rsync -a --delete "${STAGE_SRC}/" "${HOST}:${REMOTE_DIR}/" \
+        || die "rsync failed; nothing was run on the host."
+else
+    rsync -a --delete \
+          --exclude '.git/' --exclude 'walks/' --exclude '__pycache__/' \
+          --exclude '*.pyc' --exclude '.venv/' \
+          "${STAGE_SRC}/" "${HOST}:${REMOTE_DIR}/" \
+        || die "rsync failed; nothing was run on the host."
+fi
 
 # Re-confirm AFTER staging. Staging takes minutes; a DHCP lease can move in
 # that window, and every step from here is on the box.
@@ -694,6 +721,24 @@ if [[ "$STAGE_KIND" == "artefact" ]]; then
     fi
     say "driver overlaid; install.sh on the host is byte-identical to the DMG's"
     say "   sha256 ${_sub_before}"
+
+    # 🔴 A HASH ON ONE FILE IS NOT A CHECK ON 49 ENTRIES. install.sh matched
+    # while a bundle two directories away had lost two sealed resources, and
+    # the walk went on to blame the product for it. The seal is the thing that
+    # actually proves the payload arrived intact, so assert it directly, on the
+    # box, before spending a walk.
+    _agent="${REMOTE_DIR}/assistant-agent/OstlerAssistant.app"
+    if "${SSH[@]}" "[[ -d '${_agent}' ]]"; then
+        if "${SSH[@]}" "codesign --verify --deep --strict '${_agent}' 2>&1"; then
+            say "staged daemon bundle still verifies: codesign --deep --strict OK"
+        else
+            die "the staged OstlerAssistant.app NO LONGER VERIFIES on the host.
+       The payload was damaged in transit, so install.sh will refuse it and
+       the walk would record that refusal as a product defect. Compare the
+       file COUNT inside the bundle on both sides: an rsync exclude that is
+       correct for a checkout can strip a sealed resource from a signed app."
+        fi
+    fi
 fi
 
 # POSITIVE CONTROL: the specific directory whose absence killed run 2 must now
