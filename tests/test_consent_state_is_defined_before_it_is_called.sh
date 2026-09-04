@@ -21,8 +21,16 @@
 # keeps the single computation and moves the DEFINITION up instead.
 #
 # WHO HITS IT: every customer. The assignment is unconditional top-level code
-# on the ordinary install path. It shipped in v1.0.65 and was never reached by
-# a walk before, because earlier walks all died at steps 6, 10 and 21.
+# on the ordinary install path.
+#
+# THIS IS A REGRESSION, NOT A LATENT BUG, AND THE DISTINCTION MATTERS. Both
+# the call and the definition entered in ONE commit, e7b835ba (#1423,
+# 2026-09-04 20:45:16 +0800), in the wrong order. `git tag --contains` returns
+# v1.0.65 and nothing else; in v1.0.63 and v1.0.64 the function does not exist
+# at all. Installs completed to the end on the cuts before it. The first
+# version of this file's header said the defect had shipped unnoticed because
+# no walk got deep enough, which was wrong and inverted the blame: the walks
+# did not miss it, it was written hours before the walk that found it.
 #
 # THE TEST IS AN EXECUTION AND HAS TO BE. The defect is an EXIT STATUS
 # produced by name resolution order. Both the broken and the fixed tree
