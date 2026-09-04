@@ -58,13 +58,22 @@ fi
 # argument, so an apostrophe is not a typo, it is a quote breakout. bash -n
 # catches it only when the quotes fail to rebalance; when they DO rebalance
 # the file parses and means something else entirely, which is worse.
-_reset_body="$(awk '/rule "RESET/{f=1} f{print} f && /^    . 2>&1$/{exit}' "$SUBJECT")"
+# ANY single quote inside the RESET payload BODY is a quote breakout, not
+# just prose ones. My first version of this limb looked for apostrophes in
+# words like "installer's" and PASSED while `tr -d ' '` sat in the same block.
+# That shipped, the ssh payload broke at the tr, and the reset reported
+# "no leftover ostler-* containers to remove" while FIVE existed -- a false
+# zero that cost walk 7 ten steps. The payload is single-quoted; the only
+# legal single quotes are its own delimiters, which are the first and last
+# lines and are excluded here.
+_reset_body="$(awk '/rule "RESET/{f=1} f{print} f && /^    . 2>&1$/{exit}' "$SUBJECT" | sed '1,2d;$d')"
 if [ -n "$_reset_body" ]; then
-    _apos="$(printf '%s\n' "$_reset_body" | /usr/bin/grep -c "installer's\|doesn't\|can't\|won't\|it's\|that's" || true)"
+    _apos="$(printf '%s\n' "$_reset_body" | /usr/bin/grep -c "'" || true)"
     if [ "${_apos:-0}" -eq 0 ]; then
-        ok "no prose apostrophe inside the single-quoted RESET ssh payload"
+        ok "ZERO single quotes inside the RESET ssh payload body (any one of them closes the argument)"
     else
-        bad "${_apos} prose apostrophe(s) inside the RESET ssh payload -- each one closes the ssh argument"
+        bad "${_apos} single quote(s) inside the RESET payload body. Each closes the ssh argument; bash -n only catches it when they fail to rebalance."
+        printf '%s\n' "$_reset_body" | /usr/bin/grep -n "'" | sed 's/^/      /' | head -3
     fi
 else
     bad "could not extract the RESET body to check it for quote breakouts"

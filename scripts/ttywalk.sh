@@ -413,14 +413,14 @@ if [[ "$DO_RESET" -eq 1 ]]; then
             # Clear ONLY what the uninstaller would have cleared, and say that
             # the harness is standing in for it. Leaving them is not neutral:
             # they auto-start with the VM and take the ports the install needs.
-            _left="$(docker ps -aq --filter name=ostler- 2>/dev/null | wc -l | tr -d ' ')"
+            _left=$(( $(docker ps -aq --filter name=ostler- 2>/dev/null | wc -l) ))
             if [[ "${_left:-0}" -gt 0 ]]; then
                 echo "    ${_left} leftover ostler-* container(s) from a previous walk:"
                 docker ps -a --filter name=ostler- --format "      {{.Names}}  {{.Status}}" 2>/dev/null
                 echo "    removing them so they cannot re-bind the preflight ports."
                 echo "    THE HARNESS IS DOING THIS, NOT THE PRODUCT."
                 docker rm -f $(docker ps -aq --filter name=ostler-) >/dev/null 2>&1 || true
-                echo "    ostler-* containers remaining: $(docker ps -aq --filter name=ostler- 2>/dev/null | wc -l | tr -d ' ')"
+                echo "    ostler-* containers remaining: $(( $(docker ps -aq --filter name=ostler- 2>/dev/null | wc -l) ))"
             else
                 echo "    no leftover ostler-* containers to remove."
             fi
