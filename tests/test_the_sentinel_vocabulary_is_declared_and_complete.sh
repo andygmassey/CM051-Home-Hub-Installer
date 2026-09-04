@@ -122,6 +122,56 @@ done
 [ -z "$unseen" ] && ok "every declared status was observed from a real recorder" \
                  || ok "declared but not exercised here:${unseen} (reported, not failed -- another path may emit them)"
 
+echo "── THE SOURCES HALF, which was declared and unchecked ──"
+# 🔴 TNM's review finding, and it turned this PR's own argument on itself.
+# OSTLER_SENTINEL_SOURCES was declared and NOTHING compared it to anything --
+# which is precisely the failure mode this file exists to end: a hand-typed
+# list that no gate checks is a writer with "no vocabulary, only behaviour",
+# wearing a badge. Add a 14th source and the list stays at 13, the reader stays
+# at 13, and the panel loses a row.
+#
+# Static extraction is sound HERE and it was checked, not assumed:
+#     51 recorder call sites · 51 with a QUOTED literal source · 0 with a
+#     variable · 13 distinct names
+# and the control below proves the extractor would SEE a variable form if one
+# were ever added, so this cannot go quietly blind.
+DECLARED_SRC="$(grep -m1 '^OSTLER_SENTINEL_SOURCES=' "$SUBJECT" | sed 's/^[^=]*=//; s/^"//; s/"$//')"
+if [ -z "$DECLARED_SRC" ]; then
+    echo "CANNOT-RUN: OSTLER_SENTINEL_SOURCES is not declared in install.sh." >&2; exit 2
+fi
+
+CALLSITES="$(sed 's/[[:space:]]*#.*$//' "$SUBJECT"     | grep -oE '_hydrate_sentinel_record(_no_data|_error|_cannot_run)?[[:space:]]+[^[:space:]]+')"
+SITE_SRCS="$(printf '%s
+' "$CALLSITES" | grep -oE '"[a-z_]+"' | tr -d '"' | sort -u)"
+N_SITES="$(printf '%s
+' "$CALLSITES" | grep -c . || true)"
+N_SRCS="$(printf '%s
+' "$SITE_SRCS" | grep -c . || true)"
+echo "  ${N_SITES} recorder call site(s), ${N_SRCS} distinct source name(s)"
+
+# DIRECTION 1: a source used at a call site but never declared is a new source
+# nobody told the reader about.
+undeclared=""
+for sname in $SITE_SRCS; do
+    case " ${DECLARED_SRC} " in *" ${sname} "*) : ;; *) undeclared="${undeclared} ${sname}" ;; esac
+done
+[ -z "$undeclared" ]     && ok "every source written at a call site is declared"     || bad "written but NOT declared:${undeclared}. A reader pinned to the declaration will carry no row for it."
+
+# DIRECTION 2: a declared source with no call site is rot -- it makes the
+# reader carry a row that can never fill.
+orphaned=""
+for sname in $DECLARED_SRC; do
+    case " $(printf '%s ' $SITE_SRCS) " in *" ${sname} "*) : ;; *) orphaned="${orphaned} ${sname}" ;; esac
+done
+[ -z "$orphaned" ]     && ok "every declared source is actually written by a call site"     || bad "declared but NEVER written:${orphaned}. The reader would carry a row that can never fill."
+
+# CONTROL: the extractor must SEE a variable-form call site. If a future edit
+# passes "$SRC" instead of a literal, static extraction silently under-counts,
+# and a zero from a blind extractor would read as agreement.
+_varform="$(printf '_hydrate_sentinel_record "$SRC" x
+'     | grep -oE '_hydrate_sentinel_record(_no_data|_error|_cannot_run)?[[:space:]]+[^[:space:]]+'     | grep -c '\$' || true)"
+[ "${_varform:-0}" -ge 1 ]     && ok "CONTROL: a variable-form call site IS visible to the extractor, so it cannot go blind unnoticed"     || bad "CONTROL BROKEN: the extractor cannot see a variable-form call site, so both arms above may be reading a truncated population."
+
 echo "── CONTROL: an undeclared status MUST be caught ──"
 # Prove the coverage arm can fail. If this passes, the arm above is decoration.
 FAKE="definitely_not_a_declared_status"
