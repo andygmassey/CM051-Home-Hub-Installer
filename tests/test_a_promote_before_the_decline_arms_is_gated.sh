@@ -92,7 +92,11 @@ DECLINE="$(_decline_lines "$SUBJECT")"
 N_DECLINE="$(printf '%s\n' "$DECLINE" | grep -c '[0-9]' || true)"
 [ "${N_DECLINE:-0}" -ge 1 ] || cant "no decline arm found: the #1437 guard \
 _OSTLER_FINAL_PREEXISTED is absent from install.sh, so this test cannot locate its subject"
-FIRST_DECLINE="$(printf '%s\n' "$DECLINE" | head -1)"
+# FIRST LINE BY PARAMETER EXPANSION, NOT `| head -1`. This file sets pipefail,
+# and `producer | head -1` SIGPIPEs the producer the moment head has its line, so
+# the pipeline reads 141. tests/test_pipefail_shortcircuit_inversion.sh bans the
+# shape outright and caught this one in CI. Do not "simplify" it back.
+FIRST_DECLINE="${DECLINE%%$'\n'*}"
 
 SITES="$(_promote_sites "$SUBJECT")"
 N_SITES="$(printf '%s\n' "$SITES" | grep -c '[0-9]' || true)"
@@ -118,7 +122,7 @@ MUT="${WORK}/mutant.sh"
 /usr/bin/awk -v ins="$FIRST_DECLINE" \
     'NR==ins { print "    _ostler_promote_prelaunch_tree" } { print }' \
     "$SUBJECT" > "$MUT"
-MUT_DECLINE="$(_decline_lines "$MUT" | head -1)"
+_md="$(_decline_lines "$MUT")"; MUT_DECLINE="${_md%%$'\n'*}"
 if [ "$(_promote_sites "$MUT" | grep -c '[0-9]')" -le "$N_SITES" ]; then
     bad "arm 2: the mutation did not add a call site, so it tests nothing"
 elif [ -n "$(_audit "$MUT" "$MUT_DECLINE")" ]; then
@@ -149,7 +153,8 @@ FENCE="${WORK}/fenced.sh"
         print "fi"
         print "    _ostler_promote_prelaunch_tree"
     } { print }' "$SUBJECT" > "$FENCE"
-if [ -n "$(_audit "$FENCE" "$(_decline_lines "$FENCE" | head -1)")" ]; then
+_fd="$(_decline_lines "$FENCE")"
+if [ -n "$(_audit "$FENCE" "${_fd%%$'\n'*}")" ]; then
     ok "arm 4: a promote AFTER a closed SKIP_PHASE2 block is not treated as gated"
 else
     bad "arm 4: a promote sitting after a closed 'fi' was read as gated. The walker \

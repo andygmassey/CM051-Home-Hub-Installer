@@ -61,6 +61,7 @@ on:
       - 'tests/test_consent_decisions_survive_a_reuse_run.sh'
       - 'tests/test_config_reader_absence_does_not_abort_the_install.sh'
       - 'tests/test_decline_does_not_wipe_an_existing_install.sh'
+      - 'tests/test_a_promote_before_the_decline_arms_is_gated.sh'
       - 'tests/test_walkaway_no_phase2_input_leak.sh'
       - 'tests/test_ttywalk_licence_preflight_is_cannot_run.sh'
       - 'scripts/ttywalk.sh'
