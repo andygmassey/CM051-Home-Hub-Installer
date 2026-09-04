@@ -23,9 +23,54 @@ evidence.
 ## SCOPE
 
 ```
-#1457   two UNMEASURED flags that nothing reads          PRODUCT   green, awaiting TNM review
-#1459   a subshell must not emit a terminal DONE (#642)  PRODUCT   TNM's, RED control needs pinning
+#1457   two UNMEASURED flags that nothing reads          PRODUCT   MERGED 22:33:28Z
+#1459   a subshell must not emit a terminal DONE (#642)  PRODUCT   MERGED 22:34:11Z
+TBD     the upgrade path reverts the Homebrew PATH fix   PRODUCT   TNM writing it
 ```
+
+### THE UPGRADE PATH SILENTLY REVERTS THE 2026-08-20 HOMEBREW-PATH FIX
+
+**Added 22:45Z. On severity this OUTRANKS both items above**, and it only hits
+customers who already have containers running -- the ones with the most to lose.
+
+`_upg_preserve_plist_env` (install.sh:530..550) walks every key in the OLD plist
+and, where the key also exists in the new one, `Set`s the old value. **`Set`
+replaces, and there is no PATH exclusion.** Called on the assistant at :657 and
+the keepalive at :675.
+
+Reproduced by TNM and INDEPENDENTLY by me, using the real function extracted
+from main and two plists differing only in PATH:
+
+```
+Set :EnvironmentVariables lines in the function : 1
+PATH exclusions                                 : 0
+
+BEFORE new.plist PATH   /usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin
+AFTER  new.plist PATH   /usr/bin:/bin:/usr/sbin:/sbin          🔴 OVERWRITTEN
+function rc             0
+CONTROL OSTLER_HOME     preserved correctly
+```
+
+**The control is the point: the function is right for every other key.** This is
+not a broken function, it is a MISSING EXCLUSION -- PATH is the one key whose
+old value must lose.
+
+**Why it is serious.** `/usr/bin:/bin:/usr/sbin:/sbin` is exactly the PATH the
+assistant plist's own comment records as producing, measured on a real power
+cycle: *"colima FATA exec limactl: executable file not found in $PATH ...
+Qdrant, Oxigraph, Redis, Vane, wiki-site and store-proxy were all gone until
+someone started Colima by hand."* An upgrading pre-2026-08-20 customer gets the
+fix reverted and **their container stack does not survive a reboot.**
+
+**THE GATE IS GREEN BECAUSE IT TESTS THE TEMPLATE.**
+`tests/test_launchagent_homebrew_path.sh` has **0** references to
+upgrade / preserve / `_upg_`. It asserts the templates carry the PATH; nothing
+asserts the value SURVIVES an upgrade. The fix shipped, the gate stayed green,
+and it never reached an upgrading customer.
+
+**The test must assert SURVIVAL**, running the real extracted function over a
+pre-fix old plist and today's new one, and it must carry a MUST-PRESERVE control
+(a non-PATH key) so a fix that simply stops preserving anything cannot pass.
 
 ### #1457 -- A COUNTER THAT COULD NOT RUN WAS PUBLISHED AS A MEASURED ZERO
 
