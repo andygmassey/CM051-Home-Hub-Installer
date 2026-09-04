@@ -70,6 +70,7 @@ on:
       - 'tests/test_artefact_walk_stages_the_dmg_payload.sh'
       - 'tests/test_consent_state_is_defined_before_it_is_called.sh'
       - 'tests/test_an_unmeasured_flag_must_be_read.sh'
+      - 'tests/test_the_sentinel_vocabulary_is_declared_and_complete.sh'
       - 'tests/test_no_function_is_called_before_it_is_defined.sh'
       - 'tests/test_doctor_probe_cap_exceeds_the_command.sh'
       - 'tests/test_installed_pipeline_packages_can_import_themselves.sh'
@@ -230,6 +231,15 @@ jobs:
       - name: An UNMEASURED flag must be read by something
         if: always()
         run: bash tests/test_an_unmeasured_flag_must_be_read.sh
+
+      # The same writer/reader drift was found TWICE (sources 13/9,
+      # statuses 5/3), both times by a human reading both sides. A literal
+      # grep for status= MISSES error and timeout, because the error
+      # recorder builds its status at runtime from an rc. So this EXECUTES
+      # every recorder and asserts what it actually wrote is declared.
+      - name: The sentinel vocabulary is declared and complete
+        if: always()
+        run: bash tests/test_the_sentinel_vocabulary_is_declared_and_complete.sh
 
       # THE CLASS. The step above pins ONE function; #1439 fixed that
       # instance and nothing stopped the next one. The sweep that found it

@@ -24841,6 +24841,40 @@ _hydrate_payload_is_all_zero() {
 # (124/137) or crashed (any other non-zero rc) drain must NOT record it, so the
 # next install/re-run retries instead of skipping for a week".
 # Measured 2026-08-16: 8 of the 9 hydrate sources broke that rule.
+# ── THE SENTINEL VOCABULARY, DECLARED ONCE ──────────────────────────────
+#
+# 🔴 WHY THIS EXISTS. The same drift has now been found TWICE, in two fields,
+# both times by a human reading BOTH SIDES of the contract:
+#
+#     sources    CM051 writes 13    CM044 recognised  9
+#     statuses   CM051 writes  5    CM044 recognised  3
+#
+# `cannot_run` and `timeout` fell through to "Could not tell" on the customer's
+# freshness panel. CM044's own comment forbids exactly that: "a status we do not
+# recognise is a fact about our own drift, not about the customer's box." It was
+# printing our drift as a fact about their box, for two statuses we emit ON
+# PURPOSE. `timeout` is the expensive one -- rc 124/137 means a source was killed
+# by its cap and moved no data, so it needs a re-run, and "Could not tell"
+# invites no action.
+#
+# ⚠️ AND THE WRITER COULD NOT BE ENUMERATED. Before this block, a literal
+# `grep 'status='` over install.sh returned ok / no_data / cannot_run and MISSED
+# error and timeout entirely, because _hydrate_sentinel_record_error builds its
+# status at runtime from an rc. The writer had no vocabulary, only BEHAVIOUR, so
+# the only way for a reader to stay in sync was for somebody to re-derive that
+# behaviour by hand -- which is the thing that failed twice.
+#
+# This declaration turns the writer's behaviour into a readable fact. It is not
+# consumed by install.sh at runtime on purpose: a list that the code obeys could
+# still drift from what the code EMITS. Instead
+# tests/test_the_sentinel_vocabulary_is_declared_and_complete.sh EXECUTES every
+# recorder and asserts what it actually wrote is a member, so the declaration
+# cannot quietly disagree with the writer it describes.
+#
+# A reader (CM044) should cover THIS list rather than one somebody transcribed.
+OSTLER_SENTINEL_STATUSES="ok error timeout no_data cannot_run"
+OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts dedupe email email_preferences imessage people places privacy_backfill whatsapp"
+
 _hydrate_sentinel_record() {
     local source="$1"
     local payload="${2:-}"
