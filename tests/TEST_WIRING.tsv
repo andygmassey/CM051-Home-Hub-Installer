@@ -42,6 +42,7 @@ test_apple_is_registered_before_appletv.py	WIRED	.github/workflows/parser-claim-
 test_appletv_parser.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_arm8b_vetoes_on_importable_not_merely_uncovered.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_artefact_content_matches_the_tag.sh	WIRED	.github/workflows/cut.yml
+test_artefact_walk_stages_the_dmg_payload.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_assistant_config_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_assistant_config_reasoning_disabled.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_config_required_fields.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
