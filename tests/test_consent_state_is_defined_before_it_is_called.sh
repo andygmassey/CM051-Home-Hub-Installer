@@ -38,6 +38,30 @@
 # ORDER differs, and no pattern over either statement can tell them apart.
 # So this extracts the two statements IN FILE ORDER and runs them.
 #
+# 🔴 THIS TEST GUARDS ONE FUNCTION AND IS BLIND TO THE CLASS. SAID HERE BECAUSE
+# A READER WILL OTHERWISE ASSUME OTHERWISE.
+#
+# TNM mutation-tested it and reported the result rather than the reassurance:
+#
+#     MUTATION A  this definition moved below its own call   3 pass / 4 fail  CAUGHT
+#     MUTATION B  a DIFFERENT function, same shape           7 pass / 0 fail  MISSED
+#                 (a genuine defect: rc=127, "command not found")
+#
+# The extractor hardcodes `^_ostler_consent_state\(\)\s*\{`, so a second
+# offender is invisible to it. The CI step was originally named "A called
+# function must be defined above its call site", which is a class-level promise
+# wired to a one-name test: someone grepping CI for "is call-before-definition
+# guarded" would have found a green step whose name said yes. The step is now
+# named for the function it actually guards.
+#
+# A GENERIC CLASS TEST IS OWED AND IS NOT THIS FILE. Doing it honestly needs the
+# discrimination TNM used -- executing each candidate with the name unbound,
+# because a sweep keyed on "line begins with the name" is blind to the very
+# shape that broke the install (the call hides inside `$( )` on a top-level
+# assignment). A manual sweep of all 161 function definitions found this to be
+# the only genuine top-level inversion at the time of writing; that sweep was
+# by hand and is not a gate.
+#
 # THREE STATES. 0 pass, 1 fail, 2 cannot-run.
 set -uo pipefail
 
