@@ -22,6 +22,8 @@ test_a_denied_read_is_not_an_absence.sh	WIRED	.github/workflows/unreachable-not-
 test_a_failed_hydrate_may_not_fabricate_a_count.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_a_failed_walk_must_not_exit_zero.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_a_slow_step_is_not_a_wedged_one.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_a_tally_that_contradicts_the_log_is_not_a_pass.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_truncated_category_is_not_reported_complete.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_abort_still_reports_when_the_close_fails.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_ai_conversations_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -43,6 +45,7 @@ test_apple_is_registered_before_appletv.py	WIRED	.github/workflows/parser-claim-
 test_appletv_parser.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_arm8b_vetoes_on_importable_not_merely_uncovered.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_artefact_content_matches_the_tag.sh	WIRED	.github/workflows/cut.yml
+test_artefact_walk_stages_the_dmg_payload.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_assistant_config_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_assistant_config_reasoning_disabled.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_config_required_fields.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
@@ -252,6 +255,7 @@ test_no_committed_binary_leaks_a_home_path.sh	WIRED	.github/workflows/no-binary-
 test_no_data_is_not_success.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_no_divergent_vendor_twin.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_no_finder_appleevent.sh	WIRED	.github/workflows/no-finder-appleevent.yml
+test_no_function_is_called_before_it_is_defined.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_no_gate_execs_a_pinned_image.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_no_internal_codenames_in_customer_strings.sh	WIRED	.github/workflows/rule-09-strings-check.yml
 test_no_literal_backslash_n_in_strings.sh	WIRED	.github/workflows/consent-data-handling.yml
