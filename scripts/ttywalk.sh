@@ -279,8 +279,36 @@ identity_check "before staging"
 # to produce a verdict about the product, and a verdict from the dev-mode
 # branch is not one. CANNOT-RUN, never FAIL: nothing about the build has been
 # shown to be wrong.
+STAGE_SRC="$REPO_ROOT"
+STAGE_KIND="repo"
+DMG_MNT=""
+if [[ -n "${FROM_DMG:-}" ]]; then
+    [[ -f "$FROM_DMG" ]] || die "--from-dmg: no file at ${FROM_DMG}"
+    DMG_MNT="$(mktemp -d "${TMPDIR:-/tmp}/ostler-dmg.XXXXXX")" \
+        || die "--from-dmg: could not make a mountpoint"
+    hdiutil attach -nobrowse -readonly -mountpoint "$DMG_MNT" "$FROM_DMG" >/dev/null 2>&1 \
+        || die "--from-dmg: hdiutil attach failed for ${FROM_DMG}"
+    # Detach on the way out however we leave, so a later run does not meet
+    # "Resource busy" -- the v1.0.51 failure, one artefact over.
+    trap 'hdiutil detach "$DMG_MNT" -quiet 2>/dev/null || hdiutil detach "$DMG_MNT" -force -quiet 2>/dev/null || true' EXIT
+    _res="$(/usr/bin/find "$DMG_MNT" -maxdepth 3 -type d -name Resources -path '*.app/Contents/*' 2>/dev/null | head -1)"
+    [[ -n "$_res" ]] || die "--from-dmg: no <app>/Contents/Resources inside ${FROM_DMG}"
+    [[ -f "${_res}/install.sh" ]] \
+        || die "--from-dmg: ${_res} has no install.sh. That is not the payload root."
+    STAGE_SRC="$_res"
+    STAGE_KIND="artefact"
+    say "ARTEFACT WALK. Staging the DMG's payload, not this checkout."
+    say "   dmg:     ${FROM_DMG}"
+    say "   payload: ${_res}"
+    say "   ⚠️  the .app is NOT launched. This runs the install.sh INSIDE it,"
+    say "      so it still says nothing about first-RUN behaviour of the bundle."
+fi
+
 rule "BUNDLED-PYTHON PREFLIGHT (the customer path, not the dev fallback)"
-BUNDLED_PY_LOCAL="${REPO_ROOT}/python/bin/python3.11"
+# READ FROM THE STAGED SOURCE, not the checkout. In --from-dmg mode the
+# interpreter lives inside the artefact, and checking $REPO_ROOT there made
+# the first artefact walk refuse CANNOT-RUN against a DMG that HAS one.
+BUNDLED_PY_LOCAL="${STAGE_SRC}/python/bin/python3.11"
 if [[ -x "$BUNDLED_PY_LOCAL" ]]; then
     say "bundled interpreter present: $("$BUNDLED_PY_LOCAL" --version 2>&1 | head -1)"
 else
@@ -522,31 +550,6 @@ fi
 # runs the install.sh inside it. Those differ in exactly the way v1.0.45 was
 # bricked by -- a bundle that writes into itself on first RUN, which nothing
 # inspecting it at rest can see.
-STAGE_SRC="$REPO_ROOT"
-STAGE_KIND="repo"
-DMG_MNT=""
-if [[ -n "${FROM_DMG:-}" ]]; then
-    [[ -f "$FROM_DMG" ]] || die "--from-dmg: no file at ${FROM_DMG}"
-    DMG_MNT="$(mktemp -d "${TMPDIR:-/tmp}/ostler-dmg.XXXXXX")" \
-        || die "--from-dmg: could not make a mountpoint"
-    hdiutil attach -nobrowse -readonly -mountpoint "$DMG_MNT" "$FROM_DMG" >/dev/null 2>&1 \
-        || die "--from-dmg: hdiutil attach failed for ${FROM_DMG}"
-    # Detach on the way out however we leave, so a later run does not meet
-    # "Resource busy" -- the v1.0.51 failure, one artefact over.
-    trap 'hdiutil detach "$DMG_MNT" -quiet 2>/dev/null || hdiutil detach "$DMG_MNT" -force -quiet 2>/dev/null || true' EXIT
-    _res="$(/usr/bin/find "$DMG_MNT" -maxdepth 3 -type d -name Resources -path '*.app/Contents/*' 2>/dev/null | head -1)"
-    [[ -n "$_res" ]] || die "--from-dmg: no <app>/Contents/Resources inside ${FROM_DMG}"
-    [[ -f "${_res}/install.sh" ]] \
-        || die "--from-dmg: ${_res} has no install.sh. That is not the payload root."
-    STAGE_SRC="$_res"
-    STAGE_KIND="artefact"
-    say "ARTEFACT WALK. Staging the DMG's payload, not this checkout."
-    say "   dmg:     ${FROM_DMG}"
-    say "   payload: ${_res}"
-    say "   ⚠️  the .app is NOT launched. This runs the install.sh INSIDE it,"
-    say "      so it still says nothing about first-RUN behaviour of the bundle."
-fi
-
 rule "STAGE"
 if [[ "$STAGE_KIND" == "repo" ]]; then
     HEAD_SHA="$(cd "$REPO_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
