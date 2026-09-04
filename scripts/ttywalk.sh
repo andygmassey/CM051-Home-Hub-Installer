@@ -630,8 +630,8 @@ done; :' >/dev/null 2>&1
 #
 # install.sh probes iMessage Automation with `osascript ... tell application
 # "Messages"`, deadlined at OSTLER_IMESSAGE_PROBE_TIMEOUT_S (90s by default).
-# Granting Automation is a macOS TCC decision that requires a GUI user to click
-# Allow in a dialog. **An ssh session cannot click it, ever.** So the probe
+# The grant is a macOS TCC decision that requires a GUI user to click Allow in
+# a dialog. **An ssh session cannot click it, ever.** So the probe
 # blocks for the full 90s, returns 124, and the step is recorded `timeout`.
 #
 # install.sh handles that 124 correctly and deliberately -- its own comment
