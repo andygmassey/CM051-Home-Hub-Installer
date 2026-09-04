@@ -66,6 +66,7 @@ on:
       - 'tests/test_walk_driver_cancel_is_not_a_build_verdict.sh'
       - 'tests/test_artefact_walk_stages_the_dmg_payload.sh'
       - 'tests/test_consent_state_is_defined_before_it_is_called.sh'
+      - 'tests/test_no_function_is_called_before_it_is_defined.sh'
       - 'tests/test_doctor_probe_cap_exceeds_the_command.sh'
       - 'tests/test_installed_pipeline_packages_can_import_themselves.sh'
       - 'tests/test_a_failed_walk_must_not_exit_zero.sh'
@@ -199,6 +200,19 @@ jobs:
       - name: _ostler_consent_state is defined above its call sites (one function, not the class)
         if: always()
         run: bash tests/test_consent_state_is_defined_before_it_is_called.sh
+
+      # THE CLASS. The step above pins ONE function; #1439 fixed that
+      # instance and nothing stopped the next one. The sweep that found it
+      # was a human reading 161 definitions, which cannot be re-run.
+      #
+      # This scans every top-level statement. It runs FIVE synthetic controls
+      # first -- two that must FLAG, three that must MISS -- because the first
+      # two versions of the analyser scored the KNOWN POSITIVE as clean: one
+      # stripped "$( )" as if quoted text were not code, and one read a
+      # `# <<< WORD` comment as a heredoc and went blind for 5,700 lines.
+      - name: No function is called before it is defined (the CLASS)
+        if: always()
+        run: bash tests/test_no_function_is_called_before_it_is_defined.sh
       - name: The doctor probe cap exceeds the command it wraps
         if: always()
         run: bash tests/test_doctor_probe_cap_exceeds_the_command.sh
