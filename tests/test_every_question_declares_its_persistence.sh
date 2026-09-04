@@ -62,21 +62,35 @@ _declared() {
 # ── Enumerate what the file ACTUALLY asks ────────────────────────────────
 # Read from install.sh, never from a copied list: a hand-maintained roster
 # drifts and the gate goes on checking the old set while reporting success.
-mapfile -t QVARS < <(grep -oE '^[[:space:]]*[A-Z_][A-Z0-9_]*="\$\(gui_read' "$SUBJECT" \
-                     | grep -oE '[A-Z_][A-Z0-9_]*' | sort -u | grep -vE '^_$')
+# 🔴 NO `mapfile`. macos-14's /bin/bash is 3.2 and mapfile is a bash-4 builtin,
+# so the first version of this test died with "mapfile: command not found" and
+# then three "QVARS: unbound variable" errors -- on CI, having measured nothing.
+# It passed locally because this machine's bash is 5.x from Homebrew. The
+# installer ships for the shell the CUSTOMER has, and this gate must run on the
+# shell CI has; a newline-delimited string plus a read loop works on both.
+#
+# Not `for v in $QVARS` either: that relies on word splitting, which zsh does
+# not do for an unquoted variable, so the same list would silently become ONE
+# element under a different shell.
+QVARS_RAW="$(grep -oE '^[[:space:]]*[A-Z_][A-Z0-9_]*="\$\(gui_read' "$SUBJECT" \
+             | grep -oE '[A-Z_][A-Z0-9_]*' | sort -u | grep -vE '^_$')"
+QVAR_COUNT="$(printf '%s\n' "$QVARS_RAW" | grep -c .)"
 
-if [ "${#QVARS[@]}" -lt 20 ]; then
-    echo "CANNOT-RUN: only ${#QVARS[@]} question variables found; the gui_read" >&2
+if [ "${QVAR_COUNT:-0}" -lt 20 ]; then
+    echo "CANNOT-RUN: only ${QVAR_COUNT:-0} question variables found; the gui_read" >&2
     echo "  assignment shape has probably changed. A shrunken denominator must" >&2
     echo "  not read as a clean tree." >&2
     exit 2
 fi
-ok "enumerated ${#QVARS[@]} question variable(s) from install.sh itself"
+ok "enumerated ${QVAR_COUNT} question variable(s) from install.sh itself"
 
 undeclared=""
-for v in "${QVARS[@]}"; do
+while IFS= read -r v; do
+    [ -n "$v" ] || continue
     _declared "$v" || undeclared="${undeclared}${undeclared:+ }${v}"
-done
+done <<EOF_QVARS
+${QVARS_RAW}
+EOF_QVARS
 if [ -z "$undeclared" ]; then
     ok "every question variable is classified (persisted / transient / secret / gap)"
 else
@@ -111,7 +125,7 @@ fi
 # makes the ceiling look tighter than it is.
 stale=""
 for v in $GAP; do
-    printf '%s\n' "${QVARS[@]}" | grep -qx "$v" || stale="${stale}${stale:+ }${v}"
+    printf '%s\n' "$QVARS_RAW" | grep -qx "$v" || stale="${stale}${stale:+ }${v}"
 done
 if [ -z "$stale" ]; then
     ok "every GAP entry is still a question install.sh actually asks"
