@@ -68,11 +68,8 @@ on:
       - 'tests/test_a_tally_that_contradicts_the_log_is_not_a_pass.sh'
       - 'tests/test_artefact_walk_stages_the_dmg_payload.sh'
       - 'tests/test_consent_state_is_defined_before_it_is_called.sh'
-<<<<<<< HEAD
       - 'tests/test_an_unmeasured_flag_must_be_read.sh'
-=======
       - 'tests/test_no_function_is_called_before_it_is_defined.sh'
->>>>>>> origin/main
       - 'tests/test_doctor_probe_cap_exceeds_the_command.sh'
       - 'tests/test_installed_pipeline_packages_can_import_themselves.sh'
       - 'tests/test_a_failed_walk_must_not_exit_zero.sh'
@@ -224,17 +221,15 @@ jobs:
         if: always()
         run: bash tests/test_consent_state_is_defined_before_it_is_called.sh
 
-<<<<<<< HEAD
       # A flag that records "could not measure" must be READ by something.
       # v1.0.66 SHIPPED two that were assigned and consulted by nothing:
       # _HYDRATE_EMAIL_COUNTS_UNMEASURED and _AICONV_UNMEASURED. In both
       # cases the next lines turned the empty value into 0, so a counter
-      # that COULD NOT RUN was published as a measured zero. The calendar
-      # and contacts arms of the same file already had the guard.
+      # that COULD NOT RUN was published as a measured zero.
       - name: An UNMEASURED flag must be read by something
         if: always()
         run: bash tests/test_an_unmeasured_flag_must_be_read.sh
-=======
+
       # THE CLASS. The step above pins ONE function; #1439 fixed that
       # instance and nothing stopped the next one. The sweep that found it
       # was a human reading 161 definitions, which cannot be re-run.
@@ -247,7 +242,6 @@ jobs:
       - name: No function is called before it is defined (the CLASS)
         if: always()
         run: bash tests/test_no_function_is_called_before_it_is_defined.sh
->>>>>>> origin/main
       - name: The doctor probe cap exceeds the command it wraps
         if: always()
         run: bash tests/test_doctor_probe_cap_exceeds_the_command.sh
