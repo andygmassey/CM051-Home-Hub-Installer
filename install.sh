@@ -26067,7 +26067,33 @@ except Exception:
         if [[ "${_HYDRATE_EMAIL_COUNTS_UNMEASURED:-false}" == true ]]; then
             _hydrate_sentinel_record_no_data "email" "counter_failed_count_unmeasured"
             _HYDRATE_EMAIL_OUTCOME="counter_failed_count_unmeasured"
-            settling_report emails 0 0 true
+            # 🔴 AND THIS ARM DELIBERATELY REPORTS NOTHING TO THE SETTLING
+            # PANEL. A first draft called `settling_report emails 0 0 true`
+            # here, and TNM caught it: the 4th positional is `needs_source`,
+            # and the contacts precedent this pattern is lifted from states the
+            # invariant in its own words at 25461 --
+            #
+            #     "A zero count means WE RAN AND FOUND NOTHING, so needs_source
+            #      invites the customer to connect a source rather than leaving
+            #      a permanent 0%."
+            #
+            # This arm fires on the OPPOSITE condition. We did not run and find
+            # nothing; the counter COULD NOT RUN. `true` therefore asks the
+            # customer to connect an email account they have already connected,
+            # on the strength of a value nobody measured -- which is this fix's
+            # own defect class, one layer further out.
+            #
+            # `false` is not the answer either: that renders a settled channel
+            # at 0 of 0, the permanent 0% the contacts comment exists to escape.
+            # NEITHER BOOLEAN IS TRUE, because the state is a third one and
+            # settling_report has only two.
+            #
+            # So this tick stays silent, and nothing is lost by it: the sentinel
+            # above already carries `counter_failed_count_unmeasured`, and the
+            # hourly recurring tick reports the channel on its own (v1064-ac),
+            # so the row is not permanently absent -- only absent for one tick.
+            # A third state in settling_report is the durable fix and belongs
+            # with the CM044 panel that consumes it, not here.
         elif [[ "$_HYDRATE_EMAIL_COUNT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_EMAIL_DONE" "$_HYDRATE_EMAIL_COUNT")"
             # Denominator measured from the Mail store, not from this pass.
