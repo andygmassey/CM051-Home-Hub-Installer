@@ -146,6 +146,7 @@ test_every_default_source_is_requested.sh	WIRED	.github/workflows/default-source
 test_every_fail_call_has_error_code.sh	UNWIRED	-
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_every_marker_pattern_compiles.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_every_question_declares_its_persistence.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_exemption_ref_form.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_expired_deferral_ratchet.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_expiry_needs_a_cut_version.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
