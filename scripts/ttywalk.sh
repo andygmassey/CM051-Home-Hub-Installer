@@ -413,16 +413,39 @@ if [[ "$DO_RESET" -eq 1 ]]; then
             # Clear ONLY what the uninstaller would have cleared, and say that
             # the harness is standing in for it. Leaving them is not neutral:
             # they auto-start with the VM and take the ports the install needs.
-            _left=$(( $(docker ps -aq --filter name=ostler- 2>/dev/null | wc -l) ))
-            if [[ "${_left:-0}" -gt 0 ]]; then
-                echo "    ${_left} leftover ostler-* container(s) from a previous walk:"
-                docker ps -a --filter name=ostler- --format "      {{.Names}}  {{.Status}}" 2>/dev/null
-                echo "    removing them so they cannot re-bind the preflight ports."
-                echo "    THE HARNESS IS DOING THIS, NOT THE PRODUCT."
-                docker rm -f $(docker ps -aq --filter name=ostler-) >/dev/null 2>&1 || true
-                echo "    ostler-* containers remaining: $(( $(docker ps -aq --filter name=ostler- 2>/dev/null | wc -l) ))"
+            # 🔴 ABSOLUTE PATH, FOR THE REASON THIS FILE ALREADY GIVES FOR
+            # colima TWELVE LINES DOWN, AND I USED A BARE `docker` ANYWAY.
+            # /opt/homebrew/bin is NOT on the non-interactive ssh PATH on the
+            # walk box. A bare `docker` is command-not-found, its output is
+            # empty, the count is 0, and the block reports "no leftover
+            # containers" while five are running. MEASURED on walks 7 AND 8:
+            # both printed that line, both then died at graph_db_start when
+            # those same containers re-bound 6333. Ten steps each.
+            #
+            # AND AN ABSENT BINARY IS NOT AN EMPTY SURVEY. If docker cannot be
+            # found the honest answer is that the survey COULD NOT RUN, not
+            # that there was nothing to find. Those print identically and only
+            # one of them is evidence.
+            _dk=""
+            for _d in /opt/homebrew/bin/docker /usr/local/bin/docker; do
+                [[ -x "$_d" ]] && { _dk="$_d"; break; }
+            done
+            if [[ -z "$_dk" ]]; then
+                echo "    CANNOT SURVEY CONTAINERS: no docker at either Homebrew prefix."
+                echo "    This is NOT the same as finding none. If the ports below are"
+                echo "    held, leftover containers are the first thing to suspect."
             else
-                echo "    no leftover ostler-* containers to remove."
+                _left=$(( $("$_dk" ps -aq --filter name=ostler- 2>/dev/null | wc -l) ))
+                if [[ "${_left:-0}" -gt 0 ]]; then
+                    echo "    ${_left} leftover ostler-* container(s) from a previous walk:"
+                    "$_dk" ps -a --filter name=ostler- --format "      {{.Names}}  {{.Status}}" 2>/dev/null
+                    echo "    removing them so they cannot re-bind the preflight ports."
+                    echo "    THE HARNESS IS DOING THIS, NOT THE PRODUCT."
+                    "$_dk" rm -f $("$_dk" ps -aq --filter name=ostler-) >/dev/null 2>&1 || true
+                    echo "    ostler-* containers remaining: $(( $("$_dk" ps -aq --filter name=ostler- 2>/dev/null | wc -l) ))"
+                else
+                    echo "    docker answered: no leftover ostler-* containers."
+                fi
             fi
         fi
         # Stop the container VM. A previous install leaves colima running, and
