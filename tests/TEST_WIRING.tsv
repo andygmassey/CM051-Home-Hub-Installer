@@ -204,6 +204,7 @@ test_install_log_reads_like_a_product.sh	WIRED	.github/workflows/install-log-hyg
 test_install_manifest_gate.sh	WIRED	.github/workflows/install-manifest-gate.yml
 test_install_sh_no_call_before_definition.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_install_sh_prefers_bundled_python.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_installed_pipeline_packages_can_import_themselves.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_installer_app_bundle_contents.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_installer_app_pyc_is_seeded.sh	WIRED	.github/workflows/installer-app-pyc-seeded.yml
 test_installer_authenticates_to_qdrant.sh	WIRED	.github/workflows/venv-store-shim.yml
