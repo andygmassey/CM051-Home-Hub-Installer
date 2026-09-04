@@ -7446,7 +7446,9 @@ if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
         if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
             warn "$MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT"
         else
-            fail_with_code "ERR-10-FDA-DEPS-IMPORT" "$MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN"
+            # W003 class: this message named /tmp/ostler-fda-deps.log, which
+            # nothing writes. The real log is under the private per-run diag dir.
+            fail_with_code "ERR-10-FDA-DEPS-IMPORT" "$(printf "$MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN" "${OSTLER_DIAG_DIR}/fda-deps.log")"
         fi
     else
         ok "$MSG_OK_FDA_DEPENDENCIES_IMPORTABLE"
@@ -25056,8 +25058,12 @@ except Exception:
             # the phone count -> the phone-only-export signature.
             if [[ "$phones" -ge 20 ]] \
                && [[ $((emails * 20)) -lt "$phones" ]]; then
+                # W003 class: named /tmp/ostler-hydrate-contacts.log, which
+                # nothing writes. The path is the FOURTH %s in this message --
+                # the three counts come first and their order is unchanged.
                 warn "$(printf "$MSG_HYDRATE_CONTACTS_EMAIL_COVERAGE_LOW" \
-                    "$_HYDRATE_CONTACTS_COUNT" "$phones" "$emails")"
+                    "$_HYDRATE_CONTACTS_COUNT" "$phones" "$emails" \
+                    "${OSTLER_DIAG_DIR}/hydrate-contacts.log")"
             fi
         }
         _guard_email_coverage || true
@@ -25398,7 +25404,8 @@ except Exception:
         # The extractor or ingest raised -- this is NOT an empty calendar.
         # Surface it as a failure (with the log path) instead of the
         # "not synced" state so the two are never conflated.
-        warn "$MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED"
+        # W003 class: named /tmp/ostler-hydrate-calendar.log, which nothing writes.
+        warn "$(printf "$MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED" "${OSTLER_DIAG_DIR}/hydrate-calendar.log")"
         # FAIL. `events=0` here is MEASURED, not defaulted: the count was
         # parsed above and this arm is only reached when it is zero. The
         # stage that raised is named so the two python legs stay separable.
@@ -27375,11 +27382,15 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     elif printf '%s' "$_places_log_tail" | grep -q "PLACES INGEST GUARD"; then
         # The module's own loud guard fired: signals exist but no Places were
         # produced/written. Surface it loudly (non-fatal: a re-run is safe).
-        warn "$MSG_HYDRATE_PLACES_GUARD_WARN"
+        # W003 class: named /tmp/ostler-places-ingest.log, which nothing writes.
+        warn "$(printf "$MSG_HYDRATE_PLACES_GUARD_WARN" "${OSTLER_DIAG_DIR}/places-ingest.log")"
     else
         # Non-zero exit with no guard line = config error / unexpected crash.
         # Still non-fatal, but visible -- not mislabelled as "no signals yet".
-        warn "$MSG_HYDRATE_PLACES_ERROR_WARN"
+        # W003 class: same path, second message. Both arms named a file that
+        # nothing writes, so fixing only the guard arm would have left the
+        # unexpected-error arm lying.
+        warn "$(printf "$MSG_HYDRATE_PLACES_ERROR_WARN" "${OSTLER_DIAG_DIR}/places-ingest.log")"
     fi
     # #711. The branches above already distinguish a crash ("Non-zero
     # exit with no guard line = config error / unexpected crash") and
