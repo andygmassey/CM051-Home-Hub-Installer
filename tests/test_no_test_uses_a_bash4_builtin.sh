@@ -74,7 +74,15 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "${TMP}/tests"
 printf '#!/bin/bash\nmapfile -t x < <(echo hi)\n' > "${TMP}/tests/synthetic_offender.sh"
 CTL="$(scan "${TMP}/tests")"
-if printf '%s' "$CTL" | grep -q 'synthetic_offender'; then
+# `printf ... | grep -q` is the short-circuiting-consumer inversion, and
+# tests/test_pipefail_shortcircuit_inversion.sh caught it here on the first
+# run. `grep -q` exits on the first match and SIGPIPEs the producer, so under
+# `pipefail` the pipeline can report FAILURE on a needle that IS present.
+# That would invert THIS arm specifically -- the negative control -- and an
+# inverted control means a blind scan reads as a clean tree, which is the
+# exact failure this file exists to prevent. `grep -c` must read to EOF, and
+# unlike the herestring remedy it is POSIX rather than a bashism.
+if [ "$(printf '%s' "$CTL" | grep -c 'synthetic_offender')" -gt 0 ]; then
     ok "B  negative control: a synthetic mapfile caller IS detected"
 else
     fatal "the scan did not detect a file that calls mapfile on line 2. It cannot find anything, so arm A would pass by being blind."
