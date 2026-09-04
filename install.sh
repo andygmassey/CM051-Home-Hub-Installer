@@ -21311,7 +21311,15 @@ fi
 # ostler_fda (reader reuses ostler_fda.apple_mail_mbox) + pyyaml.
 # Step-count: Email body-feed is a gated progress step (Apple Mail present +
 # third-party consent). Subtract its slot from TOTAL_STEPS when skipped.
-[[ ! -d "${HOME}/Library/Mail" || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
+#
+# 🔴 RESOLVED FIRST, AND THE DECREMENT READS THE SAME VALUE THE GUARD DOES.
+# This line used to read the RAW variable while the guard below read the
+# resolver. On a reuse run where the resolver restores `accepted` from the
+# durable registry, the step would RUN while its slot had already been
+# subtracted -- the denominator shrinking mid-run, which is v1061-D005 filed
+# against this very installer. One value, computed once, read by both.
+_OSTLER_CONSENT_TP_EMAIL="$(_ostler_consent_state third_party_data_personal_records "$OSTLER_CONSENT_THIRD_PARTY_DECISION")"
+[[ ! -d "${HOME}/Library/Mail" || "$_OSTLER_CONSENT_TP_EMAIL" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 
 # ── UNKNOWN IS NOT DECLINED, AND CONFLATING THEM SILENTLY TURNS FEATURES OFF ──
 #
@@ -21390,7 +21398,6 @@ _ostler_warn_consent_unknown() {
     warn "$(printf "$MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY" "$2")"
 }
 
-_OSTLER_CONSENT_TP_EMAIL="$(_ostler_consent_state third_party_data_personal_records "$OSTLER_CONSENT_THIRD_PARTY_DECISION")"
 if [[ -d "${HOME}/Library/Mail" && "$_OSTLER_CONSENT_TP_EMAIL" == "unknown" ]]; then
     _ostler_warn_consent_unknown "Mail conversation feed" third_party_data_personal_records
 fi
@@ -21466,8 +21473,10 @@ fi
 # so the package stages under services/ (stage_subpath services/imessage_source).
 # Step-count: iMessage body-feed is a gated progress step (chat.db present +
 # third-party consent). Subtract its slot from TOTAL_STEPS when skipped.
-[[ ! -f "${HOME}/Library/Messages/chat.db" || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
+# Resolved BEFORE the decrement, for the v1061-D005 reason noted at the email
+# step above: the slot subtraction and the guard must read one value.
 _OSTLER_CONSENT_TP_IMSG="$(_ostler_consent_state third_party_data_personal_records "$OSTLER_CONSENT_THIRD_PARTY_DECISION")"
+[[ ! -f "${HOME}/Library/Messages/chat.db" || "$_OSTLER_CONSENT_TP_IMSG" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 if [[ -f "${HOME}/Library/Messages/chat.db" && "$_OSTLER_CONSENT_TP_IMSG" == "unknown" ]]; then
     _ostler_warn_consent_unknown "iMessage conversation feed" third_party_data_personal_records
 fi
