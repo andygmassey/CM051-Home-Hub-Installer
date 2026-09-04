@@ -59,6 +59,7 @@ on:
       - 'tests/test_unknown_consent_is_not_declined.sh'
       - 'tests/test_every_question_declares_its_persistence.sh'
       - 'tests/test_consent_decisions_survive_a_reuse_run.sh'
+      - 'tests/test_walkaway_no_phase2_input_leak.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/cold-box-source-truth.yml'
@@ -163,6 +164,15 @@ jobs:
       # reads it back; half 2 executes the reuse-completeness guard under four
       # environments, one of which is a CONTROL proving the guard is not so
       # wide that every non-EU install re-walks its questions forever.
+      # WIRED 2026-09-04, and it had been failing since v1.0.11 where nobody
+      # could see it. A test that fails where nobody looks is a file, not a
+      # gate. It reports EVERY offender now rather than dying on the first:
+      # allowlisting autologin_consent revealed autologin_password underneath,
+      # so the old exit-on-first would have let a "fix" ship half done.
+      - name: No question may stall a walk-away install
+        if: always()
+        run: bash tests/test_walkaway_no_phase2_input_leak.sh
+
       - name: Consent decisions must survive a reuse run
         if: always()
         run: bash tests/test_consent_decisions_survive_a_reuse_run.sh
