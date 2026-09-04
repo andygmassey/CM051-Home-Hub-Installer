@@ -26055,7 +26055,20 @@ except Exception:
         _HYDRATE_EMAIL_MSGS="${_HYDRATE_EMAIL_COUNTS##* }"
         case "${_HYDRATE_EMAIL_COUNT:-}" in ''|*[!0-9]*) _HYDRATE_EMAIL_COUNT=0 ;; esac
         case "${_HYDRATE_EMAIL_MSGS:-}"  in ''|*[!0-9]*) _HYDRATE_EMAIL_MSGS=0 ;; esac
-        if [[ "$_HYDRATE_EMAIL_COUNT" -gt 0 ]]; then
+        # An UNMEASURED count must not fall through this chain. This is the
+        # guard the calendar arm already carries, and the reason string is
+        # deliberately IDENTICAL so the two encode one state, not two.
+        #
+        # Without it: the counter substitution fails, _HYDRATE_EMAIL_COUNTS
+        # becomes "", the two `case` lines above turn that into 0, `-gt 0` is
+        # false, and the run lands on "no_correspondents_in_window" -- a cause
+        # nobody observed, published for a count nobody could take. The flag
+        # was SET on the `||` above and then read by NOTHING in the file.
+        if [[ "${_HYDRATE_EMAIL_COUNTS_UNMEASURED:-false}" == true ]]; then
+            _hydrate_sentinel_record_no_data "email" "counter_failed_count_unmeasured"
+            _HYDRATE_EMAIL_OUTCOME="counter_failed_count_unmeasured"
+            settling_report emails 0 0 true
+        elif [[ "$_HYDRATE_EMAIL_COUNT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_EMAIL_DONE" "$_HYDRATE_EMAIL_COUNT")"
             # Denominator measured from the Mail store, not from this pass.
             # This phase reads a capped slice and the hourly agent carries on
@@ -29352,6 +29365,15 @@ try:
 except Exception:
     print(0)' 2>/dev/null
             )" || { _AICONV_UNMEASURED=true; _AICONV_COUNT=""; }
+            # `:-0` MANUFACTURES the value whose failure was just recorded.
+            # _AICONV_UNMEASURED was set on the line above and read by nothing
+            # in the entire file, so a counter that COULD NOT RUN was published
+            # as a measured zero. Record the third state before the default
+            # erases the evidence for it.
+            if [[ "${_AICONV_UNMEASURED:-false}" == true ]]; then
+                _hydrate_sentinel_record_cannot_run "ai_conversations" \
+                    "counter_failed_count_unmeasured"
+            fi
             _AICONV_COUNT="${_AICONV_COUNT:-0}"
 
             # ── Steady-state recurring feed: register UNCONDITIONALLY ──
