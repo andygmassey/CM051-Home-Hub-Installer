@@ -1,0 +1,60 @@
+name: model-download-honesty
+
+# The advertised AI model download size must not be smaller than the size we
+# have actually measured on a box.
+#
+# v1061-D002 (register #623): install.sh told the customer the model download
+# was "~5 GB". It was measured at 7.2 GB on the v1.0.61 walk box -- a 44%
+# understatement of the largest single download in the install, shown at the
+# moment they decide whether to continue on a metered or slow connection.
+#
+# The figure was never measured. It was inferred from a RESIDENT weight size,
+# and that inference is false for an effective-parameter build. Meanwhile the
+# repo already held the true number in three separate places. Nothing compared
+# them, so the customer-facing copy stayed wrong across sixty-one cuts.
+#
+# #625 names download honesty as a CLASS. This is the reader for it.
+#
+# ALWAYS RUNS -- no `paths:` filter, deliberately, for the same reason as
+# install-duration-honesty.yml. The gate reads two files today and the surface
+# list will grow (locales, the GUI hint panel, the website). A paths filter
+# that lags the gate's own surface list goes dark on exactly the file someone
+# just added, and a skipped job renders as a grey tick that reads like a pass.
+# The check is seconds long; there is no budget argument for making it
+# conditional.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  model-download-honesty:
+    # The cut host is macOS and the test uses BSD `mktemp -d -t`. It also reads
+    # install.sh, which is a macOS installer. Run it on the OS it asserts about.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Invoked BY NAME, deliberately, and NOT via a `for t in ...; do bash
+      # "$t"; done` loop. Register #647: a test dispatched inside such a loop
+      # is INVISIBLE to the new-tests-must-be-wired gate, which reads workflow
+      # files for the test's own name. A test nobody can see is wired is one
+      # deletion away from being dark again.
+      #
+      # The test runs its own controls first and exits 2 (CANNOT RUN) if any
+      # limb cannot be shown to fire. CANNOT-RUN is a third state, not a pass.
+      - name: The advertised model download is not smaller than what we measured
+        run: /bin/bash tests/test_model_download_size_honesty.sh
