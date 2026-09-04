@@ -5269,15 +5269,35 @@ key), so a fix that simply stops preserving anything cannot pass.
 substring probe first reported `com.ostler.ollama` as loaded -- it was matching
 `com.ostler.ollama-logrotate`.
 
-**THE MECHANISM, for the ollama half:**
+**THE MECHANISM, for the ollama half.**
+
+🔴 **THE FIRST VERSION OF THIS ROW NAMED THE WRONG CAUSE AND IT SHIPPED INTO
+THE REGISTER.** I wrote that "the CASK branch skips the else at 11951 that
+writes the plist". The cask branch is ONE LINE and closes before the plist is
+ever mentioned:
 
 ```
-install.sh:11917  OLLAMA_APP_BIN="/Applications/Ollama.app/Contents/Resources/ollama"
-install.sh:~11919 if [[ -x "$OLLAMA_APP_BIN" ]]; then    <- the CASK is already present
-                      ... cask path
-install.sh:11951  else                                   <- the ONLY branch that
-install.sh:11965      OLLAMA_PLIST=".../com.ostler.ollama.plist"    writes the agent
+11922  if [[ -x "$OLLAMA_APP_BIN" ]]; then
+11923      ok "$MSG_OK_OLLAMA_INSTALLED"      <- the ENTIRE cask branch
+11947  fi                                     <- and it CLOSES here
 ```
+
+The `else` at 11951 belongs to a **different `if`**, and this is the real one:
+
+```
+11949  if curl -s http://localhost:11434/api/tags &>/dev/null; then
+11950      ok "$MSG_OK_OLLAMA_RUNNING"        <- already serving: DO NOTHING
+11951  else
+11965      OLLAMA_PLIST=".../com.ostler.ollama.plist"   <- the ONLY creation site
+```
+
+⇒ **the LaunchAgent is written only when NOTHING answers on 11434, and that
+probe is a bare loopback curl with no ownership check.**
+
+I got the first answer by walking backwards for the nearest enclosing
+`if`/`else` WITHOUT a depth counter, so it handed me the closest block rather
+than the owning one, and I published it. The correct instrument is an
+equal-indent backwards walk with a `fi` depth counter.
 
 On the walked box:
 
@@ -5287,11 +5307,25 @@ com.ostler.ollama.plist                              ABSENT
 #OSTLER STEP_END id=ollama_install status=ok elapsed_s=0
 ```
 
-⇒ **when Ollama.app is already installed, install.sh takes the cask branch,
-skips the branch that creates the LaunchAgent, and closes the step ok in ZERO
-SECONDS.** The step is not lying about installing Ollama -- Ollama really is
-there. It is silent about what it did not do on the way past, and the manifest
-is the only thing that notices.
+⇒ **ANOTHER ACCOUNT ON THE SAME MAC WAS SERVING 11434.** install.sh asked "is
+Ollama already running?", the other account's Ollama said yes, and the branch
+that creates our LaunchAgent never ran. The step closed ok in ZERO SECONDS.
+
+**The customer-facing shape is worse than a missing file.** That install ends
+with NO LaunchAgent, so nothing starts Ollama at boot for it; it depends on a
+process owned by a different user, which disappears when that user logs out;
+and the step reports ok while saying none of it.
+
+**This is the PORT CLASS, for the fourth time in one night** -- :8000, :11434,
+:8044, and two `lsof` enumerations that read another user's socket as absence.
+It is the worst of them because it changes what gets INSTALLED, not merely what
+gets reported.
+
+FIXED, CM051 #1471: the plist path is hoisted above the branch and the guard
+becomes `curl ... && [[ -f "$OLLAMA_PLIST" ]]`, separating "is something
+serving" (whether to START) from "do we own an agent" (whether the install is
+COMPLETE). Blast radius is the defect case only: serving+plist still SKIPs,
+not-serving still CREATEs either way.
 
 11 of 39 steps closed at `elapsed_s=0` on that walk. Most are legitimately
 fast. This one provably skipped required work while reporting ok.
@@ -5308,3 +5342,77 @@ returns NOTHING -- another account owns that socket, exactly as with :8000.
 instance in one night of the same class: on a shared Mac, REACHABLE never means
 OURS, and a successful CONNECT makes the instrument look healthy while only the
 OWNER is wrong.
+### v1066-D008 -- three health probes go GREEN on another account's service, and one of them already did
+
+**D007's mirror image.** That one SKIPS an install step; these HIDE A FAILED
+INSTALL, inside the step whose entire job is to notice.
+
+```
+install.sh:28407  curl -sf localhost:6333/healthz    -> ok  else HEALTHY=false
+install.sh:28414  curl -sf localhost:7878/           -> ok  else HEALTHY=false
+install.sh:28465  curl -sf localhost:11434/api/tags  -> ok  else HEALTHY=false
+```
+
+All three are bare loopback probes with no ownership instrument. Found by TNM's
+sweep: **11 loopback probes in install.sh, 0 with an ownership instrument**
+(`lsof`/`pgrep`/`docker inspect`/`docker compose ps`/`launchctl print`) within
++/-10 lines, with a must-miss control (a comment naming localhost) scoring 0 and
+a must-match control on two lines that DO carry one returning 1 and 2.
+
+🔴 **28465 ALREADY FIRED, IN A WALK THAT WAS PUBLISHED AS PASS.** v1.0.66
+artefact walk, terminal step:
+
+```
+#OSTLER STEP_END id=health_check status=ok elapsed_s=23
+#OSTLER LOG msg=Ollama healthy
+
+walked account:  com.ostler.ollama.plist ABSENT · launchctl exact-label count 0
+                 :11434 answers 200  <- another account's ollama
+```
+
+The health check reported a component healthy for an install that does not have
+it. **The COMPLETION verdict is unaffected and stands** -- 39 steps, `DONE
+status=ok failed_steps=0`, rc=0 -- but that arm was a CANNOT-RUN wearing a PASS,
+and the walk record now carries the qualification rather than the bare green.
+
+**28407 and 28414 are HONEST BY LUCK OF THE BIND, not unverified.** Measured:
+6333 and 7878 were the walked account's OWN containers on that box, so the
+mechanism is live and we know exactly why those two did not fire. On a box where
+the other account's containers win the bind, all three go green on a dead
+install.
+
+**FIXED for 28465 only, CM051 #1471**, together with D007's create-side arm.
+
+⚠️ **DO NOT FIX ANY OF THESE WITH `lsof`.** `_port_is_our_own_forward` already
+records that "an unprivileged lsof returns no pid for a foreign-owned holder --
+so on a genuine cross-account collision this branch is never reached" (#549,
+open). An lsof-shaped ownership check returns EMPTY on precisely the collision it
+would be written for.
+
+⚠️ **AND DO NOT GATE ON `launchctl print`'s EXIT CODE.** The first version of the
+fix did, and TNM caught it. Measured on two Macs, three labels:
+
+```
+absent label            rc=113   (no state line)
+loaded but NOT running  rc=0     state = not running
+loaded AND running      rc=0     state = running
+```
+
+rc=0 covers BOTH, so a parked agent would report healthy -- the same defect
+wearing a different instrument, and the third appearance of the `launchctl load
+exits 0 on failure` family in this file, which install.sh's own note already
+documents: *"Registration is not runnability."* Parse `state = running`. It is a
+fair demand for this agent because its plist sets `KeepAlive <true/>`, the exact
+condition `_ostler_launchagent_keeps_alive()` exists to test; it would NOT be
+fair of a one-shot.
+
+🔒 **WHAT THE FIX CLOSES, AND WHAT IT DOES NOT.** It closes GREEN ON A DEAD
+INSTALL: our agent must be up. It does NOT close GREEN ON SOMEONE ELSE'S LIVE
+ONE -- `state = running` does not prove the reply on :11434 came from OUR pid,
+and attributing a listener needs #549. The narrower claim is the true one and it
+is stated in the source.
+
+**28407 and 28414 remain OPEN.** They want the `install.sh:30097` pattern --
+read the Doctor's `/api/v1/sources` artefact rather than infer from reachability
+-- which TNM identifies as the shape the other ten probes want. Not changed
+under time pressure before a cut.
