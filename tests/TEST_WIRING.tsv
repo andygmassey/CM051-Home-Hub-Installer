@@ -263,6 +263,7 @@ test_no_live_command_substitution_in_heredocs.sh	WIRED	.github/workflows/install
 test_no_local_cuts.sh	WIRED	.github/workflows/cut.yml
 test_no_main_body_call_to_a_heredoc_only_symbol.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
 test_no_orphaned_fixes_gate.sh	WIRED	.github/workflows/cut.yml
+test_no_test_uses_a_bash4_builtin.sh	WIRED	.github/workflows/bash32-compat.yml
 test_no_unbounded_enrich_invocation.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_no_undefined_msg_refs_in_install_sh.sh	WIRED	.github/workflows/container-runtime-precondition.yml
 test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.yml
@@ -282,7 +283,7 @@ test_ostler_home_root_is_one_class.sh	WIRED	.github/workflows/hydrate-sentinel.y
 test_oxigraph_proxy_credential.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_parser_claims_do_not_cross_services.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
-test_pgrep_no_match_does_not_fabricate_a_done.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_pgrep_no_match_does_not_fabricate_a_done.sh	WIRED	.github/workflows/bash32-compat.yml
 test_pii_shape_scan_scope.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_pinned_images_are_pullable.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_pinned_wiki_image_has_design_system.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
@@ -370,7 +371,7 @@ test_universal_import_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-m
 test_unknown_consent_is_not_declined.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_unreachable_is_not_absence.sh	WIRED	.github/workflows/unreachable-not-absence.yml
 test_upgrade_mode_invariants.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
-test_upgrade_path_can_wire_store_auth.sh	WIRED	.github/workflows/upgrade-store-auth-wiring.yml
+test_upgrade_path_can_wire_store_auth.sh	WIRED	.github/workflows/bash32-compat.yml
 test_upgrade_payload_shape_contract.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_upgrade_reloads_the_launchagent_it_rewrote.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_upgrade_repairs_the_fda_venv.sh	WIRED	.github/workflows/upgrade-payload-shape.yml

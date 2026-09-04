@@ -197,6 +197,14 @@ fi
 #
 # NOT `[^)]*` -- that spans '|| true' and would match the very lines the fix
 # adds, which is exactly the false reading that nearly shipped here.
+# TWO SEPARATE FIXES MEET ON THIS LINE. #1455 replaced `mapfile` (a bash 4
+# builtin absent from the /bin/bash 3.2 the product ships to) with a read
+# loop; #1459 anchored the pattern on `^[^#]*`. Both are kept.
+#
+# bash 3.2 has no `mapfile`. This file was green on ubuntu CI and died on
+# macOS at this line, AFTER printing four `ok` arms -- partial credit that
+# reads as a run.
+#
 # `^[^#]*` drops COMMENT lines. Arm 2 has been comment-blind since it was
 # written, and nothing revealed it because nobody had written the pgrep
 # substitution shape in prose before. The #642 comment block added to
@@ -204,7 +212,8 @@ fi
 # explain it -- and arm 2 duly reported two "unguarded substitutions" that
 # are documentation. A scanner that cannot tell code from a comment ABOUT
 # that code fails on the day somebody documents the thing it looks for.
-mapfile -t unguarded < <(grep -nE '^[^#]*\$\(pgrep' "$INSTALLER" | grep -v '|| true' || true)
+unguarded=()
+while IFS= read -r _line; do unguarded+=("$_line"); done < <(grep -nE '^[^#]*\$\(pgrep' "$INSTALLER" | grep -v '|| true' || true)
 
 # POSITIVE CONTROL: the predicate must be able to SEE guarded sites, or its
 # zero would be a dead predicate rather than a clean tree.
@@ -216,7 +225,10 @@ if [[ "$guarded_n" -lt 1 ]]; then
 fi
 
 offenders=0
-for line in "${unguarded[@]}"; do
+# ${a[@]+"${a[@]}"} because an EMPTY array under `set -u` is an
+# unbound-variable error on bash 3.2 -- fixing only the mapfile would
+# have swapped one 3.2 death for another.
+for line in ${unguarded[@]+"${unguarded[@]}"}; do
     # NO EXEMPTIONS. Arm 1c proves a for-list is just as unsafe.
     echo "FAIL arm 2: unguarded pgrep command substitution: ${line}"
     offenders=$(( offenders + 1 ))

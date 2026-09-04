@@ -35,9 +35,16 @@ upg_end="$(awk -v s="$upg_start" 'NR>s && /^fi$/ {print NR; exit}' "$INSTALL")"
 [ -n "$upg_end" ] || { echo "CANNOT-RUN: upgrade block end (fi) not found"; exit 3; }
 
 # every CALL to the fn (not the def) inside the block
-mapfile -t calls < <(grep -nE '_ostler_wire_store_auth_pth ' "$INSTALL" | cut -d: -f1)
+# bash 3.2 (the /bin/bash the product ships to) has no `mapfile`; it is a
+# bash 4 builtin. This file was green on ubuntu CI and died on macOS at this
+# line, AFTER printing four `ok` arms -- partial credit that reads as a run.
+calls=()
+while IFS= read -r _line; do calls+=("$_line"); done < <(grep -nE '_ostler_wire_store_auth_pth ' "$INSTALL" | cut -d: -f1)
 inblock=0; bad=0
-for c in "${calls[@]}"; do
+# ${a[@]+"${a[@]}"} because an EMPTY array under `set -u` is an
+# unbound-variable error on bash 3.2 -- fixing only the mapfile would
+# have swapped one 3.2 death for another.
+for c in ${calls[@]+"${calls[@]}"}; do
     if [ "$c" -gt "$upg_start" ] && [ "$c" -lt "$upg_end" ]; then
         inblock=$((inblock+1))
         if [ "$fn_def" -gt "$c" ]; then
