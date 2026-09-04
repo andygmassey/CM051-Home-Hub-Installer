@@ -10836,7 +10836,35 @@ else
     else
         # Fallback: official installer (used in dev mode where /opt/homebrew
         # is not pre-chowned, OR if pre-chown silently failed).
-        echo "Falling back to official installer (prefix not pre-chowned)" >> "$BREW_INSTALL_LOG"
+        #
+        # W002 (v1.0.63 walk 2): this line used to say "prefix not pre-chowned"
+        # flat, but the branch above is a THREE-WAY test -- GUI mode, the
+        # directory existing, and the directory being writable. Any one of them
+        # being false lands here, and they have three different causes: not
+        # running under the .app, the parent .app never creating the prefix,
+        # and the chown failing or being reverted. One sentence for three
+        # causes is a guess printed as a finding, and this log is the only
+        # thing a customer can send us.
+        #
+        # The pre-probe above already records OSTLER_GUI and `ls -ld
+        # /opt/homebrew`, so the evidence was in the file; what was missing was
+        # the branch saying which test it actually failed.
+        _brew_fallback_why=""
+        [[ "${OSTLER_GUI:-0}" == "1" ]] || _brew_fallback_why="not running under the GUI app (OSTLER_GUI=${OSTLER_GUI:-0})"
+        if [[ -z "$_brew_fallback_why" ]]; then
+            if [[ ! -d /opt/homebrew ]]; then
+                _brew_fallback_why="/opt/homebrew does not exist -- the parent .app did not create the prefix"
+            elif [[ ! -w /opt/homebrew ]]; then
+                _brew_fallback_why="/opt/homebrew exists but is not writable by $(id -un) -- the pre-chown did not take"
+            else
+                # Belt and braces: if all three now pass, the state changed
+                # between the test and here. Say so rather than pick a cause.
+                _brew_fallback_why="all three pre-chown conditions pass NOW; state changed between the test and this line"
+            fi
+        fi
+        echo "Falling back to official installer: ${_brew_fallback_why}" >> "$BREW_INSTALL_LOG"
+        echo "NOTE: the official installer aborts at have_sudo_access() even when no sudo is needed (CX-25)." >> "$BREW_INSTALL_LOG"
+        unset _brew_fallback_why
         NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$BREW_INSTALL_LOG" 2>&1
         BREW_EXIT=$?
     fi
