@@ -26086,14 +26086,14 @@ except Exception:
             # `false` is not the answer either: that renders a settled channel
             # at 0 of 0, the permanent 0% the contacts comment exists to escape.
             # NEITHER BOOLEAN IS TRUE, because the state is a third one and
-            # settling_report has only two.
+            # the settling writer has only two.
             #
             # So this tick stays silent, and nothing is lost by it: the sentinel
             # above already carries `counter_failed_count_unmeasured`, and the
             # hourly recurring tick reports the channel on its own (v1064-ac),
             # so the row is not permanently absent -- only absent for one tick.
-            # A third state in settling_report is the durable fix and belongs
-            # with the CM044 panel that consumes it, not here.
+            # A third state in the settling writer is the durable fix, and it
+            # belongs with the CM044 panel that consumes it, not here.
         elif [[ "$_HYDRATE_EMAIL_COUNT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_EMAIL_DONE" "$_HYDRATE_EMAIL_COUNT")"
             # Denominator measured from the Mail store, not from this pass.
