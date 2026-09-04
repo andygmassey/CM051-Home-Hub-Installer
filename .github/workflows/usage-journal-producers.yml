@@ -70,6 +70,7 @@ on:
       # a gate you have read, not a gate you have run.
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'tests/test_usage_journal_producer_gate.sh'
+      - 'tests/test_usage_journal_readers_resolve_like_the_daemon.sh'
       - 'tests/fixtures/usage_journal/costs_full.jsonl'
       - 'cut-manifests/permanent.yaml'
       # A gate must trigger on changes to ITSELF, or it can be quietly
@@ -105,6 +106,13 @@ jobs:
       # resolvers are pinned against the contract and against each other.
       - name: Every declared producer, or a red -- 15 mutation arms
         run: /bin/bash tests/test_usage_journal_producer_gate.sh
+
+      # W006: explicit run step (#647). Drives the SHIPPED resolver, so it goes
+      # red if install.sh ever stops publishing the workspace marker and the
+      # non-daemon readers drift back to a path nothing writes.
+      - name: Journal readers resolve to the daemon's path (W006)
+        if: always()
+        run: /bin/bash tests/test_usage_journal_readers_resolve_like_the_daemon.sh
 
       # The three exit codes, asserted at the top level rather than only inside
       # the harness. CANNOT-RUN collapsing into PASS or FAIL is the exact

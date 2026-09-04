@@ -50,6 +50,7 @@ on:
       - 'tests/test_source_status_canonical_matches_recorders.sh'
       - 'tests/test_e1_source_readout_emits.sh'
       - 'tests/test_ostler_home_root_is_one_class.sh'
+      - 'tests/test_imessage_zero_is_declared_not_undeclared.sh'
       - 'vendor/doctor/agent/extension_token.py'
       - 'vendor/doctor/agent/whatsapp_pair.py'
       - 'vendor/doctor/agent/diagnostic_rules.py'
@@ -200,7 +201,14 @@ jobs:
         if: always()
         run: bash tests/test_ostler_home_root_is_one_class.sh
 
-      - name: All eleven tests parse under bash 3.2-compatible syntax
+      # W012: explicit run step, NOT a loop entry. #647 -- the new-tests-wired
+      # gate needs a test path and an execution verb on ONE line, and a path
+      # inside a `for t in ...` body is invisible to it.
+      - name: A zero iMessage people-count is DECLARED, not undeclared (W012)
+        if: always()
+        run: bash tests/test_imessage_zero_is_declared_not_undeclared.sh
+
+      - name: All twelve tests parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_hydrate_sentinel_not_on_error.sh
@@ -213,4 +221,5 @@ jobs:
           bash -n tests/test_source_status_contract.sh
           bash -n tests/test_source_status_canonical_matches_recorders.sh
           bash -n tests/test_e1_source_readout_emits.sh
+          bash -n tests/test_imessage_zero_is_declared_not_undeclared.sh
           bash -n tests/test_ostler_home_root_is_one_class.sh

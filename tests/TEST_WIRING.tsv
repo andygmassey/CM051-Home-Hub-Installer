@@ -182,6 +182,7 @@ test_imessage_ladder_not_pinned.sh	WIRED	.github/workflows/imessage-ladder.yml
 test_imessage_probe_cannot_hang.sh	WIRED	.github/workflows/imessage-probe-cannot-hang.yml
 test_imessage_self_handles_fallback.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_imessage_tcc_posture.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_imessage_zero_is_declared_not_undeclared.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_inferred_category_never_egresses.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_ingest_offpeak_throttle.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_ingest_slot_fairness.sh	WIRED	.github/workflows/ingest-slot.yml
@@ -351,6 +352,7 @@ test_upgrade_payload_shape_contract.sh	WIRED	.github/workflows/upgrade-payload-s
 test_upgrade_reloads_the_launchagent_it_rewrote.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_upgrade_repairs_the_fda_venv.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_usage_journal_producer_gate.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_usage_journal_readers_resolve_like_the_daemon.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_user_facing_tree.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_usr_local_bin_symlinks_gui_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_v1010_at_rest_exclusions.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml

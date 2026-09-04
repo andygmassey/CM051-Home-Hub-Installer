@@ -12444,6 +12444,46 @@ ASSISTANT_CONFIG_DIR="${OSTLER_DIR}/assistant-config"
 mkdir -p "$ASSISTANT_CONFIG_DIR"
 ASSISTANT_CONFIG="${ASSISTANT_CONFIG_DIR}/config.toml"
 
+# W006 (v1.0.63 walk 2): PUBLISH THE WORKSPACE THE DAEMON ACTUALLY USES.
+#
+# The daemon learns its workspace from the assistant LaunchAgent's
+# ZEROCLAW_WORKSPACE=${OSTLER_DIR}/assistant-config, so its CostTracker reads
+#     ${OSTLER_DIR}/assistant-config/workspace/state/costs.jsonl
+# Nothing else on the box has that variable. Every other reader -- the box-walk
+# probe over ssh, scripts/verify_usage_journal_producers.py, Doctor, any CLI --
+# falls through its resolver to
+#     ${HOME}/.ostler/workspace/state/costs.jsonl
+# which the compose comment further down calls, correctly, "a DIFFERENT
+# directory nothing reads back".
+#
+# So the walk reported the usage journal as 0 records / file absent while the
+# Bursar panel was showing 73 model calls from the real one. Two resolvers,
+# one truth, and no bridge between them: the resolvers DO honour a
+# ${HOME}/.ostler/active_workspace.toml marker, and nothing had ever written
+# it. Measured on this tree: `active_workspace` appears 0 times in install.sh
+# against 19 hits for `config.toml`, so the absence was real and not a
+# mis-typed search.
+#
+# The marker goes in ${HOME}/.ostler REGARDLESS of OSTLER_DIR, because that is
+# where both resolvers look for it -- neither honours OSTLER_DIR when locating
+# the marker itself. The value is ABSOLUTE so a relocated OSTLER_DIR still
+# resolves; both readers accept an absolute config_dir.
+#
+# Env vars still win in both resolvers, so the daemon is unaffected. This only
+# moves the processes that are currently resolving to a path nobody writes.
+_ostler_workspace_marker="${HOME}/.ostler/active_workspace.toml"
+mkdir -p "${HOME}/.ostler"
+if printf 'config_dir = "%s"\n' "$ASSISTANT_CONFIG_DIR" > "${_ostler_workspace_marker}.tmp.$$" \
+   && mv -f "${_ostler_workspace_marker}.tmp.$$" "$_ostler_workspace_marker"; then
+    dbg "Published workspace marker: ${_ostler_workspace_marker} -> ${ASSISTANT_CONFIG_DIR}"
+else
+    # Non-fatal: the daemon does not need this file, only the other readers do.
+    # But say so, because a silent miss here is exactly the failure it fixes.
+    rm -f "${_ostler_workspace_marker}.tmp.$$" 2>/dev/null || true
+    warn "Could not write ${_ostler_workspace_marker}. Usage-journal readers outside the daemon will resolve to \${HOME}/.ostler/workspace, which nothing writes."  # i18n-exempt
+fi
+unset _ostler_workspace_marker
+
 # P0-β (box-walk recut #2, 2026-07-26): PRESERVE existing gateway pairings
 # across upgrades. The `{ ... } > "$ASSISTANT_CONFIG"` block below REGENERATES
 # the config from scratch, and its [gateway] line historically wrote
@@ -25559,8 +25599,10 @@ except Exception:
         _hydrate_sentinel_record_error "email" "$_HYDRATE_EMAIL_RC" \
             "people=${_HYDRATE_EMAIL_COUNT:-unknown},messages=${_HYDRATE_EMAIL_MSGS:-unknown},outcome=${_HYDRATE_EMAIL_OUTCOME:-unknown}"
     elif [[ "$_HYDRATE_EMAIL_OUTCOME" == "imported" ]]; then
+        # W012 class: outcome=imported with zero of both is reachable.
         _hydrate_sentinel_record "email" \
-            "people=${_HYDRATE_EMAIL_COUNT:-0},messages=${_HYDRATE_EMAIL_MSGS:-0}"
+            "people=${_HYDRATE_EMAIL_COUNT:-0},messages=${_HYDRATE_EMAIL_MSGS:-0}" \
+            "ran_ok_imported_zero"
     else
         _hydrate_sentinel_record_no_data "email" "${_HYDRATE_EMAIL_OUTCOME:-unknown}"
     fi
@@ -25731,7 +25773,10 @@ except Exception:
         _hydrate_sentinel_record_error "whatsapp" "$_HYDRATE_WHATSAPP_RC" \
             "people_added=${_HYDRATE_WHATSAPP_COUNT:-unknown}"
     else
-        _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+        # W012 class: reachable zero on the rc=0 arm. Declared, so a run
+        # that completed and added nobody is not filed as an unexplained zero.
+        _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}" \
+            "ran_ok_no_people_added"
     fi
 
     unset _HYDRATE_WHATSAPP_TIMED_OUT _HYDRATE_WHATSAPP_JSON
@@ -25918,7 +25963,9 @@ except Exception:
         _hydrate_sentinel_record_error "browsing" "$_HYDRATE_BROWSING_RC" \
             "sent=${_HYDRATE_BROWSING_SENT:-unknown},skipped=${_HYDRATE_BROWSING_SKIPPED:-unknown},collection_points=$(_hydrate_qdrant_points safari_history)"
     else
-        _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+        # W012 class: reachable zero on the rc=0 arm.
+        _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}" \
+            "ran_ok_nothing_sent_or_skipped"
     fi
 
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
@@ -26076,7 +26123,9 @@ else
             _hydrate_sentinel_record_error "email_preferences" "$_HYDRATE_EMAILPREFS_RC" \
                 "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-unknown}"
         else
-            _hydrate_sentinel_record "email_preferences" "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}"
+            # W012 class: reachable zero on the rc=0 arm.
+            _hydrate_sentinel_record "email_preferences" "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}" \
+                "ran_ok_no_preferences_created"
         fi
     fi
 
@@ -26263,7 +26312,37 @@ except Exception:
         _hydrate_sentinel_record_error "imessage" "$rc" \
             "people=${_HYDRATE_IMESSAGE_COUNT:-unknown}"
     else
-        _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}"
+        # W012 (v1.0.63 walk 2): this recorded detail=zero_payload_undeclared
+        # whenever the people count came back 0, and Doctor rendered that as
+        # "the source produced nothing". On the walk box the run had ingested
+        # 10 conversations and 15,345 messages -- the count was 0 because all
+        # 13 contacts were ALREADY known from Contacts. The person who read
+        # his own product as broken was the author of the spec.
+        #
+        # The sentinel already distinguishes an explainable zero from an
+        # unexplained one; this call site simply never passed the third
+        # argument. Declare only what install.sh has MEASURED at this line:
+        # the ingest returned rc=0 and people_created + people_enriched summed
+        # to zero. NOT "all contacts were already known" -- that was the
+        # diagnosis of one walk box, and this line never established it. A
+        # reason that states a cause it did not observe is the same defect
+        # wearing a better word.
+        #
+        # It deliberately does NOT name the backfill rung. The rung governs
+        # the EXTRACTOR; `ingest_imessage(fda_dir)` takes no window and
+        # reports none (vendor/ostler_fda/pwg_ingest.py:551,663), so naming a
+        # rung here would be install.sh asserting a cause it never observed --
+        # the same defect one level down.
+        #
+        # Nor does this make the STATUS true, and it should not be mistaken
+        # for that. A run that ingested 15,345 messages did not produce "no
+        # data". _hydrate_payload_is_all_zero flips to false the moment any
+        # numeric field is non-zero, so a payload carrying conversation and
+        # message counts would report status=ok by itself -- but those counts
+        # are not in the JSON install.sh receives. That repair belongs in the
+        # vendored ingest, upstream, not here.
+        _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}" \
+            "ran_ok_no_new_or_enriched_people"
     fi
 
     unset _HYDRATE_IMESSAGE_TIMED_OUT _HYDRATE_IMESSAGE_JSON_OUT
@@ -26674,7 +26753,9 @@ elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_APPLENOTE
         _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_EMBED_RC" \
             "stage=embed,notes=${_HYDRATE_APPLENOTES_COUNT:-unknown}"
     else
-        _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+        # W012 class: reachable zero on the rc=0 arm.
+        _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}" \
+            "ran_ok_no_notes"
     fi
 
     unset _HYDRATE_APPLENOTES_CAP _HYDRATE_APPLENOTES_TIMEOUT_WRAP
@@ -26807,7 +26888,11 @@ except Exception:
         _hydrate_sentinel_record_error "people" "$_HYDRATE_PEOPLE_RC" \
             "sent=${_HYDRATE_PEOPLE_SENT:-unknown},collection_points=$(_hydrate_qdrant_points people)"
     else
-        _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}"
+        # W012 class: reachable zero on the rc=0 arm. #852 fixed the
+        # FABRICATED zero on the error arm; this is the honest zero on the
+        # success arm, which was still filed as unexplained.
+        _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}" \
+            "ran_ok_nothing_sent"
     fi
 
     unset _HYDRATE_PEOPLE_TIMED_OUT _HYDRATE_PEOPLE_JSON
