@@ -271,6 +271,13 @@ jobs:
         if: always()
         run: bash tests/test_decline_does_not_wipe_an_existing_install.sh
 
+      # The SECOND lock on the same arm. #1437's guard is the primary defence and
+      # is tested by execution above; this one pins the emergent binding its own
+      # source comment warned "a later change could quietly reverse".
+      - name: A promote before the decline arms is gated on SKIP_PHASE2
+        if: always()
+        run: bash tests/test_a_promote_before_the_decline_arms_is_gated.sh
+
       - name: An absent config key must not abort the install
         if: always()
         run: bash tests/test_config_reader_absence_does_not_abort_the_install.sh
