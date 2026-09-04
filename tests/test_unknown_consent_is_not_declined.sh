@@ -93,6 +93,35 @@ n_warn="$(grep -c '_ostler_warn_consent_unknown ' "$SUBJECT")"
     && ok "the unknown state is announced at ${n_warn} site(s), not swallowed" \
     || bad "only ${n_warn} announcement site(s); an unknown that is not said out loud is the original defect"
 
+# ── The step-count and the guard must read ONE value ─────────────────────
+# MEASURED on my own first fix: the TOTAL_STEPS decrement still read the RAW
+# variable while the guard read the resolver. On a reuse run where the resolver
+# restores `accepted` from the registry, the step RUNS while its slot has
+# already been subtracted -- the denominator shrinking mid-run, which is
+# v1061-D005 filed against this installer. A gated step must decide once.
+# ORDER-INDEPENDENT ON PURPOSE. The first version of this line required
+# TOTAL_STEPS to appear BEFORE the variable, and the real code writes
+# `[[ ... $VAR ... ]] && TOTAL_STEPS=...` -- variable first. So the mutation
+# that reinstated the defect walked straight past it. Match the LINE, not an
+# assumed word order.
+n_raw_steps="$(grep -cE 'TOTAL_STEPS' "$SUBJECT" | head -1 >/dev/null; grep -E 'TOTAL_STEPS' "$SUBJECT" | grep -cE 'OSTLER_CONSENT_THIRD_PARTY_DECISION')"
+if [ "$n_raw_steps" -eq 0 ]; then
+    ok "no TOTAL_STEPS decrement reads the raw consent variable"
+else
+    bad "${n_raw_steps} step-count line(s) read the RAW variable while the guard reads the resolver -- the denominator and the behaviour can disagree"
+fi
+
+# Every gated feed must resolve BEFORE it decrements, or the two can diverge.
+for feed in TP_EMAIL TP_IMSG; do
+    res_at="$(grep -n "_OSTLER_CONSENT_${feed}=" "$SUBJECT" | head -1 | cut -d: -f1)"
+    dec_at="$(grep -n "_OSTLER_CONSENT_${feed}\" != \"accepted\"" "$SUBJECT" | head -1 | cut -d: -f1)"
+    if [ -n "$res_at" ] && [ -n "$dec_at" ] && [ "$res_at" -lt "$dec_at" ]; then
+        ok "${feed}: resolved (line ${res_at}) BEFORE its step-count decrement (line ${dec_at})"
+    else
+        bad "${feed}: resolve/decrement ordering is wrong or unfindable (resolve=${res_at:-none} decrement=${dec_at:-none})"
+    fi
+done
+
 echo
 echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
 [ "$FAIL" -eq 0 ] || exit 1
