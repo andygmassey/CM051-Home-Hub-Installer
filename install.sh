@@ -28519,8 +28519,35 @@ fi
 #
 # Reachable is not ours. The port says SOMETHING is serving; only our own
 # launchd domain says it is OURS.
+# ⚠️ PARSE THE STATE, DO NOT GATE ON THE EXIT CODE. This file already knows
+# why, at the `launchctl print` note further up: "returns rc=0 for a job that
+# is merely REGISTERED ... Registration is not runnability". TNM caught the
+# first version of this line making exactly that mistake, and it was measured
+# three ways on this Mac rather than argued:
+#
+#     absent label            rc=113   (no state line)
+#     loaded but NOT running  rc=0     state = not running
+#     loaded AND running      rc=0     state = running
+#
+# rc=0 covers BOTH running and dead, so an exit-code gate would let a dead
+# agent report healthy while a foreign ollama answered the port -- the same
+# defect wearing a different instrument, and the `launchctl load exits 0 on
+# failure` scar for the third time in this file.
+#
+# `state = running` is a FAIR demand for THIS agent specifically: its plist
+# sets KeepAlive <true/>, which is the condition
+# _ostler_launchagent_keeps_alive() exists to test. It would NOT be fair of a
+# one-shot, and that comment says so.
+#
+# 🔒 WHAT THIS DOES AND DOES NOT CLOSE, so the fix does not imply more than it
+# proves. It closes GREEN ON A DEAD INSTALL: our agent must be up for this to
+# pass. It does NOT close GREEN ON SOMEONE ELSE'S LIVE ONE -- `state = running`
+# does not prove the reply on :11434 came from OUR pid, and attributing a
+# listener needs #549, which an unprivileged reader cannot do. The narrower
+# claim is the true one.
 if curl -sf http://localhost:11434/api/tags &>/dev/null \
-   && launchctl print "gui/$(id -u)/com.ostler.ollama" >/dev/null 2>&1; then
+   && launchctl print "gui/$(id -u)/com.ostler.ollama" 2>/dev/null \
+      | grep -q 'state = running'; then
     ok "$MSG_OK_OLLAMA_HEALTHY"
 else
     warn "$MSG_WARN_OLLAMA_NOT_RESPONDING"

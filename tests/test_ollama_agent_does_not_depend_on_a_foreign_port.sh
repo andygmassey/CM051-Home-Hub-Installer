@@ -127,13 +127,29 @@ if [ -z "$HGUARD" ]; then
     echo "CANNOT-RUN: the health arm was not found in install.sh." >&2; exit 2
 fi
 
-# Drive it: curl answers / does not, our agent loaded / not. Echoes OK or UNHEALTHY.
+# Drive it. `agent` is one of: running | dead | absent -- and the middle one is
+# the whole point. MEASURED on macOS, three labels, three outcomes:
+#
+#     absent label            rc=113   (no state line)
+#     loaded but NOT running  rc=0     state = not running
+#     loaded AND running      rc=0     state = running
+#
+# rc=0 covers BOTH running and dead, so a stub that only returns an exit code
+# cannot tell them apart -- which is exactly the blindness the first version of
+# this fix had. The stub therefore emits the STATE LINE launchd really prints.
 _health() {
-    local answered="$1" ours="$2"
+    local answered="$1" agent="$2"
+    local lc_out lc_rc
+    case "$agent" in
+        running) lc_out='	state = running'      ; lc_rc=0   ;;
+        dead)    lc_out='	state = not running'  ; lc_rc=0   ;;
+        absent)  lc_out=''                        ; lc_rc=113 ;;
+        *)       echo "BAD_FIXTURE"; return ;;
+    esac
     cat > "${WORK}/h.sh" <<EOF
 set -uo pipefail
 curl() { return $(( answered == 1 ? 0 : 1 )); }
-launchctl() { return $(( ours == 1 ? 0 : 1 )); }
+launchctl() { printf '%s\n' ${lc_out:+"$(printf '%q' "$lc_out")"}; return ${lc_rc}; }
 ok() { echo OK; }
 ${HGUARD}
     ok
@@ -144,24 +160,32 @@ EOF
     bash "${WORK}/h.sh" 2>/dev/null
 }
 
-r="$(_health 1 0)"
+r="$(_health 1 absent)"
 [ "$r" = "UNHEALTHY" ] \
-    && ok "port answers but the agent is NOT ours -> UNHEALTHY. This is the arm that fired on walk 6." \
-    || bad "port answers + agent NOT ours -> ${r}. A foreign Ollama still reports this install healthy."
+    && ok "port answers, our agent ABSENT -> UNHEALTHY. This is the arm that fired on walk 6." \
+    || bad "port answers + agent absent -> ${r}. A foreign Ollama still reports this install healthy."
 
-r="$(_health 1 1)"
+r="$(_health 1 dead)"
+[ "$r" = "UNHEALTHY" ] \
+    && ok "port answers, our agent LOADED BUT NOT RUNNING -> UNHEALTHY. launchctl returns rc=0 here, so an exit-code gate would pass it." \
+    || bad "port answers + agent loaded-but-dead -> ${r}. THIS IS THE rc=0 BLINDNESS: registration is not runnability."
+
+r="$(_health 1 running)"
 [ "$r" = "OK" ] \
-    && ok "port answers AND the agent is ours -> healthy" \
+    && ok "port answers AND our agent is running -> healthy" \
     || bad "a genuinely healthy Ollama reports ${r}; the fix reddens working installs."
 
-r="$(_health 0 1)"
+r="$(_health 0 running)"
 [ "$r" = "UNHEALTHY" ] \
-    && ok "our agent exists but nothing answers -> UNHEALTHY, so a dead Ollama is still caught" \
-    || bad "a dead Ollama with our agent present reports ${r}."
+    && ok "our agent runs but nothing answers -> UNHEALTHY, so a dead port is still caught" \
+    || bad "a dead port with our agent running reports ${r}."
 
 case "$HGUARD" in
-    *launchctl*) ok "the health arm consults our own launchd domain, not just the port" ;;
-    *) bad "the health arm no longer names launchctl: ${HGUARD}" ;;
+    *launchctl*state\ =\ running*|*state\ =\ running*launchctl*)
+        ok "the health arm parses state = running, not launchctl's exit code" ;;
+    *launchctl*)
+        bad "the health arm calls launchctl but does not parse the state. rc=0 covers BOTH running and dead, so this passes a parked agent: ${HGUARD}" ;;
+    *)  bad "the health arm no longer names launchctl: ${HGUARD}" ;;
 esac
 
 echo "── and it must NOT be built on lsof ──"
