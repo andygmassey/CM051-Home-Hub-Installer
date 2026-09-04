@@ -19193,7 +19193,7 @@ try:
     print(int(json.loads(sys.stdin.read()).get("imported", 0)))
 except Exception:
     print(0)' 2>/dev/null
-)"
+)" || count=""
 count="${count:-0}"
 
 if [[ "$count" -gt 0 ]]; then
@@ -25429,7 +25429,7 @@ try:
     print(int(d.get("imported", 0)))
 except Exception:
     print(0)' 2>/dev/null
-    )"
+    )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_CONTACTS_COUNT=""; }
     _HYDRATE_CONTACTS_COUNT="${_HYDRATE_CONTACTS_COUNT:-0}"
 
     # Settling panel, `contacts` channel. Reported HERE rather than as a
@@ -25822,7 +25822,7 @@ try:
     print(int(d.get("imported", 0)))
 except Exception:
     print(0)' 2>/dev/null
-    )"
+    )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_CALENDAR_COUNT=""; }
     _HYDRATE_CALENDAR_COUNT="${_HYDRATE_CALENDAR_COUNT:-0}"
     # Parse the extract + ingest "status" so a genuine extractor failure
     # (a raised exception -- e.g. ModuleNotFoundError if ostler_fda is not
@@ -26020,7 +26020,7 @@ try:
     print(int(d.get("people_extracted", 0)), int(d.get("messages_read", 0)))
 except Exception:
     print(0, 0)' 2>/dev/null
-        )"
+        )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_EMAIL_COUNTS=""; }
         _HYDRATE_EMAIL_COUNT="${_HYDRATE_EMAIL_COUNTS%% *}"
         _HYDRATE_EMAIL_MSGS="${_HYDRATE_EMAIL_COUNTS##* }"
         case "${_HYDRATE_EMAIL_COUNT:-}" in ''|*[!0-9]*) _HYDRATE_EMAIL_COUNT=0 ;; esac
@@ -26191,7 +26191,7 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
             --since-days 365 \
             2>>"$_HYDRATE_WHATSAPP_LOG" \
         | tail -n 1
-    )"
+    )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_WHATSAPP_JSON=""; }
     rc=$?
     # #712: mirror into a per-source variable at the point of capture. `rc` is
     # a shared global that every hydrate block reassigns, so reading it a
@@ -26224,7 +26224,7 @@ try:
     print(int(d.get("people_added", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )"
+        )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_WHATSAPP_COUNT=""; }
         _HYDRATE_WHATSAPP_COUNT="${_HYDRATE_WHATSAPP_COUNT:-0}"
 
         if [[ "$_HYDRATE_WHATSAPP_COUNT" -gt 0 ]]; then
@@ -26400,7 +26400,7 @@ try:
     print(int(d.get("sent", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )"
+        )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_BROWSING_SENT=""; }
         _HYDRATE_BROWSING_SKIPPED="$(
             printf '%s' "$_HYDRATE_BROWSING_JSON" \
             | python3 -c 'import json,sys
@@ -26409,7 +26409,7 @@ try:
     print(int(d.get("skipped_sensitive", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )"
+        )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_BROWSING_SKIPPED=""; }
         _HYDRATE_BROWSING_SENT="${_HYDRATE_BROWSING_SENT:-0}"
         _HYDRATE_BROWSING_SKIPPED="${_HYDRATE_BROWSING_SKIPPED:-0}"
         if [[ "$_HYDRATE_BROWSING_SENT" -gt 0 ]]; then
@@ -26732,7 +26732,7 @@ try:
     print(int(d.get("people_created", 0)) + int(d.get("people_enriched", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )"
+        )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_IMESSAGE_COUNT=""; }
         _HYDRATE_IMESSAGE_COUNT="${_HYDRATE_IMESSAGE_COUNT:-0}"
 
         if [[ "$_HYDRATE_IMESSAGE_COUNT" -gt 0 ]]; then
@@ -27343,7 +27343,7 @@ try:
     print(int(d.get("sent", 0)))
 except Exception:
     print(0)' 2>/dev/null
-        )"
+        )" || { _HYDRATE_COUNTER_RC=$?; _HYDRATE_PEOPLE_SENT=""; }
         _HYDRATE_PEOPLE_SENT="${_HYDRATE_PEOPLE_SENT:-0}"
         if [[ "$_HYDRATE_PEOPLE_SENT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_PEOPLE_DONE" "$_HYDRATE_PEOPLE_SENT")"
@@ -29251,7 +29251,7 @@ try:
     print(int(d.get("written", 0)))
 except Exception:
     print(0)' 2>/dev/null
-            )"
+            )" || { _HYDRATE_COUNTER_RC=$?; _AICONV_COUNT=""; }
             _AICONV_COUNT="${_AICONV_COUNT:-0}"
 
             # ── Steady-state recurring feed: register UNCONDITIONALLY ──
