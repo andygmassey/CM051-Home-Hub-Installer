@@ -370,15 +370,61 @@ esac
 if [[ "$DO_RESET" -eq 1 ]]; then
     rule "RESET (uninstall + port survey; this is NOT a wipe)"
     "${SSH[@]}" 'set -u
+        # 🔴 A RESET THAT FOUND NO UNINSTALLER USED TO SAY NOTHING AT ALL.
+        #
+        # This loop had no else. When none of the three paths existed it did
+        # nothing, silently, under a section header that says "uninstall +
+        # port survey" -- so the operator read a reset that had not happened.
+        #
+        # MEASURED, walk 6 of 2026-09-04. No walk had yet completed an install,
+        # so no uninstaller existed anywhere on that box. The loop no-opped,
+        # `colima stop` ran, the port survey showed all six FREE, and the reset
+        # reported success. Then install.sh restarted colima at step 2, the
+        # FIVE CONTAINERS LEFT BY THE PREVIOUS WALK auto-started with the VM,
+        # re-published 6333, and the installer's own port preflight refused:
+        #
+        #     Port 6333 is already in use by ssh: .../colima/ssh.sock (PID 3158),
+        #     which belongs to this account
+        #     Install aborted unexpectedly at line 16018 (step graph_db_start)
+        #
+        # Ten steps and about five minutes, spent on state the reset claimed to
+        # have cleared. The installer was RIGHT to refuse; the harness was
+        # wrong to say it had reset.
+        _uninstalled=false
         for u in ~/Applications/Ostler.app/Contents/Resources/uninstall.sh \
                  /Applications/Ostler.app/Contents/Resources/uninstall.sh \
                  ~/.ostler/uninstall.sh; do
             if [[ -x "$u" ]]; then
                 echo "running shipped uninstaller: $u"
                 OSTLER_ASSUME_YES=1 bash "$u" 2>&1 | tail -25
+                _uninstalled=true
                 break
             fi
         done
+        if [[ "$_uninstalled" != true ]]; then
+            echo "NO SHIPPED UNINSTALLER FOUND. Searched, in order:"
+            echo "    ~/Applications/Ostler.app/Contents/Resources/uninstall.sh"
+            echo "    /Applications/Ostler.app/Contents/Resources/uninstall.sh"
+            echo "    ~/.ostler/uninstall.sh"
+            echo "⚠️  THE UNINSTALLER IS PART OF WHAT A RESET IS SUPPOSED TO TEST,"
+            echo "    and this run did NOT test it. That is a gap in the evidence,"
+            echo "    not a clean slate. It happens when no previous walk got far"
+            echo "    enough to install one."
+            # Clear ONLY what the uninstaller would have cleared, and say that
+            # the harness is standing in for it. Leaving them is not neutral:
+            # they auto-start with the VM and take the ports the install needs.
+            _left="$(docker ps -aq --filter 'name=ostler-' 2>/dev/null | wc -l | tr -d ' ')"
+            if [[ "${_left:-0}" -gt 0 ]]; then
+                echo "    ${_left} leftover ostler-* container(s) from a previous walk:"
+                docker ps -a --filter 'name=ostler-' --format '      {{.Names}}  {{.Status}}' 2>/dev/null
+                echo "    removing them so they cannot re-bind the preflight ports."
+                echo "    THE HARNESS IS DOING THIS, NOT THE PRODUCT."
+                docker rm -f $(docker ps -aq --filter 'name=ostler-') >/dev/null 2>&1 || true
+                echo "    ostler-* containers remaining: $(docker ps -aq --filter 'name=ostler-' 2>/dev/null | wc -l | tr -d ' ')"
+            else
+                echo "    no leftover ostler-* containers to remove."
+            fi
+        fi
         # Stop the container VM. A previous install leaves colima running, and
         # colima publishes the container ports through an ssh multiplexer of its
         # own -- so ALL SIX preflight ports read HELD by a process called `ssh`
