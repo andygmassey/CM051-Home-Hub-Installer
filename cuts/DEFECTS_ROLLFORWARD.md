@@ -4948,3 +4948,152 @@ are set and never read. Neither site has been traced, so neither is claimed as
 a defect. And the sentinel STATUS is still `no_data` in both cases -- only the
 DETAIL was made honest, because a true status needs volume counts
 `ingest_imessage` does not return.
+
+### v1066-D001 -- the two UNMEASURED flags v1065-D003 left owed are traced, and both were dead
+
+**This closes the "STILL OWED" note at the foot of v1065-D003.** Both sites are
+now traced and both were real. Measured against the SHIPPED v1.0.66
+`install.sh` (sha256 `e1cdd10c`, the blob inside the DMG):
+
+    _HYDRATE_EMAIL_COUNTS_UNMEASURED   occurrences=1
+    _AICONV_UNMEASURED                 occurrences=1
+
+**One occurrence means ASSIGNED, then read by nothing in the entire file.** Both
+sit on the failure arm of a command substitution, and in both cases the very
+next lines MANUFACTURE the value whose absence was just recorded:
+
+    )" || { _HYDRATE_EMAIL_COUNTS_UNMEASURED=true; _HYDRATE_EMAIL_COUNTS=""; }
+      -> case ''|*[!0-9]*) _HYDRATE_EMAIL_COUNT=0
+    )" || { _AICONV_UNMEASURED=true; _AICONV_COUNT=""; }
+      -> _AICONV_COUNT="${_AICONV_COUNT:-0}"
+
+So a counter that COULD NOT RUN was published as a MEASURED ZERO. Email then
+landed on `no_correspondents_in_window` -- a cause nobody observed, shown to a
+customer for a count nobody could take. **This is exactly the composition
+v1065-D003 warned about, surviving in the two arms that never got the guard.**
+
+Calendar and contacts already carried it. Seven flags in the family, five
+consulted, two not, and nothing in the tree could tell you which.
+
+**FIXED, CM051 #1457.** Email mirrors calendar including the reason string
+`counter_failed_count_unmeasured`, so the two encode ONE state. Aiconv uses
+`_hydrate_sentinel_record_cannot_run`, which already existed. Email ALSO gets a
+`settling_report emails 0 0 true` that calendar does not need: email calls
+settling on every other path (5 of 5) and `install.sh:26136` requires the
+channel to appear, so omitting it would have made this the one email path whose
+row vanishes from the panel.
+
+**GATE**: `tests/test_an_unmeasured_flag_must_be_read.sh`, 6 limbs, 4 synthetic
+controls (one MUST-FLAG, three MUST-MISS: a guard that is present, a `${BRACED}`
+read, and a shorter flag name inside a longer one), plus a negative control
+pinned to `a752275d` which must name both dead flags and does. Mutation:
+removing the email guard alone gives rc=1 naming that flag.
+
+Reporting honesty, not data loss. No install aborts. Scoped to v1.0.67.
+
+### v1066-D002 -- a subshell emits a TERMINAL DONE, so a healthy install shows a failure banner
+
+`set -E` propagates the ERR trap INTO a command substitution's subshell. The
+child emits a terminal marker and sets `OSTLER_DONE_EMITTED=1` **inside itself**,
+then dies with the flag. Measured by TNM on `/bin/bash` 3.2.57 by instrumenting
+the real shipped test with `$$` and `$BASH_SUBSHELL` at every emit:
+
+    pid=55691  subshell=1   DONE status=fail  code=ERR-99-INSTALL-ABORT-L9
+    pid=55691  subshell=0   DONE status=ok    failed_steps=0 errors=0
+
+Same process. `fail` then `ok`.
+
+**THE EXPOSURE IS NOT THE `local` SUBSET.** Both TNM and Archie published
+"9 `local X=$( )` sites" and both independently corrected it to **2** within
+four minutes, because `$((` arithmetic matches any pattern anchored on `$(`.
+The two are `date +%s` and `printf | tr`, both benign. The real mask is:
+
+    X="$( ... )" || { ... }     19 sites, EVERY hydrate counter
+    bare X="$( ... )"          410 sites, no mask -- parent aborts too
+    if X="$( ... )"; then        3 sites, ERR suppressed, safe
+
+and walk 11's abort at `install.sh:25448` names `tail -n 1`, a command inside
+exactly that shape, after which the install ran 29 more steps. **Field evidence
+that the subshell speaks while the parent survives.**
+
+**CUSTOMER IMPACT, measured from the consumer side rather than assumed.**
+`InstallerCoordinator.swift`: `finished` is overwritten by each DONE (1825),
+`failureState` is COMPUTED not stored (227), and `process.terminate()` is
+reached ONLY from user-initiated `cancel()` (1142). So a phantom renders the
+failure banner carrying `ERR-99-INSTALL-ABORT-Lnnnn` during a HEALTHY install,
+does NOT kill install.sh, and REVERTS when the parent's DONE arrives.
+
+⇒ **Not a false success. Not a killed install.** A scary error code shown to a
+customer whose install is fine. Residual risk is a customer who acts on that
+banner. **High-priority v1.0.67 fix, NOT a launch blocker.**
+
+**FIXED, CM051 #1459**: `[ "${BASH_SUBSHELL:-0}" -gt 0 ] && gui_log error ... &&
+return` near the top of `_ostler_on_err`. The `gui_log` before the `return` is
+load-bearing: the log stream survives the subshell, the flag does not, so the
+failure is still recorded and only the TERMINAL marker is suppressed.
+
+⚠️ **DO NOT hoist `OSTLER_DONE_EMITTED`.** `lib/progress_emitter.sh:717-725`
+already measured that at **0 DONE markers**, and it mutes the EXIT backstop too.
+The obvious fix is the wrong one and the measurement is on the record.
+
+⚠️ **STILL OWED**: nothing anywhere covers the **fail-then-ok** transition.
+`FailureStateMachineTests` asserts `status=fail -> .failed(step:)` and stops.
+The revert works only because `failureState` is a computed property, so the
+half of the severity argument above that says "it reverts" is unpinned.
+
+### v1066-D003 -- the admin-token mirror is startup-only and two of its four outcomes are invisible
+
+Filed at TNM's request so it is not rediscovered from scratch. **Not the cause
+of anything observed** -- it was his hypothesis for the `/ws/chat` 401, and the
+401 turned out to be a port collision (see v1066-D004) -- but the code reading
+is correct and worth keeping.
+
+The mirror has ONE production writer, it runs at startup only, and **two of its
+four outcomes are below the shipped log level**. Consequence: **a daemon that
+never trusted the admin token is indistinguishable from one that did.**
+
+Not v1.0.67: `DAEMON_COMMIT` is pinned and that cut rebuilds no daemon. This is
+an observability gap in `oa`, to be picked up when the daemon pin next moves.
+
+### v1066-D004 -- the box-walk probe blamed the product for another account's service
+
+**HARNESS, not product, and it cost hours of product investigation.** On the
+v1.0.66 artefact walk `daemon_is_listening` reported:
+
+    FAIL -- config loads cleanly but NOTHING is listening on :8000
+            (launchd last_exit=0). The daemon is failing after config parse.
+
+Every word of that diagnosis was wrong:
+
+    curl --noproxy '*' http://127.0.0.1:8000/     ->  HTTP 200
+    ps -Ao user=,pid=,lstart=  ->  andy   20075   running since the day before
+                                   archie 91136   this walk's daemon
+    archie's ostler-assistant.err  ->  27x "Address already in use (os error 48)"
+                                       and ZERO successful binds
+
+**Another account's Hub held the port.** `lsof` ran as the walked account and
+cannot see a socket owned by a different user, so it returned 0, and the probe
+read that PERMISSION BOUNDARY as ABSENCE.
+
+**Two faults, and the second is what made it a FAIL rather than a CANNOT-RUN:**
+
+1. `2>/dev/null` on the enumeration. Wrong on principle -- but MEASURED, it does
+   not fire here: macOS `lsof` gives **rc=1, 0 stdout lines, 0 stderr BYTES**,
+   and rc=1 is also what a genuinely empty port returns. **Neither stderr nor
+   the exit code discriminates on this platform.**
+2. `if [ "$signals" -eq 0 ]` required **BOTH** lsof AND launchctl to be silent.
+   launchctl answered, so the CANNOT-RUN arm was skipped. **The honest verdict
+   was one branch away and an AND closed it.**
+
+Ten sibling probes failed downstream of the same fact, and it also explains the
+`/ws/chat` **401** investigated for hours as a provisioning defect: the probe
+reached the OTHER Hub and presented a token it never issued. The `GET /` control
+returned 200 for the same reason -- **control and subject were talking to the
+same wrong server.**
+
+**FIXED, CM051 #1462.** A CONNECT test plus the daemon's own "Address already in
+use" confession, returning CANNOT-RUN when the port answers while we see no
+listener; and an unreadable enumeration is now disqualifying on its own.
+Control grew 4 -> 6 reading sets, and set 6 is the important one: a genuinely
+dead port must STILL be FAIL, so the occupancy check cannot disable the defect
+the probe exists for.
