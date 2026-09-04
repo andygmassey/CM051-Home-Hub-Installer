@@ -50,6 +50,7 @@ on:
       - 'tests/test_source_status_canonical_matches_recorders.sh'
       - 'tests/test_e1_source_readout_emits.sh'
       - 'tests/test_ostler_home_root_is_one_class.sh'
+      - 'tests/test_imessage_zero_is_declared_not_undeclared.sh'
       - 'vendor/doctor/agent/extension_token.py'
       - 'vendor/doctor/agent/whatsapp_pair.py'
       - 'vendor/doctor/agent/diagnostic_rules.py'
