@@ -5654,6 +5654,84 @@ if [[ -n "$CARD_DATA" ]]; then
     DETECTED_PHONE=$(echo "$CARD_DATA" | cut -d'|' -f5)
 fi
 
+# ── Owner address, second source: the accounts database ──────────────────
+#
+# WHY A SECOND SOURCE AT ALL. The me-card read above is an osascript call
+# into Contacts.app. MEASURED on the Mini 16 during the v1.0.63 walk,
+# 2026-09-04, on a wiped machine restored from a Time Machine backup:
+#
+#     Contacts got an error: Application isn't running. (-600)
+#
+# The branch above already RECOGNISES that failure and warns about it. What
+# it had was no alternative, so DETECTED_EMAIL stayed empty, and one empty
+# string later the AI-conversations agent was registered with
+# CM052_USER_EMAIL="" and refused every hour forever.
+#
+# A GUI app being warm is not a property of a customer's Mac at install time.
+# It is the property LEAST likely to hold: the installer runs on a machine
+# somebody has just set up.
+#
+# WHY THIS SOURCE. ~/Library/Accounts/Accounts4.sqlite is where macOS keeps
+# every configured account -- iCloud, Mail, Calendar, Contacts -- and it is a
+# plain file, present before any app has been opened. Measured on the same
+# box: 8 account rows resolving to 2 distinct addresses, while Contacts was
+# unscriptable and the local AddressBook store held 0 email addresses.
+#
+# MOST ROWS WINS. An Apple ID appears once per service it backs, so the
+# address with the most rows is the account identity rather than a
+# single-purpose mailbox.
+#
+# 🔴 AND IT PICKED THE WRONG ONE ON THE FIRST BOX IT MET. Stated here rather
+# than discovered later. Measured on the Mini 16, 2026-09-04: two addresses,
+# and the account-identity one is NOT the address the owner actually uses.
+#
+#     <apple-id>@   10 rows   CardDAV, iTunes Store, iCloud, Messages, IDMS,
+#                             Game Center, Find My, Device Locator, CloudKit,
+#                             Apple ID
+#     <preferred>@   7 rows   CalDAV x6, Gmail
+#
+# The owner confirmed the SECOND is his address. So this rule is right about
+# "which account identifies this Mac" and wrong about "which mailbox is this
+# person", and those are different questions.
+#
+# IT SHIPS ANYWAY, AND HERE IS THE ARGUMENT. The alternative on this path is
+# no address at all, which registers nothing and leaves AI conversations dead
+# until the customer notices. A plausible-but-wrong address still labels
+# transcripts, still lets the agent run, and is correctable in one field. An
+# absent one is not correctable by anybody who does not already know it is
+# absent.
+#
+# ⚠️ THE REAL FIX IS TO ASK, AND THIS IS NOT IT. This value should pre-fill a
+# question the customer confirms, exactly as the name and country do. Until
+# that lands, this is a fallback that reduces a permanent silent failure to a
+# visible wrong value, and it must not be mistaken for the fix.
+#
+# READ-ONLY AND IMMUTABLE, DELIBERATELY. `immutable=1` opens without taking a
+# lock and without creating -wal/-shm sidecars, so reading the customer's
+# live accounts store cannot perturb it. Never open this database writable.
+#
+# FDA MAY STILL REFUSE, and that is fine: the query fails, DETECTED_EMAIL
+# stays empty, and the guard at the AI-conversations agent refuses to
+# register a dead agent and says why. Absent is handled; empty-and-pretending
+# is what was not.
+if [[ -z "$DETECTED_EMAIL" ]]; then
+    _acct_db="${HOME}/Library/Accounts/Accounts4.sqlite"
+    if [[ -r "$_acct_db" ]] && command -v sqlite3 >/dev/null 2>&1; then
+        _acct_email="$(sqlite3 "file:${_acct_db}?immutable=1" \
+            "select ZUSERNAME from ZACCOUNT where ZUSERNAME like '%@%.%' \
+             group by ZUSERNAME order by count(*) desc limit 1;" 2>/dev/null | head -n 1)"
+        # Shape-check before accepting: this feeds a shipped LaunchAgent, and
+        # a malformed value would be worse than none because it would satisfy
+        # the emptiness guard while still being wrong.
+        if [[ "$_acct_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+            DETECTED_EMAIL="$_acct_email"
+            info "Read your email address from this Mac's account settings (your Contacts card was not available)."
+        fi
+        unset _acct_email
+    fi
+    unset _acct_db
+fi
+
 # ── Map country name to dialling code ──────────────────────────────
 
 _country_to_code() {
@@ -28749,6 +28827,46 @@ except Exception:
             _AICONV_RESUME_PLIST="${HOME}/Library/LaunchAgents/com.ostler.aiconv-resume.plist"
             mkdir -p "$LOGS_DIR" "${HOME}/Library/LaunchAgents"
 
+            # 🔴 AN EMPTY REQUIRED VAR MUST NOT REACH A SHIPPED PLIST.
+            #
+            # MEASURED on the Mini 16 during the v1.0.63 walk, 2026-09-04.
+            # USER_EMAIL is read from exactly ONE place -- DETECTED_EMAIL at
+            # :5763, which comes from the macOS me-card via osascript at :5653.
+            # On a Mac where Contacts.app has never been launched that call
+            # returns:
+            #
+            #     Contacts got an error: Application isn't running. (-600)
+            #
+            # so DETECTED_EMAIL is empty, USER_EMAIL is empty, and the
+            # ${USER_EMAIL:-} below expanded to "". The agent then ran hourly
+            # and cm052.cli refused every single time:
+            #
+            #     ERROR cm052.cli: CM052_USER_EMAIL is not set. The wire needs
+            #     it to label the user side of each transcript.
+            #
+            # ai_conversations therefore read `not_run` FOREVER, and the same
+            # rc=2 folded into gui_step_record_rc and reddened health_check --
+            # one empty string, two symptoms, neither naming the cause.
+            #
+            # A COLD MAC IS THE NORMAL CUSTOMER MAC. A wiped machine restoring
+            # from iCloud or Time Machine has no warm GUI apps, which is
+            # exactly when this install runs. Registering an agent that cannot
+            # possibly succeed is worse than not registering it: it is an
+            # hourly failure with no reader, and the source it feeds reports a
+            # state ("not_run") that says nothing about why.
+            #
+            # So: refuse, say why in the customer's own status record, and let
+            # the freshness gate retry once an address is known. `not_run` with
+            # a declared reason is recoverable; a dead agent is not.
+            if [[ -z "${USER_EMAIL:-}" ]]; then
+                warn "AI conversations: no owner email address is known for this Mac, so the hourly AI-conversation reader was not registered."
+                warn "  The address labels your side of each transcript, and the reader cannot run without it."
+                warn "  Ostler reads it from your card in Contacts; on a Mac where Contacts has never been opened there is nothing to read."
+                warn "  Open Contacts once, check your own card has an email address, then re-run Ostler from Settings."
+                _hydrate_sentinel_record "ai_conversations" "written=0" \
+                    "owner_email_unknown_agent_not_registered"
+            else
+
             cat > "$_AICONV_RESUME_PLIST" <<AICONVPLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -28794,6 +28912,7 @@ AICONVPLIST
                || launchctl load "$_AICONV_RESUME_PLIST" 2>/dev/null; then
                 _AICONV_AGENT_OK=true
             fi
+            fi   # end: owner email known
 
             # ── Drain outcome: user-facing message + hydrate sentinel ──
             # The recurring steady feed is registered above regardless; this
