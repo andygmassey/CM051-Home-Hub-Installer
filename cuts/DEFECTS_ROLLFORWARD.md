@@ -5097,3 +5097,111 @@ listener; and an unreadable enumeration is now disqualifying on its own.
 Control grew 4 -> 6 reading sets, and set 6 is the important one: a genuinely
 dead port must STILL be FAIL, so the occupancy check cannot disable the defect
 the probe exists for.
+
+### v1066-D005 -- FOUR post-walk FAILs that no outage explains, and I nearly filed all eleven as environmental
+
+The v1.0.66 ARTEFACT walk was GREEN (39 steps, `DONE status=ok failed_steps=0`).
+The 24-probe post-walk gate then returned **10 PASS / 11 FAIL / 3 CANNOT-RUN**.
+
+🔴 **THE PROCESS FAILURE FIRST, because it is the reusable part.** Another
+account's Hub held :8000, which genuinely explains the 401 and
+`daemon_is_listening`. I found one mechanism that explained the two loudest
+symptoms and **extended it over nine probes whose verdict text I had not read**,
+publishing "essentially all of them are one environmental fact" twice. Reading
+each FAIL's own text refuted it:
+
+```
+PORT COLLISION, the explanation holds ......................  3 of 11
+REAL PRODUCT FINDINGS, no outage explains them .............  4 of 11
+DATA / STORE, needing attribution rather than assumption ...  4 of 11
+```
+
+**A single cause that explains the two loudest symptoms is the most seductive
+wrong answer available.** Compounding it, the LIST was also wrong: built with
+`grep -aB 30 '^  VERDICT: FAIL'`, and a 30-line window SPANS PROBE BOUNDARIES,
+so four probes were mis-attributed. `launchagents_resolve_their_tools`,
+`launchd_no_ephemeral_paths` and `pairing_recovers_without_a_repair_storm` all
+PASSED; `pair_state_agreement` was CANNOT-RUN. The COUNTS were right, which is
+why it survived two retellings. **A correct total over a wrong composition
+looks exactly like a measurement.**
+
+TNM spent a work cycle chasing a `launchagents_resolve_their_tools` FAIL that
+never happened, on that list. (It led him somewhere real anyway -- see
+v1066-D006 -- but by luck, not by the route.)
+
+**THE FOUR, each with its own text and NO shared cause:**
+
+1. `install_manifest_complete` -- **2 required subjects MISSING**:
+   `launch_agent com.ostler.enrich (baseline)` and
+   `launch_agent com.ostler.ollama (baseline)`, plus 1 present-but-UNDECLARED.
+2. `no_person_holds_two_contact_cards` -- **54 Person nodes each carry 2+
+   distinct `icloud_contact_uid`, collapsing 117 Contacts cards.** RULE 2 of the
+   ratified dedupe ruleset -- different canonical keys MUST NOT merge --
+   violated in the LIVE graph (#659). Note v1064-ad already fixed RULE 2 on the
+   converge path; this is the same rule red again on a v1.0.66 box.
+3. `freshness_panel_has_dates` -- the panel has **NO ROW for calendar, contacts,
+   email**, while the ingested keys ARE `[calendar,contacts,email,imessage]`.
+   In the probe's own words, "the customer is shown a currency report that
+   silently excludes a source they are relying on." Same family as the
+   "the channel must still APPEAR" invariant at install.sh:26136.
+4. `no_store_port_is_tcp_reachable` -- **6333 7878 6379 8044 3000 8144
+   TCP-reachable on loopback**, "therefore readable by every account on this
+   Mac". #550 was demonstrated against 7878 with ONE unauthenticated curl.
+   **Look at this one first**: a security finding with a demonstrated exploit
+   path, and the least likely of the four to be a fresh-box artefact.
+
+**NOT CLAIMED**: that any of the four is v1.0.66-specific rather than
+long-standing, or that the remaining four (`ingest_coverage`,
+`people_count_agreement`, `people_stores_reconcile`, `usage_journal_producers`)
+are environmental. Those need attribution and have not had it. **A cause I
+cannot name is better recorded as unnamed than attached to the nearest
+available story.**
+
+### v1066-D006 -- the upgrade path silently reverts the 2026-08-20 Homebrew-PATH fix
+
+`_upg_preserve_plist_env` (install.sh:530..550) walks every key in the OLD plist
+and, where the key also exists in the new one, `Set`s the old value. **`Set`
+replaces, and there is no PATH exclusion.** Called on the assistant at :657 and
+the keepalive at :675.
+
+Found by TNM, reproduced INDEPENDENTLY, using the real function extracted from
+main and two plists differing only in PATH:
+
+```
+Set :EnvironmentVariables lines in the function : 1
+PATH exclusions                                 : 0
+
+BEFORE new.plist PATH   /usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin
+AFTER  new.plist PATH   /usr/bin:/bin:/usr/sbin:/sbin          OVERWRITTEN
+function rc             0
+CONTROL OSTLER_HOME     preserved correctly
+```
+
+**The control is the point: the function is right for every other key.** This is
+a MISSING EXCLUSION, not a broken function -- PATH is the one key whose old
+value must lose. That makes the fix narrow.
+
+**WHY IT IS SERIOUS.** `/usr/bin:/bin:/usr/sbin:/sbin` is exactly the PATH the
+assistant plist's own comment records as producing, measured after a real power
+cycle: *"colima FATA exec limactl: executable file not found in $PATH ...
+Qdrant, Oxigraph, Redis, Vane, wiki-site and store-proxy were all gone until
+someone started Colima by hand."* An upgrading pre-2026-08-20 customer gets the
+fix reverted and **their container stack does not survive a reboot** -- and it
+only reaches customers who ALREADY HAVE containers running.
+
+**THE GATE IS GREEN BECAUSE IT TESTS THE TEMPLATE.**
+`tests/test_launchagent_homebrew_path.sh` has **0** references to
+upgrade / preserve / `_upg_`. It asserts the templates carry the PATH; nothing
+asserts the value SURVIVES an upgrade. The fix shipped, the gate stayed green,
+and it never reached an upgrading customer -- the "a merged PR is not a shipped
+feature" class, with a gate that looks like it covers it.
+
+⚠️ **THE FIRST EXTRACTION READ AS "TEMPLATE SURVIVED".** The function is
+INDENTED at 530 and a column-0 awk anchor extracted **0 lines**, so it never
+ran and the PATH was unchanged because nothing touched it. `rc=127` was the
+only tell. **An unchanged value after a function that never ran is
+indistinguishable from a function that ran and preserved it.**
+
+Scoped to v1.0.67, where on severity it outranks both items already there.
+The test must assert SURVIVAL and carry a MUST-PRESERVE control (a non-PATH
+key), so a fix that simply stops preserving anything cannot pass.
