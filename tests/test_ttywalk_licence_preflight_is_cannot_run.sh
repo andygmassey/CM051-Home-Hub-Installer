@@ -36,6 +36,40 @@ bad() { FAIL=$((FAIL+1)); printf '  [FAIL] %s\n' "$1"; }
 WORK="$(mktemp -d)" || { echo "CANNOT-RUN: no working directory" >&2; exit 2; }
 trap 'rm -rf "$WORK"' EXIT
 
+# ── IT MUST PARSE. This is first because nothing below is meaningful if it ──
+# does not, and because I shipped a broken parse on 2026-09-04.
+#
+# The whole RESET body is a SINGLE-QUOTED argument to ssh. One apostrophe
+# inside it -- in a COMMENT, in the word "installer's" -- closed the argument,
+# and bash then reported the error 400 lines away in unrelated code. The file
+# had already been committed and pushed, because the syntax check and the
+# commit were separated by `;` rather than `&&`.
+if bash -n "$SUBJECT" 2>/dev/null; then
+    ok "ttywalk.sh parses (bash -n)"
+else
+    bad "ttywalk.sh DOES NOT PARSE. Everything below is unmeasurable; fix this first."
+    bash -n "$SUBJECT" 2>&1 | sed 's/^/      /' | head -4
+    echo
+    echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
+    exit 1
+fi
+
+# No apostrophe may appear in the RESET body. It is a single-quoted ssh
+# argument, so an apostrophe is not a typo, it is a quote breakout. bash -n
+# catches it only when the quotes fail to rebalance; when they DO rebalance
+# the file parses and means something else entirely, which is worse.
+_reset_body="$(awk '/rule "RESET/{f=1} f{print} f && /^    . 2>&1$/{exit}' "$SUBJECT")"
+if [ -n "$_reset_body" ]; then
+    _apos="$(printf '%s\n' "$_reset_body" | /usr/bin/grep -c "installer's\|doesn't\|can't\|won't\|it's\|that's" || true)"
+    if [ "${_apos:-0}" -eq 0 ]; then
+        ok "no prose apostrophe inside the single-quoted RESET ssh payload"
+    else
+        bad "${_apos} prose apostrophe(s) inside the RESET ssh payload -- each one closes the ssh argument"
+    fi
+else
+    bad "could not extract the RESET body to check it for quote breakouts"
+fi
+
 # ── ORDERING: the preflight must precede staging AND reset ───────────────
 _line() { /usr/bin/grep -n "$1" "$SUBJECT" | head -1 | cut -d: -f1; }
 pyp="$(_line 'rule "BUNDLED-PYTHON PREFLIGHT')"

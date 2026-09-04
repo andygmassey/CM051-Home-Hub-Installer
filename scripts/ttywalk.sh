@@ -381,14 +381,14 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         # `colima stop` ran, the port survey showed all six FREE, and the reset
         # reported success. Then install.sh restarted colima at step 2, the
         # FIVE CONTAINERS LEFT BY THE PREVIOUS WALK auto-started with the VM,
-        # re-published 6333, and the installer's own port preflight refused:
+        # re-published 6333, and the port preflight of the installer refused:
         #
         #     Port 6333 is already in use by ssh: .../colima/ssh.sock (PID 3158),
         #     which belongs to this account
         #     Install aborted unexpectedly at line 16018 (step graph_db_start)
         #
         # Ten steps and about five minutes, spent on state the reset claimed to
-        # have cleared. The installer was RIGHT to refuse; the harness was
+        # have cleared. The installer was RIGHT to refuse. The harness was
         # wrong to say it had reset.
         _uninstalled=false
         for u in ~/Applications/Ostler.app/Contents/Resources/uninstall.sh \
@@ -413,14 +413,14 @@ if [[ "$DO_RESET" -eq 1 ]]; then
             # Clear ONLY what the uninstaller would have cleared, and say that
             # the harness is standing in for it. Leaving them is not neutral:
             # they auto-start with the VM and take the ports the install needs.
-            _left="$(docker ps -aq --filter 'name=ostler-' 2>/dev/null | wc -l | tr -d ' ')"
+            _left="$(docker ps -aq --filter name=ostler- 2>/dev/null | wc -l | tr -d ' ')"
             if [[ "${_left:-0}" -gt 0 ]]; then
                 echo "    ${_left} leftover ostler-* container(s) from a previous walk:"
-                docker ps -a --filter 'name=ostler-' --format '      {{.Names}}  {{.Status}}' 2>/dev/null
+                docker ps -a --filter name=ostler- --format "      {{.Names}}  {{.Status}}" 2>/dev/null
                 echo "    removing them so they cannot re-bind the preflight ports."
                 echo "    THE HARNESS IS DOING THIS, NOT THE PRODUCT."
-                docker rm -f $(docker ps -aq --filter 'name=ostler-') >/dev/null 2>&1 || true
-                echo "    ostler-* containers remaining: $(docker ps -aq --filter 'name=ostler-' 2>/dev/null | wc -l | tr -d ' ')"
+                docker rm -f $(docker ps -aq --filter name=ostler-) >/dev/null 2>&1 || true
+                echo "    ostler-* containers remaining: $(docker ps -aq --filter name=ostler- 2>/dev/null | wc -l | tr -d ' ')"
             else
                 echo "    no leftover ostler-* containers to remove."
             fi
