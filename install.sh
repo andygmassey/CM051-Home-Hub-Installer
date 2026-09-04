@@ -28494,7 +28494,33 @@ else
     HEALTHY=false
 fi
 
-if curl -sf http://localhost:11434/api/tags &>/dev/null; then
+# ── AND THE HEALTH ARM HAS THE SAME HOLE. IT FIRED IN A REAL WALK. ──────
+#
+# 🔴 MEASURED, v1.0.66 artefact walk, terminal step:
+#
+#     #OSTLER STEP_END id=health_check status=ok elapsed_s=23
+#     #OSTLER LOG msg=Ollama healthy
+#
+# while the walked account had NO com.ostler.ollama agent at all -- plist
+# absent, launchctl exact-label count 0 -- and the 200 on :11434 came from
+# ANOTHER ACCOUNT'S ollama. The health check reported a component healthy for
+# an install that does not have it.
+#
+# That is worse than the create-skip earlier in this file: not "skip the
+# install" but HIDE A FAILED ONE, inside the step whose whole job is to notice.
+#
+# `launchctl print` on OUR OWN launchd domain is the question we can always
+# answer, cross-account and without privilege. NOT lsof: this file's own
+# _port_is_our_own_forward records that "an unprivileged lsof returns no pid
+# for a foreign-owned holder -- so on a genuine cross-account collision this
+# branch is never reached" (#549, still open). An lsof-shaped ownership check
+# returns EMPTY on precisely the collision it would be written for, which would
+# be the same defect in a new place.
+#
+# Reachable is not ours. The port says SOMETHING is serving; only our own
+# launchd domain says it is OURS.
+if curl -sf http://localhost:11434/api/tags &>/dev/null \
+   && launchctl print "gui/$(id -u)/com.ostler.ollama" >/dev/null 2>&1; then
     ok "$MSG_OK_OLLAMA_HEALTHY"
 else
     warn "$MSG_WARN_OLLAMA_NOT_RESPONDING"

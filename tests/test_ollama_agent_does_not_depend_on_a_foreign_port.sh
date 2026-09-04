@@ -110,6 +110,69 @@ case "$GUARD" in
     *) bad "the shipped guard no longer names OLLAMA_PLIST: ${GUARD}" ;;
 esac
 
+echo "── THE HEALTH ARM: it FIRED on the v1.0.66 artefact walk ──"
+# Measured: health_check closed ok and logged "Ollama healthy" while the walked
+# account had NO agent and the 200 came from another account's ollama. Worse
+# than the create-skip: not "skip the install" but HIDE A FAILED ONE, inside
+# the step whose job is to notice.
+# The condition spans TWO physical lines (it ends in a backslash continuation),
+# so a bare `grep -m1` returns a fragment ending in `\` and the driven script
+# is a syntax error that reports EMPTY. Follow the continuation.
+HGUARD="$(awk '/if curl -sf http:\/\/localhost:11434\/api\/tags/ {
+                   line = $0
+                   while (line ~ /\\$/) { sub(/\\$/, "", line); getline nxt; line = line nxt }
+                   print line; exit
+               }' "$SUBJECT")"
+if [ -z "$HGUARD" ]; then
+    echo "CANNOT-RUN: the health arm was not found in install.sh." >&2; exit 2
+fi
+
+# Drive it: curl answers / does not, our agent loaded / not. Echoes OK or UNHEALTHY.
+_health() {
+    local answered="$1" ours="$2"
+    cat > "${WORK}/h.sh" <<EOF
+set -uo pipefail
+curl() { return $(( answered == 1 ? 0 : 1 )); }
+launchctl() { return $(( ours == 1 ? 0 : 1 )); }
+ok() { echo OK; }
+${HGUARD}
+    ok
+else
+    echo UNHEALTHY
+fi
+EOF
+    bash "${WORK}/h.sh" 2>/dev/null
+}
+
+r="$(_health 1 0)"
+[ "$r" = "UNHEALTHY" ] \
+    && ok "port answers but the agent is NOT ours -> UNHEALTHY. This is the arm that fired on walk 6." \
+    || bad "port answers + agent NOT ours -> ${r}. A foreign Ollama still reports this install healthy."
+
+r="$(_health 1 1)"
+[ "$r" = "OK" ] \
+    && ok "port answers AND the agent is ours -> healthy" \
+    || bad "a genuinely healthy Ollama reports ${r}; the fix reddens working installs."
+
+r="$(_health 0 1)"
+[ "$r" = "UNHEALTHY" ] \
+    && ok "our agent exists but nothing answers -> UNHEALTHY, so a dead Ollama is still caught" \
+    || bad "a dead Ollama with our agent present reports ${r}."
+
+case "$HGUARD" in
+    *launchctl*) ok "the health arm consults our own launchd domain, not just the port" ;;
+    *) bad "the health arm no longer names launchctl: ${HGUARD}" ;;
+esac
+
+echo "── and it must NOT be built on lsof ──"
+# install.sh's own _port_is_our_own_forward records that an unprivileged lsof
+# returns no pid for a foreign-owned holder, so lsof is EMPTY on exactly this
+# collision (#549). An lsof-shaped check here would be the same defect again.
+case "$HGUARD" in
+    *lsof*) bad "the health arm uses lsof, which returns empty on the cross-account collision it would be written for (#549)." ;;
+    *) ok "the health arm does not use lsof, which cannot see a foreign-owned holder" ;;
+esac
+
 echo
 echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
 [ "$FAIL" -eq 0 ] || exit 1
