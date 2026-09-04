@@ -111,10 +111,24 @@ GUARD_BODY="$(awk '
 GUARD_EVAL="$(printf '%s\n' "$GUARD_BODY" | sed '$d')"
 
 # The launchctl stanza that follows the heredoc, for the bootout control.
+#
+# 🔴 THE STANZA AND ITS SUCCESS MESSAGE ARE NO LONGER ADJACENT, AND THAT IS
+# DELIBERATE (v1063-D010). This used to run from FDARPEOF to the first
+# MSG_OK_FDA_RE_RUN, on the assumption that the bootout, the load and the
+# success message all sat together. The LOAD is now deferred by ~3,300 lines,
+# until after ~/.ostler/bin/ostler-fda is written, because launchd starts a
+# StartInterval job IMMEDIATELY on load and the old ordering fired a tick
+# against a binary that did not exist yet -- measured on the Mini 16, the
+# error log written 38 seconds BEFORE the binary.
+#
+# So the stanza now ends at the write-guard's closing `fi` rather than at a
+# message that has moved. Ordering is asserted separately and by LINE NUMBER
+# in c9, which is a stronger claim than "these two strings are near each
+# other" and cannot be satisfied by proximity.
 LAUNCHCTL_BODY="$(awk '
-    /^FDARPEOF$/                       { grab = 1; next }
-    grab && /MSG_OK_FDA_RE_RUN/        { print; exit }
-    grab                               { print }
+    /^FDARPEOF$/                                  { grab = 1; next }
+    grab && /_OSTLER_FDA_RERUN_LOAD_PENDING=1/    { print; exit }
+    grab                                          { print }
 ' "$INSTALL_SH")"
 
 [[ -n "$LAUNCHCTL_BODY" ]] || cannot_run \
@@ -202,14 +216,38 @@ c8() { [[ "$(run_guard absent)" == "1 0" ]]; }
 #     file on disk changes nothing on a box where the old label is still loaded:
 #     bootstrap is a no-op against an already-loaded label, so the customer
 #     keeps running the exact plist we just replaced.
-c9() { printf '%s\n' "$LAUNCHCTL_BODY" | grep -q 'launchctl bootout'; }
+# Two claims, both by LINE NUMBER, because install.sh executes top to bottom
+# so "earlier in the file" IS "earlier in time" for statements at the same
+# reachability:
+#   (a) the migration boots out the old label, and
+#   (b) it does so BEFORE the bootstrap.
+# A proximity grep could be satisfied by a bootout that runs after the load,
+# which is the failure this control exists to prevent.
+c9() {
+    local bootout_at load_at
+    printf '%s\n' "$LAUNCHCTL_BODY" | grep -q 'launchctl bootout' || return 1
+    bootout_at="$(grep -n -F 'launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun"' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+    load_at="$(grep -n -F '_ostler_launchagent_load_verified "$FDA_RERUN_PLIST"' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+    [ -n "$bootout_at" ] && [ -n "$load_at" ] || return 1
+    [ "$bootout_at" -lt "$load_at" ]
+}
 
 # (10) The success message install.sh prints must exist in the catalogue. A
 #      missing key expands to empty under `ok ""`, so the step reports success
 #      with a blank line and nobody notices.
+# Read from install.sh rather than from LAUNCHCTL_BODY (v1063-D010). The
+# success message now lives with the DEFERRED load, ~3,300 lines below the
+# stanza, so scoping this to the stanza would report "no key" and fail for a
+# reason that has nothing to do with the catalogue.
+#
+# THE PROPERTY IS LOCATION-INDEPENDENT: whatever key the code emits must exist
+# in the strings file. Widening the search does not weaken it -- the key is
+# still taken from the CODE and still checked against the CATALOGUE, and a
+# missing entry still fails. It is the same question asked of the whole file
+# instead of a window that has stopped containing the answer.
 c10() {
     local key
-    key="$(printf '%s\n' "$LAUNCHCTL_BODY" | grep -oE 'MSG_OK_FDA_RE_RUN[A-Z_]*' | head -1)"
+    key="$(grep -oE 'MSG_OK_FDA_RE_RUN[A-Z_]*' "$INSTALL_SH" | head -1)"
     [[ -n "$key" ]] && grep -q "^${key}=" "$STRINGS_SH"
 }
 
@@ -243,7 +281,7 @@ run_controls() {
     check "(6)  legacy plist on disk  -> rewrite, flagged legacy"    c6
     check "(7)  fixed plist on disk   -> no rewrite, no churn"       c7
     check "(8)  no plist on disk      -> write, not a migration"     c8
-    check "(9)  migration boots out the old label first"             c9
+    check "(9)  migration boots out the old label BEFORE bootstrap"  c9
     check "(10) success message key exists in the catalogue"         c10
     check "(11) one-shot date arithmetic is deleted"                 c11
     check "(12) PATH-less plist on disk -> rewrite, not flagged legacy" c12
