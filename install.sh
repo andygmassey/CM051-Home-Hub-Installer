@@ -24525,8 +24525,25 @@ _hydrate_payload_count() {
 _hydrate_compute_change() {
     local sentinel="$1" new_count="$2" now="$3" prev_count="" prev_lua=""
     if [[ -f "$sentinel" ]]; then
-        prev_count="$(grep -m1 '^item_count=' "$sentinel" 2>/dev/null | cut -d= -f2-)"
-        prev_lua="$(grep -m1 '^last_update_at=' "$sentinel" 2>/dev/null | cut -d= -f2-)"
+        # A MISSING KEY IS A REAL STATE, NOT AN ERROR. `item_count=` and
+        # `last_update_at=` were introduced by #1346 (b38af35d), which is in
+        # v1.0.60 and later -- 6 of 242 tags. Every build up to v1.0.59 wrote
+        # sentinels without them, so on an upgrade this grep finds nothing.
+        #
+        # `grep` exits 1 on no match. Under `set -Eeuo pipefail` that makes the
+        # substitution non-zero, and with no `||` the install ABORTS -- as a
+        # generic ERR-99, because `2>/dev/null` has already thrown the reason
+        # away. This helper is called from EVERY hydrate block and runs before
+        # the sentinel is rewritten, so the abort lands early in hydrate on a
+        # customer whose only distinguishing feature is not having upgraded
+        # for a few versions.
+        #
+        # An absent key means "no previous value", which is exactly what the
+        # code below already handles: `-n "$prev_lua"` is false and the caller
+        # takes the "count moved or first record" branch. So the empty string
+        # is the CORRECT value, not a fallback.
+        prev_count="$(grep -m1 '^item_count=' "$sentinel" 2>/dev/null | cut -d= -f2-)" || prev_count=""
+        prev_lua="$(grep -m1 '^last_update_at=' "$sentinel" 2>/dev/null | cut -d= -f2-)" || prev_lua=""
     fi
     _HY_ITEM_COUNT="$new_count"
     if [[ -n "$prev_lua" && "$prev_count" == "$new_count" ]]; then
@@ -28044,7 +28061,11 @@ if [ -d "$WIKI_DOCS_DIR" ]; then
     # -type f, not -name '*', so a tree of empty DIRECTORIES counts zero.
     # That is the exact shape the box walk found: directories present,
     # contents absent.
-    WIKI_PAGE_COUNT="$(find "$WIKI_DOCS_DIR" -type f \( -name '*.md' -o -name '*.html' \) 2>/dev/null | wc -l | tr -d ' ')"
+    # `find` exits non-zero when the tree is absent, which is precisely the
+    # state the check below exists to report: line 28018 already treats an
+    # empty value as zero. Aborting here would kill the install instead of
+    # letting it say "no pages on disk".
+    WIKI_PAGE_COUNT="$(find "$WIKI_DOCS_DIR" -type f \( -name '*.md' -o -name '*.html' \) 2>/dev/null | wc -l | tr -d ' ')" || WIKI_PAGE_COUNT=""
 fi
 info "Wiki pages on disk after the baseline compile: ${WIKI_PAGE_COUNT} (${WIKI_DOCS_DIR})"
 if [ "${WIKI_PAGE_COUNT:-0}" -eq 0 ]; then
@@ -28251,7 +28272,11 @@ fi
 # account on the Mac -- the same hole inside the fix for the hole.
 _ostler_redis_ping() {
     local _r
-    _r="$(docker exec ostler-redis redis-cli ping 2>/dev/null | head -1)"
+    # A DOWN CONTAINER IS THIS FUNCTION'S ANSWER, NOT ITS ERROR. `docker exec`
+    # exits non-zero when ostler-redis is not running, which under
+    # `set -Eeuo pipefail` aborted the install from inside the very helper
+    # written to report that state -- `return 1` at the bottom is the "no".
+    _r="$(docker exec ostler-redis redis-cli ping 2>/dev/null | head -1)" || _r=""
     if [[ "$_r" == *PONG* ]]; then printf 'PONG\n'; return 0; fi
     if [[ "$_r" == *NOAUTH* ]]; then
         [[ -n "${REDIS_PASSWORD:-}" ]] || return 1

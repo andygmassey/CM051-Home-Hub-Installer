@@ -42,6 +42,7 @@ on:
       - 'tests/test_hydrate_sentinel_not_on_error.sh'
       - 'tests/test_hydrate_counters_survive_a_failed_producer.sh'
       - 'tests/test_an_unmeasured_count_is_not_a_measured_zero.sh'
+      - 'tests/test_an_old_format_sentinel_does_not_abort_the_install.sh'
       - 'tests/test_no_data_is_not_success.sh'
       - 'tests/test_aiconv_hydrate_honesty.sh'
       - 'tests/test_email_settling_numerator_is_messages.sh'
@@ -221,6 +222,12 @@ jobs:
       - name: An unmeasured count must not be recorded as a measured zero
         if: always()
         run: /bin/bash tests/test_an_unmeasured_count_is_not_a_measured_zero.sh
+      # An upgrade from <= v1.0.59 hands this helper a sentinel with no
+      # item_count=. grep exits 1 on no match and the install aborted.
+      # Explicit run step, not a loop entry (#647).
+      - name: An old-format sentinel must not abort the upgrade
+        if: always()
+        run: /bin/bash tests/test_an_old_format_sentinel_does_not_abort_the_install.sh
 
       - name: All twelve tests parse under bash 3.2-compatible syntax
         if: always()
