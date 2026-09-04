@@ -39,11 +39,12 @@ trap 'rm -rf "$WORK"' EXIT
 # ── ORDERING: the preflight must precede staging AND reset ───────────────
 _line() { /usr/bin/grep -n "$1" "$SUBJECT" | head -1 | cut -d: -f1; }
 pyp="$(_line 'rule "BUNDLED-PYTHON PREFLIGHT')"
+sud="$(_line 'rule "SUDO PREFLIGHT')"
 pre="$(_line 'rule "LICENCE PREFLIGHT')"
 rst="$(_line 'rule "RESET')"
 stg="$(_line 'rule "STAGE"')"
-if [ -z "$pyp" ] || [ -z "$pre" ] || [ -z "$rst" ] || [ -z "$stg" ]; then
-    echo "CANNOT-RUN: could not locate all four section rules (python=${pyp:-?} licence=${pre:-?} reset=${rst:-?} stage=${stg:-?})." >&2
+if [ -z "$pyp" ] || [ -z "$sud" ] || [ -z "$pre" ] || [ -z "$rst" ] || [ -z "$stg" ]; then
+    echo "CANNOT-RUN: could not locate all five section rules (python=${pyp:-?} sudo=${sud:-?} licence=${pre:-?} reset=${rst:-?} stage=${stg:-?})." >&2
     echo "  A missing landmark means the ordering was not measured, which is not a pass." >&2
     exit 2
 fi
@@ -189,6 +190,72 @@ _r="$(_py_exit "$_noexec_root")"
 [ "$_r" = "2" ] \
     && ok "a PRESENT but NON-EXECUTABLE interpreter also refuses, matching install.sh's own -x test" \
     || bad "a non-executable interpreter exited ${_r}; install.sh tests -x, so presence alone is not enough."
+
+# ── SUDO PREFLIGHT: WARN, do not refuse, and say it BEFORE 25 minutes ────
+# Unlike the licence and the interpreter, a walk without sudo still produces
+# real evidence -- 14 of 41 steps, measured -- so refusing would throw away a
+# useful run. What is unacceptable is learning the limit at minute 25 from a
+# red that names a symlink.
+if [ "$sud" -lt "$rst" ] && [ "$sud" -lt "$stg" ]; then
+    ok "the sudo preflight (line ${sud}) precedes both RESET (${rst}) and STAGE (${stg})"
+else
+    bad "the sudo preflight is at ${sud}, RESET at ${rst}, STAGE at ${stg}."
+fi
+
+_sudo_block="$(awk '/^rule "SUDO PREFLIGHT/{f=1} f{print} f&&/^fi$/{exit}' "$SUBJECT")"
+if [ -z "$_sudo_block" ]; then
+    echo "CANNOT-RUN: the sudo preflight block was not found in ${SUBJECT}." >&2
+    exit 2
+fi
+
+# SSH is stubbed so BOTH branches run without a box. `true` stands in for a
+# host with passwordless sudo, `false` for one without.
+_sudo_run() {
+    local stub="$1" r="${WORK}/su"; rm -rf "$r"; mkdir -p "$r"
+    {
+        printf '%s\n' 'set -uo pipefail'
+        printf '%s\n' 'say() { printf "%s\n" "$*"; }'
+        printf '%s\n' 'rule() { printf -- "---- %s ----\n" "$*"; }'
+        printf '%s\n' 'HOST="probe@example-host.invalid"'
+        printf 'SSH=(%s)\n' "$stub"
+        printf '%s\n' "$_sudo_block"
+        printf '%s\n' 'exit 0'
+    } > "${r}/run.sh"
+    bash "${r}/run.sh" 2>&1
+    printf 'RC=%s' "$?"
+}
+
+_out="$(_sudo_run false)"
+case "$_out" in
+    *"NO PASSWORDLESS SUDO"*RC=0) ok "no sudo: WARNS and continues (rc 0), so a partial walk is still collected" ;;
+    *RC=0)                        bad "no sudo: continued but printed no warning. The next run learns this at minute 25." ;;
+    *)                            bad "no sudo: refused. A walk without sudo still yields 14 of 41 steps of real evidence." ;;
+esac
+
+# CONTROL: with sudo available it must NOT print the warning. Without this the
+# limb above would pass against a block that warns unconditionally.
+_out="$(_sudo_run true)"
+case "$_out" in
+    *"NO PASSWORDLESS SUDO"*) bad "CONTROL FAILED: the warning fires even when sudo IS available, so it says nothing" ;;
+    *RC=0)                    ok "CONTROL: with passwordless sudo the warning is silent, so it is a measurement" ;;
+    *)                        bad "CONTROL FAILED: available sudo gave an unexpected result" ;;
+esac
+
+# The remedy must name a sudoers drop-in, not "run as root". An operator who
+# cannot act on the warning is being told off, not helped.
+# Both tokens must be present, checked INDEPENDENTLY. The first version of
+# this limb was a single glob, *sudoers.d*NOPASSWD*, which silently asserted
+# an ORDER that the remedy line does not have -- it writes NOPASSWD first and
+# the path second. It failed for a reason that had nothing to do with the
+# property, which is the whole hazard of a glob standing in for two facts.
+_has_dropin=0; _has_nopass=0
+case "$_sudo_block" in *sudoers.d*) _has_dropin=1 ;; esac
+case "$_sudo_block" in *NOPASSWD*)  _has_nopass=1 ;; esac
+if [ "$_has_dropin" -eq 1 ] && [ "$_has_nopass" -eq 1 ]; then
+    ok "the warning carries an actionable remedy (a scoped sudoers drop-in with NOPASSWD)"
+else
+    bad "the remedy is incomplete: sudoers.d=${_has_dropin} NOPASSWD=${_has_nopass}. An operator who cannot act on a warning is being told off, not helped."
+fi
 
 echo
 echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="

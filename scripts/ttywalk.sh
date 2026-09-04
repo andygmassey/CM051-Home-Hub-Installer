@@ -266,6 +266,60 @@ else
     exit 2
 fi
 
+# ── SUDO PREFLIGHT ───────────────────────────────────────────────────
+#
+# 🔴 THIS COST 25 MINUTES AND 14 OF 41 STEPS. MEASURED 2026-09-04, walk 4 of
+# v1.0.65 on a cold account:
+#
+#     sudo: 3 incorrect password attempts
+#     Install aborted unexpectedly at line 17980 (step cm048_setup):
+#         sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
+#     #OSTLER DONE status=fail code=ERR-99-INSTALL-ABORT-L17980
+#
+# install.sh has a sudo pre-flight that refuses cleanly with
+# ERR-04-SUDO-DENIED, but it is SKIPPED under OSTLER_GUI=1 -- "parent .app has
+# pre-handled root operations" -- and OSTLER_GUI=1 is exactly the mode this
+# harness runs in. There is no .app here to answer the password prompt, so the
+# first `sudo` that is not already authorised kills the run at whatever line it
+# happens to be on.
+#
+# ⚠️ AND THE PRODUCT IS NOT WRONG TO SKIP IT. I nearly "fixed" install.sh to
+# demand `sudo -n true` before trusting GUI mode. THE CONTROL REFUTED IT:
+#
+#     Andy's real v1.0.63 GUI install   cm048_setup  status=ok elapsed_s=8
+#     the same skip line in his log     line 59
+#     `sudo -n true` as him, today      FAILS, a password is required
+#
+# So `sudo -n` fails on a real box whose install SUCCEEDS, because the .app
+# answers the prompt interactively. Demanding `sudo -n` would have emitted a
+# false ERR-04 on every real GUI install. The gap is the harness's, and the
+# harness is where it gets reported.
+#
+# WARN, DO NOT REFUSE. Unlike the licence and the interpreter, a walk without
+# sudo still produces 14 steps of real evidence, and that is worth having. What
+# is not acceptable is discovering the limit at minute 25 with a red that names
+# a symlink.
+rule "SUDO PREFLIGHT (the harness has no .app to answer a password prompt)"
+if "${SSH[@]}" 'sudo -n true' >/dev/null 2>&1; then
+    say "passwordless sudo available on ${HOST%%@*}: the install can complete"
+else
+    say ""
+    say "⚠️  NO PASSWORDLESS SUDO on ${HOST%%@*}."
+    say ""
+    say "    install.sh skips its own sudo gate under OSTLER_GUI=1, which is the"
+    say "    mode this harness runs in, so the FIRST unauthorised sudo will abort"
+    say "    the run at whatever line it lands on. Measured: v1.0.65 died at"
+    say "    line 17980 (cm048_setup) after 14 of 41 steps."
+    say ""
+    say "    This walk WILL still produce evidence up to that point. It will NOT"
+    say "    reach the end, and its red will name a symlink rather than the cause."
+    say ""
+    say "    To let it complete, grant the WALK ACCOUNT ONLY passwordless sudo:"
+    say "        echo '<walk-user> ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/ostler-walk"
+    say "        sudo chmod 440 /etc/sudoers.d/ostler-walk && sudo visudo -c"
+    say ""
+fi
+
 rule "LICENCE PREFLIGHT (on the target account, before anything is staged)"
 lic_state="$("${SSH[@]}" 'if [[ -s "${HOME}/.ostler/license/license.json" ]]; then
                               echo "present $(stat -f %z "${HOME}/.ostler/license/license.json") bytes"
