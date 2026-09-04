@@ -43,6 +43,39 @@ TRAP_SRC=$(awk '
 printf '%s\n' "$TRAP_SRC" | grep -q "trap '_ostler_on_err" \
     || { printf 'FAIL: could not extract _ostler_on_err + ERR trap\n' >&2; exit 1; }
 
+# ── THE RED CONTROL NEEDS THE PRE-FIX HANDLER (#642, 2026-09-04) ──────
+#
+# The handler now refuses to emit a TERMINAL marker from a subshell:
+#
+#     if [[ "${BASH_SUBSHELL:-0}" -gt 0 ]]; then gui_log error ...; return; fi
+#
+# That is the same defect this file documents -- "`set -E` propagates that ERR
+# trap INTO the $(...) subshell ... which emits `gui_done fail` to the GUI" --
+# fixed one layer lower, at the handler instead of per-probe. Good news for the
+# product, fatal for the RED control below: with the shipped handler the bug
+# CANNOT be reproduced, so the control reported "did not reproduce the bug" and
+# the whole file went red.
+#
+# Deleting the control would delete the only thing proving the ledger method
+# can see the bug at all. So the RED arm gets a handler with that guard
+# stripped, and the GREEN arm keeps the real one. RED then proves the ledger
+# detects the historical defect; GREEN proves the shipped probe is clean.
+TRAP_SRC_PREFIX=$(printf '%s\n' "$TRAP_SRC" | awk '
+    /BASH_SUBSHELL:-0/ { skip = 1 }
+    skip && /^    fi$/ { skip = 0; next }
+    !skip              { print }
+')
+# The mutation MUST remove something, or RED silently runs the fixed handler
+# and its failure to reproduce reads as a broken host instead of a stripped
+# guard. CANNOT-RUN, never a pass.
+if [[ "$(printf '%s\n' "$TRAP_SRC_PREFIX" | wc -l)" -ge "$(printf '%s\n' "$TRAP_SRC" | wc -l)" ]] \
+   || printf '%s\n' "$TRAP_SRC_PREFIX" | grep -q 'BASH_SUBSHELL:-0'; then
+    printf 'FAIL: could not strip the subshell guard for the RED control.\n' >&2
+    printf '      This is CANNOT-RUN: the control would run the FIXED handler\n' >&2
+    printf '      and its silence would say nothing about the ledger method.\n' >&2
+    exit 1
+fi
+
 # Extract the REAL (fixed) doctor-probe block.
 PROBE_SRC=$(awk '
     /ostler-assistant doctor probe/ { in_block=1 }
@@ -102,7 +135,7 @@ STUB
 make_stub 1
 : > "$LEDGER"
 write_prelude "$WORK/red.sh"
-printf '%s\n' "$TRAP_SRC" >> "$WORK/red.sh"
+printf '%s\n' "$TRAP_SRC_PREFIX" >> "$WORK/red.sh"
 cat >> "$WORK/red.sh" <<RED
 ASSISTANT_BINARY="$WORK/doctor_stub"
 if [[ -x "\${ASSISTANT_BINARY:-}" ]]; then
