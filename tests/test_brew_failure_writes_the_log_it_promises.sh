@@ -43,8 +43,9 @@
 #
 #   A   ORIGINAL FAILING INPUT. Drive the REAL failure branch extracted from
 #       install.sh with a non-zero BREW_EXIT. The path the customer-facing
-#       message names must EXIST and be NON-EMPTY afterwards, and must carry
-#       the Homebrew output.
+#       message NAMES must EXIST, be NON-EMPTY, and carry the Homebrew output.
+#       This is the property, and it is deliberately not "a particular path
+#       exists": what makes the statement true is that the named file is there.
 #   B   POSITIVE CONTROL, MUST BE PRESENT. The private diag log is readable by
 #       the extracted block. Without this, A could fail because the harness
 #       never wired the block up, and "nothing was published" would be
@@ -53,9 +54,13 @@
 #       install.sh mention the message key?" -- is run and REQUIRED TO PASS on
 #       the broken tree. It is in here so the histogram shows, in one run, that
 #       the cheap check cannot separate a fixed tree from a broken one.
-#   D   NO UNTRUE STATEMENT. Whatever path the customer is finally shown must
-#       exist. A degraded run that names the private diag path is acceptable;
-#       naming a path that is not there is the defect itself and must stay RED.
+#   D   THE NAMED PATH IS THE PRIVATE PER-RUN SINK, NOT A FIXED /tmp NAME.
+#       Publishing a copy to /tmp/ostler-brew-install.log was the first shape
+#       tried and it is FORBIDDEN: #910 (tests/test_diag_sink_per_run.sh) exists
+#       to keep diagnostics in a private per-run directory, because a fixed name
+#       in a world-writable directory lets another user pre-create our log
+#       files. So this arm fails the message-side fix if it ever drifts back
+#       into naming a fixed /tmp path.
 #
 set -uo pipefail
 
@@ -63,7 +68,6 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/.." && pwd)"
 INSTALL_SH="${REPO}/install.sh"
 STRINGS_FILE="${REPO}/install.sh.strings.en-GB.sh"
-PROMISED="/tmp/ostler-brew-install.log"
 
 FAILURES=0
 PASSES=0
@@ -75,19 +79,7 @@ red()   { FAILURES=$((FAILURES+1)); printf '  RED   %s\n' "$1"; }
 [[ -f "$STRINGS_FILE" ]] || fatal "strings file not found at ${STRINGS_FILE}"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/w003-XXXXXX")" || fatal "could not create a work dir"
-
-# Never clobber a real diagnostic sitting on the developer's machine.
-SAVED=""
-if [[ -e "$PROMISED" ]]; then
-    SAVED="${WORK}/preexisting.bak"
-    cp -p "$PROMISED" "$SAVED" 2>/dev/null || fatal "refusing to run: ${PROMISED} exists and could not be backed up"
-fi
-restore() {
-    rm -f "$PROMISED" 2>/dev/null || true
-    [[ -n "$SAVED" ]] && cp -p "$SAVED" "$PROMISED" 2>/dev/null || true
-    rm -rf "$WORK" 2>/dev/null || true
-}
-trap restore EXIT
+trap 'rm -rf "$WORK" 2>/dev/null || true' EXIT
 
 # ---------------------------------------------------------------------------
 # Extract the REAL failure branch. Anchors chosen because they exist on BOTH
@@ -109,8 +101,6 @@ printf 'Harness: extracted the BREW_EXIT failure branch (%s lines) from real ins
 # Drive it. Stubs stand in for the reporting surface only -- the log handling
 # under test is the real extracted code.
 # ---------------------------------------------------------------------------
-rm -f "$PROMISED" 2>/dev/null || true
-
 DIAG="${WORK}/ostler-diag-fake"
 mkdir -p "$DIAG"
 MARKER="BREW-FAILURE-OUTPUT-MARKER-$$"
@@ -119,14 +109,15 @@ printf 'Homebrew installer output line 1\n%s\nfinal line\n' "$MARKER" > "${DIAG}
 # shellcheck disable=SC2016
 {
     printf '%s\n' 'set -uo pipefail'
+    # Source the REAL strings file. Stubbing these was a fixture encoding the
+    # fix rather than the property: with hand-written %s-form messages the
+    # pre-fix tree produced "no path named at all" instead of the actual
+    # customer-visible defect, which is a WRONG path being named. The strings
+    # are half the defect -- they must come from the tree under test.
+    printf '. "%s"\n' "$STRINGS_FILE" 
     printf '%s\n' 'BREW_EXIT=1'
     printf 'BREW_INSTALL_LOG="%s/brew-install.log"\n' "$DIAG"
     printf 'OSTLER_DIAG_DIR="%s"\n' "$DIAG"
-    printf '%s\n' 'MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT="Homebrew installer exited %s. Last 30 lines of /tmp/ostler-brew-install.log follow:"'
-    printf '%s\n' 'MSG_WARN_HOMEBREW_INSTALL_LOG_LAST_LINES="last lines:"'
-    printf '%s\n' 'MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED="Homebrew install failed. Full output saved to /tmp/ostler-brew-install.log - attach it."'
-    printf '%s\n' 'MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_AT="Homebrew install failed. Full output saved to %s - attach it."'
-    printf '%s\n' 'MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT_AT="Homebrew installer exited %s. Last 30 lines of %s follow:"'
     printf '%s\n' 'warn() { printf "WARN: %s\n" "$*" >>"$SHOWN_TO_CUSTOMER"; }'
     printf '%s\n' 'fail_with_code() { printf "FAIL: %s\n" "$2" >>"$SHOWN_TO_CUSTOMER"; exit 4; }'
     printf 'SHOWN_TO_CUSTOMER="%s/shown.txt"\n' "$WORK"
@@ -149,32 +140,41 @@ else
     red  "B  positive control: the marker from the private diag log never reached the customer surface -- the harness did not wire the block up, so A/D below are not trustworthy"
 fi
 
-# --- A: the original failing input -----------------------------------------
-if [[ -f "$PROMISED" ]]; then
-    if [[ -s "$PROMISED" ]]; then
-        if grep -qF "$MARKER" "$PROMISED"; then
-            pass "A  ${PROMISED} exists, is non-empty, and carries the Homebrew output"
-        else
-            red  "A  ${PROMISED} exists and is non-empty but does NOT contain the Homebrew output -- a file was created that is not the log the customer was promised"
-        fi
-    else
-        red  "A  ${PROMISED} exists but is EMPTY -- an empty attachment is the same support outcome as no attachment"
-    fi
-else
-    red  "A  ${PROMISED} DOES NOT EXIST after a Homebrew failure, yet the customer is told to attach it. This is W003."
-fi
+# --- A + D: the named path, and what kind of path it is ---------------------
+# Take the path the customer was actually shown. Deriving it from the output
+# rather than hardcoding it is the whole point: the property is "the installer
+# names a file that is there", not "one specific string is present".
+NAMED="$(grep -oE '/[A-Za-z0-9_./-]*brew-install\.log' "$SHOWN" | sort -u)"
+NAMED_N="$(printf '%s\n' "$NAMED" | grep -c . || true)"
 
-# --- D: no untrue statement ------------------------------------------------
-NAMED="$(grep -oE '/[A-Za-z0-9_./-]*brew-install\.log|/[A-Za-z0-9_./-]*ostler-brew-install\.log' "$SHOWN" | sort -u | head -5)"
 if [[ -z "$NAMED" ]]; then
-    red  "D  the customer output names NO log path at all -- cannot verify the claim is true"
+    red "A  the customer output names NO log path at all -- there is nothing for a support request to attach"
+    red "D  cannot classify a path that was never named"
 else
-    D_BAD=0
-    while IFS= read -r p; do
-        [[ -z "$p" ]] && continue
-        [[ -f "$p" && -s "$p" ]] || { red "D  the customer is told the log is at ${p}, and that path is not a non-empty regular file (-e would have passed a DIRECTORY here -- measured 2026-09-04)"; D_BAD=1; }
+    A_BAD=0
+    while IFS= read -r pth; do
+        [[ -z "$pth" ]] && continue
+        if [[ ! -f "$pth" ]]; then
+            red "A  the customer is told the log is at ${pth}, and no such file exists. This is W003."
+            A_BAD=1
+        elif [[ ! -s "$pth" ]]; then
+            red "A  ${pth} exists but is EMPTY -- an empty attachment is the same support outcome as no attachment"
+            A_BAD=1
+        elif ! grep -qF "$MARKER" "$pth"; then
+            red "A  ${pth} exists and is non-empty but does not carry the Homebrew output"
+            A_BAD=1
+        fi
     done <<< "$NAMED"
-    [[ $D_BAD -eq 0 ]] && pass "D  every log path shown to the customer exists on disk"
+    [[ $A_BAD -eq 0 ]] && pass "A  every log path shown to the customer (${NAMED_N}) exists, is non-empty, and carries the Homebrew output"
+
+    D_BAD=0
+    while IFS= read -r pth; do
+        [[ -z "$pth" ]] && continue
+        case "$pth" in
+            /tmp/ostler-*) red "D  the customer is pointed at the FIXED path ${pth}. #910 forbids a fixed name in a world-writable directory -- another user can pre-create our log files there. The fix belongs in the message, not the filesystem."; D_BAD=1 ;;
+        esac
+    done <<< "$NAMED"
+    [[ $D_BAD -eq 0 ]] && pass "D  the named path is the private per-run diag sink, not a fixed /tmp name (#910 respected)"
 fi
 
 # --- C: declared negative control ------------------------------------------
