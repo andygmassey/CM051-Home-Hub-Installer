@@ -179,6 +179,45 @@ else
     pass "D  no iMessage leg writes an undeclared zero"
 fi
 
+# --- E: the CLASS. No new source may file an unexplained zero ---------------
+# iMessage was 1 of 14 call sites passing no empty_reason. Six of the others
+# could reach the all-zero arm and are now declared. The rest cannot reach it,
+# and each is listed here WITH THE REASON, because "it is fine" that nobody
+# wrote down is indistinguishable from "nobody checked".
+#
+#   contacts / calendar / ai_conversations : guarded by `-gt 0`, so the
+#       recorder is only reached with a non-zero count.
+#   dedupe / places / privacy_backfill     : payload is `ran=1,rc=...`.
+#       _hydrate_payload_is_all_zero returns false on the first non-zero
+#       numeric field, so the zero arm is structurally unreachable.
+#
+# A NEW undeclared call site fails this arm. That is the point: the defect was
+# never one line, it was a call site convention nobody enforced.
+EXEMPT="contacts calendar ai_conversations dedupe places privacy_backfill"
+UNDECLARED="$(awk '
+    /_hydrate_sentinel_record "/ && !/^[[:space:]]*#/ {
+        buf = $0
+        while (buf ~ /\\$/) { sub(/\\$/, "", buf); getline nxt; sub(/^[[:space:]]+/, " ", nxt); buf = buf nxt }
+        src = buf; sub(/^[^"]*"/, "", src); sub(/".*$/, "", src)
+        n = gsub(/"[^"]*"/, "", buf)
+        if (n < 3) print src
+    }' "$INSTALL_SH" | sort -u)"
+UNEXPECTED=""
+for src in $UNDECLARED; do
+    case " $EXEMPT " in *" $src "*) ;; *) UNEXPECTED="${UNEXPECTED:+$UNEXPECTED }$src" ;; esac
+done
+# Premise guard: if the scan finds nothing at all it has stopped working, and
+# an empty result would render as a clean pass.
+TOTAL_SITES="$(grep -cE '^[[:space:]]*_hydrate_sentinel_record "' "$INSTALL_SH")"
+if [[ "$TOTAL_SITES" -lt 5 ]]; then
+    fatal "the call-site scan found only ${TOTAL_SITES} sites -- it is not reading install.sh, and arm E would pass by finding nothing"
+fi
+if [[ -n "$UNEXPECTED" ]]; then
+    red "E  call site(s) file an UNEXPLAINED zero and are not on the exempt list: ${UNEXPECTED}. Either pass a reason naming what the site MEASURED, or add it to EXEMPT with why its zero arm is unreachable."
+else
+    pass "E  class guard: ${TOTAL_SITES} call sites scanned, every undeclared one is exempt with a recorded reason"
+fi
+
 printf '\n'
 printf 'CONCLUSION HISTOGRAM\n'
 printf '  PASS : %d\n' "$PASSES"

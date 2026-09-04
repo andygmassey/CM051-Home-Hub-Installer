@@ -25559,8 +25559,10 @@ except Exception:
         _hydrate_sentinel_record_error "email" "$_HYDRATE_EMAIL_RC" \
             "people=${_HYDRATE_EMAIL_COUNT:-unknown},messages=${_HYDRATE_EMAIL_MSGS:-unknown},outcome=${_HYDRATE_EMAIL_OUTCOME:-unknown}"
     elif [[ "$_HYDRATE_EMAIL_OUTCOME" == "imported" ]]; then
+        # W012 class: outcome=imported with zero of both is reachable.
         _hydrate_sentinel_record "email" \
-            "people=${_HYDRATE_EMAIL_COUNT:-0},messages=${_HYDRATE_EMAIL_MSGS:-0}"
+            "people=${_HYDRATE_EMAIL_COUNT:-0},messages=${_HYDRATE_EMAIL_MSGS:-0}" \
+            "ran_ok_imported_zero"
     else
         _hydrate_sentinel_record_no_data "email" "${_HYDRATE_EMAIL_OUTCOME:-unknown}"
     fi
@@ -25731,7 +25733,10 @@ except Exception:
         _hydrate_sentinel_record_error "whatsapp" "$_HYDRATE_WHATSAPP_RC" \
             "people_added=${_HYDRATE_WHATSAPP_COUNT:-unknown}"
     else
-        _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+        # W012 class: reachable zero on the rc=0 arm. Declared, so a run
+        # that completed and added nobody is not filed as an unexplained zero.
+        _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}" \
+            "ran_ok_no_people_added"
     fi
 
     unset _HYDRATE_WHATSAPP_TIMED_OUT _HYDRATE_WHATSAPP_JSON
@@ -25918,7 +25923,9 @@ except Exception:
         _hydrate_sentinel_record_error "browsing" "$_HYDRATE_BROWSING_RC" \
             "sent=${_HYDRATE_BROWSING_SENT:-unknown},skipped=${_HYDRATE_BROWSING_SKIPPED:-unknown},collection_points=$(_hydrate_qdrant_points safari_history)"
     else
-        _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+        # W012 class: reachable zero on the rc=0 arm.
+        _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}" \
+            "ran_ok_nothing_sent_or_skipped"
     fi
 
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
@@ -26076,7 +26083,9 @@ else
             _hydrate_sentinel_record_error "email_preferences" "$_HYDRATE_EMAILPREFS_RC" \
                 "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-unknown}"
         else
-            _hydrate_sentinel_record "email_preferences" "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}"
+            # W012 class: reachable zero on the rc=0 arm.
+            _hydrate_sentinel_record "email_preferences" "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}" \
+                "ran_ok_no_preferences_created"
         fi
     fi
 
@@ -26272,8 +26281,12 @@ except Exception:
         #
         # The sentinel already distinguishes an explainable zero from an
         # unexplained one; this call site simply never passed the third
-        # argument. Declare what install.sh has actually MEASURED at this
-        # line: people_created + people_enriched came to zero.
+        # argument. Declare only what install.sh has MEASURED at this line:
+        # the ingest returned rc=0 and people_created + people_enriched summed
+        # to zero. NOT "all contacts were already known" -- that was the
+        # diagnosis of one walk box, and this line never established it. A
+        # reason that states a cause it did not observe is the same defect
+        # wearing a better word.
         #
         # It deliberately does NOT name the backfill rung. The rung governs
         # the EXTRACTOR; `ingest_imessage(fda_dir)` takes no window and
@@ -26289,7 +26302,7 @@ except Exception:
         # are not in the JSON install.sh receives. That repair belongs in the
         # vendored ingest, upstream, not here.
         _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}" \
-            "no_new_people_all_contacts_known"
+            "ran_ok_no_new_or_enriched_people"
     fi
 
     unset _HYDRATE_IMESSAGE_TIMED_OUT _HYDRATE_IMESSAGE_JSON_OUT
@@ -26700,7 +26713,9 @@ elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_APPLENOTE
         _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_EMBED_RC" \
             "stage=embed,notes=${_HYDRATE_APPLENOTES_COUNT:-unknown}"
     else
-        _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+        # W012 class: reachable zero on the rc=0 arm.
+        _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}" \
+            "ran_ok_no_notes"
     fi
 
     unset _HYDRATE_APPLENOTES_CAP _HYDRATE_APPLENOTES_TIMEOUT_WRAP
@@ -26833,7 +26848,11 @@ except Exception:
         _hydrate_sentinel_record_error "people" "$_HYDRATE_PEOPLE_RC" \
             "sent=${_HYDRATE_PEOPLE_SENT:-unknown},collection_points=$(_hydrate_qdrant_points people)"
     else
-        _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}"
+        # W012 class: reachable zero on the rc=0 arm. #852 fixed the
+        # FABRICATED zero on the error arm; this is the honest zero on the
+        # success arm, which was still filed as unexplained.
+        _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}" \
+            "ran_ok_nothing_sent"
     fi
 
     unset _HYDRATE_PEOPLE_TIMED_OUT _HYDRATE_PEOPLE_JSON
