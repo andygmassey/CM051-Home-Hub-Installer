@@ -308,7 +308,13 @@ rule "BUNDLED-PYTHON PREFLIGHT (the customer path, not the dev fallback)"
 # READ FROM THE STAGED SOURCE, not the checkout. In --from-dmg mode the
 # interpreter lives inside the artefact, and checking $REPO_ROOT there made
 # the first artefact walk refuse CANNOT-RUN against a DMG that HAS one.
-BUNDLED_PY_LOCAL="${STAGE_SRC}/python/bin/python3.11"
+# ${STAGE_SRC:-$REPO_ROOT}, not ${STAGE_SRC}: tests/test_ttywalk_licence_preflight_is_cannot_run.sh
+# EXTRACTS this block and drives it in isolation, where STAGE_SRC does not exist.
+# A bare ${STAGE_SRC} under `set -u` made all three of its interpreter arms exit
+# 1, so a change that only added an artefact mode blinded a guard that was
+# already working. The default keeps the extracted block self-sufficient and
+# changes nothing at runtime, where STAGE_SRC is always set above.
+BUNDLED_PY_LOCAL="${STAGE_SRC:-$REPO_ROOT}/python/bin/python3.11"
 if [[ -x "$BUNDLED_PY_LOCAL" ]]; then
     say "bundled interpreter present: $("$BUNDLED_PY_LOCAL" --version 2>&1 | head -1)"
 else
