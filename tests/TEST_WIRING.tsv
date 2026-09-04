@@ -352,6 +352,7 @@ test_upgrade_payload_shape_contract.sh	WIRED	.github/workflows/upgrade-payload-s
 test_upgrade_reloads_the_launchagent_it_rewrote.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_upgrade_repairs_the_fda_venv.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_usage_journal_producer_gate.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_usage_journal_readers_resolve_like_the_daemon.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_user_facing_tree.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_usr_local_bin_symlinks_gui_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_v1010_at_rest_exclusions.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml

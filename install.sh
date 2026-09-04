@@ -12444,6 +12444,46 @@ ASSISTANT_CONFIG_DIR="${OSTLER_DIR}/assistant-config"
 mkdir -p "$ASSISTANT_CONFIG_DIR"
 ASSISTANT_CONFIG="${ASSISTANT_CONFIG_DIR}/config.toml"
 
+# W006 (v1.0.63 walk 2): PUBLISH THE WORKSPACE THE DAEMON ACTUALLY USES.
+#
+# The daemon learns its workspace from the assistant LaunchAgent's
+# ZEROCLAW_WORKSPACE=${OSTLER_DIR}/assistant-config, so its CostTracker reads
+#     ${OSTLER_DIR}/assistant-config/workspace/state/costs.jsonl
+# Nothing else on the box has that variable. Every other reader -- the box-walk
+# probe over ssh, scripts/verify_usage_journal_producers.py, Doctor, any CLI --
+# falls through its resolver to
+#     ${HOME}/.ostler/workspace/state/costs.jsonl
+# which the compose comment further down calls, correctly, "a DIFFERENT
+# directory nothing reads back".
+#
+# So the walk reported the usage journal as 0 records / file absent while the
+# Bursar panel was showing 73 model calls from the real one. Two resolvers,
+# one truth, and no bridge between them: the resolvers DO honour a
+# ${HOME}/.ostler/active_workspace.toml marker, and nothing had ever written
+# it. Measured on this tree: `active_workspace` appears 0 times in install.sh
+# against 19 hits for `config.toml`, so the absence was real and not a
+# mis-typed search.
+#
+# The marker goes in ${HOME}/.ostler REGARDLESS of OSTLER_DIR, because that is
+# where both resolvers look for it -- neither honours OSTLER_DIR when locating
+# the marker itself. The value is ABSOLUTE so a relocated OSTLER_DIR still
+# resolves; both readers accept an absolute config_dir.
+#
+# Env vars still win in both resolvers, so the daemon is unaffected. This only
+# moves the processes that are currently resolving to a path nobody writes.
+_ostler_workspace_marker="${HOME}/.ostler/active_workspace.toml"
+mkdir -p "${HOME}/.ostler"
+if printf 'config_dir = "%s"\n' "$ASSISTANT_CONFIG_DIR" > "${_ostler_workspace_marker}.tmp.$$" \
+   && mv -f "${_ostler_workspace_marker}.tmp.$$" "$_ostler_workspace_marker"; then
+    dbg "Published workspace marker: ${_ostler_workspace_marker} -> ${ASSISTANT_CONFIG_DIR}"
+else
+    # Non-fatal: the daemon does not need this file, only the other readers do.
+    # But say so, because a silent miss here is exactly the failure it fixes.
+    rm -f "${_ostler_workspace_marker}.tmp.$$" 2>/dev/null || true
+    warn "Could not write ${_ostler_workspace_marker}. Usage-journal readers outside the daemon will resolve to \${HOME}/.ostler/workspace, which nothing writes."  # i18n-exempt
+fi
+unset _ostler_workspace_marker
+
 # P0-β (box-walk recut #2, 2026-07-26): PRESERVE existing gateway pairings
 # across upgrades. The `{ ... } > "$ASSISTANT_CONFIG"` block below REGENERATES
 # the config from scratch, and its [gateway] line historically wrote
