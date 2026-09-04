@@ -180,6 +180,75 @@ fi
 
 identity_check "before staging"
 
+# ── LICENCE PREFLIGHT ────────────────────────────────────────────────
+#
+# 🔴 THIS COST A RUN, AND IT WOULD HAVE COST A RESET. MEASURED 2026-09-04 on
+# the first walk of a brand-new macOS account: the harness identity-checked,
+# rsynced the whole tree, flattened 15 payload directories, wrote its config,
+# started the install, and 32 seconds later got
+#
+#     [fail]  [ERR-02-LICENCE-REQUIRED] Licence check failed: No licence file found.
+#
+# The product was RIGHT and the harness was late. install.sh reads exactly one
+# path, ${HOME}/.ostler/license/license.json (install.sh:1874), and a fresh
+# account has no such file -- which is the normal state of the cold accounts
+# this harness exists to walk. Nothing told the operator that before the run.
+#
+# WHY IT SITS ABOVE --reset AND NOT BELOW IT. --reset runs the shipped
+# uninstaller on the target account. Discovering an unstartable walk AFTER
+# tearing a box down means the reset was spent for nothing, and on a box
+# somebody cared about that is worse than a wasted half hour.
+#
+# THE CHECK IS ON THE TARGET ACCOUNT, NOT THIS ONE. The whole class of defect
+# behind this harness is permission-scoped state read from the wrong account:
+# `lsof` cannot see another user's sockets, and this operator account cannot
+# see another user's home. Asking the box, as the user being walked, is the
+# only question worth asking.
+#
+# A MISSING LICENCE IS CANNOT-RUN, NOT FAIL. The build under test has not been
+# shown to be bad; the harness was not given what it needs. Conflating the two
+# is how a setup gap gets filed as a product defect.
+rule "LICENCE PREFLIGHT (on the target account, before anything is staged)"
+lic_state="$("${SSH[@]}" 'if [[ -s "${HOME}/.ostler/license/license.json" ]]; then
+                              echo "present $(stat -f %z "${HOME}/.ostler/license/license.json") bytes"
+                          elif [[ -e "${HOME}/.ostler/license/license.json" ]]; then
+                              echo "empty"
+                          else
+                              echo "absent"
+                          fi' 2>/dev/null)" || lic_state="unreadable"
+case "$lic_state" in
+    present*)
+        say "licence present on ${HOST%%@*}: ${lic_state#present }"
+        ;;
+    empty)
+        printf '%s\n' "CANNOT-RUN: the licence file exists on ${HOST} but is EMPTY." >&2
+        printf '%s\n' "  install.sh will refuse with ERR-02-LICENCE-REQUIRED. A zero-byte" >&2
+        printf '%s\n' "  licence is not a licence; replace it before walking." >&2
+        exit 2
+        ;;
+    absent)
+        printf '%s\n' "CANNOT-RUN: no licence on ${HOST} at ~/.ostler/license/license.json" >&2
+        printf '%s\n' "" >&2
+        printf '%s\n' "  install.sh reads exactly that path and refuses without it, so this" >&2
+        printf '%s\n' "  walk would stage the whole tree and then die in about 30 seconds." >&2
+        printf '%s\n' "  That is a SETUP gap, not a verdict on the build." >&2
+        printf '%s\n' "" >&2
+        printf '%s\n' "  A brand-new account never has one. Put the licence in place as the" >&2
+        printf '%s\n' "  account being walked, then re-run:" >&2
+        printf '%s\n' "" >&2
+        printf '%s\n' "      mkdir -p ~/.ostler/license" >&2
+        printf '%s\n' "      cp <licence json> ~/.ostler/license/license.json" >&2
+        printf '%s\n' "      chmod 600 ~/.ostler/license/license.json" >&2
+        exit 2
+        ;;
+    *)
+        printf '%s\n' "CANNOT-RUN: could not read the licence state on ${HOST} (got '${lic_state}')." >&2
+        printf '%s\n' "  Not knowing is not the same as knowing it is absent, and neither is" >&2
+        printf '%s\n' "  a reason to spend a walk." >&2
+        exit 2
+        ;;
+esac
+
 # ── Reset ────────────────────────────────────────────────────────────
 #
 # A TTY reset is NOT a wipe. It runs the SHIPPED uninstaller, which is itself
