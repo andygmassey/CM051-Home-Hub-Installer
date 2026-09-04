@@ -219,6 +219,82 @@ else
     bad "the shim is applied with no disclosure in the run output. A walk that passes would imply TCC was tested."
 fi
 
+echo "── no backticks may live inside the double-quoted ssh payloads ──"
+
+# MEASURED on walk 15. The report block is one big DOUBLE-QUOTED ssh argument,
+# so the LOCAL shell command-substitutes anything between backticks before the
+# payload is sent. Comment text I had written using backticks for marker names
+# was executed:
+#
+#     ttywalk.sh: line 133: DONE: command not found
+#     ttywalk.sh: line 133: steps:: command not found
+#     ttywalk.sh: line 133: STEP_END: command not found
+#
+# Harmless only because those words are not commands. The same block with
+# `rm -rf ...` in a comment would have run it, with my privileges, on this
+# machine, every walk.
+_payload_backticks=0
+_payload_lines=0
+while IFS= read -r _range; do
+    _s="${_range%%:*}"; _e="${_range##*:}"
+    _n=$(awk -v s="$_s" -v e="$_e" 'NR>=s && NR<=e' "$WALK" | /usr/bin/grep -c '`')
+    _payload_backticks=$((_payload_backticks + _n))
+    _payload_lines=$((_payload_lines + _e - _s + 1))
+done <<RANGES
+$(python3 - "$WALK" <<'PYX'
+import re, sys
+lines = open(sys.argv[1], encoding='utf-8', errors='replace').read().split('\n')
+# A double-quoted ssh payload opens with a heredoc inside "..." and closes on
+# a line that is the heredoc terminator followed by the closing quote.
+for i, l in enumerate(lines, 1):
+    if re.search(r'"\s*$', l) or True:
+        pass
+starts = [i for i, l in enumerate(lines, 1) if re.search(r'<<\'PY\'', l)]
+for s in starts:
+    for j in range(s, len(lines)):
+        if re.match(r'^PY"', lines[j]):
+            print("%d:%d" % (s, j + 1))
+            break
+PYX
+)
+RANGES
+
+if [ "$_payload_lines" -eq 0 ]; then
+    echo "CANNOT-RUN: found no double-quoted ssh payload to examine in ${WALK}." >&2
+    echo "  A check that examined nothing must not report a pass." >&2
+    exit 2
+fi
+if [ "$_payload_backticks" -eq 0 ]; then
+    ok "0 backticks across ${_payload_lines} line(s) of double-quoted ssh payload"
+else
+    bad "${_payload_backticks} backtick(s) inside a double-quoted ssh payload. The LOCAL shell executes what is between them before the payload is sent."
+fi
+
+# CONTROL ON THE DETECTOR. Without it, a broken range calculation would report
+# zero backticks for the same reason it reports zero of anything.
+_probe="${WORK}/probe.sh"
+printf '%s\n' 'x="$(ssh h "python3 - <<'"'"'PY'"'"'" ' > "$_probe"
+printf '%s\n' '# a comment with `a backtick` in it' >> "$_probe"
+printf '%s\n' 'PY"' >> "$_probe"
+_ctl=$(python3 - "$_probe" <<'PYX'
+import re, sys
+lines = open(sys.argv[1], encoding='utf-8', errors='replace').read().split('\n')
+starts = [i for i, l in enumerate(lines, 1) if re.search(r"<<'PY'", l)]
+n = 0
+for s in starts:
+    for j in range(s, len(lines)):
+        if re.match(r'^PY"', lines[j]):
+            n += sum(1 for k in range(s - 1, j + 1) if '`' in lines[k])
+            break
+print(n)
+PYX
+)
+if [ "${_ctl:-0}" -ge 1 ]; then
+    ok "CONTROL: the same detector finds a backtick in a fixture payload, so its zero above is a measurement"
+else
+    bad "CONTROL: the detector found no backtick in a fixture that contains one. Its zero proves nothing."
+fi
+
 echo
 echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
 [ "$FAIL" -eq 0 ] || exit 1

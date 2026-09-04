@@ -158,11 +158,21 @@ else:
     print('    none. Either the marker channel was off, or install.sh never')
     print('    reached its first step. Those are different findings.')
 
-# 🔴 THIS COUNTED ONLY `status=error` AND SO REPORTED A TIMED-OUT STEP AS
-# ZERO FAILURES. MEASURED on walk 13: the run ended `DONE status=ok
-# failed_steps=1`, this line printed `status=error steps: 0`, and the step that
-# actually failed was `STEP_END id=health_check status=timeout rc=124`.
-# `status=error steps: 0` is TRUE and it reads as "nothing failed". The
+# 🔴 THIS COUNTED ONLY status=error AND SO REPORTED A TIMED-OUT STEP AS ZERO
+# FAILURES. MEASURED on walk 13: the run ended DONE status=ok failed_steps=1,
+# this line printed 'status=error steps: 0', and the step that actually failed
+# was STEP_END id=health_check status=timeout rc=124.
+# 'status=error steps: 0' is TRUE and it reads as "nothing failed". The
+#
+# NO BACKTICKS IN THIS BLOCK. It sits inside a DOUBLE-QUOTED ssh argument, so
+# the LOCAL shell command-substitutes anything between backticks before the
+# payload is ever sent. The first version of this comment used them for the
+# marker names and walk 15 printed:
+#     ttywalk.sh: line 133: DONE: command not found
+#     ttywalk.sh: line 133: steps:: command not found
+#     ttywalk.sh: line 133: STEP_END: command not found
+# Those are MY COMMENT TEXT being executed. It was harmless only because the
+# words happened not to be commands.
 # installer's own vocabulary has more than one way to fail a step, so the
 # predicate has to be "not ok" rather than a list of the failure words I
 # happened to think of.
