@@ -58,6 +58,7 @@ on:
       - 'tests/test_fda_rerun_agent_loads_after_its_binary.sh'
       - 'tests/test_unknown_consent_is_not_declined.sh'
       - 'tests/test_every_question_declares_its_persistence.sh'
+      - 'tests/test_consent_decisions_survive_a_reuse_run.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/cold-box-source-truth.yml'
@@ -158,6 +159,14 @@ jobs:
       # reverts to its default on every re-run. Found three times one at a
       # time (paired_tokens, channels #619, consent); this catches the fourth
       # when it is written.
+      # Runtime, not structural: half 1 renders the real config/.env writer and
+      # reads it back; half 2 executes the reuse-completeness guard under four
+      # environments, one of which is a CONTROL proving the guard is not so
+      # wide that every non-EU install re-walks its questions forever.
+      - name: Consent decisions must survive a reuse run
+        if: always()
+        run: bash tests/test_consent_decisions_survive_a_reuse_run.sh
+
       - name: Every question must declare what happens to its answer
         if: always()
         run: bash tests/test_every_question_declares_its_persistence.sh

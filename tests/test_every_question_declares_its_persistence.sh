@@ -60,8 +60,38 @@ SECRET="RECOVERY_PASSPHRASE CHANNEL_EMAIL_PASSWORD"
 # variable, and the recorder is guarded on that variable being non-empty. So on
 # a reuse run NONE of the five is recorded -- which is exactly what the box
 # showed: `ostler-consent show` returned null for every tickbox asked.
-GAP="THIRD_PARTY ART9 WA_CONSENT SPOKEN_CAPTURE VOICE ENRICH_CHOICE
-     PRESET SAVE_KEYCHAIN TAILSCALE_CONFIRM"
+#
+# ── CEILING 9 -> 3, and here is the measurement that earned it ────────────
+#
+# config/.env now carries every consent decision, and the reuse path already
+# does `set -a; source config/.env; set +a`, so a decision written there is
+# restored into exactly the variable the recorder reads. Six of the nine move
+# to PERSISTED.
+#
+# THE CLASSIFICATION IS ON THE DECISION, NOT THE QUESTION, so it had to be
+# checked rather than asserted: the y/n answer is transient input, the decision
+# is the durable artefact, and moving a name here would be a lie if anything
+# downstream still read the raw answer. MEASURED on install.sh, counting reads
+# after the question phase closes at ~10200:
+#
+#   THIRD_PARTY     total 1   after 0      decision read after: 4
+#   ART9            total 1   after 0
+#   SPOKEN_CAPTURE  total 1   after 0      decision read after: 2
+#   VOICE           total 1   after 0
+#   ENRICH_CHOICE   total 1   after 0
+#   WA_CONSENT      total 3   after 2   <- CONTROL: non-zero, so the zeros
+#                                          above are a measurement and not a
+#                                          broken pattern. WA_CONSENT is
+#                                          persisted under its OWN name for
+#                                          exactly this reason.
+#
+# THE THREE THAT REMAIN are PRESET, SAVE_KEYCHAIN and TAILSCALE_CONFIRM. They
+# are still real decisions with no durable home; they are not consent tickboxes
+# and none of them gates a data feed, which is why they were not in the same
+# change. Do not raise this ceiling to accommodate them.
+PERSISTED="${PERSISTED}
+           THIRD_PARTY ART9 WA_CONSENT SPOKEN_CAPTURE VOICE ENRICH_CHOICE"
+GAP="PRESET SAVE_KEYCHAIN TAILSCALE_CONFIRM"
 
 _declared() {
     local v="$1" b
@@ -115,7 +145,7 @@ fi
 
 # ── The ratchet: the GAP list may only shrink ────────────────────────────
 gap_n=0; for v in $GAP; do gap_n=$((gap_n+1)); done
-CEILING=9
+CEILING=3
 if [ "$gap_n" -le "$CEILING" ]; then
     ok "unpersisted-decision backlog is ${gap_n} (ceiling ${CEILING}, may only DECREASE)"
 else
