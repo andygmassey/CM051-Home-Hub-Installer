@@ -59,6 +59,7 @@ on:
       - 'tests/test_unknown_consent_is_not_declined.sh'
       - 'tests/test_every_question_declares_its_persistence.sh'
       - 'tests/test_consent_decisions_survive_a_reuse_run.sh'
+      - 'tests/test_config_reader_absence_does_not_abort_the_install.sh'
       - 'tests/test_walkaway_no_phase2_input_leak.sh'
       - 'tests/test_ttywalk_licence_preflight_is_cannot_run.sh'
       - 'scripts/ttywalk.sh'
@@ -189,6 +190,14 @@ jobs:
       - name: No question may stall a walk-away install
         if: always()
         run: bash tests/test_walkaway_no_phase2_input_leak.sh
+
+      # Found by walk 5 of v1.0.65 on a cold account. Runtime, and it has to
+      # be: the defect is an EXIT STATUS produced by a pipeline under
+      # `set -Eeuo pipefail`, and nothing in the source text distinguishes the
+      # broken form from the fixed one -- both end in sed.
+      - name: An absent config key must not abort the install
+        if: always()
+        run: bash tests/test_config_reader_absence_does_not_abort_the_install.sh
 
       - name: Consent decisions must survive a reuse run
         if: always()

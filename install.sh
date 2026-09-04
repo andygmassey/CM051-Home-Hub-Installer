@@ -12788,6 +12788,41 @@ unset _existing_tok _pt _pt_esc
 _ostler_config_list_first() {
     # $1 = config path, $2 = section suffix, $3 = key.
     # Echoes the FIRST quoted element of a (possibly multi-line) TOML array.
+    #
+    # 🔴 AN ABSENT KEY IS A NORMAL ANSWER, AND IT USED TO ABORT THE INSTALL.
+    #
+    # MEASURED on a cold account, 2026-09-04, walk 5 of v1.0.65. The shipped
+    # uninstaller leaves config/.env behind, so a re-install offers "We found
+    # your previous answers", takes the reuse path, and reaches the restore
+    # below. Then:
+    #
+    #     STEP_END id=config_save status=error rc=1
+    #     Install aborted unexpectedly at line 12720 (step config_save):
+    #         _v="$(_ostler_config_list_first "$_cfg" whatsapp allowed_numbers)"
+    #     #OSTLER DONE status=fail code=ERR-99-INSTALL-ABORT-L12720
+    #
+    # THE MECHANISM IS `pipefail`, NOT THE LAST COMMAND. install.sh runs under
+    # `set -Eeuo pipefail` (line 29). `grep -oE` exits 1 when it matches
+    # NOTHING, and pipefail promotes that 1 to the whole pipeline even though
+    # `sed` -- the last command -- exits 0. The assignment then trips `set -e`
+    # and the ERR trap fires. Reading only the last command of the chain gives
+    # the wrong answer here.
+    #
+    # WHO HITS IT: anyone re-running the installer whose config has no
+    # `[channels.whatsapp] allowed_numbers`, which is EVERY customer who did
+    # not choose WhatsApp. The other call site asks for
+    # `imessage allowed_contacts` and fails the same way when that is absent.
+    #
+    # REPRODUCED AND CONTROLLED on the box, with the real awk/grep/sed:
+    #     key ABSENT   -> exit 1, the script died before its next line
+    #     key PRESENT  -> exit 0, value "+447700900000" returned
+    # so absence is the cause, not some property of the file or the pipeline.
+    #
+    # THE FIX IS TO SAY THAT ABSENCE IS NOT AN ERROR, and to say it at the
+    # grep, not with a blanket `|| true` on the whole pipeline. A trailing
+    # `|| true` would also swallow an awk failure, an unreadable file and a
+    # broken sed -- it would fix the symptom by making the function unable to
+    # report anything at all.
     [[ -f "$1" ]] || return 0
     awk -v sect="[channels.$2]" -v key="$3" '
         $0 == sect { in_s = 1; next }
@@ -12795,7 +12830,7 @@ _ostler_config_list_first() {
         in_s && !cap && $0 ~ ("^[ \t]*" key "[ \t]*=") { cap = 1 }
         cap { buf = buf $0 "\n"; if (index($0, "]") > 0) { cap = 0; in_s = 0 } }
         END { printf "%s", buf }
-    ' "$1" | grep -oE '"[^"]*"' | head -1 | sed 's/^"//; s/"$//'
+    ' "$1" | { grep -oE '"[^"]*"' || true; } | head -1 | sed 's/^"//; s/"$//'
 }
 _ostler_config_section_enabled() {
     # $1 = config path, $2 = section suffix. Echoes "true" only for enabled=true.
