@@ -28713,11 +28713,37 @@ if [[ -x "${ASSISTANT_BINARY:-}" ]]; then
     # macOS ships NEITHER -- the old bare `timeout 10` was always a
     # command-not-found there, so this probe never actually ran doctor.
     # Empty wrapper -> call the daemon directly (its own startup is fast).
+    #
+    # 🔴 THE CAP WAS 10s AND THE COMMAND TAKES 15.7s, SO A HEALTHY DAEMON
+    # REPORTED A TIMED-OUT STEP ON EVERY INSTALL. MEASURED on the walk box
+    # 2026-09-04, three consecutive runs against a daemon that was up and
+    # answering:
+    #
+    #     run 1  rc=0  15.7s      run 3  rc=0  15.6s
+    #     run 2  rc=0  15.7s      min 15.6  max 15.7  cap 10
+    #
+    # Every run exits 0 and every run exceeds the cap. The spread is a tenth
+    # of a second, so this is the command's normal duration and not a slow
+    # sample. The consequence is customer-visible on every install:
+    # health_check closes `status=timeout`, and the installer's own closing
+    # line reads "Ostler finished, but 1 install step(s) did not complete
+    # cleanly: health_check" for a daemon that is working perfectly.
+    #
+    # A cap BELOW the normal duration of the thing it wraps is not a timeout,
+    # it is a guaranteed failure with a timeout's name on it. The cap stays --
+    # it exists so a wedged daemon cannot hang the install -- but it has to sit
+    # above the command, with headroom for a slower Mac than this M4 mini and
+    # for a customer with more data than a walk box.
+    #
+    # Named and tunable like its siblings (OSTLER_IMESSAGE_PROBE_TIMEOUT_S=90,
+    # OSTLER_OSASCRIPT_TIMEOUT_S=20) so it can be lowered in a test without
+    # editing this line.
+    OSTLER_DOCTOR_PROBE_TIMEOUT_S="${OSTLER_DOCTOR_PROBE_TIMEOUT_S:-60}"
     _DOCTOR_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _DOCTOR_TIMEOUT_WRAP="gtimeout 10"
+        _DOCTOR_TIMEOUT_WRAP="gtimeout ${OSTLER_DOCTOR_PROBE_TIMEOUT_S}"
     elif command -v timeout >/dev/null 2>&1; then
-        _DOCTOR_TIMEOUT_WRAP="timeout 10"
+        _DOCTOR_TIMEOUT_WRAP="timeout ${OSTLER_DOCTOR_PROBE_TIMEOUT_S}"
     fi
     # The daemon may still be booting, so a non-zero `doctor` here is
     # expected and deferred (the `||` fallback handles it). The load-
