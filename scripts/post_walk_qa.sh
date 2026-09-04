@@ -328,10 +328,37 @@ if [[ -n "$CUT_VERSION" ]]; then
     # OstlerInstaller.app records which installer RAN, not whether it
     # succeeded. That is correct for this field: `version` says what was
     # walked; `verdict` and `fail` say how it went.
+    # PREFER WHAT THE WALK SAYS IT RAN, over what happens to be in /Applications.
+    #
+    # 🔴 MEASURED 2026-09-04, v1.0.66 artefact walk. This gate refused to write
+    # a record:
+    #
+    #     argument says : v1.0.66
+    #     the box says  : v1.0.63  (CFBundleShortVersionString)
+    #
+    # The box was not lying. An ARTEFACT walk mounts the DMG and runs the
+    # install.sh INSIDE it -- nothing is ever dragged to /Applications -- so
+    # that path held an app a DIFFERENT run had left 13 hours earlier. The
+    # DMG's own bundle was correctly stamped 1.0.66/6600.
+    #
+    # The comment below is right that this field means "which installer RAN".
+    # On an artefact walk, /Applications cannot answer that question, and
+    # reading it there is a guard watching the wrong object -- the exact
+    # failure the note about 1.0.43-vs-0.7.1 already warns of, one object over.
+    #
+    # ttywalk.sh --from-dmg now writes ~/.walk-artefact-version from the bundle
+    # it mounted. A repo walk leaves it EMPTY, so the /Applications fallback is
+    # unchanged for every GUI walk, which is the flow that path was written for.
     INSTALLED_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
-        '/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" \
-             /Applications/OstlerInstaller.app/Contents/Info.plist 2>/dev/null' 2>/dev/null \
-        | tr -d '[:space:]')"
+        'cat ~/.walk-artefact-version 2>/dev/null' 2>/dev/null | tr -d '[:space:]')"
+    if [[ -n "$INSTALLED_VERSION" ]]; then
+        echo "  version source: the walk's own record of the bundle it ran (~/.walk-artefact-version)"
+    else
+        INSTALLED_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
+            '/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" \
+                 /Applications/OstlerInstaller.app/Contents/Info.plist 2>/dev/null' 2>/dev/null \
+            | tr -d '[:space:]')"
+    fi
 
     if [[ -z "$INSTALLED_VERSION" ]]; then
         VERSION_SOURCE="asserted-unverifiable(no Ostler.app on box)"

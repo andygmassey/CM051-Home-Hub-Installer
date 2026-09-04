@@ -297,6 +297,33 @@ if [[ -n "${FROM_DMG:-}" ]]; then
         || die "--from-dmg: ${_res} has no install.sh. That is not the payload root."
     STAGE_SRC="$_res"
     STAGE_KIND="artefact"
+    # THE VERSION OF THE INSTALLER THAT IS ABOUT TO RUN, read from the bundle
+    # this walk actually mounts.
+    #
+    # 🔴 WHY THIS EXISTS. post_walk_qa.sh records `version` from
+    # /Applications/OstlerInstaller.app, and its own comment says the field
+    # means "which installer RAN". On an ARTEFACT walk nothing is ever dragged
+    # to /Applications -- the install.sh inside the DMG is run in place -- so
+    # that path holds whatever some EARLIER run left behind.
+    #
+    # MEASURED 2026-09-04 after the v1.0.66 artefact walk went green: the box
+    # held /Applications/OstlerInstaller.app at 1.0.63 from a run 13 hours
+    # earlier, so the gate refused to write a walk record for a version it
+    # said the box "says". The DMG's own app was correctly stamped 1.0.66/6600.
+    # The stale app was not wrong about itself; it was answering a question
+    # nobody asked.
+    #
+    # Left unfixed this is permanent: NO artefact walk could ever produce a
+    # walk record, and the walk record is what gates promoting a release.
+    ARTEFACT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+        "$(dirname "$(dirname "$_res")")/Info.plist" 2>/dev/null | tr -d '[:space:]')"
+    if [[ -n "$ARTEFACT_VERSION" ]]; then
+        say "   version: ${ARTEFACT_VERSION}  (read from the mounted bundle)"
+    else
+        say "   ⚠️  could not read CFBundleShortVersionString from the mounted bundle."
+        say "      The walk still runs; the record will fall back to /Applications,"
+        say "      which on an artefact walk is whatever an earlier run left."
+    fi
     say "ARTEFACT WALK. Staging the DMG's payload, not this checkout."
     say "   dmg:     ${FROM_DMG}"
     say "   payload: ${_res}"
@@ -759,11 +786,13 @@ say "control: ostler_fda resolves beside install.sh (the run-2 killer is closed)
 "${SSH[@]}" "set -u
     printf '%s\n' \"\$HOME/${REMOTE_DIR}/ttywalk.log\" > ~/.walk-log
     printf '%s\n' \"\$HOME/${REMOTE_DIR}/install.sh\"  > ~/.walk-installsh
+    printf '%s\n' \"${ARTEFACT_VERSION:-}\" > ~/.walk-artefact-version
     : > \"\$HOME/${REMOTE_DIR}/ttywalk.log\"
     chmod +x \"\$HOME/${REMOTE_DIR}/install.sh\" 2>/dev/null || true
     echo 'walk config written:'
     echo \"  log:        \$(cat ~/.walk-log)\"
     echo \"  install.sh: \$(cat ~/.walk-installsh)\"
+    echo \"  artefact:   \$(cat ~/.walk-artefact-version 2>/dev/null | sed 's/^\$/(repo walk -- none)/')\"
 " || die "could not write the walk config on the host."
 
 if [[ "$STAGE_ONLY" -eq 1 ]]; then
