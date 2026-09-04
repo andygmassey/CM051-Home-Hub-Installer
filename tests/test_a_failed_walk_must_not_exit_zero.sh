@@ -233,31 +233,32 @@ echo "── no backticks may live inside the double-quoted ssh payloads ──"
 # Harmless only because those words are not commands. The same block with
 # `rm -rf ...` in a comment would have run it, with my privileges, on this
 # machine, every walk.
-_payload_backticks=0
-_payload_lines=0
-while IFS= read -r _range; do
-    _s="${_range%%:*}"; _e="${_range##*:}"
-    _n=$(awk -v s="$_s" -v e="$_e" 'NR>=s && NR<=e' "$WALK" | /usr/bin/grep -c '`')
-    _payload_backticks=$((_payload_backticks + _n))
-    _payload_lines=$((_payload_lines + _e - _s + 1))
-done <<RANGES
-$(python3 - "$WALK" <<'PYX'
+# The payload ranges are computed by a helper written to a FILE and invoked
+# plainly. An earlier version nested a heredoc inside a command substitution
+# inside another heredoc; bash 3.2 on the macOS runner cannot parse that and
+# the step died with "bad substitution". It failed SAFE -- the "examined
+# nothing" arm below reported CANNOT-RUN rather than a pass -- but a check
+# that cannot run on the platform the product ships to is not a check.
+cat > "${WORK}/ranges.py" <<'PYX'
 import re, sys
 lines = open(sys.argv[1], encoding='utf-8', errors='replace').read().split('\n')
-# A double-quoted ssh payload opens with a heredoc inside "..." and closes on
-# a line that is the heredoc terminator followed by the closing quote.
-for i, l in enumerate(lines, 1):
-    if re.search(r'"\s*$', l) or True:
-        pass
-starts = [i for i, l in enumerate(lines, 1) if re.search(r'<<\'PY\'', l)]
+starts = [i for i, l in enumerate(lines, 1) if re.search(r"<<'PY'", l)]
 for s in starts:
     for j in range(s, len(lines)):
         if re.match(r'^PY"', lines[j]):
             print("%d:%d" % (s, j + 1))
             break
 PYX
-)
-RANGES
+
+_payload_backticks=0
+_payload_lines=0
+python3 "${WORK}/ranges.py" "$WALK" > "${WORK}/ranges.txt" 2>/dev/null
+while IFS=: read -r _s _e; do
+    [ -n "${_s:-}" ] && [ -n "${_e:-}" ] || continue
+    _n=$(awk -v s="$_s" -v e="$_e" 'NR>=s && NR<=e' "$WALK" | /usr/bin/grep -c '`')
+    _payload_backticks=$((_payload_backticks + _n))
+    _payload_lines=$((_payload_lines + _e - _s + 1))
+done < "${WORK}/ranges.txt"
 
 if [ "$_payload_lines" -eq 0 ]; then
     echo "CANNOT-RUN: found no double-quoted ssh payload to examine in ${WALK}." >&2
@@ -276,19 +277,7 @@ _probe="${WORK}/probe.sh"
 printf '%s\n' 'x="$(ssh h "python3 - <<'"'"'PY'"'"'" ' > "$_probe"
 printf '%s\n' '# a comment with `a backtick` in it' >> "$_probe"
 printf '%s\n' 'PY"' >> "$_probe"
-_ctl=$(python3 - "$_probe" <<'PYX'
-import re, sys
-lines = open(sys.argv[1], encoding='utf-8', errors='replace').read().split('\n')
-starts = [i for i, l in enumerate(lines, 1) if re.search(r"<<'PY'", l)]
-n = 0
-for s in starts:
-    for j in range(s, len(lines)):
-        if re.match(r'^PY"', lines[j]):
-            n += sum(1 for k in range(s - 1, j + 1) if '`' in lines[k])
-            break
-print(n)
-PYX
-)
+_ctl=$(python3 "${WORK}/ranges.py" "$_probe" 2>/dev/null | while IFS=: read -r a b; do awk -v s="$a" -v e="$b" 'NR>=s && NR<=e' "$_probe" | /usr/bin/grep -c '`'; done | awk '{t+=$1} END {print t+0}')
 if [ "${_ctl:-0}" -ge 1 ]; then
     ok "CONTROL: the same detector finds a backtick in a fixture payload, so its zero above is a measurement"
 else
