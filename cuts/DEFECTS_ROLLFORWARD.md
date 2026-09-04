@@ -5416,3 +5416,57 @@ is stated in the source.
 read the Doctor's `/api/v1/sources` artefact rather than infer from reachability
 -- which TNM identifies as the shape the other ten probes want. Not changed
 under time pressure before a cut.
+
+### v1066-D009 -- the writer's vocabulary and the reader's are both declared, and nothing links them
+
+**OPEN. Not a defect today; a structural gap that has already produced two
+defects and will produce a third.**
+
+The same writer/reader drift was found TWICE in one night, in two fields:
+
+```
+sources    CM051 install.sh writes 13    CM044 hydration.py recognised  9
+statuses   CM051 install.sh writes  5    CM044 hydration.py recognised  3
+```
+
+`cannot_run` and `timeout` fell through to "Could not tell" on the customer's
+freshness panel, for two statuses CM051 emits on purpose. `timeout` is the
+expensive one: rc 124/137 means a source was killed by its cap and moved no
+data, so it needs a re-run.
+
+**BOTH SIDES ARE NOW SELF-CHECKING, AND THAT IS NOT THE SAME AS LINKED.**
+
+```
+CM051 #1472   OSTLER_SENTINEL_STATUSES (5) and OSTLER_SENTINEL_SOURCES (13)
+              declared in install.sh, with a gate that EXECUTES all four
+              recorders (rc 1/124/137) and asserts what they actually wrote,
+              plus both directions on the sources: written-but-undeclared and
+              declared-but-never-written.
+CM044 #267    the reader's set pinned in a test, the row set derived from the
+              ingested sources rather than three hardcoded appends, and every
+              row given a machine-readable key.
+```
+
+⇒ **each copy is guarded against its own writer. Neither is guarded against the
+other.** The only thing that caught the drift on 2026-09-04 was a human diffing
+two repos member for member, as SETS not counts -- and equal counts would have
+proved nothing, which is the "agreement on an outcome is not agreement on a
+cause" trap.
+
+**WHAT IS DELIBERATELY NOT PRESCRIBED HERE.** A link needs a PIN and a
+DIRECTION: does CM044 vendor CM051's declaration, or transcribe it against a
+pinned sha, and which repo is authoritative when they disagree? Different pins
+and different cuts, and the panel work already established that a cross-repo
+RUNTIME check is the wrong shape. Those are cut decisions and are not being
+invented under time pressure.
+
+**THE FAILURE MODE TO WATCH FOR**, because it is the one a fix could reintroduce:
+a link that compares COUNTS rather than MEMBERS would have passed on the night
+this was found, twice. 13 vs 13 and 5 vs 5 were only meaningful because someone
+compared the names.
+
+⚠️ AND THE VENDORING ORDER MATTERS, measured the same night: D007 was vendored
+into CM051 (#1470) and THEN corrected upstream (#201), which left the vendored
+copy asserting a cause the register had already refuted. Only
+`scripts/sync_rollforward_registry.sh`'s AHEAD guard noticed. **Correct upstream
+BEFORE vendoring, not after.**
