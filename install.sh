@@ -26263,7 +26263,33 @@ except Exception:
         _hydrate_sentinel_record_error "imessage" "$rc" \
             "people=${_HYDRATE_IMESSAGE_COUNT:-unknown}"
     else
-        _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}"
+        # W012 (v1.0.63 walk 2): this recorded detail=zero_payload_undeclared
+        # whenever the people count came back 0, and Doctor rendered that as
+        # "the source produced nothing". On the walk box the run had ingested
+        # 10 conversations and 15,345 messages -- the count was 0 because all
+        # 13 contacts were ALREADY known from Contacts. The person who read
+        # his own product as broken was the author of the spec.
+        #
+        # The sentinel already distinguishes an explainable zero from an
+        # unexplained one; this call site simply never passed the third
+        # argument. Declare what install.sh has actually MEASURED at this
+        # line: people_created + people_enriched came to zero.
+        #
+        # It deliberately does NOT name the backfill rung. The rung governs
+        # the EXTRACTOR; `ingest_imessage(fda_dir)` takes no window and
+        # reports none (vendor/ostler_fda/pwg_ingest.py:551,663), so naming a
+        # rung here would be install.sh asserting a cause it never observed --
+        # the same defect one level down.
+        #
+        # Nor does this make the STATUS true, and it should not be mistaken
+        # for that. A run that ingested 15,345 messages did not produce "no
+        # data". _hydrate_payload_is_all_zero flips to false the moment any
+        # numeric field is non-zero, so a payload carrying conversation and
+        # message counts would report status=ok by itself -- but those counts
+        # are not in the JSON install.sh receives. That repair belongs in the
+        # vendored ingest, upstream, not here.
+        _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}" \
+            "no_new_people_all_contacts_known"
     fi
 
     unset _HYDRATE_IMESSAGE_TIMED_OUT _HYDRATE_IMESSAGE_JSON_OUT
