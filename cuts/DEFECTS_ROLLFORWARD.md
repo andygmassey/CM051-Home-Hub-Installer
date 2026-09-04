@@ -5157,6 +5157,60 @@ are environmental. Those need attribution and have not had it. **A cause I
 cannot name is better recorded as unnamed than attached to the nearest
 available story.**
 
+⬆️ **UPDATE, same night: all FOUR are now attributed, and NONE of them is the
+port collision I originally blamed them all on.**
+
+```
+no_store_port_is_tcp_reachable     MEASURED    the STORES enforce auth --
+                                               Qdrant /collections 401 (bogus
+                                               api-key also 401), Oxigraph 401.
+                                               The 200s were health endpoints.
+                                               The real exposure is the WIKI on
+                                               8044: 49,002 bytes, 0 auth
+                                               indicators, and
+                                               /search/search_index.json 200.
+                                               LOOPBACK ONLY (127.0.0.1), so
+                                               not a network exposure -- any
+                                               other LOCAL ACCOUNT can read the
+                                               customer's wiki and its
+                                               full-text index.
+                                               Redis + 8144 = NOT MEASURED; an
+                                               HTTP probe cannot read a RESP
+                                               port, and that is not "safe".
+
+no_person_holds_two_contact_cards  ATTRIBUTED  a v1.0.66 DEFECT. Both graph
+                                               volumes were created 20:39:14Z,
+                                               5m44s AFTER the walk began at
+                                               20:33:30Z, so the graph was
+                                               built end to end by v1.0.66's
+                                               own ingest. RULE 2 is red on
+                                               code that CARRIES v1064-ad's
+                                               fix. Whether the guard misses
+                                               hydrate's path or covers it and
+                                               does not hold is NOT
+                                               established.
+
+freshness_panel_has_dates          DIAGNOSED   CM044, by TNM, from the consumer
+                                               side. `compiler/pages/
+                                               dashboard.py:2234-2239` is THREE
+                                               HARDCODED ROWS and nothing reads
+                                               the ingested set, so calendar,
+                                               email and imessage can never
+                                               appear by construction. Rows
+                                               also carry a LOCALISED DISPLAY
+                                               STRING and no key, so they
+                                               cannot be attributed and change
+                                               under a non-en-GB locale.
+                                               Producer side (mine): install.sh
+                                               reports only 2 channels --
+                                               contacts (2 sites), emails (4);
+                                               calendar/messages/notes/whatsapp
+                                               have ZERO producers. Different
+                                               pin, different cut: NOT v1.0.67.
+
+install_manifest_complete          ATTRIBUTED  see v1066-D007 below.
+```
+
 ### v1066-D006 -- the upgrade path silently reverts the 2026-08-20 Homebrew-PATH fix
 
 `_upg_preserve_plist_env` (install.sh:530..550) walks every key in the OLD plist
@@ -5205,3 +5259,52 @@ indistinguishable from a function that ran and preserved it.**
 Scoped to v1.0.67, where on severity it outranks both items already there.
 The test must assert SURVIVAL and carry a MUST-PRESERVE control (a non-PATH
 key), so a fix that simply stops preserving anything cannot pass.
+
+
+### v1066-D007 -- an already-installed Ollama makes install.sh skip the LaunchAgent it is required to write
+
+`install_manifest_complete` failed with **2 required subjects MISSING**:
+`launch_agent com.ostler.enrich (baseline)` and `launch_agent com.ostler.ollama
+(baseline)`. Both confirmed absent on the box by EXACT label match, after a
+substring probe first reported `com.ostler.ollama` as loaded -- it was matching
+`com.ostler.ollama-logrotate`.
+
+**THE MECHANISM, for the ollama half:**
+
+```
+install.sh:11917  OLLAMA_APP_BIN="/Applications/Ollama.app/Contents/Resources/ollama"
+install.sh:~11919 if [[ -x "$OLLAMA_APP_BIN" ]]; then    <- the CASK is already present
+                      ... cask path
+install.sh:11951  else                                   <- the ONLY branch that
+install.sh:11965      OLLAMA_PLIST=".../com.ostler.ollama.plist"    writes the agent
+```
+
+On the walked box:
+
+```
+/Applications/Ollama.app/Contents/Resources/ollama   EXECUTABLE  -> CASK branch
+com.ostler.ollama.plist                              ABSENT
+#OSTLER STEP_END id=ollama_install status=ok elapsed_s=0
+```
+
+⇒ **when Ollama.app is already installed, install.sh takes the cask branch,
+skips the branch that creates the LaunchAgent, and closes the step ok in ZERO
+SECONDS.** The step is not lying about installing Ollama -- Ollama really is
+there. It is silent about what it did not do on the way past, and the manifest
+is the only thing that notices.
+
+11 of 39 steps closed at `elapsed_s=0` on that walk. Most are legitimately
+fast. This one provably skipped required work while reporting ok.
+
+⚠️ **`com.ostler.enrich` is UNFINISHED, not assumed to match.** `cm019_setup`
+closed `ok elapsed_s=1` and its plist is likewise absent -- the same signature,
+but the guard has not been read. Recorded as an open question, not a second
+instance.
+
+🔴 **AND A CORRECTION ON MY OWN EVIDENCE.** I cited "ollama serving: 200" as
+support that the step had done its job. `lsof -nP -iTCP:11434` as the walk user
+returns NOTHING -- another account owns that socket, exactly as with :8000.
+**That 200 was almost certainly the other account's ollama answering.** Third
+instance in one night of the same class: on a shared Mac, REACHABLE never means
+OURS, and a successful CONNECT makes the instrument look healthy while only the
+OWNER is wrong.
