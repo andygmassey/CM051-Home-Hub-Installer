@@ -20190,6 +20190,28 @@ trap '_ostler_uninstall_on_err $? $LINENO "$BASH_COMMAND"' ERR
 # worse than an untouched one, so the gate refuses BEFORE the first
 # destructive line rather than failing partway through.
 ASSUME_YES="${OSTLER_UNINSTALL_ASSUME_YES:-}"
+
+# ── #1567 review: NON-EMPTY IS NOT TRUTHY ──────────────────────
+#
+# The gate below used to ask `-n "$ASSUME_YES"`, which is a test
+# for "the caller wrote something", not for "the caller said yes".
+# Driven with stdin closed, 0 / no / false / NO / banana ALL
+# proceeded to the destructive phase. The single most likely
+# string a caller writes for "do not do this" is 0, and the GUI
+# is exactly the kind of caller that passes 0 or 1 from a
+# checkbox, so the failure mode was a destructive uninstall
+# authorised by the word meaning no.
+#
+# Consent is now an ALLOW-LIST. Anything not on it -- including a
+# value nobody anticipated -- is not consent, and falls through to
+# ASK, which with no stdin means exit 3 having removed nothing.
+# The safe direction is the default for every unrecognised input.
+_assume_yes_granted() {
+    case "$ASSUME_YES" in
+        1|y|Y|yes|Yes|YES|true|True|TRUE) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 KEEP_CONTENT_DECISION=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -20274,7 +20296,17 @@ echo ""
 # this file. The only thing that authorises destruction is --yes or
 # OSTLER_UNINSTALL_ASSUME_YES=1, both of which a human or a caller
 # had to write down.
-if [[ -n "$ASSUME_YES" ]]; then
+if [[ -n "$ASSUME_YES" ]] && ! _assume_yes_granted; then
+    # A value was written down and it does not mean yes. Say so, or
+    # the caller reads "stdin gave no answer" below and never learns
+    # that the thing they set is the reason.
+    echo "" >&2
+    echo "  OSTLER_UNINSTALL_ASSUME_YES is set to a value that is not consent." >&2
+    echo "  Consent must be one of: 1, y, yes, true (any case)." >&2
+    echo "  Falling through to the confirmation prompt." >&2
+    echo "" >&2
+fi
+if _assume_yes_granted; then
     echo "  Proceeding without a prompt (--yes / OSTLER_UNINSTALL_ASSUME_YES)."
 elif read -r -p "  Are you sure? This cannot be undone. (type YES to confirm): " CONFIRM; then
     if [[ "$CONFIRM" != "YES" ]]; then
@@ -20410,7 +20442,7 @@ if [[ -d "$USER_FACING_ROOT" ]]; then
     fi
     echo ""
 
-    if [[ -z "$KEEP_CONTENT_DECISION" && -n "$ASSUME_YES" ]]; then
+    if [[ -z "$KEEP_CONTENT_DECISION" ]] && _assume_yes_granted; then
         # #1560: an unattended run must not stop here either, and the
         # default is the NON-DESTRUCTIVE one. --yes is consent to
         # uninstall Ostler, not consent to delete the customer's own

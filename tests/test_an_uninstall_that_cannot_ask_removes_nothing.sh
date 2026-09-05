@@ -136,6 +136,40 @@ out="$(drive "YES
 case "$out" in *SENTINEL_REACHED*) ok "typing YES still proceeds, so the interactive path is unbroken" ;;
                *) bad "typing YES no longer proceeds; the change broke the ordinary route" ;; esac
 
+# ── ARM 7: NON-EMPTY IS NOT TRUTHY ──────────────────────────────────────────
+# ARM 3 is a must-match: it proves =1 proceeds. On its own it is satisfied by
+# a gate that lets EVERYTHING proceed, which is exactly what `-n` did. This is
+# the must-miss it was always owed. Every value here means no, or means
+# nothing; none of them may reach the code past the gate.
+for v in 0 no NO false FALSE banana 2 00; do
+    out="$(OSTLER_UNINSTALL_ASSUME_YES="$v" drive "")"
+    rc="$(OSTLER_UNINSTALL_ASSUME_YES="$v" rc_of "")"
+    case "$out" in
+        *SENTINEL_REACHED*)
+            bad "OSTLER_UNINSTALL_ASSUME_YES=${v} PROCEEDED past the gate (rc=${rc}): a value that is not consent authorised a destructive uninstall" ;;
+        *)
+            if [ "$rc" = "3" ]; then
+                ok "OSTLER_UNINSTALL_ASSUME_YES=${v} refuses with the could-not-ask exit 3"
+            else
+                bad "OSTLER_UNINSTALL_ASSUME_YES=${v} did not reach the sentinel but gave rc=${rc}, expected 3"
+            fi ;;
+    esac
+done
+
+# And the caller is told WHY, or they read "stdin gave no answer" and never
+# learn that the variable they set is the reason.
+out="$(OSTLER_UNINSTALL_ASSUME_YES=0 drive "")"
+case "$out" in *not\ consent*) ok "a non-consent value says so, rather than reporting only an EOF" ;;
+               *) bad "a non-consent value is silently ignored; the caller cannot tell why it refused" ;; esac
+
+# ARM 8: the accepted spellings still work, so the allow-list is not so tight
+# that ordinary consent stops being consent.
+for v in 1 y Y yes YES true TRUE; do
+    out="$(OSTLER_UNINSTALL_ASSUME_YES="$v" drive "")"
+    case "$out" in *SENTINEL_REACHED*) ok "OSTLER_UNINSTALL_ASSUME_YES=${v} is accepted as consent" ;;
+                   *) bad "OSTLER_UNINSTALL_ASSUME_YES=${v} was refused; a documented spelling of yes no longer works" ;; esac
+done
+
 echo
 echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
 [ "$FAIL" -eq 0 ] || exit 1
