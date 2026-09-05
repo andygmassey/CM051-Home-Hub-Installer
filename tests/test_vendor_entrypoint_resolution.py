@@ -43,6 +43,67 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VENDOR = REPO_ROOT / "vendor"
 
+# 🔴 COVERAGE FLOOR. This guard's PASS is a zero, and a zero has a shape.
+# Discovery walks vendor/ for pyproject.toml files carrying [project.scripts];
+# if that ever finds fewer, the guard prints fewer lines, checks less and still
+# says PASS. Measured 2026-09-05: 5 packages declaring 10 scripts between them.
+# Lowering these is a reviewable edit in the same PR as whatever removed a
+# package or a console script.
+MIN_PACKAGES_WITH_SCRIPTS = 5
+MIN_SCRIPTS = 10
+
+# Three states. 0 pass, 1 fail, 2 cannot-run.
+EXIT_PASS, EXIT_FAIL, EXIT_CANNOT_RUN = 0, 1, 2
+
+
+def _selftest() -> list[str]:
+    """Prove the checker can SEE a broken entrypoint and can ABSTAIN.
+
+    Nothing else in this file demonstrates that _check_package is capable of a
+    non-zero result. Without that, a checker that silently stopped resolving
+    would print 'N script(s) resolve' for every package and exit 0 for ever.
+
+    Seeded inside REPO_ROOT because _check_package reports paths with
+    .relative_to(REPO_ROOT), and outside vendor/ so real discovery cannot pick
+    the fixture up and count it as a vendored package.
+    """
+    import tempfile
+
+    problems: list[str] = []
+    pyproject = (
+        '[project]\n'
+        'name = "seeded"\n'
+        'version = "0.0.0"\n'
+        '[project.scripts]\n'
+        'seeded-cli = "seeded:%s"\n'
+    )
+    with tempfile.TemporaryDirectory(dir=REPO_ROOT, prefix=".selftest-entrypoints-") as td:
+        root = Path(td)
+
+        # MUST-FLAG: the script points at an attribute the module does not define.
+        bad = root / "bad"
+        (bad / "seeded").mkdir(parents=True)
+        (bad / "seeded" / "__init__.py").write_text("OTHER = 1\n")
+        (bad / "pyproject.toml").write_text(pyproject % "does_not_exist")
+        if not _check_package(bad):
+            problems.append(
+                "SELFTEST: a seeded console script pointing at an undefined "
+                "attribute was NOT flagged. The checker is blind, so every "
+                "'script(s) resolve' line below is meaningless."
+            )
+
+        # MUST-MISS: the attribute is defined, so nothing may be reported.
+        good = root / "good"
+        (good / "seeded").mkdir(parents=True)
+        (good / "seeded" / "__init__.py").write_text("def main():\n    return 0\n")
+        (good / "pyproject.toml").write_text(pyproject % "main")
+        if _check_package(good):
+            problems.append(
+                "SELFTEST: a resolvable console script WAS flagged. The checker "
+                "is loud rather than right and its findings cannot be trusted."
+            )
+    return problems
+
 
 def _package_roots(pyproject: dict, pkg_dir: Path) -> dict[str, Path]:
     """Map each importable top-level package name to its on-disk root
@@ -192,19 +253,32 @@ def _check_package(pkg_dir: Path) -> list[str]:
 
 
 def main() -> int:
+    problems = _selftest()
+    if problems:
+        for line in problems:
+            print(line, file=sys.stderr)
+        return EXIT_FAIL
+
+    # 🔴 COULD NOT LOOK IS NOT A PASS. These three used to `return 0`, so a
+    # stripped vendor tree, a missing pyproject or a package set that declares
+    # no console scripts all reported the same verdict as a fully checked tree.
     if not VENDOR.is_dir():
-        print("no vendor/ directory; nothing to check")
-        return 0
+        print(f"CANNOT-RUN: no vendor/ directory at {VENDOR}. Nothing was "
+              "checked; this is not a pass.", file=sys.stderr)
+        return EXIT_CANNOT_RUN
 
     pkg_dirs = sorted(
         p.parent for p in VENDOR.rglob("pyproject.toml")
     )
     if not pkg_dirs:
-        print("no vendored pyproject.toml under vendor/")
-        return 0
+        print("CANNOT-RUN: no vendored pyproject.toml found under vendor/. "
+              "Nothing was checked; this is not a pass.", file=sys.stderr)
+        return EXIT_CANNOT_RUN
 
     all_failures: list[str] = []
     checked_any_scripts = False
+    n_pkgs_with_scripts = 0
+    n_scripts = 0
     for pkg_dir in pkg_dirs:
         fails = _check_package(pkg_dir)
         rel = pkg_dir.relative_to(REPO_ROOT)
@@ -213,6 +287,8 @@ def main() -> int:
         if not scripts:
             continue
         checked_any_scripts = True
+        n_pkgs_with_scripts += 1
+        n_scripts += len(scripts)
         if fails:
             all_failures.extend(fails)
         else:
@@ -220,8 +296,19 @@ def main() -> int:
             print(f"entrypoint check: {rel} -- {len(scripts)} script(s) resolve ({names})")
 
     if not checked_any_scripts:
-        print("no vendored packages declare [project.scripts]")
-        return 0
+        print("CANNOT-RUN: no vendored package declares [project.scripts]. "
+              "Nothing was checked; this is not a pass.", file=sys.stderr)
+        return EXIT_CANNOT_RUN
+
+    # A PARTIAL SWEEP IS NOT A CLEAN ONE. Reaching here with fewer packages or
+    # scripts than were recorded means discovery lost coverage, and the zero
+    # below would describe only the part that was still visible.
+    if n_pkgs_with_scripts < MIN_PACKAGES_WITH_SCRIPTS or n_scripts < MIN_SCRIPTS:
+        print(f"CANNOT-RUN: checked {n_pkgs_with_scripts} package(s) declaring "
+              f"{n_scripts} script(s), below the recorded floor of "
+              f"{MIN_PACKAGES_WITH_SCRIPTS} package(s) / {MIN_SCRIPTS} script(s). "
+              "Coverage has collapsed; this is not a pass.", file=sys.stderr)
+        return EXIT_CANNOT_RUN
 
     if all_failures:
         print("\nFAIL: unresolved console-script entrypoints in vendored code:",
