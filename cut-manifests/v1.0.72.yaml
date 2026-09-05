@@ -339,6 +339,22 @@ entries:
       must_match: true
 
 open_issues:
+  - issue: 1601
+    title: "a probe that exceeds the manifest timeout is reported as FAIL, hiding a real diagnosis behind an instrument error"
+    gate: >-
+      FIX (apparatus, counted per Andy): entry: a-timeout-is-cannot-run --
+      verify_cut_manifest.py runs every box_walk_probe under one global
+      BOX_WALK_PROBE_TIMEOUT_SECONDS and reports an over-run as FAIL, counted
+      in the summary beside genuine failures. MEASURED 2026-09-06:
+      assistant_answers_grounded was 1 of 12 FAILs in the first live-box run;
+      re-run with no cap it completes and returns a precise verdict, 2 of 3
+      questions answered without reaching the customer's data. The cap replaced
+      a diagnosis with an instrument error. Proof: a probe that exceeds its cap
+      must be adjudicated CANNOT-RUN and counted separately, and the cap must
+      be per-probe so a conversation-driving probe can declare what it needs.
+      A timeout counted as a failure is how a real finding comes to look like a
+      broken instrument, and Andy's requirement is that every probe passes on
+      every walk.
   - issue: 1594
     title: "8044 serves the whole personal wiki to any local account, and the locked #550 decision says ABSENT"
     gate: >-
