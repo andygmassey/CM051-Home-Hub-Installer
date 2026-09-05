@@ -206,9 +206,17 @@ UNRESOLVABLE_HOST="invalid.invalid"
 _qa_run() {  # $1.. args; echoes "<rc>|<kind>"
     local _out _rc _kind
     _out="$(/bin/bash "$QA" "$@" 2>&1)"; _rc=$?
-    if printf '%s' "$_out" | grep -q 'cut-version must look like'; then _kind=shape-refused
-    elif printf '%s' "$_out" | grep -q 'CANNOT REACH';               then _kind=reached-ssh
-    elif printf '%s' "$_out" | grep -q 'usage: scripts/post_walk_qa.sh'; then _kind=no-host
+    # Herestrings, deliberately. Feeding a producer into a consumer that stops
+    # at the first hit lets the consumer SIGPIPE the producer, and under
+    # `set -o pipefail` that inflicts a non-zero status on a command which
+    # actually succeeded. The construct is described rather than written out:
+    # the repo scans for the literal, and a comment quoting it to explain the
+    # ban would satisfy that scan and add a row to the ratchet.
+    # This file is #!/usr/bin/env bash and owns its shell, so a herestring is
+    # safe. Anything that might run under `sh -c` wants a counting match.
+    if   grep -q 'cut-version must look like'      <<< "$_out"; then _kind=shape-refused
+    elif grep -q 'CANNOT REACH'                    <<< "$_out"; then _kind=reached-ssh
+    elif grep -q 'usage: scripts/post_walk_qa.sh'  <<< "$_out"; then _kind=no-host
     else _kind=other; fi
     printf '%s|%s|%s' "$_rc" "$_kind" "$(printf '%s' "$_out" | grep -c "leading 'v' away")"
 }
