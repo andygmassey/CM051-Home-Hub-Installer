@@ -308,6 +308,7 @@ test_pr_age_gate_declares_partial_runs.sh	WIRED	.github/workflows/cut-gate-wrapp
 test_pref_noise_source_cap.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_preferences_vendor_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_probe_absence_is_not_an_answer.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_probe_pgrep_is_scoped_to_this_account.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_product_seed_regex_does_not_exclude_the_bundle.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_progress_bar_cannot_exceed_one_hundred.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_provenance_gate_cannot_run_is_not_stale.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
