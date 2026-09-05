@@ -143,7 +143,10 @@ _seeded_probe() {
 }
 if _seeded_probe; then echo yes; fi
 FIXTURE
-if printf '%s\n' "$(population_in "$CTL")" | grep -qF 'seeded.sh'; then
+# `grep -c`, never `| grep -q`: this repo bans the piped form and the sibling
+# gate caught THIS FILE using it. A gate that bans a shape and then uses it
+# is not a gate.
+if [ "$(printf '%s\n' "$(population_in "$CTL")" | grep -cF 'seeded.sh')" -gt 0 ]; then
     ok "arm 3: a function ending in a banned pipeline AND used as a condition IS caught"
 else
     bad "arm 3: the seeded positive was NOT caught. Arm 1 cannot fail and its pass means nothing."
@@ -158,7 +161,7 @@ _first_digits() {
 }
 echo "got $(_first_digits "$1")"
 FIXTURE
-if printf '%s\n' "$(population_in "$CTL")" | grep -qF 'output_helper.sh'; then
+if [ "$(printf '%s\n' "$(population_in "$CTL")" | grep -cF 'output_helper.sh')" -gt 0 ]; then
     bad "arm 4: an OUTPUT helper consumed as \$(fn) was reported. Step 2 is not
         discriminating, so the population is inflated with 26 harmless rows and a
         real regression hides among them."
@@ -178,7 +181,7 @@ _clean_probe() {
 }
 if _clean_probe; then echo yes; fi
 FIXTURE
-if printf '%s\n' "$(population_in "$CTL")" | grep -qF 'clean_condition.sh'; then
+if [ "$(printf '%s\n' "$(population_in "$CTL")" | grep -cF 'clean_condition.sh')" -gt 0 ]; then
     bad "arm 5: the REMEDY form was reported as a defect. The gate would reject its own fix."
 else
     ok "arm 5: the no-pipe remedy form is NOT reported, so the gate accepts its own fix"
@@ -194,7 +197,7 @@ _mid_pipeline() {
 }
 if _mid_pipeline; then echo yes; fi
 FIXTURE
-if printf '%s\n' "$(population_in "$CTL")" | grep -qF 'not_last.sh'; then
+if [ "$(printf '%s\n' "$(population_in "$CTL")" | grep -cF 'not_last.sh')" -gt 0 ]; then
     bad "arm 6: a pipeline that is NOT the last statement was reported. Its status is
         discarded by the explicit return below it, so this inflates the population."
 else
