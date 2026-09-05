@@ -24,11 +24,14 @@
 #   * A naive descent manufactures 16 spurious pairs, because `vendor/*/tests`
 #     and `vendor/*/bin` collide by basename with ./tests and ./bin. Requiring
 #     __init__.py on BOTH sides rejects all 16 and keeps the 1 real package.
-#   * WHICH COPY SHIPS IS NOT A CONSTANT. This file used to assert "the
-#     shipping copy is vendor/". For contact_syncer that is INVERTED:
-#     install.sh copies ${SCRIPT_DIR}/contact_syncer, the ROOT copy, into the
-#     import pipeline. A guard that names the wrong file as authoritative sends
-#     the reader to fix the copy nobody runs, so this one no longer guesses.
+#   * WHICH COPY SHIPS IS NOT A CONSTANT, AND install.sh CANNOT TELL YOU.
+#     This file used to assert "the shipping copy is vendor/" as a global fact.
+#     The first correction replaced one global claim with the OPPOSITE global
+#     claim, reasoning from install.sh copying ${SCRIPT_DIR}/contact_syncer --
+#     which is wrong, because ${SCRIPT_DIR} on a customer's Mac is the .app
+#     Resources directory and gui/project.yml fills it FROM vendor/. install.sh
+#     describes the second hop, payload to import pipeline. The guard now asks
+#     the BUNDLER per pair and refuses when the bundler names neither side.
 #
 # The known drift is recorded in tests/VENDOR_TWIN_DRIFT.tsv as debt with a
 # number on it, the same idiom as the UNWIRED rows in TEST_WIRING.tsv: green on
