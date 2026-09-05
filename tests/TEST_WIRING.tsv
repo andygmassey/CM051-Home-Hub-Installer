@@ -404,7 +404,7 @@ test_the_converge_veto_actually_runs.py	WIRED	.github/workflows/rule-2-holds-on-
 test_the_cron_reader_sees_both_toml_spellings.sh	WIRED	.github/workflows/install-manifest-gate.yml
 test_the_cut_checklist_is_complete.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_the_downloads_watcher_survives_a_real_export.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
-test_the_operator_rollforward_refuses_a_blind_environment.sh	UNWIRED	-
+test_the_operator_rollforward_refuses_a_blind_environment.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_the_pii_hook_asks_cis_question.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_the_port_preflight_aborts_carry_distinct_support_codes.sh	WIRED	.github/workflows/colima-autostart.yml
 test_the_promote_instructions_name_what_makes_it_fail.sh	WIRED	.github/workflows/customer-download-path.yml
