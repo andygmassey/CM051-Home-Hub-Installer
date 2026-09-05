@@ -183,6 +183,11 @@ BASELINE_FILE='tests/pipefail_shortcircuit_baseline.txt'
 # is the LAST command's, which is grep's own verdict, and nothing is wrong.
 # `grep -c` is deliberately NOT in CONSTRUCT: it must consume all input to
 # count, so it cannot short-circuit.
+# Join `\`-continuations so a condition written across lines is ONE line to
+# CONSTRUCT. `grep -c`, never `| grep -q`: this file bans that shape and must
+# obey its own rule -- grep -c has to read to EOF, so it cannot SIGPIPE sed.
+_joined_lines() { /usr/bin/sed -e :a -e '/\\$/N; s/\\\n//; ta' "$1" 2>/dev/null; }
+
 population_in() {
     local root="$1" f
     # `sed 's#^\./##'` IS LOAD-BEARING, AND ITS ABSENCE VOIDED THE WHOLE
@@ -191,7 +196,22 @@ population_in() {
     # the ratchet agreed only because both happened to contain 70 of them.
     # The `comm` that names the offending files runs ONLY on the failure
     # path, so nobody ever saw it print all 70.
-    for f in $(grep -rlE "$CONSTRUCT" --include='*.sh' --include='*.yml' "$root" 2>/dev/null | grep -v '/\.git/' | sed 's#^\./##' | sort); do
+    #
+    # 🔴 CONTINUATIONS, AND THIS IS WHY THE COUNT BELOW GREW.
+    #
+    # CONSTRUCT anchors on `^[[:space:]]*(if|elif|while)`. The scan used to run
+    # it against RAW lines, so a condition split across two lines -- keyword on
+    # one, `| grep -q` on the next -- matched NOTHING and the gate reported "no
+    # new instances" while one landed. Found 2026-09-04 when CM051 #1471 added
+    # exactly that form to install.sh and this file stayed green: measured with
+    # CONSTRUCT itself, install.sh was 16 before and 16 after.
+    #
+    # MEASURED over 704 files: 198 instances raw, 242 once continuations are
+    # joined. 44 invisible across 24 files, and 13 of those files carried NO
+    # visible instance, so they were absent from the baseline altogether rather
+    # than merely undercounted. The baseline grew by that scanner fix, not by
+    # anyone adding defects.
+    while IFS= read -r f; do
         # FROZEN ARTEFACTS ARE NOT LIVE SHELL. tests/fixtures/ holds code kept
         # DELIBERATELY BROKEN so a control can be proved to go red against it
         # -- see tests/fixtures/verify_customer_download_path.prefix. Counting
@@ -205,8 +225,22 @@ population_in() {
         case "$f" in
             tests/fixtures/*|*/tests/fixtures/*) continue ;;
         esac
-        grep -qE 'set -o pipefail|set -[a-z]+o[a-z]* pipefail' "$f" 2>/dev/null && echo "$f"
-    done
+        grep -qE 'set -o pipefail|set -[a-z]+o[a-z]* pipefail' "$f" 2>/dev/null || continue
+        # ROWS CARRY A COUNT, NOT JUST A NAME, AND THAT IS THE SECOND HALF OF
+        # THIS FIX. A name-only row means any file already on the list can
+        # accumulate new instances for ever under a green verdict, and the
+        # biggest file in the repo is on the list. Proved by mutation on
+        # 2026-09-04: appending a banned instance to install.sh -- in BOTH the
+        # single-line and the multi-line form -- left the ratchet saying "no new
+        # instances", because `install.sh` was already a row and the row did not
+        # change. With the count in the row, 21 becomes 22 and it is caught.
+        _n="$(_joined_lines "$f" | grep -cE "$CONSTRUCT")"
+        if [ "${_n:-0}" -gt 0 ]; then
+            printf '%s\t%s\n' "$f" "$_n"
+        fi
+    done < <(/usr/bin/find "$root" -name '.git' -prune -o \
+                 \( -name '*.sh' -o -name '*.yml' \) -type f -print \
+                 | sed 's#^\./##' | sort)
 }
 
 # Rows in the scan that the baseline does not list, and vice versa. Split out
@@ -258,6 +292,21 @@ set -uo pipefail
 if printf 'needle\n' | grep -q needle; then echo found; fi
 FIXTURE
 
+# THE MULTI-LINE FORM. This is the one the scanner used to miss entirely, and
+# missing it is how CM051 #1471 added an instance to install.sh while this file
+# reported "no new instances". CONSTRUCT anchors on the keyword, so with the
+# condition split across a `\`-continuation there is no single raw line
+# carrying both `if` and the pipe. If _joined_lines ever stops joining, this
+# control goes red and the ratchet stops being a ratchet.
+cat > "$CTL_DIR/seeded_multiline.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -uo pipefail
+if [ -n "${HOME:-}" ] \
+   && printf 'needle\n' | grep -q needle; then
+    echo found
+fi
+FIXTURE
+
 CTL_POP="$(population_in "$CTL_DIR")"
 if grep -qF 'tests/fixtures/frozen_prefix_gate.sh' <<< "$CTL_POP"; then
     bad "DISCRIMINATOR FAILED: the scanner reported a file under tests/fixtures/. Frozen broken artefacts are not live shell -- counting one inflates the ceiling and its only possible 'fix' destroys the fixture."
@@ -268,6 +317,11 @@ if grep -qF 'seeded_instance.sh' <<< "$CTL_POP"; then
     ok "POSITIVE CONTROL: the scanner finds a seeded instance it MUST find"
 else
     bad "POSITIVE CONTROL FAILED: the scanner did NOT find a file it was handed, carrying the construct AND pipefail. The scanner is blind and the ratchet below is void."
+fi
+if grep -qF 'seeded_multiline.sh' <<< "$CTL_POP"; then
+    ok "POSITIVE CONTROL: the scanner finds a MULTI-LINE instance (the form it was blind to)"
+else
+    bad "POSITIVE CONTROL FAILED: a condition split across a backslash continuation was NOT found. The scanner is blind to the multi-line form, which is how an instance landed in install.sh under a green verdict."
 fi
 if grep -qF 'no_pipefail.sh' <<< "$CTL_POP"; then
     bad "DISCRIMINATOR FAILED: the scanner reported a file with NO pipefail. It is matching the construct alone, so the population is inflated and the baseline is meaningless."
