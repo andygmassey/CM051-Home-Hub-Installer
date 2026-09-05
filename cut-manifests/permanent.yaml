@@ -396,6 +396,35 @@ entries:
       probe: "people_seed_and_retrieval"
 
   # ==========================================================================
+  # A KILLED CONVERGE IS A FACT ABOUT THE BOX, AND UNTIL NOW NOTHING READ IT.
+  #
+  # install.sh SIGKILLs the identity resolver at the 300s dedupe budget, and
+  # since CM051 #1515 it records that at ${OSTLER_DIR}/state/dedupe-converge.
+  # killed. Nothing consumed the marker -- the same shape as the resolver's
+  # .trig backup, which is written and never read.
+  #
+  # It matters to the REST of the walk: merge_persons is eight separate SPARQL
+  # updates, the identifiers move at step 1 and the authorising mergedInto
+  # tombstone is written at step 6, so a kill in between leaves people counts
+  # provisional. Three other probes then go red and the reader has to infer why.
+  #
+  # THE PROBE REFUSES RATHER THAN PASSING WHEN NEITHER MARKER EXISTS. #1515
+  # landed after the v1.0.68 pin, so on that artefact the marker CANNOT be
+  # written and absence is silence, not a clean run. Advisory in
+  # walk_promote_scope.tsv: a half-finished dedupe is a fact about this box and
+  # its data, not a defect in the DMG being walked.
+  # ==========================================================================
+  - id: box-walk-converge-kill-is-recorded
+    title: a box whose install-time converge was SIGKILLed says so, and absence is not a pass
+    incident: >-
+      the 300s dedupe budget kills the resolver mid-merge and nothing read the
+      marker, so a walk on a half-deduped box reported people failures with no
+      statement of the cause
+    proof:
+      kind: box_walk_probe
+      probe: "converge_kill_is_recorded"
+
+  # ==========================================================================
   # #778. The seven probes below have existed since the BW2 bundle and NO
   # manifest has ever named them. Not an oversight anyone could have spotted:
   # they live in scripts/box_walk_probes/probes/, and until #778 the verifier
