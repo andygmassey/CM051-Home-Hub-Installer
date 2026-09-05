@@ -21,38 +21,56 @@ struct HintPanelView: View {
         // check + summary in the main window when everything is done.
         // The fail-state path continues to fall through to the existing
         // step-and-error rendering below.
-        if coordinator.finished == .ok {
-            InstallCompleteView()
+        Group {
+            if coordinator.finished == .ok {
+                InstallCompleteView()
+                    .environmentObject(coordinator)
+            } else {
+                mainBody
+            }
+        }
+        // CX-53 (DMG ship, 2026-05-24): when install.sh has emitted a
+        // RECOVERY_KEY marker AND the customer has not yet acknowledged
+        // it, stack the RecoveryKeyView sheet on top of whatever is on
+        // screen. The sheet is modal so the customer must click Continue
+        // (after ticking the saved-it confirm box) to dismiss it. We
+        // drive isPresented from a derived binding so a late-arriving
+        // RECOVERY_KEY marker re-opens the sheet automatically.
+        //
+        // #1540: THIS MODIFIER USED TO HANG OFF InstallCompleteView, so
+        // the reveal was reachable ONLY when `finished == .ok`.
+        //
+        // MEASURED on archie2, Mini 16, 2026-09-05. `recoveryKey` is an
+        // in-memory @Published property and the key is deliberately
+        // never written to disk, so an install that minted the key and
+        // then failed held it behind a branch that never rendered and
+        // dropped it when the app quit. There is no second chance: the
+        // keychain IS on disk, so every later run takes install.sh's
+        // "already configured" skip and emits no marker at all. That is
+        // both halves of one walk -- a run at 10:43:53Z that minted and
+        // failed, and a run at 11:04:08Z that finished clean with
+        // nothing left to show.
+        //
+        // A customer whose install failed needs this MORE, not less:
+        // their next act is to re-run, and the re-run is what makes the
+        // key unreachable for ever. So the sheet now hangs off the whole
+        // view. A key that exists and is unacknowledged is presentable
+        // whatever the install's outcome.
+        .sheet(isPresented: Binding(
+            get: {
+                (coordinator.recoveryKey?.isEmpty == false)
+                    && !coordinator.recoveryKeyAcknowledged
+            },
+            set: { _ in
+                // Dismissal is driven by the Continue button inside the
+                // sheet (which sets recoveryKeyAcknowledged = true). We
+                // ignore attempts to set isPresented externally (e.g.
+                // macOS escape-key dismissal) so the customer cannot
+                // accidentally skip past the reveal without confirming.
+            }
+        )) {
+            RecoveryKeyView()
                 .environmentObject(coordinator)
-                // CX-53 (DMG ship, 2026-05-24): when install.sh has
-                // emitted a RECOVERY_KEY marker AND the customer has
-                // not yet acknowledged it, stack the RecoveryKeyView
-                // sheet on top of the InstallCompleteView. The sheet
-                // is modal so the customer must click Continue (after
-                // ticking the saved-it confirm box) to dismiss it.
-                // We drive isPresented from a derived binding so a
-                // late-arriving RECOVERY_KEY marker re-opens the
-                // sheet automatically.
-                .sheet(isPresented: Binding(
-                    get: {
-                        (coordinator.recoveryKey?.isEmpty == false)
-                            && !coordinator.recoveryKeyAcknowledged
-                    },
-                    set: { _ in
-                        // Dismissal is driven by the Continue button
-                        // inside the sheet (which sets
-                        // recoveryKeyAcknowledged = true). We ignore
-                        // attempts to set isPresented externally
-                        // (e.g. macOS escape-key dismissal) so the
-                        // customer cannot accidentally skip past the
-                        // reveal without confirming.
-                    }
-                )) {
-                    RecoveryKeyView()
-                        .environmentObject(coordinator)
-                }
-        } else {
-            mainBody
         }
     }
 
