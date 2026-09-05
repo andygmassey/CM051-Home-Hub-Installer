@@ -41,6 +41,8 @@ on:
       # the step without this line and verify_invoked_tests_are_watched.py
       # caught it: "1 file(s) are DARK ON SELF-EDIT".
       - 'tests/test_post_walk_qa_measures_the_artefact.sh'
+      - 'scripts/tests/test_artefact_version_read_is_shaped.sh'
+      - 'scripts/ttywalk.sh'
       # The BOM-verdict gate rides on the SAME promote decision this workflow
       # guards, so it belongs in the same watch set. #1322 shipped the gate
       # with zero call sites; the test below is what makes that state fail.
@@ -84,6 +86,24 @@ jobs:
 
       - name: The customer download cannot be repointed to an unwalked build
         run: bash tests/test_walk_record_gates_customer_download.sh
+
+      # THE VERSION THE RECORD IS FILED UNDER MUST BE A VERSION.
+      #
+      # MEASURED 2026-09-05: ttywalk wrote PlistBuddy's own diagnostic into
+      # ~/.walk-artefact-version, because the path was one dirname too deep AND
+      # PlistBuddy answers on STDOUT, so `2>/dev/null` suppressed nothing and a
+      # `[[ -n ]]` check passed on a failure. post_walk_qa then REFUSED to
+      # write walks/v1.0.67.tsv -- correctly -- and a walk record is what gates
+      # promoting a release.
+      #
+      # The guard is on SHAPE, not emptiness, because emptiness cannot see a
+      # failure that answers on stdout.
+      #
+      # if: always() for the same reason as every other step here -- it is not
+      # first, and a skipped step reads as no objection.
+      - name: The artefact version read is a version, not a diagnostic
+        if: always()
+        run: /bin/bash scripts/tests/test_artefact_version_read_is_shaped.sh
 
       # A probe that reads an absent path as a definite answer is worse than a
       # probe that fails: it reports a confident verdict about something it

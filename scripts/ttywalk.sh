@@ -323,8 +323,8 @@ if [[ -n "${FROM_DMG:-}" ]]; then
     #      is at <app>/Contents/Info.plist. One dirname.
     #
     #   2. PlistBuddy WRITES ITS ERROR TO STDOUT, NOT STDERR. So `2>/dev/null`
-    #      suppressed nothing, the error text "File Doesn't Exist, Will
-    #      Create: ..." landed in the variable, and `[[ -n ]]` PASSED on a
+    #      suppressed nothing: its "file does not exist, will create"
+    #      diagnostic landed in the variable, and `[[ -n ]]` PASSED on a
     #      failure. The walk then announced
     #      `version: FileDoesn'tExist,WillCreate:/private/var/...` as though it
     #      had succeeded, and wrote that into ~/.walk-artefact-version.

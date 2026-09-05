@@ -10,7 +10,7 @@
 #      <app>/Contents/Info.plist.
 #
 #   2. PlistBuddy WRITES ITS ERROR TO STDOUT. `2>/dev/null` suppressed nothing.
-#      The string "File Doesn't Exist, Will Create: /private/var/..." landed in
+#      Its "file does not exist, will create" diagnostic landed in
 #      ARTEFACT_VERSION, `[[ -n ]]` PASSED, and the walk announced
 #      `version: FileDoesn'tExist,WillCreate:...` as a success.
 #
