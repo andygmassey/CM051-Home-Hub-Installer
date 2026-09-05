@@ -5799,6 +5799,62 @@ incomplete in a DIFFERENT way from the one that would produce the 315. So this
 box contains **no worked example** of the mechanism, and attributing the 315 to
 it would be reasoning from the module to the data without a specimen.
 
+🟢 **AND IT IS CLOSED FURTHER THAN THAT. THE 71, THE 58 AND THE 54 ARE ONE
+EVENT.** Andy asked the right question -- "the missing people aren't businesses
+that some script has parsed out, are they?" -- and chasing it produced the
+reconciliation this section had been missing.
+
+```
+the 315 are held NOW by            person 315 · business 0
+  CONTROL: businesses DO hold identifiers, 620 of the 5676, so this sees them
+each of the 71 gone origins had    exactly 1 icloud_contact_uid, 71 of 71
+the 315 break down as              phone 149 · email 95 · icloud_contact_uid 71
+the 315 landed on                  58 DISTINCT person nodes
+```
+
+⇒ **They are not businesses.** A `BusinessContact` does not carry an iCloud
+contact uid; each of these 71 carried exactly one. They were real address-book
+contacts. Andy's instinct was right about the number I FIRST published -- 472 of
+that 543 were exactly the business nodes he was describing -- and wrong only
+about the residue, which is the correct way round for a challenge to land.
+
+🔴 **THEN THE SURVIVORS WERE COUNTED, AND THE NUMBER IS ALREADY ON THE WALK.**
+
+```
+person nodes holding 1 icloud_contact_uid   1556
+                     2                        49   ┐
+                     3                         2   │  54
+                     4                         2   │
+                     5                         1   ┘
+```
+
+**54 is exactly what `no_person_holds_two_contact_cards` fails on**, measured by
+a different instrument on a different day. Two independent routes to the same
+number is the strongest evidence available here.
+
+⇒ **SO v1067-D001, THIS SECTION AND v1067-D003 ARE ONE EVENT:**
+
+```
+71 contacts were absorbed into 58 people with ZERO tombstones
+  -> 54 of those people now hold two or more contact cards   (D003 fails)
+  -> the vanished originals left 84 vectors the projection never pruned (D001)
+  -> 315 identifiers now sit on holders that did not mint them  (this section)
+```
+
+✅ **AND IT EXPLAINS THE DEAD END IN v1067-D003.**
+`repair_overmerged_contact_cards` repairs 0 of 54 here because every card is
+blocked by "the origin node has been erased from the graph". Whatever did this
+**deleted the origin instead of tombstoning it**, so there is nothing left to
+un-merge back into. The repair was never going to work on this box, and that is
+a property of the damage rather than of the repair.
+
+⚠️ **STILL NOT ATTRIBUTED, AND THE DISCREPANCY IS THE NEXT LEAD.** This box's
+one genuine merge moved no identifier and left its discard in place, which is
+the OPPOSITE of what these 71 look like. So either a second writer did this, or
+the merge path behaved differently when these ran. **58 survivors and 71 origins
+is not 1:1** -- some survivors absorbed more than one -- and that ratio is
+itself a constraint on any proposed mechanism.
+
 **WHAT WOULD CLOSE IT, AND IT IS NOW A SMALL JOB.** 71 is enumerable. Take the
 71 gone origins one at a time and ask what else in the estate remembers them:
 a `merge_backup_*.trig` under whatever cwd a launchd-invoked resolver actually
