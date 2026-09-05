@@ -1,0 +1,52 @@
+name: every-probe-is-collected
+
+# Every probe-shaped script must actually be COLLECTED, or exempted with a
+# written reason.
+#
+# Andy, 2026-09-05: "surely we need to make sure all the instruments work as
+# well, so I'd actually rather we count them in the manifest." A broken
+# instrument is how a customer defect survives, so an apparatus defect is not
+# DEFER-able on the grounds of being apparatus.
+#
+# MEASURED: run_box_walk.sh:42 sets PROBE_DIR="$HERE/probes" and line 83 globs
+# "$PROBE_DIR"/*.sh, while acceptance_gate_v1013.sh sits one directory above
+# it. cut-manifests/README.md records that exact shape as this project's worst
+# measurement failure -- people_seed_and_retrieval sat outside the same glob,
+# the manifest row was its only caller, and FOURTEEN CUTS reported a gate that
+# measured nothing.
+#
+# The exemption list is deliberately not a skip list: an entry needs a reason,
+# and an entry naming a file that no longer exists is itself a failure, because
+# a stale exemption protects nothing and hides the next file to take its name.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/box_walk_probes/**'
+      - 'tests/test_every_probe_on_disk_is_collected.py'
+      - '.github/workflows/every-probe-is-collected.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  every-probe-is-collected:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reads the collector's OWN PROBE_DIR rather than assuming it, so the gate
+      # cannot pass by measuring a directory the runner stopped using. An empty
+      # probe set exits 2 CANNOT-RUN, because a wrong path and a genuinely empty
+      # directory print identically. Proved to fire by planting a stray script.
+      - name: Every probe is collected, or exempted with a reason
+        run: python3 tests/test_every_probe_on_disk_is_collected.py

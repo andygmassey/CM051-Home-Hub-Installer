@@ -173,6 +173,7 @@ test_every_fail_call_has_error_code.sh	WIRED	.github/workflows/cold-box-source-t
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_every_marker_pattern_compiles.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_every_plistbuddy_read_is_guarded.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_every_probe_on_disk_is_collected.py	WIRED	.github/workflows/every-probe-is-collected.yml
 test_every_question_declares_its_persistence.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_exemption_ref_form.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_expired_deferral_ratchet.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
