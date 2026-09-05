@@ -11946,7 +11946,68 @@ else
     ok "$MSG_OK_OLLAMA_INSTALLED"
 fi
 
-if curl -s http://localhost:11434/api/tags &>/dev/null; then
+# ── "ALREADY RUNNING" MUST NOT MEAN "SOMEBODY ELSE'S OLLAMA ANSWERED" ──
+#
+# 🔴 MEASURED 2026-09-04 on the v1.0.66 artefact walk, and it is the reason
+# install_manifest_complete reported com.ostler.ollama MISSING on a green
+# install:
+#
+#     curl http://127.0.0.1:11434/          -> 200
+#     lsof -nP -iTCP:11434 (as this user)   -> NOTHING
+#     ~/Library/LaunchAgents/com.ostler.ollama.plist -> ABSENT
+#     #OSTLER STEP_END id=ollama_install status=ok elapsed_s=0
+#
+# ANOTHER ACCOUNT ON THE SAME MAC WAS SERVING 11434. This probe is a bare
+# loopback curl with no ownership check, so it answered "yes, Ollama is
+# running", and the else below -- the ONLY place com.ostler.ollama.plist is
+# ever written -- was skipped entirely.
+#
+# The customer-facing shape is worse than a missing file. That install ends up
+# with NO LaunchAgent, so nothing starts Ollama at boot for it; it depends on a
+# process owned by a different user, which disappears when that user logs out;
+# and the step reports ok in ZERO SECONDS while saying none of it.
+#
+# THE TWO QUESTIONS WERE CONFLATED. "Is something serving 11434 right now?"
+# decides whether we need to START Ollama. "Do we have our own LaunchAgent?"
+# decides whether this install is COMPLETE and survives a reboot. Only the
+# second is about us, and the plist path is hoisted above the branch so both
+# arms can see it.
+#
+# Reachability is not ownership. Same class as the :8000 gateway collision and
+# the lsof enumerations that read another user's socket as absence.
+# TRUE when OUR OWN Ollama agent is up. One definition, three callers.
+#
+# PARSES THE STATE, NEVER THE EXIT CODE. `launchctl print` returns rc=0 for a
+# job that is merely REGISTERED -- this file says so at its own launchctl note,
+# and it was re-measured on two Macs:
+#
+#     absent label            rc=113   (no state line)
+#     loaded but NOT running  rc=0     state = not running
+#     loaded AND running      rc=0     state = running
+#
+# `state = running` is a fair demand for THIS agent because its plist sets
+# KeepAlive <true/>, the condition _ostler_launchagent_keeps_alive() exists to
+# test. It would NOT be fair of a one-shot.
+_ollama_agent_is_running() {
+    # No pipe. TNM's objection on #1471, taken: the pipeline WAS this
+    # function's only statement, so its status was the return value, and both
+    # call sites use the function as a condition. He measured that
+    # `launchctl print`'s ~250 lines fit the pipe buffer today, so it does not
+    # invert -- but "does not invert at today's output size" is a worse
+    # property to ship than "has no pipe", and this costs nothing.
+    #
+    # rc discriminates absent from dead: an unregistered label exits 113, a
+    # registered one exits 0 whether it is running or not, so the `|| return 1`
+    # covers absent and the case covers the two rc=0 outcomes. Only the state
+    # line separates loaded-but-dead from running.
+    local _out
+    _out="$(launchctl print "gui/$(id -u)/com.ostler.ollama" 2>/dev/null)" || return 1
+    case "$_out" in *"state = running"*) return 0 ;; esac
+    return 1
+}
+
+OLLAMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
+if curl -sf http://localhost:11434/api/tags &>/dev/null && [[ -f "$OLLAMA_PLIST" ]]; then
     ok "$MSG_OK_OLLAMA_RUNNING"
 else
     info "$MSG_INFO_STARTING_OLLAMA"
@@ -11962,6 +12023,8 @@ else
     # periodic cleanup broke, so the Ollama agent failed after reboot.
     OLLAMA_LOG_DIR="${HOME}/.ostler/logs"
     mkdir -p "$OLLAMA_LOG_DIR" "${HOME}/Library/LaunchAgents"
+    # (OLLAMA_PLIST is set above the branch so both arms can test it; this
+    # line is kept as a no-op re-assert so the block still reads standalone.)
     OLLAMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
 
     # Resource-tier governor (v1.0.3): OLLAMA_NUM_PARALLEL scales to the
@@ -12051,7 +12114,31 @@ OLLAMAPLIST
     OLLAMA_WAIT=0
     OLLAMA_BOOTSTRAP_GRACE=45
     _ollama_direct_started=0
-    while ! curl -s http://localhost:11434/api/tags &>/dev/null; do
+    # ── WAIT FOR *OUR* OLLAMA, NOT FOR ANY LISTENER ON 11434 ────────────────
+    #
+    # 🔴 MEASURED by TNM against the extracted loop. His decoy was
+    # `python3 -m http.server`, which answers /api/tags with 404 -- and the
+    # loop accepted it, because `curl -s` succeeds on any HTTP response:
+    #
+    #     curl -s   .../api/tags   rc=0    <- this loop's old form
+    #     curl -sf  .../api/tags   rc=22   <- rejects the 404
+    #
+    # So the loop was waiting for AN HTTP LISTENER, not for Ollama. A stray dev
+    # server ended the wait.
+    #
+    # AND THE FIX ABOVE MADE THAT MATTER MORE, NOT LESS. Before it, a box with
+    # a foreign Ollama skipped this branch entirely. Now it correctly writes
+    # and loads our plist and arrives HERE -- where a stranger on the port
+    # would satisfy the loop instantly, `_ollama_direct_started` would stay 0,
+    # the fallback could never fire, and we would print "Ollama running" about
+    # someone else's process. That is the same shape as the health arm: the
+    # decision to ACT was right and the verification that it WORKED was still
+    # answered by the port.
+    #
+    # The state this missed is the one the fallback exists for: registered but
+    # not serving.
+    while ! { curl -sf http://localhost:11434/api/tags &>/dev/null \
+              && _ollama_agent_is_running; }; do
         if [[ $_ollama_direct_started -eq 0 && $OLLAMA_WAIT -ge $OLLAMA_BOOTSTRAP_GRACE ]]; then
             warn "$MSG_WARN_OLLAMA_BOOTSTRAP_FALLBACK_DIRECT"
             if [[ -x "$OLLAMA_APP_BIN" ]]; then
@@ -19279,9 +19366,27 @@ mkdir -p "$LOGS_DIR" "$STATE_DIR"
 log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
 
 remove_self() {
-    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || \
-        launchctl unload "$PLIST" 2>/dev/null || true
+    # Delete the FILES first, then unload. Reversing these two loses the file.
+    #
+    # MEASURED, archie@.240, 2026-09-05, 10 iterations: a LaunchAgent that
+    # calls `launchctl bootout` on its OWN label reached the line before the
+    # bootout 10/10 times and the line after it 0/10 times. launchd tears the
+    # job down before control returns, so every statement after the bootout in
+    # this function was unreachable -- `rm -f` included.
+    #
+    # THE FILE IS THE HALF THAT MATTERS (:20129 says so for the uninstaller).
+    # A plist left behind in ~/Library/LaunchAgents is loaded again at the next
+    # login, so a "self-removing" agent came back on every reboot, forever, and
+    # the surviving tries file carried its old count back with it. Found on the
+    # v1.0.66 artefact: the dedupe catch-up agent had booted itself out, the
+    # converge was marked done at 06:07:28, and both the plist and the tries
+    # file were still on disk.
+    #
+    # bootout addresses the job by LABEL, so it does not need the plist to
+    # still exist. The old `launchctl unload "$PLIST"` fallback did, which is
+    # why it is gone rather than reordered.
     rm -f "$PLIST" "$TRIES_FILE"
+    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
 }
 
 # Bounded retry: bump the attempt counter and, once it exceeds the cap,
@@ -22193,9 +22298,27 @@ mkdir -p "$LOGS_DIR" "$STATE_DIR"
 log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
 
 remove_self() {
-    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || \
-        launchctl unload "$PLIST" 2>/dev/null || true
+    # Delete the FILES first, then unload. Reversing these two loses the file.
+    #
+    # MEASURED, archie@.240, 2026-09-05, 10 iterations: a LaunchAgent that
+    # calls `launchctl bootout` on its OWN label reached the line before the
+    # bootout 10/10 times and the line after it 0/10 times. launchd tears the
+    # job down before control returns, so every statement after the bootout in
+    # this function was unreachable -- `rm -f` included.
+    #
+    # THE FILE IS THE HALF THAT MATTERS (:20129 says so for the uninstaller).
+    # A plist left behind in ~/Library/LaunchAgents is loaded again at the next
+    # login, so a "self-removing" agent came back on every reboot, forever, and
+    # the surviving tries file carried its old count back with it. Found on the
+    # v1.0.66 artefact: the dedupe catch-up agent had booted itself out, the
+    # converge was marked done at 06:07:28, and both the plist and the tries
+    # file were still on disk.
+    #
+    # bootout addresses the job by LABEL, so it does not need the plist to
+    # still exist. The old `launchctl unload "$PLIST"` fallback did, which is
+    # why it is gone rather than reordered.
     rm -f "$PLIST" "$TRIES_FILE"
+    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
 }
 
 # Bounded run counter: once we exceed the cap, give up and remove the
@@ -25272,9 +25395,27 @@ fi
 DEDUPE_REPORT="${PRIVATE_DIR}/dedupe-report.yaml"
 
 remove_self() {
-    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || \
-        launchctl unload "$PLIST" 2>/dev/null || true
+    # Delete the FILES first, then unload. Reversing these two loses the file.
+    #
+    # MEASURED, archie@.240, 2026-09-05, 10 iterations: a LaunchAgent that
+    # calls `launchctl bootout` on its OWN label reached the line before the
+    # bootout 10/10 times and the line after it 0/10 times. launchd tears the
+    # job down before control returns, so every statement after the bootout in
+    # this function was unreachable -- `rm -f` included.
+    #
+    # THE FILE IS THE HALF THAT MATTERS (:20129 says so for the uninstaller).
+    # A plist left behind in ~/Library/LaunchAgents is loaded again at the next
+    # login, so a "self-removing" agent came back on every reboot, forever, and
+    # the surviving tries file carried its old count back with it. Found on the
+    # v1.0.66 artefact: the dedupe catch-up agent had booted itself out, the
+    # converge was marked done at 06:07:28, and both the plist and the tries
+    # file were still on disk.
+    #
+    # bootout addresses the job by LABEL, so it does not need the plist to
+    # still exist. The old `launchctl unload "$PLIST"` fallback did, which is
+    # why it is gone rather than reordered.
     rm -f "$PLIST" "$TRIES_FILE"
+    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
 }
 
 # v1.0.11 single-instance guard. A whole-graph converge takes 20-40 min on a
@@ -28496,7 +28637,59 @@ else
     HEALTHY=false
 fi
 
-if curl -sf http://localhost:11434/api/tags &>/dev/null; then
+# ── AND THE HEALTH ARM HAS THE SAME HOLE. IT FIRED IN A REAL WALK. ──────
+#
+# 🔴 MEASURED, v1.0.66 artefact walk, terminal step:
+#
+#     #OSTLER STEP_END id=health_check status=ok elapsed_s=23
+#     #OSTLER LOG msg=Ollama healthy
+#
+# while the walked account had NO com.ostler.ollama agent at all -- plist
+# absent, launchctl exact-label count 0 -- and the 200 on :11434 came from
+# ANOTHER ACCOUNT'S ollama. The health check reported a component healthy for
+# an install that does not have it.
+#
+# That is worse than the create-skip earlier in this file: not "skip the
+# install" but HIDE A FAILED ONE, inside the step whose whole job is to notice.
+#
+# `launchctl print` on OUR OWN launchd domain is the question we can always
+# answer, cross-account and without privilege. NOT lsof: this file's own
+# _port_is_our_own_forward records that "an unprivileged lsof returns no pid
+# for a foreign-owned holder -- so on a genuine cross-account collision this
+# branch is never reached" (#549, still open). An lsof-shaped ownership check
+# returns EMPTY on precisely the collision it would be written for, which would
+# be the same defect in a new place.
+#
+# Reachable is not ours. The port says SOMETHING is serving; only our own
+# launchd domain says it is OURS.
+# ⚠️ PARSE THE STATE, DO NOT GATE ON THE EXIT CODE. This file already knows
+# why, at the `launchctl print` note further up: "returns rc=0 for a job that
+# is merely REGISTERED ... Registration is not runnability". TNM caught the
+# first version of this line making exactly that mistake, and it was measured
+# three ways on this Mac rather than argued:
+#
+#     absent label            rc=113   (no state line)
+#     loaded but NOT running  rc=0     state = not running
+#     loaded AND running      rc=0     state = running
+#
+# rc=0 covers BOTH running and dead, so an exit-code gate would let a dead
+# agent report healthy while a foreign ollama answered the port -- the same
+# defect wearing a different instrument, and the `launchctl load exits 0 on
+# failure` scar for the third time in this file.
+#
+# `state = running` is a FAIR demand for THIS agent specifically: its plist
+# sets KeepAlive <true/>, which is the condition
+# _ostler_launchagent_keeps_alive() exists to test. It would NOT be fair of a
+# one-shot, and that comment says so.
+#
+# 🔒 WHAT THIS DOES AND DOES NOT CLOSE, so the fix does not imply more than it
+# proves. It closes GREEN ON A DEAD INSTALL: our agent must be up for this to
+# pass. It does NOT close GREEN ON SOMEONE ELSE'S LIVE ONE -- `state = running`
+# does not prove the reply on :11434 came from OUR pid, and attributing a
+# listener needs #549, which an unprivileged reader cannot do. The narrower
+# claim is the true one.
+if curl -sf http://localhost:11434/api/tags &>/dev/null \
+   && _ollama_agent_is_running; then
     ok "$MSG_OK_OLLAMA_HEALTHY"
 else
     warn "$MSG_WARN_OLLAMA_NOT_RESPONDING"

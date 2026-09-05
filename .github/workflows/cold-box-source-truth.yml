@@ -71,6 +71,7 @@ on:
       - 'tests/test_artefact_walk_stages_the_dmg_payload.sh'
       - 'tests/test_consent_state_is_defined_before_it_is_called.sh'
       - 'tests/test_an_unmeasured_flag_must_be_read.sh'
+      - 'tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh'
       - 'tests/test_the_sentinel_vocabulary_is_declared_and_complete.sh'
       - 'tests/test_no_function_is_called_before_it_is_defined.sh'
       - 'tests/test_doctor_probe_cap_exceeds_the_command.sh'
@@ -233,6 +234,14 @@ jobs:
         if: always()
         run: bash tests/test_an_unmeasured_flag_must_be_read.sh
 
+      # MEASURED on the v1.0.66 artefact walk: another account on the same
+      # Mac was serving 11434, the bare loopback curl answered yes, and the
+      # ONLY branch that writes com.ostler.ollama.plist was skipped. The
+      # install shipped with no LaunchAgent and a dependency on a process it
+      # does not own, while the step reported ok in zero seconds.
+      - name: The Ollama agent must not depend on a foreign port
+        if: always()
+        run: bash tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh
       # The same writer/reader drift was found TWICE (sources 13/9,
       # statuses 5/3), both times by a human reading both sides. A literal
       # grep for status= MISSES error and timeout, because the error
