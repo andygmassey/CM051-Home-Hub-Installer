@@ -581,7 +581,25 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         # and the store teardown (docker compose down -v) lives inside it.
         if [ -x "$HOME/.ostler/bin/ostler-uninstall" ]; then
             echo "running the shipped uninstaller: $HOME/.ostler/bin/ostler-uninstall"
-            OSTLER_ASSUME_YES=1 bash "$HOME/.ostler/bin/ostler-uninstall" 2>&1 | tail -30
+            # #1560: OSTLER_UNINSTALL_ASSUME_YES is the name the uninstaller
+            # actually reads. Both call sites in this file used to pass a
+            # DIFFERENT, shorter spelling that existed nowhere -- the
+            # uninstaller had no override of any kind -- so every --reset this
+            # harness ever performed uninstalled NOTHING and looked exactly like
+            # a polite refusal. The variable was invented at the call site and
+            # never checked against a reader.
+            #
+            # The old spelling is described rather than written here on purpose:
+            # a comment that reproduces the wrong name satisfies the very grep
+            # that is meant to find remaining uses of it. That happened while
+            # writing this fix, and the second call site 50 lines below was
+            # found only because the check counted BOTH directions -- what the
+            # uninstaller reads, and what every caller passes -- and refused to
+            # accept a one-sided match.
+            #
+            # --yes would do as well; the env var is used here so the intent
+            # survives being read out of a log line.
+            OSTLER_UNINSTALL_ASSUME_YES=1 bash "$HOME/.ostler/bin/ostler-uninstall" 2>&1 | tail -30
         elif [ -f "$HOME/.ostler/docker-compose.yml" ]; then
             echo "no shipped uninstaller; falling back to docker compose down -v"
             cd "$HOME/.ostler" && "$DOCKER" compose down -v 2>&1 | tail -20
@@ -623,7 +641,7 @@ if [[ "$DO_RESET" -eq 1 ]]; then
                  ~/.ostler/uninstall.sh; do
             if [[ -x "$u" ]]; then
                 echo "running shipped uninstaller: $u"
-                OSTLER_ASSUME_YES=1 bash "$u" 2>&1 | tail -25
+                OSTLER_UNINSTALL_ASSUME_YES=1 bash "$u" 2>&1 | tail -25
                 _ran_uninstaller="$u"
                 break
             fi

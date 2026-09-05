@@ -23,6 +23,10 @@ on:
   pull_request:
     paths:
       - 'install.sh'
+      # #1560: the uninstaller had no way to be told yes and no way to say it
+      # could not ask. Watched by name so editing it re-fires the only workflow
+      # that runs it.
+      - 'tests/test_an_uninstall_that_cannot_ask_removes_nothing.sh'
       - 'tests/test_uninstall_cannot_claim_removal_it_did_not_do.sh'
       - '.github/workflows/uninstall-removal-honesty.yml'
   push:
@@ -61,3 +65,25 @@ jobs:
       # naming exactly the two assertions that should break.
       - name: The uninstaller cannot claim a removal it did not perform
         run: bash tests/test_uninstall_cannot_claim_removal_it_did_not_do.sh
+
+      # #1560: AN UNINSTALL THAT CANNOT ASK MUST REMOVE NOTHING.
+      #
+      # The shipped uninstaller's confirm was a bare `read -p` with no override
+      # of any kind, so a GUI button or a scripted caller blocked forever on a
+      # prompt it could not see. #1562, a GUI uninstall Andy asked for directly,
+      # cannot be built on that.
+      #
+      # The half that matters is the refusal: no consent and no way to obtain it
+      # must exit having removed NOTHING, and it must be distinguishable from a
+      # human declining. A half-uninstalled box is worse than an untouched one.
+      #
+      # Consent is never inferred from the terminal. The test proves that by
+      # mutation: granting it on the absence of a terminal trips four arms,
+      # including the one that says the refusal would have fallen through and
+      # destroyed.
+      #
+      # if: always() so an earlier red cannot mask it, appended last so no
+      # existing step's immunity changes.
+      - name: An uninstall that cannot ask removes nothing
+        if: always()
+        run: bash tests/test_an_uninstall_that_cannot_ask_removes_nothing.sh
