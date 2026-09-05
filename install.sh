@@ -17443,9 +17443,52 @@ ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 # env-tunable (OSTLER_QDRANT_READY_WAIT_S), not a magic constant, and probes the
 # AUTHENTICATED surface the writes actually use (#566).
 _OSTLER_QDRANT_MISSING_COLLECTIONS=""
+
+# ── #628 CLASS: A BUDGET THE FLOOR GATE CANNOT SEE HAS NO FLOOR ──────────────
+#
+# This readiness wait was written `local _max="${OSTLER_QDRANT_READY_WAIT_S:-120}"`
+# INSIDE the function below. scripts/verify_hydrate_cap_floors.py discovers caps
+# with
+#     ^\s*(_[A-Z0-9_]*_CAP)="\$\{([A-Z0-9_]+):-(\d+)\}"
+# so a `local` bound to `_max` matched nothing. MEASURED: 10 caps discoverable,
+# this one 0 of 10 -- and BOTH of that gate's protections missed it, including
+# the UNDECLARED arm that exists precisely to catch a budget nobody declared.
+#
+# ⚠️ THIS IS THE BUDGET BEHIND THE STORE-NOT-READY REFUSAL.
+# _ostler_ensure_qdrant_collections is the function that refusal tests, and its
+# call site is inside cm019_setup -- the step that went ERROR at 132s on the
+# v1.0.67 COLD walk
+#
+# ⚠️⚠️ THE ERROR CODE IS DELIBERATELY NOT SPELLED OUT ABOVE, and this is not
+# style. tests/test_qdrant_import_gate_refuses_empty_store.sh arm D locates that
+# code with `grep -nF <code> | head -1` and asserts the line sits AFTER the gate
+# call. A mention in a comment ABOVE the call site becomes the first match and
+# takes the arm red -- measured, on the first draft of this block: it reported
+# `fail=17458` (this comment) against `gate=18994`. install.sh:17497 already
+# states the identical hazard for a different sentinel. Name the code in a
+# commit message, never in a comment that precedes its call site.
+# (2026-09-05), against this 120s budget. The sibling _QDRANT_READY_CAP governs a
+# DIFFERENT loop (graph_db_start) and was fine on that walk.
+#
+# Hoisting it to a _CAP name at top level is the whole change: the env var still
+# works for an operator, the function still reads one number, and the gate can
+# now see it. The floor declared alongside is a RATCHET AT THE SHIPPED VALUE and
+# asserts nothing about whether 120 is enough -- there is exactly one cold
+# observation and one observation is not a floor.
+_QDRANT_COLLECTIONS_READY_CAP="${OSTLER_QDRANT_READY_WAIT_S:-120}"
+case "$_QDRANT_COLLECTIONS_READY_CAP" in
+    ''|*[!0-9]*)
+        # Same rule as _QDRANT_READY_CAP at the graph_db_start loop: a
+        # non-numeric override is operator error, and falling back silently to a
+        # number they cannot see is worse than saying so.
+        warn "OSTLER_QDRANT_READY_WAIT_S is not a whole number of seconds; using 120"
+        _QDRANT_COLLECTIONS_READY_CAP=120
+        ;;
+esac
+
 _ostler_ensure_qdrant_collections() {
     local _u="${QDRANT_URL:-http://localhost:6333}"
-    local _max="${OSTLER_QDRANT_READY_WAIT_S:-120}" _waited=0 _c _missing=""
+    local _max="${_QDRANT_COLLECTIONS_READY_CAP:-120}" _waited=0 _c _missing=""
     while [ "$_waited" -lt "$_max" ]; do
         if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
             -sf -m 2 "${_u}/collections" >/dev/null 2>&1; then

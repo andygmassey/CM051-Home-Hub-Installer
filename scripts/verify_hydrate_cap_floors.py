@@ -148,6 +148,28 @@ DECLARED = [
      "MEASURED-INSUFFICIENT: 30s watched FAILING on the v1.0.61 walk (#624); "
      "floor = 2x the value observed failing. No clean run observed -- NOT a "
      "clean-run floor, and deliberately below the 300s cap so it can fail"),
+    # ⚠️ A DIFFERENT LOOP FROM _QDRANT_READY_CAP ABOVE, AND THE ONE THAT BITES.
+    # That one guards graph_db_start and was fine on the v1.0.67 cold walk. THIS
+    # one is the wait inside _ostler_ensure_qdrant_collections, which is what
+    # ERR-14-STORE-NOT-READY-FOR-IMPORT tests, and its call site is inside
+    # cm019_setup -- the step that went ERROR at 132s on that cold walk against
+    # this 120s budget.
+    #
+    # Until 2026-09-05 it was written `local _max="${OSTLER_QDRANT_READY_WAIT_S:-120}"`
+    # and CAP_DEF could not see it, so NEITHER protection in this file reached
+    # it: not BELOW-FLOOR, and not the UNDECLARED arm that exists to catch
+    # exactly a budget nobody declared. 10 caps discoverable, this one 0 of 10.
+    #
+    # FLOOR = THE SHIPPED VALUE, WHICH IS A RATCHET AND NOT A MEASUREMENT. It
+    # asserts only "never lower than today". There is ONE cold observation
+    # (>460s to readiness, archie@.240, 2026-09-05) and one observation is not a
+    # floor. Raise this the first time a SECOND cold walk agrees, and say which
+    # walks -- the same discipline the row above states for itself.
+    ("_QDRANT_COLLECTIONS_READY_CAP", "cm019_setup",             PHASE_MSG, 120,
+     "RATCHET AT THE SHIPPED VALUE: floor == the 120s default, so it can only "
+     "ever be lowered deliberately. NOT a clean-run floor and NOT a claim that "
+     "120s suffices on a cold box -- one cold observation exceeded it fourfold "
+     "and a second has not been taken"),
 ]
 
 CAP_DEF = re.compile(r'^\s*(_[A-Z0-9_]*_CAP)="\$\{([A-Z0-9_]+):-(\d+)\}"', re.M)
