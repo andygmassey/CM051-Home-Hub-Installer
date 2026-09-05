@@ -4948,3 +4948,525 @@ are set and never read. Neither site has been traced, so neither is claimed as
 a defect. And the sentinel STATUS is still `no_data` in both cases -- only the
 DETAIL was made honest, because a true status needs volume counts
 `ingest_imessage` does not return.
+
+### v1066-D001 -- the two UNMEASURED flags v1065-D003 left owed are traced, and both were dead
+
+**This closes the "STILL OWED" note at the foot of v1065-D003.** Both sites are
+now traced and both were real. Measured against the SHIPPED v1.0.66
+`install.sh` (sha256 `e1cdd10c`, the blob inside the DMG):
+
+    _HYDRATE_EMAIL_COUNTS_UNMEASURED   occurrences=1
+    _AICONV_UNMEASURED                 occurrences=1
+
+**One occurrence means ASSIGNED, then read by nothing in the entire file.** Both
+sit on the failure arm of a command substitution, and in both cases the very
+next lines MANUFACTURE the value whose absence was just recorded:
+
+    )" || { _HYDRATE_EMAIL_COUNTS_UNMEASURED=true; _HYDRATE_EMAIL_COUNTS=""; }
+      -> case ''|*[!0-9]*) _HYDRATE_EMAIL_COUNT=0
+    )" || { _AICONV_UNMEASURED=true; _AICONV_COUNT=""; }
+      -> _AICONV_COUNT="${_AICONV_COUNT:-0}"
+
+So a counter that COULD NOT RUN was published as a MEASURED ZERO. Email then
+landed on `no_correspondents_in_window` -- a cause nobody observed, shown to a
+customer for a count nobody could take. **This is exactly the composition
+v1065-D003 warned about, surviving in the two arms that never got the guard.**
+
+Calendar and contacts already carried it. Seven flags in the family, five
+consulted, two not, and nothing in the tree could tell you which.
+
+**FIXED, CM051 #1457.** Email mirrors calendar including the reason string
+`counter_failed_count_unmeasured`, so the two encode ONE state. Aiconv uses
+`_hydrate_sentinel_record_cannot_run`, which already existed. Email ALSO gets a
+`settling_report emails 0 0 true` that calendar does not need: email calls
+settling on every other path (5 of 5) and `install.sh:26136` requires the
+channel to appear, so omitting it would have made this the one email path whose
+row vanishes from the panel.
+
+**GATE**: `tests/test_an_unmeasured_flag_must_be_read.sh`, 6 limbs, 4 synthetic
+controls (one MUST-FLAG, three MUST-MISS: a guard that is present, a `${BRACED}`
+read, and a shorter flag name inside a longer one), plus a negative control
+pinned to `a752275d` which must name both dead flags and does. Mutation:
+removing the email guard alone gives rc=1 naming that flag.
+
+Reporting honesty, not data loss. No install aborts. Scoped to v1.0.67.
+
+### v1066-D002 -- a subshell emits a TERMINAL DONE, so a healthy install shows a failure banner
+
+`set -E` propagates the ERR trap INTO a command substitution's subshell. The
+child emits a terminal marker and sets `OSTLER_DONE_EMITTED=1` **inside itself**,
+then dies with the flag. Measured by TNM on `/bin/bash` 3.2.57 by instrumenting
+the real shipped test with `$$` and `$BASH_SUBSHELL` at every emit:
+
+    pid=55691  subshell=1   DONE status=fail  code=ERR-99-INSTALL-ABORT-L9
+    pid=55691  subshell=0   DONE status=ok    failed_steps=0 errors=0
+
+Same process. `fail` then `ok`.
+
+**THE EXPOSURE IS NOT THE `local` SUBSET.** Both TNM and Archie published
+"9 `local X=$( )` sites" and both independently corrected it to **2** within
+four minutes, because `$((` arithmetic matches any pattern anchored on `$(`.
+The two are `date +%s` and `printf | tr`, both benign. The real mask is:
+
+    X="$( ... )" || { ... }     19 sites, EVERY hydrate counter
+    bare X="$( ... )"          410 sites, no mask -- parent aborts too
+    if X="$( ... )"; then        3 sites, ERR suppressed, safe
+
+and walk 11's abort at `install.sh:25448` names `tail -n 1`, a command inside
+exactly that shape, after which the install ran 29 more steps. **Field evidence
+that the subshell speaks while the parent survives.**
+
+**CUSTOMER IMPACT, measured from the consumer side rather than assumed.**
+`InstallerCoordinator.swift`: `finished` is overwritten by each DONE (1825),
+`failureState` is COMPUTED not stored (227), and `process.terminate()` is
+reached ONLY from user-initiated `cancel()` (1142). So a phantom renders the
+failure banner carrying `ERR-99-INSTALL-ABORT-Lnnnn` during a HEALTHY install,
+does NOT kill install.sh, and REVERTS when the parent's DONE arrives.
+
+⇒ **Not a false success. Not a killed install.** A scary error code shown to a
+customer whose install is fine. Residual risk is a customer who acts on that
+banner. **High-priority v1.0.67 fix, NOT a launch blocker.**
+
+**FIXED, CM051 #1459**: `[ "${BASH_SUBSHELL:-0}" -gt 0 ] && gui_log error ... &&
+return` near the top of `_ostler_on_err`. The `gui_log` before the `return` is
+load-bearing: the log stream survives the subshell, the flag does not, so the
+failure is still recorded and only the TERMINAL marker is suppressed.
+
+⚠️ **DO NOT hoist `OSTLER_DONE_EMITTED`.** `lib/progress_emitter.sh:717-725`
+already measured that at **0 DONE markers**, and it mutes the EXIT backstop too.
+The obvious fix is the wrong one and the measurement is on the record.
+
+⚠️ **STILL OWED**: nothing anywhere covers the **fail-then-ok** transition.
+`FailureStateMachineTests` asserts `status=fail -> .failed(step:)` and stops.
+The revert works only because `failureState` is a computed property, so the
+half of the severity argument above that says "it reverts" is unpinned.
+
+### v1066-D003 -- the admin-token mirror is startup-only and two of its four outcomes are invisible
+
+Filed at TNM's request so it is not rediscovered from scratch. **Not the cause
+of anything observed** -- it was his hypothesis for the `/ws/chat` 401, and the
+401 turned out to be a port collision (see v1066-D004) -- but the code reading
+is correct and worth keeping.
+
+The mirror has ONE production writer, it runs at startup only, and **two of its
+four outcomes are below the shipped log level**. Consequence: **a daemon that
+never trusted the admin token is indistinguishable from one that did.**
+
+Not v1.0.67: `DAEMON_COMMIT` is pinned and that cut rebuilds no daemon. This is
+an observability gap in `oa`, to be picked up when the daemon pin next moves.
+
+### v1066-D004 -- the box-walk probe blamed the product for another account's service
+
+**HARNESS, not product, and it cost hours of product investigation.** On the
+v1.0.66 artefact walk `daemon_is_listening` reported:
+
+    FAIL -- config loads cleanly but NOTHING is listening on :8000
+            (launchd last_exit=0). The daemon is failing after config parse.
+
+Every word of that diagnosis was wrong:
+
+    curl --noproxy '*' http://127.0.0.1:8000/     ->  HTTP 200
+    ps -Ao user=,pid=,lstart=  ->  andy   20075   running since the day before
+                                   archie 91136   this walk's daemon
+    archie's ostler-assistant.err  ->  27x "Address already in use (os error 48)"
+                                       and ZERO successful binds
+
+**Another account's Hub held the port.** `lsof` ran as the walked account and
+cannot see a socket owned by a different user, so it returned 0, and the probe
+read that PERMISSION BOUNDARY as ABSENCE.
+
+**Two faults, and the second is what made it a FAIL rather than a CANNOT-RUN:**
+
+1. `2>/dev/null` on the enumeration. Wrong on principle -- but MEASURED, it does
+   not fire here: macOS `lsof` gives **rc=1, 0 stdout lines, 0 stderr BYTES**,
+   and rc=1 is also what a genuinely empty port returns. **Neither stderr nor
+   the exit code discriminates on this platform.**
+2. `if [ "$signals" -eq 0 ]` required **BOTH** lsof AND launchctl to be silent.
+   launchctl answered, so the CANNOT-RUN arm was skipped. **The honest verdict
+   was one branch away and an AND closed it.**
+
+Ten sibling probes failed downstream of the same fact, and it also explains the
+`/ws/chat` **401** investigated for hours as a provisioning defect: the probe
+reached the OTHER Hub and presented a token it never issued. The `GET /` control
+returned 200 for the same reason -- **control and subject were talking to the
+same wrong server.**
+
+**FIXED, CM051 #1462.** A CONNECT test plus the daemon's own "Address already in
+use" confession, returning CANNOT-RUN when the port answers while we see no
+listener; and an unreadable enumeration is now disqualifying on its own.
+Control grew 4 -> 6 reading sets, and set 6 is the important one: a genuinely
+dead port must STILL be FAIL, so the occupancy check cannot disable the defect
+the probe exists for.
+
+### v1066-D005 -- FOUR post-walk FAILs that no outage explains, and I nearly filed all eleven as environmental
+
+The v1.0.66 ARTEFACT walk was GREEN (39 steps, `DONE status=ok failed_steps=0`).
+The 24-probe post-walk gate then returned **10 PASS / 11 FAIL / 3 CANNOT-RUN**.
+
+🔴 **THE PROCESS FAILURE FIRST, because it is the reusable part.** Another
+account's Hub held :8000, which genuinely explains the 401 and
+`daemon_is_listening`. I found one mechanism that explained the two loudest
+symptoms and **extended it over nine probes whose verdict text I had not read**,
+publishing "essentially all of them are one environmental fact" twice. Reading
+each FAIL's own text refuted it:
+
+```
+PORT COLLISION, the explanation holds ......................  3 of 11
+REAL PRODUCT FINDINGS, no outage explains them .............  4 of 11
+DATA / STORE, needing attribution rather than assumption ...  4 of 11
+```
+
+**A single cause that explains the two loudest symptoms is the most seductive
+wrong answer available.** Compounding it, the LIST was also wrong: built with
+`grep -aB 30 '^  VERDICT: FAIL'`, and a 30-line window SPANS PROBE BOUNDARIES,
+so four probes were mis-attributed. `launchagents_resolve_their_tools`,
+`launchd_no_ephemeral_paths` and `pairing_recovers_without_a_repair_storm` all
+PASSED; `pair_state_agreement` was CANNOT-RUN. The COUNTS were right, which is
+why it survived two retellings. **A correct total over a wrong composition
+looks exactly like a measurement.**
+
+TNM spent a work cycle chasing a `launchagents_resolve_their_tools` FAIL that
+never happened, on that list. (It led him somewhere real anyway -- see
+v1066-D006 -- but by luck, not by the route.)
+
+**THE FOUR, each with its own text and NO shared cause:**
+
+1. `install_manifest_complete` -- **2 required subjects MISSING**:
+   `launch_agent com.ostler.enrich (baseline)` and
+   `launch_agent com.ostler.ollama (baseline)`, plus 1 present-but-UNDECLARED.
+2. `no_person_holds_two_contact_cards` -- **54 Person nodes each carry 2+
+   distinct `icloud_contact_uid`, collapsing 117 Contacts cards.** RULE 2 of the
+   ratified dedupe ruleset -- different canonical keys MUST NOT merge --
+   violated in the LIVE graph (#659). Note v1064-ad already fixed RULE 2 on the
+   converge path; this is the same rule red again on a v1.0.66 box.
+3. `freshness_panel_has_dates` -- the panel has **NO ROW for calendar, contacts,
+   email**, while the ingested keys ARE `[calendar,contacts,email,imessage]`.
+   In the probe's own words, "the customer is shown a currency report that
+   silently excludes a source they are relying on." Same family as the
+   "the channel must still APPEAR" invariant at install.sh:26136.
+4. `no_store_port_is_tcp_reachable` -- **6333 7878 6379 8044 3000 8144
+   TCP-reachable on loopback**, "therefore readable by every account on this
+   Mac". #550 was demonstrated against 7878 with ONE unauthenticated curl.
+   **Look at this one first**: a security finding with a demonstrated exploit
+   path, and the least likely of the four to be a fresh-box artefact.
+
+**NOT CLAIMED**: that any of the four is v1.0.66-specific rather than
+long-standing, or that the remaining four (`ingest_coverage`,
+`people_count_agreement`, `people_stores_reconcile`, `usage_journal_producers`)
+are environmental. Those need attribution and have not had it. **A cause I
+cannot name is better recorded as unnamed than attached to the nearest
+available story.**
+
+⬆️ **UPDATE, same night: all FOUR are now attributed, and NONE of them is the
+port collision I originally blamed them all on.**
+
+```
+no_store_port_is_tcp_reachable     MEASURED    the STORES enforce auth --
+                                               Qdrant /collections 401 (bogus
+                                               api-key also 401), Oxigraph 401.
+                                               The 200s were health endpoints.
+                                               The real exposure is the WIKI on
+                                               8044: 49,002 bytes, 0 auth
+                                               indicators, and
+                                               /search/search_index.json 200.
+                                               LOOPBACK ONLY (127.0.0.1), so
+                                               not a network exposure -- any
+                                               other LOCAL ACCOUNT can read the
+                                               customer's wiki and its
+                                               full-text index.
+                                               Redis + 8144 = NOT MEASURED; an
+                                               HTTP probe cannot read a RESP
+                                               port, and that is not "safe".
+
+no_person_holds_two_contact_cards  ATTRIBUTED  a v1.0.66 DEFECT. Both graph
+                                               volumes were created 20:39:14Z,
+                                               5m44s AFTER the walk began at
+                                               20:33:30Z, so the graph was
+                                               built end to end by v1.0.66's
+                                               own ingest. RULE 2 is red on
+                                               code that CARRIES v1064-ad's
+                                               fix. Whether the guard misses
+                                               hydrate's path or covers it and
+                                               does not hold is NOT
+                                               established.
+
+freshness_panel_has_dates          DIAGNOSED   CM044, by TNM, from the consumer
+                                               side. `compiler/pages/
+                                               dashboard.py:2234-2239` is THREE
+                                               HARDCODED ROWS and nothing reads
+                                               the ingested set, so calendar,
+                                               email and imessage can never
+                                               appear by construction. Rows
+                                               also carry a LOCALISED DISPLAY
+                                               STRING and no key, so they
+                                               cannot be attributed and change
+                                               under a non-en-GB locale.
+                                               Producer side (mine): install.sh
+                                               reports only 2 channels --
+                                               contacts (2 sites), emails (4);
+                                               calendar/messages/notes/whatsapp
+                                               have ZERO producers. Different
+                                               pin, different cut: NOT v1.0.67.
+
+install_manifest_complete          ATTRIBUTED  see v1066-D007 below.
+```
+
+### v1066-D006 -- the upgrade path silently reverts the 2026-08-20 Homebrew-PATH fix
+
+`_upg_preserve_plist_env` (install.sh:530..550) walks every key in the OLD plist
+and, where the key also exists in the new one, `Set`s the old value. **`Set`
+replaces, and there is no PATH exclusion.** Called on the assistant at :657 and
+the keepalive at :675.
+
+Found by TNM, reproduced INDEPENDENTLY, using the real function extracted from
+main and two plists differing only in PATH:
+
+```
+Set :EnvironmentVariables lines in the function : 1
+PATH exclusions                                 : 0
+
+BEFORE new.plist PATH   /usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin
+AFTER  new.plist PATH   /usr/bin:/bin:/usr/sbin:/sbin          OVERWRITTEN
+function rc             0
+CONTROL OSTLER_HOME     preserved correctly
+```
+
+**The control is the point: the function is right for every other key.** This is
+a MISSING EXCLUSION, not a broken function -- PATH is the one key whose old
+value must lose. That makes the fix narrow.
+
+**WHY IT IS SERIOUS.** `/usr/bin:/bin:/usr/sbin:/sbin` is exactly the PATH the
+assistant plist's own comment records as producing, measured after a real power
+cycle: *"colima FATA exec limactl: executable file not found in $PATH ...
+Qdrant, Oxigraph, Redis, Vane, wiki-site and store-proxy were all gone until
+someone started Colima by hand."* An upgrading pre-2026-08-20 customer gets the
+fix reverted and **their container stack does not survive a reboot** -- and it
+only reaches customers who ALREADY HAVE containers running.
+
+**THE GATE IS GREEN BECAUSE IT TESTS THE TEMPLATE.**
+`tests/test_launchagent_homebrew_path.sh` has **0** references to
+upgrade / preserve / `_upg_`. It asserts the templates carry the PATH; nothing
+asserts the value SURVIVES an upgrade. The fix shipped, the gate stayed green,
+and it never reached an upgrading customer -- the "a merged PR is not a shipped
+feature" class, with a gate that looks like it covers it.
+
+⚠️ **THE FIRST EXTRACTION READ AS "TEMPLATE SURVIVED".** The function is
+INDENTED at 530 and a column-0 awk anchor extracted **0 lines**, so it never
+ran and the PATH was unchanged because nothing touched it. `rc=127` was the
+only tell. **An unchanged value after a function that never ran is
+indistinguishable from a function that ran and preserved it.**
+
+Scoped to v1.0.67, where on severity it outranks both items already there.
+The test must assert SURVIVAL and carry a MUST-PRESERVE control (a non-PATH
+key), so a fix that simply stops preserving anything cannot pass.
+
+
+### v1066-D007 -- an already-installed Ollama makes install.sh skip the LaunchAgent it is required to write
+
+`install_manifest_complete` failed with **2 required subjects MISSING**:
+`launch_agent com.ostler.enrich (baseline)` and `launch_agent com.ostler.ollama
+(baseline)`. Both confirmed absent on the box by EXACT label match, after a
+substring probe first reported `com.ostler.ollama` as loaded -- it was matching
+`com.ostler.ollama-logrotate`.
+
+**THE MECHANISM, for the ollama half.**
+
+🔴 **THE FIRST VERSION OF THIS ROW NAMED THE WRONG CAUSE AND IT SHIPPED INTO
+THE REGISTER.** I wrote that "the CASK branch skips the else at 11951 that
+writes the plist". The cask branch is ONE LINE and closes before the plist is
+ever mentioned:
+
+```
+11922  if [[ -x "$OLLAMA_APP_BIN" ]]; then
+11923      ok "$MSG_OK_OLLAMA_INSTALLED"      <- the ENTIRE cask branch
+11947  fi                                     <- and it CLOSES here
+```
+
+The `else` at 11951 belongs to a **different `if`**, and this is the real one:
+
+```
+11949  if curl -s http://localhost:11434/api/tags &>/dev/null; then
+11950      ok "$MSG_OK_OLLAMA_RUNNING"        <- already serving: DO NOTHING
+11951  else
+11965      OLLAMA_PLIST=".../com.ostler.ollama.plist"   <- the ONLY creation site
+```
+
+⇒ **the LaunchAgent is written only when NOTHING answers on 11434, and that
+probe is a bare loopback curl with no ownership check.**
+
+I got the first answer by walking backwards for the nearest enclosing
+`if`/`else` WITHOUT a depth counter, so it handed me the closest block rather
+than the owning one, and I published it. The correct instrument is an
+equal-indent backwards walk with a `fi` depth counter.
+
+On the walked box:
+
+```
+/Applications/Ollama.app/Contents/Resources/ollama   EXECUTABLE  -> CASK branch
+com.ostler.ollama.plist                              ABSENT
+#OSTLER STEP_END id=ollama_install status=ok elapsed_s=0
+```
+
+⇒ **ANOTHER ACCOUNT ON THE SAME MAC WAS SERVING 11434.** install.sh asked "is
+Ollama already running?", the other account's Ollama said yes, and the branch
+that creates our LaunchAgent never ran. The step closed ok in ZERO SECONDS.
+
+**The customer-facing shape is worse than a missing file.** That install ends
+with NO LaunchAgent, so nothing starts Ollama at boot for it; it depends on a
+process owned by a different user, which disappears when that user logs out;
+and the step reports ok while saying none of it.
+
+**This is the PORT CLASS, for the fourth time in one night** -- :8000, :11434,
+:8044, and two `lsof` enumerations that read another user's socket as absence.
+It is the worst of them because it changes what gets INSTALLED, not merely what
+gets reported.
+
+FIXED, CM051 #1471: the plist path is hoisted above the branch and the guard
+becomes `curl ... && [[ -f "$OLLAMA_PLIST" ]]`, separating "is something
+serving" (whether to START) from "do we own an agent" (whether the install is
+COMPLETE). Blast radius is the defect case only: serving+plist still SKIPs,
+not-serving still CREATEs either way.
+
+11 of 39 steps closed at `elapsed_s=0` on that walk. Most are legitimately
+fast. This one provably skipped required work while reporting ok.
+
+⚠️ **`com.ostler.enrich` is UNFINISHED, not assumed to match.** `cm019_setup`
+closed `ok elapsed_s=1` and its plist is likewise absent -- the same signature,
+but the guard has not been read. Recorded as an open question, not a second
+instance.
+
+🔴 **AND A CORRECTION ON MY OWN EVIDENCE.** I cited "ollama serving: 200" as
+support that the step had done its job. `lsof -nP -iTCP:11434` as the walk user
+returns NOTHING -- another account owns that socket, exactly as with :8000.
+**That 200 was almost certainly the other account's ollama answering.** Third
+instance in one night of the same class: on a shared Mac, REACHABLE never means
+OURS, and a successful CONNECT makes the instrument look healthy while only the
+OWNER is wrong.
+### v1066-D008 -- three health probes go GREEN on another account's service, and one of them already did
+
+**D007's mirror image.** That one SKIPS an install step; these HIDE A FAILED
+INSTALL, inside the step whose entire job is to notice.
+
+```
+install.sh:28407  curl -sf localhost:6333/healthz    -> ok  else HEALTHY=false
+install.sh:28414  curl -sf localhost:7878/           -> ok  else HEALTHY=false
+install.sh:28465  curl -sf localhost:11434/api/tags  -> ok  else HEALTHY=false
+```
+
+All three are bare loopback probes with no ownership instrument. Found by TNM's
+sweep: **11 loopback probes in install.sh, 0 with an ownership instrument**
+(`lsof`/`pgrep`/`docker inspect`/`docker compose ps`/`launchctl print`) within
++/-10 lines, with a must-miss control (a comment naming localhost) scoring 0 and
+a must-match control on two lines that DO carry one returning 1 and 2.
+
+🔴 **28465 ALREADY FIRED, IN A WALK THAT WAS PUBLISHED AS PASS.** v1.0.66
+artefact walk, terminal step:
+
+```
+#OSTLER STEP_END id=health_check status=ok elapsed_s=23
+#OSTLER LOG msg=Ollama healthy
+
+walked account:  com.ostler.ollama.plist ABSENT · launchctl exact-label count 0
+                 :11434 answers 200  <- another account's ollama
+```
+
+The health check reported a component healthy for an install that does not have
+it. **The COMPLETION verdict is unaffected and stands** -- 39 steps, `DONE
+status=ok failed_steps=0`, rc=0 -- but that arm was a CANNOT-RUN wearing a PASS,
+and the walk record now carries the qualification rather than the bare green.
+
+**28407 and 28414 are HONEST BY LUCK OF THE BIND, not unverified.** Measured:
+6333 and 7878 were the walked account's OWN containers on that box, so the
+mechanism is live and we know exactly why those two did not fire. On a box where
+the other account's containers win the bind, all three go green on a dead
+install.
+
+**FIXED for 28465 only, CM051 #1471**, together with D007's create-side arm.
+
+⚠️ **DO NOT FIX ANY OF THESE WITH `lsof`.** `_port_is_our_own_forward` already
+records that "an unprivileged lsof returns no pid for a foreign-owned holder --
+so on a genuine cross-account collision this branch is never reached" (#549,
+open). An lsof-shaped ownership check returns EMPTY on precisely the collision it
+would be written for.
+
+⚠️ **AND DO NOT GATE ON `launchctl print`'s EXIT CODE.** The first version of the
+fix did, and TNM caught it. Measured on two Macs, three labels:
+
+```
+absent label            rc=113   (no state line)
+loaded but NOT running  rc=0     state = not running
+loaded AND running      rc=0     state = running
+```
+
+rc=0 covers BOTH, so a parked agent would report healthy -- the same defect
+wearing a different instrument, and the third appearance of the `launchctl load
+exits 0 on failure` family in this file, which install.sh's own note already
+documents: *"Registration is not runnability."* Parse `state = running`. It is a
+fair demand for this agent because its plist sets `KeepAlive <true/>`, the exact
+condition `_ostler_launchagent_keeps_alive()` exists to test; it would NOT be
+fair of a one-shot.
+
+🔒 **WHAT THE FIX CLOSES, AND WHAT IT DOES NOT.** It closes GREEN ON A DEAD
+INSTALL: our agent must be up. It does NOT close GREEN ON SOMEONE ELSE'S LIVE
+ONE -- `state = running` does not prove the reply on :11434 came from OUR pid,
+and attributing a listener needs #549. The narrower claim is the true one and it
+is stated in the source.
+
+**28407 and 28414 remain OPEN.** They want the `install.sh:30097` pattern --
+read the Doctor's `/api/v1/sources` artefact rather than infer from reachability
+-- which TNM identifies as the shape the other ten probes want. Not changed
+under time pressure before a cut.
+
+### v1066-D009 -- the writer's vocabulary and the reader's are both declared, and nothing links them
+
+**OPEN. Not a defect today; a structural gap that has already produced two
+defects and will produce a third.**
+
+The same writer/reader drift was found TWICE in one night, in two fields:
+
+```
+sources    CM051 install.sh writes 13    CM044 hydration.py recognised  9
+statuses   CM051 install.sh writes  5    CM044 hydration.py recognised  3
+```
+
+`cannot_run` and `timeout` fell through to "Could not tell" on the customer's
+freshness panel, for two statuses CM051 emits on purpose. `timeout` is the
+expensive one: rc 124/137 means a source was killed by its cap and moved no
+data, so it needs a re-run.
+
+**BOTH SIDES ARE NOW SELF-CHECKING, AND THAT IS NOT THE SAME AS LINKED.**
+
+```
+CM051 #1472   OSTLER_SENTINEL_STATUSES (5) and OSTLER_SENTINEL_SOURCES (13)
+              declared in install.sh, with a gate that EXECUTES all four
+              recorders (rc 1/124/137) and asserts what they actually wrote,
+              plus both directions on the sources: written-but-undeclared and
+              declared-but-never-written.
+CM044 #267    the reader's set pinned in a test, the row set derived from the
+              ingested sources rather than three hardcoded appends, and every
+              row given a machine-readable key.
+```
+
+⇒ **each copy is guarded against its own writer. Neither is guarded against the
+other.** The only thing that caught the drift on 2026-09-04 was a human diffing
+two repos member for member, as SETS not counts -- and equal counts would have
+proved nothing, which is the "agreement on an outcome is not agreement on a
+cause" trap.
+
+**WHAT IS DELIBERATELY NOT PRESCRIBED HERE.** A link needs a PIN and a
+DIRECTION: does CM044 vendor CM051's declaration, or transcribe it against a
+pinned sha, and which repo is authoritative when they disagree? Different pins
+and different cuts, and the panel work already established that a cross-repo
+RUNTIME check is the wrong shape. Those are cut decisions and are not being
+invented under time pressure.
+
+**THE FAILURE MODE TO WATCH FOR**, because it is the one a fix could reintroduce:
+a link that compares COUNTS rather than MEMBERS would have passed on the night
+this was found, twice. 13 vs 13 and 5 vs 5 were only meaningful because someone
+compared the names.
+
+⚠️ AND THE VENDORING ORDER MATTERS, measured the same night: D007 was vendored
+into CM051 (#1470) and THEN corrected upstream (#201), which left the vendored
+copy asserting a cause the register had already refuted. Only
+`scripts/sync_rollforward_registry.sh`'s AHEAD guard noticed. **Correct upstream
+BEFORE vendoring, not after.**

@@ -538,6 +538,36 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
             | sed -n 's/^ *\([A-Za-z_][A-Za-z0-9_]*\) = .*/\1/p')"
         while IFS= read -r _k; do
             [[ -n "$_k" ]] || continue
+            # ── PATH IS PRODUCT-OWNED AND MUST NOT BE CARRIED FORWARD ──────
+            #
+            # 🔴 REPRODUCED 2026-09-04 with this function extracted and run:
+            #
+            #   BEFORE  new PATH = /usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin
+            #   AFTER   new PATH = /usr/bin:/bin:/usr/sbin:/sbin
+            #
+            # The template gained the Homebrew prefix on 2026-08-20, measured on
+            # the Mini after a real power cycle:
+            #
+            #   colima  FATA  exec "limactl": executable file not found in $PATH
+            #
+            # and the consequence recorded there is that Qdrant, Oxigraph, Redis,
+            # Vane, wiki-site and store-proxy were all gone until someone started
+            # Colima by hand. `/usr/bin:/bin:/usr/sbin:/sbin` is exactly the PATH
+            # that produces it -- launchd's default.
+            #
+            # So every customer upgrading from a pre-2026-08-20 install had that
+            # fix SILENTLY REVERTED by this loop, and their container stack did
+            # not survive a reboot. The fix shipped; it never arrived.
+            #
+            # WHY EXCLUDE RATHER THAN MERGE. This function exists to carry
+            # forward values the RE-RENDER cannot re-derive -- the service token
+            # and the captured iMessage handles, which the template holds only as
+            # placeholders. PATH is not one of those: the template states it
+            # outright, and the template is the only thing that knows which
+            # prefixes this version needs. A customer has no reason to have
+            # edited it, and if they had, silently keeping their value is how the
+            # fix got lost in the first place.
+            [[ "$_k" == "PATH" ]] && continue
             _v="$("$_UPG_PB" -c "Print :EnvironmentVariables:${_k}" "$_old" 2>/dev/null)" || continue
             if "$_UPG_PB" -c "Print :EnvironmentVariables:${_k}" "$_new" >/dev/null 2>&1; then
                 "$_UPG_PB" -c "Set :EnvironmentVariables:${_k} ${_v}" "$_new" >/dev/null 2>&1
@@ -2300,6 +2330,30 @@ fi
 # accumulate in /tmp.
 
 OSTLER_FINAL_DIR="${HOME}/.ostler"
+
+# 🔴 DID A REAL INSTALL ALREADY EXIST WHEN THIS RUN STARTED?
+#
+# Read HERE, at the one place the final directory is named, and before any
+# code can create it. Two decline arms below wipe a tree and then print
+# "nothing has been installed and nothing was written to your Mac". That
+# sentence is TRUE on a fresh install and FALSE on a re-install, and until
+# now it was printed unconditionally.
+#
+# FOUND BY TNM, 2026-09-04, BY EXECUTION rather than by reading: he pinned
+# the target at a seeded tree, ran the decline arm, and counted the
+# survivors. Three files seeded, ZERO survived, and the script still printed
+# that nothing had been written.
+#
+# CM051 #1431 did not create that arm, and it did not create its reachability
+# either -- declining the reuse prompt has always walked the questions on a
+# populated box. What #1431 changed is WHO CHOOSES: the installer now sets
+# SKIP_PHASE2=false on the customer's behalf on the most common re-install
+# path, so a customer who declines a consent question they last saw months
+# ago now reaches this arm without having asked to. Involuntary entry into a
+# destructive arm is a different risk from voluntary entry, and this flag is
+# what lets the arm tell the two apart.
+_OSTLER_FINAL_PREEXISTED=false
+[[ -d "$OSTLER_FINAL_DIR" ]] && _OSTLER_FINAL_PREEXISTED=true
 OSTLER_PRELAUNCH_DIR="${OSTLER_PRELAUNCH_DIR:-/tmp/ostler-prelaunch-$$}"
 
 # _ostler_set_paths $target_root rebinds OSTLER_DIR + every
@@ -9693,14 +9747,46 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
                 # Article 9 invariant (b): leaves no ~/.ostler/ residue.
                 # At this point in Phase 2, the only thing that may have
                 # touched ~/.ostler/ is the contacts export under
-                # ~/.ostler/imports/. Wipe the lot.
-                if [[ -d "$OSTLER_DIR" ]]; then
+                # ~/.ostler/imports/.
+                #
+                # THE WIPE IS FOR THIS RUN'S RESIDUE, NOT FOR AN INSTALL THAT
+                # WAS ALREADY HERE, AND THE SENTENCE BELOW MUST MATCH WHAT IT
+                # ACTUALLY DID.
+                #
+                # PROVENANCE, BECAUSE THE FIRST VERSION OF THIS COMMENT WAS
+                # WRONG AND A SOURCE COMMENT OUTLIVES THE BOARD POST THAT
+                # CORRECTED IT. TNM proved BY EXECUTION that this arm destroys
+                # whatever OSTLER_DIR points at: he seeded three files, ran the
+                # arm, and counted zero survivors while it printed "nothing was
+                # written to your Mac". That is why the guard and the second
+                # message exist.
+                #
+                # He then measured the TARGET and WITHDREW the data-loss claim.
+                # Every path that reaches this arm binds OSTLER_DIR to the
+                # prelaunch staging tree, not to ~/.ostler, because the promote
+                # that rebinds it is disabled by the very flag #1431 sets
+                # earlier. So on the paths measured so far the wipe takes
+                # staging residue, and the earlier claim that it "would take the
+                # graph, the vectors, the conversations and the config" is NOT
+                # true of any reachable path.
+                #
+                # The guard stays regardless. It is cheap, it is correct on its
+                # own terms, and the binding is an emergent property of two
+                # other decisions that a later change could quietly reverse.
+                # What must not stand is a comment asserting a data-loss path
+                # that was measured not to exist.
+                if [[ "$_OSTLER_FINAL_PREEXISTED" != true && -d "$OSTLER_DIR" ]]; then
                     rm -rf "$OSTLER_DIR" 2>/dev/null || true
                 fi
                 unset RECOVERY_PASSPHRASE 2>/dev/null || true
                 echo ""
-                echo "  No problem. Nothing has been installed and nothing was"
-                echo "  written to your Mac."
+                if [[ "$_OSTLER_FINAL_PREEXISTED" == true ]]; then
+                    echo "  No problem. Setup has stopped and your existing Ostler"
+                    echo "  data has been left exactly as it was."
+                else
+                    echo "  No problem. Nothing has been installed and nothing was"
+                    echo "  written to your Mac."
+                fi
                 echo ""
                 echo "  If you change your mind, re-run the installer."
                 gui_cancelled   # CX-126: neutral cancelled terminal, not a failure
@@ -9888,14 +9974,21 @@ while true; do
             OSTLER_CONSENT_THIRD_PARTY_DECISION="declined"
             # Mirror Article 9 decline: leave no ~/.ostler/ residue.
             # By this point Phase 2 may have written the contacts
-            # export under ~/.ostler/imports/; wipe the lot.
-            if [[ -d "$OSTLER_DIR" ]]; then
+            # export under ~/.ostler/imports/.
+            #
+            # SAME GUARD, SAME REASON. See the flag at OSTLER_FINAL_DIR.
+            if [[ "$_OSTLER_FINAL_PREEXISTED" != true && -d "$OSTLER_DIR" ]]; then
                 rm -rf "$OSTLER_DIR" 2>/dev/null || true
             fi
             unset RECOVERY_PASSPHRASE 2>/dev/null || true
             echo ""
-            echo "  No problem. Nothing has been installed and nothing was"
-            echo "  written to your Mac."
+            if [[ "$_OSTLER_FINAL_PREEXISTED" == true ]]; then
+                echo "  No problem. Setup has stopped and your existing Ostler"
+                echo "  data has been left exactly as it was."
+            else
+                echo "  No problem. Nothing has been installed and nothing was"
+                echo "  written to your Mac."
+            fi
             echo ""
             echo "  If you change your mind, re-run the installer."
             gui_cancelled   # CX-126: neutral cancelled terminal, not a failure
@@ -10418,6 +10511,43 @@ _ostler_on_err() {
     local exit_code="${1:-1}"
     local line="${2:-0}"
     local cmd="${3:-}"
+    # ── A SUBSHELL MAY NOT SPEAK THE LAST WORD (#642, measured 2026-09-04) ──
+    #
+    # `set -E` propagates this trap INTO command substitutions. When the
+    # substituted command exits non-zero the trap fires in the CHILD, the
+    # child emits a terminal DONE and dies, and `OSTLER_DONE_EMITTED=1` dies
+    # with it because a subshell cannot write to its parent. The parent's flag
+    # is still empty and the parent never learned anything happened.
+    #
+    # MEASURED on /bin/bash 3.2.57 against this handler and the real emitter,
+    # printing $$ and $BASH_SUBSHELL at every DONE emit:
+    #
+    #   v="$(pgrep -f '<no-match>')"          2 markers, BOTH fail
+    #                                         (the parent aborts on its own
+    #                                          failed assignment, so it agrees)
+    #   local v="$(pgrep -f '<no-match>')"    pid=55691 subshell=1  status=fail
+    #                                         pid=55691 subshell=0  status=ok
+    #
+    # SAME PID. DIFFERENT SUBSHELL. fail, then ok. `local` ALWAYS RETURNS 0,
+    # so it hides the substitution's status from the parent while doing nothing
+    # about the trap that has already fired in the child. The GUI is handed a
+    # failed install reported as a success. That is the customer-facing half.
+    #
+    # THE FIX IS HERE AND NOT AT THE CALL SITES because there are nine
+    # `local X="$(...)"` sites in this file and none carries `|| true`; a
+    # per-site guard fixes the ones we thought of. This is also NOT the
+    # re-entrancy fix (a dedicated __OSTLER_ON_ERR_ACTIVE flag) -- re-entrancy
+    # produces fail THEN fail, and the measurement above is fail then ok.
+    #
+    # NOT `return` OUTRIGHT. lib/progress_emitter.sh:717-725 records what
+    # happens when this handler is made quieter without care: 0 DONE markers,
+    # a silent run, which is the worse half. The child still LOGS -- a LOG
+    # marker is not terminal and the GUI does not close on it -- so the
+    # failure keeps a voice. Only the last word is withheld.
+    if [[ "${BASH_SUBSHELL:-0}" -gt 0 ]]; then
+        gui_log error "Command failed inside a subshell at line ${line}${__OSTLER_STEP_ID:+ (step ${__OSTLER_STEP_ID})}: ${cmd}"
+        return
+    fi
     # If a terminal DONE marker already went out (an explicit
     # fail/fail_with_code, a clean gui_done ok, a cancel, or a prior
     # ERR fire), stay silent: report exactly once, and never overwrite
@@ -26055,7 +26185,46 @@ except Exception:
         _HYDRATE_EMAIL_MSGS="${_HYDRATE_EMAIL_COUNTS##* }"
         case "${_HYDRATE_EMAIL_COUNT:-}" in ''|*[!0-9]*) _HYDRATE_EMAIL_COUNT=0 ;; esac
         case "${_HYDRATE_EMAIL_MSGS:-}"  in ''|*[!0-9]*) _HYDRATE_EMAIL_MSGS=0 ;; esac
-        if [[ "$_HYDRATE_EMAIL_COUNT" -gt 0 ]]; then
+        # An UNMEASURED count must not fall through this chain. This is the
+        # guard the calendar arm already carries, and the reason string is
+        # deliberately IDENTICAL so the two encode one state, not two.
+        #
+        # Without it: the counter substitution fails, _HYDRATE_EMAIL_COUNTS
+        # becomes "", the two `case` lines above turn that into 0, `-gt 0` is
+        # false, and the run lands on "no_correspondents_in_window" -- a cause
+        # nobody observed, published for a count nobody could take. The flag
+        # was SET on the `||` above and then read by NOTHING in the file.
+        if [[ "${_HYDRATE_EMAIL_COUNTS_UNMEASURED:-false}" == true ]]; then
+            _hydrate_sentinel_record_no_data "email" "counter_failed_count_unmeasured"
+            _HYDRATE_EMAIL_OUTCOME="counter_failed_count_unmeasured"
+            # 🔴 AND THIS ARM DELIBERATELY REPORTS NOTHING TO THE SETTLING
+            # PANEL. A first draft called `settling_report emails 0 0 true`
+            # here, and TNM caught it: the 4th positional is `needs_source`,
+            # and the contacts precedent this pattern is lifted from states the
+            # invariant in its own words at 25461 --
+            #
+            #     "A zero count means WE RAN AND FOUND NOTHING, so needs_source
+            #      invites the customer to connect a source rather than leaving
+            #      a permanent 0%."
+            #
+            # This arm fires on the OPPOSITE condition. We did not run and find
+            # nothing; the counter COULD NOT RUN. `true` therefore asks the
+            # customer to connect an email account they have already connected,
+            # on the strength of a value nobody measured -- which is this fix's
+            # own defect class, one layer further out.
+            #
+            # `false` is not the answer either: that renders a settled channel
+            # at 0 of 0, the permanent 0% the contacts comment exists to escape.
+            # NEITHER BOOLEAN IS TRUE, because the state is a third one and
+            # the settling writer has only two.
+            #
+            # So this tick stays silent, and nothing is lost by it: the sentinel
+            # above already carries `counter_failed_count_unmeasured`, and the
+            # hourly recurring tick reports the channel on its own (v1064-ac),
+            # so the row is not permanently absent -- only absent for one tick.
+            # A third state in the settling writer is the durable fix, and it
+            # belongs with the CM044 panel that consumes it, not here.
+        elif [[ "$_HYDRATE_EMAIL_COUNT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_EMAIL_DONE" "$_HYDRATE_EMAIL_COUNT")"
             # Denominator measured from the Mail store, not from this pass.
             # This phase reads a capped slice and the hourly agent carries on
@@ -29352,6 +29521,15 @@ try:
 except Exception:
     print(0)' 2>/dev/null
             )" || { _AICONV_UNMEASURED=true; _AICONV_COUNT=""; }
+            # `:-0` MANUFACTURES the value whose failure was just recorded.
+            # _AICONV_UNMEASURED was set on the line above and read by nothing
+            # in the entire file, so a counter that COULD NOT RUN was published
+            # as a measured zero. Record the third state before the default
+            # erases the evidence for it.
+            if [[ "${_AICONV_UNMEASURED:-false}" == true ]]; then
+                _hydrate_sentinel_record_cannot_run "ai_conversations" \
+                    "counter_failed_count_unmeasured"
+            fi
             _AICONV_COUNT="${_AICONV_COUNT:-0}"
 
             # ── Steady-state recurring feed: register UNCONDITIONALLY ──

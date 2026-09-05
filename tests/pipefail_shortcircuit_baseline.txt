@@ -1,68 +1,105 @@
 # Files carrying 'producer | short-circuiting consumer' inside a condition
 # AND setting pipefail. See tests/test_pipefail_shortcircuit_inversion.sh.
 # This is a RATCHET: the count must not grow. Lower it as they are fixed.
-.github/workflows/dry-run-ledger.yml
-bin/redact_selftest.sh
-bin/rollforward_gate.sh
-gui/scripts/sign-python-bundle.sh
-install.sh
-scripts/_vendor_lib.sh
-scripts/box_walk_probes/probes/ingest_coverage.sh
-scripts/box_walk_probes/probes/launchd_no_ephemeral_paths.sh
-scripts/classify_pr_pin_shape.sh
-scripts/dry_run_cut_checks.sh
-scripts/orphan_gate_selftest.sh
-scripts/provenance_gate.sh
-scripts/regenerate_divergence_patch.sh
-scripts/stage_and_verify_dmg.sh
-scripts/sync_vendor.sh
-scripts/tests/test_daemon_fda_case6_controls.sh
-scripts/tests/test_regenerate_divergence_patch.sh
-scripts/verify_appcast_published.sh
-scripts/verify_cut_freshness.sh
-scripts/verify_no_orphaned_fixes.sh
-tests/test_ai_model_env_contract.sh
-tests/test_bootstrap_prelude.sh
-tests/test_calendar_hydrate_venv.sh
-tests/test_colima_autostart_mechanism.sh
-tests/test_contact_resync_scheduled.sh
-tests/test_cut_dispatch_is_dry.sh
-tests/test_cut_gate_wrappers.sh
-tests/test_cx30_33_python_library_validation_entitlement.sh
-tests/test_dmg_contains_bundled_python.sh
-tests/test_email_folder_prompt.sh
-tests/test_email_ingest_bootstrap_guard.sh
-tests/test_email_ingest_loud_guard.sh
-tests/test_every_launchagent_is_torn_down.sh
-tests/test_fda_prewarm_no_early_messages_popup.sh
-tests/test_fda_rerun_ingests.sh
-tests/test_fda_rerun_recurs.sh
-tests/test_grep_c_arith_safety.sh
-tests/test_hydrate_sentinel_not_on_error.sh
-tests/test_imessage_fda_probe.sh
-tests/test_imessage_tcc_posture.sh
-tests/test_install_daily_briefs.sh
-tests/test_install_first_month_free.sh
-tests/test_installer_version_consistency.sh
-tests/test_laptop_hub_power_copy_fires_on_laptops_only.sh
-tests/test_launchd_plist_no_tmp.sh
-tests/test_linkedin_export_detect.sh
-tests/test_memory_embeddings_wired.sh
-tests/test_no_local_cuts.sh
-tests/test_no_orphaned_fixes_gate.sh
-tests/test_pipefail_shortcircuit_inversion.sh
-tests/test_secrets_are_documented.sh
-tests/test_stay_awake_agent_survives_installer_exit.sh
-tests/test_step_end_does_not_report_a_timed_out_step_as_ok.sh
-tests/test_tailscale_recovery_wrapper.sh
-tests/test_usr_local_bin_symlinks_gui_safe.sh
-tests/test_v1010_redteam3_supply_chain_pins.sh
-tests/test_vendor_cm052_ai_conversations.sh
-tests/test_vendor_fresh_gate.sh
-tests/test_verify_ci_steps_are_maskless.sh
-tests/test_verify_no_symbol_regression.sh
-tests/test_verify_test_wiring.sh
-tests/test_wiki_baseline_background.sh
-tests/test_wiki_recompile_after_late_hydration.sh
-vendor/cm019_preferences/test_vendor_preferences.sh
-vendor/imessage_bridge/test_vendor_import.sh
+#
+# 🔴 2026-09-04: THIS LIST GREW FROM 65 TO 76 BECAUSE THE SCANNER STOPPED BEING
+# BLIND, NOT BECAUSE ANYONE ADDED 11 DEFECTS.
+#
+# CONSTRUCT anchors on `^[[:space:]]*(if|elif|while)`, and the scan ran it
+# against RAW lines. A condition split across a `\`-continuation -- keyword on
+# one line, `| grep -q` on the next -- matched nothing. CM051 #1471 added
+# exactly that form to install.sh and this gate stayed green: measured with
+# CONSTRUCT itself, install.sh was 16 before the change and 16 after.
+#
+# The scan now joins continuations first. The 11 rows below were always
+# instances; they were simply invisible. Do NOT 'restore' the count to 65.
+#
+#
+# 🔴 ROWS ARE `path<TAB>count`. THE COUNT IS LOAD-BEARING.
+#
+# A name-only row let any listed file accumulate new instances for ever under
+# a green verdict. Proved by mutation 2026-09-04: appending a banned instance
+# to install.sh, single-line AND multi-line, left the ratchet reporting 'no new
+# instances' because the row did not change. install.sh was row 8.
+#
+# Lower a count as instances are fixed. Never raise one to make a red go away:
+# a raised count is the regression, written down.
+#
+# TOTAL INSTANCES AT THIS BASELINE: 224 across 76 files.
+#
+.github/workflows/dry-run-ledger.yml	4
+.github/workflows/fda-deps-installed.yml	1
+bin/redact_selftest.sh	1
+bin/rollforward_gate.sh	1
+gui/scripts/sign-python-bundle.sh	2
+install.sh	21
+scripts/_vendor_lib.sh	2
+scripts/box_walk_probes/probes/ingest_coverage.sh	4
+scripts/box_walk_probes/probes/launchd_no_ephemeral_paths.sh	2
+scripts/classify_pr_pin_shape.sh	1
+scripts/dry_run_cut_checks.sh	1
+scripts/orphan_gate_selftest.sh	2
+scripts/provenance_gate.sh	3
+scripts/regenerate_divergence_patch.sh	1
+scripts/stage_and_verify_dmg.sh	1
+scripts/sync_vendor.sh	2
+scripts/tests/test_daemon_fda_case6_controls.sh	2
+scripts/tests/test_regenerate_divergence_patch.sh	16
+scripts/verify_appcast_published.sh	1
+scripts/verify_cut_freshness.sh	1
+scripts/verify_no_orphaned_fixes.sh	1
+tests/test_ai_model_env_contract.sh	1
+tests/test_bookmarks_ingest_wired.sh	1
+tests/test_bootstrap_prelude.sh	2
+tests/test_calendar_hydrate_venv.sh	5
+tests/test_colima_autostart_mechanism.sh	1
+tests/test_contact_resync_scheduled.sh	2
+tests/test_container_engine_liveness_and_recovery.sh	1
+tests/test_cut_dispatch_is_dry.sh	1
+tests/test_cut_gate_wrappers.sh	3
+tests/test_cx30_33_python_library_validation_entitlement.sh	3
+tests/test_cx98_previous_install_detection.sh	1
+tests/test_dmg_contains_bundled_python.sh	1
+tests/test_email_folder_prompt.sh	3
+tests/test_email_ingest_bootstrap_guard.sh	2
+tests/test_email_ingest_loud_guard.sh	2
+tests/test_every_launchagent_is_torn_down.sh	1
+tests/test_fda_dialog_tells_the_truth.sh	1
+tests/test_fda_prewarm_no_early_messages_popup.sh	4
+tests/test_fda_rerun_ingests.sh	1
+tests/test_fda_rerun_recurs.sh	1
+tests/test_grep_c_arith_safety.sh	1
+tests/test_hydrate_sentinel_not_on_error.sh	2
+tests/test_imessage_fda_probe.sh	1
+tests/test_imessage_tcc_posture.sh	1
+tests/test_install_daily_briefs.sh	19
+tests/test_install_first_month_free.sh	1
+tests/test_installer_version_consistency.sh	3
+tests/test_laptop_hub_power_copy_fires_on_laptops_only.sh	3
+tests/test_launchd_plist_no_tmp.sh	1
+tests/test_linkedin_export_detect.sh	2
+tests/test_mailbox_ingest_leg_wired.sh	1
+tests/test_memory_embeddings_wired.sh	2
+tests/test_no_local_cuts.sh	2
+tests/test_no_orphaned_fixes_gate.sh	5
+tests/test_pipefail_shortcircuit_inversion.sh	5
+tests/test_secrets_are_documented.sh	3
+tests/test_shipped_compose_usage_journal_mount.sh	1
+tests/test_social_ingest_wired.sh	1
+tests/test_stay_awake_agent_survives_installer_exit.sh	6
+tests/test_step_end_does_not_report_a_timed_out_step_as_ok.sh	8
+tests/test_tailscale_recovery_wrapper.sh	2
+tests/test_upgrade_reloads_the_launchagent_it_rewrote.sh	1
+tests/test_usr_local_bin_symlinks_gui_safe.sh	2
+tests/test_v1010_redteam3_supply_chain_pins.sh	2
+tests/test_vendor_cm052_ai_conversations.sh	1
+tests/test_vendor_fresh_gate.sh	14
+tests/test_verify_ci_steps_are_maskless.sh	1
+tests/test_verify_no_symbol_regression.sh	1
+tests/test_verify_test_wiring.sh	12
+tests/test_walkaway_no_phase2_input_leak.sh	2
+tests/test_wiki_baseline_background.sh	3
+tests/test_wiki_recompile_after_late_hydration.sh	2
+tests/test_wiki_tailnet_gate.sh	2
+vendor/cm019_preferences/test_vendor_preferences.sh	2
+vendor/imessage_bridge/test_vendor_import.sh	2

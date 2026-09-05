@@ -60,11 +60,18 @@ on:
       - 'tests/test_every_question_declares_its_persistence.sh'
       - 'tests/test_consent_decisions_survive_a_reuse_run.sh'
       - 'tests/test_config_reader_absence_does_not_abort_the_install.sh'
+      - 'tests/test_decline_does_not_wipe_an_existing_install.sh'
+      - 'tests/test_a_promote_before_the_decline_arms_is_gated.sh'
       - 'tests/test_walkaway_no_phase2_input_leak.sh'
       - 'tests/test_ttywalk_licence_preflight_is_cannot_run.sh'
       - 'scripts/ttywalk.sh'
+      - 'tests/test_a_slow_step_is_not_a_wedged_one.sh'
       - 'tests/test_walk_driver_cancel_is_not_a_build_verdict.sh'
+      - 'tests/test_a_tally_that_contradicts_the_log_is_not_a_pass.sh'
+      - 'tests/test_artefact_walk_stages_the_dmg_payload.sh'
       - 'tests/test_consent_state_is_defined_before_it_is_called.sh'
+      - 'tests/test_an_unmeasured_flag_must_be_read.sh'
+      - 'tests/test_no_function_is_called_before_it_is_defined.sh'
       - 'tests/test_doctor_probe_cap_exceeds_the_command.sh'
       - 'tests/test_installed_pipeline_packages_can_import_themselves.sh'
       - 'tests/test_a_failed_walk_must_not_exit_zero.sh'
@@ -191,9 +198,52 @@ jobs:
         if: always()
         run: bash tests/test_walk_driver_cancel_is_not_a_build_verdict.sh
 
+      # The subshell that emits a phantom terminal marker also increments
+      # its own copy of __OSTLER_FAILED_STEPS and then dies with it, while
+      # the STEP_END it wrote stays on the marker wire. So a run can carry
+      # a status=error step in its log AND failed_steps=0 in the marker
+      # this driver grades. Grading the tally alone returned PASS.
+      - name: A tally that contradicts the log is not a pass
+        if: always()
+        run: bash tests/test_a_tally_that_contradicts_the_log_is_not_a_pass.sh
+
+      - name: An artefact walk stages the DMG payload, not the checkout
+        if: always()
+        run: bash tests/test_artefact_walk_stages_the_dmg_payload.sh
+
+      # Walk 6 was killed at step 11 of 40 while PERFECTLY HEALTHY: a 3.5 GB
+      # vane image pull writes nothing to the marker wire, and install.sh
+      # itself logs that the silence is expected. A fixed log-silence cap
+      # measures which STEP is running, not whether the box is wedged.
+      - name: A slow step is not a wedged one
+        if: always()
+        run: bash tests/test_a_slow_step_is_not_a_wedged_one.sh
+
       - name: _ostler_consent_state is defined above its call sites (one function, not the class)
         if: always()
         run: bash tests/test_consent_state_is_defined_before_it_is_called.sh
+
+      # A flag that records "could not measure" must be READ by something.
+      # v1.0.66 SHIPPED two that were assigned and consulted by nothing:
+      # _HYDRATE_EMAIL_COUNTS_UNMEASURED and _AICONV_UNMEASURED. In both
+      # cases the next lines turned the empty value into 0, so a counter
+      # that COULD NOT RUN was published as a measured zero.
+      - name: An UNMEASURED flag must be read by something
+        if: always()
+        run: bash tests/test_an_unmeasured_flag_must_be_read.sh
+
+      # THE CLASS. The step above pins ONE function; #1439 fixed that
+      # instance and nothing stopped the next one. The sweep that found it
+      # was a human reading 161 definitions, which cannot be re-run.
+      #
+      # This scans every top-level statement. It runs FIVE synthetic controls
+      # first -- two that must FLAG, three that must MISS -- because the first
+      # two versions of the analyser scored the KNOWN POSITIVE as clean: one
+      # stripped "$( )" as if quoted text were not code, and one read a
+      # `# <<< WORD` comment as a heredoc and went blind for 5,700 lines.
+      - name: No function is called before it is defined (the CLASS)
+        if: always()
+        run: bash tests/test_no_function_is_called_before_it_is_defined.sh
       - name: The doctor probe cap exceeds the command it wraps
         if: always()
         run: bash tests/test_doctor_probe_cap_exceeds_the_command.sh
@@ -214,6 +264,21 @@ jobs:
       # be: the defect is an EXIT STATUS produced by a pipeline under
       # `set -Eeuo pipefail`, and nothing in the source text distinguishes the
       # broken form from the fixed one -- both end in sed.
+      # Found by TNM by EXECUTION: he seeded a tree, ran the decline arm, and
+      # counted zero survivors while the script printed "nothing was written
+      # to your Mac". A grep would not have found it, so this test seeds and
+      # counts too.
+      - name: Declining must not wipe an install that was already there
+        if: always()
+        run: bash tests/test_decline_does_not_wipe_an_existing_install.sh
+
+      # The SECOND lock on the same arm. #1437's guard is the primary defence and
+      # is tested by execution above; this one pins the emergent binding its own
+      # source comment warned "a later change could quietly reverse".
+      - name: A promote before the decline arms is gated on SKIP_PHASE2
+        if: always()
+        run: bash tests/test_a_promote_before_the_decline_arms_is_gated.sh
+
       - name: An absent config key must not abort the install
         if: always()
         run: bash tests/test_config_reader_absence_does_not_abort_the_install.sh

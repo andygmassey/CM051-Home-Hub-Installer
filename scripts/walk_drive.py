@@ -781,9 +781,64 @@ def adjudicate(log_path, rc, marker_channel_on):
                     "This is a MEASURED product failure: the installer "
                     "counted it itself.")
 
+        # 🔴 THE TALLY AND THE LOG CAN DISAGREE, AND THE TALLY IS THE ONE
+        # THAT CAN BE LOST.
+        #
+        # CONFIRMED 2026-09-04, 21:10Z, by instrumenting the real shipped
+        # test: `set -E` propagates the ERR trap INTO a command
+        # substitution's subshell. That subshell emits a TERMINAL marker and
+        # increments its own copy of __OSTLER_FAILED_STEPS -- then dies, and
+        # the counter dies with it. Same pid, different $BASH_SUBSHELL:
+        #
+        #     pid=55691  subshell=1   DONE status=fail  failed_steps=1
+        #     pid=55691  subshell=0   DONE status=ok    failed_steps=0
+        #
+        # THE VARIABLE DIES WITH THE SUBSHELL. THE LOG LINE DOES NOT. A
+        # STEP_END written from inside that subshell is already on the marker
+        # wire and stays there, so a run can end carrying BOTH a
+        # `status=error` step in its log AND `failed_steps=0` in the marker
+        # this driver grades.
+        #
+        # Grading the tally alone therefore returns PASS over a step the
+        # product itself recorded as failed. That is the SAME collapse the
+        # comment above warns about (#839, run 3), arriving from a direction
+        # the earlier fix did not cover: not a driver reading too few fields,
+        # but a field that was correct when written and then lost.
+        #
+        # Two signals, one question, so they must be reconciled rather than
+        # ranked. Only agreement at zero is a PASS.
+        contradicting = failed_step_ids(body)
+        if contradicting:
+            retried = [s for s in contradicting
+                       if re.search(r"#OSTLER\s+STEP_END\s+id=%s\s+status=ok\b"
+                                    % re.escape(s), body)]
+            if len(retried) == len(contradicting):
+                # Every errored step later closed ok. That is a retry, not a
+                # lost counter, and this driver cannot tell the two apart
+                # well enough to call the product broken.
+                return (CANNOT_RUN,
+                        "the marker says 0 failed steps, but %d step(s) "
+                        "recorded status=error and every one later closed ok "
+                        "-- %s" % (len(contradicting), ", ".join(contradicting)),
+                        "A retry and a counter lost with a dying subshell "
+                        "look identical from here. Not a pass: 'no step "
+                        "failed' was never established.")
+            return (FAIL,
+                    "the completion marker says failed_steps=0, but the log "
+                    "records %d step(s) as status=error -- %s"
+                    % (len(contradicting), ", ".join(contradicting)),
+                    "The installer contradicted itself in one run. A "
+                    "STEP_END written inside a command substitution's "
+                    "subshell survives on the marker wire while the "
+                    "failed_steps counter it incremented dies with that "
+                    "subshell, so the tally can under-report what the log "
+                    "already recorded. Grade the disagreement, never the "
+                    "more convenient half.")
+
         return (PASS,
-                "install.sh emitted its completion marker, exited 0, and "
-                "recorded 0 failed steps", "")
+                "install.sh emitted its completion marker, exited 0, "
+                "recorded 0 failed steps, and no step reported status=error",
+                "")
 
     seen = any_re.search(body) if any_re else None
     if seen:

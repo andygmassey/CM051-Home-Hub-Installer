@@ -184,8 +184,80 @@ done
 
 # Every call site must name a channel CM044 knows. A typo here renders as
 # generic "Another part of your history" copy and nobody notices.
-strays="$(grep -oE 'settling_report[[:space:]]+[a-z_]+' "$INSTALL" \
-          | awk '{print $2}' | sort -u \
+#
+# 🔴 THE OLD PREDICATE WAS WRONG IN BOTH DIRECTIONS, and each was proved with
+# a one-line fixture rather than argued:
+#
+#   grep -oE 'settling_report[[:space:]]+[a-z_]+'
+#
+#     "settling_report_measured contacts …"  ->  []                 MISSED
+#     "settling_report contacts 0 0 true"    ->  [… contacts]       ok
+#     "# settling_report has only two …"     ->  [… has]            INVENTED
+#
+#   INVENTS: it reads any line, so PROSE ABOUT settling_report becomes a call
+#   site. That is not hypothetical -- it fired on CM051 #1457, where two lines
+#   of a comment written to explain a review finding were reported as channels
+#   "has" and "is". A gate that goes red when somebody DOCUMENTS the thing it
+#   watches punishes exactly the behaviour this estate wants.
+#
+#   MISSES: `settling_report_measured` cannot match `settling_report` followed
+#   by whitespace, so the _measured variant's channels were never validated at
+#   all. Today both of its channels happen to appear in plain calls too, so the
+#   set came out right by luck. A channel reported ONLY via _measured would
+#   have shipped unchecked.
+#
+# Anchored so the name must be INVOKED, not mentioned, and both variants
+# matched.
+#
+# ⚠️ MY FIRST ANCHOR WAS ALSO TOO LOOSE AND THE CONTROL BELOW CAUGHT IT. I
+# allowed a preceding SPACE as command position, so the prose line
+#
+#     A third state in settling_report is the honest one
+#
+# yielded a channel "is" -- the same defect, from a sentence with no `#` in it
+# at all. Dropping comment lines is not sufficient: prose is not always a
+# comment. Command position means start-of-line, or after `;` `|` `&` `(`,
+# or after `do`/`then`.
+#
+# ⚠️ AND MY SECOND ANCHOR WAS TOO TIGHT, caught by the same fixture set going
+# the other way: `if true; then settling_report notes 0 0 true; fi` yielded
+# NOTHING, because I required the delimiter to sit directly against the call.
+# Over-broad first, then under-broad -- the fixtures found both, which is the
+# entire argument for writing must-match and must-miss at the same time.
+_settling_call_channels() {   # $1 = file
+    grep -oE '^[[:space:]]*(.*([;|&(]|[[:space:]](do|then))[[:space:]]*)?settling_report(_measured)?[[:space:]]+[a-z_]+' "$1" \
+        | grep -v '^[[:space:]]*#' \
+        | sed -E 's/.*settling_report(_measured)?[[:space:]]+//' | sort -u
+}
+
+# CONTROLS BEFORE THE VERDICT. One must-match per variant and one MUST-MISS,
+# because a predicate checked only against what it should find is how the old
+# one passed review.
+# Six lines: four that MUST be found (both call forms, plus a call after
+# `then` and one after `do`) and two that MUST NOT be (a comment, and a plain
+# prose sentence with no `#` in it). Both of my own anchors failed this set --
+# the first invented a channel from the prose line, the second missed the
+# `then` line -- which is why all six live here rather than in my shell history.
+_ctl="$(mktemp)"; trap 'rm -f "$_ctl"' EXIT
+{
+    printf 'settling_report_measured contacts "$X" false\n'
+    printf 'settling_report emails 0 0 true\n'
+    printf 'if true; then settling_report notes 0 0 true; fi\n'
+    printf 'for x in a; do settling_report messages 0 0 true; done\n'
+    printf '# settling_report has only two states\n'
+    printf 'A third state in settling_report is the honest one\n'
+} > "$_ctl"
+_got="$(_settling_call_channels "$_ctl" | tr '\n' ' ')"
+_want="contacts emails messages notes "
+if [[ "$_got" == "$_want" ]]; then
+    ok "CONTROL: predicate finds all 4 call forms and ignores comment + prose (got: ${_got%% })"
+else
+    bad "CONTROL FAILED: expected '${_want}', got '${_got}'.
+        The channel verdict below would be meaningless -- the predicate either
+        misses call sites or invents them from text about them."
+fi
+
+strays="$(_settling_call_channels "$INSTALL" \
           | grep -vE '^(contacts|calendar|messages|emails|notes)$' || true)"
 if [[ -z "$strays" ]]; then
     ok "every call site names a valid channel"

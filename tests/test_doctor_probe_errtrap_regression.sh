@@ -43,6 +43,95 @@ TRAP_SRC=$(awk '
 printf '%s\n' "$TRAP_SRC" | grep -q "trap '_ostler_on_err" \
     || { printf 'FAIL: could not extract _ostler_on_err + ERR trap\n' >&2; exit 1; }
 
+# ── THE RED CONTROL NEEDS THE PRE-FIX HANDLER (#642, 2026-09-04) ──────
+#
+# The handler now refuses to emit a TERMINAL marker from a subshell:
+#
+#     if [[ "${BASH_SUBSHELL:-0}" -gt 0 ]]; then gui_log error ...; return; fi
+#
+# That is the same defect this file documents -- "`set -E` propagates that ERR
+# trap INTO the $(...) subshell ... which emits `gui_done fail` to the GUI" --
+# fixed one layer lower, at the handler instead of per-probe. Good news for the
+# product, fatal for the RED control below: with the shipped handler the bug
+# CANNOT be reproduced, so the control reported "did not reproduce the bug" and
+# the whole file went red.
+#
+# Deleting the control would delete the only thing proving the ledger method
+# can see the bug at all. So the RED arm gets a handler with that guard
+# stripped, and the GREEN arm keeps the real one. RED then proves the ledger
+# detects the historical defect; GREEN proves the shipped probe is clean.
+# a752275d is the v1.0.66 cut -- the artefact that SHIPPED with this defect.
+# Pinned to a fixed sha, never a branch: a control reading origin/main inverts
+# the moment this fix merges. Same rationale as the 7b2130ac pin in
+# tests/test_config_reader_absence_does_not_abort_the_install.sh.
+#
+# CI CLONES SHALLOW (111 of 124 workflows take the depth-1 default), so fetch
+# the single object rather than demanding fetch-depth:0 everywhere. If it is
+# STILL unreachable, mutate the live handler instead: the pre-fix handler is
+# exactly the current one minus the guard, so it rebuilds with no network. An
+# anti-vacuity limb that silently does not run is the hole it exists to close.
+_PREFIX_SHA=a752275d
+_PRE_SRC="pinned blob ${_PREFIX_SHA} (v1.0.66)"
+_REPO_D="$(cd "$(dirname "$INSTALL_SH")" && pwd)"
+if ! git -C "$_REPO_D" cat-file -e "${_PREFIX_SHA}:install.sh" 2>/dev/null; then
+    git -C "$_REPO_D" fetch --quiet --depth=1 origin "${_PREFIX_SHA}" 2>/dev/null || true
+fi
+# TO A FILE FIRST, NEVER STRAIGHT INTO awk. This awk `exit`s the moment it
+# sees the trap line, which closes the pipe and SIGPIPEs `git show`: under
+# this file's `set -euo pipefail` the assignment then fails at 141 and `set
+# -e` kills the script with NO OUTPUT AT ALL. I wrote it as a pipe and spent
+# three runs on rc=141 before tracing it. The ORIGINAL extraction above reads
+# a FILE for exactly this reason -- a file has no producer to signal.
+_pre_blob="${WORK}/prefix_install.sh"
+git -C "$_REPO_D" show "${_PREFIX_SHA}:install.sh" > "$_pre_blob" 2>/dev/null || : > "$_pre_blob"
+TRAP_SRC_PREFIX=$(awk '
+    /^_ostler_on_err\(\) \{/ { in_fn=1 }
+    in_fn { print }
+    in_fn && /^trap .*ERR$/ { exit }
+' "$_pre_blob")
+# `printf ... | grep -q` under `set -euo pipefail` is the short-circuiting
+# consumer inversion: grep -q exits on first match and SIGPIPEs the producer,
+# so the pipeline returns 141 and `set -e` kills the script. I wrote it that
+# way here and it died rc=141 with no output. `grep -c` must read to EOF.
+if [ "$(printf '%s\n' "$TRAP_SRC_PREFIX" | grep -c "trap '_ostler_on_err")" -eq 0 ]; then
+    _PRE_SRC="mutation of the live handler (blob unreachable)"
+    TRAP_SRC_PREFIX=$(printf '%s\n' "$TRAP_SRC" | awk '
+        /BASH_SUBSHELL:-0/ { skip = 1 }
+        skip && /^    fi$/ { skip = 0; next }
+        !skip              { print }
+    ')
+fi
+printf 'pre-fix trap source: %s\n' "$_PRE_SRC"
+# THE INVARIANT, and it must hold whichever source produced it: the RED
+# handler must carry the ERR trap and must NOT carry the guard. Otherwise RED
+# silently runs the FIXED handler and its failure to reproduce reads as a
+# broken host rather than a stripped guard. CANNOT-RUN, never a pass.
+#
+# NOT a line-count comparison. That was my first version and it is meaningless
+# once the source can be a DIFFERENT REVISION -- the v1.0.66 handler is 66
+# lines against today's 103, so "shorter" says nothing about the guard.
+#
+# `grep -c`, never `| grep -q`: under this file's `set -euo pipefail` the -q
+# form exits on first match, SIGPIPEs the producer, and the pipeline returns
+# 141. I wrote it that way and the script died rc=141 with NO OUTPUT AT ALL,
+# which is a considerably worse failure than the one it was checking for.
+# `|| true` because GREP -C EXITS 1 ON A ZERO COUNT while still printing 0,
+# and under `set -e` that kills the assignment. A guard count of 0 is the
+# EXPECTED, PASSING case here, so without this the success path aborts the
+# script -- silently, since the trap output goes nowhere. This repo already
+# carries tests/test_grep_c_arith_safety.sh for the same edge.
+_pre_has_trap="$(printf '%s\n' "$TRAP_SRC_PREFIX" | grep -c "trap '_ostler_on_err" || true)"
+_pre_has_guard="$(printf '%s\n' "$TRAP_SRC_PREFIX" | grep -c 'BASH_SUBSHELL:-0' || true)"
+if [ "$_pre_has_trap" -eq 0 ] || [ "$_pre_has_guard" -gt 0 ]; then
+    printf 'CANNOT-RUN: the pre-fix handler is not usable as a RED control.\n' >&2
+    printf '            ERR-trap lines=%s (need >=1), guard lines=%s (need 0)\n' \
+        "$_pre_has_trap" "$_pre_has_guard" >&2
+    printf '            source was: %s\n' "$_PRE_SRC" >&2
+    printf '            RED would run the FIXED handler and its silence would\n' >&2
+    printf '            say nothing about the ledger method. Not a pass.\n' >&2
+    exit 2
+fi
+
 # Extract the REAL (fixed) doctor-probe block.
 PROBE_SRC=$(awk '
     /ostler-assistant doctor probe/ { in_block=1 }
@@ -102,7 +191,7 @@ STUB
 make_stub 1
 : > "$LEDGER"
 write_prelude "$WORK/red.sh"
-printf '%s\n' "$TRAP_SRC" >> "$WORK/red.sh"
+printf '%s\n' "$TRAP_SRC_PREFIX" >> "$WORK/red.sh"
 cat >> "$WORK/red.sh" <<RED
 ASSISTANT_BINARY="$WORK/doctor_stub"
 if [[ -x "\${ASSISTANT_BINARY:-}" ]]; then

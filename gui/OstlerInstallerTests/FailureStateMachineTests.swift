@@ -61,6 +61,77 @@ final class FailureStateMachineTests: XCTestCase {
         XCTAssertEqual(coord.failureState, .failed(step: nil))
     }
 
+    // MARK: - A SECOND DONE MARKER (#642, 2026-09-04)
+    //
+    // THE INPUT THIS PINS. `set -E` propagates install.sh's ERR trap into a
+    // command substitution's subshell. The subshell emits a TERMINAL DONE and
+    // dies; `OSTLER_DONE_EMITTED=1` dies with it because a subshell cannot
+    // write to its parent, so the parent never learns and emits its own DONE.
+    // MEASURED on /bin/bash 3.2.57, one process, printing $$ and $BASH_SUBSHELL
+    // at every emit:
+    //
+    //     pid=55691  subshell=1   DONE status=fail  failed_steps=1
+    //     pid=55691  subshell=0   DONE status=ok    failed_steps=0
+    //
+    // So the GUI can receive two DONE markers in one run, and the second can
+    // DISAGREE with the first.
+    //
+    // WHY THIS NEEDED PINNING RATHER THAN JUST ASSERTING. `failureState` is a
+    // computed property over `finished`, and the DONE handler assigns
+    // `finished = status` UNCONDITIONALLY. So the revert below is a by-product
+    // of two implementation choices, not a rule anybody wrote down or tested.
+    // Every test above stops at the first DONE. These two say out loud what
+    // the second one does, so a future latch is a deliberate, visible change
+    // rather than a silent behaviour flip.
+    //
+    // NOT AN ENDORSEMENT. Which behaviour is CORRECT is a product decision:
+    // last-writer-wins shows success over a failed install, and latch-first
+    // shows failure over a successful one. install.sh is being fixed so the
+    // second marker cannot be a phantom (CM051 #1459). These tests pin what
+    // the GUI does TODAY, whichever way that decision lands.
+
+    /// fail then ok: the phantom is overwritten and the customer is shown SUCCESS.
+    func testASecondDoneOverwritesTheFirstFailThenOkShowsSuccess() {
+        let coord = makeCoordinator()
+        coord.simulateLineForTests(
+            "#OSTLER\tSTEP_BEGIN\tid=hydrate_graph\ttitle=Building the graph"
+        )
+        coord.simulateLineForTests("#OSTLER\tDONE\tstatus=fail\tfailed_steps=1")
+        // The subshell's terminal marker lands first and is believed.
+        XCTAssertEqual(coord.failureState, .failed(step: "hydrate_graph"))
+
+        coord.simulateLineForTests("#OSTLER\tDONE\tstatus=ok\tfailed_steps=0")
+        // The parent's marker arrives second and wins. LAST WRITER WINS.
+        XCTAssertEqual(coord.failureState, .success)
+    }
+
+    /// ok then fail: the same rule in the other direction, so the test above
+    /// is a statement about ORDER and not about `.ok` being special.
+    func testASecondDoneOverwritesTheFirstOkThenFailShowsFailure() {
+        let coord = makeCoordinator()
+        coord.simulateLineForTests(
+            "#OSTLER\tSTEP_BEGIN\tid=hydrate_graph\ttitle=Building the graph"
+        )
+        coord.simulateLineForTests("#OSTLER\tDONE\tstatus=ok\tfailed_steps=0")
+        XCTAssertEqual(coord.failureState, .success)
+
+        coord.simulateLineForTests("#OSTLER\tDONE\tstatus=fail\tfailed_steps=1")
+        XCTAssertEqual(coord.failureState, .failed(step: "hydrate_graph"))
+    }
+
+    /// The TALLY is overwritten too, not just the verdict. This is the field
+    /// CM051 #1460 grades, and a second DONE resetting it to 0 is how a run
+    /// can end carrying `failed_steps=0` while its log records a failed step.
+    func testASecondDoneAlsoOverwritesTheFailedStepTally() {
+        let coord = makeCoordinator()
+        coord.simulateLineForTests("#OSTLER\tDONE\tstatus=fail\tfailed_steps=1")
+        XCTAssertEqual(coord.failedStepCount, 1)
+
+        coord.simulateLineForTests("#OSTLER\tDONE\tstatus=ok\tfailed_steps=0")
+        XCTAssertEqual(coord.failedStepCount, 0,
+                       "the second marker's tally replaces the first; the GUI keeps no memory of the earlier count")
+    }
+
     func testSimulateFailureForTestsRoundTrip() {
         let coord = makeCoordinator()
         coord.simulateFailureForTests(

@@ -22,6 +22,10 @@ test_a_denied_read_is_not_an_absence.sh	WIRED	.github/workflows/unreachable-not-
 test_a_failed_hydrate_may_not_fabricate_a_count.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_a_failed_walk_must_not_exit_zero.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_a_promote_before_the_decline_arms_is_gated.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_a_slow_step_is_not_a_wedged_one.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_a_subshell_cannot_emit_a_terminal_done.sh	WIRED	.github/workflows/step-end-status-honesty.yml
+test_a_tally_that_contradicts_the_log_is_not_a_pass.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_truncated_category_is_not_reported_complete.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_abort_still_reports_when_the_close_fails.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_ai_conversations_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -34,6 +38,7 @@ test_an_abort_inside_a_step_is_counted.sh	WIRED	.github/workflows/step-end-statu
 test_an_abort_speaks_on_a_terminal_install.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_an_old_format_sentinel_does_not_abort_the_install.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_an_unmeasured_count_is_not_a_measured_zero.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_an_unmeasured_flag_must_be_read.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_app_binary_agents_bootstrap.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_appcast_debt_is_collected.sh	WIRED	.github/workflows/cut.yml
 test_appcast_publish_cannot_destroy_the_dmg.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
@@ -42,6 +47,7 @@ test_apple_is_registered_before_appletv.py	WIRED	.github/workflows/parser-claim-
 test_appletv_parser.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_arm8b_vetoes_on_importable_not_merely_uncovered.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_artefact_content_matches_the_tag.sh	WIRED	.github/workflows/cut.yml
+test_artefact_walk_stages_the_dmg_payload.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_assistant_config_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_assistant_config_reasoning_disabled.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_config_required_fields.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
@@ -112,6 +118,7 @@ test_cx98_previous_install_detection.sh	WIRED	.github/workflows/tests-unwired-sw
 test_daemon_fda_app_bundle_path.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_daemon_pins_agree.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_dead_launchagent_prune.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
+test_decline_does_not_wipe_an_existing_install.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_declined_remote_access_is_not_promised.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_dedupe_defer_background.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_dedupe_deps_reach_the_consumer_venv.sh	WIRED	.github/workflows/install-gui-contract.yml
@@ -251,6 +258,7 @@ test_no_committed_binary_leaks_a_home_path.sh	WIRED	.github/workflows/no-binary-
 test_no_data_is_not_success.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_no_divergent_vendor_twin.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_no_finder_appleevent.sh	WIRED	.github/workflows/no-finder-appleevent.yml
+test_no_function_is_called_before_it_is_defined.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_no_gate_execs_a_pinned_image.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_no_internal_codenames_in_customer_strings.sh	WIRED	.github/workflows/rule-09-strings-check.yml
 test_no_literal_backslash_n_in_strings.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -258,6 +266,7 @@ test_no_live_command_substitution_in_heredocs.sh	WIRED	.github/workflows/install
 test_no_local_cuts.sh	WIRED	.github/workflows/cut.yml
 test_no_main_body_call_to_a_heredoc_only_symbol.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
 test_no_orphaned_fixes_gate.sh	WIRED	.github/workflows/cut.yml
+test_no_test_uses_a_bash4_builtin.sh	WIRED	.github/workflows/bash32-compat.yml
 test_no_unbounded_enrich_invocation.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_no_undefined_msg_refs_in_install_sh.sh	WIRED	.github/workflows/container-runtime-precondition.yml
 test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.yml
@@ -277,7 +286,7 @@ test_ostler_home_root_is_one_class.sh	WIRED	.github/workflows/hydrate-sentinel.y
 test_oxigraph_proxy_credential.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_parser_claims_do_not_cross_services.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
-test_pgrep_no_match_does_not_fabricate_a_done.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_pgrep_no_match_does_not_fabricate_a_done.sh	WIRED	.github/workflows/bash32-compat.yml
 test_pii_shape_scan_scope.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_pinned_images_are_pullable.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_pinned_wiki_image_has_design_system.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
@@ -364,8 +373,9 @@ test_uninstaller_keep_prompt.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.y
 test_universal_import_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_unknown_consent_is_not_declined.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_unreachable_is_not_absence.sh	WIRED	.github/workflows/unreachable-not-absence.yml
+test_upgrade_does_not_revert_the_launchagent_path.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_upgrade_mode_invariants.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
-test_upgrade_path_can_wire_store_auth.sh	WIRED	.github/workflows/upgrade-store-auth-wiring.yml
+test_upgrade_path_can_wire_store_auth.sh	WIRED	.github/workflows/bash32-compat.yml
 test_upgrade_payload_shape_contract.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_upgrade_reloads_the_launchagent_it_rewrote.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_upgrade_repairs_the_fda_venv.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
