@@ -30,6 +30,10 @@ on:
       - 'scripts/box_walk_probes/probes/install_manifest_complete.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'tests/test_install_manifest_gate.sh'
+      # The cron reader's own gate: it pins a negative control to a fixed
+      # blob, so editing it must trigger the workflow that runs it.
+      - 'tests/test_the_cron_reader_sees_both_toml_spellings.sh'
+      - 'scripts/verify_install_manifest.py'
       - '.github/workflows/install-manifest-gate.yml'
   push:
     branches: [main]
@@ -46,16 +50,36 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 30
     steps:
+      # fetch-depth 0: the cron-reader test pins its negative control to
+      # be7ab01f, the blob that produced the false FAIL on the v1.0.68 walk,
+      # rather than to a branch -- a control reading origin/main inverts the
+      # moment its fix merges. A shallow clone cannot read that blob and the
+      # test then correctly reports CANNOT-RUN, which is not a pass.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: python3 is present (the verifier needs it)
         run: python3 --version
+
+      # The cron arm of the verifier needs a TOML parser, which arrived in
+      # 3.11. macos-14 runners ship 3.12+, and the test itself refuses
+      # (CANNOT-RUN) rather than passing if it cannot find one.
+      # `if: always()` so an earlier red does not delete this measurement,
+      # and so this step's own red does not mask the ones after it.
+      - name: The cron reader sees BOTH TOML spellings of one job list
+        if: always()
+        run: /bin/bash tests/test_the_cron_reader_sees_both_toml_spellings.sh
 
       # The test drives the REAL verifier + REAL manifest + REAL probe against
       # synthetic installs: complete -> PASS, and each single removal or addition
       # -> a NAMED failure. It carries a positive control per type (so the gate is
       # not uniformly failing on a broken enumerator) and an anti-vacuity note.
+      # `if: always()` (CM051 ci-maskless): this step used to be first in the
+      # job, so nothing could mask it. Adding the cron-reader step above made
+      # it MASKABLE -- a red there would have skipped this one silently.
       - name: The class gate names every EXPECTED-vs-PRESENT difference
+        if: always()
         run: /bin/bash tests/test_install_manifest_gate.sh
 
       # The box-walk runner marks a probe BROKEN unless its --self-test returns

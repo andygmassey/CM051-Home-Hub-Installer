@@ -160,26 +160,78 @@ def _plist_label(path):
 
 
 def present_cron_jobs(config_path):
+    """The cron job ids the live config declares, READ WITH A TOML PARSER.
+
+    🔴 THIS USED TO BE A LINE SCANNER LOOKING FOR THE LITERAL `[[cron.jobs]]`
+    HEADER, AND IT REPORTED A HEALTHY INSTALL AS BROKEN. Measured on the
+    v1.0.68 walk, archie@.240, 2026-09-05: the same box PASSED this check at
+    08:10Z and FAILED it at 08:25Z with "2 required subject(s) MISSING:
+    morning-brief, evening-wrap". Nothing had removed them. Both were present
+    and enabled throughout. The daemon rewrote config.toml at 08:19:47Z and
+    serialised the same two jobs as an INLINE TABLE ARRAY:
+
+        jobs = [{ id = "morning-brief", ... }, { id = "evening-wrap", ... }]
+
+    `[[cron.jobs]]` headers and an inline `jobs = [...]` array are two
+    spellings of one TOML value. A scanner that knows only the first reads the
+    second as ZERO.
+
+    ⚠️ THE FALSE FAIL IS THE LESS DANGEROUS HALF. cron_job is an ENUMERABLE
+    type with BOTH directions enforced, so a zero present-set also makes the
+    "present but undeclared" arm vacuous: it reports nothing because it can
+    see nothing. A ZERO DENOMINATOR READS AS SUCCESS in that direction.
+
+    No parser -> CANNOT-RUN. The line scanner is deliberately NOT kept as a
+    fallback, because its zero is indistinguishable from an empty config.
+    Same discipline as present_qdrant_collections below, for the same reason.
+    """
     if not config_path or not os.path.isfile(config_path):
         raise CannotRun(
-            "assistant config not found at %r -- cannot read [[cron.jobs]]. "
+            "assistant config not found at %r -- cannot read the cron jobs. "
             "A missing config is itself the #619 symptom, but it is CANNOT-RUN "
             "here, not a pass." % config_path
         )
+
+    try:
+        import tomllib as _toml          # 3.11+
+    except ImportError:
+        try:
+            import tomli as _toml        # backport, if the environment has it
+        except ImportError:
+            raise CannotRun(
+                "no TOML parser available under %s (python %s) -- cannot read "
+                "the cron jobs. The old line-scanner is deliberately NOT used "
+                "as a fallback: it cannot see an inline-table array and "
+                "reported a healthy install as broken on 2026-09-05. Run this "
+                "under the interpreter the install ships "
+                "(~/.ostler/python/bin/python3, 3.11+), which has tomllib."
+                % (sys.executable,
+                   ".".join(str(n) for n in sys.version_info[:3]))
+            )
+
+    try:
+        with open(config_path, "rb") as fh:
+            doc = _toml.load(fh)
+    except Exception as exc:                      # noqa: BLE001
+        raise CannotRun(
+            "could not parse %r as TOML (%s). An unparseable config is "
+            "CANNOT-RUN, not an empty job list." % (config_path, exc)
+        )
+
+    jobs = (doc.get("cron") or {}).get("jobs")
+    if jobs is None:
+        return set()                              # a real absence: none declared
+    if not isinstance(jobs, list):
+        raise CannotRun(
+            "cron.jobs is %s, not a list, in %r. An unexpected shape is "
+            "CANNOT-RUN, not an empty job list."
+            % (type(jobs).__name__, config_path)
+        )
+
     ids = set()
-    in_cron = False
-    with open(config_path, encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            s = line.strip()
-            if s == "[[cron.jobs]]":
-                in_cron = True
-                continue
-            if s.startswith("[") and s != "[[cron.jobs]]":
-                in_cron = False
-            if in_cron:
-                m = re.match(r'id\s*=\s*"([^"]+)"', s)
-                if m:
-                    ids.add(m.group(1))
+    for job in jobs:
+        if isinstance(job, dict) and isinstance(job.get("id"), str):
+            ids.add(job["id"])
     return ids
 
 
