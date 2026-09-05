@@ -211,7 +211,12 @@ result MANUAL A7 "Home & Wiki agree on phase" "open the app: Home + Wiki must bo
 # terminating OK marker, so an empty or truncated reply is distinguishable from
 # a genuinely clean list.
 bad_agents=$(box "launchctl list | grep -iE 'ostler|creativemachines' | awk '\$2!=0 && \$2!=\"-\" && \$2!=78 {print \$3\"(exit=\"\$2\")\"}'; echo __A8_OK__")
-if ! printf '%s' "$bad_agents" | grep -q '__A8_OK__'; then
+# 🔴 grep -c, NEVER `| grep -q`. This file runs under `set -uo pipefail`, and
+# grep -q exits on the FIRST match, SIGPIPEs the producer, and inverts the
+# verdict. tests/test_pipefail_shortcircuit_inversion.sh ratchets against
+# exactly this, and it caught the line in my own fix for the defect above:
+# I introduced the trap I was writing a refusal for. grep -c reads to EOF.
+if [ "$(printf '%s' "$bad_agents" | grep -c '__A8_OK__')" -eq 0 ]; then
   result CANNOT A8 "LaunchAgents exit clean" \
     "the launchctl query returned no terminator, so the agent list was never read: 'all clean' is not available"
 else
