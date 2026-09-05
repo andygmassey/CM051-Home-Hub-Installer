@@ -72,6 +72,7 @@ on:
       - 'tests/test_a_tally_that_contradicts_the_log_is_not_a_pass.sh'
       - 'tests/test_artefact_walk_stages_the_dmg_payload.sh'
       - 'tests/test_consent_state_is_defined_before_it_is_called.sh'
+      - 'tests/test_the_recovery_key_is_disclosed_where_it_is_minted.sh'
       - 'tests/test_an_unmeasured_flag_must_be_read.sh'
       - 'tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh'
       - 'tests/test_store_health_does_not_depend_on_a_foreign_port.sh'
@@ -249,6 +250,18 @@ jobs:
       - name: _ostler_consent_state is defined above its call sites (one function, not the class)
         if: always()
         run: bash tests/test_consent_state_is_defined_before_it_is_called.sh
+
+      # #1540. The recovery key is minted, the DEK is wrapped under it, and the
+      # key is never stored. So the run that MINTS it is the only run that can
+      # ever hand it over: the keychain persists, and every later run takes
+      # install.sh's "already configured" skip and emits nothing. install.sh
+      # used to reveal it 15,490 lines after minting it, and the GUI presented
+      # the reveal sheet only inside `finished == .ok`. Measured on archie2,
+      # 2026-09-05: an attempt minted and failed, the next finished clean with
+      # nothing to show, and `ostler-recovery` can never succeed for that box.
+      - name: The recovery key is disclosed by the run that mints it, on both surfaces
+        if: always()
+        run: bash tests/test_the_recovery_key_is_disclosed_where_it_is_minted.sh
 
       # A flag that records "could not measure" must be READ by something.
       # v1.0.66 SHIPPED two that were assigned and consulted by nothing:
