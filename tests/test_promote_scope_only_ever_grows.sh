@@ -38,8 +38,42 @@ HEAD_N="$(printf '%s' "$HEAD_SET" | grep -c . || true)"
 # A first-introduction commit has no base file. That is not a violation, but it must
 # not read as a silent pass either, so it is announced.
 if ! git -C "$ROOT" cat-file -e "${BASE_REF}:${SCOPE_REL}" 2>/dev/null; then
-    git -C "$ROOT" fetch --depth=1 origin "${BASE_REF#origin/}" >/dev/null 2>&1 || true
+    # --depth=1 CONVERTS A FULL CLONE TO A SHALLOW ONE. Harmless on a fresh CI
+    # checkout, destructive on a developer's: it silently truncates history, and
+    # ~14 workflows in this repo set fetch-depth 0 precisely because their gates
+    # need it. Measured 2026-09-05: running this test once against origin/main
+    # took a full clone to shallow=true, and it took `git fetch --unshallow` to
+    # put back. Only shallow-fetch a repo that is already shallow.
+    if [ "$(git -C "$ROOT" rev-parse --is-shallow-repository)" = "true" ]; then
+        git -C "$ROOT" fetch --depth=1 origin "${BASE_REF#origin/}" >/dev/null 2>&1 || true
+    else
+        git -C "$ROOT" fetch          origin "${BASE_REF#origin/}" >/dev/null 2>&1 || true
+    fi
 fi
+# THE BASELINE MUST RESOLVE BEFORE ITS CONTENTS CAN MEAN ANYTHING.
+#
+# An unresolvable ref and a genuinely absent file both make `git show` fail, and
+# `2>/dev/null` throws away the only thing that tells them apart. git states it
+# plainly:
+#     fatal: path '...' exists on disk, but not in 'origin/main'   <- introduction
+#     fatal: invalid object name 'origin/nope'.                    <- CANNOT-RUN
+#
+# Without this, a shallow clone, a missing remote-tracking ref or a failed fetch
+# prints "this is its introduction" and exits 0. MEASURED 2026-09-05 against the
+# real scope file: all 21 blocking rows demoted to advisory plus an unresolvable
+# BASE_REF reported `PASS: first introduction, 0 blocking`, rc=0. The ratchet
+# that exists to stop someone demoting the probe that is red today can be
+# switched off by a ref that does not resolve.
+#
+# fetch-depth 0 in walk-record-gate.yml is what makes this resolve in CI today.
+# That coupling lives in another file and nothing else tests it, which is
+# exactly why this must fail closed rather than trust it.
+if ! git -C "$ROOT" rev-parse --verify --quiet "${BASE_REF}^{commit}" >/dev/null 2>&1; then
+    printf 'CANNOT-RUN: %s does not resolve, so there is no baseline to ratchet against.\n' "$BASE_REF" >&2
+    printf '            That is not a first introduction and must not be reported as one.\n' >&2
+    exit 2
+fi
+
 if ! BASE_RAW="$(git -C "$ROOT" show "${BASE_REF}:${SCOPE_REL}" 2>/dev/null)"; then
     printf '  %s does not exist on %s -- this is its introduction.\n' "$SCOPE_REL" "$BASE_REF"
     printf '  HEAD blocking set: %s probe(s). Nothing to ratchet against yet.\n' "$HEAD_N"
