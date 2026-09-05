@@ -892,7 +892,30 @@ fi
 # and 3 of those 4 are the "exact" class. The gate was blind on its cleanest
 # cases. This limb reads the surface the repair actually writes.
 OXI="${OSTLER_OXIGRAPH_URL:-${OXIGRAPH_URL:-http://127.0.0.1:7878}}"
-ask() { curl -sS -m 60 -G --data-urlencode "query=$1" -H 'Accept: text/csv' "$OXI/query" 2>/dev/null | tr -d '\r' | tail -1; }
+
+# THE STORE DEMANDS A CREDENTIAL AND THIS LIMB HAD NONE (#1611). Store auth
+# defaulted ON on 2026-08-28. A bare query then returns 401 with an HTML body,
+# the integer check below reads '</html>' and correctly refuses -- so this limb
+# has reported CANNOT RUN on every enforce-ON box since, blaming the store for
+# a key the gate never brought. The refusal was honest; the silent loss of
+# coverage is the defect.
+#
+# Present the install's OWN curl config, the same mechanism the walk probes use.
+# POSIX only: gate bodies are executed with `sh` (rollforward_gate.sh:1170), so
+# no arrays -- the two curl forms are spelled out instead.
+#
+# Absent config is NOT an error here: a box with auth off has none, and the
+# bare form is correct there. It only becomes a diagnosis when the read then
+# fails, which is what the message below says.
+_STORE_CONF="${OSTLER_STORE_CURL_CONF:-$HOME/.ostler/secrets/store-curl.conf}"
+if [ -r "$_STORE_CONF" ]; then _AUTH=present; else _AUTH=absent; fi
+ask() {
+  if [ "$_AUTH" = present ]; then
+    curl -sS -m 60 -K "$_STORE_CONF" -G --data-urlencode "query=$1" -H 'Accept: text/csv' "$OXI/query" 2>/dev/null | tr -d '\r' | tail -1
+  else
+    curl -sS -m 60 -G --data-urlencode "query=$1" -H 'Accept: text/csv' "$OXI/query" 2>/dev/null | tr -d '\r' | tail -1
+  fi
+}
 
 total=$(ask 'SELECT (COUNT(DISTINCT ?s) AS ?n) WHERE { ?s <https://schema.ostler.ai/ontology#displayName> ?v }')
 alive=$(ask 'SELECT (COUNT(DISTINCT ?s) AS ?n) WHERE { ?s <https://schema.ostler.ai/ontology#displayName> ?v . FILTER(REGEX(STR(?v), "[a-z]", "i")) }')
@@ -904,7 +927,7 @@ store=$(ask 'SELECT (COUNT(DISTINCT ?s) AS ?n) WHERE { ?s <https://schema.ostler
 # -- is CANNOT RUN, never a pass.
 for v in "$total" "$alive" "$never" "$store"; do
   case "$v" in ''|*[!0-9]*)
-    echo "CANNOT RUN: $OXI/query did not return a count (got '$v'). A store that cannot be read is not a store with no defects."
+    echo "CANNOT RUN: $OXI/query did not return a count (got '$v'); store credential $_AUTH ($_STORE_CONF). A store that cannot be read is not a store with no defects."
     exit 1;; esac
 done
 
