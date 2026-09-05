@@ -213,6 +213,27 @@ def _appletv_wishlist_path(tmp: str) -> Path:
 # Tests
 # ---------------------------------------------------------------------------
 
+# ── A SKIPPED TEST IS NOT A PASSED TEST ──────────────────────────────────────
+#
+# These files used to print "ALL {LABEL} TESTS PASSED" unconditionally, after
+# calling data-dependent tests that return early when their real export is not
+# configured. Measured 2026-09-05: the env var below is set by ZERO workflows,
+# so in CI those tests ALWAYS skip and the summary always claimed they passed.
+#
+# The exit code stays 0 on purpose. What ran did pass, and the absent export is
+# a legitimate condition on a fixture-only runner -- this is not a failure. But
+# the bar for a clean run in this estate is "0 FAIL and 0 BROKEN with every
+# CANNOT-RUN ACCOUNTED FOR", not a bare claim of success, so the summary now
+# names what did not run instead of quietly counting it as a pass.
+_SKIPPED: list[str] = []
+
+
+def _skip(reason: str) -> None:
+    """Record a CANNOT-RUN and say so. Callers still `return` after this."""
+    _SKIPPED.append(reason)
+    print(f"SKIP: {reason}")
+
+
 def test_can_parse_playback_activity_true() -> None:
     parser = AppleTVParser()
     with tempfile.TemporaryDirectory() as tmp:
@@ -348,11 +369,11 @@ def test_real_dump_can_parse_and_count() -> None:
     # export, where before it could only ever run on one machine.
     real_dump = os.environ.get("OSTLER_APPLETV_REAL_DUMP")
     if not real_dump:
-        print("SKIP: set OSTLER_APPLETV_REAL_DUMP to a Playback Activity.csv to run this")
+        _skip("set OSTLER_APPLETV_REAL_DUMP to a Playback Activity.csv to run this")
         return
     real_path = Path(real_dump)
     if not real_path.exists():
-        print(f"SKIP: OSTLER_APPLETV_REAL_DUMP points at a missing path: {real_path}")
+        _skip(f"OSTLER_APPLETV_REAL_DUMP points at a missing path: {real_path}")
         return
 
     if not parser.can_parse(real_path):
@@ -384,7 +405,13 @@ def main() -> None:
     test_parse_playback_activity_count_and_types()
     test_parse_wishlist_neutral_preferences()
     test_real_dump_can_parse_and_count()
-    print("\nALL APPLE TV PARSER TESTS PASSED")
+    if _SKIPPED:
+        print(f"\n{len(_SKIPPED)} TEST(S) DID NOT RUN -- this is not a clean pass:")
+        for _r in _SKIPPED:
+            print(f"    CANNOT-RUN: {_r}")
+        print("the tests that DID run all passed")
+    else:
+        print("\nALL APPLE TV PARSER TESTS PASSED")
 
 
 if __name__ == "__main__":

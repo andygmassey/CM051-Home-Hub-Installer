@@ -144,6 +144,27 @@ def _parse_sync(path: Path, **kwargs) -> list:
 # ---------------------------------------------------------------------------
 
 
+# ── A SKIPPED TEST IS NOT A PASSED TEST ──────────────────────────────────────
+#
+# These files used to print "ALL {LABEL} TESTS PASSED" unconditionally, after
+# calling data-dependent tests that return early when their real export is not
+# configured. Measured 2026-09-05: the env var below is set by ZERO workflows,
+# so in CI those tests ALWAYS skip and the summary always claimed they passed.
+#
+# The exit code stays 0 on purpose. What ran did pass, and the absent export is
+# a legitimate condition on a fixture-only runner -- this is not a failure. But
+# the bar for a clean run in this estate is "0 FAIL and 0 BROKEN with every
+# CANNOT-RUN ACCOUNTED FOR", not a bare claim of success, so the summary now
+# names what did not run instead of quietly counting it as a pass.
+_SKIPPED: list[str] = []
+
+
+def _skip(reason: str) -> None:
+    """Record a CANNOT-RUN and say so. Callers still `return` after this."""
+    _SKIPPED.append(reason)
+    print(f"SKIP: {reason}")
+
+
 def test_can_parse_accepts_pinterest_html() -> None:
     parser = PinterestParser()
     if not parser.can_parse(Path("pinterest.html")):
@@ -307,7 +328,7 @@ def test_parse_empty_sections() -> None:
 
 def test_real_dump_export_is_html_file() -> None:
     if not _REAL_EXPORT_PATH.exists():
-        print("SKIP: real Pinterest export not found -- fixture-only environment")
+        _skip("real Pinterest export not found -- fixture-only environment")
         return
     if not _REAL_EXPORT_PATH.is_file():
         fail(f"Expected a file at {_REAL_EXPORT_PATH}, got directory or missing")
@@ -318,7 +339,7 @@ def test_real_dump_export_is_html_file() -> None:
 
 def test_real_dump_can_parse() -> None:
     if not _REAL_EXPORT_PATH.exists():
-        print("SKIP: real Pinterest export not found -- fixture-only environment")
+        _skip("real Pinterest export not found -- fixture-only environment")
         return
     parser = PinterestParser()
     if not parser.can_parse(_REAL_EXPORT_PATH):
@@ -336,7 +357,7 @@ def test_real_dump_section_ids_present() -> None:
     across the full file) as id=<id> attributes on h1/h2 elements.
     """
     if not _REAL_EXPORT_PATH.exists():
-        print("SKIP: real Pinterest export not found -- fixture-only environment")
+        _skip("real Pinterest export not found -- fixture-only environment")
         return
     with _REAL_EXPORT_PATH.open(encoding="utf-8") as fh:
         toc_block = fh.read(65536)  # 64 KB -- covers the TOC nav block
@@ -366,7 +387,7 @@ def test_real_dump_yields_pins() -> None:
     but a parser regression (0 pins) breaks immediately.
     """
     if not _REAL_EXPORT_PATH.exists():
-        print("SKIP: real Pinterest export not found -- fixture-only environment")
+        _skip("real Pinterest export not found -- fixture-only environment")
         return
     parser = PinterestParser()
 
@@ -393,7 +414,7 @@ def test_real_dump_total_record_count() -> None:
     source) and <=2000 (a runaway parser would explode this).
     """
     if not _REAL_EXPORT_PATH.exists():
-        print("SKIP: real Pinterest export not found -- fixture-only environment")
+        _skip("real Pinterest export not found -- fixture-only environment")
         return
     parser = PinterestParser()
 
@@ -439,7 +460,13 @@ def main() -> None:
     test_real_dump_section_ids_present()
     test_real_dump_yields_pins()
     test_real_dump_total_record_count()
-    print("\nALL PINTEREST PARSER TESTS PASSED")
+    if _SKIPPED:
+        print(f"\n{len(_SKIPPED)} TEST(S) DID NOT RUN -- this is not a clean pass:")
+        for _r in _SKIPPED:
+            print(f"    CANNOT-RUN: {_r}")
+        print("the tests that DID run all passed")
+    else:
+        print("\nALL PINTEREST PARSER TESTS PASSED")
 
 
 if __name__ == "__main__":
