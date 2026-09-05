@@ -333,6 +333,70 @@ def _iter_dmg_tree_scan_files(root: Path):
 # Primitive implementations
 # ---------------------------------------------------------------------------
 
+def _min_hits_floor(proof: dict, must_match: bool):
+    """Validate `min_hits` and return (floor, error_or_None).
+
+    Shared by every grep-family checker. It lives here rather than inside one
+    of them because a floor that exists on ONE kind is a footgun on the others:
+    a row that writes `min_hits: 2` against a checker which does not read it is
+    silently ignored and passes on a single hit. That is a FALSE GREEN created
+    by the feature's absence, which is worse than not having the feature.
+    """
+    raw = proof.get("min_hits")
+    if raw is None:
+        return 1, None
+    if not must_match:
+        return None, ("min_hits with must_match: false is contradictory: a floor on "
+                      "occurrences of a pattern that must not occur. Refusing to run a "
+                      "check whose instructions disagree with themselves.")
+    if not isinstance(raw, int) or isinstance(raw, bool) or raw < 1:
+        return None, f"min_hits must be an integer >= 1, got {raw!r}"
+    return raw, None
+
+
+# `min_hits` raises the floor from "appears at all" to "appears at least N
+# times". MEASURED 2026-09-05 across v1.0.71: all 38 rows are
+# grep_in_source_at_sha, and 10 of them match a bare function or variable NAME
+# in a code file. Three of those sit at exactly one definition plus one use, so
+# deleting the single call leaves a DEAD DEFINITION that still satisfies
+# `must_match: true`. That is the shape of the defect v1064-ae is named after:
+# a guard that existed and was never called, while every audit starting from
+# the guarded function came back clean.
+#
+# BE CLEAR ABOUT WHAT THIS DOES AND DOES NOT BUY. A count is still a presence
+# check. `min_hits: 2` proves a definition is not alone in the file; it does
+# NOT prove the second occurrence is reached at runtime. A behavioural claim
+# still needs a test that drives it. This closes the cheapest regression, not
+# the class.
+
+
+def _needle_note(hits: int, must_match: bool, min_hits) -> str:
+    """The sentence that separates a broken NEEDLE from an absent PROPERTY.
+
+    MEASURED, cf5e3193: `downloads-watcher-defines-its-own-deadline` carried a
+    pattern missing the double quotes the shipped line actually has. It scored
+    0 and read as "the fix is not there". The fix WAS there, twice. The row was
+    red for over an hour and merged in that state, because a reader cannot tell
+    those two apart from a count alone.
+
+    ZERO IS THE DISCRIMINATOR. A must_match row that scores 0 matched nothing
+    ANYWHERE, which is far more often a wrong needle than a property that
+    vanished without trace. Above zero, the property exists and the question is
+    only whether it exists enough, which is what min_hits asks.
+    """
+    if not must_match:
+        return ""
+    if hits == 0:
+        return (" (matched NOTHING anywhere in the file: check the NEEDLE before "
+                "concluding the property is absent. A pattern that is subtly wrong "
+                "and a property that is genuinely missing both score 0.)")
+    if min_hits is not None and hits < min_hits:
+        return (" (the pattern is PRESENT but below its floor). A definition with no "
+                "remaining use satisfies a bare must_match; that is what this floor "
+                "exists to catch.")
+    return ""
+
+
 def check_grep_in_installer(entry: dict, ctx: dict) -> Result:
     proof = entry["proof"]
     # The live v1.0.72 manifest uses this kind THREE times and
@@ -517,68 +581,6 @@ def _is_self_describing(path: str) -> bool:
 # rows carrying it say `repo: cm051`, which resolves the same as the
 # `this-repo` default — so it was correct BY COINCIDENCE, not by construction.
 # A row saying `repo: ostler-assistant` would have silently grepped CM051.
-def _needle_note(hits: int, must_match: bool, min_hits) -> str:
-    """The sentence that separates a broken NEEDLE from an absent PROPERTY.
-
-    MEASURED, cf5e3193: `downloads-watcher-defines-its-own-deadline` carried a
-    pattern missing the double quotes the shipped line actually has. It scored
-    0 and read as "the fix is not there". The fix WAS there, twice. The row was
-    red for over an hour and merged in that state, because a reader cannot tell
-    those two apart from a count alone.
-
-    ZERO IS THE DISCRIMINATOR. A must_match row that scores 0 matched nothing
-    ANYWHERE, which is far more often a wrong needle than a property that
-    vanished without trace. Above zero, the property exists and the question is
-    only whether it exists enough, which is what min_hits asks.
-    """
-    if not must_match:
-        return ""
-    if hits == 0:
-        return (" (matched NOTHING anywhere in the file: check the NEEDLE before "
-                "concluding the property is absent. A pattern that is subtly wrong "
-                "and a property that is genuinely missing both score 0.)")
-    if min_hits is not None and hits < min_hits:
-        return (" (the pattern is PRESENT but below its floor). A definition with no "
-                "remaining use satisfies a bare must_match; that is what this floor "
-                "exists to catch.")
-    return ""
-
-
-def _min_hits_floor(proof: dict, must_match: bool):
-    """Validate `min_hits` and return (floor, error_or_None).
-
-    Shared by every grep-family checker. It lives here rather than inside one
-    of them because a floor that exists on ONE kind is a footgun on the others:
-    a row that writes `min_hits: 2` against a checker which does not read it is
-    silently ignored and passes on a single hit. That is a FALSE GREEN created
-    by the feature's absence, which is worse than not having the feature.
-    """
-    raw = proof.get("min_hits")
-    if raw is None:
-        return 1, None
-    if not must_match:
-        return None, ("min_hits with must_match: false is contradictory: a floor on "
-                      "occurrences of a pattern that must not occur. Refusing to run a "
-                      "check whose instructions disagree with themselves.")
-    if not isinstance(raw, int) or isinstance(raw, bool) or raw < 1:
-        return None, f"min_hits must be an integer >= 1, got {raw!r}"
-    return raw, None
-
-
-# `min_hits` raises the floor from "appears at all" to "appears at least N
-# times". MEASURED 2026-09-05 across v1.0.71: all 38 rows are
-# grep_in_source_at_sha, and 10 of them match a bare function or variable NAME
-# in a code file. Three of those sit at exactly one definition plus one use, so
-# deleting the single call leaves a DEAD DEFINITION that still satisfies
-# `must_match: true`. That is the shape of the defect v1064-ae is named after:
-# a guard that existed and was never called, while every audit starting from
-# the guarded function came back clean.
-#
-# BE CLEAR ABOUT WHAT THIS DOES AND DOES NOT BUY. A count is still a presence
-# check. `min_hits: 2` proves a definition is not alone in the file; it does
-# NOT prove the second occurrence is reached at runtime. A behavioural claim
-# still needs a test that drives it. This closes the cheapest regression, not
-# the class.
 _PROOF_KEYS = {"kind", "target", "repo", "pattern", "must_match", "path", "path_hint",
                "min_hits"}
 
