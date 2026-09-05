@@ -361,10 +361,8 @@ def check_grep_in_installer(entry: dict, ctx: dict) -> Result:
     detail = f"pattern={pattern!r} must_match={must_match} hits={hits}"
     if proof.get("min_hits") is not None:
         detail += f" min_hits={proof['min_hits']}"
-        if not ok:
-            detail += (" (the pattern is PRESENT but below its floor). A definition with no "
-                       "remaining use satisfies a bare must_match; that is what this floor "
-                       "exists to catch.")
+    if not ok:
+        detail += _needle_note(hits, must_match, proof.get("min_hits"))
     return Result(entry["id"], entry["title"], "grep_in_installer", status, detail, entry.get("source_pr", ""))
 
 
@@ -519,6 +517,33 @@ def _is_self_describing(path: str) -> bool:
 # rows carrying it say `repo: cm051`, which resolves the same as the
 # `this-repo` default — so it was correct BY COINCIDENCE, not by construction.
 # A row saying `repo: ostler-assistant` would have silently grepped CM051.
+def _needle_note(hits: int, must_match: bool, min_hits) -> str:
+    """The sentence that separates a broken NEEDLE from an absent PROPERTY.
+
+    MEASURED, cf5e3193: `downloads-watcher-defines-its-own-deadline` carried a
+    pattern missing the double quotes the shipped line actually has. It scored
+    0 and read as "the fix is not there". The fix WAS there, twice. The row was
+    red for over an hour and merged in that state, because a reader cannot tell
+    those two apart from a count alone.
+
+    ZERO IS THE DISCRIMINATOR. A must_match row that scores 0 matched nothing
+    ANYWHERE, which is far more often a wrong needle than a property that
+    vanished without trace. Above zero, the property exists and the question is
+    only whether it exists enough, which is what min_hits asks.
+    """
+    if not must_match:
+        return ""
+    if hits == 0:
+        return (" (matched NOTHING anywhere in the file: check the NEEDLE before "
+                "concluding the property is absent. A pattern that is subtly wrong "
+                "and a property that is genuinely missing both score 0.)")
+    if min_hits is not None and hits < min_hits:
+        return (" (the pattern is PRESENT but below its floor). A definition with no "
+                "remaining use satisfies a bare must_match; that is what this floor "
+                "exists to catch.")
+    return ""
+
+
 def _min_hits_floor(proof: dict, must_match: bool):
     """Validate `min_hits` and return (floor, error_or_None).
 
@@ -647,10 +672,8 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
               f"pattern={pattern!r} must_match={must_match} hits={hits}")
     if min_hits is not None:
         detail += f" min_hits={min_hits}"
-        if not ok:
-            detail += (" (the pattern is PRESENT but below its floor). A definition with no "
-                       "remaining use satisfies a bare must_match; that is what this floor exists "
-                       "to catch.")
+    if not ok:
+        detail += _needle_note(hits, must_match, min_hits)
     if self_described:
         detail += (f" ({self_described} match(es) DISCARDED in manifest/ledger surfaces — "
                    f"a row is not evidence of itself)")
