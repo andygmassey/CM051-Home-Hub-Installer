@@ -22817,6 +22817,45 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
     rm -f "$_snippet_stderr"
     unset _snippet_stderr _snippet_ok _snippet_attempt
 fi
+# #1538: THREE STATES, BECAUSE THE EXISTING READER ONLY HAS TWO.
+#
+# _imessage_daemon_fda_granted echoes "granted" on auth_value 2 and NOTHING
+# otherwise -- and "nothing" is two different facts wearing one face:
+#
+#     the row says 0            the customer has not granted it
+#     sudo -n was unavailable   we could not look at all
+#
+# Its `2>/dev/null || true` discards stderr AND the return code, so the caller
+# cannot tell them apart. That is correct for the flow it serves, which fails
+# toward MORE guidance. It is NOT good enough to base a customer-facing status
+# line on: saying "the assistant is running without Full Disk Access" when the
+# truth is "we could not read TCC.db" states a fact we do not have.
+#
+# So this reader keeps the return code and reports three states. It is
+# read-only, best-effort, and never aborts an install.
+_ostler_daemon_fda_state() {
+    local _out="" _rc=0
+    if ! command -v sudo >/dev/null 2>&1 || ! command -v sqlite3 >/dev/null 2>&1; then
+        echo "unreadable"; return 0
+    fi
+    _out="$(sudo -n sqlite3 \
+        "/Library/Application Support/com.apple.TCC/TCC.db" \
+        "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY:-none}') LIMIT 1;" \
+        2>/dev/null)" || _rc=$?
+    if [[ "$_rc" -ne 0 ]]; then
+        # sudo -n refused, sqlite3 missing, or TCC.db unreadable. NOT a denial.
+        echo "unreadable"; return 0
+    fi
+    if [[ "$_out" == "2" ]]; then
+        echo "granted"
+    else
+        # rc 0 with a row of 0, or rc 0 with no row at all. Both mean the daemon
+        # does not hold FDA, and we were able to establish that.
+        echo "denied"
+    fi
+}
+
+
 
 # ── 3.14e-probe iMessage FDA probe (CX-60) ──────────────────────
 #
@@ -22856,18 +22895,21 @@ fi
 # echoes nothing, so callers fall through to the assist/dialog path --
 # no worse than the pre-CX-90 behaviour.
 _imessage_daemon_fda_granted() {
-    local _auth=""
-    if command -v sudo >/dev/null 2>&1; then
-        _auth="$(
-            sudo -n sqlite3 \
-                "/Library/Application Support/com.apple.TCC/TCC.db" \
-                "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY:-none}') LIMIT 1;" \
-                2>/dev/null || true
-        )"
-    fi
-    if [[ "$_auth" == "2" ]]; then
-        echo "granted"
-    fi
+    # DELEGATES. This used to carry its own copy of the TCC query, which made a
+    # THIRD copy of the client list when _ostler_daemon_fda_state was added --
+    # and scripts/tests/test_daemon_fda_case6_controls.sh caught it, because its
+    # controls remove the legacy client from ONE of TWO sites and then assert
+    # exactly one remains. Three sites made the mutation unlandable and the
+    # control refused rather than passing, which is the behaviour you want from
+    # a control.
+    #
+    # The contract is unchanged: echo "granted" on auth_value 2, echo nothing
+    # otherwise. Every non-granted cause the old body collapsed -- a 0 row, no
+    # row, sudo -n refusing, sqlite3 missing -- still yields no output here.
+    # The difference is that the caller can now ASK for the distinction via
+    # _ostler_daemon_fda_state, instead of it being unrecoverable.
+    [[ "$(_ostler_daemon_fda_state)" == "granted" ]] && echo "granted"
+    return 0
 }
 
 # ── BW5 (2026-07-26): daemon FDA "listed" (row exists) vs "granted" ──
@@ -22886,43 +22928,6 @@ _imessage_daemon_fda_granted() {
 # "drag from Finder" modal line) when it is not needed. Empty output
 # (no row, or sudo unavailable) falls back to the existing drag flow --
 # i.e. it fails toward MORE guidance, never toward a broken grant.
-# #1538: THREE STATES, BECAUSE THE EXISTING READER ONLY HAS TWO.
-#
-# _imessage_daemon_fda_granted echoes "granted" on auth_value 2 and NOTHING
-# otherwise -- and "nothing" is two different facts wearing one face:
-#
-#     the row says 0            the customer has not granted it
-#     sudo -n was unavailable   we could not look at all
-#
-# Its `2>/dev/null || true` discards stderr AND the return code, so the caller
-# cannot tell them apart. That is correct for the flow it serves, which fails
-# toward MORE guidance. It is NOT good enough to base a customer-facing status
-# line on: saying "the assistant is running without Full Disk Access" when the
-# truth is "we could not read TCC.db" states a fact we do not have.
-#
-# So this reader keeps the return code and reports three states. It is
-# read-only, best-effort, and never aborts an install.
-_ostler_daemon_fda_state() {
-    local _out="" _rc=0
-    if ! command -v sudo >/dev/null 2>&1 || ! command -v sqlite3 >/dev/null 2>&1; then
-        echo "unreadable"; return 0
-    fi
-    _out="$(sudo -n sqlite3 \
-        "/Library/Application Support/com.apple.TCC/TCC.db" \
-        "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY:-none}') LIMIT 1;" \
-        2>/dev/null)" || _rc=$?
-    if [[ "$_rc" -ne 0 ]]; then
-        # sudo -n refused, sqlite3 missing, or TCC.db unreadable. NOT a denial.
-        echo "unreadable"; return 0
-    fi
-    if [[ "$_out" == "2" ]]; then
-        echo "granted"
-    else
-        # rc 0 with a row of 0, or rc 0 with no row at all. Both mean the daemon
-        # does not hold FDA, and we were able to establish that.
-        echo "denied"
-    fi
-}
 
 # Say, ONCE and unconditionally, what the customer actually has. Called after
 # the final start.
