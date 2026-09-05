@@ -615,6 +615,13 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf '# version_source. A sha that does not describe the probes that ran\n'
         printf '# is worse than no sha, so local edits under box_walk_probes are\n'
         printf '# named rather than hidden behind a clean-looking commit id.\n'
+        printf '#\n'
+        printf '# 🔴 A CLEAN SHA DOES NOT MEAN main. It means the probes are EXACTLY\n'
+        printf '# that commit, which may be a branch, a tag or a detached head. The\n'
+        printf '# v1.0.71 walk ran from a harness branch that was main plus five\n'
+        printf '# reset fixes: a correct, clean, committed sha that was nonetheless\n'
+        printf '# not main. Resolve the sha before assuming the lineage -- this\n'
+        printf '# field answers WHICH probes ran, never WHERE they came from.\n'
         printf 'instrument_rev\t%s\n'    "$INSTRUMENT_REV"
         printf 'instrument_source\t%s\n' "$INSTRUMENT_SOURCE"
         printf '#\n'
