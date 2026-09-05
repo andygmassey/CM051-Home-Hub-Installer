@@ -27,7 +27,15 @@ bad() { FAIL=$((FAIL+1)); printf '  [FAIL] %s\n' "$1"; }
 WORK="$(mktemp -d)" || { echo "CANNOT-RUN: no working directory" >&2; exit 2; }
 trap 'rm -rf "$WORK"' EXIT
 
-SHA=0000000000000000000000000000000000000000000000000000000000000000
+# A synthetic sha256: 64 hex chars, built so no run of 15+ DIGITS appears.
+# 64 zeros trips ci-pii-shape-scan's \b[0-9]{15,}\b pattern, which matches on
+# SHAPE rather than on known values -- a long digit run could be a phone number
+# or an account id, and the guard cannot tell. Interleaving hex letters is also
+# more faithful to what a real sha256 looks like. The pre-commit hook
+# (operator-pii-scan) reported CLEAN on this file: it and ci-pii-shape-scan are
+# different gates with different subjects, and passing one says nothing about
+# the other.
+SHA="$(printf '0123456789abcdef%.0s' 1 2 3 4)"
 
 # Build a record. $1 dir, $2 verdict, then failed/not-measured probe names.
 _rec() {
