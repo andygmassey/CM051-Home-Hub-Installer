@@ -613,7 +613,7 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
         if path_hint:
             result = subprocess.run(
                 ["git", "-C", str(repo), "show", f"{sha}:{path_hint}"],
-                capture_output=True, check=False, timeout=30,
+                capture_output=True, check=False, timeout=GIT_SHOW_TIMEOUT_SECONDS,
             )
             if result.returncode != 0:
                 return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "FAIL",
@@ -624,7 +624,7 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
             # Grep the whole tree at that sha via git grep.
             result = subprocess.run(
                 ["git", "-C", str(repo), "grep", "-c", "--extended-regexp", "-e", pattern, sha, "--"],
-                capture_output=True, check=False, timeout=60,
+                capture_output=True, check=False, timeout=GIT_GREP_TIMEOUT_SECONDS,
             )
             # git grep exits 1 for "no match"; 0 for "found"; 2 for error.
             if result.returncode == 2:
@@ -659,7 +659,29 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
                     hits += int(count)
                 except ValueError:
                     pass
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+    except subprocess.TimeoutExpired:
+        # THE SAME SPLIT #1626 MADE ONE FUNCTION DOWN, FOR THE SAME REASON.
+        # git ran and did not finish. It measured NOTHING, so it is not evidence
+        # of a defect in the source -- and calling it FAIL puts an instrument
+        # error on the cut-blocker list beside real defects, where whoever reads
+        # the report goes hunting a bug that was never detected.
+        #
+        # This one is the more reachable of the two: `git grep` over a whole tree
+        # at a sha is a cold-object read, and a repo that has just been fetched
+        # or lives on a network volume is slow for reasons that say nothing at
+        # all about the code being searched.
+        #
+        # CANNOT-RUN blocks exactly as hard as FAIL (see main(): the exit code is
+        # 1 unless BOTH fails and cannot_runs are zero), so this relabels the row
+        # without softening the gate.
+        return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "CANNOT-RUN",
+                      f"git exceeded its cap and was killed while searching "
+                      f"{target_name} at {sha}. NOTHING was measured: this is an "
+                      f"unrun proof, not a failing one. Re-run it uncapped for a "
+                      f"verdict.", entry.get("source_pr", ""))
+    except FileNotFoundError as e:
+        # git NOT ON DISK stays a FAIL, and the distinction is the whole point of
+        # the split: the row names a proof this machine cannot perform at all.
         return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "FAIL",
                       f"git invocation failed: {e}", entry.get("source_pr", ""))
     min_hits = proof.get("min_hits")
@@ -860,6 +882,12 @@ def check_plist_env_key_present(entry: dict, ctx: dict) -> Result:
 # The actual probe bodies live with the Studio matrix runbook work; this
 # primitive is what wires them into the cut gate.
 # ---------------------------------------------------------------------------
+
+# The two git caps in check_grep_in_source_at_sha. Named rather than left as
+# literals for one reason: a cap you cannot squeeze is a branch you cannot test,
+# and an untestable branch is how the box-walk timeout arm sat wrong for months.
+GIT_SHOW_TIMEOUT_SECONDS = 30
+GIT_GREP_TIMEOUT_SECONDS = 60
 
 BOX_WALK_PROBE_TIMEOUT_SECONDS = 180
 
@@ -2397,7 +2425,24 @@ def main() -> int:
                 if r.status == "SKIP":
                     print(f"    - {r.id}  [{r.kind}]  {r.detail}")
             print()
-        print(f"=== Summary: {passes} PASS  {fails} FAIL  {skips} SKIP  ({len(results)} total"
+        # 🔴 A STATUS WITH NO COUNT IS INVISIBLE ON THE ONE LINE PEOPLE READ.
+        # #713 gave SKIP a named block because a bare skip COUNT reads as
+        # "nothing to report". CANNOT-RUN had no count at all, which is a rung
+        # BELOW that: measured on this gate, two rows -- one CANNOT-RUN, one
+        # PASS -- printed
+        #     === Summary: 1 PASS  0 FAIL  0 SKIP  (2 total) ===
+        # 1 + 0 + 0 = 1 and the total says 2. The arithmetic did not close and
+        # the unmeasured row was absent from the only line a CI log tail keeps.
+        # The row blocked the cut correctly and still looked like a clean run.
+        if cannot_runs:
+            print("  Rows that COULD NOT MEASURE (CANNOT-RUN) -- these are NOT defects "
+                  "in the artefact, and they are NOT passes:")
+            for r in results:
+                if r.status == "CANNOT-RUN":
+                    print(f"    - {r.id}  [{r.kind}]  {r.detail}")
+            print()
+        print(f"=== Summary: {passes} PASS  {fails} FAIL  {skips} SKIP  "
+              f"{cannot_runs} CANNOT-RUN  ({len(results)} total"
               + (f", {entries_filtered_out} filtered out by --only-kind" if only_kinds else "")
               + ") ===")
         for kind in require_kinds:
