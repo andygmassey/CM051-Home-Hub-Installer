@@ -151,6 +151,13 @@ jobs:
       - name: Prove ci-pii-shape-scan scope
         run: bash tests/test_pii_shape_scan_scope.sh
 
+      # #1610: the scope test above pins the SCANNER. Nothing pinned the HOOK,
+      # which is a separate caller -- and that is exactly how the scanner got
+      # narrowed for PRs in #587 while the pre-commit path kept scanning whole
+      # files and went red on every commit touching install.sh.
+      - name: Prove the pre-commit hook asks the same question CI asks
+        run: bash tests/test_the_pii_hook_asks_cis_question.sh
+
       # Prove the DENYLIST scanner can SEE the file it is pointed at, before
       # trusting any clean verdict from it. Measured: 1514 tracked files, 1227
       # visible to the old extension list, so 287 text files were invisible by
