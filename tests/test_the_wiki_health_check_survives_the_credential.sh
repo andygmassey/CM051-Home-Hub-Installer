@@ -21,6 +21,9 @@
 # "your wiki is at this URL", so the evidence must be that the customer can GET
 # it: authenticate, and require 200.
 set -uo pipefail
+# grep -c throughout, never a quiet grep on a pipe: this file sets pipefail, and
+# a consumer that exits on first match SIGPIPEs the producer, so the pipeline
+# reports failure at the moment the match is FOUND. grep -c reads to EOF.
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/.." && pwd)"
@@ -48,28 +51,28 @@ fi
 ok "located the readiness poll (${_bl} lines)"
 
 # ARM 1 -- THE DEFECT. -f must not be used against the credentialed port.
-if printf '%s\n' "$BLOCK" | grep -qE 'curl[^|]*-[A-Za-z]*f[A-Za-z]* '; then
+if [ "$(printf '%s\n' "$BLOCK" | grep -cE 'curl[^|]*-[A-Za-z]*f[A-Za-z]* ')" -gt 0 ]; then
     bad "the readiness poll still uses curl -f, which fails on the 401 a protected wiki returns"
 else
     ok "the readiness poll does not use curl -f"
 fi
 
 # ARM 2 -- it authenticates.
-if printf '%s\n' "$BLOCK" | grep -q 'WIKI_PASSWORD'; then
+if [ "$(printf '%s\n' "$BLOCK" | grep -c 'WIKI_PASSWORD')" -gt 0 ]; then
     ok "the readiness poll authenticates with the generated password"
 else
     bad "the readiness poll does not send the credential, so it cannot prove the customer can read the wiki"
 fi
 
 # ARM 3 -- it requires 200 specifically, not merely 'some response'.
-if printf '%s\n' "$BLOCK" | grep -q '"200"'; then
+if [ "$(printf '%s\n' "$BLOCK" | grep -c '"200"')" -gt 0 ]; then
     ok "the readiness poll requires HTTP 200"
 else
     bad "the readiness poll does not require 200; a 401 or 503 would read as ready"
 fi
 
 # ARM 4 -- loopback is not routed through a customer's proxy.
-if printf '%s\n' "$BLOCK" | grep -q 'noproxy'; then
+if [ "$(printf '%s\n' "$BLOCK" | grep -c 'noproxy')" -gt 0 ]; then
     ok "the readiness poll bypasses any configured HTTP proxy"
 else
     bad "the readiness poll can be answered by a customer's HTTP proxy instead of the wiki"
@@ -79,7 +82,7 @@ fi
 # predicate against the exact line the defect shipped as; if that does not
 # match, arm 1 is unfalsifiable and its pass above means nothing.
 _shipped='            if curl -sf -o /dev/null -m 3 "http://127.0.0.1:8044/" 2>/dev/null; then'
-if printf '%s\n' "$_shipped" | grep -qE 'curl[^|]*-[A-Za-z]*f[A-Za-z]* '; then
+if [ "$(printf '%s\n' "$_shipped" | grep -cE 'curl[^|]*-[A-Za-z]*f[A-Za-z]* ')" -gt 0 ]; then
     ok "must-miss: arm 1's predicate DOES match the line the defect shipped as"
 else
     bad "must-miss: arm 1's predicate does not match the shipped defect, so arm 1 proves nothing"
