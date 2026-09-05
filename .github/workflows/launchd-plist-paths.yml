@@ -57,8 +57,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # fetch-depth: 0 is LOAD-BEARING for the self-removal step below. Its
+      # negative control is pinned to a fixed sha and read with `git show`, and
+      # a shallow clone cannot see it. The suite is written to return
+      # CANNOT-RUN (rc=2) rather than grade an empty blob as clean, so without
+      # full history this job goes red on an honest refusal rather than on a
+      # defect -- which is exactly what it did on the first push of this
+      # branch. Same reasoning as new-tests-must-be-wired.yml.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Assert no shipped LaunchAgent plist path resolves under /tmp
         run: bash tests/test_launchd_plist_no_tmp.sh
