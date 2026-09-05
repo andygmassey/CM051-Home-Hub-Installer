@@ -59,7 +59,12 @@ kept="$(OSTLER_DIAG_DIR="${WORK}/d" OSTLER_DIR="${WORK}/h/.ostler" \
 chk "a populated diag dir sets OSTLER_DIAG_KEPT" "$r"
 [ -f "${WORK}/h/.ostler/diagnostics"/*/ns-migration.log ] 2>/dev/null && r=0 || r=1
 chk "the log is copied under \${OSTLER_DIR}/diagnostics/<stamp>/" "$r"
-mode="$(stat -f '%Lp' "${WORK}/h/.ostler/diagnostics" 2>/dev/null || stat -c '%a' "${WORK}/h/.ostler/diagnostics" 2>/dev/null)"
+# GNU FIRST, DELIBERATELY. `stat -f` is VALID on GNU coreutils -- it prints
+# FILESYSTEM status -- so a BSD-first probe SUCCEEDS on Linux and returns a
+# block-size dump where a mode should be, and the `||` fallback never fires.
+# Measured: this test went red on ubuntu-latest with "got   File: ... Type:
+# ext2/ext3". BSD stat has no -c, so it errors there and the fallback works.
+mode="$(stat -c '%a' "${WORK}/h/.ostler/diagnostics" 2>/dev/null || stat -f '%Lp' "${WORK}/h/.ostler/diagnostics" 2>/dev/null)"
 [ "$mode" = "700" ] && r=0 || r=1
 chk "the copy is 0700, no more readable than the original (got ${mode:-none})" "$r"
 
