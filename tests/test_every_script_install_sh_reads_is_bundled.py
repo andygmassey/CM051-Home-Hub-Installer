@@ -65,6 +65,46 @@ PAT = re.compile(
 )
 wanted = sorted(set(PAT.findall(install_src)))
 
+# 🔴 A KNOWN-SPELLINGS PATTERN ASSERTS OVER A SUBSET AND PRINTS A TOTAL.
+#
+# TNM broke this by injecting ONE line into install.sh:
+#
+#     _mutant_helper="${RESOURCES_DIR}/scripts/a_third_spelling.sh"
+#
+# and the gate returned:
+#
+#     install.sh reads 2 file(s) from its own scripts/ directory:
+#       bundled  deferred-register-device.sh
+#       bundled  migrate_graph_namespace.py
+#     PASS  rc=0
+#
+# Green, on a tree with an unbundled script it reads. And the harm is worse
+# than an incomplete check: it PRINTS "2 file(s)" when the answer is 3, so a
+# reader has a number to trust and the number is wrong. The anti-vacuity guard
+# below cannot catch it -- it fires only on EMPTY, and a pattern degrading from
+# three to two passes with a confident total.
+#
+# NOT a hardcoded floor, which would need bumping every time a script is added.
+# Count ANY variable prefix and require the two sets to AGREE: if install.sh
+# reads scripts/ through a variable this file does not know, that is CANNOT-RUN
+# and the unknown name is printed. It reddens the instant a third appears.
+#
+# TRUE NEGATIVE, recorded so nobody widens the regex to fix it: the only other
+# `/scripts/` prefix in the file is `.github/scripts/`, a CI path. Matching
+# "everything with /scripts/" would start demanding CI scripts ship in the .app.
+ANYVAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}/scripts/[A-Za-z0-9._-]+")
+_seen_vars = {v for v in ANYVAR.findall(install_src)}
+_unknown = _seen_vars - {"OSTLER_DIR", "SCRIPT_DIR"}
+if _unknown:
+    cannot_run(
+        "install.sh reads scripts/ through variable(s) this gate does not know: "
+        + ", ".join(sorted(_unknown))
+        + ". The known-spellings pattern would assert over a SUBSET while "
+        "printing a total, which is worse than not checking: the number would "
+        "be stated and wrong. Add the spelling here, or explain why it is not "
+        "a payload path."
+    )
+
 # A ZERO HERE IS A BROKEN PREDICATE, NOT A CLEAN TREE. install.sh has read files
 # out of scripts/ since v1.0.12; if this finds nothing the regex has rotted and
 # every assertion below would pass vacuously.
