@@ -140,7 +140,10 @@ fi
 
 # ARM 7 -- SELF-TEST. Restore the shipped defect in a COPY and require arm 1 to
 # see it. If this arm ever passes silently, every arm above is unfalsifiable.
-_tmp="$(mktemp -t wiki8044)" || _tmp=""
+# GNU mktemp REQUIRES X's in a -t template; BSD does not. Without them this is
+# "too few X's" on the Linux runner, the self-test cannot run, and the arm it
+# protects goes unmeasured on the only host that matters.
+_tmp="$(mktemp -t wiki8044.XXXXXX)" || _tmp=""
 if [ -z "${_tmp}" ]; then
     cant "could not create a temp file for the self-test"
 else
