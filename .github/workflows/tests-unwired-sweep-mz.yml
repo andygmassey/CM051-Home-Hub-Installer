@@ -74,6 +74,7 @@ jobs:
             tests/test_sync_vendor_pin_untouched_on_abort.sh \
             tests/test_tailscale_recovery_wrapper.sh \
             tests/test_takeout_split_zip_no_abort.sh \
+            tests/test_the_installer_downloads_from_the_repo_we_publish_to.sh \
             tests/test_uninstaller_keep_prompt.sh \
             tests/test_universal_import_leg_wired.sh \
             tests/test_user_facing_tree.sh \

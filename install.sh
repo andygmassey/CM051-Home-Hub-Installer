@@ -1173,7 +1173,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    ostler_fda, contact_syncer, hub-power, doctor, third-party"
     echo "    notices); under curl|bash we download the tarball, extract"
     echo "    it, and re-exec from inside."
-    echo "    Default: https://github.com/ostler-ai/ostler-releases/releases/latest/download/install.tar.gz"
+    echo "    Default: https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz"
     echo ""
     echo "  OSTLER_INSTALLER_TARBALL_SHA256"
     echo "    Expected SHA-256 (hex) of the install tarball. The download"
@@ -3569,13 +3569,32 @@ export INSTALL_LOG
 #      pointing the user at the tarball download flow.
 #
 # Override the tarball URL with OSTLER_INSTALLER_TARBALL_URL.
-# The default points at the GitHub Release artifact on the public
-# ostler-ai/ostler-releases mirror (versioned, signed, free, standard
-# pattern). Customer-shipping releases were consolidated under
-# ostler-ai/ostler-releases on 2026-05-29; see CX-88. Cloudflare
-# Pages serving a static tarball was considered but loses versioning
-# + signing; GitHub Release is the long-term home.
-DEFAULT_INSTALLER_TARBALL_URL="https://github.com/ostler-ai/ostler-releases/releases/latest/download/install.tar.gz"
+#
+# 🔴 THIS NAMED THE WRONG REPOSITORY, AND THE TWO SCRIPTS IN THIS REPO
+# DISAGREED WITH EACH OTHER. Measured 2026-09-06:
+#
+#   install.sh (here)             ostler-ai/ostler-releases    <- the DAEMON repo
+#   scripts/publish_release.sh    ostler-ai/ostler-installer   <- where artefacts go
+#
+# ostler-releases carries 43 releases and 101 assets, and NOT ONE of
+# them is an installer tarball or a DMG -- it is the assistant-daemon
+# repo. Every installer artefact this product has ever published lives
+# in ostler-ai/ostler-installer, which is also where ostler.ai/install.dmg
+# resolves. The old comment cited a 2026-05-29 consolidation under
+# ostler-releases; the release history says that consolidation did not
+# happen, and the DMG publisher never believed it.
+#
+# A URL that is correctly spelled and points at nothing is the worst
+# shape of wrong: every grep for it succeeds.
+#
+# ⚠️ CORRECTING THE REPO DOES NOT MAKE THIS URL RESOLVE TODAY, AND SAYING
+# SO IS THE POINT. install.tar.gz exists on v0.1.0, v0.2.0 and v0.3.0 of
+# ostler-installer and on nothing since; `latest` is v1.0.41, which
+# carries DMGs only. Tarball publishing stopped when the product moved to
+# DMG distribution. So this default now names the right place for an
+# artefact nobody currently publishes, and the failure path below points
+# at the DMG, which is the route that actually works.
+DEFAULT_INSTALLER_TARBALL_URL="https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz"
 INSTALLER_TARBALL_URL="${OSTLER_INSTALLER_TARBALL_URL:-${DEFAULT_INSTALLER_TARBALL_URL}}"
 
 # SHA-256 of the bootstrap tarball. Updated at release time alongside
@@ -3669,8 +3688,16 @@ else
         echo "If that fetch also fails, the issue is GitHub reachability."
         echo "Other options:"
         echo
-        echo "  1. Wait until the installer tarball is published. We are tracking"
-        echo "     this at https://ostler.ai/launch."
+        echo "  1. Download the installer directly. This is the supported route"
+        echo "     and it is the one we test:"
+        echo
+        echo "       https://ostler.ai/install.dmg"
+        echo
+        echo "     Open the .dmg and run the installer from it. The tarball this"
+        echo "     script tried to fetch is a legacy path that predates the .dmg."
+        echo
+        echo "  1b. Or wait until an installer tarball is published again. We are"
+        echo "      tracking this at https://ostler.ai/launch."
         echo
         echo "  2. Override the tarball URL with one staged elsewhere:"
         echo "       curl -fsSL https://ostler.ai/install.sh | OSTLER_INSTALLER_TARBALL_URL=https://your-host/install.tar.gz bash"
