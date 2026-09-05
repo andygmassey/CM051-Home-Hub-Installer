@@ -592,7 +592,26 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         local _tok _cur
         _tok="$(cat "$_UPG_SECRETS_TOKEN" 2>/dev/null)"
         [[ -n "$_tok" ]] || return 0
-        _cur="$("$_UPG_PB" -c "Print :EnvironmentVariables:PWG_SERVICE_TOKEN" "$_plist" 2>/dev/null)"
+        # `|| _cur=""` IS THE WHOLE DEFENCE, AND IT IS NOT DECORATION.
+        #
+        # MEASURED on this Mac, three arms:
+        #   missing FILE  -> rc=1 AND stdout carries "file does not exist,
+        #                    will create: <path>"   <- non-empty on a FAILURE
+        #   missing KEY   -> rc=1, stdout empty     <- harmless
+        #   key present   -> rc=0, stdout the value <- control
+        #
+        # So a bare capture followed by `[[ -n ]]` reads a DIAGNOSTIC as a
+        # value. Here that would mean "the token is already set" when nothing
+        # read it, and the function would return 0 WITHOUT writing the service
+        # token -- a silent skip of the upgrade, not a crash.
+        #
+        # The :590 precondition ([[ -f "$_plist" ]]) makes the poisoning input
+        # unreachable today, so this is currently safe BY DEPENDENCY. That is
+        # the fragile kind: delete the -f and this site becomes the #1497 bug
+        # with no diff here to explain why. PlistBuddy does exit non-zero, so
+        # taking the rc costs one clause and removes the dependency entirely --
+        # which is how :571 and :11645 already do it.
+        _cur="$("$_UPG_PB" -c "Print :EnvironmentVariables:PWG_SERVICE_TOKEN" "$_plist" 2>/dev/null)" || _cur=""
         if [[ -n "$_cur" ]]; then return 0; fi
         "$_UPG_PB" -c "Print :EnvironmentVariables" "$_plist" >/dev/null 2>&1 \
             || "$_UPG_PB" -c "Add :EnvironmentVariables dict" "$_plist" >/dev/null 2>&1 || true
