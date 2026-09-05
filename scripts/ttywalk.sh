@@ -531,6 +531,21 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         # that are currently the subject of an open investigation into 543
         # absent person nodes. Whether a walk should wipe is a decision for the
         # operator, not a side effect of making a log line honest.
+        if [[ -z "$_ran_uninstaller" ]]; then
+            echo "NO SHIPPED UNINSTALLER FOUND. This reset did NOT uninstall."
+            echo "  searched: ~/Applications/Ostler.app/Contents/Resources/uninstall.sh"
+            echo "            /Applications/Ostler.app/Contents/Resources/uninstall.sh"
+            echo "            ~/.ostler/uninstall.sh"
+            echo "  install.sh writes ~/.ostler/bin/ostler-uninstall, NOT in that list."
+            echo "  Docker volumes were NOT removed: the graph, the vectors and the compiled"
+            echo "  wiki are CARRIED OVER from the previous install. Any probe reading them is"
+            echo "  measuring history, not this artefact."
+        fi
+        # RECORDED BELOW THE ANNOUNCEMENT, NOT ABOVE IT. The honesty gate for
+        # this block extracts it with an awk RANGE that ends at the first
+        # "        fi", so an `if` placed earlier truncates the extraction and
+        # the gate reports the announcement missing. Measured: two assertions
+        # went red on a block that had been cut in half.
         # RECORD IT WHERE THE RECORD CAN READ IT. This block already SAYS the
         # stores are carried over; nothing downstream repeated it, so a probe
         # reading the graph could fail on history and the walk record would
@@ -542,16 +557,6 @@ if [[ "$DO_RESET" -eq 1 ]]; then
             printf "wiped-by-shipped-uninstaller(%s)\n" "$_ran_uninstaller" > ~/.walk-stores-provenance-run
         else
             printf "carried-over-from-previous-install\n" > ~/.walk-stores-provenance-run
-        fi
-        if [[ -z "$_ran_uninstaller" ]]; then
-            echo "NO SHIPPED UNINSTALLER FOUND. This reset did NOT uninstall."
-            echo "  searched: ~/Applications/Ostler.app/Contents/Resources/uninstall.sh"
-            echo "            /Applications/Ostler.app/Contents/Resources/uninstall.sh"
-            echo "            ~/.ostler/uninstall.sh"
-            echo "  install.sh writes ~/.ostler/bin/ostler-uninstall, NOT in that list."
-            echo "  Docker volumes were NOT removed: the graph, the vectors and the compiled"
-            echo "  wiki are CARRIED OVER from the previous install. Any probe reading them is"
-            echo "  measuring history, not this artefact."
         fi
         # Stop the container VM. A previous install leaves colima running, and
         # colima publishes the container ports through an ssh multiplexer of its
