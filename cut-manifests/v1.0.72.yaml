@@ -345,6 +345,27 @@ entries:
       must_match: true
 
 open_issues:
+  - issue: 1629
+    title: "two more timeout handlers report something other than CANNOT-RUN, one of them as a PASS"
+    gate: >-
+      FIX (BLOCKING apparatus): entry: a-timeout-never-reads-as-a-count --
+      TNM's AST census over every except handler catching
+      subprocess.TimeoutExpired in verify_cut_manifest.py, printing the status
+      literal each returns: 6 handlers, 2 already correct (they name the
+      timeout), 2 fixed by #1626 and #1628, and 2 still wrong.
+      THE SERIOUS ONE IS _grep_binary_strings AT 272, WHICH RETURNS 0. A
+      timeout becomes a HIT COUNT OF ZERO, which is indistinguishable from "the
+      pattern is genuinely absent", and a row with must_match:false reads that
+      as a PASS. So a probe that could not finish can make a cut gate go GREEN.
+      That is worse than the FAIL case #1626 fixed: a wrong red is noisy, a
+      wrong green ships. _gh_token_for at 1301 returns None, which is the same
+      class one layer down.
+      Proof must be behavioural, per handler: force the timeout and assert the
+      status literal, with a positive control that the same code path returns a
+      REAL count when it completes -- because a fix that returns a sentinel
+      count would satisfy any check that only asserts "not zero".
+      A grep for the word CANNOT-RUN is not proof: two of these six already
+      name the timeout correctly and would match it.
   - issue: 1625
     title: "the curl|bash bootstrap fetches install.tar.gz from a URL that has never existed"
     gate: >-
