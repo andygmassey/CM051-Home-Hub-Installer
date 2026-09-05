@@ -555,6 +555,32 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         _before=$("$DOCKER" volume ls --quiet 2>/dev/null | grep -c . || true)
         echo "  count: ${_before:-0}"
 
+        # 🔴 A BOX WITH NO STORES HAS NOTHING TO PRESERVE, AND REFUSING TO
+        # WIPE IT IS REFUSING TO DO NOTHING.
+        #
+        # MEASURED on archie, 2026-09-05, immediately after the URL-quoting fix
+        # below made the dump work at all:
+        #
+        #     BEFORE, the volumes that exist:
+        #       count: 0
+        #     CANNOT-WIPE: the graph did not dump ...
+        #     CANNOT-RUN: refusing to walk against a half-wiped box
+        #
+        # The dump failed for the correct reason -- there is no Oxigraph on a
+        # box with no volumes -- and the guard then treated NOTHING TO PRESERVE
+        # as FAILED TO PRESERVE SOMETHING. Those are opposite situations and
+        # only one of them is dangerous. A wipe of zero volumes destroys zero
+        # evidence, so it is a no-op and the walk must proceed.
+        #
+        # The preservation requirement is unchanged wherever it can bite: if a
+        # store exists, the dump must succeed or the wipe is refused, exactly
+        # as before. This only removes the refusal in the case where the thing
+        # being protected does not exist.
+        if [ "${_before:-0}" -eq 0 ]; then
+            echo "no store volumes on this box: nothing to preserve and nothing to wipe."
+            echo "  the wipe is a no-op here, so it is not refused. Continuing."
+        else
+
         # PRESERVE THE EVIDENCE BEFORE DESTROYING IT. The graph on this box is
         # the only copy of whatever produced the 71 absent person nodes. A wipe
         # that loses it trades one investigation for another.
@@ -601,6 +627,8 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
             echo "CANNOT-WIPE: no oxigraph token at ~/.ostler/secrets/oxigraph_token,"
             echo "  so the graph cannot be dumped and cannot be safely destroyed."
             exit 2
+        fi
+
         fi
 
         # The REAL uninstaller. install.sh writes ~/.ostler/bin/ostler-uninstall
