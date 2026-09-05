@@ -161,7 +161,12 @@ jobs:
           rc=0
           out="$(/bin/bash scripts/box_walk_probes/probes/pairing_recovers_without_a_repair_storm.sh --self-test 2>&1)" || rc=$?
           printf '%s\n' "$out"
-          if printf '%s' "$out" | grep -q 'VERDICT: BROKEN'; then
+          # `grep -c`, NOT `... | grep -q`. This step runs under `bash -eo
+          # pipefail`; grep -q exits on the first match and SIGPIPEs printf, so
+          # under pipefail the pipeline can report failure ON A MATCH and invert
+          # the verdict. tests/test_pipefail_shortcircuit_inversion.sh caught
+          # exactly this line, which is what that ratchet is for.
+          if [ "$(printf '%s' "$out" | grep -c 'VERDICT: BROKEN')" -gt 0 ]; then
             echo "::error::the probe's negative control reported BROKEN -- see the line above" >&2
             exit 1
           fi
