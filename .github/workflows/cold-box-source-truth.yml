@@ -73,6 +73,7 @@ on:
       - 'tests/test_an_unmeasured_flag_must_be_read.sh'
       - 'tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh'
       - 'tests/test_store_health_does_not_depend_on_a_foreign_port.sh'
+      - 'tests/test_every_fail_call_has_error_code.sh'
       - 'tests/test_the_sentinel_vocabulary_is_declared_and_complete.sh'
       - 'tests/test_no_function_is_called_before_it_is_defined.sh'
       - 'tests/test_doctor_probe_cap_exceeds_the_command.sh'
@@ -252,6 +253,14 @@ jobs:
       - name: Store health must not depend on a foreign port
         if: always()
         run: bash tests/test_store_health_does_not_depend_on_a_foreign_port.sh
+
+      # CX-17. A customer whose install stops needs something stable to quote to
+      # support, and the failure banner + auto-copied log carry the CODE, not the
+      # localised sentence. This gate was written and then left unwired, so the two
+      # bare `fail` sites it names sat in the shipped installer unseen.
+      - name: Every install.sh failure carries a support code
+        if: always()
+        run: bash tests/test_every_fail_call_has_error_code.sh
       # The same writer/reader drift was found TWICE (sources 13/9,
       # statuses 5/3), both times by a human reading both sides. A literal
       # grep for status= MISSES error and timeout, because the error

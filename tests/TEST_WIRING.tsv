@@ -161,7 +161,7 @@ test_enrichment_reaches_the_corpus.sh	WIRED	.github/workflows/enrichment-reaches
 test_err06_states_what_it_measured.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_err_trap_emits_done_fail.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_every_default_source_is_requested.sh	WIRED	.github/workflows/default-sources-requested.yml
-test_every_fail_call_has_error_code.sh	UNWIRED	-
+test_every_fail_call_has_error_code.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_every_marker_pattern_compiles.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_every_question_declares_its_persistence.sh	WIRED	.github/workflows/cold-box-source-truth.yml
