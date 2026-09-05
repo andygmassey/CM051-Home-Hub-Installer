@@ -12046,8 +12046,29 @@ _ollama_agent_is_running() {
     # registered one exits 0 whether it is running or not, so the `|| return 1`
     # covers absent and the case covers the two rc=0 outcomes. Only the state
     # line separates loaded-but-dead from running.
-    local _out
-    _out="$(launchctl print "gui/$(id -u)/com.ostler.ollama" 2>/dev/null)" || return 1
+    # 🔴 rc=125 IS A FOURTH CASE AND THE TABLE ABOVE DID NOT HAVE IT (#1559).
+    #
+    #     absent label            rc=113   the domain exists, the label does not
+    #     loaded but NOT running  rc=0     state = not running
+    #     loaded AND running      rc=0     state = running
+    #     NO SUCH DOMAIN          rc=125   nothing about any agent is knowable
+    #
+    # 113 is the answer this poll is DESIGNED to receive and it becomes 0 when
+    # the agent loads. 125 can never become anything: measured on a headless
+    # box, `launchctl print gui/<uid>` with no label at all also returns 125,
+    # so it is the domain and not the agent. Retrying it is not patience.
+    #
+    # Return 2 for that case. Both call sites use this as a CONDITION, and 2 is
+    # false to an `if` exactly as 1 is, so their behaviour is unchanged; the
+    # poll below additionally reads 2 and stops.
+    #
+    # rc is captured rather than let-fail: a bare failing $( ) fires the ERR
+    # trap inside the subshell even with `|| return 1` on it, which is how one
+    # step logged `Command failed inside a subshell` 46 times.
+    local _out _rc
+    _out="$(launchctl print "gui/$(id -u)/com.ostler.ollama" 2>/dev/null)" && _rc=0 || _rc=$?
+    if [[ "$_rc" -eq 125 ]]; then return 2; fi
+    if [[ "$_rc" -ne 0 ]]; then return 1; fi
     case "$_out" in *"state = running"*) return 0 ;; esac
     return 1
 }
@@ -12145,8 +12166,48 @@ else
 </dict>
 </plist>
 OLLAMAPLIST
-    launchctl bootstrap "gui/$(id -u)" "$OLLAMA_PLIST" 2>/dev/null || \
-        launchctl load "$OLLAMA_PLIST" 2>/dev/null || true
+    # 🔴 THIS WAS ALLOWED TO FAIL COMPLETELY AND SAY NOTHING (#1559).
+    #
+    # `bootstrap` then `load` then `|| true`, with stderr discarded on both. So
+    # on a box where neither can register the agent, the install continued in
+    # silence and the ONLY trace was a readiness poll 90 seconds later that
+    # blamed Ollama.
+    #
+    # MEASURED on archie, a headless walk account, 2026-09-05:
+    #
+    #     gui/502   rc=125  Could not print domain: Domain does not support
+    #                       specified action        <- no Aqua session, no domain
+    #     user/502  rc=113  Bad request.            <- domain exists, label absent
+    #     launchctl list, ollama entries: 0
+    #     CONTROL: the plist is present, 1962 bytes  <- there WAS something to load
+    #
+    # The agent was registered in NEITHER domain and the plist was fine. Both
+    # loads failed and both were swallowed. The customer-facing sentence that
+    # eventually appeared was MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY,
+    # which is true and names the wrong thing: it sends the reader to Ollama
+    # when the fact we already held was that the LaunchAgent could not be
+    # registered.
+    #
+    # Keep the fallback and keep going -- the direct-start path below still
+    # works and a customer in an Aqua session never reaches this. What changes
+    # is that the failure is STATED, once, where it happens.
+    _ollama_reg_rc=0
+    if ! launchctl bootstrap "gui/$(id -u)" "$OLLAMA_PLIST" 2>/dev/null; then
+        if ! launchctl load "$OLLAMA_PLIST" 2>/dev/null; then
+            _ollama_reg_rc=1
+        fi
+    fi
+    if [[ "$_ollama_reg_rc" -ne 0 ]]; then
+        # Say WHICH condition, because the two want different actions: no GUI
+        # session is an environment fact the operator can fix by logging in,
+        # and a present domain that refused the load is a real registration
+        # failure worth reporting.
+        if launchctl print "gui/$(id -u)" >/dev/null 2>&1; then
+            warn "The Ollama LaunchAgent could not be registered, and this user DOES have a GUI session. The plist is at ${OLLAMA_PLIST}. Ollama will be started directly for this run, but it will not restart after a reboot."  # i18n-exempt
+        else
+            warn "The Ollama LaunchAgent could not be registered: this user has no GUI (Aqua) session, so launchd has no gui/ domain to load it into. That is expected for an ssh or managed install and is NOT an Ollama fault. Ollama will be started directly for this run, but it will not restart after a reboot."  # i18n-exempt
+        fi
+    fi
     # Wait for Ollama to be ready. The launchd bootstrap above can fail
     # transiently ("Bootstrap failed: 5: Input/output error") when launchd
     # state is messy -- e.g. after a mid-install reboot -- leaving the agent
@@ -12183,8 +12244,28 @@ OLLAMAPLIST
     #
     # The state this missed is the one the fallback exists for: registered but
     # not serving.
+    # 🔴 STOP POLLING A QUESTION THAT CANNOT CHANGE (#1559).
+    #
+    # _ollama_agent_is_running returns 2 when there is NO gui/<uid> domain at
+    # all, which is not a slow start, it is an unanswerable query. Measured:
+    # this loop asked it 46 times over 93 seconds on a headless box and then
+    # printed MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY and exited 1.
+    #
+    # DEGRADE, LOUDLY, RATHER THAN ABORT OR PRETEND. With no domain the agent
+    # cannot be verified at all, so this falls back to the PORT alone and says
+    # exactly what that does and does not prove. The file already records why
+    # the port is the weaker signal: `state = running` does not prove the reply
+    # on :11434 came from OUR pid. So the degraded claim is stated as the
+    # narrower one it is, rather than being quietly promoted to the same green.
+    #
+    # A customer in an Aqua session never reaches this branch.
+    _ollama_domain_absent=0
+    _ollama_agent_is_running; [[ $? -eq 2 ]] && _ollama_domain_absent=1
+    if [[ $_ollama_domain_absent -eq 1 ]]; then
+        warn "There is no GUI (Aqua) session for this user, so launchd has no gui/ domain and the Ollama LaunchAgent cannot be inspected or registered. Falling back to a port check alone, which is WEAKER: a reply on 11434 does not prove it came from this install. Ollama will not restart after a reboot on this box."  # i18n-exempt
+    fi
     while ! { curl -sf http://localhost:11434/api/tags &>/dev/null \
-              && _ollama_agent_is_running; }; do
+              && { [[ $_ollama_domain_absent -eq 1 ]] || _ollama_agent_is_running; }; }; do
         if [[ $_ollama_direct_started -eq 0 && $OLLAMA_WAIT -ge $OLLAMA_BOOTSTRAP_GRACE ]]; then
             warn "$MSG_WARN_OLLAMA_BOOTSTRAP_FALLBACK_DIRECT"
             if [[ -x "$OLLAMA_APP_BIN" ]]; then

@@ -73,6 +73,7 @@ on:
       - 'tests/test_artefact_walk_stages_the_dmg_payload.sh'
       - 'tests/test_consent_state_is_defined_before_it_is_called.sh'
       - 'tests/test_the_recovery_key_is_disclosed_where_it_is_minted.sh'
+      - 'tests/test_an_absent_launchd_domain_is_not_a_service_that_is_down.sh'
       # #1538, the sibling of #1540: the daemon is STARTED unconditionally at
       # the end of every install, so "running" says nothing about whether it
       # can read anything. Watched by name so editing it re-fires the only
@@ -270,6 +271,19 @@ jobs:
       - name: The recovery key is disclosed by the run that mints it, on both surfaces
         if: always()
         run: bash tests/test_the_recovery_key_is_disclosed_where_it_is_minted.sh
+
+      # #1559. An absent launchd domain and a not-yet-loaded agent are
+      # different answers and the reader collapsed them onto one. MEASURED on a
+      # headless walk account: `launchctl print gui/<uid>/<label>` returns 125
+      # because there is no gui/<uid> domain AT ALL -- the control is that
+      # printing the bare domain returns 125 too, while user/<uid> is fine. The
+      # poll retried that unanswerable query 46 times over 93 seconds and then
+      # printed "Could not start Ollama automatically", which is true and names
+      # the wrong cause. Both loader attempts had already failed silently
+      # behind 2>/dev/null and a || true.
+      - name: An absent launchd domain is not a service that is down
+        if: always()
+        run: bash tests/test_an_absent_launchd_domain_is_not_a_service_that_is_down.sh
 
       # A flag that records "could not measure" must be READ by something.
       # v1.0.66 SHIPPED two that were assigned and consulted by nothing:
