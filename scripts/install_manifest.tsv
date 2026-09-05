@@ -45,7 +45,8 @@ launch_agent	com.ostler.stay-awake	required	com.ostler.stay-awake	baseline	write
 launch_agent	com.ostler.engine-supervisor	required	com.ostler.engine-supervisor	baseline	write 10906; container-engine supervisor (#995), always bundled
 launch_agent	com.ostler.ollama	required	com.ostler.ollama	baseline	write 11342/load 11416; the local model server
 launch_agent	com.ostler.ollama-logrotate	required	com.ostler.ollama-logrotate	baseline	write 11508/load 11531
-launch_agent	com.ostler.enrich	required	com.ostler.enrich	baseline	write 16282/load 16332; Wikidata enrichment
+launch_agent	com.ostler.enrich	conditional	com.ostler.enrich	baseline	write 16282/load 16332; Wikidata enrichment. ONLY IF OSTLER_ENRICH_AGENT_ENABLED=1 (install.sh:19146). Off by default by Andy's 2026-08-18 directive, landed #876 2026-08-20: it sends preference subjects to Wikidata/MusicBrainz/Open Library every 30 min, so the customer chooses. install.sh's own comment: no customer Mac has ever run it.
+launch_agent	com.creativemachines.ostler.context-refresh	required	com.creativemachines.ostler.context-refresh	baseline	written by context-refresh/INSTALL_SNIPPET.sh, copied at install.sh:28958. The snippet is bundled in every artefact (verified in the v1.0.67 DMG, 4760 bytes, executable) and it writes this label, so the agent is present on every install.
 launch_agent	com.ostler.export-scan	required	com.ostler.export-scan	baseline	write 18293/load 18333
 launch_agent	com.ostler.doctor	required	com.ostler.doctor	baseline	write 19191; the Doctor serving /api/v1/sources; panel + box walk + install E1 all read it
 launch_agent	com.ostler.ical-server	required	com.ostler.ical-server	baseline	write 19453/load 19599; the unified API server
