@@ -167,3 +167,20 @@ vendor/ostler_security/build/
 .new
 .new.base
 .gone
+
+# The bundled CPython that scripts/ttywalk.sh REQUIRES in the repo root.
+#
+# ttywalk refuses to walk without it, and says why: install.sh takes the bundled
+# interpreter when python/bin/python3.11 is executable and falls back to a
+# brew python when it is not, so a walk without it runs the whole install on an
+# interpreter no customer ever uses. The harness therefore tells you to copy it
+# out of the DMG you are walking:
+#
+#     cp -R "/Volumes/Install Ostler/OstlerInstaller.app/Contents/Resources/python" ./python
+#
+# That instruction puts ~70MB of build product at the repo root of a PUBLIC repo,
+# and nothing ignored it. `git add -A` in a walk checkout would have committed a
+# signed interpreter. It has never happened -- `git log --all -- python/bin/python3.11`
+# is empty -- which is luck, not a guard, and the same luck the .sorted/.new
+# entries below were added after running out of.
+python/
