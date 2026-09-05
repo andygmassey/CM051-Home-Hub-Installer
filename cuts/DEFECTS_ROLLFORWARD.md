@@ -117,6 +117,7 @@ walk_horizon: v1.0.41
 | v1.0.65 | 2026-09-04 | deferred | Archie 2026-09-04. **WALKED NINE TIMES ON archie@192.168.1.240 (uid 502) AND CONDEMNED.** This is the first cut ever driven past step 21, and the reason it took nine attempts is worth more than the verdict: **FOUR of the nine stops were MY HARNESS, not the product.** walk 5 died at step 6 on a real defect (#1436, merged). walks 6-8 died at step 10 on three different false zeros I wrote into ttywalk's reset payload -- an apostrophe inside a single-quoted ssh argument, a `tr -d ' '` that closed it the same way, and a bare `docker` that is not on the non-interactive ssh PATH -- each of which PRINTED SUCCESS while five containers were running. walk 9 died at step 21 on a staging gap: the harness stages the REPO and 23 of 48 DMG `Contents/Resources` entries were absent, of which it warned about 3. **THE STAGING GAP IS WORKED AROUND, NOT FIXED**: I copied 22 of the 23 in BY HAND from the mounted DMG into a worktree under `/private/tmp`, which macOS clears on boot. 🔴 **THEN THE PRODUCT DEFECTS.** walk 10 found `v1065-D001`, a same-day regression of mine that kills every install at step 21 with rc=127. walks 11 and 12 found `v1065-D002`, which has silently disabled contact and Places import since v1.0.60, and `v1065-D003`, the abort that turned it into a dead step. walk 18 is GREEN: 39 steps, 0 not-ok, 0 ERR codes, 0 tracebacks, one terminal `DONE status=ok failed_steps=0 errors=0`, `ttywalk exiting 0`. ⚠️ **THE GREEN WALK SHIMS THE iMESSAGE TCC PROBE AND THEREFORE SAYS NOTHING ABOUT AUTOMATION PERMISSION.** macOS TCC needs a GUI click an ssh session cannot make. Only a console walk by a human can measure it, and the harness prints that disclaimer on every run. 🔴 **AND THE POST-WALK GATE IS 10 PASS / 10 FAIL / 4 CANNOT-RUN, AGAINST 15/8/1 ON THE v1.0.63 WALK THIS MORNING.** Three failures are new (`daemon_is_listening`, `people_count_agreement`, `people_seed_and_retrieval`) and one moved FAIL -> CANNOT-RUN (`ingest_coverage`), which is coverage lost and must not be read as a fix. `assistant_answers_grounded` DEGRADED rather than merely staying red: this morning the socket connected and answered, tonight all three questions die at `handshake HTTP/1.1 401 Unauthorized`. **The 401 is NOT a provisioning failure** -- `secrets/service_token` is present at mode 600 and the daemon plist carries a `PWG_SERVICE_TOKEN` of matching length, and four credential presentations all 401 against a `GET /` control that returns 200. **CONFOUND, STATED: tonight's box is a FRESH RESET and the v1.0.63 box had history**, so I have NOT established that any of the three new failures is caused by code. That needs a real v1.0.66 DMG on a cold account. 📌 PROVENANCE: every walk is mine, unattended, on Andy's Mini under the `archie` account. No human installed this artefact. **DEFERRED, NOT CLOSED**, for the standing reason (#931): D001, D002 and D003 are all fixed on CM051 main and ride v1.0.66, which has no artefact yet. Closing would be true about the repo and false about the DMG. @ANDY: correct anything you saw that I have not captured. | v1065-D001 v1065-D002 v1065-D003 |
 | v1.0.66 | 2026-09-04 | deferred | Archie 2026-09-05. **THE FIRST ARTEFACT WALK EVER TO GO GREEN, AND THE FIRST WALK OF ANY KIND DRIVEN BY THE SIGNED DMG PAYLOAD RATHER THAN A CHECKOUT.** `ttywalk.sh --from-dmg` on archie@192.168.1.240 (uid 502): rc=0, verdict=0, 39 steps, one terminal `#OSTLER DONE status=ok failed_steps=0 errors=0`, 0 STEP_END not-ok, 0 ERR-nn codes, reached `health_check` 38 of 38. GRADED TWICE BY TWO DRIVERS: the walk's own driver predates CM051 #1460, so it was re-adjudicated under the fixed driver that reconciles the completion tally against the log body, and it still PASSED on the stronger sentence 'no step reported status=error' rather than inferring it from failed_steps=0. `hydrate_graph`, which killed walks 11 and 12, closed ok in 55 seconds. The staged DMG was verified to 70,943,483 bytes against the published SHA256SUMS. 🔴 **BUT ONE ARM OF health_check WAS MEASURING ANOTHER ACCOUNT'S SERVICE.** install.sh:28465 was a bare loopback curl on :11434; the walk logged 'Ollama healthy' while the walked account had NO com.ostler.ollama agent at all and the 200 came from andy's ollama. A CANNOT-RUN WEARING A PASS. The COMPLETION verdict stands; that arm did not. Fixed for v1.0.67 by CM051 #1471. 🔴 **AND HUB HEALTH AFTER INSTALL IS UNMEASURED.** Andy's own Hub held :8000 on that Mac, so the walk account's gateway logged 27+ 'Address already in use' refusals and never bound once. 11 of 24 post-walk probes need it: CANNOT-RUN, and cannot-run is not a pass. The /ws/chat 401 chased for hours was that same collision -- the probe reached ANDY'S gateway and presented ARCHIE'S token, and the GET / control returned 200 for the same reason, so control and subject were talking to the same wrong server. PORT OWNERSHIP WAS MAPPED 2026-09-05 and is the thing to keep: :3000 :6333 :6379 :7878 :8044 :8144 are archie's via colima; **:8000 and :11434 are NOT**. ⚠️ post_walk_qa REFUSED to write walks/v1.0.66.tsv: it reads CFBundleShortVersionString from a STALE /Applications/OstlerInstaller.app left by an earlier walk. A box artefact, not a mis-stamped build -- the DMG's own app is correctly stamped 1.0.66/6600. Hence DERIVED(no record). ✅ **THE ARTEFACT IS NOT MERELY INSTALLED, IT WORKS.** Measured on the live install 2026-09-05: 6,348 wiki pages under ~/Documents/Ostler across 12 page types (Meetings 3151, People 1599, Organisations 751), every one written that day; wiki-site 200 with a 49 KB index; 19 LaunchAgents with 5 running, 2 spawn-scheduled, 11 idle between ticks and ZERO that should be up and are not. 🔴 D010 and D011 were both found on that LIVE install, not in the source, and neither aborts an install. NO WALK LAUNCHES THE .app -- a customer double-clicks an installer app; every walk runs the install.sh inside it. iMessage Automation (TCC) still needs a human at a console. 📌 PROVENANCE: unattended, mine, on Andy's Mini under the archie account. No human installed this artefact. **DEFERRED, NOT CLOSED**: D010 and D011 are fixed or filed against CM051 main and ride v1.0.67, which has no artefact yet. Closing would be true about the repo and false about the DMG. @ANDY: correct anything you saw that I have not captured. | v1066-D001 v1066-D002 v1066-D003 v1066-D004 v1066-D005 v1066-D006 v1066-D007 v1066-D008 v1066-D009 v1066-D010 v1066-D011 |
 | v1.0.67 | 2026-09-05 | deferred | Archie 2026-09-05. **CUT, SIGNED, NOTARISED, PUBLISHED, INSTALLED CLEAN AND WALKED FOUR TIMES, AND IT IS THE FIRST CUT WHOSE WALKS WERE ALL DRIVEN AGAINST ONE UNCHANGING ARTEFACT.** `walks/v1.0.67.tsv` on CM051 main: verdict FAILED, qa_exit 1, 16 pass / 6 fail / 2 cannot-run, 24 of 24 measured, 0 broken, walked_at 2026-09-05T05:50:33Z, box_fp 95b30a89637eecbb, artefact_sha256 f2717739b6b23c3c12c4b20b3beb2d1aa02be32849a9ed6ac5e314e66070a15b measured on the box. The INSTALL itself was clean: 38 of 38 steps, one terminal DONE status=ok, 0 errors. **FAILS FELL MONOTONICALLY ACROSS THE FOUR WALKS -- 10, 8, 7, 6 -- WITH THE ARTEFACT SHA256 UNCHANGED THROUGHOUT**, so every one of those four improvements was a BOX or HARNESS fact and not a build. That is the whole reason this row says deferred and not closed. 🔴 THE ONE THING TO CARRY FORWARD: three FOREIGN LaunchAgents were found on that Mac one at a time, each only after the previous was cleared -- com.creativemachines.ostler.assistant on :8000 and :8443, com.ostler.ical-server on :8090, com.ostler.doctor on :8089. By 05:31Z all ten walk ports were the walk account's for the FIRST TIME. REACHABLE IS NOT OURS, seven distinct instances of it in one night. ⚠️ EVERY FIX MERGED AFTER THIS CUT'S PIN IS UNWALKED: eight shipping commits, six in install.sh, one vendored, one manifest. v1.0.68 exists to put them on a box, and re-walking v1.0.67 cannot test any of them. 📌 PROVENANCE: unattended, mine, on Andy's Mini under the archie account. No human installed this artefact. DEFERRED, NOT CLOSED: D001 is fixed and rides v1.0.68; D002, D003 and D004 are OPEN; D005 is the harness; D006 and D007 are declared advisory in scripts/walk_promote_scope.tsv, not waived. @ANDY: correct anything you saw that I have not captured. | v1067-D001 v1067-D002 v1067-D003 v1067-D004 v1067-D005 v1067-D006 v1067-D007 |
+| v1.0.68 | 2026-09-05 | deferred | Archie 2026-09-05. 🟢 **THE ARTEFACT INSTALLS CLEAN. 39 steps, 38 of 38 reached, one terminal DONE status=ok, 0 errors, 0 aborts, 0 tracebacks, install.sh exit 0, walk_drive.py VERDICT PASS.** Second artefact walk ever to go green and the first on a cut carrying work no walk had touched. `walks/v1.0.68.tsv` on CM051 main: verdict FAILED (the PROBES, not the install), qa_exit 1, 17 pass / 6 fail / 1 cannot-run, 24 of 24 measured, walked_at 2026-09-05T08:25:23Z, box_fp 95b30a89637eecbb, artefact_sha256 64f68e978e75b9bef58c435f4cc71ad96d6181507cd42f415fd93572eeb84dad MEASURED on the box after the DMG was copied there, not asserted. sha agreed three ways before it touched the box: build log, published SHA256SUMS, local shasum. 🟢 **#1511's PROJECTION PRUNE IS PROVEN, EXACTLY: 84 orphan vectors became 13, and the 71 that went is the independently-measured count of vanished minting origins.** people_count_agreement moved FAIL -> PASS. 🔴 **BUT THIS WALK GRADED v1.0.67's GRAPH.** The store volumes were created 4.8h before this install and the oldest node in the graph predates it; a plain --reset is not a wipe and the uninstaller never ran. Two of the six fails are therefore inherited data, not this artefact, and CM051 #1527 adds --wipe-stores so the question can finally be asked. One more fail was FALSE (v1068-D001, a cron reader blind to inline TOML, fixed in #1525) and pair_state_agreement moved CANNOT-RUN -> PASS between two runs of the same install. ⚠️ NO WALK LAUNCHES THE .app -- every walk to date runs the install.sh INSIDE it, so first-RUN behaviour of the bundle and every TCC prompt remain untested by machine. The iMessage Automation probe is SHIMMED and says so. 📌 PROVENANCE: unattended, mine, on the Mini 16 under the archie account. Andy is hand-walking v1.0.69 on a FRESH account (archie2) to settle whether D003 and D004 are inherited. DEFERRED, NOT CLOSED. @ANDY: correct anything you saw that I have not captured. | v1068-D001 v1068-D002 v1068-D003 v1068-D004 v1068-D005 v1068-D006 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -5984,3 +5985,161 @@ was 16 pass / 6 fail / 2 cannot-run before the scope file existed and 16 / 6 / 2
 after it. What moved was that 5 of those 8 became blocking where 3 had been
 before -- the scope was TIGHTENED, and reading that as a regression would be
 reading the instrument as the subject.
+
+---
+
+### v1068-D001 -- the manifest gate failed a healthy install, because its cron reader could not see an inline table
+
+**FIXED in CM051 #1525.** A FALSE FAIL, and the direction it fails in is the
+less dangerous half.
+
+The SAME BOX passed `install_manifest_complete` at 08:10Z and failed it at
+08:25Z on an unchanged install:
+
+```
+FAIL: 2 required subject(s) MISSING:
+  - cron_job evening-wrap (#619) -- required but NOT present
+  - cron_job morning-brief (#619) -- required but NOT present
+```
+
+**Nothing had removed them.** Both jobs were present and enabled the whole
+time, with their real schedules and delivery channel. The daemon rewrote
+`config.toml` at 08:19:47Z and serialised the same two jobs as an inline table
+array instead of as section headers:
+
+```
+jobs = [{ id = "morning-brief", ... }, { id = "evening-wrap", ... }]
+```
+
+`present_cron_jobs` was a LINE SCANNER matching the literal `[[cron.jobs]]`.
+Those are two spellings of one TOML value.
+
+⚠️ **THE FALSE FAIL IS NOT THE DANGEROUS HALF.** `cron_job` is an ENUMERABLE
+type with BOTH directions enforced, so a zero present-set also makes the
+"present but undeclared" arm VACUOUS: it reports nothing because it can see
+nothing. **A zero denominator reads as success in that direction**, and nobody
+would have noticed.
+
+**FIX:** parse with a real TOML parser; no parser is CANNOT-RUN, never a text
+scan whose zero cannot be told from an empty config. And the probe now selects
+an interpreter that HAS one and prints which: the box's system python3 is
+3.9.6 with no `tomllib`, while the install ships 3.11.15 at
+`~/.ostler/python/bin/python3`.
+
+---
+
+### v1068-D002 -- the walk was grading data older than the artefact, and nothing said so
+
+**ADDRESSED in CM051 #1527 (`--wipe-stores`). This is the answer to "why can we
+not get a clean 24".**
+
+```
+store volumes created        2026-09-05T02:53:08Z
+v1.0.68 installed at         2026-09-05T07:42:12Z   -- 4.8h LATER
+oldest node in the graph     2026-09-05T03:10:26Z   -- v1.0.67 data
+"running shipped uninstaller" in the walk log        ABSENT
+```
+
+A plain `--reset` is not a wipe and says so in its own banner. The uninstaller
+never ran, so `docker compose down -v` never ran, so the stores survived.
+**The v1.0.68 walk graded a graph that v1.0.67 had built.**
+
+⇒ Two of its failures are properties of data that predates the artefact under
+test, and **no change to the artefact could have turned them green**:
+v1068-D003 and v1068-D004 below.
+
+**A WALK VERDICT IS A FUNCTION OF THE BUILD *AND* THE BOX STATE, and only the
+build is recorded** (#940). Until #1527 there was no way to hold the second
+variable still, so the only question a customer cares about -- is this artefact
+clean on a FRESH graph -- could not be asked at all.
+
+`--wipe-stores` is opt-in and stays opt-in: it dumps the graph first, aborts if
+the dump fails, and refuses (CANNOT-RUN) if any `ostler_` volume survives,
+because the next walk would otherwise still be grading carried-over data.
+
+---
+
+### v1068-D003 -- people_stores_reconcile: 84 orphan vectors became 13, and the 71 that went is the proof
+
+🟢 **#1511's PROJECTION PRUNE IS PROVEN ON A BOX, TO THE EXACT NUMBER.**
+
+```
+                    graph   vectors   ORPHANS
+v1.0.67              1823      1907        84
+v1.0.68              1823      1836        13
+                                        ------
+                     pruned:              71
+```
+
+**71 is the count of vanished minting origins measured independently from the
+graph**, and the residual **13** is exactly the "rehomed but origin still
+PRESENT" set from that same query. `84 = 71 + 13`, three numbers by three
+routes. The prune removed precisely the vectors of the 71 vanished contacts and
+nothing else.
+
+`people_count_agreement` therefore PASSES: 1823 vs 1836, differ by 13, inside
+the 2% tolerance of 36. It was one of the six fails on v1.0.67.
+
+⚠️ **AND THE TWO PROBES DISAGREEING IS ITSELF THE FINDING.**
+`people_stores_reconcile` still FAILS on the same 13 rows, because it demands
+strict SET equality with no tolerance. **Two probes, one defect, opposite
+verdicts, because their THRESHOLDS differ.** They were treated as
+interchangeable for hours by both agents on this cut. They are driven by one
+cause and they are not the same instrument, and keeping them as separate rows
+was right.
+
+The 13 are repairable in a way the 71 were not: their origin nodes still exist.
+
+---
+
+### v1068-D004 -- 54 people hold two contact cards, and it is inherited damage
+
+**OPEN, AND NOT A DEFECT IN THIS ARTEFACT.** See v1068-D002: this walk graded
+v1.0.67's graph.
+
+The 54 are the survivors of the event described in v1067-D002: 71 contacts
+absorbed into 58 people with zero tombstones, leaving 54 holding two or more
+`icloud_contact_uid` identifiers. Measured two independent ways, and the second
+is the walk probe itself.
+
+⇒ **A fresh account would not have them.** The next test of this is Andy's
+hand-walk of v1.0.69 on a NEW account (`archie2` on the Mini 16, confirmed by
+hardware: Mac16,10, 16 GB, UUID E9589EC6). Per-account state is per-account:
+`~/.colima` and `~/.ostler` are per-user, so a new account gets its own
+container VM and its own volumes. If D003 and D004 do NOT appear there, the
+diagnosis is confirmed and both rows close as archaeology.
+
+⚠️ **PORTS ARE SHARED EVEN WHEN DATA IS NOT.** `/opt/homebrew` and
+`/Applications/Ostler*.app` are shared across accounts. The other account's
+Hub must be stopped first, or the walk will grade someone else's services --
+which happened seven distinct times on v1.0.67.
+
+---
+
+### v1068-D005 -- the grounding probe is still UNKNOWN, and still not called a defect
+
+**OPEN.** Unchanged from v1067-D004: `assistant_answers_grounded` has now
+failed on three walks and has never been shown to fail on a WARM box with the
+same symptom twice. Cold-versus-warm is still not ruled out, and calling it
+either way would be a guess wearing a verdict.
+
+---
+
+### v1068-D006 -- three probes that measure the walk box, not the artefact
+
+**NOT DEFECTS. Declared advisory in `scripts/walk_promote_scope.tsv`, not
+waived.**
+
+```
+no_store_port_is_tcp_reachable   the walk box RUNS the stores, on purpose
+usage_journal_producers          producing features live outside this artefact
+ingest_coverage                  CANNOT-RUN, a box prerequisite is absent
+```
+
+The promote gate prints every advisory failure on the PASS path, so advisory
+cannot decay into unseen. 3 of 24 are advisory; the other 21 block.
+
+⚠️ **`pair_state_agreement` MOVED CANNOT-RUN -> PASS between two runs of the
+same install**, which is the ordering behaviour filed as v1067-D005 and
+predicted in that section: it reads a config key the next probe alphabetically
+causes to exist. Still the harness, still not the product.

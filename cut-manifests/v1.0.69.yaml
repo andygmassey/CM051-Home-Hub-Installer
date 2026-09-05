@@ -1,0 +1,1017 @@
+# cut-manifests/v1.0.66.yaml
+#
+# CARRIED FORWARD FROM v1.0.65 PLUS FOUR NEW. This manifest is CUMULATIVE by
+# design: every cut re-proves that every prior fix is STILL PRESENT in the
+# artefact being shipped. An entry disappearing is a regression, not
+# housekeeping.
+#
+# WHY v1.0.66 EXISTS: v1.0.65 was walked NINE TIMES on the cold `archie`
+# account and CONDEMNED. It killed every install at step 21 of 40:
+#
+#     STEP_END id=email_ingest status=error elapsed_s=5 rc=127
+#     DONE status=fail code=ERR-99-INSTALL-ABORT-L21445
+#
+# and it inherited a defect that had silently disabled contact and Places
+# import since v1.0.60, with the install still reporting DONE status=ok.
+#
+# ONE VARIABLE. The daemon pin is HELD at bc63c445, unchanged since v1.0.62.
+#
+# 🔴 FIVE FIXES SHIP AND ONLY FOUR HAVE ENTRIES BELOW. #1439 -- the step-21
+# abort, the most serious of them -- HAS NO MANIFEST ENTRY, and that is a
+# deliberate refusal rather than an oversight.
+#
+# Every proof kind this verifier supports is a PRESENCE check, and
+# grep_in_source_at_sha runs `git grep`, which is LINE-BASED. #1439's fix is a
+# pure RELOCATION: the broken tree and the fixed tree contain the same
+# definition and the same call and differ only in their ORDER. No line-based
+# pattern can tell them apart, and a multiline one cannot run here.
+#
+# So there is no honest entry to write. Writing one anyway -- greping for the
+# function name, which is present in BOTH trees -- would produce a row that
+# PASSES on the defect it claims to guard. That is the v1.0.64 failure exactly:
+# its manifest stated a defect as fixed while the artefact still shipped it,
+# because every structural check over the source answered YES on a tree that
+# still had the bug.
+#
+# #1439 is guarded instead by an EXECUTING test wired into CI:
+# tests/test_consent_state_is_defined_before_it_is_called.sh, 7 limbs, with a
+# negative control pinned to 7b2130ac that reproduces the rc=127. An honest gap
+# here plus a real gate there beats a green row that checks nothing.
+
+version: 1.0.69
+entries:
+  - id: v1057-a-the-installer-speaks-before-macos-does
+    title: the installer pre-announces the admin-password dialog, in its own voice, before macOS words it alarmingly
+    incident: >-
+      THE INSTALLER LET macOS SPEAK FIRST AND macOS SAYS SOMETHING ALARMING.
+      The administrator-password dialog is worded by macOS as a request to
+      control Finder, and it mentions documents and data. A customer
+      reasonably reads that as the installer asking to read their files, and
+      nothing prepared them for it. Observed on a live launch walk.
+      FIX (#1297): pre-announce the wording in the installer's own voice
+      before the dialog appears, and say plainly that the sentence belongs to
+      macOS and is how macOS asks any application for an administrator
+      password. Reassurance placed BEFORE the alarm rather than after it,
+      which is the only ordering that helps.
+      SHIPS AS A BUNDLED GUI RESOURCE. ViewCopy.json is compiled into
+      OstlerInstaller.app by gui/project.yml `resources:`, which excludes only
+      Fonts/**. gui/Makefile never names the file, so a Makefile-based ship
+      predicate scores it 0 and is WRONG about it.
+      CARRIED FROM v1.0.59 AND RE-MEASURED AT THE v1.0.60 PIN: 1 hit.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/OstlerInstaller/Resources/ViewCopy.json
+      pattern: 'macOS words the next dialog oddly'
+      must_match: true
+
+  - id: v1057-b-the-bursar-can-finally-see-what-the-compiler-wrote
+    title: the wiki compiler's usage records reach the host journal instead of dying with the container
+    incident: >-
+      THE BURSAR COULD NOT SEE WHAT THE COMPILER PRODUCED. The wiki compiler
+      writes usage records into its container's /workspace/state, and no bind
+      mount connected that path to the host journal the cost panel reads. Every
+      record the compiler has ever written was discarded when the container
+      exited. The panel then showed a smaller number, which reads to a customer
+      as a quiet month rather than as a severed pipe -- a silent wrong answer,
+      not an error.
+      FIX (#1301): mount the host workspace state directory at
+      /workspace/state and set OSTLER_WORKSPACE explicitly, so the writer and
+      the mount cannot drift apart later.
+      ⚠️ THIS ROW IS THE MOUNT, AND ROW K IS ITS OTHER HALF. Mounting the
+      journal was necessary and was not sufficient: the compiler was still
+      writing on the far side of it. Both rows are required and neither is
+      evidence for the other.
+      CARRIED FROM v1.0.59 AND RE-MEASURED AT THE v1.0.60 PIN: 1 hit.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'state:/workspace/state'
+      must_match: true
+
+  - id: v1057-c-store-auth-reaches-the-bundled-interpreter
+    title: the store-credential wiring covers the bundled interpreter, not only the venvs
+    incident: >-
+      100% COVERAGE OF THE WRONG POPULATION. Every call site was correct and
+      every one passed a venv root, because the guard only ever accepted an
+      executable at a venv's own bin/python3. THE BUNDLED INTERPRETER IS NOT A
+      VENV and ships no python3 alias, so the three services without their own
+      venv -- cm059-editor, ical-server, ostler_hygiene -- reached Oxigraph and
+      Qdrant with no credential, 401'd, and EXITED 0. The customer symptom was
+      Andy's A1: the Front Page never populated, on any install, for ever,
+      because its producer fail-closed to the settling stub every hour.
+      FIX (#1302): resolve the interpreter from a named executable, a venv
+      root, or a relocated tree's bin/python3.11, then ask THAT interpreter for
+      its own site-packages; and add the fifteenth call site for the bundled
+      tree. THE DEFECT WAS THE DEFINITION OF THE POPULATION, not a missing
+      call, which is why counting call sites could never have found it.
+      ⚠️ THE ROW KEYS ON THE CALL SITE, NOT THE PROSE. The most distinctive new
+      text in this commit is its own header comment; keying there would guard
+      the documentation of the fix rather than the fix, and any tidy-up could
+      delete it without touching behaviour.
+      CARRIED FROM v1.0.59 AND RE-MEASURED AT THE v1.0.60 PIN: 1 hit.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'wire_store_auth_pth .+PYTHON3_BIN'
+      must_match: true
+
+  - id: v1059-d-the-daemon-pin-and-the-wrapper-pin-name-one-commit
+    title: all pins name hub-v0.4.70, and the Ostler.app was rebuilt from the same commit rather than carried forward
+    incident: >-
+      THE DAEMON PIN MOVED 0.4.69 -> 0.4.70 (bc63c445) TO CARRY oa #854, AND
+      THE WRAPPER MOVED WITH IT. Carrying the 0.4.69 Ostler.app forward would
+      have been the #225/#226 divergent-lineage defect, where a stale wrapper
+      ships a stale frontend past an otherwise green cut, so the wrapper was
+      REBUILT from bc63c445. Proven on the artefact rather than on a build log:
+      WRAPPER_FRONTEND_COMMIT compiled INTO the Mach-O reads bc63c445, matching
+      the daemon's commit -- which is the probe build-hub.sh's own header tells
+      you to run instead of trusting its success line.
+      🔴 TWO RELEASE REPOS, ONE VERSION NUMBER, AND IT COST TWO FALSE VERDICTS
+      IN ONE NIGHT. The hub-v tag build runs in the PRIVATE ostler-assistant;
+      everything a customer touches -- install.sh's OSTLER_ASSISTANT_REPO and
+      gui/Makefile's DAEMON_REPO -- reads the PUBLIC ostler-releases, which is
+      mirrored BY HAND. The same tag name therefore names DIFFERENT BYTES in
+      the two repos, measured at both versions: 0.4.69 is 6d20239e private and
+      e6803968 public, 0.4.70 is 349e69fc private and a4aebc73 public. One
+      reviewer read the private repo and filed a cut blocker saying the pin
+      matched nothing; the pin is correct for the repo the cut actually
+      downloads from. Tracked as #602.
+      THE PATTERN IS THE DAEMON DIGEST ITSELF, the one string that cannot be
+      true of the previous build. gui/Makefile is the same byte length on both
+      trees -- a digest swap preserves length -- so size proves nothing here and
+      the pattern is the whole evidence.
+      🔴 THE DAEMON PIN IS UNCHANGED IN v1.0.60, HELD AT bc63c445 DELIBERATELY.
+      This cut moves only CM051 (00440f72 -> bfc418e2). No rebuild, no
+      re-notarise and no re-pin of the daemon is implied, and this row is
+      carried verbatim because its subject did not move. The one-commit hold
+      and its expiry condition are recorded in scripts/daemon_hold_ack.tsv.
+      CARRIED FROM v1.0.59 AND RE-MEASURED AT THE v1.0.60 PIN: 1 hit.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/Makefile
+      pattern: 'a4aebc73593a29c7'
+      must_match: true
+
+  - id: v1057-e-a-real-name-beats-a-social-handle
+    title: a person is shown under their real name, not a run-together social handle
+    incident: >-
+      A PERSON WAS DISPLAYED UNDER A SOCIAL HANDLE INSTEAD OF THEIR NAME.
+      Observed on a live walk. A bare username PASSES
+      is_acceptable_display_name -- it is not junk -- so the FIRST acceptable
+      candidate won by ingest order, and whichever source happened to arrive
+      first decided what a person is called.
+      FIX (CM041 #134, grafted verbatim): demote a handle-shaped token below a
+      real name using a STABLE sort, so order still decides among same-shape
+      values and two real names are never reordered.
+      THE GRAFT IS VERBATIM AND THAT WAS MEASURED BOTH WAYS: the vendored file
+      was byte-identical to source@f3a74a97^ BEFORE and is byte-identical to
+      source@f3a74a97 AFTER, so unlike the three earlier grafts on that row this
+      one does NOT widen the unrecorded divergence the vendor manifest documents.
+      DEMONSTRATED TWO-SIDED ON THE VENDORED COPY, not on source, because the
+      trees diverge and the customer runs the vendored one: handle-then-name
+      returned the handle pre-graft and the real name post-graft. FOUR CONTROLS
+      unchanged across the graft, one per over-reach mode.
+      CARRIED FROM v1.0.59 AND RE-MEASURED AT THE v1.0.60 PIN: 2 hits.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: vendor/cm041/identity_resolver/canonical_name.py
+      pattern: '_looks_like_social_handle'
+      must_match: true
+
+  - id: v1057-f-the-settling-panel-is-styled-at-last
+    title: the settling panel renders as styled rows instead of unstyled markup
+    incident: >-
+      THE PANEL REACHED THE CUSTOMER AS UNSTYLED MARKUP, which is not a layout
+      that needed tuning. The renderer emitted four classes with ZERO matching
+      rules anywhere in the stylesheet, and applied a class written for a <ul>
+      to a <table>. Andy's A3.
+      FIX (CM044 #266): the li-row renderer, shipping in wiki-compiler 0.1.29.
+      🔴 DELIVERED BY IMAGE DIGEST, AND THAT IS THE POINT OF THIS ROW. The fix
+      was merged BEFORE v1.0.54 and reached NEITHER of the two previous cuts,
+      because the renderer ships as a pinned image and a merged renderer change
+      cannot reach a customer without a rebuild and a re-pin. Three deferrals in
+      the rollforward register were all waiting on this one prerequisite.
+      The pattern is the DIGEST rather than a CM044 source sha: a source sha
+      would be true about the repo and unfalsifiable against the DMG.
+      CARRIED FROM v1.0.59 AND RE-MEASURED AT THE v1.0.60 PIN: 1 hit.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: '64debb2e220994e1ca07d2aaab5fdc68968db70411f33d8d203e17a511c413b8'
+      must_match: true
+
+  - id: v1057-g-duplicate-review-works-on-the-hub-mac
+    title: the wiki site CSP admits the on-box Doctor, so duplicate review actually runs
+    incident: >-
+      "Duplicate review is available on the Hub Mac only." RENDERED ON THE HUB
+      MAC, and the feature behind it was dead. The site's CSP did not admit the
+      on-box Doctor, so dup-review and corrections could not work at all: the
+      sentence was not merely wrong, it was describing a severed connection.
+      Andy reported this before it was ever filed, which is why it carries a new
+      id rather than a recurrence.
+      FIX (CM044 #262): admit the Doctor in the site CSP, shipping in wiki-site
+      0.1.29.
+      🔴 THIS IS THE ROW THAT DECIDED THE v1.0.58 CUT. Clearing the wiki
+      freshness RED by hold_ack was available and would have been cheaper. It
+      would also have shipped v1.0 with dup-review and corrections still dead on
+      the Hub, purely to avoid moving a digest. The image was rebuilt instead.
+      Same digest-not-source-sha reasoning as row F.
+      CARRIED FROM v1.0.59 AND RE-MEASURED AT THE v1.0.60 PIN: 1 hit.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: '77eee04f13b1e08e34be222847b363a2b2f09299e5a6afb1989351be29adcfab'
+      must_match: true
+
+  - id: v1058-h-the-store-auth-pth-points-at-the-final-tree
+    title: the store-auth .pth resolves OSTLER_FINAL_DIR by default, so the auth wiring survives the install
+    incident: >-
+      A1. THE .pth FROZE THE STAGING PATH AND THE AUTH WIRING NEVER RAN ON ANY
+      INSTALL. Read verbatim off the v1.0.57 walk box, not inferred from
+      source. _ostler_wire_store_auth_pth defaulted its root to OSTLER_DIR,
+      which points at the temporary staging tree until the promote -- and four
+      of its sixteen call sites run ABOVE that boundary. The staging directory
+      does not survive, so the import failed at EVERY interpreter startup, for
+      ever. Python answers that with "Remainder of file ignored", which ALSO
+      discards the OSTLER_SECRETS_DIR default on the same line, so cm059-editor
+      reached the stores with no credential, 401'd hourly, and the Front Page
+      never populated.
+      🔴 EVERY OBVIOUS CHECK PASSES ON THIS DEFECT. The .pth was present. The
+      module was present and correctly installed at <final>/lib. Only the PATH
+      INSIDE was wrong -- which is why five cuts of source-presence gates never
+      saw it, and why the fix ships with a BEHAVIOURAL test that runs the real
+      function with OSTLER_DIR pointed at a staging tree and reads back what
+      the .pth actually contains.
+      ⚠️ THIS ROW IS TRUE AND IT WAS NOT SUFFICIENT. It guards the FUNCTION
+      DEFAULT. Row J guards the caller that overrode that default and kept A1
+      live through the whole of v1.0.58. Read the two together or neither means
+      what it appears to.
+      ⚠️ THE PATTERN CARRIES NO DOLLAR SIGN AND NO BRACES ON PURPOSE.
+      CARRIED FROM v1.0.59 AND RE-MEASURED AT THE v1.0.60 PIN: 2 hits.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'local _root=.+OSTLER_FINAL_DIR'
+      must_match: true
+
+  - id: v1058-i-no-apple-events-to-finder
+    title: the installer sends no Apple Event to Finder, so macOS stops asking to control it
+    incident: >-
+      macOS ASKED THE CUSTOMER TO LET OSTLER CONTROL FINDER AND REACH DOCUMENTS
+      AND DATA, during an install that wants neither. Observed by Andy on the
+      live v1.0.57 walk. The cause was one Apple Event: an osascript telling
+      Finder to close windows.
+      FIX (#1315): DELETE IT. This is a removal and not a rewording on purpose
+      -- macOS permits exactly ONE NSAppleEventsUsageDescription per app and
+      stamps it on EVERY Apple Events prompt regardless of target, so no copy
+      could make that dialog true while the event still fired. v1.0.57's
+      pre-announcement (row A) treated the symptom and stays in the tree; this
+      treats the cause.
+      ⚠️ `open -R` MUST SURVIVE AND IS NOT COVERED BY THIS ROW. It is
+      LaunchServices, not an Apple Event, and raises no TCC prompt. The wired
+      test asserts BOTH directions, because a fix that killed both would read
+      identically to a clean pass on a Finder-only check.
+      ⚠️ THIS IS THE ONLY must_match:false ROW, AND IT IS THE ONE AN APPARATUS
+      FAILURE CAN FAKE. An absence check PASSES when the probe cannot read the
+      file at all. Re-measuring it at the v1.0.60 pin required proving the read
+      worked first: install.sh at the pin is 1,443,812 bytes with 1,325 hits
+      for a control string that must be present, and 0 for a control token that
+      must not. Only then is this row's 0 a real absence.
+      CARRIED FROM v1.0.59 AND RE-MEASURED AT THE v1.0.60 PIN: 0 hits, correct.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'Finder" to close windows'
+      must_match: false
+
+  - id: v1059-j-the-explicit-caller-stops-overriding-the-fix
+    title: the bundled-interpreter call site passes the FINAL root, so A1 is closed at the caller as well as at the default
+    incident: >-
+      🔴 A1 WAS STILL LIVE THROUGH THE WHOLE OF v1.0.58, AND THE MANIFEST SAID
+      IT WAS FIXED. Row H is true: #1316 hardened the function's default to
+      OSTLER_FINAL_DIR. THIS call site passed the staging root EXPLICITLY as
+      the second argument, and A DEFAULT CANNOT APPLY TO A CALLER THAT SUPPLIES
+      THE ARGUMENT -- so the hardening was real and this caller was simply never
+      in its population. 12 of the 16 call sites pass no root and were genuinely
+      fixed; this was the one that was not.
+      The guard and the argument disagreed IN ONE STATEMENT: the guard tested
+      PYTHON3_BIN against OSTLER_FINAL_DIR while the argument passed
+      OSTLER_DIR, on the same line, above the promote boundary where OSTLER_DIR
+      is still the temporary staging tree.
+      FIX (#1321): pass the final dir. One identifier.
+      🔴 THE BLAST RADIUS IS EVERY SERVICE WITHOUT ITS OWN VENV -- cm059-editor,
+      ical-server, ostler_hygiene -- which is exactly the population row C
+      widened the wiring to cover. So C added the call, H fixed the default, and
+      J is what makes the call actually write a surviving path. Three commits,
+      one defect, and the first two both reported success.
+      FOUND ON A COVERAGE SWEEP, NOT BY A GATE, and that is the durable
+      finding: no gate we own compares a caller's argument against the guard on
+      its own line.
+      CARRIED FROM v1.0.59 AND RE-MEASURED AT THE v1.0.60 PIN: 1 hit.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'wire_store_auth_pth .+PYTHON3_BIN.+OSTLER_FINAL_DIR'
+      must_match: true
+
+  - id: v1059-k-the-compiler-writes-where-the-bursar-reads
+    title: the wiki compiler's journal mount points at the daemon's workspace, so writer and reader name one path
+    incident: >-
+      🔴 THE BURSAR SAW A QUIET MONTH INSTEAD OF A SEVERED PIPE, SECOND HALF.
+      #1301 (row B) mounted the host journal into the compose stack and that
+      was necessary. It was not sufficient: the mount source was
+      HOME/.ostler/workspace, and the daemon actually runs with
+      ZEROCLAW_WORKSPACE pointed at OSTLER_DIR/assistant-config, so its
+      CostTracker reads OSTLER_DIR/assistant-config/workspace/state. The
+      compiler was therefore still writing on the FAR SIDE of the mount, its
+      records were still discarded at container exit, and the panel still
+      rendered a smaller number that reads as low spend rather than as a broken
+      pipe.
+      FIX (#1330): point the mount source at the daemon's workspace so the
+      writer and the reader name one path.
+      ⚠️ TWO ROWS, ONE SUBJECT, AND THAT IS DELIBERATE. Row B proves the mount
+      exists; this row proves it is aimed at the right directory. Either alone
+      reads as "the journal works" and neither alone makes it true. This is the
+      same shape as rows H and J, in a different subsystem, in the same cut --
+      which is the argument for why a manifest row must name the mechanism and
+      not the intention.
+      ⚠️ THE PATTERN KEYS ON THE COMPOSE LINE, NOT ON A COMMENT. Three comment
+      blocks now mention assistant-config/workspace and any of them could be
+      tidied away without touching behaviour. It also carries no dollar sign and
+      no braces, and reaches the closing brace with `.` rather than naming it.
+      CARRIED FROM v1.0.59 AND RE-MEASURED AT THE v1.0.60 PIN: 1 hit.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'assistant-config/workspace./state:/workspace/state'
+      must_match: true
+
+  - id: v1060-l-the-doctor-can-be-asked-what-each-source-did
+    title: the Doctor serves a typed per-source status record, so "which sources ran" stops being a guess
+    incident: >-
+      THERE WAS NO PLACE TO ASK WHAT EACH SOURCE ACTUALLY DID, so every answer
+      about ingest came from counting probes or reading markers sideways. That
+      is the shape behind a long run of disagreeing surfaces: a freshness panel
+      with no per-source date, components reading stale while others update,
+      and people counts that differ across three screens. The instrument was
+      missing, not merely wrong.
+      FIX (#1346, G1a/G1b/G1c/G3): a typed hydrate sentinel plus a
+      /api/v1/sources reader on the Doctor, so one record answers both "did it
+      run?" and "is it still updating?" rather than leaving each surface to
+      infer its own answer.
+      ⚠️ THIS ROW PROVES THE ROUTE, NOT THE DATA. Serving an endpoint is not
+      populating it, and a per-source status that is present but empty would
+      satisfy this pattern. Whether real sources report real statuses on a real
+      box is behaviour and belongs to the walk, which is where it is carried.
+      Presence is the only thing a source-grep can honestly assert.
+      ⚠️ A LATENT PATH-RESOLUTION TRAP IS KNOWN AND FILED, NOT SHIPPED-BROKEN.
+      The reader honours OSTLER_HOME then OSTLER_DIR while the writer uses
+      OSTLER_DIR alone, and OSTLER_HOME already means HOME rather than
+      HOME/.ostler elsewhere in install.sh. Refuted for the shipping config --
+      the Doctor LaunchAgent sets neither variable and its own comment records
+      that LaunchAgents inherit no environment, so both reads are None and the
+      reader falls back to the writer's path. It is an instance of the
+      two-meanings class already tracked as #325 and its fix is a fast-follow,
+      deliberately not folded into a cut window.
+      NEW IN v1.0.60. TWO-SIDED: 0 hits at the v1.0.59 pin, 1 here.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: vendor/doctor/agent/web_ui.py
+      pattern: 'api/v1/sources'
+      must_match: true
+
+  - id: v1060-m-a-removal-is-reported-as-a-removal
+    title: a Transcripts folder the customer deleted is reported as removed, not as a Mac that never had one
+    incident: >-
+      NEVER-HAD-IT AND HAD-IT-AND-LOST-IT PRINTED IDENTICALLY, AND ONE OF THEM
+      WAS FALSE. The message is written for a fresh Mac where no recording has
+      ever been made. In the other case it states a cause that is not the
+      cause: the user tree WAS created and announced, and the Transcripts
+      directory has been removed since. "there are no recordings to read" is
+      then untrue, and a feed the customer previously had goes quiet underneath
+      a reassuring sentence. Absence of data and absence of the place data
+      lives are not the same absence.
+      FIX (#1347, B2): the user-tree sentinel is the discriminator and it
+      already existed for exactly this purpose, so the branch reports a removal
+      AS a removal.
+      ⚠️ THE FIX STILL CREATES NOTHING, AND THAT IS DELIBERATE. The sentinel's
+      original intent is that a customer who has knowingly removed or renamed a
+      subdir is not surprised by its silent re-creation. That intent is
+      preserved: what changed is only what is SAID, not what is made.
+      `warn` rather than `info`, because after a removal this is a capability
+      that was available and now is not.
+      ⚠️ THE ROW KEYS ON THE MESSAGE IDENTIFIER, NOT ON THE COMMENT BLOCK. The
+      commit is mostly its own reasoning, and keying there would guard the
+      documentation of the fix rather than the branch that emits it -- the same
+      reasoning already recorded on rows C and K.
+      NEW IN v1.0.60. TWO-SIDED: 0 hits at the v1.0.59 pin, 1 here.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'MSG_WARN_FEED_SPOKEN_TRANSCRIPTS_REMOVED'
+      must_match: true
+
+  - id: v1060-n-the-extension-carries-its-own-credential
+    title: the browser extension has a credential of its own, wired through the Doctor proxy
+    incident: >-
+      THE EXTENSION HAD NO CREDENTIAL OF ITS OWN, so its ingest calls sat
+      behind the same auth wall that has produced a run of "works after
+      pairing, dead before it" defects. A capture surface that cannot
+      authenticate is a capture surface that silently drops what it captures.
+      FIX (#1343, B3 a+b): a dedicated extension token module plus the proxy
+      arm that honours it.
+      ⚠️ THE ROW KEYS ON THE PROXY WIRE, NOT ON THE NEW MODULE. A pattern
+      against extension_token.py would score 21 and prove only that a file was
+      added -- the #532 two-artefacts-one-consumer shape, where the content
+      half lands and the wiring half does not. Keying on the CONSUMER means the
+      row goes red if the module ships unwired, which is the failure this
+      estate keeps meeting.
+      NEW IN v1.0.60. TWO-SIDED: 0 hits at the v1.0.59 pin, 2 here.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: vendor/doctor/agent/proxy.py
+      pattern: 'extension_token'
+      must_match: true
+
+  - id: v1061-o-a-clean-finish-cannot-be-claimed-over-a-failed-step
+    title: the closing verdict consults the failed-step list, so an install cannot report success over a step that failed
+    incident: >-
+      THE INSTALLER TOLD THE CUSTOMER IT HAD FINISHED CLEANLY WHILE ITS OWN
+      RECORD HELD FAILED STEPS. Caught on the v1.0.60 ARTEFACT during the walk,
+      not reasoned about from source: the post-install QA read
+      `DONE status=ok failed_steps=2 errors=0` -- a clean verdict printed over
+      two recorded failures. Filed as v1060-D001. The customer is told the
+      thing worked; the log says otherwise; and the person who most needs to
+      know is the one being reassured.
+      FIX (#1369): the closing verdict is DERIVED from the accumulated
+      __OSTLER_FAILED_STEPS list rather than asserted independently of it, and
+      a non-empty list produces a warning that names the failure instead of a
+      success line.
+      ⚠️ PATTERN CHOSEN AGAINST A MEASURED ALTERNATIVE. `failed_steps` is the
+      obvious string and it scores 1 on the PRE-FIX tree, so a row keyed there
+      would report green with no fix present. The message identifier the new
+      branch emits scores 0 before and 1 after, which is the only shape that
+      can go red if the fix is reverted.
+      NEW IN v1.0.61. TWO-SIDED: 0 hits pre-fix, 1 here.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'MSG_WARN_INSTALL_FINISHED_WITH_FAILED_STEPS'
+      must_match: true
+
+  - id: v1061-p-a-reuse-run-keeps-the-customers-daily-briefs
+    title: re-running the installer with reuse-settings restores the customer's configured daily-brief channels instead of dropping them
+    incident: >-
+      A CUSTOMER-VISIBLE SILENT LOSS ON A PATH PEOPLE ACTUALLY TAKE. Choosing
+      "reuse my settings" on a re-run rewrote the assistant config without
+      carrying the existing daily-brief channel configuration forward, so the
+      briefs the customer had already set up stopped arriving. Nothing failed,
+      nothing was logged, and the install reported success -- the defect is
+      invisible until a brief does not turn up. Filed as #619.
+      FIX (#1377): the reuse path reads the channels out of the existing
+      config and restores them, so a re-run preserves what the customer
+      configured rather than silently replacing it.
+      MUTATION-PROVED AGAINST THE REAL PRE-FIX TREE, not a synthetic one: with
+      the fix reverted the test fails with "wrote 0 [[cron.jobs]], expected 2
+      -- the customer lost their briefs". The test is INVOKED, not merely
+      present (2 call sites, control 2).
+      NEW IN v1.0.61. TWO-SIDED: 0 hits pre-fix, 2 here.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: '_ostler_restore_channels_from_existing_config'
+      must_match: true
+  - id: v1062-q-the-import-refuses-a-store-that-is-not-ready
+    title: the import step refuses an unready store instead of embedding 3810 people into a void
+    incident: >-
+      A STEP REPORTED status=ok WHILE DISCARDING EVERY RECORD IT WAS GIVEN.
+      On the clean-account v1.0.61 walk the Qdrant collections did not exist
+      at the moment import_data ran. Collections do not self-create on a cold
+      install, so every one of 3810 people was embedded, posted to a missing
+      collection, 404'd and dropped. Nothing failed. The step printed
+      STEP_END status=ok and the install carried on. The customer's entire
+      people graph was lost in silence, and the only reason we know the
+      number is that the log recorded what was attempted. Filed as v1061-D003.
+      FIX (#1385): the import now checks the store BEFORE it runs and refuses
+      with ERR-14-STORE-NOT-READY-FOR-IMPORT rather than running into a void.
+      The refusal is wired AHEAD of the import step and its script call, so
+      the check and the thing it guards are connected rather than adjacent,
+      and the test asserts that ordering by line number.
+      NEW IN v1.0.62. TWO-SIDED: 0 hits at 477608ab, 1 here.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'ERR-14-STORE-NOT-READY-FOR-IMPORT'
+      must_match: true
+  - id: v1062-r-an-import-that-stored-nothing-is-a-failure
+    title: an import that attempted thousands of records and stored none of them now fails the install
+    incident: >-
+      THE REFUSAL GATE ALONE WOULD NOT HAVE CAUGHT THE WALK'S DEFECT. A store
+      can answer a readiness probe and still accept nothing, so a gate that
+      only asks "is the store up" leaves the silent-loss path open. The
+      second half of the v1061-D003 fix is a YIELD FLOOR read AFTER the
+      import: attempted a positive number, stored zero, fail with
+      ERR-14-IMPORT-STORED-NOTHING.
+      THE FLOOR IS THREE-STATE, WHICH IS THE PART THAT IS EASY TO GET WRONG.
+      Its first cut read the attempted count with `2>/dev/null || printf 0`,
+      which reports an UNREADABLE log as "attempted 0" -- and attempted-zero
+      is precisely the value that makes the floor decline to fire. A guard
+      that disarms itself when it cannot see is the same false zero that cost
+      a redundant re-ingest in v1061-D004. The shipped read sits behind an -r
+      readability guard, returns the string CANNOT-RUN when it cannot read,
+      and CANNOT-RUN does not fail the install. The import log is retained
+      past the failure that cites it, so the failure keeps its evidence.
+      NEW IN v1.0.62. TWO-SIDED: 0 hits at 477608ab, 1 here.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'ERR-14-IMPORT-STORED-NOTHING'
+      must_match: true
+  - id: v1062-s-the-store-readiness-wait-has-a-name-and-a-ceiling
+    title: the store-readiness wait is a named, tunable cap of 300s rather than an anonymous 30
+    incident: >-
+      THE READINESS MISS THAT CAUSED THE SILENT LOSS WAS A TIMEOUT NOBODY
+      COULD SEE OR CHANGE. The wait for Qdrant to answer was a bare 30 in the
+      middle of a function: not named, not documented, not overridable, and
+      on real hardware under a cold install it is too short. Thirty seconds
+      of patience is what stood between the customer and a complete people
+      graph, and no operator could have raised it without editing install.sh.
+      FIX (#1386, filed as #628): the wait is named _QDRANT_READY_CAP, raised
+      to 300, overridable via OSTLER_QDRANT_READY_WAIT_S with the override
+      validated rather than trusted, and the floor is declared and
+      mutation-proved so a future edit cannot quietly lower it again.
+      THE ROW KEYS ON THE NAME, NOT THE NUMBER. A row on "300" would pass on
+      any file that happens to contain that digit string; the identifier is
+      the mechanism and cannot be satisfied by coincidence.
+      NEW IN v1.0.62. TWO-SIDED: 0 hits at 477608ab, 7 here. The env override
+      was measured separately at 0 pre and 4 here.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: '_QDRANT_READY_CAP'
+      must_match: true
+  - id: v1062-t-a-locked-store-no-longer-reads-as-an-empty-one
+    title: a store that refused to answer is reported as CANNOT-RUN, never as a store containing nothing
+    incident: >-
+      A LOCKED STORE AND AN EMPTY STORE PRINTED THE SAME THING, AND THE WALK
+      PAID FOR IT. The collection count was read with `curl -sf ... || true`,
+      and `curl -sf` against a 401 exits 22 with no output, so an
+      AUTHENTICATED store that declined to answer was indistinguishable from
+      a store with nothing in it. The install concluded the store was empty
+      and bought a full redundant re-ingest on that basis. Filed as
+      v1061-D004.
+      FIX (#1386): the read prints the string CANNOT-RUN on every path where
+      it did not get an answer -- transport failure, a 200 with an empty
+      body, an unparseable shape -- and never prints 0 for a read it did not
+      get. The decision to re-ingest is then taken by
+      _initial_hydrate_qdrant_is_positively_empty, a predicate that answers
+      yes only on a POSITIVE reading of zero. Could-not-read is not empty.
+      NEW IN v1.0.62. TWO-SIDED: 0 hits at 477608ab, 2 here.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: '_initial_hydrate_qdrant_is_positively_empty'
+      must_match: true
+  - id: v1062-u-no-backslash-whitespace-survives-in-the-shipped-installer
+    title: the character sequence that killed the v1.0.61 walk cannot be present in install.sh
+    incident: >-
+      THIS IS THE DEFECT THAT ENDED THE WALK. A SPACE after a
+      line-continuation backslash at install.sh:26690 meant the backslash
+      continued nothing: the line ended there, and the argument that should
+      have followed became a separate command. `bash -n` on the real pre-fix
+      file EXITS 0, so syntax checking could never have caught it, and it
+      reached a customer-representative clean account and stopped the
+      install. Filed as v1061-D006, fixed in #1386.
+      THIS ROW IS THE ONLY GUARD THAT READS THE SHIPPED FILE ITSELF. A
+      dedicated gate exists (scripts/verify_no_broken_line_continuation.py,
+      with a self-test carrying its own control) and OS003's BOM carries the
+      same invariant for grep -E. This row is the third instrument, and it is
+      here because the defect is invisible to every syntactic check we own.
+      THE PATTERN IS SPELLED FOR PYTHON, DELIBERATELY DIFFERENT FROM THE BOM
+      ROW. See the header: the BOM's POSIX-class spelling scores 2 here under
+      Python re, and the obvious \s spelling scores 661 because \s matches a
+      newline and re.findall is not line-oriented. Both wrong spellings were
+      measured before this one was chosen.
+      NEW IN v1.0.62. TWO-SIDED, IN THE ABSENCE DIRECTION: 1 hit at 477608ab,
+      0 here. A row that must be absent is only meaningful if it was once
+      present, and this one was.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: '\\[ \t]'
+      must_match: false
+
+  - id: v1063-v-a-pgrep-no-match-cannot-fabricate-a-terminal-verdict
+    title: a pgrep no-match no longer fabricates a TERMINAL failure verdict mid-install
+    incident: >-
+      THE WALK-KILLER. During the post-scan the installer enumerated child
+      processes with a bare `for kid in $(pgrep -P "$pid")`. When pgrep matched
+      nothing it exited non-zero, the ERR trap fired inside the command
+      substitution's SUBSHELL, and the run emitted a SECOND DONE marker with a
+      TERMINAL failure verdict while the install was still going. Three earlier
+      harnesses all REFUTED this, every one for the same reason -- each kept an
+      rc-capturing fallback on the fallible call, which suppressed ERR and made
+      the defect unreproducible by construction. FIX (#1392, e17dad02, register
+      #642, also closes #639) guards the call. It postdates the v1.0.62 tag by
+      3h14m, which is why v1.0.62 must not be walked.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      # REGEX, not a fixed string. My first attempt used `|| true); do` and the
+      # validator died with "unbalanced parenthesis at position 7" -- I had
+      # verified it with `grep -F`, a DIFFERENT INSTRUMENT from the one that
+      # runs. This matches the guarded CALL, not a comment about it.
+      pattern: 'pgrep -P "\$pid" 2>/dev/null \|\| true'
+      must_match: true
+
+  - id: v1063-w-a-done-status-ok-carrying-a-failed-step-is-not-a-success
+    title: a DONE status=ok carrying a failed step is reconciled rather than reported as success
+    incident: >-
+      MEASURED ON THE v1.0.62 WALK LOG ITSELF, not reasoned about: the run
+      finished `DONE status=ok failed_steps=1 errors=0`. A success verdict
+      carrying a failed step tells the customer everything worked when it did
+      not. FIX (#1401, 6e82afc5) reconciles the termination verdict against the
+      failed-step count. ENTIRELY SWIFT -- it touches zero lines of install.sh,
+      so no shell pattern can guard it and the proof reads the Swift source.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/OstlerInstaller/InstallerCoordinator.swift
+      pattern: failedStepsMessage
+      must_match: true
+
+  - id: v1063-x-bootout-settles-before-bootstrap
+    title: LaunchAgent bootout settles before bootstrap, on a named env-tunable window
+    incident: >-
+      Bootout did not settle before bootstrap, so a service could be bootstrapped
+      while its predecessor was still tearing down. FIX (#1398, 0c4f920a) adds a
+      NAMED, env-tunable settle window rather than a hardcoded guess, and in the
+      same change revives 14 CANNOT-RUN branches that were dead code -- a branch
+      that can never execute cannot report, and an unreportable CANNOT-RUN reads
+      as a pass.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: OSTLER_LAUNCHAGENT_BOOTOUT_SETTLE_S
+      must_match: true
+
+  - id: v1063-y-a-launchagent-refusal-reaches-the-transcript
+    title: a LaunchAgent refusal records its reason and names the GUI domain state
+    incident: >-
+      `launchctl load` EXITS 0 ON FAILURE, so at every call site a refusal was
+      indistinguishable from a success and reached nobody. FIX (#1396, 1adc5ef1)
+      records the refusal reason into the transcript and names the GUI domain
+      state, so a refusal is legible after the fact instead of vanishing.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: OSTLER_GUI_DOMAIN_STATE
+      must_match: true
+
+  - id: v1063-z-payload-assembly-strips-ambient-pycache
+    title: payload assembly strips ambient __pycache__ before seeding the shipped tree
+    incident: >-
+      Payload assembly copied whatever `__pycache__` happened to be on the
+      operator's disk into the SHIPPED tree, baking local bytecode -- including
+      co_filename build paths -- into a PUBLIC artefact. FIX (#1400, f875f353,
+      register #644) strips ambient bytecode before seeding.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: gui/Makefile
+      pattern: pycache
+      must_match: true
+
+  - id: v1064-aa-an-empty-owner-email-cannot-ship-a-dead-agent
+    title: an owner email that could not be read never reaches a shipped LaunchAgent
+    incident: >-
+      USER_EMAIL is read from exactly ONE place: the macOS me-card via
+      osascript. On a Mac where Contacts.app has never been launched that call
+      returns "Contacts got an error: Application isn't running. (-600)" --
+      which is the NORMAL state of a machine somebody has just set up. The
+      installer already RECOGNISED that failure and warned about it; what it
+      had was no fallback and no guard. So the agent shipped
+      CM052_USER_EMAIL="" and cm052.cli refused once an hour, forever.
+      ONE EMPTY STRING, TWO SYMPTOMS, NEITHER NAMING THE CAUSE:
+      ai_conversations read not_run permanently, AND the same rc=2 folded
+      through gui_step_record_rc into health_check -- which is why every
+      service reported healthy and the step still exited 2.
+      FIX (#1418): refuse to register an agent that cannot succeed, tell the
+      customer why in plain language, and record a DECLARED reason so the
+      source says WHY rather than only that it did not run.
+      MEASURED at this cut's tree: 1 hit.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'owner_email_unknown_agent_not_registered'
+      must_match: true
+
+  - id: v1064-ab-the-owner-email-has-a-source-that-needs-no-gui
+    title: the owner address is read from the accounts database when Contacts cannot be scripted
+    incident: >-
+      A warm GUI app is the property LEAST likely to hold at install time.
+      ~/Library/Accounts/Accounts4.sqlite holds every configured account and is
+      a plain file present before any app is opened. Opened with immutable=1 so
+      reading the customer's live accounts store takes no lock and creates no
+      -wal/-shm sidecars.
+      IT PICKED THE WRONG ADDRESS ON THE FIRST BOX IT MET AND THE CODE SAYS SO:
+      the account-identity address is not the one the owner uses. It ships
+      anyway because a plausible-but-wrong address is correctable in one field
+      while an absent one leaves the source dead until somebody notices. THE
+      REAL FIX IS TO ASK, PRE-FILLED, AND THAT IS NOT DONE.
+      MEASURED at this cut's tree: 17 hits.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'Accounts4.sqlite'
+      must_match: true
+
+  - id: v1064-ac-the-recurring-tick-records-that-it-ran
+    title: ongoing ingestion writes an activity record instead of leaving the install-time verdict standing
+    incident: >-
+      All eleven hydrate sentinels were frozen between 08:29Z and 08:45Z --
+      install time -- while imports/fda/imessage_conversations.json was
+      rewritten at 09:17Z with 167 conversations and 136 people created. The
+      extract moved and the record did not, because nothing outside install.sh
+      had ever written a sentinel. A source that failed at install showed
+      failed forever after it recovered; one that worked showed ok forever
+      after it died.
+      FIX (#1418): the ostler-fda tick already computed a per-source results
+      dict and threw it away. It now writes state/source_activity/<n>.tsv --
+      a SECOND record, never the install-time one repurposed, carrying
+      last_run_at and last_success_at separately because "ran 4 minutes ago and
+      found nothing" and "last ran at install" print identically with one
+      timestamp. Best-effort and wrapped: bookkeeping about ingest must never
+      fail the ingest it describes.
+      MEASURED at this cut's tree: 1 hit.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'source_activity'
+      must_match: true
+
+  - id: v1064-ad-the-doctor-joins-the-ticks-key-names-to-the-canonical-ones
+    title: the source-status route bridges the tick's key names to the canonical sources by an explicit table
+    incident: >-
+      The activity writer landed with green tests and then met a real box:
+      only THREE of nine records joined. The tick derives its keys from
+      ingest_all and those are not the canonical hydrate names -- it writes
+      apple_mail, browser_history, bookmarks, people_index. So email, browsing
+      and people reported ongoing="never" while their ingest had demonstrably
+      just succeeded. The suite was green because BOTH SIDES OF THE JOIN WERE
+      WRITTEN FROM THE SAME WRONG ASSUMPTION, and a test cannot catch an
+      assumption it shares.
+      FIX (#1418): an EXPLICIT table, never fuzzy matching. `people` vs
+      `people_index` would fall to a prefix rule; `email` vs `apple_mail` would
+      not, and a rule loose enough to catch it would also join apple_mail to
+      apple_notes -- reporting a source as working on another source's
+      evidence. A control asserts that join never happens.
+      MEASURED at this cut's tree: 2 hits.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: vendor/doctor/agent/web_ui.py
+      pattern: '_SOURCE_ACTIVITY_ALIASES'
+      must_match: true
+
+  - id: v1064-ae-rule-2-is-enforced-on-the-converge-path
+    title: the whole-graph converge obeys RULE 2, which it had never heard of
+    incident: >-
+      RULE 2 of the ratified dedupe ruleset -- "MUST NOT MERGE: different
+      canonical keys, even if identical display name" -- was implemented in
+      IdentityResolver, and that was recorded as "stops NEW ones". It stops new
+      ones ON THE RESOLVE PATH. batch_resolver --execute --converge is the
+      OTHER path: install.sh runs it on EVERY install and the dedupe-catchup
+      agent re-runs it hourly. It reached the graph through raw SPARQL in
+      _merge_oxigraph and never consulted the veto. There is exactly ONE caller
+      of merge_persons() and it IS guarded -- this path never called it, which
+      is why every audit that started from the guarded function came back
+      clean.
+      THAT IS WHY THE COUNT GREW while the fix was believed in place: 128 on
+      the v1.0.38 box, 130 on 2026-08-26, 137 on the v1.0.63 walk, with the
+      probe failing on v1.0.52, v1.0.61 and v1.0.63.
+      FIX (#1418): the veto is applied per pair before any write, FAILS CLOSED
+      when the store cannot be read, and prints its refusal count.
+      MEASURED at this cut's tree: 3 hits.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: vendor/cm041/identity_resolver/batch_resolver.py
+      pattern: '_canonical_keys_conflict'
+      must_match: true
+
+  - id: v1064-af-identity-resolver-declares-what-it-imports
+    title: the resolver's requirements file lists all three of its dependencies
+    incident: >-
+      requirements.txt exists specifically because PR #109 added a rapidfuzz
+      import without declaring it anywhere. The same omission was sitting in
+      the same package, twice: phonenumbers (normalise.py) and httpx
+      (resolver.py, batch_resolver.py) were both undeclared.
+      It stayed invisible because every environment that runs this package --
+      the installed venv, a developer machine, the box -- already had all three
+      from a SIBLING requirements file. A dependency list is only tested by an
+      environment that has nothing, and building one clean venv found it in
+      seconds.
+      Enumerated rather than added one traceback at a time: chasing them one
+      failure at a time is how a list ends up one short again.
+      MEASURED at this cut's tree: 3 hits.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: vendor/cm041/identity_resolver/requirements.txt
+      pattern: 'phonenumbers'
+      must_match: true
+
+  - id: v1064-ag-an-imessage-zero-is-declared-not-undeclared
+    title: a source that ran and produced no NEW people says so, instead of reporting an undeclared zero
+    incident: >-
+      detail=zero_payload_undeclared reached the customer for a source that had
+      ingested 15,344 messages and created no new people because every contact
+      was already known. The sentinel design supports a declared reason and the
+      call site passed nothing, so the one distinction the sentinel exists to
+      make -- declared vs undeclared zero -- collapsed, and the product told
+      its owner the source produced nothing.
+      FIX (#1417): a declared reason, with a control asserting the genuinely
+      ABSENT leg keeps a DIFFERENT detail, so the fix cannot delete the
+      distinction it restores.
+      ⚠️ THE PATTERN IN THIS ROW WAS WRONG WHEN FIRST WRITTEN. It was recorded
+      as `no_new_people_all_contacts_known`, taken from a status post rather
+      than from the tree, and measured 0 hits -- the same score as the negative
+      control, which is what caught it. A pattern that scores exactly what the
+      control scores has not been verified, it has been guessed.
+      MEASURED at this cut's tree: 1 hit.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'ran_ok_no_new_or_enriched_people'
+      must_match: true
+  - id: v1065-aa-a-source-with-no-input-must-not-fail-the-install
+    title: >-
+      an optional source that was never given its input no longer fails the
+      whole install
+    incident: >-
+      MEASURED on Andy's Mini during the v1.0.63 walk, 2026-09-04. The final
+      step closed `status=error rc=2` and the install reported
+      `failed_steps=1` while every probe inside that step logged healthy:
+      Qdrant, Oxigraph, Redis, Ollama, pairing, Doctor, assistant API, wiki,
+      Vane. The install worked, the app came up, the assistant sent its first
+      iMessage, and the installer's last word was a red step.
+      CAUSE: USER_EMAIL comes from the macOS me-card via osascript, which
+      returns "Application isn't running. (-600)" on a Mac where Contacts has
+      never been opened, so the address is empty and cm052.cli refuses.
+      Re-measured against the installed binary on that box, with a control:
+      empty CM052_USER_EMAIL exits 2, `--help` on the same binary exits 0, so
+      the 2 is specific to the missing address and not a broken venv. The
+      drain ran anyway and its rc was folded into the shared step recorder.
+      🔴 v1.0.64 FIXED ONLY THE OTHER HALF. #1418 stopped registering an
+      hourly agent that could only fail, but that guard sits BELOW the fold,
+      so the drain still ran and health_check still reddened. The v1.0.64 cut
+      manifest states this defect as fixed, and so did a code comment written
+      the same morning. Half a fix reads exactly like a whole one.
+      FIX (#1428): ONE predicate, `_aiconv_owner_email_known`, read by BOTH
+      consumers -- the install-time drain and the LaunchAgent registration --
+      so they cannot disagree. With no address the drain is skipped, rc stays
+      0, and the sentinel recorded is `status=no_data` with a declared reason,
+      which freshness does NOT treat as done, so the source returns on its own
+      once an address exists.
+      PROVED BY EXECUTION, not by a pattern: the test extracts the real block
+      and runs it against a stub producer exiting 2. Two pinned controls,
+      45126e9a and deecd9fc, BOTH reproduce the failure; the second is what
+      proves v1.0.64 did not fix it. A negative control on the fix itself
+      requires the rc to STILL be folded when an address is present, so
+      deleting the fold is not the cheap way to green.
+      MEASURED at this cut's tree: 3 hits, against 0 in both pre-fix trees,
+      with a 16/16 control confirming the zeros are real.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: '_aiconv_owner_email_known'
+      must_match: true
+
+  - id: v1066-contact-syncer-modules
+    title: "contact_syncer ships the two modules the installer actually runs"
+    why: >-
+      MEASURED on the box from the installer's own diagnostic logs, walks 11
+      and 12 of v1.0.65:
+      ModuleNotFoundError: No module named 'contact_syncer.photo_storage'
+      and: No module named contact_syncer.places_ingest.
+      install.sh:17729 copies the ROOT contact_syncer/ into the import
+      pipeline. That copy had 19 modules against the vendored copy's 24, and
+      the two it lacked are two the installer RUNS -- one by intra-package
+      import from syncer.py, one as an `-m` entry point.
+      🔴 THE CUSTOMER-VISIBLE SHAPE IS WHY IT SURVIVED SIX CUTS. hydrate dies
+      at elapsed_s=0, the customer is told "your contacts are on this Mac but
+      Ostler imported 0 of them", and the install then reaches its end and
+      reports DONE status=ok. Nothing about a completed install says the
+      contacts never arrived. Present in v1.0.60 through v1.0.65, every tag
+      checked directly with `git cat-file -p` after `git show <tag>:<path>` was
+      discarded as an instrument for returning EMPTY with rc=0 under zsh.
+      THE PROOF GREPS INSIDE THE RESCUED FILE, not for its import. The import
+      `from contact_syncer.photo_storage import ...` was present in the BROKEN
+      tree too -- that is what raised the error -- so greping for it would pass
+      on the defect. `def write_photo` exists only in the file that was
+      missing.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: contact_syncer/photo_storage.py
+      pattern: 'def write_photo'
+
+  - id: v1066-hydrate-counter-unmeasured
+    title: "a hydrate counter that could not run is not recorded as a measured zero"
+    why: >-
+      install.sh:25424 was a command substitution containing a pipeline with NO
+      guard, sitting immediately after a guarded producer: the expensive call
+      was defended and the arithmetic after it was not. Class measured BY
+      EXECUTION rather than by parse -- 19 multi-line sites probed, 11 abort, 8
+      survive, 10 of the 11 in the hydrate family -- against a parse that
+      claimed 20 and would have handed over nine non-defects.
+      🔴 THE GUARD ALONE WOULD HAVE BEEN WORSE THAN THE DEFECT. It composed
+      with a merged change that gave the zero a DECLARED reason and a
+      pre-existing `:-0`, so a run that FAILED and a run that FOUND NOBODY
+      emitted BYTE-IDENTICAL sentinels. A declared cause is safe only while the
+      value it explains cannot be manufactured. Both halves therefore landed
+      together and never apart: a loud abort is better than a quiet
+      fabrication.
+      The pattern below is the honest record itself, which exists only once the
+      second half is present.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'counter_failed_count_unmeasured'
+
+  - id: v1066-doctor-probe-cap
+    title: "the doctor probe cap sits above the command it wraps"
+    why: >-
+      MEASURED on the walk box against a daemon that was up and answering,
+      three consecutive runs: 15.7s, 15.7s, 15.6s, all rc=0, spread 0.1s. The
+      installer capped it at 10s. Every run exits 0 and every run exceeds the
+      cap, and a tenth of a second of spread means that is the command's NORMAL
+      duration, not a slow sample.
+      CONSEQUENCE on every install, for a daemon working perfectly:
+      health_check closed status=timeout rc=124 and the installer's own closing
+      line read "Ostler finished, but 1 install step(s) did not complete
+      cleanly: health_check". That was the last remaining failure on the walk
+      that certified this cut.
+      A cap BELOW the normal duration of the thing it wraps is not a timeout,
+      it is a guaranteed failure with a timeout's name on it. The daemon's own
+      doctor output confirms the floor independently: it runs a 15-second
+      internal imessage-tcc probe. Now named and tunable, defaulting to 60.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'OSTLER_DOCTOR_PROBE_TIMEOUT_S'
+
+  - id: v1066-old-format-sentinel-upgrade
+    title: "an old-format sentinel does not abort the upgrade"
+    why: >-
+      `item_count=` and `last_update_at=` arrive in #1346, so every build up to
+      v1.0.59 wrote sentinels without them. On an upgrade the grep for them
+      finds nothing and exits 1, pipefail promotes that to the substitution,
+      and with no guard the install ABORTS -- as a generic ERR-99, because
+      `2>/dev/null` has already discarded the reason. `_hydrate_compute_change`
+      is called from EVERY hydrate block and runs before the sentinel is
+      rewritten, so the abort lands early on a customer whose only
+      distinguishing feature is not having upgraded for a few versions.
+      An absent key means "no previous value", which the code below it already
+      handles, so the empty string is the CORRECT value and not a fallback.
+      ⚠️ LATENT, NOT LIVE, and recorded as such: neither box available carries
+      an old-format sentinel -- the walk account is wiped every run and the
+      Hub's eleven sentinels are all the new format -- so reachability is
+      traced end to end rather than executed.
+    proof:
+      kind: grep_in_source_at_sha
+      repo: cm051
+      path_hint: install.sh
+      pattern: 'A MISSING KEY IS A REAL STATE'
