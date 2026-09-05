@@ -406,6 +406,7 @@ test_vendor_only_survives_sync.sh	WIRED	.github/workflows/cut.yml
 test_vendor_pair_drift.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_src_placeholder_unset.sh	WIRED	.github/workflows/cut.yml
 test_vendor_symbol_resolution.py	WIRED	.github/workflows/cut.yml
+test_vendored_fda_writes_the_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_venvs_install_store_shim.sh	WIRED	.github/workflows/venv-store-shim.yml
 test_verify_appcast_published.sh	WIRED	.github/workflows/appcast-ship-wiring.yml

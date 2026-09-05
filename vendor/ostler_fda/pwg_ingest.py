@@ -33,6 +33,8 @@ import httpx
 
 from .role_addresses import is_role_identifier  # noqa: F401
 from .identifier_quality import observe as _observe_identifier
+from .usage_journal import record_usage as _record_usage
+from .usage_journal import tokens_from_ollama as _tokens_from_ollama
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,35 @@ QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
 OLLAMA_URL = os.getenv("EMBED_OLLAMA_URL", "http://localhost:11434")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
+
+# Identifies THIS run in the usage journal -- never the person. One id per
+# process so the panel can tell "one big import" from "forty small ones".
+_USAGE_SESSION_ID = f"ostler-fda-ingest-{uuid.uuid4().hex[:12]}"
+
+
+def _record_embed_usage(response: dict) -> None:
+    """Record one embedding call as `ingesting`, if the runtime measured it.
+
+    Embedding a source for the first time is the definition of ingesting, so
+    this is the purpose regardless of which extractor called us.
+
+    Silent when Ollama reported no counts. That is the contract's hard rule
+    (measured, never estimated) and not an oversight: the legacy
+    ``/api/embeddings`` endpoint returns the vector alone, so on an install
+    still pointed at it this stays dark rather than inventing a number.
+    """
+    prompt, completion = _tokens_from_ollama(response)
+    if prompt is None and completion is None:
+        return
+    _record_usage(
+        model=EMBED_MODEL,
+        input_tokens=prompt,
+        output_tokens=completion,
+        purpose="ingesting",
+        session_id=_USAGE_SESSION_ID,
+    )
+
+
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "people")
 DEFAULT_PRIVACY = os.getenv("DEFAULT_PRIVACY_LEVEL", "L2")
 
@@ -494,6 +525,7 @@ def _embed_text(text: str) -> list[float]:
         )
         resp.raise_for_status()
         data = resp.json()
+    _record_embed_usage(data)
     embs = data.get("embeddings") or [data.get("embedding")]
     return embs[0]
 
@@ -1412,7 +1444,12 @@ def _ollama_embed_batch(texts: list[str]) -> list[list[float]]:
                     json={"model": EMBED_MODEL, "input": chunk},
                 )
                 resp.raise_for_status()
-                embs = resp.json().get("embeddings")
+                payload = resp.json()
+                # Recorded per CHUNK, because that is per HTTP call and so per
+                # measurement Ollama returns. The degraded per-text fallback
+                # below routes through _embed_text, which records its own.
+                _record_embed_usage(payload)
+                embs = payload.get("embeddings")
                 if embs is None or len(embs) != len(chunk):
                     # Malformed/short batch: degrade to one-at-a-time.
                     embs = []
