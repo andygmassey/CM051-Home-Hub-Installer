@@ -63,6 +63,34 @@ if [ ! -r "${REG}" ]; then
     printf 'CANNOT-RUN: no register at cuts/%s/MUST_CONTAIN.tsv\n' "${CUT_VERSION}" >&2
     printf '            Absence of a register is not an empty register. A cut\n' >&2
     printf '            with nothing to prove has not been described yet.\n' >&2
+    printf '\n' >&2
+    # NAME THE LIKELY CAUSE. This refusal is reached at PROMOTE time, which is
+    # AFTER a box walk -- the scarcest thing in this pipeline and the one step
+    # only a human can perform. A refusal that does not say why costs that walk.
+    #
+    # The register is authored in the RELEASE repo and copied here, because this
+    # gate resolves it relative to its own directory. Every version present in
+    # both has been byte-identical, so a version that is absent HERE is almost
+    # always a version that was written THERE and not copied across -- not a cut
+    # that was never described.
+    printf '            The register is authored in the release repo and copied\n' >&2
+    printf '            into this one. This gate resolves it relative to its own\n' >&2
+    printf '            directory, so it can only ever read the copy. Check whether\n' >&2
+    printf '            %s exists there and has not been copied\n' "${CUT_VERSION}" >&2
+    printf '            across yet -- that is the usual cause, and it is one file.\n' >&2
+    printf '\n' >&2
+    printf '            Versions this repo currently carries:\n' >&2
+    # PRINTED, not summarised. "no register" and "no cuts directory at all" are
+    # different findings and used to print identically.
+    if [ -d "${HERE}/../cuts" ]; then
+        ls -1 "${HERE}/../cuts" 2>/dev/null \
+            | /usr/bin/grep -E '^v[0-9]' \
+            | /usr/bin/tail -8 | /usr/bin/sed 's/^/              /' >&2 \
+            || printf '              (none)\n' >&2
+    else
+        printf '              THERE IS NO cuts/ DIRECTORY AT ALL, which is a\n' >&2
+        printf '              different fault from a missing version.\n' >&2
+    fi
     exit 2
 fi
 

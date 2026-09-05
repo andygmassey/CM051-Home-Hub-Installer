@@ -386,6 +386,7 @@ test_tailscale_recovery_wrapper.sh	WIRED	.github/workflows/tests-unwired-sweep-m
 test_takeout_split_zip_no_abort.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_cron_reader_sees_both_toml_spellings.sh	WIRED	.github/workflows/install-manifest-gate.yml
 test_the_port_preflight_aborts_carry_distinct_support_codes.sh	WIRED	.github/workflows/colima-autostart.yml
+test_the_promote_instructions_name_what_makes_it_fail.sh	WIRED	.github/workflows/customer-download-path.yml
 test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_walk_record_says_whether_the_stores_are_history.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_third_party_data_consent.sh	WIRED	.github/workflows/consent-contract.yml
