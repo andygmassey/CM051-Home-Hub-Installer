@@ -30,6 +30,11 @@ on:
       # #1562: the uninstaller emitted zero structured markers, so a GUI could
       # not show a customer what it was doing.
       - 'tests/test_the_uninstaller_speaks_the_gui_marker_protocol.sh'
+      # The decoder contract: the uninstaller's marker vocabulary must be known
+      # to the GUI before the GUI can run it. Watches the Swift decoder too,
+      # because teaching it is what clears the gate.
+      - 'tests/test_a_gui_uninstall_needs_its_decoder_cases.sh'
+      - 'gui/OstlerInstaller/ProgressProtocol.swift'
       - 'tests/test_uninstall_cannot_claim_removal_it_did_not_do.sh'
       - '.github/workflows/uninstall-removal-honesty.yml'
   push:
@@ -110,3 +115,25 @@ jobs:
       - name: The uninstaller speaks the GUI marker protocol
         if: always()
         run: bash tests/test_the_uninstaller_speaks_the_gui_marker_protocol.sh
+
+      # A GUI UNINSTALL CANNOT LAND WITHOUT ITS DECODER CASES.
+      #
+      # #1568 gives the uninstaller three marker events. ProgressProtocol.swift
+      # knows none of them, and the coordinator surfaces an unknown event as an
+      # "Unrecognised marker" warning -- its own comment says unknown "must
+      # never round to fine".
+      #
+      # That is INERT while nothing in the app can run the uninstaller, which is
+      # true today: the only callers are two ttywalk.sh sites on a terminal. So
+      # this gate deliberately does NOT demand the cases now. It fires the
+      # moment a Swift source names the uninstaller, which is the moment the
+      # warnings would become real, and it names the missing events.
+      #
+      # Proved both ways: adding a Swift runner with an ignorant decoder fails
+      # and lists all three; teaching the decoder as well passes.
+      #
+      # if: always() so an earlier red cannot mask it, appended last so no
+      # existing step's immunity changes.
+      - name: A GUI uninstall cannot land without its decoder cases
+        if: always()
+        run: bash tests/test_a_gui_uninstall_needs_its_decoder_cases.sh
