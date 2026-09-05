@@ -28,6 +28,7 @@ on:
       - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
       - 'tests/test_laptop_hub_power_copy_fires_on_laptops_only.sh'
       - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
+      - 'tests/test_a_self_removing_agent_deletes_its_plist_before_it_dies.sh'
       # A suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in the very PR that narrows it.
       - 'tests/test_uninstaller_counts_do_not_abort_on_an_unreadable_dir.sh'
@@ -304,3 +305,27 @@ jobs:
       - name: Assert agents that shell out to Homebrew tooling can find it
         if: always()
         run: bash tests/test_launchagent_homebrew_path.sh
+
+      # THE UNINSTALLER IS NOT THE ONLY THING THAT REMOVES A PLIST. Three
+      # agents remove THEMSELVES, and on the v1.0.66 artefact at .240 one of
+      # them had booted its label out of launchd and left both its plist and
+      # its tries file on disk.
+      #
+      # Cause, measured with a 10-iteration fixture agent on that Mac: a
+      # LaunchAgent that calls `launchctl bootout` on its OWN label reached the
+      # line before the bootout 10/10 and the line after it 0/10. launchd tears
+      # the job down before control returns, so the `rm -f` that followed was
+      # unreachable. ~/Library/LaunchAgents is read again at every login, so
+      # the surviving plist brought the "self-removed" agent back on every
+      # reboot, with its old tries count beside it.
+      #
+      # The invariant is ORDER, not presence: both statements appear in the
+      # broken form and the fixed one, so a gate grepping for either alone
+      # passes on both trees. This one grades every remove_self body and pins
+      # its negative control to the tree whose artefact left the plist behind.
+      #
+      # if: always() for the same reason as every other step here -- it is not
+      # first, and a skipped step reads as no objection.
+      - name: A self-removing agent deletes its plist BEFORE it boots itself out
+        if: always()
+        run: bash tests/test_a_self_removing_agent_deletes_its_plist_before_it_dies.sh
