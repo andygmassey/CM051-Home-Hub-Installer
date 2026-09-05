@@ -110,10 +110,36 @@ if [ -z "${PF_BLOCK}" ]; then
 elif ! /usr/bin/grep -qE 'PORT_CONFLICT=true' <<< "${PF_BLOCK}" \
   || ! /usr/bin/grep -qE 'if \[\[ "\$PORT_CONFLICT" == true \]\]' <<< "${PF_BLOCK}"; then
     cant "arm 4: lifted block is missing the set or the test of PORT_CONFLICT -- lift is truncated, predicate broken"
-elif /usr/bin/grep -qE '^[[:space:]]*fail ' <<< "${PF_BLOCK}"; then
-    ok "arm 4: a detected collision calls fail (aborts), not warn"
+# ⚠️ `fail(_with_code)?` AND NOT `fail`. CX-17 requires every abort to carry a
+# stable ERR-NN code, so these two sites are now `fail_with_code "ERR-06-..."`.
+# The property THIS arm asserts is "the collision path ABORTS rather than
+# warning", and fail_with_code aborts. Keying the predicate to the literal name
+# `fail` made a CX-17-compliant rewrite look like a regression -- a gate keyed
+# to a NAME rots when the name legitimately changes. The abort is still
+# required: `warn` does not match either spelling.
+#
+# It does NOT check the code itself; tests/test_every_fail_call_has_error_code.sh
+# owns that. One property per gate.
 else
-    bad "arm 4: collision path does not call fail -- install continues over a clash"
+    # ⚠️ BRANCH-SCOPED, NOT BLOCK-SCOPED, AND THE DIFFERENCE IS THE WHOLE ARM.
+    #
+    # This grepped the entire PF_BLOCK, which holds BOTH the PORT_CONFLICT
+    # branch and the PORT_UNMEASURED one. MEASURED by mutation: replacing the
+    # collision branch's abort with `warn` left arm 4 GREEN, because it found
+    # the OTHER branch's abort and could not tell them apart. It was asserting
+    # "something in the preflight aborts", not "a detected collision aborts".
+    #
+    # Lift the conflict branch on its own, exactly as arm 12 already does for
+    # PORT_UNMEASURED, and keep the same anti-vacuity rule: an empty lift is
+    # CANNOT-RUN, never a pass.
+    CONFLICT_BRANCH="$(/usr/bin/awk '/if \[\[ "\$PORT_CONFLICT" == true \]\]/{f=1} f{print} f&&/^fi$/{exit}' <<< "${PF_BLOCK}")"
+    if [ -z "${CONFLICT_BRANCH}" ]; then
+        cant "arm 4: could not isolate the PORT_CONFLICT branch -- predicate broken, not the code"
+    elif /usr/bin/grep -qE '^[[:space:]]*fail(_with_code)? ' <<< "${CONFLICT_BRANCH}"; then
+        ok "arm 4: a detected collision calls fail (aborts), not warn"
+    else
+        bad "arm 4: collision path does not call fail -- install continues over a clash"
+    fi
 fi
 
 # ---------------------------------------------------------------- arm 5
@@ -379,7 +405,7 @@ else
     UNMEAS="$(/usr/bin/awk '/PORT_UNMEASURED.*==.*true/{f=1} f{print} f&&/^fi$/{exit}' <<< "${PF_BLOCK}")"
     if [ -z "${UNMEAS}" ]; then
         bad "arm 12: no PORT_UNMEASURED branch at all -- an unmeasured port is silently free"
-    elif /usr/bin/grep -qE '^[[:space:]]*fail ' <<< "${UNMEAS}"; then
+    elif /usr/bin/grep -qE '^[[:space:]]*fail(_with_code)? ' <<< "${UNMEAS}"; then
         ok "arm 12: CANNOT-RUN aborts the install (calls fail), it does not warn-and-continue"
     else
         bad "arm 12: PORT_UNMEASURED warns and continues -- CANNOT-RUN is being treated as PASS"
