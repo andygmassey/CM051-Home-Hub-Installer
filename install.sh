@@ -19633,6 +19633,52 @@ IMPORT_SCRIPT="${OSTLER_DIR}/bin/ostler-import"
 
 mkdir -p "${OSTLER_DIR}/state"
 
+# -- Bounded osascript, self-contained. --------------------------------
+#
+# THIS SCRIPT IS WRITTEN FROM A QUOTED HEREDOC, SO IT SHARES NO SCOPE WITH
+# install.sh. `_notify` used to call install.sh's `_ostler_run_with_deadline`
+# with install.sh's `$OSTLER_OSASCRIPT_TIMEOUT_S`. NEITHER NAME EXISTS HERE,
+# and this script runs under `set -u`, where an unbound variable is FATAL.
+#
+# MEASURED on a v1.0.71 box, 2026-09-05, by running the shipped scanner:
+#     ostler-scan-exports: line 18: OSTLER_OSASCRIPT_TIMEOUT_S: unbound variable
+#     rc=1
+#
+# WHY IT HID FOR SO LONG, AND IT IS THE SHAPE OF THE ZERO. The scanner reaches
+# `_notify` only AFTER it has found an export, and it calls it BEFORE the
+# importer. So on an empty Downloads it returns 0 at the `FOUND -eq 0` guard
+# and looks perfectly healthy -- launchd records `runs = 1, last exit code = 0`
+# and writes a 0-byte log. The instant a customer puts a real export there it
+# dies at line 18 and imports NOTHING. The passing state was the one with no
+# work to do, and every green install log was consistent with it.
+#
+# The bound is not decoration: an Apple Event blocks on the target's event
+# loop, and a penalty-boxed agent once wedged this exact export-scan -> import
+# chain for 23h56m on 40ms of CPU. `timeout` does not exist on macOS, so the
+# bound is an explicit sleep + kill. Overridable for harnesses and slow boxes.
+OSTLER_OSASCRIPT_TIMEOUT_S="${OSTLER_OSASCRIPT_TIMEOUT_S:-20}"
+
+_ostler_run_with_deadline() {
+    local _deadline_s="$1"; shift
+    "$@" &
+    local _cmd_pid=$!
+    local _waited=0
+    while kill -0 "$_cmd_pid" 2>/dev/null; do
+        if [[ "$_waited" -ge "$_deadline_s" ]]; then
+            kill -TERM "$_cmd_pid" 2>/dev/null || true
+            sleep 1
+            if kill -0 "$_cmd_pid" 2>/dev/null; then
+                kill -KILL "$_cmd_pid" 2>/dev/null || true
+            fi
+            wait "$_cmd_pid" 2>/dev/null || true
+            return 124
+        fi
+        sleep 1
+        _waited=$((_waited + 1))
+    done
+    wait "$_cmd_pid"
+}
+
 _notify() {
     # $1 = message, $2 = subtitle
     _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
