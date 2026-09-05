@@ -433,3 +433,6 @@ open_issues:
   - issue: 1583
     title: "a shipped privacy filter uses gte where its docstring says max, so it returns MORE private data than asked for"
     gate: "FIX: qdrant_loader.py uses range gte where the docstring says max, and the sibling CM024 implementation uses lte. Higher = more private (health data is level 5), so a request for at-most-2 returns health data. CANNOT-RUN on whether a customer reaches it; fix regardless, the next caller inherits the inversion silently"
+  - issue: 1586
+    title: "the cut manifest is selected by text sort, so v1.0.9 outranks v1.0.72 and v1.0.100"
+    gate: "FIX: verify_cut_manifest.py:2194 sorts filenames as TEXT. Measured: sorted([v1.0.72, v1.0.100, v1.0.9])[-1] = v1.0.9. Correct today only by accident of every patch being two digits and >= 11. Silent and it INVERTS a gate -- the verifier reports PASS having checked the wrong checklist. Sort on a parsed tuple and REFUSE an unparseable name rather than sorting around it"
