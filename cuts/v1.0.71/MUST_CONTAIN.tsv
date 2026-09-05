@@ -1,0 +1,82 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.71.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.71/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# EVERY ROW SAYS ONE OF THREE THINGS AND NEVER A FOURTH
+# ===========================================================================
+#   gate:<workflow>#<what>  a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.71 CARRIES THE SAME SHIPPING PAYLOAD AS v1.0.70 AND v1.0.69. Two cuts in
+# a row have now been tagged and not built, and neither failure was in the
+# build:
+#
+#   v1.0.69  refused at PREFLIGHT by walk closure, twice, for rows that were
+#            PRESENT. The row lookup piped into an awk that exits on the first
+#            match, the producer took EPIPE, and `pipefail` turned a FOUND row
+#            into NO ROW. Fixed in OS003 #220.
+#   v1.0.70  tagged and the cut job died in NINE SECONDS on `[RED] CM051:#1549`.
+#            Every other pre-cut check reads a tree, which freezes the instant
+#            the tag exists. The orphan gate reads the set of OPEN PULL
+#            REQUESTS, which is mutable by anyone at any moment. The open-PR
+#            list was read at 13:10Z, #1549 opened at 13:14:22Z, and the tag was
+#            pushed at 13:20:01Z. The gate was right; the operator was ten
+#            minutes stale.
+#
+# ===========================================================================
+# WHAT v1.0.71 ADDS THAT v1.0.70 DID NOT HAVE, AND WHY IT DECIDES THE WALK
+# ===========================================================================
+# CM051 #1549, the PR that killed v1.0.70, is the reason this cut is worth more
+# than the one it replaces. It does not ship in the DMG -- it is a box-walk
+# probe -- so it carries no row below. It changes what the WALK CAN CONCLUDE.
+#
+# `no_person_holds_two_contact_cards` is the probe meant to close #1543 on a
+# box. Its anti-vacuity control counted `icloud_contact_uid` identifiers, which
+# proves THE PREDICATE CAN SEE. It does not prove THE BOX PRESENTED THE
+# CONDITIONS THE DEFECT NEEDS. A virgin account whose contacts share no phone
+# or email gives resolve() nothing to match on, the RULE 2 guard is never asked
+# to act, and the probe passes having exercised nothing.
+#
+# The proof plan recorded in three places -- the handoff, the shipping ledger
+# and this register -- said "a fresh install on a virgin account reading 0".
+# That zero can be vacuous, and v1.0.70's walk would have produced it.
+#
+# The probe now prints EARNED, UNEXERCISED or UNMEASURED. Only EARNED is a
+# proof. A walk of this artefact that prints UNEXERCISED closes nothing.
+#
+# ===========================================================================
+# BOTH ROWS WERE EXECUTED AGAINST THE PRE-FIX TREE
+# ===========================================================================
+# Carried forward unchanged from v1.0.70 and v1.0.69. A wiring table proves a
+# test RUNS, not that it can FAIL, so both were run against install.sh at
+# f60307ad, the v1.0.68 pin, with the fixed tree as the control:
+#
+#   #1520 diagnostics persist        rc=2  CANNOT-RUN pre-fix
+#   #1515 killed converge recorded   rc=1  FAILS      pre-fix
+#
+#   CONTROL: both return rc=0 on the fixed tree, so a pre-fix non-zero is the
+#            change and not a broken harness.
+#
+# The CANNOT-RUN is weaker evidence than the FAIL and is recorded as weaker:
+# it refuses because the persister it extracts BY NAME did not exist before the
+# fix. A gate that refuses is a gate that would block a regression, and rc=2 is
+# a refusal, never a pass.
+#
+# ===========================================================================
+# LANDED, AND HOW THAT WAS ESTABLISHED
+# ===========================================================================
+# Both refs are ANCESTORS of the CM051 pin, checked with
+# `git merge-base --is-ancestor`, not asserted. Ancestry is valid in ONE
+# direction only: TRUE proves landed.
+what	repo	ref	landed	capability_id	verify	ticket
+THE DIAGNOSTICS MUST SURVIVE THE RUN THAT PRODUCED THEM. OSTLER_DIAG_DIR is a mktemp directory under TMPDIR, which on macOS is /var/folders/<per-user>/T and is purged on the OS schedule, not ours. install.sh names it in 82 places including three of the loudest warnings we ship -- the half-migrated-store warning, the calendar extractor failure and the conversation-ingest structural break. Each told a customer to read a file at a transient path. The migration warning exists to make someone STOP AND LOOK and it named a file they could not find the next day. Now copied to ~/.ostler/diagnostics/<utc> at 0700, best-effort by construction: an install must never fail because a log copy did not.	CM051	be7ab01f	yes	none	gate:install-diagnostics-durable.yml#test_install_diagnostics_survive_the_run.sh	#1520
+A KILLED CONVERGE IS RECORDED, AND NO LONGER CALLS ITSELF HARMLESS. install.sh kills the identity resolver on a 300s budget: SIGTERM, 2s, SIGKILL. The comment beside it claimed nothing is lost because the resolver commits each merge as it goes. That is true per MERGE and false per SPARQL UPDATE -- merge_persons is eight updates, identifiers move at step 1 and the authorising tombstone is written at step 6, and SIGKILL cannot be trapped. The kill path now writes ~/.ostler/state/dedupe-converge.killed with the time, the budget and the risk, because the ABSENCE of the .done marker cannot distinguish killed-at-budget from exited-non-zero.	CM051	3955abae	yes	none	gate:killed-converge-leaves-a-record.yml#test_killed_converge_leaves_a_record.sh	#1515
