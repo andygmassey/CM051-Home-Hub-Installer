@@ -209,6 +209,30 @@ jobs:
       # pins the order to C; this asserts the read-before-mutate relation under
       # BOTH C and this runner's own collation, so the runner measures the
       # locale question rather than anyone trusting one machine's answer.
+      # AND THE READER MUST NOT READ OUR OWN PAIRING AS THE PRODUCT'S. Within one
+      # walk the reader runs first, so it sees a pristine box. Between walks the
+      # stores and config are NOT wiped -- ttywalk.sh:541 says so in its own reset
+      # output -- so walk N+1 can find the device walk N paired. Any device-layer
+      # `paired` that could be ours is withheld; a `not paired` is never
+      # contaminated and passes through. The arithmetic needs no box.
+      - name: The pair-state reader does not read our own pairing as the product
+        if: always()
+        run: |
+          rc=0
+          out="$(/bin/bash scripts/box_walk_probes/probes/pair_state_agreement.sh --self-test 2>&1)" || rc=$?
+          printf '%s\n' "$out"
+          # grep -c, never `| grep -q`: this runs under bash -eo pipefail and
+          # grep -q SIGPIPEs the producer on first match.
+          if [ "$(printf '%s' "$out" | grep -c 'VERDICT: BROKEN')" -gt 0 ]; then
+            echo "::error::the pair-state negative control reported BROKEN" >&2
+            exit 1
+          fi
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::the probe --self-test returned $rc, not 1. The box walk would mark it BROKEN." >&2
+            exit 1
+          fi
+          echo "OK: 16 of 16 cases, and the control fails as phase 1 requires."
+
       - name: A pairing reader runs before the pairing mutator, in both collations
         if: always()
         run: bash tests/test_a_pairing_reader_runs_before_the_pairing_mutator.sh

@@ -42,6 +42,69 @@ HEALTH_URL="${OSTLER_HEALTH_URL:-http://127.0.0.1:8089/doctor/api/health}"
 # daemon does not use, and install_manifest_complete refusing to run remotely).
 GATEWAY_HEALTH_URL="${OSTLER_GATEWAY_HEALTH_URL:-http://127.0.0.1:8000/health}"
 
+# ── THIS PROBE CAN BE HANDED ITS OWN SUITE'S PAIRING AS EVIDENCE ────────────
+#
+# pairing_recovers_without_a_repair_storm performs a REAL pair against :8443 and
+# persists a bearer token. It runs AFTER this probe in the same walk, so within
+# ONE walk this probe reads a pristine box. But the stores and config are NOT
+# wiped between walks: ttywalk.sh:541 says so in its own reset output, that "any
+# probe reading them is measuring history, not this artefact", and install.sh
+# deliberately merges the old paired_tokens forward so an upgrade does not unpair
+# every device.
+#
+# So on walk N+1 the device registry may hold the device walk N paired. Every
+# device-layer signal here would then say `true` -- and this probe exists to
+# catch a FALSE `true`. It would be reporting the suite own footprint as the
+# product state, in the one direction it was built to distrust.
+#
+# ONLY THE `true` DIRECTION IS CONTAMINATED. A pairing this suite performed can
+# make a signal say paired; it can never make one say NOT paired. So a `false`
+# passes through untouched and only a `true` that could be ours is withheld.
+#
+# The ledger is the one pairing_recovers_without_a_repair_storm writes, and it
+# increments only where a body carrying "paired":true was actually seen.
+WALK_MINT_LEDGER="${OSTLER_WALK_MINT_LEDGER:-\$HOME/.ostler/state/walk-minted-pair-tokens}"
+
+read_walk_mint_ledger() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        printf '%s' "${FAKE_MINTED:-0}"; return
+    fi
+    local out
+    out="$(box_run "if [ -f \"${WALK_MINT_LEDGER}\" ]; then /bin/cat \"${WALK_MINT_LEDGER}\"; else printf 0; fi" | tr -d '[:space:]')"
+    printf '%s' "${out}"
+}
+
+# THE ATTRIBUTION, AS TWO FUNCTIONS SHARED BY THE READERS AND THEIR CONTROLS.
+# An earlier draft of this file inlined a second copy of a parser into its own
+# control and would have gone green with the real reader broken. Not twice.
+attribute_device_count() {
+    # attribute_device_count <count> <minted> -> true | false | UNAVAILABLE
+    local n="$1" minted="$2"
+    case "$n" in ''|*[!0-9]*) printf 'UNAVAILABLE'; return ;; esac
+    case "$minted" in ''|*[!0-9]*) printf 'UNAVAILABLE'; return ;; esac
+    if [ "$n" -eq 0 ]; then
+        # Nothing is paired. If we HAD paired something the registry would show
+        # it, so this is an honest `false` about the product either way.
+        printf 'false'; return
+    fi
+    if [ "$n" -gt "$minted" ]; then
+        # At least one paired device is not one of ours.
+        printf 'true'; return
+    fi
+    # 0 < n <= minted: every paired device could be this suite own.
+    printf 'UNAVAILABLE'
+}
+
+attribute_device_flag() {
+    # attribute_device_flag <true|false|UNAVAILABLE> <minted> -> same domain
+    # For a signal that carries no count, any `true` is withheld once this suite
+    # has paired anything at all.
+    local v="$1" minted="$2"
+    case "$minted" in ''|*[!0-9]*) printf 'UNAVAILABLE'; return ;; esac
+    if [ "$v" = "true" ] && [ "$minted" -gt 0 ]; then printf 'UNAVAILABLE'; return; fi
+    printf '%s' "$v"
+}
+
 # --- signal readers. Each prints  true | false | UNAVAILABLE ---------------
 
 # 🔴 THE GLOB PARSE WAS A FALSE-POSITIVE WAITING FOR AN ENDPOINT THAT HAS THE
@@ -109,10 +172,12 @@ signal_health_flag() {
     if [ "$v" = "UNAVAILABLE" ]; then
         v="$(_health_paired_from "$HEALTH_URL")"
     fi
-    printf '%s' "$v"
+    attribute_device_flag "$v" "$WALK_MINTED"
 }
 
 DEVICES_DB_USED=""   # set by signal_devices_rows so run_probe can report WHICH file
+DEVICES_DB_ROWS=""   # the raw row count, kept so the note can print it beside the verdict
+WALK_MINTED="0"      # devices this suite paired, read from the mint ledger in run_probe
 
 signal_devices_rows() {
     if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
@@ -159,11 +224,10 @@ signal_devices_rows() {
                    printf 'UNAVAILABLE' ;;
         OK*)       rest="${out#OK }"
                    DEVICES_DB_USED="${rest#* }"
-                   case "${rest%% *}" in
-                       ''|*[!0-9]*) printf 'UNAVAILABLE' ;;
-                       0)           printf 'false' ;;
-                       *)           printf 'true' ;;
-                   esac ;;
+                   # THE COUNT, NOT A BOOLEAN. A count can be compared against
+                   # how many devices this suite paired; a boolean cannot.
+                   DEVICES_DB_ROWS="${rest%% *}"
+                   attribute_device_count "${rest%% *}" "$WALK_MINTED" ;;
         *)         DEVICES_DB_USED="unparseable discovery output"
                    printf 'UNAVAILABLE' ;;
     esac
@@ -189,9 +253,7 @@ signal_pair_marker() {
     out="$(box_run "if [ -d \"\$HOME/.ostler/paired_devices\" ]; then ls \$HOME/.ostler/paired_devices/*.json 2>/dev/null | wc -l | tr -d ' '; else printf ABSENT; fi")"
     case "$out" in
         ABSENT) printf 'UNAVAILABLE' ;;
-        ''|*[!0-9]*) printf 'UNAVAILABLE' ;;
-        0) printf 'false' ;;
-        *) printf 'true' ;;
+        *) attribute_device_count "$out" "$WALK_MINTED" ;;
     esac
 }
 
@@ -306,6 +368,8 @@ run_probe() {
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; no pairing signals read"
     fi
 
+    WALK_MINTED="$(read_walk_mint_ledger)"
+
     local h d m c g
     # Signals 1-3 read the device registry. MEASURED DEAD on the live box
     # (#511) -- kept because they are the RIGHT signals once it is wired, and
@@ -318,8 +382,16 @@ run_probe() {
     c="$(signal_config_require_pairing)"
     g="$(signal_gateway_pairing_required)"
 
+    # PRINT IT EVEN WHEN IT IS ZERO. A zero never printed and a measurement that
+    # never ran read identically from a log.
+    case "$WALK_MINTED" in
+        ''|*[!0-9]*)
+            probe_note "devices paired BY THIS SUITE  : UNREADABLE ledger at ${WALK_MINT_LEDGER} -- every device-layer signal below is withheld rather than attributed to the product" ;;
+        0)  probe_note "devices paired BY THIS SUITE  : 0  (device-layer signals stand as measured)" ;;
+        *)  probe_note "devices paired BY THIS SUITE  : ${WALK_MINTED}  (a device-layer 'paired' that could be ours is withheld, a 'not paired' is not)" ;;
+    esac
     probe_note "daemon health paired flag    : $h"
-    probe_note "devices.db row count         : $d"
+    probe_note "devices.db row count         : $d  (raw rows: ${DEVICES_DB_ROWS:-n/a})"
     probe_note "paired_devices/*.json        : $m"
     probe_note "config.toml require_pairing  : $c"
     probe_note "gateway pairing_required     : $g"
@@ -414,7 +486,7 @@ run_probe() {
 
 self_test() {
     SELF_TEST_LOCAL=1
-    probe_examined 6 "synthetic signal combinations (negative control)"
+    probe_examined 16 "synthetic cases (negative control): 6 signal combinations and 10 attribution cases"
 
     # 1. The #208 shape: health says paired, devices.db is empty. MUST disagree.
     local r
@@ -459,6 +531,56 @@ self_test() {
     if [ "${r%% *}" != "AGREE" ]; then
         probe_pass "NEGATIVE CONTROL OVER-FIRED: config and gateway both saying true adjudicated as '${r%% *}'. A correctly configured box would fail this row."
     fi
+
+    # ── ATTRIBUTION CONTROL: the suite own pairing is not the product ──
+    #
+    # Driven through attribute_device_count and attribute_device_flag, the SAME
+    # functions the three device-layer readers call. Cases 2 and 8 are the false
+    # GREEN this exists to remove -- a probe built to distrust a `paired` reading
+    # its own suite pairing as the product. Cases 3 and 9 are the false RED it
+    # could have bought: withholding must never swallow a real one.
+    _ac_fail=0
+    _ac() {
+        # _ac <label> <fn> <arg1> <minted> <expected>
+        local got; got="$("$2" "$3" "$4")"
+        if [ "$got" != "$5" ]; then
+            _ac_fail=1
+            printf 'VERDICT: BROKEN -- %s: %s %s %s said "%s", expected "%s".\n' \
+                "$1" "$2" "$3" "$4" "$got" "$5"
+        fi
+    }
+
+    _ac "a paired box we have not touched"        attribute_device_count 5 0  true
+    _ac "every paired device could be OURS"       attribute_device_count 5 5  UNAVAILABLE
+    _ac "more devices than we paired"             attribute_device_count 5 2  true
+    _ac "nothing paired at all"                   attribute_device_count 0 3  false
+    _ac "ledger ahead of the registry"            attribute_device_count 2 5  UNAVAILABLE
+    _ac "an unreadable ledger withholds"          attribute_device_count 5 "" UNAVAILABLE
+    _ac "a flag on a box we have not touched"     attribute_device_flag true  0 true
+    _ac "a flag that could be OUR pairing"        attribute_device_flag true  1 UNAVAILABLE
+    _ac "a NOT-paired flag is never contaminated" attribute_device_flag false 9 false
+    # THE ARM I HAD NOT WRITTEN. Case 6 covers an unreadable ledger for the
+    # COUNT function only; mutating the FLAG function to assume 0 was missed by
+    # all nine. A must-match with no must-miss over-counts its own coverage.
+    _ac "an unreadable ledger withholds a flag too" attribute_device_flag true "" UNAVAILABLE
+
+    if [ "$_ac_fail" -ne 0 ]; then
+        printf '  A pairing this suite performed can make a signal say PAIRED. It can\n'
+        printf '  never make one say NOT paired. Get that wrong in one direction and the\n'
+        printf '  probe reports our own footprint as the product; wrong in the other and\n'
+        printf '  it withholds a real reading and can never go green.\n'
+        exit "$PROBE_EX_FAIL"
+    fi
+    probe_note "attribution control: 10 of 10 cases through the real attribute_device_* functions"
+
+    # AND THE END-TO-END CLAIM: with nothing minted, the #208 shape must still be
+    # caught. The attribution must not have blunted the probe on a clean box.
+    r="$(adjudicate "$(attribute_device_flag true 0)" "$(attribute_device_count 0 0)" UNAVAILABLE)"
+    if [ "${r%% *}" != "DISAGREE" ]; then
+        printf 'VERDICT: BROKEN -- with 0 minted, health=true vs devices=0 adjudicated as "%s", not DISAGREE. The attribution has blunted task #208 on a clean box.\n' "${r%% *}"
+        exit "$PROBE_EX_FAIL"
+    fi
+    probe_note "end-to-end control: with 0 minted the task #208 shape is still DISAGREE"
 
     # ── PARSE CONTROL: the real gateway body shape ────────────────────
 
@@ -514,7 +636,7 @@ self_test() {
     fi
 
 
-    probe_fail "negative control behaved correctly on all 6 combinations (split-brain caught, consistent states passed, single-signal refused, live #512 shape caught, healthy 2-signal box cleared)"
+    probe_fail "negative control behaved correctly on all 16 cases: split-brain caught, consistent states passed, single-signal refused, live #512 shape caught, healthy 2-signal box cleared, and 10 of 10 attribution cases -- a paired reading that could be this suite own is withheld while a real one and every not-paired reading pass through"
 }
 
 probe_main "$@"
