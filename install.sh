@@ -20239,6 +20239,59 @@ trap '_ostler_uninstall_on_err $? $LINENO "$BASH_COMMAND"' ERR
 #
 # These are mutually exclusive. Specifying neither falls through
 # to the interactive Y/n prompt below.
+#
+# ── #1560: CONSENT FOR AN UNATTENDED RUN ───────────────────────
+#
+# --yes, or OSTLER_UNINSTALL_ASSUME_YES=1, is the ONLY way to
+# uninstall without a human typing YES. Before this the confirm at
+# the destructive gate was a bare `read -p` with no override of any
+# kind, so a GUI button or any scripted caller blocked forever on an
+# invisible prompt. #1562 (a GUI uninstall, which Andy asked for
+# directly) cannot be built on top of that.
+#
+# 🔴 CONSENT IS EXPLICIT AND IS NEVER INFERRED FROM THE TERMINAL.
+# This file contains no terminal-detection test of any kind, and the
+# ban is written WITHOUT quoting the construct on purpose: a comment
+# that reproduces the banned literal makes every grep for it find the
+# explanation instead of a violation. A stray pipe, a cron job or a
+# GUI that forgot to pass the flag must NOT be read as authorisation
+# to destroy a customer's library. The absence of a terminal can only
+# ever make this script REFUSE; it can never make it proceed.
+#
+# The three outcomes are kept distinct because a caller has to tell
+# them apart:
+#
+#   proceeded         explicit consent, exit 0
+#   declined          a human typed something other than YES, exit 0
+#   could not ask     no consent and no way to obtain it, exit 3,
+#                     HAVING REMOVED NOTHING
+#
+# The third is the one that was missing. A half-uninstalled box is
+# worse than an untouched one, so the gate refuses BEFORE the first
+# destructive line rather than failing partway through.
+ASSUME_YES="${OSTLER_UNINSTALL_ASSUME_YES:-}"
+
+# ── #1567 review: NON-EMPTY IS NOT TRUTHY ──────────────────────
+#
+# The gate below used to ask `-n "$ASSUME_YES"`, which is a test
+# for "the caller wrote something", not for "the caller said yes".
+# Driven with stdin closed, 0 / no / false / NO / banana ALL
+# proceeded to the destructive phase. The single most likely
+# string a caller writes for "do not do this" is 0, and the GUI
+# is exactly the kind of caller that passes 0 or 1 from a
+# checkbox, so the failure mode was a destructive uninstall
+# authorised by the word meaning no.
+#
+# Consent is now an ALLOW-LIST. Anything not on it -- including a
+# value nobody anticipated -- is not consent, and falls through to
+# ASK, which with no stdin means exit 3 having removed nothing.
+# The safe direction is the default for every unrecognised input.
+_assume_yes_granted() {
+    case "$ASSUME_YES" in
+        1|y|Y|yes|Yes|YES|true|True|TRUE) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 KEEP_CONTENT_DECISION=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -20248,6 +20301,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --remove-content)
             KEEP_CONTENT_DECISION="remove"
+            shift
+            ;;
+        --yes|-y)
+            ASSUME_YES=1
             shift
             ;;
         --help|-h)
@@ -20263,6 +20320,9 @@ flags below to skip the prompt:
 
   --keep-content     Keep ~/Documents/Ostler/ after uninstall
   --remove-content   Remove ~/Documents/Ostler/ as well
+  --yes, -y          Proceed without the interactive confirmation.
+                     Also settable as OSTLER_UNINSTALL_ASSUME_YES=1.
+                     Without it, a run that cannot ask removes NOTHING.
   --help, -h         Show this help
 
 The interactive YES confirm gate cannot be skipped.
@@ -20303,10 +20363,47 @@ echo "    - Your original GDPR export files"
 echo "    - Your hub power policy (~/.ostler/power.conf)"
 echo "      kept so a reinstall reuses your existing policy"
 echo ""
-read -p "  Are you sure? This cannot be undone. (type YES to confirm): " CONFIRM
-if [[ "$CONFIRM" != "YES" ]]; then
-    echo "  Cancelled."
-    exit 0
+# ── #1560: THE GATE. Three outcomes, and the third used to be absent ──
+#
+# `read` under `set -euo pipefail` returns non-zero on EOF, which
+# would abort the script through the ERR trap and report a FAILED
+# uninstall. That is the right end state (nothing removed) reached
+# by the wrong route: the customer is told the uninstall broke,
+# when in fact it was never authorised. So the EOF case is handled
+# here, deliberately, and named.
+#
+# The terminal is NOT consulted here, and no test for one appears in
+# this file. The only thing that authorises destruction is --yes or
+# OSTLER_UNINSTALL_ASSUME_YES=1, both of which a human or a caller
+# had to write down.
+if [[ -n "$ASSUME_YES" ]] && ! _assume_yes_granted; then
+    # A value was written down and it does not mean yes. Say so, or
+    # the caller reads "stdin gave no answer" below and never learns
+    # that the thing they set is the reason.
+    echo "" >&2
+    echo "  OSTLER_UNINSTALL_ASSUME_YES is set to a value that is not consent." >&2
+    echo "  Consent must be one of: 1, y, yes, true (any case)." >&2
+    echo "  Falling through to the confirmation prompt." >&2
+    echo "" >&2
+fi
+if _assume_yes_granted; then
+    echo "  Proceeding without a prompt (--yes / OSTLER_UNINSTALL_ASSUME_YES)."
+elif read -r -p "  Are you sure? This cannot be undone. (type YES to confirm): " CONFIRM; then
+    if [[ "$CONFIRM" != "YES" ]]; then
+        echo "  Cancelled."
+        exit 0
+    fi
+else
+    # EOF: no tty, a closed stdin, or a pipe that ended. We could not
+    # ASK, which is not the same as being told no, and is very much
+    # not the same as being told yes.
+    echo "" >&2
+    echo "  Cannot ask for confirmation: stdin gave no answer (EOF)." >&2
+    echo "  NOTHING HAS BEEN REMOVED." >&2
+    echo "" >&2
+    echo "  This uninstall is destructive and needs consent it could not obtain." >&2
+    echo "  To run it unattended, pass --yes or set OSTLER_UNINSTALL_ASSUME_YES=1." >&2
+    exit 3
 fi
 
 # ── User-facing content (Wiki/Transcripts/Captures/etc.) ───────
@@ -20425,11 +20522,29 @@ if [[ -d "$USER_FACING_ROOT" ]]; then
     fi
     echo ""
 
-    if [[ -z "$KEEP_CONTENT_DECISION" ]]; then
+    if [[ -z "$KEEP_CONTENT_DECISION" ]] && _assume_yes_granted; then
+        # #1560: an unattended run must not stop here either, and the
+        # default is the NON-DESTRUCTIVE one. --yes is consent to
+        # uninstall Ostler, not consent to delete the customer's own
+        # documents; taking it as both would make one flag mean two
+        # things, and the second is unrecoverable. A caller that
+        # really wants the content gone says --remove-content.
+        KEEP_CONTENT_DECISION="keep"
+        echo "  --yes with no content flag; ${USER_FACING_ROOT}/ will be PRESERVED."
+    elif [[ -z "$KEEP_CONTENT_DECISION" ]]; then
         # Interactive prompt. Default Y matches the bolded letter
         # in the question, per the productisation contract:
         # bolded letter == default action.
-        read -p "  Keep your generated content? [Y/n]: " KEEP_REPLY
+        #
+        # EOF here is NOT fatal: by this point consent to uninstall has
+        # already been given, and the safe default is to keep. Handled
+        # explicitly because `read` failing under set -e would otherwise
+        # abort a run that was authorised and half-done.
+        if ! read -r -p "  Keep your generated content? [Y/n]: " KEEP_REPLY; then
+            KEEP_REPLY="Y"
+            echo ""
+            echo "  No answer on stdin; keeping ${USER_FACING_ROOT}/ (the safe default)."
+        fi
         case "${KEEP_REPLY:-Y}" in
             n|N|no|NO|No)  KEEP_CONTENT_DECISION="remove" ;;
             *)             KEEP_CONTENT_DECISION="keep" ;;
