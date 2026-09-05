@@ -179,6 +179,60 @@ else:
     bad("a misspelled proof key gave %s (%s); the whitelist no longer refuses "
         "instructions it does not understand" % (r.status, r.detail[:120]))
 
+# ── THE SIBLING CHECKER, WHICH THE LIVE MANIFEST ACTUALLY USES ─────────────
+# MEASURED on origin/main: cut-manifests/v1.0.72.yaml uses grep_in_installer
+# THREE times and grep_in_source_at_sha once. So the kind most rows meet is the
+# one that had no floor and, worse, NO KEY VALIDATION AT ALL: a row writing
+# `min_hits: 2` against it was silently ignored and passed on a single hit.
+# That is a false green produced by the feature's ABSENCE, which is worse than
+# not having the feature.
+INST = WORK / "instrepo"
+INST.mkdir(parents=True, exist_ok=True)
+(INST / "install.sh").write_text("_guard() {\n  :\n}\n", encoding="utf-8")
+
+
+def run_inst(**proof):
+    p = {"kind": "grep_in_installer", "pattern": "_guard"}
+    p.update(proof)
+    return V.check_grep_in_installer({"id": "t", "title": "t", "proof": p},
+                                     {"cm051_dir": INST, "app_path": None})
+
+
+n_inst = (INST / "install.sh").read_text().count("_guard")
+if n_inst != 1:
+    cannot("the installer fixture is not the shape this test assumes (%d)" % n_inst)
+ok("CONTROL: the installer fixture carries the pattern once, so a floor of 2 has "
+   "something to fail on")
+
+r = run_inst()
+if r.status == "PASS":
+    ok("CONTROL: grep_in_installer with no min_hits still passes on one hit, so the "
+       "three live rows are unaffected")
+else:
+    bad("grep_in_installer without min_hits now %s; this would break the live "
+        "manifest's three rows (%s)" % (r.status, r.detail[:110]))
+
+r = run_inst(min_hits=2)
+if r.status == "FAIL":
+    ok("grep_in_installer honours min_hits: a lone definition fails a floor of 2")
+else:
+    bad("grep_in_installer IGNORED min_hits and returned %s. A floor written on the "
+        "kind the live manifest uses most would be silently discarded (%s)"
+        % (r.status, r.detail[:110]))
+
+r = run_inst(min_hits=2, must_match=False)
+if r.status == "FAIL" and "contradictory" in r.detail:
+    ok("grep_in_installer refuses min_hits with must_match:false, same rule as its sibling")
+else:
+    bad("grep_in_installer accepted a contradictory proof: %s (%s)" % (r.status, r.detail[:110]))
+
+r = run_inst(min_hitz=2)
+if r.status == "FAIL" and "unknown proof key" in r.detail:
+    ok("grep_in_installer now REFUSES an unknown proof key, which it never did before")
+else:
+    bad("grep_in_installer still ignores unknown proof keys (%s); a misspelled floor "
+        "would pass on one hit" % r.status)
+
 shutil.rmtree(WORK, ignore_errors=True)
 print()
 print("%d passed, %d failed" % (PASS, FAIL))

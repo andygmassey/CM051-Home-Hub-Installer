@@ -335,16 +335,36 @@ def _iter_dmg_tree_scan_files(root: Path):
 
 def check_grep_in_installer(entry: dict, ctx: dict) -> Result:
     proof = entry["proof"]
+    # The live v1.0.72 manifest uses this kind THREE times and
+    # grep_in_source_at_sha once, so this is the checker most rows actually
+    # meet. It had no key validation at all: an unrecognised proof key was
+    # silently ignored, which is how `min_hits: 2` written here would have
+    # passed on a single hit.
+    unknown = sorted(set(proof) - _PROOF_KEYS)
+    if unknown:
+        return Result(entry["id"], entry["title"], "grep_in_installer", "FAIL",
+                      f"unknown proof key(s) {unknown}: refusing to run a check whose "
+                      f"instructions were not fully understood", entry.get("source_pr", ""))
     pattern = proof["pattern"]
     must_match = proof.get("must_match", True)
+    floor, err = _min_hits_floor(proof, must_match)
+    if err:
+        return Result(entry["id"], entry["title"], "grep_in_installer", "FAIL", err,
+                      entry.get("source_pr", ""))
     target = ctx["cm051_dir"] / "install.sh"
     if not target.is_file():
         return Result(entry["id"], entry["title"], "grep_in_installer", "SKIP",
                       f"install.sh not found at {target}", entry.get("source_pr", ""))
     hits = _grep_file(target, pattern)
-    ok = (hits > 0) if must_match else (hits == 0)
+    ok = (hits >= floor) if must_match else (hits == 0)
     status = "PASS" if ok else "FAIL"
     detail = f"pattern={pattern!r} must_match={must_match} hits={hits}"
+    if proof.get("min_hits") is not None:
+        detail += f" min_hits={proof['min_hits']}"
+        if not ok:
+            detail += (" (the pattern is PRESENT but below its floor). A definition with no "
+                       "remaining use satisfies a bare must_match; that is what this floor "
+                       "exists to catch.")
     return Result(entry["id"], entry["title"], "grep_in_installer", status, detail, entry.get("source_pr", ""))
 
 
@@ -499,6 +519,27 @@ def _is_self_describing(path: str) -> bool:
 # rows carrying it say `repo: cm051`, which resolves the same as the
 # `this-repo` default — so it was correct BY COINCIDENCE, not by construction.
 # A row saying `repo: ostler-assistant` would have silently grepped CM051.
+def _min_hits_floor(proof: dict, must_match: bool):
+    """Validate `min_hits` and return (floor, error_or_None).
+
+    Shared by every grep-family checker. It lives here rather than inside one
+    of them because a floor that exists on ONE kind is a footgun on the others:
+    a row that writes `min_hits: 2` against a checker which does not read it is
+    silently ignored and passes on a single hit. That is a FALSE GREEN created
+    by the feature's absence, which is worse than not having the feature.
+    """
+    raw = proof.get("min_hits")
+    if raw is None:
+        return 1, None
+    if not must_match:
+        return None, ("min_hits with must_match: false is contradictory: a floor on "
+                      "occurrences of a pattern that must not occur. Refusing to run a "
+                      "check whose instructions disagree with themselves.")
+    if not isinstance(raw, int) or isinstance(raw, bool) or raw < 1:
+        return None, f"min_hits must be an integer >= 1, got {raw!r}"
+    return raw, None
+
+
 # `min_hits` raises the floor from "appears at all" to "appears at least N
 # times". MEASURED 2026-09-05 across v1.0.71: all 38 rows are
 # grep_in_source_at_sha, and 10 of them match a bare function or variable NAME
@@ -595,18 +636,10 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
         return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "FAIL",
                       f"git invocation failed: {e}", entry.get("source_pr", ""))
     min_hits = proof.get("min_hits")
-    if min_hits is not None:
-        if not must_match:
-            return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "FAIL",
-                          "min_hits with must_match: false is contradictory: a floor on "
-                          "occurrences of a pattern that must not occur. Refusing to run a "
-                          "check whose instructions disagree with themselves.",
-                          entry.get("source_pr", ""))
-        if not isinstance(min_hits, int) or isinstance(min_hits, bool) or min_hits < 1:
-            return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "FAIL",
-                          f"min_hits must be an integer >= 1, got {min_hits!r}",
-                          entry.get("source_pr", ""))
-    floor = min_hits if min_hits is not None else 1
+    floor, err = _min_hits_floor(proof, must_match)
+    if err:
+        return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "FAIL", err,
+                      entry.get("source_pr", ""))
     ok = (hits >= floor) if must_match else (hits == 0)
     status = "PASS" if ok else "FAIL"
     scope = f"path={path_hint}" if path_hint else "whole-tree"
