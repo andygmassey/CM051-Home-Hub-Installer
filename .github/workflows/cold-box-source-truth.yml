@@ -75,6 +75,7 @@ on:
       - 'tests/test_an_unmeasured_flag_must_be_read.sh'
       - 'tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh'
       - 'tests/test_store_health_does_not_depend_on_a_foreign_port.sh'
+      - 'tests/test_a_plistbuddy_read_takes_its_exit_code.sh'
       - 'tests/test_the_sentinel_vocabulary_is_declared_and_complete.sh'
       - 'tests/test_no_function_is_called_before_it_is_defined.sh'
       - 'tests/test_doctor_probe_cap_exceeds_the_command.sh'
@@ -267,6 +268,14 @@ jobs:
       - name: Store health must not depend on a foreign port
         if: always()
         run: bash tests/test_store_health_does_not_depend_on_a_foreign_port.sh
+
+      # #1497's class. PlistBuddy answers on STDOUT when it fails, so a capture
+      # that ignores rc and tests [[ -n ]] reads a diagnostic as a value. In
+      # _upg_ensure_token that means returning 0 without writing the service
+      # token -- a silent skip of the upgrade, not a crash.
+      - name: A PlistBuddy read takes its exit code
+        if: always()
+        run: bash tests/test_a_plistbuddy_read_takes_its_exit_code.sh
       # The same writer/reader drift was found TWICE (sources 13/9,
       # statuses 5/3), both times by a human reading both sides. A literal
       # grep for status= MISSES error and timeout, because the error
