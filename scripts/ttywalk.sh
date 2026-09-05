@@ -315,8 +315,34 @@ if [[ -n "${FROM_DMG:-}" ]]; then
     #
     # Left unfixed this is permanent: NO artefact walk could ever produce a
     # walk record, and the walk record is what gates promoting a release.
-    ARTEFACT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
-        "$(dirname "$(dirname "$_res")")/Info.plist" 2>/dev/null | tr -d '[:space:]')"
+    # 🔴 TWO BUGS LIVED IN THIS ONE LINE AND THEY HID EACH OTHER. Measured
+    # 2026-09-05 against the real v1.0.67 DMG:
+    #
+    #   1. ONE dirname TOO MANY. $_res is <app>/Contents/Resources, so two
+    #      dirnames give <app>/Info.plist -- which does not exist. Info.plist
+    #      is at <app>/Contents/Info.plist. One dirname.
+    #
+    #   2. PlistBuddy WRITES ITS ERROR TO STDOUT, NOT STDERR. So `2>/dev/null`
+    #      suppressed nothing, the error text "File Doesn't Exist, Will
+    #      Create: ..." landed in the variable, and `[[ -n ]]` PASSED on a
+    #      failure. The walk then announced
+    #      `version: FileDoesn'tExist,WillCreate:/private/var/...` as though it
+    #      had succeeded, and wrote that into ~/.walk-artefact-version.
+    #
+    # Bug 2 is why bug 1 survived: a non-empty check cannot see a failure that
+    # answers on stdout. post_walk_qa caught it downstream and REFUSED to write
+    # the record -- correctly -- which is the only reason it was found at all.
+    #
+    # The guard below therefore tests the SHAPE, not merely emptiness. A
+    # version is digits and dots; anything else is a diagnostic wearing a
+    # value's clothes.
+    local _plist="$(dirname "$_res")/Info.plist"
+    ARTEFACT_VERSION=""
+    if [[ -f "$_plist" ]]; then
+        ARTEFACT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+            "$_plist" 2>/dev/null | tr -d '[:space:]')"
+        [[ "$ARTEFACT_VERSION" =~ ^[0-9]+(\.[0-9]+)*$ ]] || ARTEFACT_VERSION=""
+    fi
     if [[ -n "$ARTEFACT_VERSION" ]]; then
         say "   version: ${ARTEFACT_VERSION}  (read from the mounted bundle)"
     else
