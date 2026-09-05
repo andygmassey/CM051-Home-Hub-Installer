@@ -16268,7 +16268,11 @@ unset _pf_port _PF_PY
 # needs to read, not "some checks did not run".
 if [[ "$PORT_CONFLICT" == true ]]; then
     err "$MSG_ERR_SOME_PORTS_ARE_HELD_CANNOT_START"
-    fail "$MSG_ERR_STOP_CONFLICTING_SERVICES_OR_USE_ONE_ACCOUNT"
+    # CX-17: the code, not just the sentence. A customer whose install stops on a
+    # port collision has to be able to quote something stable to support, and the
+    # failure banner + auto-copied log carry the code, not the localised message.
+    # ERR-06 is the family this step already uses (graph_db_start, :15927).
+    fail_with_code "ERR-06-PORTS-HELD" "$MSG_ERR_STOP_CONFLICTING_SERVICES_OR_USE_ONE_ACCOUNT"
 fi
 
 # 🔴 CANNOT-RUN ABORTS TOO (@ARCHIE's review of #1211, and he is right).
@@ -16292,7 +16296,10 @@ fi
 # worth stopping for.
 if [[ "$PORT_UNMEASURED" == true ]]; then
     err "$MSG_WARN_PORT_PREFLIGHT_INCOMPLETE"
-    fail "$MSG_ERR_PORT_PREFLIGHT_CANNOT_RUN_ABORT"
+    # A DISTINCT CODE FROM THE CONFLICT ABOVE, deliberately. "we saw a collision"
+    # and "we could not tell" are different facts with different next steps, and
+    # collapsing them onto one code is how a CANNOT-RUN gets triaged as a FAIL.
+    fail_with_code "ERR-06-PORT-PREFLIGHT-CANNOT-RUN" "$MSG_ERR_PORT_PREFLIGHT_CANNOT_RUN_ABORT"
 fi
 
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'

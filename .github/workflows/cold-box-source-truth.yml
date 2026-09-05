@@ -75,6 +75,7 @@ on:
       - 'tests/test_an_unmeasured_flag_must_be_read.sh'
       - 'tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh'
       - 'tests/test_store_health_does_not_depend_on_a_foreign_port.sh'
+      - 'tests/test_every_fail_call_has_error_code.sh'
       - 'tests/test_a_plistbuddy_read_takes_its_exit_code.sh'
       - 'tests/test_the_sentinel_vocabulary_is_declared_and_complete.sh'
       - 'tests/test_no_function_is_called_before_it_is_defined.sh'
@@ -269,6 +270,13 @@ jobs:
         if: always()
         run: bash tests/test_store_health_does_not_depend_on_a_foreign_port.sh
 
+      # CX-17. A customer whose install stops needs something stable to quote to
+      # support, and the failure banner + auto-copied log carry the CODE, not the
+      # localised sentence. This gate was written and then left unwired, so the two
+      # bare `fail` sites it names sat in the shipped installer unseen.
+      - name: Every install.sh failure carries a support code
+        if: always()
+        run: bash tests/test_every_fail_call_has_error_code.sh
       # #1497's class. PlistBuddy answers on STDOUT when it fails, so a capture
       # that ignores rc and tests [[ -n ]] reads a diagnostic as a value. In
       # _upg_ensure_token that means returning 0 without writing the service
