@@ -81,7 +81,7 @@ H="$WORK/home"
 mkdir -p "$H/Library/LaunchAgents" "$H/.ostler/assistant-config" "$H/Documents/Ostler/Wiki" "$H/.ostler/assistant-config/workspace/state"
 # The 13 UNCONDITIONAL (required) launch agents. A complete install has all of
 # them; declaring only these keeps the synthetic install free of UNDECLARED noise.
-REQ_AGENTS="com.ostler.stay-awake com.ostler.engine-supervisor com.ostler.ollama com.ostler.ollama-logrotate com.ostler.enrich com.ostler.export-scan com.ostler.doctor com.ostler.ical-server com.ostler.fda-rerun com.creativemachines.ostler.assistant com.creativemachines.ostler.email-ingest com.creativemachines.ostler.wiki-recompile com.creativemachines.ostler.editor-frontpage"
+REQ_AGENTS="com.ostler.stay-awake com.ostler.engine-supervisor com.ostler.ollama com.ostler.ollama-logrotate com.ostler.enrich com.ostler.export-scan com.ostler.doctor com.ostler.ical-server com.ostler.fda-rerun com.creativemachines.ostler.assistant com.creativemachines.ostler.email-ingest com.creativemachines.ostler.wiki-recompile com.creativemachines.ostler.editor-frontpage com.creativemachines.ostler.context-refresh"
 for L in $REQ_AGENTS; do
     printf '<plist><dict><key>Label</key><string>%s</string></dict></plist>\n' "$L" > "$H/Library/LaunchAgents/$L.plist"
 done
