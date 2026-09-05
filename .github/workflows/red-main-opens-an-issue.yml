@@ -47,8 +47,11 @@ jobs:
           # `gh label create` exits non-zero when the label already exists, and
           # that is the NORMAL case. Only a genuine failure should stop us, so
           # the existence check is a separate question from the create.
-          if gh label list --repo "${GITHUB_REPOSITORY}" --limit 200 \
-               --json name --jq '.[].name' | grep -qx 'main-red'; then
+          # `... | grep -q` exits on the first match and SIGPIPEs the producer,
+          # which under `pipefail` can invert this verdict. `grep -c` must read
+          # to EOF, so it cannot. The repo ratchet caught this one on the way in.
+          if [ "$(gh label list --repo "${GITHUB_REPOSITORY}" --limit 200 \
+                    --json name --jq '.[].name' | grep -cx 'main-red')" -gt 0 ]; then
             echo "label main-red already exists"
           else
             gh label create main-red --repo "${GITHUB_REPOSITORY}" \
