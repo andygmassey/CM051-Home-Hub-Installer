@@ -24,9 +24,25 @@ name: downloads-watcher-survives-an-export
 # So this gate's subject is the POPULATED case. A gate that only ever runs the
 # empty case reproduces the blindness it exists to remove.
 #
-# ubuntu-latest is correct: the test extracts the generated scanner, gives it a
-# fixture HOME with one synthetic export, and stubs both the importer and
-# osascript. It never touches a real Downloads folder and imports nothing.
+# macos-latest IS REQUIRED, and ubuntu-latest was WRONG. Measured: this gate
+# failed on ubuntu with
+#
+#     date: 1788536729: No such file or directory
+#     touch: invalid date format
+#
+# because the test backdates a partial-download marker with `date -r <epoch>`,
+# which is BSD. GNU date reads -r as "reference FILE". The SUBJECT is BSD too:
+# the scanner ages markers with `stat -f%m`, which GNU stat does not accept, so
+# under Linux every marker became unstattable, took the treat-as-LIVE fallback,
+# and both the 24h and the 5s arms returned an identical "blocked" -- the age
+# test could not be exercised at all.
+#
+# The Hub ships and runs only on macOS. A proof must run under the shell and
+# the tools the artefact ships under, or it measures a different program.
+#
+# It still touches nothing real: the test extracts the generated scanner, gives
+# it a fixture HOME with one synthetic export, and stubs both the importer and
+# osascript. It never reads a real Downloads folder and imports nothing.
 
 on:
   pull_request:
@@ -48,7 +64,7 @@ concurrency:
 
 jobs:
   downloads-watcher-survives-an-export:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
