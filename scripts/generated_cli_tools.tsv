@@ -1,0 +1,35 @@
+# generated_cli_tools.tsv -- every CLI tool install.sh WRITES into ~/.ostler/bin/,
+# and whether a Sparkle upgrade refreshes it.
+#
+# READ THIS BEFORE ADDING A ROW.
+#
+# THE PROBLEM IT RECORDS. install.sh's upgrade branch (OSTLER_UPGRADE_MODE /
+# OSTLER_UPGRADE_ROLLBACK) exits at install.sh:1005/1030/1042. Every
+# `cat > "${OSTLER_DIR}/bin/..."` site sits after line 19000. So an upgrade
+# swaps the daemon and the app bundle and leaves every generated shell tool at
+# whatever version the customer first installed. Measured 2026-09-05 on
+# origin/main: 7 generated tools, 0 refreshed on upgrade, 0 bin/ writes inside
+# the upgrade branch at all.
+#
+# install.sh:280 already states the mechanism, about a different function:
+#   "the Sparkle upgrade path (OSTLER_UPGRADE_MODE) calls it and then exits --
+#    it can never reach a definition further down the file."
+# That hoist fixed it for ONE function and was never generalised.
+#
+# WHAT THIS FILE IS FOR. It is not a fix. It is a denominator. The reach of a
+# change to any tool below is "fresh installs only", and that fact has to be
+# stated somewhere a reviewer will see it rather than rediscovered per PR.
+#
+# refreshed_on_upgrade:
+#   no   -- an upgrading customer keeps their existing copy, for ever
+#   yes  -- the upgrade path rewrites it (nothing does today; the column exists
+#           so that fixing this is a row edit and not a schema change)
+#
+# tool<TAB>refreshed_on_upgrade<TAB>write_site<TAB>reach_note
+ostler-fda	no	install.sh	Full Disk Access helper. A customer who upgrades keeps the FDA helper they first installed, including any prompt-honesty fix made since.
+ostler-contact-resync	no	install.sh	Contact re-sync recovery tool. Reached for during support conversations, which is exactly when the newest version matters.
+ostler-scan-exports	no	install.sh	Export scanner for social/LinkedIn archives. Fresh-install only.
+ostler-meeting-brief-sender	no	install.sh	Meeting brief sender. Its LaunchAgent is torn down and rewritten on upgrade; the script it invokes is not.
+ostler-uninstall	no	install.sh	🔴 THE UNINSTALLER. CM051 #1512 stopped it announcing a removal it did not perform, leaving qdrant_data, oxigraph_data, redis_data, wiki-docs and vane_data on disk. That fix reaches fresh installs only; every upgraded customer keeps the version that says "Done. Ostler has been removed." while their contacts are still there.
+ostler-wiki-recompile-catchup	no	install.sh	Wiki recompile catch-up. Fresh-install only.
+ostler-tailscale	no	install.sh	Tailscale wrapper. Fresh-install only.

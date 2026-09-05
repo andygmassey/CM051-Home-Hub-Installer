@@ -1,0 +1,68 @@
+name: generated-cli-tools-counted
+
+# Every CLI tool install.sh writes into ~/.ostler/bin/ must be declared, with an
+# honest answer to "does a Sparkle upgrade refresh it?"
+#
+# THE PROBLEM. install.sh's upgrade branch (OSTLER_UPGRADE_MODE /
+# OSTLER_UPGRADE_ROLLBACK) exits at :1005/:1030/:1042, and every
+# `cat > "${OSTLER_DIR}/bin/..."` site sits past line 19000. So an upgrade swaps
+# the daemon and the app bundle and leaves every generated shell tool frozen at
+# whatever version the customer first installed. Measured 2026-09-05 on
+# origin/main: 7 generated tools, 0 refreshed on upgrade, and 0 bin/ writes
+# inside the upgrade branch at all.
+#
+# install.sh:280 already records the mechanism, about one hoisted function:
+#   "the Sparkle upgrade path (OSTLER_UPGRADE_MODE) calls it and then exits --
+#    it can never reach a definition further down the file."
+# It was fixed for that function and never generalised.
+#
+# This gate does NOT fix the reach. It makes it countable, so "this change
+# reaches fresh installs only" is a row a reviewer reads rather than a property
+# each author rediscovers. CM051 #1512 is the worked example: a real fix to the
+# uninstaller that no upgrading customer will ever receive.
+#
+# ubuntu-latest is correct: the test reads install.sh and a TSV as text.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'scripts/generated_cli_tools.tsv'
+      - 'tests/test_generated_cli_tools_are_counted.sh'
+      - '.github/workflows/generated-cli-tools-counted.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  generated-cli-tools-counted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # The test enumerates the write sites from install.sh itself rather than
+      # trusting the registry, reports its denominator, and prints the REACH
+      # line so the number is visible on every run.
+      #
+      # It refuses with CANNOT-RUN (exit 2) rather than passing if the
+      # enumeration finds zero sites -- a renamed variable or a changed quoting
+      # style would otherwise turn this gate into a no-op reporting success.
+      #
+      # A refreshed_on_upgrade=yes must be EARNED by an explicit
+      # "# UPGRADE-REFRESHES: <tool>" marker in install.sh. A registry that can
+      # assert a reach nobody implemented is worse than no registry.
+      #
+      # Mutation-tested four ways: an unregistered 8th tool (rc=1), a stale row
+      # (rc=1), an unearned "yes" (rc=1), and a broken enumeration predicate
+      # (rc=2, never 0).
+      - name: Every generated CLI tool is declared, with its upgrade reach
+        run: bash tests/test_generated_cli_tools_are_counted.sh
