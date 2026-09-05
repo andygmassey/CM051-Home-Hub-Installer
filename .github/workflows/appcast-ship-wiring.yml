@@ -98,6 +98,15 @@ jobs:
         if: always()
         run: bash tests/test_pipefail_shortcircuit_inversion.sh
 
+      # The SAME shape one level in, which the ratchet above cannot see: its
+      # CONSTRUCT anchors on `if|elif|while`, so moving the pipeline into a
+      # function hides it while the function, used as a condition, still
+      # branches on the pipeline's status. Found on CM051 #1471 twenty minutes
+      # after #1475 closed the continuation hole in the gate above.
+      - name: A banned pipeline moved into a function is still a condition
+        if: always()
+        run: bash tests/test_a_condition_function_must_not_short_circuit_its_own_pipeline.sh
+
       # The same mechanism, caught in a LAUNCH gate rather than in the ratchet:
       # the CM0NN/HR0NN/OS0NN sweep over rendered customer copy piped grep -v
       # into grep -Eq, so a codename on LINE 1 was silently invisible and would

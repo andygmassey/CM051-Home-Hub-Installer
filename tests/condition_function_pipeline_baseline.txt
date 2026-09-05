@@ -1,0 +1,26 @@
+# Functions whose LAST statement is a short-circuiting pipeline AND which are
+# used somewhere as a CONDITION, so the pipeline's status is the function's
+# return value and the caller branches on it.
+#
+# See tests/test_a_condition_function_must_not_short_circuit_its_own_pipeline.sh.
+#
+# WHY THIS IS A SEPARATE GATE FROM tests/pipefail_shortcircuit_baseline.txt.
+# That one's CONSTRUCT anchors on `^[[:space:]]*(if|elif|while)`. Move the same
+# pipeline into a function and the line no longer starts with a keyword, so it
+# matches nothing -- while the function, used in a condition, is every bit as
+# much a condition. Found 2026-09-05 on CM051 #1471, twenty minutes after #1475
+# fixed the continuation hole in the other gate: the count stayed 21 and the
+# shape survived.
+#
+# THE COUNT IS NARROW ON PURPOSE. 29 functions in this repo end in a banned
+# pipeline; only these 3 are used as conditions. The other 26 are output
+# helpers like `printf '%s' "$n" | tr -dc '0-9' | head -c10`, consumed as
+# $(fn), whose exit status nothing reads. A ratchet on 29 would be noise a
+# real regression could hide in. Rows are `path<TAB>function`.
+#
+# Lower this list as they are fixed. Never add a row to make a red go away:
+# an added row is the regression, written down.
+#
+install.sh	_ostler_launchagent_keeps_alive
+tests/test_background_copy_promises_no_deadline.sh	c4
+tests/test_timeout_is_not_a_successful_hydrate.sh	c4
