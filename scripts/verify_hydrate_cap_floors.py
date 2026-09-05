@@ -165,11 +165,17 @@ DECLARED = [
     # (>460s to readiness, archie@.240, 2026-09-05) and one observation is not a
     # floor. Raise this the first time a SECOND cold walk agrees, and say which
     # walks -- the same discipline the row above states for itself.
-    ("_QDRANT_COLLECTIONS_READY_CAP", "cm019_setup",             PHASE_MSG, 120,
-     "RATCHET AT THE SHIPPED VALUE: floor == the 120s default, so it can only "
-     "ever be lowered deliberately. NOT a clean-run floor and NOT a claim that "
-     "120s suffices on a cold box -- one cold observation exceeded it fourfold "
-     "and a second has not been taken"),
+    ("_QDRANT_COLLECTIONS_READY_CAP", "cm019_setup",             PHASE_MSG, 300,
+     "RAISED 120 -> 300 ON THE SECOND COLD OBSERVATION, which is the condition "
+     "the previous note set for itself. v1.0.67 archie cold: cm019_setup ERROR "
+     "at 132s. v1.0.68 archie2 VIRGIN: ERROR at 136s rc=1, DONE status=fail "
+     "ERR-14-STORE-NOT-READY-FOR-IMPORT, with graph_db_start itself at 327s. "
+     "Both against a 120s budget, both on the Mini 16. The argument is not "
+     "'bigger' but that ONE store had TWO budgets 2.5x apart: the sibling "
+     "_QDRANT_READY_CAP guards the same Qdrant at 300s and passed both walks "
+     "while this one failed both. Still a RATCHET AT THE SHIPPED VALUE and "
+     "still NOT a claim that 300 suffices -- only that it is proven better "
+     "than 120 twice, and is the value its sibling already uses"),
 ]
 
 CAP_DEF = re.compile(r'^\s*(_[A-Z0-9_]*_CAP)="\$\{([A-Z0-9_]+):-(\d+)\}"', re.M)

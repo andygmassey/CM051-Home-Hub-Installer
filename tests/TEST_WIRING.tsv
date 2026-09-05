@@ -285,6 +285,7 @@ test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.
 test_ollama_agent_does_not_depend_on_a_foreign_port.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_ollama_install_path_contract.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_ollama_user_active.py	WIRED	.github/workflows/install-abort-and-egress.yml
+test_one_store_does_not_get_two_budgets.sh	WIRED	.github/workflows/rule-09-strings-check.yml
 test_operator_pii_scan_sees_all_text_kinds.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_orphan_gate_cannot_verify.sh	WIRED	.github/workflows/cut.yml
 test_orphan_gate_declared_skip_always_counts.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
