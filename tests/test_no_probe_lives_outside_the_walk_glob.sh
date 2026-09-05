@@ -36,9 +36,12 @@ ok()   { PASS=$((PASS+1)); printf '  [PASS] %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf '  [FAIL] %s\n' "$1"; }
 cant() { printf 'CANNOT-RUN: %s\n' "$1" >&2; exit 2; }
 
-# MEASURED 2026-09-05: 24 probes in probes/, 0 probe-shaped files outside it.
+# MEASURED 2026-09-05: 25 probes in probes/, 0 probe-shaped files outside it.
+# Was 24; converge_kill_is_recorded took it to 25. The floor RATCHETS UP with
+# each addition on purpose -- left at 24 it would let the new probe be deleted
+# again without anyone noticing, which is the failure this floor exists to stop.
 # Lowering this is a reviewable edit in the same PR as whatever removed a probe.
-MIN_PROBES=24
+MIN_PROBES=25
 
 [ -d "$ROOT" ]      || cant "no box_walk_probes tree at ${ROOT}"
 [ -d "$PROBE_DIR" ] || cant "no probes/ directory at ${PROBE_DIR}; the walk would refuse the suite and so must this gate"
