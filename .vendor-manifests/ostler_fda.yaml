@@ -1,0 +1,10 @@
+name: ostler_fda
+github:
+  owner: andygmassey
+  repo: HR015-Gaming-PC
+  branch: main
+  path: ostler_fda
+notes: |
+  Content gate + divergence patch details live in vendor/VENDOR_MANIFEST.toml
+  [[tree]] name="ostler_fda". Includes vendor-only universal_import.py + FB
+  parser grafts documented there.

@@ -1,0 +1,11 @@
+name: cm059_editor
+github:
+  owner: "<UNKNOWN -- retrofit needed>"
+  repo: "<UNKNOWN -- retrofit needed>"
+  branch: main
+  path: compiler
+notes: |
+  CM059 (The Editor) source is a private local checkout ($CM059); not mirrored
+  to any known GitHub owner as of 2026-07-31. Compiler package only; the bin/,
+  launchd/, INSTALL_SNIPPET.sh siblings under vendor/cm059_editor/ are
+  CM051-authored wrapper files.

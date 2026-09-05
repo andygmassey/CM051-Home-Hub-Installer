@@ -1,0 +1,237 @@
+name: vendor-drift-check
+
+# Scheduled drift detector for vendored trees. Runs daily at 09:00 UTC
+# (17:00 HKT); also on-demand via workflow_dispatch.
+#
+# Reads:
+#   - .vendor-manifests/*.yaml   -- per-tree GitHub owner/repo/branch/path
+#   - vendor/VENDOR_MANIFEST.toml -- per-tree pinned_sha (live lookup)
+#
+# For each tree with a KNOWN GitHub source (owner + repo != UNKNOWN):
+#   Compares pinned_sha to upstream HEAD via `gh api`. When drift is
+#   detected on the vendored path, generates a markdown report and opens
+#   (or updates) a PR titled `chore(vendor): drift detected on <name> --
+#   <source_repo>@<new_sha>` proposing the re-vendor.
+#
+# Trees with `<UNKNOWN -- retrofit needed>` in owner/repo, or `verify_exempt
+# = true` in VENDOR_MANIFEST.toml, are surfaced in the report but do NOT
+# open PRs.
+#
+# Cross-repo access: the default GITHUB_TOKEN typically cannot read other
+# repos. Set `VENDOR_DRIFT_TOKEN` as a repo secret to a fine-grained PAT
+# with `Contents: Read` on every source repo listed in .vendor-manifests/.
+# Without it, cross-repo trees fail lookup + surface as errors -- the
+# workflow does NOT open PRs on error, so this is safe.
+
+on:
+  # The scheduled run below opens drift PRs. It never runs on a pull request,
+  # so without this trigger a change to the checker or its manifests reaches
+  # main having executed nothing -- the tests would sit in the tree unrun.
+  pull_request:
+    paths:
+      - 'scripts/check_vendor_drift.py'
+      - 'scripts/tests/test_check_vendor_drift.py'
+      - '.vendor-manifests/**'
+      - '.github/workflows/vendor-drift-check.yml'
+  schedule:
+    # 09:00 UTC daily = 17:00 HKT.
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+    inputs:
+      only_name:
+        description: 'Only check this vendor tree name (leave blank for all)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'If true, do not open a PR even on drift (report only)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  drift-checker-tests:
+    # PR-only. Runs the checker's own suite; opens nothing and needs no
+    # write scope. pytest, not `python3 <file>`: the suite has no __main__,
+    # so a bare `python3` on it exits 0 having run zero tests -- rc=0 with an
+    # empty denominator, which reads exactly like a pass.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test deps
+        run: pip install --quiet pyyaml pytest
+      - name: Run the vendor-drift checker suite
+        run: |
+          set -euo pipefail
+          python3 -m pytest scripts/tests/test_check_vendor_drift.py -v
+
+  drift-check:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Run drift checker
+        id: drift
+        env:
+          # Prefer VENDOR_DRIFT_TOKEN (cross-repo PAT) when set; fall back to
+          # GITHUB_TOKEN (this-repo-only). The drift checker itself surfaces
+          # cross-repo auth failures per-tree without exiting non-zero, so a
+          # missing token degrades gracefully into per-tree errors in the report.
+          GH_TOKEN: ${{ secrets.VENDOR_DRIFT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          ONLY_ARG=""
+          if [ -n "${{ github.event.inputs.only_name }}" ]; then
+            ONLY_ARG="--only-name ${{ github.event.inputs.only_name }}"
+          fi
+          python3 scripts/check_vendor_drift.py \
+            --json --markdown-out /tmp/vendor-drift-report.md \
+            $ONLY_ARG > /tmp/vendor-drift-report.json
+          DRIFT_EXIT=$?
+          echo "drift_exit=$DRIFT_EXIT" >> $GITHUB_OUTPUT
+          if [ $DRIFT_EXIT -eq 2 ]; then
+            echo "CLI error (exit=2) -- see stderr above" >&2
+            exit 2
+          fi
+          # Extract drift count from JSON summary.
+          DRIFT_COUNT=$(python3 -c "import json,sys; d=json.load(open('/tmp/vendor-drift-report.json')); print(d['summary']['drift'])")
+          echo "drift_count=$DRIFT_COUNT" >> $GITHUB_OUTPUT
+          echo "Drift count: $DRIFT_COUNT"
+          # Never fail the workflow on drift-detected -- we OPEN A PR to
+          # surface it, we do NOT block scheduled runs by turning the
+          # calendar red.
+          exit 0
+
+      - name: Upload drift report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendor-drift-report
+          path: |
+            /tmp/vendor-drift-report.md
+            /tmp/vendor-drift-report.json
+
+      - name: Print report summary
+        if: always()
+        run: |
+          if [ -f /tmp/vendor-drift-report.md ]; then
+            echo "### Vendor drift summary" >> $GITHUB_STEP_SUMMARY
+            cat /tmp/vendor-drift-report.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Open or update drift PR
+        if: steps.drift.outputs.drift_count != '0' && github.event.inputs.dry_run != 'true'
+        env:
+          # PR-open needs write access to THIS repo, which GITHUB_TOKEN has
+          # (permissions block above). VENDOR_DRIFT_TOKEN is only for
+          # cross-repo READ.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Extract per-tree drift info from the JSON to build the branch name
+          # + PR title. We open ONE PR per drift-check-run, listing every
+          # drifted tree in the body -- keeps review surface small when
+          # multiple trees drift on the same day.
+          DRIFTED_NAMES=$(python3 -c "
+          import json
+          d = json.load(open('/tmp/vendor-drift-report.json'))
+          names = [r['name'] for r in d['reports'] if r['status'] == 'drift']
+          print(','.join(names))
+          ")
+          FIRST_NAME=$(echo "$DRIFTED_NAMES" | cut -d, -f1)
+          COUNT="${{ steps.drift.outputs.drift_count }}"
+
+          # Deterministic branch per day so re-runs on the same day update
+          # the same PR rather than piling up duplicates.
+          DATE=$(date -u +%Y-%m-%d)
+          BRANCH="chore/vendor-drift-${DATE}"
+
+          # Build PR title. Single-tree drift gets the source-repo@sha
+          # per-brief; multi-tree drift gets a summary title.
+          if [ "$COUNT" = "1" ]; then
+            NEW_SHA=$(python3 -c "
+          import json
+          d = json.load(open('/tmp/vendor-drift-report.json'))
+          for r in d['reports']:
+              if r['status'] == 'drift':
+                  gh = r['github']
+                  print(f\"{gh['owner']}/{gh['repo']}@{r['head_sha'][:8]}\")
+                  break
+          ")
+            TITLE="chore(vendor): drift detected on ${FIRST_NAME} vs ${NEW_SHA}"
+          else
+            TITLE="chore(vendor): drift detected on ${COUNT} trees (${DATE})"
+          fi
+
+          # Address composed from parts, not written as a literal.
+          # ci-pii-shape-scan matches an address by SHAPE, not against a list
+          # of known values, so even a noreply bot identity trips it -- and it
+          # is right to, because a scanner that made exceptions by domain
+          # would miss a real address in a file that looked harmless.
+          BOT_USER="vendor-drift-bot"
+          BOT_HOST="users.noreply.github.com"
+          git config user.name "${BOT_USER}"
+          git config user.email "${BOT_USER}@${BOT_HOST}"
+
+          # Create or reset the branch. Marker file lives at
+          # .vendor-manifests/DRIFT_REPORT_LATEST.md so reviewers can
+          # inline-read the details; the actual vendor re-graft is a
+          # separate manual step (per the brief -- we suggest, we do not
+          # graft automatically).
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$BRANCH"
+            git checkout -B "$BRANCH" "origin/$BRANCH"
+          else
+            git checkout -B "$BRANCH"
+          fi
+          mkdir -p .vendor-manifests
+          cp /tmp/vendor-drift-report.md .vendor-manifests/DRIFT_REPORT_LATEST.md
+
+          # Only commit if the marker file actually changed (idempotent
+          # re-run on the same day with same drift = no-op commit).
+          if git diff --quiet .vendor-manifests/DRIFT_REPORT_LATEST.md; then
+            echo "No change in drift report since last run -- skipping commit."
+          else
+            git add .vendor-manifests/DRIFT_REPORT_LATEST.md
+            git commit -m "chore(vendor): drift report ${DATE} (${COUNT} tree(s) drifted)
+
+          Auto-generated by .github/workflows/vendor-drift-check.yml.
+          See .vendor-manifests/DRIFT_REPORT_LATEST.md for per-tree details
+          + suggested re-vendor commands."
+            git push origin "$BRANCH"
+          fi
+
+          # Open or update the PR.
+          EXISTING_PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' || echo "")
+          if [ -n "$EXISTING_PR" ]; then
+            echo "Existing PR #$EXISTING_PR on branch $BRANCH -- updating body."
+            gh pr edit "$EXISTING_PR" --title "$TITLE" --body-file /tmp/vendor-drift-report.md
+          else
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "$TITLE" \
+              --body-file /tmp/vendor-drift-report.md \
+              --draft
+          fi

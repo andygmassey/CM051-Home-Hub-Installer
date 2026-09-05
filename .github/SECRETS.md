@@ -48,6 +48,16 @@ General `andygmassey` automation.
 Developer ID Application identity, Team V95N2B8X7A. Imported by the `cut` job.
 **Without them:** no signed artefact, so no notarisation and no ship.
 
+### VENDOR_DRIFT_TOKEN
+Cross-repo `Contents: Read` on every source repo listed in `.vendor-manifests/`.
+Read by `vendor-drift-check.yml` as `GH_TOKEN`, with `secrets.GITHUB_TOKEN` as
+the fallback. Read-only and cross-repo ONLY; the PR-open step deliberately uses
+`GITHUB_TOKEN` instead, so this value never needs write scope anywhere.
+**Without it:** the default `GITHUB_TOKEN` cannot read other repos, so every
+cross-repo tree records a per-tree lookup error in the drift report. The
+workflow does not open a PR on error, so the failure is loud in the report
+rather than a silently empty "no drift" verdict.
+
 ### OSTLER_NOTARY_ISSUER / OSTLER_NOTARY_KEY / OSTLER_NOTARY_KEY_ID
 App Store Connect API credentials for `notarytool`.
 **Without them:** the DMG is signed but unnotarised, and Gatekeeper refuses it

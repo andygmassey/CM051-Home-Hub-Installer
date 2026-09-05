@@ -1,0 +1,11 @@
+name: cm041/contact_syncer
+github:
+  owner: "<UNKNOWN -- retrofit needed>"
+  repo: "<UNKNOWN -- retrofit needed>"
+  branch: main
+  path: contact_syncer
+notes: |
+  CM041 (PWG People Graph) source is a private local checkout ($CM041); not
+  currently mirrored to a GitHub repo we can enumerate under any known owner
+  (checked andygmassey/, creativemachines-ai/, ostler-ai/ 2026-07-31). Drift
+  check SKIPS this tree until the source lineage is wired to GitHub.

@@ -1,0 +1,9 @@
+name: imessage_bridge
+github:
+  owner: andygmassey
+  repo: HR015-Gaming-PC
+  branch: main
+  path: imessage-bridge
+notes: |
+  Content gate + divergence patch details live in vendor/VENDOR_MANIFEST.toml
+  [[tree]] name="imessage_bridge".

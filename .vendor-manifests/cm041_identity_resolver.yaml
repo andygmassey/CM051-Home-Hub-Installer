@@ -1,0 +1,9 @@
+name: cm041/identity_resolver
+github:
+  owner: "<UNKNOWN -- retrofit needed>"
+  repo: "<UNKNOWN -- retrofit needed>"
+  branch: main
+  path: identity_resolver
+notes: |
+  CM041 (PWG People Graph) source is a private local checkout ($CM041). See
+  cm041_contact_syncer.yaml for lineage note.

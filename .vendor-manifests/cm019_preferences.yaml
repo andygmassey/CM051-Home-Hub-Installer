@@ -1,0 +1,14 @@
+name: cm019_preferences
+github:
+  owner: andygmassey
+  repo: personal-world-graph
+  branch: main
+  # Deliberate shipping SUBSET: services/ingest + services/enrich + ontology only.
+  # Drift check pings the repo root; the content gate (skip mode today) is the
+  # one that reconciles the vendored subset against pinned_sha. A "drift" here
+  # means the source repo moved; a re-vendor still has to hand-graft the subset.
+  path: "."
+notes: |
+  Content gate + divergence patch details live in vendor/VENDOR_MANIFEST.toml
+  [[tree]] name="cm019_preferences". verify=skip today (see VENDOR_MANIFEST.toml
+  note about the 81 non-PII drifts pending a full reconciliation).
