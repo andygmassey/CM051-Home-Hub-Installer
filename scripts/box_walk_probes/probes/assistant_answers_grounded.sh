@@ -236,6 +236,33 @@ adjudicate_turn() {
     echo "grounded"
 }
 
+# ── NAME THE TOOL, NOT ONLY THE SHAPE ───────────────────────────────────────
+#
+# `tool_error` says retrieval was attempted and failed. It does not say WHICH
+# tool failed, and the transcript line it was decided from carries the name:
+#
+#     FRAME tool_result pwg_topics ERR
+#
+# So the operator reads "[tool_error]" and has to go back to the raw transcript
+# to learn anything actionable. Traced end to end, an ERR frame means the tool
+# returned success=false and the runtime wrapped it as `Error: {reason}`
+# (agent/tool_execution.rs), so the tool name is the first real lead there is.
+#
+# The ADJUDICATOR'S WORD IS DELIBERATELY UNCHANGED. Its eight-fixture self-test
+# pins those words exactly, and widening the vocabulary would either break that
+# control or force it to accept a looser match. The name is appended to the
+# DETAIL only, which is the same thing line ~318 already does for `fatal`.
+#
+# The name is one of OUR OWN tool identifiers, never customer data.
+_offending_tool() {
+    case "$2" in
+        tool_error)
+            sed -n 's/^FRAME tool_result \(pwg_[A-Za-z0-9_]*\) ERR$/\1/p' "$1" | head -1 ;;
+        tool_found_nothing)
+            sed -n 's/^FRAME tool_result \(pwg_[A-Za-z0-9_]*\) EMPTY$/\1/p' "$1" | head -1 ;;
+    esac
+}
+
 # WHICH VERDICTS ARE A PRODUCT DEFECT, AND WHICH ARE SIMPLY NOT A MEASUREMENT.
 #
 # 🔴 EVERY NON-`grounded` VERDICT USED TO BE A FAIL, INCLUDING A TIMEOUT. So a
@@ -309,7 +336,8 @@ run_probe() {
             ok) : ;;
             defect)
                 _failed=$(( _failed + 1 ))
-                _detail="${_detail} [${_v}]" ;;
+                _tname="$(_offending_tool "$_tmp" "$_v")"
+                _detail="${_detail} [${_v}${_tname:+:${_tname}}]" ;;
             *)
                 _unmeasured=$(( _unmeasured + 1 ))
                 _unmeasured_detail="${_unmeasured_detail} [${_v}]"
@@ -375,6 +403,22 @@ self_test() {
     [ "$(adjudicate_turn "$_d/incomplete")" = "incomplete" ]         || _ok=0
     [ "$(adjudicate_turn "$_d/memonly")"    = "memory_only" ]        || _ok=0
     [ "$(adjudicate_turn "$_d/empty")"      = "tool_found_nothing" ] || _ok=0
+
+    # THE NAME, over the SAME fixtures the verdicts were decided from. A
+    # tool_error that names no tool sends the operator back to the raw
+    # transcript for the only actionable fact in it.
+    _name_ok=1
+    [ "$(_offending_tool "$_d/toolerr" tool_error)" = "pwg_preferences" ]    || _name_ok=0
+    [ "$(_offending_tool "$_d/empty" tool_found_nothing)" = "pwg_person_timeline" ] || _name_ok=0
+    # MUST-MISS: a verdict that names no tool must yield nothing, or the detail
+    # would carry a name for turns where no tool result decided the verdict.
+    [ -z "$(_offending_tool "$_d/notool" no_tool_call)" ]                    || _name_ok=0
+    [ -z "$(_offending_tool "$_d/memonly" memory_only)" ]                    || _name_ok=0
+    # CONTROL: the extractor must not match a NON-pwg tool, or memory_recall
+    # would be reported as the failing graph tool.
+    printf 'FRAME session_start\nFRAME tool_call memory_recall\nFRAME tool_result memory_recall ERR\nFRAME done\n' > "$_d/nonpwg"
+    [ -z "$(_offending_tool "$_d/nonpwg" tool_error)" ]                      || _name_ok=0
+    [ "$_name_ok" -eq 1 ] || _ok=0
     rm -rf "$_d"
 
     # ── AND THE ROUTING, WHICH IS WHAT DECIDES THE PROBE'"'"'S VERDICT ────────

@@ -133,6 +133,57 @@ else
     bad "the per-turn ceiling is ${CEIL:-unset}s, inside or below the 2-5 minute range the probe's own runtime note records. Healthy turns would time out."
 fi
 
+# ── A tool_error THAT NAMES NO TOOL ─────────────────────────────────────────
+# The verdict word says retrieval failed. The transcript line it was decided
+# from carries the tool name, and the detail discarded it, so an operator read
+# "[tool_error]" and had to reopen the raw transcript for the only actionable
+# fact in the turn. Driven through the REAL _offending_tool, extracted from the
+# probe exactly as the harness above extracts run_probe.
+_H="${WORK}/nameharness"
+{
+    printf '#!/bin/bash\n'
+    grep -v -e '^\. "' -e '^source ' -e '^probe_main ' "$SUBJECT"
+    cat <<'TAIL'
+_d="$(mktemp -d)"
+printf 'FRAME session_start\nFRAME tool_call pwg_topics\nFRAME tool_result pwg_topics ERR\nFRAME done\n'       > "$_d/err"
+printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_people EMPTY\nFRAME done\n'     > "$_d/empty"
+printf 'FRAME session_start\nFRAME chunk_reset\nFRAME done\n'                                                  > "$_d/notool"
+printf 'FRAME session_start\nFRAME tool_call memory_recall\nFRAME tool_result memory_recall ERR\nFRAME done\n' > "$_d/nonpwg"
+printf 'ERR=[%s]\n'    "$(_offending_tool "$_d/err" tool_error)"
+printf 'EMPTY=[%s]\n'  "$(_offending_tool "$_d/empty" tool_found_nothing)"
+printf 'NOTOOL=[%s]\n' "$(_offending_tool "$_d/notool" no_tool_call)"
+printf 'NONPWG=[%s]\n' "$(_offending_tool "$_d/nonpwg" tool_error)"
+rm -rf "$_d"
+TAIL
+} > "$_H"
+_OUT="$(bash "$_H" 2>/dev/null)"
+
+if ! grep -q '^ERR=' <<< "$_OUT"; then
+    printf 'CANNOT-RUN: the name harness produced no ERR line; _offending_tool was never reached.\n' >&2
+    exit 2
+fi
+case "$_OUT" in
+    *"ERR=[pwg_topics]"*) ok "a tool_error NAMES the tool that errored (pwg_topics), so the detail is actionable" ;;
+    *)                    bad "a tool_error named no tool: $(printf '%s' "$_OUT" | grep '^ERR=')" ;;
+esac
+case "$_OUT" in
+    *"EMPTY=[pwg_people]"*) ok "success-shaped emptiness also names its tool (pwg_people)" ;;
+    *)                      bad "tool_found_nothing named no tool: $(printf '%s' "$_OUT" | grep '^EMPTY=')" ;;
+esac
+# MUST-MISS. A verdict decided by no tool result must yield NO name, or the
+# detail would attach a subject to a turn where nothing was retrieved at all.
+case "$_OUT" in
+    *"NOTOOL=[]"*) ok "MUST-MISS: a verdict with no tool result yields no name" ;;
+    *)             bad "no_tool_call was given a tool name: $(printf '%s' "$_OUT" | grep '^NOTOOL=')" ;;
+esac
+# CONTROL. memory_recall is the CHAT's own memory, not the customer's graph.
+# Naming it as the failing graph tool is the exact confusion the memory_only
+# verdict exists to prevent.
+case "$_OUT" in
+    *"NONPWG=[]"*) ok "CONTROL: a non-pwg tool is never named as the failing graph tool" ;;
+    *)             bad "a non-pwg tool was named as the failing graph tool: $(printf '%s' "$_OUT" | grep '^NONPWG=')" ;;
+esac
+
 printf '\n== %s pass / %s fail / %s total ==\n' "$PASS" "$FAIL" "$((PASS+FAIL))"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0
