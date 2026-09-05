@@ -146,6 +146,29 @@ fi
 # Without that discriminator this walk reports vendor/cm041/tests <-> ./tests
 # and fourteen other basename collisions that are not packages at all.
 # ---------------------------------------------------------------------------
+# WHICH SIDE SHIPS IS DERIVABLE, NOT A JUDGEMENT CALL.
+#
+# install.sh is the only authority, and it answers by copying: a package it
+# copies from ${SCRIPT_DIR}/<pkg> has the REPO ROOT as its authoritative copy.
+# Measured 2026-09-05: install.sh makes SIX such copies (ostler_security,
+# ostler_fda, contact_syncer, meeting_syncer, identity_resolver, ostler_hygiene)
+# and ZERO copies out of vendor/. So this file's old global claim that "the
+# shipping copy is vendor/" was not merely wrong for one pair -- it was wrong
+# for every package the installer copies.
+#
+# It matters because the obvious remediation is the dangerous one: re-vendoring
+# CM041 to "fix the drift" would overwrite the SHIPPING contact_syncer with the
+# older vendored tree and silently regress every module that has moved on.
+_shipping_side() {
+    local pkg="$1" n
+    [ -f install.sh ] || { echo "unknown"; return; }
+    n="$(/usr/bin/grep -cE 'cp -R "\$\{SCRIPT_DIR\}/'"${pkg}"'"' install.sh || :)"
+    if [ "${n:-0}" -gt 0 ]; then echo "root"; return; fi
+    n="$(/usr/bin/grep -cE 'cp -R "\$\{SCRIPT_DIR\}/vendor/[^"]*/'"${pkg}"'"' install.sh || :)"
+    if [ "${n:-0}" -gt 0 ]; then echo "vendor"; return; fi
+    echo "unknown"
+}
+
 LEDGER="tests/VENDOR_TWIN_DRIFT.tsv"
 computed="$(mktemp)" || { echo "CANNOT-RUN: mktemp failed for the drift ledger" >&2; exit 2; }
 trap 'rm -f "$computed"' EXIT
@@ -244,10 +267,29 @@ echo "deep walk (vendor/<repo>/<pkg>): $deep_candidates basename candidate(s), $
 if ! diff -u "$recorded" "$sorted" > /dev/null 2>&1; then
     echo "FAIL: the package-twin drift does not match $LEDGER." >&2
     echo "      -- is the recorded debt, ++ is what the tree has now:" >&2
-    diff -u "$recorded" "$sorted" | sed -n '4,$p' | sed 's/^/      /' >&2
+    # 🔴 `diff` EXITS 1 WHEN THE FILES DIFFER, WHICH IS THE ONLY CASE THIS BLOCK
+    # RUNS IN. Under `set -e` with `pipefail` that non-zero killed the script on
+    # this very line, so every line of guidance below -- the GREW/SHRANK advice
+    # and the per-pair shipping side -- had NEVER PRINTED. The reader saw two
+    # ledger lines and no instruction. `|| :` because the difference is the
+    # point, not an error.
+    { diff -u "$recorded" "$sorted" || :; } | sed -n '4,$p' | sed 's/^/      /' >&2
     echo "      A count that GREW is new drift: fix it, do not re-record it." >&2
     echo "      A count that SHRANK or a pair that vanished is good news that still" >&2
     echo "      needs --regenerate, so the recorded number stays honest." >&2
+    echo "" >&2
+    echo "      WHICH SIDE SHIPS, per pair, derived from install.sh:" >&2
+    while IFS="$(printf '\t')" read -r _vp _rp _c; do
+        [ -n "${_vp:-}" ] || continue
+        _pkg="$(basename "$_vp")"
+        case "$(_shipping_side "$_pkg")" in
+            root)   echo "        ${_pkg}: install.sh copies \${SCRIPT_DIR}/${_pkg}, so ./${_pkg} is AUTHORITATIVE." >&2
+                    echo "                 DO NOT re-vendor this pair -- it would overwrite the shipping" >&2
+                    echo "                 copy with the older vendored tree." >&2 ;;
+            vendor) echo "        ${_pkg}: install.sh copies it out of vendor/, so the vendored copy is AUTHORITATIVE." >&2 ;;
+            *)      echo "        ${_pkg}: install.sh copies neither side by name. Find what ships BEFORE picking a winner." >&2 ;;
+        esac
+    done < "$sorted"
     exit 1
 fi
 
@@ -255,7 +297,7 @@ if [ "$deep_pairs" -gt 0 ]; then
     echo "deep walk: $deep_pairs package twin(s), drift matches $LEDGER exactly"
     while IFS="$(printf '\t')" read -r vp rp cnt; do
         [ -n "${vp:-}" ] || continue
-        [ "$cnt" -gt 0 ] && echo "  RECORDED DEBT: $vp <-> $rp, $cnt divergent shared file(s)"
+        [ "$cnt" -gt 0 ] && echo "  RECORDED DEBT: $vp <-> $rp, $cnt divergent shared file(s); install.sh ships the $(_shipping_side "$(basename "$vp")") side"
     done < "$recorded"
 fi
 
