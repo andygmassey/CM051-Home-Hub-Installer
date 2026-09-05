@@ -57,9 +57,10 @@ trap 'rm -rf "$WORK"' EXIT
 # $1 probe source file
 # $2 what the FIRST /pair call does:   ok | refuse | silent
 # $3 what the SECOND /pair call does:  refuse | accept | silent
+# $4 who owns :8443 (optional, default "mine"): mine | foreign | nothing
 # Echoes the probe's own VERDICT word.
 _verdict() {
-    local src="$1" a="$2" b="$3" h="${WORK}/h.sh"
+    local src="$1" a="$2" b="$3" own="${4:-mine}" h="${WORK}/h.sh"
     local fn; fn="$(awk '/^run_probe\(\) \{/{f=1} f{print} f&&/^\}$/{exit}' "$src")"
     [ -n "$fn" ] || { printf 'NOFN'; return; }
     cat > "$h" <<HDR
@@ -86,6 +87,17 @@ box_run() {
     *'require_pairing = false'*) return 1 ;;                   # pairing IS required
     *zeroclaw_admin_token*)  printf 'SYNTHETIC-ADMIN-TOKEN\n'; return 0 ;;
     *paircode/new*)          printf 'SYNTHETIC-CODE\n'; return 0 ;;
+    *lsof*8443*)
+      case '$own' in mine) printf '1\n' ;; *) printf '0\n' ;; esac; return 0 ;;
+    *'%{http_code}'*8443*)
+      # The OWNERSHIP probe, not a pairing attempt. It must be matched BEFORE the
+      # arm below, because this command also contains the string 8443/pair --
+      # and a stub that let it fall through would silently consume a pair slot.
+      case '$own' in
+        foreign) printf '403' ;;
+        nothing) printf '000' ;;
+        *)       printf '403' ;;
+      esac; return 0 ;;
     *8443/pair*)
       printf 'x' >> "\$_PAIRN_F"
       if [ "\$(wc -c < "\$_PAIRN_F" | tr -d ' ')" -eq 1 ]; then _M='$a'; else _M='$b'; fi
@@ -132,6 +144,22 @@ esac
 case "$(_verdict "$SUBJECT" ok accept)" in
     FAIL) ok "CONTROL ON THE CONTROL: a code that pairs TWICE still FAILS, so the arm is live and not merely quiet" ;;
     *)    bad "a twice-usable pairing code reports '$(_verdict "$SUBJECT" ok accept)'" ;;
+esac
+
+case "$(_verdict "$SUBJECT" ok refuse foreign)" in
+    CANNOT-RUN) ok "a :8443 THIS ACCOUNT DOES NOT OWN reads as CANNOT-RUN, not as a verdict about our artefact" ;;
+    PASS)       bad "the probe PASSED against a foreign listener. Measured on .240: 0 listeners owned by this account, yet 8443 answers 403. That PASS would describe another account's Hub." ;;
+    *)          bad "a foreign :8443 produced '$(_verdict "$SUBJECT" ok refuse foreign)'" ;;
+esac
+
+case "$(_verdict "$SUBJECT" ok refuse nothing)" in
+    CANNOT-RUN) ok "nothing listening and nothing answering on :8443 reads as CANNOT-RUN, not a pass" ;;
+    *)          bad "an absent :8443 produced '$(_verdict "$SUBJECT" ok refuse nothing)'" ;;
+esac
+
+case "$(_verdict "$SUBJECT" ok refuse mine)" in
+    PASS) ok "CONTROL ON THE OWNERSHIP GUARD: when the port IS ours, the probe still adjudicates normally" ;;
+    *)    bad "the ownership guard fires even when we own the port ('$(_verdict "$SUBJECT" ok refuse mine)') -- it would blind every real verdict" ;;
 esac
 
 # ── NEGATIVE CONTROL, pinned to the tree that PRODUCED the flip ──────────────
