@@ -32,6 +32,38 @@
 # timing: config.toml carried 34 paired_tokens on Andy's box.
 #
 # ASSERT THE PROPERTY, NEVER THE TWO-PORT COMPARISON.
+#
+# 🔴 THIS PROBE MINTS A BEARER TOKEN EVERY TIME IT PASSES, AND ITS OWN CEILING
+# IS WHAT THAT TOKEN COUNTS AGAINST. Limb 2 below performs a REAL pair against
+# :8443 and requires `"paired":true`, which is exactly what persists an entry in
+# the `paired_tokens` array that limb 1 counts. Traced entirely from source, no
+# box required:
+#
+#   nothing revokes it            0 revoke/unpair surfaces in the tree
+#   --reset does not remove it    ttywalk.sh runs no uninstaller (announced
+#                                 since #1516), so config.toml survives a walk
+#   an install PRESERVES it       install.sh:12981-13004 reads the existing
+#                                 paired_tokens out of the old config and merges
+#                                 them forward, DELIBERATELY, so that an upgrade
+#                                 does not unpair every device (install.sh:13603)
+#   limb 1 fails above            TOKEN_CEILING = 12
+#
+# ⇒ THE PASSES ACCUMULATE TOWARDS THE FAILURE. After enough walks on one box, a
+# BLOCKING probe fails on evidence it manufactured itself, and it says so in the
+# language of a customer-visible defect: "a re-pair storm ... the customer sees
+# 'Pairing failed (403)'". A walk-minted token produces no 403 for anybody. That
+# verdict would send an operator to hunt RECOVER_MAX_ATTEMPTS in useAuth.ts for a
+# storm that never happened, while the real cut sat blocked behind it.
+#
+# So the probe now KEEPS ITS OWN LEDGER and subtracts itself. It reports the raw
+# count and the attributable count side by side, and it never silently adjusts:
+# an unreadable ledger is CANNOT-RUN, because a probe that cannot separate its
+# own footprint from the product's has not earned either verdict.
+#
+# ⚠️ IT ADJUSTS ONLY WHAT IT RECORDED. Tokens minted by walks taken BEFORE this
+# ledger existed are still counted against the product. That is stated in the
+# verdict rather than hidden, and it decays: the ledger starts at 0 and only ever
+# grows from here.
 # ============================================================================
 set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/probe.sh"
@@ -50,6 +82,60 @@ PROBE_QUESTION="if a customer's session dies, can they get back in -- once, quie
 # times over the product's life, is nowhere near this. A re-pair storm blows
 # through it in under a minute.
 TOKEN_CEILING=12
+
+# Evaluated ON THE BOX, like $cfg below: a local `~` would expand to the
+# operator's home and is correct only while both machines share a username.
+WALK_MINT_LEDGER="${OSTLER_WALK_MINT_LEDGER:-\$HOME/.ostler/state/walk-minted-pair-tokens}"
+
+# THE CEILING TEST AS ITS OWN FUNCTION, so run_probe and its negative control
+# are the SAME CODE. The sibling probe pair_state_agreement learned this the
+# hard way: an earlier draft of its control inlined a second copy of the parser
+# it was meant to be testing, which is a fixture encoding the fix rather than
+# the property, and it would have gone green with the real reader still broken.
+adjudicate_tokens() {
+    # adjudicate_tokens <raw> <minted-by-this-suite> <ceiling>
+    # -> "OK <attributable>" | "STORM <attributable>" | "CANNOT <reason>"
+    local raw="$1" minted="$2" ceiling="$3" adjusted
+    case "$raw" in
+        ''|*[!0-9]*) printf 'CANNOT the token count read back as %s, which is not a number' "${raw:-<empty>}"; return ;;
+    esac
+    case "$minted" in
+        ''|*[!0-9]*) printf 'CANNOT the walk mint ledger read back as %s, which is not a number' "${minted:-<empty>}"; return ;;
+    esac
+    case "$ceiling" in
+        ''|*[!0-9]*) printf 'CANNOT the ceiling is %s, which is not a number' "${ceiling:-<empty>}"; return ;;
+    esac
+    adjusted=$(( raw - minted ))
+    # FLOOR AT ZERO, NEVER NEGATIVE. A ledger ahead of the count means somebody
+    # pruned config.toml between walks, which is not a storm and must not read
+    # as one through a negative comparing low.
+    [ "$adjusted" -lt 0 ] && adjusted=0
+    if [ "$adjusted" -gt "$ceiling" ]; then
+        printf 'STORM %s' "$adjusted"
+    else
+        printf 'OK %s' "$adjusted"
+    fi
+}
+
+read_walk_mint_ledger() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        printf '%s' "${FAKE_MINTED:-0}"; return
+    fi
+    local out
+    # ABSENT is 0 and says so; UNREADABLE comes back empty and is refused by
+    # adjudicate_tokens. A missing file and a failed read are different facts,
+    # and this suite exists because they used to print the same.
+    out="$(box_run "if [ -f \"${WALK_MINT_LEDGER}\" ]; then /bin/cat \"${WALK_MINT_LEDGER}\"; else printf 0; fi" | tr -d '[:space:]')"
+    printf '%s' "${out}"
+}
+
+note_minted_pair_token() {
+    # Called ONLY where a body carrying "paired":true has actually been seen, so
+    # the ledger counts pairings that happened rather than attempts that were
+    # made. A refused pair mints nothing and must not be recorded.
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then return; fi
+    box_run "d=\$(dirname \"${WALK_MINT_LEDGER}\"); mkdir -p \"\$d\" 2>/dev/null; c=0; if [ -f \"${WALK_MINT_LEDGER}\" ]; then c=\$(/bin/cat \"${WALK_MINT_LEDGER}\" 2>/dev/null | tr -d '[:space:]'); fi; case \"\$c\" in ''|*[!0-9]*) c=0 ;; esac; printf '%s' \"\$((c+1))\" > \"${WALK_MINT_LEDGER}\"" >/dev/null 2>&1
+}
 
 run_probe() {
   box_reachable || { probe_cannot_run "box not reachable"; return; }
@@ -73,10 +159,23 @@ run_probe() {
     probe_cannot_run "token count came back as '${n:-<empty>}', not a number -- the read failed, so this is not a pass"
     return
   fi
-  probe_examined "$n" "paired_tokens in config.toml (ceiling ${TOKEN_CEILING})"
+  local _minted _tokres _tok _attrib
+  _minted="$(read_walk_mint_ledger)"
+  _tokres="$(adjudicate_tokens "$n" "$_minted" "$TOKEN_CEILING")"
+  _tok="${_tokres%% *}"; _attrib="${_tokres#* }"
 
-  if [ "$n" -gt "$TOKEN_CEILING" ]; then
-    probe_fail "${n} paired tokens persisted -- a re-pair storm. Each is a bearer token that is never revoked, and the customer sees the losing attempt's 'Pairing failed (403)'. Andy's box had 34 after five minutes."
+  if [ "$_tok" = "CANNOT" ]; then
+    probe_cannot_run "${_attrib}. The ledger at ${WALK_MINT_LEDGER} must hold a plain integer, because without it this probe cannot separate a product storm from its own pairings -- and it mints one every time it passes. Guessing either way is a verdict it has not earned. Not a pass."
+    return
+  fi
+
+  probe_note "paired_tokens on disk           : ${n}"
+  probe_note "minted by this suite's own runs : ${_minted}  (${WALK_MINT_LEDGER})"
+  probe_note "attributable to the product     : ${_attrib}  (ceiling ${TOKEN_CEILING})"
+  probe_examined "$_attrib" "paired_tokens attributable to the PRODUCT, after subtracting the ${_minted} this suite minted itself (raw on disk ${n}, ceiling ${TOKEN_CEILING})"
+
+  if [ "$_tok" = "STORM" ]; then
+    probe_fail "${_attrib} paired tokens persisted that this suite did not mint (${n} on disk, ${_minted} of them ours) -- a re-pair storm. Each is a bearer token that is never revoked, and the customer sees the losing attempt's 'Pairing failed (403)'. Andy's box had 34 after five minutes."
     return
   fi
 
@@ -150,7 +249,10 @@ run_probe() {
     return
   fi
   case "$first" in
-    *'"paired":true'*) : ;;
+    # A REAL PAIR JUST HAPPENED. Record it before anything else can return:
+    # this is the line that puts a token in config.toml, and limb 1 of the NEXT
+    # walk is what counts it.
+    *'"paired":true'*) note_minted_pair_token ;;
     *) probe_fail "8443 -- the port the app pairs against -- REJECTED a code the gateway had just issued. A customer whose session dies cannot get back in. Response: ${first:0:100}"
        return ;;
   esac
@@ -175,11 +277,14 @@ run_probe() {
   probe_examined "1" "replay of the spent code -- response: ${second:0:60}"
   case "$second" in
     *'"paired":true'*)
+      # Two pairs, two tokens. Record the second before failing, or the ledger
+      # under-counts and the next walk blames the product for our replay.
+      note_minted_pair_token
       probe_fail "CONTROL FAILED: the same code paired TWICE. Pairing codes are meant to be consumed on first use (pairing.rs sets pairing_code = None); a code that never expires is a standing key to the customer's hub."
       return ;;
   esac
 
-  probe_pass "recovery works and does not storm: 8443 accepted a fresh code, refused its replay, and only ${n} tokens are persisted"
+  probe_pass "recovery works and does not storm: 8443 accepted a fresh code, refused its replay, and only ${_attrib} of the ${n} persisted tokens are attributable to the product (${_minted} were minted by this suite, including the one this run just added)"
 }
 
 # ---------------------------------------------------------------------------
@@ -239,8 +344,64 @@ self_test() {
     # lib/probe.sh -- the lib defines PROBE_EX_PASS. The `:-` default silently
     # supplied 0, so the wrong NAME never surfaced as an error. Two bugs wearing
     # one line.
-    probe_examined 2 "synthetic token sets (negative control): a 34-token storm and a clean 3-token box"
-    probe_fail "negative control behaved correctly -- counted 34 single-line tokens as a storm, cleared a 3-token box"
+    # ── THE ATTRIBUTION ARITHMETIC, DRIVEN THROUGH THE REAL FUNCTION ──────
+    #
+    # Every case below calls adjudicate_tokens, the same function run_probe
+    # calls. Six cases, and each one is a way this could go wrong that would
+    # otherwise cost a cut. The two that matter most are 2 and 3: case 2 is the
+    # false red this change exists to kill, and case 3 is the false GREEN the
+    # change could have introduced while killing it.
+    local r
+    _at_fail=0
+    _at_case() {
+        # _at_case <label> <raw> <minted> <expected-token> <expected-value>
+        r="$(adjudicate_tokens "$2" "$3" "$TOKEN_CEILING")"
+        if [ "${r%% *}" != "$4" ] || [ "${r#* }" != "$5" ]; then
+            _at_fail=1
+            printf 'VERDICT: BROKEN -- %s: adjudicate_tokens %s %s %s said "%s", expected "%s %s".\n' \
+                "$1" "$2" "$3" "$TOKEN_CEILING" "$r" "$4" "$5"
+        fi
+    }
+
+    # 1. Andy's real box, before this suite ever ran. MUST still be a storm, or
+    #    the change has bought a false green with a false red.
+    _at_case "the 34-token storm with nothing of ours in it" 34 0 STORM 34
+
+    # 2. THE FALSE RED THIS EXISTS TO KILL. Thirteen walks, thirteen tokens,
+    #    every one minted by limb 2 of this very probe. Zero product tokens.
+    #    Unadjusted this trips the ceiling of 12 and blocks a cut.
+    _at_case "a box walked 13 times and otherwise clean" 13 13 OK 0
+
+    # 3. THE FALSE GREEN THE CHANGE COULD HAVE BOUGHT. A genuine storm on a box
+    #    we have also walked. Subtracting ours must NOT hide theirs.
+    _at_case "a real storm on a box we have also walked" 20 5 STORM 15
+
+    # 4. Ledger ahead of the count -- somebody pruned config.toml between walks.
+    #    Not a storm, and the floor must stop it reading as one.
+    _at_case "a ledger ahead of the count (config.toml was pruned)" 3 9 OK 0
+
+    # 5. Exactly at the ceiling is NOT over it. An off-by-one here fails every
+    #    correctly configured box.
+    _at_case "exactly at the ceiling" 12 0 OK 12
+
+    # 6. An unreadable ledger must REFUSE, never assume zero. Assuming zero is
+    #    how our own tokens get blamed on the product.
+    r="$(adjudicate_tokens 13 "" "$TOKEN_CEILING")"
+    if [ "${r%% *}" != "CANNOT" ]; then
+        _at_fail=1
+        printf 'VERDICT: BROKEN -- an unreadable mint ledger adjudicated as "%s", not CANNOT.\n' "$r"
+    fi
+
+    if [ "$_at_fail" -ne 0 ]; then
+        printf '  The attribution arithmetic is what separates this suite own pairings from\n'
+        printf '  the product. With it wrong, a blocking probe either blames the product for\n'
+        printf '  tokens we minted, or hides a real storm behind them.\n'
+        exit "$PROBE_EX_FAIL"
+    fi
+    probe_note "attribution control: 6 of 6 cases through the real adjudicate_tokens"
+
+    probe_examined 8 "synthetic cases (negative control): a 34-token storm, a clean 3-token box, and 6 attribution cases"
+    probe_fail "negative control behaved correctly -- counted 34 single-line tokens as a storm, cleared a 3-token box, and attributed 6 of 6 raw/minted combinations correctly including the walk-only box that used to read as a storm"
     # NOTHING BELOW probe_fail. The `exit "${PROBE_EX_OK:-0}"` that used to sit
     # here is deleted, not merely bypassed: it is unreachable while probe_fail
     # exits, and it would silently RESURRECT this defect the day probe_fail
