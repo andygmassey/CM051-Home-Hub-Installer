@@ -30,7 +30,7 @@
 
 version: v1.0.72
 description: |
-  The single pre-cut checklist. All 25 box-walk probes must PASS -- Andy's
+  The single pre-cut checklist. All 26 box-walk probes must PASS -- Andy's
   standing bar, "they all must pass each and every time". Plus a defect-absence
   proof for every defect measured on the v1.0.71 walk. Nothing ships until
   every entry in `entries` is satisfied.
@@ -38,7 +38,7 @@ description: |
 entries:
 
   # ==========================================================================
-  # ANDY'S BAR: ALL 25 BOX-WALK PROBES MUST PASS, EVERY TIME.
+  # ANDY'S BAR: ALL 26 BOX-WALK PROBES MUST PASS, EVERY TIME.
   #
   # On the v1.0.71 walk this stood at 17 PASS / 7 FAIL / 1 CANNOT-RUN. Each row
   # below is a runtime gate: with OSTLER_BOX_HOST set the probe MUST exit 0.
@@ -219,6 +219,13 @@ entries:
       kind: box_walk_probe
       probe: "usage_journal_producers"
 
+  - id: probe-the-recovery-key-reached-the-customer
+    title: "box-walk probe must PASS: the_recovery_key_reached_the_customer"
+    incident: "#1540 LAUNCH BLOCKER: the recovery key is minted, the DEK is encrypted under it, and the customer is never shown it. Probe landed in #1557 AFTER this manifest was generated, so the file declared 25 rows against 26 probes on disk."
+    proof:
+      kind: box_walk_probe
+      probe: "the_recovery_key_reached_the_customer"
+
   # ==========================================================================
   # DEFECT-ABSENCE PROOFS for defects MEASURED on the v1.0.71 walk box today.
   # Each pattern is the broken form. must_match:false means the cut fails while
@@ -241,6 +248,22 @@ entries:
       pattern: "_DEDUPE_DONE_MARKER\" \\|\\| -f \"\\$_DEDUPE_KILLED_MARKER"
       must_match: true
 
+  # THIS PAIR IS ONE PROOF, AND THE SECOND HALF IS NOT OPTIONAL.
+  #
+  # The absence row below was GREEN ON MAIN FOR THE WRONG REASON. Measured:
+  # `ASSUME_YES` appears ZERO times in install.sh on origin/main (control:
+  # `OSTLER_` appears 1655 times, so the file is readable). #1567 has not
+  # landed, so the row could not tell "the bad form is absent because the fix
+  # is right" from "the feature does not exist at all".
+  #
+  # That is precisely the defect #1153 describes -- a needle satisfied by
+  # something other than the thing it exists to prove -- sitting inside the
+  # manifest that bans it. Found by a review of my own rows, not by the gate.
+  #
+  # So the absence proof is paired with a presence proof naming the construct
+  # the fix actually introduces. Until #1567 lands the presence row is RED,
+  # which is correct: the property is unproven, and the manifest should say so
+  # rather than report a pass it did not earn.
   - id: uninstall-consent-is-not-merely-non-empty
     title: uninstaller consent must not treat OSTLER_UNINSTALL_ASSUME_YES=0 as yes
     incident: "review of #1567 2026-09-05: -n tests non-empty, so =0, =no and =false all proceeded to destroy"
@@ -249,57 +272,65 @@ entries:
       pattern: "\\[\\[ -n \"\\$ASSUME_YES\" \\]\\]"
       must_match: false
 
+  - id: uninstall-consent-enumerates-the-values-that-mean-yes
+    title: the uninstaller must decide consent by enumerating the values that mean yes
+    incident: "the paired control for the row above, which was green on main only because ASSUME_YES did not exist there at all (0 occurrences against 1655 for OSTLER_)"
+    proof:
+      kind: grep_in_installer
+      pattern: "_assume_yes_granted"
+      must_match: true
+
 open_issues:
   # THE FULL REGISTER. The verifier does NOT read this key.
   # `gate: NONE YET` means no proof has been written. That is WORK, not cover.
   - issue: 770
     title: "The iMessage backfill ladder never runs: the installer pins the window at 45 days, and a pin disables the ladder"
-    gate: "NONE YET"
+    gate: "FIX (gated): entry: imessage-backfill-ladder-is-not-pinned -- the 45-day pin is already gone from main; this is the regression proof so it cannot come back"
   - issue: 775
     title: "the hydrate-sentinel control (7) has a false pass on a nested block, and types its own denominator"
-    gate: "NONE YET"
+    gate: "DEFER: both halves latent -- the nested-block false pass needs a mutation nobody has made, and the typed denominator agrees with the derived one today"
   - issue: 1111
     title: "freshness_panel_has_dates can never run: the Doctor has no freshness endpoint"
-    gate: "NONE YET"
+    gate: "FIX (BLOCKING): probe-freshness-panel-has-dates exits 78 CANNOT-RUN on a 404, and CANNOT-RUN counts toward the blocking total. Three options, all product calls: land the Doctor freshness route, retarget the probe, or remove the row with the reason recorded"
   - issue: 1113
     title: "assistant_answers_grounded: tools= is empty because [mcp] servers = [], and every ungrounded turn logs outcome='ok'"
-    gate: "NONE YET"
+    gate: "DEFER: stated root cause refuted -- pwg_* are native Rust tools, not MCP servers, so [mcp] servers=[] cannot be why tools= was empty"
   - issue: 1122
     title: "35 un-revoked pairing tokens on the walk box, hidden because the probe was BROKEN"
-    gate: "NONE YET"
+    gate: "FIX (already gated): entry: probe-pairing-recovers-without-a-repair-storm (TOKEN_CEILING=12, self-tested both ways). Register row was wrong to say NONE YET"
   - issue: 1123
     title: "pair_state_agreement can never read 2 of its 3 signals: /doctor/api/health has no pairing field"
-    gate: "NONE YET"
+    gate: "DEFER: superseded by d56ce2a5 (#1532) -- the probe now reads 5 signals and discovers devices.db anywhere under ~/.ostler. Re-measure next walk"
   - issue: 1125
     title: "assistant_answers_grounded scores any pwg_* call as grounded, so it is blind to the wrong-tool case"
-    gate: "NONE YET"
+    gate: "FIX: entry: grounded-is-not-a-bare-pwg-prefix -- the probe scores any pwg_* call as grounded, so a green verdict measures something weaker than it claims"
   - issue: 1141
     title: "usage journal has never been written on a box that has compiled and ingested for days"
-    gate: "NONE YET"
+    gate: "DEFER: both halves landed -- active_workspace.toml is written (install.sh:12952) and the probe honours it"
   - issue: 1143
     title: "egress probe FAILs on declared hosts: a rotating DNS pool defeats contemporaneous resolution"
-    gate: "NONE YET"
+    gate: "DEFER: the DERP leg now runs in the same joint remote call as the socket read (6fa2e4f4) and the verdict separates declared from undeclared"
   - issue: 1152
     title: "acceptance_gate_v1013 is a registered probe that the box_walk_probes README never lists"
-    gate: "NONE YET"
+    gate: "DEFER: documentation only, no customer reach. NOTE the issue is wrong that the probe runs -- see acceptance_gate_v1013 below"
   - issue: 1153
     title: "install.sh coverage gate matches a MENTION not a cp line, so deleting the copy stays green — including for the needle written after the ships-dark inc"
-    gate: "NONE YET"
+    gate: "FIX: entry: bundling-needle-matches-a-cp-not-a-mention -- the gate written after a ships-dark incident is defeated by the one-line edit it exists to catch, and still reports OK"
   - issue: 1154
     title: "verify_test_wiring counts a paths: trigger as an invocation, so a test that is only triggered-on reports WIRED"
-    gate: "NONE YET"
+    gate: "DEFER: latent, measured scope on main is zero, and the fix is the same edit as 1156"
   - issue: 1156
     title: "verify_test_wiring enumerates only tests/, so all 28 files under scripts/tests/ are uncovered — including the self-test for that gate"
-    gate: "NONE YET"
+    gate: "FIX: entry: test-wiring-gate-enumerates-scripts-tests -- 36 test files under scripts/tests/ have 0 rows, including the self-test for that very gate"
   - issue: 1160
     title: "preferences: compartment_level is stored as string 'L2', integer 2, and absent in one collection — a typed filter silently drops half the store"
-    gate: "NONE YET"
+    gate: "DEFER: the string-typed writer is not in CM051, no L3 exists in that collection, and no shipped caller filters on the field. Not on the v1.0 path"
   - issue: 1161
     title: "pwg_preferences fixtures use lowercase domains ('music', 'food') that no live install has — the live vocabulary is capitalised, and an unmatched filte"
-    gate: "NONE YET"
+    gate: "DEFER: customer-facing half is fixed upstream and ships -- 3d851e41 is an ancestor of hub-v0.4.70, the pinned daemon"
   - issue: 1162
     title: "assistant_answers_grounded: it is not 'one in three fails' — one exact string fails every time while a semantically identical rephrasing grounds fine "
-    gate: "NONE YET"
+    gate: "FIX (already gated): entry: probe-assistant-answers-grounded -- the failing string is literally battery question line 272. Fix is daemon-side"
   - issue: 1163
     title: "usage_journal: six chat turns against a shipped daemon that contains the recorder produced no journal and no error — plus the roster's own denominator"
     gate: "NONE YET"
