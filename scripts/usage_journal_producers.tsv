@@ -39,16 +39,22 @@
 #
 # MEASURED, not assumed:
 #
-#   cm051_ostler_fda_ingest   PREFIX measured from HR015 ostler_fda/pwg_ingest.py:50
-#                             (_USAGE_SESSION_ID = f"ostler-fda-ingest-{uuid4}"). BUT that
-#                             is the SOURCE. The writer is NOT vendored into CM051
-#                             vendor/ostler_fda (0 of 35 files match usage|journal|
-#                             cost, and the vendored pwg_ingest.py does not reference it),
-#                             so on a shipped box this producer is UNOBSERVABLE exactly
-#                             like cm048/cm041 below, until the re-vendor lands. It is
-#                             listed here only because its prefix is measured, not because
-#                             it emits today. STATUS stays required so the gate REDs it on
-#                             a box rather than flattering the cost figure while it is dark.
+#   cm051_ostler_fda_ingest   PREFIX measured from vendor/ostler_fda/pwg_ingest.py:50
+#                             (_USAGE_SESSION_ID = f"ostler-fda-ingest-{uuid4}").
+#                             ⚠️ THIS ENTRY USED TO SAY THE WRITER WAS NOT VENDORED, and
+#                             that stopped being true when the re-vendor landed (#1305).
+#                             Re-measured on the tree that ships: vendor/ostler_fda holds
+#                             36 files, 2 of which reference the journal --
+#                             usage_journal.py itself, and pwg_ingest.py, which imports
+#                             record_usage at :36-37 and calls it at :72.
+#                             tests/test_vendored_fda_writes_the_usage_journal.sh proves
+#                             it BY EXECUTION ("RUNNING the vendored producer writes a
+#                             record"), not by grep.
+#                             This correction matters because the old text was a BENIGN
+#                             EXPLANATION FOR AN ABSENCE: a reader seeing this probe RED
+#                             would have read "fda is dark, expected" and moved on, when
+#                             a RED now means something else entirely. That is the same
+#                             failure #1141 fixed inside the probe itself.
 #   cm044_wiki_compiler       the worked example in the contract's own THE
 #                             RECORD section: "cm044-compile-2026-08-24T..."
 #   oa_daemon_chat            oa crates/zeroclaw-config/src/cost/tracker.rs:32
@@ -82,6 +88,6 @@
 cm044_wiki_compiler	CM044	enriching	session_prefix	cm044-compile-	required	contract WHAT EACH REPO OWES: every embedding + every summarisation call in the compiler. Prefix from the contract's THE RECORD worked example.
 cm048_conversation_extract	CM048	enriching	session_prefix	cm048-	required	contract WHAT EACH REPO OWES: conversation fact extraction. Prefix pinned by this roster; not yet observable, the producer is unwired.
 cm041_identity_resolution	CM041	enriching	session_prefix	cm041-	required	contract WHAT EACH REPO OWES: identity resolution, where it calls a model. Prefix pinned by this roster; not yet observable, the producer is unwired.
-cm051_ostler_fda_ingest	CM051	ingesting	session_prefix	ostler-fda-ingest-	required	contract WHAT EACH REPO OWES: vendored ostler_fda, per source parse that invokes a model. Prefix measured from HR015 ostler_fda/pwg_ingest.py:50. The usage-journal writer is not yet vendored into CM051 (an expired vendoring hold), so this producer is dark on a shipped box and the gate REDs it until the re-vendor lands.
+cm051_ostler_fda_ingest	CM051	ingesting	session_prefix	ostler-fda-ingest-	required	contract WHAT EACH REPO OWES: vendored ostler_fda, per source parse that invokes a model. Prefix measured from vendor/ostler_fda/pwg_ingest.py:50. The writer IS vendored as of #1305 (usage_journal.py present; pwg_ingest imports record_usage at :36-37, calls it at :72) and is proven by execution in tests/test_vendored_fda_writes_the_usage_journal.sh, so this producer is expected to appear on a walked box.
 oa_daemon_chat	oa	answering	purpose	answering	required	contract, sentence below the table: the daemon already writes answering for the chat path. Matched on purpose because its session_id is a bare uuid4 (oa cost/tracker.rs:32).
 oa_proactive_cycle	oa	noticing	purpose	noticing	dormant	contract WHAT EACH REPO OWES: the proactive cycle, WHEN it grows a model call (it has none today). Declared, not owed; never failed on.
