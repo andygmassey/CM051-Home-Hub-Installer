@@ -77,6 +77,13 @@ on:
       - 'tests/test_store_health_does_not_depend_on_a_foreign_port.sh'
       - 'tests/test_every_fail_call_has_error_code.sh'
       - 'tests/test_a_plistbuddy_read_takes_its_exit_code.sh'
+      - 'tests/test_every_plistbuddy_read_is_guarded.sh'
+      # The census reads install.sh and scripts/*.sh, so a change to any
+      # of them can introduce an unguarded read. Watched for that reason.
+      - 'scripts/post_walk_qa.sh'
+      - 'scripts/verify_app_provenance.sh'
+      - 'scripts/verify_commit_parity.sh'
+      - 'scripts/verify_customer_download_path.sh'
       - 'tests/test_the_sentinel_vocabulary_is_declared_and_complete.sh'
       - 'tests/test_no_function_is_called_before_it_is_defined.sh'
       - 'tests/test_doctor_probe_cap_exceeds_the_command.sh'
@@ -284,6 +291,20 @@ jobs:
       - name: A PlistBuddy read takes its exit code
         if: always()
         run: bash tests/test_a_plistbuddy_read_takes_its_exit_code.sh
+
+      # THE SINGLE-SITE TEST ABOVE IS WHY FIVE OTHER SITES WENT UNNOTICED.
+      # It drives install.sh's _upg_ensure_token read and proves the CLASS is
+      # real, which is valuable and is not coverage. This one is a CENSUS: it
+      # finds every PlistBuddy read in install.sh and scripts/*.sh and requires
+      # each to take an exit code or check a shape. A bare -n/-z check is not a
+      # guard, because PlistBuddy answers on STDOUT when it fails.
+      #
+      # It refuses (CANNOT-RUN, exit 2) if it finds fewer than four sites: a
+      # scan that stops matching how these reads are written would otherwise
+      # report a clean census having examined nothing.
+      - name: Every PlistBuddy read is guarded, not just the one with a test
+        if: always()
+        run: bash tests/test_every_plistbuddy_read_is_guarded.sh
       # The same writer/reader drift was found TWICE (sources 13/9,
       # statuses 5/3), both times by a human reading both sides. A literal
       # grep for status= MISSES error and timeout, because the error

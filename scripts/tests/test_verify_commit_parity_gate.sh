@@ -51,6 +51,29 @@ mkdir -p "$(dirname "${WRAPPER_BIN}")" "$(dirname "${DAEMON_BIN}")"
 : > "${WRAPPER_BIN}"
 : > "${DAEMON_BIN}"
 
+# THE WRAPPER'S Info.plist, WITHOUT WHICH EVERY CASE BELOW DIES AT CASE 0.
+#
+# This fixture predates the gate reading CFBundleExecutable. It created
+# Ostler.app/Contents/MacOS/zeroclaw-desktop and no Contents/Info.plist, because
+# the gate used to hardcode the binary name. When the gate started resolving the
+# name from the plist, the fixture went stale and every assertion after the
+# resolve became unreachable -- and nothing noticed, because no workflow has ever
+# run this file.
+#
+# Written as literal XML rather than through PlistBuddy so the fixture does not
+# depend on the tool whose failure mode this gate exists to survive.
+mkdir -p "$(dirname "${WRAPPER_BIN}")/.."
+cat > "$(dirname "$(dirname "${WRAPPER_BIN}")")/Info.plist" <<'WRAPPERPLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>zeroclaw-desktop</string>
+</dict>
+</plist>
+WRAPPERPLIST
+
 # ----- strings shim ---------------------------------------------------------
 # Reads STRINGS_FAKE_STATE. Each line is `<pattern> <string-to-emit>`.
 # Pattern grammar: substring match (`*pattern*`). First match wins; a
@@ -106,6 +129,20 @@ assert_contains() {
     fi
 }
 
+assert_not_contains() {
+    # The mirror of assert_contains. A gate that names the WRONG subject is a
+    # gate that sends the next reader down the wrong path, so "must not say X"
+    # is as much an assertion as "must say Y".
+    local label="$1" needle="$2"
+    if grep -qF -- "${needle}" "${LAST_CAPTURE}"; then
+        printf 'FAIL: %s (output wrongly contains %q)\n' "${label}" "${needle}" >&2
+        FAIL=$((FAIL+1))
+    else
+        printf 'PASS: %s\n' "${label}"
+        PASS=$((PASS+1))
+    fi
+}
+
 SHA_A="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"    # 40 hex 'a'
 SHA_B="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"    # 40 hex 'b'
 
@@ -145,6 +182,31 @@ zeroclaw-desktop WRAPPER_FRONTEND_COMMIT=${SHA_A}
 EOF
 run_case "daemon carries no marker (pre-#226 build)" "${STATE4}" 1
 assert_contains "case 4 error names the daemon as culprit" "daemon binary carries no DAEMON_FRONTEND_COMMIT marker"
+
+# --- CASE 4b: the wrapper's Info.plist is UNREADABLE ------------------------
+#
+# PLISTBUDDY WRITES ITS ERROR TO STDOUT. On a missing plist it prints
+# a "file does not exist" sentence naming the path, on stdout, so `2>/dev/null` does not
+# suppress it and a `[[ -n ... ]]` check PASSES on the error sentence. The gate
+# then used that sentence as the executable NAME and died with "wrapper binary
+# not found in DMG payload" -- naming the wrapper when the PLIST was the problem,
+# and making its own "declares no CFBundleExecutable" message unreachable.
+#
+# This case removes the plist and asserts the gate names the PLIST. Without it
+# the fix is untested: every other case supplies a valid plist, so none of them
+# can tell a hardened read from the old one. (Measured: reverting the gate fix
+# alone leaves all other cases GREEN.)
+printf '\n=== CASE: wrapper Info.plist unreadable -> the gate must name the PLIST ===\n'
+_SAVED_PLIST="${TMP}/saved-wrapper-Info.plist"
+_WRAPPER_PLIST_PATH="$(dirname "$(dirname "${WRAPPER_BIN}")")/Info.plist"
+mv "${_WRAPPER_PLIST_PATH}" "${_SAVED_PLIST}"
+# rc=2, not 1: the gate separates a PRECONDITION it could not read from a
+# parity MISMATCH it measured. Expecting 1 here would assert the wrong
+# contract and quietly bless a gate that stopped distinguishing them.
+run_case "wrapper Info.plist missing" "${STATE1}" 2
+assert_contains "case 4b names the CFBundleExecutable/plist, not the binary" "CFBundleExecutable"
+assert_not_contains "case 4b does NOT blame the wrapper binary" "wrapper binary not found"
+mv "${_SAVED_PLIST}" "${_WRAPPER_PLIST_PATH}"
 
 # --- CASE 5: Makefile wire-in assertion (silent no-op guard) ----------------
 # feedback_gate_must_prove_it_fires_not_just_compile: also prove the gate

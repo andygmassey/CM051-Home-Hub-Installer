@@ -95,9 +95,21 @@ fi
 # hardcoded name both fails a correct bundle AND passes a bundle whose real
 # executable is missing so long as a stale-named file sits beside it.
 # --------------------------------------------------------------------------
-EXE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' \
-        "$APP/Contents/Info.plist" 2>/dev/null || true)"
-[[ -n "$EXE" ]] || cannot "$APP declares no CFBundleExecutable (Info.plist missing or unreadable)"
+# PlistBuddy writes its failure to STDOUT, so `2>/dev/null` cannot suppress it,
+# `|| true` discards the exit code, and the message is NON-EMPTY -- which
+# defeated the -n check below and made the message the executable NAME. The
+# next line then reported "declared executable not present", naming the binary
+# when the PLIST was the problem. Identical to the defect CM051 #1524 fixed in
+# verify_commit_parity.sh. A CFBundleExecutable is a bare file name, so the
+# shape check rejects a sentence containing spaces, a colon and a slash.
+_PROV_PLIST="$APP/Contents/Info.plist"
+EXE=""
+if [[ -f "$_PROV_PLIST" ]]; then
+    if _pb="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$_PROV_PLIST" 2>/dev/null)"; then
+        EXE="$(printf '%s' "$_pb" | tr -d '[:space:]')"
+    fi
+fi
+[[ "$EXE" =~ ^[A-Za-z0-9._-]+$ ]] || cannot "$APP declares no usable CFBundleExecutable (Info.plist missing, unreadable, or the key absent)"
 BIN="$APP/Contents/MacOS/$EXE"
 [[ -e "$BIN" ]] || cannot "declared executable not present: Contents/MacOS/$EXE"
 
