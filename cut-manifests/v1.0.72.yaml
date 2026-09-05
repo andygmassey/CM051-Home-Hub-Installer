@@ -323,10 +323,20 @@ entries:
       must_match: true
 
 open_issues:
-  - issue: 1591
-    title: "a red main opens an issue instead of emailing Andy"
+  - issue: 1587
+    title: "the Doctor source table covers hydrate sources only, so the whole FDA family is invisible"
     gate: >-
-      MERGE: entry: red-main-opens-an-issue -- main was red for an hour across
+      FIX:(gated): entry: source-table-covers-every-family -- the table serves
+      hydrate sources only, so the FDA family cannot appear in it: Reminders
+      ingested 21KB and the table cannot say so. MEASURED on #1587 with
+      `ls ~/.ostler/imports/fda/` and a sentinel grep whose positive control
+      was `places`. This is a PREREQUISITE for #1589, not a follow-up: an
+      end-of-install panel built on the current table would show 13 of 15 and
+      look complete, which is the exact failure the panel exists to prevent.
+  - issue: 1593
+    title: "main was red for an hour and nothing in the repo noticed"
+    gate: >-
+      MERGE: entry: red-main-opens-an-issue -- fix is PR #1591. main was red for an hour across
       three shas and nothing in the repo noticed; it surfaced only because Andy
       read notification email. Gate is
       tests/test_a_broken_ci_query_is_not_a_green_main.sh, 7 arms with 2
