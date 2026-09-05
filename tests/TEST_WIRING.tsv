@@ -188,6 +188,7 @@ test_gdpr_export_detect.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_gdpr_folder_access_denied.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_gdpr_scan_prewarn.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_gen_patch_new_files.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_generated_cli_tools_are_counted.sh	WIRED	.github/workflows/generated-cli-tools-counted.yml
 test_governor_pause_throttle.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_graph_db_pull_retry.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_grep_c_arith_safety.sh	WIRED	.github/workflows/grep-c-arith-safety.yml
