@@ -1,0 +1,359 @@
+# cut-manifests/v1.0.72.yaml
+# ============================================================================
+# THE ONE CHECKLIST FOR THE NEXT CUT.
+#
+# Andy, 2026-09-05: "You keep JUST ONE checklist -- the manifest -- and cross
+# things off until they're all done before you make the next cut. Otherwise we
+# will NEVER get through this." And: "they all must pass each and every time."
+#
+# So this file is the whole gate for v1.0.72. It inherits permanent.yaml; the
+# verifier walks both and a FAIL in either fails the cut.
+#
+# TWO SECTIONS, AND THE DIFFERENCE BETWEEN THEM IS THE HONEST PART:
+#
+#   entries:        MACHINE-GATED. Every row here is proved by a real primitive
+#                   against a real box or a real tree. These cannot be ticked
+#                   by hand and cannot be forgotten.
+#
+#   open_issues:    THE FULL REGISTER of every open issue at the time of
+#                   writing. The verifier does NOT read this key -- it walks
+#                   `entries` only. Rows here carry `gated_by:` naming the
+#                   entry that proves them, or `gate: NONE YET`, which means
+#                   the fix shape is not decided and NOBODY HAS WRITTEN THE
+#                   PROOF. A `NONE YET` row is work, not coverage. Do not read
+#                   this section as protection.
+#
+# Writing a plausible-looking proof for an issue I have not measured would make
+# this file lie in exactly the way SKIP-is-not-a-pass lied for fourteen cuts.
+# So the ungated rows say so in as many words.
+# ============================================================================
+
+version: v1.0.72
+description: |
+  The single pre-cut checklist. All 25 box-walk probes must PASS -- Andy's
+  standing bar, "they all must pass each and every time". Plus a defect-absence
+  proof for every defect measured on the v1.0.71 walk. Nothing ships until
+  every entry in `entries` is satisfied.
+
+entries:
+
+  # ==========================================================================
+  # ANDY'S BAR: ALL 25 BOX-WALK PROBES MUST PASS, EVERY TIME.
+  #
+  # On the v1.0.71 walk this stood at 17 PASS / 7 FAIL / 1 CANNOT-RUN. Each row
+  # below is a runtime gate: with OSTLER_BOX_HOST set the probe MUST exit 0.
+  # CANNOT-RUN is not a pass and is not tolerated here either.
+  # ==========================================================================
+  - id: probe-app-signature-survives-first-run
+    title: "box-walk probe must PASS: app_signature_survives_first_run"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "app_signature_survives_first_run"
+
+  - id: probe-assistant-answers-grounded
+    title: "box-walk probe must PASS: assistant_answers_grounded"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "assistant_answers_grounded"
+
+  - id: probe-assistant-prompt-names-every-pwg-tool
+    title: "box-walk probe must PASS: assistant_prompt_names_every_pwg_tool"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "assistant_prompt_names_every_pwg_tool"
+
+  - id: probe-converge-kill-is-recorded
+    title: "box-walk probe must PASS: converge_kill_is_recorded"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "converge_kill_is_recorded"
+
+  - id: probe-daemon-is-listening
+    title: "box-walk probe must PASS: daemon_is_listening"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "daemon_is_listening"
+
+  - id: probe-fda-tick-can-import
+    title: "box-walk probe must PASS: fda_tick_can_import"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "fda_tick_can_import"
+
+  - id: probe-freshness-panel-has-dates
+    title: "box-walk probe must PASS: freshness_panel_has_dates"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "freshness_panel_has_dates"
+
+  - id: probe-identity-layer-is-importable
+    title: "box-walk probe must PASS: identity_layer_is_importable"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "identity_layer_is_importable"
+
+  - id: probe-ingest-coverage
+    title: "box-walk probe must PASS: ingest_coverage"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "ingest_coverage"
+
+  - id: probe-install-error-honesty
+    title: "box-walk probe must PASS: install_error_honesty"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "install_error_honesty"
+
+  - id: probe-install-manifest-complete
+    title: "box-walk probe must PASS: install_manifest_complete"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "install_manifest_complete"
+
+  - id: probe-installed-bundle-seal-intact
+    title: "box-walk probe must PASS: installed_bundle_seal_intact"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "installed_bundle_seal_intact"
+
+  - id: probe-launchagents-resolve-their-tools
+    title: "box-walk probe must PASS: launchagents_resolve_their_tools"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "launchagents_resolve_their_tools"
+
+  - id: probe-launchd-no-ephemeral-paths
+    title: "box-walk probe must PASS: launchd_no_ephemeral_paths"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "launchd_no_ephemeral_paths"
+
+  - id: probe-no-person-holds-two-contact-cards
+    title: "box-walk probe must PASS: no_person_holds_two_contact_cards"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "no_person_holds_two_contact_cards"
+
+  - id: probe-no-store-port-is-tcp-reachable
+    title: "box-walk probe must PASS: no_store_port_is_tcp_reachable"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "no_store_port_is_tcp_reachable"
+
+  - id: probe-no-unexpected-egress
+    title: "box-walk probe must PASS: no_unexpected_egress"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "no_unexpected_egress"
+
+  - id: probe-pair-state-agreement
+    title: "box-walk probe must PASS: pair_state_agreement"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "pair_state_agreement"
+
+  - id: probe-pairing-recovers-without-a-repair-storm
+    title: "box-walk probe must PASS: pairing_recovers_without_a_repair_storm"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "pairing_recovers_without_a_repair_storm"
+
+  - id: probe-people-count-agreement
+    title: "box-walk probe must PASS: people_count_agreement"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "people_count_agreement"
+
+  - id: probe-people-seed-and-retrieval
+    title: "box-walk probe must PASS: people_seed_and_retrieval"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "people_seed_and_retrieval"
+
+  - id: probe-people-stores-reconcile
+    title: "box-walk probe must PASS: people_stores_reconcile"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "people_stores_reconcile"
+
+  - id: probe-running-config-matches-disk
+    title: "box-walk probe must PASS: running_config_matches_disk"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "running_config_matches_disk"
+
+  - id: probe-source-status-artefact-is-served
+    title: "box-walk probe must PASS: source_status_artefact_is_served"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "source_status_artefact_is_served"
+
+  - id: probe-usage-journal-producers
+    title: "box-walk probe must PASS: usage_journal_producers"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "usage_journal_producers"
+
+  # ==========================================================================
+  # DEFECT-ABSENCE PROOFS for defects MEASURED on the v1.0.71 walk box today.
+  # Each pattern is the broken form. must_match:false means the cut fails while
+  # the defect is still in the tree.
+  # ==========================================================================
+
+  - id: downloads-watcher-defines-its-own-deadline
+    title: the generated Downloads scanner must define the names _notify uses
+    incident: "v1.0.71 box 2026-09-05: ostler-scan-exports line 18 OSTLER_OSASCRIPT_TIMEOUT_S unbound, rc=1, importer never called"
+    proof:
+      kind: grep_in_installer
+      pattern: "OSTLER_OSASCRIPT_TIMEOUT_S=\\$\\{OSTLER_OSASCRIPT_TIMEOUT_S:-20\\}"
+      must_match: true
+
+  - id: killed-converge-still-gets-catchup
+    title: the catch-up guard must consider the KILLED marker, not only .done
+    incident: "v1.0.71 box: .done AND .killed both present; agent skipped; 84 people split across two stores; 3 QA probes failed"
+    proof:
+      kind: grep_in_installer
+      pattern: "_DEDUPE_DONE_MARKER\" \\|\\| -f \"\\$_DEDUPE_KILLED_MARKER"
+      must_match: true
+
+  - id: uninstall-consent-is-not-merely-non-empty
+    title: uninstaller consent must not treat OSTLER_UNINSTALL_ASSUME_YES=0 as yes
+    incident: "review of #1567 2026-09-05: -n tests non-empty, so =0, =no and =false all proceeded to destroy"
+    proof:
+      kind: grep_in_installer
+      pattern: "\\[\\[ -n \"\\$ASSUME_YES\" \\]\\]"
+      must_match: false
+
+open_issues:
+  # THE FULL REGISTER. The verifier does NOT read this key.
+  # `gate: NONE YET` means no proof has been written. That is WORK, not cover.
+  - issue: 770
+    title: "The iMessage backfill ladder never runs: the installer pins the window at 45 days, and a pin disables the ladder"
+    gate: "NONE YET"
+  - issue: 775
+    title: "the hydrate-sentinel control (7) has a false pass on a nested block, and types its own denominator"
+    gate: "NONE YET"
+  - issue: 1111
+    title: "freshness_panel_has_dates can never run: the Doctor has no freshness endpoint"
+    gate: "NONE YET"
+  - issue: 1113
+    title: "assistant_answers_grounded: tools= is empty because [mcp] servers = [], and every ungrounded turn logs outcome='ok'"
+    gate: "NONE YET"
+  - issue: 1122
+    title: "35 un-revoked pairing tokens on the walk box, hidden because the probe was BROKEN"
+    gate: "NONE YET"
+  - issue: 1123
+    title: "pair_state_agreement can never read 2 of its 3 signals: /doctor/api/health has no pairing field"
+    gate: "NONE YET"
+  - issue: 1125
+    title: "assistant_answers_grounded scores any pwg_* call as grounded, so it is blind to the wrong-tool case"
+    gate: "NONE YET"
+  - issue: 1141
+    title: "usage journal has never been written on a box that has compiled and ingested for days"
+    gate: "NONE YET"
+  - issue: 1143
+    title: "egress probe FAILs on declared hosts: a rotating DNS pool defeats contemporaneous resolution"
+    gate: "NONE YET"
+  - issue: 1152
+    title: "acceptance_gate_v1013 is a registered probe that the box_walk_probes README never lists"
+    gate: "NONE YET"
+  - issue: 1153
+    title: "install.sh coverage gate matches a MENTION not a cp line, so deleting the copy stays green — including for the needle written after the ships-dark inc"
+    gate: "NONE YET"
+  - issue: 1154
+    title: "verify_test_wiring counts a paths: trigger as an invocation, so a test that is only triggered-on reports WIRED"
+    gate: "NONE YET"
+  - issue: 1156
+    title: "verify_test_wiring enumerates only tests/, so all 28 files under scripts/tests/ are uncovered — including the self-test for that gate"
+    gate: "NONE YET"
+  - issue: 1160
+    title: "preferences: compartment_level is stored as string 'L2', integer 2, and absent in one collection — a typed filter silently drops half the store"
+    gate: "NONE YET"
+  - issue: 1161
+    title: "pwg_preferences fixtures use lowercase domains ('music', 'food') that no live install has — the live vocabulary is capitalised, and an unmatched filte"
+    gate: "NONE YET"
+  - issue: 1162
+    title: "assistant_answers_grounded: it is not 'one in three fails' — one exact string fails every time while a semantically identical rephrasing grounds fine "
+    gate: "NONE YET"
+  - issue: 1163
+    title: "usage_journal: six chat turns against a shipped daemon that contains the recorder produced no journal and no error — plus the roster's own denominator"
+    gate: "NONE YET"
+  - issue: 1164
+    title: "verify_doctor_governor_revendor.sh has 0 automated callers — its only wiring is a comment, and it falls through all three gate-coverage gates"
+    gate: "NONE YET"
+  - issue: 1167
+    title: "two self-declared cut-blocking gates did not run at v1.0.48's commit — 'reachable from the cut' counts the call graph, not the trigger"
+    gate: "NONE YET"
+  - issue: 1208
+    title: "🔴🔴 TNM-0: the port preflight is blind by construction — lsof cannot see another account's listener, so all 7 ports go GREEN on a two-account Mac"
+    gate: "NONE YET"
+  - issue: 1508
+    title: "Revisit the scoped promote gate once a launchable DMG exists"
+    gate: "NONE YET"
+  - issue: 1519
+    title: "cut.yml: the dry-run job can never run, because it needs a preflight that can only pass on a tag"
+    gate: "NONE YET"
+  - issue: 1538
+    title: "FDA: the assistant cannot be granted Full Disk Access by a human, and the app it asks you to drag is in a hidden directory"
+    gate: "NONE YET"
+  - issue: 1539
+    title: "reuse_settings does not cover tailscale_confirm: the ONLY question a re-install re-asks"
+    gate: "NONE YET"
+  - issue: 1540
+    title: "LAUNCH BLOCKER: a BIP39 recovery phrase is generated, the DEK is encrypted under it, and the customer is never shown it"
+    gate: "NONE YET"
+  - issue: 1541
+    title: "The RULE 2 veto is wired and still lets 53 over-merges through on a FRESH graph, and 'absence is not a conflict' is the likely seam"
+    gate: "entry: probe-no-person-holds-two-contact-cards"
+  - issue: 1550
+    title: "A cut gate reads a checkout on the wrong branch and calls it a RED: the worktree guard tests the wrong property"
+    gate: "NONE YET"
+  - issue: 1556
+    title: "The pre-commit PII hook and the CI PII gate are different scanners in different repos, and only the nickname is shared"
+    gate: "NONE YET"
+  - issue: 1559
+    title: "install.sh aborts on launchctl print gui/<uid> in any headless context: an unanswerable query is handled as a failure"
+    gate: "NONE YET"
+  - issue: 1560
+    title: "The shipped uninstaller has no non-interactive path, so no automated reset can complete"
+    gate: "entry: uninstall-consent-is-not-merely-non-empty (PR #1567 + review)"
+  - issue: 1562
+    title: "Customers can only uninstall from the command line"
+    gate: "NONE YET (PR #1568 in flight)"
+  - issue: 1566
+    title: "ERR-14 on a cold box: the store was running and nothing could connect to it for 300s, and the install cannot tell that from a slow start"
+    gate: "NONE YET"
+  - issue: 1571
+    title: "the export watcher says 'now part of your world' on an import that matched nothing, and records the hash so it never retries"
+    gate: "NONE YET"
+  - issue: 1573
+    title: "RULE 2 still violated on a fresh v1.0.71 graph: 54 person nodes hold 117 Contacts cards, with the #1543 fix present in the artefact"
+    gate: "entry: probe-no-person-holds-two-contact-cards"
+  - issue: 1574
+    title: "com.ostler.ollama crash-loops 368 times behind a guard that reports OK: 'a port answers' is not 'our agent is healthy'"
+    gate: "NONE YET"
