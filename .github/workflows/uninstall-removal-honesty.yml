@@ -27,6 +27,9 @@ on:
       # could not ask. Watched by name so editing it re-fires the only workflow
       # that runs it.
       - 'tests/test_an_uninstall_that_cannot_ask_removes_nothing.sh'
+      # #1562: the uninstaller emitted zero structured markers, so a GUI could
+      # not show a customer what it was doing.
+      - 'tests/test_the_uninstaller_speaks_the_gui_marker_protocol.sh'
       - 'tests/test_uninstall_cannot_claim_removal_it_did_not_do.sh'
       - '.github/workflows/uninstall-removal-honesty.yml'
   push:
@@ -87,3 +90,23 @@ jobs:
       - name: An uninstall that cannot ask removes nothing
         if: always()
         run: bash tests/test_an_uninstall_that_cannot_ask_removes_nothing.sh
+
+      # #1562: A GUI UNINSTALL NEEDS A SCRIPT THAT SAYS WHAT IT IS DOING.
+      #
+      # Measured before the change: 0 structured markers against 78 plain print
+      # sites, with 19 gui_emit sites in install.sh as the control. Andy asked
+      # for a GUI uninstall because the customers are not technical, and a
+      # button that shells out to a script it cannot read is not a GUI.
+      #
+      # The safety property -- markers change NOTHING about what is removed --
+      # is proved on the PR by a comment-stripped executable-line diff: 0 lines
+      # removed or changed, 17 added, every one the emitter or an emit call.
+      # This step guards the runtime half: silent without OSTLER_GUI, correct
+      # wire format with it, and every value reported is one the script computes
+      # (an unset variable in a marker aborts the uninstall under set -u).
+      #
+      # if: always() so an earlier red cannot mask it, appended last so no
+      # existing step's immunity changes.
+      - name: The uninstaller speaks the GUI marker protocol
+        if: always()
+        run: bash tests/test_the_uninstaller_speaks_the_gui_marker_protocol.sh

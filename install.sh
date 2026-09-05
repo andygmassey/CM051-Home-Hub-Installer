@@ -20229,6 +20229,45 @@ _ostler_uninstall_on_err() {
 }
 trap '_ostler_uninstall_on_err $? $LINENO "$BASH_COMMAND"' ERR
 
+# ── #1562: a step vocabulary, so a GUI can drive this ──────────
+#
+# The uninstaller emitted ZERO structured markers against 78 plain
+# print sites, so the only way to show a customer what it was doing
+# was to show them a terminal. #1562 asks for a GUI uninstall
+# because the customers are non-technical, and a button that shells
+# out to a script it cannot read is not a GUI.
+#
+# Same wire format the installer already uses and the app already
+# decodes -- #OSTLER<TAB>EVENT<TAB>k=v -- so the Swift side is
+# reuse rather than new protocol. Defined INLINE and not sourced:
+# this script is installed standalone at ${OSTLER_DIR}/bin and must
+# not acquire a dependency on lib/ that an uninstall may already
+# have removed.
+#
+# 🔴 PHASE BOUNDARIES, NOT A LINE-FOR-LINE TRANSLATION. NINE
+# markers, not seventy-eight -- four consent outcomes, four phases
+# and one terminal. (The first draft of this comment said eight; the
+# count came from my design note rather than from the file, and the
+# diff proof is what corrected it. Numbers in prose beside a
+# measurement should come FROM the measurement.) A GUI needs to know
+# which phase is
+# running, what consent was given and what was removed; the rest of
+# the prose is for a terminal and stays there.
+#
+# 🔴 AND IT REPORTS ONLY VALUES THIS SCRIPT ALREADY COMPUTES.
+# stores_removed is OSTLER_STORES_REMOVED, content is
+# KEEP_CONTENT_DECISION. Nothing here derives a number that the
+# uninstall does not itself measure, because a marker that looks
+# measured and is not is worse than no marker.
+_u_emit() {
+    [[ "${OSTLER_GUI:-}" == "1" ]] || return 0
+    local _event="$1"; shift
+    printf '#OSTLER\t%s' "$_event"
+    local _kv
+    for _kv in "$@"; do printf '\t%s' "$_kv"; done
+    printf '\n'
+}
+
 # ── Argument parsing ───────────────────────────────────────────
 # Default: prompt the customer interactively. Two non-interactive
 # overrides are supported for scripted use (CI, beta-onboarding
@@ -20387,17 +20426,24 @@ if [[ -n "$ASSUME_YES" ]] && ! _assume_yes_granted; then
     echo "" >&2
 fi
 if _assume_yes_granted; then
+    # Only a value the allow-list accepts reports granted. A caller that
+    # wrote 0 now reaches the prompt, and the marker it eventually emits
+    # is the one for the route it actually took.
+    _u_emit UNINSTALL_CONSENT "value=granted" "source=flag"
     echo "  Proceeding without a prompt (--yes / OSTLER_UNINSTALL_ASSUME_YES)."
 elif read -r -p "  Are you sure? This cannot be undone. (type YES to confirm): " CONFIRM; then
     if [[ "$CONFIRM" != "YES" ]]; then
+        _u_emit UNINSTALL_CONSENT "value=declined" "source=prompt"
         echo "  Cancelled."
         exit 0
     fi
+    _u_emit UNINSTALL_CONSENT "value=granted" "source=prompt"
 else
     # EOF: no tty, a closed stdin, or a pipe that ended. We could not
     # ASK, which is not the same as being told no, and is very much
     # not the same as being told yes.
     echo "" >&2
+    _u_emit UNINSTALL_CONSENT "value=unavailable" "source=eof"
     echo "  Cannot ask for confirmation: stdin gave no answer (EOF)." >&2
     echo "  NOTHING HAS BEEN REMOVED." >&2
     echo "" >&2
@@ -20596,6 +20642,7 @@ else
     OSTLER_STORES_WHY="could not enter ${HOME}/.ostler, so the store teardown never ran at all"
 fi
 # ── LaunchAgent teardown ───────────────────────────────────────
+_u_emit UNINSTALL_PHASE "name=launchagents"
 # ONE register, and one loop that performs BOTH halves of a teardown.
 #
 # This used to be two hand-maintained walls -- a list of `launchctl bootout`
@@ -20675,6 +20722,7 @@ unset _label
 brew uninstall --cask ollama-app 2>/dev/null || true
 
 # ── Ostler RemoteCapture .app + container ──────────────────────
+_u_emit UNINSTALL_PHASE "name=remotecapture"
 # Remove the menubar app from /Applications and the per-user
 # Application Support directory. Transcripts written under
 # ~/Documents/Ostler/Transcripts/ are user-facing content and are
@@ -20688,6 +20736,7 @@ fi
 rm -rf "${HOME}/Library/Application Support/Ostler RemoteCapture" 2>/dev/null || true
 
 # ── Ostler.app (Tauri Hub desktop) ─────────────────────────────
+_u_emit UNINSTALL_PHASE "name=hub_app"
 # Remove the customer-facing Hub desktop bundle from /Applications.
 # No Application Support dir to clean: the GUI persists state via
 # the gateway, not a per-user data directory.
@@ -20736,6 +20785,7 @@ if [[ -n "$KNOWLEDGE_STAGING_BAK" ]] && [[ -d "${KNOWLEDGE_STAGING_BAK}/staging"
 fi
 
 # ── Apply the keep-content decision made earlier ───────────────
+_u_emit UNINSTALL_PHASE "name=user_content"
 if [[ "$KEEP_CONTENT_DECISION" == "remove" ]]; then
     echo "  Removing user-facing content at ${USER_FACING_ROOT}/..."
     rm -rf "$USER_FACING_ROOT"
@@ -20744,6 +20794,7 @@ elif [[ -d "$USER_FACING_ROOT" ]]; then
 fi
 
 echo ""
+_u_emit UNINSTALL_DONE "stores_removed=${OSTLER_STORES_REMOVED}" "content=${KEEP_CONTENT_DECISION}"
 if [[ "$OSTLER_STORES_REMOVED" -eq 1 ]]; then
     echo "  Done. Ostler has been removed."
 else
