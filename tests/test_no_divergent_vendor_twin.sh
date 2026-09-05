@@ -54,7 +54,9 @@ _compare_twin() {
                 echo "divergent twin: ${label}/${rel} differs from ./${tdir}/${rel}"
             fi
         fi
-    done < <(cd "$vdir" && find . -type f | sed 's|^\./||')
+    done < <(cd "$vdir" && find . -type f \
+        -not -path '*/__pycache__/*' -not -name '*.pyc' -not -name '.DS_Store' \
+        | sed 's|^\./||')
 }
 
 # PROVE THE COMPARISON CAN SEE A DIFFERENCE, AND CAN ABSTAIN.
@@ -132,6 +134,14 @@ fi
 # ---------------------------------------------------------------------------
 # DEEP WALK: vendor/<repo>/<pkg> <-> ./<pkg>
 #
+# THE RECORDED NUMBER MUST MEAN THE SAME THING ON EVERY HOST. It did not:
+# this workstation counted 32 shared files and 23 divergent, and a clean runner
+# counted 24 and 15. The eight extra were __pycache__/*.pyc that MY OWN test
+# runs had created by importing both copies of contact_syncer minutes earlier.
+# The instrument was measuring its own footprint, and it did it in the direction
+# that inflates the debt. _compare_twin now prunes build artefacts, so the count
+# is a property of the tracked source and not of what has been run in the tree.
+#
 # A candidate is a PACKAGE twin only if __init__.py is present on BOTH sides.
 # Without that discriminator this walk reports vendor/cm041/tests <-> ./tests
 # and fourteen other basename collisions that are not packages at all.
@@ -156,7 +166,33 @@ for vdir in vendor/*/*/; do
         if [ -f "${vdir}${rel}" ] && [ -f "${pkg}/${rel}" ]; then
             deep_files=$((deep_files + 1))
         fi
-    done < <(cd "$vdir" && find . -type f | sed 's|^\./||')
+    done < <(cd "$vdir" && find . -type f \
+        -not -path '*/__pycache__/*' -not -name '*.pyc' -not -name '.DS_Store' \
+        | sed 's|^\./||')
+    # A SECOND, INDEPENDENT ENUMERATION, AND THEY MUST AGREE.
+    # The prune above is what keeps this count a property of the tracked source
+    # rather than of what has been run in the tree, and removing it only turns
+    # this file red on a host that HAPPENS to carry build artefacts -- a clean
+    # runner would not notice. git tracking is the independent answer to the
+    # same question, so a disagreement means untracked files reached the
+    # comparison and the count means something different here than elsewhere.
+    # That is CANNOT-RUN, not a verdict.
+    tracked_shared=0
+    if git rev-parse --git-dir >/dev/null 2>&1; then
+        va="$(mktemp)"; ra="$(mktemp)"
+        git ls-files -- "${vdir%/}" | sed "s|^${vdir}||" | LC_ALL=C sort > "$va"
+        git ls-files -- "$pkg"     | sed "s|^${pkg}/||"  | LC_ALL=C sort > "$ra"
+        tracked_shared="$(comm -12 "$va" "$ra" | /usr/bin/grep -c . || :)"
+        rm -f "$va" "$ra"
+        if [ "$tracked_shared" -ne "$deep_files" ]; then
+            echo "CANNOT-RUN: ${vdir%/} <-> ./$pkg compared $deep_files shared file(s)" >&2
+            echo "            but git tracks $tracked_shared shared. Untracked files reached" >&2
+            echo "            the comparison, so the recorded count does not mean the same" >&2
+            echo "            thing here as on a clean checkout." >&2
+            exit 2
+        fi
+    fi
+
     # THE SELFTESTED COMPARATOR, NOT A SECOND COPY OF IT. _selftest above
     # proves _compare_twin can both flag a seeded divergence and stay silent on
     # an identical pair. A private diff here would be an uncontrolled second

@@ -10,4 +10,4 @@
 # re-vendoring the other, which is a decision and not a diff.
 #
 # columns: vendored_path<TAB>root_twin<TAB>divergent_shared_files
-vendor/cm041/contact_syncer	./contact_syncer	23
+vendor/cm041/contact_syncer	./contact_syncer	15
