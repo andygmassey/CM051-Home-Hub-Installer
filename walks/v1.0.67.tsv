@@ -23,27 +23,23 @@ version	v1.0.67
 version_source	measured(CFBundleShortVersionString, matches argument)
 artefact_sha256	f2717739b6b23c3c12c4b20b3beb2d1aa02be32849a9ed6ac5e314e66070a15b
 artefact_sha256_source	measured(shasum -a 256 of OstlerInstaller-1.0.67.dmg on the walked box; presence, not proof of mount)
-walked_at	2026-09-05T04:50:47Z
+walked_at	2026-09-05T05:13:34Z
 box_fp	95b30a89637eecbb
 counts_scope	box_walk_probes_only(phase1); verdict+qa_exit cover all phases
-pass	12
-fail	8
-cannot_run	4
+pass	16
+fail	7
+cannot_run	1
 broken	0
 measured	24 of 24 (pass+fail+cannot_run; a broken probe is SKIPPED in phase 2 and measures nothing) -- buckets partition the suite
 verdict	FAILED
 qa_exit	1
-failed_probe_names_recorded	8 of 8
+failed_probe_names_recorded	7 of 7
 failed_probe	assistant_answers_grounded
 failed_probe	install_manifest_complete
 failed_probe	no_person_holds_two_contact_cards
 failed_probe	no_store_port_is_tcp_reachable
 failed_probe	people_count_agreement
-failed_probe	people_seed_and_retrieval
 failed_probe	people_stores_reconcile
 failed_probe	usage_journal_producers
 not_measured_reasons	withheld(public repo); run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"
-not_measured_probe	identity_layer_is_importable
 not_measured_probe	ingest_coverage
-not_measured_probe	pair_state_agreement
-not_measured_probe	running_config_matches_disk
