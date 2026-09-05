@@ -98,6 +98,15 @@ jobs:
         if: always()
         run: bash tests/test_pipefail_shortcircuit_inversion.sh
 
+      # #1614: the ratchet above classifies each delisted row into two buckets
+      # with two different remedies, and chose between them by testing the ROW
+      # (path<TAB>count) as if it were a path. It never is, so every delisted
+      # row was reported as FILE NO LONGER EXISTS and the other branch was dead
+      # code. A red that names a false cause sends the reader somewhere else.
+      - name: A ratchet must name the cause it measured
+        if: always()
+        run: bash tests/test_a_ratchet_must_not_name_a_false_cause.sh
+
       # The SAME shape one level in, which the ratchet above cannot see: its
       # CONSTRUCT anchors on `if|elif|while`, so moving the pipeline into a
       # function hides it while the function, used as a condition, still

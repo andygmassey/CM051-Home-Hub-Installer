@@ -425,10 +425,25 @@ else
     if [ -n "$REMOVED" ]; then
         # Two causes, two different remedies, so name which is which rather
         # than handing back one undifferentiated list.
+        # 🔴 TEST THE PATH, NOT THE ROW. A baseline row is `path<TAB>count`, so
+        # `[ -e "$row" ]` asks whether a file called
+        # "tests/foo.sh<TAB>2" exists. It never does. Every removed row was
+        # therefore classified FILE NO LONGER EXISTS, including files sitting
+        # right there in the tree, and the CONSTRUCT FIXED branch below was
+        # DEAD CODE that could never fire.
+        #
+        # MEASURED on #1609, where the message said
+        #   FILE NO LONGER EXISTS: tests/test_wiki_tailnet_gate.sh  2
+        # about a file present on the branch, on main and in the merge result.
+        # The real cause was a count regression. @ARCHIE had to discard the
+        # stated cause before he could find the actual one. A ratchet whose red
+        # carries no information gets routed around; one whose red carries
+        # WRONG information sends the reader somewhere else entirely.
         fixed=""; gone=""
         while IFS= read -r row; do
             [ -n "$row" ] || continue
-            if [ -e "$row" ]; then fixed="${fixed}${row}"$'\n'; else gone="${gone}${row}"$'\n'; fi
+            _rowpath="${row%%[[:space:]]*}"
+            if [ -e "$_rowpath" ]; then fixed="${fixed}${row}"$'\n'; else gone="${gone}${row}"$'\n'; fi
         done <<< "$REMOVED"
         bad "ratchet: ${BASELINE_FILE} lists rows the scan does NOT find. That is slack the next regression hides in. Delist them."
         [ -n "$fixed" ] && { printf '          CONSTRUCT FIXED (or now excluded), file still present:\n'; sed 's/^/            /' <<< "${fixed%$'\n'}"; }
