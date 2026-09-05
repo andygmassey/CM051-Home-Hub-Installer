@@ -19,22 +19,15 @@
 # narrower than that, and this gate tests only the narrow thing -- ref EQUALS
 # the pin.
 #
-# 🔴 v1.0.67 IS ALREADY CORRECTED UPSTREAM AND MUST BE DELISTED WHEN IT ARRIVES.
-# OS003 0edce2c (#209) rewrote its ref column to the eight per-PR merge commits:
+# v1.0.67 WAS here and is now DELISTED. It was never corrected upstream in the way
+# I predicted -- CM051 #1488 repinned the cut to 03b50c6b (a wiki image rebuild),
+# and the BOM's refs, still c0518825, are therefore no longer EQUAL to the pin. The
+# tautology was broken by a pin move rather than by a ref fix. c0518825 remains an
+# ancestor of 03b50c6b, so the rows still grade landed, now via a real check.
 #
-#     3018e951 4817996b 485f326b 9017dc60 c0518825 c2082707 daef7141 f3b0f55f
-#
-# CM051 VENDORS that file, so this repo's copy stays tautological until the next
-# `scripts/sync_cut_bom.sh` run brings it across. The row below is therefore
-# TRANSIENT: the moment the vendored copy shows 8 distinct refs, delete the
-# v1.0.67 line and this note. Landing this gate with v1.0.67 already delisted
-# would make it RED against the un-synced copy, which is why the row is still
-# here rather than removed in advance.
-#
-# The other three are permanent history: their cuts are long shipped.
+# The three below are permanent history: their cuts are long shipped.
 #
 # Delist a row only by correcting the cut's ref column. Never add one.
 v1.0.61
 v1.0.62
 v1.0.65
-v1.0.67

@@ -62,13 +62,17 @@ _classify() {
 echo "── controls: the classifier must SEE a tautology and must ABSTAIN ──"
 # Both controls are REAL CUTS in this repo, not synthetic fixtures: the two
 # shapes the predicate must tell apart already exist in history.
-C_TAUT="$(_classify v1.0.67)"
+C_TAUT="$(_classify v1.0.65)"
 C_OK="$(_classify v1.0.66)"
 C_ONEREF="$(_classify v1.0.63)"
 
+# ANCHOR THE CONTROL TO A SHIPPED CUT, NOT A LIVE ONE. This was v1.0.67 until
+# CM051 #1488 repinned that cut to 03b50c6b, which broke its tautology and with
+# it this control -- the gate went red because its FIXTURE moved, not because
+# the property did. v1.0.65 shipped long ago and cannot change under the test.
 [ "$C_TAUT" = "TAUT" ] \
-    && ok "MUST-FLAG: v1.0.67 (8 rows, ref == pin) classifies TAUT" \
-    || bad "MUST-FLAG: v1.0.67 classified '${C_TAUT}'. The predicate cannot see the defect it exists for, so every 'ok' below is meaningless."
+    && ok "MUST-FLAG: v1.0.65 (ref == pin) classifies TAUT" \
+    || bad "MUST-FLAG: v1.0.65 classified '${C_TAUT}'. The predicate cannot see the defect it exists for, so every 'ok' below is meaningless."
 [ "$C_OK" = "ok" ] \
     && ok "MUST-MISS: v1.0.66 (5 rows, 5 distinct refs) classifies ok" \
     || bad "MUST-MISS: v1.0.66 classified '${C_OK}'. The predicate flags a correct BOM."
