@@ -89,6 +89,24 @@ for f in "$PROBE_DIR"/*.sh; do
 done
 shopt -u nullglob
 
+# DETERMINISTIC ORDER, PINNED TO C. A glob sorts by LC_COLLATE, so the order this
+# suite executes in has been whatever locale the operator happens to have.
+#
+# THAT ORDER IS LOAD-BEARING. pairing_recovers_without_a_repair_storm performs a
+# REAL pair against :8443 and, on success, persists a bearer token that nothing
+# in the tree revokes; pair_state_agreement READS pairing state. Today the reader
+# sorts first and sees the box as installed -- but only because "_" precedes "i"
+# in the C collation. A locale that ignores punctuation at the primary level
+# compares "pairstate" against "pairingrecovers", where "i" precedes "s", and the
+# two INVERT. The reader would then be measuring what this suite just did.
+#
+# Pinned so the order is a property of the filenames and not of the environment.
+# tests/test_a_pairing_reader_runs_before_the_pairing_mutator.sh asserts the
+# read-before-mutate relation under BOTH C and the runner's own collation.
+if [ -n "${PROBES// /}" ]; then
+    PROBES="$(printf '%s\n' $PROBES | LC_ALL=C sort | tr '\n' ' ')"
+fi
+
 PROBE_COUNT=0
 for _ in $PROBES; do PROBE_COUNT=$((PROBE_COUNT + 1)); done
 
