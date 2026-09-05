@@ -45,12 +45,12 @@ WARN_LINE='  WARNING: YOUR DATA STORES WERE NOT REMOVED.'
 
 # $1 label  $2 docker exit code  $3 create ~/.ostler (yes|no)
 run_case() {
-    rm -rf "${WORK}/home" "${WORK}/bin"; mkdir -p "${WORK}/home" "${WORK}/bin"
-    [ "$3" = "yes" ] && mkdir -p "${WORK}/home/.ostler"
+    rm -rf "${WORK}/boxhome" "${WORK}/bin"; mkdir -p "${WORK}/boxhome" "${WORK}/bin"
+    [ "$3" = "yes" ] && mkdir -p "${WORK}/boxhome/.ostler"
     printf '#!/bin/sh\n[ "$2" = "down" ] && { echo "Cannot connect to the Docker daemon."; exit %s; }\nexit 0\n' "$2" \
         > "${WORK}/bin/docker"
     chmod +x "${WORK}/bin/docker"
-    HOME="${WORK}/home" PATH="${WORK}/bin:$PATH" \
+    HOME="${WORK}/boxhome" PATH="${WORK}/bin:$PATH" \
         /bin/bash -c ". '${WORK}/teardown'; . '${WORK}/report'" 2>&1
 }
 
