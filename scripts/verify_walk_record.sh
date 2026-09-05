@@ -370,6 +370,14 @@ _scope_of() {
 _adjudicate_scoped() {
     local kind="$1"; shift
     local blocking=() advisory=() undeclared=() p sc
+    # SPLIT THE BLOCKING SET BY WHAT THE PROBE ACTUALLY DID. A probe that FAILED
+    # measured the artefact and found it wanting. A probe that could NOT RUN
+    # measured nothing at all, and saying "these describe the DMG" of it is a
+    # claim about the artefact asserted on an absence of measurement -- the same
+    # error the assistant probe made with a timeout, and the pairing probe made
+    # with a non-answer. Both still refuse. They send the operator to different
+    # places, and that is the whole value of saying which is which.
+    local blk_failed=() blk_notmeas=()
 
     # THE LIST MUST BE COMPLETE. "6 of 8" means two failures are unnamed, and an
     # unnamed failure cannot be checked against the scope. That is CANNOT-RUN.
@@ -392,7 +400,15 @@ _adjudicate_scoped() {
     for p in "$@"; do
         sc="$(_scope_of "$p")"
         case "$sc" in
-            blocking)   blocking+=("$p") ;;
+            blocking)   blocking+=("$p")
+                        # Read the probe's own state out of the record rather
+                        # than inferring it from the record-level verdict: a
+                        # PARTIAL record can carry both kinds at once.
+                        if awk -F'\t' -v w="$p" '$1=="failed_probe" && $2==w{f=1} END{exit !f}' "$RECORD"; then
+                            blk_failed+=("$p")
+                        else
+                            blk_notmeas+=("$p")
+                        fi ;;
             advisory)   advisory+=("$p") ;;
             *)          undeclared+=("$p") ;;
         esac
@@ -410,9 +426,50 @@ _adjudicate_scoped() {
 
     if [[ ${#blocking[@]} -gt 0 ]]; then
         echo "[walk-gate] REFUSED: ${#blocking[@]} ARTEFACT-OWNED probe(s) did not pass (${kind}):" >&2
-        for p in "${blocking[@]}"; do echo "              - ${p}" >&2; done
-        echo "            These describe the DMG about to be handed to a customer." >&2
-        exit 1
+        if [[ ${#blk_failed[@]} -gt 0 ]]; then
+            echo "            FAILED -- these MEASURED the DMG about to be handed to a customer:" >&2
+            for p in "${blk_failed[@]}"; do echo "              - ${p}" >&2; done
+        fi
+        if [[ ${#blk_notmeas[@]} -gt 0 ]]; then
+            echo "            NOT MEASURED -- these describe NOTHING about the DMG. They could" >&2
+            echo "            not run, so coverage was lost. Coverage lost is not coverage" >&2
+            echo "            passed, and it is not a defect in the build either:" >&2
+            for p in "${blk_notmeas[@]}"; do echo "              - ${p}" >&2; done
+            echo "            The three store-reading probes return CANNOT-RUN on a box whose" >&2
+            echo "            stores are still empty, by design. If this was a fresh install," >&2
+            echo "            let it finish ingesting and walk again." >&2
+        fi
+        # WHICH BOX STATE DID THEY DESCRIBE? A reset does NOT wipe: ttywalk.sh
+        # runs the shipped uninstaller if it can find one and says so when it
+        # cannot, and it says in that same output that any probe reading the
+        # stores is measuring history rather than this artefact. That sentence
+        # never used to reach here, so a red from a store-reading probe arrived
+        # with nothing to say whether it was about the DMG or the box's past.
+        #
+        # PURELY INFORMATIONAL. The refusal above is unchanged and still exits 1.
+        # This decides what a human does NEXT, which is a different thing from
+        # whether the promote is allowed.
+        _stores="$(field stores_provenance)"
+        case "${_stores}" in
+            '')
+                echo "            stores_provenance: ABSENT from this record. It predates the field," >&2
+                echo "            so whether these reds describe data this artefact created or data" >&2
+                echo "            carried over from a previous install is NOT RECORDED." >&2 ;;
+            carried-over-from-previous-install)
+                echo "            stores_provenance: CARRIED OVER from a previous install. Any of the" >&2
+                echo "            above that reads the graph or the vectors measured HISTORY, not this" >&2
+                echo "            artefact. Still refused -- but debug the data, not the build." >&2 ;;
+            *)
+                echo "            stores_provenance: ${_stores}" >&2 ;;
+        esac
+        # EVIDENCE OF BADNESS OUTRANKS ABSENCE OF EVIDENCE. That rule is already
+        # stated forty lines up, for records naming no probes; this applies it to
+        # a record that names both kinds. rc=1 says a defect was measured; rc=2
+        # says something could not be looked at. publish_release.sh folds both
+        # into PROMOTE=0, so nothing about what SHIPS changes either way -- what
+        # changes is which of the two the operator is sent to fix.
+        if [[ ${#blk_failed[@]} -gt 0 ]]; then exit 1; fi
+        exit 2
     fi
 
     # Printed on the PASS path deliberately: an advisory red that nobody reads is

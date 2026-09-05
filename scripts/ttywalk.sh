@@ -604,6 +604,13 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
             exit 2
         fi
         echo "WIPE CONFIRMED: 0 ostler_ volumes remain (was ${_before:-0} total)."
+        # AND SAY SO IN THE RECORD. This block runs in its OWN ssh session, so
+        # the _ran_uninstaller variable in the reset block below never sees it.
+        # Without this line a walk that really did wipe would be recorded as
+        # carried-over-from-previous-install -- a lie in the one field that
+        # exists to stop a red being blamed on the wrong thing. Written only
+        # AFTER the volume count is confirmed zero, so the claim is measured.
+        printf "wiped-by-explicit-store-wipe(0 ostler_ volumes remain)\n" > ~/.walk-stores-provenance-run
     ' || die "the store wipe did not complete; refusing to walk against a half-wiped box"
 fi
 
@@ -649,6 +656,28 @@ if [[ "$DO_RESET" -eq 1 ]]; then
             echo "  Docker volumes were NOT removed: the graph, the vectors and the compiled"
             echo "  wiki are CARRIED OVER from the previous install. Any probe reading them is"
             echo "  measuring history, not this artefact."
+        fi
+        # RECORDED BELOW THE ANNOUNCEMENT, NOT ABOVE IT. The honesty gate for
+        # this block extracts it with an awk RANGE that ends at the first
+        # "        fi", so an `if` placed earlier truncates the extraction and
+        # the gate reports the announcement missing. Measured: two assertions
+        # went red on a block that had been cut in half.
+        # RECORD IT WHERE THE RECORD CAN READ IT. This block already SAYS the
+        # stores are carried over; nothing downstream repeated it, so a probe
+        # reading the graph could fail on history and the walk record would
+        # present that as evidence about the DMG. Written to a run file that the
+        # config step below consumes, so a value can never be stale.
+        # NO APOSTROPHES IN THIS BLOCK: the whole body is a single-quoted ssh
+        # string and one typed apostrophe closes it.
+        # DO NOT OVERWRITE A WIPE. The --wipe-stores block runs earlier, in its
+        # own ssh session, and records the stronger fact with a measured volume
+        # count behind it. This arm only speaks when nothing has spoken already.
+        if [[ ! -f ~/.walk-stores-provenance-run ]]; then
+            if [[ -n "$_ran_uninstaller" ]]; then
+                printf "wiped-by-shipped-uninstaller(%s)\n" "$_ran_uninstaller" > ~/.walk-stores-provenance-run
+            else
+                printf "carried-over-from-previous-install\n" > ~/.walk-stores-provenance-run
+            fi
         fi
         # Stop the container VM. A previous install leaves colima running, and
         # colima publishes the container ports through an ssh multiplexer of its
@@ -957,12 +986,21 @@ say "control: ostler_fda resolves beside install.sh (the run-2 killer is closed)
     printf '%s\n' \"\$HOME/${REMOTE_DIR}/ttywalk.log\" > ~/.walk-log
     printf '%s\n' \"\$HOME/${REMOTE_DIR}/install.sh\"  > ~/.walk-installsh
     printf '%s\n' \"${ARTEFACT_VERSION:-}\" > ~/.walk-artefact-version
+    # STORE PROVENANCE. The reset step writes the run file; consuming it here
+    # (rather than reading it in place) means a walk with no --reset cannot
+    # inherit the previous walk answer and present it as this one.
+    if [ -f ~/.walk-stores-provenance-run ]; then
+        mv ~/.walk-stores-provenance-run ~/.walk-stores-provenance
+    else
+        printf 'unknown-no-reset-step\n' > ~/.walk-stores-provenance
+    fi
     : > \"\$HOME/${REMOTE_DIR}/ttywalk.log\"
     chmod +x \"\$HOME/${REMOTE_DIR}/install.sh\" 2>/dev/null || true
     echo 'walk config written:'
     echo \"  log:        \$(cat ~/.walk-log)\"
     echo \"  install.sh: \$(cat ~/.walk-installsh)\"
     echo \"  artefact:   \$(cat ~/.walk-artefact-version 2>/dev/null | sed 's/^\$/(repo walk -- none)/')\"
+    echo \"  stores:     \$(cat ~/.walk-stores-provenance 2>/dev/null)\"
 " || die "could not write the walk config on the host."
 
 if [[ "$STAGE_ONLY" -eq 1 ]]; then

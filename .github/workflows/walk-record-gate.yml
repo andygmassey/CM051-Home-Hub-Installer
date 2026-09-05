@@ -38,6 +38,14 @@ on:
       - 'scripts/verify_walk_record.sh'
       - 'tests/test_a_pairing_non_answer_is_not_a_rejection.sh'
       - 'scripts/box_walk_probes/probes/pairing_recovers_without_a_repair_storm.sh'
+      - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
+      - 'tests/test_reconcile_splits_our_fixtures_from_the_products.py'
+      - 'tests/test_a_pairing_reader_runs_before_the_pairing_mutator.sh'
+      - 'scripts/ttywalk.sh'
+      - 'tests/test_the_walk_record_says_whether_the_stores_are_history.sh'
+      - 'scripts/box_walk_probes/run_box_walk.sh'
+      - 'scripts/box_walk_probes/probes/running_config_matches_disk.sh'
+      - 'scripts/box_walk_probes/probes/pair_state_agreement.sh'
       - 'tests/test_walk_record_gates_customer_download.sh'
       - 'tests/test_probe_absence_is_not_an_answer.sh'
       - 'tests/test_probe_pgrep_is_scoped_to_this_account.sh'
@@ -103,7 +111,24 @@ jobs:
         with:
           fetch-depth: 0
 
+      # A RESET DOES NOT WIPE, AND THE RECORD NEVER SAID SO. ttywalk.sh's reset
+      # prints that the graph, the vectors and the compiled wiki are carried over
+      # and that "any probe reading them is measuring history, not this
+      # artefact". Measured: 0 mentions of that anywhere downstream, against a
+      # control of 24 of 24 probes naming probe_cannot_run. So a red from a
+      # store-reading probe reached a promote decision with nothing to say
+      # whether it described the DMG or the box's past.
+      - name: The walk record says whether the stores it measured are history
+        if: always()
+        run: bash tests/test_the_walk_record_says_whether_the_stores_are_history.sh
+
+      # `if: always()` BECAUSE IT IS NO LONGER FIRST. It had none while it led the
+      # job, which was harmless: nothing could mask it. Inserting a step above it
+      # made it maskable, and verify_ci_steps_are_maskless.py named it -- a red
+      # in the new step would have hidden this one, which is the gate that says
+      # the customer download cannot be repointed to an unwalked build.
       - name: The customer download cannot be repointed to an unwalked build
+        if: always()
         run: bash tests/test_walk_record_gates_customer_download.sh
 
       # A probe that reads an absent path as a definite answer is worse than a
@@ -137,6 +162,45 @@ jobs:
         if: always()
         run: bash tests/test_a_pairing_non_answer_is_not_a_rejection.sh
 
+      # THE PROBE MINTS A BEARER TOKEN EVERY TIME IT PASSES, AND ITS OWN CEILING
+      # IS WHAT THAT TOKEN COUNTS AGAINST. Limb 2 performs a real pair against
+      # :8443; nothing in the tree revokes it; --reset runs no uninstaller so
+      # config.toml survives; and install.sh:12981-13004 deliberately merges the
+      # old paired_tokens forward so an upgrade does not unpair every device. So
+      # the passes accumulate towards the failure, and past TOKEN_CEILING a
+      # BLOCKING probe blames the product for a storm it created itself.
+      #
+      # The attribution arithmetic is pure and needs no box, so it runs here as
+      # well as in the walk's phase 1. Six cases through the real function; the
+      # two that matter are the walk-only box that used to read as a storm, and
+      # the real storm on a box we have also walked, which must NOT be hidden by
+      # subtracting ours.
+      - name: The repair-storm probe does not count its own pairings
+        if: always()
+        run: |
+          # The probe's --self-test EXITS 1 by design: VERDICT: FAIL is the
+          # healthy negative-control result, and phase 1 of the box walk greps
+          # for the literal "VERDICT: BROKEN" BEFORE it reads any exit code,
+          # precisely so a probe cannot vouch for itself with a status. Assert
+          # both, because either alone can be satisfied by a broken probe.
+          rc=0
+          out="$(/bin/bash scripts/box_walk_probes/probes/pairing_recovers_without_a_repair_storm.sh --self-test 2>&1)" || rc=$?
+          printf '%s\n' "$out"
+          # `grep -c`, NOT `... | grep -q`. This step runs under `bash -eo
+          # pipefail`; grep -q exits on the first match and SIGPIPEs printf, so
+          # under pipefail the pipeline can report failure ON A MATCH and invert
+          # the verdict. tests/test_pipefail_shortcircuit_inversion.sh caught
+          # exactly this line, which is what that ratchet is for.
+          if [ "$(printf '%s' "$out" | grep -c 'VERDICT: BROKEN')" -gt 0 ]; then
+            echo "::error::the probe's negative control reported BROKEN -- see the line above" >&2
+            exit 1
+          fi
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::the probe --self-test returned $rc, not 1. The box walk would mark it BROKEN." >&2
+            exit 1
+          fi
+          echo "OK: 6 of 6 attribution cases, and the control fails as phase 1 requires."
+
       # Andy's 2026-09-05 decision: the promote binds on the probes that describe
       # the DMG, not on the whole 24-probe scoreboard. These two guard the change.
       # The first proves the gate still REFUSES on an artefact-owned probe and fails
@@ -145,6 +209,57 @@ jobs:
       # the reverse, because the probe that is red today is exactly the one someone
       # will propose demoting. The ratchet needs origin/main, which is why the
       # checkout above is fetch-depth 0.
+      # THE RECONCILE PROBE'S OWN NEGATIVE CONTROL CANNOT REACH THIS.
+      #
+      # All eighteen of its self-test cases drive the SHELL verdict through
+      # FAKE_RECONCILE, which substitutes a canned result line -- so the embedded
+      # python that PRODUCES that line is never executed by the probe itself.
+      # Measured: mutating the python to count every orphan as one of ours, the
+      # false-green direction, left that self-test green at 18 of 18.
+      #
+      # This drives the real payload against a fake store. It refuses (exit 2) if
+      # the heredoc anchor moves or the payload stops mentioning the flag, so a
+      # green cannot be obtained by measuring nothing.
+      # A GLOB SORTS BY LC_COLLATE, AND ONE PROBE MUTATES WHAT OTHERS READ.
+      # pairing_recovers_without_a_repair_storm performs a real pair and persists
+      # a bearer token nothing revokes; pair_state_agreement reads pairing state.
+      # The reader sorts first only because "_" precedes "i" -- a locale that
+      # ignores punctuation at the primary level inverts them. run_box_walk.sh now
+      # pins the order to C; this asserts the read-before-mutate relation under
+      # BOTH C and this runner's own collation, so the runner measures the
+      # locale question rather than anyone trusting one machine's answer.
+      # AND THE READER MUST NOT READ OUR OWN PAIRING AS THE PRODUCT'S. Within one
+      # walk the reader runs first, so it sees a pristine box. Between walks the
+      # stores and config are NOT wiped -- ttywalk.sh:541 says so in its own reset
+      # output -- so walk N+1 can find the device walk N paired. Any device-layer
+      # `paired` that could be ours is withheld; a `not paired` is never
+      # contaminated and passes through. The arithmetic needs no box.
+      - name: The pair-state reader does not read our own pairing as the product
+        if: always()
+        run: |
+          rc=0
+          out="$(/bin/bash scripts/box_walk_probes/probes/pair_state_agreement.sh --self-test 2>&1)" || rc=$?
+          printf '%s\n' "$out"
+          # grep -c, never `| grep -q`: this runs under bash -eo pipefail and
+          # grep -q SIGPIPEs the producer on first match.
+          if [ "$(printf '%s' "$out" | grep -c 'VERDICT: BROKEN')" -gt 0 ]; then
+            echo "::error::the pair-state negative control reported BROKEN" >&2
+            exit 1
+          fi
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::the probe --self-test returned $rc, not 1. The box walk would mark it BROKEN." >&2
+            exit 1
+          fi
+          echo "OK: 16 of 16 cases, and the control fails as phase 1 requires."
+
+      - name: A pairing reader runs before the pairing mutator, in both collations
+        if: always()
+        run: bash tests/test_a_pairing_reader_runs_before_the_pairing_mutator.sh
+
+      - name: The reconcile payload tells our leaked fixture from a product orphan
+        if: always()
+        run: python3 tests/test_reconcile_splits_our_fixtures_from_the_products.py
+
       - name: The scoped promote refuses on the artefact
         if: always()
         run: bash tests/test_promote_scope_refuses_on_the_artefact.sh

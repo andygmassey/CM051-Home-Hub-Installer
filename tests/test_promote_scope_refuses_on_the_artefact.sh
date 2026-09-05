@@ -59,6 +59,38 @@ _rec() {
     } > "${d}/walks/v9.9.9.tsv"
 }
 
+# Build a record carrying BOTH kinds of non-pass. $1 dir, $2 failed csv (may be
+# empty), $3 not-measured csv (may be empty).
+#
+# A PARTIAL record is the shape a fresh install produces: the three store-reading
+# probes return CANNOT-RUN on a box whose stores are still empty, by design, so
+# they land as not_measured_probe rather than failed_probe. The gate must refuse
+# either way and must NOT tell the operator that a probe which could not run
+# "describes the DMG".
+_rec2() {
+    local d="$1" failed="$2" notmeas="$3"
+    mkdir -p "${d}/walks"
+    local nf=0 nm=0 p
+    for p in ${failed//,/ };  do nf=$((nf+1)); done
+    for p in ${notmeas//,/ }; do nm=$((nm+1)); done
+    {
+        printf 'version\tv9.9.9\n'
+        printf 'version_source\tmeasured(CFBundleShortVersionString, matches argument)\n'
+        printf 'artefact_sha256\t%s\n' "$SHA"
+        printf 'artefact_sha256_source\tmeasured(shasum -a 256 on the walked box)\n'
+        printf 'walked_at\t2026-09-05T00:00:00Z\n'
+        printf 'pass\t%d\n' $((24-nf-nm))
+        printf 'fail\t%d\n' "$nf"
+        printf 'cannot_run\t%d\n' "$nm"
+        printf 'broken\t0\n'
+        printf 'verdict\t%s\n' "$([ "$nf" -gt 0 ] && echo FAILED || echo PARTIAL)"
+        printf 'qa_exit\t%s\n' "$([ "$nf" -gt 0 ] && echo 1 || echo 2)"
+        printf 'failed_probe_names_recorded\t%d of %d\n' "$nf" "$nf"
+        for p in ${failed//,/ };  do printf 'failed_probe\t%s\n' "$p"; done
+        for p in ${notmeas//,/ }; do printf 'not_measured_probe\t%s\n' "$p"; done
+    } > "${d}/walks/v9.9.9.tsv"
+}
+
 # Run the gate against a record dir. Echoes "<rc>|<output>".
 _run() {
     local d="$1" scope="${2:-$SCOPE}"
@@ -127,6 +159,43 @@ case "$R" in
     2\|*1\ of\ 3*) ok "an INCOMPLETE failure list refuses: an unnamed failure cannot be checked against the scope" ;;
     0\|*) bad "a record naming 1 of 3 failures PASSED. Two unnamed failures went unscoped." ;;
     *)    bad "an incomplete list gave rc=${R%%|*}" ;;
+esac
+
+echo "── a blocking probe that COULD NOT RUN describes nothing about the DMG ──"
+#
+# The three store-reading probes return CANNOT-RUN on an unpopulated box, so this
+# is the shape a walk of a FRESH install produces before ingest has finished.
+# Telling the operator those reds "describe the DMG" sends them to debug a build
+# that was never measured. Both still refuse; they refuse with different codes
+# and different sentences.
+
+D="${WORK}/nm"; _rec2 "$D" "" "people_stores_reconcile"
+R="$(_run "$D")"
+case "$R" in
+    2\|*NOT\ MEASURED*describe\ NOTHING*) ok "a blocking CANNOT-RUN refuses as rc=2 and says it measured NOTHING about the DMG" ;;
+    1\|*)  bad "a blocking CANNOT-RUN returned rc=1, which says a defect was measured. Nothing was measured." ;;
+    0\|*)  bad "a blocking CANNOT-RUN PASSED the gate. Coverage lost is not coverage passed." ;;
+    *)     bad "a blocking CANNOT-RUN gave rc=${R%%|*}: $(printf '%s' "${R#*|}" | head -1)" ;;
+esac
+
+# THE ARM THAT KEEPS THE SPLIT HONEST. A record carrying BOTH must exit 1:
+# evidence of badness outranks absence of evidence, which is the rule this file
+# already states for records naming no probes at all.
+D="${WORK}/both"; _rec2 "$D" "install_manifest_complete" "people_stores_reconcile"
+R="$(_run "$D")"
+case "$R" in
+    1\|*FAILED\ --*NOT\ MEASURED*) ok "a record with BOTH kinds exits 1 and lists them SEPARATELY" ;;
+    2\|*) bad "a measured defect was downgraded to rc=2 because something else could not run" ;;
+    *)    bad "a record with both kinds gave rc=${R%%|*}" ;;
+esac
+
+# ...and the FAILED side must not have been relabelled. Without this, the split
+# could satisfy the two arms above by calling everything NOT MEASURED.
+D="${WORK}/f2"; _rec2 "$D" "install_manifest_complete" ""
+R="$(_run "$D")"
+case "$R" in
+    1\|*FAILED\ --\ these\ MEASURED*) ok "CONTROL: a probe that genuinely FAILED is still reported as having MEASURED the DMG" ;;
+    *) bad "a genuinely failed probe was not reported as measured: rc=${R%%|*}" ;;
 esac
 
 # A verdict with no named subject falls back to the OLD UNSCOPED REFUSAL (rc=1),

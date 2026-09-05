@@ -23,6 +23,8 @@ on:
     branches: [main]
     paths:
       - 'scripts/verify_customer_download_path.sh'
+      - 'scripts/publish_release.sh'
+      - 'tests/test_the_promote_instructions_name_what_makes_it_fail.sh'
       - 'tests/test_customer_download_path_gate.sh'
       # The BASELINE and the comment-stripper are inputs to the verdict, so a
       # change to either must re-run this workflow. A gate that cannot see its
@@ -40,6 +42,34 @@ on:
   # asked about a version pinned in the workflow rather than the one just
   # blessed. On the v1.0.62 tag push it did not run at all.
   #
+  # 🔴 AND MEASURED 2026-09-05: THIS TRIGGER HAS NEVER FIRED AND CANNOT.
+  #
+  # A GitHub `release` event fires in the repository that HOLDS the release, and
+  # releases are published to ostler-ai/ostler-installer -- a DIFFERENT repo,
+  # named by publish_release.sh:30 and by this workflow itself at the
+  # OSTLER_RELEASE_REPO line below. A release there cannot trigger a workflow
+  # here.
+  #
+  #   runs of THIS workflow, by event      20 pull_request, 5 push, 0 release
+  #   runs of ANY workflow in this repo
+  #     with event=release                 0
+  #     CONTROL, with event=push           56,756
+  #
+  # So every line below that reads github.event.release is a code path that has
+  # never executed: the posture stays `prelaunch`, RELEASE_TAG is always empty,
+  # and the gate asks about the version pinned in the run step rather than the
+  # one just blessed.
+  #
+  # ⚠️ THE PROMOTE IS NOT UNGUARDED, AND SAYING SO WOULD BE THE OVERCLAIM.
+  # publish_release.sh:265-275 fetches the customer URL INLINE after promoting
+  # and dies unless it returns 200 AND the bytes hash to the artefact it just
+  # uploaded. That assertion is made. What is dark is the promote-mode path in
+  # THIS file, which looks like a second, independent check and is not one.
+  #
+  # The trigger is KEPT rather than deleted: if releases ever move into this
+  # repo it becomes correct with no edit. workflow_dispatch below is what makes
+  # the path runnable in the meantime, by hand, at the moment of a promote.
+  #
   # A TAG PUSH IS THE WRONG EVENT TOO, and that is why this is not a cut
   # prerequisite: a cut publishes a PRERELEASE deliberately, so `latest` will
   # correctly not be it, and a gate wired to the cut would fail every cut for
@@ -51,9 +81,20 @@ on:
   # own OstlerInstaller.dmg asset.
   release:
     types: [released]
+  # THE ONLY WAY THE PROMOTE-MODE PATH ABOVE CAN ACTUALLY BE RUN TODAY.
+  # Give it the tag that was just promoted and it takes both halves of the
+  # verdict from that release, exactly as the release event was meant to.
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'The promoted tag to check, e.g. v1.0.68. Leave empty to run in prelaunch posture.'
+        required: false
+        type: string
   pull_request:
     paths:
       - 'scripts/verify_customer_download_path.sh'
+      - 'scripts/publish_release.sh'
+      - 'tests/test_the_promote_instructions_name_what_makes_it_fail.sh'
       - 'tests/test_customer_download_path_gate.sh'
       # The BASELINE and the comment-stripper are inputs to the verdict, so a
       # change to either must re-run this workflow. A gate that cannot see its
@@ -89,7 +130,23 @@ jobs:
       # unproven: its DMG shape check read `koly` from the first 512 bytes of a
       # file that stores it as a trailer, so it matched nothing on any real DMG.
       - name: Controls -- drive the gate through every exit it can take
+        if: always()
         run: /bin/bash tests/test_customer_download_path_gate.sh
+
+      # THE PROMOTE IS FOLKLORE UNLESS THE SCRIPT SAYS HOW, and its prerelease
+      # message is the only description of it anywhere. MEASURED 2026-09-05:
+      # cut.yml:1223 is the sole invocation of publish_release.sh; CM051 docs say
+      # nothing about promoting; OS003's CUT_MECHANISM_CANONICAL.md does not
+      # mention promoting the INSTALLER at all, and its RUNBOOK covers the DAEMON
+      # release to a different repo. Meanwhile the customer download has sat on
+      # v1.0.41 since the day BEFORE the walk gate existed.
+      #
+      # The block must keep naming the two things that make a re-run fail, and
+      # -- the arm that is a test rather than a doc -- the asset it tells you to
+      # download must be one this script actually uploads.
+      - name: The promote instructions name what makes the promote fail
+        if: always()
+        run: bash tests/test_the_promote_instructions_name_what_makes_it_fail.sh
 
   anti-vacuity:
     # ITS OWN JOB, NOT A STEP AFTER THE CONTROLS.
@@ -211,10 +268,12 @@ jobs:
           # short-circuit is a false GREEN: the gate would report OK having
           # never fetched the URL a buyer clicks, which is the one thing it
           # exists to do. Caught by running the red arm and watching it pass.
-          OSTLER_DOWNLOAD_POSTURE: ${{ github.event_name == 'release' && 'public' || 'prelaunch' }}
-          # Empty on every trigger except a promote, which is the discriminator
-          # the run step keys on.
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          # A hand-run with a tag is the same question as a promote, so it gets
+          # the same posture. Without a tag it stays prelaunch, as before.
+          OSTLER_DOWNLOAD_POSTURE: ${{ (github.event_name == 'release' || inputs.release_tag != '') && 'public' || 'prelaunch' }}
+          # Empty on every trigger except a promote or a hand-run that names a
+          # tag, which is the discriminator the run step keys on.
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
           OSTLER_RELEASE_REPO: ostler-ai/ostler-installer
         run: |
           set -uo pipefail

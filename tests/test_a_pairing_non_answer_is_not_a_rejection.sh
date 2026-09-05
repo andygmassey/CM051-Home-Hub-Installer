@@ -58,11 +58,30 @@ trap 'rm -rf "$WORK"' EXIT
 # $2 what the FIRST /pair call does:   ok | refuse | silent
 # $3 what the SECOND /pair call does:  refuse | accept | silent
 # $4 who owns :8443 (optional, default "mine"): mine | foreign | nothing
+# $5 how many enc2: tokens config.toml holds (optional, default 1)
+# $6 how many of them THIS SUITE minted, per the walk ledger (optional, 0)
 # Echoes the probe's own VERDICT word.
+#
+# ⚠️ IT TAKES THE WHOLE PROBE, NOT JUST run_probe. This used to awk out the
+# run_probe block alone, which was fine while every helper it called came from
+# lib/probe.sh. The moment run_probe grew a dependency on a sibling function in
+# its own file (adjudicate_tokens), the extracted unit referenced a name that did
+# not exist and a variable that was unbound, `set -u` killed it before any
+# verdict, and all eight arms reported the empty string. A unit is not its file.
+#
+# So: copy the file, minus the two lines that would fight the harness -- the
+# `. lib/probe.sh` source (which would overwrite the stubs below with the real
+# helpers) and the trailing `probe_main "$@"` (which would run it). Everything
+# else, functions and assignments alike, comes across verbatim. The pinned
+# control blob has no helpers at all and is unaffected by this.
 _verdict() {
     local src="$1" a="$2" b="$3" own="${4:-mine}" h="${WORK}/h.sh"
-    local fn; fn="$(awk '/^run_probe\(\) \{/{f=1} f{print} f&&/^\}$/{exit}' "$src")"
-    [ -n "$fn" ] || { printf 'NOFN'; return; }
+    # ${6-0} NOT ${6:-0}. The colon form treats an EXPLICITLY EMPTY argument as
+    # unset and substitutes the default, so the unreadable-ledger arm below was
+    # silently handed "0" and measured the wrong thing -- it reported FAIL and I
+    # nearly recorded that as the probe reintroducing its own false red.
+    local raw="${5-1}" minted="${6-0}"
+    grep -q '^run_probe() {' "$src" || { printf 'NOFN'; return; }
     cat > "$h" <<HDR
 set -uo pipefail
 TOKEN_CEILING=12
@@ -83,7 +102,12 @@ _PAIRN_F="${WORK}/paircount"; : > "\$_PAIRN_F"
 box_run() {
   case "\$1" in
     *'-r '*)                 return 0 ;;                       # config readable
-    *"grep -o 'enc2:'"*)     printf '1\n'; return 0 ;;         # one token, under ceiling
+    *"grep -o 'enc2:'"*)     printf '$raw\n'; return 0 ;;      # tokens on disk
+    # THE LEDGER. The write arm must be matched BEFORE the read arm: both
+    # commands name the same file, and a write that fell through to the read
+    # would print a count into a redirection and answer nothing.
+    *mkdir*walk-minted-pair-tokens*) return 0 ;;
+    *walk-minted-pair-tokens*)       printf '$minted\n'; return 0 ;;
     *'require_pairing = false'*) return 1 ;;                   # pairing IS required
     *zeroclaw_admin_token*)  printf 'SYNTHETIC-ADMIN-TOKEN\n'; return 0 ;;
     *paircode/new*)          printf 'SYNTHETIC-CODE\n'; return 0 ;;
@@ -111,7 +135,7 @@ box_run() {
   esac
 }
 HDR
-    printf '%s\n' "$fn" >> "$h"
+    grep -v -e '^\. "' -e '^source ' -e '^probe_main ' "$src" >> "$h"
     printf 'run_probe\n' >> "$h"
     bash "$h" 2>/dev/null | tail -1
 }
@@ -160,6 +184,35 @@ esac
 case "$(_verdict "$SUBJECT" ok refuse mine)" in
     PASS) ok "CONTROL ON THE OWNERSHIP GUARD: when the port IS ours, the probe still adjudicates normally" ;;
     *)    bad "the ownership guard fires even when we own the port ('$(_verdict "$SUBJECT" ok refuse mine)') -- it would blind every real verdict" ;;
+esac
+
+# ── THE PROBE MUST NOT COUNT ITS OWN PAIRINGS ────────────────────────────────
+#
+# Limb 2 performs a REAL pair and requires '"paired":true', which is exactly what
+# persists an entry in the paired_tokens array limb 1 counts. Nothing revokes it,
+# --reset runs no uninstaller so config.toml survives, and install.sh:12981-13004
+# deliberately merges the old tokens forward on upgrade. Past TOKEN_CEILING=12 a
+# BLOCKING probe therefore fails on evidence it made itself, in the language of a
+# customer-visible defect that did not happen.
+#
+# These two arms are the pair that matters. The first is the false RED the
+# attribution removes; the second is the false GREEN it could have bought.
+
+case "$(_verdict "$SUBJECT" ok refuse mine 13 13)" in
+    PASS) ok "13 tokens, all 13 minted by this suite's own walks: PASSES. Unadjusted this trips the ceiling of 12 and blocks a cut on our own pairings." ;;
+    FAIL) bad "a box walked 13 times with no product tokens still reports FAIL -- the probe is blaming the product for tokens it minted itself" ;;
+    *)    bad "the walk-only box produced '$(_verdict "$SUBJECT" ok refuse mine 13 13)'" ;;
+esac
+
+case "$(_verdict "$SUBJECT" ok refuse mine 20 5)" in
+    FAIL) ok "CONTROL: 20 tokens with only 5 of them ours still FAILS -- subtracting our footprint does not hide a real storm" ;;
+    *)    bad "a real storm on a walked box produced '$(_verdict "$SUBJECT" ok refuse mine 20 5)' -- the attribution has bought a false green" ;;
+esac
+
+case "$(_verdict "$SUBJECT" ok refuse mine 13 "")" in
+    CANNOT-RUN) ok "an unreadable mint ledger reads as CANNOT-RUN, never as zero -- assuming zero is how our tokens get blamed on the product" ;;
+    FAIL)       bad "an unreadable ledger was treated as zero and reported FAIL. That is the false red, reintroduced." ;;
+    *)          bad "an unreadable ledger produced '$(_verdict "$SUBJECT" ok refuse mine 13 "")'" ;;
 esac
 
 # ── NEGATIVE CONTROL, pinned to the tree that PRODUCED the flip ──────────────
