@@ -42,6 +42,13 @@ PWG = "https://schema.ostler.ai/ontology#"
 # name-fuzzy signals only, never an exact-merge key.
 EXACT_KEY_TYPES: Tuple[str, ...] = ("email", "phone")
 
+# RULE 2's canonical key. Exactly one macOS Contacts card, for ever. The
+# ratified ruleset says verbatim: "MUST NOT MERGE: different canonical keys,
+# even if identical display name." A Person node carrying two different values
+# of this type is an over-merge BY DEFINITION -- no judgement, no name
+# comparison involved.
+CANONICAL_KEY_TYPE = "icloud_contact_uid"
+
 
 def _canonical_phone(value: str) -> str:
     """Canonicalise a phone identifier so a WhatsApp JID collides with the
@@ -142,6 +149,30 @@ def _components(collisions: Dict[Tuple[str, str], List[str]]) -> Dict[str, Set[s
     return comps
 
 
+def canonical_keys_of(persons: Set[str]) -> Dict[str, Set[str]]:
+    """``{person_uri: {icloud_contact_uid value, ...}}`` for the given nodes.
+
+    One query for the whole component rather than one per node: this runs on
+    the install critical path and a per-node round trip over a large address
+    book is exactly the kind of thing that gets time-capped and killed.
+    """
+    if not persons:
+        return {}
+    values = " ".join(f"<{p}>" for p in sorted(persons))
+    rows = _sparql_query(
+        f"PREFIX pwg:<{PWG}> "
+        "SELECT ?p ?v WHERE { "
+        f"  VALUES ?p {{ {values} }} "
+        "  ?p pwg:hasIdentifier ?id . "
+        f'  ?id pwg:identifierType "{CANONICAL_KEY_TYPE}" ; pwg:identifierValue ?v . '
+        "}"
+    )
+    out: Dict[str, Set[str]] = {}
+    for r in rows:
+        out.setdefault(r["p"]["value"], set()).add(r["v"]["value"])
+    return out
+
+
 def _merge_pair(canonical: str, dupe: str) -> None:
     """Move every triple referencing ``dupe`` onto ``canonical``. After
     both rewrites, no triple references ``dupe`` and it ceases to exist."""
@@ -165,19 +196,86 @@ def run(dry_run: bool = False) -> Dict[str, int]:
     folded away)."""
     collisions = find_collisions()
     comps = _components(collisions)
+
+    # ── RULE 2 VETO. THIS MODULE HAD NONE, AND IT IS WHY THE OVER-MERGE
+    #    SURVIVED TWO FIXES TO OTHER WRITERS. ────────────────────────────
+    #
+    # MEASURED on the v1.0.71 walk box, 2026-09-05, on a graph built entirely
+    # inside the walk window:
+    #
+    #     icloud_contact_uid identifiers        1673   (anti-vacuity control)
+    #     Person nodes with 2+ distinct uids      54
+    #     Contacts cards swallowed               117
+    #     mergedInto tombstones in the graph       1   (control: the predicate
+    #                                                   CAN see tombstones)
+    #     of the 54, how many carry a tombstone     0
+    #
+    # That last pair is the discriminator. `identity_resolver.merge_persons`
+    # and `batch_resolver._merge_oxigraph` ALWAYS write a `mergedInto`
+    # tombstone and both already veto on canonical keys (#1418, #1543). This
+    # module writes no tombstone. Not one of the 54 survivors carries one, so
+    # every one of them was welded here.
+    #
+    # WHY EVERY EARLIER AUDIT CAME BACK CLEAN: this file never mentions
+    # `icloud_contact_uid` at all. It groups on email and phone VALUES, so a
+    # search that starts from the canonical key -- or from the guarded
+    # function -- cannot see the writer that corrupts it.
+    #
+    # THE VETO MUST ACCUMULATE ACROSS THE COMPONENT, NOT JUST THE PAIR.
+    # `_components` is union-find, so A and C fold together through a bridging
+    # node B that shares A's phone and C's email while sharing nothing with
+    # each other. Checking only (canonical, dupe) in isolation would still let
+    # a second card arrive transitively. So the surviving node's key set is
+    # carried forward and every candidate is tested against it.
+    #
+    # FAIL CLOSED. If the key set cannot be read, refuse every merge in this
+    # run rather than merging blind: a missed RULE 1 merge is visible and
+    # fixable on the next sweep, while a RULE 2 violation is a silently
+    # corrupted person that no later pass looks for.
+    try:
+        keys = canonical_keys_of({p for members in comps.values() for p in members})
+    except Exception as exc:  # noqa: BLE001 -- deliberately broad; see above
+        logger.error(
+            "dedupe_merge: REFUSING ALL MERGES -- could not read %s values "
+            "to enforce RULE 2 (%s). No writes were made.",
+            CANONICAL_KEY_TYPE,
+            exc,
+        )
+        return {"collision_keys": len(collisions), "merged": 0, "refused_rule2": 0,
+                "refused_unreadable": True}
+
     merged = 0
+    refused = 0
     for canonical, members in comps.items():
+        held: Set[str] = set(keys.get(canonical, set()))
         for dupe in sorted(members - {canonical}):
+            dupe_keys = keys.get(dupe, set())
+            if len(held | dupe_keys) > 1:
+                refused += 1
+                logger.warning(
+                    "dedupe_merge: RULE 2 veto -- not merging a node holding %d "
+                    "canonical key(s) into one already holding %d. RULE 1 says "
+                    "merge, RULE 2 says these are different people, and RULE 2 "
+                    "wins. Both nodes left intact.",
+                    len(dupe_keys),
+                    len(held),
+                )
+                continue
             if not dry_run:
                 _merge_pair(canonical, dupe)
+            held |= dupe_keys
             merged += 1
+
     logger.info(
-        "dedupe_merge: %d exact-id collision key(s); merged %d duplicate Person node(s)%s",
+        "dedupe_merge: %d exact-id collision key(s); merged %d duplicate Person "
+        "node(s); refused %d on RULE 2%s",
         len(collisions),
         merged,
+        refused,
         " (dry-run, no writes)" if dry_run else "",
     )
-    return {"collision_keys": len(collisions), "merged": merged}
+    return {"collision_keys": len(collisions), "merged": merged,
+            "refused_rule2": refused, "refused_unreadable": False}
 
 
 def main() -> int:
