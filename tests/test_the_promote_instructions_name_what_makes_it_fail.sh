@@ -42,7 +42,19 @@ fi
 ok "the promote block extracts to a sane size (${n} lines)"
 
 has() {  # has <label> <fixed string>
-    if printf '%s' "$BLOCK" | grep -qF -- "$2"; then ok "$1"; else bad "$1 -- '$2' is absent"; fi
+    # `grep -cF`, NEVER `... | grep -qF` IN A CONDITION. This file runs under
+    # `set -uo pipefail`, and grep -q exits on the first match and SIGPIPEs the
+    # producer, so the pipeline can report FAILURE ON A MATCH. That would make
+    # every arm below report the string absent when it is present.
+    #
+    # 🔴 THE RATCHET CAUGHT THIS, and it is the SECOND time in one session I
+    # wrote it -- the first was a CI step in another PR. Writing the lesson down
+    # did not stop me repeating it two hours later; the ratchet did.
+    if [ "$(printf '%s' "$BLOCK" | grep -cF -- "$2")" -gt 0 ]; then
+        ok "$1"
+    else
+        bad "$1 -- '$2' is absent"
+    fi
 }
 
 # 1. THE STORES. A walk on carried-over stores grades the previous build's data,
