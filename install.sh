@@ -17457,18 +17457,19 @@ _OSTLER_QDRANT_MISSING_COLLECTIONS=""
 # ⚠️ THIS IS THE BUDGET BEHIND THE STORE-NOT-READY REFUSAL.
 # _ostler_ensure_qdrant_collections is the function that refusal tests, and its
 # call site is inside cm019_setup -- the step that went ERROR at 132s on the
-# v1.0.67 COLD walk
+# v1.0.67 COLD walk (2026-09-05), against this 120s budget. The sibling
+# _QDRANT_READY_CAP governs a DIFFERENT loop (graph_db_start) and was fine on
+# that same walk.
 #
 # ⚠️⚠️ THE ERROR CODE IS DELIBERATELY NOT SPELLED OUT ABOVE, and this is not
 # style. tests/test_qdrant_import_gate_refuses_empty_store.sh arm D locates that
 # code with `grep -nF <code> | head -1` and asserts the line sits AFTER the gate
 # call. A mention in a comment ABOVE the call site becomes the first match and
 # takes the arm red -- measured, on the first draft of this block: it reported
-# `fail=17458` (this comment) against `gate=18994`. install.sh:17497 already
-# states the identical hazard for a different sentinel. Name the code in a
-# commit message, never in a comment that precedes its call site.
-# (2026-09-05), against this 120s budget. The sibling _QDRANT_READY_CAP governs a
-# DIFFERENT loop (graph_db_start) and was fine on that walk.
+# the comment's own line number as the match, against a gate 1,500 lines below.
+# install.sh:17497 already states the identical hazard for a different sentinel.
+# Name the code in a commit message, never in a comment that precedes its call
+# site.
 #
 # Hoisting it to a _CAP name at top level is the whole change: the env var still
 # works for an operator, the function still reads one number, and the gate can
