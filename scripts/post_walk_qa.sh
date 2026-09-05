@@ -109,6 +109,47 @@ USAGE
     exit 3
 fi
 
+# ── 🔴 A VERSION TYPO IS NOT A MISSING MANIFEST ─────────────────────────
+#
+# MEASURED 2026-09-05. Driving the manifest branch directly:
+#
+#   1.0.71   -> "no cut-manifests/1.0.71.yaml"   COVERAGE LOST   overall=2
+#   v9.9.99  -> "no cut-manifests/v9.9.99.yaml"  COVERAGE LOST   overall=2
+#
+# Identical state, and they are DIFFERENT FINDINGS. One is a cut with no
+# manifest, which must block a promote. The other is an operator who typed
+# the name wrong while the manifest sits on disk under its real name.
+# Reporting the second as "coverage lost" hides a manifest that is present.
+#
+# It is malformed input, not absence: all 59 cut manifests are named
+# v<N.N.N>.yaml and 0 are named without the leading v, so a bare 1.0.71
+# cannot match a real file under any circumstances.
+#
+# IT ALSO FAILED LATE. This check sat AFTER the ssh and after the probe
+# suite, and that suite WRITES to the live store (see the warning above).
+# A typo therefore cost a full box walk before the operator learned the
+# argument was wrong. The refusal now happens before anything runs.
+#
+# Deliberately looser than the observed names: leading v plus a dotted
+# numeric body, so a future 4-component version is not falsely refused.
+# The leading v is the load-bearing part, because that is what the real
+# typo dropped.
+if [[ -n "$CUT_VERSION" && ! "$CUT_VERSION" =~ ^v[0-9]+(\.[0-9]+)+$ ]]; then
+    {
+        echo "usage: cut-version must look like v1.0.38, not '${CUT_VERSION}'."
+        if [[ -f "${REPO_ROOT}/cut-manifests/v${CUT_VERSION}.yaml" ]]; then
+            echo
+            echo "  cut-manifests/v${CUT_VERSION}.yaml EXISTS -- you are one"
+            echo "  leading 'v' away. Re-run with: v${CUT_VERSION}"
+        fi
+        echo
+        echo "Refusing before the probe suite runs, because that suite WRITES to"
+        echo "the live store. This is a usage error, exit 3. It is NOT the same"
+        echo "as a missing manifest, which is a coverage finding and exits 2."
+    } >&2
+    exit 3
+fi
+
 echo "════════════════════════════════════════════════════════════"
 echo " POST-WALK QA"
 echo "   box     : ${BOX}"
