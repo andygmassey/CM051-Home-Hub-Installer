@@ -18,11 +18,14 @@ name: rule-2-holds-on-the-write
 # THIS uid already here", which suppresses a repeat of the same card and is
 # blind to a DIFFERENT uid already on the node.
 #
-# TWO SUBJECTS, AND THE ONE THAT SHIPS IS NOT THE ONE IN vendor/.
-# install.sh copies ${SCRIPT_DIR}/contact_syncer -- the repo ROOT copy -- into
-# the import pipeline. vendor/cm041/contact_syncer is the upstream twin and the
-# two have drifted. The test drives BOTH and proves by __file__ that each run
-# loaded the copy it names, because a test that silently measures the wrong twin
+# TWO SUBJECTS, AND THE BUNDLER DECIDES WHICH ONE SHIPS -- NOT install.sh.
+# gui/project.yml fills the .app Resources with cp -R "${VENDOR_ROOT}/contact_syncer"
+# out of vendor/cm041 (1 reference; zero to the repo-root copy), and ${SCRIPT_DIR}
+# on a customer's Mac IS that Resources directory. install.sh copying
+# ${SCRIPT_DIR}/contact_syncer describes the SECOND hop. This comment previously
+# said the opposite, and a reviewer confirmed the opposite independently, because
+# we read the same misread variable. The test drives BOTH and proves by __file__
+# that each run loaded the copy it names, because a test that silently measures the wrong twin
 # reports a true fact about a file no customer runs.
 #
 # Four arms, and each was mutation-tested against the shipped copy alone so the

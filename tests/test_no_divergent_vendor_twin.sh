@@ -24,11 +24,14 @@
 #   * A naive descent manufactures 16 spurious pairs, because `vendor/*/tests`
 #     and `vendor/*/bin` collide by basename with ./tests and ./bin. Requiring
 #     __init__.py on BOTH sides rejects all 16 and keeps the 1 real package.
-#   * WHICH COPY SHIPS IS NOT A CONSTANT. This file used to assert "the
-#     shipping copy is vendor/". For contact_syncer that is INVERTED:
-#     install.sh copies ${SCRIPT_DIR}/contact_syncer, the ROOT copy, into the
-#     import pipeline. A guard that names the wrong file as authoritative sends
-#     the reader to fix the copy nobody runs, so this one no longer guesses.
+#   * WHICH COPY SHIPS IS NOT A CONSTANT, AND install.sh CANNOT TELL YOU.
+#     This file used to assert "the shipping copy is vendor/" as a global fact.
+#     The first correction replaced one global claim with the OPPOSITE global
+#     claim, reasoning from install.sh copying ${SCRIPT_DIR}/contact_syncer --
+#     which is wrong, because ${SCRIPT_DIR} on a customer's Mac is the .app
+#     Resources directory and gui/project.yml fills it FROM vendor/. install.sh
+#     describes the second hop, payload to import pipeline. The guard now asks
+#     the BUNDLER per pair and refuses when the bundler names neither side.
 #
 # The known drift is recorded in tests/VENDOR_TWIN_DRIFT.tsv as debt with a
 # number on it, the same idiom as the UNWIRED rows in TEST_WIRING.tsv: green on
@@ -146,6 +149,38 @@ fi
 # Without that discriminator this walk reports vendor/cm041/tests <-> ./tests
 # and fourteen other basename collisions that are not packages at all.
 # ---------------------------------------------------------------------------
+# WHICH SIDE SHIPS IS DERIVABLE -- BUT NOT FROM install.sh.
+#
+# 🔴 I GOT THIS BACKWARDS FIRST, AND SO DID THE REVIEWER, BY READING install.sh.
+# install.sh copies ${SCRIPT_DIR}/<pkg> into the import pipeline, and it is very
+# tempting to conclude that the repo-root copy is the one that ships. IT IS NOT.
+# ${SCRIPT_DIR} is not this repo on a customer's Mac -- it is the .app Resources
+# directory, and what fills THAT is gui/project.yml:
+#
+#     VENDOR_ROOT="${SRCROOT}/../vendor/cm041"
+#     cp -R "${VENDOR_ROOT}/contact_syncer"  "${DEST}/contact_syncer"
+#
+# Measured: gui/project.yml carries 1 bundling reference for contact_syncer, out
+# of vendor/cm041, and ZERO references to the repo-root copy. So the VENDORED
+# tree is what a customer runs; the repo-root tree is what a dev-tree install
+# uses, where ${SCRIPT_DIR} really is the repo.
+#
+# install.sh describes the SECOND hop (payload -> import pipeline) and says
+# nothing about which repo tree filled the payload. Reading hop two as if it
+# were hop one is how both of us concluded the wrong copy was authoritative.
+#
+# The bundler is therefore the authority, and this asks the bundler.
+_shipping_side() {
+    local pkg="$1" n
+    if [ -f gui/project.yml ]; then
+        n="$(/usr/bin/grep -cE 'cp -R "\$\{VENDOR_ROOT\}/'"${pkg}"'"' gui/project.yml || :)"
+        if [ "${n:-0}" -gt 0 ]; then echo "vendor"; return; fi
+        n="$(/usr/bin/grep -cE 'cp -R "\$\{SRCROOT\}/\.\./'"${pkg}"'"' gui/project.yml || :)"
+        if [ "${n:-0}" -gt 0 ]; then echo "root"; return; fi
+    fi
+    echo "unknown"
+}
+
 LEDGER="tests/VENDOR_TWIN_DRIFT.tsv"
 computed="$(mktemp)" || { echo "CANNOT-RUN: mktemp failed for the drift ledger" >&2; exit 2; }
 trap 'rm -f "$computed"' EXIT
@@ -244,10 +279,33 @@ echo "deep walk (vendor/<repo>/<pkg>): $deep_candidates basename candidate(s), $
 if ! diff -u "$recorded" "$sorted" > /dev/null 2>&1; then
     echo "FAIL: the package-twin drift does not match $LEDGER." >&2
     echo "      -- is the recorded debt, ++ is what the tree has now:" >&2
-    diff -u "$recorded" "$sorted" | sed -n '4,$p' | sed 's/^/      /' >&2
+    # 🔴 `diff` EXITS 1 WHEN THE FILES DIFFER, WHICH IS THE ONLY CASE THIS BLOCK
+    # RUNS IN. Under `set -e` with `pipefail` that non-zero killed the script on
+    # this very line, so every line of guidance below -- the GREW/SHRANK advice
+    # and the per-pair shipping side -- had NEVER PRINTED. The reader saw two
+    # ledger lines and no instruction. `|| :` because the difference is the
+    # point, not an error.
+    { diff -u "$recorded" "$sorted" || :; } | sed -n '4,$p' | sed 's/^/      /' >&2
     echo "      A count that GREW is new drift: fix it, do not re-record it." >&2
     echo "      A count that SHRANK or a pair that vanished is good news that still" >&2
     echo "      needs --regenerate, so the recorded number stays honest." >&2
+    echo "" >&2
+    echo "      WHICH SIDE SHIPS, per pair, derived from gui/project.yml (the BUNDLER," >&2
+    echo "      not install.sh -- install.sh copies the payload, it does not fill it):" >&2
+    while IFS="$(printf '\t')" read -r _vp _rp _c; do
+        [ -n "${_vp:-}" ] || continue
+        _pkg="$(basename "$_vp")"
+        case "$(_shipping_side "$_pkg")" in
+            vendor) echo "        ${_pkg}: gui/project.yml bundles the app Resources from vendor/, so the" >&2
+                    echo "                 VENDORED copy is what a customer runs. ./${_pkg} is the dev-tree" >&2
+                    echo "                 copy. Do NOT assume install.sh answers this: it copies" >&2
+                    echo "                 \${SCRIPT_DIR}/${_pkg}, which IS the bundled payload on a Mac." >&2 ;;
+            root)   echo "        ${_pkg}: gui/project.yml bundles it from the repo root, so ./${_pkg} is" >&2
+                    echo "                 what a customer runs and re-vendoring would regress it." >&2 ;;
+            *)      echo "        ${_pkg}: gui/project.yml bundles neither side by name. Find what fills the" >&2
+                    echo "                 .app Resources BEFORE picking a winner -- install.sh cannot tell you." >&2 ;;
+        esac
+    done < "$sorted"
     exit 1
 fi
 
@@ -255,7 +313,7 @@ if [ "$deep_pairs" -gt 0 ]; then
     echo "deep walk: $deep_pairs package twin(s), drift matches $LEDGER exactly"
     while IFS="$(printf '\t')" read -r vp rp cnt; do
         [ -n "${vp:-}" ] || continue
-        [ "$cnt" -gt 0 ] && echo "  RECORDED DEBT: $vp <-> $rp, $cnt divergent shared file(s)"
+        [ "$cnt" -gt 0 ] && echo "  RECORDED DEBT: $vp <-> $rp, $cnt divergent shared file(s); the app bundles the $(_shipping_side "$(basename "$vp")") side"
     done < "$recorded"
 fi
 

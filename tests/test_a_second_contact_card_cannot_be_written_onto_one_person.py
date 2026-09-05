@@ -23,13 +23,22 @@ whose only test before attaching the incoming uid is `_identifier_exists`, which
 is VALUE-scoped. It asks "is THIS uid already here", which suppresses a repeat
 of the same card. It cannot see a DIFFERENT uid already on the node.
 
-TWO SUBJECTS, AND THE ONE THAT SHIPS IS NOT THE ONE IN vendor/.
-`install.sh:18069-18072` copies `${SCRIPT_DIR}/contact_syncer` -- the REPO ROOT
-copy -- into the import pipeline. `vendor/cm041/contact_syncer` is the upstream
-vendored twin and the two have drifted. Both are driven below, and each run
-proves by `__file__` that it loaded the copy it names, because a test that
-silently measures the wrong twin reports a true fact about a file no customer
-runs.
+TWO SUBJECTS, AND BOTH ARE DRIVEN BECAUSE I GOT THE SHIPPING ONE WRONG TWICE.
+First I measured only `vendor/cm041` and called it the wrong file. Then I read
+`install.sh:18069-18072` copying `${SCRIPT_DIR}/contact_syncer` and wrote here
+that the REPO ROOT copy is what customers run. A reviewer confirmed it
+independently. WE WERE BOTH WRONG: `${SCRIPT_DIR}` on a customer's Mac is the
+`.app` Resources directory, and `gui/project.yml` fills it with
+`cp -R "${VENDOR_ROOT}/contact_syncer"` out of `vendor/cm041` -- 1 bundling
+reference, and ZERO to the repo-root copy. install.sh describes the SECOND hop,
+payload to import pipeline.
+
+So the VENDORED copy is what a customer runs and the repo-root copy serves a
+dev-tree install, where `${SCRIPT_DIR}` really is the repo. The two have drifted
+by 15 tracked files. Both are driven below, and each run proves by `__file__`
+that it loaded the copy it names -- which is the only reason the first mistake
+was survivable: fixing both copies made the guard reach customers regardless of
+which one either of us believed in.
 
 THREE STATES. 0 pass, 1 fail, 2 cannot-run.
 
