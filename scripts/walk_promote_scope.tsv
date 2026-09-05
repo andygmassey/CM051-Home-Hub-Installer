@@ -1,0 +1,68 @@
+# walk_promote_scope.tsv -- WHICH PROBES CAN REFUSE A PROMOTE, AND WHICH ONLY REPORT.
+#
+# READ THIS BEFORE EDITING. Andy's decision, 2026-09-05.
+#
+# THE PROBLEM THIS SOLVES. The promote gate demanded the whole 24-probe scoreboard
+# be CLEAN before the customer download could be repointed. But the 24 measure four
+# different things at once: whether THIS DMG installs correctly, whether the
+# customer's DATA is correct, whether the ARCHITECTURE is what we want, and whether
+# the OPERATOR'S BOX is clean. Only the first is a property of the artefact being
+# promoted. A build with nothing wrong with it could not ship because contact
+# records in another repo had duplicates.
+#
+# THE RULE, and it is the whole file:
+#   blocking  -> a red here means the DMG WE ARE ABOUT TO HAND A CUSTOMER is
+#                defective. It refuses the promote.
+#   advisory  -> a red here is true, and is about the box, the customer's data,
+#                another repository, or a design position we have consciously
+#                taken. It is PRINTED at every promote and must be signed off.
+#                It does not refuse.
+#
+# ⚠️ THIS IS NOT A LOOSENING OF THE PROBES. Every probe stays exactly as strict.
+# What changes is which of them can veto a release. An advisory red is still a
+# red, still printed, still in the record, and still counted in the walk verdict.
+#
+# ⚠️ FAIL-CLOSED ON THE UNKNOWN. A probe that does not appear in this file is
+# treated as BLOCKING by scripts/verify_walk_record.sh. Adding a probe therefore
+# cannot silently create an advisory one; someone has to write the row and say why.
+#
+# ⚠️ THE BLOCKING SET IS A ONE-WAY RATCHET. It may only ever GROW.
+# tests/test_promote_scope_only_ever_grows.sh compares HEAD against origin/main and
+# fails if any probe moves blocking -> advisory. Moving one BACK is the only way
+# this file can become a trapdoor, and it is the thing to refuse.
+#
+# ⚠️ REVISIT WHEN A LAUNCHABLE DMG EXISTS. Andy's condition on the decision. The
+# ticket is CM051 #1508. The intent is that advisory rows get closed and promoted
+# to blocking, not that the advisory list is where inconvenient reds go to live.
+#
+# COLUMNS (tab-separated, exactly four):
+#   probe   the probe's file name without .sh, exactly as the record names it
+#   scope   blocking | advisory
+#   owner   who can actually close it -- the repo or the decision
+#   why     what a red here means, and why that does or does not describe the DMG
+#
+probe	scope	owner	why
+app_signature_survives_first_run	blocking	CM051	the signature on the .app we shipped. A red is the artefact.
+assistant_answers_grounded	blocking	CM051	the shipped assistant reaching the customer's own data is the product's core promise. Currently red on 1 of 3 questions (tool_error) and it SHOULD hold the promote.
+assistant_prompt_names_every_pwg_tool	blocking	CM051	the prompt is a file in the bundle. A red is the artefact.
+daemon_is_listening	blocking	CM051	the daemon we installed does not answer. That is the install.
+fda_tick_can_import	blocking	CM051	shipped tick modules failing to import under the shipped interpreter is the artefact.
+freshness_panel_has_dates	blocking	CM051	a customer-facing surface the install produced.
+identity_layer_is_importable	blocking	CM051	vendored code failing to import under the installed interpreter is the artefact.
+ingest_coverage	advisory	box/data	its denominator is WHICH SOURCES EXIST ON THE BOX. safari_history is UNAVAIL on a box with no Safari history, and a walk box is not a customer. A red can mean 'this box has less data', which is not a defect in the DMG.
+install_error_honesty	blocking	CM051	if the installer lies about its own failures, nothing else in this list can be trusted.
+install_manifest_complete	blocking	CM051	the install did not produce what it declared. That is the definition of an artefact defect.
+installed_bundle_seal_intact	blocking	CM051	the bundle we shipped, after first run.
+launchagents_resolve_their_tools	blocking	CM051	an agent pointing at a program that is not there is the install.
+launchd_no_ephemeral_paths	blocking	CM051	a plist baking a temp path is the install.
+no_person_holds_two_contact_cards	blocking	CM051(vendored CM041)	54 Person nodes each carry 2+ icloud_contact_uid, collapsing 117 of the customer's Contacts cards into 54 people. That is what a customer sees on the People page, produced by vendored merge logic that ships in this DMG. Reproduced on a FRESH --reset install, so it is re-derived by the shipped pipeline rather than inherited box state. Promoted from advisory 2026-09-05.
+no_store_port_is_tcp_reachable	advisory	DESIGN	a consciously taken position, not a regression. Closing it means moving stores to unix sockets or crediting all six ports. NOTE: the probe's predicate is REACHABILITY but its stated harm is READABILITY, and 6333/7878 both answer 401 unauthenticated -- measured 2026-09-05. It over-reports by 2 of 6.
+no_unexpected_egress	blocking	CM051	the install phoning somewhere it should not is the artefact, and it is a security property.
+pair_state_agreement	blocking	CM051	the Hub's own pairing state files disagreeing with its own daemon is the artefact.
+pairing_recovers_without_a_repair_storm	blocking	CM051	a customer who cannot re-pair is locked out of their own Hub.
+people_count_agreement	blocking	CM051	two of OUR OWN surfaces disagreeing about one number is an artefact consistency defect, whatever the underlying data says.
+people_seed_and_retrieval	blocking	CM051	a write-then-read round trip through our own API.
+people_stores_reconcile	blocking	CM051(vendored CM041)	the two stores hold different SETS of people, and the customer's People page shows one of the two numbers. The divergence is produced by CM041 code that SHIPS INSIDE THIS DMG, so it is a defect in the artefact whichever repo authored the source. Promoted from advisory 2026-09-05 on TNM's argument: 'another repository' cannot cover a writer we vendor and ship. Measured: the 84 orphans are 71 human names with full contact payloads, and 1907-1823=84 is exactly the people_count_agreement gap -- the same defect through two instruments.
+running_config_matches_disk	blocking	CM051	what we wrote to disk versus what our own process is enforcing.
+source_status_artefact_is_served	blocking	CM051	a surface the install is supposed to serve.
+usage_journal_producers	advisory	CM048+CM041	three of five required producers live in OTHER repositories and are genuinely unwired there. Also note oa_daemon_chat matches purpose='answering' while no journal record carries a purpose field at all, so that arm has never matched on any box.
