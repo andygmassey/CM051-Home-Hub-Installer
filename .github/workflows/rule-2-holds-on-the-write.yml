@@ -59,6 +59,8 @@ on:
       - 'contact_syncer/syncer.py'
       - 'vendor/cm041/contact_syncer/syncer.py'
       - 'vendor/cm041/identity_resolver/resolver.py'
+      - 'vendor/cm041/identity_resolver/batch_resolver.py'
+      - 'tests/test_the_converge_veto_actually_runs.py'
       - 'vendor/cm041/identity_resolver/models.py'
       - 'tests/test_a_second_contact_card_cannot_be_written_onto_one_person.py'
       - '.github/workflows/rule-2-holds-on-the-write.yml'
@@ -93,3 +95,18 @@ jobs:
       # `_identifier_exists` read False for a reason unrelated to the graph.
       - name: A second contact card cannot be written onto one person
         run: python3 tests/test_a_second_contact_card_cannot_be_written_onto_one_person.py
+
+      # RULE 2 has TWO enforcement points and only one of them was driven by a
+      # test. The converge path's veto was proved by the manifest's
+      # grep_in_source_at_sha for '_canonical_keys_conflict', which is a
+      # must-match on the guard's own NAME -- and the defect it is named after
+      # was a guard that EXISTED and was NEVER CALLED. Measured: deleting the
+      # call and keeping the def leaves that proof passing with 2 hits, while
+      # this step fails and says so.
+      - name: The converge veto actually runs
+        # if: always() -- RULE 2 has two enforcement points and they fail
+        # independently. Without this, a red on the resolve-path step would
+        # mean the converge-path result is never printed, and an absent
+        # result reads as a clean one.
+        if: always()
+        run: python3 tests/test_the_converge_veto_actually_runs.py

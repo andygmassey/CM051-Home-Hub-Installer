@@ -388,6 +388,7 @@ test_tailscale_daemon_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_prompt_is_conditional_on_tailnet_state.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_recovery_wrapper.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_takeout_split_zip_no_abort.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_the_converge_veto_actually_runs.py	WIRED	.github/workflows/rule-2-holds-on-the-write.yml
 test_the_cron_reader_sees_both_toml_spellings.sh	WIRED	.github/workflows/install-manifest-gate.yml
 test_the_port_preflight_aborts_carry_distinct_support_codes.sh	WIRED	.github/workflows/colima-autostart.yml
 test_the_promote_instructions_name_what_makes_it_fail.sh	WIRED	.github/workflows/customer-download-path.yml
