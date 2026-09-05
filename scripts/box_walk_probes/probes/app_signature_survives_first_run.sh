@@ -227,9 +227,20 @@ run_probe() {
     # a bundle it should have FAILED. A number lifted from one population and
     # applied to another is not a measurement; the floor must be expressed over
     # the SAME denominator the assertion is made over. 353 measured, 100 floor.
-    if [ "$prod_py" -lt 100 ]; then
+    # ONE NAME FOR THE FLOOR, USED BY BOTH THE TEST AND THE MESSAGE.
+    #
+    # 🔴 THEY DISAGREED. The comparison was corrected from 1000 to 100 -- for the
+    # reason the comment above sets out at length -- and the message was not. So
+    # a reader who hit this CANNOT-RUN was told to go and find TEN TIMES the
+    # files the gate actually wants, on a tree where 353 was the measured normal.
+    # A hint that names the wrong number is the same defect as a hint that names
+    # the wrong suspect, and this file argues that case itself twenty lines up.
+    #
+    # Two literals cannot drift when there is only one.
+    local _PROD_PY_FLOOR=100
+    if [ "$prod_py" -lt "$_PROD_PY_FLOOR" ]; then
         box_run "rm -rf '$tmpapp'" >/dev/null 2>&1
-        probe_cannot_run "only ${prod_py} product .py found in the copy (floor is 1000). The tree is not staged as expected, so this arm COULD NOT LOOK -- it did not pass."
+        probe_cannot_run "only ${prod_py} product .py found in the copy (floor is ${_PROD_PY_FLOOR}). The tree is not staged as expected, so this arm COULD NOT LOOK -- it did not pass."
         return
     fi
 
