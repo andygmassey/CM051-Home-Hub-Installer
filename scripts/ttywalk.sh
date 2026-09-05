@@ -702,8 +702,33 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         elif [ -f "$HOME/.ostler/docker-compose.yml" ]; then
             echo "no shipped uninstaller; falling back to docker compose down -v"
             cd "$HOME/.ostler" && "$DOCKER" compose down -v 2>&1 | tail -20
+        elif [ "${_before:-0}" -eq 0 ]; then
+            # 🔴 NOTHING TO TEAR DOWN IS NOT THE SAME AS NO WAY TO TEAR DOWN.
+            #
+            # MEASURED on archie, 2026-09-05, on the run immediately after a
+            # SUCCESSFUL wipe: 0 volumes, and the uninstaller gone because the
+            # previous wipe removed it. The block then refused:
+            #
+            #     CANNOT-WIPE: neither ~/.ostler/bin/ostler-uninstall nor a
+            #       compose file.
+            #     CANNOT-RUN: refusing to walk against a half-wiped box
+            #
+            # The box was not half-wiped. It was FULLY wiped, by the run before,
+            # and the absence of an uninstaller was the EVIDENCE of that rather
+            # than an obstacle to it. Refusing here means a box can never be
+            # walked twice in a row, and the second refusal names the wrong
+            # cause entirely.
+            #
+            # So the rule is about what is left, not about what tools survive:
+            # refuse only when there is something to remove AND no way to remove
+            # it. With zero volumes there is nothing to remove.
+            echo "no uninstaller and no compose file, and 0 volumes: this box is"
+            echo "  ALREADY torn down. That is the wipe already having happened,"
+            echo "  not a wipe that cannot happen. Continuing."
         else
-            echo "CANNOT-WIPE: neither ~/.ostler/bin/ostler-uninstall nor a compose file."
+            echo "CANNOT-WIPE: ${_before} volume(s) exist and there is neither"
+            echo "  ~/.ostler/bin/ostler-uninstall nor a compose file to remove"
+            echo "  them with. Something to remove and no way to remove it."
             exit 2
         fi
 
