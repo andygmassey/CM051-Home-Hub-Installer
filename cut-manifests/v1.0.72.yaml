@@ -273,7 +273,23 @@ entries:
     incident: "v1.0.71 box 2026-09-05: ostler-scan-exports line 18 OSTLER_OSASCRIPT_TIMEOUT_S unbound, rc=1, importer never called"
     proof:
       kind: grep_in_installer
-      pattern: "OSTLER_OSASCRIPT_TIMEOUT_S=\\$\\{OSTLER_OSASCRIPT_TIMEOUT_S:-20\\}"
+      pattern: "OSTLER_OSASCRIPT_TIMEOUT_S=\"\\$\\{OSTLER_OSASCRIPT_TIMEOUT_S:-20\\}\""
+      # 🔴 THIS ROW COULD NEVER PASS, AND THE NEEDLE WAS WHY. The shipped line
+      # is DOUBLE-QUOTED; the pattern omitted the quotes, so it scored 0 even
+      # with its own fix merged. TNM found it on #1582. A row that stays red
+      # after its fix lands is worse than a missing row: it blocks the cut for
+      # ever and teaches people which red to ignore.
+      #
+      # ⚠️ RESIDUAL GAP, STATED RATHER THAN PAPERED OVER. The corrected needle
+      # scores 2 (install.sh 3964 and the SCANEOF copy at 19659) and scored 1
+      # before the fix, when the scanner still died on the unbound variable.
+      # `must_match: true` cannot tell 2 from 1, so a regression removing ONLY
+      # the heredoc copy would leave this green. The two definitions are
+      # byte-identical, so no single-hit pattern can discriminate them.
+      # Closing it needs `min_hits`, which is NOT on main: #1581 adds it to
+      # grep_in_source_at_sha only, and grep_in_installer validates no proof
+      # keys at all, so writing `min_hits: 2` here today would be SILENTLY
+      # IGNORED and would look like a discriminator while being inert. #1581.
       must_match: true
 
   - id: killed-converge-still-gets-catchup
