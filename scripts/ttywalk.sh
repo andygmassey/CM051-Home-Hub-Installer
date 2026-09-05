@@ -813,9 +813,36 @@ if [[ "$DO_RESET" -eq 1 ]]; then
             echo "            /Applications/Ostler.app/Contents/Resources/uninstall.sh"
             echo "            ~/.ostler/uninstall.sh"
             echo "  install.sh writes ~/.ostler/bin/ostler-uninstall, NOT in that list."
-            echo "  Docker volumes were NOT removed: the graph, the vectors and the compiled"
-            echo "  wiki are CARRIED OVER from the previous install. Any probe reading them is"
-            echo "  measuring history, not this artefact."
+            # DO NOT ASSERT WHAT THE STORES CONTAIN. MEASURE THEM.
+            # This used to print "volumes were NOT removed ... measuring
+            # history" UNCONDITIONALLY. With --wipe-stores the wipe has already
+            # run by the time we get here and has printed WIPE CONFIRMED: 0
+            # ostler_ volumes remain -- so a single walk record stated both, and
+            # the two lines are 40 lines apart. Measured 2026-09-05: that false
+            # line nearly caused a valid #1543 FAIL, taken on a graph built
+            # entirely inside the walk window, to be discarded as history.
+            #
+            # THREE STATES, because docker can be down and an unanswered
+            # question is not a zero. NOTE the grep is separated from the docker
+            # call on purpose: grep -c EXITS 1 WHEN THE COUNT IS ZERO, so
+            # folding them together turns a legitimate zero into a failure.
+            _vraw="$(docker volume ls --format "{{.Name}}" 2>/dev/null)"; _drc=$?
+            if [[ "$_drc" -ne 0 ]]; then
+                echo "  CANNOT-RUN: docker did not answer (rc ${_drc}), so whether the stores"
+                echo "  survived this reset is UNKNOWN. Do not read any graph probe after this"
+                echo "  point as evidence about this artefact until that is established."
+            else
+                _vols="$(printf "%s\n" "$_vraw" | grep -c "^ostler_" || true)"
+                if [[ "$_vols" -gt 0 ]]; then
+                    echo "  Docker volumes were NOT removed: ${_vols} ostler_ volume(s) remain, so the"
+                    echo "  graph, the vectors and the compiled wiki are CARRIED OVER from the previous"
+                    echo "  install. Any probe reading them is measuring history, not this artefact."
+                else
+                    echo "  0 ostler_ volumes remain, so the stores were NOT carried over: they were"
+                    echo "  removed earlier in this run. A graph probe after this point is measuring"
+                    echo "  THIS artefact."
+                fi
+            fi
         fi
         # RECORDED BELOW THE ANNOUNCEMENT, NOT ABOVE IT. The honesty gate for
         # this block extracts it with an awk RANGE that ends at the first
