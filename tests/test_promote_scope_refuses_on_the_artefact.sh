@@ -121,12 +121,24 @@ case "$R" in
     *)    bad "an incomplete list gave rc=${R%%|*}" ;;
 esac
 
-# A verdict with no named subject.
+# A verdict with no named subject falls back to the OLD UNSCOPED REFUSAL (rc=1),
+# NOT to CANNOT-RUN. Records predating the failed_probe format are FAILED and name
+# nothing; turning them into rc=2 converts a measured failure into "nothing is
+# known". I shipped exactly that regression and arm 931-9 of
+# test_walk_record_gates_customer_download.sh caught it on the live v1.0.44 and
+# v1.0.47 records.
+#
+# ⚠️ AND NOTE THE `*)` ARM. Without it this case matched neither branch when the
+# expected code changed, so the check SILENTLY STOPPED COUNTING -- the suite went
+# 11 arms to 10 and reported "10 pass / 0 fail". A case with no default does not
+# fail, it disappears, and a shrinking denominator is the only tell.
 D="${WORK}/e"; _rec "$D" FAILED
 R="$(_run "$D")"
 case "$R" in
-    2\|*) ok "a FAILED verdict naming no probe refuses -- a verdict with no subject cannot be scoped" ;;
+    1\|*) ok "a FAILED verdict naming no probe refuses UNSCOPED (rc=1), not as CANNOT-RUN" ;;
+    2\|*) bad "a nameless FAILED record returned CANNOT-RUN -- a measured failure turned into absence of evidence" ;;
     0\|*) bad "a FAILED record naming nothing PASSED" ;;
+    *)    bad "a nameless FAILED record returned rc=${R%%|*}, which matches no expected arm" ;;
 esac
 
 echo "── the scope file itself ──"

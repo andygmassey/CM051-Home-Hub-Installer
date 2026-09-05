@@ -443,9 +443,27 @@ case "$VERDICT" in
         while IFS= read -r _p; do [[ -n "$_p" ]] && _NONPASS+=("$_p"); done < <(
             awk -F'\t' '$1=="failed_probe" || $1=="not_measured_probe" {print $2}' "$RECORD"
         )
+        # A RECORD THAT NAMES NOTHING FALLS BACK TO THE OLD, UNSCOPED REFUSAL.
+        #
+        # ⚠️ IT MUST NOT BECOME CANNOT-RUN, AND I MADE EXACTLY THAT MISTAKE HERE.
+        # Records predating the failed_probe format (walks/v1.0.44.tsv,
+        # walks/v1.0.47.tsv) are FAILED and name no probes. Returning 2 for them
+        # turns A WALK THAT MEASURED REAL DEFECTS into "nothing is known", which
+        # is the #931 lesson stated in this very file: evidence of badness
+        # outranks absence of evidence. tests/test_walk_record_gates_customer_
+        # download.sh arm 931-9 pins both live records at rc=1 and caught it.
+        #
+        # Unscoped is the SAFE direction: it refuses, exactly as before this
+        # change. Scoping is an ADDITION for records rich enough to scope, never
+        # a downgrade for records that are not.
         if [[ ${#_NONPASS[@]} -eq 0 ]]; then
-            echo "[walk-gate] REFUSED: ${RECORD} says ${VERDICT} but names no failing or" >&2
-            echo "            not-measured probe. A verdict with no subject cannot be scoped." >&2
+            if [[ "$VERDICT" == "FAILED" ]]; then
+                echo "[walk-gate] REFUSED: the ${VERSION} walk FAILED (fail=${N_FAIL}). Real defects were measured on a real box." >&2
+                echo "            The record names no probes, so the promote scope cannot be applied; refusing unscoped." >&2
+                exit 1
+            fi
+            echo "[walk-gate] REFUSED: the ${VERSION} walk was PARTIAL -- cannot_run=${N_CANNOT} broken=${N_BROKEN}." >&2
+            echo "            Coverage was lost. Coverage lost is not coverage passed." >&2
             exit 2
         fi
         _adjudicate_scoped "$VERDICT" "${_NONPASS[@]}"
