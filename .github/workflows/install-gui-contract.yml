@@ -47,6 +47,13 @@ on:
       - 'vendor/legal/**'
       - 'vendor/LICENSES/**'
       - 'vendor/THIRD_PARTY_NOTICES.md'
+      # The needle in check_install_sh_script_dir_coverage.py is searched
+      # against the WHOLE of gui/project.yml, so it keeps matching even when one
+      # package's cp line is repointed elsewhere. This gate binds each package to
+      # the source its OWN cp line names. Watched here alongside the coverage
+      # gate it complements, and watched by name so editing it re-fires the only
+      # workflow that runs it.
+      - 'tests/test_bundled_package_comes_from_its_declared_source.py'
       - '.github/workflows/install-gui-contract.yml'
 
 permissions:
@@ -234,3 +241,30 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/test_installer_app_bundle_contents.sh
+
+      # A NEEDLE FOUND ANYWHERE IN THE FILE DOES NOT BIND A PACKAGE TO A SOURCE.
+      #
+      # The coverage gate asks "is this leaf's declared source mentioned in
+      # gui/project.yml", with a plain substring search over the whole file. The
+      # needle for contact_syncer is 'vendor/cm041', which also appears on the
+      # shared VENDOR_ROOT= assignment feeding four packages, so it keeps
+      # matching after one package's cp line is repointed.
+      #
+      # MEASURED before this step existed: repointing contact_syncer's bundling
+      # line to the repo root -- the exact shape of the incident where the root
+      # copy shipped for six cuts with two modules missing -- left
+      # check_install_sh_script_dir_coverage.py,
+      # test_artefact_walk_stages_the_dmg_payload.sh and
+      # test_bundle_phase_declares_every_copy.sh ALL at rc=0.
+      #
+      # This step resolves each cp source against the variables assigned in its
+      # OWN script block and compares that. It refuses (exit 2) below ten
+      # resolved bindings, so a parser that stopped matching cannot report a
+      # clean run over an empty set.
+      #
+      # if: always() so an earlier red cannot mask it, and APPENDED LAST so no
+      # existing step's position -- and therefore no existing step's immunity --
+      # changes.
+      - name: Every bundled package comes from the source it declares
+        if: always()
+        run: python3 tests/test_bundled_package_comes_from_its_declared_source.py
