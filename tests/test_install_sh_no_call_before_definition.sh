@@ -11,6 +11,47 @@
 # when its definition line EXECUTES, so a top-level call 4,906 lines earlier hits
 # a name that does not exist yet. Deterministic on every box.
 #
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │ THIS GATE COUNTS HEREDOC DEFINITIONS ON PURPOSE. DO NOT "FIX" THAT.        │
+# └───────────────────────────────────────────────────────────────────────────┘
+#
+# There are TWO call-before-definition gates over install.sh and they report
+# different denominators. That is by design, not drift:
+#
+#     this gate                                    190 definitions
+#     test_no_function_is_called_before_it_is_defined.sh
+#                                                  146 definitions
+#
+# (Definition counts as measured 2026-09-05. The line totals each gate prints
+# drift with every merge, so they are deliberately not quoted here -- a stale
+# specific in a comment is worse than no specific.)
+#
+# They have OPPOSITE blind spots and are complementary:
+#
+#     this gate   is whitespace-tolerant (^\s*), so it SEES indented definitions,
+#                 but does NOT track heredocs -- so 45 of the 190 belong to
+#                 GENERATED AGENT SCRIPTS rather than to install.sh itself.
+#     the 146     skips heredocs correctly, and was anchored at column 0 until
+#                 CM051 #1481, so it could not see 40 of install.sh's own defs.
+#
+# The reconciliation was measured by TNM on 2026-09-05 against origin/main, in
+# two independent implementations that agreed:
+#
+#     install.sh's own definitions      146
+#     definitions inside heredocs        45
+#     names defined in BOTH               1     _ostler_private_artefact
+#     ...heredoc one FIRST (masking)      0     own L441 precedes heredoc L17054
+#
+# So the masking risk this shape carries -- a name defined early inside a
+# heredoc satisfying a top-level call the real definition comes too late for --
+# is LATENT and not realised today.
+#
+# DO NOT add heredoc tracking here to make the two numbers agree. The comment
+# below records that brace depth was corrupted by heredocs plus embedded
+# python, which is exactly why this gate took the structural route instead.
+# Adding it back would trade a latent risk for a live one, and the heredoc-aware
+# half already exists next door.
+#
 # It was introduced by the fix for "enrichment had NO invoker" (#747, re-touched
 # by #816). The diagnosis was right and the invoker was placed where it cannot
 # resolve, which is the same shape as the upload-artifact defect that destroyed
