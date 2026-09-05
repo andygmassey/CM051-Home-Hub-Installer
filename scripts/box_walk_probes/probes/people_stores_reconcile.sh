@@ -105,7 +105,7 @@ _store_resolve() {
 # -- so the join runs in python3 on the box. Single-quoted below and free of
 # "$" and backticks so nothing expands on the way through box_run.
 read -r -d '' RECONCILE_PY <<'PYPAYLOAD'
-import json, os, sys
+import glob, json, os, sys
 try:
     import urllib.request, urllib.error
 except Exception as exc:
@@ -177,9 +177,36 @@ def qpost(path, body):
 try:
     # Control FIRST: a store that answers 0 triples is a store we cannot read,
     # and every residual below would then read as a clean zero.
+    # HAS THIS BOX DONE ANY WORK? Cheap, read-only, and it is the difference
+    # between two findings with different owners.
+    #
+    # "graph-empty" used to be the whole message. A fresh box that has not
+    # ingested and a box that HAS ingested and produced nothing print
+    # identically, and only the second is a finding. The sibling probe
+    # usage_journal_producers already records the lesson in its own words: "a
+    # benign explanation for a real absence is worse than no explanation,
+    # because it is acted on."
+    #
+    # Deliberately REPORTED, never promoted to a FAIL. A real macOS account with
+    # no contacts and no calendar legitimately produces an empty graph after a
+    # complete ingest, so the evidence goes in the message and a human decides.
+    # The signals are named in the verdict so the claim can be argued with.
+    def work_evidence():
+        try:
+            d = os.path.expanduser("~/.ostler/state/settling_progress.d")
+            n = len(glob.glob(os.path.join(d, "*.json")))
+        except Exception:
+            n = -1
+        try:
+            w = os.path.exists(os.path.expanduser("~/Documents/Ostler/Wiki/index.md"))
+        except Exception:
+            w = False
+        return "settling=%s wiki=%s" % (n if n >= 0 else "unreadable",
+                                        "present" if w else "none")
+
     triples = int(sparql("SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }")[0]["n"]["value"])
     if triples == 0:
-        print("CANNOTRUN graph-empty"); sys.exit(0)
+        print("CANNOTRUN graph-empty " + work_evidence()); sys.exit(0)
 
     graph = set()
     for b in sparql("SELECT ?p WHERE { ?p a <" + P + "Person> }"):
@@ -209,7 +236,7 @@ try:
         if nxt is None:
             break
     if npoints == 0:
-        print("CANNOTRUN qdrant-empty"); sys.exit(0)
+        print("CANNOTRUN qdrant-empty " + work_evidence()); sys.exit(0)
 
     # A: merge survivors that are terminal (did NOT merge onward) and untyped.
     a = int(sparql(
@@ -319,7 +346,16 @@ run_probe() {
             probe_examined 0 "person records across two stores"
             probe_cannot_run "a store returned HTTP ${_kl%% *} and this run presented NO store credential -- ${_kl#* }. Store auth is ENFORCED since #550/#1222, so a keyless probe cannot read the two sets -- nothing was measured." ;;
         CANNOTRUN\ *)
-            probe_cannot_run "reconciliation could not run: ${out#CANNOTRUN }" ;;
+            # AN EMPTY STORE IS TWO DIFFERENT FINDINGS AND THEY USED TO PRINT
+            # THE SAME. The payload now attaches what the box shows of having
+            # done work, so the reader can tell "not ingested yet" from
+            # "ingested and produced nothing" without going to the box.
+            case "${out}" in
+                *graph-empty*|*qdrant-empty*)
+                    probe_cannot_run "reconciliation could not run: ${out#CANNOTRUN }. READ THE TWO SIGNALS: settling= counts source files under ~/.ostler/state/settling_progress.d and wiki= is whether the compiled wiki index exists. settling=0 wiki=none is a box that has not ingested yet and this probe has no opinion -- let it settle and re-walk. ANYTHING ELSE means the box HAS done work and the store is still empty, which is a finding rather than a fresh box. Neither is a pass, and neither is asserted as a product defect here: the signals are named so the claim can be argued with." ;;
+                *)
+                    probe_cannot_run "reconciliation could not run: ${out#CANNOTRUN }" ;;
+            esac ;;
         "")
             probe_cannot_run "the reconciliation returned NOTHING -- python3 missing on the box, or ssh dropped the payload. An empty answer is not a clean answer." ;;
         *)
@@ -409,7 +445,7 @@ self_test() {
     # and phase 1 treats that as BROKEN. So probe_pass below is the failure
     # path, not the success path.
     SELF_TEST_LOCAL=1
-    probe_examined 18 "synthetic reconciliation results (negative control)"
+    probe_examined 22 "synthetic reconciliation results (negative control)"
     local rc out fails=0 firstbad=""
 
     _case() {
@@ -501,13 +537,29 @@ self_test() {
 
     _case "graph unreadable -> CANNOT-RUN"    "CANNOTRUN graph-empty"       "$PROBE_EX_CANNOT_RUN"
     _case "qdrant empty -> CANNOT-RUN"        "CANNOTRUN qdrant-empty"      "$PROBE_EX_CANNOT_RUN"
+    # ── AN EMPTY STORE IS TWO FINDINGS AND THEY USED TO PRINT THE SAME ──
+    # Both still CANNOT-RUN; what must differ is what the operator is told. Exit
+    # code alone cannot test that, so the MESSAGE is what gets asserted.
+    _case "a FRESH box -> CANNOT-RUN"  "CANNOTRUN graph-empty settling=0 wiki=none"  "$PROBE_EX_CANNOT_RUN"
+    _case "worked but EMPTY -> CANNOT-RUN" "CANNOTRUN graph-empty settling=4 wiki=present" "$PROBE_EX_CANNOT_RUN"
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="CANNOTRUN graph-empty settling=4 wiki=present" run_probe 2>&1)"
+    case "$out" in
+        *settling=4*wiki=present*) printf '  ok [the evidence reaches the verdict text]\n' ;;
+        *) printf '  SELF-TEST FAIL [work evidence]: the verdict does not carry the signals it was given.\n'
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="work evidence dropped" ;;
+    esac
+    case "$out" in
+        *"has not ingested yet"*|*"HAS done work"*) printf '  ok [the verdict explains which of the two states this is]\n' ;;
+        *) printf '  SELF-TEST FAIL [work evidence]: the verdict names no way to tell a fresh box from a worked one.\n'
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="work evidence unexplained" ;;
+    esac
     _case "empty output -> CANNOT-RUN"        ""                            "$PROBE_EX_CANNOT_RUN"
     _case "garbage output -> CANNOT-RUN"      "totally unexpected"          "$PROBE_EX_CANNOT_RUN"
 
     if [ "$fails" -ne 0 ]; then
-        probe_pass "NEGATIVE CONTROL DID NOT BEHAVE: ${fails} of 18 self-test cases returned the wrong outcome (first: ${firstbad}). This probe cannot be trusted to distinguish PASS from FAIL from CANNOT-RUN, so its verdicts mean nothing."
+        probe_pass "NEGATIVE CONTROL DID NOT BEHAVE: ${fails} of 22 self-test cases returned the wrong outcome (first: ${firstbad}). This probe cannot be trusted to distinguish PASS from FAIL from CANNOT-RUN, so its verdicts mean nothing."
     fi
-    probe_fail "negative control behaved correctly on all 18 cases: three residuals each drive FAIL independently, unnamed stubs alone do NOT fail, a leaked walk fixture is reported but does not refuse the promote while a real orphan beside it still does, an unmeasured fixture attribution says NOT MEASURED rather than zero, and unreadable/empty/garbage input all return CANNOT-RUN rather than collapsing into a pass"
+    probe_fail "negative control behaved correctly on all 22 cases: three residuals each drive FAIL independently, unnamed stubs alone do NOT fail, a leaked walk fixture is reported but does not refuse the promote while a real orphan beside it still does, an unmeasured fixture attribution says NOT MEASURED rather than zero, and unreadable/empty/garbage input all return CANNOT-RUN rather than collapsing into a pass"
 }
 
 probe_main "$@"
