@@ -233,6 +233,37 @@ else:
     bad("grep_in_installer still ignores unknown proof keys (%s); a misspelled floor "
         "would pass on one hit" % r.status)
 
+# ── ZERO IS A DIFFERENT FINDING FROM "BELOW THE FLOOR" ─────────────────────
+# MEASURED on cf5e3193: the downloads-watcher row's pattern omitted the double
+# quotes the shipped line actually has. It scored 0 and read as "the fix is not
+# there". The fix WAS there, twice. The row was red for over an hour and merged
+# in that state, because a count alone cannot separate a wrong NEEDLE from an
+# absent PROPERTY.
+r = run_inst(pattern="a_pattern_that_matches_nothing_at_all")
+if r.status != "FAIL":
+    bad("a pattern matching nothing did not FAIL (%s)" % r.status)
+elif "matched NOTHING" in r.detail and "NEEDLE" in r.detail:
+    ok("a zero-hit must_match row says the pattern matched NOTHING and names the "
+       "needle as the first suspect")
+else:
+    bad("a zero-hit row gave no needle guidance: %s" % r.detail[:120])
+
+# MUST-MISS: above zero the property EXISTS, so the needle is not the suspect
+# and the message must not say it is.
+r = run_inst(min_hits=2)
+if r.status == "FAIL" and "PRESENT but below its floor" in r.detail and "matched NOTHING" not in r.detail:
+    ok("MUST-MISS: a below-floor row says PRESENT-but-below and does NOT blame the needle")
+else:
+    bad("a below-floor row gave the wrong guidance: %s" % r.detail[:140])
+
+# CONTROL: a PASSING row carries no diagnosis at all, or every green row would
+# read like a warning.
+r = run_inst()
+if r.status == "PASS" and "matched NOTHING" not in r.detail and "below its floor" not in r.detail:
+    ok("CONTROL: a passing row carries no needle diagnosis")
+else:
+    bad("a passing row carried a diagnosis: %s / %s" % (r.status, r.detail[:110]))
+
 shutil.rmtree(WORK, ignore_errors=True)
 print()
 print("%d passed, %d failed" % (PASS, FAIL))
