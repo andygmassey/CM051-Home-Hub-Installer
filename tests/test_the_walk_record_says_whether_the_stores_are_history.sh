@@ -91,9 +91,14 @@ check "an unrecognised value"     "FileDoesntExistWillCreate"           "unknown
 check "carried over"              "carried-over-from-previous-install"  "carried-over-from-previous-install"
 check "wiped by the uninstaller"  "wiped-by-shipped-uninstaller(~/.ostler/bin/x)" "wiped-by-shipped-uninstaller"
 check "no reset step ran"         "unknown-no-reset-step"              "unknown-no-reset-step"
+# --wipe-stores (#1527) runs in its OWN ssh session, so the reset block's
+# _ran_uninstaller never sees it. Without a value of its own, a walk that really
+# did wipe would be recorded as carried-over -- a lie in the one field that
+# exists to stop a red being blamed on the wrong thing.
+check "an explicit store wipe"    "wiped-by-explicit-store-wipe(0 ostler_ volumes remain)" "wiped-by-explicit-store-wipe"
 
 # --- 3. ttywalk writes BOTH arms -------------------------------------------
-for arm in 'wiped-by-shipped-uninstaller' 'carried-over-from-previous-install' 'unknown-no-reset-step'; do
+for arm in 'wiped-by-shipped-uninstaller' 'carried-over-from-previous-install' 'unknown-no-reset-step' 'wiped-by-explicit-store-wipe'; do
     if [ "$(printf '%s\n' "$TW_CODE" | grep -c -- "$arm")" -gt 0 ]; then
         ok "ttywalk.sh can record '${arm}'"
     else
@@ -102,6 +107,13 @@ for arm in 'wiped-by-shipped-uninstaller' 'carried-over-from-previous-install' '
 done
 
 # --- 4. the run file is CONSUMED, not read in place -------------------------
+# AND THE WIPE MUST WIN. The reset arm may only speak when nothing has spoken.
+if [ "$(printf '%s\n' "$TW_CODE" | grep -c 'if \[\[ ! -f ~/.walk-stores-provenance-run \]\]')" -gt 0 ]; then
+    ok "the reset arm does not overwrite a wipe that already recorded itself"
+else
+    bad "the reset arm writes unconditionally, so a real --wipe-stores would be recorded as carried-over"
+fi
+
 if [ "$(printf '%s\n' "$TW_CODE" | grep -c 'mv ~/.walk-stores-provenance-run ~/.walk-stores-provenance')" -gt 0 ]; then
     ok "the config step MOVES the run file, so a walk with no --reset cannot inherit the previous walk's answer"
 else

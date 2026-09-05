@@ -604,6 +604,13 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
             exit 2
         fi
         echo "WIPE CONFIRMED: 0 ostler_ volumes remain (was ${_before:-0} total)."
+        # AND SAY SO IN THE RECORD. This block runs in its OWN ssh session, so
+        # the _ran_uninstaller variable in the reset block below never sees it.
+        # Without this line a walk that really did wipe would be recorded as
+        # carried-over-from-previous-install -- a lie in the one field that
+        # exists to stop a red being blamed on the wrong thing. Written only
+        # AFTER the volume count is confirmed zero, so the claim is measured.
+        printf "wiped-by-explicit-store-wipe(0 ostler_ volumes remain)\n" > ~/.walk-stores-provenance-run
     ' || die "the store wipe did not complete; refusing to walk against a half-wiped box"
 fi
 
@@ -662,10 +669,15 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         # config step below consumes, so a value can never be stale.
         # NO APOSTROPHES IN THIS BLOCK: the whole body is a single-quoted ssh
         # string and one typed apostrophe closes it.
-        if [[ -n "$_ran_uninstaller" ]]; then
-            printf "wiped-by-shipped-uninstaller(%s)\n" "$_ran_uninstaller" > ~/.walk-stores-provenance-run
-        else
-            printf "carried-over-from-previous-install\n" > ~/.walk-stores-provenance-run
+        # DO NOT OVERWRITE A WIPE. The --wipe-stores block runs earlier, in its
+        # own ssh session, and records the stronger fact with a measured volume
+        # count behind it. This arm only speaks when nothing has spoken already.
+        if [[ ! -f ~/.walk-stores-provenance-run ]]; then
+            if [[ -n "$_ran_uninstaller" ]]; then
+                printf "wiped-by-shipped-uninstaller(%s)\n" "$_ran_uninstaller" > ~/.walk-stores-provenance-run
+            else
+                printf "carried-over-from-previous-install\n" > ~/.walk-stores-provenance-run
+            fi
         fi
         # Stop the container VM. A previous install leaves colima running, and
         # colima publishes the container ports through an ssh multiplexer of its

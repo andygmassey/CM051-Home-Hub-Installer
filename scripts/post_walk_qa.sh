@@ -363,7 +363,7 @@ if [[ -n "$CUT_VERSION" ]]; then
     STORES_PROVENANCE="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
         'cat ~/.walk-stores-provenance 2>/dev/null' 2>/dev/null | tr -d '[:space:]')"
     case "$STORES_PROVENANCE" in
-        carried-over-from-previous-install|unknown-no-reset-step|wiped-by-shipped-uninstaller*) : ;;
+        carried-over-from-previous-install|unknown-no-reset-step|wiped-by-shipped-uninstaller*|wiped-by-explicit-store-wipe*) : ;;
         '') STORES_PROVENANCE="unknown(no ~/.walk-stores-provenance on the box; this walk predates the marker or the read failed)" ;;
         *)  STORES_PROVENANCE="unknown(marker held an unrecognised value)" ;;
     esac
