@@ -273,7 +273,23 @@ entries:
     incident: "v1.0.71 box 2026-09-05: ostler-scan-exports line 18 OSTLER_OSASCRIPT_TIMEOUT_S unbound, rc=1, importer never called"
     proof:
       kind: grep_in_installer
-      pattern: "OSTLER_OSASCRIPT_TIMEOUT_S=\\$\\{OSTLER_OSASCRIPT_TIMEOUT_S:-20\\}"
+      pattern: "OSTLER_OSASCRIPT_TIMEOUT_S=\"\\$\\{OSTLER_OSASCRIPT_TIMEOUT_S:-20\\}\""
+      # 🔴 THIS ROW COULD NEVER PASS, AND THE NEEDLE WAS WHY. The shipped line
+      # is DOUBLE-QUOTED; the pattern omitted the quotes, so it scored 0 even
+      # with its own fix merged. TNM found it on #1582. A row that stays red
+      # after its fix lands is worse than a missing row: it blocks the cut for
+      # ever and teaches people which red to ignore.
+      #
+      # ⚠️ RESIDUAL GAP, STATED RATHER THAN PAPERED OVER. The corrected needle
+      # scores 2 (install.sh 3964 and the SCANEOF copy at 19659) and scored 1
+      # before the fix, when the scanner still died on the unbound variable.
+      # `must_match: true` cannot tell 2 from 1, so a regression removing ONLY
+      # the heredoc copy would leave this green. The two definitions are
+      # byte-identical, so no single-hit pattern can discriminate them.
+      # Closing it needs `min_hits`, which is NOT on main: #1581 adds it to
+      # grep_in_source_at_sha only, and grep_in_installer validates no proof
+      # keys at all, so writing `min_hits: 2` here today would be SILENTLY
+      # IGNORED and would look like a discriminator while being inert. #1581.
       must_match: true
 
   - id: killed-converge-still-gets-catchup
@@ -323,10 +339,73 @@ entries:
       must_match: true
 
 open_issues:
-  - issue: 1591
-    title: "a red main opens an issue instead of emailing Andy"
+  - issue: 1594
+    title: "8044 serves the whole personal wiki to any local account, and the locked #550 decision says ABSENT"
     gate: >-
-      MERGE: entry: red-main-opens-an-issue -- main was red for an hour across
+      FIX:(gated): entry: wiki-port-8044-is-absent -- DECISION_550 line 106
+      records the v1.0 disposition for 8044 as ABSENT, one door via the daemon
+      (#554), and TNM measured at tag v1.0.71 that it was never implemented. A
+      locked decision that was never enforced is the class Andy has told us to
+      gate rather than restate. Proof must be a box_walk_probe asserting 8044
+      is NOT tcp-reachable, with a positive control on a port that IS, so a
+      clean answer cannot come from a dead probe. NOT INDEPENDENTLY VERIFIED BY
+      ME: this is TNM's measurement, registered so it is not lost.
+  - issue: 1595
+    title: "the store-port probe's header is stale in the reassuring direction"
+    gate: >-
+      FIX:(gated): entry: store-port-probe-header-is-current -- three of seven
+      rows in the probe's own header say default-OFF where the shipped default
+      is ON. Stale in the REASSURING direction is the dangerous direction: a
+      reader checking the probe to see whether auth is enforced is told it is
+      not. Andy's instruction was to count the instruments in the manifest, and
+      this is an instrument lying about its own subject. Proof: the header
+      table generated from or checked against the shipped defaults rather than
+      hand-maintained.
+  - issue: 1596
+    title: "one null date in the preferences artefact fails the whole payload, so the assistant cannot read preferences"
+    gate: >-
+      FIX:(gated): entry: a-null-date-does-not-void-the-payload -- writer emits
+      null (interest_profile.py:597), artefact keeps it, server returns it 200,
+      and the Rust reader rejects the WHOLE payload on it. A single unparseable
+      field voiding an entire customer-visible surface is the fail-open/
+      fail-shut asymmetry we keep finding. Proof: a fixture carrying one null
+      date that must still yield the other records, with a control proving the
+      reader can reject genuinely malformed input.
+  - issue: 1597
+    title: "assistant_answers_grounded cannot tell a failed turn from a recovered one"
+    gate: >-
+      FIX:(gated): entry: a-recovered-turn-is-not-a-failed-turn -- adjudicate_turn
+      greps the WHOLE transcript for a tool ERR, so any single error anywhere in
+      a turn scores tool_error even when a later call succeeded. A probe that
+      cannot distinguish recovery from failure produces reds nobody can act on,
+      which is how a suite stops being read. Sibling of #1585, merged. Proof:
+      transcript fixtures for failed, recovered and clean turns, each
+      adjudicated correctly, with the recovered one as the discriminator.
+  - issue: 1598
+    title: "pwg_knowledge_search reads a Qdrant collection that Apple Notes hydration does not write"
+    gate: >-
+      FIX:(gated): entry: the-search-reader-and-the-hydrator-agree -- the tool
+      hard-codes `evernote_knowledge`; install.sh:27922 hydrates Apple Notes
+      into `apple_notes_knowledge`. Qdrant 404s an unknown collection and the
+      tool maps 404 to Ok(empty), so the customer gets silence rather than an
+      error. This is the writer/reader contract class in its purest form and it
+      is CUSTOMER-FACING: notes are ingested and never searchable. Proof: a
+      cross-component test asserting the collection the reader queries is one
+      the installer writes, with the mismatch as the negative control.
+  - issue: 1587
+    title: "the Doctor source table covers hydrate sources only, so the whole FDA family is invisible"
+    gate: >-
+      FIX:(gated): entry: source-table-covers-every-family -- the table serves
+      hydrate sources only, so the FDA family cannot appear in it: Reminders
+      ingested 21KB and the table cannot say so. MEASURED on #1587 with
+      `ls ~/.ostler/imports/fda/` and a sentinel grep whose positive control
+      was `places`. This is a PREREQUISITE for #1589, not a follow-up: an
+      end-of-install panel built on the current table would show 13 of 15 and
+      look complete, which is the exact failure the panel exists to prevent.
+  - issue: 1593
+    title: "main was red for an hour and nothing in the repo noticed"
+    gate: >-
+      MERGE: entry: red-main-opens-an-issue -- fix is PR #1591. main was red for an hour across
       three shas and nothing in the repo noticed; it surfaced only because Andy
       read notification email. Gate is
       tests/test_a_broken_ci_query_is_not_a_green_main.sh, 7 arms with 2
